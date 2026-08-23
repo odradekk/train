@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<!-- Three variants of run-observation vs post-loop report information allocation, switchable via ?variant=, throwaway page mvp/run-observation-report-prototype.html. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>抛弃式原型 — 运行观察与报告</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body { font: 13px/1.4 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #222; background: #c8c8c4; }
+    #chrome { padding: 8px 12px 6px; background: #efe8dc; border-bottom: 2px solid #8a1f1f; }
+    .banner { background: #c0392b; color: #fff; font-weight: 800; padding: 6px 10px; font-size: 14px; }
+    .question { margin: 6px 0 0; font-size: 12px; color: #3a2f24; }
+    .question strong { color: #8a1f1f; }
+    #stage { height: calc(100vh - 128px); overflow: hidden; }
+    button, select { font: inherit; cursor: pointer; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    .muted { color: #666; }
+    .tiny { font-size: 11px; }
+    .err { background: #fde8e8; border: 1px solid #e7b0b0; color: #7a1515; padding: 4px 6px; margin: 4px 0; }
+    .ok { background: #e7f4ea; border: 1px solid #b7d7be; color: #1e5b2f; padding: 4px 6px; margin: 4px 0; }
+    .note { background: #fff4d6; border: 1px solid #e6d08a; padding: 4px 6px; margin: 4px 0; }
+    .warn { background: #fde8e8; color: #7a1515; }
+    .fill { background: #e7f4ea; color: #1e5b2f; }
+    #proto-switcher {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      z-index: 9999; display: flex; align-items: center; gap: 10px;
+      background: #111; color: #fff; border: 2px solid #fff; border-radius: 999px;
+      padding: 8px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+      font: 700 14px/1.2 "Segoe UI", sans-serif; user-select: none;
+    }
+    #proto-switcher button { background: #fff; color: #111; border: 0; min-width: 36px; height: 32px; font-weight: 800; }
+    #proto-switcher .lab { min-width: 200px; text-align: center; }
+
+    /* fake 3D — cubes and a tilted plane, no engine */
+    .view3d { position: relative; overflow: hidden; background: linear-gradient(#7ea4c4 0 42%, #4e6b38 42% 100%); }
+    .view3d .sky { pointer-events: none; }
+    .world { position: absolute; inset: 8% 4% 10%; transform-style: preserve-3d; transform: perspective(640px) rotateX(58deg) rotateZ(-8deg); }
+    .ground { position: absolute; inset: 18% 0 8%; background: #5b7a3c; box-shadow: 0 0 0 2px #3d5528; }
+    .rail { position: absolute; left: 6%; top: 54%; width: 88%; height: 8px; background: #3a3a3a; box-shadow: 0 -5px 0 #8a8a8a, 0 5px 0 #8a8a8a; }
+    .st { position: absolute; top: 42%; width: 34px; height: 34px; margin-left: -17px; background: #cbb58a; border: 2px solid #5a4a28; transform: translateZ(16px); }
+    .st .nm { position: absolute; left: 50%; top: -22px; transform: translateX(-50%) rotateX(-58deg); font-size: 12px; font-weight: 700; color: #1b1b1b; background: rgba(255,255,255,.75); padding: 0 4px; white-space: nowrap; }
+    .st.trade-now { background: #d4a017; }
+    .st.pass-now { background: #8aa0b8; }
+    .st.end-now { background: #6aa36a; }
+    .st.wb { left: 12%; }
+    .st.hb { left: 50%; }
+    .st.sm { left: 88%; }
+    .train { position: absolute; top: 49%; width: 52px; height: 20px; margin-left: -26px; transform-style: preserve-3d; }
+    .vox { position: absolute; background: #6b2b1a; border: 1px solid #2a1008; }
+    .vox.cab { left: 0; top: -8px; width: 16px; height: 22px; background: #3d4a58; transform: translateZ(10px); }
+    .vox.body { left: 14px; top: 0; width: 26px; height: 16px; background: #8a3a1f; transform: translateZ(8px); }
+    .vox.crate { left: 38px; top: -2px; width: 14px; height: 14px; background: #c2a04a; transform: translateZ(12px); }
+    .vox.crate.off { visibility: hidden; }
+    .view3d .tag { position: absolute; left: 8px; top: 8px; background: rgba(0,0,0,.45); color: #fff; padding: 2px 6px; font-size: 11px; pointer-events: none; }
+
+    /* A 旅程优先 */
+    .a-wrap { display: flex; flex-direction: column; height: 100%; background: #1a1e24; color: #eee; }
+    .a-view { flex: 1; min-height: 0; }
+    .a-hud { display: flex; gap: 8px; flex-wrap: wrap; padding: 6px 10px; background: #11161c; font-variant-numeric: tabular-nums; }
+    .a-hud b { color: #f3d48a; }
+    .a-line { padding: 4px 10px 8px; font-size: 15px; }
+    .a-ctrl { padding: 6px 10px 10px; background: #0d1116; }
+    .a-ctrl button { margin: 2px 4px 2px 0; background: #f3d48a; color: #111; border: 0; padding: 6px 8px; }
+    .a-ctrl button.sec { background: #4a5560; color: #fff; }
+    .a-ctrl .uses { color: #9aa3ad; margin-top: 4px; }
+    .a-report { position: absolute; inset: 72px 8% 64px; background: #f6efe3; color: #241c14; overflow: auto; padding: 14px; border: 4px solid #8a4b1f; z-index: 5; }
+
+    /* B 平衡分屏 */
+    .b-wrap { display: grid; grid-template-rows: 1fr auto; height: 100%; background: #e4e8ee; }
+    .b-main { display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+    .b-view { min-height: 0; }
+    .b-side { overflow: auto; background: #fff; border-left: 3px solid #1d4e89; padding: 8px 10px; }
+    .b-side h2 { margin: 0 0 6px; font-size: 15px; color: #1d4e89; }
+    .b-step { padding: 4px 6px; margin: 3px 0; border-left: 4px solid #bbb; background: #f4f6f8; }
+    .b-step.on { border-color: #1d4e89; background: #e8f0fa; }
+    .b-step.done { border-color: #2f7d4a; }
+    .b-step.bad { border-color: #c0392b; background: #fde8e8; }
+    .b-meters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+    .b-meters div { background: #1d4e89; color: #fff; padding: 6px; }
+    .b-ctrl { padding: 6px 8px; background: #d5dbe3; }
+    .b-ctrl button { margin: 2px 3px 2px 0; background: #1d4e89; color: #fff; border: 0; padding: 6px 8px; }
+    .b-ctrl button.sec { background: #5c6773; }
+
+    /* C 诊断优先 */
+    .c-wrap { display: grid; grid-template-columns: 1fr 220px; grid-template-rows: auto 1fr; height: 100%; background: #f3f1ea; }
+    .c-tools { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; background: #2b2118; color: #f3e6c4; }
+    .c-tools button { background: #e2a100; color: #111; border: 0; padding: 7px 10px; font-weight: 700; }
+    .c-tools button.sec { background: #eee; font-weight: 500; }
+    .c-tools button.hi { background: #ff7a18; }
+    .c-main { overflow: auto; padding: 8px 10px; }
+    .c-view { min-height: 0; border-left: 1px solid #c8c0b0; }
+    .c-tl { list-style: none; margin: 0; padding: 0; }
+    .c-tl li { padding: 6px 8px; margin: 0 0 6px; border-left: 5px solid #aaa; background: #fff; }
+    .c-tl li.now { border-color: #e2a100; box-shadow: 0 0 0 1px #e2a100; }
+    .c-tl li.bad { border-color: #c0392b; }
+    .c-tl li.ok { border-color: #2f7d4a; }
+    .c-hint { font-size: 16px; font-weight: 700; padding: 8px; }
+    table.rep { border-collapse: collapse; width: 100%; font-size: 12px; }
+    table.rep th, table.rep td { border: 1px solid #d8cfc2; padding: 3px 5px; text-align: left; }
+    table.rep th { background: #efe6d8; }
+    .stub { position: absolute; inset: 80px 12% auto; background: #fff8e8; border: 3px solid #8a1f1f; padding: 12px; z-index: 6; }
+  </style>
+</head>
+<body>
+  <div id="chrome">
+    <div class="banner">抛弃式原型，不是正式 3D/UI</div>
+    <p class="question"><strong>原型问题：</strong>简化 3D 列车观察期间实时显示哪些信息、圈后报告显示哪些信息，以及暂停/速度/跳站/快速完成怎样组合，才能支持最多 30 分钟内至少 3 次自然策略迭代，同时保证 3D 只承担观察作用？</p>
+  </div>
+  <div id="stage"></div>
+  <div id="proto-switcher">
+    <button type="button" id="sw-prev" aria-label="上一方案">←</button>
+    <div class="lab" id="sw-lab">A — 旅程优先</div>
+    <button type="button" id="sw-next" aria-label="下一方案">→</button>
+  </div>
+
+  <script id="core">
+  var RunCore = (function () {
+    var TICK_MS = 1400;
+    var TRADE_DWELL_MS = 1600;
+    var PASS_MS = 350;
+    var SPEEDS = [1, 4, 16];
+    var VARIANTS = [
+      { key: "A", name: "旅程优先" },
+      { key: "B", name: "平衡分屏" },
+      { key: "C", name: "诊断优先" }
+    ];
+
+    function clone(x) { return JSON.parse(JSON.stringify(x)); }
+
+    function emptyCargo() { return { grain: 0, coal: 0, tea: 0 }; }
+
+    function cargoUsed(c) { return (c.grain || 0) + (c.coal || 0) + (c.tea || 0); }
+
+    function cargoText(c) {
+      return "粮 " + (c.grain || 0) + "，煤 " + (c.coal || 0) + "，茶 " + (c.tea || 0);
+    }
+
+    function timeline(scenario) {
+      var sellTh = scenario === "fixed" ? 12 : 17;
+      var sellQty = scenario === "fixed" ? 8 : 0;
+      var sellStatus = scenario === "fixed" ? "成交" : "未成交";
+      var sellReason = scenario === "fixed" ? null : "价格条件不满足";
+      return [
+        {
+          id: "t0", kind: "trade", stationId: "west_barn", name: "西仓", ticks: 0,
+          result: {
+            cashBefore: 80, cashAfter: 32,
+            cargoBefore: { grain: 0, coal: 0, tea: 0 },
+            cargoAfter: { grain: 8, coal: 0, tea: 0 },
+            rules: [{
+              goodId: "grain", goodName: "粮", side: "buy", action: "买入",
+              threshold: 18, quotedPrice: 6, wantQty: 8, qty: 8,
+              status: "成交", reason: null
+            }]
+          }
+        },
+        { id: "v0", kind: "travel", from: "west_barn", fromName: "西仓", to: "hub", toName: "中枢", ticks: 2 },
+        { id: "p0", kind: "pass", stationId: "hub", name: "中枢", ticks: 0 },
+        { id: "v1", kind: "travel", from: "hub", fromName: "中枢", to: "south_market", toName: "南市", ticks: 1 },
+        {
+          id: "t1", kind: "trade", stationId: "south_market", name: "南市", ticks: 0,
+          result: {
+            cashBefore: 32, cashAfter: scenario === "fixed" ? 160 : 32,
+            cargoBefore: { grain: 8, coal: 0, tea: 0 },
+            cargoAfter: { grain: sellQty ? 0 : 8, coal: 0, tea: 0 },
+            rules: [{
+              goodId: "grain", goodName: "粮", side: "sell", action: "卖出",
+              threshold: sellTh, quotedPrice: 16, wantQty: 8, qty: sellQty,
+              status: sellStatus, reason: sellReason
+            }]
+          }
+        },
+        { id: "v2", kind: "travel", from: "south_market", fromName: "南市", to: "hub", toName: "中枢", ticks: 1 },
+        { id: "p1", kind: "pass", stationId: "hub", name: "中枢", ticks: 0 },
+        { id: "v3", kind: "travel", from: "hub", fromName: "中枢", to: "west_barn", toName: "西仓", ticks: 2 },
+        { id: "e0", kind: "end", stationId: "west_barn", name: "西仓", ticks: 0 }
+      ];
+    }
+
+    function durationMs(ev) {
+      if (ev.kind === "travel") return ev.ticks * TICK_MS;
+      if (ev.kind === "trade") return TRADE_DWELL_MS;
+      if (ev.kind === "pass") return PASS_MS;
+      return 0;
+    }
+
+    function createState() {
+      return {
+        scenario: "fail",
+        phase: "idle",
+        speed: 1,
+        eventIndex: 0,
+        eventElapsedMs: 0,
+        cash: 80,
+        capacity: 8,
+        cargo: emptyCargo(),
+        lastEventText: "待命。预置失败圈：南市卖粮门槛 17。",
+        lastTrade: null,
+        currentRules: [],
+        log: [],
+        appliedTrades: [],
+        report: null,
+        prevReport: null,
+        showReport: false,
+        editStub: false,
+        notice: "规划页为地图优先。本页只观察运行圈，不能改贸易方案。"
+      };
+    }
+
+    function events(state) { return timeline(state.scenario); }
+
+    function eventKinds(scenario) {
+      return timeline(scenario).map(function (e) {
+        if (e.kind === "trade") return "trade:" + e.stationId;
+        if (e.kind === "pass") return "pass:" + e.stationId;
+        if (e.kind === "travel") return "travel:" + e.from + ">" + e.to;
+        return "end:" + e.stationId;
+      });
+    }
+
+    function currentEvent(state) {
+      var list = events(state);
+      return list[state.eventIndex] || null;
+    }
+
+    function nextTradeIndex(state, afterIndex) {
+      var list = events(state);
+      var i;
+      for (i = afterIndex; i < list.length; i++) {
+        if (list[i].kind === "trade") return i;
+      }
+      return -1;
+    }
+
+    function can(state) {
+      var playing = state.phase === "playing" || state.phase === "paused";
+      var ev = currentEvent(state);
+      var searchFrom = ev && ev.kind === "trade" ? state.eventIndex + 1 : state.eventIndex;
+      return {
+        start: state.phase === "idle",
+        reset: true,
+        pause: state.phase === "playing",
+        resume: state.phase === "paused",
+        speed: state.phase !== "finished",
+        skip: playing && nextTradeIndex(state, searchFrom) !== -1,
+        fast: playing,
+        fixed: state.phase === "idle" || state.phase === "finished",
+        closeReport: !!state.showReport,
+        edit: state.phase === "finished"
+      };
+    }
+
+    function ruleLine(r) {
+      var cmp = r.side === "buy" ? "≤" : "≥";
+      var t = r.action + r.goodName + " 价" + cmp + r.threshold + "，报价 " + r.quotedPrice +
+        "，期望 " + r.wantQty + "，实际 " + r.qty + "，" + r.status;
+      if (r.reason) t += "（" + r.reason + "）";
+      return t;
+    }
+
+    function pushLog(state, kind, text, extra) {
+      state.log.push({ kind: kind, text: text, extra: extra || null, t: state.log.length });
+      state.lastEventText = text;
+    }
+
+    function applyTrade(state, ev) {
+      var r = ev.result;
+      state.cash = r.cashAfter;
+      state.cargo = clone(r.cargoAfter);
+      state.lastTrade = { stationId: ev.stationId, name: ev.name, result: r };
+      state.currentRules = r.rules;
+      state.appliedTrades.push({ stationId: ev.stationId, name: ev.name, result: r });
+      var line = ev.name + "：" + r.rules.map(ruleLine).join("；") +
+        "。资金 " + r.cashBefore + "→" + r.cashAfter + "，货舱 " + cargoUsed(r.cargoAfter) + "/" + state.capacity;
+      pushLog(state, r.rules[0].status === "成交" ? "ok" : "bad", line, r);
+    }
+
+    function applyPass(state, ev) {
+      state.currentRules = [];
+      pushLog(state, "pass", "经过" + ev.name + "，中转不停靠、不交易。", null);
+    }
+
+    function buildReport(state) {
+      var fail = state.scenario === "fail";
+      var trades = state.appliedTrades;
+      var startT = trades[0];
+      var midT = trades[1];
+      var unexec = [];
+      if (midT) {
+        midT.result.rules.forEach(function (r) {
+          if (r.status !== "成交") {
+            unexec.push(midT.name + r.action + r.goodName + "：" + (r.reason || r.status) + "，成交 " + r.qty + " / 期望 " + r.wantQty);
+          }
+        });
+      }
+      var profit = state.cash - 80;
+      var hint = fail
+        ? "南市粮现价16低于卖出门槛17；回编辑考虑下调门槛。"
+        : "南市卖出门槛已低于现价16，本圈问题已消失。";
+      var markets = fail
+        ? {
+          west_barn: { name: "西仓粮供给量", before: 8, after: 6, note: "买走 8，之后 6 市场刻恢复到 6/8" },
+          south_market: { name: "南市粮需求量/现价", demandBefore: 8, demandAfter: 8, priceBefore: 16, priceAfter: 16, note: "未卖出，需求与现价未变" }
+        }
+        : {
+          west_barn: { name: "西仓粮供给量", before: 8, after: 6, note: "买走 8，之后 6 市场刻恢复到 6/8" },
+          south_market: { name: "南市粮需求量/现价", demandBefore: 8, demandAfter: 3, priceBefore: 16, priceAfter: 12, note: "卖出 8 后恢复 3 市场刻，需求 3，现价 12" }
+        };
+      var sold = midT ? midT.result.rules[0].qty : 0;
+      var bought = startT ? startT.result.rules[0].qty : 0;
+      var leftover = cargoUsed(state.cargo);
+      var compare = null;
+      if (state.prevReport) {
+        var p = state.prevReport;
+        compare = {
+          prevProfit: p.profit,
+          profit: profit,
+          profitDelta: profit - p.profit,
+          prevSold: p.soldQty,
+          sold: sold,
+          soldDelta: sold - p.soldQty,
+          prevLeftover: p.leftover,
+          leftover: leftover,
+          leftoverDelta: leftover - p.leftover
+        };
+      }
+      return {
+        scenario: state.scenario,
+        profit: profit,
+        cashBefore: 80,
+        cashAfter: state.cash,
+        ticks: 6,
+        cargoAfter: clone(state.cargo),
+        capacityUsed: leftover,
+        capacity: 8,
+        boughtQty: bought,
+        soldQty: sold,
+        leftover: leftover,
+        stops: trades.map(function (t, i) {
+          return {
+            stationId: t.stationId,
+            name: t.name,
+            phase: i === 0 ? "起点先交易" : "停靠交易",
+            rules: t.result.rules
+          };
+        }).concat([{ stationId: "west_barn", name: "西仓", phase: "返回起点，不再交易", rules: [] }]),
+        unexecuted: unexec,
+        markets: markets,
+        hint: hint,
+        compare: compare
+      };
+    }
+
+    function finishLoop(state) {
+      state.phase = "finished";
+      state.report = buildReport(state);
+      state.showReport = true;
+      state.editStub = false;
+      state.currentRules = [];
+      pushLog(state, "end", "运行圈结束，已返回西仓，不再交易。整圈 6 市场刻。", state.report);
+      state.notice = "圈已结束。可关闭报告停留在结束态，或返回编辑，或运行已修正规则圈。";
+    }
+
+    function enterEvent(state, i) {
+      var list = events(state);
+      if (i >= list.length) { finishLoop(state); return; }
+      state.eventIndex = i;
+      state.eventElapsedMs = 0;
+      var ev = list[i];
+      if (ev.kind === "trade") applyTrade(state, ev);
+      else if (ev.kind === "pass") applyPass(state, ev);
+      else if (ev.kind === "travel") {
+        state.currentRules = [];
+        state.lastEventText = "驶向" + ev.toName + "（经最短路径，耗时 " + ev.ticks + " 市场刻）";
+      } else if (ev.kind === "end") finishLoop(state);
+    }
+
+    function assignFresh(state, keepPrev) {
+      var fresh = createState();
+      Object.keys(fresh).forEach(function (k) { state[k] = fresh[k]; });
+      if (keepPrev) state.prevReport = keepPrev;
+    }
+
+    function start(state) {
+      var allow = can(state);
+      if (!allow.start) return "只能从待命启动。";
+      if (state.report) state.prevReport = state.report;
+      state.report = null;
+      state.showReport = false;
+      state.editStub = false;
+      state.phase = "playing";
+      state.eventIndex = 0;
+      state.eventElapsedMs = 0;
+      state.cash = 80;
+      state.cargo = emptyCargo();
+      state.log = [];
+      state.appliedTrades = [];
+      state.lastTrade = null;
+      enterEvent(state, 0);
+      state.notice = state.scenario === "fail" ? "正在运行预置失败圈。运行中不能改贸易方案。" : "正在运行已修正规则圈（卖出门槛 12）。";
+      return "";
+    }
+
+    function resetFail(state) {
+      var keep = state.prevReport;
+      if (state.phase === "finished" && state.report) keep = state.report;
+      assignFresh(state, keep);
+      state.notice = "已重置为预置失败圈待命（南市卖粮门槛 17）。中途放弃只回到该固定场景。";
+      return "";
+    }
+
+    function startFixed(state) {
+      if (!can(state).fixed) return "运行中不能切换到已修正规则圈。";
+      var keep = state.prevReport;
+      if (state.phase === "finished" && state.report) keep = state.report;
+      assignFresh(state, keep);
+      state.scenario = "fixed";
+      state.notice = "载入已修正规则圈（南市卖粮门槛 12）。";
+      return start(state);
+    }
+
+    function pause(state) {
+      if (!can(state).pause) return "当前不能暂停。";
+      state.phase = "paused";
+      state.notice = "已暂停。列车停留在当前观察位置。";
+      return "";
+    }
+
+    function resume(state) {
+      if (!can(state).resume) return "当前不能继续。";
+      state.phase = "playing";
+      state.notice = "继续运行。";
+      return "";
+    }
+
+    function setSpeed(state, n) {
+      if (SPEEDS.indexOf(n) === -1) return "速度只能是 1、4 或 16。";
+      if (!can(state).speed && state.phase === "finished") return "完成后不能再推进，速度不再影响运行。";
+      state.speed = n;
+      if (state.phase !== "finished") state.notice = "速度 " + n + "×。";
+      return "";
+    }
+
+    function skipToNextTrade(state) {
+      if (!can(state).skip) return "没有下一处交易停靠站，或当前不能跳站。";
+      var ev = currentEvent(state);
+      var from = state.eventIndex;
+      if (ev && (ev.kind === "trade" || ev.kind === "pass")) from = state.eventIndex + 1;
+      var idx = nextTradeIndex(state, from);
+      if (idx < 0) return "没有下一处交易停靠站。";
+      var list = events(state);
+      var i;
+      for (i = from; i < idx; i++) {
+        if (list[i].kind === "pass") applyPass(state, list[i]);
+      }
+      enterEvent(state, idx);
+      if (state.phase === "paused") state.notice = "已跳至下一交易停靠站，仍暂停。";
+      else state.notice = "已跳至下一交易停靠站（中转不停）。";
+      return "";
+    }
+
+    function fastComplete(state) {
+      if (!can(state).fast) return "当前不能快速完成。";
+      if (state.phase === "paused") state.phase = "playing";
+      var list = events(state);
+      var i = state.eventIndex + 1;
+      while (state.phase === "playing" && i < list.length) {
+        enterEvent(state, i);
+        i += 1;
+      }
+      if (state.phase !== "finished") finishLoop(state);
+      return "";
+    }
+
+    function tick(state, realDtMs) {
+      if (state.phase !== "playing") return;
+      var remain = realDtMs * state.speed;
+      if (remain > 8000) remain = 8000;
+      var guard = 0;
+      while (remain > 0 && state.phase === "playing" && guard < 40) {
+        guard += 1;
+        var ev = currentEvent(state);
+        if (!ev) { finishLoop(state); break; }
+        if (ev.kind === "end") { finishLoop(state); break; }
+        var dur = durationMs(ev);
+        var left = dur - state.eventElapsedMs;
+        if (remain >= left) {
+          remain -= left;
+          state.eventElapsedMs = dur;
+          var next = state.eventIndex + 1;
+          enterEvent(state, next);
+        } else {
+          state.eventElapsedMs += remain;
+          remain = 0;
+        }
+      }
+    }
+
+    function closeReport(state) {
+      if (!can(state).closeReport) return "没有打开的运行报告。";
+      state.showReport = false;
+      state.notice = "报告已关闭，停留在观察结束态。运行圈不能再推进。";
+      return "";
+    }
+
+    function requestEdit(state) {
+      if (!can(state).edit) return "运行未结束，不能回编辑。";
+      state.editStub = true;
+      state.showReport = false;
+      state.notice = "将回到地图优先规划页。";
+      return "";
+    }
+
+    function dismissEdit(state) {
+      state.editStub = false;
+      return "";
+    }
+
+    function pose(state) {
+      var X = { west_barn: 0, hub: 0.5, south_market: 1 };
+      var ev = currentEvent(state);
+      var at = "west_barn";
+      var x = 0;
+      var nextTrade = "西仓";
+      var frac = 0;
+      if (state.phase === "idle") {
+        at = "west_barn"; x = 0; nextTrade = "西仓";
+      } else if (state.phase === "finished" || (ev && ev.kind === "end")) {
+        at = "west_barn"; x = 0; nextTrade = "（已结束）";
+      } else if (ev && ev.kind === "travel") {
+        var dur = durationMs(ev);
+        frac = dur ? state.eventElapsedMs / dur : 1;
+        x = X[ev.from] + (X[ev.to] - X[ev.from]) * frac;
+        at = ev.from;
+        nextTrade = ev.to === "south_market" || ev.from === "south_market" && ev.to === "hub" ? "南市" : (x < 0.5 ? "南市" : "（返回西仓，不再交易）");
+        if (ev.to === "south_market") nextTrade = "南市";
+        else if (ev.to === "west_barn") nextTrade = "（返回西仓，不再交易）";
+        else if (ev.to === "hub" && ev.from === "west_barn") nextTrade = "南市";
+        else if (ev.to === "hub" && ev.from === "south_market") nextTrade = "（返回西仓，不再交易）";
+      } else if (ev && (ev.kind === "trade" || ev.kind === "pass")) {
+        at = ev.stationId;
+        x = X[ev.stationId];
+        if (ev.kind === "trade" && ev.stationId === "west_barn") nextTrade = "南市";
+        else if (ev.kind === "trade") nextTrade = "（返回西仓，不再交易）";
+        else nextTrade = ev.stationId === "hub" && state.appliedTrades.length < 2 ? "南市" : "（返回西仓，不再交易）";
+      }
+      var tickProgress = 0;
+      if (state.phase !== "idle") {
+        var list = events(state);
+        var doneTicks = 0;
+        var i;
+        for (i = 0; i < state.eventIndex; i++) {
+          if (list[i].kind === "travel") doneTicks += list[i].ticks;
+        }
+        if (ev && ev.kind === "travel") doneTicks += ev.ticks * (durationMs(ev) ? state.eventElapsedMs / durationMs(ev) : 1);
+        tickProgress = doneTicks / 6;
+      }
+      if (state.phase === "finished") tickProgress = 1;
+      return {
+        x: x,
+        at: at,
+        atName: { west_barn: "西仓", hub: "中枢", south_market: "南市" }[at] || at,
+        nextTrade: nextTrade,
+        progress: tickProgress,
+        paused: state.phase === "paused",
+        speed: state.speed
+      };
+    }
+
+    function parseVariant(search) {
+      var m = /(?:\?|&)variant=([ABC])/i.exec(search || "");
+      return m ? m[1].toUpperCase() : "A";
+    }
+
+    function cycleVariant(cur, dir) {
+      var keys = ["A", "B", "C"];
+      var i = keys.indexOf(cur);
+      if (i < 0) i = 0;
+      return keys[(i + dir + keys.length) % keys.length];
+    }
+
+    function variantLabel(key) {
+      var i;
+      for (i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return VARIANTS[i].key + " — " + VARIANTS[i].name;
+      return "A — 旅程优先";
+    }
+
+    return {
+      TICK_MS: TICK_MS, TRADE_DWELL_MS: TRADE_DWELL_MS, PASS_MS: PASS_MS, SPEEDS: SPEEDS, VARIANTS: VARIANTS,
+      createState: createState, timeline: timeline, events: events, eventKinds: eventKinds,
+      currentEvent: currentEvent, durationMs: durationMs, can: can, cargoUsed: cargoUsed, cargoText: cargoText,
+      start: start, resetFail: resetFail, startFixed: startFixed, pause: pause, resume: resume,
+      setSpeed: setSpeed, skipToNextTrade: skipToNextTrade, fastComplete: fastComplete, tick: tick,
+      closeReport: closeReport, requestEdit: requestEdit, dismissEdit: dismissEdit, pose: pose,
+      parseVariant: parseVariant, cycleVariant: cycleVariant, variantLabel: variantLabel, ruleLine: ruleLine
+    };
+  })();
+  </script>
+
+  <script id="ui">
+  (function () {
+    var C = RunCore;
+    var S = C.createState();
+    var variant = "A";
+
+    function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;"); }
+
+    function uses() {
+      return "1× 用来观察旅程；4× / 16× 用来压缩等待；跳至下一交易停靠站会越过中枢等中转，落到下一笔交易；快速完成会依序处理剩余事件并打开运行报告。本页不测量真人用时。";
+    }
+
+    function btn(act, label, legal, extraClass) {
+      return "<button type=\"button\" class=\"" + (extraClass || "") + "\" data-act=\"" + act + "\"" +
+        (legal ? "" : " disabled") + ">" + label + "</button>";
+    }
+
+    function controls(state, pack) {
+      var a = C.can(state);
+      var html = "";
+      html += btn("start", "启动预置失败圈", a.start, pack.pri);
+      html += btn("reset", "重置预置失败圈", a.reset, pack.sec);
+      html += btn("pause", "暂停", a.pause, pack.sec);
+      html += btn("resume", "继续", a.resume, pack.pri);
+      C.SPEEDS.forEach(function (n) {
+        html += btn("speed-" + n, n + "×" + (state.speed === n ? " · 当前" : ""), a.speed, state.speed === n ? pack.pri : pack.sec);
+      });
+      html += btn("skip", "跳至下一交易停靠站", a.skip, pack.hi || pack.pri);
+      html += btn("fast", "快速完成整圈", a.fast, pack.hi || pack.pri);
+      html += btn("fixed", "运行已修正规则圈", a.fixed, pack.sec);
+      return html;
+    }
+
+    function minHud(state) {
+      var p = C.pose(state);
+      var phase = state.phase === "paused" ? "暂停" : (state.phase === "playing" ? "运行中" : (state.phase === "finished" ? "已结束" : "待命"));
+      return "<span>位置 <b data-k=\"pos\">" + esc(p.atName) + "</b></span>" +
+        "<span>下一交易停靠站 <b data-k=\"next\">" + esc(p.nextTrade) + "</b></span>" +
+        "<span>进度 <b data-k=\"prog\">" + Math.round(p.progress * 100) + "%</b></span>" +
+        "<span>速度 <b data-k=\"spd\">" + state.speed + "×</b> · " + phase + "</span>" +
+        "<span>资金 <b data-k=\"cash\">" + state.cash + "</b></span>" +
+        "<span>货舱 <b data-k=\"cargo\">" + C.cargoUsed(state.cargo) + "/" + state.capacity + "</b> " + esc(C.cargoText(state.cargo)) + "</span>";
+    }
+
+    function view3d(state, label) {
+      var p = C.pose(state);
+      var ev = C.currentEvent(state);
+      var left = 12 + p.x * 76;
+      function st(id, cls, name) {
+        var extra = "";
+        if (ev && ev.stationId === id && ev.kind === "trade") extra = " trade-now";
+        if (ev && ev.stationId === id && ev.kind === "pass") extra = " pass-now";
+        if (state.phase === "finished" && id === "west_barn") extra = " end-now";
+        return "<div class=\"st " + cls + extra + "\"><div class=\"nm\">" + name + "</div></div>";
+      }
+      return "<div class=\"view3d\" aria-hidden=\"true\"><div class=\"tag\">" + esc(label) + " · 仅观察</div>" +
+        "<div class=\"world\"><div class=\"ground\"></div><div class=\"rail\"></div>" +
+        st("west_barn", "wb", "西仓") + st("hub", "hb", "中枢") + st("south_market", "sm", "南市") +
+        "<div class=\"train\" data-train style=\"left:" + left + "%\">" +
+        "<div class=\"vox cab\"></div><div class=\"vox body\"></div>" +
+        "<div class=\"vox crate" + (C.cargoUsed(state.cargo) ? "" : " off") + "\"></div></div></div></div>";
+    }
+
+    function reportBody(state) {
+      var r = state.report;
+      if (!r) return "";
+      var html = "<h2>运行报告</h2>";
+      html += "<p>圈利润 <strong>" + r.profit + "</strong>　资金 " + r.cashBefore + "→" + r.cashAfter +
+        "　总耗时 " + r.ticks + " 市场刻　圈末 " + esc(C.cargoText(r.cargoAfter)) + "　货舱 " + r.capacityUsed + "/" + r.capacity + "</p>";
+      html += "<table class=\"rep\"><tr><th>站点</th><th>阶段</th><th>动作</th><th>货物</th><th>报价</th><th>期望量</th><th>实际量</th><th>状态</th><th>主因</th></tr>";
+      r.stops.forEach(function (st) {
+        if (!st.rules.length) {
+          html += "<tr><td>" + esc(st.name) + "</td><td>" + esc(st.phase) + "</td><td colspan=\"7\">不交易</td></tr>";
+          return;
+        }
+        st.rules.forEach(function (rule) {
+          html += "<tr class=\"" + (rule.status === "未成交" ? "warn" : "fill") + "\"><td>" + esc(st.name) + "</td><td>" + esc(st.phase) +
+            "</td><td>" + esc(rule.action) + "</td><td>" + esc(rule.goodName) + "</td><td>" + rule.quotedPrice +
+            "</td><td>" + rule.wantQty + "</td><td>" + rule.qty + "</td><td>" + esc(rule.status) +
+            "</td><td>" + esc(rule.reason || "—") + "</td></tr>";
+        });
+      });
+      html += "</table>";
+      html += "<p><strong>未执行交易</strong>：" + (r.unexecuted.length ? esc(r.unexecuted.join("；")) : "无") + "</p>";
+      html += "<p><strong>关键市场变化</strong>：" + esc(r.markets.west_barn.name) + " " + r.markets.west_barn.before + "→" + r.markets.west_barn.after +
+        "（" + esc(r.markets.west_barn.note) + "）；" + esc(r.markets.south_market.name) + " 需求 " +
+        r.markets.south_market.demandBefore + "→" + r.markets.south_market.demandAfter + "，现价 " +
+        r.markets.south_market.priceBefore + "→" + r.markets.south_market.priceAfter +
+        "（" + esc(r.markets.south_market.note) + "）</p>";
+      if (r.compare) {
+        html += "<p><strong>与上一圈</strong>：利润 " + r.compare.prevProfit + "→" + r.compare.profit + "（" + (r.compare.profitDelta > 0 ? "+" : "") + r.compare.profitDelta +
+          "）；卖出成交量 " + r.compare.prevSold + "→" + r.compare.sold +
+          "；压舱货物 " + r.compare.prevLeftover + "→" + r.compare.leftover + "。</p>";
+      } else {
+        html += "<p class=\"muted\">尚无上一圈可比较。跑完失败圈后再跑已修正规则圈即可对照。</p>";
+      }
+      html += "<p class=\"" + (r.scenario === "fail" ? "err" : "ok") + "\">下一步：" + esc(r.hint) + "</p>";
+      html += "<p>" + btn("close-report", "关闭报告，回到观察结束态", true, "sec") +
+        btn("edit", "返回编辑贸易方案", true, "") + "</p>";
+      return html;
+    }
+
+    function editStub() {
+      return "<div class=\"stub\"><strong>返回编辑（stub）</strong><p>将回到地图优先规划页。本原型不打开真实编辑器，也不能在运行中改贸易方案。</p>" +
+        "<p>明确建议：把南市卖粮门槛从 <strong>17</strong> 改为 <strong>12</strong>。</p>" +
+        "<button type=\"button\" data-act=\"dismiss-edit\">关闭此提示</button></div>";
+    }
+
+    function liveRules(state) {
+      if (!state.currentRules.length) return "<p class=\"muted tiny\">当前没有停靠交易。</p>";
+      return state.currentRules.map(function (r) {
+        var cls = r.status === "未成交" ? "err" : "ok";
+        return "<div class=\"" + cls + "\">" + esc(C.ruleLine(r)) + "</div>";
+      }).join("");
+    }
+
+    function VariantA(state) {
+      var html = "<div class=\"a-wrap\" style=\"position:relative\">";
+      html += "<div class=\"a-view\">" + view3d(state, "旅程观察") + "</div>";
+      html += "<div class=\"a-hud\">" + minHud(state) + "</div>";
+      html += "<div class=\"a-line\" data-k=\"event\">" + esc(state.lastEventText) + "</div>";
+      html += "<div class=\"a-ctrl\">" + controls(state, { pri: "", sec: "sec" });
+      html += "<div class=\"uses tiny\">" + esc(uses()) + "</div><div class=\"tiny muted\">" + esc(state.notice) + "</div></div>";
+      if (state.showReport) html += "<div class=\"a-report\">" + reportBody(state) + "</div>";
+      if (state.editStub) html += editStub();
+      html += "</div>";
+      return html;
+    }
+
+    function VariantB(state) {
+      var ev = C.currentEvent(state);
+      var html = "<div class=\"b-wrap\" style=\"position:relative\">";
+      html += "<div class=\"b-main\"><div class=\"b-view\">" + view3d(state, "半屏观察") + "</div>";
+      html += "<aside class=\"b-side\">";
+      if (state.showReport) {
+        html += reportBody(state);
+      } else {
+        html += "<h2>运行中对照</h2><div class=\"b-meters\">" + minHud(state).replace(/<span>/g, "<div>").replace(/<\/span>/g, "</div>") + "</div>";
+        html += "<p data-k=\"event\">" + esc(state.lastEventText) + "</p>";
+        html += "<h3>站点进度</h3>";
+        [
+          { id: "t0", name: "西仓 · 交易停靠", kind: "trade" },
+          { id: "p0", name: "中枢 · 经过不停", kind: "pass" },
+          { id: "t1", name: "南市 · 交易停靠", kind: "trade" },
+          { id: "p1", name: "中枢 · 经过不停", kind: "pass" },
+          { id: "e0", name: "西仓 · 返回结束", kind: "end" }
+        ].forEach(function (step) {
+          var list = C.events(state);
+          var idx = -1;
+          var i;
+          for (i = 0; i < list.length; i++) if (list[i].id === step.id) idx = i;
+          var cls = "b-step";
+          if (ev && ev.id === step.id) cls += " on";
+          else if (state.eventIndex > idx || state.phase === "finished") cls += " done";
+          if (step.id === "t1" && state.lastTrade && state.lastTrade.stationId === "south_market" && state.lastTrade.result.rules[0].status === "未成交") cls += " bad";
+          html += "<div class=\"" + cls + "\">" + esc(step.name) + "</div>";
+        });
+        html += "<h3>当前规则结果</h3>" + liveRules(state);
+        html += "<p class=\"tiny muted\">" + esc(state.notice) + "</p>";
+      }
+      html += "</aside></div>";
+      html += "<div class=\"b-ctrl\">" + controls(state, { pri: "", sec: "sec" }) +
+        "<div class=\"tiny muted\" style=\"margin-top:4px\">" + esc(uses()) + "</div></div>";
+      if (state.editStub) html += editStub();
+      html += "</div>";
+      return html;
+    }
+
+    function VariantC(state) {
+      var ev = C.currentEvent(state);
+      var html = "<div class=\"c-wrap\" style=\"position:relative\">";
+      html += "<div class=\"c-tools\">" + controls(state, { pri: "", sec: "sec", hi: "hi" });
+      html += "<span class=\"tiny\">" + minHud(state) + "</span></div>";
+      html += "<div class=\"c-main\">";
+      if (state.showReport) {
+        html += reportBody(state);
+      } else {
+        html += "<p class=\"c-hint " + (state.lastTrade && state.lastTrade.result.rules[0].status === "未成交" ? "err" : "") + "\" data-k=\"event\">" + esc(state.lastEventText) + "</p>";
+        if (state.lastTrade && state.lastTrade.result.rules[0].reason === "价格条件不满足") {
+          html += "<div class=\"err\">失败原因：价格条件不满足。建议修改目标：南市卖粮门槛 17→12（回编辑后改，本页不提供规则编辑器）。</div>";
+        }
+        html += "<h3>事件时间线</h3><ol class=\"c-tl\">";
+        if (!state.log.length) html += "<li class=\"muted\">尚未发车。用启动或快速完成查看失败圈。</li>";
+        state.log.forEach(function (item, i) {
+          var cls = item.kind === "bad" ? "bad" : (item.kind === "ok" ? "ok" : "");
+          if (i === state.log.length - 1) cls += " now";
+          html += "<li class=\"" + cls + "\">" + esc(item.text) + "</li>";
+        });
+        html += "</ol><h3>当前规则结果</h3>" + liveRules(state);
+        html += "<p class=\"tiny\">" + esc(uses()) + "</p><p class=\"tiny muted\">" + esc(state.notice) + "</p>";
+      }
+      html += "</div>";
+      html += "<div class=\"c-view\">" + view3d(state, "窄窗观察") + "</div>";
+      if (state.editStub) html += editStub();
+      html += "</div>";
+      return html;
+    }
+
+    function setVariant(next) {
+      variant = next;
+      var url = new URL(location.href);
+      url.searchParams.set("variant", variant);
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+      document.getElementById("sw-lab").textContent = C.variantLabel(variant);
+      document.title = "抛弃式原型 — " + C.variantLabel(variant);
+      render();
+    }
+
+    function cycle(dir) { setVariant(C.cycleVariant(variant, dir)); }
+
+    function render() {
+      var html = variant === "B" ? VariantB(S) : (variant === "C" ? VariantC(S) : VariantA(S));
+      document.getElementById("stage").innerHTML = html;
+    }
+
+    function patchMotion() {
+      var p = C.pose(S);
+      var train = document.querySelector("[data-train]");
+      if (train) train.style.left = (12 + p.x * 76) + "%";
+      function set(k, v) {
+        var n = document.querySelector("[data-k=\"" + k + "\"]");
+        if (n) n.textContent = v;
+      }
+      set("pos", p.atName);
+      set("next", p.nextTrade);
+      set("prog", Math.round(p.progress * 100) + "%");
+      set("spd", S.speed + "×");
+      set("cash", String(S.cash));
+      set("cargo", C.cargoUsed(S.cargo) + "/" + S.capacity);
+    }
+
+    function onAct(act) {
+      var msg = "";
+      if (act === "start") msg = C.start(S);
+      else if (act === "reset") msg = C.resetFail(S);
+      else if (act === "pause") msg = C.pause(S);
+      else if (act === "resume") msg = C.resume(S);
+      else if (act.indexOf("speed-") === 0) msg = C.setSpeed(S, parseInt(act.slice(6), 10));
+      else if (act === "skip") msg = C.skipToNextTrade(S);
+      else if (act === "fast") msg = C.fastComplete(S);
+      else if (act === "fixed") msg = C.startFixed(S);
+      else if (act === "close-report") msg = C.closeReport(S);
+      else if (act === "edit") msg = C.requestEdit(S);
+      else if (act === "dismiss-edit") msg = C.dismissEdit(S);
+      if (msg) S.notice = msg;
+      render();
+    }
+
+    var lastSig = "";
+    var lastTs = 0;
+    function frame(ts) {
+      if (!lastTs) lastTs = ts;
+      var dt = ts - lastTs;
+      lastTs = ts;
+      if (dt > 80) dt = 80;
+      var before = S.phase + ":" + S.eventIndex + ":" + S.showReport + ":" + S.editStub + ":" + S.lastEventText;
+      C.tick(S, dt);
+      var after = S.phase + ":" + S.eventIndex + ":" + S.showReport + ":" + S.editStub + ":" + S.lastEventText;
+      if (after !== before || after !== lastSig) {
+        lastSig = after;
+        render();
+      } else if (S.phase === "playing") {
+        patchMotion();
+      }
+      requestAnimationFrame(frame);
+    }
+
+    function boot() {
+      variant = C.parseVariant(location.search);
+      document.getElementById("sw-lab").textContent = C.variantLabel(variant);
+      document.getElementById("sw-prev").onclick = function () { cycle(-1); };
+      document.getElementById("sw-next").onclick = function () { cycle(1); };
+      document.addEventListener("keydown", function (e) {
+        var t = e.target;
+        var tag = (t && t.tagName ? t.tagName : "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return;
+        if (e.key === "ArrowLeft") { e.preventDefault(); cycle(-1); }
+        if (e.key === "ArrowRight") { e.preventDefault(); cycle(1); }
+      });
+      document.getElementById("stage").addEventListener("click", function (e) {
+        var t = e.target.closest("[data-act]");
+        if (!t || t.disabled) return;
+        onAct(t.getAttribute("data-act"));
+      });
+      setVariant(variant);
+      lastSig = S.phase + ":" + S.eventIndex + ":" + S.showReport + ":" + S.editStub + ":" + S.lastEventText;
+      requestAnimationFrame(frame);
+    }
+
+    if (typeof document !== "undefined") {
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+      else boot();
+    }
+  })();
+  </script>
+</body>
+</html>
