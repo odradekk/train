@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<!-- Three variants of the trade-plan Windows desktop wireflow, switchable via ?variant=, as a new throwaway page mvp/trade-plan-ui-prototype.html. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>抛弃式 UI 原型 — 贸易方案编排</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; }
+    body { font: 13px/1.4 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; color: #222; background: #ddd; }
+    #chrome { padding: 8px 12px 6px; background: #f4f0ea; border-bottom: 2px solid #8a1f1f; }
+    .banner { background: #c0392b; color: #fff; font-weight: 800; letter-spacing: .04em; padding: 6px 10px; font-size: 14px; }
+    .question { margin: 6px 0 0; font-size: 12px; color: #3a2f24; }
+    .question strong { color: #8a1f1f; }
+    #stage { height: calc(100vh - 128px); overflow: hidden; }
+    button, select, input { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    input[type="number"] { width: 72px; }
+    .muted { color: #666; }
+    .err { color: #9b1c1c; background: #fde8e8; border: 1px solid #e7b0b0; padding: 4px 6px; margin: 4px 0; }
+    .ok { color: #1e5b2f; background: #e7f4ea; border: 1px solid #b7d7be; padding: 4px 6px; margin: 4px 0; }
+    .note { background: #fff4d6; border: 1px solid #e6d08a; padding: 4px 6px; margin: 4px 0; }
+    .stall { background: #fde8e8; color: #7a1515; }
+    .ready { background: #e7f4ea; color: #1e5b2f; }
+    #proto-switcher {
+      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
+      z-index: 9999; display: flex; align-items: center; gap: 10px;
+      background: #111; color: #fff; border: 2px solid #fff; border-radius: 999px;
+      padding: 8px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.5);
+      font: 700 14px/1.2 "Segoe UI", sans-serif; user-select: none;
+    }
+    #proto-switcher button { background: #fff; color: #111; border: 0; min-width: 36px; height: 32px; font-weight: 800; }
+    #proto-switcher .lab { min-width: 168px; text-align: center; }
+
+    /* A 地图优先：暗色大地图 + 右侧检查器 + 地图内环线条 */
+    .a-wrap { display: grid; grid-template-columns: 1fr 332px; height: 100%; background: #121820; }
+    .a-map { position: relative; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+    .a-map svg { width: 100%; flex: 1; min-height: 0; display: block; }
+    .a-hud { position: absolute; top: 8px; left: 8px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 70%; }
+    .a-hud b { display: inline-block; background: #0b0f14; color: #f3e6c4; border: 1px solid #d4b15a; padding: 3px 7px; }
+    .a-loop { position: static; background: #0b0f14; color: #f4efe6; padding: 8px; max-height: 168px; overflow: auto; border-top: 1px solid #d4b15a; }
+    .a-loop .chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .a-chip { background: #2a3340; border: 1px solid #d4b15a; padding: 3px 6px; }
+    .a-chip.on { background: #8a4b1f; }
+    .a-insp { background: #f6efe3; color: #241c14; overflow: auto; padding: 10px; border-left: 4px solid #8a4b1f; }
+    .a-insp h2 { margin: 0 0 6px; font-size: 16px; }
+    .a-insp h3 { margin: 10px 0 4px; font-size: 13px; }
+    .a-btns button { background: #8a4b1f; color: #fff; border: 0; padding: 5px 8px; margin: 2px 2px 2px 0; }
+    .a-btns button.sec { background: #5c5348; }
+    .a-mkt { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .a-mkt th, .a-mkt td { border: 1px solid #d8cfc2; padding: 3px 4px; }
+    .a-mkt th { background: #efe6d8; }
+    .a-node { cursor: pointer; }
+    .a-hint { font-size: 12px; margin: 0 0 8px; }
+
+    /* B 流程优先：预算条 + 步骤卡主轴 + 缩略图预览 */
+    .b-wrap { display: flex; flex-direction: column; height: 100%; background: #e8eef2; }
+    .b-budget { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 8px; background: #0e4d5a; color: #fff; }
+    .b-budget div { background: #16697a; padding: 6px 8px; min-height: 46px; }
+    .b-budget span { display: block; font-size: 11px; opacity: .85; }
+    .b-budget strong { font-size: 16px; }
+    .b-budget.over div.occ { background: #8a1f1f; }
+    .b-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; padding: 6px 8px; background: #d5e3e8; }
+    .b-tools button { background: #16697a; color: #fff; border: 0; padding: 6px 10px; }
+    .b-tools button.sec { background: #3d5a63; }
+    .b-tools button.fix { background: #b45309; }
+    .b-main { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 250px; }
+    .b-rail { overflow: auto; padding: 8px 10px 16px; }
+    .b-card { background: #fff; border: 2px solid #9bb7bf; margin: 0 0 0 28px; padding: 8px 10px; position: relative; }
+    .b-card .num { position: absolute; left: -28px; top: 8px; width: 22px; height: 22px; border-radius: 50%; background: #0e4d5a; color: #fff; text-align: center; font-weight: 800; line-height: 22px; }
+    .b-card.sel { border-color: #0e4d5a; box-shadow: 0 0 0 2px #9ad4df; }
+    .b-path { margin: 4px 0 4px 28px; color: #0e4d5a; font-size: 12px; border-left: 3px solid #7aa8b2; padding: 4px 0 8px 10px; }
+    .b-side { background: #f4f8fa; border-left: 1px solid #b7c8ce; overflow: auto; padding: 8px; }
+    .b-side h3 { margin: 0 0 6px; font-size: 12px; color: #0e4d5a; }
+    .b-add { margin: 8px 0 0 28px; }
+    .b-add button { margin: 2px; background: #fff; border: 1px dashed #16697a; color: #16697a; padding: 4px 8px; }
+    .b-rule { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0; font-size: 12px; }
+    .b-form { background: #f4f8fa; padding: 6px; margin-top: 6px; }
+
+    /* C 市场工作台：高密度表 + 底抽屉编排 */
+    .c-wrap { display: flex; flex-direction: column; height: 100%; background: #f2f2f0; color: #111; }
+    .c-top { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px; background: #2b2b2b; color: #f3f3f0; align-items: center; }
+    .c-meters { display: flex; gap: 10px; font-variant-numeric: tabular-nums; font-size: 12px; }
+    .c-meters b { color: #ffd36a; }
+    .c-meters .bad b { color: #ff8a8a; }
+    .c-top button { background: #eee; color: #111; border: 0; padding: 5px 8px; margin-left: 4px; }
+    .c-top button.fix { background: #e2a100; }
+    .c-table-wrap { flex: 1; min-height: 0; overflow: auto; }
+    .c-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .c-table th, .c-table td { border: 1px solid #c8c8c2; padding: 3px 4px; vertical-align: top; }
+    .c-table th { position: sticky; top: 0; background: #3d3d3a; color: #fff; z-index: 1; font-weight: 600; }
+    .c-table tr.sel td { background: #fff3c4; }
+    .c-table tr.in td:first-child { box-shadow: inset 3px 0 #1d4e89; }
+    .c-table button { padding: 1px 5px; margin: 1px; border: 1px solid #888; background: #fff; }
+    .c-table button.on { background: #1d4e89; color: #fff; border-color: #1d4e89; }
+    .c-table button.bad { opacity: .35; }
+    .c-cell { font-variant-numeric: tabular-nums; }
+    .c-drawer { height: 248px; border-top: 3px solid #1d4e89; background: #fff; display: grid; grid-template-columns: 220px 1fr 280px; min-height: 0; }
+    .c-drawer section { overflow: auto; padding: 8px; border-right: 1px solid #ddd; }
+    .c-drawer h3 { margin: 0 0 6px; font-size: 12px; color: #1d4e89; }
+    .c-drawer ol { margin: 0; padding-left: 18px; }
+    .c-drawer button { margin: 1px; }
+
+    .cap-bar { height: 8px; background: #ddd; margin-top: 3px; position: relative; }
+    .cap-bar i { display: block; height: 100%; background: #2f7d4a; }
+    .cap-bar.over i { background: #c0392b; width: 100% !important; }
+    .tiny { font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div id="chrome">
+    <div class="banner">抛弃式 UI 原型，不是正式 UI</div>
+    <p class="question"><strong>原型问题：</strong>哪一种最小 Windows 桌面 wireflow，能让玩家查看 12 个站点及市场、按任意顺序构成贸易环线、添加/修改/排序“交易停靠站 × 货物”规则，并持续看见资金 80、货舱 8 格、路线耗时和校验错误？</p>
+  </div>
+  <div id="stage"></div>
+  <div id="proto-switcher">
+    <button type="button" id="sw-prev" aria-label="上一方案">←</button>
+    <div class="lab" id="sw-lab">A — 地图优先</div>
+    <button type="button" id="sw-next" aria-label="下一方案">→</button>
+  </div>
+
+  <script id="core">
+  var TradeCore = (function () {
+    var GRAIN = "grain", COAL = "coal", TEA = "tea";
+    var VARIANTS = [
+      { key: "A", name: "地图优先" },
+      { key: "B", name: "流程优先" },
+      { key: "C", name: "市场工作台" }
+    ];
+
+    function goods() {
+      return [
+        { id: GRAIN, name: "粮", basePrice: 10, sensitivity: 0.6, minPrice: 6, maxPrice: 18 },
+        { id: COAL, name: "煤", basePrice: 20, sensitivity: 0.5, minPrice: 12, maxPrice: 32 },
+        { id: TEA, name: "茶", basePrice: 40, sensitivity: 0.4, minPrice: 24, maxPrice: 64 }
+      ];
+    }
+
+    function stations() {
+      return [
+        { id: "north_mine", name: "北矿", role: "煤供给" },
+        { id: "west_barn", name: "西仓", role: "粮供给" },
+        { id: "east_tea", name: "东茶", role: "茶供给" },
+        { id: "north_post", name: "北驿", role: "弱煤需求 / 北向中转" },
+        { id: "west_post", name: "西驿", role: "弱粮需求 / 西向中转" },
+        { id: "hub", name: "中枢", role: "弱综合需求 / 路网中心" },
+        { id: "east_post", name: "东驿", role: "弱茶需求 / 东向中转" },
+        { id: "south_factory", name: "南厂", role: "煤需求" },
+        { id: "south_market", name: "南市", role: "粮需求" },
+        { id: "harbor", name: "港湾", role: "茶需求 + 弱粮需求" },
+        { id: "frontier", name: "边站", role: "综合需求（上限高、路远）" },
+        { id: "capital", name: "都门", role: "综合需求" }
+      ];
+    }
+
+    function edges() {
+      return [
+        { a: "north_mine", b: "north_post", time: 2 },
+        { a: "north_post", b: "east_tea", time: 2 },
+        { a: "north_mine", b: "west_barn", time: 3 },
+        { a: "north_post", b: "hub", time: 2 },
+        { a: "east_tea", b: "east_post", time: 2 },
+        { a: "west_barn", b: "hub", time: 2 },
+        { a: "hub", b: "east_post", time: 2 },
+        { a: "west_barn", b: "west_post", time: 2 },
+        { a: "hub", b: "south_market", time: 1 },
+        { a: "east_post", b: "harbor", time: 3 },
+        { a: "west_post", b: "south_market", time: 2 },
+        { a: "south_market", b: "harbor", time: 2 },
+        { a: "west_post", b: "south_factory", time: 3 },
+        { a: "hub", b: "south_factory", time: 2 },
+        { a: "south_market", b: "capital", time: 2 },
+        { a: "south_factory", b: "capital", time: 2 },
+        { a: "harbor", b: "capital", time: 2 },
+        { a: "capital", b: "frontier", time: 4 },
+        { a: "harbor", b: "frontier", time: 5 },
+        { a: "hub", b: "capital", time: 3 }
+      ];
+    }
+
+    function slot(supply, supplyCap, supplyRestore, demand, demandCap, demandRestore) {
+      return {
+        supply: supply, supplyCap: supplyCap, supplyRestore: supplyRestore,
+        demand: demand, demandCap: demandCap, demandRestore: demandRestore
+      };
+    }
+    function z() { return slot(0, 0, 0, 0, 0, 0); }
+
+    function initialMarkets() {
+      return {
+        north_mine: { grain: z(), coal: slot(6, 6, 1, 0, 0, 0), tea: z() },
+        west_barn: { grain: slot(8, 8, 1, 0, 0, 0), coal: z(), tea: z() },
+        east_tea: { grain: z(), coal: z(), tea: slot(6, 6, 1, 0, 0, 0) },
+        north_post: { grain: z(), coal: slot(0, 0, 0, 3, 3, 1), tea: z() },
+        west_post: { grain: slot(0, 0, 0, 3, 3, 1), coal: z(), tea: z() },
+        hub: { grain: slot(0, 0, 0, 3, 3, 0), coal: slot(0, 0, 0, 2, 2, 0), tea: slot(0, 0, 0, 2, 2, 0) },
+        east_post: { grain: z(), coal: z(), tea: slot(0, 0, 0, 2, 2, 1) },
+        south_factory: { grain: slot(0, 0, 0, 3, 3, 1), coal: slot(0, 0, 0, 6, 6, 1), tea: z() },
+        south_market: { grain: slot(0, 0, 0, 8, 8, 1), coal: z(), tea: z() },
+        harbor: { grain: slot(0, 0, 0, 4, 4, 1), coal: z(), tea: slot(0, 0, 0, 4, 4, 1) },
+        frontier: { grain: slot(0, 0, 0, 10, 10, 1), coal: slot(0, 0, 0, 6, 6, 1), tea: slot(0, 0, 0, 4, 4, 1) },
+        capital: { grain: slot(0, 0, 0, 6, 6, 1), coal: slot(0, 0, 0, 5, 5, 1), tea: slot(0, 0, 0, 4, 4, 1) }
+      };
+    }
+
+    var POS = {
+      north_mine: [90, 52], north_post: [320, 52], east_tea: [550, 52],
+      west_barn: [90, 164], hub: [320, 164], east_post: [550, 164],
+      west_post: [90, 276], south_market: [320, 276], harbor: [550, 276],
+      south_factory: [90, 388], capital: [320, 388], frontier: [550, 388]
+    };
+
+    function presetPlan() {
+      return {
+        stops: ["west_barn", "south_market"],
+        rules: {
+          west_barn: [{ goodId: GRAIN, side: "buy", threshold: 18, target: 8 }],
+          south_market: [{ goodId: GRAIN, side: "sell", threshold: 17, target: 0 }]
+        }
+      };
+    }
+
+    function clone(x) { return JSON.parse(JSON.stringify(x)); }
+
+    function createState() {
+      return {
+        goods: goods(),
+        stations: stations(),
+        edges: edges(),
+        markets: initialMarkets(),
+        cash: 80,
+        capacity: 8,
+        plan: presetPlan(),
+        selectedId: "west_barn",
+        draft: { stationId: "west_barn", goodId: GRAIN, side: "buy", threshold: "18", target: "8" },
+        notice: "预置方案故意停滞：南市卖粮门槛 17，高于现价。可直接改门槛或点快速修正。",
+        fieldError: "",
+        runPreview: false
+      };
+    }
+
+    function stationById(state, id) {
+      var i;
+      for (i = 0; i < state.stations.length; i++) if (state.stations[i].id === id) return state.stations[i];
+      return null;
+    }
+    function goodById(state, id) {
+      var i;
+      for (i = 0; i < state.goods.length; i++) if (state.goods[i].id === id) return state.goods[i];
+      return null;
+    }
+    function stationName(state, id) {
+      var s = stationById(state, id);
+      return s ? s.name : id;
+    }
+    function goodName(state, id) {
+      var g = goodById(state, id);
+      return g ? g.name : id;
+    }
+
+    function priceOf(state, stationId, goodId) {
+      var good = goodById(state, goodId);
+      var m = state.markets[stationId][goodId];
+      var demandRatio = m.demandCap === 0 ? 0 : m.demand / m.demandCap;
+      var supplyRatio = m.supplyCap === 0 ? 0 : m.supply / m.supplyCap;
+      var raw = Math.round(good.basePrice * (1 + good.sensitivity * (demandRatio - supplyRatio)));
+      var p = Math.max(good.minPrice, Math.min(good.maxPrice, raw));
+      return Math.max(1, p);
+    }
+
+    function marketView(state, stationId, goodId) {
+      var m = state.markets[stationId][goodId];
+      return {
+        supply: m.supply, supplyCap: m.supplyCap, supplyRestore: m.supplyRestore,
+        demand: m.demand, demandCap: m.demandCap, demandRestore: m.demandRestore,
+        price: priceOf(state, stationId, goodId),
+        hasSupply: m.supplyCap > 0,
+        hasDemand: m.demandCap > 0
+      };
+    }
+
+    function adjMap(state) {
+      var adj = {};
+      state.stations.forEach(function (s) { adj[s.id] = []; });
+      state.edges.forEach(function (e) {
+        adj[e.a].push({ id: e.b, t: e.time });
+        adj[e.b].push({ id: e.a, t: e.time });
+      });
+      Object.keys(adj).forEach(function (id) {
+        adj[id].sort(function (x, y) { return x.id < y.id ? -1 : 1; });
+      });
+      return adj;
+    }
+
+    function shortestPath(state, from, to) {
+      if (from === to) return { path: [from], ticks: 0 };
+      var ids = state.stations.map(function (s) { return s.id; });
+      var adj = adjMap(state);
+      var dist = {}, prev = {}, used = {};
+      ids.forEach(function (id) { dist[id] = Infinity; });
+      dist[from] = 0;
+      var n, i, u, id;
+      for (n = 0; n < ids.length; n++) {
+        u = null;
+        for (i = 0; i < ids.length; i++) {
+          id = ids[i];
+          if (used[id]) continue;
+          if (u === null || dist[id] < dist[u] || (dist[id] === dist[u] && id < u)) u = id;
+        }
+        if (u === null || dist[u] === Infinity) break;
+        used[u] = true;
+        adj[u].forEach(function (e) {
+          var nd = dist[u] + e.t;
+          if (nd < dist[e.id]) { dist[e.id] = nd; prev[e.id] = u; }
+        });
+      }
+      if (dist[to] === Infinity) return null;
+      var path = [];
+      for (var x = to; x; x = prev[x]) path.push(x);
+      path.reverse();
+      return { path: path, ticks: dist[to] };
+    }
+
+    function describeLoop(state) {
+      var stops = state.plan.stops;
+      var unique = {}, hasDup = false;
+      stops.forEach(function (id) {
+        if (unique[id]) hasDup = true;
+        unique[id] = true;
+      });
+      if (stops.length < 2) {
+        return { valid: false, reason: "贸易环线至少需要 2 个不重复交易停靠站。", segments: [], totalTicks: 0 };
+      }
+      if (hasDup) {
+        return { valid: false, reason: "交易停靠站不能重复。", segments: [], totalTicks: 0 };
+      }
+      var segments = [];
+      var total = 0;
+      var i, a, b, sp;
+      for (i = 0; i < stops.length; i++) {
+        a = stops[i];
+        b = stops[(i + 1) % stops.length];
+        sp = shortestPath(state, a, b);
+        if (!sp) return { valid: false, reason: "站点不连通。", segments: [], totalTicks: 0 };
+        segments.push({
+          from: a, to: b, path: sp.path, ticks: sp.ticks,
+          via: sp.path.slice(1, -1), isReturn: i === stops.length - 1
+        });
+        total += sp.ticks;
+      }
+      return { valid: true, reason: null, segments: segments, totalTicks: total };
+    }
+
+    function occupancy(state) {
+      var byGood = { grain: 0, coal: 0, tea: 0 };
+      state.plan.stops.forEach(function (sid) {
+        (state.plan.rules[sid] || []).forEach(function (r) {
+          if (r.side === "buy" && r.target > byGood[r.goodId]) byGood[r.goodId] = r.target;
+        });
+      });
+      var sum = byGood.grain + byGood.coal + byGood.tea;
+      return { byGood: byGood, sum: sum, cap: state.capacity, over: sum > state.capacity };
+    }
+
+    function parsePosInt(raw) {
+      if (raw === "" || raw === null || raw === undefined) return null;
+      var s = String(raw).trim();
+      if (!/^[1-9]\d*$/.test(s)) return null;
+      return parseInt(s, 10);
+    }
+    function parseInt0(raw) {
+      if (raw === "" || raw === null || raw === undefined) return null;
+      var s = String(raw).trim();
+      if (!/^\d+$/.test(s)) return null;
+      return parseInt(s, 10);
+    }
+
+    function ruleSideCheck(state, stationId, goodId, side) {
+      var mv = marketView(state, stationId, goodId);
+      if (side === "buy" && !mv.hasSupply) return "买入只允许站点有供给（" + stationName(state, stationId) + " 对" + goodName(state, goodId) + "无供给）。";
+      if (side === "sell" && !mv.hasDemand) return "卖出只允许站点有需求（" + stationName(state, stationId) + " 对" + goodName(state, goodId) + "无需求）。";
+      return "";
+    }
+
+    function validateDraft(state, draft) {
+      if (!draft || !draft.stationId) return "先选择一个交易停靠站。";
+      if (state.plan.stops.indexOf(draft.stationId) === -1) return "先把该站点加入贸易环线，再写交易规则。";
+      var th = parsePosInt(draft.threshold);
+      if (th === null) return "阈值必须是正整数。";
+      var side = draft.side;
+      var tg = parseInt0(draft.target);
+      if (tg === null) return "目标持有量必须是整数。";
+      if (side === "buy" && (tg < 1 || tg > 8)) return "买入目标持有量须在 1..8。";
+      if (side === "sell" && (tg < 0 || tg > 8)) return "卖出目标持有量须在 0..8。";
+      return ruleSideCheck(state, draft.stationId, draft.goodId, side);
+    }
+
+    function validatePlan(state) {
+      var errs = [];
+      var geo = describeLoop(state);
+      if (!geo.valid) errs.push(geo.reason);
+      state.plan.stops.forEach(function (sid) {
+        (state.plan.rules[sid] || []).forEach(function (r) {
+          var fake = { stationId: sid, goodId: r.goodId, side: r.side, threshold: String(r.threshold), target: String(r.target) };
+          var e = validateDraft(state, fake);
+          if (e) errs.push(stationName(state, sid) + " / " + goodName(state, r.goodId) + "：" + e);
+        });
+      });
+      return errs;
+    }
+
+    function ruleGate(state, r, stationId) {
+      var price = priceOf(state, stationId, r.goodId);
+      var ok = r.side === "buy" ? price <= r.threshold : price >= r.threshold;
+      return { price: price, ok: ok, label: ok ? "现价满足门槛" : "现价未达门槛" };
+    }
+
+    function ruleText(state, r, stationId) {
+      var side = r.side === "buy" ? "买入" : "卖出";
+      var cmp = r.side === "buy" ? "≤" : "≥";
+      var t = stationName(state, stationId) + " " + side + goodName(state, r.goodId) + "，价" + cmp + r.threshold + "，目标持有量 " + r.target;
+      if (stationId && state.markets[stationId]) {
+        var g = ruleGate(state, r, stationId);
+        t += "（现价 " + g.price + "，" + g.label + "）";
+      }
+      return t;
+    }
+
+    function planSummary(state) {
+      if (!state.plan.stops.length) return "贸易方案为空。";
+      return state.plan.stops.map(function (sid, i) {
+        var rules = state.plan.rules[sid] || [];
+        var txt = rules.length ? rules.map(function (r) { return ruleText(state, r, sid); }).join("；") : "无交易规则";
+        return (i + 1) + ". " + stationName(state, sid) + " — " + txt;
+      }).join(" ");
+    }
+
+    function draftObject(draft) {
+      return {
+        goodId: draft.goodId,
+        side: draft.side,
+        threshold: parsePosInt(draft.threshold),
+        target: parseInt0(draft.target)
+      };
+    }
+
+    function previewAfterDraft(state, draft) {
+      var err = validateDraft(state, draft);
+      var next = clone(state);
+      if (!err) {
+        upsertRule(next, draft.stationId, draftObject(draft));
+      }
+      return { error: err, summary: planSummary(next), rule: err ? "" : ruleText(next, draftObject(draft), draft.stationId) };
+    }
+
+    function loadDraftFromStop(state, stationId, goodId) {
+      var rules = state.plan.rules[stationId] || [];
+      var i, r;
+      for (i = 0; i < rules.length; i++) {
+        if (rules[i].goodId === goodId) {
+          r = rules[i];
+          state.draft = { stationId: stationId, goodId: r.goodId, side: r.side, threshold: String(r.threshold), target: String(r.target) };
+          return;
+        }
+      }
+      var mv = marketView(state, stationId, goodId);
+      state.draft = {
+        stationId: stationId,
+        goodId: goodId,
+        side: mv.hasSupply ? "buy" : "sell",
+        threshold: String(mv.price),
+        target: mv.hasSupply ? "8" : "0"
+      };
+    }
+
+    function addStop(state, id) {
+      if (state.plan.stops.indexOf(id) !== -1) return "该站点已在贸易环线中。";
+      state.plan.stops.push(id);
+      if (!state.plan.rules[id]) state.plan.rules[id] = [];
+      state.selectedId = id;
+      loadDraftFromStop(state, id, state.draft.goodId || GRAIN);
+      state.notice = "已加入交易停靠站：" + stationName(state, id) + "。";
+      state.fieldError = "";
+      return "";
+    }
+
+    function removeStop(state, index) {
+      if (index < 0 || index >= state.plan.stops.length) return "没有这个交易停靠站。";
+      var id = state.plan.stops[index];
+      state.plan.stops.splice(index, 1);
+      delete state.plan.rules[id];
+      if (state.selectedId === id) state.selectedId = state.plan.stops[0] || id;
+      if (state.draft.stationId === id) {
+        if (state.plan.stops[0]) loadDraftFromStop(state, state.plan.stops[0], GRAIN);
+      }
+      state.notice = "已移出交易停靠站：" + stationName(state, id) + "。";
+      return "";
+    }
+
+    function moveStop(state, index, dir) {
+      var j = index + dir;
+      if (index < 0 || j < 0 || index >= state.plan.stops.length || j >= state.plan.stops.length) return "无法再移动。";
+      var tmp = state.plan.stops[index];
+      state.plan.stops[index] = state.plan.stops[j];
+      state.plan.stops[j] = tmp;
+      state.notice = "已调整交易停靠站顺序。";
+      return "";
+    }
+
+    function upsertRule(state, stationId, rule) {
+      if (state.plan.stops.indexOf(stationId) === -1) return "先把该站点加入贸易环线。";
+      var err = validateDraft(state, {
+        stationId: stationId, goodId: rule.goodId, side: rule.side,
+        threshold: String(rule.threshold), target: String(rule.target)
+      });
+      if (err) return err;
+      var list = state.plan.rules[stationId] || [];
+      var i, found = -1;
+      for (i = 0; i < list.length; i++) if (list[i].goodId === rule.goodId) found = i;
+      var next = { goodId: rule.goodId, side: rule.side, threshold: rule.threshold, target: rule.target };
+      if (found >= 0) list[found] = next;
+      else list.push(next);
+      state.plan.rules[stationId] = list;
+      state.fieldError = "";
+      state.notice = "已写入规则：" + ruleText(state, next, stationId);
+      return "";
+    }
+
+    function removeRule(state, stationId, index) {
+      var list = state.plan.rules[stationId] || [];
+      if (!list[index]) return "没有这条交易规则。";
+      list.splice(index, 1);
+      state.notice = "已删除 " + stationName(state, stationId) + " 的一条交易规则。";
+      return "";
+    }
+
+    function moveRule(state, stationId, index, dir) {
+      var list = state.plan.rules[stationId] || [];
+      var j = index + dir;
+      if (index < 0 || j < 0 || index >= list.length || j >= list.length) return "无法再移动。";
+      var tmp = list[index];
+      list[index] = list[j];
+      list[j] = tmp;
+      state.notice = "已调整 " + stationName(state, stationId) + " 的规则顺序。";
+      return "";
+    }
+
+    function resetPreset(state) {
+      var fresh = createState();
+      state.plan = fresh.plan;
+      state.cash = fresh.cash;
+      state.capacity = fresh.capacity;
+      state.selectedId = fresh.selectedId;
+      state.draft = fresh.draft;
+      state.notice = "已重置为预置方案（西仓→南市，南市卖粮门槛 17）。";
+      state.fieldError = "";
+      state.runPreview = false;
+    }
+
+    function applyQuickFix(state) {
+      if (state.plan.stops.indexOf("south_market") === -1) addStop(state, "south_market");
+      var list = state.plan.rules.south_market || [];
+      var i, found = -1;
+      for (i = 0; i < list.length; i++) if (list[i].goodId === GRAIN) found = i;
+      if (found >= 0) {
+        list[found].side = "sell";
+        list[found].threshold = 12;
+      } else {
+        list.push({ goodId: GRAIN, side: "sell", threshold: 12, target: 0 });
+      }
+      state.plan.rules.south_market = list;
+      state.selectedId = "south_market";
+      loadDraftFromStop(state, "south_market", GRAIN);
+      state.fieldError = "";
+      state.notice = "已应用快速修正：南市卖粮门槛 17→12。对照保存后贸易方案摘要。";
+    }
+
+    function highlight(state) {
+      var geo = describeLoop(state);
+      var nodes = {}, pairs = {};
+      function mark(a, b) {
+        var k = a < b ? a + "|" + b : b + "|" + a;
+        pairs[k] = true;
+      }
+      if (geo.valid) {
+        geo.segments.forEach(function (seg) {
+          var i;
+          for (i = 0; i < seg.path.length; i++) nodes[seg.path[i]] = true;
+          for (i = 0; i < seg.path.length - 1; i++) mark(seg.path[i], seg.path[i + 1]);
+        });
+      }
+      return { nodes: nodes, pairs: pairs, geo: geo };
+    }
+
+    function parseVariant(search) {
+      var m = /(?:\?|&)variant=([ABC])/i.exec(search || "");
+      return m ? m[1].toUpperCase() : "A";
+    }
+
+    function cycleVariant(cur, dir) {
+      var keys = ["A", "B", "C"];
+      var i = keys.indexOf(cur);
+      if (i < 0) i = 0;
+      return keys[(i + dir + keys.length) % keys.length];
+    }
+
+    function variantLabel(key) {
+      var i;
+      for (i = 0; i < VARIANTS.length; i++) if (VARIANTS[i].key === key) return VARIANTS[i].key + " — " + VARIANTS[i].name;
+      return "A — 地图优先";
+    }
+
+    return {
+      GRAIN: GRAIN, COAL: COAL, TEA: TEA, VARIANTS: VARIANTS, POS: POS,
+      goods: goods, stations: stations, edges: edges, initialMarkets: initialMarkets,
+      createState: createState, clone: clone,
+      stationById: stationById, goodById: goodById, stationName: stationName, goodName: goodName,
+      priceOf: priceOf, marketView: marketView, shortestPath: shortestPath, describeLoop: describeLoop,
+      occupancy: occupancy, validateDraft: validateDraft, validatePlan: validatePlan,
+      ruleGate: ruleGate, ruleText: ruleText, planSummary: planSummary, previewAfterDraft: previewAfterDraft,
+      loadDraftFromStop: loadDraftFromStop, addStop: addStop, removeStop: removeStop, moveStop: moveStop,
+      upsertRule: upsertRule, removeRule: removeRule, moveRule: moveRule,
+      resetPreset: resetPreset, applyQuickFix: applyQuickFix, highlight: highlight,
+      parseVariant: parseVariant, cycleVariant: cycleVariant, variantLabel: variantLabel,
+      parsePosInt: parsePosInt, parseInt0: parseInt0
+    };
+  })();
+  </script>
+
+  <script id="ui">
+  (function () {
+    var C = TradeCore;
+    var S = C.createState();
+    var variant = "A";
+
+    function esc(s) {
+      return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    }
+
+    function capBar(occ) {
+      var pct = Math.min(100, occ.cap ? (occ.sum / occ.cap) * 100 : 0);
+      return "<div class=\"tiny\">粮" + occ.byGood.grain + " / 煤" + occ.byGood.coal + " / 茶" + occ.byGood.tea +
+        "　合计 <strong>" + occ.sum + "</strong> / " + occ.cap + (occ.over ? "　容量竞争：买入目标合计超过货舱" : "") + "</div>" +
+        "<div class=\"cap-bar" + (occ.over ? " over" : "") + "\"><i style=\"width:" + pct + "%\"></i></div>";
+    }
+
+    function errBox(state) {
+      var errs = C.validatePlan(state);
+      if (state.fieldError) errs = [state.fieldError].concat(errs.filter(function (e) { return e !== state.fieldError; }));
+      if (!errs.length) return "";
+      return "<div class=\"err\">" + errs.map(esc).join("<br>") + "</div>";
+    }
+
+    function noticeBox(state) {
+      return state.notice ? "<div class=\"note\">" + esc(state.notice) + "</div>" : "";
+    }
+
+    function previewBoxes(state) {
+      var p = C.previewAfterDraft(state, state.draft);
+      var now = C.planSummary(state);
+      var html = "<div class=\"tiny\"><strong>当前贸易方案</strong><br>" + esc(now) + "</div>";
+      html += "<div class=\"tiny\" style=\"margin-top:6px\"><strong>将要保存的规则摘要</strong><br>";
+      if (p.error) html += "<span class=\"muted\">尚未可保存：</span>" + esc(p.error);
+      else html += esc(p.rule);
+      html += "</div><div class=\"tiny\" style=\"margin-top:6px\"><strong>保存后贸易方案摘要</strong><br>" + esc(p.summary) + "</div>";
+      if (state.runPreview) {
+        var geo = C.describeLoop(state);
+        html += "<div class=\"ok tiny\" style=\"margin-top:6px\"><strong>运行一圈（本原型仅静态预览，不跑经济）</strong><br>";
+        html += geo.valid ? ("整圈 " + geo.totalTicks + " 市场刻。") : esc(geo.reason);
+        html += " " + esc(now) + "</div>";
+      }
+      return html;
+    }
+
+    function fmtPath(state, path) {
+      return path.map(function (id) { return C.stationName(state, id); }).join(" → ");
+    }
+
+    function edgeKey(a, b) { return a < b ? a + "|" + b : b + "|" + a; }
+
+    function extraCurve(a, b) {
+      var extras = {
+        "hub|south_factory": "M320 164 Q170 300 90 388",
+        "capital|hub": "M320 164 Q390 276 320 388",
+        "capital|harbor": "M550 276 Q460 360 320 388",
+        "frontier|harbor": "M550 276 Q620 340 550 388"
+      };
+      return extras[edgeKey(a, b)] || null;
+    }
+
+    function svgMap(state, opts) {
+      var hl = C.highlight(state);
+      var w = opts.w, h = opts.h;
+      var sx = w / 640, sy = h / 440;
+      function xy(id) { return [C.POS[id][0] * sx, C.POS[id][1] * sy]; }
+      var html = "<svg viewBox=\"0 0 " + w + " " + h + "\" xmlns=\"http://www.w3.org/2000/svg\">";
+      html += "<rect width=\"" + w + "\" height=\"" + h + "\" fill=\"" + (opts.bg || "#1b2430") + "\"/>";
+      state.edges.forEach(function (e) {
+        var on = hl.pairs[edgeKey(e.a, e.b)];
+        var stroke = on ? (opts.hot || "#e8c36a") : (opts.cold || "#4a5968");
+        var width = on ? 4 : 1.5;
+        var d = extraCurve(e.a, e.b);
+        var a = xy(e.a), b = xy(e.b);
+        if (d && opts.scaleCurve) {
+          html += "<path d=\"" + d + "\" fill=\"none\" stroke=\"" + stroke + "\" stroke-width=\"" + width + "\" transform=\"scale(" + sx + " " + sy + ")\"/>";
+        } else {
+          html += "<line x1=\"" + a[0] + "\" y1=\"" + a[1] + "\" x2=\"" + b[0] + "\" y2=\"" + b[1] + "\" stroke=\"" + stroke + "\" stroke-width=\"" + width + "\"/>";
+        }
+        var mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+        html += "<text x=\"" + mx + "\" y=\"" + (my - 4) + "\" fill=\"" + (on ? "#f3e6c4" : "#7d8b97") + "\" font-size=\"10\">" + e.time + "</text>";
+      });
+      state.stations.forEach(function (st) {
+        var p = xy(st.id);
+        var stopI = state.plan.stops.indexOf(st.id);
+        var onPath = hl.nodes[st.id];
+        var sel = state.selectedId === st.id;
+        var fill = stopI >= 0 ? "#8a4b1f" : (onPath ? "#3d6b8a" : "#2a3340");
+        if (opts.altFill) fill = stopI >= 0 ? "#0e4d5a" : (onPath ? "#5aa0b0" : "#8aa0a8");
+        var r = sel ? 16 : 12;
+        html += "<g class=\"a-node\" data-act=\"select\" data-id=\"" + st.id + "\" transform=\"translate(" + p[0] + " " + p[1] + ")\">";
+        html += "<circle r=\"" + (r + 4) + "\" fill=\"transparent\"/>";
+        html += "<circle r=\"" + r + "\" fill=\"" + fill + "\" stroke=\"" + (sel ? "#fff" : (onPath ? "#e8c36a" : "#8a96a3")) + "\" stroke-width=\"" + (sel ? 3 : 1.5) + "\"/>";
+        if (stopI >= 0) html += "<text y=\"4\" text-anchor=\"middle\" fill=\"#fff\" font-size=\"11\" font-weight=\"700\">" + (stopI + 1) + "</text>";
+        html += "<text y=\"28\" text-anchor=\"middle\" fill=\"" + (opts.label || "#f4efe6") + "\" font-size=\"12\">" + esc(st.name) + "</text>";
+        html += "</g>";
+      });
+      html += "</svg>";
+      return html;
+    }
+
+    function stopButtons(i, n) {
+      return "<button type=\"button\" class=\"sec\" data-act=\"stop-up\" data-i=\"" + i + "\"" + (i === 0 ? " disabled" : "") + ">上移</button>" +
+        "<button type=\"button\" class=\"sec\" data-act=\"stop-down\" data-i=\"" + i + "\"" + (i === n - 1 ? " disabled" : "") + ">下移</button>" +
+        "<button type=\"button\" class=\"sec\" data-act=\"stop-del\" data-i=\"" + i + "\">移出</button>";
+    }
+
+    function ruleButtons(sid, i, n) {
+      return "<button type=\"button\" data-act=\"rule-up\" data-sid=\"" + sid + "\" data-i=\"" + i + "\"" + (i === 0 ? " disabled" : "") + ">上移</button>" +
+        "<button type=\"button\" data-act=\"rule-down\" data-sid=\"" + sid + "\" data-i=\"" + i + "\"" + (i === n - 1 ? " disabled" : "") + ">下移</button>" +
+        "<button type=\"button\" data-act=\"rule-del\" data-sid=\"" + sid + "\" data-i=\"" + i + "\">删除</button>";
+    }
+
+    function ruleForm(state, prefix) {
+      var d = state.draft;
+      var goods = state.goods.map(function (g) {
+        return "<option value=\"" + g.id + "\"" + (d.goodId === g.id ? " selected" : "") + ">" + g.name + "</option>";
+      }).join("");
+      return "<div class=\"" + prefix + "-form form\">" +
+        "<label>货物 <select data-field=\"goodId\">" + goods + "</select></label> " +
+        "<label>动作 <select data-field=\"side\">" +
+        "<option value=\"buy\"" + (d.side === "buy" ? " selected" : "") + ">买入</option>" +
+        "<option value=\"sell\"" + (d.side === "sell" ? " selected" : "") + ">卖出</option></select></label> " +
+        "<label>阈值 <input data-field=\"threshold\" type=\"text\" inputmode=\"numeric\" value=\"" + esc(d.threshold) + "\"></label> " +
+        "<label>目标持有量 <input data-field=\"target\" type=\"text\" inputmode=\"numeric\" value=\"" + esc(d.target) + "\"></label> " +
+        "<button type=\"button\" data-act=\"save-rule\">写入/替换规则</button></div>";
+    }
+
+    function mktRow(state, sid) {
+      return state.goods.map(function (g) {
+        var mv = C.marketView(state, sid, g.id);
+        return "<td>" + g.name + " 供" + mv.supply + "/" + mv.supplyCap + " 需" + mv.demand + "/" + mv.demandCap + " 价" + mv.price + "</td>";
+      }).join("");
+    }
+
+    function geoLines(state) {
+      var geo = C.describeLoop(state);
+      if (!geo.valid) return "<div class=\"err\">" + esc(geo.reason) + "</div>";
+      return "<div class=\"tiny\">整圈耗时 <strong>" + geo.totalTicks + "</strong> 市场刻（预置西仓–南市经中枢，往返 6）</div><ul class=\"tiny\">" +
+        geo.segments.map(function (seg) {
+          return "<li>" + esc(C.stationName(state, seg.from)) + (seg.isReturn ? "（返回）" : "") +
+            " → " + esc(C.stationName(state, seg.to)) + "：" + esc(fmtPath(state, seg.path)) + " · " + seg.ticks + " 市场刻</li>";
+        }).join("") + "</ul>";
+    }
+
+    function VariantA(state) {
+      var st = C.stationById(state, state.selectedId);
+      var inLoop = state.plan.stops.indexOf(state.selectedId) !== -1;
+      var occ = C.occupancy(state);
+      var html = "<div class=\"a-wrap\">";
+      html += "<div class=\"a-map\">";
+      html += "<div class=\"a-hud\">";
+      html += "<b>资金 " + state.cash + "</b><b>货舱 " + state.capacity + " 格</b><b>目标占用 " + occ.sum + "/" + occ.cap + (occ.over ? " 竞争" : "") + "</b>";
+      var geo = C.describeLoop(state);
+      html += "<b>整圈 " + (geo.valid ? geo.totalTicks + " 市场刻" : "未成环") + "</b></div>";
+      html += svgMap(state, { w: 640, h: 440, scaleCurve: true });
+      html += "<div class=\"a-loop\"><div class=\"tiny\">有序贸易环线 · 点击站点选中，检查器加入/移出</div><div class=\"chips\">";
+      if (!state.plan.stops.length) html += "<span class=\"muted\">尚未加入交易停靠站</span>";
+      state.plan.stops.forEach(function (id, i) {
+        html += "<span class=\"a-chip" + (id === state.selectedId ? " on" : "") + "\"><button type=\"button\" data-act=\"select\" data-id=\"" + id + "\">" +
+          (i + 1) + " " + esc(C.stationName(state, id)) + "</button> " + stopButtons(i, state.plan.stops.length) + "</span>";
+      });
+      html += "</div>" + geoLines(state) + "</div></div>";
+      html += "<aside class=\"a-insp\">";
+      html += "<p class=\"a-hint\">先选站组成环线，再为停靠站配置规则，最后运行一圈</p>";
+      html += noticeBox(state) + errBox(state);
+      html += "<h2>" + esc(st.name) + "</h2><div class=\"muted tiny\">" + esc(st.role) + (inLoop ? " · 交易停靠站" : " · 未加入环线") + "</div>";
+      html += "<div class=\"a-btns\">";
+      if (inLoop) html += "<button type=\"button\" class=\"sec\" data-act=\"toggle-stop\" data-id=\"" + st.id + "\">移出贸易环线</button>";
+      else html += "<button type=\"button\" data-act=\"toggle-stop\" data-id=\"" + st.id + "\">加入贸易环线</button>";
+      html += "<button type=\"button\" class=\"sec\" data-act=\"reset\">重置预置方案</button>";
+      html += "<button type=\"button\" data-act=\"quick-fix\">应用快速修正：南市卖粮门槛17→12</button>";
+      html += "<button type=\"button\" class=\"sec\" data-act=\"run-preview\">运行一圈（仅预览）</button></div>";
+      html += "<h3>该站市场</h3><table class=\"a-mkt\"><tr><th>货物</th><th>供给量</th><th>需求量</th><th>现价</th></tr>";
+      state.goods.forEach(function (g) {
+        var mv = C.marketView(state, st.id, g.id);
+        html += "<tr><td>" + g.name + "</td><td>" + mv.supply + "/" + mv.supplyCap + " +" + mv.supplyRestore +
+          "</td><td>" + mv.demand + "/" + mv.demandCap + " +" + mv.demandRestore + "</td><td>" + mv.price + "</td></tr>";
+      });
+      html += "</table>" + capBar(occ);
+      html += "<h3>该站交易规则</h3>";
+      if (!inLoop) html += "<p class=\"muted tiny\">加入环线后才能写入规则。</p>";
+      else {
+        var rules = state.plan.rules[st.id] || [];
+        if (!rules.length) html += "<p class=\"muted tiny\">尚无规则。</p>";
+        rules.forEach(function (r, i) {
+          var g = C.ruleGate(state, r, st.id);
+          html += "<div class=\"" + (g.ok ? "ready" : "stall") + " tiny\" style=\"padding:4px;margin:4px 0\">" +
+            esc(C.ruleText(state, r, st.id)) + " " + ruleButtons(st.id, i, rules.length) + "</div>";
+        });
+        html += ruleForm(state, "a");
+      }
+        html += "<h3>编辑预览</h3><div data-preview>" + previewBoxes(state) + "</div>";
+      html += "</aside></div>";
+      return html;
+    }
+
+    function VariantB(state) {
+      var occ = C.occupancy(state);
+      var geo = C.describeLoop(state);
+      var html = "<div class=\"b-wrap" + (occ.over ? " over" : "") + "\">";
+      html += "<div class=\"b-budget" + (occ.over ? " over" : "") + "\">";
+      html += "<div><span>资金</span><strong>" + state.cash + "</strong></div>";
+      html += "<div><span>货舱</span><strong>" + state.capacity + " 格</strong></div>";
+      html += "<div class=\"occ\"><span>预估目标占用</span><strong>" + occ.sum + " / " + occ.cap + "</strong>" + capBar(occ) + "</div>";
+      html += "<div><span>整圈耗时</span><strong>" + (geo.valid ? geo.totalTicks + " 市场刻" : "未成环") + "</strong></div>";
+      html += "<div><span>校验</span><strong>" + (C.validatePlan(state).length ? C.validatePlan(state).length + " 条" : "通过") + "</strong></div>";
+      html += "</div>";
+      html += "<div class=\"b-tools\"><span class=\"tiny\">先选站组成环线，再为停靠站配置规则，最后运行一圈</span>";
+      html += "<button type=\"button\" data-act=\"reset\">重置预置方案</button>";
+      html += "<button type=\"button\" class=\"fix\" data-act=\"quick-fix\">应用快速修正：南市卖粮门槛17→12</button>";
+      html += "<button type=\"button\" class=\"sec\" data-act=\"run-preview\">运行一圈（仅预览）</button></div>";
+      html += "<div class=\"b-main\"><div class=\"b-rail\">";
+      html += noticeBox(state) + errBox(state);
+      if (!state.plan.stops.length) html += "<p class=\"muted\">从下方加入至少 2 个交易停靠站。</p>";
+      state.plan.stops.forEach(function (id, i) {
+        var st = C.stationById(state, id);
+        var rules = state.plan.rules[id] || [];
+        html += "<article class=\"b-card" + (state.selectedId === id ? " sel" : "") + "\" data-act=\"select\" data-id=\"" + id + "\">";
+        html += "<div class=\"num\">" + (i + 1) + "</div><strong>" + esc(st.name) + "</strong> <span class=\"muted tiny\">" + esc(st.role) + "</span> ";
+        html += stopButtons(i, state.plan.stops.length);
+        html += "<div class=\"tiny\" style=\"margin:4px 0\">" + state.goods.map(function (g) {
+          var mv = C.marketView(state, id, g.id);
+          return g.name + " 供" + mv.supply + "/" + mv.supplyCap + " 需" + mv.demand + "/" + mv.demandCap + " 价" + mv.price;
+        }).join(" · ") + "</div>";
+        rules.forEach(function (r, ri) {
+          var g = C.ruleGate(state, r, id);
+          html += "<div class=\"b-rule " + (g.ok ? "ready" : "stall") + "\">" + esc(C.ruleText(state, r, id)) + " " + ruleButtons(id, ri, rules.length) + "</div>";
+        });
+        if (state.selectedId === id) html += ruleForm(state, "b") + "<div style=\"margin-top:6px\" data-preview>" + previewBoxes(state) + "</div>";
+        else html += "<p class=\"tiny muted\">点此卡片为该停靠站写规则。</p>";
+        html += "</article>";
+        if (geo.valid && geo.segments[i]) {
+          var seg = geo.segments[i];
+          html += "<div class=\"b-path\">" + (seg.isReturn ? "返回 " : "前往 ") + esc(fmtPath(state, seg.path)) + " · " + seg.ticks + " 市场刻</div>";
+        }
+      });
+      html += "<div class=\"b-add\"><span class=\"tiny\">加入交易停靠站：</span>";
+      state.stations.forEach(function (st) {
+        if (state.plan.stops.indexOf(st.id) !== -1) return;
+        html += "<button type=\"button\" data-act=\"add-stop\" data-id=\"" + st.id + "\">" + esc(st.name) + "</button>";
+      });
+      html += "</div></div>";
+      html += "<aside class=\"b-side\"><h3>路网预览（辅助）</h3>";
+      html += svgMap(state, { w: 640, h: 440, bg: "#d9e6ea", hot: "#0e4d5a", cold: "#9bb7bf", label: "#16343a", altFill: true, scaleCurve: true });
+      html += geoLines(state) + "</aside></div></div>";
+      return html;
+    }
+
+    function VariantC(state) {
+      var occ = C.occupancy(state);
+      var geo = C.describeLoop(state);
+      var html = "<div class=\"c-wrap\">";
+      html += "<div class=\"c-top\"><div class=\"tiny\">先选站组成环线，再为停靠站配置规则，最后运行一圈</div>";
+      html += "<div class=\"c-meters\">";
+      html += "<span>资金 <b>" + state.cash + "</b></span>";
+      html += "<span>货舱 <b>" + state.capacity + "</b> 格</span>";
+      html += "<span class=\"" + (occ.over ? "bad" : "") + "\">目标占用 <b>" + occ.sum + "/" + occ.cap + "</b></span>";
+      html += "<span>整圈 <b>" + (geo.valid ? geo.totalTicks + " 市场刻" : "未成环") + "</b></span></div>";
+      html += "<div><button type=\"button\" data-act=\"reset\">重置预置方案</button>";
+      html += "<button type=\"button\" class=\"fix\" data-act=\"quick-fix\">应用快速修正：南市卖粮门槛17→12</button>";
+      html += "<button type=\"button\" data-act=\"run-preview\">运行一圈（仅预览）</button></div></div>";
+      html += "<div class=\"c-table-wrap\"><table class=\"c-table\"><thead><tr><th>加入</th><th>站点</th><th>角色</th>";
+      state.goods.forEach(function (g) { html += "<th>" + g.name + " 供/需/价 · 动作</th>"; });
+      html += "<th>已有规则</th></tr></thead><tbody>";
+      state.stations.forEach(function (st) {
+        var inLoop = state.plan.stops.indexOf(st.id) !== -1;
+        html += "<tr class=\"" + (state.selectedId === st.id ? "sel" : "") + (inLoop ? " in" : "") + "\">";
+        html += "<td><input type=\"checkbox\" data-act=\"toggle-stop\" data-id=\"" + st.id + "\"" + (inLoop ? " checked" : "") + "></td>";
+        html += "<td><button type=\"button\" data-act=\"select\" data-id=\"" + st.id + "\">" + esc(st.name) + "</button></td>";
+        html += "<td class=\"tiny\">" + esc(st.role) + "</td>";
+        state.goods.forEach(function (g) {
+          var mv = C.marketView(state, st.id, g.id);
+          var existing = (state.plan.rules[st.id] || []).filter(function (r) { return r.goodId === g.id; })[0];
+          html += "<td class=\"c-cell\">供" + mv.supply + "/" + mv.supplyCap + " 需" + mv.demand + "/" + mv.demandCap + " 价" + mv.price + "<br>";
+          html += "<button type=\"button\" class=\"" + (mv.hasSupply ? "" : "bad") + (existing && existing.side === "buy" ? " on" : "") +
+            "\" data-act=\"draft-cell\" data-id=\"" + st.id + "\" data-good=\"" + g.id + "\" data-side=\"buy\"" + (mv.hasSupply ? "" : " disabled") + ">买入</button>";
+          html += "<button type=\"button\" class=\"" + (mv.hasDemand ? "" : "bad") + (existing && existing.side === "sell" ? " on" : "") +
+            "\" data-act=\"draft-cell\" data-id=\"" + st.id + "\" data-good=\"" + g.id + "\" data-side=\"sell\"" + (mv.hasDemand ? "" : " disabled") + ">卖出</button></td>";
+        });
+        var rules = state.plan.rules[st.id] || [];
+        html += "<td class=\"tiny\">" + (rules.length ? rules.map(function (r) { return esc(C.ruleText(state, r, st.id)); }).join("<br>") : "—") + "</td></tr>";
+      });
+      html += "</tbody></table></div>";
+      html += "<div class=\"c-drawer\">";
+      html += "<section><h3>编排贸易环线</h3>" + noticeBox(state) + errBox(state) + "<ol>";
+      state.plan.stops.forEach(function (id, i) {
+        html += "<li><button type=\"button\" data-act=\"select\" data-id=\"" + id + "\">" + esc(C.stationName(state, id)) + "</button> " +
+          stopButtons(i, state.plan.stops.length) + "</li>";
+      });
+      html += "</ol>" + geoLines(state) + capBar(occ) + "</section>";
+      html += "<section><h3>规则（" + esc(C.stationName(state, state.draft.stationId || state.selectedId)) + "）</h3>";
+      var sid = state.draft.stationId || state.selectedId;
+      var rules = state.plan.rules[sid] || [];
+      if (state.plan.stops.indexOf(sid) === -1) html += "<p class=\"muted tiny\">先勾选站点加入环线，或点单元格买入/卖出。</p>";
+      rules.forEach(function (r, i) {
+        var g = C.ruleGate(state, r, sid);
+        html += "<div class=\"" + (g.ok ? "ready" : "stall") + " tiny\" style=\"padding:3px;margin:3px 0\">" + esc(C.ruleText(state, r, sid)) + " " + ruleButtons(sid, i, rules.length) + "</div>";
+      });
+      html += ruleForm(state, "c") + "</section>";
+      html += "<section><h3>编辑预览</h3><div data-preview>" + previewBoxes(state) + "</div></section>";
+      html += "</div></div>";
+      return html;
+    }
+
+    function setVariant(next) {
+      variant = next;
+      var url = new URL(location.href);
+      url.searchParams.set("variant", variant);
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+      document.getElementById("sw-lab").textContent = C.variantLabel(variant);
+      document.title = "抛弃式 UI 原型 — " + C.variantLabel(variant);
+      render();
+    }
+
+    function cycle(dir) { setVariant(C.cycleVariant(variant, dir)); }
+
+    function render() {
+      var root = document.getElementById("stage");
+      var html = variant === "B" ? VariantB(S) : (variant === "C" ? VariantC(S) : VariantA(S));
+      root.innerHTML = html;
+    }
+
+    function setField(field, value) {
+      S.draft[field] = value;
+      if (field === "goodId" || field === "side") {
+        if (field === "goodId") C.loadDraftFromStop(S, S.draft.stationId, value);
+        if (field === "side") S.draft.side = value;
+      }
+      S.fieldError = "";
+    }
+
+    function onAct(act, el) {
+      var id = el.getAttribute("data-id");
+      var i = +el.getAttribute("data-i");
+      var sid = el.getAttribute("data-sid");
+      var msg = "";
+      if (act === "select") {
+        S.selectedId = id;
+        C.loadDraftFromStop(S, id, S.draft.goodId || C.GRAIN);
+      } else if (act === "toggle-stop") {
+        if (S.plan.stops.indexOf(id) !== -1) {
+          msg = C.removeStop(S, S.plan.stops.indexOf(id));
+        } else {
+          msg = C.addStop(S, id);
+        }
+      } else if (act === "add-stop") {
+        msg = C.addStop(S, id);
+      } else if (act === "stop-up") {
+        msg = C.moveStop(S, i, -1);
+      } else if (act === "stop-down") {
+        msg = C.moveStop(S, i, 1);
+      } else if (act === "stop-del") {
+        msg = C.removeStop(S, i);
+      } else if (act === "rule-up") {
+        msg = C.moveRule(S, sid, i, -1);
+      } else if (act === "rule-down") {
+        msg = C.moveRule(S, sid, i, 1);
+      } else if (act === "rule-del") {
+        msg = C.removeRule(S, sid, i);
+      } else if (act === "save-rule") {
+        msg = C.upsertRule(S, S.draft.stationId, {
+          goodId: S.draft.goodId, side: S.draft.side,
+          threshold: C.parsePosInt(S.draft.threshold), target: C.parseInt0(S.draft.target)
+        });
+        if (msg) S.fieldError = msg;
+      } else if (act === "draft-cell") {
+        var good = el.getAttribute("data-good");
+        var side = el.getAttribute("data-side");
+        if (S.plan.stops.indexOf(id) === -1) C.addStop(S, id);
+        S.selectedId = id;
+        C.loadDraftFromStop(S, id, good);
+        S.draft.side = side;
+        var mv = C.marketView(S, id, good);
+        if (!S.draft.threshold) S.draft.threshold = String(mv.price);
+        S.notice = "已选 " + C.stationName(S, id) + " " + (side === "buy" ? "买入" : "卖出") + C.goodName(S, good) + "。补全阈值与目标后写入。";
+      } else if (act === "reset") {
+        C.resetPreset(S);
+      } else if (act === "quick-fix") {
+        C.applyQuickFix(S);
+      } else if (act === "run-preview") {
+        S.runPreview = true;
+        S.notice = "本原型不运行经济圈，只展示当前贸易方案的静态预览。";
+      }
+      if (msg) S.fieldError = msg;
+      render();
+    }
+
+    function boot() {
+      variant = C.parseVariant(location.search);
+      document.getElementById("sw-lab").textContent = C.variantLabel(variant);
+      document.getElementById("sw-prev").onclick = function () { cycle(-1); };
+      document.getElementById("sw-next").onclick = function () { cycle(1); };
+      document.addEventListener("keydown", function (e) {
+        var t = e.target;
+        var tag = (t && t.tagName ? t.tagName : "").toLowerCase();
+        if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return;
+        if (e.key === "ArrowLeft") { e.preventDefault(); cycle(-1); }
+        if (e.key === "ArrowRight") { e.preventDefault(); cycle(1); }
+      });
+      document.getElementById("stage").addEventListener("click", function (e) {
+        var tag = (e.target.tagName || "").toLowerCase();
+        if (tag === "input" || tag === "select" || tag === "textarea") return;
+        var t = e.target.closest("[data-act]");
+        if (!t) return;
+        if (t.matches("input[type=checkbox][data-act=toggle-stop]")) return;
+        e.preventDefault();
+        onAct(t.getAttribute("data-act"), t);
+      });
+      document.getElementById("stage").addEventListener("change", function (e) {
+        var t = e.target;
+        if (t.matches("input[type=checkbox][data-act=toggle-stop]")) {
+          onAct("toggle-stop", t);
+          return;
+        }
+        if (t.getAttribute("data-field")) {
+          setField(t.getAttribute("data-field"), t.value);
+          if (t.tagName !== "SELECT") {
+            var node = document.querySelector("#stage [data-preview]");
+            if (node) node.innerHTML = previewBoxes(S);
+            return;
+          }
+          render();
+          var again = document.querySelector("[data-field=\"" + t.getAttribute("data-field") + "\"]");
+          if (again && again.focus) again.focus();
+        }
+      });
+      document.getElementById("stage").addEventListener("input", function (e) {
+        var t = e.target;
+        if (!t.getAttribute("data-field") || t.tagName !== "INPUT") return;
+        S.draft[t.getAttribute("data-field")] = t.value;
+        var node = document.querySelector("#stage [data-preview]");
+        if (node) node.innerHTML = previewBoxes(S);
+      });
+      setVariant(variant);
+    }
+
+    if (typeof document !== "undefined") {
+      if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
+      else boot();
+    }
+
+    window.TradePlanUI = { getState: function () { return S; }, setVariant: setVariant, cycle: cycle, render: render, onAct: onAct };
+  })();
+  </script>
+</body>
+</html>
