@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>经济校准原型 — 贸易方案策略迭代</title>
+  <style>
+    :root { --accent: #8a4b1f; --bg: #f6f1e8; --ink: #241c14; --muted: #5c5348; --card: #fffdf8; --line: #d8cfc2; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; background: var(--bg); color: var(--ink); }
+    header, main { max-width: 1100px; margin: 0 auto; padding: 16px 20px; }
+    h1 { font-size: 1.35rem; margin: 0 0 8px; }
+    h2 { font-size: 1.05rem; margin: 0 0 8px; }
+    h3 { font-size: 0.95rem; margin: 12px 0 6px; }
+    .banner { background: #c0392b; color: #fff; font-weight: 700; padding: 8px 12px; margin-bottom: 12px; }
+    .question { background: var(--card); border: 1px solid var(--line); padding: 12px 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .card { background: var(--card); border: 1px solid var(--line); padding: 12px 14px; }
+    .full { grid-column: 1 / -1; }
+    table { border-collapse: collapse; width: 100%; font-size: 13px; }
+    th, td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; vertical-align: top; }
+    th { background: #efe6d8; }
+    button, select, input { font: inherit; }
+    button { background: var(--accent); color: #fff; border: 0; padding: 6px 10px; margin: 2px 2px 2px 0; cursor: pointer; }
+    button.secondary { background: #5c5348; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    input[type="number"] { width: 70px; }
+    .muted { color: var(--muted); }
+    .note { background: #fff4d6; border: 1px solid #e6d08a; padding: 8px 10px; margin: 8px 0; }
+    .warn { background: #fde8e8; border: 1px solid #e7b0b0; padding: 8px 10px; margin: 8px 0; }
+    .ok { background: #e7f4ea; border: 1px solid #b7d7be; padding: 8px 10px; margin: 8px 0; }
+    .tabs { display: flex; gap: 4px; margin: 8px 0; }
+    .tabs button { background: #5c5348; }
+    .tabs button.on { background: var(--accent); }
+    .step { margin: 8px 0; padding: 8px; border: 1px dashed var(--line); }
+    .step.current { border-color: var(--accent); background: #fff8ee; }
+    pre.map { font: 12px/1.35 ui-monospace, Consolas, monospace; background: #efe6d8; padding: 8px; overflow: auto; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+    @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="banner">抛弃式原型，不是正式 UI</div>
+    <h1>哪组最小固定内容矩阵能自然露出三次策略迭代？</h1>
+    <div class="question">
+      <p><strong>问题：</strong>哪组最小固定内容矩阵——货物数、12 个站点的供需角色与铁路距离、初始市场、预置贸易方案、资金、货舱与时间参数——能在无随机性下自然暴露至少三次策略修改机会，同时避免开局软锁、预置方案无需修改即可持续获利，以及明显支配所有选择的单一环线？</p>
+      <p class="muted">本页把模拟核心放在下方纯 JS 模块里。页面只调用它。数字是<strong>候选矩阵</strong>，支配关系未穷举证明。</p>
+    </div>
+  </header>
+  <main>
+    <div class="grid">
+      <section class="card" id="summary-box"></section>
+      <section class="card" id="observe-box"></section>
+      <section class="card full" id="state-box"></section>
+      <section class="card full" id="free-box"></section>
+      <section class="card full" id="walk-box"></section>
+    </div>
+  </main>
+
+  <script id="economy-engine">
+  var Economy = (function () {
+    var GRAIN = "grain", COAL = "coal", TEA = "tea";
+
+    function goods() {
+      return [
+        { id: GRAIN, name: "粮", basePrice: 10, sensitivity: 0.6, minPrice: 6, maxPrice: 18 },
+        { id: COAL, name: "煤", basePrice: 20, sensitivity: 0.5, minPrice: 12, maxPrice: 32 },
+        { id: TEA, name: "茶", basePrice: 40, sensitivity: 0.4, minPrice: 24, maxPrice: 64 }
+      ];
+    }
+
+    function stations() {
+      return [
+        { id: "north_mine", name: "北矿", role: "煤供给" },
+        { id: "west_barn", name: "西仓", role: "粮供给" },
+        { id: "east_tea", name: "东茶", role: "茶供给" },
+        { id: "north_post", name: "北驿", role: "弱煤需求 / 北向中转" },
+        { id: "west_post", name: "西驿", role: "弱粮需求 / 西向中转" },
+        { id: "hub", name: "中枢", role: "弱综合需求 / 路网中心" },
+        { id: "east_post", name: "东驿", role: "弱茶需求 / 东向中转" },
+        { id: "south_factory", name: "南厂", role: "煤需求" },
+        { id: "south_market", name: "南市", role: "粮需求" },
+        { id: "harbor", name: "港湾", role: "茶需求 + 弱粮需求" },
+        { id: "frontier", name: "边站", role: "综合需求（上限高、路远）" },
+        { id: "capital", name: "都门", role: "综合需求" }
+      ];
+    }
+
+    function edges() {
+      return [
+        { a: "north_mine", b: "north_post", time: 2 },
+        { a: "north_post", b: "east_tea", time: 2 },
+        { a: "north_mine", b: "west_barn", time: 3 },
+        { a: "north_post", b: "hub", time: 2 },
+        { a: "east_tea", b: "east_post", time: 2 },
+        { a: "west_barn", b: "hub", time: 2 },
+        { a: "hub", b: "east_post", time: 2 },
+        { a: "west_barn", b: "west_post", time: 2 },
+        { a: "hub", b: "south_market", time: 1 },
+        { a: "east_post", b: "harbor", time: 3 },
+        { a: "west_post", b: "south_market", time: 2 },
+        { a: "south_market", b: "harbor", time: 2 },
+        { a: "west_post", b: "south_factory", time: 3 },
+        { a: "hub", b: "south_factory", time: 2 },
+        { a: "south_market", b: "capital", time: 2 },
+        { a: "south_factory", b: "capital", time: 2 },
+        { a: "harbor", b: "capital", time: 2 },
+        { a: "capital", b: "frontier", time: 4 },
+        { a: "harbor", b: "frontier", time: 5 },
+        { a: "hub", b: "capital", time: 3 }
+      ];
+    }
+
+    function slot(supply, supplyCap, supplyRestore, demand, demandCap, demandRestore) {
+      return {
+        supply: supply, supplyCap: supplyCap, supplyRestore: supplyRestore,
+        demand: demand, demandCap: demandCap, demandRestore: demandRestore
+      };
+    }
+
+    function z() { return slot(0, 0, 0, 0, 0, 0); }
+
+    function initialMarkets() {
+      return {
+        north_mine: { grain: z(), coal: slot(6, 6, 1, 0, 0, 0), tea: z() },
+        west_barn: { grain: slot(8, 8, 1, 0, 0, 0), coal: z(), tea: z() },
+        east_tea: { grain: z(), coal: z(), tea: slot(6, 6, 1, 0, 0, 0) },
+        north_post: { grain: z(), coal: slot(0, 0, 0, 3, 3, 1), tea: z() },
+        west_post: { grain: slot(0, 0, 0, 3, 3, 1), coal: z(), tea: z() },
+        hub: { grain: slot(0, 0, 0, 3, 3, 0), coal: slot(0, 0, 0, 2, 2, 0), tea: slot(0, 0, 0, 2, 2, 0) },
+        east_post: { grain: z(), coal: z(), tea: slot(0, 0, 0, 2, 2, 1) },
+        south_factory: { grain: slot(0, 0, 0, 3, 3, 1), coal: slot(0, 0, 0, 6, 6, 1), tea: z() },
+        south_market: { grain: slot(0, 0, 0, 8, 8, 1), coal: z(), tea: z() },
+        harbor: { grain: slot(0, 0, 0, 4, 4, 1), coal: z(), tea: slot(0, 0, 0, 4, 4, 1) },
+        frontier: { grain: slot(0, 0, 0, 10, 10, 1), coal: slot(0, 0, 0, 6, 6, 1), tea: slot(0, 0, 0, 4, 4, 1) },
+        capital: { grain: slot(0, 0, 0, 6, 6, 1), coal: slot(0, 0, 0, 5, 5, 1), tea: slot(0, 0, 0, 4, 4, 1) }
+      };
+    }
+
+    function presetPlan() {
+      return {
+        stops: ["west_barn", "south_market"],
+        rules: {
+          west_barn: [{ goodId: GRAIN, side: "buy", threshold: 18, target: 8 }],
+          south_market: [{ goodId: GRAIN, side: "sell", threshold: 17, target: 0 }]
+        }
+      };
+    }
+
+    function clone(x) { return JSON.parse(JSON.stringify(x)); }
+
+    function createInitialState() {
+      var g = goods();
+      var st = stations();
+      var cargo = {};
+      g.forEach(function (x) { cargo[x.id] = 0; });
+      return {
+        goods: g,
+        stations: st,
+        edges: edges(),
+        markets: initialMarkets(),
+        train: { cash: 80, capacity: 8, cargo: cargo },
+        plan: presetPlan(),
+        lastReport: null
+      };
+    }
+
+    function stationName(state, id) {
+      var s = state.stations.find(function (x) { return x.id === id; });
+      return s ? s.name : id;
+    }
+
+    function goodName(state, id) {
+      var g = state.goods.find(function (x) { return x.id === id; });
+      return g ? g.name : id;
+    }
+
+    function goodById(state, id) {
+      return state.goods.find(function (x) { return x.id === id; });
+    }
+
+    function totalCargo(train) {
+      var n = 0;
+      Object.keys(train.cargo).forEach(function (k) { n += train.cargo[k]; });
+      return n;
+    }
+
+    function adjMap(state) {
+      var adj = {};
+      state.stations.forEach(function (s) { adj[s.id] = []; });
+      state.edges.forEach(function (e) {
+        adj[e.a].push({ id: e.b, t: e.time });
+        adj[e.b].push({ id: e.a, t: e.time });
+      });
+      Object.keys(adj).forEach(function (id) {
+        adj[id].sort(function (x, y) { return x.id < y.id ? -1 : 1; });
+      });
+      return adj;
+    }
+
+    function shortestPath(state, from, to) {
+      if (from === to) return { path: [from], ticks: 0 };
+      var ids = state.stations.map(function (s) { return s.id; });
+      var adj = adjMap(state);
+      var dist = {};
+      var prev = {};
+      var used = {};
+      ids.forEach(function (id) { dist[id] = Infinity; });
+      dist[from] = 0;
+      var n, i, u, id;
+      for (n = 0; n < ids.length; n++) {
+        u = null;
+        for (i = 0; i < ids.length; i++) {
+          id = ids[i];
+          if (used[id]) continue;
+          if (u === null || dist[id] < dist[u] || (dist[id] === dist[u] && id < u)) u = id;
+        }
+        if (u === null || dist[u] === Infinity) break;
+        used[u] = true;
+        adj[u].forEach(function (e) {
+          var nd = dist[u] + e.t;
+          if (nd < dist[e.id]) {
+            dist[e.id] = nd;
+            prev[e.id] = u;
+          }
+        });
+      }
+      if (dist[to] === Infinity) return null;
+      var path = [];
+      for (var x = to; x; x = prev[x]) path.push(x);
+      path.reverse();
+      return { path: path, ticks: dist[to] };
+    }
+
+    function describeLoop(state) {
+      var stops = state.plan.stops;
+      var unique = {};
+      var hasDup = false;
+      stops.forEach(function (id) {
+        if (unique[id]) hasDup = true;
+        unique[id] = true;
+      });
+      if (stops.length < 2) {
+        return { valid: false, reason: "贸易环线至少需要 2 个交易停靠站。", segments: [], totalTicks: 0 };
+      }
+      if (hasDup) {
+        return { valid: false, reason: "交易停靠站不能重复。", segments: [], totalTicks: 0 };
+      }
+      var segments = [];
+      var total = 0;
+      var i, a, b, sp;
+      for (i = 0; i < stops.length; i++) {
+        a = stops[i];
+        b = stops[(i + 1) % stops.length];
+        sp = shortestPath(state, a, b);
+        if (!sp) return { valid: false, reason: "站点不连通。", segments: [], totalTicks: 0 };
+        segments.push({
+          from: a,
+          to: b,
+          path: sp.path,
+          ticks: sp.ticks,
+          via: sp.path.slice(1, -1),
+          isReturn: i === stops.length - 1
+        });
+        total += sp.ticks;
+      }
+      return { valid: true, reason: null, segments: segments, totalTicks: total };
+    }
+
+    function priceOf(state, stationId, goodId) {
+      var good = goodById(state, goodId);
+      var m = state.markets[stationId][goodId];
+      var demandRatio = m.demandCap === 0 ? 0 : m.demand / m.demandCap;
+      var supplyRatio = m.supplyCap === 0 ? 0 : m.supply / m.supplyCap;
+      var raw = Math.round(good.basePrice * (1 + good.sensitivity * (demandRatio - supplyRatio)));
+      var p = Math.max(good.minPrice, Math.min(good.maxPrice, raw));
+      return Math.max(1, p);
+    }
+
+    function restoreMarkets(state, ticks) {
+      if (ticks <= 0) return;
+      Object.keys(state.markets).forEach(function (sid) {
+        Object.keys(state.markets[sid]).forEach(function (gid) {
+          var m = state.markets[sid][gid];
+          m.supply = Math.min(m.supplyCap, m.supply + m.supplyRestore * ticks);
+          m.demand = Math.min(m.demandCap, m.demand + m.demandRestore * ticks);
+        });
+      });
+    }
+
+    function applyRule(state, stationId, rule) {
+      var goodId = rule.goodId;
+      var price = priceOf(state, stationId, goodId);
+      var m = state.markets[stationId][goodId];
+      var holding = state.train.cargo[goodId] || 0;
+      var result = {
+        goodId: goodId,
+        side: rule.side,
+        threshold: rule.threshold,
+        target: rule.target,
+        quotedPrice: price,
+        qty: 0,
+        wantQty: 0,
+        cashDelta: 0,
+        fill: "none",
+        skipReason: null,
+        partialReason: null
+      };
+      if (rule.side === "buy") {
+        if (price > rule.threshold) {
+          result.skipReason = "threshold";
+          return result;
+        }
+        var wantBuy = rule.target - holding;
+        result.wantQty = wantBuy;
+        if (wantBuy <= 0) {
+          result.skipReason = "no-want";
+          return result;
+        }
+        var afford = Math.floor(state.train.cash / price);
+        var space = state.train.capacity - totalCargo(state.train);
+        var supply = m.supply;
+        var qty = Math.min(wantBuy, afford, space, supply);
+        if (qty <= 0) {
+          if (supply <= 0) result.skipReason = "no-supply";
+          else if (space <= 0) result.skipReason = "no-space";
+          else if (afford <= 0) result.skipReason = "no-cash";
+          else result.skipReason = "no-want";
+          return result;
+        }
+        state.train.cash -= qty * price;
+        state.train.cargo[goodId] = holding + qty;
+        m.supply -= qty;
+        result.qty = qty;
+        result.cashDelta = -(qty * price);
+        if (qty < wantBuy) {
+          result.fill = "partial";
+          if (qty === supply) result.partialReason = "no-supply";
+          else if (qty === space) result.partialReason = "no-space";
+          else result.partialReason = "no-cash";
+        } else {
+          result.fill = "filled";
+        }
+        return result;
+      }
+      if (price < rule.threshold) {
+        result.skipReason = "threshold";
+        return result;
+      }
+      var wantSell = holding - rule.target;
+      result.wantQty = wantSell;
+      if (wantSell <= 0) {
+        result.skipReason = "no-want";
+        return result;
+      }
+      var demand = m.demand;
+      var sellQty = Math.min(wantSell, demand);
+      if (sellQty <= 0) {
+        result.skipReason = holding <= 0 ? "no-cargo" : "no-demand";
+        return result;
+      }
+      state.train.cash += sellQty * price;
+      state.train.cargo[goodId] = holding - sellQty;
+      m.demand -= sellQty;
+      result.qty = sellQty;
+      result.cashDelta = sellQty * price;
+      if (sellQty < wantSell) {
+        result.fill = "partial";
+        result.partialReason = "no-demand";
+      } else {
+        result.fill = "filled";
+      }
+      return result;
+    }
+
+    function tradeAt(state, stationId) {
+      var rules = (state.plan.rules[stationId] || []).slice();
+      var ruleResults = rules.map(function (rule) { return applyRule(state, stationId, rule); });
+      return {
+        stationId: stationId,
+        rules: ruleResults,
+        cashAfter: state.train.cash,
+        cargoAfter: clone(state.train.cargo),
+        capacityUsed: totalCargo(state.train)
+      };
+    }
+
+    function runLoop(state) {
+      var next = clone(state);
+      var geo = describeLoop(next);
+      if (!geo.valid) {
+        var failed = { ok: false, error: geo.reason, profit: 0, ticks: 0, cashBefore: next.train.cash, cashAfter: next.train.cash, stops: [], segments: [], cargoAfter: clone(next.train.cargo), capacityUsed: totalCargo(next.train) };
+        next.lastReport = failed;
+        return { state: next, report: failed };
+      }
+      var cashBefore = next.train.cash;
+      var stopReports = [];
+      var first = tradeAt(next, next.plan.stops[0]);
+      first.phase = "start-trade";
+      first.travelTicks = 0;
+      stopReports.push(first);
+      var i, seg, traded;
+      for (i = 0; i < geo.segments.length; i++) {
+        seg = geo.segments[i];
+        restoreMarkets(next, seg.ticks);
+        if (seg.isReturn) {
+          stopReports.push({
+            stationId: seg.to,
+            phase: "return",
+            travelTicks: seg.ticks,
+            path: seg.path,
+            rules: [],
+            cashAfter: next.train.cash,
+            cargoAfter: clone(next.train.cargo),
+            capacityUsed: totalCargo(next.train)
+          });
+        } else {
+          traded = tradeAt(next, seg.to);
+          traded.phase = "trade";
+          traded.travelTicks = seg.ticks;
+          traded.path = seg.path;
+          stopReports.push(traded);
+        }
+      }
+      var report = {
+        ok: true,
+        error: null,
+        cashBefore: cashBefore,
+        cashAfter: next.train.cash,
+        profit: next.train.cash - cashBefore,
+        ticks: geo.totalTicks,
+        profitPerTick: geo.totalTicks ? (next.train.cash - cashBefore) / geo.totalTicks : 0,
+        cargoAfter: clone(next.train.cargo),
+        capacityUsed: totalCargo(next.train),
+        capacity: next.train.capacity,
+        stops: stopReports,
+        segments: geo.segments,
+        markets: clone(next.markets)
+      };
+      next.lastReport = report;
+      return { state: next, report: report };
+    }
+
+    function setPlan(state, plan) {
+      var next = clone(state);
+      next.plan = clone(plan);
+      next.lastReport = null;
+      return next;
+    }
+
+    function setStops(state, stops) {
+      var next = clone(state);
+      next.plan.stops = stops.slice();
+      next.lastReport = null;
+      return next;
+    }
+
+    function addStop(state, stationId) {
+      if (state.plan.stops.indexOf(stationId) !== -1) return clone(state);
+      var next = clone(state);
+      next.plan.stops.push(stationId);
+      if (!next.plan.rules[stationId]) next.plan.rules[stationId] = [];
+      next.lastReport = null;
+      return next;
+    }
+
+    function removeStop(state, index) {
+      if (state.plan.stops.length <= 2) return clone(state);
+      var next = clone(state);
+      var removed = next.plan.stops.splice(index, 1)[0];
+      if (next.plan.stops.indexOf(removed) === -1) delete next.plan.rules[removed];
+      next.lastReport = null;
+      return next;
+    }
+
+    function moveStop(state, index, dir) {
+      var j = index + dir;
+      if (j < 0 || j >= state.plan.stops.length) return clone(state);
+      var next = clone(state);
+      var tmp = next.plan.stops[index];
+      next.plan.stops[index] = next.plan.stops[j];
+      next.plan.stops[j] = tmp;
+      next.lastReport = null;
+      return next;
+    }
+
+    function upsertRule(state, stationId, rule) {
+      var next = clone(state);
+      var list = next.plan.rules[stationId] ? next.plan.rules[stationId].slice() : [];
+      var idx = -1;
+      list.forEach(function (r, i) { if (r.goodId === rule.goodId) idx = i; });
+      var copy = { goodId: rule.goodId, side: rule.side, threshold: rule.threshold, target: rule.target };
+      if (idx === -1) list.push(copy);
+      else list[idx] = copy;
+      next.plan.rules[stationId] = list;
+      next.lastReport = null;
+      return next;
+    }
+
+    function removeRule(state, stationId, index) {
+      var next = clone(state);
+      if (!next.plan.rules[stationId]) return next;
+      next.plan.rules[stationId] = next.plan.rules[stationId].slice();
+      next.plan.rules[stationId].splice(index, 1);
+      next.lastReport = null;
+      return next;
+    }
+
+    function moveRule(state, stationId, index, dir) {
+      var next = clone(state);
+      var list = (next.plan.rules[stationId] || []).slice();
+      var j = index + dir;
+      if (j < 0 || j >= list.length) return next;
+      var tmp = list[index];
+      list[index] = list[j];
+      list[j] = tmp;
+      next.plan.rules[stationId] = list;
+      next.lastReport = null;
+      return next;
+    }
+
+    return {
+      GRAIN: GRAIN,
+      COAL: COAL,
+      TEA: TEA,
+      createInitialState: createInitialState,
+      clone: clone,
+      stationName: stationName,
+      goodName: goodName,
+      totalCargo: totalCargo,
+      shortestPath: shortestPath,
+      describeLoop: describeLoop,
+      priceOf: priceOf,
+      runLoop: runLoop,
+      setPlan: setPlan,
+      setStops: setStops,
+      addStop: addStop,
+      removeStop: removeStop,
+      moveStop: moveStop,
+      upsertRule: upsertRule,
+      removeRule: removeRule,
+      moveRule: moveRule
+    };
+  })();
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports = Economy;
+  }
+  </script>
+
+  <script id="page-shell">
+  (function () {
+    var state = Economy.createInitialState();
+    var history = [];
+    var lastNote = "已载入预置贸易方案。尚未运行。";
+    var tab = "A";
+    var stepIdx = 0;
+    var comparedLoops = [];
+
+    function planA() {
+      return {
+        stops: ["west_barn", "south_market"],
+        rules: {
+          west_barn: [{ goodId: "grain", side: "buy", threshold: 18, target: 8 }],
+          south_market: [{ goodId: "grain", side: "sell", threshold: 17, target: 0 }]
+        }
+      };
+    }
+
+    function planB() {
+      return {
+        stops: ["west_barn", "north_mine", "south_market", "south_factory"],
+        rules: {
+          west_barn: [{ goodId: "grain", side: "buy", threshold: 18, target: 8 }],
+          north_mine: [{ goodId: "coal", side: "buy", threshold: 32, target: 6 }],
+          south_market: [{ goodId: "grain", side: "sell", threshold: 12, target: 0 }],
+          south_factory: [{ goodId: "coal", side: "sell", threshold: 20, target: 0 }]
+        }
+      };
+    }
+
+    function planCShort() {
+      return {
+        stops: ["west_barn", "south_market"],
+        rules: {
+          west_barn: [{ goodId: "grain", side: "buy", threshold: 18, target: 8 }],
+          south_market: [{ goodId: "grain", side: "sell", threshold: 12, target: 0 }]
+        }
+      };
+    }
+
+    function planCLong() {
+      return {
+        stops: ["east_tea", "harbor"],
+        rules: {
+          east_tea: [{ goodId: "tea", side: "buy", threshold: 40, target: 8 }],
+          harbor: [{ goodId: "tea", side: "sell", threshold: 40, target: 0 }]
+        }
+      };
+    }
+
+    var walks = {
+      A: {
+        title: "A. 价格阈值：亏损或未成交",
+        blurb: "预置南市粮卖出门槛是 17。粮价最高只到 16，所以未改门槛时南市一直卖不出，粮压在货舱，后面几圈不再买也不再卖。把这一条门槛改到 12 后再跑，看能否恢复卖出和正向周转。",
+        start: function () { return Economy.setPlan(Economy.createInitialState(), planA()); },
+        steps: [
+          { label: "运行第一圈", hint: "西仓买满粮；南市报价过不了 17，应未成交。", apply: runOnce },
+          { label: "再运行一圈", hint: "货舱已满、粮仍卖不出，看利润是否停在 0。", apply: runOnce },
+          { label: "把南市粮卖出门槛改为 12", hint: "只改这一条交易规则。", apply: function (s) { return Economy.upsertRule(s, "south_market", { goodId: "grain", side: "sell", threshold: 12, target: 0 }); } },
+          { label: "再运行一圈", hint: "同一条短环线，看南市是否成交、资金是否转正。", apply: runOnce }
+        ]
+      },
+      B: {
+        title: "B. 资金或货舱瓶颈",
+        blurb: "这条贸易环线先在西仓把粮补到 8，再去北矿买煤。8 格货舱装满后，煤规则会因没有空位而成交 0。把粮目标持有量降到 4、煤目标改为 4 后再跑，看两种货物能否同时周转。",
+        start: function () { return Economy.setPlan(Economy.createInitialState(), planB()); },
+        steps: [
+          { label: "载入「先装满粮再去北矿」方案", hint: "西仓→北矿→南市→南厂。", apply: function () { return Economy.setPlan(Economy.createInitialState(), planB()); } },
+          { label: "运行一圈", hint: "北矿买煤应因货舱已满未成交。", apply: runOnce },
+          { label: "西仓粮目标持有量改为 4", hint: "给煤留出货舱。", apply: function (s) { return Economy.upsertRule(s, "west_barn", { goodId: "grain", side: "buy", threshold: 18, target: 4 }); } },
+          { label: "北矿煤目标持有量改为 4", hint: "与粮各占一半货舱。", apply: function (s) { return Economy.upsertRule(s, "north_mine", { goodId: "coal", side: "buy", threshold: 32, target: 4 }); } },
+          { label: "再运行一圈", hint: "粮和煤都应能买到并在南市/南厂卖出。", apply: runOnce }
+        ]
+      },
+      C: {
+        title: "C. 短环线与较长环线 / 访问频率",
+        blurb: "先用已把卖出门槛改成 12 的短粮环线跑两圈，记下利润、6 市场刻，以及西仓供给 / 南市需求被抽走后第二圈是否变瘦。再改成东茶→港湾的茶环线（往返 10 市场刻）：单圈利润可能更高，但更吃资金，港湾茶需求上限只有 4。比较利润、总耗时和利润/市场刻——不要假设某一条必然更好。",
+        start: function () { return Economy.setPlan(Economy.createInitialState(), planCShort()); },
+        steps: [
+          { label: "载入已修正阈值的短粮环线", hint: "西仓→南市，卖出门槛 12。", apply: function () { return Economy.setPlan(Economy.createInitialState(), planCShort()); } },
+          { label: "运行短环线第一圈", hint: "市场接近满额，记下利润与 6 市场刻。", apply: function (s) { var r = runOnce(s); comparedLoops.push({ tag: "短1", report: r.report || (r.state && r.state.lastReport) }); return r; } },
+          { label: "再运行短环线一圈", hint: "只恢复了往返 6 刻，供给往往买不满 8。", apply: function (s) { var r = runOnce(s); comparedLoops.push({ tag: "短2", report: r.report || (r.state && r.state.lastReport) }); return r; } },
+          { label: "改成东茶→港湾茶环线", hint: "买茶门槛 40、目标 8；港湾卖茶门槛 40、目标 0。", apply: function () { return Economy.setPlan(Economy.createInitialState(), planCLong()); } },
+          { label: "运行茶环线一圈", hint: "看单圈利润、10 市场刻、资金能买几单位茶。", apply: function (s) { var r = runOnce(s); comparedLoops.push({ tag: "茶1", report: r.report || (r.state && r.state.lastReport) }); return r; } },
+          { label: "再运行茶环线一圈", hint: "港湾需求上限 4；看是否卖不完、货舱是否留下茶。", apply: function (s) { var r = runOnce(s); comparedLoops.push({ tag: "茶2", report: r.report || (r.state && r.state.lastReport) }); return r; } }
+        ]
+      }
+    };
+
+    function runOnce(s) {
+      return Economy.runLoop(s);
+    }
+
+    function applyResult(result, note) {
+      if (result && result.state) {
+        state = result.state;
+        if (result.report) history.push(result.report);
+      } else {
+        state = result;
+      }
+      lastNote = note || lastNote;
+    }
+
+    function skipLabel(code) {
+      return {
+        threshold: "价格未过门槛",
+        "no-want": "已达目标持有量",
+        "no-supply": "本站供给量为 0",
+        "no-demand": "本站需求量为 0",
+        "no-cash": "资金不够买 1 单位",
+        "no-space": "货舱没有空位",
+        "no-cargo": "列车没有这件货物"
+      }[code] || code;
+    }
+
+    function partialLabel(code) {
+      return {
+        "no-supply": "供给不足",
+        "no-demand": "需求不足",
+        "no-cash": "资金不足",
+        "no-space": "货舱不足"
+      }[code] || code;
+    }
+
+    function fillText(r) {
+      var head = (r.side === "buy" ? "买" : "卖") + Economy.goodName(state, r.goodId) + " 报价 " + r.quotedPrice;
+      if (r.fill === "none") return head + " — 未成交（" + skipLabel(r.skipReason) + "）";
+      if (r.fill === "partial") return head + " — 部分成交 " + r.qty + "/" + r.wantQty + "（主因：" + partialLabel(r.partialReason) + "），资金变化 " + r.cashDelta;
+      return head + " — 成交 " + r.qty + "，资金变化 " + r.cashDelta;
+    }
+
+    function observedFlags() {
+      var flags = { A: false, B: false, C: false, notes: [] };
+      history.forEach(function (rep) {
+        if (!rep || !rep.stops) return;
+        rep.stops.forEach(function (stop) {
+          (stop.rules || []).forEach(function (r) {
+            if (r.skipReason === "threshold") flags.A = true;
+            if (r.skipReason === "no-cash" || r.skipReason === "no-space" || r.partialReason === "no-cash" || r.partialReason === "no-space") flags.B = true;
+            if (r.qty > 0 && r.side === "buy" && r.skipReason === null) {
+              var want = r.target - ((stop.cargoAfter[r.goodId] || 0) - r.qty);
+              if (want > r.qty && (r.skipReason === null)) {
+                /* partial fill already represented by qty < implied want; detect via leftover cash/space after buy */
+              }
+            }
+          });
+        });
+        if (rep.ok && rep.profit <= 0 && history.length > 1) flags.notes.push("出现过利润≤0 的运行圈");
+      });
+      var ticks = history.filter(function (r) { return r && r.ok; }).map(function (r) { return r.ticks; });
+      var uniq = [];
+      ticks.forEach(function (t) { if (uniq.indexOf(t) === -1) uniq.push(t); });
+      if (uniq.length >= 2) flags.C = true;
+      if (comparedLoops.length >= 2) flags.C = true;
+      return flags;
+    }
+
+    function fmtPath(path) {
+      return path.map(function (id) { return Economy.stationName(state, id); }).join(" → ");
+    }
+
+    function cargoText(cargo) {
+      return state.goods.map(function (g) { return g.name + " " + (cargo[g.id] || 0); }).join("，");
+    }
+
+    function renderSummary() {
+      var geo = Economy.describeLoop(state);
+      document.getElementById("summary-box").innerHTML =
+        "<h2>候选参数摘要</h2>" +
+        "<p>3 种货物：粮（底价 10，敏感度 0.6，6–18）、煤（20 / 0.5 / 12–32）、茶（40 / 0.4 / 24–64）。起始资金 80，货舱 8。价格按冻结公式，cap=0 的比例按 0。</p>" +
+        "<p>12 站角色：北矿煤供给（6/6，+1）、西仓粮供给（8/8，+1）、东茶茶供给（6/6，+1）；北驿/西驿/东驿弱需求兼中转；中枢弱综合需求且恢复量为 0；南厂煤需求（6/6，+1）、南市粮需求（8/8，+1）、港湾茶需求 4 + 弱粮 4、都门综合、边站高上限综合且路远。</p>" +
+        "<p>西仓–南市最短 3 市场刻（经中枢），预置粮环线往返 6；东茶–港湾茶环线往返 10；北矿–南厂煤环线往返 12。预置方案：西仓买粮（≤18，目标 8），南市卖粮（≥17，目标 0）。粮最高价 16，未改门槛则南市卖不出。推荐修正：只把该门槛改为 12。这是<strong>能跑但明显可优化</strong>的候选，不是已证明的最优矩阵。</p>" +
+        "<p class=\"muted\">已知不确定性：未穷举全部贸易环线。煤上限刻意压在 6，是为了避免资金变厚后 8 煤单圈在本页试跑里压过其他选择；这不是支配关系证明。茶线第一圈利润可能高于短粮线，但更吃资金、更慢，且港湾茶需求上限会卡住第二圈。</p>" +
+        "<pre class=\"map\">北矿--2--北驿--2--东茶\n |        |        |\n 3        2        2\n |        |        |\n西仓--2--中枢--2--东驿\n |        |        |\n 2        1        3\n |        |        |\n西驿--2--南市--2--港湾\n |        |        |\n 3        2        2\n |        |        |\n南厂--2--都门--4--边站\n另：中枢-南厂 2，中枢-都门 3，港湾-都门 2，港湾-边站 5</pre>" +
+        "<p>当前环线几何：" + (geo.valid ? ("总耗时 <strong>" + geo.totalTicks + "</strong> 市场刻。返回起点后不再交易。") : geo.reason) + "</p>" +
+        (geo.valid ? "<table><tr><th>段</th><th>最短路径</th><th>耗时</th></tr>" + geo.segments.map(function (seg) {
+          return "<tr><td>" + Economy.stationName(state, seg.from) + (seg.isReturn ? "（返回）" : "") + "</td><td>" + fmtPath(seg.path) + "</td><td>" + seg.ticks + "</td></tr>";
+        }).join("") + "</table>" : "");
+    }
+
+    function renderObserve() {
+      var flags = observedFlags();
+      var last = history[history.length - 1];
+      var lines = [];
+      lines.push("<h2>当前观察</h2>");
+      lines.push("<p class=\"note\">" + lastNote + "</p>");
+      if (!last) {
+        lines.push("<p>还没有运行圈。未改门槛的预置方案应在买粮后卖不出；这还不足以判断修正后能否周转。</p>");
+      } else if (!last.ok) {
+        lines.push("<p class=\"warn\">" + last.error + "</p>");
+      } else {
+        lines.push("<p>最近一圈：利润 <strong>" + last.profit + "</strong>，耗时 <strong>" + last.ticks + "</strong> 市场刻，利润/市场刻 " + last.profitPerTick.toFixed(2) + "。资金 " + last.cashBefore + " → " + last.cashAfter + "。货舱 " + last.capacityUsed + "/" + last.capacity + "（" + cargoText(last.cargoAfter) + "）。</p>");
+      }
+      if (history.length) {
+        lines.push("<p>已记录 " + history.length + " 个运行圈：" + history.map(function (r, i) {
+          return (i + 1) + ") " + (r.ok ? ("利润" + r.profit + "/耗时" + r.ticks) : "失败");
+        }).join("；") + "。</p>");
+      }
+      lines.push("<p>三次修改机会是否在<strong>本页点击记录</strong>里出现过（不是手感结论）：</p><ul>" +
+        "<li>A 阈值未成交/亏损：" + (flags.A ? "已出现 skipReason=threshold" : "尚未出现") + "</li>" +
+        "<li>B 资金或货舱瓶颈：" + (flags.B ? "已出现 no-cash 或 no-space" : "尚未出现") + "</li>" +
+        "<li>C 不同耗时环线对比：" + (flags.C ? "已出现至少两种总耗时或引导 C 的对比记录" : "尚未出现") + "</li></ul>");
+      if (comparedLoops.length) {
+        lines.push("<p>引导 C 记下的圈：" + comparedLoops.map(function (c) {
+          var r = c.report;
+          return r && r.ok ? (c.tag + " 利润" + r.profit + "/耗时" + r.ticks + "/每刻" + r.profitPerTick.toFixed(2)) : c.tag;
+        }).join("；") + "。</p>");
+      }
+      lines.push("<p class=\"muted\">若预置方案连跑数圈利润一直很高且没有未成交，则这组候选不合格。若第一圈买不起任何货物，则开局软锁。</p>");
+      document.getElementById("observe-box").innerHTML = lines.join("");
+    }
+
+    function marketCell(sid, gid) {
+      var m = state.markets[sid][gid];
+      var p = Economy.priceOf(state, sid, gid);
+      return "供" + m.supply + "/" + m.supplyCap + " +" + m.supplyRestore +
+        "<br>需" + m.demand + "/" + m.demandCap + " +" + m.demandRestore +
+        "<br>价 " + p;
+    }
+
+    function renderState() {
+      var geo = Economy.describeLoop(state);
+      var used = Economy.totalCargo(state.train);
+      var html = "";
+      html += "<h2>当前状态</h2>";
+      html += "<p>资金 <strong>" + state.train.cash + "</strong>　货舱 <strong>" + used + "/" + state.train.capacity + "</strong>　列车货物：" + cargoText(state.train.cargo) + "</p>";
+      html += "<h3>贸易方案</h3><ol>";
+      state.plan.stops.forEach(function (id) {
+        var rules = state.plan.rules[id] || [];
+        html += "<li><strong>" + Economy.stationName(state, id) + "</strong> — " +
+          (rules.length ? rules.map(function (r) {
+            return (r.side === "buy" ? "买入" : "卖出") + Economy.goodName(state, r.goodId) +
+              (r.side === "buy" ? " 若价≤" : " 若价≥") + r.threshold + "，目标持有量 " + r.target;
+          }).join("；") : "无交易规则") + "</li>";
+      });
+      html += "</ol>";
+      if (state.lastReport) {
+        var rep = state.lastReport;
+        html += "<h3>最近运行报告</h3>";
+        if (!rep.ok) html += "<p class=\"warn\">" + rep.error + "</p>";
+        else {
+          html += "<p>圈利润 " + rep.profit + "，总耗时 " + rep.ticks + "，利润/市场刻 " + rep.profitPerTick.toFixed(2) + "。</p>";
+          html += "<table><tr><th>阶段</th><th>站点</th><th>行驶</th><th>规则结果</th><th>之后资金 / 货舱</th></tr>";
+          rep.stops.forEach(function (stop) {
+            var rulesTxt;
+            if (stop.phase === "return") rulesTxt = "返回起点，不再交易。行驶推进 " + stop.travelTicks + " 市场刻。";
+            else if (!stop.rules.length) rulesTxt = "无交易规则。";
+            else rulesTxt = stop.rules.map(function (r) { return fillText(r); }).join("<br>");
+            html += "<tr><td>" + (stop.phase === "start-trade" ? "起点先交易" : stop.phase === "return" ? "返回" : "停靠交易") +
+              "</td><td>" + Economy.stationName(state, stop.stationId) +
+              "</td><td>" + (stop.path ? fmtPath(stop.path) + " / " + stop.travelTicks : "0") +
+              "</td><td>" + rulesTxt +
+              "</td><td>" + stop.cashAfter + " / " + stop.capacityUsed + "（" + cargoText(stop.cargoAfter) + "）</td></tr>";
+          });
+          html += "</table>";
+        }
+      }
+      html += "<h3>各站市场</h3><p class=\"muted\">交易停靠站以外的站点只作为最短路径中转，不停靠交易。</p>";
+      html += "<table><tr><th>站点</th><th>角色</th><th>粮</th><th>煤</th><th>茶</th></tr>";
+      state.stations.forEach(function (st) {
+        var mark = state.plan.stops.indexOf(st.id) !== -1 ? " ★" : "";
+        html += "<tr><td>" + st.name + mark + "</td><td>" + st.role + "</td><td>" +
+          marketCell(st.id, "grain") + "</td><td>" + marketCell(st.id, "coal") + "</td><td>" +
+          marketCell(st.id, "tea") + "</td></tr>";
+      });
+      html += "</table>";
+      document.getElementById("state-box").innerHTML = html;
+    }
+
+    function renderFree() {
+      var unused = state.stations.filter(function (s) { return state.plan.stops.indexOf(s.id) === -1; });
+      var html = "<h2>自由操作</h2>";
+      html += "<div class=\"row\">";
+      html += "<button data-act=\"reset\">重置为预置方案</button>";
+      html += "<button data-act=\"run\">运行一圈</button>";
+      html += "</div>";
+      html += "<h3>贸易环线（可增删/排序）</h3>";
+      html += "<ol>";
+      state.plan.stops.forEach(function (id, i) {
+        html += "<li>" + Economy.stationName(state, id) +
+          " <button class=\"secondary\" data-act=\"stop-up\" data-i=\"" + i + "\">上移</button>" +
+          " <button class=\"secondary\" data-act=\"stop-down\" data-i=\"" + i + "\">下移</button>" +
+          " <button class=\"secondary\" data-act=\"stop-del\" data-i=\"" + i + "\">删</button></li>";
+      });
+      html += "</ol>";
+      html += "<div class=\"row\">加入交易停靠站 <select id=\"add-stop\">" +
+        unused.map(function (s) { return "<option value=\"" + s.id + "\">" + s.name + "</option>"; }).join("") +
+        "</select> <button data-act=\"stop-add\">加入</button></div>";
+      html += "<h3>各交易停靠站的交易规则（可编辑/排序）</h3>";
+      state.plan.stops.forEach(function (sid) {
+        var rules = state.plan.rules[sid] || [];
+        html += "<p><strong>" + Economy.stationName(state, sid) + "</strong></p><ol>";
+        rules.forEach(function (r, i) {
+          html += "<li>" + (r.side === "buy" ? "买入" : "卖出") + " " + Economy.goodName(state, r.goodId) +
+            " 门槛 " + r.threshold + " 目标持有量 " + r.target +
+            " <button class=\"secondary\" data-act=\"rule-up\" data-sid=\"" + sid + "\" data-i=\"" + i + "\">上移</button>" +
+            " <button class=\"secondary\" data-act=\"rule-down\" data-sid=\"" + sid + "\" data-i=\"" + i + "\">下移</button>" +
+            " <button class=\"secondary\" data-act=\"rule-del\" data-sid=\"" + sid + "\" data-i=\"" + i + "\">删</button></li>";
+        });
+        html += "</ol>";
+        html += "<div class=\"row\">" +
+          "<select class=\"rule-good\" data-sid=\"" + sid + "\">" + state.goods.map(function (g) { return "<option value=\"" + g.id + "\">" + g.name + "</option>"; }).join("") + "</select>" +
+          "<select class=\"rule-side\" data-sid=\"" + sid + "\"><option value=\"buy\">买入</option><option value=\"sell\">卖出</option></select>" +
+          "门槛 <input type=\"number\" class=\"rule-th\" data-sid=\"" + sid + "\" value=\"12\">" +
+          "目标持有量 <input type=\"number\" class=\"rule-tg\" data-sid=\"" + sid + "\" value=\"0\">" +
+          "<button data-act=\"rule-add\" data-sid=\"" + sid + "\">写入规则（同货物则替换）</button></div>";
+      });
+      document.getElementById("free-box").innerHTML = html;
+    }
+
+    function renderWalk() {
+      var html = "<h2>引导试玩（每步都是真按钮，会改当前状态）</h2>";
+      html += "<p class=\"muted\">点某个标签会重置到该段起点。请按顺序点步骤。也可以随时去上面自由操作。</p>";
+      html += "<div class=\"tabs\">";
+      ["A", "B", "C"].forEach(function (k) {
+        html += "<button class=\"" + (tab === k ? "on" : "") + "\" data-act=\"tab\" data-tab=\"" + k + "\">" + walks[k].title + "</button>";
+      });
+      html += "</div>";
+      var w = walks[tab];
+      html += "<p>" + w.blurb + "</p>";
+      html += "<button data-act=\"walk-reset\">开始本段引导（重置到该段起点）</button>";
+      w.steps.forEach(function (step, i) {
+        html += "<div class=\"step" + (i === stepIdx ? " current" : "") + "\">" +
+          "<div>步骤 " + (i + 1) + " — " + step.hint + "</div>" +
+          "<button data-act=\"walk-step\" data-i=\"" + i + "\">" + step.label + "</button></div>";
+      });
+      document.getElementById("walk-box").innerHTML = html;
+    }
+
+    function render() {
+      renderSummary();
+      renderObserve();
+      renderState();
+      renderFree();
+      renderWalk();
+    }
+
+    function startTab(k) {
+      tab = k;
+      stepIdx = 0;
+      history = [];
+      if (k === "C") comparedLoops = [];
+      state = walks[k].start();
+      lastNote = "已进入引导 " + k + " 的起点状态。";
+      render();
+    }
+
+    document.body.addEventListener("click", function (e) {
+      var t = e.target.closest("[data-act]");
+      if (!t) return;
+      var act = t.getAttribute("data-act");
+      if (act === "reset") {
+        state = Economy.createInitialState();
+        history = [];
+        comparedLoops = [];
+        lastNote = "已重置为预置贸易方案（西仓→南市，卖出门槛 17）。";
+      } else if (act === "run") {
+        var ran = Economy.runLoop(state);
+        applyResult(ran, ran.report.ok ? ("自由运行一圈：利润 " + ran.report.profit + "，耗时 " + ran.report.ticks + "。") : ran.report.error);
+      } else if (act === "stop-up") {
+        state = Economy.moveStop(state, +t.getAttribute("data-i"), -1);
+        lastNote = "已上移交易停靠站。看上方最短路径与总耗时。";
+      } else if (act === "stop-down") {
+        state = Economy.moveStop(state, +t.getAttribute("data-i"), 1);
+        lastNote = "已下移交易停靠站。";
+      } else if (act === "stop-del") {
+        var before = state.plan.stops.length;
+        state = Economy.removeStop(state, +t.getAttribute("data-i"));
+        lastNote = state.plan.stops.length === before ? "至少保留 2 个交易停靠站。" : "已删除交易停靠站。";
+      } else if (act === "stop-add") {
+        var sel = document.getElementById("add-stop");
+        if (sel && sel.value) {
+          state = Economy.addStop(state, sel.value);
+          lastNote = "已加入 " + Economy.stationName(state, sel.value) + "。";
+        }
+      } else if (act === "rule-up") {
+        state = Economy.moveRule(state, t.getAttribute("data-sid"), +t.getAttribute("data-i"), -1);
+        lastNote = "已上移交易规则。同站后续规则会看到新的资金、货舱和价格。";
+      } else if (act === "rule-down") {
+        state = Economy.moveRule(state, t.getAttribute("data-sid"), +t.getAttribute("data-i"), 1);
+        lastNote = "已下移交易规则。";
+      } else if (act === "rule-del") {
+        state = Economy.removeRule(state, t.getAttribute("data-sid"), +t.getAttribute("data-i"));
+        lastNote = "已删除交易规则。";
+      } else if (act === "rule-add") {
+        var sid = t.getAttribute("data-sid");
+        var good = document.querySelector(".rule-good[data-sid=\"" + sid + "\"]").value;
+        var side = document.querySelector(".rule-side[data-sid=\"" + sid + "\"]").value;
+        var th = parseInt(document.querySelector(".rule-th[data-sid=\"" + sid + "\"]").value, 10);
+        var tg = parseInt(document.querySelector(".rule-tg[data-sid=\"" + sid + "\"]").value, 10);
+        if (isNaN(th) || isNaN(tg)) {
+          lastNote = "门槛和目标持有量必须是整数。";
+        } else {
+          state = Economy.upsertRule(state, sid, { goodId: good, side: side, threshold: th, target: tg });
+          lastNote = "已写入 " + Economy.stationName(state, sid) + " 的 " + Economy.goodName(state, good) + " 规则。";
+        }
+      } else if (act === "tab") {
+        startTab(t.getAttribute("data-tab"));
+        return;
+      } else if (act === "walk-reset") {
+        startTab(tab);
+        return;
+      } else if (act === "walk-step") {
+        var i = +t.getAttribute("data-i");
+        var step = walks[tab].steps[i];
+        var out = step.apply(state);
+        applyResult(out, "引导 " + tab + " 步骤 " + (i + 1) + "：" + step.label);
+        stepIdx = Math.min(i + 1, walks[tab].steps.length - 1);
+      }
+      render();
+    });
+
+    startTab("A");
+  })();
+  </script>
+</body>
+</html>
