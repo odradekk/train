@@ -7,15 +7,15 @@ config_version=5
 [application]
 
 config/name="Train MVP"
-config/description="Preset grain-loop tracer for the auto-trade MVP"
+config/description="Continuous-operation auto-trade MVP"
 run/main_scene="res://App/Main.tscn"
 config/features=PackedStringArray("4.7", "C#", "Compatibility")
 config/icon="res://icon.svg"
 
 [display]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
+window/size/viewport_width=1920
+window/size/viewport_height=1080
 window/size/mode=0
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"

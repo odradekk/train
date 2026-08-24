@@ -64,6 +64,18 @@ public sealed class RunReport
     public string? RepositionToId { get; init; }
     public IReadOnlyList<string> RepositionPath { get; init; } = [];
 
+    public IReadOnlyList<RuleResult> IncompleteRules =>
+        Stops.Where(stop => stop.Traded)
+            .SelectMany(stop => stop.Rules)
+            .Where(rule => rule.Outcome != RuleOutcomeKind.Filled)
+            .ToArray();
+
+    public IReadOnlyList<MarketChange> KeyMarketChanges =>
+        MarketChanges
+            .GroupBy(change => (change.StationId, change.GoodId))
+            .Select(group => group.Last())
+            .ToArray();
+
     public static string FormatCause(RuleFailureCause cause)
     {
         return cause switch

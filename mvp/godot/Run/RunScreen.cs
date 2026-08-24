@@ -8,7 +8,10 @@ namespace TrainMvp.Run;
 public partial class RunScreen : Control
 {
     private GameSession _session = null!;
+    private HSplitContainer _split = null!;
+    private SubViewport _worldViewport = null!;
     private ReportPanel _report = null!;
+    private Control _finished = null!;
     private Label _status = null!;
     private Label _meters = null!;
     private Label _eventLine = null!;
@@ -41,10 +44,10 @@ public partial class RunScreen : Control
     public override void _Ready()
     {
         SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        var split = new HSplitContainer();
-        split.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        split.SplitOffsets = [620];
-        AddChild(split);
+        _split = new HSplitContainer();
+        _split.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        AddChild(_split);
+        var split = _split;
 
         var viewHost = new SubViewportContainer
         {
@@ -53,17 +56,23 @@ public partial class RunScreen : Control
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
         split.AddChild(viewHost);
-        var viewport = new SubViewport
+        _worldViewport = new SubViewport
         {
             OwnWorld3D = true,
             HandleInputLocally = false,
             RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
-            Size = new Vector2I(640, 720)
+            Size = new Vector2I(960, 1080)
         };
+        var viewport = _worldViewport;
         viewHost.AddChild(viewport);
         viewport.AddChild(BuildWorld());
 
-        var side = new MarginContainer();
+        var side = new MarginContainer
+        {
+            Name = "RunSidePanel",
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
         side.AddThemeConstantOverride("margin_left", 10);
         side.AddThemeConstantOverride("margin_right", 10);
         side.AddThemeConstantOverride("margin_top", 8);
@@ -86,7 +95,41 @@ public partial class RunScreen : Control
         _report.Visible = false;
         _report.SizeFlagsVertical = SizeFlags.ExpandFill;
         _report.ReturnToPlanningRequested += () => ReturnToPlanningRequested?.Invoke();
+        _report.CloseReportRequested += CloseReport;
         stack.AddChild(_report);
+
+        _finished = new VBoxContainer
+        {
+            Name = "FinishedObservationPanel",
+            Visible = false,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
+        _finished.AddThemeConstantOverride("separation", 10);
+        _finished.AddChild(UiTheme.MakeLabel("结束观察", 18, true));
+        var finishedReturn = UiTheme.MakeButton("返回规划");
+        finishedReturn.Name = "FinishedReturnButton";
+        finishedReturn.Pressed += () => ReturnToPlanningRequested?.Invoke();
+        _finished.AddChild(finishedReturn);
+        stack.AddChild(_finished);
+        ApplyViewportLayout();
+    }
+
+    public void ApplyViewportLayout()
+    {
+        if (_split is null || _worldViewport is null)
+        {
+            return;
+        }
+
+        var size = GetViewport().GetVisibleRect().Size;
+        var wide = size.X >= 1800;
+        if (_split.FindChild("RunSidePanel", true, false) is Control side)
+        {
+            side.CustomMinimumSize = new Vector2(wide ? 760 : 440, 0);
+            side.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+        }
+
+        _split.SplitOffsets = [wide ? 80 : 40];
     }
 
     public void PlayCurrentRun()
@@ -97,8 +140,10 @@ public partial class RunScreen : Control
         _stepIndex = -1;
         _elapsed = 0;
         _moving = false;
+        ApplyViewportLayout();
         _report.Visible = false;
-        _status.Text = "运行中";
+        _finished.Visible = false;
+        _status.Text = _session.Phase == AppPhase.Repositioning ? "调度空驶" : "运行中";
         PlaceTrain(_session.State.LocationId);
         RefreshMeters();
         AdvanceStep();
@@ -112,12 +157,17 @@ public partial class RunScreen : Control
         }
 
         _displayState = _session.CurrentRun.StateAfter.Clone();
+        if (_session.Phase == AppPhase.Repositioning)
+        {
+            _session.BeginRunning();
+        }
+
         FinishPlayback();
     }
 
     public override void _Process(double delta)
     {
-        if (!Visible || _session.Phase != AppPhase.Running)
+        if (!Visible || _session.Phase is not (AppPhase.Running or AppPhase.Repositioning))
         {
             return;
         }
@@ -164,6 +214,7 @@ public partial class RunScreen : Control
                 case TradeEvent trade:
                     _steps.Add(new VisualStep(0.7f, false, Vector3.Zero, Vector3.Zero, () =>
                     {
+                        _session.BeginRunning();
                         ApplyTradeToDisplay(trade);
                         _status.Text = trade.IsLoopStart ? "起点交易" : "抵达交易停靠站";
                         _eventLine.Text = DescribeTrade(trade);
@@ -275,8 +326,18 @@ public partial class RunScreen : Control
         RefreshMeters();
         _status.Text = "运行报告";
         _eventLine.Text = _session.CurrentRun?.Report.NextHint ?? "";
+        _finished.Visible = false;
         _report.Visible = true;
         _report.ShowCurrentReport();
+    }
+
+    private void CloseReport()
+    {
+        _session.CloseReport();
+        _report.Visible = false;
+        _finished.Visible = true;
+        _status.Text = "结束观察";
+        _eventLine.Text = "圈已结束，不能再推进。可返回规划继续经营。";
     }
 
     private void RefreshMeters()

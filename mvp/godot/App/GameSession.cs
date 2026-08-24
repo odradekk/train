@@ -5,8 +5,10 @@ namespace TrainMvp.App;
 public enum AppPhase
 {
     Planning,
+    Repositioning,
     Running,
-    Report
+    Report,
+    FinishedObservation
 }
 
 public sealed class GameSession
@@ -33,6 +35,8 @@ public sealed class GameSession
     public IReadOnlyList<PlanIssue> Issues => TradePlan.Validate(State.Plan, Scenario);
 
     public bool CanStart => Phase == AppPhase.Planning && TradePlan.CanStart(State.Plan, Scenario);
+
+    public bool CanReturnToPlanning => Phase is AppPhase.Report or AppPhase.FinishedObservation;
 
     public void ResetScenario()
     {
@@ -95,13 +99,21 @@ public sealed class GameSession
         var result = Engine.RunLoop(State);
         PreviousReport = CurrentRun?.Report;
         CurrentRun = result;
-        Phase = AppPhase.Running;
+        Phase = result.Report.RepositionTicks > 0 ? AppPhase.Repositioning : AppPhase.Running;
         return result;
+    }
+
+    public void BeginRunning()
+    {
+        if (Phase == AppPhase.Repositioning)
+        {
+            Phase = AppPhase.Running;
+        }
     }
 
     public void ShowReport()
     {
-        if (CurrentRun is null)
+        if (CurrentRun is null || Phase is AppPhase.Planning or AppPhase.FinishedObservation)
         {
             throw new InvalidOperationException("No finished loop is available.");
         }
@@ -109,8 +121,23 @@ public sealed class GameSession
         Phase = AppPhase.Report;
     }
 
+    public void CloseReport()
+    {
+        if (Phase != AppPhase.Report)
+        {
+            throw new InvalidOperationException("No open report to close.");
+        }
+
+        Phase = AppPhase.FinishedObservation;
+    }
+
     public void ReturnToPlanning()
     {
+        if (!CanReturnToPlanning)
+        {
+            throw new InvalidOperationException("Return to planning is only available after a report.");
+        }
+
         if (CurrentRun is not null)
         {
             State = CurrentRun.StateAfter;

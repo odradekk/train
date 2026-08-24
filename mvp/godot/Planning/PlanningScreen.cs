@@ -13,6 +13,8 @@ public partial class PlanningScreen : Control
     private Label _planSummary = null!;
     private Label _pathSummary = null!;
     private Label _loopError = null!;
+    private ScrollContainer _inspectorScroll = null!;
+    private PanelContainer _loopCard = null!;
     private ScrollContainer _loopScroll = null!;
     private VBoxContainer _loopRows = null!;
     private Label _inspectorTitle = null!;
@@ -88,24 +90,27 @@ public partial class PlanningScreen : Control
         _map.StationSelected += OnSelectStation;
         mapCard.AddChild(_map);
 
-        var side = new ScrollContainer
+        _inspectorScroll = new ScrollContainer
         {
+            Name = "InspectorScroll",
             CustomMinimumSize = new Vector2(430, 0),
             SizeFlagsVertical = SizeFlags.ExpandFill
         };
-        body.AddChild(side);
+        body.AddChild(_inspectorScroll);
+        var side = _inspectorScroll;
         var sideBox = new VBoxContainer();
         sideBox.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         sideBox.AddThemeConstantOverride("separation", 8);
         side.AddChild(sideBox);
         BuildInspector(sideBox);
 
-        var loopCard = UiTheme.MakeCard();
-        loopCard.Name = "LoopCard";
-        loopCard.CustomMinimumSize = new Vector2(0, 176);
-        loopCard.SizeFlagsVertical = SizeFlags.ShrinkEnd;
-        loopCard.ClipContents = true;
-        root.AddChild(loopCard);
+        _loopCard = UiTheme.MakeCard();
+        _loopCard.Name = "LoopCard";
+        _loopCard.CustomMinimumSize = new Vector2(0, 176);
+        _loopCard.SizeFlagsVertical = SizeFlags.ShrinkEnd;
+        _loopCard.ClipContents = true;
+        root.AddChild(_loopCard);
+        var loopCard = _loopCard;
         var loopBox = new VBoxContainer();
         loopBox.AddThemeConstantOverride("separation", 6);
         loopCard.AddChild(loopBox);
@@ -133,7 +138,25 @@ public partial class PlanningScreen : Control
         _loopRows.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _loopScroll.AddChild(_loopRows);
 
+        ApplyViewportLayout();
         Refresh();
+    }
+
+    public void ApplyViewportLayout()
+    {
+        if (_loopCard is null || _loopScroll is null || _map is null || _inspectorScroll is null)
+        {
+            return;
+        }
+
+        var size = GetViewport().GetVisibleRect().Size;
+        var tall = size.Y >= 1000;
+        _map.CustomMinimumSize = new Vector2(520, tall ? 480 : 300);
+        _inspectorScroll.CustomMinimumSize = new Vector2(tall ? 520 : 430, 0);
+        _loopCard.CustomMinimumSize = new Vector2(0, tall ? 300 : 176);
+        _loopCard.SizeFlagsVertical = tall ? SizeFlags.ExpandFill : SizeFlags.ShrinkEnd;
+        _loopScroll.CustomMinimumSize = new Vector2(0, tall ? 200 : 80);
+        _loopScroll.SizeFlagsVertical = tall ? SizeFlags.ExpandFill : SizeFlags.Fill;
     }
 
     public void Refresh()
@@ -143,6 +166,7 @@ public partial class PlanningScreen : Control
             return;
         }
 
+        ApplyViewportLayout();
         var state = _session.State;
         var occupancy = state.Plan.BuyTargetOccupancy;
         var ticksText = _session.Engine.TryDescribeLoop(state.Plan, out var geometry, out _)
@@ -481,7 +505,7 @@ public partial class PlanningScreen : Control
         foreach (var child in _loopRows.GetChildren())
         {
             _loopRows.RemoveChild(child);
-            child.Free();
+            child.QueueFree();
         }
 
         for (var i = 0; i < _session.Plan.Stops.Count; i++)
@@ -546,7 +570,7 @@ public partial class PlanningScreen : Control
         foreach (var child in _ruleRows.GetChildren())
         {
             _ruleRows.RemoveChild(child);
-            child.Free();
+            child.QueueFree();
         }
 
         var rules = _session.Plan.RulesAt(station.Id);

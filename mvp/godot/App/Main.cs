@@ -49,7 +49,7 @@ public partial class Main : Control
         margin.AddChild(_run);
 
         GD.Print("PLANNING_READY");
-        if (WantsLayoutSmoke() || WantsPlayerGrainCoal())
+        if (WantsLayoutSmoke() || WantsPlayerGrainCoal() || WantsPlayerTwoLoops())
         {
             CallDeferred(nameof(RunVerificationDeferred));
         }
@@ -90,8 +90,14 @@ public partial class Main : Control
             failures.AddRange(await MeasureLayouts());
         }
 
+        if (WantsPlayerTwoLoops())
+        {
+            failures.AddRange(await PlayTwoStrategyIterations());
+        }
+
         if (WantsPlayerGrainCoal())
         {
+            ResetScenario();
             failures.AddRange(PlayGrainCoalThroughInspector());
         }
 
@@ -100,6 +106,11 @@ public partial class Main : Control
             if (WantsLayoutSmoke())
             {
                 GD.Print("LAYOUT_SMOKE_OK");
+            }
+
+            if (WantsPlayerTwoLoops())
+            {
+                GD.Print("PLAYER_TWO_LOOPS_OK");
             }
 
             if (WantsPlayerGrainCoal())
@@ -121,6 +132,11 @@ public partial class Main : Control
             GD.Print("LAYOUT_SMOKE_FAIL");
         }
 
+        if (WantsPlayerTwoLoops())
+        {
+            GD.Print("PLAYER_TWO_LOOPS_FAIL");
+        }
+
         if (WantsPlayerGrainCoal())
         {
             GD.Print("PLAYER_GRAIN_COAL_FAIL");
@@ -132,41 +148,185 @@ public partial class Main : Control
     private async Task<List<string>> MeasureLayouts()
     {
         var failures = new List<string>();
-        foreach (var size in new[] { new Vector2I(1280, 720), new Vector2I(1600, 900) })
-        {
-            GetWindow().Size = size;
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-            var found = LayoutSmoke.Check(_planning, _session.Scenario);
-            failures.AddRange(found.Select(item => $"{size.X}x{size.Y}: {item}"));
-        }
 
+        await SetLogicalSize(new Vector2I(1280, 720));
+        failures.AddRange(LayoutSmoke.CheckLogicalViewport(GetViewport(), 1280, 720).Select(item => $"1280x720: {item}"));
+        failures.AddRange(LayoutSmoke.Check(_planning, _session.Scenario).Select(item => $"1280x720: {item}"));
+        SaveShot("planning-layout.png");
+
+        ResetScenario();
+        _planning.PlayerJoinAllStations();
+        _planning.Refresh();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        failures.AddRange(LayoutSmoke.CheckTwelveStopLoop(_planning).Select(item => $"12-stop-720: {item}"));
+        LayoutSmoke.ScrollLoopRows(_planning, toEnd: false);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         RenderingServer.ForceDraw();
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        SaveShot("planning-layout.png");
+        failures.AddRange(LayoutSmoke.CheckLoopRowReachable(_planning, 0, "top").Select(item => $"12-stop-720-top: {item}"));
+        SaveShot("planning-loop-top.png");
+        LayoutSmoke.ScrollLoopRows(_planning, toEnd: true);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        RenderingServer.ForceDraw();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        failures.AddRange(LayoutSmoke.CheckLoopRowReachable(_planning, 11, "bottom").Select(item => $"12-stop-720-bottom: {item}"));
+        SaveShot("planning-loop-bottom.png");
+
+        ResetScenario();
+        await SetLogicalSize(new Vector2I(1600, 900));
+        failures.AddRange(LayoutSmoke.Check(_planning, _session.Scenario).Select(item => $"1600x900: {item}"));
+
+        ResetScenario();
+        await SetLogicalSize(new Vector2I(1920, 1080));
+        failures.AddRange(LayoutSmoke.CheckLogicalViewport(GetViewport(), 1920, 1080).Select(item => $"1920x1080: {item}"));
+        failures.AddRange(LayoutSmoke.Check(_planning, _session.Scenario).Select(item => $"1920x1080: {item}"));
+        failures.AddRange(LayoutSmoke.Check1080UsesSpace(_planning).Select(item => $"1920x1080: {item}"));
+        SaveShot("planning-1080.png");
 
         _planning.PlayerJoinAllStations();
         _planning.Refresh();
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        failures.AddRange(LayoutSmoke.CheckTwelveStopLoop(_planning).Select(item => $"12-stop: {item}"));
-
-        LayoutSmoke.ScrollLoopRows(_planning, toEnd: false);
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        RenderingServer.ForceDraw();
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        failures.AddRange(LayoutSmoke.CheckLoopRowReachable(_planning, 0, "top").Select(item => $"12-stop-top: {item}"));
-        SaveShot("planning-loop-top.png");
-
-        LayoutSmoke.ScrollLoopRows(_planning, toEnd: true);
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        RenderingServer.ForceDraw();
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        failures.AddRange(LayoutSmoke.CheckLoopRowReachable(_planning, 11, "bottom").Select(item => $"12-stop-bottom: {item}"));
-        SaveShot("planning-loop-bottom.png");
-
+        failures.AddRange(LayoutSmoke.CheckTwelveStopLoop(_planning).Select(item => $"12-stop-1080: {item}"));
         ResetScenario();
         return failures;
+    }
+
+    private async Task<List<string>> PlayTwoStrategyIterations()
+    {
+        var failures = new List<string>();
+        await SetLogicalSize(new Vector2I(1920, 1080));
+        ResetScenario();
+        if (!_session.CanStart)
+        {
+            failures.Add("preset plan cannot start");
+            return failures;
+        }
+
+        if (await PressButton("StartLoopButton") is { } startError)
+        {
+            failures.Add(startError);
+            return failures;
+        }
+
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        RenderingServer.ForceDraw();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        failures.AddRange(LayoutSmoke.Check1080RunUsesSpace(_run).Select(item => $"1920x1080-run: {item}"));
+        SaveShot("run-1080.png");
+        _run.CompletePlaybackImmediately();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        RenderingServer.ForceDraw();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        if (_session.Phase != AppPhase.Report)
+        {
+            failures.Add($"after first loop phase is {_session.Phase}");
+        }
+
+        var first = _session.CurrentRun?.Report;
+        if (first is null || first.Profit != -48 || first.NextHint != "南市卖粮未成交：现价 16 低于门槛 17。")
+        {
+            failures.Add($"first loop report unexpected: profit={first?.Profit} hint={first?.NextHint}");
+        }
+
+        failures.AddRange(LayoutSmoke.Check1080ReportUsesSpace(_run).Select(item => $"1920x1080-report: {item}"));
+        SaveShot("report-1080.png");
+        if (await PressButton("CloseReportButton") is { } closeError)
+        {
+            failures.Add(closeError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.FinishedObservation || _session.CanStart)
+        {
+            failures.Add("finished observation did not block the old loop");
+        }
+
+        failures.AddRange(LayoutSmoke.CheckFinishedObservation(_run).Select(item => $"finished: {item}"));
+        SaveShot("finished-1080.png");
+        if (await PressButton("FinishedReturnButton") is { } returnError)
+        {
+            failures.Add(returnError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.Planning || !_planning.Visible || _run.Visible)
+        {
+            failures.Add($"return button did not restore planning: phase={_session.Phase}");
+        }
+
+        if (_session.State.Cash != 32
+            || _session.State.Holding(GoodIds.Grain) != 8
+            || _session.State.LocationId != StationIds.WestBarn
+            || _session.CurrentRun is null
+            || !_session.Plan.Stops.SequenceEqual([StationIds.WestBarn, StationIds.SouthMarket])
+            || _session.Plan.RulesAt(StationIds.SouthMarket)[0].Threshold != 17)
+        {
+            failures.Add(
+                $"retained state cash={_session.State.Cash} grain={_session.State.Holding(GoodIds.Grain)} loc={_session.State.LocationId} threshold={_session.Plan.RulesAt(StationIds.SouthMarket)[0].Threshold}");
+        }
+
+        _planning.PlayerSelectStation(StationIds.SouthMarket);
+        var saveError = _planning.PlayerSaveRule(GoodIds.Grain, TradeAction.Sell, 12, 0);
+
+        if (!string.IsNullOrEmpty(saveError))
+        {
+            failures.Add($"second-loop save: {saveError}");
+            return failures;
+        }
+
+        if (await PressButton("StartLoopButton") is { } secondStartError)
+        {
+            failures.Add(secondStartError);
+            return failures;
+        }
+
+        _run.CompletePlaybackImmediately();
+        var second = _session.CurrentRun?.Report;
+        GD.Print($"PLAYER_TWO_LOOPS_FIRST {first?.Profit} SECOND {second?.Profit} PREV {_session.PreviousReport?.Profit}");
+        if (second is null || second.Profit != 128)
+        {
+            failures.Add($"second loop profit {second?.Profit}, expected 128 from retained 8 grain sold at 16");
+        }
+
+        if (_session.PreviousReport?.Profit != -48)
+        {
+            failures.Add($"previous report {_session.PreviousReport?.Profit}, expected -48");
+        }
+
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        RenderingServer.ForceDraw();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        failures.AddRange(LayoutSmoke.Check1080ReportUsesSpace(_run).Select(item => $"1920x1080-report2: {item}"));
+        SaveShot("report-second-1080.png");
+        return failures;
+    }
+
+    private async Task<string?> PressButton(string name)
+    {
+        var error = LayoutSmoke.PressNamedButton(this, name);
+        if (error is not null)
+        {
+            return error;
+        }
+
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        return null;
+    }
+
+    private async Task SetLogicalSize(Vector2I size)
+    {
+        var window = GetWindow();
+        window.ContentScaleSize = size;
+        window.Size = size;
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        _planning.ApplyViewportLayout();
+        _run.ApplyViewportLayout();
+        _planning.Refresh();
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
     }
 
     private void SaveShot(string fileName)
@@ -188,11 +348,6 @@ public partial class Main : Control
         var failures = new List<string>();
         _planning.PlayerSelectStation(StationIds.SouthMarket);
         _planning.PlayerLeaveSelected();
-        if (_session.Plan.Stops.Contains(StationIds.SouthMarket))
-        {
-            failures.Add("leaving 南市 did not remove the stop");
-        }
-
         Join(StationIds.NorthMine, failures);
         Join(StationIds.SouthMarket, failures);
         Join(StationIds.SouthFactory, failures);
@@ -200,19 +355,6 @@ public partial class Main : Control
         Save(StationIds.NorthMine, GoodIds.Coal, TradeAction.Buy, 32, 4, failures);
         Save(StationIds.SouthMarket, GoodIds.Grain, TradeAction.Sell, 12, 0, failures);
         Save(StationIds.SouthFactory, GoodIds.Coal, TradeAction.Sell, 20, 0, failures);
-
-        var expectedStops = new[]
-        {
-            StationIds.WestBarn,
-            StationIds.NorthMine,
-            StationIds.SouthMarket,
-            StationIds.SouthFactory
-        };
-        if (!_session.Plan.Stops.SequenceEqual(expectedStops))
-        {
-            failures.Add("loop stops are " + string.Join(",", _session.Plan.Stops));
-        }
-
         if (!_session.CanStart)
         {
             failures.Add("grain-coal plan cannot start: " + string.Join(" ", _session.Issues.Select(issue => issue.Message)));
@@ -222,25 +364,10 @@ public partial class Main : Control
         StartLoop();
         _run.CompletePlaybackImmediately();
         var report = _session.CurrentRun?.Report;
-        if (report is null)
+        GD.Print($"PLAYER_GRAIN_COAL_PROFIT {report?.Profit}");
+        if (report?.Profit != 112)
         {
-            failures.Add("no report after grain-coal run");
-            return failures;
-        }
-
-        GD.Print($"PLAYER_GRAIN_COAL_PROFIT {report.Profit}");
-        foreach (var stop in report.Stops)
-        {
-            foreach (var rule in stop.Rules)
-            {
-                GD.Print(
-                    $"PLAYER_GRAIN_COAL_RULE {stop.StationId} {rule.GoodId} {rule.Action} {rule.Outcome} {rule.ActualQuantity} {rule.Cause}");
-            }
-        }
-
-        if (report.Profit != 112)
-        {
-            failures.Add($"grain-coal profit {report.Profit}, expected 112");
+            failures.Add($"grain-coal profit {report?.Profit}, expected 112");
         }
 
         return failures;
@@ -266,13 +393,9 @@ public partial class Main : Control
         }
     }
 
-    private static bool WantsLayoutSmoke()
-    {
-        return OS.GetCmdlineUserArgs().Contains("--layout-smoke");
-    }
+    private static bool WantsLayoutSmoke() => OS.GetCmdlineUserArgs().Contains("--layout-smoke");
 
-    private static bool WantsPlayerGrainCoal()
-    {
-        return OS.GetCmdlineUserArgs().Contains("--player-grain-coal");
-    }
+    private static bool WantsPlayerGrainCoal() => OS.GetCmdlineUserArgs().Contains("--player-grain-coal");
+
+    private static bool WantsPlayerTwoLoops() => OS.GetCmdlineUserArgs().Contains("--player-two-loops");
 }

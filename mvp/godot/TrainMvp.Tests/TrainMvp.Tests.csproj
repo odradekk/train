@@ -16,5 +16,6 @@
     <Compile Include="..\Domain\*.cs" Link="Domain\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Scenario\*.cs" Link="Domain\Scenario\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Definitions\*.cs" Link="Domain\Definitions\%(Filename)%(Extension)" />
+    <Compile Include="..\App\GameSession.cs" Link="App\GameSession.cs" />
   </ItemGroup>
 </Project>
