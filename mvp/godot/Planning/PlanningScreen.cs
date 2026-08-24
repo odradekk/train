@@ -87,21 +87,24 @@ public partial class PlanningScreen : Control
         ruleBox.AddChild(UiTheme.MakeLabel("西仓：粮价 ≤ 18，买入到目标 8（预置，本切片不可改环线）。"));
         ruleBox.AddChild(UiTheme.MakeLabel("南市：粮价 ≥ 门槛，卖出到目标 0。把门槛改成不高于现价后即可成交。"));
 
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 8);
-        ruleBox.AddChild(row);
-        row.AddChild(UiTheme.MakeLabel("将要保存的门槛"));
+        var thresholdForm = new VBoxContainer();
+        thresholdForm.AddThemeConstantOverride("separation", 4);
+        ruleBox.AddChild(thresholdForm);
+        var thresholdLabel = UiTheme.MakeLabel("将要保存的门槛");
+        thresholdLabel.AutowrapMode = TextServer.AutowrapMode.Off;
+        thresholdForm.AddChild(thresholdLabel);
         _threshold = new SpinBox
         {
             MinValue = 1,
             MaxValue = 99,
             Step = 1,
             Rounded = true,
-            UpdateOnTextChanged = true
+            UpdateOnTextChanged = true,
+            CustomMinimumSize = new Vector2(180, 0),
+            SizeFlagsHorizontal = SizeFlags.ShrinkBegin
         };
         _threshold.ValueChanged += OnThresholdChanged;
-        row.AddChild(_threshold);
-
+        thresholdForm.AddChild(_threshold);
         _rulePreview = UiTheme.MakeLabel("");
         ruleBox.AddChild(_rulePreview);
         _priceHint = UiTheme.MakeLabel("");
@@ -153,14 +156,24 @@ public partial class PlanningScreen : Control
 
     private Control BuildMap()
     {
-        var grid = new GridContainer { Columns = 3 };
+        var grid = new GridContainer
+        {
+            Columns = 3,
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+            SizeFlagsVertical = SizeFlags.ExpandFill
+        };
         grid.AddThemeConstantOverride("h_separation", 8);
         grid.AddThemeConstantOverride("v_separation", 8);
         foreach (var station in _session.Scenario.Stations.Values.OrderBy(item => item.GridY).ThenBy(item => item.GridX))
         {
             var isStop = _session.State.Plan.Stops.Contains(station.Id);
             var isHub = station.Id == StationIds.Hub;
-            var panel = new PanelContainer();
+            var panel = new PanelContainer
+            {
+                CustomMinimumSize = new Vector2(150, 82),
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,
+                SizeFlagsVertical = SizeFlags.ExpandFill
+            };
             var style = new StyleBoxFlat
             {
                 BgColor = isStop
