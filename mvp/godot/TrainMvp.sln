@@ -1,0 +1,38 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrainMvp", "TrainMvp.csproj", "{F3A5B438-43E8-43ED-A492-E93D96B415B5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TrainMvp.Tests", "TrainMvp.Tests\TrainMvp.Tests.csproj", "{2B88F487-CD4A-416E-9405-CD209CC59979}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		ExportDebug|Any CPU = ExportDebug|Any CPU
+		ExportRelease|Any CPU = ExportRelease|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.ExportDebug|Any CPU.ActiveCfg = ExportDebug|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.ExportDebug|Any CPU.Build.0 = ExportDebug|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.ExportRelease|Any CPU.ActiveCfg = ExportRelease|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.ExportRelease|Any CPU.Build.0 = ExportRelease|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.Release|Any CPU.ActiveCfg = ExportRelease|Any CPU
+		{F3A5B438-43E8-43ED-A492-E93D96B415B5}.Release|Any CPU.Build.0 = ExportRelease|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.ExportDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.ExportRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.ExportRelease|Any CPU.Build.0 = Release|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2B88F487-CD4A-416E-9405-CD209CC59979}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

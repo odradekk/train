@@ -1,1 +1,7 @@
 /.pi/
+
+.godot/
+bin/
+obj/
+builds/
+*.user
