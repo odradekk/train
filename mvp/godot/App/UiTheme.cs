@@ -22,12 +22,12 @@ public static class UiTheme
         return theme;
     }
 
-    public static Label MakeLabel(string text, int size = 16, bool bold = false)
+    public static Label MakeLabel(string text, int size = 16, bool bold = false, bool wrap = true)
     {
         var label = new Label
         {
             Text = text,
-            AutowrapMode = TextServer.AutowrapMode.WordSmart
+            AutowrapMode = wrap ? TextServer.AutowrapMode.WordSmart : TextServer.AutowrapMode.Off
         };
         label.AddThemeFontSizeOverride("font_size", size);
         label.AddThemeColorOverride("font_color", Ink);
@@ -41,7 +41,13 @@ public static class UiTheme
 
     public static Button MakeButton(string text, bool primary = true)
     {
-        var button = new Button { Text = text };
+        var button = new Button
+        {
+            Text = text,
+            ClipText = false,
+            CustomMinimumSize = new Vector2(Math.Max(108, 18 + text.Length * 16), 36),
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin
+        };
         button.AddThemeFontSizeOverride("font_size", 16);
         var style = new StyleBoxFlat
         {

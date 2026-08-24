@@ -17,6 +17,13 @@ public sealed record TravelEvent(
 
 public sealed record TransitEvent(string StationId) : SimEvent;
 
+public sealed record RepositionEvent(
+    string FromStationId,
+    string ToStationId,
+    IReadOnlyList<string> Path,
+    int Ticks,
+    IReadOnlyList<string> Transits) : SimEvent;
+
 public sealed record ReturnArrivalEvent(string StationId) : SimEvent;
 
 public sealed record LoopFinishedEvent : SimEvent;

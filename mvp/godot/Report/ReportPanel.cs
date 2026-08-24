@@ -42,6 +42,12 @@ public partial class ReportPanel : Control
 
         _body.AddChild(UiTheme.MakeLabel("运行报告", 22, true));
         _body.AddChild(UiTheme.MakeLabel($"圈利润 {report.Profit}    资金 {report.CashBefore} → {report.CashAfter}    运行圈 {report.LoopTicks} 刻"));
+        if (report.RepositionTicks > 0)
+        {
+            var path = string.Join(" → ", report.RepositionPath.Select(id => scenario.StationName(id)));
+            _body.AddChild(UiTheme.MakeLabel(
+                $"调度空驶：{scenario.StationName(report.RepositionFromId ?? "")} → {scenario.StationName(report.RepositionToId ?? "")}，路径 {path}，调度 {report.RepositionTicks} 刻（不计圈利润）。"));
+        }
         _body.AddChild(UiTheme.MakeLabel(
             $"圈末 粮{report.CargoAfter[GoodIds.Grain]} 煤{report.CargoAfter[GoodIds.Coal]} 茶{report.CargoAfter[GoodIds.Tea]}    货舱 {report.CargoUsedAfter}/{report.Capacity}"));
 

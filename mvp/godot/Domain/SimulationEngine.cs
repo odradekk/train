@@ -100,6 +100,26 @@ public sealed class SimulationEngine
         return new ShortestPathResult(path, dist[toStationId]);
     }
 
+    public bool TryDescribeLoop(TradePlan plan, out LoopGeometry? geometry, out string? error)
+    {
+        geometry = null;
+        error = null;
+        if (plan.Stops.Count < 2)
+        {
+            error = "贸易环线至少需要 2 个交易停靠站。";
+            return false;
+        }
+
+        if (plan.Stops.Distinct(StringComparer.Ordinal).Count() != plan.Stops.Count)
+        {
+            error = "交易停靠站不能重复。";
+            return false;
+        }
+
+        geometry = DescribeLoop(plan);
+        return true;
+    }
+
     public LoopGeometry DescribeLoop(TradePlan plan)
     {
         if (plan.Stops.Count < 2)
@@ -135,9 +155,31 @@ public sealed class SimulationEngine
         var events = new List<SimEvent>();
         var stops = new List<StopResult>();
         var marketChanges = new List<MarketChange>();
-        var cashBefore = state.Cash;
 
+        string? repositionFrom = null;
+        string? repositionTo = null;
+        IReadOnlyList<string> repositionPath = [];
+        var repositionTicks = 0;
         var startId = state.Plan.Stops[0];
+        if (state.LocationId != startId)
+        {
+            var hop = FindPath(state.LocationId, startId);
+            repositionFrom = state.LocationId;
+            repositionTo = startId;
+            repositionPath = hop.Path;
+            repositionTicks = hop.Ticks;
+            RestoreMarkets(state, hop.Ticks);
+            var transits = hop.Path.Skip(1).Take(Math.Max(0, hop.Path.Count - 2)).ToArray();
+            events.Add(new RepositionEvent(state.LocationId, startId, hop.Path, hop.Ticks, transits));
+            foreach (var transit in transits)
+            {
+                events.Add(new TransitEvent(transit));
+            }
+
+            state.LocationId = startId;
+        }
+
+        var cashBefore = state.Cash;
         var startTrade = ExecuteStop(state, startId, 0, [startId], marketChanges);
         stops.Add(startTrade);
         events.Add(new TradeEvent(startId, startTrade.Rules, IsLoopStart: true));
@@ -189,7 +231,11 @@ public sealed class SimulationEngine
             Stops = stops,
             MarketChanges = marketChanges,
             NextHint = RunReport.BuildNextHint(_scenario, stops),
-            SoldQuantity = sold
+            SoldQuantity = sold,
+            RepositionTicks = repositionTicks,
+            RepositionFromId = repositionFrom,
+            RepositionToId = repositionTo,
+            RepositionPath = repositionPath
         };
         return new LoopRunResult(state, report, events);
     }

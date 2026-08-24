@@ -59,6 +59,10 @@ public sealed class RunReport
     public required IReadOnlyList<MarketChange> MarketChanges { get; init; }
     public required string NextHint { get; init; }
     public required int SoldQuantity { get; init; }
+    public int RepositionTicks { get; init; }
+    public string? RepositionFromId { get; init; }
+    public string? RepositionToId { get; init; }
+    public IReadOnlyList<string> RepositionPath { get; init; } = [];
 
     public static string FormatCause(RuleFailureCause cause)
     {

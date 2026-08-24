@@ -17,6 +17,7 @@ public sealed class GameSession
         Scenario = scenario;
         State = engine.CreateInitialState();
         Phase = AppPhase.Planning;
+        SelectedStationId = StationIds.WestBarn;
     }
 
     public SimulationEngine Engine { get; }
@@ -25,40 +26,70 @@ public sealed class GameSession
     public AppPhase Phase { get; private set; }
     public LoopRunResult? CurrentRun { get; private set; }
     public RunReport? PreviousReport { get; private set; }
+    public string SelectedStationId { get; set; }
 
-    public int SouthMarketGrainThreshold
-    {
-        get
-        {
-            var rule = State.Plan.Rules.Single(
-                item => item.StationId == StationIds.SouthMarket && item.GoodId == GoodIds.Grain);
-            return rule.Threshold;
-        }
-    }
+    public TradePlan Plan => State.Plan;
+
+    public IReadOnlyList<PlanIssue> Issues => TradePlan.Validate(State.Plan, Scenario);
+
+    public bool CanStart => Phase == AppPhase.Planning && TradePlan.CanStart(State.Plan, Scenario);
 
     public void ResetScenario()
     {
         PreviousReport = null;
         CurrentRun = null;
         State = Engine.CreateInitialState();
+        SelectedStationId = StationIds.WestBarn;
         Phase = AppPhase.Planning;
     }
 
-    public void SetSouthMarketGrainThreshold(int threshold)
+    public void ReplacePlan(TradePlan plan)
     {
-        if (Phase != AppPhase.Planning)
-        {
-            throw new InvalidOperationException("The trade plan cannot change while a loop is running.");
-        }
+        EnsurePlanning();
+        State.Plan = plan;
+    }
 
-        State.Plan = State.Plan.WithThreshold(StationIds.SouthMarket, GoodIds.Grain, threshold);
+    public void AddStop(string stationId)
+    {
+        EnsurePlanning();
+        State.Plan = State.Plan.AddStop(stationId);
+    }
+
+    public void RemoveStop(string stationId)
+    {
+        EnsurePlanning();
+        State.Plan = State.Plan.RemoveStop(stationId);
+    }
+
+    public void MoveStop(int index, int delta)
+    {
+        EnsurePlanning();
+        State.Plan = State.Plan.MoveStop(index, delta);
+    }
+
+    public void SaveRule(TradeRule rule)
+    {
+        EnsurePlanning();
+        State.Plan = State.Plan.UpsertRule(rule);
+    }
+
+    public void RemoveRule(string stationId, string goodId)
+    {
+        EnsurePlanning();
+        State.Plan = State.Plan.RemoveRule(stationId, goodId);
+    }
+
+    public void MoveRule(string stationId, int index, int delta)
+    {
+        EnsurePlanning();
+        State.Plan = State.Plan.MoveRule(stationId, index, delta);
     }
 
     public LoopRunResult StartLoop()
     {
-        if (Phase != AppPhase.Planning)
+        if (!CanStart)
         {
-            throw new InvalidOperationException("A loop can start only from planning.");
+            throw new InvalidOperationException("The current trade plan cannot start.");
         }
 
         var result = Engine.RunLoop(State);
@@ -86,5 +117,13 @@ public sealed class GameSession
         }
 
         Phase = AppPhase.Planning;
+    }
+
+    private void EnsurePlanning()
+    {
+        if (Phase != AppPhase.Planning)
+        {
+            throw new InvalidOperationException("The trade plan cannot change while a loop is running.");
+        }
     }
 }

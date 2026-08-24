@@ -94,4 +94,26 @@ public sealed class ScenarioData
     {
         return Goods.TryGetValue(goodId, out var good) ? good.Name : goodId;
     }
+
+    public MarketSlot InitialMarket(string stationId, string goodId)
+    {
+        return InitialMarkets[new MarketKey(stationId, goodId)];
+    }
+
+    public bool HasSupply(string stationId, string goodId)
+    {
+        return InitialMarket(stationId, goodId).SupplyCap > 0;
+    }
+
+    public bool HasDemand(string stationId, string goodId)
+    {
+        return InitialMarket(stationId, goodId).DemandCap > 0;
+    }
+
+    public IReadOnlyList<string> TradableGoods(string stationId)
+    {
+        return Goods.Keys
+            .Where(goodId => HasSupply(stationId, goodId) || HasDemand(stationId, goodId))
+            .ToArray();
+    }
 }

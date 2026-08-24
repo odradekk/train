@@ -13,12 +13,15 @@ public partial class RunScreen : Control
     private Label _meters = null!;
     private Label _eventLine = null!;
     private Node3D _train = null!;
-    private readonly Dictionary<string, Vector3> _corridor = new()
-    {
-        [StationIds.WestBarn] = new Vector3(-6f, 0.25f, 0f),
-        [StationIds.Hub] = new Vector3(0f, 0.25f, 0f),
-        [StationIds.SouthMarket] = new Vector3(6f, 0.25f, 0f)
-    };
+    private readonly Vector3 _leftPos = new(-6f, 0.25f, 0f);
+    private readonly Vector3 _midPos = new(0f, 0.25f, 0f);
+    private readonly Vector3 _rightPos = new(6f, 0.25f, 0f);
+    private string _leftId = StationIds.WestBarn;
+    private string _midId = StationIds.Hub;
+    private string _rightId = StationIds.SouthMarket;
+    private Label3D _leftLabel = null!;
+    private Label3D _midLabel = null!;
+    private Label3D _rightLabel = null!;
 
     private readonly List<VisualStep> _steps = [];
     private int _stepIndex;
@@ -96,9 +99,20 @@ public partial class RunScreen : Control
         _moving = false;
         _report.Visible = false;
         _status.Text = "运行中";
-        PlaceTrain(StationIds.WestBarn);
+        PlaceTrain(_session.State.LocationId);
         RefreshMeters();
         AdvanceStep();
+    }
+
+    public void CompletePlaybackImmediately()
+    {
+        if (_session.CurrentRun is null)
+        {
+            return;
+        }
+
+        _displayState = _session.CurrentRun.StateAfter.Clone();
+        FinishPlayback();
     }
 
     public override void _Process(double delta)
@@ -141,6 +155,12 @@ public partial class RunScreen : Control
         {
             switch (item)
             {
+                case RepositionEvent reposition:
+                    AddTravelSteps(
+                        reposition.Path,
+                        "调度空驶",
+                        toId => $"调度前往{_session.Scenario.StationName(toId)}，不交易。");
+                    break;
                 case TradeEvent trade:
                     _steps.Add(new VisualStep(0.7f, false, Vector3.Zero, Vector3.Zero, () =>
                     {
@@ -151,20 +171,12 @@ public partial class RunScreen : Control
                     }));
                     break;
                 case TravelEvent travel:
-                    for (var i = 0; i < travel.Path.Count - 1; i++)
-                    {
-                        var fromId = travel.Path[i];
-                        var toId = travel.Path[i + 1];
-                        var viaHub = toId == StationIds.Hub;
-                        _steps.Add(new VisualStep(0.85f, true, PositionOf(fromId), PositionOf(toId), () =>
-                        {
-                            _status.Text = travel.IsReturn ? "返回起点" : "行驶中";
-                            _eventLine.Text = viaHub
-                                ? $"中转经过{_session.Scenario.StationName(StationIds.Hub)}，不交易。"
-                                : $"驶向{_session.Scenario.StationName(toId)}";
-                        }));
-                    }
-
+                    AddTravelSteps(
+                        travel.Path,
+                        travel.IsReturn ? "返回起点" : "行驶中",
+                        toId => travel.Transits.Contains(toId)
+                            ? $"中转经过{_session.Scenario.StationName(toId)}，不交易。"
+                            : $"驶向{_session.Scenario.StationName(toId)}");
                     break;
                 case ReturnArrivalEvent:
                     _steps.Add(new VisualStep(0.4f, false, Vector3.Zero, Vector3.Zero, () =>
@@ -174,6 +186,39 @@ public partial class RunScreen : Control
                     }));
                     break;
             }
+        }
+    }
+
+    private void AddTravelSteps(IReadOnlyList<string> path, string status, Func<string, string> describe)
+    {
+        ShowPath(path);
+        for (var i = 0; i < path.Count - 1; i++)
+        {
+            var fromId = path[i];
+            var toId = path[i + 1];
+            _steps.Add(new VisualStep(0.85f, true, PositionOf(fromId), PositionOf(toId), () =>
+            {
+                _status.Text = status;
+                _eventLine.Text = describe(toId);
+            }));
+        }
+    }
+
+    private void ShowPath(IReadOnlyList<string> path)
+    {
+        if (path.Count == 0)
+        {
+            return;
+        }
+
+        _leftId = path[0];
+        _rightId = path[^1];
+        _midId = path.Count >= 3 ? path[1] : StationIds.Hub;
+        if (_leftLabel is not null)
+        {
+            _leftLabel.Text = _session.Scenario.StationName(_leftId);
+            _midLabel.Text = path.Count >= 3 ? _session.Scenario.StationName(_midId) : "途经";
+            _rightLabel.Text = _session.Scenario.StationName(_rightId);
         }
     }
 
@@ -260,7 +305,17 @@ public partial class RunScreen : Control
 
     private Vector3 PositionOf(string stationId)
     {
-        return _corridor.TryGetValue(stationId, out var position) ? position : Vector3.Zero;
+        if (stationId == _leftId)
+        {
+            return _leftPos;
+        }
+
+        if (stationId == _rightId)
+        {
+            return _rightPos;
+        }
+
+        return _midPos;
     }
 
     private Node3D BuildWorld()
@@ -281,9 +336,15 @@ public partial class RunScreen : Control
 
         root.AddChild(MakeBox(new Vector3(0f, -0.2f, 0f), new Vector3(16f, 0.2f, 6f), new Color(0.36f, 0.48f, 0.24f)));
         root.AddChild(MakeBox(new Vector3(0f, 0.02f, 0f), new Vector3(14f, 0.06f, 0.45f), new Color(0.22f, 0.22f, 0.22f)));
-        root.AddChild(MakeLabeledStation(StationIds.WestBarn, "西仓"));
-        root.AddChild(MakeLabeledStation(StationIds.Hub, "中枢"));
-        root.AddChild(MakeLabeledStation(StationIds.SouthMarket, "南市"));
+        var left = MakeLabeledStation(_leftPos, "西仓");
+        _leftLabel = left.Label;
+        root.AddChild(left.Node);
+        var mid = MakeLabeledStation(_midPos, "中枢");
+        _midLabel = mid.Label;
+        root.AddChild(mid.Node);
+        var right = MakeLabeledStation(_rightPos, "南市");
+        _rightLabel = right.Label;
+        root.AddChild(right.Node);
 
         _train = MakeBox(PositionOf(StationIds.WestBarn), new Vector3(0.7f, 0.45f, 0.45f), new Color(0.55f, 0.22f, 0.12f));
         root.AddChild(_train);
@@ -303,9 +364,9 @@ public partial class RunScreen : Control
         return instance;
     }
 
-    private Node3D MakeLabeledStation(string stationId, string name)
+    private (Node3D Node, Label3D Label) MakeLabeledStation(Vector3 position, string name)
     {
-        var node = new Node3D { Position = PositionOf(stationId) };
+        var node = new Node3D { Position = position };
         node.AddChild(MakeBox(new Vector3(0f, 0.15f, 0f), new Vector3(0.9f, 0.7f, 0.9f), new Color(0.8f, 0.71f, 0.54f)));
         var font = new SystemFont();
         font.FontNames = ["Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI"];
@@ -318,7 +379,7 @@ public partial class RunScreen : Control
             Modulate = Colors.White
         };
         node.AddChild(label);
-        return node;
+        return (node, label);
     }
 
     private sealed record VisualStep(
