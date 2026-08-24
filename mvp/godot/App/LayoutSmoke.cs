@@ -60,6 +60,64 @@ public static class LayoutSmoke
         return failures;
     }
 
+    public static List<string> Check1080RunSplit(Control run)
+    {
+        var failures = new List<string>();
+        failures.AddRange(Check1080RunUsesSpace(run));
+        if (run.FindChild("RunWorldHost", true, false) is not Control world)
+        {
+            failures.Add("RunWorldHost missing");
+            return failures;
+        }
+
+        GD.Print($"LAYOUT_SMOKE_1080_RUN_WORLD {world.Size.X:0}x{world.Size.Y:0}");
+        if (world.Size.X + 0.5f < 700 || world.Size.Y + 0.5f < 500)
+        {
+            failures.Add($"1080p 3D viewport {world.Size} is too small for a half-screen view");
+        }
+
+        if (run.FindChild("RunSplit", true, false) is HSplitContainer split)
+        {
+            var offsets = split.SplitOffsets;
+            var offset = offsets.Length > 0 ? offsets[0] : 0;
+            GD.Print($"LAYOUT_SMOKE_1080_SPLIT_OFFSET {offset}");
+            if (Math.Abs(offset) > 40)
+            {
+                failures.Add($"1080p SplitOffsets {offset} is not a balanced default");
+            }
+        }
+
+        return failures;
+    }
+
+    public static List<string> Check720RunControls(Control run)
+    {
+        var failures = new List<string>();
+        if (run.FindChild("RunWorldHost", true, false) is Control world
+            && (world.Size.X + 0.5f < 300 || world.Size.Y + 0.5f < 200))
+        {
+            failures.Add($"720p 3D viewport {world.Size} is unusable");
+        }
+
+        Require(run, "PauseButton", 108, 32, failures, horizontal: true);
+        Require(run, "Speed1Button", 108, 32, failures, horizontal: true);
+        Require(run, "Speed4Button", 108, 32, failures, horizontal: true);
+        Require(run, "Speed16Button", 108, 32, failures, horizontal: true);
+        Require(run, "SkipStopButton", 108, 32, failures, horizontal: true);
+        Require(run, "FastCompleteButton", 108, 32, failures, horizontal: true);
+        Require(run, "ResetButton", 108, 32, failures, horizontal: true);
+        Require(run, "LocationLabel", 80, 16, failures);
+        Require(run, "NextStopLabel", 80, 16, failures);
+        Require(run, "ProgressLabel", 80, 16, failures);
+        Require(run, "SpeedStateLabel", 40, 16, failures);
+        Require(run, "CashLabel", 40, 16, failures);
+        Require(run, "CargoLabel", 80, 16, failures);
+        Require(run, "StationProgressLabel", 80, 16, failures);
+        Require(run, "LastEventLabel", 80, 16, failures);
+        Require(run, "CurrentRuleLabel", 80, 16, failures);
+        return failures;
+    }
+
     public static List<string> Check1080ReportUsesSpace(Control run)
     {
         var failures = new List<string>();
@@ -76,7 +134,7 @@ public static class LayoutSmoke
             failures.Add("ReportPanel is hidden at 1080p report");
         }
 
-        if (report.Size.X + 0.5f < 500 || report.Size.Y + 0.5f < 240)
+        if (report.Size.X + 0.5f < 500 || report.Size.Y + 0.5f < 480)
         {
             failures.Add($"1080p ReportPanel {report.Size} is too small to read");
         }
@@ -114,14 +172,10 @@ public static class LayoutSmoke
 
     public static string? PressNamedButton(Node root, string name)
     {
-        if (root.FindChild(name, true, false) is not BaseButton button)
+        var button = FindVisibleButton(root, name);
+        if (button is null)
         {
-            return $"{name} missing";
-        }
-
-        if (!button.Visible || !button.IsVisibleInTree())
-        {
-            return $"{name} is not visible";
+            return $"{name} missing or hidden";
         }
 
         if (button.Disabled)
@@ -130,6 +184,25 @@ public static class LayoutSmoke
         }
 
         button.EmitSignal(BaseButton.SignalName.Pressed);
+        return null;
+    }
+
+    private static BaseButton? FindVisibleButton(Node root, string name)
+    {
+        if (root is BaseButton self && self.Name == name && self.Visible && self.IsVisibleInTree())
+        {
+            return self;
+        }
+
+        foreach (var child in root.GetChildren())
+        {
+            var found = FindVisibleButton(child, name);
+            if (found is not null)
+            {
+                return found;
+            }
+        }
+
         return null;
     }
 

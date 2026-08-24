@@ -46,10 +46,12 @@ public partial class Main : Control
         _run.Bind(_session);
         _run.Visible = false;
         _run.ReturnToPlanningRequested += ReturnToPlanning;
+        _run.ResetRequested += ResetScenario;
         margin.AddChild(_run);
 
         GD.Print("PLANNING_READY");
-        if (WantsLayoutSmoke() || WantsPlayerGrainCoal() || WantsPlayerTwoLoops())
+        if (WantsLayoutSmoke() || WantsPlayerGrainCoal() || WantsPlayerTwoLoops() || WantsPlayerRunControls()
+            || WantsPlayerLocationTimeline() || WantsPlayerRepositionControls())
         {
             CallDeferred(nameof(RunVerificationDeferred));
         }
@@ -81,45 +83,54 @@ public partial class Main : Control
 
     private async void RunVerificationDeferred()
     {
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-
         var failures = new List<string>();
-        if (WantsLayoutSmoke())
+        try
         {
-            failures.AddRange(await MeasureLayouts());
-        }
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
-        if (WantsPlayerTwoLoops())
-        {
-            failures.AddRange(await PlayTwoStrategyIterations());
-        }
-
-        if (WantsPlayerGrainCoal())
-        {
-            ResetScenario();
-            failures.AddRange(PlayGrainCoalThroughInspector());
-        }
-
-        if (failures.Count == 0)
-        {
             if (WantsLayoutSmoke())
             {
-                GD.Print("LAYOUT_SMOKE_OK");
+                failures.AddRange(await MeasureLayouts());
             }
 
             if (WantsPlayerTwoLoops())
             {
-                GD.Print("PLAYER_TWO_LOOPS_OK");
+                failures.AddRange(await PlayTwoStrategyIterations());
             }
 
             if (WantsPlayerGrainCoal())
             {
-                GD.Print("PLAYER_GRAIN_COAL_OK");
+                ResetScenario();
+                failures.AddRange(await PlayGrainCoalThroughInspector());
             }
 
-            GetTree().Quit(0);
-            return;
+            if (WantsPlayerRunControls())
+            {
+                failures.AddRange(await PlayRunControls());
+            }
+
+            if (WantsPlayerLocationTimeline())
+            {
+                failures.AddRange(await PlayLocationTimeline());
+            }
+
+            if (WantsPlayerRepositionControls())
+            {
+                failures.AddRange(await PlayRepositionControls());
+            }
+
+            if (failures.Count == 0)
+            {
+                PrintOkFlags();
+                GetTree().Quit(0);
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            GD.PrintErr(exception.ToString());
+            failures.Add(exception.Message);
         }
 
         foreach (var failure in failures)
@@ -127,6 +138,45 @@ public partial class Main : Control
             GD.PrintErr(failure);
         }
 
+        PrintFailFlags();
+        GetTree().Quit(1);
+    }
+
+    private static void PrintOkFlags()
+    {
+        if (WantsLayoutSmoke())
+        {
+            GD.Print("LAYOUT_SMOKE_OK");
+        }
+
+        if (WantsPlayerTwoLoops())
+        {
+            GD.Print("PLAYER_TWO_LOOPS_OK");
+        }
+
+        if (WantsPlayerGrainCoal())
+        {
+            GD.Print("PLAYER_GRAIN_COAL_OK");
+        }
+
+        if (WantsPlayerRunControls())
+        {
+            GD.Print("PLAYER_RUN_CONTROLS_OK");
+        }
+
+        if (WantsPlayerLocationTimeline())
+        {
+            GD.Print("PLAYER_LOCATION_TIMELINE_OK");
+        }
+
+        if (WantsPlayerRepositionControls())
+        {
+            GD.Print("PLAYER_REPOSITION_CONTROLS_OK");
+        }
+    }
+
+    private static void PrintFailFlags()
+    {
         if (WantsLayoutSmoke())
         {
             GD.Print("LAYOUT_SMOKE_FAIL");
@@ -142,7 +192,20 @@ public partial class Main : Control
             GD.Print("PLAYER_GRAIN_COAL_FAIL");
         }
 
-        GetTree().Quit(1);
+        if (WantsPlayerRunControls())
+        {
+            GD.Print("PLAYER_RUN_CONTROLS_FAIL");
+        }
+
+        if (WantsPlayerLocationTimeline())
+        {
+            GD.Print("PLAYER_LOCATION_TIMELINE_FAIL");
+        }
+
+        if (WantsPlayerRepositionControls())
+        {
+            GD.Print("PLAYER_REPOSITION_CONTROLS_FAIL");
+        }
     }
 
     private async Task<List<string>> MeasureLayouts()
@@ -174,6 +237,18 @@ public partial class Main : Control
         SaveShot("planning-loop-bottom.png");
 
         ResetScenario();
+        if (_session.CanStart)
+        {
+            StartLoop();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            RenderingServer.ForceDraw();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            failures.AddRange(LayoutSmoke.Check720RunControls(_run).Select(item => $"720-run: {item}"));
+            SaveShot("run-720.png");
+            ResetScenario();
+        }
+
+        ResetScenario();
         await SetLogicalSize(new Vector2I(1600, 900));
         failures.AddRange(LayoutSmoke.Check(_planning, _session.Scenario).Select(item => $"1600x900: {item}"));
 
@@ -183,6 +258,17 @@ public partial class Main : Control
         failures.AddRange(LayoutSmoke.Check(_planning, _session.Scenario).Select(item => $"1920x1080: {item}"));
         failures.AddRange(LayoutSmoke.Check1080UsesSpace(_planning).Select(item => $"1920x1080: {item}"));
         SaveShot("planning-1080.png");
+
+        if (_session.CanStart)
+        {
+            StartLoop();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            RenderingServer.ForceDraw();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            failures.AddRange(LayoutSmoke.Check1080RunSplit(_run).Select(item => $"1920x1080-run: {item}"));
+            SaveShot("run-1080.png");
+            ResetScenario();
+        }
 
         _planning.PlayerJoinAllStations();
         _planning.Refresh();
@@ -213,9 +299,14 @@ public partial class Main : Control
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         RenderingServer.ForceDraw();
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-        failures.AddRange(LayoutSmoke.Check1080RunUsesSpace(_run).Select(item => $"1920x1080-run: {item}"));
+        failures.AddRange(LayoutSmoke.Check1080RunSplit(_run).Select(item => $"1920x1080-run: {item}"));
         SaveShot("run-1080.png");
-        _run.CompletePlaybackImmediately();
+        if (await PressButton("FastCompleteButton") is { } fastError)
+        {
+            failures.Add(fastError);
+            return failures;
+        }
+
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
         RenderingServer.ForceDraw();
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -282,7 +373,12 @@ public partial class Main : Control
             return failures;
         }
 
-        _run.CompletePlaybackImmediately();
+        if (await PressButton("FastCompleteButton") is { } secondFastError)
+        {
+            failures.Add(secondFastError);
+            return failures;
+        }
+
         var second = _session.CurrentRun?.Report;
         GD.Print($"PLAYER_TWO_LOOPS_FIRST {first?.Profit} SECOND {second?.Profit} PREV {_session.PreviousReport?.Profit}");
         if (second is null || second.Profit != 128)
@@ -343,7 +439,7 @@ public partial class Main : Control
         }
     }
 
-    private List<string> PlayGrainCoalThroughInspector()
+    private async Task<List<string>> PlayGrainCoalThroughInspector()
     {
         var failures = new List<string>();
         _planning.PlayerSelectStation(StationIds.SouthMarket);
@@ -361,8 +457,18 @@ public partial class Main : Control
             return failures;
         }
 
-        StartLoop();
-        _run.CompletePlaybackImmediately();
+        if (await PressButton("StartLoopButton") is { } startError)
+        {
+            failures.Add(startError);
+            return failures;
+        }
+
+        if (await PressButton("FastCompleteButton") is { } fastError)
+        {
+            failures.Add(fastError);
+            return failures;
+        }
+
         var report = _session.CurrentRun?.Report;
         GD.Print($"PLAYER_GRAIN_COAL_PROFIT {report?.Profit}");
         if (report?.Profit != 112)
@@ -370,6 +476,111 @@ public partial class Main : Control
             failures.Add($"grain-coal profit {report?.Profit}, expected 112");
         }
 
+        return failures;
+    }
+
+    private async Task<List<string>> PlayRunControls()
+    {
+        var failures = new List<string>();
+        await SetLogicalSize(new Vector2I(1920, 1080));
+        ResetScenario();
+        if (await PressButton("StartLoopButton") is { } startError)
+        {
+            failures.Add(startError);
+            return failures;
+        }
+
+        var playback = _run.Playback;
+        if (playback is null)
+        {
+            failures.Add("playback missing after start");
+            return failures;
+        }
+
+        var applied = playback.AppliedEventCount;
+        var cash = playback.DisplayState.Cash;
+        if (await PressButton("PauseButton") is { } pauseError)
+        {
+            failures.Add(pauseError);
+            return failures;
+        }
+
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        if (!playback.IsPaused || playback.AppliedEventCount != applied || playback.DisplayState.Cash != cash)
+        {
+            failures.Add("pause advanced presentation or economic display");
+        }
+
+        if (await PressButton("ResumeButton") is { } resumeError)
+        {
+            failures.Add(resumeError);
+            return failures;
+        }
+
+        if (await PressButton("Speed4Button") is { } speed4Error)
+        {
+            failures.Add(speed4Error);
+            return failures;
+        }
+
+        if (playback.Speed != LoopPlayback.Speed4)
+        {
+            failures.Add($"speed 4 became {playback.Speed}");
+        }
+
+        if (await PressButton("Speed16Button") is { } speed16Error)
+        {
+            failures.Add(speed16Error);
+            return failures;
+        }
+
+        if (playback.Speed != LoopPlayback.Speed16)
+        {
+            failures.Add($"speed 16 became {playback.Speed}");
+        }
+
+        if (await PressButton("Speed1Button") is { } speed1Error)
+        {
+            failures.Add(speed1Error);
+            return failures;
+        }
+
+        if (await PressButton("SkipStopButton") is { } skipError)
+        {
+            failures.Add(skipError);
+            return failures;
+        }
+
+        if (playback.AppliedEvents.OfType<TradeEvent>().All(trade => trade.StationId != StationIds.SouthMarket))
+        {
+            failures.Add("skip did not land on the next trade stop");
+        }
+
+        if (await PressButton("FastCompleteButton") is { } fastError)
+        {
+            failures.Add(fastError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.Report || playback.CanControl)
+        {
+            failures.Add($"fast complete phase={_session.Phase} canControl={playback.CanControl}");
+        }
+
+        if (await PressButton("ResetButton") is { } resetError)
+        {
+            failures.Add(resetError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.Planning || _session.State.Cash != 80 || _session.State.Holding(GoodIds.Grain) != 0)
+        {
+            failures.Add($"reset cash={_session.State.Cash} grain={_session.State.Holding(GoodIds.Grain)} phase={_session.Phase}");
+        }
+
+        GD.Print("PLAYER_RUN_CONTROLS_PATH pause/resume/1/4/16/skip/fast/reset");
         return failures;
     }
 
@@ -393,9 +604,294 @@ public partial class Main : Control
         }
     }
 
+    private async Task<List<string>> PlayLocationTimeline()
+    {
+        var failures = new List<string>();
+        await SetLogicalSize(new Vector2I(1920, 1080));
+        ResetScenario();
+        if (await PressButton("StartLoopButton") is { } startError)
+        {
+            failures.Add(startError);
+            return failures;
+        }
+
+        if (await PressButton("PauseButton") is { } pauseError)
+        {
+            failures.Add(pauseError);
+            return failures;
+        }
+
+        var playback = _run.Playback;
+        if (playback is null)
+        {
+            failures.Add("location timeline missing playback");
+            return failures;
+        }
+
+        var outbound = new List<string>();
+        var outboundMotions = new List<string>();
+        var returnMotions = new List<string>();
+        var seenSouthTrade = false;
+        while (true)
+        {
+            _run.SyncPresentation();
+            var location = playback.DisplayState.LocationId;
+            var hud = _run.FindChild("LocationLabel", true, false) is Label label ? label.Text : "";
+            var motion = string.Join(">", playback.MotionPath);
+            var eventName = playback.PresentationEvent?.GetType().Name ?? "none";
+            GD.Print($"LOCATION_TIMELINE loc={location} hud={hud} event={eventName} motion={motion}");
+            if (hud.Length > 0 && !hud.Contains(_session.Scenario.StationName(location)))
+            {
+                failures.Add($"HUD {hud} does not match location {location}");
+            }
+
+            if (!seenSouthTrade)
+            {
+                outbound.Add(location);
+                if (motion.Length > 0)
+                {
+                    outboundMotions.Add(motion);
+                }
+
+                if (location == StationIds.SouthMarket && playback.CurrentEvent is TradeEvent)
+                {
+                    seenSouthTrade = true;
+                }
+            }
+            else if (motion.Length > 0)
+            {
+                returnMotions.Add(motion);
+            }
+
+            if (playback.IsFinished)
+            {
+                break;
+            }
+
+            playback.AdvanceEvent();
+        }
+
+        GD.Print($"LOCATION_TIMELINE_OUTBOUND {string.Join(">", outbound)}");
+        GD.Print($"LOCATION_TIMELINE_MOTIONS {string.Join(",", outboundMotions)} return={string.Join(",", returnMotions)}");
+
+        if (outbound.Count == 0 || outbound[0] != StationIds.WestBarn)
+        {
+            failures.Add("outbound did not start at 西仓");
+        }
+
+        var firstHub = outbound.IndexOf(StationIds.Hub);
+        var firstSouth = outbound.IndexOf(StationIds.SouthMarket);
+        if (firstHub < 0 || firstSouth < 0 || firstSouth < firstHub)
+        {
+            failures.Add($"outbound was not 西仓→中枢→南市: {string.Join(">", outbound)}");
+        }
+
+        if (outbound.Take(firstHub).Contains(StationIds.SouthMarket))
+        {
+            failures.Add("outbound showed 南市 before 中枢");
+        }
+
+        if (!outboundMotions.Contains("west_barn>hub") || !outboundMotions.Contains("hub>south_market"))
+        {
+            failures.Add($"outbound motions missing hops: {string.Join(",", outboundMotions)}");
+        }
+
+        var southTradeAfterHops = outboundMotions.IndexOf("hub>south_market");
+        if (southTradeAfterHops < 0 || outboundMotions.IndexOf("west_barn>hub") < 0
+            || outboundMotions.IndexOf("west_barn>hub") > southTradeAfterHops)
+        {
+            failures.Add("hub>south_market did not follow west_barn>hub before 南市 trade");
+        }
+
+        if (!returnMotions.Contains("south_market>hub") || !returnMotions.Contains("hub>west_barn"))
+        {
+            failures.Add($"return motions missing hops: {string.Join(",", returnMotions)}");
+        }
+
+        return failures;
+    }
+
+    private async Task<List<string>> PlayRepositionControls()
+    {
+        var failures = new List<string>();
+        await SetLogicalSize(new Vector2I(1920, 1080));
+        ResetScenario();
+        PrepareRepositionPlan(failures);
+        if (failures.Count > 0)
+        {
+            return failures;
+        }
+
+        if (await PressButton("StartLoopButton") is { } startError)
+        {
+            failures.Add(startError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.Repositioning)
+        {
+            failures.Add($"expected Repositioning, got {_session.Phase}");
+            return failures;
+        }
+
+        GD.Print($"RUN_PHASE {_session.Phase}");
+        var report = _session.CurrentRun!.Report;
+        var reportSnap = $"{report.Profit}|{report.LoopTicks}|{report.RepositionTicks}|{report.CashAfter}|{report.NextHint}";
+        var playback = _run.Playback;
+        if (playback is null)
+        {
+            failures.Add("reposition playback missing");
+            return failures;
+        }
+
+        if (playback.AppliedEvents.OfType<TradeEvent>().Any())
+        {
+            failures.Add("reposition start already traded");
+        }
+
+        if (await PressButton("PauseButton") is { } pauseError)
+        {
+            failures.Add(pauseError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.Repositioning || playback.AppliedEvents.OfType<TradeEvent>().Any())
+        {
+            failures.Add("pause during reposition traded or left Repositioning");
+        }
+
+        if (await PressButton("ResumeButton") is { } resumeError)
+        {
+            failures.Add(resumeError);
+            return failures;
+        }
+
+        if (await PressButton("FastCompleteButton") is { } fastError)
+        {
+            failures.Add(fastError);
+            return failures;
+        }
+
+        GD.Print($"PHASE_HISTORY {string.Join("->", _session.PhaseHistory)}");
+        if (!ContainsPhasePath(_session.PhaseHistory, AppPhase.Repositioning, AppPhase.Running, AppPhase.Report))
+        {
+            failures.Add($"phase path missing Repositioning->Running->Report: {string.Join("->", _session.PhaseHistory)}");
+        }
+
+        if (_session.Phase != AppPhase.Report)
+        {
+            failures.Add($"fast complete phase={_session.Phase}");
+        }
+
+        var after = _session.CurrentRun!.Report;
+        var afterSnap = $"{after.Profit}|{after.LoopTicks}|{after.RepositionTicks}|{after.CashAfter}|{after.NextHint}";
+        if (afterSnap != reportSnap)
+        {
+            failures.Add($"report changed during reposition fast-complete {reportSnap} -> {afterSnap}");
+        }
+
+        ResetScenario();
+        PrepareRepositionPlan(failures);
+        if (await PressButton("StartLoopButton") is { } secondStartError)
+        {
+            failures.Add(secondStartError);
+            return failures;
+        }
+
+        GD.Print($"RUN_PHASE {_session.Phase}");
+        if (await PressButton("SkipStopButton") is { } skipError)
+        {
+            failures.Add(skipError);
+            return failures;
+        }
+
+        if (_session.Phase != AppPhase.Running)
+        {
+            failures.Add($"skip from reposition phase={_session.Phase}, expected Running");
+        }
+
+        while (_session.Phase is AppPhase.Running or AppPhase.Repositioning && _run.Playback is { CanControl: true })
+        {
+            if (await PressButton("SkipStopButton") is { } laterSkipError)
+            {
+                failures.Add(laterSkipError);
+                break;
+            }
+        }
+
+        GD.Print($"PHASE_HISTORY_SKIP {string.Join("->", _session.PhaseHistory)}");
+        if (!ContainsPhasePath(_session.PhaseHistory, AppPhase.Repositioning, AppPhase.Running, AppPhase.Report))
+        {
+            failures.Add($"skip path missing Repositioning->Running->Report: {string.Join("->", _session.PhaseHistory)}");
+        }
+
+        GD.Print("PLAYER_REPOSITION_CONTROLS_PATH pause/resume/fast plus skip-to-fast");
+        return failures;
+    }
+
+    private void PrepareRepositionPlan(List<string> failures)
+    {
+        _planning.PlayerSelectStation(StationIds.SouthMarket);
+        _planning.PlayerLeaveSelected();
+        Join(StationIds.NorthMine, failures);
+        if (!MoveNorthMineToFront(failures))
+        {
+            return;
+        }
+
+        Save(StationIds.NorthMine, GoodIds.Coal, TradeAction.Buy, 32, 1, failures);
+        Save(StationIds.WestBarn, GoodIds.Grain, TradeAction.Buy, 18, 1, failures);
+        if (!_session.CanStart)
+        {
+            failures.Add("reposition plan cannot start: " + string.Join(" ", _session.Issues.Select(issue => issue.Message)));
+        }
+    }
+
+    private bool MoveNorthMineToFront(List<string> failures)
+    {
+        var error = LayoutSmoke.PressNamedButton(this, "LoopRowUp_1");
+        if (error is not null)
+        {
+            failures.Add(error);
+            return false;
+        }
+
+        if (!_session.Plan.Stops.SequenceEqual([StationIds.NorthMine, StationIds.WestBarn]))
+        {
+            failures.Add($"move north mine to front failed: {string.Join(">", _session.Plan.Stops)}");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool ContainsPhasePath(IReadOnlyList<AppPhase> history, params AppPhase[] expected)
+    {
+        var index = 0;
+        foreach (var phase in history)
+        {
+            if (phase == expected[index])
+            {
+                index++;
+                if (index == expected.Length)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static bool WantsLayoutSmoke() => OS.GetCmdlineUserArgs().Contains("--layout-smoke");
 
     private static bool WantsPlayerGrainCoal() => OS.GetCmdlineUserArgs().Contains("--player-grain-coal");
 
     private static bool WantsPlayerTwoLoops() => OS.GetCmdlineUserArgs().Contains("--player-two-loops");
+
+    private static bool WantsPlayerRunControls() => OS.GetCmdlineUserArgs().Contains("--player-run-controls");
+
+    private static bool WantsPlayerLocationTimeline() => OS.GetCmdlineUserArgs().Contains("--player-location-timeline");
+
+    private static bool WantsPlayerRepositionControls() => OS.GetCmdlineUserArgs().Contains("--player-reposition-controls");
 }

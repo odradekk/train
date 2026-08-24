@@ -13,19 +13,22 @@ public enum AppPhase
 
 public sealed class GameSession
 {
+    private readonly List<AppPhase> _phaseHistory = [];
+
     public GameSession(SimulationEngine engine, ScenarioData scenario)
     {
         Engine = engine;
         Scenario = scenario;
         State = engine.CreateInitialState();
-        Phase = AppPhase.Planning;
         SelectedStationId = StationIds.WestBarn;
+        SetPhase(AppPhase.Planning);
     }
 
     public SimulationEngine Engine { get; }
     public ScenarioData Scenario { get; }
     public SimulationState State { get; private set; }
     public AppPhase Phase { get; private set; }
+    public IReadOnlyList<AppPhase> PhaseHistory => _phaseHistory;
     public LoopRunResult? CurrentRun { get; private set; }
     public RunReport? PreviousReport { get; private set; }
     public string SelectedStationId { get; set; }
@@ -44,7 +47,8 @@ public sealed class GameSession
         CurrentRun = null;
         State = Engine.CreateInitialState();
         SelectedStationId = StationIds.WestBarn;
-        Phase = AppPhase.Planning;
+        _phaseHistory.Clear();
+        SetPhase(AppPhase.Planning);
     }
 
     public void ReplacePlan(TradePlan plan)
@@ -99,7 +103,7 @@ public sealed class GameSession
         var result = Engine.RunLoop(State);
         PreviousReport = CurrentRun?.Report;
         CurrentRun = result;
-        Phase = result.Report.RepositionTicks > 0 ? AppPhase.Repositioning : AppPhase.Running;
+        SetPhase(result.Report.RepositionTicks > 0 ? AppPhase.Repositioning : AppPhase.Running);
         return result;
     }
 
@@ -107,18 +111,21 @@ public sealed class GameSession
     {
         if (Phase == AppPhase.Repositioning)
         {
-            Phase = AppPhase.Running;
+            SetPhase(AppPhase.Running);
         }
     }
 
     public void ShowReport()
     {
-        if (CurrentRun is null || Phase is AppPhase.Planning or AppPhase.FinishedObservation)
+        if (CurrentRun is null || Phase != AppPhase.Running)
         {
-            throw new InvalidOperationException("No finished loop is available.");
+            throw new InvalidOperationException(
+                Phase == AppPhase.Repositioning
+                    ? "Report is only available after running has begun."
+                    : "No finished loop is available.");
         }
 
-        Phase = AppPhase.Report;
+        SetPhase(AppPhase.Report);
     }
 
     public void CloseReport()
@@ -128,7 +135,7 @@ public sealed class GameSession
             throw new InvalidOperationException("No open report to close.");
         }
 
-        Phase = AppPhase.FinishedObservation;
+        SetPhase(AppPhase.FinishedObservation);
     }
 
     public void ReturnToPlanning()
@@ -143,7 +150,13 @@ public sealed class GameSession
             State = CurrentRun.StateAfter;
         }
 
-        Phase = AppPhase.Planning;
+        SetPhase(AppPhase.Planning);
+    }
+
+    private void SetPhase(AppPhase phase)
+    {
+        Phase = phase;
+        _phaseHistory.Add(phase);
     }
 
     private void EnsurePlanning()
