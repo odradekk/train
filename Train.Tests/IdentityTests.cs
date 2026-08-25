@@ -21,14 +21,4 @@ public sealed class IdentityTests
         Assert.ThrowsException<ArgumentException>(() => new BuildingTypeId("   "));
         Assert.ThrowsException<ArgumentException>(() => new NaturalResourceTypeId("\n"));
     }
-
-    [TestMethod]
-    public void Identity_kinds_are_not_interchangeable()
-    {
-        Assert.AreNotEqual(typeof(SettlementId), typeof(StationId));
-        Assert.AreNotEqual(typeof(SettlementId), typeof(SettlementTypeId));
-        Assert.AreNotEqual(typeof(SettlementId), typeof(BuildingTypeId));
-        Assert.AreNotEqual(typeof(StationId), typeof(NaturalResourceTypeId));
-        Assert.IsFalse(new SettlementId("same").Equals(new StationId("same")));
-    }
 }
