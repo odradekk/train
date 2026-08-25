@@ -1,0 +1,29 @@
+; Engine configuration file.
+; Edit through Godot when practical; keep this committed for reproducible builds.
+
+config_version=5
+
+[application]
+
+config/name="Train"
+config/description="Core gameplay development build"
+config/version="0.0.0"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.7", "C#", "Compatibility")
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
+window/size/mode=0
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[dotnet]
+
+project/assembly_name="Train"
+
+[rendering]
+
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
