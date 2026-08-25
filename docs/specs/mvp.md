@@ -516,7 +516,7 @@ FinishedObservation
 ## 14. C# 模块边界
 
 ```text
-mvp/godot/
+archive/mvp/godot/
 ├── global.json
 ├── TrainMvp.sln
 ├── TrainMvp.csproj
@@ -649,9 +649,9 @@ mvp/godot/
 
 ## 18. 实施参考资产
 
-- 经济与固定参数：[`mvp/economy-calibration-prototype.html`](../../mvp/economy-calibration-prototype.html)
-- 地图优先编辑布局：[`mvp/trade-plan-ui-prototype.html?variant=A`](../../mvp/trade-plan-ui-prototype.html?variant=A)
-- 平衡分屏运行与报告：[`mvp/run-observation-report-prototype.html?variant=B`](../../mvp/run-observation-report-prototype.html?variant=B)
+- 经济与固定参数：[`archive/mvp/economy-calibration-prototype.html`](../../archive/mvp/economy-calibration-prototype.html)
+- 地图优先编辑布局：[`archive/mvp/trade-plan-ui-prototype.html?variant=A`](../../archive/mvp/trade-plan-ui-prototype.html?variant=A)
+- 平衡分屏运行与报告：[`archive/mvp/run-observation-report-prototype.html?variant=B`](../../archive/mvp/run-observation-report-prototype.html?variant=B)
 - C# 技术研究：[`docs/research/godot-windows-mvp-baseline.md`](../research/godot-windows-mvp-baseline.md)
 - 领域语言：[`CONTEXT.md`](../../CONTEXT.md)
 

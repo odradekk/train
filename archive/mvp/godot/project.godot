@@ -7,8 +7,8 @@ config_version=5
 [application]
 
 config/name="Train MVP"
-config/description="Core gameplay development build"
-config/version="0.0.0"
+config/description="Archived MVP validation build"
+config/version="0.0.0-mvp"
 run/main_scene="res://App/Main.tscn"
 config/features=PackedStringArray("4.7", "C#", "Compatibility")
 config/icon="res://icon.svg"

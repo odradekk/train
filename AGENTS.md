@@ -9,6 +9,12 @@ Current version: `0.0.0`.
 - Stop each iteration when there is enough evidence to choose the next small step.
 - Keep future systems and content ideas in the issue tracker or roadmap until they are selected for the current slice; a proposed direction is not an implementation commitment.
 
+## Source layout
+
+- Develop the current game directly from the repository root. Place the Godot project and production source directories at the root when the first formal gameplay slice requires them.
+- Treat `archive/mvp/` as read-only validation evidence. Reuse an archived implementation only by deliberately moving or rewriting the necessary code into the root project; do not continue product development inside the archive.
+- Keep generated Godot state, build outputs, and restored packages out of the archive; regenerate them only when reproducing an MVP result.
+
 ## Decision ladder
 
 For coding tasks, stop at the first option that fully solves the task:

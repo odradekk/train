@@ -163,7 +163,7 @@
 ## 模块边界
 
 ```text
-mvp/godot/
+archive/mvp/godot/
 ├── global.json
 ├── TrainMvp.csproj
 ├── TrainMvp.sln
@@ -279,10 +279,10 @@ Godot C# 导出要求项目存在与 `.csproj` 同名的 solution；缺少 `.sln
 ```powershell
 dotnet --info
 # 应显示 global.json 选定的 9.0.316，而不是 10.0.400-preview
-dotnet restore mvp/godot/TrainMvp.csproj
-dotnet build mvp/godot/TrainMvp.sln
-godot-mono --headless --path mvp/godot --build-solutions --quit
-godot-mono --headless --path mvp/godot --export-release "Windows Desktop" builds/train-mvp.exe
+dotnet restore archive/mvp/godot/TrainMvp.csproj
+dotnet build archive/mvp/godot/TrainMvp.sln
+godot-mono --headless --path archive/mvp/godot --build-solutions --quit
+godot-mono --headless --path archive/mvp/godot --export-release "Windows Desktop" builds/train-mvp.exe
 ```
 
 若正式项目不能重复 C# 构建、导出和产物启动，不继续建设 UI/3D；先修复环境或项目骨架。
