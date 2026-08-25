@@ -4,6 +4,8 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train", "Train.csproj", "{71CD3497-F91C-4B90-8A0E-5DB0AFB501D5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train.Tests", "Train.Tests\Train.Tests.csproj", "{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,6 +22,14 @@ Global
 		{71CD3497-F91C-4B90-8A0E-5DB0AFB501D5}.ExportRelease|Any CPU.Build.0 = ExportRelease|Any CPU
 		{71CD3497-F91C-4B90-8A0E-5DB0AFB501D5}.Release|Any CPU.ActiveCfg = ExportRelease|Any CPU
 		{71CD3497-F91C-4B90-8A0E-5DB0AFB501D5}.Release|Any CPU.Build.0 = ExportRelease|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.ExportDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.ExportRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.ExportRelease|Any CPU.Build.0 = Release|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8F3A2C1E-4B5D-4E67-9A10-C2D3E4F50617}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

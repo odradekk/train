@@ -11,5 +11,8 @@
     <Compile Remove="archive/**" />
     <EmbeddedResource Remove="archive/**" />
     <None Remove="archive/**" />
+    <Compile Remove="Train.Tests/**" />
+    <EmbeddedResource Remove="Train.Tests/**" />
+    <None Remove="Train.Tests/**" />
   </ItemGroup>
 </Project>
