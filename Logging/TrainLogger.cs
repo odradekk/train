@@ -197,34 +197,22 @@ public sealed class TrainLogger : IDisposable
             ReportSinkFault();
     }
 
-    public void DrainGodotQueue()
+    public int DrainGodotQueue()
     {
         List<LogEvent> batch;
         int dropped;
         lock (_gate)
         {
-            if (_draining)
-                return;
+            if (_disposed != 0 || _draining)
+                return 0;
             _draining = true;
-            batch = _godotQueue.ToList();
-            _godotQueue.Clear();
-            dropped = _godotDropped;
-            _godotDropped = 0;
+            batch = TakeGodotBatch(out dropped);
         }
 
         try
         {
-            foreach (var logEvent in batch)
-                WriteGodotSafe(logEvent);
-
-            if (dropped > 0)
-            {
-                Warning(
-                    LoggingCategory,
-                    GodotEventsDroppedEventId,
-                    "Godot log events were dropped.",
-                    new Dictionary<string, object?> { ["count"] = dropped });
-            }
+            DeliverGodotBatch(batch, dropped, allowStructuredSummary: true);
+            return batch.Count;
         }
         finally
         {
@@ -235,9 +223,19 @@ public sealed class TrainLogger : IDisposable
 
     public void Dispose()
     {
+        List<LogEvent> batch;
+        int dropped;
+        lock (_gate)
+        {
+            if (_disposed != 0)
+                return;
+            _disposed = 1;
+            batch = TakeGodotBatch(out dropped);
+        }
+
         try
         {
-            DrainGodotQueue();
+            DeliverGodotBatch(batch, dropped, allowStructuredSummary: false);
         }
         catch
         {
@@ -246,9 +244,6 @@ public sealed class TrainLogger : IDisposable
 
         lock (_gate)
         {
-            if (_disposed != 0)
-                return;
-            _disposed = 1;
             try
             {
                 _jsonl.Dispose();
@@ -258,6 +253,57 @@ public sealed class TrainLogger : IDisposable
                 // Shutdown must not throw.
             }
         }
+    }
+
+    private List<LogEvent> TakeGodotBatch(out int dropped)
+    {
+        var batch = _godotQueue.ToList();
+        _godotQueue.Clear();
+        dropped = _godotDropped;
+        _godotDropped = 0;
+        return batch;
+    }
+
+    private void DeliverGodotBatch(List<LogEvent> batch, int dropped, bool allowStructuredSummary)
+    {
+        foreach (var logEvent in batch)
+            WriteGodotSafe(logEvent);
+
+        if (dropped <= 0)
+            return;
+
+        if (allowStructuredSummary)
+        {
+            Warning(
+                LoggingCategory,
+                GodotEventsDroppedEventId,
+                "Godot log events were dropped.",
+                new Dictionary<string, object?> { ["count"] = dropped });
+            return;
+        }
+
+        WriteShutdownDropSummary(dropped);
+    }
+
+    private void WriteShutdownDropSummary(int dropped)
+    {
+        LogEvent summary;
+        lock (_gate)
+        {
+            summary = new LogEvent(
+                DateTimeOffset.UtcNow,
+                SessionId,
+                ++_sequence,
+                LogLevel.Warning,
+                LoggingCategory,
+                GodotEventsDroppedEventId,
+                "Godot log events were dropped.",
+                new Dictionary<string, object?> { ["count"] = dropped },
+                exception: null);
+            EmitPersistent(summary);
+        }
+
+        WriteGodotSafe(summary);
     }
 
     private bool EmitPersistent(LogEvent logEvent)
@@ -306,7 +352,7 @@ public sealed class TrainLogger : IDisposable
             return;
         }
 
-        if (TryEvictOldest(LogLevel.Debug) || TryEvictOldest(LogLevel.Info))
+        if (TryEvictOldestLowerThan(logEvent.Level))
         {
             _godotDropped++;
             _godotQueue.AddLast(logEvent);
@@ -316,6 +362,17 @@ public sealed class TrainLogger : IDisposable
         _godotDropped++;
         if (logEvent.Level >= LogLevel.Warning)
             WriteOverflow(logEvent);
+    }
+
+    private bool TryEvictOldestLowerThan(LogLevel incoming)
+    {
+        for (var level = LogLevel.Debug; level < incoming; level++)
+        {
+            if (TryEvictOldest(level))
+                return true;
+        }
+
+        return false;
     }
 
     private bool TryEvictOldest(LogLevel level)

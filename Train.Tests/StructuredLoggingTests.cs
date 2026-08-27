@@ -258,6 +258,64 @@ public sealed class StructuredLoggingTests
     }
 
     [TestMethod]
+    public void Dispose_closes_entry_and_does_not_orphan_godot_copies()
+    {
+        var directory = Directory.CreateTempSubdirectory("train-log-dispose-").FullName;
+        var memory = new MemoryLogSink();
+        var godot = new BlockingGodotOutput { BlockEventId = "hold_event" };
+        var overflow = new StringWriter();
+        var logger = new TrainLogger(directory, LogLevel.Debug, godot, memory, overflowWriter: overflow, readEnvironmentVariable: false);
+        try
+        {
+            var queued = new ManualResetEventSlim(false);
+            var holdWorker = new Thread(() =>
+            {
+                logger.Info("test", "hold_event", "hold");
+                queued.Set();
+            });
+            holdWorker.Start();
+            Assert.IsTrue(queued.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(holdWorker.Join(TimeSpan.FromSeconds(5)));
+
+            var disposed = new ManualResetEventSlim(false);
+            var disposer = new Thread(() =>
+            {
+                logger.Dispose();
+                disposed.Set();
+            });
+            disposer.Start();
+            Assert.IsTrue(godot.Entered.Wait(TimeSpan.FromSeconds(5)));
+
+            var lateLogged = new ManualResetEventSlim(false);
+            var lateWorker = new Thread(() =>
+            {
+                logger.Info("test", "dispose_late", "late");
+                lateLogged.Set();
+            });
+            lateWorker.Start();
+            Assert.IsTrue(lateLogged.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(lateWorker.Join(TimeSpan.FromSeconds(5)));
+
+            godot.Release.Set();
+            Assert.IsTrue(disposed.Wait(TimeSpan.FromSeconds(5)));
+            Assert.IsTrue(disposer.Join(TimeSpan.FromSeconds(5)));
+
+            var lateInMemory = memory.Snapshot().Any(e => e.EventId == "dispose_late");
+            var lateInGodot = godot.Events.Any(e => e.EventId == "dispose_late");
+            var lateDegraded = overflow.ToString()!.Contains("dispose_late", StringComparison.Ordinal);
+            Assert.IsTrue(lateInGodot || lateDegraded);
+            if (lateInMemory)
+                Assert.IsTrue(lateInGodot);
+        }
+        finally
+        {
+            godot.Release.Set();
+            logger.Dispose();
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    [TestMethod]
     public void Dispose_is_idempotent_and_late_logs_do_not_throw()
     {
         using var session = LoggerSession.Create();
@@ -335,6 +393,21 @@ public sealed class StructuredLoggingConcurrencyTests
     }
 
     [TestMethod]
+    public void Full_info_queue_rejects_incoming_debug_without_evicting_info()
+    {
+        using var session = LoggerSession.Create();
+        EnqueueFromWorker(session.Logger, TrainLogger.GodotQueueCapacity, LogLevel.Info, "queued_info");
+        EnqueueFromWorker(session.Logger, 1, LogLevel.Debug, "incoming_debug");
+        session.Logger.DrainGodotQueue();
+
+        Assert.AreEqual(TrainLogger.GodotQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_info"));
+        Assert.IsFalse(session.Godot.Events.Any(e => e.EventId == "incoming_debug"));
+        Assert.IsTrue(session.Memory.Snapshot().Any(e => e.EventId == "incoming_debug"));
+        Assert.AreEqual(1, session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
+        Assert.AreEqual(1, session.Godot.Events.Count(e => e.EventId == TrainLogger.GodotEventsDroppedEventId));
+    }
+
+    [TestMethod]
     public void Full_godot_queue_drops_low_severity_first_and_summarizes_once()
     {
         using var session = LoggerSession.Create();
@@ -347,8 +420,9 @@ public sealed class StructuredLoggingConcurrencyTests
         Assert.AreEqual(LogLevel.Warning, dropped.Level);
         Assert.AreEqual(3, dropped.Attributes["count"]);
         Assert.AreEqual(1, session.Godot.Events.Count(e => e.EventId == TrainLogger.GodotEventsDroppedEventId));
-        Assert.AreEqual(TrainLogger.GodotQueueCapacity - 3, session.Godot.Events.Count(e => e.EventId == "queued_debug"));
-        Assert.AreEqual(3, session.Godot.Events.Count(e => e.EventId == "extra_debug"));
+        Assert.AreEqual(TrainLogger.GodotQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_debug"));
+        Assert.AreEqual(0, session.Godot.Events.Count(e => e.EventId == "extra_debug"));
+        Assert.AreEqual(3, session.Memory.Snapshot().Count(e => e.EventId == "extra_debug"));
         Assert.AreEqual(overflowBefore, session.Overflow.ToString()!.Length);
     }
 
@@ -366,16 +440,16 @@ public sealed class StructuredLoggingConcurrencyTests
 
         using var full = LoggerSession.Create();
         EnqueueFromWorker(full.Logger, TrainLogger.GodotQueueCapacity, LogLevel.Warning, "queued_warning");
-        EnqueueFromWorker(full.Logger, 1, LogLevel.Error, "overflow_error");
+        EnqueueFromWorker(full.Logger, 1, LogLevel.Warning, "overflow_warning");
         Assert.IsTrue(full.Overflow.ToString()!.Length > 0);
         full.Logger.DrainGodotQueue();
-        Assert.IsTrue(full.Memory.Snapshot().Any(e => e.EventId == "overflow_error"));
-        Assert.IsFalse(full.Godot.Events.Any(e => e.EventId == "overflow_error"));
+        Assert.IsTrue(full.Memory.Snapshot().Any(e => e.EventId == "overflow_warning"));
+        Assert.IsFalse(full.Godot.Events.Any(e => e.EventId == "overflow_warning"));
         Assert.AreEqual(1, full.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
 
         full.DisposeLogger();
         var jsonl = File.ReadAllText(full.JsonlPath!);
-        Assert.IsTrue(jsonl.Contains("\"event_id\":\"overflow_error\"", StringComparison.Ordinal));
+        Assert.IsTrue(jsonl.Contains("\"event_id\":\"overflow_warning\"", StringComparison.Ordinal));
     }
 
     private static void EnqueueFromWorker(TrainLogger logger, int count, LogLevel level, string eventId)
@@ -463,6 +537,25 @@ internal sealed class RecordingGodotOutput : IGodotLogOutput
     public List<LogEvent> Events { get; } = new();
 
     public void Write(LogEvent logEvent) => Events.Add(logEvent);
+}
+
+internal sealed class BlockingGodotOutput : IGodotLogOutput
+{
+    public string? BlockEventId { get; init; }
+    public ManualResetEventSlim Entered { get; } = new(false);
+    public ManualResetEventSlim Release { get; } = new(false);
+    public List<LogEvent> Events { get; } = new();
+
+    public void Write(LogEvent logEvent)
+    {
+        if (BlockEventId is null || logEvent.EventId == BlockEventId)
+        {
+            Entered.Set();
+            Release.Wait();
+        }
+
+        Events.Add(logEvent);
+    }
 }
 
 internal sealed class ThrowingSink : ILogSink
