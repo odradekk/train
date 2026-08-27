@@ -54,3 +54,7 @@ Use the five default canonical triage labels. See `docs/agents/triage-labels.md`
 ### Domain docs
 
 Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository root. See `docs/agents/domain.md`.
+
+### Ticket dispatch
+
+When handing an issue to an agent in a new Orca worktree, follow `docs/tickets-sop.md`.
