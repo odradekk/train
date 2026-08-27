@@ -11,6 +11,7 @@
 #   SMOKE_LOGGER_DISPOSED           (Main._ExitTree disposed the logger)
 #
 # Exit 2 if Godot is unavailable; do not treat that as a passing smoke.
+# Exit 1 if Godot is nonzero or a required marker is missing.
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
@@ -19,6 +20,10 @@ Set-Location $root
 function Find-Godot {
     if ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) {
         return $env:GODOT
+    }
+
+    if ($env:TRAIN_LOG_SMOKE_NO_SEARCH -eq "1") {
+        return $null
     }
 
     foreach ($name in @("godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
@@ -60,7 +65,9 @@ if (-not $godot) {
 
 Write-Host "Using Godot: $godot"
 $env:TRAIN_LOG_SMOKE = "1"
-$output = & $godot --headless --path $root --quit-after 15 2>&1 | Out-String
+$raw = & $godot --headless --path $root --quit-after 15 2>&1
+$godotExitCode = $LASTEXITCODE
+$output = $raw | Out-String
 Write-Host $output
 
 $required = @(
@@ -69,9 +76,18 @@ $required = @(
     "SMOKE_PROCESS_DRAINED",
     "SMOKE_LOGGER_DISPOSED"
 )
-$missing = $required | Where-Object { $output -notlike "*$_*" }
+$missing = @($required | Where-Object { $output -notlike "*$_*" })
+if ($godotExitCode -ne 0) {
+    $detail = "Godot exited with code $godotExitCode."
+    if ($missing.Count -gt 0) {
+        $detail += " Missing: $($missing -join ', ')."
+    }
+    [Console]::Error.WriteLine("Godot logging smoke failed. $detail")
+    exit 1
+}
+
 if ($missing.Count -gt 0) {
-    Write-Error "Godot logging smoke failed. Missing: $($missing -join ', ')"
+    [Console]::Error.WriteLine("Godot logging smoke failed. Missing: $($missing -join ', ')")
     exit 1
 }
 
