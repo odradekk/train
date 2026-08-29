@@ -54,13 +54,4 @@ public readonly record struct BuildingTypeId
     public override string ToString() => Value;
 }
 
-public readonly record struct NaturalResourceTypeId
-{
-    public string Value { get; }
-
-    public NaturalResourceTypeId(string value) => Value = IdentityText.Normalize(value, nameof(value));
-
-    public override string ToString() => Value;
-}
-
 public readonly record struct MapPosition(int X, int Y);

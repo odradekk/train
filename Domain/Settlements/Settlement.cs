@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Collections.ObjectModel;
+using Train.Domain.Goods;
 
 namespace Train.Domain.Settlements;
 
@@ -13,7 +14,7 @@ public sealed class Settlement : IEquatable<Settlement>
     public MapPosition Position { get; }
     public int Population { get; private set; }
     public IReadOnlyDictionary<BuildingTypeId, int> Buildings { get; }
-    public IReadOnlySet<NaturalResourceTypeId> NaturalResourceTypes { get; }
+    public IReadOnlySet<GoodId> NaturalResourceIds { get; }
     public Station? Station { get; private set; }
 
     public Settlement(
@@ -23,13 +24,13 @@ public sealed class Settlement : IEquatable<Settlement>
         MapPosition position,
         int population,
         IReadOnlyDictionary<BuildingTypeId, int> buildings,
-        IReadOnlySet<NaturalResourceTypeId> naturalResourceTypes,
+        IReadOnlySet<GoodId> naturalResourceIds,
         Station? station = null)
     {
         IdentityText.EnsureDefined(id.Value, nameof(id));
         IdentityText.EnsureDefined(type.Value, nameof(type));
         ArgumentNullException.ThrowIfNull(buildings);
-        ArgumentNullException.ThrowIfNull(naturalResourceTypes);
+        ArgumentNullException.ThrowIfNull(naturalResourceIds);
 
         Id = id;
         Name = NormalizeName(name);
@@ -38,7 +39,7 @@ public sealed class Settlement : IEquatable<Settlement>
         Population = EnsurePositivePopulation(population);
         CopyBuildings(buildings);
         Buildings = new ReadOnlyDictionary<BuildingTypeId, int>(_buildings);
-        NaturalResourceTypes = CopyNaturalResourceTypes(naturalResourceTypes);
+        NaturalResourceIds = CopyNaturalResourceIds(naturalResourceIds);
         if (station is not null)
             IdentityText.EnsureDefined(station.Id.Value, nameof(station));
         Station = station;
@@ -136,14 +137,14 @@ public sealed class Settlement : IEquatable<Settlement>
         }
     }
 
-    private static FrozenSet<NaturalResourceTypeId> CopyNaturalResourceTypes(
-        IReadOnlySet<NaturalResourceTypeId> naturalResourceTypes)
+    private static FrozenSet<GoodId> CopyNaturalResourceIds(IReadOnlySet<GoodId> naturalResourceIds)
     {
-        var copy = new HashSet<NaturalResourceTypeId>();
-        foreach (var resourceType in naturalResourceTypes)
+        var copy = new HashSet<GoodId>();
+        foreach (var resourceId in naturalResourceIds)
         {
-            IdentityText.EnsureDefined(resourceType.Value, nameof(naturalResourceTypes));
-            copy.Add(resourceType);
+            if (string.IsNullOrEmpty(resourceId.Namespace) || string.IsNullOrEmpty(resourceId.LocalId))
+                throw new ArgumentException("GoodId cannot be blank.", nameof(naturalResourceIds));
+            copy.Add(resourceId);
         }
 
         return copy.ToFrozenSet();

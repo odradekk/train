@@ -1,4 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Domain.Goods;
 using Train.Domain.Settlements;
 
 namespace Train.Tests;
@@ -10,7 +11,7 @@ public sealed class SettlementTests
     public void Construction_accepts_complete_valid_state_including_empty_collections()
     {
         var mill = new BuildingTypeId("mill");
-        var iron = new NaturalResourceTypeId("iron");
+        var iron = new GoodId("core", "iron");
         var station = new Station(new StationId("oak-station"));
         var settlement = Create(
             name: "  Oak Town  ",
@@ -18,7 +19,7 @@ public sealed class SettlementTests
             y: 8,
             population: 12,
             buildings: new Dictionary<BuildingTypeId, int> { [mill] = 2 },
-            resources: new HashSet<NaturalResourceTypeId> { iron },
+            resources: new HashSet<GoodId> { iron },
             station: station);
 
         Assert.AreEqual("oak", settlement.Id.Value);
@@ -27,12 +28,12 @@ public sealed class SettlementTests
         Assert.AreEqual(new MapPosition(-3, 8), settlement.Position);
         Assert.AreEqual(12, settlement.Population);
         Assert.AreEqual(2, settlement.Buildings[mill]);
-        Assert.IsTrue(settlement.NaturalResourceTypes.Contains(iron));
+        Assert.IsTrue(settlement.NaturalResourceIds.Contains(iron));
         Assert.AreEqual(station, settlement.Station);
 
         var empty = Create();
         Assert.AreEqual(0, empty.Buildings.Count);
-        Assert.AreEqual(0, empty.NaturalResourceTypes.Count);
+        Assert.AreEqual(0, empty.NaturalResourceIds.Count);
         Assert.IsNull(empty.Station);
     }
 
@@ -50,7 +51,7 @@ public sealed class SettlementTests
             new MapPosition(0, 0),
             1,
             null!,
-            new HashSet<NaturalResourceTypeId>()));
+            new HashSet<GoodId>()));
         Assert.ThrowsException<ArgumentNullException>(() => new Settlement(
             new SettlementId("oak"),
             "Oak Town",
@@ -68,7 +69,8 @@ public sealed class SettlementTests
             new MapPosition(0, 0),
             1,
             new Dictionary<BuildingTypeId, int>(),
-            new HashSet<NaturalResourceTypeId>()));
+            new HashSet<GoodId>()));
+        Assert.ThrowsException<ArgumentException>(() => Create(resources: new HashSet<GoodId> { default }));
     }
 
     [TestMethod]
@@ -97,20 +99,20 @@ public sealed class SettlementTests
     }
 
     [TestMethod]
-    public void Position_and_natural_resource_types_remain_fixed()
+    public void Position_and_natural_resource_ids_remain_fixed()
     {
-        var iron = new NaturalResourceTypeId("iron");
-        var input = new HashSet<NaturalResourceTypeId> { iron };
+        var iron = new GoodId("core", "iron");
+        var input = new HashSet<GoodId> { iron };
         var settlement = Create(x: 4, y: -9, resources: input);
 
-        input.Add(new NaturalResourceTypeId("coal"));
+        input.Add(new GoodId("core", "coal"));
         settlement.Rename("Renamed");
         settlement.SetPopulation(11);
 
         Assert.AreEqual(new MapPosition(4, -9), settlement.Position);
-        Assert.AreEqual(1, settlement.NaturalResourceTypes.Count);
-        Assert.IsTrue(settlement.NaturalResourceTypes.Contains(iron));
-        Assert.IsFalse(settlement.NaturalResourceTypes.Contains(new NaturalResourceTypeId("coal")));
+        Assert.AreEqual(1, settlement.NaturalResourceIds.Count);
+        Assert.IsTrue(settlement.NaturalResourceIds.Contains(iron));
+        Assert.IsFalse(settlement.NaturalResourceIds.Contains(new GoodId("core", "coal")));
     }
 
     [TestMethod]
@@ -162,27 +164,27 @@ public sealed class SettlementTests
     public void Collection_inputs_are_copied_and_exposed_state_is_read_only()
     {
         var mill = new BuildingTypeId("mill");
-        var iron = new NaturalResourceTypeId("iron");
+        var iron = new GoodId("core", "iron");
         var buildings = new Dictionary<BuildingTypeId, int> { [mill] = 2 };
-        var resources = new HashSet<NaturalResourceTypeId> { iron };
+        var resources = new HashSet<GoodId> { iron };
         var settlement = Create(buildings: buildings, resources: resources);
 
         buildings[mill] = 99;
         buildings[new BuildingTypeId("warehouse")] = 1;
-        resources.Add(new NaturalResourceTypeId("coal"));
+        resources.Add(new GoodId("core", "coal"));
 
         Assert.AreEqual(2, settlement.Buildings[mill]);
         Assert.AreEqual(1, settlement.Buildings.Count);
-        Assert.AreEqual(1, settlement.NaturalResourceTypes.Count);
+        Assert.AreEqual(1, settlement.NaturalResourceIds.Count);
 
         var buildingView = (ICollection<KeyValuePair<BuildingTypeId, int>>)settlement.Buildings;
         Assert.IsTrue(buildingView.IsReadOnly);
         Assert.ThrowsException<NotSupportedException>(() => buildingView.Add(
             new KeyValuePair<BuildingTypeId, int>(new BuildingTypeId("shop"), 1)));
 
-        var resourceView = (ICollection<NaturalResourceTypeId>)settlement.NaturalResourceTypes;
+        var resourceView = (ICollection<GoodId>)settlement.NaturalResourceIds;
         Assert.IsTrue(resourceView.IsReadOnly);
-        Assert.ThrowsException<NotSupportedException>(() => resourceView.Add(new NaturalResourceTypeId("coal")));
+        Assert.ThrowsException<NotSupportedException>(() => resourceView.Add(new GoodId("core", "coal")));
     }
 
     [TestMethod]
@@ -210,7 +212,7 @@ public sealed class SettlementTests
         int y = 0,
         int population = 10,
         IReadOnlyDictionary<BuildingTypeId, int>? buildings = null,
-        IReadOnlySet<NaturalResourceTypeId>? resources = null,
+        IReadOnlySet<GoodId>? resources = null,
         Station? station = null) =>
         new(
             new SettlementId(id),
@@ -219,6 +221,6 @@ public sealed class SettlementTests
             new MapPosition(x, y),
             population,
             buildings ?? new Dictionary<BuildingTypeId, int>(),
-            resources ?? new HashSet<NaturalResourceTypeId>(),
+            resources ?? new HashSet<GoodId>(),
             station);
 }

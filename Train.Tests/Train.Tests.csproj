@@ -14,6 +14,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Domain\Settlements\*.cs" Link="Domain\Settlements\%(Filename)%(Extension)" />
+    <Compile Include="..\Domain\Goods\*.cs" Link="Domain\Goods\%(Filename)%(Extension)" />
+    <Compile Include="..\Content\*.cs" Link="Content\%(Filename)%(Extension)" />
     <Compile Include="..\Logging\LogEvent.cs" Link="Logging\LogEvent.cs" />
     <Compile Include="..\Logging\LogSinks.cs" Link="Logging\LogSinks.cs" />
     <Compile Include="..\Logging\TrainLogger.cs" Link="Logging\TrainLogger.cs" />

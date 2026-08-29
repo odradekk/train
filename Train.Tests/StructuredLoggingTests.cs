@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Domain.Goods;
 using Train.Domain.Settlements;
 using Train.Logging;
 
@@ -102,7 +103,7 @@ public sealed class StructuredLoggingTests
                     new MapPosition(0, 0),
                     1,
                     new Dictionary<BuildingTypeId, int>(),
-                    new HashSet<NaturalResourceTypeId>())
+                    new HashSet<GoodId>())
             }));
         Assert.ThrowsException<ArgumentException>(() =>
             session.Logger.Info("test", "rejects_nan", "x", new Dictionary<string, object?> { ["bad"] = double.NaN }));
