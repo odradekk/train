@@ -1,0 +1,217 @@
+using System.Collections.ObjectModel;
+using Train.Domain.Goods;
+
+namespace Train.Content;
+
+public static class ContentLimits
+{
+    public const int GoodsFileMaxBytes = 1 * 1024 * 1024;
+    public const int PngMaxBytes = 4 * 1024 * 1024;
+    public const int ImageMaxDimension = 4096;
+    public const int MaxGoods = 10_000;
+    public const int MaxDiagnosticsPerPackage = 100;
+}
+
+public static class ContentDiagnosticCodes
+{
+    public const string InvalidJson = "invalid_json";
+    public const string DuplicateProperty = "duplicate_property";
+    public const string UnknownField = "unknown_field";
+    public const string SchemaVersionUnsupported = "schema_version_unsupported";
+    public const string LocalIdInvalid = "local_id_invalid";
+    public const string NameInvalid = "name_invalid";
+    public const string DescriptionInvalid = "description_invalid";
+    public const string BaseMonetaryValueInvalid = "base_monetary_value_invalid";
+    public const string CategoryUnsupported = "category_unsupported";
+    public const string VisualRequired = "visual_required";
+    public const string PathInvalid = "path_invalid";
+    public const string ImageInvalid = "image_invalid";
+    public const string DuplicateLocalId = "duplicate_local_id";
+    public const string FileTooLarge = "file_too_large";
+    public const string ImageTooLarge = "image_too_large";
+    public const string GlobalGoodLimitExceeded = "global_good_limit_exceeded";
+    public const string DiagnosticsTruncated = "diagnostics_truncated";
+    public const string PackageInvalid = "package_invalid";
+    public const string ReloadAlreadyInProgress = "reload_already_in_progress";
+    public const string UnresolvedGoodReference = "unresolved_good_reference";
+    public const string NaturalResourceCategoryRequired = "natural_resource_category_required";
+    public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
+    public const string EmptyInitialCatalog = "empty_initial_catalog";
+    public const string UnsafeLinkedPath = "unsafe_linked_path";
+}
+
+public enum ContentDiagnosticSeverity
+{
+    Warning = 0,
+    Error = 1
+}
+
+public sealed class ContentDiagnostic
+{
+    public ContentDiagnosticSeverity Severity { get; }
+    public string Code { get; }
+    public string Message { get; }
+    public string? Source { get; }
+    public string? JsonPath { get; }
+
+    public ContentDiagnostic(
+        ContentDiagnosticSeverity severity,
+        string code,
+        string message,
+        string? source = null,
+        string? jsonPath = null)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(code);
+        ArgumentNullException.ThrowIfNull(message);
+        Severity = severity;
+        Code = code;
+        Message = message;
+        Source = source;
+        JsonPath = jsonPath;
+    }
+}
+
+public sealed class ContentOrigin
+{
+    public string Namespace { get; }
+    public string SourceFile { get; }
+
+    public ContentOrigin(string @namespace, string sourceFile)
+    {
+        Namespace = GoodId.NormalizePart(@namespace, nameof(@namespace));
+        ArgumentException.ThrowIfNullOrEmpty(sourceFile);
+        SourceFile = sourceFile;
+    }
+}
+
+public sealed class DecodedImage
+{
+    public int Width { get; }
+    public int Height { get; }
+    public string Format { get; }
+    public IReadOnlyList<byte> Pixels { get; }
+
+    public DecodedImage(int width, int height, string format, byte[] pixels)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(format);
+        ArgumentNullException.ThrowIfNull(pixels);
+        Width = width;
+        Height = height;
+        Format = format;
+        Pixels = new ReadOnlyCollection<byte>(pixels);
+    }
+}
+
+public sealed class ContentPackage
+{
+    public string Namespace { get; }
+    public string ResourcesRoot { get; }
+    public bool Available { get; }
+
+    public ContentPackage(string @namespace, string resourcesRoot, bool available = true)
+    {
+        Namespace = GoodId.NormalizePart(@namespace, nameof(@namespace));
+        ArgumentException.ThrowIfNullOrEmpty(resourcesRoot);
+        ResourcesRoot = resourcesRoot;
+        Available = available;
+    }
+}
+
+public static class ContentLog
+{
+    public const string Category = "content";
+    public const string ScanStartedEventId = "content_scan_started";
+    public const string DefinitionAcceptedEventId = "content_definition_accepted";
+    public const string PackageEmptyEventId = "content_package_empty";
+    public const string InvalidEventId = "content_invalid";
+    public const string ReloadSummaryEventId = "content_reload_summary";
+    public const string ReloadFailedEventId = "content_reload_failed";
+}
+
+public static class ContentPath
+{
+    public static bool TryNormalize(string? path, out string normalized)
+    {
+        normalized = "";
+        if (string.IsNullOrEmpty(path))
+            return false;
+        if (path.Contains('\0', StringComparison.Ordinal))
+            return false;
+        if (path.Contains('\\', StringComparison.Ordinal))
+            return false;
+        if (path.StartsWith('/') || HasUriSchemePrefix(path))
+            return false;
+        if (path.Length >= 2 && path[1] == ':')
+            return false;
+
+        var segments = path.Split('/');
+        if (segments.Length == 0)
+            return false;
+        foreach (var segment in segments)
+        {
+            if (segment.Length == 0 || segment is "." or "..")
+                return false;
+        }
+
+        normalized = string.Join('/', segments);
+        return true;
+    }
+
+    public static bool IsPngPath(string normalizedPath) =>
+        normalizedPath.EndsWith(".png", StringComparison.Ordinal);
+
+    private static bool HasUriSchemePrefix(string path)
+    {
+        if (path.Length == 0 || !IsAsciiLetter(path[0]))
+            return false;
+        var colon = path.IndexOf(':');
+        if (colon <= 0)
+            return false;
+        for (var i = 1; i < colon; i++)
+        {
+            var c = path[i];
+            if (IsAsciiLetter(c) || char.IsAsciiDigit(c) || c is '+' or '-' or '.')
+                continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool IsAsciiLetter(char c) => c is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z');
+
+    public static bool IsUnderRoot(string root, string candidate)
+    {
+        var prefix = root.TrimEnd('/') + "/";
+        return candidate.StartsWith(prefix, StringComparison.Ordinal) ||
+               string.Equals(candidate.TrimEnd('/'), root.TrimEnd('/'), StringComparison.Ordinal);
+    }
+}
+
+internal sealed class DiagnosticBag
+{
+    private readonly List<ContentDiagnostic> _items = new();
+
+    public string? Source { get; set; }
+    public bool Invalid { get; private set; }
+    public IReadOnlyList<ContentDiagnostic> Items => _items;
+
+    public void Add(ContentDiagnosticSeverity severity, string code, string message, string? jsonPath = null)
+    {
+        Invalid = true;
+        if (_items.Count >= ContentLimits.MaxDiagnosticsPerPackage)
+            return;
+        _items.Add(new ContentDiagnostic(severity, code, message, Source, jsonPath));
+    }
+
+    public void MarkInvalid() => Invalid = true;
+}
+
+internal static class DiagnosticBagExtensions
+{
+    public static void Warn(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
+        bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath);
+
+    public static void Error(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
+        bag.Add(ContentDiagnosticSeverity.Error, code, message, jsonPath);
+}
