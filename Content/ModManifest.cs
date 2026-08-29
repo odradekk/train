@@ -33,10 +33,11 @@ public sealed class ModManifest
         IReadOnlyList<string> authors,
         string description)
     {
+        ArgumentNullException.ThrowIfNull(authors);
         Id = id;
         Name = name;
         Version = version;
-        Authors = authors;
+        Authors = new ReadOnlyCollection<string>(authors.ToArray());
         Description = description;
     }
 
@@ -52,17 +53,20 @@ public sealed class ModManifest
         return manifest is not null && !bag.Invalid;
     }
 
-    internal static ModManifest? Parse(byte[] utf8, string source, DiagnosticBag diagnostics)
+    internal static ModManifest? Parse(byte[] utf8, string source, DiagnosticBag diagnostics) =>
+        Read(utf8, source, diagnostics).Manifest;
+
+    internal static ModManifestRead Read(byte[] utf8, string source, DiagnosticBag diagnostics)
     {
         diagnostics.Source = source;
         if (utf8.Length > ContentLimits.GoodsFileMaxBytes)
         {
             diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Mod manifest exceeds the 1 MiB limit.");
-            return null;
+            return ModManifestRead.None;
         }
 
         if (StrictJson.HasDuplicateProperties(utf8, diagnostics, source))
-            return null;
+            return ModManifestRead.None;
 
         JsonDocument document;
         try
@@ -72,7 +76,7 @@ public sealed class ModManifest
         catch (JsonException exception)
         {
             diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
-            return null;
+            return ModManifestRead.None;
         }
 
         using (document)
@@ -80,14 +84,14 @@ public sealed class ModManifest
             if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
                 diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "Mod manifest must be a JSON object.", "$");
-                return null;
+                return ModManifestRead.None;
             }
 
             return ParseDocument(document.RootElement, diagnostics);
         }
     }
 
-    private static ModManifest? ParseDocument(JsonElement root, DiagnosticBag diagnostics)
+    private static ModManifestRead ParseDocument(JsonElement root, DiagnosticBag diagnostics)
     {
         foreach (var property in root.EnumerateObject())
         {
@@ -95,7 +99,6 @@ public sealed class ModManifest
                 and not "authors" and not "description")
             {
                 diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", "/" + property.Name);
-                return null;
             }
         }
 
@@ -108,73 +111,113 @@ public sealed class ModManifest
                 ContentDiagnosticCodes.SchemaVersionUnsupported,
                 "Only schema_version 1 is supported.",
                 "/schema_version");
-            return null;
         }
 
-        if (!root.TryGetProperty("id", out var idElement) ||
-            !StrictJson.TryGetString(idElement, diagnostics, "/id", ContentDiagnosticCodes.UuidInvalid, out var rawId) ||
-            !TryCanonicalUuid(rawId, out var id))
+        var canonicalId = TryReadCanonicalId(root, diagnostics, out var id);
+        var hasName = TryReadName(root, diagnostics, out var name);
+        var hasVersion = TryReadVersion(root, diagnostics, out var version);
+        var hasAuthors = TryReadAuthors(root, diagnostics, out var authors);
+        var hasDescription = TryReadDescription(root, diagnostics, out var description);
+        if (!canonicalId || !hasName || !hasVersion || !hasAuthors || !hasDescription || diagnostics.Invalid)
+            return new ModManifestRead(id);
+
+        return new ModManifestRead(id, new ModManifest(id!, name, version, authors, description));
+    }
+
+    private static bool TryReadCanonicalId(JsonElement root, DiagnosticBag diagnostics, out string? id)
+    {
+        id = null;
+        if (!root.TryGetProperty("id", out var idElement))
         {
-            if (!diagnostics.Invalid)
+            diagnostics.Warn(ContentDiagnosticCodes.UuidInvalid, "id is required.", "/id");
+            return false;
+        }
+
+        if (!StrictJson.TryGetString(idElement, diagnostics, "/id", ContentDiagnosticCodes.UuidInvalid, out var rawId) ||
+            !TryCanonicalUuid(rawId, out var canonical))
+        {
+            if (!diagnostics.Items.Any(item => item.Code == ContentDiagnosticCodes.UuidInvalid && item.JsonPath == "/id"))
                 diagnostics.Warn(ContentDiagnosticCodes.UuidInvalid, "Mod id must be a canonical lowercase non-nil UUID.", "/id");
-            return null;
+            return false;
         }
 
-        if (!root.TryGetProperty("name", out var nameElement) ||
-            !StrictJson.TryGetString(nameElement, diagnostics, "/name", ContentDiagnosticCodes.NameInvalid, out var rawName) ||
-            !StrictJson.TryNormalizeText(
-                rawName,
-                NameMinLength,
-                NameMaxLength,
-                diagnostics,
-                "/name",
-                ContentDiagnosticCodes.NameInvalid,
-                out var name))
+        id = canonical;
+        return true;
+    }
+
+    private static bool TryReadName(JsonElement root, DiagnosticBag diagnostics, out string name)
+    {
+        name = "";
+        if (!root.TryGetProperty("name", out var nameElement))
         {
-            return null;
+            diagnostics.Warn(ContentDiagnosticCodes.NameInvalid, "name is required.", "/name");
+            return false;
         }
 
-        if (!root.TryGetProperty("version", out var versionValue) ||
-            !StrictJson.TryGetString(versionValue, diagnostics, "/version", ContentDiagnosticCodes.VersionInvalid, out var rawVersion) ||
+        return StrictJson.TryGetString(nameElement, diagnostics, "/name", ContentDiagnosticCodes.NameInvalid, out var rawName) &&
+               StrictJson.TryNormalizeText(
+                   rawName,
+                   NameMinLength,
+                   NameMaxLength,
+                   diagnostics,
+                   "/name",
+                   ContentDiagnosticCodes.NameInvalid,
+                   out name);
+    }
+
+    private static bool TryReadVersion(JsonElement root, DiagnosticBag diagnostics, out string version)
+    {
+        version = "";
+        if (!root.TryGetProperty("version", out var versionElement))
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.VersionInvalid, "version is required.", "/version");
+            return false;
+        }
+
+        if (!StrictJson.TryGetString(versionElement, diagnostics, "/version", ContentDiagnosticCodes.VersionInvalid, out var rawVersion) ||
             !SemVer.IsValid(rawVersion))
         {
-            if (!diagnostics.Invalid)
+            if (!diagnostics.Items.Any(item => item.Code == ContentDiagnosticCodes.VersionInvalid && item.JsonPath == "/version"))
                 diagnostics.Warn(ContentDiagnosticCodes.VersionInvalid, "version must be a SemVer 2.0 string.", "/version");
-            return null;
+            return false;
         }
 
+        version = rawVersion;
+        return true;
+    }
+
+    private static bool TryReadAuthors(JsonElement root, DiagnosticBag diagnostics, out IReadOnlyList<string> authors)
+    {
+        authors = Array.Empty<string>();
         if (!root.TryGetProperty("authors", out var authorsElement))
         {
             diagnostics.Warn(ContentDiagnosticCodes.AuthorsInvalid, "authors is required.", "/authors");
-            return null;
+            return false;
         }
 
-        if (!TryParseAuthors(authorsElement, diagnostics, out var authors))
-            return null;
+        return TryParseAuthors(authorsElement, diagnostics, out authors);
+    }
 
-        var description = "";
-        if (root.TryGetProperty("description", out var descriptionElement))
-        {
-            if (!StrictJson.TryGetString(
-                    descriptionElement,
-                    diagnostics,
-                    "/description",
-                    ContentDiagnosticCodes.DescriptionInvalid,
-                    out var rawDescription) ||
-                !StrictJson.TryNormalizeText(
-                    rawDescription,
-                    DescriptionMinLength,
-                    DescriptionMaxLength,
-                    diagnostics,
-                    "/description",
-                    ContentDiagnosticCodes.DescriptionInvalid,
-                    out description))
-            {
-                return null;
-            }
-        }
+    private static bool TryReadDescription(JsonElement root, DiagnosticBag diagnostics, out string description)
+    {
+        description = "";
+        if (!root.TryGetProperty("description", out var descriptionElement))
+            return true;
 
-        return new ModManifest(id, name, rawVersion, authors, description);
+        return StrictJson.TryGetString(
+                   descriptionElement,
+                   diagnostics,
+                   "/description",
+                   ContentDiagnosticCodes.DescriptionInvalid,
+                   out var rawDescription) &&
+               StrictJson.TryNormalizeText(
+                   rawDescription,
+                   DescriptionMinLength,
+                   DescriptionMaxLength,
+                   diagnostics,
+                   "/description",
+                   ContentDiagnosticCodes.DescriptionInvalid,
+                   out description);
     }
 
     private static bool TryParseAuthors(
@@ -240,6 +283,20 @@ public sealed class ModManifest
             return false;
         canonical = value;
         return true;
+    }
+}
+
+internal readonly struct ModManifestRead
+{
+    public static ModManifestRead None => default;
+
+    public string? CanonicalId { get; }
+    public ModManifest? Manifest { get; }
+
+    public ModManifestRead(string? canonicalId, ModManifest? manifest = null)
+    {
+        CanonicalId = canonicalId;
+        Manifest = manifest;
     }
 }
 

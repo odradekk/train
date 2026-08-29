@@ -11,12 +11,16 @@ public sealed class GodotContentSource : IContentSource
     public const string ModsGodotPath = ExternalContent.ModsGodotPath;
 
     private readonly TrainLogger? _logger;
+    private readonly string? _userDataDirectory;
     private IReadOnlyList<ContentDiagnostic> _scanDiagnostics = Array.Empty<ContentDiagnostic>();
 
-    public GodotContentSource(TrainLogger? logger = null)
+    public GodotContentSource(TrainLogger? logger = null, string? userDataDirectory = null)
     {
         _logger = logger;
+        _userDataDirectory = userDataDirectory;
     }
+
+    public string UserDataDirectory => _userDataDirectory ?? OS.GetUserDataDir();
 
     public IReadOnlyList<ContentPackage> ListPackages()
     {
@@ -27,7 +31,8 @@ public sealed class GodotContentSource : IContentSource
             new(GoodId.BuiltInNamespace, BuiltInResourcesRoot, available)
         };
 
-        var physical = Path.Combine(OS.GetUserDataDir(), "mods");
+        var userData = UserDataDirectory;
+        var physical = Path.Combine(userData, "mods");
         _logger?.Info(
             ContentLog.Category,
             ContentLog.ModsRootEventId,
@@ -38,17 +43,20 @@ public sealed class GodotContentSource : IContentSource
                 ["physical_path"] = physical
             });
 
-        try
+        if (_userDataDirectory is null)
         {
-            using var user = DirAccess.Open("user://");
-            user?.MakeDir("mods");
-        }
-        catch
-        {
-            // Physical creation below is authoritative.
+            try
+            {
+                using var user = DirAccess.Open("user://");
+                user?.MakeDir("mods");
+            }
+            catch
+            {
+                // Physical creation below is authoritative.
+            }
         }
 
-        if (!ExternalContent.TryEnsureDirectory(physical, out var error))
+        if (!ExternalContent.TryEnsureDirectory(userData, physical, out var error))
         {
             _scanDiagnostics = new[]
             {
@@ -57,7 +65,7 @@ public sealed class GodotContentSource : IContentSource
             return packages;
         }
 
-        if (!ExternalContent.TryListDirectChildren(physical, out var children, out var listError))
+        if (!ExternalContent.TryListDirectChildren(userData, physical, out var children, out var listError))
         {
             _scanDiagnostics = new[]
             {

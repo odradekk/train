@@ -3,7 +3,8 @@
 # Commands (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   & $godot --headless --path . --export-release "Windows Desktop" builds/mods-smoke/train.exe
 #   $env:TRAIN_MODS_EXPORT_SMOKE = "1"
-#   .\builds\mods-smoke\train.exe
+#   $env:TRAIN_MODS_SMOKE_USER_DATA = "<isolated empty user-data>"
+#   .\builds\mods-smoke\train.exe --user-data-dir "<isolated empty user-data>"
 #
 # Requires the exported process stdout to contain:
 #   MODS_EXPORT_IRON_ORE_LOADED
@@ -11,6 +12,7 @@
 # and one of:
 #   MODS_EXPORT_ROOT_EMPTY
 #   MODS_EXPORT_ROOT_UNAVAILABLE
+# MODS_EXPORT_ROOT_PRESENT does not satisfy the missing/empty contract.
 #
 # Exit 2 if Godot is unavailable and no exported binary was supplied.
 # Exit 1 if export or the exported process fails, or a required marker is missing.
@@ -60,7 +62,7 @@ function Find-Godot {
 $exported = $env:TRAIN_MODS_EXPORT_BIN
 $godot = Find-Godot
 $exportCommand = '& <godot> --headless --path . --export-release "Windows Desktop" builds/mods-smoke/train.exe'
-$runCommand = '$env:TRAIN_MODS_EXPORT_SMOKE="1"; .\builds\mods-smoke\train.exe'
+$runCommand = '$env:TRAIN_MODS_EXPORT_SMOKE="1"; $env:TRAIN_MODS_SMOKE_USER_DATA="<isolated-user-data>"; .\builds\mods-smoke\train.exe --user-data-dir "<isolated-user-data>"'
 if (-not $exported -and -not $godot) {
     [Console]::Error.WriteLine("Godot executable not found (PATH, GODOT, GODOT_HOME, or standard Program Files).")
     [Console]::Error.WriteLine("Unrun export command: $exportCommand")
@@ -85,20 +87,40 @@ if (-not (Test-Path -LiteralPath $exported)) {
 }
 
 Write-Host "Using exported binary: $exported"
+$isolated = Join-Path ([System.IO.Path]::GetTempPath()) ("train-mods-smoke-" + [guid]::NewGuid().ToString("N"))
+New-Item -ItemType Directory -Force -Path $isolated | Out-Null
+$previousSmokeRoot = $env:TRAIN_MODS_SMOKE_USER_DATA
 $env:TRAIN_MODS_EXPORT_SMOKE = "1"
-$raw = & $exported 2>&1
-$processExit = $LASTEXITCODE
-$output = $raw | Out-String
-Write-Host $output
+$env:TRAIN_MODS_SMOKE_USER_DATA = $isolated
+try {
+    $raw = & $exported --user-data-dir $isolated 2>&1
+    $processExit = $LASTEXITCODE
+    $output = $raw | Out-String
+    Write-Host $output
+}
+finally {
+    if ($null -eq $previousSmokeRoot) {
+        Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
+    }
+    else {
+        $env:TRAIN_MODS_SMOKE_USER_DATA = $previousSmokeRoot
+    }
+    Remove-Item -LiteralPath $isolated -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 $required = @(
     "MODS_EXPORT_IRON_ORE_LOADED",
     "MODS_EXPORT_INIT_OK"
 )
 $missing = @($required | Where-Object { $output -notlike "*$_*" })
-$hasRoot = ($output -like "*MODS_EXPORT_ROOT_EMPTY*") -or ($output -like "*MODS_EXPORT_ROOT_UNAVAILABLE*")
-if (-not $hasRoot) {
+$hasEmpty = $output -like "*MODS_EXPORT_ROOT_EMPTY*"
+$hasUnavailable = $output -like "*MODS_EXPORT_ROOT_UNAVAILABLE*"
+$hasPresent = $output -like "*MODS_EXPORT_ROOT_PRESENT*"
+if (-not ($hasEmpty -or $hasUnavailable)) {
     $missing += "MODS_EXPORT_ROOT_EMPTY|MODS_EXPORT_ROOT_UNAVAILABLE"
+}
+if ($hasPresent -and -not ($hasEmpty -or $hasUnavailable)) {
+    $missing += "missing/empty mods root (ROOT_PRESENT is not accepted)"
 }
 
 if ($processExit -ne 0) {

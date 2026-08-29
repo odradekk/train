@@ -219,6 +219,65 @@ public sealed class ModLoadingTests
     }
 
     [TestMethod]
+    public void Built_in_packages_do_not_carry_mod_metadata()
+    {
+        var source = ContentFixtures.ValidIron();
+        Assert.IsNull(source.ListPackages().Single(item => item.Kind == ContentPackageKind.BuiltIn).Mod);
+        Assert.IsTrue(ModManifest.TryParse(
+            System.Text.Encoding.UTF8.GetBytes(ModFixtures.Manifest(ModFixtures.SampleUuid)),
+            "pretty/mod.json",
+            out var manifest,
+            out _));
+        Assert.ThrowsException<ArgumentException>(() =>
+            new ContentPackage("core", "memory://resources", true, ContentPackageKind.BuiltIn, null, new ModPackageMetadata(manifest!)));
+        Assert.ThrowsException<ArgumentException>(() =>
+            new ContentPackage(
+                ModFixtures.OtherUuid,
+                "memory://mods/x/resources",
+                true,
+                ContentPackageKind.Mod,
+                "x/mod.json",
+                new ModPackageMetadata(manifest!)));
+    }
+
+    [TestMethod]
+    public void Missing_required_manifest_fields_commit_built_in_content_with_warnings()
+    {
+        var cases = new[]
+        {
+            ("{ \"schema_version\": 1, \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }", ContentDiagnosticCodes.UuidInvalid, "/id"),
+            ("{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }", ContentDiagnosticCodes.NameInvalid, "/name"),
+            ("{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"authors\": [\"A\"] }", ContentDiagnosticCodes.VersionInvalid, "/version"),
+            ("{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"version\": \"1.0.0\" }", ContentDiagnosticCodes.AuthorsInvalid, "/authors")
+        };
+
+        foreach (var (json, code, jsonPath) in cases)
+        {
+            using var session = LoggerSession.Create();
+            var source = ContentFixtures.ValidIron();
+            var scan = ModDiscovery.Scan(new[]
+            {
+                new ModFolderCandidate(
+                    "broken",
+                    "memory://mods/broken",
+                    isDirectory: true,
+                    manifestBytes: System.Text.Encoding.UTF8.GetBytes(json))
+            });
+            foreach (var diagnostic in scan.Diagnostics)
+                source.AddScanDiagnostic(diagnostic);
+            var reloader = ContentFixtures.Create(source, session.Logger);
+
+            var result = reloader.Reload();
+
+            Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status, json);
+            Assert.AreEqual(0, scan.AcceptedCount, json);
+            Assert.IsTrue(scan.Diagnostics.Any(item => item.Code == code && item.JsonPath == jsonPath), json);
+            Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId("core", "iron-ore"), out _), json);
+            Assert.IsFalse(reloader.Catalog.Current.Entries.Keys.Any(id => id.Namespace == ModFixtures.SampleUuid), json);
+        }
+    }
+
+    [TestMethod]
     public void Invalid_built_in_package_still_rejects_even_when_a_mod_is_valid()
     {
         using var session = LoggerSession.Create();

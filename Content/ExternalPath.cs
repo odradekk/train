@@ -79,6 +79,48 @@ public static class ExternalPath
     public static bool IsUnsafe(string root, string candidate) =>
         !IsSafeUnderRoot(root, candidate) || AnyReparsePointOnChain(root, candidate);
 
+    public static bool TryValidateTrustedChain(string trustedRoot, string candidate, out string? error)
+    {
+        error = null;
+        if (!TryGetFullPath(trustedRoot, out var rootFull) || !TryGetFullPath(candidate, out var candidateFull))
+        {
+            error = "Path is invalid.";
+            return false;
+        }
+
+        if (!IsSafeUnderRoot(rootFull, candidateFull))
+        {
+            error = "Path escapes the trusted root.";
+            return false;
+        }
+
+        foreach (var segment in EnumerateChain(rootFull, candidateFull))
+        {
+            if (!TryStat(segment, out var attributes, out var exists))
+            {
+                error = "Path segment could not be read.";
+                return false;
+            }
+
+            if (!exists)
+                continue;
+
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+            {
+                error = "Path is a linked or reparse path.";
+                return false;
+            }
+
+            if ((attributes & FileAttributes.Directory) == 0)
+            {
+                error = "Path segment is not a directory.";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static string CombineUnder(string root, string relativeForwardSlash)
     {
         var native = relativeForwardSlash.Replace('/', Path.DirectorySeparatorChar);

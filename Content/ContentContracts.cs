@@ -116,6 +116,25 @@ public enum ContentPackageKind
     Mod = 1
 }
 
+public sealed class ModPackageMetadata
+{
+    public string Id { get; }
+    public string Name { get; }
+    public string Version { get; }
+    public IReadOnlyList<string> Authors { get; }
+    public string Description { get; }
+
+    public ModPackageMetadata(ModManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        Id = manifest.Id;
+        Name = manifest.Name;
+        Version = manifest.Version;
+        Authors = new ReadOnlyCollection<string>(manifest.Authors.ToArray());
+        Description = manifest.Description;
+    }
+}
+
 public sealed class ContentPackage
 {
     public string Namespace { get; }
@@ -123,13 +142,15 @@ public sealed class ContentPackage
     public bool Available { get; }
     public ContentPackageKind Kind { get; }
     public string? Source { get; }
+    public ModPackageMetadata? Mod { get; }
 
     public ContentPackage(
         string @namespace,
         string resourcesRoot,
         bool available = true,
         ContentPackageKind kind = ContentPackageKind.BuiltIn,
-        string? source = null)
+        string? source = null,
+        ModPackageMetadata? mod = null)
     {
         Namespace = GoodId.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(resourcesRoot);
@@ -137,6 +158,17 @@ public sealed class ContentPackage
         Available = available;
         Kind = kind;
         Source = source;
+        if (kind == ContentPackageKind.Mod)
+        {
+            ArgumentNullException.ThrowIfNull(mod);
+            if (!string.Equals(mod.Id, Namespace, StringComparison.Ordinal))
+                throw new ArgumentException("Mod metadata UUID must match the package namespace.", nameof(mod));
+            Mod = mod;
+        }
+        else if (mod is not null)
+        {
+            throw new ArgumentException("Built-in packages must not carry mod metadata.", nameof(mod));
+        }
     }
 
     public bool IsRequired => Kind == ContentPackageKind.BuiltIn;

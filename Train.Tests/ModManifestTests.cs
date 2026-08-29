@@ -205,5 +205,66 @@ public sealed class ModManifestTests
         Assert.IsTrue(duplicates.Any(item => item.Code == ContentDiagnosticCodes.AuthorsInvalid));
     }
 
+    [TestMethod]
+    public void Missing_required_fields_each_produce_a_bounded_diagnostic()
+    {
+        AssertMissing(
+            "{ \"schema_version\": 1, \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }",
+            ContentDiagnosticCodes.UuidInvalid,
+            "/id");
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }",
+            ContentDiagnosticCodes.NameInvalid,
+            "/name");
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"authors\": [\"A\"] }",
+            ContentDiagnosticCodes.VersionInvalid,
+            "/version");
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"version\": \"1.0.0\" }",
+            ContentDiagnosticCodes.AuthorsInvalid,
+            "/authors");
+    }
+
+    [TestMethod]
+    public void Wrong_types_and_invalid_values_each_produce_their_own_diagnostic()
+    {
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": 1, \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }",
+            ContentDiagnosticCodes.UuidInvalid,
+            "/id");
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": 1, \"version\": \"1.0.0\", \"authors\": [\"A\"] }",
+            ContentDiagnosticCodes.NameInvalid,
+            "/name");
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"version\": 1, \"authors\": [\"A\"] }",
+            ContentDiagnosticCodes.VersionInvalid,
+            "/version");
+        AssertMissing(
+            "{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": \"A\" }",
+            ContentDiagnosticCodes.AuthorsInvalid,
+            "/authors");
+
+        Assert.IsFalse(ModManifest.TryParse(
+            Utf8("{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"version\": \"1.0.0\", \"authors\": [\"A\"], \"extra\": true }"),
+            "bad/mod.json",
+            out var manifest,
+            out var diagnostics));
+        Assert.IsNull(manifest);
+        Assert.IsTrue(diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnknownField && item.JsonPath == "/extra"));
+        Assert.IsTrue(diagnostics.Any(item => item.Code == ContentDiagnosticCodes.NameInvalid && item.JsonPath == "/name"));
+    }
+
+    private static void AssertMissing(string json, string code, string jsonPath)
+    {
+        Assert.IsFalse(ModManifest.TryParse(Utf8(json), "bad/mod.json", out var manifest, out var diagnostics), json);
+        Assert.IsNull(manifest, json);
+        Assert.IsTrue(diagnostics.Any(item =>
+            item.Code == code &&
+            item.Source == "bad/mod.json" &&
+            item.JsonPath == jsonPath), json);
+    }
+
     private static byte[] Utf8(string text) => System.Text.Encoding.UTF8.GetBytes(text);
 }

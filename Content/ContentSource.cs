@@ -63,9 +63,10 @@ public sealed class MemoryContentSource : IContentSource
         string resourcesRoot = "memory://resources",
         bool available = true,
         ContentPackageKind kind = ContentPackageKind.BuiltIn,
-        string? source = null)
+        string? source = null,
+        ModPackageMetadata? mod = null)
     {
-        var package = new ContentPackage(@namespace, resourcesRoot, available, kind, source);
+        var package = new ContentPackage(@namespace, resourcesRoot, available, kind, source, mod);
         if (kind == ContentPackageKind.BuiltIn)
             _packages.RemoveAll(item => item.Kind == ContentPackageKind.BuiltIn && item.Namespace == package.Namespace);
         else
@@ -74,14 +75,31 @@ public sealed class MemoryContentSource : IContentSource
         _files.TryAdd(PackageKey(package), new List<string>());
     }
 
-    public void AddMod(string folderName, string uuid, bool available = true)
+    public void AddMod(string folderName, string uuid, bool available = true, ModManifest? manifest = null)
     {
+        if (manifest is null)
+        {
+            if (!ModManifest.TryParse(
+                    System.Text.Encoding.UTF8.GetBytes(
+                        $"{{\"schema_version\":1,\"id\":\"{uuid}\",\"name\":\"Test Mod\",\"version\":\"1.0.0\",\"authors\":[\"Test\"]}}"),
+                    folderName + "/" + ModDiscovery.ManifestFileName,
+                    out var parsed,
+                    out _) ||
+                parsed is null)
+            {
+                throw new ArgumentException("A valid mod manifest is required.", nameof(uuid));
+            }
+
+            manifest = parsed;
+        }
+
         AddPackage(
             uuid,
             "memory://mods/" + folderName + "/resources",
             available,
             ContentPackageKind.Mod,
-            folderName + "/" + ModDiscovery.ManifestFileName);
+            folderName + "/" + ModDiscovery.ManifestFileName,
+            new ModPackageMetadata(manifest ?? throw new ArgumentException("A valid mod manifest is required.", nameof(manifest))));
     }
 
     public void AddScanDiagnostic(ContentDiagnostic diagnostic)

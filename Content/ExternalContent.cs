@@ -4,23 +4,22 @@ public static class ExternalContent
 {
     public const string ModsGodotPath = "user://mods";
 
-    public static bool TryEnsureDirectory(string physicalPath, out string? error)
+    public static bool TryEnsureDirectory(string trustedUserDataRoot, string modsPath, out string? error)
     {
-        error = null;
+        if (!ExternalPath.TryValidateTrustedChain(trustedUserDataRoot, modsPath, out error))
+            return false;
+
         try
         {
-            Directory.CreateDirectory(physicalPath);
-            if (!Directory.Exists(physicalPath))
+            Directory.CreateDirectory(modsPath);
+            if (!Directory.Exists(modsPath))
             {
                 error = "Mods directory could not be created.";
                 return false;
             }
 
-            if (ExternalPath.IsReparsePoint(physicalPath))
-            {
-                error = "Mods directory is a linked or reparse path.";
+            if (!ExternalPath.TryValidateTrustedChain(trustedUserDataRoot, modsPath, out error))
                 return false;
-            }
 
             return true;
         }
@@ -32,16 +31,20 @@ public static class ExternalContent
     }
 
     public static bool TryListDirectChildren(
-        string physicalRoot,
+        string trustedUserDataRoot,
+        string modsPath,
         out IReadOnlyList<ModFolderCandidate> children,
         out string? error)
     {
         children = Array.Empty<ModFolderCandidate>();
         error = null;
+        if (!ExternalPath.TryValidateTrustedChain(trustedUserDataRoot, modsPath, out error))
+            return false;
+
         string root;
         try
         {
-            root = ExternalPath.NormalizeRoot(physicalRoot);
+            root = ExternalPath.NormalizeRoot(modsPath);
         }
         catch (Exception exception)
         {
@@ -68,50 +71,50 @@ public static class ExternalContent
             return false;
         }
 
-        IEnumerable<FileSystemInfo> entries;
         try
         {
-            entries = new DirectoryInfo(root).EnumerateFileSystemInfos();
+            var candidates = new List<ModFolderCandidate>();
+            foreach (var info in new DirectoryInfo(root).EnumerateFileSystemInfos())
+            {
+                if (info.Name is "." or "..")
+                    continue;
+
+                var isDirectory = (info.Attributes & FileAttributes.Directory) != 0;
+                var isLink = (info.Attributes & FileAttributes.ReparsePoint) != 0;
+                if (!isDirectory)
+                    continue;
+
+                var packageRoot = info.FullName;
+                var packageUnsafe = isLink || ExternalPath.IsUnsafe(root, packageRoot);
+                var manifestPath = Path.Combine(packageRoot, ModDiscovery.ManifestFileName);
+                var (manifestBytes, missing, unsafeManifest) = ReadManifest(root, packageRoot, manifestPath, packageUnsafe);
+                candidates.Add(new ModFolderCandidate(
+                    info.Name,
+                    packageRoot,
+                    isDirectory: true,
+                    isLink: isLink,
+                    packageRootUnsafe: packageUnsafe,
+                    manifestMissing: missing,
+                    manifestUnsafe: unsafeManifest,
+                    manifestBytes: manifestBytes));
+            }
+
+            candidates.Sort((left, right) => string.CompareOrdinal(left.FolderName, right.FolderName));
+            children = candidates;
+            return true;
         }
         catch (Exception exception)
         {
+            children = Array.Empty<ModFolderCandidate>();
             error = exception.Message;
             return false;
         }
-
-        var candidates = new List<ModFolderCandidate>();
-        foreach (var info in entries)
-        {
-            if (info.Name is "." or "..")
-                continue;
-
-            var isDirectory = (info.Attributes & FileAttributes.Directory) != 0;
-            var isLink = (info.Attributes & FileAttributes.ReparsePoint) != 0;
-            if (!isDirectory)
-                continue;
-
-            var packageRoot = info.FullName;
-            var packageUnsafe = isLink || ExternalPath.IsUnsafe(root, packageRoot);
-            var manifestPath = Path.Combine(packageRoot, ModDiscovery.ManifestFileName);
-            var (manifestBytes, missing, unsafeManifest) = ReadManifest(root, packageRoot, manifestPath, packageUnsafe);
-            candidates.Add(new ModFolderCandidate(
-                info.Name,
-                packageRoot,
-                isDirectory: true,
-                isLink: isLink,
-                packageRootUnsafe: packageUnsafe,
-                manifestMissing: missing,
-                manifestUnsafe: unsafeManifest,
-                manifestBytes: manifestBytes));
-        }
-
-        candidates.Sort((left, right) => string.CompareOrdinal(left.FolderName, right.FolderName));
-        children = candidates;
-        return true;
     }
 
-    public static IReadOnlyList<ModFolderCandidate> ListDirectChildren(string physicalRoot) =>
-        TryListDirectChildren(physicalRoot, out var children, out _) ? children : Array.Empty<ModFolderCandidate>();
+    public static IReadOnlyList<ModFolderCandidate> ListDirectChildren(string trustedUserDataRoot, string modsPath) =>
+        TryListDirectChildren(trustedUserDataRoot, modsPath, out var children, out _)
+            ? children
+            : Array.Empty<ModFolderCandidate>();
 
     public static ContentFileDiscovery ListGoodsFiles(string resourcesRoot)
     {

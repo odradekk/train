@@ -65,16 +65,20 @@ $allMarkers = @(
 $failingExport = New-FakeProgram -ExitCode 7 -Lines @("export failed")
 $passingBin = New-FakeProgram -ExitCode 0 -Lines $allMarkers
 $unavailableRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_UNAVAILABLE")
+$presentRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_PRESENT")
 $missingBin = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED")
+$nonzeroProcess = New-FakeProgram -ExitCode 7 -Lines $allMarkers
 try {
     Assert-SmokeExit -Name "unavailable Godot" -Expected 2 -Actual (Invoke-Smoke -ForceUnavailable)
     Assert-SmokeExit -Name "failed export" -Expected 1 -Actual (Invoke-Smoke -GodotPath $failingExport)
     Assert-SmokeExit -Name "exported binary with empty mods root" -Expected 0 -Actual (Invoke-Smoke -ExportBin $passingBin)
     Assert-SmokeExit -Name "exported binary with unavailable mods root" -Expected 0 -Actual (Invoke-Smoke -ExportBin $unavailableRoot)
+    Assert-SmokeExit -Name "ROOT_PRESENT does not satisfy missing/empty" -Expected 1 -Actual (Invoke-Smoke -ExportBin $presentRoot)
     Assert-SmokeExit -Name "exported binary missing a marker" -Expected 1 -Actual (Invoke-Smoke -ExportBin $missingBin)
+    Assert-SmokeExit -Name "nonzero exported process" -Expected 1 -Actual (Invoke-Smoke -ExportBin $nonzeroProcess)
 }
 finally {
-    Remove-Item -LiteralPath $failingExport, $passingBin, $unavailableRoot, $missingBin -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $failingExport, $passingBin, $unavailableRoot, $presentRoot, $missingBin, $nonzeroProcess -ErrorAction SilentlyContinue
 }
 
 if ($failed -gt 0) {

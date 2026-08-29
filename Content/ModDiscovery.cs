@@ -61,7 +61,7 @@ public static class ModDiscovery
     {
         var packages = new List<ContentPackage>();
         var diagnostics = new List<ContentDiagnostic>();
-        var parsed = new List<(ModFolderCandidate Candidate, ModManifest Manifest)>();
+        var declared = new List<(ModFolderCandidate Candidate, string? CanonicalId, ModManifest? Manifest, DiagnosticBag Bag)>();
         var candidateCount = 0;
 
         foreach (var candidate in candidates)
@@ -94,39 +94,40 @@ public static class ModDiscovery
                 continue;
             }
 
-            var manifest = ModManifest.Parse(candidate.ManifestBytes, source, bag);
-            diagnostics.AddRange(bag.Items);
-            if (manifest is null || bag.Invalid)
-                continue;
-
-            parsed.Add((candidate, manifest));
+            var read = ModManifest.Read(candidate.ManifestBytes, source, bag);
+            declared.Add((candidate, read.CanonicalId, read.Manifest, bag));
         }
 
-        var duplicateIds = parsed
-            .GroupBy(item => item.Manifest.Id, StringComparer.Ordinal)
+        var duplicateIds = declared
+            .Where(item => item.CanonicalId is not null)
+            .GroupBy(item => item.CanonicalId, StringComparer.Ordinal)
             .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
+            .Select(group => group.Key!)
             .ToHashSet(StringComparer.Ordinal);
 
-        foreach (var item in parsed)
+        foreach (var item in declared)
         {
-            if (duplicateIds.Contains(item.Manifest.Id))
+            if (item.CanonicalId is not null && duplicateIds.Contains(item.CanonicalId))
             {
-                diagnostics.Add(new ContentDiagnostic(
-                    ContentDiagnosticSeverity.Warning,
+                item.Bag.Warn(
                     ContentDiagnosticCodes.DuplicateModUuid,
                     "Duplicate mod UUID disables every package using that UUID.",
-                    item.Candidate.FolderName + "/" + ManifestFileName,
-                    item.Manifest.Id));
+                    item.CanonicalId);
+                diagnostics.AddRange(item.Bag.Items);
                 continue;
             }
+
+            diagnostics.AddRange(item.Bag.Items);
+            if (item.Manifest is null)
+                continue;
 
             packages.Add(new ContentPackage(
                 item.Manifest.Id,
                 ResourcesRoot(item.Candidate.PackageRoot),
                 available: true,
                 ContentPackageKind.Mod,
-                item.Candidate.FolderName + "/" + ManifestFileName));
+                item.Candidate.FolderName + "/" + ManifestFileName,
+                new ModPackageMetadata(item.Manifest)));
         }
 
         return new ModScanResult(packages, diagnostics, candidateCount, packages.Count);

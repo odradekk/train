@@ -84,6 +84,92 @@ public sealed class ModDiscoveryTests
     }
 
     [TestMethod]
+    public void Valid_and_same_uuid_invalid_version_disable_every_declaration()
+    {
+        var scan = ModDiscovery.Scan(new[]
+        {
+            Valid("good", ModFixtures.SampleUuid),
+            new ModFolderCandidate(
+                "bad-version",
+                "memory://mods/bad-version",
+                isDirectory: true,
+                manifestBytes: Utf8(ModFixtures.Manifest(ModFixtures.SampleUuid, version: "01.0.0")))
+        });
+
+        Assert.AreEqual(0, scan.AcceptedCount);
+        Assert.AreEqual(2, scan.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.DuplicateModUuid));
+        Assert.IsTrue(scan.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.VersionInvalid));
+    }
+
+    [TestMethod]
+    public void Two_fully_valid_duplicates_are_both_disabled()
+    {
+        var scan = ModDiscovery.Scan(new[]
+        {
+            Valid("alpha", ModFixtures.SampleUuid),
+            Valid("beta", ModFixtures.SampleUuid)
+        });
+
+        Assert.AreEqual(0, scan.AcceptedCount);
+        Assert.AreEqual(2, scan.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.DuplicateModUuid));
+    }
+
+    [TestMethod]
+    public void Ambiguous_id_does_not_disable_an_unrelated_valid_package()
+    {
+        var scan = ModDiscovery.Scan(new[]
+        {
+            Valid("ok", ModFixtures.SampleUuid),
+            new ModFolderCandidate(
+                "broken",
+                "memory://mods/broken",
+                isDirectory: true,
+                manifestBytes: Utf8("{ \"schema_version\": 1, \"id\": \"" + ModFixtures.SampleUuid + "\", \"id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }")),
+            new ModFolderCandidate(
+                "wrong-case",
+                "memory://mods/wrong-case",
+                isDirectory: true,
+                manifestBytes: Utf8("{ \"schema_version\": 1, \"Id\": \"" + ModFixtures.SampleUuid + "\", \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }")),
+            new ModFolderCandidate(
+                "missing-id",
+                "memory://mods/missing-id",
+                isDirectory: true,
+                manifestBytes: Utf8("{ \"schema_version\": 1, \"name\": \"A\", \"version\": \"1.0.0\", \"authors\": [\"A\"] }"))
+        });
+
+        Assert.AreEqual(1, scan.AcceptedCount);
+        Assert.AreEqual(ModFixtures.SampleUuid, scan.Packages.Single().Namespace);
+        Assert.AreEqual(0, scan.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.DuplicateModUuid));
+    }
+
+    [TestMethod]
+    public void Accepted_package_retains_normalized_manifest_metadata()
+    {
+        var scan = ModDiscovery.Scan(new[]
+        {
+            new ModFolderCandidate(
+                "pretty-name",
+                "memory://mods/pretty-name",
+                isDirectory: true,
+                manifestBytes: Utf8(ModFixtures.Manifest(
+                    ModFixtures.SampleUuid,
+                    name: "  铜矿扩展  ",
+                    version: "1.2.3-alpha.1+build.7",
+                    authors: new[] { "  作者甲  " },
+                    description: "  说明  ")))
+        });
+
+        var package = scan.Packages.Single();
+        Assert.IsNotNull(package.Mod);
+        Assert.AreEqual(ModFixtures.SampleUuid, package.Mod!.Id);
+        Assert.AreEqual("铜矿扩展", package.Mod.Name);
+        Assert.AreEqual("1.2.3-alpha.1+build.7", package.Mod.Version);
+        CollectionAssert.AreEqual(new[] { "作者甲" }, package.Mod.Authors.ToArray());
+        Assert.AreEqual("说明", package.Mod.Description);
+        Assert.IsTrue(((System.Collections.IList)package.Mod.Authors).IsReadOnly);
+    }
+
+    [TestMethod]
     public void Invalid_manifest_does_not_produce_a_package()
     {
         var scan = ModDiscovery.Scan(new[]
