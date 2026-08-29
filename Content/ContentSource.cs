@@ -44,6 +44,7 @@ public sealed class ImageDecodeResult
 public interface IContentSource
 {
     IReadOnlyList<ContentPackage> ListPackages();
+    IReadOnlyList<ContentDiagnostic> ListScanDiagnostics();
     ContentFileDiscovery ListGoodsFiles(ContentPackage package);
     ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes);
     ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath);
@@ -52,69 +53,116 @@ public interface IContentSource
 public sealed class MemoryContentSource : IContentSource
 {
     private readonly List<ContentPackage> _packages = new();
+    private readonly List<ContentDiagnostic> _scanDiagnostics = new();
     private readonly Dictionary<string, List<string>> _files = new(StringComparer.Ordinal);
     private readonly Dictionary<string, byte[]> _bytes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ImageDecodeResult> _images = new(StringComparer.Ordinal);
 
-    public void AddPackage(string @namespace, string resourcesRoot = "memory://resources", bool available = true)
+    public void AddPackage(
+        string @namespace,
+        string resourcesRoot = "memory://resources",
+        bool available = true,
+        ContentPackageKind kind = ContentPackageKind.BuiltIn,
+        string? source = null,
+        ModPackageMetadata? mod = null)
     {
-        var package = new ContentPackage(@namespace, resourcesRoot, available);
-        _packages.RemoveAll(item => item.Namespace == package.Namespace);
+        var package = new ContentPackage(@namespace, resourcesRoot, available, kind, source, mod);
+        if (kind == ContentPackageKind.BuiltIn)
+            _packages.RemoveAll(item => item.Kind == ContentPackageKind.BuiltIn && item.Namespace == package.Namespace);
+        else
+            _packages.RemoveAll(item => item.ResourcesRoot == package.ResourcesRoot);
         _packages.Add(package);
-        _files.TryAdd(package.Namespace, new List<string>());
+        _files.TryAdd(PackageKey(package), new List<string>());
     }
 
-    public void AddGoodsFile(string @namespace, string relativePath, string utf8Text)
+    public void AddMod(string folderName, string uuid, bool available = true, ModManifest? manifest = null)
     {
-        AddGoodsFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text));
+        if (manifest is null)
+        {
+            if (!ModManifest.TryParse(
+                    System.Text.Encoding.UTF8.GetBytes(
+                        $"{{\"schema_version\":1,\"id\":\"{uuid}\",\"name\":\"Test Mod\",\"version\":\"1.0.0\",\"authors\":[\"Test\"]}}"),
+                    folderName + "/" + ModDiscovery.ManifestFileName,
+                    out var parsed,
+                    out _) ||
+                parsed is null)
+            {
+                throw new ArgumentException("A valid mod manifest is required.", nameof(uuid));
+            }
+
+            manifest = parsed;
+        }
+
+        AddPackage(
+            uuid,
+            "memory://mods/" + folderName + "/resources",
+            available,
+            ContentPackageKind.Mod,
+            folderName + "/" + ModDiscovery.ManifestFileName,
+            new ModPackageMetadata(manifest ?? throw new ArgumentException("A valid mod manifest is required.", nameof(manifest))));
     }
 
-    public void AddGoodsFile(string @namespace, string relativePath, byte[] bytes)
+    public void AddScanDiagnostic(ContentDiagnostic diagnostic)
+    {
+        ArgumentNullException.ThrowIfNull(diagnostic);
+        _scanDiagnostics.Add(diagnostic);
+    }
+
+    public void AddGoodsFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null)
+    {
+        AddGoodsFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
+    }
+
+    public void AddGoodsFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
     {
         if (!ContentPath.TryNormalize(relativePath, out var normalized) || !normalized.EndsWith(".goods.json", StringComparison.Ordinal))
             throw new ArgumentException("Goods files must use a safe relative *.goods.json path.", nameof(relativePath));
-        EnsurePackage(@namespace);
-        var files = _files[@namespace];
+        var package = EnsurePackage(@namespace, resourcesRoot);
+        var files = _files[PackageKey(package)];
         if (!files.Contains(normalized, StringComparer.Ordinal))
             files.Add(normalized);
-        _bytes[Key(@namespace, normalized)] = bytes;
+        _bytes[Key(package, normalized)] = bytes;
     }
 
-    public void AddImage(string @namespace, string relativePath, DecodedImage image, byte[]? rawBytes = null)
+    public void AddImage(string @namespace, string relativePath, DecodedImage image, byte[]? rawBytes = null, string? resourcesRoot = null)
     {
         if (!ContentPath.TryNormalize(relativePath, out var normalized) || !ContentPath.IsPngPath(normalized))
             throw new ArgumentException("Images must use a safe relative PNG path.", nameof(relativePath));
-        EnsurePackage(@namespace);
-        _images[Key(@namespace, normalized)] = ImageDecodeResult.Ok(image);
-        _bytes[Key(@namespace, normalized)] = rawBytes ?? Array.Empty<byte>();
+        var package = EnsurePackage(@namespace, resourcesRoot);
+        _images[Key(package, normalized)] = ImageDecodeResult.Ok(image);
+        _bytes[Key(package, normalized)] = rawBytes ?? Array.Empty<byte>();
     }
 
-    public void AddMissingImage(string @namespace, string relativePath)
+    public void AddMissingImage(string @namespace, string relativePath, string? resourcesRoot = null)
     {
         if (!ContentPath.TryNormalize(relativePath, out var normalized))
             throw new ArgumentException("Images must use a safe relative path.", nameof(relativePath));
-        EnsurePackage(@namespace);
-        _images[Key(@namespace, normalized)] = ImageDecodeResult.Missing();
+        var package = EnsurePackage(@namespace, resourcesRoot);
+        _images[Key(package, normalized)] = ImageDecodeResult.Missing();
     }
 
-    public void AddOversizedImageBytes(string @namespace, string relativePath)
+    public void AddOversizedImageBytes(string @namespace, string relativePath, string? resourcesRoot = null)
     {
         if (!ContentPath.TryNormalize(relativePath, out var normalized))
             throw new ArgumentException("Images must use a safe relative path.", nameof(relativePath));
-        EnsurePackage(@namespace);
-        _images[Key(@namespace, normalized)] = ImageDecodeResult.LimitExceeded();
-        _bytes[Key(@namespace, normalized)] = new byte[ContentLimits.PngMaxBytes + 1];
+        var package = EnsurePackage(@namespace, resourcesRoot);
+        _images[Key(package, normalized)] = ImageDecodeResult.LimitExceeded();
+        _bytes[Key(package, normalized)] = new byte[ContentLimits.PngMaxBytes + 1];
     }
 
     public IReadOnlyList<ContentPackage> ListPackages() => _packages.ToArray();
 
+    public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics.ToArray();
+
     public ContentFileDiscovery ListGoodsFiles(ContentPackage package) =>
         ContentFileDiscovery.Of(
-            _files.TryGetValue(package.Namespace, out var files) ? files.ToArray() : Array.Empty<string>());
+            _files.TryGetValue(PackageKey(package), out var files) ? files.ToArray() : Array.Empty<string>());
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
     {
-        if (!_bytes.TryGetValue(Key(package.Namespace, normalizedRelativePath), out var bytes))
+        if (!ContentPath.IsAllowedDataFile(normalizedRelativePath))
+            return ContentBytesResult.Missing();
+        if (!_bytes.TryGetValue(Key(package, normalizedRelativePath), out var bytes))
             return ContentBytesResult.Missing();
         if (bytes.Length > maxBytes)
             return ContentBytesResult.LimitExceeded();
@@ -123,19 +171,30 @@ public sealed class MemoryContentSource : IContentSource
 
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath)
     {
-        if (_bytes.TryGetValue(Key(package.Namespace, normalizedRelativePath), out var raw) &&
+        if (!ContentPath.IsPngPath(normalizedRelativePath))
+            return ImageDecodeResult.Missing();
+        if (_bytes.TryGetValue(Key(package, normalizedRelativePath), out var raw) &&
             raw.Length > ContentLimits.PngMaxBytes)
             return ImageDecodeResult.LimitExceeded();
-        return _images.TryGetValue(Key(package.Namespace, normalizedRelativePath), out var image)
+        return _images.TryGetValue(Key(package, normalizedRelativePath), out var image)
             ? image
             : ImageDecodeResult.Missing();
     }
 
-    private void EnsurePackage(string @namespace)
+    private ContentPackage EnsurePackage(string @namespace, string? resourcesRoot)
     {
-        if (_packages.All(item => item.Namespace != @namespace))
-            AddPackage(@namespace);
+        var matches = _packages.Where(item => item.Namespace == @namespace);
+        if (resourcesRoot is not null)
+            matches = matches.Where(item => item.ResourcesRoot == resourcesRoot);
+        var package = matches.FirstOrDefault();
+        if (package is not null)
+            return package;
+        AddPackage(@namespace, resourcesRoot ?? "memory://resources");
+        return _packages.First(item => item.Namespace == @namespace);
     }
 
-    private static string Key(string @namespace, string relativePath) => @namespace + "\n" + relativePath;
+    private static string PackageKey(ContentPackage package) => package.ResourcesRoot + "\n" + package.Namespace;
+
+    private static string Key(ContentPackage package, string relativePath) =>
+        PackageKey(package) + "\n" + relativePath;
 }

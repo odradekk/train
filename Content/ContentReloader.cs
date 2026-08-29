@@ -333,9 +333,17 @@ internal static class CatalogCandidateBuilder
         var diagnostics = new List<ContentDiagnostic>();
         var accepted = new Dictionary<GoodId, GoodCatalogEntry>();
         var scanned = 0;
-        var packagesInvalid = false;
+        var requiredInvalid = false;
+        var isolatedCount = 0;
+        var acceptedMods = 0;
 
-        if (packages.Count == 0)
+        foreach (var diagnostic in source.ListScanDiagnostics())
+        {
+            LogDiagnostic(logger, diagnostic);
+            diagnostics.Add(diagnostic);
+        }
+
+        if (packages.Count == 0 || packages.All(package => package.Kind != ContentPackageKind.BuiltIn))
         {
             diagnostics.Add(new ContentDiagnostic(
                 ContentDiagnosticSeverity.Error,
@@ -344,18 +352,51 @@ internal static class CatalogCandidateBuilder
             return new CatalogCandidate(accepted, diagnostics, 0, false, true);
         }
 
+        var duplicateModIds = packages
+            .Where(package => package.Kind == ContentPackageKind.Mod)
+            .GroupBy(package => package.Namespace, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToHashSet(StringComparer.Ordinal);
+
         foreach (var package in packages)
         {
+            if (package.Kind == ContentPackageKind.Mod && duplicateModIds.Contains(package.Namespace))
+            {
+                var duplicate = new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Warning,
+                    ContentDiagnosticCodes.DuplicateModUuid,
+                    "Duplicate mod UUID disables every package using that UUID.",
+                    package.Source ?? package.Namespace,
+                    package.Namespace);
+                LogDiagnostic(logger, duplicate);
+                diagnostics.Add(duplicate);
+                isolatedCount++;
+                continue;
+            }
+
             var bag = new DiagnosticBag();
             var packageGoods = BuildPackage(source, package, bag, logger, ref scanned);
+            if (package.Kind == ContentPackageKind.Mod && packageGoods.Count > ContentLimits.MaxGoodsPerMod)
+            {
+                bag.Warn(ContentDiagnosticCodes.ModGoodLimitExceeded, "A mod exceeds the 1000-good package limit.");
+                packageGoods = new Dictionary<GoodId, GoodCatalogEntry>();
+            }
+
             foreach (var diagnostic in bag.Items)
                 LogDiagnostic(logger, diagnostic);
             diagnostics.AddRange(bag.Items);
             if (!package.Available || bag.Invalid)
             {
-                packagesInvalid = true;
+                if (package.IsRequired)
+                    requiredInvalid = true;
+                else
+                    isolatedCount++;
                 continue;
             }
+
+            if (package.Kind == ContentPackageKind.Mod)
+                acceptedMods++;
 
             if (packageGoods.Count == 0)
             {
@@ -368,6 +409,21 @@ internal static class CatalogCandidateBuilder
 
             foreach (var (id, entry) in packageGoods)
                 accepted[id] = entry;
+        }
+
+        var modCount = packages.Count(package => package.Kind == ContentPackageKind.Mod);
+        if (modCount > 0 || source.ListScanDiagnostics().Count > 0)
+        {
+            logger.Info(
+                ContentLog.Category,
+                ContentLog.ModsScanSummaryEventId,
+                "Mod scan finished.",
+                new Dictionary<string, object?>
+                {
+                    ["candidate_count"] = modCount,
+                    ["accepted_count"] = acceptedMods,
+                    ["isolated_count"] = isolatedCount
+                });
         }
 
         if (accepted.Count > ContentLimits.MaxGoods)
@@ -383,8 +439,8 @@ internal static class CatalogCandidateBuilder
             accepted.ToFrozenDictionary(),
             diagnostics,
             scanned,
-            canCommit: !packagesInvalid,
-            packagesInvalid);
+            canCommit: !requiredInvalid,
+            requiredInvalid);
     }
 
     private static Dictionary<GoodId, GoodCatalogEntry> BuildPackage(
@@ -397,7 +453,10 @@ internal static class CatalogCandidateBuilder
         var accepted = new Dictionary<GoodId, GoodCatalogEntry>();
         if (!package.Available)
         {
-            bag.Error(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package is unavailable.");
+            if (package.IsRequired)
+                bag.Error(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package is unavailable.");
+            else
+                bag.Warn(ContentDiagnosticCodes.PackageInvalid, "Mod package is unavailable.");
             return accepted;
         }
 
@@ -405,7 +464,7 @@ internal static class CatalogCandidateBuilder
         scanned += discovery.Files.Count;
         foreach (var diagnostic in discovery.Diagnostics)
             bag.Add(
-                diagnostic.Severity,
+                package.IsRequired ? diagnostic.Severity : ContentDiagnosticSeverity.Warning,
                 diagnostic.Code,
                 diagnostic.Message,
                 diagnostic.JsonPath ?? diagnostic.Source);
@@ -418,7 +477,10 @@ internal static class CatalogCandidateBuilder
             var read = source.ReadFile(package, file, ContentLimits.GoodsFileMaxBytes);
             if (read.UnsafeLink)
             {
-                bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
+                if (package.IsRequired)
+                    bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
+                else
+                    bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
                 continue;
             }
 
@@ -542,7 +604,10 @@ internal static class CatalogCandidateBuilder
         var decoded = source.DecodePng(package, path);
         if (decoded.UnsafeLink)
         {
-            bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
+            if (package.IsRequired)
+                bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
+            else
+                bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
             return false;
         }
 
