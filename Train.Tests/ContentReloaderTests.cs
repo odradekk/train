@@ -468,6 +468,8 @@ internal sealed class InvalidDiscoverySource : IContentSource
 
     public IReadOnlyList<ContentPackage> ListPackages() => _inner.ListPackages();
 
+    public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _inner.ListScanDiagnostics();
+
     public ContentFileDiscovery ListGoodsFiles(ContentPackage package)
     {
         var inner = _inner.ListGoodsFiles(package);

@@ -9,6 +9,7 @@ public static class ContentLimits
     public const int PngMaxBytes = 4 * 1024 * 1024;
     public const int ImageMaxDimension = 4096;
     public const int MaxGoods = 10_000;
+    public const int MaxGoodsPerMod = 1000;
     public const int MaxDiagnosticsPerPackage = 100;
 }
 
@@ -38,6 +39,13 @@ public static class ContentDiagnosticCodes
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     public const string EmptyInitialCatalog = "empty_initial_catalog";
     public const string UnsafeLinkedPath = "unsafe_linked_path";
+    public const string UuidInvalid = "uuid_invalid";
+    public const string VersionInvalid = "version_invalid";
+    public const string AuthorsInvalid = "authors_invalid";
+    public const string DuplicateModUuid = "duplicate_mod_uuid";
+    public const string ModsRootUnavailable = "mods_root_unavailable";
+    public const string ModGoodLimitExceeded = "mod_good_limit_exceeded";
+    public const string ModManifestMissing = "mod_manifest_missing";
 }
 
 public enum ContentDiagnosticSeverity
@@ -102,19 +110,36 @@ public sealed class DecodedImage
     }
 }
 
+public enum ContentPackageKind
+{
+    BuiltIn = 0,
+    Mod = 1
+}
+
 public sealed class ContentPackage
 {
     public string Namespace { get; }
     public string ResourcesRoot { get; }
     public bool Available { get; }
+    public ContentPackageKind Kind { get; }
+    public string? Source { get; }
 
-    public ContentPackage(string @namespace, string resourcesRoot, bool available = true)
+    public ContentPackage(
+        string @namespace,
+        string resourcesRoot,
+        bool available = true,
+        ContentPackageKind kind = ContentPackageKind.BuiltIn,
+        string? source = null)
     {
         Namespace = GoodId.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(resourcesRoot);
         ResourcesRoot = resourcesRoot;
         Available = available;
+        Kind = kind;
+        Source = source;
     }
+
+    public bool IsRequired => Kind == ContentPackageKind.BuiltIn;
 }
 
 public static class ContentLog
@@ -126,6 +151,8 @@ public static class ContentLog
     public const string InvalidEventId = "content_invalid";
     public const string ReloadSummaryEventId = "content_reload_summary";
     public const string ReloadFailedEventId = "content_reload_failed";
+    public const string ModsRootEventId = "content_mods_root";
+    public const string ModsScanSummaryEventId = "content_mods_scan_summary";
 }
 
 public static class ContentPath
@@ -159,6 +186,10 @@ public static class ContentPath
 
     public static bool IsPngPath(string normalizedPath) =>
         normalizedPath.EndsWith(".png", StringComparison.Ordinal);
+
+    public static bool IsAllowedDataFile(string normalizedPath) =>
+        normalizedPath.EndsWith(".json", StringComparison.Ordinal) ||
+        IsPngPath(normalizedPath);
 
     private static bool HasUriSchemePrefix(string path)
     {

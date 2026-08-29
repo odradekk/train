@@ -15,6 +15,7 @@ public partial class Main : Node
     private const string LoggingSmokeDisposedMarker = "SMOKE_LOGGER_DISPOSED";
     private const string ContentSmokeEnvironmentVariable = "TRAIN_CONTENT_SMOKE";
     private const string ContentExportSmokeEnvironmentVariable = "TRAIN_CONTENT_EXPORT_SMOKE";
+    private const string ModsExportSmokeEnvironmentVariable = "TRAIN_MODS_EXPORT_SMOKE";
     private const string SmokeGoodsPath = "res://builtin/core/resources/smoke-temp.goods.json";
 
     private TrainLogger? _logger;
@@ -22,6 +23,7 @@ public partial class Main : Node
     private bool _smoke;
     private bool _contentSmoke;
     private bool _contentExportSmoke;
+    private bool _modsExportSmoke;
     private volatile bool _smokeWorkerLogged;
     private bool _smokeDrainedFromProcess;
     private bool _smokeQuitRequested;
@@ -46,7 +48,7 @@ public partial class Main : Node
             ? LogLevel.Debug
             : LogLevel.Info;
         _logger = TrainLogger.StartSession(logDirectory, buildDefault, new GodotLogOutput());
-        _reloader = new ContentReloader(new GodotContentSource(), _logger);
+        _reloader = new ContentReloader(new GodotContentSource(_logger), _logger);
         var loaded = _reloader.Reload();
         if (IsLoggingSmokeEnabled())
             StartLoggingSmoke();
@@ -54,6 +56,8 @@ public partial class Main : Node
             StartContentSmoke(loaded);
         if (IsContentExportSmokeEnabled())
             ReportExportSmoke(loaded);
+        if (IsModsExportSmokeEnabled())
+            ReportModsExportSmoke(loaded);
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -83,7 +87,7 @@ public partial class Main : Node
         if (_contentSmoke && !_contentSmokeFinished)
             AdvanceContentSmoke();
 
-        if (_contentExportSmoke && !_contentSmokeFinished)
+        if ((_contentExportSmoke || _modsExportSmoke) && !_contentSmokeFinished)
         {
             _contentSmokeFinished = true;
             GetTree().Quit();
@@ -108,6 +112,9 @@ public partial class Main : Node
 
     private static bool IsContentExportSmokeEnabled() =>
         string.Equals(System.Environment.GetEnvironmentVariable(ContentExportSmokeEnvironmentVariable), "1", StringComparison.Ordinal);
+
+    private static bool IsModsExportSmokeEnabled() =>
+        string.Equals(System.Environment.GetEnvironmentVariable(ModsExportSmokeEnvironmentVariable), "1", StringComparison.Ordinal);
 
     private void StartLoggingSmoke()
     {
@@ -184,6 +191,19 @@ public partial class Main : Node
                 GetTree().Quit();
                 return;
         }
+    }
+
+    private void ReportModsExportSmoke(ContentReloadResult loaded)
+    {
+        _modsExportSmoke = true;
+        ReportCatalogMarkers(loaded, "MODS_EXPORT");
+        var modsPhysical = Path.Combine(OS.GetUserDataDir(), "mods");
+        if (!Directory.Exists(modsPhysical))
+            GD.Print("MODS_EXPORT_ROOT_UNAVAILABLE");
+        else if (!Directory.EnumerateFileSystemEntries(modsPhysical).Any())
+            GD.Print("MODS_EXPORT_ROOT_EMPTY");
+        else
+            GD.Print("MODS_EXPORT_ROOT_PRESENT");
     }
 
     private void ReportExportSmoke(ContentReloadResult loaded)

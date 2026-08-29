@@ -1,5 +1,6 @@
 using Godot;
 using Train.Domain.Goods;
+using Train.Logging;
 
 namespace Train.Content;
 
@@ -7,16 +8,99 @@ public sealed class GodotContentSource : IContentSource
 {
     // Keep assets off Content/ so Windows can host C# sources and built-in files side by side.
     public const string BuiltInResourcesRoot = "res://builtin/core/resources";
+    public const string ModsGodotPath = ExternalContent.ModsGodotPath;
+
+    private readonly TrainLogger? _logger;
+    private IReadOnlyList<ContentDiagnostic> _scanDiagnostics = Array.Empty<ContentDiagnostic>();
+
+    public GodotContentSource(TrainLogger? logger = null)
+    {
+        _logger = logger;
+    }
 
     public IReadOnlyList<ContentPackage> ListPackages()
     {
         using var probe = DirAccess.Open(BuiltInResourcesRoot);
         var available = probe is not null;
-        return new[] { new ContentPackage(GoodId.BuiltInNamespace, BuiltInResourcesRoot, available) };
+        var packages = new List<ContentPackage>
+        {
+            new(GoodId.BuiltInNamespace, BuiltInResourcesRoot, available)
+        };
+
+        var physical = Path.Combine(OS.GetUserDataDir(), "mods");
+        _logger?.Info(
+            ContentLog.Category,
+            ContentLog.ModsRootEventId,
+            "Mods directory resolved.",
+            new Dictionary<string, object?>
+            {
+                ["godot_path"] = ModsGodotPath,
+                ["physical_path"] = physical
+            });
+
+        try
+        {
+            using var user = DirAccess.Open("user://");
+            user?.MakeDir("mods");
+        }
+        catch
+        {
+            // Physical creation below is authoritative.
+        }
+
+        if (!ExternalContent.TryEnsureDirectory(physical, out var error))
+        {
+            _scanDiagnostics = new[]
+            {
+                ExternalContent.ModsRootUnavailable(ModsGodotPath, error ?? "Mods directory is unavailable.")
+            };
+            return packages;
+        }
+
+        if (!ExternalContent.TryListDirectChildren(physical, out var children, out var listError))
+        {
+            _scanDiagnostics = new[]
+            {
+                ExternalContent.ModsRootUnavailable(ModsGodotPath, listError ?? "Mods directory could not be read.")
+            };
+            return packages;
+        }
+
+        try
+        {
+            var scan = ModDiscovery.Scan(children);
+            _scanDiagnostics = scan.Diagnostics;
+            packages.AddRange(scan.Packages);
+            _logger?.Info(
+                ContentLog.Category,
+                ContentLog.ModsScanSummaryEventId,
+                "Mod scan finished.",
+                new Dictionary<string, object?>
+                {
+                    ["godot_path"] = ModsGodotPath,
+                    ["physical_path"] = physical,
+                    ["candidate_count"] = scan.CandidateCount,
+                    ["accepted_count"] = scan.AcceptedCount
+                });
+        }
+        catch (Exception exception)
+        {
+            _scanDiagnostics = new[]
+            {
+                ExternalContent.ModsRootUnavailable(ModsGodotPath, exception.Message)
+            };
+        }
+
+        return packages;
     }
+
+    public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics;
 
     public ContentFileDiscovery ListGoodsFiles(ContentPackage package)
     {
+        if (package.Kind == ContentPackageKind.Mod)
+            return ExternalContent.ListGoodsFiles(package.ResourcesRoot);
+
         if (IsLinkedOrUnresolved(package.ResourcesRoot))
             return new ContentFileDiscovery(
                 Array.Empty<string>(),
@@ -28,6 +112,9 @@ public sealed class GodotContentSource : IContentSource
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
     {
+        if (package.Kind == ContentPackageKind.Mod)
+            return ExternalContent.ReadFile(package.ResourcesRoot, normalizedRelativePath, maxBytes);
+
         if (!ContentPath.TryNormalize(normalizedRelativePath, out var normalized))
             return ContentBytesResult.Missing();
 

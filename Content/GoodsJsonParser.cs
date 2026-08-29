@@ -34,13 +34,6 @@ internal sealed class ParsedGood
 
 internal static class GoodsJsonParser
 {
-    private static readonly JsonDocumentOptions DocumentOptions = new()
-    {
-        CommentHandling = JsonCommentHandling.Disallow,
-        AllowTrailingCommas = false,
-        MaxDepth = 16
-    };
-
     public static IReadOnlyList<ParsedGood> Parse(
         byte[] utf8,
         string @namespace,
@@ -54,13 +47,13 @@ internal static class GoodsJsonParser
             return Array.Empty<ParsedGood>();
         }
 
-        if (HasDuplicateProperties(utf8, diagnostics, sourceFile))
+        if (StrictJson.HasDuplicateProperties(utf8, diagnostics, sourceFile))
             return Array.Empty<ParsedGood>();
 
         JsonDocument document;
         try
         {
-            document = JsonDocument.Parse(utf8, DocumentOptions);
+            document = JsonDocument.Parse(utf8, StrictJson.DocumentOptions);
         }
         catch (JsonException exception)
         {
@@ -154,19 +147,19 @@ internal static class GoodsJsonParser
             switch (property.Name)
             {
                 case "id":
-                    if (!TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.LocalIdInvalid, out localId))
+                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.LocalIdInvalid, out localId))
                         return false;
                     break;
                 case "category":
-                    if (!TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CategoryUnsupported, out categoryText))
+                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CategoryUnsupported, out categoryText))
                         return false;
                     break;
                 case "name":
-                    if (!TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.NameInvalid, out name))
+                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.NameInvalid, out name))
                         return false;
                     break;
                 case "description":
-                    if (!TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.DescriptionInvalid, out description))
+                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.DescriptionInvalid, out description))
                         return false;
                     break;
                 case "base_monetary_value":
@@ -199,9 +192,9 @@ internal static class GoodsJsonParser
             return false;
         }
 
-        if (!TryNormalizeText(name, GoodDefinition.NameMinLength, GoodDefinition.NameMaxLength, diagnostics, jsonPath + "/name", ContentDiagnosticCodes.NameInvalid, out var normalizedName))
+        if (!StrictJson.TryNormalizeText(name, GoodDefinition.NameMinLength, GoodDefinition.NameMaxLength, diagnostics, jsonPath + "/name", ContentDiagnosticCodes.NameInvalid, out var normalizedName))
             return false;
-        if (!TryNormalizeText(description, GoodDefinition.DescriptionMinLength, GoodDefinition.DescriptionMaxLength, diagnostics, jsonPath + "/description", ContentDiagnosticCodes.DescriptionInvalid, out var normalizedDescription))
+        if (!StrictJson.TryNormalizeText(description, GoodDefinition.DescriptionMinLength, GoodDefinition.DescriptionMaxLength, diagnostics, jsonPath + "/description", ContentDiagnosticCodes.DescriptionInvalid, out var normalizedDescription))
             return false;
 
         if (value is null or < GoodDefinition.BaseMonetaryValueMin or > GoodDefinition.BaseMonetaryValueMax)
@@ -276,7 +269,7 @@ internal static class GoodsJsonParser
     private static bool TryGetResourcePath(JsonElement element, DiagnosticBag diagnostics, string jsonPath, out string path)
     {
         path = "";
-        if (!TryGetString(element, diagnostics, jsonPath, ContentDiagnosticCodes.PathInvalid, out var raw))
+        if (!StrictJson.TryGetString(element, diagnostics, jsonPath, ContentDiagnosticCodes.PathInvalid, out var raw))
             return false;
         if (!ContentPath.TryNormalize(raw, out var normalized) || !ContentPath.IsPngPath(normalized))
         {
@@ -288,112 +281,4 @@ internal static class GoodsJsonParser
         return true;
     }
 
-    private static bool TryGetString(
-        JsonElement element,
-        DiagnosticBag diagnostics,
-        string jsonPath,
-        string code,
-        out string value)
-    {
-        if (element.ValueKind != JsonValueKind.String)
-        {
-            diagnostics.Warn(code, "Expected a string.", jsonPath);
-            value = "";
-            return false;
-        }
-
-        value = element.GetString()!;
-        return true;
-    }
-
-    private static bool TryNormalizeText(
-        string? value,
-        int min,
-        int max,
-        DiagnosticBag diagnostics,
-        string jsonPath,
-        string code,
-        out string normalized)
-    {
-        try
-        {
-            normalized = GoodDefinition.NormalizeDisplayText(value ?? "", min, max, "value");
-            return true;
-        }
-        catch (ArgumentException)
-        {
-            diagnostics.Warn(code, "Text is empty or outside the allowed length.", jsonPath);
-            normalized = "";
-            return false;
-        }
-    }
-
-    private static bool HasDuplicateProperties(byte[] utf8, DiagnosticBag diagnostics, string sourceFile)
-    {
-        var reader = new Utf8JsonReader(utf8, new JsonReaderOptions
-        {
-            CommentHandling = JsonCommentHandling.Disallow,
-            AllowTrailingCommas = false
-        });
-        var stack = new Stack<HashSet<string>>();
-        var path = new Stack<string>();
-        try
-        {
-            while (reader.Read())
-            {
-                switch (reader.TokenType)
-                {
-                    case JsonTokenType.StartObject:
-                        stack.Push(new HashSet<string>(StringComparer.Ordinal));
-                        break;
-                    case JsonTokenType.EndObject:
-                        if (stack.Count > 0)
-                            stack.Pop();
-                        if (path.Count > 0)
-                            path.Pop();
-                        break;
-                    case JsonTokenType.StartArray:
-                        path.Push("[]");
-                        break;
-                    case JsonTokenType.EndArray:
-                        if (path.Count > 0)
-                            path.Pop();
-                        break;
-                    case JsonTokenType.PropertyName:
-                        var name = reader.GetString()!;
-                        if (stack.Count > 0 && !stack.Peek().Add(name))
-                        {
-                            diagnostics.Warn(ContentDiagnosticCodes.DuplicateProperty, "Duplicate JSON property.", JsonPointer(path, name));
-                            return true;
-                        }
-
-                        path.Push(name);
-                        break;
-                }
-
-                if (reader.TokenType is JsonTokenType.String or JsonTokenType.Number or JsonTokenType.True
-                    or JsonTokenType.False or JsonTokenType.Null)
-                {
-                    if (path.Count > 0)
-                        path.Pop();
-                }
-            }
-        }
-        catch (JsonException exception)
-        {
-            diagnostics.Source = sourceFile;
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static string JsonPointer(Stack<string> path, string name)
-    {
-        if (path.Count == 0)
-            return "/" + name;
-        var parts = path.Reverse().Where(part => part != "[]");
-        return "/" + string.Join('/', parts.Append(name));
-    }
 }
