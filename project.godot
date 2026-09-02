@@ -1,5 +1,10 @@
 ; Engine configuration file.
-; Edit through Godot when practical; keep this committed for reproducible builds.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
@@ -9,13 +14,12 @@ config/name="Train"
 config/description="Core gameplay development build"
 config/version="0.0.0"
 run/main_scene="res://Main.tscn"
-config/features=PackedStringArray("4.7", "C#", "Compatibility")
+config/features=PackedStringArray("4.7", "C#")
 
 [display]
 
 window/size/viewport_width=1920
 window/size/viewport_height=1080
-window/size/mode=0
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
