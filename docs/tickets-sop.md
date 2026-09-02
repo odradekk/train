@@ -130,7 +130,7 @@ Accept Workspace Trust only when the displayed path exactly matches the new work
 
 ### 9. Send one implementation brief
 
-The brief must include:
+The brief must start exactly with `/implement `, including one trailing space and with no preceding text. This prefix triggers the implementation skill. The remainder of the brief must include:
 
 - ticket number, title, and URL;
 - ownership of the independent worktree;
@@ -171,7 +171,7 @@ A full handoff is complete when all of this evidence exists:
 - setup succeeded;
 - the target agent started;
 - startup gates were cleared;
-- the brief was sent exactly once;
+- the brief began with `/implement ` and was sent exactly once;
 - the agent is working;
 - worktree metadata was updated.
 
@@ -180,7 +180,7 @@ Stop reading, waiting, or polling after this point. Report the worktree, branch,
 ## Implementation Brief Template
 
 ```text
-Implement GitHub Issue #<number> for odradekk/train: <issue-url>
+/implement GitHub Issue #<number> for odradekk/train: <issue-url>
 
 You own this independent Orca worktree and branch. Read the full issue body and repository instructions before changing code. Implement only #<number>. Respect AGENTS.md and the current domain docs/ADRs. Use the smallest correct diff and keep archive/mvp read-only.
 
