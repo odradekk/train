@@ -46,6 +46,7 @@ public interface IContentSource
     IReadOnlyList<ContentPackage> ListPackages();
     IReadOnlyList<ContentDiagnostic> ListScanDiagnostics();
     ContentFileDiscovery ListGoodsFiles(ContentPackage package);
+    ContentFileDiscovery ListSettlementFiles(ContentPackage package);
     ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes);
     ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath);
 }
@@ -115,8 +116,29 @@ public sealed class MemoryContentSource : IContentSource
 
     public void AddGoodsFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
     {
-        if (!ContentPath.TryNormalize(relativePath, out var normalized) || !normalized.EndsWith(".goods.json", StringComparison.Ordinal))
-            throw new ArgumentException("Goods files must use a safe relative *.goods.json path.", nameof(relativePath));
+        AddDataFile(@namespace, relativePath, bytes, ".goods.json", "Goods files must use a safe relative *.goods.json path.", resourcesRoot);
+    }
+
+    public void AddSettlementsFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null)
+    {
+        AddSettlementsFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
+    }
+
+    public void AddSettlementsFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
+    {
+        AddDataFile(@namespace, relativePath, bytes, ".settlements.json", "Settlement files must use a safe relative *.settlements.json path.", resourcesRoot);
+    }
+
+    private void AddDataFile(
+        string @namespace,
+        string relativePath,
+        byte[] bytes,
+        string suffix,
+        string error,
+        string? resourcesRoot)
+    {
+        if (!ContentPath.TryNormalize(relativePath, out var normalized) || !normalized.EndsWith(suffix, StringComparison.Ordinal))
+            throw new ArgumentException(error, nameof(relativePath));
         var package = EnsurePackage(@namespace, resourcesRoot);
         var files = _files[PackageKey(package)];
         if (!files.Contains(normalized, StringComparer.Ordinal))
@@ -155,8 +177,18 @@ public sealed class MemoryContentSource : IContentSource
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics.ToArray();
 
     public ContentFileDiscovery ListGoodsFiles(ContentPackage package) =>
-        ContentFileDiscovery.Of(
-            _files.TryGetValue(PackageKey(package), out var files) ? files.ToArray() : Array.Empty<string>());
+        ListDataFiles(package, ".goods.json");
+
+    public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
+        ListDataFiles(package, ".settlements.json");
+
+    private ContentFileDiscovery ListDataFiles(ContentPackage package, string suffix)
+    {
+        var files = _files.TryGetValue(PackageKey(package), out var listed)
+            ? listed.Where(file => file.EndsWith(suffix, StringComparison.Ordinal)).ToArray()
+            : Array.Empty<string>();
+        return ContentFileDiscovery.Of(files);
+    }
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
     {

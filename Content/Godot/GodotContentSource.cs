@@ -104,10 +104,16 @@ public sealed class GodotContentSource : IContentSource
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics;
 
-    public ContentFileDiscovery ListGoodsFiles(ContentPackage package)
+    public ContentFileDiscovery ListGoodsFiles(ContentPackage package) =>
+        ListDataFiles(package, ".goods.json");
+
+    public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
+        ListDataFiles(package, ".settlements.json");
+
+    private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)
     {
         if (package.Kind == ContentPackageKind.Mod)
-            return ExternalContent.ListGoodsFiles(package.ResourcesRoot);
+            return ExternalContent.ListDataFiles(package.ResourcesRoot, fileSuffix);
 
         if (IsLinkedOrUnresolved(package.ResourcesRoot))
             return new ContentFileDiscovery(
@@ -115,7 +121,7 @@ public sealed class GodotContentSource : IContentSource
                 new[] { ContentPackageWalk.LinkedPathDiagnostic(package.ResourcesRoot) },
                 invalid: true);
 
-        return ContentPackageWalk.Discover(package.ResourcesRoot, ListEntries);
+        return ContentPackageWalk.Discover(package.ResourcesRoot, ListEntries, fileSuffix);
     }
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)

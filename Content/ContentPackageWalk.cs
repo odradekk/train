@@ -26,11 +26,12 @@ public static class ContentPackageWalk
 {
     public static ContentFileDiscovery Discover(
         string root,
-        Func<string, IReadOnlyList<ContentTreeEntry>?> listChildren)
+        Func<string, IReadOnlyList<ContentTreeEntry>?> listChildren,
+        string fileSuffix = ".goods.json")
     {
         var files = new List<string>();
         var bag = new DiagnosticBag();
-        Collect(root, root, listChildren, files, bag);
+        Collect(root, root, listChildren, files, bag, fileSuffix);
         files.Sort(StringComparer.Ordinal);
         return new ContentFileDiscovery(files, bag.Items.ToArray(), bag.Invalid);
     }
@@ -47,7 +48,8 @@ public static class ContentPackageWalk
         string current,
         Func<string, IReadOnlyList<ContentTreeEntry>?> listChildren,
         List<string> files,
-        DiagnosticBag bag)
+        DiagnosticBag bag,
+        string fileSuffix)
     {
         var entries = listChildren(current);
         if (entries is null)
@@ -69,11 +71,11 @@ public static class ContentPackageWalk
 
             if (entry.IsDirectory)
             {
-                Collect(root, path, listChildren, files, bag);
+                Collect(root, path, listChildren, files, bag, fileSuffix);
                 continue;
             }
 
-            if (!entry.Name.EndsWith(".goods.json", StringComparison.Ordinal))
+            if (!entry.Name.EndsWith(fileSuffix, StringComparison.Ordinal))
                 continue;
             var relative = path.StartsWith(root + "/", StringComparison.Ordinal)
                 ? path[(root.Length + 1)..]

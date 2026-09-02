@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text;
 using Train.Domain.Goods;
+using Train.Domain.Settlements;
 
 namespace Train.Content;
 
@@ -154,6 +155,7 @@ internal static class CatalogDiff
 internal static class ImmutableSets
 {
     public static IReadOnlySet<GoodId> Empty { get; } = FrozenSet<GoodId>.Empty;
+    public static IReadOnlySet<SettlementId> EmptySettlements { get; } = FrozenSet<SettlementId>.Empty;
 
     public static IReadOnlyList<ContentDiagnostic> Freeze(IReadOnlyList<ContentDiagnostic> diagnostics) =>
         diagnostics as ReadOnlyCollection<ContentDiagnostic> ?? new ReadOnlyCollection<ContentDiagnostic>(diagnostics.ToArray());

@@ -16,6 +16,7 @@ public partial class Main : Node
     private const string LoggingSmokeProcessMarker = "SMOKE_PROCESS_DRAINED";
     private const string LoggingSmokeDisposedMarker = "SMOKE_LOGGER_DISPOSED";
     private const string ContentSmokeEnvironmentVariable = "TRAIN_CONTENT_SMOKE";
+    private const string ContentSmokeAssertDomainEmptyEnvironmentVariable = "CONTENT_SMOKE_ASSERT_DOMAIN_EMPTY";
     private const string ContentExportSmokeEnvironmentVariable = "TRAIN_CONTENT_EXPORT_SMOKE";
     private const string ModsExportSmokeEnvironmentVariable = "TRAIN_MODS_EXPORT_SMOKE";
     private const string ModsSmokeUserDataEnvironmentVariable = "TRAIN_MODS_SMOKE_USER_DATA";
@@ -60,6 +61,7 @@ public partial class Main : Node
         console.Initialize(_logger, logBuffer, _reloader);
         AddChild(console);
         var loaded = _reloader.Reload();
+        ReportDomainEmptyAssertion();
         if (IsLoggingSmokeEnabled())
             StartLoggingSmoke();
         if (IsContentSmokeEnabled())
@@ -298,6 +300,21 @@ public partial class Main : Node
 
         if (loaded.IsCommitted)
             GD.Print($"{prefix}_INIT_OK");
+    }
+
+    private void ReportDomainEmptyAssertion()
+    {
+        if (!string.Equals(
+                System.Environment.GetEnvironmentVariable(ContentSmokeAssertDomainEmptyEnvironmentVariable),
+                "1",
+                StringComparison.Ordinal))
+            return;
+
+        var catalogEmpty = _reloader?.Catalog.Current is null || _reloader.Catalog.Current.Entries.Count == 0;
+        var registryEmpty = _reloader?.Settlements.Count == 0;
+        GD.Print(catalogEmpty && registryEmpty
+            ? "CONTENT_SMOKE_DOMAIN_EMPTY"
+            : "CONTENT_SMOKE_DOMAIN_NOT_EMPTY");
     }
 
     private static void WriteSmokeGoods()

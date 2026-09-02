@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Goods;
+using Train.Domain.Settlements;
 using Train.Logging;
 
 namespace Train.Tests;
@@ -103,7 +104,7 @@ public sealed class ModLoadingTests
         var later = ContentFixtures.ValidIron();
         later.AddMod("broken", ModFixtures.SampleUuid);
         later.AddGoodsFile(ModFixtures.SampleUuid, "bad.goods.json", "{ \"schema_version\": 2, \"goods\": [] }");
-        var rebuilt = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog);
+        var rebuilt = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements);
         var result = rebuilt.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
@@ -130,7 +131,8 @@ public sealed class ModLoadingTests
             later,
             session.Logger,
             new ReferencedGoodIdValidator(() => referenced),
-            reloader.Catalog);
+            reloader.Catalog,
+            reloader.Settlements);
         var rejected = rebuilt.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
@@ -275,6 +277,134 @@ public sealed class ModLoadingTests
             Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId("core", "iron-ore"), out _), json);
             Assert.IsFalse(reloader.Catalog.Current.Entries.Keys.Any(id => id.Namespace == ModFixtures.SampleUuid), json);
         }
+    }
+
+    [TestMethod]
+    public void Mod_city_expands_to_the_package_uuid_namespace()
+    {
+        using var session = LoggerSession.Create();
+        var source = ModFixtures.CorePlusCopper();
+        ContentFixtures.AddExampleCity(
+            source,
+            ModFixtures.SampleUuid,
+            "copper-town",
+            "铜城",
+            x: 5,
+            y: 1,
+            resources: new[] { $"{ModFixtures.SampleUuid}:copper" },
+            resourcesRoot: "memory://mods/pretty-name/resources");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:copper-town"), out var town));
+        Assert.AreEqual("铜城", town.Name);
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId("core:copper-town"), out _));
+    }
+
+    [TestMethod]
+    public void Mod_city_with_unresolved_good_is_dropped_while_the_package_survives()
+    {
+        using var session = LoggerSession.Create();
+        var source = ModFixtures.CorePlusCopper();
+        ContentFixtures.AddExampleCity(
+            source,
+            ModFixtures.SampleUuid,
+            "ok-town",
+            "铜城",
+            x: 5,
+            y: 1,
+            resources: new[] { $"{ModFixtures.SampleUuid}:copper" },
+            resourcesRoot: "memory://mods/pretty-name/resources");
+        source.AddSettlementsFile(
+            ModFixtures.SampleUuid,
+            "settlements/ghost.settlements.json",
+            ContentFixtures.SettlementsFile(
+                ContentFixtures.Settlement("ghost", "幽灵城", x: 8, y: 8, resources: new[] { "core:missing-ore" })),
+            "memory://mods/pretty-name/resources");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:ok-town"), out _));
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:ghost"), out _));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedGoodReference));
+    }
+
+    [TestMethod]
+    public void Invalid_mod_settlements_file_isolates_that_mod_goods_as_well()
+    {
+        using var session = LoggerSession.Create();
+        var source = ModFixtures.CorePlusCopper();
+        source.AddSettlementsFile(
+            ModFixtures.SampleUuid,
+            "settlements/bad.settlements.json",
+            "{ \"schema_version\": 2, \"settlements\": [] }",
+            "memory://mods/pretty-name/resources");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId("core", "iron-ore"), out _));
+        Assert.IsFalse(reloader.Catalog.Current.TryGet(new GoodId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:example-city"), out _));
+        Assert.IsFalse(reloader.Settlements.Items.Any(item => item.Id.Value.StartsWith(ModFixtures.SampleUuid, StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void Duplicate_local_ids_and_positions_keep_the_first_survivor()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        source.AddMod("towns", ModFixtures.SampleUuid);
+        source.AddSettlementsFile(
+            ModFixtures.SampleUuid,
+            "settlements/dup.settlements.json",
+            ContentFixtures.SettlementsFile(
+                ContentFixtures.Settlement("twin", "甲", x: 3, y: 3),
+                ContentFixtures.Settlement("twin", "乙", x: 4, y: 4),
+                ContentFixtures.Settlement("first", "先到", x: 7, y: 7),
+                ContentFixtures.Settlement("second", "后到", x: 7, y: 7)));
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:twin"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:first"), out var first));
+        Assert.AreEqual("先到", first.Name);
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:second"), out _));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.DuplicateLocalId));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.DuplicatePosition));
+    }
+
+    [TestMethod]
+    public void Later_mod_cannot_take_a_built_in_city_position()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        source.AddMod("overlap", ModFixtures.SampleUuid);
+        ContentFixtures.AddExampleCity(
+            source,
+            ModFixtures.SampleUuid,
+            "intruder",
+            "入侵",
+            x: 0,
+            y: 0,
+            resourcesRoot: "memory://mods/overlap/resources");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:example-city"), out var builtIn));
+        Assert.AreEqual("示例城市", builtIn.Name);
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:intruder"), out _));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.DuplicatePosition));
     }
 
     [TestMethod]

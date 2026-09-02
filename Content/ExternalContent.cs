@@ -116,7 +116,13 @@ public static class ExternalContent
             ? children
             : Array.Empty<ModFolderCandidate>();
 
-    public static ContentFileDiscovery ListGoodsFiles(string resourcesRoot)
+    public static ContentFileDiscovery ListGoodsFiles(string resourcesRoot) =>
+        ListDataFiles(resourcesRoot, ".goods.json");
+
+    public static ContentFileDiscovery ListSettlementFiles(string resourcesRoot) =>
+        ListDataFiles(resourcesRoot, ".settlements.json");
+
+    public static ContentFileDiscovery ListDataFiles(string resourcesRoot, string fileSuffix)
     {
         if (!ExternalPath.TryStat(resourcesRoot, out var attributes, out var exists))
         {
@@ -139,7 +145,7 @@ public static class ExternalContent
         }
 
         var walkRoot = resourcesRoot.Replace('\\', '/');
-        return ContentPackageWalk.Discover(walkRoot, path => ListPhysicalEntries(path, resourcesRoot));
+        return ContentPackageWalk.Discover(walkRoot, path => ListPhysicalEntries(path, resourcesRoot), fileSuffix);
     }
 
     public static ContentBytesResult ReadFile(string resourcesRoot, string normalizedRelativePath, int maxBytes)

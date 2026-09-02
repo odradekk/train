@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using Train.Domain.Goods;
+using Train.Domain.Settlements;
 using Train.Logging;
 
 namespace Train.Content;
@@ -24,6 +25,10 @@ public sealed class ContentReloadResult
     public IReadOnlySet<GoodId> Added { get; }
     public IReadOnlySet<GoodId> Removed { get; }
     public IReadOnlySet<GoodId> ChangedIds { get; }
+    public IReadOnlySet<SettlementId> AddedSettlements { get; }
+    public IReadOnlySet<SettlementId> RemovedSettlements { get; }
+    public IReadOnlySet<SettlementId> ChangedSettlementIds { get; }
+    public int AcceptedSettlementCount { get; }
 
     public ContentReloadResult(
         ContentReloadStatus status,
@@ -34,7 +39,11 @@ public sealed class ContentReloadResult
         IReadOnlyList<ContentDiagnostic> diagnostics,
         IReadOnlySet<GoodId> added,
         IReadOnlySet<GoodId> removed,
-        IReadOnlySet<GoodId> changedIds)
+        IReadOnlySet<GoodId> changedIds,
+        IReadOnlySet<SettlementId>? addedSettlements = null,
+        IReadOnlySet<SettlementId>? removedSettlements = null,
+        IReadOnlySet<SettlementId>? changedSettlementIds = null,
+        int acceptedSettlementCount = 0)
     {
         Status = status;
         Changed = changed;
@@ -47,6 +56,10 @@ public sealed class ContentReloadResult
         Added = added;
         Removed = removed;
         ChangedIds = changedIds;
+        AddedSettlements = addedSettlements ?? ImmutableSets.EmptySettlements;
+        RemovedSettlements = removedSettlements ?? ImmutableSets.EmptySettlements;
+        ChangedSettlementIds = changedSettlementIds ?? ImmutableSets.EmptySettlements;
+        AcceptedSettlementCount = acceptedSettlementCount;
     }
 
     public bool IsCommitted => Status is ContentReloadStatus.Committed or ContentReloadStatus.CommittedWithWarnings;
@@ -115,6 +128,64 @@ public sealed class ReferencedGoodIdValidator : IContentPreCommitValidator
             ? ContentPreCommitDecision.Allow()
             : ContentPreCommitDecision.Reject(diagnostics);
     }
+
+    public static ContentPreCommitDecision FilterSettlementReferences(
+        GoodCatalogSnapshot candidate,
+        IDictionary<SettlementId, SettlementCandidate> settlements)
+    {
+        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(settlements);
+        var diagnostics = new List<ContentDiagnostic>();
+        var drop = new List<SettlementId>();
+        var reject = false;
+        foreach (var (id, settlement) in settlements)
+        {
+            var failed = false;
+            foreach (var resourceId in settlement.NaturalResourceIds)
+            {
+                if (!candidate.TryGet(resourceId, out var entry))
+                {
+                    failed = true;
+                    diagnostics.Add(new ContentDiagnostic(
+                        settlement.Kind == ContentPackageKind.BuiltIn
+                            ? ContentDiagnosticSeverity.Error
+                            : ContentDiagnosticSeverity.Warning,
+                        ContentDiagnosticCodes.UnresolvedGoodReference,
+                        "A referenced good is missing from the candidate catalog.",
+                        jsonPath: resourceId.Value));
+                    continue;
+                }
+
+                if (entry.Definition.Category != GoodCategory.NaturalResource)
+                {
+                    failed = true;
+                    diagnostics.Add(new ContentDiagnostic(
+                        settlement.Kind == ContentPackageKind.BuiltIn
+                            ? ContentDiagnosticSeverity.Error
+                            : ContentDiagnosticSeverity.Warning,
+                        ContentDiagnosticCodes.NaturalResourceCategoryRequired,
+                        "A settlement natural resource id does not resolve to a natural_resource good.",
+                        jsonPath: resourceId.Value));
+                }
+            }
+
+            if (!failed)
+                continue;
+            if (settlement.Kind == ContentPackageKind.BuiltIn)
+                reject = true;
+            else
+                drop.Add(id);
+        }
+
+        foreach (var id in drop)
+            settlements.Remove(id);
+
+        if (reject)
+            return ContentPreCommitDecision.Reject(diagnostics);
+        return diagnostics.Count == 0
+            ? ContentPreCommitDecision.Allow()
+            : ContentPreCommitDecision.Allow(diagnostics);
+    }
 }
 
 public sealed class ContentReloader
@@ -125,13 +196,15 @@ public sealed class ContentReloader
     private int _busy;
 
     public GoodCatalog Catalog { get; }
+    public SettlementRegistry Settlements { get; }
     public bool InitializationFailed { get; private set; }
 
     public ContentReloader(
         IContentSource source,
         TrainLogger logger,
         GoodCatalog? catalog = null,
-        IContentPreCommitValidator? validator = null)
+        IContentPreCommitValidator? validator = null,
+        SettlementRegistry? settlements = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(logger);
@@ -139,6 +212,7 @@ public sealed class ContentReloader
         _logger = logger;
         _validator = validator;
         Catalog = catalog ?? new GoodCatalog();
+        Settlements = settlements ?? new SettlementRegistry();
     }
 
     public ContentReloadResult Reload()
@@ -149,6 +223,7 @@ public sealed class ContentReloader
                 Catalog.Current?.Version ?? 0,
                 scanned: 0,
                 accepted: 0,
+                acceptedSettlements: 0,
                 new[]
                 {
                     new ContentDiagnostic(
@@ -178,7 +253,7 @@ public sealed class ContentReloader
 
         if (!candidate.CanCommit)
         {
-            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, 0, diagnostics);
+            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, 0, 0, diagnostics);
             if (Catalog.Current is null)
                 InitializationFailed = true;
             LogFailure(rejected);
@@ -191,7 +266,7 @@ public sealed class ContentReloader
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.EmptyInitialCatalog,
                 "The initial built-in catalog must contain at least one good definition."));
-            var rejected = Reject(0, candidate.ScannedFileCount, 0, diagnostics);
+            var rejected = Reject(0, candidate.ScannedFileCount, 0, 0, diagnostics);
             InitializationFailed = true;
             LogFailure(rejected);
             return rejected;
@@ -199,12 +274,36 @@ public sealed class ContentReloader
 
         var nextVersion = (Catalog.Current?.Version ?? 0) + 1;
         var snapshot = new GoodCatalogSnapshot(nextVersion, candidate.Entries);
+        var settlements = new Dictionary<SettlementId, SettlementCandidate>(candidate.Settlements);
+        var references = ReferencedGoodIdValidator.FilterSettlementReferences(snapshot, settlements);
+        diagnostics.AddRange(references.Diagnostics);
+        if (!references.CanCommit)
+        {
+            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
+            if (Catalog.Current is null)
+                InitializationFailed = true;
+            LogFailure(rejected);
+            return rejected;
+        }
+
+        if (!Settlements.HasCommitted && settlements.Count == 0)
+        {
+            diagnostics.Add(new ContentDiagnostic(
+                ContentDiagnosticSeverity.Error,
+                ContentDiagnosticCodes.EmptyInitialSettlements,
+                "The initial built-in package must contain at least one settlement."));
+            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
+            InitializationFailed = true;
+            LogFailure(rejected);
+            return rejected;
+        }
+
         var decision = _validator?.Validate(snapshot) ?? ContentPreCommitDecision.Allow();
         diagnostics.AddRange(decision.Diagnostics);
 
         if (!decision.CanCommit)
         {
-            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, diagnostics);
+            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, settlements.Count, diagnostics);
             if (Catalog.Current is null)
                 InitializationFailed = true;
             LogFailure(rejected);
@@ -212,11 +311,14 @@ public sealed class ContentReloader
         }
 
         var change = CatalogDiff.Compute(snapshot.Version, Catalog.Current, candidate.Entries);
+        var settlementChange = SettlementDiff.Compute(Settlements, settlements);
         var status = diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning)
             ? ContentReloadStatus.CommittedWithWarnings
             : ContentReloadStatus.Committed;
+        var goodsChanged = CatalogDiff.HasChanges(change);
+        var settlementsChanged = SettlementDiff.HasChanges(settlementChange);
 
-        if (!CatalogDiff.HasChanges(change))
+        if (!goodsChanged && !settlementsChanged)
         {
             var unchanged = new ContentReloadResult(
                 status,
@@ -227,24 +329,35 @@ public sealed class ContentReloader
                 diagnostics,
                 ImmutableSets.Empty,
                 ImmutableSets.Empty,
-                ImmutableSets.Empty);
+                ImmutableSets.Empty,
+                ImmutableSets.EmptySettlements,
+                ImmutableSets.EmptySettlements,
+                ImmutableSets.EmptySettlements,
+                settlements.Count);
             InitializationFailed = false;
             LogSummary(unchanged);
             return unchanged;
         }
 
-        Catalog.TryPublish(snapshot, change, notify: true);
+        if (goodsChanged)
+            Catalog.TryPublish(snapshot, change, notify: true);
+        if (settlementsChanged || !Settlements.HasCommitted)
+            Settlements.Apply(settlements.Values.ToArray());
         InitializationFailed = false;
         var committed = new ContentReloadResult(
             status,
             changed: true,
-            snapshot.Version,
+            goodsChanged ? snapshot.Version : Catalog.Current?.Version ?? 0,
             candidate.ScannedFileCount,
             candidate.Entries.Count,
             diagnostics,
-            change.Added,
-            change.Removed,
-            change.Changed);
+            goodsChanged ? change.Added : ImmutableSets.Empty,
+            goodsChanged ? change.Removed : ImmutableSets.Empty,
+            goodsChanged ? change.Changed : ImmutableSets.Empty,
+            settlementChange.Added,
+            settlementChange.Removed,
+            settlementChange.Changed,
+            settlements.Count);
         LogSummary(committed);
         return committed;
     }
@@ -253,6 +366,7 @@ public sealed class ContentReloader
         long version,
         int scanned,
         int accepted,
+        int acceptedSettlements,
         IReadOnlyList<ContentDiagnostic> diagnostics) =>
         new(
             ContentReloadStatus.Rejected,
@@ -263,7 +377,11 @@ public sealed class ContentReloader
             diagnostics,
             ImmutableSets.Empty,
             ImmutableSets.Empty,
-            ImmutableSets.Empty);
+            ImmutableSets.Empty,
+            ImmutableSets.EmptySettlements,
+            ImmutableSets.EmptySettlements,
+            ImmutableSets.EmptySettlements,
+            acceptedSettlements);
 
     private void LogSummary(ContentReloadResult result)
     {
@@ -282,7 +400,11 @@ public sealed class ContentReloader
                 ["error_count"] = result.ErrorCount,
                 ["added"] = result.Added.Select(id => id.Value).ToArray(),
                 ["removed"] = result.Removed.Select(id => id.Value).ToArray(),
-                ["changed_ids"] = result.ChangedIds.Select(id => id.Value).ToArray()
+                ["changed_ids"] = result.ChangedIds.Select(id => id.Value).ToArray(),
+                ["settlements_accepted"] = result.AcceptedSettlementCount,
+                ["settlements_added"] = result.AddedSettlements.Select(id => id.Value).ToArray(),
+                ["settlements_removed"] = result.RemovedSettlements.Select(id => id.Value).ToArray(),
+                ["settlements_changed"] = result.ChangedSettlementIds.Select(id => id.Value).ToArray()
             });
     }
 
@@ -305,6 +427,7 @@ public sealed class ContentReloader
 internal sealed class CatalogCandidate
 {
     public IReadOnlyDictionary<GoodId, GoodCatalogEntry> Entries { get; }
+    public IReadOnlyDictionary<SettlementId, SettlementCandidate> Settlements { get; }
     public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
     public int ScannedFileCount { get; }
     public bool CanCommit { get; }
@@ -312,17 +435,55 @@ internal sealed class CatalogCandidate
 
     public CatalogCandidate(
         IReadOnlyDictionary<GoodId, GoodCatalogEntry> entries,
+        IReadOnlyDictionary<SettlementId, SettlementCandidate> settlements,
         IReadOnlyList<ContentDiagnostic> diagnostics,
         int scannedFileCount,
         bool canCommit,
         bool packagesInvalid)
     {
         Entries = entries;
+        Settlements = settlements;
         Diagnostics = diagnostics;
         ScannedFileCount = scannedFileCount;
         CanCommit = canCommit;
         PackagesInvalid = packagesInvalid;
     }
+}
+
+internal static class SettlementDiff
+{
+    public static (IReadOnlySet<SettlementId> Added, IReadOnlySet<SettlementId> Removed, IReadOnlySet<SettlementId> Changed)
+        Compute(SettlementRegistry registry, IReadOnlyDictionary<SettlementId, SettlementCandidate> next)
+    {
+        var added = new HashSet<SettlementId>();
+        var removed = new HashSet<SettlementId>();
+        var changed = new HashSet<SettlementId>();
+        if (!registry.HasCommitted)
+        {
+            added.UnionWith(next.Keys);
+            return (added, removed, changed);
+        }
+
+        foreach (var (id, candidate) in next)
+        {
+            if (!registry.TryGet(id, out var existing))
+                added.Add(id);
+            else if (!candidate.Matches(existing))
+                changed.Add(id);
+        }
+
+        foreach (var item in registry.Items)
+        {
+            if (!next.ContainsKey(item.Id))
+                removed.Add(item.Id);
+        }
+
+        return (added, removed, changed);
+    }
+
+    public static bool HasChanges(
+        (IReadOnlySet<SettlementId> Added, IReadOnlySet<SettlementId> Removed, IReadOnlySet<SettlementId> Changed) change) =>
+        change.Added.Count > 0 || change.Removed.Count > 0 || change.Changed.Count > 0;
 }
 
 internal static class CatalogCandidateBuilder
@@ -332,6 +493,8 @@ internal static class CatalogCandidateBuilder
         var packages = source.ListPackages();
         var diagnostics = new List<ContentDiagnostic>();
         var accepted = new Dictionary<GoodId, GoodCatalogEntry>();
+        var acceptedSettlements = new Dictionary<SettlementId, SettlementCandidate>();
+        var occupied = new Dictionary<MapPosition, SettlementId>();
         var scanned = 0;
         var requiredInvalid = false;
         var isolatedCount = 0;
@@ -349,7 +512,7 @@ internal static class CatalogCandidateBuilder
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.BuiltInPackageUnavailable,
                 "The built-in content package was not provided."));
-            return new CatalogCandidate(accepted, diagnostics, 0, false, true);
+            return new CatalogCandidate(accepted, acceptedSettlements, diagnostics, 0, false, true);
         }
 
         var duplicateModIds = packages
@@ -376,11 +539,13 @@ internal static class CatalogCandidateBuilder
             }
 
             var bag = new DiagnosticBag();
-            var packageGoods = BuildPackage(source, package, bag, logger, ref scanned);
-            if (package.Kind == ContentPackageKind.Mod && packageGoods.Count > ContentLimits.MaxGoodsPerMod)
+            var packageContent = BuildPackage(source, package, bag, logger, ref scanned);
+            if (package.Kind == ContentPackageKind.Mod && packageContent.Goods.Count > ContentLimits.MaxGoodsPerMod)
             {
                 bag.Warn(ContentDiagnosticCodes.ModGoodLimitExceeded, "A mod exceeds the 1000-good package limit.");
-                packageGoods = new Dictionary<GoodId, GoodCatalogEntry>();
+                packageContent = new PackageContent(
+                    new Dictionary<GoodId, GoodCatalogEntry>(),
+                    new Dictionary<SettlementId, SettlementCandidate>());
             }
 
             foreach (var diagnostic in bag.Items)
@@ -398,7 +563,7 @@ internal static class CatalogCandidateBuilder
             if (package.Kind == ContentPackageKind.Mod)
                 acceptedMods++;
 
-            if (packageGoods.Count == 0)
+            if (packageContent.Goods.Count == 0 && packageContent.Settlements.Count == 0)
             {
                 logger.Debug(
                     ContentLog.Category,
@@ -407,8 +572,26 @@ internal static class CatalogCandidateBuilder
                     new Dictionary<string, object?> { ["package"] = package.Namespace });
             }
 
-            foreach (var (id, entry) in packageGoods)
+            foreach (var (id, entry) in packageContent.Goods)
                 accepted[id] = entry;
+            foreach (var (id, settlement) in packageContent.Settlements)
+            {
+                if (occupied.TryGetValue(settlement.Position, out var prior))
+                {
+                    var conflict = new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Warning,
+                        ContentDiagnosticCodes.DuplicatePosition,
+                        "A later settlement occupies an already claimed map position.",
+                        settlement.Id.Value,
+                        prior.Value);
+                    LogDiagnostic(logger, conflict);
+                    diagnostics.Add(conflict);
+                    continue;
+                }
+
+                occupied[settlement.Position] = id;
+                acceptedSettlements[id] = settlement;
+            }
         }
 
         var modCount = packages.Count(package => package.Kind == ContentPackageKind.Mod);
@@ -432,18 +615,33 @@ internal static class CatalogCandidateBuilder
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.GlobalGoodLimitExceeded,
                 "The catalog exceeds the global good limit."));
-            return new CatalogCandidate(accepted, diagnostics, scanned, false, true);
+            return new CatalogCandidate(accepted, acceptedSettlements, diagnostics, scanned, false, true);
         }
 
         return new CatalogCandidate(
             accepted.ToFrozenDictionary(),
+            acceptedSettlements,
             diagnostics,
             scanned,
             canCommit: !requiredInvalid,
             requiredInvalid);
     }
 
-    private static Dictionary<GoodId, GoodCatalogEntry> BuildPackage(
+    private sealed class PackageContent
+    {
+        public Dictionary<GoodId, GoodCatalogEntry> Goods { get; }
+        public Dictionary<SettlementId, SettlementCandidate> Settlements { get; }
+
+        public PackageContent(
+            Dictionary<GoodId, GoodCatalogEntry> goods,
+            Dictionary<SettlementId, SettlementCandidate> settlements)
+        {
+            Goods = goods;
+            Settlements = settlements;
+        }
+    }
+
+    private static PackageContent BuildPackage(
         IContentSource source,
         ContentPackage package,
         DiagnosticBag bag,
@@ -451,24 +649,26 @@ internal static class CatalogCandidateBuilder
         ref int scanned)
     {
         var accepted = new Dictionary<GoodId, GoodCatalogEntry>();
+        var settlements = new Dictionary<SettlementId, SettlementCandidate>();
         if (!package.Available)
         {
             if (package.IsRequired)
                 bag.Error(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package is unavailable.");
             else
                 bag.Warn(ContentDiagnosticCodes.PackageInvalid, "Mod package is unavailable.");
-            return accepted;
+            return new PackageContent(accepted, settlements);
         }
 
         var discovery = source.ListGoodsFiles(package);
-        scanned += discovery.Files.Count;
-        foreach (var diagnostic in discovery.Diagnostics)
+        var settlementDiscovery = source.ListSettlementFiles(package);
+        scanned += discovery.Files.Count + settlementDiscovery.Files.Count;
+        foreach (var diagnostic in discovery.Diagnostics.Concat(settlementDiscovery.Diagnostics))
             bag.Add(
                 package.IsRequired ? diagnostic.Severity : ContentDiagnosticSeverity.Warning,
                 diagnostic.Code,
                 diagnostic.Message,
                 diagnostic.JsonPath ?? diagnostic.Source);
-        if (discovery.Invalid)
+        if (discovery.Invalid || settlementDiscovery.Invalid)
             bag.MarkInvalid();
         var parsed = new List<ParsedGood>();
         foreach (var file in discovery.Files)
@@ -520,7 +720,79 @@ internal static class CatalogCandidateBuilder
             accepted[entry.Definition.Id] = entry;
         }
 
-        return accepted;
+        AcceptSettlements(source, package, settlementDiscovery, bag, settlements);
+        return new PackageContent(accepted, settlements);
+    }
+
+    private static void AcceptSettlements(
+        IContentSource source,
+        ContentPackage package,
+        ContentFileDiscovery discovery,
+        DiagnosticBag bag,
+        Dictionary<SettlementId, SettlementCandidate> accepted)
+    {
+        var parsed = new List<ParsedSettlement>();
+        foreach (var file in discovery.Files)
+        {
+            bag.Source = file;
+            var read = source.ReadFile(package, file, ContentLimits.GoodsFileMaxBytes);
+            if (read.UnsafeLink)
+            {
+                if (package.IsRequired)
+                    bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
+                else
+                    bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
+                continue;
+            }
+
+            if (read.TooLarge)
+            {
+                bag.Warn(ContentDiagnosticCodes.FileTooLarge, "Settlements JSON exceeds the 1 MiB limit.");
+                continue;
+            }
+
+            if (read.Bytes is null)
+            {
+                bag.Warn(ContentDiagnosticCodes.InvalidJson, "Settlements file could not be read.");
+                continue;
+            }
+
+            parsed.AddRange(SettlementsJsonParser.Parse(read.Bytes, package.Namespace, file, bag));
+        }
+
+        var duplicates = parsed
+            .GroupBy(item => item.LocalId, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1);
+        var duplicateIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in duplicates)
+        {
+            duplicateIds.Add(group.Key);
+            bag.Source = group.First().SourceFile;
+            bag.WarnSoft(ContentDiagnosticCodes.DuplicateLocalId, "Duplicate local id in the package.", group.Key);
+        }
+
+        var occupied = new HashSet<MapPosition>();
+        foreach (var item in parsed)
+        {
+            if (duplicateIds.Contains(item.LocalId))
+                continue;
+            bag.Source = item.SourceFile;
+            if (!occupied.Add(item.Position))
+            {
+                bag.WarnSoft(ContentDiagnosticCodes.DuplicatePosition, "A later settlement occupies an already claimed map position.", item.LocalId);
+                continue;
+            }
+
+            var id = new SettlementId($"{package.Namespace}:{item.LocalId}");
+            accepted[id] = new SettlementCandidate(
+                id,
+                new SettlementTypeId(item.Type),
+                item.Name,
+                item.Position,
+                item.Population,
+                item.NaturalResources.ToHashSet(),
+                package.Kind);
+        }
     }
 
     private static bool TryAccept(
