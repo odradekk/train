@@ -13,8 +13,12 @@ config_version=5
 config/name="Train"
 config/description="Core gameplay development build"
 config/version="0.0.0"
-run/main_scene="res://Main.tscn"
+run/main_scene="res://Ui/StartMenu.tscn"
 config/features=PackedStringArray("4.7", "C#")
+
+[autoload]
+
+Main="*res://Main.cs"
 
 [display]
 

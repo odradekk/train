@@ -9,6 +9,8 @@ public partial class Main : Node
 {
     public const string ReloadContentAction = "reload_content";
 
+    public TrainLogger? Logger => _logger;
+
     private const string LoggingSmokeEnvironmentVariable = "TRAIN_LOG_SMOKE";
     private const string LoggingSmokeWorkerEventId = "smoke_worker_event";
     private const string LoggingSmokeProcessMarker = "SMOKE_PROCESS_DRAINED";
@@ -51,8 +53,12 @@ public partial class Main : Node
         var buildDefault = OS.IsDebugBuild() || Engine.IsEditorHint()
             ? LogLevel.Debug
             : LogLevel.Info;
-        _logger = TrainLogger.StartSession(logDirectory, buildDefault, new GodotLogOutput());
+        var logBuffer = new RingBufferLogSink();
+        _logger = TrainLogger.StartSession(logDirectory, buildDefault, new GodotLogOutput(), logBuffer);
         _reloader = new ContentReloader(new GodotContentSource(_logger, modsUserData), _logger);
+        var console = new GameConsole();
+        console.Initialize(_logger, logBuffer, _reloader);
+        AddChild(console);
         var loaded = _reloader.Reload();
         if (IsLoggingSmokeEnabled())
             StartLoggingSmoke();
