@@ -46,6 +46,11 @@ public static class ContentDiagnosticCodes
     public const string ModsRootUnavailable = "mods_root_unavailable";
     public const string ModGoodLimitExceeded = "mod_good_limit_exceeded";
     public const string ModManifestMissing = "mod_manifest_missing";
+    public const string PopulationInvalid = "population_invalid";
+    public const string PositionInvalid = "position_invalid";
+    public const string DuplicatePosition = "duplicate_position";
+    public const string DuplicateNaturalResource = "duplicate_natural_resource";
+    public const string EmptyInitialSettlements = "empty_initial_settlements";
 }
 
 public enum ContentDiagnosticSeverity
@@ -259,9 +264,15 @@ internal sealed class DiagnosticBag
     public bool Invalid { get; private set; }
     public IReadOnlyList<ContentDiagnostic> Items => _items;
 
-    public void Add(ContentDiagnosticSeverity severity, string code, string message, string? jsonPath = null)
+    public void Add(
+        ContentDiagnosticSeverity severity,
+        string code,
+        string message,
+        string? jsonPath = null,
+        bool invalidate = true)
     {
-        Invalid = true;
+        if (invalidate)
+            Invalid = true;
         if (_items.Count >= ContentLimits.MaxDiagnosticsPerPackage)
             return;
         _items.Add(new ContentDiagnostic(severity, code, message, Source, jsonPath));
@@ -274,6 +285,9 @@ internal static class DiagnosticBagExtensions
 {
     public static void Warn(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
         bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath);
+
+    public static void WarnSoft(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
+        bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath, invalidate: false);
 
     public static void Error(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
         bag.Add(ContentDiagnosticSeverity.Error, code, message, jsonPath);

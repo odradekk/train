@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Goods;
+using Train.Domain.Settlements;
 using Train.Logging;
 
 namespace Train.Tests;
@@ -17,6 +18,7 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("iron-ore", "铁矿", "铁矿说明"),
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
+        ContentFixtures.AddExampleCity(source);
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();
@@ -105,6 +107,7 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("1iron-ore", "  铁矿  ", "  说明  ", value: 1),
             ContentFixtures.Good("coal", new string('名', 100), new string('说', 2000), value: 1_000_000_000, icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
+        ContentFixtures.AddExampleCity(source, resources: new[] { "core:1iron-ore" });
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         Assert.AreEqual("铁矿", reloader.Catalog.Current!.Entries[new GoodId("core", "1iron-ore")].Definition.Name);
@@ -244,7 +247,7 @@ public sealed class ContentReloaderTests
         Assert.IsNotNull(reloader.Catalog.Current);
 
         var empty = ContentFixtures.CorePackage();
-        var later = ContentFixtures.Create(empty, session.Logger, catalog: reloader.Catalog);
+        var later = ContentFixtures.Create(empty, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements);
         var result = later.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
@@ -277,6 +280,7 @@ public sealed class ContentReloaderTests
         valid.AddGoodsFile("core", "natural/ores.goods.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron", "铁矿", "说明", icon: "natural/iron.png", voxel: "natural/iron.png")));
         ContentFixtures.AddSquareImages(valid, "natural/iron.png");
+        ContentFixtures.AddExampleCity(valid, resources: new[] { "core:iron" });
         var validReloader = ContentFixtures.Create(valid, ok.Logger);
         var committed = validReloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, committed.Status);
@@ -425,7 +429,7 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("stone", "石", "石说明", icon: "stone.png", voxel: "stone.png")));
         ContentFixtures.AddSquareImages(source, "stone.png");
         source.AddImage("core", "iron.png", ContentFixtures.Square(16, 9));
-        var rebuilt = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog);
+        var rebuilt = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements);
         var result = rebuilt.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
@@ -437,6 +441,110 @@ public sealed class ContentReloaderTests
         Assert.IsTrue(previous.TryGet(new GoodId("core", "coal"), out _));
         Assert.IsFalse(reloader.Catalog.Current!.TryGet(new GoodId("core", "coal"), out _));
         Assert.AreNotSame(previous, reloader.Catalog.Current);
+    }
+
+    [TestMethod]
+    public void First_load_commits_built_in_city_into_the_live_registry()
+    {
+        using var session = LoggerSession.Create();
+        var reloader = ContentFixtures.Create(ContentFixtures.ValidIron(), session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.AreEqual(1, result.AcceptedSettlementCount);
+        Assert.IsTrue(result.AddedSettlements.Contains(new SettlementId("core:example-city")));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:example-city"), out var city));
+        Assert.AreEqual("示例城市", city.Name);
+        Assert.AreEqual(new MapPosition(0, 0), city.Position);
+        Assert.AreEqual(100, city.Population);
+        Assert.IsTrue(city.NaturalResourceIds.Contains(new GoodId("core", "iron-ore")));
+        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+            item.EventId == ContentLog.ReloadSummaryEventId &&
+            item.Attributes["settlements_accepted"] is 1));
+    }
+
+    [TestMethod]
+    public void First_load_without_settlements_fails_initialization()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.CorePackage();
+        source.AddGoodsFile("core", "natural/iron-ore.goods.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "铁矿", "说明")));
+        ContentFixtures.AddSquareImages(source, "iron.png");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.IsTrue(reloader.InitializationFailed);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.EmptyInitialSettlements));
+        Assert.AreEqual(0, reloader.Settlements.Count);
+        Assert.IsNull(reloader.Catalog.Current);
+    }
+
+    [TestMethod]
+    public void Built_in_unresolved_natural_resource_rejects_goods_and_settlements()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        source.AddSettlementsFile("core", "settlements/ghost.settlements.json", ContentFixtures.SettlementsFile(
+            ContentFixtures.Settlement("ghost", "幽灵城", x: 4, y: 4, resources: new[] { "core:missing-ore" })));
+        var previous = ContentFixtures.Create(ContentFixtures.ValidIron(), session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, previous.Reload().Status);
+        var priorCatalog = previous.Catalog.Current;
+        var rebuilt = ContentFixtures.Create(source, session.Logger, catalog: previous.Catalog, settlements: previous.Settlements);
+
+        var result = rebuilt.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.AreSame(priorCatalog, rebuilt.Catalog.Current);
+        Assert.IsTrue(previous.Settlements.TryGet(new SettlementId("core:example-city"), out _));
+        Assert.IsFalse(previous.Settlements.TryGet(new SettlementId("core:ghost"), out _));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedGoodReference));
+    }
+
+    [TestMethod]
+    public void Reload_reconciles_an_existing_city_in_place()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:example-city"), out var held));
+
+        source.AddSettlementsFile("core", "settlements/example-city.settlements.json", ContentFixtures.SettlementsFile(
+            ContentFixtures.Settlement("example-city", "港湾", x: 6, y: -2, population: 250)));
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.IsTrue(result.ChangedSettlementIds.Contains(new SettlementId("core:example-city")));
+        Assert.AreSame(held, reloader.Settlements.Items.Single());
+        Assert.AreEqual("港湾", held.Name);
+        Assert.AreEqual(new MapPosition(6, -2), held.Position);
+        Assert.AreEqual(250, held.Population);
+    }
+
+    [TestMethod]
+    public void New_good_and_city_that_references_it_commit_together()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        source.AddGoodsFile("core", "natural/coal.goods.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
+        ContentFixtures.AddSquareImages(source, "coal.png");
+        source.AddSettlementsFile("core", "settlements/mine.settlements.json", ContentFixtures.SettlementsFile(
+            ContentFixtures.Settlement("coal-town", "煤城", x: 2, y: 3, resources: new[] { "core:coal" })));
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId("core", "coal"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:coal-town"), out var town));
+        Assert.IsTrue(town.NaturalResourceIds.Contains(new GoodId("core", "coal")));
+        Assert.IsTrue(result.Added.Contains(new GoodId("core", "coal")));
+        Assert.IsTrue(result.AddedSettlements.Contains(new SettlementId("core:coal-town")));
     }
 
     private static ContentReloadResult ReloadWithImage(LoggerSession session, string path, DecodedImage image)
@@ -481,6 +589,9 @@ internal sealed class InvalidDiscoverySource : IContentSource
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes) =>
         _inner.ReadFile(package, normalizedRelativePath, maxBytes);
+
+    public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
+        _inner.ListSettlementFiles(package);
 
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath) =>
         _inner.DecodePng(package, normalizedRelativePath);
@@ -528,15 +639,52 @@ internal static class ContentFixtures
         var source = CorePackage();
         source.AddGoodsFile("core", "natural/iron-ore.goods.json", GoodsFile(Good("iron-ore", "铁矿", "说明")));
         AddSquareImages(source, "iron.png");
+        AddExampleCity(source);
         return source;
+    }
+
+    public static void AddExampleCity(
+        MemoryContentSource source,
+        string @namespace = "core",
+        string id = "example-city",
+        string name = "示例城市",
+        int x = 0,
+        int y = 0,
+        int population = 100,
+        string[]? resources = null,
+        string? resourcesRoot = null)
+    {
+        source.AddSettlementsFile(
+            @namespace,
+            $"settlements/{id}.settlements.json",
+            SettlementsFile(Settlement(id, name, x: x, y: y, population: population, resources: resources)),
+            resourcesRoot);
+    }
+
+    public static string SettlementsFile(params string[] settlements) =>
+        $"{{\"schema_version\":1,\"settlements\":[{string.Join(",", settlements)}]}}";
+
+    public static string Settlement(
+        string id,
+        string name = "示例城市",
+        string type = "city",
+        int x = 0,
+        int y = 0,
+        int population = 100,
+        string[]? resources = null)
+    {
+        resources ??= new[] { "core:iron-ore" };
+        var resourceJson = string.Join(",", resources.Select(item => $"\"{item}\""));
+        return $"{{\"id\":\"{id}\",\"type\":\"{type}\",\"name\":\"{name}\",\"position\":{{\"x\":{x},\"y\":{y}}},\"population\":{population},\"natural_resources\":[{resourceJson}]}}";
     }
 
     public static ContentReloader Create(
         MemoryContentSource source,
         TrainLogger logger,
         IContentPreCommitValidator? validator = null,
-        GoodCatalog? catalog = null) =>
-        new(source, logger, catalog, validator);
+        GoodCatalog? catalog = null,
+        SettlementRegistry? settlements = null) =>
+        new(source, logger, catalog, validator, settlements);
 
     public static void AddSquareImages(MemoryContentSource source, params string[] paths)
     {

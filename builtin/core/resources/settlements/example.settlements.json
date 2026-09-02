@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "settlements": [
+    {
+      "id": "example-city",
+      "type": "city",
+      "name": "示例城市",
+      "position": { "x": 0, "y": 0 },
+      "population": 100,
+      "natural_resources": ["core:iron-ore"]
+    }
+  ]
+}

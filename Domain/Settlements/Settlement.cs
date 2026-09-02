@@ -11,10 +11,10 @@ public sealed class Settlement : IEquatable<Settlement>
     public SettlementId Id { get; }
     public string Name { get; private set; }
     public SettlementTypeId Type { get; private set; }
-    public MapPosition Position { get; }
+    public MapPosition Position { get; private set; }
     public int Population { get; private set; }
     public IReadOnlyDictionary<BuildingTypeId, int> Buildings { get; }
-    public IReadOnlySet<GoodId> NaturalResourceIds { get; }
+    public IReadOnlySet<GoodId> NaturalResourceIds { get; private set; }
     public Station? Station { get; private set; }
 
     public Settlement(
@@ -67,6 +67,22 @@ public sealed class Settlement : IEquatable<Settlement>
         if (Population == normalized)
             return;
         Population = normalized;
+    }
+
+    public void SetPosition(MapPosition position)
+    {
+        if (Position.Equals(position))
+            return;
+        Position = position;
+    }
+
+    public void SetNaturalResourceIds(IReadOnlySet<GoodId> naturalResourceIds)
+    {
+        ArgumentNullException.ThrowIfNull(naturalResourceIds);
+        var copy = CopyNaturalResourceIds(naturalResourceIds);
+        if (NaturalResourceIds.SetEquals(copy))
+            return;
+        NaturalResourceIds = copy;
     }
 
     public void SetBuildingCount(BuildingTypeId buildingType, int count)

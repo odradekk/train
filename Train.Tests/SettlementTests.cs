@@ -99,20 +99,35 @@ public sealed class SettlementTests
     }
 
     [TestMethod]
-    public void Position_and_natural_resource_ids_remain_fixed()
+    public void Position_and_natural_resource_ids_mutate_with_same_value_early_return()
     {
         var iron = new GoodId("core", "iron");
+        var coal = new GoodId("core", "coal");
         var input = new HashSet<GoodId> { iron };
         var settlement = Create(x: 4, y: -9, resources: input);
 
-        input.Add(new GoodId("core", "coal"));
-        settlement.Rename("Renamed");
-        settlement.SetPopulation(11);
-
-        Assert.AreEqual(new MapPosition(4, -9), settlement.Position);
+        input.Add(coal);
         Assert.AreEqual(1, settlement.NaturalResourceIds.Count);
+        Assert.IsFalse(settlement.NaturalResourceIds.Contains(coal));
+
+        settlement.SetPosition(new MapPosition(4, -9));
+        Assert.AreEqual(new MapPosition(4, -9), settlement.Position);
+        settlement.SetPosition(new MapPosition(-1, 7));
+        Assert.AreEqual(new MapPosition(-1, 7), settlement.Position);
+
+        var replacement = new HashSet<GoodId> { iron, coal };
+        settlement.SetNaturalResourceIds(replacement);
+        replacement.Remove(iron);
+        Assert.AreEqual(2, settlement.NaturalResourceIds.Count);
         Assert.IsTrue(settlement.NaturalResourceIds.Contains(iron));
-        Assert.IsFalse(settlement.NaturalResourceIds.Contains(new GoodId("core", "coal")));
+        Assert.IsTrue(settlement.NaturalResourceIds.Contains(coal));
+
+        settlement.SetNaturalResourceIds(new HashSet<GoodId> { coal, iron });
+        Assert.AreEqual(2, settlement.NaturalResourceIds.Count);
+        Assert.IsTrue(settlement.NaturalResourceIds.SetEquals(new[] { iron, coal }));
+
+        Assert.ThrowsException<ArgumentNullException>(() => settlement.SetNaturalResourceIds(null!));
+        Assert.ThrowsException<ArgumentException>(() => settlement.SetNaturalResourceIds(new HashSet<GoodId> { default }));
     }
 
     [TestMethod]
