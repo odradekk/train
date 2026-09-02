@@ -31,6 +31,37 @@ public sealed class MemoryLogSink : ILogSink
     }
 }
 
+public sealed class RingBufferLogSink : ILogSink
+{
+    public const int Capacity = 500;
+
+    private readonly Queue<LogEvent> _events = new(Capacity);
+    private readonly object _gate = new();
+
+    public IReadOnlyList<LogEvent> Snapshot()
+    {
+        lock (_gate)
+            return _events.ToArray();
+    }
+
+    public void Clear()
+    {
+        lock (_gate)
+            _events.Clear();
+    }
+
+    public void Emit(LogEvent logEvent)
+    {
+        ArgumentNullException.ThrowIfNull(logEvent);
+        lock (_gate)
+        {
+            if (_events.Count == Capacity)
+                _events.Dequeue();
+            _events.Enqueue(logEvent);
+        }
+    }
+}
+
 public sealed class JsonlLogSink : ILogSink, IDisposable
 {
     public const string FilePrefix = "train-session-";

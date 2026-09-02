@@ -19,5 +19,6 @@
     <Compile Include="..\Logging\LogEvent.cs" Link="Logging\LogEvent.cs" />
     <Compile Include="..\Logging\LogSinks.cs" Link="Logging\LogSinks.cs" />
     <Compile Include="..\Logging\TrainLogger.cs" Link="Logging\TrainLogger.cs" />
+    <Compile Include="..\Console\*.cs" Link="Console\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
