@@ -7,11 +7,7 @@ public sealed class GodotLogOutput : IGodotLogOutput
     public void Write(LogEvent logEvent)
     {
         ArgumentNullException.ThrowIfNull(logEvent);
-        var line = LogLevelText.FormatBounded(
-            logEvent.Level,
-            logEvent.Category,
-            logEvent.EventId,
-            logEvent.Message);
+        var line = LogLevelText.FormatBounded(logEvent);
         switch (logEvent.Level)
         {
             case LogLevel.Warning:

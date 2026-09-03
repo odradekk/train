@@ -146,6 +146,24 @@ public sealed class StructuredLoggingTests
     }
 
     [TestMethod]
+    public void Runtime_threshold_change_drops_then_restores_lower_events()
+    {
+        using var session = LoggerSession.Create(buildDefault: LogLevel.Debug);
+        session.Logger.Debug("test", "before_switch", "shown");
+        session.Logger.Threshold = LogLevel.Warning;
+        session.Logger.Debug("test", "hidden_after_raise", "quiet");
+        session.Logger.Warning("test", "visible_warning", "shown");
+        session.Logger.Threshold = LogLevel.Debug;
+        session.Logger.Debug("test", "restored_debug", "shown");
+
+        var ids = session.Memory.Snapshot().Select(e => e.EventId).ToArray();
+        CollectionAssert.Contains(ids, "before_switch");
+        CollectionAssert.DoesNotContain(ids, "hidden_after_raise");
+        CollectionAssert.Contains(ids, "visible_warning");
+        CollectionAssert.Contains(ids, "restored_debug");
+    }
+
+    [TestMethod]
     public void Exception_shape_is_bounded_and_omits_arbitrary_data()
     {
         using var session = LoggerSession.Create();

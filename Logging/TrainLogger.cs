@@ -25,9 +25,24 @@ public sealed class TrainLogger : IDisposable
     private bool _additionalFaulted;
     private bool _sinkFaultReported;
     private bool _draining;
+    private LogLevel _threshold;
 
     public Guid SessionId { get; }
-    public LogLevel Threshold { get; }
+
+    public LogLevel Threshold
+    {
+        get
+        {
+            lock (_gate)
+                return _threshold;
+        }
+        set
+        {
+            lock (_gate)
+                _threshold = value;
+        }
+    }
+
     public string? JsonlPath => _jsonl.FilePath;
 
     public TrainLogger(
@@ -52,7 +67,7 @@ public sealed class TrainLogger : IDisposable
         if (overrideValue is null && readEnvironmentVariable)
             overrideValue = Environment.GetEnvironmentVariable(LevelEnvironmentVariable);
 
-        Threshold = ResolveThreshold(buildDefaultThreshold, overrideValue, out var invalidOverride);
+        _threshold = ResolveThreshold(buildDefaultThreshold, overrideValue, out var invalidOverride);
         if (invalidOverride)
             WriteDirectWarning("Invalid TRAIN_LOG_LEVEL value; using the build default.");
 
@@ -175,7 +190,7 @@ public sealed class TrainLogger : IDisposable
                 return;
             }
 
-            if (level < Threshold)
+            if (level < _threshold)
                 return;
 
             var logEvent = new LogEvent(
@@ -437,11 +452,7 @@ public sealed class TrainLogger : IDisposable
     {
         try
         {
-            _overflowWriter.WriteLine(LogLevelText.FormatBounded(
-                logEvent.Level,
-                logEvent.Category,
-                logEvent.EventId,
-                logEvent.Message));
+            _overflowWriter.WriteLine(LogLevelText.FormatBounded(logEvent));
         }
         catch
         {
