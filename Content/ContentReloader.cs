@@ -388,7 +388,7 @@ public sealed class ContentReloader
         _logger.Info(
             ContentLog.Category,
             ContentLog.ReloadSummaryEventId,
-            "Content reload finished.",
+            $"Content reload finished: {result.ScannedFileCount} files scanned, {result.AcceptedDefinitionCount} accepted, {result.WarningCount + result.ErrorCount} failed.",
             new Dictionary<string, object?>
             {
                 ["status"] = result.Status.ToString(),
@@ -671,6 +671,9 @@ internal static class CatalogCandidateBuilder
         if (discovery.Invalid || settlementDiscovery.Invalid)
             bag.MarkInvalid();
         var parsed = new List<ParsedGood>();
+        var acceptedByFile = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var file in discovery.Files)
+            acceptedByFile[file] = 0;
         foreach (var file in discovery.Files)
         {
             bag.Source = file;
@@ -718,9 +721,13 @@ internal static class CatalogCandidateBuilder
             if (!TryAccept(source, package, item, bag, logger, out var entry))
                 continue;
             accepted[entry.Definition.Id] = entry;
+            acceptedByFile[item.SourceFile] = acceptedByFile.GetValueOrDefault(item.SourceFile) + 1;
         }
 
-        AcceptSettlements(source, package, settlementDiscovery, bag, settlements);
+        foreach (var file in discovery.Files)
+            LogFileScanned(logger, package, file, "goods", acceptedByFile[file]);
+
+        AcceptSettlements(source, package, settlementDiscovery, bag, logger, settlements);
         return new PackageContent(accepted, settlements);
     }
 
@@ -729,9 +736,13 @@ internal static class CatalogCandidateBuilder
         ContentPackage package,
         ContentFileDiscovery discovery,
         DiagnosticBag bag,
+        TrainLogger logger,
         Dictionary<SettlementId, SettlementCandidate> accepted)
     {
         var parsed = new List<ParsedSettlement>();
+        var acceptedByFile = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var file in discovery.Files)
+            acceptedByFile[file] = 0;
         foreach (var file in discovery.Files)
         {
             bag.Source = file;
@@ -792,7 +803,20 @@ internal static class CatalogCandidateBuilder
                 item.Population,
                 item.NaturalResources.ToHashSet(),
                 package.Kind);
+            acceptedByFile[item.SourceFile] = acceptedByFile.GetValueOrDefault(item.SourceFile) + 1;
+            logger.Debug(
+                ContentLog.Category,
+                ContentLog.DefinitionAcceptedEventId,
+                "Accepted settlement definition.",
+                new Dictionary<string, object?>
+                {
+                    ["settlement_id"] = id.Value,
+                    ["source"] = item.SourceFile
+                });
         }
+
+        foreach (var file in discovery.Files)
+            LogFileScanned(logger, package, file, "settlements", acceptedByFile[file]);
     }
 
     private static bool TryAccept(
@@ -909,6 +933,24 @@ internal static class CatalogCandidateBuilder
     private static bool IsSquare(DecodedImage image) => image.Width == image.Height && image.Width > 0;
 
     private static bool IsPowerOfTwo(int value) => value > 0 && (value & (value - 1)) == 0;
+
+    private static void LogFileScanned(
+        TrainLogger logger,
+        ContentPackage package,
+        string source,
+        string kind,
+        int accepted) =>
+        logger.Debug(
+            ContentLog.Category,
+            ContentLog.FileScannedEventId,
+            "Content file scanned.",
+            new Dictionary<string, object?>
+            {
+                ["source"] = source,
+                ["package"] = package.Namespace,
+                ["kind"] = kind,
+                ["accepted"] = accepted
+            });
 
     private static void LogDiagnostic(TrainLogger logger, ContentDiagnostic diagnostic)
     {

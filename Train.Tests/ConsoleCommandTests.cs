@@ -69,6 +69,7 @@ public sealed class ConsoleCommandDispatchTests
         StringAssert.Contains(debugHelp.Message, "clear");
         StringAssert.Contains(debugHelp.Message, "quit");
         StringAssert.Contains(debugHelp.Message, "reload");
+        StringAssert.Contains(debugHelp.Message, "loglevel");
 
         using var release = DispatchHarness.Create(allowReload: false);
         release.Dispatcher.Execute("help");
@@ -76,7 +77,53 @@ public sealed class ConsoleCommandDispatchTests
         StringAssert.Contains(releaseHelp.Message, "help");
         StringAssert.Contains(releaseHelp.Message, "clear");
         StringAssert.Contains(releaseHelp.Message, "quit");
+        StringAssert.Contains(releaseHelp.Message, "loglevel");
         Assert.IsFalse(releaseHelp.Message.Contains("reload", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void Loglevel_without_argument_reports_the_current_threshold()
+    {
+        using var harness = DispatchHarness.Create();
+        Assert.AreEqual(LogLevel.Debug, harness.Logger.Threshold);
+        harness.Dispatcher.Execute("loglevel");
+
+        var reply = harness.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.LogLevelEventId);
+        Assert.AreEqual(LogLevel.Info, reply.Level);
+        StringAssert.Contains(reply.Message, LogLevelText.ToSerialized(LogLevel.Debug));
+        Assert.AreEqual(LogLevel.Debug, harness.Logger.Threshold);
+    }
+
+    [TestMethod]
+    public void Loglevel_with_named_level_updates_the_session_threshold()
+    {
+        using var harness = DispatchHarness.Create();
+        harness.Dispatcher.Execute("LOGLEVEL Warning");
+
+        Assert.AreEqual(LogLevel.Warning, harness.Logger.Threshold);
+        var reply = harness.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.LogLevelEventId);
+        Assert.AreEqual(LogLevel.Info, reply.Level);
+        StringAssert.Contains(reply.Message, LogLevelText.ToSerialized(LogLevel.Warning));
+
+        harness.Logger.Debug("test", "hidden_after_loglevel", "quiet");
+        harness.Logger.Warning("test", "visible_after_loglevel", "shown");
+        Assert.IsFalse(harness.Memory.Snapshot().Any(e => e.EventId == "hidden_after_loglevel"));
+        Assert.IsTrue(harness.Memory.Snapshot().Any(e => e.EventId == "visible_after_loglevel"));
+    }
+
+    [TestMethod]
+    public void Loglevel_rejects_unknown_values_and_keeps_the_threshold()
+    {
+        using var harness = DispatchHarness.Create();
+        harness.Dispatcher.Execute("loglevel verbose");
+
+        Assert.AreEqual(LogLevel.Debug, harness.Logger.Threshold);
+        var usage = harness.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.LogLevelUsageEventId);
+        StringAssert.Contains(usage.Message, "loglevel");
+        StringAssert.Contains(usage.Message, "debug");
+        StringAssert.Contains(usage.Message, "info");
+        StringAssert.Contains(usage.Message, "warning");
+        StringAssert.Contains(usage.Message, "error");
     }
 
     [TestMethod]
@@ -167,6 +214,8 @@ internal sealed class DispatchHarness : IDisposable
     private readonly LoggerSession _session;
 
     public ConsoleCommandDispatcher Dispatcher { get; }
+    public TrainLogger Logger => _session.Logger;
+    public MemoryLogSink Memory => _session.Memory;
     public bool Cleared { get; private set; }
     public bool Quit { get; private set; }
     public bool Reloaded { get; private set; }

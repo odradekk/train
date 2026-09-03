@@ -465,6 +465,65 @@ public sealed class ContentReloaderTests
     }
 
     [TestMethod]
+    public void Debug_reload_emits_per_file_scan_and_settlement_accept_events()
+    {
+        using var session = LoggerSession.Create();
+        var reloader = ContentFixtures.Create(ContentFixtures.ValidIron(), session.Logger);
+        var result = reloader.Reload();
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+
+        var scanned = session.Memory.Snapshot()
+            .Where(item => item.EventId == ContentLog.FileScannedEventId)
+            .ToArray();
+        Assert.AreEqual(2, scanned.Length);
+        Assert.IsTrue(scanned.All(item =>
+            item.Level == LogLevel.Debug && item.Category == ContentLog.Category));
+
+        var goods = scanned.Single(item => item.Attributes["kind"] is "goods");
+        Assert.AreEqual("natural/iron-ore.goods.json", goods.Attributes["source"]);
+        Assert.AreEqual("core", goods.Attributes["package"]);
+        Assert.AreEqual(1, goods.Attributes["accepted"]);
+
+        var settlements = scanned.Single(item => item.Attributes["kind"] is "settlements");
+        Assert.AreEqual("settlements/example-city.settlements.json", settlements.Attributes["source"]);
+        Assert.AreEqual("core", settlements.Attributes["package"]);
+        Assert.AreEqual(1, settlements.Attributes["accepted"]);
+
+        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+            item.EventId == ContentLog.DefinitionAcceptedEventId &&
+            item.Level == LogLevel.Debug &&
+            item.Attributes.TryGetValue("settlement_id", out var settlementId) &&
+            settlementId is "core:example-city" &&
+            item.Attributes.ContainsKey("source")));
+
+        var summary = session.Memory.Snapshot().Single(item => item.EventId == ContentLog.ReloadSummaryEventId);
+        StringAssert.Contains(summary.Message, result.ScannedFileCount.ToString());
+        StringAssert.Contains(summary.Message, result.AcceptedDefinitionCount.ToString());
+        StringAssert.Contains(summary.Message, (result.WarningCount + result.ErrorCount).ToString());
+    }
+
+    [TestMethod]
+    public void Rejected_content_file_still_emits_a_zero_accept_scan_event()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        source.AddGoodsFile("core", "bad.goods.json", "{ \"schema_version\": 2, \"goods\": [] }");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        reloader.Reload();
+
+        var bad = session.Memory.Snapshot().Single(item =>
+            item.EventId == ContentLog.FileScannedEventId &&
+            item.Attributes["source"] is "bad.goods.json");
+        Assert.AreEqual(LogLevel.Debug, bad.Level);
+        Assert.AreEqual("goods", bad.Attributes["kind"]);
+        Assert.AreEqual("core", bad.Attributes["package"]);
+        Assert.AreEqual(0, bad.Attributes["accepted"]);
+        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+            item.EventId == ContentLog.InvalidEventId &&
+            item.Level == LogLevel.Warning));
+    }
+
+    [TestMethod]
     public void First_load_without_settlements_fails_initialization()
     {
         using var session = LoggerSession.Create();

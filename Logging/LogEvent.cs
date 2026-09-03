@@ -1,5 +1,8 @@
 using System.Collections;
 using System.Collections.ObjectModel;
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
 
 namespace Train.Logging;
 
@@ -259,14 +262,34 @@ internal static class LogAttributes
     }
 }
 
+internal static class LogConsoleColors
+{
+    public const string Dim = "#7f7f7f";
+    public const string Error = "#ff6b68";
+    public const string Warning = "#e5c07b";
+    public const string Debug = "#7f7f7f";
+    public const string CommandEcho = "#56b6c2";
+}
+
 internal static class LogLevelText
 {
+    public const string CommandEchoEventId = "command_echo";
+
     public static string ToSerialized(LogLevel level) => level switch
     {
         LogLevel.Debug => "debug",
         LogLevel.Info => "info",
         LogLevel.Warning => "warning",
         LogLevel.Error => "error",
+        _ => throw new ArgumentOutOfRangeException(nameof(level), level, "Unknown log level.")
+    };
+
+    public static string ToDisplayName(LogLevel level) => level switch
+    {
+        LogLevel.Debug => "DEBUG",
+        LogLevel.Info => "INFO ",
+        LogLevel.Warning => "WARN ",
+        LogLevel.Error => "ERROR",
         _ => throw new ArgumentOutOfRangeException(nameof(level), level, "Unknown log level.")
     };
 
@@ -292,11 +315,214 @@ internal static class LogLevelText
         }
     }
 
-    public static string FormatBounded(LogLevel level, string? category, string? eventId, string? message)
+    public static string FormatBounded(LogEvent logEvent)
     {
-        var text = $"{ToSerialized(level)} {category}/{eventId}";
-        if (string.IsNullOrEmpty(message))
-            return text;
-        return message.Length <= 200 ? $"{text} {message}" : $"{text} {message[..200]}";
+        ArgumentNullException.ThrowIfNull(logEvent);
+        return FormatBounded(
+            logEvent.Level,
+            logEvent.Category,
+            logEvent.EventId,
+            logEvent.Message,
+            logEvent.Timestamp,
+            logEvent.Attributes);
     }
+
+    public static string FormatBounded(LogLevel level, string? category, string? eventId, string? message) =>
+        FormatBounded(level, category, eventId, message, DateTimeOffset.Now, null);
+
+    public static string FormatBounded(
+        LogLevel level,
+        string? category,
+        string? eventId,
+        string? message,
+        DateTimeOffset timestamp,
+        IReadOnlyDictionary<string, object?>? attributes)
+    {
+        var clipped = string.IsNullOrEmpty(message)
+            ? ""
+            : message.Length <= 200 ? message : message[..200];
+        var time = timestamp.ToLocalTime().ToString("HH:mm:ss.fff", CultureInfo.InvariantCulture);
+        var head = $"[{ToDisplayName(level)}][{time}][{category}][{eventId}]";
+        var tail = FormatAttributes(attributes);
+        if (clipped.Length == 0)
+            return tail.Length == 0 ? head : $"{head} {tail}";
+        return tail.Length == 0 ? $"{head} {clipped}" : $"{head} {clipped} {tail}";
+    }
+
+    public static string FormatConsole(LogEvent logEvent)
+    {
+        ArgumentNullException.ThrowIfNull(logEvent);
+        var plain = FormatBounded(logEvent);
+        return Colorize(plain, logEvent.Level, logEvent.EventId == CommandEchoEventId);
+    }
+
+    private static string FormatAttributes(IReadOnlyDictionary<string, object?>? attributes)
+    {
+        if (attributes is null || attributes.Count == 0)
+            return "";
+
+        var parts = new List<string>(attributes.Count);
+        foreach (var (key, value) in attributes)
+            parts.Add($"{key}={FormatAttributeValue(value)}");
+        return string.Join(" ", parts);
+    }
+
+    private static string FormatAttributeValue(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return "";
+            case string text:
+                return text;
+            case IReadOnlyDictionary<string, object?> dictionary:
+                return ToCompactJson(dictionary);
+            case IReadOnlyList<object?> list:
+                return "[" + string.Join(", ", list.Select(FormatAttributeValue)) + "]";
+            default:
+                if (value is IEnumerable enumerable and not string)
+                {
+                    var items = new List<string>();
+                    foreach (var item in enumerable)
+                        items.Add(FormatAttributeValue(item));
+                    return "[" + string.Join(", ", items) + "]";
+                }
+
+                return Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
+        }
+    }
+
+    private static string ToCompactJson(IReadOnlyDictionary<string, object?> dictionary)
+    {
+        using var buffer = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(buffer))
+            WriteJson(writer, dictionary);
+        return Encoding.UTF8.GetString(buffer.ToArray());
+    }
+
+    private static void WriteJson(Utf8JsonWriter writer, object? value)
+    {
+        switch (value)
+        {
+            case null:
+                writer.WriteNullValue();
+                return;
+            case string text:
+                writer.WriteStringValue(text);
+                return;
+            case bool flag:
+                writer.WriteBooleanValue(flag);
+                return;
+            case sbyte n:
+                writer.WriteNumberValue(n);
+                return;
+            case byte n:
+                writer.WriteNumberValue(n);
+                return;
+            case short n:
+                writer.WriteNumberValue(n);
+                return;
+            case ushort n:
+                writer.WriteNumberValue(n);
+                return;
+            case int n:
+                writer.WriteNumberValue(n);
+                return;
+            case uint n:
+                writer.WriteNumberValue(n);
+                return;
+            case long n:
+                writer.WriteNumberValue(n);
+                return;
+            case ulong n:
+                writer.WriteNumberValue(n);
+                return;
+            case float n:
+                writer.WriteNumberValue(n);
+                return;
+            case double n:
+                writer.WriteNumberValue(n);
+                return;
+            case IReadOnlyDictionary<string, object?> dictionary:
+                writer.WriteStartObject();
+                foreach (var (key, item) in dictionary)
+                {
+                    writer.WritePropertyName(key);
+                    WriteJson(writer, item);
+                }
+
+                writer.WriteEndObject();
+                return;
+            case IReadOnlyList<object?> list:
+                writer.WriteStartArray();
+                foreach (var item in list)
+                    WriteJson(writer, item);
+                writer.WriteEndArray();
+                return;
+            default:
+                writer.WriteStringValue(Convert.ToString(value, CultureInfo.InvariantCulture));
+                return;
+        }
+    }
+
+    private static string Colorize(string plain, LogLevel level, bool commandEcho)
+    {
+        if (!TrySplit(plain, out var levelText, out var time, out var category, out var eventId, out var rest))
+            return Wrap(Escape(plain), MessageColor(level, commandEcho));
+
+        var builder = new StringBuilder();
+        builder.Append(Wrap(Escape($"[{levelText}]"), LevelColor(level)));
+        builder.Append(Wrap(Escape($"[{time}]"), LogConsoleColors.Dim));
+        builder.Append(Wrap(Escape($"[{category}]"), LogConsoleColors.Dim));
+        builder.Append(Wrap(Escape($"[{eventId}]"), LogConsoleColors.Dim));
+        if (rest.Length > 0)
+            builder.Append(Wrap(Escape(rest), MessageColor(level, commandEcho)));
+        return builder.ToString();
+    }
+
+    private static bool TrySplit(
+        string plain,
+        out string levelText,
+        out string time,
+        out string category,
+        out string eventId,
+        out string rest)
+    {
+        levelText = time = category = eventId = rest = "";
+        if (plain.Length < 8 || plain[0] != '[')
+            return false;
+
+        var first = plain.IndexOf(']');
+        var second = first < 0 ? -1 : plain.IndexOf(']', first + 1);
+        var third = second < 0 ? -1 : plain.IndexOf(']', second + 1);
+        var fourth = third < 0 ? -1 : plain.IndexOf(']', third + 1);
+        if (first < 1 || second < 0 || third < 0 || fourth < 0)
+            return false;
+        if (plain[first + 1] != '[' || plain[second + 1] != '[' || plain[third + 1] != '[')
+            return false;
+
+        levelText = plain[1..first];
+        time = plain[(first + 2)..second];
+        category = plain[(second + 2)..third];
+        eventId = plain[(third + 2)..fourth];
+        rest = fourth + 1 < plain.Length ? plain[(fourth + 1)..] : "";
+        return true;
+    }
+
+    private static string? LevelColor(LogLevel level) => level switch
+    {
+        LogLevel.Error => LogConsoleColors.Error,
+        LogLevel.Warning => LogConsoleColors.Warning,
+        LogLevel.Debug => LogConsoleColors.Debug,
+        _ => null
+    };
+
+    private static string? MessageColor(LogLevel level, bool commandEcho) =>
+        commandEcho ? LogConsoleColors.CommandEcho : LevelColor(level);
+
+    private static string Wrap(string text, string? color) =>
+        color is null ? text : $"[color={color}]{text}[/color]";
+
+    // Godot BBCode treats '[' as markup; '[lb]' is the literal-bracket escape.
+    private static string Escape(string text) => text.Replace("[", "[lb]");
 }

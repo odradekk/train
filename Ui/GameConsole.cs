@@ -151,24 +151,8 @@ public partial class GameConsole : CanvasLayer
         _renderedTail = tail;
         _output.Clear();
         foreach (var logEvent in snapshot)
-            _output.AppendText(FormatLine(logEvent));
+            _output.AppendText(LogLevelText.FormatConsole(logEvent) + "\n");
     }
-
-    private static string FormatLine(LogEvent logEvent)
-    {
-        var color = logEvent.Level switch
-        {
-            LogLevel.Warning => "#e6c35c",
-            LogLevel.Error => "#e06c75",
-            _ => "#d8dce3"
-        };
-        var body = Escape(
-            $"{LogLevelText.ToSerialized(logEvent.Level)} {logEvent.Category}/{logEvent.EventId} {logEvent.Message}");
-        return $"[color={color}]{body}[/color]\n";
-    }
-
-    // Godot BBCode treats '[' as markup; '[lb]' is the literal-bracket escape.
-    private static string Escape(string text) => text.Replace("[", "[lb]");
 
     private static bool IsToggleKey(InputEventKey key) =>
         key.Keycode is Key.Quoteleft or Key.Asciitilde

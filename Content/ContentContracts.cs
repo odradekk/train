@@ -184,6 +184,7 @@ public static class ContentLog
     public const string Category = "content";
     public const string ScanStartedEventId = "content_scan_started";
     public const string DefinitionAcceptedEventId = "content_definition_accepted";
+    public const string FileScannedEventId = "content_file_scanned";
     public const string PackageEmptyEventId = "content_package_empty";
     public const string InvalidEventId = "content_invalid";
     public const string ReloadSummaryEventId = "content_reload_summary";
