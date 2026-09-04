@@ -1,0 +1,84 @@
+# 07 渲染
+
+> 来源：原稿 §56–66；转录 Q126–Q143、Q179。
+
+## 边界
+
+本文定义表现层策略：三路 Voxel Presentation、Chunk Mesh、Custom Static Mesh、Specialized Renderer 与 TrackRenderer、Composite 渲染、Dirty 重建、Visual Streaming、LOD、Render Origin、Collision Adapter。所有内容都是 World State 的派生缓存，不改变 Simulation。相机见 [08](08-desktop-window-and-camera.md)。
+
+## 不变量
+
+- Rendering 与 Collider 都是 World State 的派生缓存；World Model 不保存 Godot CollisionShape 作为事实。
+- LOD 永远只改变 Presentation，不改变 Simulation。
+- Composite 移动时只更新根 Transform，绝不因为移动重建内部 Mesh。
+- Rebase 只移动 Visual Proxy；World Voxel Coordinate、RailPosition、聚居地位置、Save State、Seed、Simulation 永远不变。
+
+## 规则
+
+### 总体策略（§56）
+
+领域世界和表现路径分开。Voxel Presentation 分为三路：Cube、CustomStaticMesh、Specialized。
+
+### Cube Voxel Rendering（§57）
+
+- 首版：Chunk → Face Culling → Chunk Surface Mesh，只生成暴露面。不使用 one MeshInstance per voxel。
+- 后期如果性能需要，Greedy Meshing 作为 ChunkMesher 的可替换优化；Greedy Meshing 不改变 World 与 Chunk 语义。
+
+### Custom Static Mesh（§58）
+
+- Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。首版只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
+- 普通 Custom Mesh 的视觉主体应基本限制在自己的 Cell 内；需要真正跨 Cell 的视觉结构进入 Specialized Renderer。
+
+### Specialized Renderer（§59）
+
+需要领域专用视觉的 Voxel 使用独立 Renderer。首要例子是 TrackRenderer：Rail 仍然是 Voxel，但视觉几何由 Track Topology → Continuous Track Geometry 构建，以正确表现无缝直轨、弯道、坡道、未来道岔、交叉、多轨结构。
+
+### Track Render Section（§60）
+
+TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成局部 TrackRenderSection，按 Chunk Boundary、Control Point、Junction 等自然边界切分。局部轨道变化只重建受影响的 Section。
+
+### Composite Rendering（§61）
+
+- Composite-owned Voxel 不进入 World Chunk Mesh。无论 Composite 是否移动，首版统一 CompositeVisual { Cube Batch, Custom Mesh Batch, Specialized Visuals }。
+- 移动时 update root Transform only。只有 Damage、Refit、Voxel Layout Change 才标记内部 Visual Dirty 并批量重建。
+- 未来可以针对大量静态 Composite 增加 Presentation-only Baking 优化。
+
+### Dirty Rendering（§62）
+
+- 世界变化不逐 Voxel 立即重建 Mesh：World changes → mark affected Chunk dirty → coalesce → one rebuild。
+- Chunk 边界修改要同时考虑相邻 Chunk 的暴露面变化。首版可以同步生成 Mesh，出现实际卡顿后再考虑异步 Meshing。
+
+### Visual Streaming（§63）
+
+- World Data 完整常驻内存（转录 Q5 的刻意选择）。"不加载"主要表示不构建或不保留当前区域的视觉表示。
+- 采用 Visual Residency + Frustum Visibility。Resident 区域使用 Load Radius < Unload Radius 形成 hysteresis，避免边界反复 Load/Unload。
+- 根据 Train route + velocity 做 directional prefetch；不根据 Camera 朝向决定主要预取方向。
+
+### LOD（§64）
+
+- 首版不实现真正的 Voxel Geometry LOD，依靠 Residency、Frustum Culling、Distance Culling、Custom Mesh LOD0。
+- 后期性能需要时再增加 Greedy Meshing、Custom Mesh LOD、Voxel Geometry LOD。
+
+### Render Origin（§65）
+
+- Domain 使用绝对世界坐标，例如 WorldVoxelCoord = (183421, 42, 91822)。Godot Presentation 使用局部 Render Origin：RenderPosition = AbsolutePosition − RenderOrigin。火车移动到远处后可以重新 Rebase RenderOrigin。
+- 全图常驻内存与 RenderOrigin Rebase 并存是刻意选择：转录 Q179 否决了用 Godot 双精度构建承载大世界的方案，Rebase 是在单精度表现层保持精度的手段，不表示世界需要流式加载。
+- 首版逻辑单位 1 Voxel Unit = 1 Godot Unit，但概念上保持解耦。
+
+### Collision Rendering / Adapter（§66）
+
+World Voxel Data → Chunk Collider Builder → Godot Collision。Voxel 被修改后标记 Collision Cache dirty。
+
+## 首版范围
+
+Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming（原 §81 Phase 2、Phase 6）。
+
+## 明确延后
+
+Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 Composite 的 Presentation-only Baking、Simulation LOD（原 §78）。
+
+## 开放问题
+
+- 轨道连续几何的派生规则由 [原型化单格拓扑下的连续轨道几何](https://github.com/odradekk/train/issues/32) 决定后写入 TrackRenderer 章节。
+- 未冻结参数：Chunk Size、Render Residency Radius、Unload Radius、Directional Prefetch Distance、Meshing Threshold、Custom Mesh LOD Distance、Voxel Geometry LOD Distance（[roadmap](roadmap.md)）。
+- 地图迷雾：Chunk 存储形态与全图常驻的内存预算。
