@@ -1,6 +1,6 @@
 # 03 Composite、Behavior 与 Capability
 
-> 来源：原稿 §13–23、§29；转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88。
+> 决策出处：转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88。
 
 ## 边界
 
@@ -18,17 +18,17 @@
 
 ## 规则
 
-### Composite（§13）
+### Composite
 
 - Composite 是由多个 Voxel 构成的具备独立身份的游戏对象：车头、车厢、建筑、复杂机器。
 - CompositeInstance { InstanceId, DefinitionRevision, Archetype, Transform, Owned Voxels }。
 - Composite 内部 Voxel 坐标永远是整数 Local Grid；Composite 本身可以拥有连续 World Transform。因此火车和生物可以平滑移动，而不会破坏 Voxel Grid。
 
-### 不允许递归嵌套（§14）
+### 不允许递归嵌套
 
 Composite 只能直接拥有 Voxel。更高层对象使用 Gameplay Assembly：Train = Locomotive Composite + Carriage Composite + …；聚居地 = Building Composite + … + World Voxels（聚居地本身不是 Composite，见 [05](05-world-generation-and-settlements.md)）。避免建立无限递归 Composite Tree。
 
-### 合法性三分（§15）
+### 合法性三分
 
 Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分成三个独立概念：
 
@@ -36,30 +36,30 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 - **Runtime Identity**：已经制造出来的 Composite 是否仍然保持原身份。使用独立的数据驱动 IdentityRetentionRules；Construction Rules 和 Identity Retention Rules 不共用。
 - **Operational Condition**：当前还能执行哪些功能。由 Runtime Voxel、Behavior 和 Capability 推导，可能产生 Operational、Degraded、Disabled、Destroyed。FSM 只解释高层生命周期，不复制底层真实状态。
 
-### Draft 与玩家设计（§16）
+### Draft 与玩家设计
 
 - 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局。
 - 设计器允许保存非法 Draft：Draft → validate → Valid Definition → Instantiate。只有合法 Definition 可以制造。
 - 首版是否有设计器 UI、玩家 Blueprint 的实际形态：见开放问题。
 
-### Refit（§17）
+### Refit
 
 - 玩家修改已经存在的 Composite 时，Instance #100 从 Definition r17 Refit 到 r18，Instance Identity 保持；只有真正拆除并重新制造才创建新 Instance ID。
 - Refit 首版采用 Atomic Transaction，不让施工中间状态暴露给 Simulation。
 - Refit 必须追踪真实 Voxel Identity：把同一个 Engine 从 old cell 移到 new cell，它仍然是同一个 Engine，Durability、Temperature、Behavior State 不会被重置。
 
-### Voxel Ownership（§18）
+### Voxel Ownership
 
 - 任意 Voxel Instance 同一时间只有一个空间所有者：World Grid 或 Composite，不能同时属于两者。发生脱落时执行 Ownership Transfer，而不是复制实例。
 - 普通 World Voxel 不要求全部拥有 Runtime ID。需要长期个体身份的 Voxel 才分配 VoxelRuntimeId：Composite 内设备、被其他系统引用的部件、拥有复杂 Runtime State 的个体。
 - 对于拥有 RuntimeId 的 Voxel，RuntimeId 是身份，Coordinate 是位置；坐标不能成为长期身份引用。
 
-### 连通与断裂（§19）
+### 连通与断裂
 
 - 合法 Composite 必须是严格的六面连通体；Runtime 中也要求一个 Composite 始终只拥有一个 Connected Component。
 - 当一次 Damage Transaction 造成结构断裂，Composite 拆成 Connected Components，每个 Component 暂时作为同类型 Composite 候选按 IdentityRetentionRules 判断：0 个存活 → Composite destroyed；1 个存活 → 保留 Composite；N 个存活 → 产生 N 个独立 Composite。
 
-### 断裂后的身份继承（§20）
+### 断裂后的身份继承
 
 存在多个 surviving fragments 时：
 
@@ -71,16 +71,16 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 所有 surviving fragments 保留原 Definition Revision、自身 Voxel Runtime State、faction 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。
 
-### 死亡与解体（§21）
+### 死亡与解体
 
 - 无法满足 IdentityRetentionRules 的 Fragment：Composite ownership → World ownership；Voxel Runtime State 保留。
 - 不会自动扫描这些 Voxel 并尝试组成另一个 Composite。Composite Creation 必须来自显式行为：World Generator、玩家 Construction、AI Construction、Blueprint Instantiation、Composite Fracture。世界绝不会根据 Voxel 排列"猜测"一个 Composite。
 
-### Damage Transaction（§29）
+### Damage Transaction
 
 同一逻辑 Damage Event 内的所有破坏首先统一应用：apply damage → remove hp ≤ 0 → mark topology dirty → connectivity calculation → fragmentation。不能"destroy one voxel → fracture → destroy another → fracture again"，否则结果可能依赖遍历顺序。
 
-### Tag、Behavior、Capability（§22）
+### Tag、Behavior、Capability
 
 三者严格分离：
 
@@ -88,7 +88,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 - **Behavior** 描述真正的逻辑机制：EngineBehavior、WeaponBehavior、StorageBehavior、HeatBehavior 等。
 - **Capability** 是 Behavior 对外提供的能力：Propulsion、Traction、Cargo、Weapon、Power 等。Capability 不允许在 Mod JSON 中任意伪造，它由实际注册的 Behavior 推导。
 
-### Behavior 架构（§23）
+### Behavior 架构
 
 - 采用 Behavior Registry + Composition。避免 Voxel → MechanicalVoxel → EngineVoxel → DieselEngineVoxel 这样的继承链；一个 Voxel 组合 EngineBehavior、FuelConsumerBehavior、HeatBehavior。
 - Behavior 是组件语义，System 是执行语义：EngineSystem、HeatSystem、WeaponSystem、StorageSystem 负责批量运行对应 Runtime State。不为每一个 Voxel 创建 Node 或独立 Tick。
@@ -96,13 +96,13 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 ## 首版范围
 
-CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础（原 §77、§81 Phase 3）。
+CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础（roadmap Phase 3）。
 
 ## 明确延后
 
-复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework（原 §78、§82）。
+复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。
 
 ## 开放问题
 
-- [补齐首版范围缺口：破坏触发源、玩家 Blueprint 含义、Faction 与窗口行为](https://github.com/odradekk/train/issues/30)：首版没有武器、只有单列车、没有玩家施工，破坏由什么触发；原 §77 必须清单未列 Damage/Fragmentation 而 Phase 2、3 明确包含；原 §2 把车辆设计器列为未来，§16 与 §77 又把玩家 Blueprint 与 Construction Validation 列为首版必须；Faction 的首版含义。
+- [补齐首版范围缺口：破坏触发源、玩家 Blueprint 含义、Faction 与窗口行为](https://github.com/odradekk/train/issues/30)：首版没有武器、只有单列车、没有玩家施工，破坏由什么触发；roadmap 的首版清单未列 Damage/Fragmentation 而 Phase 2、3 明确包含；00 号文档把车辆设计器列为未来，本文与 roadmap 又把玩家 Blueprint 与 Construction Validation 列为首版必须；Faction 的首版含义。
 - 地图迷雾：Behavior、Capability 注册表与 System 的首版最小集合及其在 Godot C# 中的接口（转录 Q22）；各 Archetype 的 Construction 与 IdentityRetention 具体规则（转录 Q43）；列车 Assembly 与耦合。

@@ -1,10 +1,10 @@
 # 05 世界生成与聚居地
 
-> 来源：原稿 §36–41；转录 Q89–Q95、Q102、Q178。
+> 决策出处：转录 Q89–Q95、Q102、Q178。
 
 ## 边界
 
-本文定义程序生成流水线、资源生成、聚居地的结构、聚居地与铁路的关系、Layout 放置。铁路的拓扑、图与施工见 [06](06-railway.md)；聚居地的经济规则留待后续扩充（原 §1）；术语以 `CONTEXT.md` 为准。
+本文定义程序生成流水线、资源生成、聚居地的结构、聚居地与铁路的关系、Layout 放置。铁路的拓扑、图与施工见 [06](06-railway.md)；聚居地的经济规则留待后续扩充；术语以 `CONTEXT.md` 为准。
 
 ## 不变量
 
@@ -15,11 +15,11 @@
 
 ## 规则
 
-### 世界生成（§36）
+### 世界生成
 
 世界采用程序生成 + 手工 Blueprint/Layout，而不是固定手工地图。世界生成必须使用 Seed 可复现。
 
-### Generation Pipeline（§37）
+### Generation Pipeline
 
 ```text
 WorldSeed
@@ -40,23 +40,23 @@ WorldSeed
 - 每个 Stage 使用独立派生 Seed：Hash(WorldSeed, GeneratorVersion, StageId, RetryIndex)。
 - 每个 Stage：Generate → Validate → Success / Retry。Retry 必须有明确上限；生成器允许返回 WorldGenerationFailed，不能无限循环。
 
-### 资源生成（§38）
+### 资源生成
 
 - Resource Potential Field → Actual Resource Voxels。Potential Field 用于宏观判断哪些区域矿产丰富、聚居地更适合发展什么经济。
 - 聚居地类型原则上响应自然资源，而不是为了聚居地类型强行生成资源；允许少量 Gameplay Validation 和保证性调整。
 
-### 聚居地（§39）
+### 聚居地
 
 - 聚居地本身不是 Composite。SettlementInstance { Economy, Population, Faction, Position, Buildings, optional Station }。
 - **SettlementArchetype** 负责 Gameplay：经济、资源偏好、生产、消费、其他规则。
 - **SettlementLayoutDefinition** 负责空间布局：Building Composite、World Voxel、Decoration、Site Constraints、optional Station/Rail Socket。建筑为 Composite，道路与装饰为世界体素（转录 Q93）。
 
-### 聚居地与铁路（§40）
+### 聚居地与铁路
 
 - 首版世界生成可以要求所有参与自动铁路贸易的聚居地都有站点并接入 RailNetwork；底层允许未来存在未通铁路的聚居地。
 - RailSocket 是站点与铁路接入能力的合法性要求，而不是聚居地身份本身的必要条件（转录 Q178 修正 Q102）。
 
-### Layout 放置（§41）
+### Layout 放置
 
 - 手工 Layout 首版允许 0°、90°、180°、270°；不默认允许 Mirror、Arbitrary Rotation、Scale（转录 Q94）。
 - Layout 拥有 Site Constraints：footprint、最大高度差、biome 或 tag 要求、forbidden terrain。
@@ -64,11 +64,11 @@ WorldSeed
 
 ## 首版范围
 
-Seed、GeneratorVersion、Terrain、Resources、Settlement placement、Layout、基础 Rail Graph、Physical Rail（原 §81 Phase 5）；首版生成器不自动生成复杂桥梁和隧道。
+Seed、GeneratorVersion、Terrain、Resources、Settlement placement、Layout、基础 Rail Graph、Physical Rail（roadmap Phase 5）；首版生成器不自动生成复杂桥梁和隧道。
 
 ## 明确延后
 
-复杂桥梁生成、复杂隧道生成、AI 铁路施工（原 §78）；Mirror、环路密度调节（转录）。
+复杂桥梁生成、复杂隧道生成、AI 铁路施工；Mirror、环路密度调节（转录）。
 
 ## 开放问题
 

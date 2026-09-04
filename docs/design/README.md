@@ -1,10 +1,10 @@
 # 设计文档集：火车放置贸易游戏
 
-本目录是《GDD+Technical Contract》v0.1 拆分并规范化后的设计契约，取代根目录原稿。原稿留底见提交 `6576bf6`；每条决定的出处见 `docs/research/gdd-grilling-transcript.md`，正文以"转录 Qn"引用。
+本目录是项目唯一且权威的设计契约。每条决定的出处见 `docs/research/gdd-grilling-transcript.md`，正文以"转录 Qn"引用。它由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据。
 
 **文档内写明的内容视为已定。** 未定或自相矛盾之处只出现在各文档的"开放问题"小节，并链接到 wayfinder 地图 [规范化 GDD+Technical Contract 并产出首批切片 spec](https://github.com/odradekk/train/issues/24) 下的票；票关闭后由该票的会话回写对应章节。
 
-## 文档目标（原 §1）
+## 文档目标
 
 本项目为独立开发项目，设计文档不追求在开发前穷举实现细节。设计遵循：
 
@@ -20,25 +20,25 @@
 
 ## 文档地图
 
-| 文件 | 内容 | 原稿章节 |
-| --- | --- | --- |
-| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态与核心循环（草稿） | §2；转录 Q2、Q8、Q109 |
-| [01-voxel-world.md](01-voxel-world.md) | 体素世界与网格不变量 | §4–6、§30–31 |
-| [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 | §7–12 |
-| [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability | §13–23、§29 |
-| [04-deterministic-simulation.md](04-deterministic-simulation.md) | 确定性模拟 | §24–28、§32–33 |
-| [05-world-generation-and-settlements.md](05-world-generation-and-settlements.md) | 世界生成与聚居地 | §36–41 |
-| [06-railway.md](06-railway.md) | 铁路 | §42–55 |
-| [07-rendering.md](07-rendering.md) | 渲染 | §56–66 |
-| [08-desktop-window-and-camera.md](08-desktop-window-and-camera.md) | 桌面窗口与相机 | §2、§67–73 |
-| [09-persistence.md](09-persistence.md) | 存档 | §34–35 |
-| [roadmap.md](roadmap.md) | 首版范围、明确延后、未冻结参数、实施顺序 | §77–79、§81 |
+| 文件 | 内容 |
+| --- | --- |
+| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态与核心循环（草稿） |
+| [01-voxel-world.md](01-voxel-world.md) | 体素世界与网格不变量 |
+| [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 |
+| [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability |
+| [04-deterministic-simulation.md](04-deterministic-simulation.md) | 确定性模拟 |
+| [05-world-generation-and-settlements.md](05-world-generation-and-settlements.md) | 世界生成与聚居地 |
+| [06-railway.md](06-railway.md) | 铁路 |
+| [07-rendering.md](07-rendering.md) | 渲染 |
+| [08-desktop-window-and-camera.md](08-desktop-window-and-camera.md) | 桌面窗口与相机 |
+| [09-persistence.md](09-persistence.md) | 存档 |
+| [roadmap.md](roadmap.md) | 首版范围、明确延后、未冻结参数、实施顺序 |
 
 每份文档的固定小节：边界、不变量、规则、首版范围、明确延后、开放问题。
 
-术语以仓库根目录 `CONTEXT.md` 为准：聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。原稿中的 Value 即基本货币价值。Voxel、Composite、Revision、RailPosition 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准：聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。Value 即基本货币价值。Voxel、Composite、Revision、RailPosition 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
-## 总体架构（原 §3、§74–76）
+## 总体架构
 
 ```text
                    World Domain
@@ -68,7 +68,7 @@ Render  Audio    Input
 
 这一决定记录为 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md)；出处为转录 Q17、Q34、Q49、Q50、Q147。
 
-## 核心不变量汇总（原 §80）
+## 核心不变量汇总
 
 实现过程中优先保护：
 
@@ -98,7 +98,7 @@ Render  Audio    Input
 24. Inventory Quantity 不等于空间 Voxel Instance。
 25. 首版性能优化必须服从 Profiling，而不是提前猜测。
 
-## 设计指导思想（原 §82–83）
+## 设计指导思想
 
 本项目不追求建立理论上最通用的 Voxel Engine、ECS、铁路模拟器或物理模拟框架。核心目标是：**用少量稳定、直观且可组合的基础规则，支持一个具有高度自由度的体素世界和长期可扩展的火车贸易游戏。**
 

@@ -1,6 +1,6 @@
 # 02 Definition、Revision、Instance 与内容来源
 
-> 来源：原稿 §7–12；转录 Q53–Q62、Q86–Q88、Q176；[ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；[ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)。
 
 ## 边界
 
@@ -16,7 +16,7 @@
 
 ## 规则
 
-### VoxelDefinition（§7）
+### VoxelDefinition
 
 - 所有可实体化对象共享统一的 VoxelDefinition。现有独立的货物定义并入这一体系：货物为可选的 TradeMetadata，Cargo、Market、Trade 都引用 VoxelDefinitionId（转录 Q176）；迁移路径见开放问题。
 - 首版核心字段：DefinitionId、Value、MaxDurability、Mass、Tags、Behaviors、Presentation、Collision。
@@ -25,30 +25,30 @@
 - **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
 - **Material**：首版没有通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
 
-### Inventory 与实体化（§8）
+### Inventory 与实体化
 
 - Inventory 中的数量不是空间 Voxel Instance。Cargo Stack { VoxelDefinitionId = `core:iron-ore`, Quantity = 500 } 表示 500 个可实体化的单位；只有被放置进入世界时才产生 Voxel Instance。
 - 普通无特殊 Runtime State 的 Voxel 被收纳时可以转化为 Stack。未来复杂设备可能需要保存 Durability、Behavior State、Voxel Runtime ID，届时使用独立的 Item Instance，而不是 Stack。
 
-### Definition、Revision 与 Instance（§9）
+### Definition、Revision 与 Instance
 
 - **Definition** 定义"某种东西是什么"。
 - **Revision** 是 Definition 的一个不可变语义版本。内部 Revision ID 使用 Semantic Content Hash，而不是 r1、r2、r3；完全相同的语义内容产生相同 Revision。UI 可额外维护纯数字的人类版本号（Version 1、2、3），只用于展示，不承担身份职责。
 - **Instance** 保存当前 Durability、Behavior Runtime State、Ownership、当前几何变化、其他 Runtime 信息。Definition 永远不保存实例状态。
 
-### Definition 来源（§10）
+### Definition 来源
 
 - 四类：Built-in、Mod、Player Blueprint Library、Save-local Definitions。
 - 玩家在某个存档内设计的新版本默认只进入 Save-local Definitions；只有显式 Save as Blueprint 才复制或发布到 Player Blueprint Library；其他存档不会自动看到 save-local revision。
 - Save-local Definition 必须直接包含在存档中，使 Save 自包含。
 
-### ID 与命名空间（§11）
+### ID 与命名空间
 
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:iron-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
 - 不同领域保持强类型 ID：VoxelDefinitionId、CompositeDefinitionId、CompositeArchetypeId、BehaviorTypeId 等。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。
 
-### Mod 与热加载（§12）
+### Mod 与热加载
 
 - **第一阶段 Data Mod**：支持新增 VoxelDefinition、新增 Composite Definition、新增 Layout、修改数值、引用资产、组合已有 Behavior。不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
@@ -60,7 +60,7 @@ VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；玩�
 
 ## 明确延后
 
-Code Mod API、通用 Material System（原 §78）；Mod 依赖、加载顺序覆盖、启用状态管理（ADR-0002）。
+Code Mod API、通用 Material System；Mod 依赖、加载顺序覆盖、启用状态管理（ADR-0002）。
 
 ## 开放问题
 

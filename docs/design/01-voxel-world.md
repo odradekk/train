@@ -1,6 +1,6 @@
 # 01 体素世界与网格不变量
 
-> 来源：原稿 §4–6、§30–31；转录 Q1–Q9、Q166–Q175。
+> 决策出处：转录 Q1–Q9、Q166–Q175。
 
 ## 边界
 
@@ -17,25 +17,25 @@
 
 ## 规则
 
-### 有限三维体素世界（§4）
+### 有限三维体素世界
 
 - 世界是有限尺寸、完整三维、严格整数网格的 Voxel World；尺寸为创建世界时的配置参数，当前不冻结。
 - 数据模型不限制为 Heightfield；未来自然支持洞穴、隧道、桥梁、地下设施、悬空结构、任意方向的体素破坏。首版世界生成算法仍可以以较简单的地表地形为主。
 - 世界数据完整常驻内存，远处也全精度实时模拟；"不加载"只表示不渲染（转录 Q5，见 [07](07-rendering.md) Visual Streaming）。
 
-### 一切皆体素（§5）
+### 一切皆体素
 
 - 游戏世界中能够实体化并参与游戏逻辑的对象统一建立在 Voxel 模型之上：地形、自然资源、铁轨、建筑零件、车轮、引擎、武器、装饰、人物或生物的结构组件、其他可交互实体。
 - 不属于 Voxel：UI、粒子、临时视觉特效、摄像机、纯表现对象。
 - Voxel 是逻辑空间单位，不是"只能拥有六面的立方体 Mesh"；可以使用六面 Cube 表现，也可以拥有专用 Custom Mesh。
 
-### 耐久与破坏（§30）
+### 耐久与破坏
 
 - 首版只有统一的 Durability：CurrentDurability 与 MaxDurability。CurrentDurability ≤ 0 时 Voxel 直接消失，视觉上用碎片、火花、烟尘表现。
 - 首版不建立 kinetic、fire、electric、corrosion 等 Damage Type Matrix；复杂损伤机制未来通过 Behavior 增加。
 - 同一逻辑 Damage Event 内的破坏统一结算，见 [03](03-composite-and-behavior.md) Damage Transaction。
 
-### 世界体素的结构稳定性（§31）
+### 世界体素的结构稳定性
 
 - 首版 World-owned Voxel 不拥有通用结构支撑模拟：挖掉下面的体素，上面的普通 Voxel 可以悬空。
 - 只有明确具有 GravityBehavior、FallingBehavior 的特殊 Voxel 才会下落。
@@ -51,7 +51,7 @@
 
 ## 明确延后
 
-World structural collapse、复杂重力系统、复杂 Damage Types、通用 Material System（原 §78）。
+World structural collapse、复杂重力系统、复杂 Damage Types、通用 Material System。
 
 ## 开放问题
 

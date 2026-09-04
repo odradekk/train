@@ -1,6 +1,6 @@
 # 09 存档
 
-> 来源：原稿 §34–35；转录 Q29、Q42、Q79–Q88。
+> 决策出处：转录 Q29、Q42、Q79–Q88。
 
 ## 边界
 
@@ -15,7 +15,7 @@
 
 ## 规则
 
-### 首版存档（§34）
+### 首版存档
 
 ```text
 Save
@@ -31,18 +31,18 @@ Save
 
 后期如果加载性能出现瓶颈，用 Snapshot + Delta 作为优化。首版不做完整 Event Sourcing。
 
-### 存档兼容（§35）
+### 存档兼容
 
 - 开发阶段不保证存档兼容。
 - 进入正式发行阶段后，存档向前迁移成为硬性约束；届时可采用保存旧 Generator、Migration、Snapshot 等方式保证兼容。
 
 ## 首版范围
 
-Save-local Definition、Runtime Delta、RNG State、IDs、World reconstruction；达到正常 Save → Quit → Load → Continue（原 §81 Phase 8）。
+Save-local Definition、Runtime Delta、RNG State、IDs、World reconstruction；达到正常 Save → Quit → Load → Continue（roadmap Phase 8）。
 
 ## 明确延后
 
-Snapshot Save Optimization、正式版本 Save Migration（原 §78）；缺失 Mod 的兼容与回退（转录 Q42、Q88）。
+Snapshot Save Optimization、正式版本 Save Migration；缺失 Mod 的兼容与回退（转录 Q42、Q88）。
 
 ## 开放问题
 
