@@ -31,7 +31,9 @@
 
 ### Specialized Renderer
 
-需要领域专用视觉的 Voxel 使用独立 Renderer。首要例子是 TrackRenderer：Rail 仍然是 Voxel，但视觉几何由 Track Topology → Continuous Track Geometry 构建，以正确表现无缝直轨、弯道、坡道、未来道岔、交叉、多轨结构。
+需要领域专用视觉的 Voxel 使用独立 Renderer。首要例子是 TrackRenderer：Rail 仍然参与体素占用与破坏，但渲染网格从物理轨段保存的连续几何及当前有效部分派生，与列车行驶路径使用同一事实来源，见 [06](06-railway.md)。物理曲线参数不是表现缓存；网格与采样缓存可以丢弃重建。
+
+不能只在渲染时平滑阶梯状轨道，或缩放、剪切、弯曲车体来掩盖运动约束错误。轨道破坏须显示实际缺口，剩余完好部分不重新拟合或移位；未来道岔、交叉与多轨结构另行设计。
 
 ### Track Render Section
 
@@ -79,6 +81,5 @@ Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 
 
 ## 开放问题
 
-- 轨道连续几何的派生规则由 [原型化单格拓扑下的连续轨道几何](https://github.com/odradekk/train/issues/32) 决定后写入 TrackRenderer 章节。
 - 未冻结参数：Chunk Size、Render Residency Radius、Unload Radius、Directional Prefetch Distance、Meshing Threshold、Custom Mesh LOD Distance、Voxel Geometry LOD Distance（[roadmap](roadmap.md)）。
 - 地图迷雾：Chunk 存储形态与全图常驻的内存预算。

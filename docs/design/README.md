@@ -83,7 +83,7 @@ Render  Audio    Input
 9. Semantic Revision 与 Presentation Asset Revision 分离。
 10. 位置不是持久身份。
 11. World Model 不依赖 SceneTree。
-12. Physical Rail 是铁路 Runtime Truth。
+12. Physical Rail State（轨道体素、连续几何及明确连接）是铁路 Runtime Truth。
 13. Logical Rail Graph 是派生索引。
 14. RailPosition 是列车权威位置，World Transform 是派生结果。
 15. Rendering、Collider 都是 World State 的派生缓存。
