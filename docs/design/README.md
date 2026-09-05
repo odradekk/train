@@ -36,7 +36,7 @@
 
 每份文档的固定小节：边界、不变量、规则、首版范围、明确延后、开放问题。
 
-术语以仓库根目录 `CONTEXT.md` 为准：聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。Value 即基本货币价值。Voxel、Composite、Revision、RailPosition 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准：体素定义、体素定义标识、聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值。Voxel、Composite、Revision、RailPosition 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
 ## 总体架构
 

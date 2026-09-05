@@ -39,6 +39,8 @@
 
 正式游戏场景、经济与自动贸易玩法、正式车辆设计 UI、事故碰撞等伤害玩法触发源、专门遮挡检测后续开发。Faction 的设计与实现整体延后，首版不保留占位字段；当前测试场景复用正式世界模型、模拟、渲染与存档代码，并提供开发测试所需操作。
 
+TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 与自然资源标签属于当前体素定义，继续保留。
+
 以下系统不是当前欠缺，而是刻意延后：Code Mod API、Offline Progress、Simulation LOD、Greedy Meshing、Voxel Geometry LOD、通用 Material System、复杂 Damage Types、World structural collapse、复杂重力系统、玩家铁路施工 UI、AI 铁路施工、复杂桥梁生成、复杂隧道生成、Signal、Block System、Reservation、Interlocking、复杂道岔控制、单双线运营规则、复杂车辆交通调度、Snapshot Save Optimization、正式版本 Save Migration。
 
 架构不能主动阻止这些系统未来加入，但首版不为其支付完整实现成本。
@@ -53,7 +55,7 @@
 
 | Phase | 内容 | 目标 |
 | --- | --- | --- |
-| 1 Voxel Domain | VoxelDefinition、VoxelDefinitionId、RevisionId、Voxel storage、Chunk、Ownership、Durability；将现有货物与 Data Mod 系统逐渐迁移到统一 VoxelDefinition 模型 | 领域基础可用 |
+| 1 Voxel Domain | VoxelDefinition、VoxelDefinitionId、RevisionId、Voxel storage、Chunk、Ownership、Durability；首个需要体素定义的切片一次性迁移根目录货物模型、目录、内容与引用到新 schema，不保留 goods 兼容层，归档 MVP 不变（#31） | 领域基础可用 |
 | 2 World Rendering | Chunk → Face Culling Mesher → Chunk Mesh；Custom Static Mesh batch、AssetResolver、Dirty Chunk | 可以在 3D View 中稳定显示并破坏一个较大的 Voxel World |
 | 3 Composite | CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、ownership、CompositeVisual、基础 Damage 与 Fragmentation、JSON Blueprint、完整 Refit 测试操作 | 可以加载设计、制造、改装、移动与破坏车辆，验证状态保留与事务原子性 |
 | 4 Deterministic Simulation | SimulationClock、Command、Transaction、Evaluate、Resolve、Commit、Structural Resolution、Domain Event；建立 Determinism 测试 | 相同 Save + Input 可以稳定得到相同结果 |

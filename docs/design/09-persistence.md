@@ -46,6 +46,6 @@ Snapshot Save Optimization、正式版本 Save Migration；缺失 Mod 的兼容�
 
 ## 开放问题
 
-- [定义 Revision 语义哈希、Catalog 版本拆分与存档绑定](https://github.com/odradekk/train/issues/35)：存档中实例引用内置 Revision 的哈希在游戏更新后如何解析，嵌入引用到的内置 Revision 还是重绑到当前 Revision；Save-local Definition 与 Player Blueprint Library 的落盘位置。
+- [定义 Revision 语义哈希、Catalog 版本拆分与存档绑定](https://github.com/odradekk/train/issues/35)：存档中实例引用内置 Revision 的哈希在游戏更新后如何解析，嵌入引用到的内置 Revision 还是重绑到当前 Revision。#31 已定 Save-local 内嵌存档、Blueprint 库位于 `user://blueprints/` 并复用 Composite 格式；本票确定库内具体命名、存档落盘细节及保留旧 Revision 的持久化与重启解析。
 - [定义确定性与数值策略](https://github.com/odradekk/train/issues/34)：浮点在存档中的往返格式。
 - 地图迷雾：存档格式细节与 Snapshot。
