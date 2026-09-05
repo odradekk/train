@@ -10,7 +10,7 @@
 
 1. 优先明确稳定的系统边界和不变量。
 2. 具体数值尽量通过实现、Benchmark、Profiling 和 Playtest 确定。
-3. 首版只实现满足核心 Gameplay Loop 所需的最小系统。
+3. 当前首版只实现通过专门测试场景验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法后续接入。
 4. 对明确会在未来加入的重要功能，架构上避免封死扩展空间，但不提前实现。
 5. 组合优于继承。
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
@@ -22,7 +22,7 @@
 
 | 文件 | 内容 |
 | --- | --- |
-| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态与核心循环（草稿） |
+| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态、长期核心循环与当前首版验收目标 |
 | [01-voxel-world.md](01-voxel-world.md) | 体素世界与网格不变量 |
 | [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 |
 | [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability |

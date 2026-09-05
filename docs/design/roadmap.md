@@ -4,7 +4,7 @@
 
 ## 首版明确实现范围
 
-首版目标集中于完成核心闭环。必须：
+首版目标是通过专门测试场景验收体素基础，具体条件见 [00](00-product-and-core-loop.md)。正式游戏场景与贸易玩法后续接入；达到验收条件即可进入游戏场景开发，不等待整个系统完成。以下为现有范围清单，具体边界由 #30、#37 按这些目标核对：
 
 - 有限 3D Voxel World
 - VoxelDefinition
@@ -32,10 +32,12 @@
 
 已知不一致，待 [补齐首版范围缺口](https://github.com/odradekk/train/issues/30) 消除：
 
-- 本清单未列 Damage 与 Fragmentation，而 [01](01-voxel-world.md) 的耐久规则与下文 Phase 2、Phase 3 的目标明确包含破坏与基础断裂。
-- 本清单把玩家 Blueprint 与 Construction Validation 列为必须，而 00 号文档把车辆设计 UI 列为后续扩充，转录 Q24 也说现在不做编辑器 UI。
+- 首版已确认需要在测试场景中验证修改、破坏与车辆自定义；本清单尚未列 Damage 与 Fragmentation，具体范围需结合 [01](01-voxel-world.md) 与下文 Phase 2、Phase 3 补齐。
+- 玩家 Blueprint 与 Construction Validation 的测试场景用途和具体含义仍需明确；正式车辆设计 UI 延后，不妨碍提供开发测试用的车辆修改入口。
 
 ## 明确延后的 Feature
+
+正式游戏场景、经济与自动贸易玩法、正式车辆设计 UI 后续开发；当前测试场景复用正式世界模型、模拟、渲染与存档代码，并提供开发测试所需操作。
 
 以下系统不是当前欠缺，而是刻意延后：Code Mod API、Offline Progress、Simulation LOD、Greedy Meshing、Voxel Geometry LOD、通用 Material System、复杂 Damage Types、World structural collapse、复杂重力系统、玩家铁路施工 UI、AI 铁路施工、复杂桥梁生成、复杂隧道生成、Signal、Block System、Reservation、Interlocking、复杂道岔控制、单双线运营规则、复杂车辆交通调度、Snapshot Save Optimization、正式版本 Save Migration。
 
@@ -47,7 +49,7 @@
 
 ## 推荐首版实现顺序
 
-按尽快形成可运行闭环的顺序分为八个 Phase。它们是引擎分层，不是端到端的可玩切片；转成切片的工作见开放问题。
+以下八个 Phase 是现有的引擎分层参考，不代表必须逐层完成后才做集成验证。#37 将其转为专门测试场景中的端到端切片，每个切片验证所选能力后再推进。
 
 | Phase | 内容 | 目标 |
 | --- | --- | --- |
@@ -63,5 +65,5 @@
 ## 开放问题
 
 - [补齐首版范围缺口：破坏触发源、玩家 Blueprint 含义、Faction 与窗口行为](https://github.com/odradekk/train/issues/30)。
-- [把实现阶段转成端到端切片并确定前四个切片](https://github.com/odradekk/train/issues/37)：候选首切片是手工小体素世界、直线弯道坡道轨道、一列多接触点列车在两个站点间往返、RailPosition 权威、TrackRenderer 连续几何、域层不依赖 Godot；第二切片把 MVP 的贸易循环搬到该世界；同时决定每个切片的测试接缝。
+- [把实现阶段转成端到端切片并确定前四个切片](https://github.com/odradekk/train/issues/37)：按 00 的验收目标组织测试场景中的端到端切片，覆盖体素修改与破坏、车辆修改与运行、存档和性能验证，并明确测试接缝。原“第二切片迁入 MVP 贸易循环”的候选方向已由 #29 的本次确认替换，贸易玩法留到后续版本；前四个切片的具体内容与顺序待本票确定。
 - [编写首批切片 spec 并发布](https://github.com/odradekk/train/issues/38)：只写前 3 至 4 个切片，后续留在本文。
