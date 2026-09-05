@@ -1,6 +1,6 @@
 # 04 确定性模拟
 
-> 决策出处：转录 Q49、Q63–Q88、Q152；研究 [`docs/research/dotnet-godot-determinism.md`](../research/dotnet-godot-determinism.md)（票 #26）。
+> 决策出处：转录 Q49、Q63–Q88、Q152；研究 [`docs/research/dotnet-godot-determinism.md`](../research/dotnet-godot-determinism.md)（票 #26）；2026-09-05 [#34](https://github.com/odradekk/train/issues/34) 的决策记录于 [ADR-0003](../adr/0003-use-scalar-doubles-and-stateless-random-for-determinism.md)。
 
 ## 边界
 
@@ -11,7 +11,7 @@
 - Simulation 与 FPS、Camera、Window Focus 解耦。
 - 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
 - 所有 Gameplay Random 最终源于 WorldSeed。
-- 能够使用 Stateless Random 的场景默认不维护 RNG State；Stateful RNG State 必须持久化。
+- 首版只使用 Stateless Random；后续有具体需求时才引入 Stateful RNG，其完整状态必须持久化。
 - 结构修改按 Transaction 原子结算。
 
 ## 规则
@@ -24,9 +24,22 @@
 
 ### 确定性目标
 
-- 同一游戏版本 + 同一存档 + 同一输入 + 兼容运行环境 = 相同 Simulation Result。当前不要求不同 CPU 或操作系统之间逐 bit 完全一致。
+- 同一游戏构建 + 同一初始状态或存档 + 同一模拟步输入 + 兼容运行环境 = 相同 Simulation Result。首版兼容边界为 Windows x64、同一 .NET 运行时版本；更换运行时、CPU 或操作系统后需要重新验证，不默认承诺逐位一致。
 - 所有能够改变 World State 的遍历顺序必须显式稳定。不能让以下因素决定 Gameplay：Dictionary 枚举顺序、HashSet 枚举顺序、Behavior 注册顺序、Thread completion order、Node order、非确定性 Async completion。
-- 研究 #26 补充的事实：x64 同二进制同机上标量 double 确定，RyuJIT 不收缩 FMA；必须隔离在模拟之外的是 string 哈希与字典枚举序（桶碰撞超过阈值后会换成随机比较器）、ICU 文化排序、`Vector<T>` 宽度、C 运行时 Math 函数、随引擎构建在 float 与 double 之间切换的 Godot `real_t`。具体策略由开放问题中的票决定。
+- `GetHashCode()`、`HashCode.Combine()` 等运行时哈希不能生成随机键或持久化身份。字符串身份的比较与排序使用 Ordinal 语义，结果相关的集合遍历使用显式稳定顺序。
+- #26 的源码与实验结论是选型依据，不是跨环境保证；库函数、运行时或数值优化变化均需在上述边界内通过确定性验证。
+
+### 数值类型与计算边界
+
+- 领域内连续量统一使用 `double`，包括沿轨距离与连续位置；体素坐标、计数、运行时 ID 继续使用整数。首版不引入定点数体系。
+- 领域层使用普通 C# 类型与标量计算，连续三维坐标由三个 `double` 表达。Godot 数学类型仅用于适配与表现层，转换后的渲染值不能写回权威模拟状态。
+- 首版领域层不使用硬件宽度可变的 `System.Numerics.Vector<T>`。后续仅在性能测试证明需要时考虑向量化，并单独验证其对计算结果的影响。
+- 有效世界状态中的连续量必须有限，拒绝 `NaN` 与正负无穷值。
+
+### 浮点存档往返
+
+- `double` 以可无损往返的 JSON 数值保存，不按显示精度截断或固定小数位舍入。写入采用与文化无关的 round-trip 表示，读取必须还原相同的 `double` 值；不写入非有限值。
+- 格式化与展示不改变世界状态。存档往返测试覆盖实际出现的连续量及边界值，并验证恢复后的模拟与未中断运行一致；存档整体结构见 [09](09-persistence.md)。
 
 ### Tick 流水线
 
@@ -53,8 +66,22 @@ Simulation Tick
 ### 随机性
 
 - 所有随机性来自 WorldSeed，但不存在一个全局唯一、不断消费的 Random 实例。
-- **Stateless Keyed Random** 是默认方案：HashRandom(WorldSeed, SystemKey, EventId, EntityId)，相同 Key 永远得到相同结果。适合一次性事件随机、Damage tie-break、AI 决策点、World generation cell、Loot、程序装饰。
-- **Stateful RNG Stream** 只有当"随机序列推进本身具有领域意义"时使用，例如持续的 stochastic process。Stream 尽可能局部化：AIStream(EntityId)、MarketStream(SettlementId)。Stateful RNG State 必须进入 Save。
+- **首版全部采用 Stateless Keyed Random**：由 WorldSeed、用途和坐标或事件身份决定结果，与调用先后顺序无关。世界生成使用生成阶段、坐标或候选身份及重试序号；装饰使用用途与空间身份；断裂平局裁决使用事件与候选身份。不得用候选枚举顺序充当身份。
+- **算法**：基于 [SplitMix64 参考实现](https://prng.di.unimi.it/splitmix64.c) 的 64 位整数混合函数组合显式输入。运算按 `unchecked ulong` 语义执行；每次调用只依赖传入的键，不保存或推进参考生成器中的可变状态。
+- **随机键契约**：固定算法版本、各用途的字段顺序与编码。数字位宽、坐标符号、字符串编码与字段边界必须明确，不能通过运行时哈希、文化格式或注册顺序隐式产生。首次实现的切片 spec 必须写出完整键布局和组合步骤，并提供固定输入到预期输出的黄金向量；后续实现调整不得悄悄改变结果。
+- **Stateful RNG Stream 延后**：当前不实现有状态随机流，也不预置 AI、市场等流。后续玩法确实需要序列推进时再添加局部流，并保存完整状态。
+
+### 内容哈希
+
+- Semantic Revision 使用 SHA-256。它沿用现有 Catalog 的算法，不沿用将定义属性与图片像素混在一起的 Fingerprint 规则。
+- 参与语义哈希的字段、规范化编码以及 Asset Revision 与 Catalog 版本拆分由 #35 确定。随机取值与 Revision 内容身份是两个独立契约。
+
+### 确定性验收
+
+- 同一初始状态和命令序列重复运行，在相同 Simulation Tick 比较权威状态哈希；哈希输入按稳定顺序覆盖影响后续模拟的状态，排除渲染、窗口和缓存状态。
+- 比较连续运行与中途 Save → Load → Continue，恢复到相同模拟步时结果一致。
+- 改变渲染帧率、暂停恢复和命令入队时机，只要命令仍在相同模拟步执行，模拟结果就必须一致。
+- 以固定输入与预期输出验证随机算法及其键编码，避免“同一错误实现跑两次”仍通过。具体场景、步数及检查点随首批切片 spec 落定。
 
 ### Runtime Instance ID
 
@@ -63,14 +90,14 @@ Simulation Tick
 
 ## 首版范围
 
-SimulationClock、Command、Transaction、Evaluate、Resolve、Commit、Structural Resolution、Domain Event，以及 Determinism 测试（roadmap Phase 4）。
+SimulationClock、Command、Transaction、Evaluate、Resolve、Commit、Structural Resolution、Domain Event、标量 double 数值边界、基于 SplitMix64 混合的无状态随机、SHA-256 Revision 算法选择，以及上述确定性验收（roadmap Phase 4）。
 
 ## 明确延后
 
-倍速 Gameplay、Offline Progress、Simulation LOD、跨平台 bit-perfect determinism、完整 Event Sourcing。
+有状态随机流、定点数体系、未经独立验证的领域向量化；倍速 Gameplay、Offline Progress、Simulation LOD、跨平台 bit-perfect determinism、完整 Event Sourcing。
 
 ## 开放问题
 
-- [定义确定性与数值策略](https://github.com/odradekk/train/issues/34)：域内连续量用 double、float 还是定点（转录 Q152）；域层禁止 Godot 数学类型与 `Vector<T>`；keyed random 与语义哈希采用哪种具名稳定哈希；哪些系统用有状态 RNG 流、哪些用无状态随机（转录 Q65、Q71）；浮点在存档中的往返格式；确定性测试的形态。
+- [定义 Revision 语义哈希、Catalog 版本拆分与存档绑定](https://github.com/odradekk/train/issues/35)：SHA-256 的语义输入及规范化编码；存档绑定。
 - Simulation LOD 列为未来功能，而转录 Q5 选择了全图全精度模拟；转录 Q5 已选全图全精度模拟，采用时需统一方向。
 - Simulation Tick Rate：未冻结参数（[roadmap](roadmap.md)）。

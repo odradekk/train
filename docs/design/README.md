@@ -90,8 +90,8 @@ Render  Audio    Input
 16. Simulation 与 FPS、Camera、Window Focus 解耦。
 17. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
 18. 所有 Gameplay Random 最终源于 WorldSeed。
-19. 能够使用 Stateless Random 的场景默认不维护 RNG State。
-20. Stateful RNG State 必须持久化。
+19. 首版全部使用 Stateless Random；有状态随机流在后续确有需求时加入。
+20. 后续引入 Stateful RNG 时必须持久化完整状态。
 21. Damage、Refit、Construction 等结构修改按 Transaction 原子结算。
 22. Composite Creation 永远来自显式 Gameplay 行为。
 23. Price 属于 Market Context，不属于 Voxel。

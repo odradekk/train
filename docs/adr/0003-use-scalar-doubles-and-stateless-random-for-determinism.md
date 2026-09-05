@@ -1,0 +1,9 @@
+# Use scalar doubles and stateless random within a fixed runtime boundary
+
+Accepted through [#34](https://github.com/odradekk/train/issues/34). Simulation uses scalar `double` for continuous quantities and integers for voxel coordinates, counts and runtime IDs. Determinism is required for the same game build, initial state and tick-assigned inputs on Windows x64 with the same .NET runtime version; a CPU, runtime or OS change requires revalidation rather than an assumed bitwise guarantee. This meets the current reproducibility goal without introducing a fixed-point framework.
+
+The domain uses ordinary C# types, including three scalar doubles for continuous 3D coordinates. Godot math types belong to adapters and presentation, and hardware-width-dependent `System.Numerics.Vector<T>` is excluded from the initial domain implementation. Container iteration, registration and thread completion order cannot determine simulation results; runtime hash codes cannot define random keys or persistent identities.
+
+The first version uses stateless keyed random for world generation, decoration and fracture tie-breaking, based on the SplitMix64 integer mixing function. It does not keep or advance generator state. Purpose-specific key layouts, encoding, field order and algorithm version must be fixed and covered by golden vectors. Stateful streams are deferred until a concrete feature needs sequence advancement, at which point their complete state must be persisted.
+
+Semantic revision hashes use SHA-256, retaining the algorithm already used by the catalog while replacing its combined definition/image fingerprint contract. Semantic fields and canonical content encoding are decided in #35. See [the simulation contract](../design/04-deterministic-simulation.md) for floating-point round trips and the required repeat-run, save/resume and rendering-independent validation.

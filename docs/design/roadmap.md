@@ -18,6 +18,7 @@
 - 基础 Damage 与 Fragmentation；调试操作对单个或多个地形、车辆体素施加指定伤害
 - Behavior + Capability 基础
 - Deterministic Simulation
+- 连续量使用标量 double；无状态随机；确定性重复运行、存档恢复与渲染独立性验收（#34）
 - Runtime Delta Save
 - Seeded World Generation
 - Settlement Layout
@@ -41,6 +42,8 @@
 
 TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 与自然资源标签属于当前体素定义，继续保留。
 
+首版不实现有状态随机流或定点数体系；领域层暂不使用硬件宽度可变的向量计算，后续优化须经性能与确定性验证（#34）。
+
 以下系统不是当前欠缺，而是刻意延后：Code Mod API、Offline Progress、Simulation LOD、Greedy Meshing、Voxel Geometry LOD、通用 Material System、复杂 Damage Types、World structural collapse、复杂重力系统、玩家铁路施工 UI、AI 铁路施工、复杂桥梁生成、复杂隧道生成、Signal、Block System、Reservation、Interlocking、复杂道岔控制、单双线运营规则、复杂车辆交通调度、Snapshot Save Optimization、正式版本 Save Migration。
 
 架构不能主动阻止这些系统未来加入，但首版不为其支付完整实现成本。
@@ -62,7 +65,7 @@ TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；V
 | 5 World Generation | Seed、GeneratorVersion、Terrain、Resources、Settlement placement、Layout、基础 Rail Graph、Physical Rail | 给定 Seed 可以生成可重复、合法、可驾驶的世界 |
 | 6 Railway Core | Rail Ports 与 Internal Connections、Straight、Curve、Standard Slope、compressed graph、continuous path、RailPosition、multi-contact carriage movement、TrackRenderer | 首版视觉品质最需要投入的阶段之一 |
 | 7 Desktop Product Form | Primary 3D Window、Windows AppBar、Floating、Display selection、Focus behavior、Perspective Camera、Orbit、Zoom、target switching、minimized rendering suspension、可配置渲染帧率上限 | 窗口测试场景通过工作区、切换、多显示器、DPI 与消息共存验证后，接入体素测试场景验证桌面常驻 |
-| 8 Save / Runtime Delta | Save-local Definition、Runtime Delta、RNG State、IDs、World reconstruction | 正常 Save → Quit → Load → Continue |
+| 8 Save / Runtime Delta | Save-local Definition、Runtime Delta、WorldSeed、IDs、World reconstruction、double 无损往返 | 正常 Save → Quit → Load → Continue，结果与不中断运行一致 |
 
 ## 开放问题
 

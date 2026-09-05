@@ -41,6 +41,7 @@
 
 - **Definition** 定义"某种东西是什么"。
 - **Revision** 是 Definition 的一个不可变语义版本。内部 Revision ID 使用 Semantic Content Hash，而不是 r1、r2、r3；完全相同的语义内容产生相同 Revision。UI 可额外维护纯数字的人类版本号（Version 1、2、3），只用于展示，不承担身份职责。
+- #34 已选择 SHA-256 作为 Semantic Revision 的哈希算法；字段与规范化编码由 #35 确定，不能直接沿用当前包含图片像素的货物 Fingerprint。
 - **Instance** 保存当前 Durability、Behavior Runtime State、Ownership、当前几何变化、其他 Runtime 信息。Definition 永远不保存实例状态。
 
 ### Definition 来源
