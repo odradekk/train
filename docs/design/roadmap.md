@@ -23,6 +23,7 @@
 - 读档与热重载采用当前外部定义并原子适配状态；语义、资产、目录发布版本分离（#35）
 - Seeded World Generation
 - Settlement Layout
+- 三维聚居地锚点与朝向、生成用途的 Archetype、实际建筑和资源派生统计、站点 RailSocket、静态建筑统一占用与净空查询（#36）
 - 基础 Rail Network
 - Straight、Curve、Standard Slope
 - Continuous Train Movement

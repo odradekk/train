@@ -43,6 +43,12 @@
 - 不会把每个 Rail Voxel 当 Graph Node。只有重要位置作为 RailControlPoint，首版：Station、Junction、Endpoint；未来：Signal、Block Boundary、Special Track Device。
 - 连续普通轨道压缩成 Edge：Control Point → Compressed Edge → Control Point。Edge 记录或引用实际 Physical Rail Path。
 
+### 站点接轨接口
+
+- 聚居地 Layout 中的 RailSocket 描述站点的接轨位置与方向，一个站点可声明多个接口；它不等于轨道体素的 Track Port，也不直接生成铁路连接或 RailControlPoint。
+- Track Port 与 Internal Connections 决定实际物理连通性，Station 是压缩图中的重要位置。站点存在、有接轨接口、已接入铁路网络是不同事实；具体归属见 [05](05-world-generation-and-settlements.md)。
+- 多个 RailSocket 不引入首版多站台运营或复杂调度要求。
+
 ### Rail Operational Layer
 
 - 物理轨道描述几何可能性；单向、封锁、信号、Reservation 等属于 Operational Rail Layer。例如 Physical A ↔ B，Operational A → B allowed、B → A forbidden。
@@ -56,6 +62,7 @@ RailConstructionPlan → Validate → RailEditTransaction → World Voxel Change
 
 - 游戏存在统一的 Track Gauge 与 Loading Gauge / Clearance Envelope，具体数值由测试确定。
 - 玩家设计的车辆必须满足合法 Rail Contact、净空限制、车辆几何约束。RailConstructionPlan 同样验证整条线路的车辆 Swept Clearance，而不只检查 Rail Cell 本身。
+- 静态 Building Composite 的实际体素占用与碰撞纳入统一查询：轨道不能与建筑体素占同格，车身经过的净空也必须检查。建筑修改或破坏后查询随之更新；登记不复制体素或改变所有权。
 
 ### 桥梁和隧道
 

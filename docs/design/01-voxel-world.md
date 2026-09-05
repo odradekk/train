@@ -45,6 +45,8 @@
 
 任意 Voxel Instance 同一时间只有一个空间所有者：World Grid 或 Composite。规则见 [03](03-composite-and-behavior.md)。
 
+静态 Building Composite 的实际体素占用登记到世界网格查询中；登记是指向 Composite 内体素的引用，不创建 World-owned 副本，不改变所有权。该格不能再放置其他地形或轨道体素；建筑修改与破坏后同步更新占用，见 [05](05-world-generation-and-settlements.md)。
+
 ## 首版范围
 
 有限 3D Voxel World；World Chunk 仅作空间分区，不承担生命周期（转录 Q30）；统一 Durability；无结构支撑。
@@ -55,5 +57,4 @@ World structural collapse、复杂重力系统、复杂 Damage Types、通用 Ma
 
 ## 开放问题
 
-- 静态 Building Composite 是否占据 World Cell：[定义聚居地在体素世界中的模型](https://github.com/odradekk/train/issues/36)。
 - Chunk Size、World Size：未冻结参数（[roadmap](roadmap.md)）；Chunk 存储形态与全图常驻的内存预算在地图迷雾中。
