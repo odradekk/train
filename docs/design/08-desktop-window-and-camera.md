@@ -51,7 +51,9 @@
 
 ### Camera Follow
 
-Camera Orientation = Train Heading + Player Orbit Offset。火车转弯时 Camera 平滑跟随；玩家改变的是相对于列车的观察位置。
+Camera Orientation = Selected Vehicle Displayed Body Heading + Player Orbit Offset。火车转弯时 Camera 平滑跟随；玩家改变的是相对于所选车辆的观察位置。
+
+相机读取 [07](07-rendering.md) 中与车体一致的显示位置与朝向，不直接跟随跳动的模拟步位置，不用速度方向代替车体朝向。#33 的双车头换端不自动切换相机目标，也不因活动车头或行驶方向改变让镜头旋转 180°；玩家仍可显式切换观察车辆。
 
 ### Camera Target Switch
 

@@ -45,6 +45,13 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 - 移动时 update root Transform only。只有 Damage、Refit、Voxel Layout Change 才标记内部 Visual Dirty 并批量重建。
 - 未来可以针对大量静态 Composite 增加 Presentation-only Baking 优化。
 
+### 列车插值
+
+- 采用 [06](06-railway.md) 的沿轨插值：在两个已完成模拟状态之间沿实际经过的物理路径求参考位置，再统一求解编组接触点与车钩约束，得到刚性车体姿态。不能独立直线插值各车世界坐标，否则会切角或破坏连接约束。
+- 不外推未发生的运动，正常运行接受最多一个模拟步的显示延迟。显示结果不回写 RailPosition、速度或其他权威状态；Godot 变换只是派生表示。
+- 编组断开、活动车头换端或轨道支撑失效时，终止旧插值并从已提交的事件后状态重新建立显示关系，不跨新旧参考点或不同编组插值。
+- 相机与车体使用同一份显示姿态，具体跟随语义见 [08](08-desktop-window-and-camera.md)。
+
 ### Dirty Rendering
 
 - 世界变化不逐 Voxel 立即重建 Mesh：World changes → mark affected Chunk dirty → coalesce → one rebuild。

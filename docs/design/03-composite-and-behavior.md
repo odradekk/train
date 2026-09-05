@@ -81,6 +81,8 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 
 所有 surviving fragments 在本次断裂中保留原定义引用、自身 Voxel Runtime State 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition；这不阻止之后按 [02](02-definitions-and-content.md) 采用当前外部定义。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。Faction 的设计与实现整体延后，首版不保留阵营占位字段。
 
+身份继承不能维持已经断开的车辆物理连接。#33 规定结构断裂后依据实际保留的车辆与车钩连接重新确定编组；仍具沿轨运动条件的各部分从事件发生时的状态建立独立运动，不重新摆车，也不继续被旧编组隔空牵引。无动力部分独立滑行减速，见 [06](06-railway.md)。车体身份存活与沿轨运动资格分别检查，不能将半截车壳自动视为完整车厢。
+
 ### 死亡与解体
 
 - 无法满足 IdentityRetentionRules 的 Fragment：Composite ownership → World ownership；Voxel Runtime State 保留。
@@ -116,4 +118,4 @@ CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Constru
 
 ## 开放问题
 
-- 地图迷雾：Behavior、Capability 注册表与 System 的首版最小集合及其在 Godot C# 中的接口（转录 Q22）；各 Archetype 的 Construction 与 IdentityRetention 具体规则（转录 Q43）；列车 Assembly 与耦合。
+- 地图迷雾：Behavior、Capability 注册表与 System 的首版最小集合及其在 Godot C# 中的接口（转录 Q22）；各 Archetype 的 Construction 与 IdentityRetention 具体规则（转录 Q43）；车辆编挂操作与运营命令继承。编组运动与断开后的处理已由 [06](06-railway.md) 确定。

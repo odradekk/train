@@ -29,6 +29,7 @@
 - 五档单节车辆尺寸包络，五档共用正常线路；尺寸与机械约束共同校验（#32）
 - Continuous Train Movement
 - Multi-contact Vehicle Constraint
+- 编组统一运动与断开后独立滑行；单车头不能倒行，双车头停稳互斥换端；稳定沿轨引用、断轨停车与显式恢复、沿轨显示插值（#33）
 - TrackRenderer
 - Chunk Rendering
 - Dynamic Composite Rendering
@@ -51,6 +52,8 @@ TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；V
 
 轨道交叉与道岔结构后续专门设计，首版不允许独立线路共占一格（#32）。
 
+完整制动管路、复杂阻力、坡道反向溜车与刚体脱轨延后；#33 采用无动力沿轨减速和断轨安全停车，不提前实现完整事故动力学。
+
 架构不能主动阻止这些系统未来加入，但首版不为其支付完整实现成本。
 
 ## 暂不冻结的参数
@@ -58,6 +61,8 @@ TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；V
 必须通过实际开发确定，进入 Config / Tuning 而不是架构不变量：Chunk Size、World Size、Simulation Tick Rate、Camera FOV、Zoom Min/Max、Render Residency Radius、Unload Radius、Directional Prefetch Distance、Rail Gauge、Loading Gauge、非车辆 Blueprint 尺寸限制、World Generation Retry Count、Meshing Threshold、Custom Mesh LOD Distance、Voxel Geometry LOD Distance、Window Default Height、默认渲染帧率上限。
 
 车辆五档尺寸已由 #32 确定，见 [06](06-railway.md)。水平半径 192、缓和长度 160、坡角 10°、左右各 8 格净空与顶部净空 12 为原型通过的起始参数，不是最小安全值；接触点、车钩、底部高度与轨距等实验配置尚未成为正式规格。弯坡叠加、多节编组、连续扫掠、实际占格与局部破坏以及 Godot 集成须在铁路切片补验，未验证线路组合不默认开放给生成器。
+
+#33 的无动力滑行减速度及沿轨约束求解精度随实施确定。铁路切片还须覆盖双车头换端、断开后独立运动、断轨及修复后显式启动、全毁但被引用轨段的存档恢复和渲染帧率独立性；不能把 #32 的几何原型通过视为这些状态转换已获验证。
 
 ## 推荐首版实现顺序
 
