@@ -56,7 +56,7 @@
 
 ## 首版范围
 
-VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；玩家 Blueprint（首版形态待定，见 [03](03-composite-and-behavior.md) 开放问题）。
+VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；手写 JSON 车辆 Blueprint，由测试场景加载、校验与制造，并通过最小改装操作验证修改已有车辆；正式设计器后续开发，详见 [03](03-composite-and-behavior.md)。
 
 ## 明确延后
 

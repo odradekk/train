@@ -1,6 +1,6 @@
 # 08 桌面窗口与相机
 
-> 决策出处：转录 Q18–Q20、Q154–Q165；研究 [`docs/research/desktop-dock-window.md`](../research/desktop-dock-window.md)（票 #27）。
+> 决策出处：转录 Q18–Q20、Q154–Q165；研究 [`docs/research/desktop-dock-window.md`](../research/desktop-dock-window.md)（票 #27）；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认渲染策略、AppBar 路径与验收要求。
 
 ## 边界
 
@@ -17,8 +17,15 @@
 ### 窗口与 Simulation 生命周期
 
 - 3D 主窗口是 Primary Window，辅助 UI 为 Secondary Window。
-- 以下情况 Simulation 均继续：主窗口失焦、用户正在使用 IDE、Floating View 被其他窗口遮挡、打开 Management UI、主窗口最小化。主窗口最小化时 Rendering 可以停止或显著降低，但 Simulation 不停止。
+- 以下情况 Simulation 均继续：主窗口失焦、用户正在使用 IDE、Floating View 被其他窗口遮挡、打开 Management UI、主窗口最小化。主窗口最小化时停止该窗口的渲染，但 Simulation 不停止；仍可见的辅助窗口继续正常渲染。
 - 首版关闭主 3D 窗口视为退出游戏；托盘与后台模式后补（转录 Q154）。
+
+### 首版渲染策略
+
+- 失焦时正常渲染，保证用户操作其他软件时仍可观察列车。
+- 暂不专门检测遮挡，被遮挡时沿用正常渲染策略。
+- 主窗口最小化时停止其渲染，恢复后继续渲染。
+- 提供可配置的渲染帧率上限，默认值由性能测试确定。限帧与窗口状态不得改变模拟时间推进规则。
 
 ### Pause
 
@@ -30,6 +37,12 @@
 - **Docked**：首版 Bottom only；占满目标 Monitor Width；Height adjustable；占据 Desktop Work Area。转录 Q18 选择 Windows AppBar 式真正占用工作区，否决 Always-on-top Overlay（留作可选）；转录 Q19 要求不抢焦点；转录 Q20 默认主显示器可选，窗口可拖动。左右竖条不合横向构图，Top Dock 日后易加（转录 Q160）。
 - **Floating**：任意移动；合理范围调整尺寸；不预留 Desktop Work Area；Always-on-top 用户可选，默认关闭 Topmost。
 - 研究 #27 的事实：Godot 没有工作区预留 API，Docked 须自注册 Win32 AppBar 并子类化 Godot 的 HWND 接收位置通知；不抢焦点靠 `Window.Unfocusable` 开箱可用，代价是无键盘输入；失焦、遮挡、最小化时 `_Process` 照常运行，只有最小化会门控渲染，遮挡没有任何检测。
+
+### 首版 Docked 实现与验收
+
+- 采用 Windows AppBar 预留工作区，通过 `SetWindowSubclass` 在 Godot 主窗口的 HWND 上接收系统通知；其他窗口功能使用 Godot API。平台互操作与世界模型隔离。
+- 先用专门窗口测试场景验证，再接入体素测试场景。对应切片必须验收工作区预留与释放、Docked/Floating 来回切换、多显示器与混合 DPI，以及窗口消息处理和 Godot 的共存表现。
+- 上述场景尚未经实际运行验证；选定实现路径不代表兼容性已经得到证明。具体复现步骤和通过标准在对应切片 spec 中明确。
 
 ### Camera
 
@@ -50,14 +63,13 @@ Camera Orientation = Train Heading + Player Orbit Offset。火车转弯时 Camer
 
 ## 首版范围
 
-Primary 3D Window、Bottom Dock、Floating、Display selection、Focus behavior、Perspective Camera、Orbit、Zoom、target switching、minimized rendering suspension（roadmap Phase 7）。
+Primary 3D Window、Bottom Dock（Windows AppBar）、Floating、Display selection、Focus behavior、Perspective Camera、Orbit、Zoom、target switching、minimized rendering suspension、可配置渲染帧率上限及专门窗口测试场景（roadmap Phase 7）。
 
 ## 明确延后
 
-Overlay、Top 与左右 Dock、托盘与后台模式、Offline Progress、倍速 UI（转录 Q18、Q154、Q158、Q160）。
+专门遮挡检测；Overlay、Top 与左右 Dock、托盘与后台模式、Offline Progress、倍速 UI（转录 Q18、Q154、Q158、Q160）。
 
 ## 开放问题
 
-- [补齐首版范围缺口：破坏触发源、玩家 Blueprint 含义、Faction 与窗口行为](https://github.com/odradekk/train/issues/30)：失焦、遮挡与最小化时的渲染策略与帧率上限；Docked 模式采用哪条实现路径。研究 #27 未能核实：二级显示器上 AppBar 是否真的预留工作区；`SetWindowSubclass` 与引擎窗口过程的共存表现；混合 DPI 下 Dock 条的误差。
 - 地图迷雾：相机焦点目标被摧毁时的回退优先级（转录 Q162）。
-- 未冻结参数：Camera FOV、Zoom Min/Max、Window Default Height（[roadmap](roadmap.md)）。
+- 未冻结参数：Camera FOV、Zoom Min/Max、Window Default Height、默认渲染帧率上限（[roadmap](roadmap.md)）。

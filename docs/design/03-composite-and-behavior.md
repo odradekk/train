@@ -1,6 +1,6 @@
 # 03 Composite、Behavior 与 Capability
 
-> 决策出处：转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88。
+> 决策出处：转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认首版测试操作与阵营延期。
 
 ## 边界
 
@@ -40,13 +40,20 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 - 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局。
 - 设计器允许保存非法 Draft：Draft → validate → Valid Definition → Instantiate。只有合法 Definition 可以制造。
-- 首版是否有设计器 UI、玩家 Blueprint 的实际形态：见开放问题。
+- 首版用手写 JSON 提供车辆 Blueprint，由测试场景加载、校验并生成车辆，验证正式的设计与制造流程；正式设计器留到后续版本。
 
 ### Refit
 
 - 玩家修改已经存在的 Composite 时，Instance #100 从 Definition r17 Refit 到 r18，Instance Identity 保持；只有真正拆除并重新制造才创建新 Instance ID。
 - Refit 首版采用 Atomic Transaction，不让施工中间状态暴露给 Simulation。
 - Refit 必须追踪真实 Voxel Identity：把同一个 Engine 从 old cell 移到 new cell，它仍然是同一个 Engine，Durability、Temperature、Behavior State 不会被重置。
+
+### 首版改装测试操作
+
+- 测试场景提供最小操作入口，完整覆盖添加、移除、移动、旋转和替换车辆体素；旋转遵守体素正交方向约束。
+- 支持一次提交多项修改，例如交换两个零件的位置。按最终方案校验并原子提交，施工中间状态不进入 Simulation。
+- 移动、旋转已有零件时保留其身份、耐久和已有运行状态；替换表示旧件移除、新件加入，不将旧件身份和状态作为新件继承。
+- 非法改装整体拒绝，原车辆及其零件状态不变；成功改装保留车辆身份。制造新车仍走 Blueprint 加载、Construction Validation 与 Instantiate 流程。
 
 ### Voxel Ownership
 
@@ -69,7 +76,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 4. 其他 Survivor 获得新的 Runtime InstanceId；
 5. Value 完全相同时，通过 WorldSeed 派生的确定性随机规则打破平局。
 
-所有 surviving fragments 保留原 Definition Revision、自身 Voxel Runtime State、faction 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。
+所有 surviving fragments 保留原 Definition Revision、自身 Voxel Runtime State 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。Faction 的设计与实现整体延后，首版不保留阵营占位字段。
 
 ### 死亡与解体
 
@@ -79,6 +86,8 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 ### Damage Transaction
 
 同一逻辑 Damage Event 内的所有破坏首先统一应用：apply damage → remove hp ≤ 0 → mark topology dirty → connectivity calculation → fragmentation。不能"destroy one voxel → fracture → destroy another → fracture again"，否则结果可能依赖遍历顺序。
+
+首版由测试场景的调试操作对指定体素施加指定伤害，支持一次事件影响多个体素，覆盖地形体素与车辆体素。测试必须经过正式的耐久扣减、归零删除与断裂结算流程，不能只用直接删除代替伤害验证。事故碰撞等玩法触发源后续再做。
 
 ### Tag、Behavior、Capability
 
@@ -96,13 +105,12 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 ## 首版范围
 
-CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础（roadmap Phase 3）。
+CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础；手写 JSON Blueprint 的加载、校验与制造，以及上述完整改装测试操作（roadmap Phase 3）。
 
 ## 明确延后
 
-复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。
+正式车辆设计器、事故碰撞等伤害玩法触发源、Faction 的设计与实现；复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。
 
 ## 开放问题
 
-- [补齐首版范围缺口：破坏触发源、玩家 Blueprint 含义、Faction 与窗口行为](https://github.com/odradekk/train/issues/30)：首版没有武器、只有单列车、没有玩家施工，破坏由什么触发；roadmap 的首版清单未列 Damage/Fragmentation 而 Phase 2、3 明确包含；00 号文档把车辆设计器列为未来，本文与 roadmap 又把玩家 Blueprint 与 Construction Validation 列为首版必须；Faction 的首版含义。
 - 地图迷雾：Behavior、Capability 注册表与 System 的首版最小集合及其在 Godot C# 中的接口（转录 Q22）；各 Archetype 的 Construction 与 IdentityRetention 具体规则（转录 Q43）；列车 Assembly 与耦合。

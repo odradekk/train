@@ -58,7 +58,7 @@
 - 存档恢复能够保留修改结果。
 - 在明确的世界规模和修改频率下，运行与桌面常驻性能达到约定目标。
 
-具体范围、测试规模、规则与量化目标由 [#30](https://github.com/odradekk/train/issues/30)、[#37](https://github.com/odradekk/train/issues/37) 与后续切片 spec 落定。详见 [roadmap](roadmap.md)；首版每个必须项应服务于上述验收目标。
+修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-composite-and-behavior.md)、[08](08-desktop-window-and-camera.md) 与 [roadmap](roadmap.md)。测试规模、具体规则与量化目标由 [#37](https://github.com/odradekk/train/issues/37) 与后续切片 spec 落定；首版每个必须项应服务于上述验收目标。
 
 ## 明确延后
 
@@ -66,5 +66,4 @@
 
 ## 开放问题
 
-- [补齐首版范围缺口：破坏触发源、玩家 Blueprint 含义、Faction 与窗口行为](https://github.com/odradekk/train/issues/30)：明确测试场景中的修改与破坏范围、Blueprint 含义及窗口行为。
 - [把实现阶段转成端到端切片并确定前四个切片](https://github.com/odradekk/train/issues/37)：围绕测试场景安排切片与验收条件，具体测试规模和性能目标在切片 spec 中明确。

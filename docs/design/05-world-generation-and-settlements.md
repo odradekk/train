@@ -1,6 +1,6 @@
 # 05 世界生成与聚居地
 
-> 决策出处：转录 Q89–Q95、Q102、Q178。
+> 决策出处：转录 Q89–Q95、Q102、Q178；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认 Faction 整体延后。
 
 ## 边界
 
@@ -47,7 +47,7 @@ WorldSeed
 
 ### 聚居地
 
-- 聚居地本身不是 Composite。SettlementInstance { Economy, Population, Faction, Position, Buildings, optional Station }。
+- 聚居地本身不是 Composite。SettlementInstance { Economy, Population, Position, Buildings, optional Station }。Faction 属于玩法系统，设计与实现留到后续版本；当前体素基础版本不保留阵营占位字段。
 - **SettlementArchetype** 负责 Gameplay：经济、资源偏好、生产、消费、其他规则。
 - **SettlementLayoutDefinition** 负责空间布局：Building Composite、World Voxel、Decoration、Site Constraints、optional Station/Rail Socket。建筑为 Composite，道路与装饰为世界体素（转录 Q93）。
 
@@ -68,11 +68,10 @@ Seed、GeneratorVersion、Terrain、Resources、Settlement placement、Layout、
 
 ## 明确延后
 
-复杂桥梁生成、复杂隧道生成、AI 铁路施工；Mirror、环路密度调节（转录）。
+Faction 的设计与实现；复杂桥梁生成、复杂隧道生成、AI 铁路施工；Mirror、环路密度调节（转录）。
 
 ## 开放问题
 
 - [定义聚居地在体素世界中的模型](https://github.com/odradekk/train/issues/36)：`CONTEXT.md` 的地图位置是二维整数逻辑坐标，代码为 `MapPosition(X, Y)`，而世界是三维体素坐标，聚居地的位置是什么；聚居地类型与 SettlementArchetype 是否同一概念，术语表"分类暂不产生模拟行为"如何更新；Layout 与建筑数量、自然资源种类的关系；Station 与 RailSocket 的关系；静态 Building Composite 是否占据 World Cell。
-- [补齐首版范围缺口](https://github.com/odradekk/train/issues/30)：Faction 的首版含义。
 - 未冻结参数：World Size、World Generation Retry Count（[roadmap](roadmap.md)）。
 - 地图迷雾：各阶段的具体算法与 Layout 文件格式。

@@ -73,6 +73,8 @@ RailConstructionPlan → Validate → RailEditTransaction → World Voxel Change
 
 ### 碰撞
 
+事故碰撞触发伤害的玩法留到后续版本；首版通过 [03](03-composite-and-behavior.md) 的调试伤害操作验证损伤与断裂。以下为后续事故系统的边界，不构成首版实现要求。
+
 - 正常列车运动不使用刚体物理求解。发生事故：Movement → Swept Collision Detection → Collision Event → Deterministic Collision Resolver → Damage Transaction。
 - Godot Physics 可以辅助检测，但不成为正常列车位置和 Gameplay Damage 的权威来源。视觉层可以自由播放非确定性的粒子碎片，只要不改变 Simulation 结果。
 
