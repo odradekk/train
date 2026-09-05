@@ -24,7 +24,7 @@
 
 ### 确定性目标
 
-- 同一游戏构建 + 同一初始状态或存档 + 同一模拟步输入 + 兼容运行环境 = 相同 Simulation Result。首版兼容边界为 Windows x64、同一 .NET 运行时版本；更换运行时、CPU 或操作系统后需要重新验证，不默认承诺逐位一致。
+- 同一游戏构建 + 同一有效语义内容 + 同一初始状态或存档 + 同一模拟步输入 + 兼容运行环境 = 相同 Simulation Result。首版兼容边界为 Windows x64、同一 .NET 运行时版本；更换运行时、CPU 或操作系统后需要重新验证，不默认承诺逐位一致。#35 规定更新后的 Mod 数值作用于旧实例，因此变更语义内容不属于“相同输入”。
 - 所有能够改变 World State 的遍历顺序必须显式稳定。不能让以下因素决定 Gameplay：Dictionary 枚举顺序、HashSet 枚举顺序、Behavior 注册顺序、Thread completion order、Node order、非确定性 Async completion。
 - `GetHashCode()`、`HashCode.Combine()` 等运行时哈希不能生成随机键或持久化身份。字符串身份的比较与排序使用 Ordinal 语义，结果相关的集合遍历使用显式稳定顺序。
 - #26 的源码与实验结论是选型依据，不是跨环境保证；库函数、运行时或数值优化变化均需在上述边界内通过确定性验证。
@@ -74,12 +74,12 @@ Simulation Tick
 ### 内容哈希
 
 - Semantic Revision 使用 SHA-256。它沿用现有 Catalog 的算法，不沿用将定义属性与图片像素混在一起的 Fingerprint 规则。
-- 参与语义哈希的字段、规范化编码以及 Asset Revision 与 Catalog 版本拆分由 #35 确定。随机取值与 Revision 内容身份是两个独立契约。
+- 参与语义哈希的字段、规范化编码以及 Asset Revision 与 Catalog Generation 的分工见 [02](02-definitions-and-content.md)。随机取值与 Revision 内容身份是两个独立契约。
 
 ### 确定性验收
 
 - 同一初始状态和命令序列重复运行，在相同 Simulation Tick 比较权威状态哈希；哈希输入按稳定顺序覆盖影响后续模拟的状态，排除渲染、窗口和缓存状态。
-- 比较连续运行与中途 Save → Load → Continue，恢复到相同模拟步时结果一致。
+- 在相同有效语义内容下比较连续运行与中途 Save → Load → Continue，恢复到相同模拟步时结果一致；更新内容后的读档另验收新规格生效与状态适配。
 - 改变渲染帧率、暂停恢复和命令入队时机，只要命令仍在相同模拟步执行，模拟结果就必须一致。
 - 以固定输入与预期输出验证随机算法及其键编码，避免“同一错误实现跑两次”仍通过。具体场景、步数及检查点随首批切片 spec 落定。
 
@@ -98,6 +98,5 @@ SimulationClock、Command、Transaction、Evaluate、Resolve、Commit、Structur
 
 ## 开放问题
 
-- [定义 Revision 语义哈希、Catalog 版本拆分与存档绑定](https://github.com/odradekk/train/issues/35)：SHA-256 的语义输入及规范化编码；存档绑定。
 - Simulation LOD 列为未来功能，而转录 Q5 选择了全图全精度模拟；转录 Q5 已选全图全精度模拟，采用时需统一方向。
 - Simulation Tick Rate：未冻结参数（[roadmap](roadmap.md)）。

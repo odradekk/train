@@ -1,6 +1,6 @@
 # 02 Definition、Revision、Instance 与内容来源
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移、内容格式与重载边界，并修订 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)。代码迁移由后续切片执行。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。代码迁移由后续切片执行。
 
 ## 边界
 
@@ -20,7 +20,7 @@
 
 - 所有可实体化对象共享统一的 VoxelDefinition。现有独立的货物定义并入这一体系，Cargo、Market、Trade 后续统一引用 VoxelDefinitionId（转录 Q176）。TradeMetadata 的字段与实现整体延后到贸易接入时，首版不预留空对象。
 - 首版核心字段：DefinitionId、Value、MaxDurability、Mass、Tags、Behaviors、Presentation、Collision。
-- **Value** 即术语表的基本货币价值：游戏开始时定义的恒定基础价值，不随世界经济变化。用于基础经济计算、Composite 断裂后的身份继承、其他稳定估值。例如 Iron Ore 的 Value = 100。
+- **Value** 即术语表的基本货币价值：当前定义中的固定基础价值，不随世界经济变化，但可随内容更新改变。用于基础经济计算、Composite 断裂后的身份继承、其他稳定估值。例如 Iron Ore 的 Value = 100。
 - **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Iron Ore = 70，Capital 的 Iron Ore = 135。
 - **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
 - **Material**：首版没有通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
@@ -30,7 +30,7 @@
 
 - 在首个需要体素定义的切片中，一次性迁移根目录项目的 GoodDefinition、GoodId、GoodCatalog、内容文件及其消费者和引用，改用体素定义与 VoxelDefinitionId；不保留旧 goods schema 的兼容层或临时双轨目录。
 - 新 schema 从版本 1 开始，不作为 goods schema v2。迁移时将自然资源类别转为 `natural_resource` 标签，基本货币价值保留为 Value；Value 已用于断裂后的身份继承，不随 TradeMetadata 一起延后。
-- `archive/mvp/` 保持原样。本票只确定方案，不执行生产代码或内容文件迁移。Catalog 的语义与资产版本拆分、Revision 哈希和存档绑定由 #35 确定。
+- `archive/mvp/` 保持原样。本票只确定方案，不执行生产代码或内容文件迁移。Catalog 版本、Revision 哈希与存档绑定按下文执行。
 
 ### Inventory 与实体化
 
@@ -41,14 +41,41 @@
 
 - **Definition** 定义"某种东西是什么"。
 - **Revision** 是 Definition 的一个不可变语义版本。内部 Revision ID 使用 Semantic Content Hash，而不是 r1、r2、r3；完全相同的语义内容产生相同 Revision。UI 可额外维护纯数字的人类版本号（Version 1、2、3），只用于展示，不承担身份职责。
-- #34 已选择 SHA-256 作为 Semantic Revision 的哈希算法；字段与规范化编码由 #35 确定，不能直接沿用当前包含图片像素的货物 Fingerprint。
+- Semantic Revision 用于识别规格变化，不强制实例锁定旧外部规格。读档与热重载按 DefinitionId 解析当前安装的定义；定义本身仍是不可变快照，更新通过发布新快照完成。
 - **Instance** 保存当前 Durability、Behavior Runtime State、Ownership、当前几何变化、其他 Runtime 信息。Definition 永远不保存实例状态。
+
+### 三种内容版本
+
+| 名称 | 含义 |
+| --- | --- |
+| Semantic Revision | 对定义自身的有效玩法数据计算 SHA-256，识别规格变化 |
+| Asset Revision | 对单个资产文件的内容字节计算 SHA-256，识别图片、模型等变化 |
+| Catalog Generation | 成功发布内容后的递增序号；实际内容无变化时不递增，不承担持久身份职责 |
+
+显示文本、资产绑定、纯表现配置和资产内容的有效变更也会触发 Catalog 发布，但不因此改变 Semantic Revision。Asset Revision 不包含文件路径；相同内容字节得到相同哈希，绑定变化由表现元数据和 Catalog 发布表达。
+
+### 语义哈希字段与规范化
+
+| 参与语义哈希 | 不参与语义哈希 |
+| --- | --- |
+| 定义类型、DefinitionId、哈希编码版本 | 名称、说明等显示文本 |
+| Value、MaxDurability、Mass、Tags | 图片、模型、材质、声音的内容与路径 |
+| Behavior 类型与参数 | 纯视觉配置及资产绑定 |
+| Collision 的规则、形状与尺寸 | 编辑器排版等辅助信息 |
+| Composite 体素布局、构造与身份保留规则引用 | 引用目标的 Revision |
+
+- 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
+- 对象字段和字符串键按 Ordinal 顺序编码。标签等无序集合稳定排序；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
+- 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
+- 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎功率会改变引擎 Revision，不改变引用它的车辆设计自身的 Revision；使用方仍必须根据当前引擎规格重算受影响能力。
+- 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。权威碰撞数据属于语义；更换显示模型不能自动改变碰撞形状。
+- 验收覆盖重新排版不变、更改有效语义字段产生变化、纯表现更新不改变语义 Revision、依赖更新生效但不改变引用方自身 Revision。
 
 ### Definition 来源
 
 - 四类：Built-in、Mod、Player Blueprint Library、Save-local Definitions。
 - 玩家在某个存档内设计的新版本默认只进入 Save-local Definitions；只有显式 Save as Blueprint 才复制或发布到 Player Blueprint Library；其他存档不会自动看到 save-local revision。
-- Save-local Definition 必须直接包含在存档中，使 Save 自包含。
+- Save-local Definition 及其所需的其他存档内定义直接包含在存档中。外部定义仍依赖当前安装内容；存档不包含外部旧定义副本，也不因此保证缺失 Mod 时可加载。
 
 ### 内容目录与格式
 
@@ -56,11 +83,12 @@
 | --- | --- |
 | Built-in | `builtin/core/resources/` 下按 `voxels`、`composites`、`layouts` 分类 |
 | Mod | `user://mods` 中各包的 `resources/` 下沿用相同结构 |
-| Player Blueprint Library | `user://blueprints/`，复用 Composite 定义格式 |
+| Player Blueprint Library | `user://blueprints/<蓝图 UUID>.composites.json`，复用 Composite 定义格式 |
 | Save-local Definitions | 直接内嵌存档，不作为独立内容目录扫描 |
 
 - 新定义文件使用明确的 `schema_version`，从 1 开始；按类型使用 `.voxels.json`、`.composites.json`、`.layouts.json`。目录用于组织文件，不决定定义身份。
-- Blueprint 库内具体命名及存档落盘细节由 #35 确定。当前首版通过手写 JSON 和测试操作使用这些格式，不要求正式设计器。
+- 存档位于 `user://saves/<存档 UUID>/save.json`。Blueprint 与存档使用稳定 UUID 命名，显示名称保存在文件内，重命名不改变身份和引用；文件名不替代定义内部的 DefinitionId。
+- 当前首版通过手写 JSON 和测试操作使用这些格式，不要求正式设计器。
 
 ### ID 与命名空间
 
@@ -72,14 +100,20 @@
 
 - **第一阶段 Data Mod**：支持新增 VoxelDefinition、Composite Definition、Layout，修改自有定义的数值、引用资产、组合已有 Behavior。首版不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
-- **Hot Reload**：语义 Definition 热加载是"旧 Revision + 新 Revision"，而不是修改旧 Revision。Presentation Asset 热加载与 Gameplay Revision 分离：修改 Texture、Mesh、Material、Sound 可以立即影响引用该 AssetId 的现有实例；修改 Durability、Behavior、Voxel Layout、Engine Power 则产生新的 Semantic Revision。
+- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 更新 Asset Revision 和表现。布局定义更新不覆盖已存在车辆保存的实际布局。
+
+### 内容更新与实例状态
+
+- 读档和热重载都采用当前安装的外部定义，更新数值作用于已有车辆；保留车辆及零件身份、实际布局与运行状态。玩家自定义设计保留自身布局，其中的外部零件按 ID 采用当前定义。
+- 状态保留绝对值，仅在超出新定义允许范围时修正，不按比例换算、不自动恢复。原耐久上限 100、当前耐久 80：新上限 150 时仍为 80，新上限 60 时截到 60。
+- 功率、质量等定义属性直接采用新值，并重算受影响的能力和派生状态。记录上次使用的 Revision 以识别变化，不借此保留旧外部规格。
 
 ### 候选内容与运行中引用校验
 
 - 新加载的定义必须引用有效内容，非法 Mod 整包排除；内置内容出错则拒绝发布。排除后的候选内容仍必须自洽，不能留下未解析引用。
-- 运行中实例继续使用所绑定的旧 Revision。只要该 Revision 及其依赖仍完整可用，就不因当前内容目录移除了该定义而拒绝重载；不得隐式把实例重绑到新 Revision。
-- 任何实际无法解析的运行中引用仍导致整次重载失败，原内容与世界状态保持不变。保留旧 Revision 不豁免新候选的引用校验。
-- 旧 Revision 如何写入存档、重启后如何解析由 #35 确定；这里不承诺缺失 Mod 的存档兼容或回退。
+- 必须基于候选当前定义校验全部受影响的运行中引用与状态适配。缺失必需定义或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和世界状态；不能发布部分更新或留下部分修正后的实例。
+- 读档遇到相同问题时明确报告并失败。首版不自动替换零件、删除状态或回退到存档中的旧 Mod 定义。
+- 全部校验与状态适配成功后再原子发布内容及相关实例更新。这替代 #31 曾确定的“保留旧 Revision 即可接受目录删除”规则。
 
 ## 首版范围
 
@@ -91,5 +125,4 @@ TradeMetadata 的字段与实现、Code Mod API、通用 Material System；跨�
 
 ## 开放问题
 
-- [定义 Revision 语义哈希、Catalog 版本拆分与存档绑定](https://github.com/odradekk/train/issues/35)：哪些字段进入语义哈希与规范化序列化；GoodCatalog 的 Version 与含 PNG 像素的 Fingerprint 如何拆成 Definition Revision 与 Asset Revision；存档对内置 Revision 的绑定。
 - 地图迷雾：库存系统与非堆叠 Item Instance（转录 Q175）。

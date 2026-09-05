@@ -21,7 +21,7 @@
 ### Composite
 
 - Composite 是由多个 Voxel 构成的具备独立身份的游戏对象：车头、车厢、建筑、复杂机器。
-- CompositeInstance { InstanceId, DefinitionRevision, Archetype, Transform, Owned Voxels }。
+- CompositeInstance { InstanceId, DefinitionId, LastUsedRevision, Archetype, Transform, Owned Voxels }。DefinitionId 用于解析定义，LastUsedRevision 用于识别规格变化；外部定义按当前安装内容解析，存档内自定义布局按 [09](09-persistence.md) 恢复。
 - Composite 内部 Voxel 坐标永远是整数 Local Grid；Composite 本身可以拥有连续 World Transform。因此火车和生物可以平滑移动，而不会破坏 Voxel Grid。
 
 ### 不允许递归嵌套
@@ -47,6 +47,8 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 - 玩家修改已经存在的 Composite 时，Instance #100 从 Definition r17 Refit 到 r18，Instance Identity 保持；只有真正拆除并重新制造才创建新 Instance ID。
 - Refit 首版采用 Atomic Transaction，不让施工中间状态暴露给 Simulation。
 - Refit 必须追踪真实 Voxel Identity：把同一个 Engine 从 old cell 移到 new cell，它仍然是同一个 Engine，Durability、Temperature、Behavior State 不会被重置。
+
+Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](02-definitions-and-content.md) 采用当前外部规格，同时保留实际布局和实例身份，按新约束适配状态。Refit 表达玩家对车辆结构的显式修改；外部引擎数值更新不改变自定义车辆设计自身的 Revision。
 
 ### 首版改装测试操作
 
@@ -76,7 +78,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 4. 其他 Survivor 获得新的 Runtime InstanceId；
 5. Value 完全相同时，通过 WorldSeed 派生的确定性随机规则打破平局。
 
-所有 surviving fragments 保留原 Definition Revision、自身 Voxel Runtime State 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。Faction 的设计与实现整体延后，首版不保留阵营占位字段。
+所有 surviving fragments 在本次断裂中保留原定义引用、自身 Voxel Runtime State 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition；这不阻止之后按 [02](02-definitions-and-content.md) 采用当前外部定义。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。Faction 的设计与实现整体延后，首版不保留阵营占位字段。
 
 ### 死亡与解体
 

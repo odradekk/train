@@ -8,7 +8,7 @@
 
 ## 不变量
 
-- 同一 WorldSeed + GeneratorVersion 必须产生同样的初始世界；不同 GeneratorVersion 不要求得到相同地图。
+- 同一 WorldSeed + GeneratorVersion + 有效生成语义内容必须产生同样的初始世界；不同 GeneratorVersion 或生成内容不要求得到相同地图。
 - 后续阶段新增 RNG 调用不能改变前面阶段的结果。
 - Settlement exists ≠ Station exists ≠ Rail connection exists。
 - 经济类型（Archetype）与外观 Layout 严格分离。

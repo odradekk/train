@@ -20,6 +20,7 @@
 - Deterministic Simulation
 - 连续量使用标量 double；无状态随机；确定性重复运行、存档恢复与渲染独立性验收（#34）
 - Runtime Delta Save
+- 读档与热重载采用当前外部定义并原子适配状态；语义、资产、目录发布版本分离（#35）
 - Seeded World Generation
 - Settlement Layout
 - 基础 Rail Network

@@ -1,6 +1,6 @@
 # 09 存档
 
-> 决策出处：转录 Q29、Q42、Q79–Q88；2026-09-05 [#34](https://github.com/odradekk/train/issues/34) 确认首版仅使用无状态随机与浮点往返要求。
+> 决策出处：转录 Q29、Q42、Q79–Q88；2026-09-05 #34 确认无状态随机与浮点往返要求；[#35](https://github.com/odradekk/train/issues/35) 确认当前外部定义绑定与落盘方式，见 [ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。
 
 ## 边界
 
@@ -25,12 +25,27 @@ Save
 ├─ Runtime Delta
 ├─ Next Transaction ID
 ├─ Next Entity ID
+├─ External Definition References（DefinitionId + 上次使用的 Revision）
 └─ Save-local Definitions
 ```
 
 后期如果加载性能出现瓶颈，用 Snapshot + Delta 作为优化。首版不做完整 Event Sourcing。
 
-连续量以可无损往返的 JSON 数值保存，使用与文化无关的 round-trip 表示，恢复相同的 `double` 值；不截断小数位，不允许非有限值。验收须比较中途保存恢复与不中断运行的结果，详见 [04](04-deterministic-simulation.md)。
+连续量以可无损往返的 JSON 数值保存，使用与文化无关的 round-trip 表示，恢复相同的 `double` 值；不截断小数位，不允许非有限值。在有效语义内容相同的前提下，验收须比较中途保存恢复与不中断运行的结果，详见 [04](04-deterministic-simulation.md)。
+
+### 定义绑定与恢复
+
+- 外部定义只保存 DefinitionId 和上次使用的 Revision，后者用于识别变化；不嵌入旧外部定义副本。加载时按 ID 使用当前安装的内置、Mod 或外部 Blueprint 定义。
+- 玩家自定义车辆的布局及其所需的其他存档内定义内嵌保存；其中的外部零件按 ID 引用当前定义，不固定目标 Revision。世界实际布局、实例身份与运行状态从存档恢复，不被更新后的设计模板覆盖。
+- 当前规格变化时保留状态绝对值，仅按新的允许范围修正，重新计算相关能力；耐久上限升高不自动修复、上限降低时截断。具体规则见 [02](02-definitions-and-content.md)。
+- 缺失必需定义或无法解释保存的状态时明确加载失败；这也包括缺失 Mod 或必需资产导致所需内容包无法通过校验的情况。不自动替换、删除或回退到旧定义。更新 Mod 数值后产生不同模拟结果是预期行为，不属于无损往返失败。
+- 若生成内容更新改变了重建基底，使旧 Runtime Delta 无法正确恢复原实际布局，按不兼容读档失败处理；不能把旧 Delta 静默应用到不同布局后当作成功恢复。
+
+### 文件位置
+
+- 存档：`user://saves/<存档 UUID>/save.json`。
+- Blueprint：`user://blueprints/<蓝图 UUID>.composites.json`，复用 Composite 定义格式。
+- 文件名中的 UUID 稳定不变，显示名称保存在文件内；重命名不改变身份或引用。Save-local 不作为独立内容目录扫描。
 
 ### 存档兼容
 
@@ -47,5 +62,4 @@ Snapshot Save Optimization、正式版本 Save Migration；缺失 Mod 的兼容�
 
 ## 开放问题
 
-- [定义 Revision 语义哈希、Catalog 版本拆分与存档绑定](https://github.com/odradekk/train/issues/35)：存档中实例引用内置 Revision 的哈希在游戏更新后如何解析，嵌入引用到的内置 Revision 还是重绑到当前 Revision。#31 已定 Save-local 内嵌存档、Blueprint 库位于 `user://blueprints/` 并复用 Composite 格式；本票确定库内具体命名、存档落盘细节及保留旧 Revision 的持久化与重启解析。
 - 地图迷雾：存档格式细节与 Snapshot。
