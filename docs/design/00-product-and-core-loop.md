@@ -58,7 +58,9 @@
 - 存档恢复能够保留修改结果。
 - 在明确的世界规模和修改频率下，运行与桌面常驻性能达到约定目标。
 
-修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-composite-and-behavior.md)、[08](08-desktop-window-and-camera.md) 与 [roadmap](roadmap.md)。测试规模、具体规则与量化目标由 [#37](https://github.com/odradekk/train/issues/37) 与后续切片 spec 落定；首版每个必须项应服务于上述验收目标。
+修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-composite-and-behavior.md)、[08](08-desktop-window-and-camera.md) 与 [roadmap](roadmap.md)。[#37](https://github.com/odradekk/train/issues/37) 已确定前四个切片：单 Chunk 修改与破坏 → 跨 Chunk 修改与世界恢复 → 静置车辆改装与破坏 → 固定直轨运行与状态衔接。每个切片都服务于上述验收目标，但完成四个切片不等于完整首版已验收。
+
+领域自动测试、Godot 集成检查与人工观感共同验收；场景尺寸、输入序列和明确通过条件由 [#38](https://github.com/odradekk/train/issues/38) 写入各切片 spec。前四个切片持续记录性能基线并及时排查卡顿或退化；大世界、高频修改与多列车的正式性能门槛由后续规模测试结合实际测量确定，不能把小场景通过视为规模保证。
 
 ## 明确延后
 
@@ -66,4 +68,4 @@
 
 ## 开放问题
 
-- [把实现阶段转成端到端切片并确定前四个切片](https://github.com/odradekk/train/issues/37)：围绕测试场景安排切片与验收条件，具体测试规模和性能目标在切片 spec 中明确。
+- [编写首批切片 spec 并发布](https://github.com/odradekk/train/issues/38)：按 roadmap 的四个已定范围落实可重复的测试场景与通过条件；后续能力切片、规模与性能门槛随测量继续确定。
