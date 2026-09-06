@@ -1,3 +1,5 @@
+工作语言为中文。
+
 ## Current phase: core gameplay development
 
 Current version: `0.0.2`.
@@ -37,3 +39,7 @@ Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository 
 ### Issue task workflow
 
 For Issue dispatch, PR delivery, review and revision, Acceptance-criteria verification, or user-approved merge, cleanup, closure, and version updates, follow `docs/tickets-sop.md`.
+
+### Console command documentation
+
+使用或审查控制台命令时，从 `docs/console/README.md` 查阅手册；新增、修改或移除命令时，按一命令一文件同步维护 `docs/console/` 中的对应文档及索引。
