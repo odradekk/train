@@ -20,6 +20,7 @@
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot "Invoke-HiddenProcess.ps1")
 
 function Find-Godot {
     if ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) {
@@ -92,10 +93,12 @@ New-Item -ItemType Directory -Force -Path $isolated | Out-Null
 $previousSmokeRoot = $env:TRAIN_MODS_SMOKE_USER_DATA
 $env:TRAIN_MODS_EXPORT_SMOKE = "1"
 $env:TRAIN_MODS_SMOKE_USER_DATA = $isolated
+$processExit = -1
+$output = ""
 try {
-    $raw = & $exported --user-data-dir $isolated 2>&1
-    $processExit = $LASTEXITCODE
-    $output = $raw | Out-String
+    $run = Invoke-HiddenProcess -FilePath $exported -ArgumentList @("--headless", "--user-data-dir", $isolated)
+    $processExit = $run.ExitCode
+    $output = $run.Output
     Write-Host $output
 }
 finally {

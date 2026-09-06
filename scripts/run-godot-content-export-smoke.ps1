@@ -19,6 +19,7 @@
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot "Invoke-HiddenProcess.ps1")
 
 function Find-Godot {
     if ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) {
@@ -87,9 +88,9 @@ if (-not (Test-Path -LiteralPath $exported)) {
 
 Write-Host "Using exported binary: $exported"
 $env:TRAIN_CONTENT_EXPORT_SMOKE = "1"
-$raw = & $exported 2>&1
-$processExit = $LASTEXITCODE
-$output = $raw | Out-String
+$run = Invoke-HiddenProcess -FilePath $exported -ArgumentList @("--headless")
+$processExit = $run.ExitCode
+$output = $run.Output
 Write-Host $output
 
 $required = @(

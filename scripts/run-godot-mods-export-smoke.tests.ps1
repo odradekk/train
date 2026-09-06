@@ -46,6 +46,26 @@ function New-FakeProgram {
     return $path
 }
 
+function New-FakeWinExe {
+    param([int] $ExitCode, [string[]] $Lines)
+    $id = [guid]::NewGuid().ToString("N")
+    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("train-fake-mods-winexe-" + $id + ".exe")
+    $prints = @($Lines | ForEach-Object {
+        $escaped = $_.Replace("\", "\\").Replace('"', '\"')
+        "        System.Console.WriteLine(`"$escaped`");"
+    }) -join "`r`n"
+    $code = @"
+public static class TrainFakeModsWinExe$id {
+    public static int Main() {
+$prints
+        return $ExitCode;
+    }
+}
+"@
+    Add-Type -TypeDefinition $code -OutputType WindowsApplication -OutputAssembly $path -ReferencedAssemblies System
+    return $path
+}
+
 function Assert-SmokeExit {
     param([string] $Name, [int] $Expected, [int] $Actual)
     if ($Actual -ne $Expected) {
@@ -68,6 +88,9 @@ $unavailableRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LO
 $presentRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_PRESENT")
 $missingBin = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED")
 $nonzeroProcess = New-FakeProgram -ExitCode 7 -Lines $allMarkers
+$passingWinExe = New-FakeWinExe -ExitCode 0 -Lines $allMarkers
+$silentWinExe = New-FakeWinExe -ExitCode 0 -Lines @()
+$nonzeroWinExe = New-FakeWinExe -ExitCode 7 -Lines $allMarkers
 try {
     Assert-SmokeExit -Name "unavailable Godot" -Expected 2 -Actual (Invoke-Smoke -ForceUnavailable)
     Assert-SmokeExit -Name "failed export" -Expected 1 -Actual (Invoke-Smoke -GodotPath $failingExport)
@@ -76,9 +99,12 @@ try {
     Assert-SmokeExit -Name "ROOT_PRESENT does not satisfy missing/empty" -Expected 1 -Actual (Invoke-Smoke -ExportBin $presentRoot)
     Assert-SmokeExit -Name "exported binary missing a marker" -Expected 1 -Actual (Invoke-Smoke -ExportBin $missingBin)
     Assert-SmokeExit -Name "nonzero exported process" -Expected 1 -Actual (Invoke-Smoke -ExportBin $nonzeroProcess)
+    Assert-SmokeExit -Name "Windows GUI exe with all markers" -Expected 0 -Actual (Invoke-Smoke -ExportBin $passingWinExe)
+    Assert-SmokeExit -Name "Windows GUI exe exit 0 without markers" -Expected 1 -Actual (Invoke-Smoke -ExportBin $silentWinExe)
+    Assert-SmokeExit -Name "Windows GUI exe nonzero exit" -Expected 1 -Actual (Invoke-Smoke -ExportBin $nonzeroWinExe)
 }
 finally {
-    Remove-Item -LiteralPath $failingExport, $passingBin, $unavailableRoot, $presentRoot, $missingBin, $nonzeroProcess -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $failingExport, $passingBin, $unavailableRoot, $presentRoot, $missingBin, $nonzeroProcess, $passingWinExe, $silentWinExe, $nonzeroWinExe -ErrorAction SilentlyContinue
 }
 
 if ($failed -gt 0) {
