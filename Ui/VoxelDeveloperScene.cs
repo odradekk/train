@@ -8,6 +8,7 @@ namespace Train;
 public partial class VoxelDeveloperScene : Node3D
 {
     private const string VoxelSmokeEnvironmentVariable = "TRAIN_VOXEL_SMOKE";
+    private const string VoxelSmokeReenterEnvironmentVariable = "TRAIN_VOXEL_SMOKE_REENTER";
     private readonly WorldVoxelCoord _selectedPosition = new(4, 4, 4);
     private VoxelDevelopmentSession _session = null!;
     private VoxelChunkMesh _mesh = null!;
@@ -33,6 +34,11 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitOrientationRefresh,
         RemoveInternal,
         AwaitInternalRefresh,
+        OpenConsole,
+        AwaitConsoleOpen,
+        CloseConsole,
+        AwaitConsoleClosed,
+        LeaveScene,
         Done
     }
 
@@ -64,6 +70,14 @@ public partial class VoxelDeveloperScene : Node3D
             ValidateGeneratedMesh();
             GD.Print("VOXEL_SMOKE_GEOMETRY_VALID");
             GD.Print("VOXEL_SMOKE_SCENE_READY");
+            if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable), "1", StringComparison.Ordinal))
+            {
+                System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "0");
+                GD.Print("VOXEL_SMOKE_MENU_REENTERED");
+                GetTree().Quit();
+                return;
+            }
+
             _smokePhase = VoxelSmokePhase.Remove;
         }
         else if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal))
@@ -104,9 +118,9 @@ public partial class VoxelDeveloperScene : Node3D
         }
         else if (key.Keycode == Key.Escape)
         {
+            GetViewport().SetInputAsHandled();
             GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(null);
             GetTree().ChangeSceneToFile("res://Ui/StartMenu.tscn");
-            GetViewport().SetInputAsHandled();
         }
     }
 
@@ -207,10 +221,49 @@ public partial class VoxelDeveloperScene : Node3D
                     return;
                 ValidateGeneratedMesh();
                 GD.Print("VOXEL_SMOKE_INTERNAL_FACE_UPDATED");
+                _smokePhase = VoxelSmokePhase.OpenConsole;
+                return;
+            case VoxelSmokePhase.OpenConsole:
+                PressKey(Key.Quoteleft, '`');
+                _smokePhase = VoxelSmokePhase.AwaitConsoleOpen;
+                return;
+            case VoxelSmokePhase.AwaitConsoleOpen:
+                if (FindConsole()?.IsOpen != true)
+                    return;
+                _smokePhase = VoxelSmokePhase.CloseConsole;
+                return;
+            case VoxelSmokePhase.CloseConsole:
+                PressKey(Key.Escape);
+                _smokePhase = VoxelSmokePhase.AwaitConsoleClosed;
+                return;
+            case VoxelSmokePhase.AwaitConsoleClosed:
+                if (FindConsole()?.IsOpen != false)
+                    return;
+                GD.Print("VOXEL_SMOKE_CONSOLE_CLOSED");
+                _smokePhase = VoxelSmokePhase.LeaveScene;
+                return;
+            case VoxelSmokePhase.LeaveScene:
+                System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
+                PressKey(Key.Escape);
                 _smokePhase = VoxelSmokePhase.Done;
-                GetTree().Quit();
                 return;
         }
+    }
+
+    private GameConsole? FindConsole() =>
+        GetNode<Main>("/root/Main").GetChildren().OfType<GameConsole>().SingleOrDefault();
+
+    private static void PressKey(Key keycode, int unicode = 0)
+    {
+        var pressed = new InputEventKey
+        {
+            Keycode = keycode,
+            PhysicalKeycode = keycode,
+            Unicode = unicode,
+            Pressed = true
+        };
+        Input.ParseInputEvent(pressed);
+        Input.FlushBufferedEvents();
     }
 
     private void StartBaselineRun()

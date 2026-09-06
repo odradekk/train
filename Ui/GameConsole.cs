@@ -15,6 +15,8 @@ public partial class GameConsole : CanvasLayer
     private PanelContainer _panel = null!;
     private RichTextLabel _output = null!;
     private LineEdit _input = null!;
+    public bool IsOpen => _open;
+
     private bool _open;
     private int _renderedCount = -1;
     private long _renderedHead;
