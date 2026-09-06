@@ -1,5 +1,6 @@
 using Godot;
 using Train.Content;
+using Train.Domain.Voxels;
 using Train.Logging;
 
 namespace Train;
@@ -8,9 +9,14 @@ public partial class GameConsole : CanvasLayer
 {
     private RingBufferLogSink _buffer = null!;
     private ConsoleCommandDispatcher _dispatcher = null!;
+    private TrainLogger _logger = null!;
+    private ContentReloader? _reloader;
+    private VoxelDevelopmentSession? _voxelSession;
     private PanelContainer _panel = null!;
     private RichTextLabel _output = null!;
     private LineEdit _input = null!;
+    public bool IsOpen => _open;
+
     private bool _open;
     private int _renderedCount = -1;
     private long _renderedHead;
@@ -21,12 +27,26 @@ public partial class GameConsole : CanvasLayer
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(buffer);
         _buffer = buffer;
+        _logger = logger;
+        _reloader = reloader;
+        ConfigureDispatcher();
+    }
+
+    public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)
+    {
+        _voxelSession = session;
+        ConfigureDispatcher();
+    }
+
+    private void ConfigureDispatcher()
+    {
         _dispatcher = new ConsoleCommandDispatcher(
-            logger,
-            buffer.Clear,
+            _logger,
+            _buffer.Clear,
             () => GetTree().Quit(),
-            () => reloader?.Reload(),
-            OS.IsDebugBuild());
+            () => _reloader?.Reload(),
+            OS.IsDebugBuild(),
+            _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession));
     }
 
     public override void _Ready()

@@ -35,19 +35,23 @@ public sealed class ConsoleCommandDispatcher
     public const string ReloadDeniedEventId = "reload_denied";
     public const string LogLevelEventId = "log_level";
     public const string LogLevelUsageEventId = "log_level_usage";
+    public const string VoxelEventId = "voxel";
+    public const string VoxelUnavailableEventId = "voxel_unavailable";
 
     private readonly TrainLogger _logger;
     private readonly Action _clear;
     private readonly Action _quit;
     private readonly Action _reload;
     private readonly bool _allowReload;
+    private readonly VoxelConsoleCommands? _voxelCommands;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
         Action clear,
         Action quit,
         Action reload,
-        bool allowReload)
+        bool allowReload,
+        VoxelConsoleCommands? voxelCommands = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -58,6 +62,7 @@ public sealed class ConsoleCommandDispatcher
         _quit = quit;
         _reload = reload;
         _allowReload = allowReload;
+        _voxelCommands = voxelCommands;
     }
 
     public void Execute(string line)
@@ -87,6 +92,12 @@ public sealed class ConsoleCommandDispatcher
                 return;
             case "loglevel":
                 ApplyLogLevel(parsed.Arguments);
+                return;
+            case "voxel":
+                if (_voxelCommands is null)
+                    _logger.Warning(Category, VoxelUnavailableEventId, "Enter the voxel development scene before using voxel commands.");
+                else
+                    _logger.Info(Category, VoxelEventId, _voxelCommands.Execute(parsed.Arguments));
                 return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
@@ -124,8 +135,8 @@ public sealed class ConsoleCommandDispatcher
     private string HelpMessage()
     {
         var commands = _allowReload
-            ? "help, clear, quit, reload, loglevel"
-            : "help, clear, quit, loglevel";
+            ? "help, clear, quit, reload, loglevel, voxel"
+            : "help, clear, quit, loglevel, voxel";
         return $"Available commands: {commands}.";
     }
 }
