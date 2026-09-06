@@ -61,6 +61,8 @@ public partial class VoxelDeveloperScene : Node3D
 
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
         {
+            ValidateGeneratedMesh();
+            GD.Print("VOXEL_SMOKE_GEOMETRY_VALID");
             GD.Print("VOXEL_SMOKE_SCENE_READY");
             _smokePhase = VoxelSmokePhase.Remove;
         }
@@ -146,6 +148,9 @@ public partial class VoxelDeveloperScene : Node3D
         _result.Text = $"最近命令：{result.Status} ({result.Position.X},{result.Position.Y},{result.Position.Z})。";
     }
 
+    private void ValidateGeneratedMesh() =>
+        VoxelMeshGeometryValidator.Validate(_mesh.Mesh, _mesh.FaceCount);
+
     private void AdvanceSmoke()
     {
         switch (_smokePhase)
@@ -160,6 +165,7 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSmokePhase.AwaitRemoveRefresh:
                 if (_mesh.LastWorldVoxelCount != 511 || !_cell.Text.Contains("空", StringComparison.Ordinal))
                     return;
+                ValidateGeneratedMesh();
                 GD.Print("VOXEL_SMOKE_MESH_UPDATED");
                 _smokePhase = VoxelSmokePhase.Add;
                 return;
@@ -173,6 +179,7 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSmokePhase.AwaitAddRefresh:
                 if (_mesh.LastWorldVoxelCount != 512 || !_cell.Text.Contains("耐久 100", StringComparison.Ordinal))
                     return;
+                ValidateGeneratedMesh();
                 GD.Print("VOXEL_SMOKE_DISPLAY_UPDATED");
                 _smokePhase = VoxelSmokePhase.Orient;
                 return;
@@ -185,6 +192,7 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSmokePhase.AwaitOrientationRefresh:
                 if (_mesh.LastWorldVoxelCount != 512 || !_cell.Text.Contains("pz_py", StringComparison.Ordinal))
                     return;
+                ValidateGeneratedMesh();
                 GD.Print("VOXEL_SMOKE_ORIENTATION_UPDATED");
                 _smokePhase = VoxelSmokePhase.RemoveInternal;
                 return;
@@ -197,6 +205,7 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSmokePhase.AwaitInternalRefresh:
                 if (_mesh.LastWorldVoxelCount != 511 || _mesh.FaceCount != 390)
                     return;
+                ValidateGeneratedMesh();
                 GD.Print("VOXEL_SMOKE_INTERNAL_FACE_UPDATED");
                 _smokePhase = VoxelSmokePhase.Done;
                 GetTree().Quit();

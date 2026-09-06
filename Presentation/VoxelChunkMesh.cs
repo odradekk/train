@@ -33,24 +33,24 @@ public partial class VoxelChunkMesh : MeshInstance3D
     private static void AddFace(SurfaceTool tool, WorldVoxelFace face)
     {
         var p = new Vector3(face.Position.X, face.Position.Y, face.Position.Z);
-        var (normal, a, b, c, d) = face.Normal switch
+        var (normal, ccw0, ccw1, ccw2, ccw3) = face.Normal switch
         {
             VoxelFaceNormal.PositiveX => (Vector3.Right, p + new Vector3(1, 0, 0), p + new Vector3(1, 1, 0), p + new Vector3(1, 1, 1), p + new Vector3(1, 0, 1)),
-            VoxelFaceNormal.NegativeX => (Vector3.Left, p, p + new Vector3(0, 1, 1), p + new Vector3(0, 1, 0), p + new Vector3(0, 0, 1)),
+            VoxelFaceNormal.NegativeX => (Vector3.Left, p, p + new Vector3(0, 0, 1), p + new Vector3(0, 1, 1), p + new Vector3(0, 1, 0)),
             VoxelFaceNormal.PositiveY => (Vector3.Up, p + new Vector3(0, 1, 0), p + new Vector3(0, 1, 1), p + new Vector3(1, 1, 1), p + new Vector3(1, 1, 0)),
-            VoxelFaceNormal.NegativeY => (Vector3.Down, p, p + new Vector3(1, 0, 1), p + new Vector3(0, 0, 1), p + new Vector3(1, 0, 0)),
+            VoxelFaceNormal.NegativeY => (Vector3.Down, p, p + new Vector3(1, 0, 0), p + new Vector3(1, 0, 1), p + new Vector3(0, 0, 1)),
             VoxelFaceNormal.PositiveZ => (Vector3.Back, p + new Vector3(0, 0, 1), p + new Vector3(1, 0, 1), p + new Vector3(1, 1, 1), p + new Vector3(0, 1, 1)),
             VoxelFaceNormal.NegativeZ => (Vector3.Forward, p, p + new Vector3(0, 1, 0), p + new Vector3(1, 1, 0), p + new Vector3(1, 0, 0)),
             _ => throw new ArgumentOutOfRangeException(nameof(face), face.Normal, "Unknown face normal.")
         };
         tool.SetNormal(normal);
         tool.SetColor(FaceColor(face));
-        tool.AddVertex(a);
-        tool.AddVertex(b);
-        tool.AddVertex(c);
-        tool.AddVertex(a);
-        tool.AddVertex(c);
-        tool.AddVertex(d);
+        tool.AddVertex(ccw0);
+        tool.AddVertex(ccw2);
+        tool.AddVertex(ccw1);
+        tool.AddVertex(ccw0);
+        tool.AddVertex(ccw3);
+        tool.AddVertex(ccw2);
     }
 
     private static Color FaceColor(WorldVoxelFace face)

@@ -18,7 +18,7 @@ public sealed class VoxelConsoleCommands
         if (arguments.Count == 1 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
         {
             _session.Reset();
-            return $"Voxel world reset. {Format(_session.Query(new WorldVoxelCoord(4, 4, 4)))}";
+            return $"Voxel world reset. {FormatWithCount(_session.Query(new WorldVoxelCoord(4, 4, 4)))}";
         }
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
@@ -27,7 +27,7 @@ public sealed class VoxelConsoleCommands
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var queryPosition))
-            return Format(_session.Query(queryPosition));
+            return FormatWithCount(_session.Query(queryPosition));
 
         if (arguments.Count == 6 && string.Equals(arguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var addPosition) &&
@@ -39,7 +39,10 @@ public sealed class VoxelConsoleCommands
     }
 
     private string FormatResult(WorldCommandResult result) =>
-        $"Voxel {result.Status} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z}). {Format(_session.Query(result.Position))}";
+        $"Voxel {result.Status} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z}). {FormatWithCount(_session.Query(result.Position))}";
+
+    private string FormatWithCount(WorldVoxelQuery query) =>
+        $"{Format(query)} Voxel count: {_session.World.VoxelCount}.";
 
     private static string Format(WorldVoxelQuery query) => query.Voxel is null
         ? $"Cell ({query.Position.X}, {query.Position.Y}, {query.Position.Z}): empty."

@@ -69,6 +69,7 @@ $output = $raw | Out-String
 Write-Host $output
 
 $required = @(
+    "VOXEL_SMOKE_GEOMETRY_VALID",
     "VOXEL_SMOKE_SCENE_READY",
     "VOXEL_SMOKE_REMOVED",
     "VOXEL_SMOKE_MESH_UPDATED",

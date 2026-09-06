@@ -29,6 +29,7 @@ public sealed class VoxelConsoleCommandTests
         var remove = session.Memory.Snapshot().Single(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId);
         StringAssert.Contains(remove.Message, "Removed");
         StringAssert.Contains(remove.Message, "empty");
+        StringAssert.Contains(remove.Message, "Voxel count: 511");
 
         dispatcher.Execute("voxel add 4 4 4 core:iron-ore pz_py");
         var query = voxelSession.Query(new WorldVoxelCoord(4, 4, 4));
@@ -40,5 +41,6 @@ public sealed class VoxelConsoleCommandTests
         StringAssert.Contains(queried.Message, "core:iron-ore");
         StringAssert.Contains(queried.Message, "pz_py");
         StringAssert.Contains(queried.Message, "durability 100");
+        StringAssert.Contains(queried.Message, "Voxel count: 512");
     }
 }
