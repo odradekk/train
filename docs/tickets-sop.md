@@ -1,250 +1,161 @@
-# Ticket Dispatch Standard Operating Procedure
+# Issue Task Standard Operating Procedure
 
-Use this procedure to hand a fully specified GitHub Issue to a terminal agent in an independent Orca worktree.
+Use this procedure for dispatch, implementation delivery, acceptance, revision, closure, and the subsequent version update of a GitHub Issue in `odradekk/train`. GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
 
-The default mode is a **full handoff**: once the task is delivered and the agent has started working, the dispatcher stops monitoring. Use Orca supervised orchestration instead when the user asks to wait for results, coordinate multiple tasks, manage decision gates, or automatically advance dependencies.
+The Issue comments are the durable record of implementation and acceptance. The PR contains the code to review. A terminal reply or worktree card is a notification, not a substitute for either.
 
-## Dispatch Gate
+## Roles and authority
 
-Dispatch a ticket only when all of these conditions are true:
+- **Coordinator / reviewer**: prepares and dispatches the task, reviews the delivered PR, records findings, verifies Acceptance criteria, and requests the user's final approval.
+- **Implementation agent**: works in its assigned independent worktree, validates and commits its changes, pushes its task branch, opens or updates the PR, and reports in the Issue comments.
+- **User**: gives final approval for the specific reviewed PR revision and proposed version change. Only then may the coordinator merge the PR, reclaim the worktree, close the Issue, and update the version.
 
-- the GitHub Issue is open;
-- it has the `ready-for-agent` label;
-- it has no open blockers;
-- it has not been superseded by another Issue;
-- its specification supports routine implementation without further decisions;
-- all required code and documentation exist on the target Git baseline;
-- the requested agent command is available;
-- the worktree setup hook can complete successfully.
+A dispatch under this SOP authorizes the implementation agent's task-branch push, PR creation/update, and Issue completion/revision comments. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
 
-Uncommitted changes in the main workspace are absent from an independent worktree created from the default baseline. If the ticket depends on those changes, first publish them to a reachable baseline or ask the user to decide. Do not create the worktree yet.
+## 0. Prepare an independent worktree — coordinator
 
-## Standard Procedure
+Before dispatch, verify:
 
-### 1. Validate the ticket
+- The Issue is open, labelled `ready-for-agent`, not superseded, and has no open native blockers.
+- The specification and Acceptance criteria are executable without unresolved design choices.
+- The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
+- The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them before promising a PR; report any required user action.
+- The agent command is available, setup succeeds, and required validation tools are located. For Godot, consult the checkout's `AGENTS.md`; distinguish real engine checks from script harness tests.
 
-Read the body, comments, state, labels, and native GitHub dependencies. Follow `docs/agents/issue-tracker.md` for GitHub operations.
+Use an independent top-level worktree from the repository's default base unless the user selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
 
-```powershell
-gh issue view <issue> --repo odradekk/train --comments
-gh api repos/odradekk/train/issues/<issue>/dependencies/blocked_by
-```
+For Orca-managed creation, setup, terminals, recovery, status, or cleanup, the coordinator uses the `orca-cli` skill and its version-matched guide. Keep this tooling context out of the implementation brief: the worker needs its absolute path, branch, baseline, and independent-worktree ownership, not Orca instructions.
 
-If the ticket is closed, superseded, or blocked, show the facts and ask the user to choose. Recommend the current unblocked dispatch frontier; never silently dispatch a different ticket.
+**Complete when:** one valid Issue has one independent worktree, a self-contained baseline, successful setup, and one ready agent.
 
-**Completion criterion:** one open, executable, unblocked ticket has been confirmed.
+## 1. Dispatch the implementation brief — coordinator
 
-### 2. Confirm a self-contained baseline
+The brief must begin exactly with `/implement `: one space after the command, with no preceding text. Use the template below and fill every placeholder.
 
-Confirm that the target baseline contains the ticket’s required code, specification, domain documentation, and ADRs.
+Include the Issue URL, worktree path, task branch, baseline SHA, PR base branch, scope boundaries, repository instructions, required validation, PR delivery, and Issue-comment requirements. Provide verified local tool paths when needed.
 
-By default, create an independent top-level worktree with no parent and let Orca use the repository’s default base ref. Set a parent or base branch only when the user explicitly requests stacked work, continuation from the current branch, or a specific baseline.
+Send the brief once to the verified agent terminal. Confirm receipt and that work has started; a transport acknowledgement alone is not enough. Retain the worktree/terminal identity for later revision requests. The coordinator, not the worker, maintains any Orca card metadata.
 
-**Completion criterion:** the new worktree needs no implicit state from the dispatcher’s current directory.
+After receipt, stop monitoring by default and report the handoff. Resume acceptance when the user requests it or a previously authorized monitoring workflow delivers completion. This SOP defines the lifecycle; it does not itself start continuous polling.
 
-### 3. Initialize Orca
+**Complete when:** the exact brief was delivered once, the assigned agent is working, and the user knows the target Issue/worktree.
 
-Use the `orca-cli` skill to select one CLI executable, load the version-matched guide from that binary, and confirm that the runtime is ready:
+## 2. Implement and deliver a PR — implementation agent
 
-```text
-<orca-command> skills get orca-cli
-<orca-command> status --json
-```
+1. Read the Issue body and comments, `AGENTS.md`, and relevant domain docs/ADRs.
+2. Implement only the assigned scope, add observable regression coverage, run required tests/build/integration checks, and review the diff.
+3. Commit intended changes with Conventional Commit messages. Push the task branch to the agreed repository and open a PR against the agreed base. For a revision, add commits to the same branch and update the same PR.
+4. Reference the Issue with a normal link or `Refs #<issue>`. Avoid closing keywords in PR descriptions and commits so the coordinator can close the Issue after worktree cleanup.
+5. Add an Issue comment with the completion brief below. The PR head SHA must identify the exact code tested.
 
-Use the same executable for every later command. If it fails, report the original error; do not switch to another Orca build.
+If implementation or validation is blocked, post a blocker comment with evidence, missing prerequisites, and the next required action. If PR creation fails, report that delivery is incomplete; a local commit alone is not a delivered task.
 
-**Completion criterion:** the runtime is ready and the current command surface is known.
+Keep the worktree for review and revision. The agent leaves Acceptance-criteria checkboxes and final acceptance to the reviewer.
 
-### 4. Inspect repository setup
+**Complete when:** the PR is accessible, its remote head matches the tested commit, and the Issue has a completion brief linking that PR. Required checks that failed or were not run remain explicit blockers, not passes.
 
-Read the live repository configuration rather than caching its setup command in this document:
+### Implementation brief template
 
 ```text
-<orca-command> repo show --repo path:<repo-path> --json
+/implement GitHub Issue #<issue>: <title> — <issue-url>
+
+You own the independent worktree <absolute-path> and task branch <branch>.
+Baseline: <sha>. Target repository: odradekk/train. PR base: <base-branch>.
+Work only in this worktree; preserve unrelated changes and keep archive/mvp read-only.
+
+Read the full Issue body/comments, AGENTS.md, and relevant domain docs/ADRs.
+Implement only #<issue>; exclude <adjacent-scope>.
+Required validation: <tests, build, real integration checks, verified tool paths>.
+Review the diff and commit intended changes with Conventional Commit messages.
+
+You are authorized to push this task branch, create/update its PR against the
+specified base, and post completion/revision comments on this Issue.
+After validation, submit the PR and post an Issue comment with the PR URL,
+tested head SHA, changes, Acceptance-criteria coverage, exact validation
+commands/results, reproduction steps, and any remaining risks or blockers.
+Use a normal Issue reference, not an automatic closing keyword.
+If blocked, report the evidence and required action in an Issue comment.
+
+For review fixes, keep the same worktree, branch, and PR; add commits and reply
+to each finding with its resolution and validation.
+Leave checkboxes/final acceptance to the reviewer. Leave merge, worktree
+cleanup, and Issue closure to the coordinator after explicit user approval.
 ```
 
-Confirm that the setup script, default run policy, and agent startup policy fit the ticket. When the agent depends on restored packages or generated files, setup must finish before the agent starts.
+### Completion brief — Issue comment
 
-**Completion criterion:** setup is known and ordered before any dependent agent work.
+- PR URL, base branch, and tested head SHA.
+- What changed and which Acceptance criteria it covers.
+- Exact validation commands, tool versions where relevant, results, and anything not run.
+- Reproduction steps or example content needed to verify the behavior.
+- Remaining risks/blockers, or an explicit statement that none are known.
 
-### 5. Create the worktree
+## 3. Review and return findings — coordinator / reviewer
 
-For a custom agent command, use a two-step launch. Create the worktree first:
+Read the Issue completion brief and all subsequent discussion, then inspect the PR's actual base/head and full relevant diff. Use `code-review` for Standards and Spec review; verify agent claims against code and independently run risk-appropriate checks. Reuse prior evidence only when it still applies to the reviewed revision.
 
-```text
-<orca-command> worktree create --repo id:<repo-id> --name issue-<number>-<short-name> --issue <number> --no-parent --setup run --json
-```
+If review fails:
 
-Name it `issue-<number>-<english-kebab-case>`. Save the complete worktree ID returned by Orca:
+1. Reply in an Issue comment identifying the PR/head SHA and each finding: severity, violated requirement, file/line or reproduction, observed versus expected result, and requested correction.
+2. Notify the same implementation agent with a `/implement ` revision brief linking that comment. The terminal notification supplements, rather than replaces, the Issue record.
+3. The agent fixes the same PR, reruns affected checks, and posts a new Issue comment responding to each finding with commit IDs and validation results.
+4. Re-review the new head and affected behavior. Keep the Issue open and retain the worktree throughout this loop.
 
-```text
-<repo-id>::<absolute-worktree-path>
-```
+**Complete when:** no unresolved review findings or required validation gaps remain for the identified PR head.
 
-A bare repository ID is not a worktree ID.
+## 4. Verify every Acceptance criterion — coordinator / reviewer
 
-**Completion criterion:** the worktree is linked to the correct Issue, uses the intended baseline, and has no unintended parent.
+After the code review passes:
 
-### 6. Verify setup
+1. Read the current Issue body again. Map every Acceptance criterion to inspected implementation and applicable test/integration evidence.
+2. Mark only satisfied criteria `[x]`; leave incomplete or unverified criteria `[ ]`. If a previously checked criterion no longer holds, clear it and explain why in a comment. Preserve the wording and unrelated Issue content; do not weaken requirements to obtain a pass.
+3. If any criterion remains unmet, publish the gap and return to step 3. Scope changes require the user's decision.
+4. Read back the saved Issue body to verify the actual checkbox state. Reconcile any concurrent edits before writing; do not overwrite newer discussion or requirements.
+5. When every criterion passes, post the final acceptance conclusion in an Issue comment: PR URL/head SHA, per-criterion evidence, validation results, resolved review findings, and remaining nonblocking risks. State explicitly: **technical acceptance passed; awaiting user approval to merge**.
 
-List the new worktree’s terminals and inspect the setup terminal’s real output:
+Present the PR, final acceptance comment, and proposed version change under step 6 to the user, then stop. Keep the PR unmerged, the worktree available, and the Issue open.
 
-```text
-<orca-command> terminal list --worktree id:<full-worktree-id> --include-visual-layouts --json
-```
+**Complete when:** every criterion is verified and checked, the saved state is confirmed, and the acceptance comment is bound to the reviewed head.
 
-Use explicit success output or a returned prompt as evidence. Do not guess with a sleep. If setup fails, keep the worktree, stop before launching the agent, and report the error.
+## 5. Final approval, merge, cleanup, close — coordinator
 
-Setup tabs and default terminals created by repository configuration are intentional surfaces. Keep them unless a terminal has been confirmed as an unused shell and removal is necessary.
+Proceed only after the user has reviewed the acceptance result and explicitly approved the specific PR for merge and closure.
 
-**Completion criterion:** setup has explicitly succeeded.
+1. Recheck that the PR head still matches the accepted revision, required checks pass, no unresolved review discussion remains, and the PR can merge. New commits require affected revalidation and renewed user approval. Preserve main-workspace changes.
+2. Merge the PR using the repository's configured policy or the user's selected method. Verify the remote merged state and merge commit; a local branch merge is not a substitute.
+3. Verify that the exact task worktree contains no unpreserved changes or unique commits. Reclaim it through `orca-cli` when managed by Orca, closing its terminals and removing the task branch only when safe. Account for squash/rebase merges when proving that work is retained.
+4. Add an Issue closure comment linking the merged PR, merge commit, and final acceptance comment, and report worktree cleanup. Close the Issue as completed.
+5. Read back PR/Issue state and confirm worktree removal, then continue to step 6.
 
-### 7. Launch the agent
+If merge fails, retain the worktree and Issue. If cleanup fails after merge, report that state and keep the Issue open until cleanup is resolved; do not rerun the merge or discard unpreserved work.
 
-When `worktree create --agent <id> --prompt ...` fully expresses the requested launch, prefer that agent-first path.
+**Complete when:** the approved PR is remotely merged, the worktree is reclaimed without losing work, and the Issue is confirmed closed with its acceptance record intact.
 
-When the command includes custom arguments, create a dedicated terminal after setup succeeds:
+## 6. Update the version — coordinator
 
-```text
-<orca-command> terminal create --worktree id:<full-worktree-id> --title "<Agent> #<issue>" --command "<agent-command>" --json
-```
+After the PR is merged, its worktree reclaimed, and the Issue closed, update the version on the merged base branch. This is the final step of the task, not part of the implementation agent's PR.
 
-Add permission-expanding flags such as `--yolo` only when the user explicitly requests them.
+During development, use `0.MINOR.PATCH`:
 
-Save the returned terminal handle. If it becomes stale, list the worktree’s terminals again and use only the replacement handle.
+| Change | Version rule | Example |
+| --- | --- | --- |
+| Other completed changes (default) | Increment PATCH by 1 | `0.2.3 → 0.2.4` |
+| Completed major system or staged milestone, confirmed by the user | Increment MINOR by 1 and reset PATCH to 0 | `0.2.3 → 0.3.0` |
+| First formal release, explicitly confirmed by the user | Set the version to `1.0.0` | `0.x.y → 1.0.0` |
 
-**Completion criterion:** exactly one target agent instance and one valid terminal handle exist.
+These rules describe this project's development milestones, not automatic classification by Conventional Commit prefix. Propose the default PATCH increase unless the accepted scope establishes a major system or milestone. A large diff or a breaking change alone does not authorize `1.0.0`; post-1.0 release policy requires a separate decision.
 
-### 8. Clear startup gates
+1. Read the latest version on the merged base branch and calculate the approved increase. If another task has advanced it since approval, recompute from the current value using the approved category; never overwrite a newer version.
+2. Keep the existing version declarations consistent: `project.godot` `config/version`, `export_presets.cfg` `application/product_version` and `application/file_version`, and the current-version line in `AGENTS.md`. Map `X.Y.Z` to Windows file version `X.Y.Z.0`. Leave engine, schema, language, dependency, and archived project versions unchanged.
+3. Check the diff and version consistency, run the relevant existing build/configuration checks, then record the version-only change as `chore: bump version to X.Y.Z`. This commit/push is part of the user-approved closeout, subject to base-branch protection; if a follow-up PR is required, request its approval instead of bypassing protection.
+4. Add a comment to the closed Issue recording the old/new version, classification, version commit, and validation result. Report completion only after the version change is present on the target remote branch.
 
-Wait for the TUI to become idle. If it does not, or Orca reports a blocked reason, read the terminal:
+Apply one increase per completed task, not per implementation commit, repair round, or review attempt. The version-only closeout commit does not trigger another increase.
 
-```text
-<orca-command> terminal wait --terminal <handle> --for tui-idle --timeout-ms 60000 --json
-<orca-command> terminal read --terminal <handle> --json
-```
+**Complete when:** the approved version is consistently recorded and published, and the closed Issue links its version commit. If this step is blocked, keep the already merged PR and closed Issue as they are, record the pending version update, and resume only this step when unblocked.
 
-Accept Workspace Trust only when the displayed path exactly matches the new worktree and the user has authorized that agent to execute code there. Stop for user action when login, permissions, or paths are unexpected.
+## Recovery
 
-**Completion criterion:** the agent’s main interface accepts a task and no startup prompt remains unresolved.
+After interruption, read the latest Issue comments, PR head/checks, worktree state, and any recorded version commit before acting. Resume the first incomplete step instead of recreating worktrees, resending accepted briefs, opening duplicate PRs, repeating completed merges, or incrementing a version twice.
 
-### 9. Send one implementation brief
-
-The brief must start exactly with `/implement `, including one trailing space and with no preceding text. This prefix triggers the implementation skill. The remainder of the brief must include:
-
-- ticket number, title, and URL;
-- ownership of the independent worktree;
-- the Issue, `AGENTS.md`, domain documentation, and ADRs to read;
-- the ticket’s scope and adjacent-ticket boundaries;
-- test, build, and diff-review requirements;
-- a Conventional Commit requirement;
-- worktree comment update requirements;
-- permission boundaries for PRs, Issue state, and other external writes;
-- how to report a genuine blocker.
-
-Send it once through the terminal handle and append Enter:
-
-```text
-<orca-command> terminal send --terminal <handle> --text "<brief>" --enter --json
-```
-
-`accepted` proves only that input was written. Read the terminal afterward to confirm that the agent received the task and started working. TUI animation or repeated rendering is not evidence that the brief needs to be sent again.
-
-**Completion criterion:** one task delivery has been received and is being processed.
-
-### 10. Update Orca metadata
-
-```text
-<orca-command> worktree set --worktree id:<full-worktree-id> --comment "<Agent> implementing #<issue> <short scope>" --workspace-status in-progress --json
-```
-
-Keep the comment current and concise; do not copy the ticket body.
-
-**Completion criterion:** the Orca card shows the correct Issue, status, agent, and short scope.
-
-### 11. Complete the handoff
-
-A full handoff is complete when all of this evidence exists:
-
-- the ticket is valid and unblocked;
-- the worktree baseline is self-contained;
-- setup succeeded;
-- the target agent started;
-- startup gates were cleared;
-- the brief began with `/implement ` and was sent exactly once;
-- the agent is working;
-- worktree metadata was updated.
-
-Stop reading, waiting, or polling after this point. Report the worktree, branch, path, baseline, Issue, setup result, agent command, terminal handle, scope, and that monitoring has stopped.
-
-## Implementation Brief Template
-
-```text
-/implement GitHub Issue #<number> for odradekk/train: <issue-url>
-
-You own this independent Orca worktree and branch. Read the full issue body and repository instructions before changing code. Implement only #<number>. Respect AGENTS.md and the current domain docs/ADRs. Use the smallest correct diff and keep archive/mvp read-only.
-
-Required workflow:
-1. Inspect the repo and fetch the issue with gh using --repo odradekk/train when no remote is configured.
-2. Implement the complete observable contract, including tests at the specified behavior boundary.
-3. Run the relevant tests and practical build/Godot validation.
-4. Review the diff for scope and regressions.
-5. Commit all intended changes with a Conventional Commit message.
-6. Update the Orca worktree comment at meaningful checkpoints and leave a concise final validation result.
-
-Use the decisions already specified in the issue. Report genuine missing-fact blockers in the worktree comment. Keep dependent or adjacent tickets unchanged. Create no PR unless explicitly requested.
-```
-
-Adapt the language and validation commands to the ticket while preserving the scope, validation, commit, and external-write boundaries.
-
-## Recovering a Dispatch
-
-After a parent-session restart, interrupted output, or lost tool state, **rediscover rather than recreate**:
-
-1. reload the version-matched Orca guide and confirm status;
-2. find the worktree with `worktree list/show`;
-3. find the current handle with `terminal list --worktree ...`;
-4. read the terminal to identify setup, startup-gate, idle, or working state;
-5. continue from the observed state.
-
-During recovery, do not create a duplicate worktree, launch a second copy of the agent, resend the brief, or assume that an old terminal handle remains valid.
-
-## Exception Handling
-
-| Condition | Action |
-| --- | --- |
-| Ticket is closed or superseded | Show the facts and ask the user to select the current ticket |
-| Ticket has an open blocker | Recommend the unblocked dispatch frontier and stop |
-| Required context exists only as uncommitted changes | Publish a reachable baseline or request a decision |
-| Orca is not running | Start it with the selected CLI and check status again |
-| Setup fails | Keep the worktree, do not launch the agent, and report the error |
-| Agent command is unavailable | Report the exact error; do not substitute another agent |
-| Workspace Trust path differs | Do not accept it; ask the user to confirm |
-| Terminal handle is stale | List terminals again and use only the new handle |
-| Parent session restarts | Rediscover the existing dispatch; do not recreate or resend |
-| Agent is already working | Complete the full handoff and stop monitoring |
-
-## Dispatch Report Template
-
-```text
-Dispatched #<issue>: <title>
-
-- Worktree: <name>
-- Branch: <branch>
-- Path: <absolute path>
-- Baseline: <base ref>
-- Parent worktree: none / <parent>
-- Setup: succeeded
-- Agent command: <command>
-- Terminal: <title> / <handle>
-- Orca status: in-progress
-- Scope: implement only #<issue>; exclude <adjacent tickets>
-- External writes: <PR/Issue permissions>
-- Monitoring: task delivered and started; full handoff monitoring stopped
-```
-
-## Rules Proven by This Dispatch
-
-Issue #17 was closed and superseded by the dependency chain `#18 → #19 → #20`, so the dispatcher first selected the only unblocked frontier ticket, #18. The custom command `cursor-agent --yolo` used the two-step path: create the worktree and finish setup, then create a dedicated terminal. Workspace Trust was accepted only after matching the displayed path. When the parent session restarted, Orca rediscovered the existing worktree and terminal; it did not recreate the dispatch or resend the task.
-
-The three core safeguards are: **dispatch the frontier, require a self-contained baseline, and rediscover rather than recreate.**
+A newly discovered blocker, scope change, or changed PR head returns the task to the relevant earlier step. Never treat a stale acceptance comment as approval for unreviewed code.
