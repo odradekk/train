@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>#32 轨道几何验证原型</title>
+<style>
+  *{box-sizing:border-box}body{margin:0;background:#f5f5f2;color:#222;font:15px/1.65 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1720px;margin:auto;padding:28px}h1{font-size:27px;margin:0 0 8px}h2{font-size:18px;margin:0}p{margin:8px 0}small,.muted{color:#646460}.intro{max-width:1150px}.bar,.guide,.notes{background:white;border:1px solid #d8d8d1;padding:16px;margin:16px 0;border-radius:7px}.tabs,.controls,.steps{display:flex;flex-wrap:wrap;gap:10px;align-items:center}button,select{font:inherit;padding:6px 12px;border:1px solid #bdbdb5;border-radius:4px;background:white;color:inherit;cursor:pointer}button.active{background:#262d34;color:white;border-color:#262d34}button:hover{border-color:#946223}.controls{margin-top:16px;gap:24px}.controls label{display:flex;gap:8px;align-items:center}input[type=range]{width:155px;accent-color:#946223}output{font-variant-numeric:tabular-nums;min-width:4em}#progress{width:min(480px,45vw)}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.card{border:1px solid #d8d8d1;border-radius:7px;background:white;overflow:hidden}.card header{padding:14px 16px 0;min-height:112px}.card svg{display:block;width:100%;background:#fafaf8}.metrics{padding:10px 16px;font-size:14px}.metric{display:flex;justify-content:space-between;border-bottom:1px solid #eee;padding:3px 0;gap:14px}.metric span:last-child{font-variant-numeric:tabular-nums;text-align:right}.bad{color:#a2352f}.good{color:#336547}.legend{display:flex;gap:18px;flex-wrap:wrap;margin:14px 0}.legend span::before{content:"";display:inline-block;width:22px;border-top:3px solid #3e6475;margin-right:6px;vertical-align:middle}.legend .car::before{border-color:#b27829}.legend .ghost::before{border-color:#ab524b;border-top-style:dashed}.legend .port::before{width:7px;height:7px;border:1px solid #858a8c;border-radius:50%}.legend .outside::before{border-color:#d13e36}.steps{margin-top:12px}.notes ul{padding-left:24px}.notes code{background:#eee;padding:1px 4px}#comparison{font-weight:600}.tag{font-size:12px;letter-spacing:1px;color:#786144}.warning{background:#fcf0d8;border-left:3px solid #b27829;padding:10px 14px}.formula{font-family:Georgia,serif;font-size:18px}.caption{font-size:12px;color:#666;padding:0 16px 12px}a{color:#376072}@media(max-width:1100px){.grid{grid-template-columns:1fr}.card header{min-height:0}.card svg{max-height:460px}}@media print{button,input{display:none}.grid{grid-template-columns:repeat(3,1fr)}main{padding:0}.card{break-inside:avoid}}
+</style>
+<main>
+  <div class="tag">THROWAWAY PROTOTYPE · #32 · 单位：体素格</div>
+  <h1>单格拓扑，能否承载平滑长车厢？</h1>
+  <p class="intro">比较每格独立圆弧、穿过相同 Port 中点的跨格样条，以及放宽中点约束后的参考路径。观察前后接触点固定间距时的车厢姿态、切角与轨道偏离。本页是二维几何验证，不能代替 Godot 中的三维观感、碰撞或性能验收。</p>
+  <div class="bar">
+    <div class="tabs" id="tabs">
+      <button data-case="corner">1 · 单格 90° 转弯</button>
+      <button data-case="stair">2 · 阶梯状大弯</button>
+      <button data-case="slope">3 · 水平 → 1:1 坡 → 水平</button>
+    </div>
+    <div class="controls">
+      <label>接触点间距 <input id="wheelbase" type="range" min="0.5" max="6" step="0.25" value="4"><output id="wheelbaseValue"></output></label>
+      <label><span id="sizeLabel">参考半径</span> <input id="size" type="range" min="2" max="12" step="1" value="8"><output id="sizeValue"></output></label>
+      <label id="transitionControl">坡端过渡长度 <input id="transition" type="range" min="0.5" max="4" step="0.25" value="2"><output id="transitionValue"></output></label>
+    </div>
+    <div class="controls">
+      <label>前接触点沿程 <input id="progress" type="range" min="0" max="100" step="0.2" value="50"><output id="progressValue"></output></label>
+      <button id="back">后退 2%</button><button id="forward">前进 2%</button><button id="reset">重置场景</button>
+      <label><input id="ghost" type="checkbox" checked> 显示错误的“固定沿程差”后点</label>
+    </div>
+  </div>
+  <div class="guide">
+    <h2 id="guideTitle"></h2><p id="guideText"></p>
+    <div class="steps"><button id="short">① 短轴距 1.5 格</button><button id="long">② 长轴距 4 格</button><button id="room">③ 增加转弯／过渡空间</button><button id="middle">④ 看过弯／坡顶位置</button></div>
+    <p id="comparison"></p>
+  </div>
+  <div class="legend"><span>连续中心线</span><span class="car">刚性车厢及真实接触点</span><span class="ghost">固定沿程差得到的错误后点</span><span class="port">原 Port 约束点</span><span class="outside">中心线落在原无轨格内</span></div>
+  <section class="grid" id="cards"></section>
+  <section class="notes">
+    <h2>如何读这些数值</h2>
+    <ul>
+      <li>三张图使用相同坐标比例和相同原始拓扑。前点位置按各路径有效长度归一化，比较的是相同进程，不宣称是同一个物理点。车厢宽度为 0.7 格、每端悬伸为 0.4 格，仅作固定比例示意。</li>
+      <li>后接触点由“沿路径向后找到距离前点恰好等于轴距的最近交点”确定。当前案例均无回环；一般回环／自接近路径还需要历史路径与连续根选择，本页不验证该问题。</li>
+      <li>“轴间最大偏离”是两接触点之间轨道到车体轴线段的最大距离；“全程峰值”来自沿程采样。它不是碰撞通过结论，实际净空还要加入车宽、悬伸以及三维扫掠。</li>
+      <li>曲线用细分折线测量；最小半径、最大坡角及越界比例均为采样观测值，不能作为严格安全下界。折角方案明确标为切向不连续。本页不会把点采样检查冒充轨带或车体扫掠验证。</li>
+      <li>B 使用均匀 Catmull–Rom 插值，仅代表一种可复现的跨格插值方案，不证明所有样条都具有同样行为。C 是约束对照：明确不保证命中原 Port 中点，不是已被现有设计接受的实现。</li>
+      <li>圆弧上的刚性轴距 B 与轨道弧长差 Δs 不相同。圆弧切角参考：<span class="formula">h = R − √(R² − B²/4)</span>；仅当两接触点都在同一圆弧且 B ≤ 2R 时适用。</li>
+      <li>1:1 坡的平均坡角为 45°。总高差、水平跨度都不变时，若两端要水平且处处坡度不超过 1，平滑过渡不可能成立。C 借用相邻水平段，在相同高差下增加实际爬升的水平范围。</li>
+    </ul>
+    <p class="warning">待决定：Port 中点是否是路径必须经过的位置？跨格平滑允许使用哪些已有轨道格或额外路基？可接受的车厢切角与过渡空间是多少？这些结论应由本页证据和实际观感共同确定。</p>
+    <p class="muted">无网络依赖，无存储，无自动动画。拖动沿程滑块或点“前进”逐步检查。关闭再打开即可恢复默认状态。</p>
+  </section>
+</main>
+<script>
+// Pure, disposable geometry module. No DOM, engine state or production dependency.
+const RailGeometry = (() => {
+  const add=(a,b)=>[a[0]+b[0],a[1]+b[1]], sub=(a,b)=>[a[0]-b[0],a[1]-b[1]], mul=(a,k)=>[a[0]*k,a[1]*k];
+  const dot=(a,b)=>a[0]*b[0]+a[1]*b[1], norm=a=>Math.hypot(...a), dist=(a,b)=>norm(sub(a,b));
+  const lerp=(a,b,t)=>add(a,mul(sub(b,a),t));
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  function path(points, kink=false) {
+    const p=points.filter((v,i)=>!i||dist(v,points[i-1])>1e-10), s=[0];
+    for(let i=1;i<p.length;i++)s.push(s[i-1]+dist(p[i],p[i-1]));
+    let maxK=0,maxAngle=0;
+    for(let i=1;i<p.length;i++)maxAngle=Math.max(maxAngle,Math.abs(Math.atan2(p[i][1]-p[i-1][1],p[i][0]-p[i-1][0]))*180/Math.PI);
+    for(let i=1;i<p.length-1;i++) {
+      const a=sub(p[i],p[i-1]),b=sub(p[i+1],p[i]),d=norm(a)*norm(b)*dist(p[i-1],p[i+1]);
+      if(d>1e-15)maxK=Math.max(maxK,2*Math.abs(a[0]*b[1]-a[1]*b[0])/d);
+    }
+    return {p,s,length:s.at(-1),minRadius:kink?0:maxK>1e-8?1/maxK:Infinity,maxAngle,kink};
+  }
+  function pointAt(track,s) {
+    s=clamp(s,0,track.length);let lo=0,hi=track.s.length-1;
+    while(lo+1<hi){const m=(lo+hi)>>1;if(track.s[m]<=s)lo=m;else hi=m;}
+    return {p:lerp(track.p[lo],track.p[hi],(s-track.s[lo])/(track.s[hi]-track.s[lo])),index:lo,s};
+  }
+  function distanceToSegment(p,a,b) {
+    const ab=sub(b,a),d=dot(ab,ab),t=d?clamp(dot(sub(p,a),ab)/d,0,1):0;
+    return dist(p,add(a,mul(ab,t)));
+  }
+  function nearestDistance(track,p) {
+    let d=Infinity;for(let i=1;i<track.p.length;i++)d=Math.min(d,distanceToSegment(p,track.p[i-1],track.p[i]));return d;
+  }
+  function vehicle(track,sf,base) {
+    const front=pointAt(track,sf);let near=front.p;
+    for(let i=front.index;i>=0;i--) {
+      const far=track.p[i];
+      if(dist(far,front.p)>=base) {
+        const v=sub(near,far),w=sub(far,front.p),a=dot(v,v),b=2*dot(w,v),c=dot(w,w)-base*base;
+        const disc=Math.max(0,b*b-4*a*c),roots=[(-b-Math.sqrt(disc))/(2*a),(-b+Math.sqrt(disc))/(2*a)];
+        const t=Math.max(...roots.filter(x=>x>=-1e-8&&x<=1+1e-8)),rear=lerp(far,near,clamp(t,0,1));
+        let deviation=0;
+        for(let j=i+1;j<=front.index;j++)deviation=Math.max(deviation,distanceToSegment(track.p[j],rear,front.p));
+        const wrong=pointAt(track,Math.max(0,sf-base)).p;
+        return {front:front.p,rear,base:dist(front.p,rear),deviation,wrong,wrongError:base-dist(front.p,wrong),angle:Math.atan2(front.p[1]-rear[1],front.p[0]-rear[0])*180/Math.PI};
+      }
+      near=far;
+    }
+    return null;
+  }
+  function ports(cells) {
+    const first=sub(cells[1],cells[0]),last=sub(cells.at(-1),cells.at(-2));
+    return [sub(cells[0],mul(first,.5)),...cells.slice(1).map((p,i)=>lerp(cells[i],p,.5)),add(cells.at(-1),mul(last,.5))];
+  }
+  function localArcs(cells,nodes) {
+    const points=[];
+    for(let i=0;i<cells.length;i++) {
+      const a=nodes[i],b=nodes[i+1],u=mul(sub(cells[i],a),2),v=mul(sub(b,cells[i]),2);
+      if(Math.abs(dot(u,v)-1)<1e-8){for(let j=0;j<=40;j++)points.push(lerp(a,b,j/40));}
+      else {
+        const center=add(a,mul(v,.5)),angle=Math.atan2(a[1]-center[1],a[0]-center[0]),sign=Math.sign(u[0]*v[1]-u[1]*v[0]);
+        for(let j=0;j<=48;j++){const t=angle+sign*Math.PI/2*j/48;points.push(add(center,[.5*Math.cos(t),.5*Math.sin(t)]));}
+      }
+    }
+    return path(points);
+  }
+  function catmull(nodes) {
+    const points=[];
+    for(let i=0;i<nodes.length-1;i++) {
+      const p1=nodes[i],p2=nodes[i+1],p0=i?nodes[i-1]:sub(mul(p1,2),p2),p3=nodes[i+2]||sub(mul(p2,2),p1);
+      for(let j=0;j<=60;j++) {
+        const t=j/60,t2=t*t,t3=t2*t;
+        points.push([0,1].map(k=>.5*(2*p1[k]+(-p0[k]+p2[k])*t+(2*p0[k]-5*p1[k]+4*p2[k]-p3[k])*t2+(-p0[k]+3*p1[k]-3*p2[k]+p3[k])*t3)));
+      }
+    }
+    return path(points);
+  }
+  function circle(radius,margin) {
+    const points=[];
+    for(let x=-radius-margin-.5;x<-radius;x+=.02)points.push([x,0]);
+    for(let j=0;j<=600;j++){const a=Math.PI/2*j/600;points.push([-radius+radius*Math.sin(a),radius-radius*Math.cos(a)]);}
+    for(let y=radius+.02;y<radius+margin+.5;y+=.02)points.push([0,y]);
+    points.push([0,radius+margin+.5]);return path(points);
+  }
+  function stairCells(radius) {
+    const cells=[[-radius,0]];
+    for(let j=1;j<=2000;j++) {
+      const a=Math.PI/2*j/2000,target=[Math.round(-radius+radius*Math.sin(a)),Math.round(radius-radius*Math.cos(a))];
+      let prev=cells.at(-1);
+      if(target[0]!==prev[0]&&target[1]!==prev[1]) {
+        const options=[[target[0],prev[1]],[prev[0],target[1]]];
+        options.sort((p,q)=>Math.abs(dist(p,[-radius,radius])-radius)-Math.abs(dist(q,[-radius,radius])-radius));
+        cells.push(options[0]);prev=cells.at(-1);
+      }
+      if(dist(prev,target)>.1)cells.push(target);
+    }
+    return cells;
+  }
+  function inside(cells,p) {
+    return cells.some(c=>Math.abs(c[0]-p[0])<=.50001&&Math.abs(c[1]-p[1])<=.50001);
+  }
+  function annotate(track,nodes,cells,base) {
+    track.portError=Math.max(...nodes.map(p=>nearestDistance(track,p)));
+    track.outside=cells?track.p.map(p=>!inside(cells,p)):null;
+    track.outsidePercent=cells?100*track.outside.filter(Boolean).length/track.p.length:0;
+    let peak=0,shortening=0,valid=0;
+    for(let i=0;i<=180;i++) {
+      const v=vehicle(track,base+.01+(track.length-base-.02)*i/180,base);
+      if(v){peak=Math.max(peak,v.deviation);shortening=Math.max(shortening,v.wrongError);valid++;}
+    }
+    track.peak=peak;track.shortening=shortening;track.valid=valid;return track;
+  }
+  function build(state) {
+    const n=state.size,margin=Math.ceil(Math.max(state.base+2,5));
+    let cells=null,nodes,tracks,details;
+    if(state.kind==='slope') {
+      nodes=[];for(let x=-margin;x<=n+margin;x++)nodes.push([x,clamp(x,0,n)]);
+      const hard=[];for(let i=1;i<nodes.length;i++)for(let j=0;j<=50;j++)hard.push(lerp(nodes[i-1],nodes[i],j/50));
+      const w=Math.min(state.transition,n),soft=[];
+      for(let j=0;j<=1600;j++) {
+        const x=-margin+(n+2*margin)*j/1600;let y;
+        if(x<=-w/2)y=0;
+        else if(x<w/2){const u=(x+w/2)/w;y=w*(u*u*u-.5*u*u*u*u);}
+        else if(x<=n-w/2)y=x;
+        else if(x<n+w/2){const u=(x-n+w/2)/w;y=n-w/2+w*(u-u*u*u+.5*u*u*u*u);}
+        else y=n;
+        soft.push([x,y]);
+      }
+      tracks=[path(hard,true),catmull(nodes),path(soft)];
+      details=[['A · 逐格直坡','原折线，准确经过坡段约束点；坡底、坡顶切向从 0° 跳到 45°。'],['B · 原点位插值','经过原水平／坡轨点的 Catmull–Rom；不预设最大坡度，观察过冲与局部反坡。'],['C · 借用相邻水平段','坡端采用平滑坡度过渡，仍保留最大 1:1；总爬升水平范围增加，不命中部分原点位。']];
+    } else {
+      const core=state.kind==='stair'?stairCells(n):Array.from({length:n+1},(_,i)=>[-n+i,0]).concat(Array.from({length:n},(_,i)=>[0,i+1]));
+      cells=[];for(let x=-n-margin;x<-n;x++)cells.push([x,0]);cells.push(...core);for(let y=n+1;y<=n+margin;y++)cells.push([0,y]);
+      nodes=ports(cells);tracks=[localArcs(cells,nodes),catmull(nodes),circle(n,margin)];
+      details=[['A · 每格独立圆弧','直轨连接相邻 Port；每个相邻边转弯使用 R = 0.5 的四分之一圆。'],['B · 相同 Port 跨格插值','穿过所有相同 Port 中点，跨相邻段估计切向；仅代表一种插值，不保证大半径。'],['C · 大半径圆弧参考','半径为所选值，不强制命中原 Port 中点。红色路径进入原布局无轨格，必须改变物理布局才可使用。']];
+    }
+    tracks.forEach(t=>annotate(t,nodes,cells,state.base));
+    const all=tracks.flatMap(t=>t.p);let xmin=Math.min(...all.map(p=>p[0]))-1,xmax=Math.max(...all.map(p=>p[0]))+1,ymin=Math.min(...all.map(p=>p[1]))-1,ymax=Math.max(...all.map(p=>p[1]))+1;
+    return {cells,nodes,tracks,details,bounds:{xmin,xmax,ymin,ymax}};
+  }
+  return {build,vehicle,pointAt,dist,sub,add,mul,clamp};
+})();
+</script>
+<script>
+const state={kind:'stair',size:8,base:4,transition:2,progress:50,ghost:true};
+let scene;
+const $=id=>document.getElementById(id),fmt=(n,d=3)=>Number.isFinite(n)?n.toFixed(d):'∞';
+function svgFor(track,index) {
+  const {xmin,xmax,ymin,ymax}=scene.bounds,W=640,H=430,pad=32,k=Math.min((W-2*pad)/(xmax-xmin),(H-2*pad)/(ymax-ymin));
+  const ox=(W-(xmax-xmin)*k)/2,oy=(H-(ymax-ymin)*k)/2;
+  const screen=p=>[ox+(p[0]-xmin)*k,H-oy-(p[1]-ymin)*k],points=ps=>ps.map(p=>screen(p).map(n=>n.toFixed(2)).join(',')).join(' ');
+  let svg=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${scene.details[index][0]}的轨道与车厢"><defs><pattern id="hatch${index}" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M0 5L5 0" stroke="#ddd" stroke-width="1"/></pattern></defs>`;
+  for(let x=Math.ceil(xmin);x<=xmax;x++){const a=screen([x,ymin]),b=screen([x,ymax]);svg+=`<path d="M${a}L${b}" stroke="#e8e8e2" stroke-width=".8"/>`;}
+  for(let y=Math.ceil(ymin);y<=ymax;y++){const a=screen([xmin,y]),b=screen([xmax,y]);svg+=`<path d="M${a}L${b}" stroke="#e8e8e2" stroke-width=".8"/>`;}
+  if(scene.cells)for(const c of scene.cells){const q=screen([c[0]-.5,c[1]+.5]);svg+=`<rect x="${q[0]}" y="${q[1]}" width="${k}" height="${k}" fill="#dce3e4" fill-opacity=".75" stroke="#9baeb4" stroke-width=".5"/>`;}
+  const line=points(track.p);svg+=`<polyline points="${line}" fill="none" stroke="#bfd0d5" stroke-width="${Math.max(3,k*.26)}" stroke-linejoin="round"/><polyline points="${line}" fill="none" stroke="#3e6475" stroke-width="2"/>`;
+  if(track.outside)for(let j=1;j<track.p.length;j++)if(track.outside[j]&&track.outside[j-1])svg+=`<path d="M${screen(track.p[j-1])}L${screen(track.p[j])}" stroke="#d13e36" stroke-width="3"/>`;
+  for(const p of scene.nodes){const q=screen(p);svg+=`<circle cx="${q[0]}" cy="${q[1]}" r="2.5" fill="white" stroke="#7d8588" stroke-width="1"/>`;}
+  const sf=state.base+.01+(track.length-state.base-.02)*state.progress/100,v=RailGeometry.vehicle(track,sf,state.base);
+  if(v) {
+    const d=RailGeometry.mul(RailGeometry.sub(v.front,v.rear),1/v.base),normal=[-d[1],d[0]],a=RailGeometry.sub(v.rear,RailGeometry.mul(d,.4)),b=RailGeometry.add(v.front,RailGeometry.mul(d,.4));
+    const box=[RailGeometry.add(a,RailGeometry.mul(normal,.35)),RailGeometry.add(b,RailGeometry.mul(normal,.35)),RailGeometry.sub(b,RailGeometry.mul(normal,.35)),RailGeometry.sub(a,RailGeometry.mul(normal,.35))];
+    svg+=`<polygon points="${points(box)}" fill="#dfb46d" fill-opacity=".55" stroke="#98651f" stroke-width="1.5"/><path d="M${screen(v.rear)}L${screen(v.front)}" stroke="#9a671e" stroke-width="2"/>`;
+    if(state.ghost)svg+=`<path d="M${screen(v.wrong)}L${screen(v.front)}" stroke="#ab524b" stroke-width="1.3" stroke-dasharray="5 3"/><circle cx="${screen(v.wrong)[0]}" cy="${screen(v.wrong)[1]}" r="5" fill="none" stroke="#ab524b"/>`;
+    for(const [p,label] of [[v.front,'前'],[v.rear,'后']]){const q=screen(p);svg+=`<circle cx="${q[0]}" cy="${q[1]}" r="4" fill="#8c5819"/><text x="${q[0]+7}" y="${q[1]-8}" font-size="13" fill="#633e12">${label}</text>`;}
+  }
+  svg+=`<path d="M35 ${H-20}h${k}" stroke="#343c3e" stroke-width="2"/><text x="35" y="${H-29}" font-size="12" fill="#666">1 格 · ${state.kind==='slope'?'侧视：横向距离 / 高度':'俯视：两个水平轴'}</text></svg>`;
+  return {svg,v};
+}
+function render(rebuild=false) {
+  if(rebuild||!scene)scene=RailGeometry.build(state);
+  document.querySelectorAll('[data-case]').forEach(b=>b.classList.toggle('active',b.dataset.case===state.kind));
+  $('wheelbase').value=state.base;$('wheelbaseValue').textContent=state.base+' 格';$('size').value=state.size;$('sizeValue').textContent=state.size+' 格';$('transition').value=state.transition;$('transitionValue').textContent=state.transition+' 格';$('transitionControl').style.display=state.kind==='slope'?'flex':'none';$('sizeLabel').textContent=state.kind==='slope'?'坡道高差':'参考半径';$('progress').value=state.progress;$('progressValue').textContent=fmt(state.progress,1)+'%';$('ghost').checked=state.ghost;
+  const guides={corner:['同一个 L 形布局能否直接变成大弯？','先看短车，再换长车。A/B 命中同一组 Port；C 的圆弧半径更大，但会离开原来的 L 形轨带。红色不是渲染装饰，而是需要额外物理轨道的位置。'],stair:['阶梯路线看起来很宽，局部弯曲是否也变缓了？','A 在每个转弯格内仍是半径 0.5。B 穿过原 Port 中点，但可能出现很紧的局部弯曲。C 用大圆弧展示目标形态，同时量出它与原中点的偏差。'],slope:['坡道不改高差，平滑需要占用多少空间？','A 保持折角。B 插值通过所有原点位，检查是否出现超过 45° 或局部反坡。C 借用两端水平轨做平滑，端点总高差不变，但一部分原约束点会错开。']};
+  $('guideTitle').textContent=guides[state.kind][0];$('guideText').textContent=guides[state.kind][1];
+  $('comparison').textContent=state.kind==='slope'?`C 的实际爬升水平范围：${state.size+Math.min(state.transition,state.size)} 格；原 1:1 直坡为 ${state.size} 格。`:`参考圆弧半径 / 接触点间距 = ${fmt(state.size/state.base,2)}；尺寸仅用于比较，不是推荐默认值。`;
+  $('cards').innerHTML=scene.tracks.map((track,i)=> {
+    const {svg,v}=svgFor(track,i),row=(label,value,bad=false)=>`<div class="metric"><span>${label}</span><span class="${bad?'bad':''}">${value}</span></div>`;
+    const metrics=row('轨道总长',fmt(track.length)+' 格')+row('采样最小半径',track.kink?'折角：切向不连续':fmt(track.minRadius)+' 格',track.kink)+row(state.kind==='slope'?'最大坡角（采样）':'原 Port 中点最大偏差',state.kind==='slope'?fmt(track.maxAngle,2)+'°':fmt(track.portError)+' 格',state.kind==='slope'?track.maxAngle>45.01:track.portError>.01)+(state.kind==='slope'?row('原点位最大偏差',fmt(track.portError)+' 格',track.portError>.01):row('原无轨格内采样点',fmt(track.outsidePercent,2)+'%',track.outsidePercent>.01))+row('轴间最大偏离：当前',v?fmt(v.deviation)+' 格':'后点无解',!v)+row('轴间最大偏离：全程峰值',fmt(track.peak)+' 格')+row('实际接触点间距',v?fmt(v.base,4)+' 格':'—')+row('车体角度',v?fmt(v.angle,2)+'°':'—')+row('错误沿程法最大缩短',fmt(track.shortening)+' 格',track.shortening>.01);
+    return `<article class="card"><header><h2>${scene.details[i][0]}</h2><p class="muted">${scene.details[i][1]}</p></header>${svg}<div class="metrics">${metrics}</div><p class="caption">${track.valid}/181 个全程姿态采样存在后接触点。数值只描述本页几何。</p></article>`;
+  }).join('');
+}
+document.querySelectorAll('[data-case]').forEach(b=>b.onclick=()=>{state.kind=b.dataset.case;state.base=4;state.progress=50;state.size=state.kind==='slope'?4:8;state.transition=2;render(true);});
+$('wheelbase').oninput=e=>{state.base=+e.target.value;render(true);};$('size').oninput=e=>{state.size=+e.target.value;render(true);};$('transition').oninput=e=>{state.transition=+e.target.value;render(true);};$('progress').oninput=e=>{state.progress=+e.target.value;render();};$('ghost').onchange=e=>{state.ghost=e.target.checked;render();};
+$('back').onclick=()=>{state.progress=Math.max(0,state.progress-2);render();};$('forward').onclick=()=>{state.progress=Math.min(100,state.progress+2);render();};$('reset').onclick=()=>{state.base=4;state.size=state.kind==='slope'?4:8;state.transition=2;state.progress=50;render(true);};$('short').onclick=()=>{state.base=1.5;render(true);};$('long').onclick=()=>{state.base=4;render(true);};$('room').onclick=()=>{if(state.kind==='slope')state.transition=Math.min(4,state.transition+1);else state.size=Math.min(12,state.size+4);render(true);};$('middle').onclick=()=>{state.progress=state.kind==='slope'?67:50;render();};
+render(true);
+</script>
+</html>

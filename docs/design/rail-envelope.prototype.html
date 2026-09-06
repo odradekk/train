@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>#32 连续线路与车辆规格实验</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f5f5f2;color:#25333a;font:15px/1.65 system-ui,'Microsoft YaHei',sans-serif}main{max-width:1400px;margin:auto;padding:24px}h1{margin:0;font-size:26px}h2{font-size:18px}section{background:white;border:1px solid #ddd;padding:16px;margin:16px 0;border-radius:6px}.controls{display:flex;flex-wrap:wrap;gap:12px 24px}label{display:flex;align-items:center;gap:6px}input[type=number]{width:70px;padding:5px}button{padding:7px 12px;background:white;border:1px solid #aaa;border-radius:4px;cursor:pointer;font:inherit}button.active{background:#294f61;color:white}canvas{display:block;width:100%;height:auto;background:#fafaf8}.interior{display:flex;gap:32px;flex-wrap:wrap}.interior h3{font-size:15px;margin:6px 0}.interior>div{min-width:0}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}td,th{text-align:left;padding:7px;border-bottom:1px solid #ddd}.muted{color:#63717a}.bad{color:#ab3434}.good{color:#356345}#status{font-size:17px}.tag{color:#8b6533;font-size:12px}#progress{width:min(650px,65vw)}.note{border-left:3px solid #c69347;padding:8px 12px;background:#fff5e3}
+</style>
+<main><div class="tag">THROWAWAY PROTOTYPE · #32 · 五档尺寸已确认；车辆机械参数与线路参数为实验配置，单位：格</div>
+<h1>连续线路能否容纳统一规格的车厢？</h1>
+<p>先生成连续中心线，再显示它经过的体素格。比较五档车辆同型编组与不同档位的双车混编，观察扫过的空间、坡顶侵入与相邻车体干涉。不是铁路工程模拟，也不是正式车辆设计器。</p>
+<section><div class="controls" id="tabs"><button data-kind="bend">90° 连续弯</button><button data-kind="reverse">反向弯</button><button data-kind="slope">坡底与坡顶（侧视）</button></div>
+<p id="guide"></p><div class="controls"><button id="ordinary">① 中型同型编组</button><button id="boundary">② 超大型同型编组</button><button id="tight">③ 上一轮线路</button><button id="restore">④ 恢复共用线路</button><button id="oversize">⑤ 20×20 非法反例</button><button id="titanTrack">⑥ 五档共用候选线路</button></div></section>
+<section><h2>五档空间上限（长 × 宽 × 高）</h2><div class="controls" id="presets"></div><p>点击档位按钮加载该档的满尺寸领车。声明档位只改变校验标准，不自动缩放车体或升档。</p><div class="controls"><label>领车声明档位 <select id="tier"></select></label><label>尾车 <select id="trailer"></select></label><button id="reject">尝试超宽改装（应拒绝）</button></div><p id="editResult"></p>
+<p>界面数值可直接调成非法值以查看反例；红色状态不代表允许制造或运行。“尝试超宽改装”专门验证拒绝后保留原车。</p></section>
+<section><h2>领车内部能安排什么</h2>
+<p id="interiorSummary"></p><div class="interior"><div><h3>俯视：拆去顶板</h3><div id="floorPlan"></div></div><div><h3>横截面：墙、地板与顶板</h3><div id="crossSection"></div></div></div>
+<p class="muted">每个小格是 1×1 体素。仅为尺寸比较，假设墙、地板、顶板均厚 1 格；端墙为通道留出门洞。灰色为外壳，黄色为 1 格宽通道，蓝色为可布置区域，绿色为内部留空，不代表已放置家具。隔墙、设备和楼板会进一步占用空间。奇数宽时通道居中，偶数宽时向一侧偏半格。</p>
+<p class="note">内部示意不验证角色碰撞、门洞高度、楼梯或通道可达性；尚未确定角色尺寸，不能据此宣称实际可通行。车辆端部外壳在铁路扫描中仍按完整矩形保守处理。</p></section>
+<section><h2>当前领车参数</h2><div class="controls" id="vehicleControls"></div><p class="muted">车长 = 接触点间距 + 前悬伸 + 后悬伸。尾车选择“同领车”时同步全部参数，其余档位采用该档满尺寸预设。侧视车体从接触点轴线上方的“底部距离”开始；不含轮组实体。偏置指车体相对接触点轴线的横向偏移。</p>
+<h2>线路与空间</h2><div class="controls" id="trackControls"></div><p class="muted">侧向净空是中心线两侧保留的距离；顶部净空是侧视中沿轨道法线保留的距离。缓和长度按沿程计；坡角通过缓和段逐渐改变。车钩锚点位于车体两端、接触点轴线上。</p></section>
+<section><p id="vehicleStatus"></p><div id="status"></div><p id="current"></p><canvas id="view" width="1300" height="450"></canvas><p class="muted">蓝：中心线　灰格：中心线采样格（不是完整轨带验证）　浅蓝：保留净空　橙／绿：两节车厢　红：车体相交　细线：固定长度车钩</p><label>沿程位置 <input id="progress" type="range" min="0" max="100" step="0.2" value="50"><output id="position"></output></label><div class="controls"><button id="back">后退 2%</button><button id="next">前进 2%</button><button id="worst">查看最大空间需求位置</button><button id="problem">查看首个问题位置</button><button id="zoom">放大跟随车厢</button></div></section>
+<section><h2>当前线路上的五档同型编组扫描</h2><p>每种编组扫描 81 个领车沿程位置，分别求尾车姿态；空间测量沿矩形边界每约 0.5 格取点。红色表示发现问题，“未发现”不等于连续扫掠证明。点击一行加载该同型编组。</p><table><thead><tr><th>车厢</th><th>规格检查</th><th>所需侧向／顶部净空</th><th>最低车底距离</th><th>双车与线路观测</th></tr></thead><tbody id="results"></tbody></table>
+<p><button id="mixScan">扫描当前线路的全部 25 种有序双车组合</button></p><p id="mixSummary">尚未扫描。包含五种同型编组及二十种不同档位的前后排列。</p><div id="mixResults"></div></section>
+<section><h2>已确认尺寸与尚待验证的条件</h2><p>小型 8×5×6、中型 12×7×6、大型 16×9×8、超大型 20×11×8。可以不填满，但不能超过声明档位；不自动升档。本页以两个接触点的中点为纵向原点，前后边界各为规格长度的一半，横向边界各为规格宽度的一半；宽度未超限但向一侧偏出边界也非法。</p>
+<p>泰坦档尺寸已确认采用 24×13×10；按一格厚外壳计算，内部为 22×11×8，原四档不变。泰坦同样接受声明档位、越界与改装拒绝校验，满尺寸预设接触点间距为 22（实验配置，不是正式机械规格）。</p>
+<p>本轮预设接触点间距为规格长度减 2，前后悬伸各 1；允许实验轴距 2～规格长度减 2、悬伸各 0～1、偏置绝对值 ≤ 0.25、车底距轴线 0.5～1、固定车钩长度 1。车体高度单独校验，车底高度与轮组布置仍为实验条件。这些机械条件未冻结；满宽车辆不能再横向偏移。</p>
+<p>首次打开、切换场景、“恢复共用线路”和“五档共用候选线路”统一采用半径 192、缓和长度 160、坡角 10°、侧向净空 8、顶部净空 12。不再默认加载仅适合原四档的旧参数，也不需要为泰坦单独切换轨道。</p>
+<p>“上一轮线路”仍主动加载半径 48、缓和长度 32 的反例形状，保留当前净空和坡角。此时合法车辆可能无法通过；“车辆规格”和“线路采样”分开显示，不把线路不兼容误报成车辆非法。这是几何实验，不是最小可行参数或现实铁路标准。</p>
+<p>水平弯用线性变化的曲率接入圆弧；反向弯两段各转 45°，中间曲率回到零。坡道用平滑变化的坡角连接水平段。三者均由连续规则细分，列车与显示共用同一路径。改变坡道过渡长度也会改变终点位置与高差，本页不比较固定两站之间的施工可行性。</p>
+<p class="note">本页验证独立二维案例、矩形车体和有序双车组合。25 种组合只覆盖各档满尺寸预设，不等于覆盖档内所有设计。没有验证三节以上列车、倒车、多轴车辆、水平弯与坡道叠加、实际体素外形、车钩转角限值、轮组结构、轨距、完整物理占格或 Godot 三维观感。因此不能据此保证所有合法车辆能通过所有线路，也不会把当前采样通过直接写成产品保证。</p>
+<p>车钩采用沿程搜索与局部极小值细化；“未找到连接解”是计算结果，不证明不存在解。空间测量只搜索当前车厢附近的路径段。过长的水平缓和段会按转角与半径截短，避免产生负的圆弧长度。</p>
+<h2>新增泰坦：五档离线复核记录</h2><p>固定采用泰坦候选线路参数：三个场景 × 25 种满尺寸有序组合 × 321 个领车位置，共 24075 个双车姿态样本，未发现超净空、侵轨、车体相交或连接缺失。最大轴距／车钩长度误差小于 0.000000004 格。泰坦的超长、超宽、超高、满宽侧移与声明成超大型均被判为非法；拒绝改装保留原对象。这仍是二维采样证据，不是三维通过保证。</p>
+<h2>加入泰坦前：原四档离线复核记录</h2><p>以下是固定参数的记录，不随上方控件变化：放宽线路（半径 128、缓和 96、坡角 10°、侧向净空 6.5、顶部净空 10），三个场景 × 16 种满尺寸有序组合 × 321 个领车位置，共 15408 个双车姿态样本，未发现超净空、侵轨、车体相交或连接缺失。固定轴距／车钩长度的最大数值误差小于 0.000000004 格。</p>
+<p>上一轮形状（半径 48、缓和 32，净空和坡角同上）每组合采样 81 个位置：90° 弯有 8/16 种组合出现问题，反向弯 8/16，坡道 4/16；均发现车体干涉。此对比不是最小参数搜索，未证明连续通过，也不覆盖所有档内设计。</p>
+<p>尺寸边界另验：四档满尺寸合法；超长、超宽、满宽车体向侧方越界被拒绝，拒绝改装保留原对象。已确认的四档长宽高保持不变；接下来由三维验证继续确定机械参数与线路参数。<a href="rail-geometry.prototype.html">上一版：单格拓扑对照</a></p></section></main>
+<script>
+const Envelope=(()=>{
+const add=(a,b)=>[a[0]+b[0],a[1]+b[1]],sub=(a,b)=>[a[0]-b[0],a[1]-b[1]],mul=(a,k)=>[a[0]*k,a[1]*k],dot=(a,b)=>a[0]*b[0]+a[1]*b[1],len=a=>Math.hypot(...a),dist=(a,b)=>len(sub(a,b));
+const tiers=[{id:'small',name:'小型',length:8,width:5,height:6},{id:'medium',name:'中型',length:12,width:7,height:6},{id:'large',name:'大型',length:16,width:9,height:8},{id:'xl',name:'超大型',length:20,width:11,height:8},{id:'titan',name:'泰坦',length:24,width:13,height:10}];
+function preset(id){const q=tiers.find(q=>q.id===id);return {tier:id,base:q.length-2,front:1,rear:1,width:q.width,height:q.height,offset:0,bottom:.75};}
+const ordinary=preset('medium'),boundary=preset('xl'),fleet=tiers.map(q=>[q.name,preset(q.id)]);
+function validity(v){const q=tiers.find(q=>q.id===v.tier),errors=[],geometry=[];if(!q)return {errors:['未知规格'],geometry:[],valid:false};
+ if(v.base+v.front+v.rear>q.length+1e-8)errors.push('超过长度上限');
+ if(v.base/2+v.front>q.length/2+1e-8||v.base/2+v.rear>q.length/2+1e-8)errors.push('超过前后固定边界');
+ if(v.width>q.width+1e-8||Math.abs(v.offset)+v.width/2>q.width/2+1e-8)errors.push('超过侧向固定边界');
+ if(v.height>q.height+1e-8)errors.push('超过高度上限');
+ if(v.base<2||v.base>q.length-2||v.front<0||v.front>1||v.rear<0||v.rear>1)geometry.push('不满足本轮轴距／悬伸条件');
+ if(v.width<=0||v.height<=0||v.bottom<.5||v.bottom>1||Math.abs(v.offset)>.25)geometry.push('不满足本轮车底／偏置条件');
+ return {errors,geometry,valid:!errors.length&&!geometry.length};}
+function legal(v){return validity(v).valid;}
+function refit(v,change){const next={...v,...change},check=validity(next);return {accepted:check.valid,vehicle:check.valid?next:v,check};}
+function track(c){
+ const p=[[0,0]],s=[0];let heading=0;
+ function piece(length,angle){if(length<1e-10)return;const count=Math.max(1,Math.ceil(length/.08)),step=length/count,start=heading;for(let i=0;i<count;i++){const a=start+angle((i+.5)*step);p.push(add(p.at(-1),[step*Math.cos(a),step*Math.sin(a)]));s.push(s.at(-1)+step);}heading=start+angle(length);}
+ function bend(turn){const sign=Math.sign(turn),theta=Math.abs(turn),w=Math.min(c.transition,c.radius*theta),arc=c.radius*theta-w;piece(w,t=>sign*t*t/(2*w*c.radius));piece(arc,t=>sign*t/c.radius);piece(w,t=>sign*(t/c.radius-t*t/(2*w*c.radius)));}
+ piece(85,()=>0);const start=s.at(-1);
+ if(c.kind==='slope'){const a=c.angle*Math.PI/180,w=c.transition;piece(w,t=>a*(t/w-Math.sin(2*Math.PI*t/w)/(2*Math.PI)));piece(12,()=>0);piece(w,t=>-a*(t/w-Math.sin(2*Math.PI*t/w)/(2*Math.PI)));}
+ else if(c.kind==='reverse'){bend(Math.PI/4);bend(-Math.PI/4);}else bend(Math.PI/2);
+ const end=s.at(-1);piece(85,()=>0);return {p,s,length:s.at(-1),start,end,kind:c.kind};
+}
+function at(t,s){s=Math.max(0,Math.min(t.length,s));let lo=0,hi=t.s.length-1;while(lo+1<hi){const m=(lo+hi)>>1;if(t.s[m]<=s)lo=m;else hi=m;}return {p:add(t.p[lo],mul(sub(t.p[hi],t.p[lo]),(s-t.s[lo])/(t.s[hi]-t.s[lo]))),i:lo};}
+function pose(t,s,v){const f=at(t,s);let near=f.p;for(let i=f.i;i>=0;i--){const far=t.p[i];if(dist(far,f.p)>=v.base){const d=sub(near,far),q=sub(far,f.p),a=dot(d,d),b=2*dot(q,d),cc=dot(q,q)-v.base*v.base;const u=(-b-Math.sqrt(Math.max(0,b*b-4*a*cc)))/(2*a);const r=add(far,mul(d,Math.max(0,Math.min(1,u)))),axis=mul(sub(f.p,r),1/v.base),normal=[-axis[1],axis[0]];const world=(x,y)=>add(r,add(mul(axis,x),mul(normal,y)));const side=t.kind==='slope',low=side?v.bottom:v.offset-v.width/2,high=side?v.bottom+v.height:v.offset+v.width/2;return {f:f.p,r,axis,normal,poly:[world(-v.rear,low),world(v.base+v.front,low),world(v.base+v.front,high),world(-v.rear,high)],back:world(-v.rear,0),nose:world(v.base+v.front,0),i,fi:f.i};}near=far;}return null;}
+function overlap(a,b){for(const poly of [a,b])for(let i=0;i<4;i++){const e=sub(poly[(i+1)%4],poly[i]),n=[-e[1],e[0]],aa=a.map(p=>dot(p,n)),bb=b.map(p=>dot(p,n));if(Math.max(...aa)<=Math.min(...bb)+1e-8||Math.max(...bb)<=Math.min(...aa)+1e-8)return false;}return true;}
+function pair(t,s,v,u=v){const lead=pose(t,s,v);if(!lead)return null;const value=x=>{const q=pose(t,x,u);return q?dist(q.nose,lead.back)-1:Infinity;};let previous=s,prevD=value(s),olderD=Infinity;for(let x=s-.25;x>=u.base;x-=.25){const q=pose(t,x,u);if(!q)break;const d=dist(q.nose,lead.back)-1;let inside=previous,insideD=prevD;
+ // Refine a bracketed local minimum: a short valid coupling interval can fall between coarse samples.
+ if(d>=0&&prevD>=0&&d>prevD&&olderD>prevD){let a=x,b=Math.min(s,previous+.25);for(let j=0;j<24;j++){const u=a+(b-a)/3,w=b-(b-a)/3;if(value(u)<value(w))b=w;else a=u;}inside=(a+b)/2;insideD=value(inside);}
+ if(d>=0&&insideD<0){let lo=x,hi=inside;for(let j=0;j<25;j++){const m=(lo+hi)/2;if(value(m)>0)lo=m;else hi=m;}const tail=pose(t,(lo+hi)/2,u);if(dot(sub(tail.nose,lead.back),lead.axis)<0)return {lead,tail,collision:overlap(lead.poly,tail.poly),coupling:dist(tail.nose,lead.back)};}olderD=prevD;previous=x;prevD=d;}return {lead,tail:null,collision:false};}
+function space(t,car){let maximum=0,minimum=Infinity;const low=Math.max(0,car.i-300),high=Math.min(t.p.length-2,car.fi+300);for(let edge=0;edge<4;edge++){const a=car.poly[edge],b=car.poly[(edge+1)%4],count=Math.max(1,Math.ceil(dist(a,b)/.5));for(let j=0;j<=count;j++){const px=a[0]+(b[0]-a[0])*j/count,py=a[1]+(b[1]-a[1])*j/count;let best=Infinity,signed=0;for(let k=low;k<=high;k++){const dx=t.p[k+1][0]-t.p[k][0],dy=t.p[k+1][1]-t.p[k][1],qx=px-t.p[k][0],qy=py-t.p[k][1],dd=dx*dx+dy*dy;let u=(qx*dx+qy*dy)/dd;u=u<0?0:u>1?1:u;const ex=qx-u*dx,ey=qy-u*dy,distance=ex*ex+ey*ey;if(distance<best){best=distance;signed=(dx*ey-dy*ex)/Math.sqrt(dd);}}maximum=Math.max(maximum,t.kind==='slope'?signed:Math.sqrt(best));minimum=Math.min(minimum,signed);}}return {maximum,minimum};}
+function scan(t,v,c,u=v,steps=80){let maximum=0,minimum=Infinity,collisions=0,missing=0,worst=50,firstProblem=null,spacingError=0;const start=t.start-5,end=Math.min(t.length-2,t.end+v.base+v.front+v.rear+u.base+u.front+u.rear+5);for(let j=0;j<=steps;j++){const s=start+(end-start)*j/steps,pp=pair(t,s,v,u);if(!pp?.tail){missing++;firstProblem??=100*j/steps;continue;}if(pp.collision){collisions++;firstProblem??=100*j/steps;}for(const [car,def] of [[pp.lead,v],[pp.tail,u]]){const m=space(t,car);if(m.maximum>maximum){maximum=m.maximum;worst=100*j/steps;}minimum=Math.min(minimum,m.minimum);if(m.maximum>(t.kind==='slope'?c.roof:c.clearance)||t.kind==='slope'&&m.minimum<0)firstProblem??=100*j/steps;spacingError=Math.max(spacingError,Math.abs(dist(car.f,car.r)-def.base),Math.abs(pp.coupling-1));}}return {maximum,minimum,collisions,missing,worst,firstProblem,spacingError,start,end,samples:steps+1,clear:maximum<=(t.kind==='slope'?c.roof:c.clearance)&&(!(t.kind==='slope')||minimum>=0)&&!collisions&&!missing};}
+function interior(v){const length=v.base+v.front+v.rear;return {length,width:v.width,height:v.height,insideLength:Math.max(0,length-2),insideWidth:Math.max(0,v.width-2),insideHeight:Math.max(0,v.height-2),integer:[length,v.width,v.height].every(Number.isInteger)};}
+return {tiers,preset,validity,refit,ordinary,boundary,fleet,legal,track,pose,pair,space,scan,at,add,sub,mul,dist,interior};
+})();
+</script>
+<script>
+const defaultTrack={radius:192,transition:160,angle:10,clearance:8,roof:12};
+const $=id=>document.getElementById(id),f=n=>Number.isFinite(n)?n.toFixed(3):'—';let v={...Envelope.ordinary},tailTier='same',c={kind:'bend',...defaultTrack},progress=50,zoom=1,t,result,rows=[],matrixKey='';
+const tailDefinition=()=>tailTier==='same'?v:Envelope.preset(tailTier);
+const vehicleFields=[['base','接触点间距',.5,30,.5],['front','前悬伸',0,6,.25],['rear','后悬伸',0,6,.25],['width','宽度',.5,20,.5],['height','车体高度',.5,12,.5],['offset','横向偏置',-3,3,.25],['bottom','车底距离',0,2,.25]];
+const trackFields=[['radius','最小水平半径',2,250,1],['transition','缓和长度',.5,200,.5],['angle','坡角 °',1,45,1],['clearance','侧向净空',1,12,.25],['roof','顶部净空',2,15,.25]];
+function drawInterior(){
+ const room=Envelope.interior(v);$('interiorSummary').textContent=`外部 长 ${room.length} × 宽 ${room.width} × 高 ${room.height}；扣除一格厚外壳后，内部 长 ${room.insideLength} × 宽 ${room.insideWidth} × 净高 ${room.insideHeight}。一格通道两侧的布置宽度合计 ${Math.max(0,room.insideWidth-1)} 格（不是一块连续区域，未扣隔墙）。`;
+ if(!room.integer||room.width<3||room.height<3||room.length<3){$('floorPlan').textContent=$('crossSection').textContent='此示意只画长、宽、高均为整数且至少 3 格的外壳；铁路几何实验仍可使用小数参数。';return;}
+ const grid=(cols,rows,cell)=>{let out=`<svg viewBox="0 0 ${cols*24} ${rows*24}" role="img" style="width:${cols*24}px;max-width:100%;height:auto"><title>每格一个体素的内部尺寸示意</title>`;for(let y=0;y<rows;y++)for(let x=0;x<cols;x++)out+=`<rect x="${x*24}" y="${y*24}" width="24" height="24" fill="${cell(x,y)}" stroke="#89999d" stroke-width=".6"/>`;return out+'</svg>';};
+ const center=Math.floor(room.width/2);
+ $('floorPlan').innerHTML=grid(room.length,room.width,(x,y)=>y===0||y===room.width-1?'#adb5b7':y===center?'#f0d58d':x===0||x===room.length-1?'#adb5b7':'#c3dde7');
+ $('crossSection').innerHTML=grid(room.width,room.height,(x,y)=>x===0||x===room.width-1||y===0||y===room.height-1?'#adb5b7':'#cfe1cd');
+}
+function controls(){$('tier').value=v.tier;$('trailer').value=tailTier;for(const [id,fields,obj] of [['vehicleControls',vehicleFields,v],['trackControls',trackFields,c]]){$(id).innerHTML=fields.map(([key,label,min,max,step])=>`<label>${label}<input type="number" data-key="${key}" min="${min}" max="${max}" step="${step}" value="${obj[key]}"></label>`).join('');$(id).querySelectorAll('input').forEach(input=>input.onchange=()=>{const value=Number(input.value);if(!Number.isFinite(value)||value<+input.min||value>+input.max){input.value=obj[input.dataset.key];return;}obj[input.dataset.key]=value;rebuild();});}}
+function draw(){const cv=$('view'),ctx=cv.getContext('2d'),W=cv.width,H=cv.height,pp=Envelope.pair(t,result.start+(result.end-result.start)*progress/100,v,tailDefinition()),points=t.p.filter((p,i)=>t.s[i]>=t.start-12&&t.s[i]<=t.end+15);if(pp?.lead)points.push(...pp.lead.poly);if(pp?.tail)points.push(...pp.tail.poly);const xs=points.map(p=>p[0]),ys=points.map(p=>p[1]),xmin=Math.min(...xs)-4,xmax=Math.max(...xs)+4,ymin=Math.min(...ys)-6,ymax=Math.max(...ys)+7,k=Math.min(W/(xmax-xmin),H/(ymax-ymin)),ox=(W-(xmax-xmin)*k)/2,oy=(H-(ymax-ymin)*k)/2;const focus=pp?.tail?Envelope.mul(Envelope.add(pp.lead.f,pp.tail.r),.5):[(xmin+xmax)/2,(ymin+ymax)/2];const xy=p=>zoom===1?[ox+(p[0]-xmin)*k,H-oy-(p[1]-ymin)*k]:[W/2+(p[0]-focus[0])*k*zoom,H/2-(p[1]-focus[1])*k*zoom];ctx.clearRect(0,0,W,H);
+ function line(ps,color,width,fill=false){ctx.beginPath();ps.forEach((p,i)=>{const q=xy(p);i?ctx.lineTo(...q):ctx.moveTo(...q);});if(fill){ctx.closePath();ctx.fillStyle=color;ctx.fill();}else{ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke();}}
+ if(c.kind!=='slope')line(t.p,'#e5f0f1',2*c.clearance*k*zoom);else{const roof=t.p.map((p,i)=>{const a=t.p[Math.max(0,i-1)],b=t.p[Math.min(t.p.length-1,i+1)],d=Envelope.sub(b,a),l=Math.hypot(...d);return Envelope.add(p,[-d[1]/l*c.roof,d[0]/l*c.roof]);});line([...t.p,...roof.reverse()],'#e5f0f1',0,true);}
+ const cells=new Set();for(const p of t.p){const x=Math.round(p[0]),y=Math.round(p[1]),id=x+','+y;if(cells.has(id))continue;cells.add(id);const q=xy([x-.5,y+.5]);ctx.strokeStyle='#c4ced0';ctx.lineWidth=.5;ctx.strokeRect(q[0],q[1],k*zoom,k*zoom);}line(t.p,'#356779',2);
+ if(pp){for(const [car,color,def] of [[pp.lead,'#d7a85eaa',v],[pp.tail,'#739b83aa',tailDefinition()]])if(car){line(car.poly,pp.collision?'#d76a6aaa':color,0,true);const a=car.poly[0],along=Envelope.sub(car.poly[1],a),across=Envelope.sub(car.poly[3],a),length=def.base+def.front+def.rear,breadth=c.kind==='slope'?def.height:def.width;for(let x=1;x<length;x++){const p=Envelope.add(a,Envelope.mul(along,x/length));line([p,Envelope.add(p,across)],'#7b827477',.6);}for(let y=1;y<breadth;y++){const p=Envelope.add(a,Envelope.mul(across,y/breadth));line([p,Envelope.add(p,along)],'#7b827477',.6);}line([car.r,car.f],'#6b4c24',2);for(const p of [car.r,car.f]){ctx.beginPath();ctx.arc(...xy(p),3,0,Math.PI*2);ctx.fillStyle='#4b4135';ctx.fill();}}if(pp.tail)line([pp.lead.back,pp.tail.nose],'#654f35',2);}
+ ctx.fillStyle='#45545d';ctx.font='14px sans-serif';ctx.fillText(c.kind==='slope'?'侧视：距离 / 高度':'俯视：水平位置',15,24);ctx.fillText('1 格',15,H-20);ctx.fillRect(65,H-26,k*zoom,2);$('position').textContent=progress.toFixed(1)+'%';$('progress').value=progress;$('current').textContent=pp?.tail?`当前：领车轴距 ${f(Envelope.dist(pp.lead.f,pp.lead.r))}、尾车轴距 ${f(Envelope.dist(pp.tail.f,pp.tail.r))}；车钩长度 ${f(pp.coupling)}；${pp.collision?'发现车体相交':'车体未相交'}`:'当前：未找到双车连接解';}
+function rebuild(){
+ drawInterior();t=Envelope.track(c);result=Envelope.scan(t,v,c,tailDefinition());rows=Envelope.fleet.map(([name,car])=>({name,car,r:Envelope.scan(t,car,c)}));
+ if(matrixKey!==JSON.stringify(c)){$('mixSummary').textContent='当前线路尚未扫描；矩阵固定使用五档满尺寸预设。';$('mixResults').innerHTML='';}
+ $('tabs').querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.kind===c.kind));
+ $('guide').textContent=c.kind==='slope'?'检查长车跨坡顶、坡底时的车底及相邻车体。对比上一轮线路与放宽后的过渡长度。':'检查同型编组及大小车前后排列。对比上一轮线路与放宽后的弯道。';
+ const check=Envelope.validity(v),tier=Envelope.tiers.find(q=>q.id===v.tier);
+ $('vehicleStatus').className=check.valid?'good':'bad';
+ $('vehicleStatus').textContent=`车辆规格：${tier.name}领车，长 ${f(v.base+v.front+v.rear)} × 宽 ${f(v.width)} × 高 ${f(v.height)}；${check.errors.length?'非法：'+check.errors.join('、'):'符合声明档位尺寸边界'}${check.geometry.length?'；实验机械条件不满足：'+check.geometry.join('、'):''}。`;
+ $('status').className=result.clear?'good':'bad';
+ $('status').textContent=result.clear?'线路采样：未发现空间或双车问题（不代表连续通过证明）。':`线路采样：发现问题；所需${c.kind==='slope'?'顶部':'侧向'}净空 ${f(result.maximum)} / 已提供 ${f(c.kind==='slope'?c.roof:c.clearance)}；车体相交 ${result.collisions}/${result.samples}；未找到连接解 ${result.missing}/${result.samples}${c.kind==='slope'?'；最低车底距离 '+f(result.minimum):''}。车辆是否超规格请看上一行。`;
+ const observation=r=>r.clear?'未发现问题':`超净空／侵轨：${r.maximum>(c.kind==='slope'?c.roof:c.clearance)||c.kind==='slope'&&r.minimum<0?'是':'否'}；相交 ${r.collisions}/${r.samples}；未找到连接解 ${r.missing}/${r.samples}`;
+ $('results').innerHTML=rows.map(({name,car,r},i)=>`<tr data-row="${i}" style="cursor:pointer"><td>${name} + ${name}</td><td>${Envelope.legal(car)?'符合':'超出'}</td><td>${f(r.maximum)}</td><td>${c.kind==='slope'?f(r.minimum):'—'}</td><td class="${r.clear?'good':'bad'}">${observation(r)}</td></tr>`).join('');
+ $('results').querySelectorAll('tr').forEach(tr=>tr.onclick=()=>load(rows[+tr.dataset.row].car));draw();
+}
+function load(car,tail='same'){v={...car};tailTier=tail;progress=50;$('editResult').textContent='';controls();rebuild();}
+$('presets').innerHTML=Envelope.tiers.map(q=>`<button data-preset="${q.id}">${q.name} ${q.length}×${q.width}×${q.height}</button>`).join('');
+const options=Envelope.tiers.map(q=>`<option value="${q.id}">${q.name}</option>`).join('');
+$('tier').innerHTML=options;$('trailer').innerHTML='<option value="same">同领车（全部参数同步）</option>'+options;
+$('presets').querySelectorAll('button').forEach(b=>b.onclick=()=>load(Envelope.preset(b.dataset.preset)));
+$('tier').onchange=e=>{v.tier=e.target.value;$('editResult').textContent='仅改变声明档位，车体没有缩放，也没有自动升档。';rebuild();};
+$('trailer').onchange=e=>{tailTier=e.target.value;rebuild();};
+$('reject').onclick=()=>{const q=Envelope.tiers.find(q=>q.id===v.tier),before=v,attempt=Envelope.refit(v,{width:q.width+1});v=attempt.vehicle;$('editResult').textContent=`${attempt.accepted?'意外通过':'已拒绝超宽改装'}；${v===before?'原车及声明档位保持不变':'车辆已改变'}。`;rebuild();};
+$('titanTrack').onclick=()=>{Object.assign(c,defaultTrack);controls();rebuild();};
+$('mixScan').onclick=()=>{
+ const mixes=[];for(const [leadName,lead] of Envelope.fleet)for(const [tailName,tail] of Envelope.fleet)mixes.push({leadName,tailName,lead,tail,r:Envelope.scan(t,lead,c,tail)});
+ matrixKey=JSON.stringify(c);const failed=mixes.filter(m=>!m.r.clear).length;$('mixSummary').textContent=`${mixes.length} 种满尺寸有序组合：${mixes.length-failed} 种采样未发现问题，${failed} 种发现问题。点击一行查看该组合。`;
+ $('mixResults').innerHTML='<table><thead><tr><th>领车 → 尾车</th><th>所需净空</th><th>相交样本</th><th>未找到连接解</th><th>观测</th></tr></thead><tbody>'+mixes.map((m,i)=>`<tr data-mix="${i}" style="cursor:pointer"><td>${m.leadName} → ${m.tailName}</td><td>${f(m.r.maximum)}</td><td>${m.r.collisions}/${m.r.samples}</td><td>${m.r.missing}/${m.r.samples}</td><td class="${m.r.clear?'good':'bad'}">${m.r.clear?'未发现问题':'发现问题'}</td></tr>`).join('')+'</tbody></table>';
+ $('mixResults').querySelectorAll('tr[data-mix]').forEach(tr=>tr.onclick=()=>{const m=mixes[+tr.dataset.mix];load(m.lead,m.tail.tier);});
+};
+$('zoom').onclick=()=>{zoom=zoom===1?3:1;$('zoom').textContent=zoom===1?'放大跟随车厢':'显示完整线路';draw();};
+$('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{c.kind=b.dataset.kind;Object.assign(c,defaultTrack);load(Envelope.ordinary);});$('ordinary').onclick=()=>load(Envelope.ordinary);$('boundary').onclick=()=>load(Envelope.boundary);$('oversize').onclick=()=>load({...Envelope.boundary,base:18,width:20});$('tight').onclick=()=>{c.radius=48;c.transition=32;controls();rebuild();};$('restore').onclick=()=>{Object.assign(c,defaultTrack);controls();rebuild();};$('progress').oninput=e=>{progress=+e.target.value;draw();};$('back').onclick=()=>{progress=Math.max(0,progress-2);draw();};$('next').onclick=()=>{progress=Math.min(100,progress+2);draw();};$('worst').onclick=()=>{progress=result.worst;draw();};$('problem').onclick=()=>{if(result.firstProblem!==null){progress=result.firstProblem;draw();}else $('current').textContent='当前组合的采样未发现问题。';};controls();rebuild();
+</script></html>
