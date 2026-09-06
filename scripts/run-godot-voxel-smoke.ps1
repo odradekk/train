@@ -3,15 +3,17 @@ param(
     [int] $Slice = 1
 )
 
-# Repeatable real-Godot voxel smoke for issue #44 slice 1.
+# Repeatable real-Godot voxel smoke for issue #39 slice 1.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
 #
 # It loads the formal voxel development scene, removes and re-adds (4,4,4),
-# requires the scene's query-driven display and derived mesh to refresh, then
-# closes the console, returns to the start menu with Esc, and re-enters through
-# the formal menu button. Unexpected C# exceptions fail the smoke.
+# applies formal single-target and multi-target damage, requires the scene's
+# query-driven display and derived mesh to refresh, then closes the console,
+# returns to the start menu with Esc, and re-enters through the formal menu
+# button. Direct remove is not accepted as a substitute for the damage path.
+# Unexpected C# exceptions fail the smoke.
 # Exit 2 if Godot is unavailable; exit 1 for a failed process or missing marker.
 
 $ErrorActionPreference = "Continue"
@@ -56,7 +58,7 @@ function Find-Godot {
 }
 
 $godot = Find-Godot
-$command = '$env:TRAIN_VOXEL_SMOKE="1"; & <godot> --headless --path . --quit-after 30'
+$command = '$env:TRAIN_VOXEL_SMOKE="1"; & <godot> --headless --path . --quit-after 45'
 if (-not $godot) {
     [Console]::Error.WriteLine("Godot executable not found (PATH, GODOT, GODOT_HOME, or standard Program Files).")
     [Console]::Error.WriteLine("Unrun command: $command")
@@ -65,7 +67,7 @@ if (-not $godot) {
 
 Write-Host "Using Godot: $godot"
 $env:TRAIN_VOXEL_SMOKE = "1"
-$raw = & $godot --headless --path $root --quit-after 30 2>&1
+$raw = & $godot --headless --path $root --quit-after 45 2>&1
 $godotExitCode = $LASTEXITCODE
 $output = $raw | Out-String
 Write-Host $output
@@ -78,7 +80,16 @@ $required = @(
     "VOXEL_SMOKE_ADDED",
     "VOXEL_SMOKE_DISPLAY_UPDATED",
     "VOXEL_SMOKE_ORIENTATION_UPDATED",
+    "VOXEL_SMOKE_DAMAGED",
+    "VOXEL_SMOKE_DAMAGE_DISPLAY_UPDATED",
+    "VOXEL_SMOKE_DESTROYED",
+    "VOXEL_SMOKE_DESTROY_DISPLAY_UPDATED",
+    "VOXEL_SMOKE_RESTORED_AFTER_DAMAGE",
     "VOXEL_SMOKE_INTERNAL_FACE_UPDATED",
+    "VOXEL_SMOKE_INTERNAL_DESTROYED",
+    "VOXEL_SMOKE_INTERNAL_DESTROY_DISPLAY_UPDATED",
+    "VOXEL_SMOKE_MULTI_DAMAGED",
+    "VOXEL_SMOKE_MULTI_DISPLAY_UPDATED",
     "VOXEL_SMOKE_CONSOLE_CLOSED",
     "VOXEL_SMOKE_RETURNED_TO_MENU",
     "VOXEL_SMOKE_MENU_REENTERED"

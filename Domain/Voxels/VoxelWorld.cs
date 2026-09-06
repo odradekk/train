@@ -192,16 +192,34 @@ public enum WorldCommandStatus
 {
     Added,
     Removed,
+    Damaged,
     OutOfBounds,
     Occupied,
     Empty,
     UnknownDefinition,
-    DisallowedOrientation
+    DisallowedOrientation,
+    InvalidDamage
 }
 
 public sealed record WorldCommandResult(WorldCommandStatus Status, WorldVoxelCoord Position)
 {
-    public bool Succeeded => Status is WorldCommandStatus.Added or WorldCommandStatus.Removed;
+    public bool Succeeded => Status is WorldCommandStatus.Added or WorldCommandStatus.Removed or WorldCommandStatus.Damaged;
+}
+
+public readonly record struct VoxelDamageTarget(WorldVoxelCoord Position, int Amount);
+
+public sealed record WorldDamageTargetResult(
+    WorldCommandStatus Status,
+    WorldVoxelCoord Position,
+    int Amount,
+    int RemainingDurability);
+
+public sealed record WorldDamageResult(
+    WorldCommandStatus Status,
+    WorldVoxelCoord Position,
+    IReadOnlyList<WorldDamageTargetResult> Targets)
+{
+    public bool Succeeded => Status is WorldCommandStatus.Damaged or WorldCommandStatus.Removed;
 }
 
 public sealed class VoxelWorld
@@ -234,6 +252,14 @@ public sealed class VoxelWorld
     }
 
     internal bool TryRemove(WorldVoxelCoord position) => _voxels.Remove(position);
+
+    internal bool TryReplace(WorldVoxelCoord position, WorldVoxel voxel)
+    {
+        if (!_voxels.ContainsKey(position))
+            return false;
+        _voxels[position] = voxel;
+        return true;
+    }
 }
 
 public sealed class VoxelWorldCommands
@@ -274,6 +300,57 @@ public sealed class VoxelWorldCommands
         return _world.TryRemove(position)
             ? new(WorldCommandStatus.Removed, position)
             : new(WorldCommandStatus.Empty, position);
+    }
+
+    public WorldDamageResult Damage(WorldVoxelCoord position, int amount) =>
+        Damage(new[] { new VoxelDamageTarget(position, amount) });
+
+    public WorldDamageResult Damage(IReadOnlyList<VoxelDamageTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        if (targets.Count == 0)
+            return new(WorldCommandStatus.InvalidDamage, default, Array.Empty<WorldDamageTargetResult>());
+
+        foreach (var target in targets)
+        {
+            if (target.Amount <= 0)
+                return new(WorldCommandStatus.InvalidDamage, target.Position, Array.Empty<WorldDamageTargetResult>());
+            if (!_world.Bounds.Contains(target.Position))
+                return new(WorldCommandStatus.OutOfBounds, target.Position, Array.Empty<WorldDamageTargetResult>());
+            if (!_world.Query(target.Position).IsOccupied)
+                return new(WorldCommandStatus.Empty, target.Position, Array.Empty<WorldDamageTargetResult>());
+        }
+
+        var totals = new Dictionary<WorldVoxelCoord, long>();
+        foreach (var target in targets)
+            totals[target.Position] = totals.GetValueOrDefault(target.Position) + target.Amount;
+
+        foreach (var (position, amount) in totals
+            .OrderBy(pair => pair.Key.X)
+            .ThenBy(pair => pair.Key.Y)
+            .ThenBy(pair => pair.Key.Z))
+        {
+            var voxel = _world.Query(position).Voxel!;
+            var remaining = voxel.CurrentDurability - amount;
+            if (remaining > 0)
+                _world.TryReplace(position, voxel with { CurrentDurability = (int)remaining });
+            else
+                _world.TryRemove(position);
+        }
+
+        var outcomes = new WorldDamageTargetResult[targets.Count];
+        var overall = WorldCommandStatus.Removed;
+        for (var index = 0; index < targets.Count; index++)
+        {
+            var target = targets[index];
+            var query = _world.Query(target.Position);
+            var status = query.IsOccupied ? WorldCommandStatus.Damaged : WorldCommandStatus.Removed;
+            if (status == WorldCommandStatus.Damaged)
+                overall = WorldCommandStatus.Damaged;
+            outcomes[index] = new(status, target.Position, target.Amount, query.Voxel?.CurrentDurability ?? 0);
+        }
+
+        return new(overall, targets[0].Position, outcomes);
     }
 }
 

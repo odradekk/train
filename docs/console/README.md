@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及由 [PR #47](https://github.com/odradekk/train/pull/47) 引入的 `voxel` 子命令。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见本切片）。
 
 ## 打开控制台与输入规则
 
@@ -27,6 +27,7 @@
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
 | [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
+| [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -75,17 +76,18 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 
 | 返回内容 | 含义与处理 |
 | --- | --- |
-| `Added` / `Removed` | 修改成功，后附修改后的正式查询和总数 |
-| `OutOfBounds` | 增删坐标超出 `0..15`，改用有效坐标 |
+| `Added` / `Removed` / `Damaged` | 修改成功，后附修改后的正式查询和总数；`Damaged` 表示未归零，当前耐久已更新 |
+| `OutOfBounds` | 增删或伤害坐标超出 `0..15`，改用有效坐标 |
 | `Occupied` | 添加目标已占用；改选空格，或明确移除原体素后再添加 |
-| `Empty` | 移除目标本来就是空格，无体素可移除 |
+| `Empty` | 移除或伤害目标本来就是空格，无体素可操作，也不会创建实例 |
+| `InvalidDamage` | 伤害值不是正整数，例如 `0` 或负数；世界不变 |
 | `UnknownDefinition` | ID 格式合法，但当前内容目录没有该定义；检查拼写和内容加载诊断 |
 | `DisallowedOrientation` | 编码是合法正交朝向，但该定义不允许；改用其允许的方向 |
 | `Usage: voxel ...` | 子命令、参数个数、整数、ID 格式或朝向编码不合法；按本手册的完整语法重新输入 |
 
 格式校验失败时不执行世界命令。例如缺少朝向、ID 使用大写、朝向写成 `90` 或 `px_px`，得到的是用法提示，而不是 `UnknownDefinition` / `DisallowedOrientation`。
 
-格式全部合法后，添加按边界、占用、定义存在性、定义允许朝向的顺序检查；一次只返回首先遇到的问题。例如在已占用格测试未知定义会先得到 `Occupied`，应选择空格验证目标错误。所有失败增删均保留原世界状态。
+格式全部合法后，添加按边界、占用、定义存在性、定义允许朝向的顺序检查；伤害按伤害值、边界、占用的顺序检查。一次只返回首先遇到的问题。例如在已占用格测试未知定义会先得到 `Occupied`，应选择空格验证目标错误。多目标伤害先校验全部目标，任一项失败则整件事失败。所有失败增删和伤害均保留原世界状态。
 
 `voxel` 的返回文本（包括失败状态）统一以 `info` 级别写入日志，不能仅根据日志颜色或严重等级判断操作是否成功。
 
@@ -106,16 +108,30 @@ voxel add 4 4 4 core:iron-ore px_py
 
 原始定义下应依次观察到初始 512 格、移除后 511 格、重加后 512 格/耐久 100，最后一次为 `Occupied`，仍为 512 格。
 
-### 观察内部空腔
+### 观察部分伤害、归零和内部空腔
 
 ```text
 voxel reset
-voxel remove 5 5 5
+voxel damage 4 4 4 25
+voxel damage 4 4 4 75
+voxel add 4 4 4 core:iron-ore px_py
+voxel reset
+voxel damage 5 5 5 100
 voxel query 5 5 5
-voxel remove 4 5 5
+voxel damage 4 5 5 100
 ```
 
-第一次移除后内部格为空，总数 511，但空腔仍被外层遮挡；移除 `(4,5,5)` 后形成通向外部的开口，总数 510，可从固定视角观察内部暴露面。
+角落格先扣到耐久 75，再归零为空、总数 511；重加后耐久回到 100。内部格伤害 100 后为空、总数 511，空腔仍被外层遮挡；再对 `(4,5,5)` 伤害 100 后形成通向外部的开口，总数 510，可从固定视角观察内部暴露面。不要用 `voxel remove` 代替上述伤害步骤。
+
+### 同一事件伤害多个目标
+
+```text
+voxel reset
+voxel damage 4 4 4 100 5 4 4 100 6 4 4 25
+voxel query 6 4 4
+```
+
+前两格删除、第三格耐久 75，总数 510。把三组坐标和伤害值换成其他枚举顺序，最终占用、耐久和可见面相同。
 
 ### 验证失败不改变世界
 
@@ -124,19 +140,21 @@ voxel reset
 voxel add 16 4 4 core:iron-ore px_py
 voxel add 0 0 0 core:missing px_py
 voxel add 0 0 0 core:fixed pz_py
+voxel damage 4 4 4 0
+voxel damage 0 0 0 25
 voxel query 0 0 0
 ```
 
-在未额外添加 `core:missing` 定义的原始内容下，依次得到 `OutOfBounds`、`UnknownDefinition`、`DisallowedOrientation`；最后查询仍为空，总数仍为 512。
+在未额外添加 `core:missing` 定义的原始内容下，依次得到 `OutOfBounds`、`UnknownDefinition`、`DisallowedOrientation`、`InvalidDamage`、`Empty`；最后查询仍为空，总数仍为 512，`(4,4,4)` 耐久仍为 100。
 
 ## 相关快捷键与当前边界
 
 体素场景中关闭控制台后，可用 `Delete` 移除固定目标 `(4,4,4)`，`Insert` 在该格添加默认朝向的 `core:iron-ore`，`R` 重置世界，`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。退出场景后再次进入会创建新的开发世界。
 
-目前没有独立的旋转、伤害、保存、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
+目前没有独立的旋转、保存、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
 
 ## 维护与实现依据
 
 每个可执行命令各用一个文件，`voxel` 子命令也分别维护。新增、修改或移除命令时，同步更新对应文件和本页索引；共享参数、朝向编码与组合示例统一保留在本页。每份命令文档应覆盖语法、参数、使用方法、结果和限制，尚未交付的命令明确标注。
 
-基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 PR #47 中的 `Console/VoxelConsoleCommands.cs`，坐标、ID 与朝向契约位于 `Domain/Voxels/`；体素显示与快捷键位于 `Ui/VoxelDeveloperScene.cs`。
+基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`；体素显示与快捷键位于 `Ui/VoxelDeveloperScene.cs`。

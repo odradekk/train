@@ -72,7 +72,7 @@ public partial class Main : Node
             ReportExportSmoke(loaded);
         if (IsModsExportSmokeEnabled())
             ReportModsExportSmoke(loaded);
-        if (IsVoxelSmokeEnabled() || IsVoxelBaselineEnabled())
+        if (IsVoxelSmokeEnabled() || IsVoxelBaselineEnabled() || IsVoxelObserveEnabled())
             CallDeferred(nameof(EnterVoxelDevelopmentScene));
     }
 
@@ -150,6 +150,9 @@ public partial class Main : Node
 
     private static bool IsVoxelBaselineEnabled() =>
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal);
+
+    private static bool IsVoxelObserveEnabled() =>
+        string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE"), "1", StringComparison.Ordinal);
 
     public void EnterVoxelDevelopmentScene()
     {
