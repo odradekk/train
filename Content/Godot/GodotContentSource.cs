@@ -1,5 +1,5 @@
 using Godot;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Logging;
 
 namespace Train.Content;
@@ -28,7 +28,7 @@ public sealed class GodotContentSource : IContentSource
         var available = probe is not null;
         var packages = new List<ContentPackage>
         {
-            new(GoodId.BuiltInNamespace, BuiltInResourcesRoot, available)
+            new(VoxelDefinitionId.BuiltInNamespace, BuiltInResourcesRoot, available)
         };
 
         var userData = UserDataDirectory;
@@ -104,8 +104,8 @@ public sealed class GodotContentSource : IContentSource
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics;
 
-    public ContentFileDiscovery ListGoodsFiles(ContentPackage package) =>
-        ListDataFiles(package, ".goods.json");
+    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
+        ListDataFiles(package, ".voxels.json");
 
     public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
         ListDataFiles(package, ".settlements.json");

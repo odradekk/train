@@ -1,7 +1,7 @@
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 
 namespace Train.Tests;
@@ -27,7 +27,7 @@ public sealed class SettlementsJsonParserTests
         Assert.AreEqual("橡木城", city.Name);
         Assert.AreEqual(new MapPosition(3, -2), city.Position);
         Assert.AreEqual(12, city.Population);
-        CollectionAssert.AreEqual(new[] { new GoodId("core", "iron-ore") }, city.NaturalResources.ToArray());
+        CollectionAssert.AreEqual(new[] { new VoxelDefinitionId("core", "iron-ore") }, city.NaturalResources.ToArray());
         Assert.AreEqual("cities.settlements.json", city.SourceFile);
     }
 

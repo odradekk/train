@@ -1,6 +1,6 @@
 using System.Collections.Frozen;
 using System.Collections.ObjectModel;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 
 namespace Train.Domain.Settlements;
 
@@ -14,7 +14,7 @@ public sealed class Settlement : IEquatable<Settlement>
     public MapPosition Position { get; private set; }
     public int Population { get; private set; }
     public IReadOnlyDictionary<BuildingTypeId, int> Buildings { get; }
-    public IReadOnlySet<GoodId> NaturalResourceIds { get; private set; }
+    public IReadOnlySet<VoxelDefinitionId> NaturalResourceIds { get; private set; }
     public Station? Station { get; private set; }
 
     public Settlement(
@@ -24,7 +24,7 @@ public sealed class Settlement : IEquatable<Settlement>
         MapPosition position,
         int population,
         IReadOnlyDictionary<BuildingTypeId, int> buildings,
-        IReadOnlySet<GoodId> naturalResourceIds,
+        IReadOnlySet<VoxelDefinitionId> naturalResourceIds,
         Station? station = null)
     {
         IdentityText.EnsureDefined(id.Value, nameof(id));
@@ -76,7 +76,7 @@ public sealed class Settlement : IEquatable<Settlement>
         Position = position;
     }
 
-    public void SetNaturalResourceIds(IReadOnlySet<GoodId> naturalResourceIds)
+    public void SetNaturalResourceIds(IReadOnlySet<VoxelDefinitionId> naturalResourceIds)
     {
         ArgumentNullException.ThrowIfNull(naturalResourceIds);
         var copy = CopyNaturalResourceIds(naturalResourceIds);
@@ -153,13 +153,13 @@ public sealed class Settlement : IEquatable<Settlement>
         }
     }
 
-    private static FrozenSet<GoodId> CopyNaturalResourceIds(IReadOnlySet<GoodId> naturalResourceIds)
+    private static FrozenSet<VoxelDefinitionId> CopyNaturalResourceIds(IReadOnlySet<VoxelDefinitionId> naturalResourceIds)
     {
-        var copy = new HashSet<GoodId>();
+        var copy = new HashSet<VoxelDefinitionId>();
         foreach (var resourceId in naturalResourceIds)
         {
             if (string.IsNullOrEmpty(resourceId.Namespace) || string.IsNullOrEmpty(resourceId.LocalId))
-                throw new ArgumentException("GoodId cannot be blank.", nameof(naturalResourceIds));
+                throw new ArgumentException("VoxelDefinitionId cannot be blank.", nameof(naturalResourceIds));
             copy.Add(resourceId);
         }
 

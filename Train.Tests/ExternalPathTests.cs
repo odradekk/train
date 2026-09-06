@@ -46,7 +46,7 @@ public sealed class ExternalPathTests
             var resources = Path.Combine(packageRoot, ModDiscovery.ResourcesDirectoryName);
             Directory.CreateDirectory(resources);
             File.WriteAllText(Path.Combine(packageRoot, ModDiscovery.ManifestFileName), ModFixtures.Manifest(ModFixtures.SampleUuid));
-            File.WriteAllText(Path.Combine(resources, "copper.goods.json"), ContentFixtures.GoodsFile());
+            File.WriteAllText(Path.Combine(resources, "copper.voxels.json"), ContentFixtures.GoodsFile());
             File.WriteAllBytes(Path.Combine(resources, "plugin.dll"), new byte[] { 0x4d, 0x5a });
             File.WriteAllText(Path.Combine(resources, "script.cs"), "class X {}");
             File.WriteAllText(Path.Combine(resources, "hook.gd"), "extends Node");
@@ -57,15 +57,15 @@ public sealed class ExternalPathTests
             Assert.AreEqual(1, scan.AcceptedCount);
             Assert.AreEqual(ModFixtures.SampleUuid, scan.Packages.Single().Namespace);
 
-            var discovery = ExternalContent.ListGoodsFiles(resources);
-            CollectionAssert.AreEqual(new[] { "copper.goods.json" }, discovery.Files.ToArray());
+            var discovery = ExternalContent.ListVoxelFiles(resources);
+            CollectionAssert.AreEqual(new[] { "copper.voxels.json" }, discovery.Files.ToArray());
             Assert.IsFalse(discovery.Invalid);
 
-            Assert.IsNull(ExternalContent.ReadFile(resources, "plugin.dll", ContentLimits.GoodsFileMaxBytes).Bytes);
-            Assert.IsNull(ExternalContent.ReadFile(resources, "script.cs", ContentLimits.GoodsFileMaxBytes).Bytes);
-            Assert.IsNull(ExternalContent.ReadFile(resources, "hook.gd", ContentLimits.GoodsFileMaxBytes).Bytes);
-            Assert.IsNull(ExternalContent.ReadFile(resources, "pack.pck", ContentLimits.GoodsFileMaxBytes).Bytes);
-            Assert.IsNotNull(ExternalContent.ReadFile(resources, "copper.goods.json", ContentLimits.GoodsFileMaxBytes).Bytes);
+            Assert.IsNull(ExternalContent.ReadFile(resources, "plugin.dll", ContentLimits.JsonFileMaxBytes).Bytes);
+            Assert.IsNull(ExternalContent.ReadFile(resources, "script.cs", ContentLimits.JsonFileMaxBytes).Bytes);
+            Assert.IsNull(ExternalContent.ReadFile(resources, "hook.gd", ContentLimits.JsonFileMaxBytes).Bytes);
+            Assert.IsNull(ExternalContent.ReadFile(resources, "pack.pck", ContentLimits.JsonFileMaxBytes).Bytes);
+            Assert.IsNotNull(ExternalContent.ReadFile(resources, "copper.voxels.json", ContentLimits.JsonFileMaxBytes).Bytes);
         }
         finally
         {
@@ -83,8 +83,8 @@ public sealed class ExternalPathTests
         Directory.CreateDirectory(target);
         Directory.CreateDirectory(resources);
         File.WriteAllText(Path.Combine(packageRoot, ModDiscovery.ManifestFileName), ModFixtures.Manifest(ModFixtures.SampleUuid));
-        File.WriteAllText(Path.Combine(resources, "safe.goods.json"), ContentFixtures.GoodsFile());
-        File.WriteAllText(Path.Combine(target, "hidden.goods.json"), ContentFixtures.GoodsFile());
+        File.WriteAllText(Path.Combine(resources, "safe.voxels.json"), ContentFixtures.GoodsFile());
+        File.WriteAllText(Path.Combine(target, "hidden.voxels.json"), ContentFixtures.GoodsFile());
 
         var junction = Path.Combine(resources, "escaped");
         if (!TryCreateJunction(junction, target))
@@ -97,15 +97,15 @@ public sealed class ExternalPathTests
         try
         {
             Assert.IsTrue(ExternalPath.IsReparsePoint(junction));
-            Assert.IsTrue(ExternalPath.IsUnsafe(resources, Path.Combine(junction, "hidden.goods.json")));
+            Assert.IsTrue(ExternalPath.IsUnsafe(resources, Path.Combine(junction, "hidden.voxels.json")));
 
-            var discovery = ExternalContent.ListGoodsFiles(resources);
+            var discovery = ExternalContent.ListVoxelFiles(resources);
             Assert.IsTrue(discovery.Invalid);
             Assert.IsTrue(discovery.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsafeLinkedPath));
-            Assert.IsTrue(discovery.Files.Contains("safe.goods.json"));
+            Assert.IsTrue(discovery.Files.Contains("safe.voxels.json"));
             Assert.IsFalse(discovery.Files.Any(file => file.Contains("hidden", StringComparison.Ordinal)));
 
-            var hidden = ExternalContent.ReadFile(resources, "escaped/hidden.goods.json", ContentLimits.GoodsFileMaxBytes);
+            var hidden = ExternalContent.ReadFile(resources, "escaped/hidden.voxels.json", ContentLimits.JsonFileMaxBytes);
             Assert.IsTrue(hidden.UnsafeLink);
             Assert.IsNull(hidden.Bytes);
         }

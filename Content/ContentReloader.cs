@@ -1,5 +1,5 @@
 using System.Collections.Frozen;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 using Train.Logging;
 
@@ -22,9 +22,9 @@ public sealed class ContentReloadResult
     public int WarningCount { get; }
     public int ErrorCount { get; }
     public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
-    public IReadOnlySet<GoodId> Added { get; }
-    public IReadOnlySet<GoodId> Removed { get; }
-    public IReadOnlySet<GoodId> ChangedIds { get; }
+    public IReadOnlySet<VoxelDefinitionId> Added { get; }
+    public IReadOnlySet<VoxelDefinitionId> Removed { get; }
+    public IReadOnlySet<VoxelDefinitionId> ChangedIds { get; }
     public IReadOnlySet<SettlementId> AddedSettlements { get; }
     public IReadOnlySet<SettlementId> RemovedSettlements { get; }
     public IReadOnlySet<SettlementId> ChangedSettlementIds { get; }
@@ -37,9 +37,9 @@ public sealed class ContentReloadResult
         int scannedFileCount,
         int acceptedDefinitionCount,
         IReadOnlyList<ContentDiagnostic> diagnostics,
-        IReadOnlySet<GoodId> added,
-        IReadOnlySet<GoodId> removed,
-        IReadOnlySet<GoodId> changedIds,
+        IReadOnlySet<VoxelDefinitionId> added,
+        IReadOnlySet<VoxelDefinitionId> removed,
+        IReadOnlySet<VoxelDefinitionId> changedIds,
         IReadOnlySet<SettlementId>? addedSettlements = null,
         IReadOnlySet<SettlementId>? removedSettlements = null,
         IReadOnlySet<SettlementId>? changedSettlementIds = null,
@@ -85,20 +85,20 @@ public sealed class ContentPreCommitDecision
 
 public interface IContentPreCommitValidator
 {
-    ContentPreCommitDecision Validate(GoodCatalogSnapshot candidate);
+    ContentPreCommitDecision Validate(VoxelCatalogSnapshot candidate);
 }
 
-public sealed class ReferencedGoodIdValidator : IContentPreCommitValidator
+public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
 {
-    private readonly Func<IReadOnlySet<GoodId>> _referencedIds;
+    private readonly Func<IReadOnlySet<VoxelDefinitionId>> _referencedIds;
 
-    public ReferencedGoodIdValidator(Func<IReadOnlySet<GoodId>> referencedIds)
+    public ReferencedVoxelIdValidator(Func<IReadOnlySet<VoxelDefinitionId>> referencedIds)
     {
         ArgumentNullException.ThrowIfNull(referencedIds);
         _referencedIds = referencedIds;
     }
 
-    public ContentPreCommitDecision Validate(GoodCatalogSnapshot candidate)
+    public ContentPreCommitDecision Validate(VoxelCatalogSnapshot candidate)
     {
         ArgumentNullException.ThrowIfNull(candidate);
         var diagnostics = new List<ContentDiagnostic>();
@@ -108,18 +108,18 @@ public sealed class ReferencedGoodIdValidator : IContentPreCommitValidator
             {
                 diagnostics.Add(new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
-                    ContentDiagnosticCodes.UnresolvedGoodReference,
-                    "A referenced good is missing from the candidate catalog.",
+                    ContentDiagnosticCodes.UnresolvedVoxelReference,
+                    "A referenced voxel is missing from the candidate catalog.",
                     jsonPath: id.Value));
                 continue;
             }
 
-            if (entry.Definition.Category != GoodCategory.NaturalResource)
+            if (!entry.Definition.HasNaturalResourceTag)
             {
                 diagnostics.Add(new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
-                    ContentDiagnosticCodes.NaturalResourceCategoryRequired,
-                    "A settlement natural resource id does not resolve to a natural_resource good.",
+                    ContentDiagnosticCodes.NaturalResourceTagRequired,
+                    "A settlement natural resource id does not resolve to a natural_resource voxel.",
                     jsonPath: id.Value));
             }
         }
@@ -130,7 +130,7 @@ public sealed class ReferencedGoodIdValidator : IContentPreCommitValidator
     }
 
     public static ContentPreCommitDecision FilterSettlementReferences(
-        GoodCatalogSnapshot candidate,
+        VoxelCatalogSnapshot candidate,
         IDictionary<SettlementId, SettlementCandidate> settlements)
     {
         ArgumentNullException.ThrowIfNull(candidate);
@@ -150,21 +150,21 @@ public sealed class ReferencedGoodIdValidator : IContentPreCommitValidator
                         settlement.Kind == ContentPackageKind.BuiltIn
                             ? ContentDiagnosticSeverity.Error
                             : ContentDiagnosticSeverity.Warning,
-                        ContentDiagnosticCodes.UnresolvedGoodReference,
-                        "A referenced good is missing from the candidate catalog.",
+                        ContentDiagnosticCodes.UnresolvedVoxelReference,
+                        "A referenced voxel is missing from the candidate catalog.",
                         jsonPath: resourceId.Value));
                     continue;
                 }
 
-                if (entry.Definition.Category != GoodCategory.NaturalResource)
+                if (!entry.Definition.HasNaturalResourceTag)
                 {
                     failed = true;
                     diagnostics.Add(new ContentDiagnostic(
                         settlement.Kind == ContentPackageKind.BuiltIn
                             ? ContentDiagnosticSeverity.Error
                             : ContentDiagnosticSeverity.Warning,
-                        ContentDiagnosticCodes.NaturalResourceCategoryRequired,
-                        "A settlement natural resource id does not resolve to a natural_resource good.",
+                        ContentDiagnosticCodes.NaturalResourceTagRequired,
+                        "A settlement natural resource id does not resolve to a natural_resource voxel.",
                         jsonPath: resourceId.Value));
                 }
             }
@@ -195,14 +195,14 @@ public sealed class ContentReloader
     private readonly IContentPreCommitValidator? _validator;
     private int _busy;
 
-    public GoodCatalog Catalog { get; }
+    public VoxelCatalog Catalog { get; }
     public SettlementRegistry Settlements { get; }
     public bool InitializationFailed { get; private set; }
 
     public ContentReloader(
         IContentSource source,
         TrainLogger logger,
-        GoodCatalog? catalog = null,
+        VoxelCatalog? catalog = null,
         IContentPreCommitValidator? validator = null,
         SettlementRegistry? settlements = null)
     {
@@ -211,7 +211,7 @@ public sealed class ContentReloader
         _source = source;
         _logger = logger;
         _validator = validator;
-        Catalog = catalog ?? new GoodCatalog();
+        Catalog = catalog ?? new VoxelCatalog();
         Settlements = settlements ?? new SettlementRegistry();
     }
 
@@ -220,7 +220,7 @@ public sealed class ContentReloader
         if (Interlocked.CompareExchange(ref _busy, 1, 0) != 0)
         {
             var busy = Reject(
-                Catalog.Current?.Version ?? 0,
+                Catalog.Current?.Generation ?? 0,
                 scanned: 0,
                 accepted: 0,
                 acceptedSettlements: 0,
@@ -247,13 +247,13 @@ public sealed class ContentReloader
 
     private ContentReloadResult ReloadExclusive()
     {
-        _logger.Info(ContentLog.Category, ContentLog.ScanStartedEventId, "Scanning built-in goods content.");
+        _logger.Info(ContentLog.Category, ContentLog.ScanStartedEventId, "Scanning built-in voxel content.");
         var candidate = CatalogCandidateBuilder.Build(_source, _logger);
         var diagnostics = candidate.Diagnostics.ToList();
 
         if (!candidate.CanCommit)
         {
-            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, 0, 0, diagnostics);
+            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, 0, 0, diagnostics);
             if (Catalog.Current is null)
                 InitializationFailed = true;
             LogFailure(rejected);
@@ -265,21 +265,21 @@ public sealed class ContentReloader
             diagnostics.Add(new ContentDiagnostic(
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.EmptyInitialCatalog,
-                "The initial built-in catalog must contain at least one good definition."));
+                "The initial built-in catalog must contain at least one voxel definition."));
             var rejected = Reject(0, candidate.ScannedFileCount, 0, 0, diagnostics);
             InitializationFailed = true;
             LogFailure(rejected);
             return rejected;
         }
 
-        var nextVersion = (Catalog.Current?.Version ?? 0) + 1;
-        var snapshot = new GoodCatalogSnapshot(nextVersion, candidate.Entries);
+        var nextGeneration = (Catalog.Current?.Generation ?? 0) + 1;
+        var snapshot = new VoxelCatalogSnapshot(nextGeneration, candidate.Entries);
         var settlements = new Dictionary<SettlementId, SettlementCandidate>(candidate.Settlements);
-        var references = ReferencedGoodIdValidator.FilterSettlementReferences(snapshot, settlements);
+        var references = ReferencedVoxelIdValidator.FilterSettlementReferences(snapshot, settlements);
         diagnostics.AddRange(references.Diagnostics);
         if (!references.CanCommit)
         {
-            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
+            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
             if (Catalog.Current is null)
                 InitializationFailed = true;
             LogFailure(rejected);
@@ -292,7 +292,7 @@ public sealed class ContentReloader
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.EmptyInitialSettlements,
                 "The initial built-in package must contain at least one settlement."));
-            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
+            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
             InitializationFailed = true;
             LogFailure(rejected);
             return rejected;
@@ -303,27 +303,27 @@ public sealed class ContentReloader
 
         if (!decision.CanCommit)
         {
-            var rejected = Reject(Catalog.Current?.Version ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, settlements.Count, diagnostics);
+            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, settlements.Count, diagnostics);
             if (Catalog.Current is null)
                 InitializationFailed = true;
             LogFailure(rejected);
             return rejected;
         }
 
-        var change = CatalogDiff.Compute(snapshot.Version, Catalog.Current, candidate.Entries);
+        var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, candidate.Entries);
         var settlementChange = SettlementDiff.Compute(Settlements, settlements);
         var status = diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning)
             ? ContentReloadStatus.CommittedWithWarnings
             : ContentReloadStatus.Committed;
-        var goodsChanged = CatalogDiff.HasChanges(change);
+        var voxelsChanged = CatalogDiff.HasChanges(change);
         var settlementsChanged = SettlementDiff.HasChanges(settlementChange);
 
-        if (!goodsChanged && !settlementsChanged)
+        if (!voxelsChanged && !settlementsChanged)
         {
             var unchanged = new ContentReloadResult(
                 status,
                 changed: false,
-                Catalog.Current?.Version ?? 0,
+                Catalog.Current?.Generation ?? 0,
                 candidate.ScannedFileCount,
                 candidate.Entries.Count,
                 diagnostics,
@@ -339,7 +339,7 @@ public sealed class ContentReloader
             return unchanged;
         }
 
-        if (goodsChanged)
+        if (voxelsChanged)
             Catalog.TryPublish(snapshot, change, notify: true);
         if (settlementsChanged || !Settlements.HasCommitted)
             Settlements.Apply(settlements.Values.ToArray());
@@ -347,13 +347,13 @@ public sealed class ContentReloader
         var committed = new ContentReloadResult(
             status,
             changed: true,
-            goodsChanged ? snapshot.Version : Catalog.Current?.Version ?? 0,
+            voxelsChanged ? snapshot.Generation : Catalog.Current?.Generation ?? 0,
             candidate.ScannedFileCount,
             candidate.Entries.Count,
             diagnostics,
-            goodsChanged ? change.Added : ImmutableSets.Empty,
-            goodsChanged ? change.Removed : ImmutableSets.Empty,
-            goodsChanged ? change.Changed : ImmutableSets.Empty,
+            voxelsChanged ? change.Added : ImmutableSets.Empty,
+            voxelsChanged ? change.Removed : ImmutableSets.Empty,
+            voxelsChanged ? change.Changed : ImmutableSets.Empty,
             settlementChange.Added,
             settlementChange.Removed,
             settlementChange.Changed,
@@ -426,7 +426,7 @@ public sealed class ContentReloader
 
 internal sealed class CatalogCandidate
 {
-    public IReadOnlyDictionary<GoodId, GoodCatalogEntry> Entries { get; }
+    public IReadOnlyDictionary<VoxelDefinitionId, VoxelCatalogEntry> Entries { get; }
     public IReadOnlyDictionary<SettlementId, SettlementCandidate> Settlements { get; }
     public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
     public int ScannedFileCount { get; }
@@ -434,7 +434,7 @@ internal sealed class CatalogCandidate
     public bool PackagesInvalid { get; }
 
     public CatalogCandidate(
-        IReadOnlyDictionary<GoodId, GoodCatalogEntry> entries,
+        IReadOnlyDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
         IReadOnlyDictionary<SettlementId, SettlementCandidate> settlements,
         IReadOnlyList<ContentDiagnostic> diagnostics,
         int scannedFileCount,
@@ -492,7 +492,7 @@ internal static class CatalogCandidateBuilder
     {
         var packages = source.ListPackages();
         var diagnostics = new List<ContentDiagnostic>();
-        var accepted = new Dictionary<GoodId, GoodCatalogEntry>();
+        var accepted = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>();
         var acceptedSettlements = new Dictionary<SettlementId, SettlementCandidate>();
         var occupied = new Dictionary<MapPosition, SettlementId>();
         var scanned = 0;
@@ -540,11 +540,11 @@ internal static class CatalogCandidateBuilder
 
             var bag = new DiagnosticBag();
             var packageContent = BuildPackage(source, package, bag, logger, ref scanned);
-            if (package.Kind == ContentPackageKind.Mod && packageContent.Goods.Count > ContentLimits.MaxGoodsPerMod)
+            if (package.Kind == ContentPackageKind.Mod && packageContent.Voxels.Count > ContentLimits.MaxVoxelsPerMod)
             {
-                bag.Warn(ContentDiagnosticCodes.ModGoodLimitExceeded, "A mod exceeds the 1000-good package limit.");
+                bag.Warn(ContentDiagnosticCodes.ModVoxelLimitExceeded, "A mod exceeds the 1000-voxel package limit.");
                 packageContent = new PackageContent(
-                    new Dictionary<GoodId, GoodCatalogEntry>(),
+                    new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>(),
                     new Dictionary<SettlementId, SettlementCandidate>());
             }
 
@@ -563,16 +563,16 @@ internal static class CatalogCandidateBuilder
             if (package.Kind == ContentPackageKind.Mod)
                 acceptedMods++;
 
-            if (packageContent.Goods.Count == 0 && packageContent.Settlements.Count == 0)
+            if (packageContent.Voxels.Count == 0 && packageContent.Settlements.Count == 0)
             {
                 logger.Debug(
                     ContentLog.Category,
                     ContentLog.PackageEmptyEventId,
-                    "Content package contains no goods.",
+                    "Content package contains no voxels.",
                     new Dictionary<string, object?> { ["package"] = package.Namespace });
             }
 
-            foreach (var (id, entry) in packageContent.Goods)
+            foreach (var (id, entry) in packageContent.Voxels)
                 accepted[id] = entry;
             foreach (var (id, settlement) in packageContent.Settlements)
             {
@@ -609,12 +609,12 @@ internal static class CatalogCandidateBuilder
                 });
         }
 
-        if (accepted.Count > ContentLimits.MaxGoods)
+        if (accepted.Count > ContentLimits.MaxVoxels)
         {
             diagnostics.Add(new ContentDiagnostic(
                 ContentDiagnosticSeverity.Error,
-                ContentDiagnosticCodes.GlobalGoodLimitExceeded,
-                "The catalog exceeds the global good limit."));
+                ContentDiagnosticCodes.GlobalVoxelLimitExceeded,
+                "The catalog exceeds the global voxel limit."));
             return new CatalogCandidate(accepted, acceptedSettlements, diagnostics, scanned, false, true);
         }
 
@@ -629,14 +629,14 @@ internal static class CatalogCandidateBuilder
 
     private sealed class PackageContent
     {
-        public Dictionary<GoodId, GoodCatalogEntry> Goods { get; }
+        public Dictionary<VoxelDefinitionId, VoxelCatalogEntry> Voxels { get; }
         public Dictionary<SettlementId, SettlementCandidate> Settlements { get; }
 
         public PackageContent(
-            Dictionary<GoodId, GoodCatalogEntry> goods,
+            Dictionary<VoxelDefinitionId, VoxelCatalogEntry> voxels,
             Dictionary<SettlementId, SettlementCandidate> settlements)
         {
-            Goods = goods;
+            Voxels = voxels;
             Settlements = settlements;
         }
     }
@@ -648,7 +648,7 @@ internal static class CatalogCandidateBuilder
         TrainLogger logger,
         ref int scanned)
     {
-        var accepted = new Dictionary<GoodId, GoodCatalogEntry>();
+        var accepted = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>();
         var settlements = new Dictionary<SettlementId, SettlementCandidate>();
         if (!package.Available)
         {
@@ -659,7 +659,7 @@ internal static class CatalogCandidateBuilder
             return new PackageContent(accepted, settlements);
         }
 
-        var discovery = source.ListGoodsFiles(package);
+        var discovery = source.ListVoxelFiles(package);
         var settlementDiscovery = source.ListSettlementFiles(package);
         scanned += discovery.Files.Count + settlementDiscovery.Files.Count;
         foreach (var diagnostic in discovery.Diagnostics.Concat(settlementDiscovery.Diagnostics))
@@ -670,14 +670,14 @@ internal static class CatalogCandidateBuilder
                 diagnostic.JsonPath ?? diagnostic.Source);
         if (discovery.Invalid || settlementDiscovery.Invalid)
             bag.MarkInvalid();
-        var parsed = new List<ParsedGood>();
+        var parsed = new List<ParsedVoxel>();
         var acceptedByFile = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var file in discovery.Files)
             acceptedByFile[file] = 0;
         foreach (var file in discovery.Files)
         {
             bag.Source = file;
-            var read = source.ReadFile(package, file, ContentLimits.GoodsFileMaxBytes);
+            var read = source.ReadFile(package, file, ContentLimits.JsonFileMaxBytes);
             if (read.UnsafeLink)
             {
                 if (package.IsRequired)
@@ -689,17 +689,17 @@ internal static class CatalogCandidateBuilder
 
             if (read.TooLarge)
             {
-                bag.Warn(ContentDiagnosticCodes.FileTooLarge, "Goods JSON exceeds the 1 MiB limit.");
+                bag.Warn(ContentDiagnosticCodes.FileTooLarge, "Voxel JSON exceeds the 1 MiB limit.");
                 continue;
             }
 
             if (read.Bytes is null)
             {
-                bag.Warn(ContentDiagnosticCodes.InvalidJson, "Goods file could not be read.");
+                bag.Warn(ContentDiagnosticCodes.InvalidJson, "Voxel file could not be read.");
                 continue;
             }
 
-            parsed.AddRange(GoodsJsonParser.Parse(read.Bytes, package.Namespace, file, bag));
+            parsed.AddRange(VoxelsJsonParser.Parse(read.Bytes, file, bag));
         }
 
         var duplicates = parsed
@@ -725,7 +725,7 @@ internal static class CatalogCandidateBuilder
         }
 
         foreach (var file in discovery.Files)
-            LogFileScanned(logger, package, file, "goods", acceptedByFile[file]);
+            LogFileScanned(logger, package, file, "voxels", acceptedByFile[file]);
 
         AcceptSettlements(source, package, settlementDiscovery, bag, logger, settlements);
         return new PackageContent(accepted, settlements);
@@ -746,7 +746,7 @@ internal static class CatalogCandidateBuilder
         foreach (var file in discovery.Files)
         {
             bag.Source = file;
-            var read = source.ReadFile(package, file, ContentLimits.GoodsFileMaxBytes);
+            var read = source.ReadFile(package, file, ContentLimits.JsonFileMaxBytes);
             if (read.UnsafeLink)
             {
                 if (package.IsRequired)
@@ -822,41 +822,90 @@ internal static class CatalogCandidateBuilder
     private static bool TryAccept(
         IContentSource source,
         ContentPackage package,
-        ParsedGood parsed,
+        ParsedVoxel parsed,
         DiagnosticBag bag,
         TrainLogger logger,
-        out GoodCatalogEntry entry)
+        out VoxelCatalogEntry entry)
     {
         entry = null!;
-        if (!TryLoadImages(source, package, parsed.Visual, bag, out var images))
+        if (!TryLoadImages(source, package, parsed.Presentation, bag, out _))
+            return false;
+        if (!TryLoadAssetRevisions(source, package, parsed.Presentation, bag, out var assetRevisions))
             return false;
 
-        var id = new GoodId(package.Namespace, parsed.LocalId);
-        var definition = new GoodDefinition(
+        var id = new VoxelDefinitionId(package.Namespace, parsed.LocalId);
+        var definition = new VoxelDefinition(
             id,
-            parsed.Category,
             parsed.Name,
             parsed.Description,
-            parsed.BaseMonetaryValue,
-            parsed.Visual);
+            parsed.Value,
+            parsed.Mass,
+            parsed.MaxDurability,
+            parsed.Tags,
+            parsed.Behaviors,
+            parsed.AllowedOrientations,
+            parsed.Presentation,
+            parsed.Collision);
         var origin = new ContentOrigin(package.Namespace, parsed.SourceFile);
-        entry = new GoodCatalogEntry(definition, origin, DefinitionFingerprint.Compute(definition, images));
+        var semantic = ContentRevisions.ComputeSemanticRevision(definition);
+        var publication = ContentRevisions.ComputePublicationFingerprint(definition, semantic, assetRevisions);
+        entry = new VoxelCatalogEntry(definition, origin, semantic, assetRevisions, publication);
         logger.Debug(
             ContentLog.Category,
             ContentLog.DefinitionAcceptedEventId,
-            "Accepted good definition.",
+            "Accepted voxel definition.",
             new Dictionary<string, object?>
             {
-                ["good_id"] = id.Value,
-                ["source"] = parsed.SourceFile
+                ["voxel_id"] = id.Value,
+                ["source"] = parsed.SourceFile,
+                ["semantic_revision"] = semantic
             });
+        return true;
+    }
+
+    private static bool TryLoadAssetRevisions(
+        IContentSource source,
+        ContentPackage package,
+        VoxelPresentation presentation,
+        DiagnosticBag bag,
+        out Dictionary<string, string> revisions)
+    {
+        revisions = new Dictionary<string, string>(StringComparer.Ordinal);
+        var paths = new[] { presentation.IconPath, presentation.TopPath, presentation.SidePath, presentation.BottomPath };
+        foreach (var path in paths.Distinct(StringComparer.Ordinal))
+        {
+            var read = source.ReadFile(package, path, ContentLimits.PngMaxBytes);
+            if (read.UnsafeLink)
+            {
+                if (package.IsRequired)
+                    bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
+                else
+                    bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
+                return false;
+            }
+
+            if (read.TooLarge)
+            {
+                bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the size limit.", path);
+                return false;
+            }
+
+            if (read.Bytes is null)
+            {
+                bag.Warn(ContentDiagnosticCodes.ImageInvalid, "Asset bytes could not be read.", path);
+                return false;
+            }
+
+            revisions[path] = ContentRevisions.ComputeAssetRevision(read.Bytes);
+        }
+
         return true;
     }
 
     private static bool TryLoadImages(
         IContentSource source,
         ContentPackage package,
-        VoxelVisualDefinition visual,
+        VoxelPresentation visual,
         DiagnosticBag bag,
         out Dictionary<string, DecodedImage> images)
     {

@@ -1,5 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 
 namespace Train.Tests;
@@ -11,7 +11,7 @@ public sealed class SettlementTests
     public void Construction_accepts_complete_valid_state_including_empty_collections()
     {
         var mill = new BuildingTypeId("mill");
-        var iron = new GoodId("core", "iron");
+        var iron = new VoxelDefinitionId("core", "iron");
         var station = new Station(new StationId("oak-station"));
         var settlement = Create(
             name: "  Oak Town  ",
@@ -19,7 +19,7 @@ public sealed class SettlementTests
             y: 8,
             population: 12,
             buildings: new Dictionary<BuildingTypeId, int> { [mill] = 2 },
-            resources: new HashSet<GoodId> { iron },
+            resources: new HashSet<VoxelDefinitionId> { iron },
             station: station);
 
         Assert.AreEqual("oak", settlement.Id.Value);
@@ -51,7 +51,7 @@ public sealed class SettlementTests
             new MapPosition(0, 0),
             1,
             null!,
-            new HashSet<GoodId>()));
+            new HashSet<VoxelDefinitionId>()));
         Assert.ThrowsException<ArgumentNullException>(() => new Settlement(
             new SettlementId("oak"),
             "Oak Town",
@@ -69,8 +69,8 @@ public sealed class SettlementTests
             new MapPosition(0, 0),
             1,
             new Dictionary<BuildingTypeId, int>(),
-            new HashSet<GoodId>()));
-        Assert.ThrowsException<ArgumentException>(() => Create(resources: new HashSet<GoodId> { default }));
+            new HashSet<VoxelDefinitionId>()));
+        Assert.ThrowsException<ArgumentException>(() => Create(resources: new HashSet<VoxelDefinitionId> { default }));
     }
 
     [TestMethod]
@@ -101,9 +101,9 @@ public sealed class SettlementTests
     [TestMethod]
     public void Position_and_natural_resource_ids_mutate_with_same_value_early_return()
     {
-        var iron = new GoodId("core", "iron");
-        var coal = new GoodId("core", "coal");
-        var input = new HashSet<GoodId> { iron };
+        var iron = new VoxelDefinitionId("core", "iron");
+        var coal = new VoxelDefinitionId("core", "coal");
+        var input = new HashSet<VoxelDefinitionId> { iron };
         var settlement = Create(x: 4, y: -9, resources: input);
 
         input.Add(coal);
@@ -115,19 +115,19 @@ public sealed class SettlementTests
         settlement.SetPosition(new MapPosition(-1, 7));
         Assert.AreEqual(new MapPosition(-1, 7), settlement.Position);
 
-        var replacement = new HashSet<GoodId> { iron, coal };
+        var replacement = new HashSet<VoxelDefinitionId> { iron, coal };
         settlement.SetNaturalResourceIds(replacement);
         replacement.Remove(iron);
         Assert.AreEqual(2, settlement.NaturalResourceIds.Count);
         Assert.IsTrue(settlement.NaturalResourceIds.Contains(iron));
         Assert.IsTrue(settlement.NaturalResourceIds.Contains(coal));
 
-        settlement.SetNaturalResourceIds(new HashSet<GoodId> { coal, iron });
+        settlement.SetNaturalResourceIds(new HashSet<VoxelDefinitionId> { coal, iron });
         Assert.AreEqual(2, settlement.NaturalResourceIds.Count);
         Assert.IsTrue(settlement.NaturalResourceIds.SetEquals(new[] { iron, coal }));
 
         Assert.ThrowsException<ArgumentNullException>(() => settlement.SetNaturalResourceIds(null!));
-        Assert.ThrowsException<ArgumentException>(() => settlement.SetNaturalResourceIds(new HashSet<GoodId> { default }));
+        Assert.ThrowsException<ArgumentException>(() => settlement.SetNaturalResourceIds(new HashSet<VoxelDefinitionId> { default }));
     }
 
     [TestMethod]
@@ -179,14 +179,14 @@ public sealed class SettlementTests
     public void Collection_inputs_are_copied_and_exposed_state_is_read_only()
     {
         var mill = new BuildingTypeId("mill");
-        var iron = new GoodId("core", "iron");
+        var iron = new VoxelDefinitionId("core", "iron");
         var buildings = new Dictionary<BuildingTypeId, int> { [mill] = 2 };
-        var resources = new HashSet<GoodId> { iron };
+        var resources = new HashSet<VoxelDefinitionId> { iron };
         var settlement = Create(buildings: buildings, resources: resources);
 
         buildings[mill] = 99;
         buildings[new BuildingTypeId("warehouse")] = 1;
-        resources.Add(new GoodId("core", "coal"));
+        resources.Add(new VoxelDefinitionId("core", "coal"));
 
         Assert.AreEqual(2, settlement.Buildings[mill]);
         Assert.AreEqual(1, settlement.Buildings.Count);
@@ -197,9 +197,9 @@ public sealed class SettlementTests
         Assert.ThrowsException<NotSupportedException>(() => buildingView.Add(
             new KeyValuePair<BuildingTypeId, int>(new BuildingTypeId("shop"), 1)));
 
-        var resourceView = (ICollection<GoodId>)settlement.NaturalResourceIds;
+        var resourceView = (ICollection<VoxelDefinitionId>)settlement.NaturalResourceIds;
         Assert.IsTrue(resourceView.IsReadOnly);
-        Assert.ThrowsException<NotSupportedException>(() => resourceView.Add(new GoodId("core", "coal")));
+        Assert.ThrowsException<NotSupportedException>(() => resourceView.Add(new VoxelDefinitionId("core", "coal")));
     }
 
     [TestMethod]
@@ -227,7 +227,7 @@ public sealed class SettlementTests
         int y = 0,
         int population = 10,
         IReadOnlyDictionary<BuildingTypeId, int>? buildings = null,
-        IReadOnlySet<GoodId>? resources = null,
+        IReadOnlySet<VoxelDefinitionId>? resources = null,
         Station? station = null) =>
         new(
             new SettlementId(id),
@@ -236,6 +236,6 @@ public sealed class SettlementTests
             new MapPosition(x, y),
             population,
             buildings ?? new Dictionary<BuildingTypeId, int>(),
-            resources ?? new HashSet<GoodId>(),
+            resources ?? new HashSet<VoxelDefinitionId>(),
             station);
 }

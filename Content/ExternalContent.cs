@@ -116,8 +116,8 @@ public static class ExternalContent
             ? children
             : Array.Empty<ModFolderCandidate>();
 
-    public static ContentFileDiscovery ListGoodsFiles(string resourcesRoot) =>
-        ListDataFiles(resourcesRoot, ".goods.json");
+    public static ContentFileDiscovery ListVoxelFiles(string resourcesRoot) =>
+        ListDataFiles(resourcesRoot, ".voxels.json");
 
     public static ContentFileDiscovery ListSettlementFiles(string resourcesRoot) =>
         ListDataFiles(resourcesRoot, ".settlements.json");
@@ -211,8 +211,8 @@ public static class ExternalContent
         try
         {
             var info = new FileInfo(manifestPath);
-            if (info.Length > ContentLimits.GoodsFileMaxBytes)
-                return (new byte[ContentLimits.GoodsFileMaxBytes + 1], false, false);
+            if (info.Length > ContentLimits.JsonFileMaxBytes)
+                return (new byte[ContentLimits.JsonFileMaxBytes + 1], false, false);
             return (File.ReadAllBytes(manifestPath), false, false);
         }
         catch

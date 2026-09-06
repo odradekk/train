@@ -1,6 +1,7 @@
+using System.Security.Cryptography;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 using Train.Logging;
 
@@ -14,7 +15,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "natural/ores.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron-ore", "铁矿", "铁矿说明"),
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
@@ -29,15 +30,18 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(2, result.AcceptedDefinitionCount);
         var snapshot = reloader.Catalog.Current!;
         Assert.AreEqual(2, snapshot.Entries.Count);
-        Assert.IsTrue(snapshot.TryGet(new GoodId("core", "iron-ore"), out var iron));
+        Assert.IsTrue(snapshot.TryGet(new VoxelDefinitionId("core", "iron-ore"), out var iron));
         Assert.AreEqual("铁矿", iron.Definition.Name);
         Assert.AreEqual("core", iron.Origin.Namespace);
-        Assert.AreEqual("natural/ores.goods.json", iron.Origin.SourceFile);
-        Assert.AreEqual(100, iron.Definition.BaseMonetaryValue);
-        var entries = (ICollection<KeyValuePair<GoodId, GoodCatalogEntry>>)snapshot.Entries;
+        Assert.AreEqual("voxels/ores.voxels.json", iron.Origin.SourceFile);
+        Assert.AreEqual(100, iron.Definition.Value);
+        Assert.AreEqual(1, iron.Definition.Mass);
+        Assert.AreEqual(100, iron.Definition.MaxDurability);
+        Assert.IsTrue(iron.Definition.HasNaturalResourceTag);
+        var entries = (ICollection<KeyValuePair<VoxelDefinitionId, VoxelCatalogEntry>>)snapshot.Entries;
         Assert.IsTrue(entries.IsReadOnly);
         Assert.ThrowsException<NotSupportedException>(() =>
-            entries.Add(new KeyValuePair<GoodId, GoodCatalogEntry>(new GoodId("core", "x"), iron)));
+            entries.Add(new KeyValuePair<VoxelDefinitionId, VoxelCatalogEntry>(new VoxelDefinitionId("core", "x"), iron)));
     }
 
     [TestMethod]
@@ -45,21 +49,21 @@ public sealed class ContentReloaderTests
     {
         var cases = new[]
         {
-            "{ /* comment */ \"schema_version\": 1, \"goods\": [] }",
-            "{ \"schema_version\": 1, \"goods\": [], }",
-            "{ \"schema_version\": 1, \"goods\": [], \"extra\": 1 }",
-            "{ \"schema_version\": 1, \"schema_version\": 1, \"goods\": [] }",
-            "{ \"Schema_version\": 1, \"goods\": [] }",
-            "{ \"schema_version\": 2, \"goods\": [] }",
-            "{ \"schema_version\": 1.5, \"goods\": [] }",
-            "{ \"goods\": [] }"
+            "{ /* comment */ \"schema_version\": 1, \"voxels\": [] }",
+            "{ \"schema_version\": 1, \"voxels\": [], }",
+            "{ \"schema_version\": 1, \"voxels\": [], \"extra\": 1 }",
+            "{ \"schema_version\": 1, \"schema_version\": 1, \"voxels\": [] }",
+            "{ \"Schema_version\": 1, \"voxels\": [] }",
+            "{ \"schema_version\": 2, \"voxels\": [] }",
+            "{ \"schema_version\": 1.5, \"voxels\": [] }",
+            "{ \"voxels\": [] }"
         };
 
         foreach (var json in cases)
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddGoodsFile("core", "bad.goods.json", json);
+            source.AddVoxelFile("core", "bad.voxels.json", json);
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, json);
@@ -79,16 +83,18 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("iron", "铁矿", ""),
             ContentFixtures.Good("iron", "铁矿", "说明", value: 0),
             ContentFixtures.Good("iron", "铁矿", "说明", value: 1_000_000_001),
-            ContentFixtures.Good("iron", "铁矿", "说明", category: "Natural_Resource"),
-            ContentFixtures.Good("iron", "铁矿", "说明", category: "processed"),
-            "{\"id\":\"iron\",\"category\":\"natural_resource\",\"name\":\"铁矿\",\"description\":\"说明\",\"base_monetary_value\":100}"
+            ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Natural_Resource\"]"),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: "[{\"type\":\"future\"}]"),
+            ContentFixtures.Good("iron", "铁矿", "说明", orientations: "free"),
+            ContentFixtures.Good("iron", "铁矿", "说明", mass: 0),
+            "{\"id\":\"iron\",\"name\":\"铁矿\",\"description\":\"说明\",\"value\":100}"
         };
 
         foreach (var good in invalids)
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddGoodsFile("core", "bad.goods.json", ContentFixtures.GoodsFile(good));
+            source.AddVoxelFile("core", "bad.voxels.json", ContentFixtures.GoodsFile(good));
             ContentFixtures.AddSquareImages(source, "iron.png");
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
@@ -103,15 +109,15 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "bounds.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("1iron-ore", "  铁矿  ", "  说明  ", value: 1),
             ContentFixtures.Good("coal", new string('名', 100), new string('说', 2000), value: 1_000_000_000, icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
         ContentFixtures.AddExampleCity(source, resources: new[] { "core:1iron-ore" });
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreEqual("铁矿", reloader.Catalog.Current!.Entries[new GoodId("core", "1iron-ore")].Definition.Name);
-        Assert.AreEqual(1_000_000_000, reloader.Catalog.Current.Entries[new GoodId("core", "coal")].Definition.BaseMonetaryValue);
+        Assert.AreEqual("铁矿", reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "1iron-ore")].Definition.Name);
+        Assert.AreEqual(1_000_000_000, reloader.Catalog.Current.Entries[new VoxelDefinitionId("core", "coal")].Definition.Value);
     }
 
     [TestMethod]
@@ -136,12 +142,12 @@ public sealed class ContentReloaderTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddGoodsFile("core", "path.goods.json", ContentFixtures.GoodsFile(
+            source.AddVoxelFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("iron", "铁矿", "说明", icon: path, voxel: path.Length == 0 ? "iron.png" : path)));
             ContentFixtures.AddSquareImages(source, "iron.png");
             var result = ContentFixtures.Create(source, session.Logger).Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, path);
-            Assert.IsTrue(result.Diagnostics.Any(item => item.Code is ContentDiagnosticCodes.PathInvalid or ContentDiagnosticCodes.VisualRequired), path);
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code is ContentDiagnosticCodes.PathInvalid or ContentDiagnosticCodes.PresentationRequired), path);
         }
     }
 
@@ -156,12 +162,12 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(ContentReloadStatus.Rejected, ReloadWithFaces(session3, 16, 16, 32).Status);
         using var session4 = LoggerSession.Create();
         var missing = ContentFixtures.CorePackage();
-        missing.AddGoodsFile("core", "n.goods.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        missing.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         missing.AddMissingImage("core", "iron.png");
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(missing, session4.Logger).Reload().Status);
         using var session5 = LoggerSession.Create();
         var huge = ContentFixtures.CorePackage();
-        huge.AddGoodsFile("core", "n.goods.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        huge.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         huge.AddOversizedImageBytes("core", "iron.png");
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(huge, session5.Logger).Reload().Status);
     }
@@ -171,8 +177,8 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "a.goods.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
-        source.AddGoodsFile("core", "b.goods.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "另一铁矿", "说明")));
+        source.AddVoxelFile("core", "a.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        source.AddVoxelFile("core", "b.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "另一铁矿", "说明")));
         ContentFixtures.AddSquareImages(source, "iron.png");
         var reloader = ContentFixtures.Create(source, session.Logger);
         var result = reloader.Reload();
@@ -186,7 +192,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var oversizedFile = ContentFixtures.CorePackage();
-        oversizedFile.AddGoodsFile("core", "big.goods.json", new byte[ContentLimits.GoodsFileMaxBytes + 1]);
+        oversizedFile.AddVoxelFile("core", "big.voxels.json", new byte[ContentLimits.JsonFileMaxBytes + 1]);
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(oversizedFile, session.Logger).Reload().Status);
 
         using var session2 = LoggerSession.Create();
@@ -195,12 +201,12 @@ public sealed class ContentReloaderTests
         for (var start = 1; start <= 10001; start += 1000)
         {
             var end = Math.Min(start + 999, 10001);
-            source.AddGoodsFile("core", $"batch-{start}.goods.json", ContentFixtures.ManyGoods(start, end));
+            source.AddVoxelFile("core", $"batch-{start}.voxels.json", ContentFixtures.ManyGoods(start, end));
         }
 
         var result = ContentFixtures.Create(source, session2.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
-        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.GlobalGoodLimitExceeded));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.GlobalVoxelLimitExceeded));
     }
 
     [TestMethod]
@@ -210,7 +216,7 @@ public sealed class ContentReloaderTests
         var goods = string.Join(",", Enumerable.Range(0, 150).Select(i =>
             ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "many.goods.json", $"{{\"schema_version\":1,\"goods\":[{goods}]}}");
+        source.AddVoxelFile("core", "many.voxels.json", $"{{\"schema_version\":1,\"voxels\":[{goods}]}}");
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count);
@@ -255,7 +261,7 @@ public sealed class ContentReloaderTests
         Assert.IsNotNull(later.Catalog.Current);
         Assert.AreEqual(0, later.Catalog.Current.Entries.Count);
         Assert.IsFalse(later.InitializationFailed);
-        Assert.IsTrue(result.Removed.Contains(new GoodId("core", "iron-ore")));
+        Assert.IsTrue(result.Removed.Contains(new VoxelDefinitionId("core", "iron-ore")));
     }
 
     [TestMethod]
@@ -265,7 +271,7 @@ public sealed class ContentReloaderTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddGoodsFile("core", "path.goods.json", ContentFixtures.GoodsFile(
+            source.AddVoxelFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("iron", "铁矿", "说明", icon: path, voxel: path)));
             ContentFixtures.AddSquareImages(source, "iron.png");
             var reloader = ContentFixtures.Create(source, session.Logger);
@@ -277,15 +283,15 @@ public sealed class ContentReloaderTests
 
         using var ok = LoggerSession.Create();
         var valid = ContentFixtures.CorePackage();
-        valid.AddGoodsFile("core", "natural/ores.goods.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron", "铁矿", "说明", icon: "natural/iron.png", voxel: "natural/iron.png")));
-        ContentFixtures.AddSquareImages(valid, "natural/iron.png");
+        valid.AddVoxelFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron", "铁矿", "说明", icon: "voxels/iron.png", voxel: "voxels/iron.png")));
+        ContentFixtures.AddSquareImages(valid, "voxels/iron.png");
         ContentFixtures.AddExampleCity(valid, resources: new[] { "core:iron" });
         var validReloader = ContentFixtures.Create(valid, ok.Logger);
         var committed = validReloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, committed.Status);
         Assert.IsNotNull(validReloader.Catalog.Current);
-        Assert.IsTrue(validReloader.Catalog.Current.TryGet(new GoodId("core", "iron"), out _));
+        Assert.IsTrue(validReloader.Catalog.Current.TryGet(new VoxelDefinitionId("core", "iron"), out _));
     }
 
     [TestMethod]
@@ -328,12 +334,12 @@ public sealed class ContentReloaderTests
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var previous = reloader.Catalog.Current!;
-        source.AddGoodsFile("core", "bad.goods.json", "{ \"schema_version\": 2, \"goods\": [] }");
+        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
         var rejected = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
         Assert.AreSame(previous, reloader.Catalog.Current);
-        Assert.AreEqual(1, previous.Version);
-        Assert.IsTrue(previous.TryGet(new GoodId("core", "iron-ore"), out _));
+        Assert.AreEqual(1, previous.Generation);
+        Assert.IsTrue(previous.TryGet(new VoxelDefinitionId("core", "iron-ore"), out _));
         Assert.IsFalse(reloader.InitializationFailed);
     }
 
@@ -349,7 +355,7 @@ public sealed class ContentReloaderTests
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
         Assert.IsTrue(result.WarningCount > 0);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId("core", "iron-ore"), out _));
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "iron-ore"), out _));
     }
 
     [TestMethod]
@@ -360,10 +366,10 @@ public sealed class ContentReloaderTests
         var reloader = ContentFixtures.Create(
             source,
             session.Logger,
-            new ReferencedGoodIdValidator(() => new HashSet<GoodId> { new("core", "coal") }));
+            new ReferencedVoxelIdValidator(() => new HashSet<VoxelDefinitionId> { new("core", "coal") }));
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
-        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedGoodReference));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference));
         Assert.IsNull(reloader.Catalog.Current);
     }
 
@@ -398,7 +404,6 @@ public sealed class ContentReloaderTests
         var snapshot = reloader.Catalog.Current;
         var notifications = 0;
         reloader.Catalog.Changed += _ => notifications++;
-        source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: new byte[] { 9, 8, 7 });
         var second = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, second.Status);
         Assert.IsFalse(second.Changed);
@@ -411,21 +416,118 @@ public sealed class ContentReloaderTests
     }
 
     [TestMethod]
+    public void Hash_matrix_separates_semantic_asset_and_catalog_generation()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var baseline = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        var baselineSemantic = baseline.SemanticRevision;
+        var baselineAsset = baseline.AssetRevisions["iron.png"];
+        var baselineGeneration = reloader.Catalog.Current.Generation;
+
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", """
+            {"schema_version":1,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"kind":"full_box"},"description":"说明","id":"iron-ore","mass":1,"max_durability":100,"name":"铁矿","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":["natural_resource"],"value":100}]}
+            """);
+        var whitespace = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsFalse(whitespace.Changed);
+        Assert.AreEqual(baselineGeneration, whitespace.CatalogVersion);
+        Assert.AreEqual(baselineSemantic, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")].SemanticRevision);
+
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "铁矿", "说明", tagsJson: "[\"natural_resource\",\"stone\"]")));
+        var tagged = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsTrue(tagged.Changed);
+        var afterTags = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        Assert.AreNotEqual(baselineSemantic, afterTags.SemanticRevision);
+        var taggedSemantic = afterTags.SemanticRevision;
+        var taggedGeneration = reloader.Catalog.Current.Generation;
+
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "铁矿", "说明", tagsJson: "[\"stone\",\"natural_resource\"]")));
+        var reorderedTags = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsFalse(reorderedTags.Changed);
+        Assert.AreEqual(taggedSemantic, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")].SemanticRevision);
+
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "新铁矿", "新说明", tagsJson: "[\"stone\",\"natural_resource\"]")));
+        var display = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsTrue(display.Changed);
+        Assert.IsTrue(display.ChangedIds.Contains(new VoxelDefinitionId("core", "iron-ore")));
+        var afterDisplay = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        Assert.AreEqual(taggedSemantic, afterDisplay.SemanticRevision);
+        Assert.AreEqual("新铁矿", afterDisplay.Definition.Name);
+        Assert.AreNotEqual(taggedGeneration, display.CatalogVersion);
+
+        var sameBytes = new byte[] { 7, 7, 7, 7 };
+        var expectedAsset = Convert.ToHexString(SHA256.HashData(sameBytes));
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "新铁矿", "新说明", tagsJson: "[\"stone\",\"natural_resource\"]", icon: "copy.png", voxel: "copy.png")));
+        source.AddImage("core", "copy.png", ContentFixtures.Square(16), rawBytes: sameBytes);
+        source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: sameBytes);
+        var rebound = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsTrue(rebound.Changed);
+        var afterBind = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        Assert.AreEqual(taggedSemantic, afterBind.SemanticRevision);
+        Assert.AreEqual(expectedAsset, afterBind.AssetRevisions["copy.png"]);
+
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "新铁矿", "新说明", tagsJson: "[\"stone\",\"natural_resource\"]")));
+        var reboundSameBytes = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsTrue(reboundSameBytes.Changed);
+        var afterSameBytes = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        Assert.AreEqual(taggedSemantic, afterSameBytes.SemanticRevision);
+        Assert.AreEqual(expectedAsset, afterSameBytes.AssetRevisions["iron.png"]);
+
+        source.AddImage("core", "iron.png", ContentFixtures.Square(16, 9), rawBytes: new byte[] { 9, 9, 9, 9 });
+        var pixels = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        Assert.IsTrue(pixels.Changed);
+        var afterPixels = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        Assert.AreEqual(taggedSemantic, afterPixels.SemanticRevision);
+        Assert.AreNotEqual(expectedAsset, afterPixels.AssetRevisions["iron.png"]);
+        Assert.AreNotEqual(baselineAsset, afterPixels.AssetRevisions["iron.png"]);
+
+        ContentReloadResult ReloadGood(string voxel)
+        {
+            source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(voxel));
+            return ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements).Reload();
+        }
+
+        var previousSemantic = taggedSemantic;
+        foreach (var voxel in new[]
+                 {
+                     ContentFixtures.Good("iron-ore", "新铁矿", "新说明", value: 250, tagsJson: "[\"stone\",\"natural_resource\"]"),
+                     ContentFixtures.Good("iron-ore", "新铁矿", "新说明", value: 250, mass: 2, tagsJson: "[\"stone\",\"natural_resource\"]"),
+                     ContentFixtures.Good("iron-ore", "新铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"natural_resource\"]"),
+                     ContentFixtures.Good("iron-ore", "新铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"natural_resource\"]", orientations: "four_way"),
+                     ContentFixtures.Good("iron-ore", "新铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"natural_resource\"]", orientations: "four_way", collisionJson: "{\"kind\":\"none\"}")
+                 })
+        {
+            var result = ReloadGood(voxel);
+            Assert.IsTrue(result.Changed);
+            var currentSemantic = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")].SemanticRevision;
+            Assert.AreNotEqual(previousSemantic, currentSemantic);
+            previousSemantic = currentSemantic;
+        }
+    }
+
+    [TestMethod]
     public void Successful_reload_reports_added_removed_and_pixel_changes()
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidIron();
-        source.AddGoodsFile("core", "coal.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "coal.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "coal.png");
         var reloader = ContentFixtures.Create(source, session.Logger);
         reloader.Reload();
 
-        var notifications = new List<GoodCatalogChange>();
+        var notifications = new List<VoxelCatalogChange>();
         reloader.Catalog.Changed += notifications.Add;
         var previous = reloader.Catalog.Current!;
         source = ContentFixtures.ValidIron();
-        source.AddGoodsFile("core", "stone.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "stone.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("stone", "石", "石说明", icon: "stone.png", voxel: "stone.png")));
         ContentFixtures.AddSquareImages(source, "stone.png");
         source.AddImage("core", "iron.png", ContentFixtures.Square(16, 9));
@@ -433,13 +535,13 @@ public sealed class ContentReloaderTests
         var result = rebuilt.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        CollectionAssert.AreEquivalent(new[] { new GoodId("core", "stone") }, result.Added.ToArray());
-        CollectionAssert.AreEquivalent(new[] { new GoodId("core", "coal") }, result.Removed.ToArray());
-        CollectionAssert.AreEquivalent(new[] { new GoodId("core", "iron-ore") }, result.ChangedIds.ToArray());
+        CollectionAssert.AreEquivalent(new[] { new VoxelDefinitionId("core", "stone") }, result.Added.ToArray());
+        CollectionAssert.AreEquivalent(new[] { new VoxelDefinitionId("core", "coal") }, result.Removed.ToArray());
+        CollectionAssert.AreEquivalent(new[] { new VoxelDefinitionId("core", "iron-ore") }, result.ChangedIds.ToArray());
         Assert.AreEqual(1, notifications.Count);
-        Assert.AreEqual(result.CatalogVersion, notifications[0].Version);
-        Assert.IsTrue(previous.TryGet(new GoodId("core", "coal"), out _));
-        Assert.IsFalse(reloader.Catalog.Current!.TryGet(new GoodId("core", "coal"), out _));
+        Assert.AreEqual(result.CatalogVersion, notifications[0].Generation);
+        Assert.IsTrue(previous.TryGet(new VoxelDefinitionId("core", "coal"), out _));
+        Assert.IsFalse(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "coal"), out _));
         Assert.AreNotSame(previous, reloader.Catalog.Current);
     }
 
@@ -458,7 +560,7 @@ public sealed class ContentReloaderTests
         Assert.AreEqual("示例城市", city.Name);
         Assert.AreEqual(new MapPosition(0, 0), city.Position);
         Assert.AreEqual(100, city.Population);
-        Assert.IsTrue(city.NaturalResourceIds.Contains(new GoodId("core", "iron-ore")));
+        Assert.IsTrue(city.NaturalResourceIds.Contains(new VoxelDefinitionId("core", "iron-ore")));
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.ReloadSummaryEventId &&
             item.Attributes["settlements_accepted"] is 1));
@@ -479,8 +581,8 @@ public sealed class ContentReloaderTests
         Assert.IsTrue(scanned.All(item =>
             item.Level == LogLevel.Debug && item.Category == ContentLog.Category));
 
-        var goods = scanned.Single(item => item.Attributes["kind"] is "goods");
-        Assert.AreEqual("natural/iron-ore.goods.json", goods.Attributes["source"]);
+        var goods = scanned.Single(item => item.Attributes["kind"] is "voxels");
+        Assert.AreEqual("voxels/iron-ore.voxels.json", goods.Attributes["source"]);
         Assert.AreEqual("core", goods.Attributes["package"]);
         Assert.AreEqual(1, goods.Attributes["accepted"]);
 
@@ -507,15 +609,15 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidIron();
-        source.AddGoodsFile("core", "bad.goods.json", "{ \"schema_version\": 2, \"goods\": [] }");
+        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
         var reloader = ContentFixtures.Create(source, session.Logger);
         reloader.Reload();
 
         var bad = session.Memory.Snapshot().Single(item =>
             item.EventId == ContentLog.FileScannedEventId &&
-            item.Attributes["source"] is "bad.goods.json");
+            item.Attributes["source"] is "bad.voxels.json");
         Assert.AreEqual(LogLevel.Debug, bad.Level);
-        Assert.AreEqual("goods", bad.Attributes["kind"]);
+        Assert.AreEqual("voxels", bad.Attributes["kind"]);
         Assert.AreEqual("core", bad.Attributes["package"]);
         Assert.AreEqual(0, bad.Attributes["accepted"]);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
@@ -528,7 +630,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "natural/iron-ore.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron-ore", "铁矿", "说明")));
         ContentFixtures.AddSquareImages(source, "iron.png");
         var reloader = ContentFixtures.Create(source, session.Logger);
@@ -560,7 +662,7 @@ public sealed class ContentReloaderTests
         Assert.AreSame(priorCatalog, rebuilt.Catalog.Current);
         Assert.IsTrue(previous.Settlements.TryGet(new SettlementId("core:example-city"), out _));
         Assert.IsFalse(previous.Settlements.TryGet(new SettlementId("core:ghost"), out _));
-        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedGoodReference));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference));
     }
 
     [TestMethod]
@@ -589,7 +691,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidIron();
-        source.AddGoodsFile("core", "natural/coal.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "voxels/coal.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "coal.png");
         source.AddSettlementsFile("core", "settlements/mine.settlements.json", ContentFixtures.SettlementsFile(
@@ -599,17 +701,17 @@ public sealed class ContentReloaderTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new GoodId("core", "coal"), out _));
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "coal"), out _));
         Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:coal-town"), out var town));
-        Assert.IsTrue(town.NaturalResourceIds.Contains(new GoodId("core", "coal")));
-        Assert.IsTrue(result.Added.Contains(new GoodId("core", "coal")));
+        Assert.IsTrue(town.NaturalResourceIds.Contains(new VoxelDefinitionId("core", "coal")));
+        Assert.IsTrue(result.Added.Contains(new VoxelDefinitionId("core", "coal")));
         Assert.IsTrue(result.AddedSettlements.Contains(new SettlementId("core:coal-town")));
     }
 
     private static ContentReloadResult ReloadWithImage(LoggerSession session, string path, DecodedImage image)
     {
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "n.goods.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        source.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         source.AddImage("core", path, image);
         return ContentFixtures.Create(source, session.Logger).Reload();
     }
@@ -617,7 +719,7 @@ public sealed class ContentReloaderTests
     private static ContentReloadResult ReloadWithFaces(LoggerSession session, int top, int side, int bottom)
     {
         var source = ContentFixtures.CorePackage();
-        source.AddGoodsFile("core", "n.goods.json", ContentFixtures.GoodsFile(
+        source.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron", "铁矿", "说明", icon: "icon.png", voxel: null, top: "top.png", side: "side.png", bottom: "bottom.png")));
         source.AddImage("core", "icon.png", ContentFixtures.Square(16));
         source.AddImage("core", "top.png", ContentFixtures.Square(top, 2));
@@ -637,9 +739,9 @@ internal sealed class InvalidDiscoverySource : IContentSource
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _inner.ListScanDiagnostics();
 
-    public ContentFileDiscovery ListGoodsFiles(ContentPackage package)
+    public ContentFileDiscovery ListVoxelFiles(ContentPackage package)
     {
-        var inner = _inner.ListGoodsFiles(package);
+        var inner = _inner.ListVoxelFiles(package);
         return new ContentFileDiscovery(
             inner.Files,
             new[] { ContentPackageWalk.LinkedPathDiagnostic("res://linked") },
@@ -658,7 +760,7 @@ internal sealed class InvalidDiscoverySource : IContentSource
 
 internal sealed class WarningValidator : IContentPreCommitValidator
 {
-    public ContentPreCommitDecision Validate(GoodCatalogSnapshot candidate) =>
+    public ContentPreCommitDecision Validate(VoxelCatalogSnapshot candidate) =>
         ContentPreCommitDecision.Allow(new[]
         {
             new ContentDiagnostic(ContentDiagnosticSeverity.Warning, "precommit_warning", "Advisory warning.")
@@ -676,7 +778,7 @@ internal sealed class BlockingValidator : IContentPreCommitValidator
         _release = release;
     }
 
-    public ContentPreCommitDecision Validate(GoodCatalogSnapshot candidate)
+    public ContentPreCommitDecision Validate(VoxelCatalogSnapshot candidate)
     {
         _entered.Set();
         _release.Wait();
@@ -696,7 +798,7 @@ internal static class ContentFixtures
     public static MemoryContentSource ValidIron()
     {
         var source = CorePackage();
-        source.AddGoodsFile("core", "natural/iron-ore.goods.json", GoodsFile(Good("iron-ore", "铁矿", "说明")));
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", GoodsFile(Good("iron-ore", "铁矿", "说明")));
         AddSquareImages(source, "iron.png");
         AddExampleCity(source);
         return source;
@@ -741,7 +843,7 @@ internal static class ContentFixtures
         MemoryContentSource source,
         TrainLogger logger,
         IContentPreCommitValidator? validator = null,
-        GoodCatalog? catalog = null,
+        VoxelCatalog? catalog = null,
         SettlementRegistry? settlements = null) =>
         new(source, logger, catalog, validator, settlements);
 
@@ -757,32 +859,37 @@ internal static class ContentFixtures
     public static DecodedImage Rectangle(int width, int height) =>
         new(width, height, "rgba8", new byte[width * height * 4]);
 
-    public static string GoodsFile(params string[] goods) =>
-        $"{{\"schema_version\":1,\"goods\":[{string.Join(",", goods)}]}}";
+    public static string GoodsFile(params string[] voxels) =>
+        $"{{\"schema_version\":1,\"voxels\":[{string.Join(",", voxels)}]}}";
 
     public static string Good(
         string id,
         string name,
         string description,
         long value = 100,
-        string category = "natural_resource",
+        double mass = 1,
+        int maxDurability = 100,
         string? icon = "iron.png",
         string? voxel = "iron.png",
         string? top = null,
         string? side = null,
-        string? bottom = null)
+        string? bottom = null,
+        string tagsJson = "[\"natural_resource\"]",
+        string behaviorsJson = "[]",
+        string orientations = "all_24",
+        string collisionJson = "{\"kind\":\"full_box\"}")
     {
-        var visual = icon is null
+        var presentation = icon is null
             ? "null"
-            : $"{{\"icon\":{Json(icon)},\"voxel_top\":{Json(top ?? voxel ?? icon)},\"voxel_side\":{Json(side ?? voxel ?? icon)},\"voxel_bottom\":{Json(bottom ?? voxel ?? icon)}}}";
-        return $"{{\"id\":{Json(id)},\"category\":{Json(category)},\"name\":{Json(name)},\"description\":{Json(description)},\"base_monetary_value\":{value},\"visual\":{visual}}}";
+            : $"{{\"kind\":\"cube\",\"icon\":{Json(icon)},\"voxel_top\":{Json(top ?? voxel ?? icon)},\"voxel_side\":{Json(side ?? voxel ?? icon)},\"voxel_bottom\":{Json(bottom ?? voxel ?? icon)}}}";
+        return $"{{\"id\":{Json(id)},\"name\":{Json(name)},\"description\":{Json(description)},\"value\":{value},\"mass\":{VoxelDefinition.FormatMass(mass)},\"max_durability\":{maxDurability},\"tags\":{tagsJson},\"behaviors\":{behaviorsJson},\"allowed_orientations\":{Json(orientations)},\"presentation\":{presentation},\"collision\":{collisionJson}}}";
     }
 
     public static string ManyGoods(int fromInclusive, int toInclusive)
     {
-        var goods = Enumerable.Range(fromInclusive, toInclusive - fromInclusive + 1)
+        var voxels = Enumerable.Range(fromInclusive, toInclusive - fromInclusive + 1)
             .Select(i => Good($"g{i:D5}", "矿", "说明"));
-        return GoodsFile(goods.ToArray());
+        return GoodsFile(voxels.ToArray());
     }
 
     private static string Json(string value)

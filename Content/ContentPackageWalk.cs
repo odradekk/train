@@ -27,7 +27,7 @@ public static class ContentPackageWalk
     public static ContentFileDiscovery Discover(
         string root,
         Func<string, IReadOnlyList<ContentTreeEntry>?> listChildren,
-        string fileSuffix = ".goods.json")
+        string fileSuffix = ".voxels.json")
     {
         var files = new List<string>();
         var bag = new DiagnosticBag();

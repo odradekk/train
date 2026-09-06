@@ -1,6 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 
 namespace Train.Tests;
@@ -12,7 +12,7 @@ public sealed class SettlementRegistryTests
     public void Apply_adds_constructs_and_exposes_query_api()
     {
         var registry = new SettlementRegistry();
-        var oak = Candidate("core:oak", "橡木城", 2, 4, 20, new GoodId("core", "iron-ore"));
+        var oak = Candidate("core:oak", "橡木城", 2, 4, 20, new VoxelDefinitionId("core", "iron-ore"));
 
         registry.Apply(new[] { oak });
 
@@ -22,7 +22,7 @@ public sealed class SettlementRegistryTests
         Assert.AreEqual(new SettlementTypeId("city"), live.Type);
         Assert.AreEqual(new MapPosition(2, 4), live.Position);
         Assert.AreEqual(20, live.Population);
-        Assert.IsTrue(live.NaturalResourceIds.Contains(new GoodId("core", "iron-ore")));
+        Assert.IsTrue(live.NaturalResourceIds.Contains(new VoxelDefinitionId("core", "iron-ore")));
         Assert.AreEqual(1, registry.Items.Count);
         Assert.AreSame(live, registry.Items.Single());
     }
@@ -35,13 +35,13 @@ public sealed class SettlementRegistryTests
         registry.Apply(new[] { oak });
         Assert.IsTrue(registry.TryGet(oak.Id, out var held));
 
-        registry.Apply(new[] { Candidate("core:oak", "港湾", 8, -3, 40, new GoodId("core", "iron-ore")) });
+        registry.Apply(new[] { Candidate("core:oak", "港湾", 8, -3, 40, new VoxelDefinitionId("core", "iron-ore")) });
 
         Assert.AreSame(held, registry.Items.Single());
         Assert.AreEqual("港湾", held.Name);
         Assert.AreEqual(new MapPosition(8, -3), held.Position);
         Assert.AreEqual(40, held.Population);
-        Assert.IsTrue(held.NaturalResourceIds.Contains(new GoodId("core", "iron-ore")));
+        Assert.IsTrue(held.NaturalResourceIds.Contains(new VoxelDefinitionId("core", "iron-ore")));
     }
 
     [TestMethod]
@@ -80,7 +80,7 @@ public sealed class SettlementRegistryTests
         int x,
         int y,
         int population,
-        params GoodId[] resources) =>
+        params VoxelDefinitionId[] resources) =>
         new(
             new SettlementId(id),
             new SettlementTypeId("city"),

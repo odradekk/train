@@ -13,18 +13,18 @@ public sealed class ContentPackageWalkTests
         {
             ["res://root"] =
             [
-                new("safe.goods.json", IsDirectory: false, IsLink: false),
+                new("safe.voxels.json", IsDirectory: false, IsLink: false),
                 new("linked-dir", IsDirectory: true, IsLink: true)
             ],
             ["res://root/linked-dir"] =
             [
-                new("hidden.goods.json", IsDirectory: false, IsLink: false)
+                new("hidden.voxels.json", IsDirectory: false, IsLink: false)
             ]
         };
 
         var discovery = ContentPackageWalk.Discover("res://root", path => tree.GetValueOrDefault(path));
 
-        CollectionAssert.AreEqual(new[] { "safe.goods.json" }, discovery.Files.ToArray());
+        CollectionAssert.AreEqual(new[] { "safe.voxels.json" }, discovery.Files.ToArray());
         Assert.IsTrue(discovery.Invalid);
         Assert.IsTrue(discovery.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsafeLinkedPath));
         Assert.IsFalse(discovery.Files.Any(file => file.Contains("hidden", StringComparison.Ordinal)));
@@ -37,14 +37,14 @@ public sealed class ContentPackageWalkTests
         {
             ["res://root"] =
             [
-                new("ok.goods.json", IsDirectory: false, IsLink: false),
-                new("alias.goods.json", IsDirectory: false, IsLink: true)
+                new("ok.voxels.json", IsDirectory: false, IsLink: false),
+                new("alias.voxels.json", IsDirectory: false, IsLink: true)
             ]
         };
 
         var discovery = ContentPackageWalk.Discover("res://root", path => tree.GetValueOrDefault(path));
 
-        CollectionAssert.AreEqual(new[] { "ok.goods.json" }, discovery.Files.ToArray());
+        CollectionAssert.AreEqual(new[] { "ok.voxels.json" }, discovery.Files.ToArray());
         Assert.IsTrue(discovery.Invalid);
         Assert.IsTrue(discovery.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsafeLinkedPath));
     }
@@ -56,7 +56,7 @@ public sealed class ContentPackageWalkTests
         {
             ["res://root"] =
             [
-                new("visible.goods.json", IsDirectory: false, IsLink: false),
+                new("visible.voxels.json", IsDirectory: false, IsLink: false),
                 new("blocked", IsDirectory: true, IsLink: false)
             ]
         };
@@ -65,7 +65,7 @@ public sealed class ContentPackageWalkTests
             "res://root",
             path => path == "res://root" ? tree[path] : null);
 
-        CollectionAssert.AreEqual(new[] { "visible.goods.json" }, discovery.Files.ToArray());
+        CollectionAssert.AreEqual(new[] { "visible.voxels.json" }, discovery.Files.ToArray());
         Assert.IsTrue(discovery.Invalid);
         Assert.IsTrue(discovery.Diagnostics.Any(item =>
             item.Code == ContentDiagnosticCodes.UnsafeLinkedPath &&

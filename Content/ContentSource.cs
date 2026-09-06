@@ -45,7 +45,7 @@ public interface IContentSource
 {
     IReadOnlyList<ContentPackage> ListPackages();
     IReadOnlyList<ContentDiagnostic> ListScanDiagnostics();
-    ContentFileDiscovery ListGoodsFiles(ContentPackage package);
+    ContentFileDiscovery ListVoxelFiles(ContentPackage package);
     ContentFileDiscovery ListSettlementFiles(ContentPackage package);
     ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes);
     ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath);
@@ -109,14 +109,14 @@ public sealed class MemoryContentSource : IContentSource
         _scanDiagnostics.Add(diagnostic);
     }
 
-    public void AddGoodsFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null)
+    public void AddVoxelFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null)
     {
-        AddGoodsFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
+        AddVoxelFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
     }
 
-    public void AddGoodsFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
+    public void AddVoxelFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
     {
-        AddDataFile(@namespace, relativePath, bytes, ".goods.json", "Goods files must use a safe relative *.goods.json path.", resourcesRoot);
+        AddDataFile(@namespace, relativePath, bytes, ".voxels.json", "Voxel files must use a safe relative *.voxels.json path.", resourcesRoot);
     }
 
     public void AddSettlementsFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null)
@@ -152,7 +152,7 @@ public sealed class MemoryContentSource : IContentSource
             throw new ArgumentException("Images must use a safe relative PNG path.", nameof(relativePath));
         var package = EnsurePackage(@namespace, resourcesRoot);
         _images[Key(package, normalized)] = ImageDecodeResult.Ok(image);
-        _bytes[Key(package, normalized)] = rawBytes ?? Array.Empty<byte>();
+        _bytes[Key(package, normalized)] = rawBytes ?? (image.Pixels as byte[] ?? image.Pixels.ToArray());
     }
 
     public void AddMissingImage(string @namespace, string relativePath, string? resourcesRoot = null)
@@ -176,8 +176,8 @@ public sealed class MemoryContentSource : IContentSource
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics.ToArray();
 
-    public ContentFileDiscovery ListGoodsFiles(ContentPackage package) =>
-        ListDataFiles(package, ".goods.json");
+    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
+        ListDataFiles(package, ".voxels.json");
 
     public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
         ListDataFiles(package, ".settlements.json");

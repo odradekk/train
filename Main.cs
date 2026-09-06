@@ -1,6 +1,6 @@
 using Godot;
 using Train.Content;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Logging;
 
 namespace Train;
@@ -20,7 +20,7 @@ public partial class Main : Node
     private const string ContentExportSmokeEnvironmentVariable = "TRAIN_CONTENT_EXPORT_SMOKE";
     private const string ModsExportSmokeEnvironmentVariable = "TRAIN_MODS_EXPORT_SMOKE";
     private const string ModsSmokeUserDataEnvironmentVariable = "TRAIN_MODS_SMOKE_USER_DATA";
-    private const string SmokeGoodsPath = "res://builtin/core/resources/smoke-temp.goods.json";
+    private const string SmokeVoxelsPath = "res://builtin/core/resources/smoke-temp.voxels.json";
 
     private TrainLogger? _logger;
     private ContentReloader? _reloader;
@@ -108,7 +108,7 @@ public partial class Main : Node
 
     public override void _ExitTree()
     {
-        TryDeleteSmokeGoods();
+        TryDeleteSmokeVoxels();
         if (_ownsModsSmokeUserData && _modsSmokeUserData is not null)
         {
             try
@@ -160,9 +160,9 @@ public partial class Main : Node
         GD.Print(InputMap.HasAction(ReloadContentAction)
             ? "CONTENT_RELOAD_ACTION_PRESENT"
             : "CONTENT_RELOAD_ACTION_MISSING");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore.goods.json"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore.voxels.json"))
             GD.Print("CONTENT_VFS_JSON_READABLE");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore/icon.png"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/icon.png"))
             GD.Print("CONTENT_VFS_PNG_READABLE");
     }
 
@@ -174,8 +174,8 @@ public partial class Main : Node
         switch (_contentSmokePhase)
         {
             case ContentSmokePhase.WriteAndFire:
-                _contentSmokeVersionBeforeInput = _reloader.Catalog.Current?.Version ?? 0;
-                WriteSmokeGoods();
+                _contentSmokeVersionBeforeInput = _reloader.Catalog.Current?.Generation ?? 0;
+                WriteSmokeVoxels();
                 if (OS.IsDebugBuild() && InputMap.HasAction(ReloadContentAction))
                 {
                     var pressed = new InputEventAction
@@ -194,8 +194,8 @@ public partial class Main : Node
                 _contentSmokeInputFrames++;
                 var current = _reloader.Catalog.Current;
                 var inputReloaded = current is not null &&
-                    current.Version > _contentSmokeVersionBeforeInput &&
-                    current.TryGet(new GoodId("core", "smoke-ore"), out _);
+                    current.Generation > _contentSmokeVersionBeforeInput &&
+                    current.TryGet(new VoxelDefinitionId("core", "smoke-ore"), out _);
                 if (inputReloaded)
                 {
                     GD.Print("CONTENT_SMOKE_INPUT_RELOADED");
@@ -207,9 +207,9 @@ public partial class Main : Node
                     _contentSmokePhase = ContentSmokePhase.Remove;
                 return;
             case ContentSmokePhase.Remove:
-                TryDeleteSmokeGoods();
+                TryDeleteSmokeVoxels();
                 var afterRemove = _reloader.Reload();
-                if (afterRemove.Removed.Contains(new GoodId("core", "smoke-ore")))
+                if (afterRemove.Removed.Contains(new VoxelDefinitionId("core", "smoke-ore")))
                     GD.Print("CONTENT_SMOKE_REMOVED");
                 _contentSmokePhase = ContentSmokePhase.Done;
                 _contentSmokeFinished = true;
@@ -275,12 +275,12 @@ public partial class Main : Node
     {
         _contentExportSmoke = true;
         ReportCatalogMarkers(loaded, "CONTENT_EXPORT");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore.goods.json"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore.voxels.json"))
             GD.Print("CONTENT_EXPORT_JSON_READABLE");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore/icon.png") &&
-            Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore/top.png") &&
-            Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore/side.png") &&
-            Godot.FileAccess.FileExists("res://builtin/core/resources/natural/iron-ore/bottom.png"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/icon.png") &&
+            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/top.png") &&
+            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/side.png") &&
+            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/bottom.png"))
             GD.Print("CONTENT_EXPORT_PNG_READABLE");
         if (_logger?.JsonlPath is not null && File.Exists(_logger.JsonlPath))
             GD.Print("CONTENT_EXPORT_JSONL_CREATED");
@@ -289,10 +289,10 @@ public partial class Main : Node
     private void ReportCatalogMarkers(ContentReloadResult loaded, string prefix)
     {
         if (loaded.IsCommitted &&
-            _reloader?.Catalog.Current?.TryGet(new GoodId("core", "iron-ore"), out var entry) == true)
+            _reloader?.Catalog.Current?.TryGet(new VoxelDefinitionId("core", "iron-ore"), out var entry) == true)
         {
             GD.Print($"{prefix}_IRON_ORE_LOADED");
-            if (entry.Definition.Name.Length > 0 && entry.Definition.VoxelVisual.IconPath.Length > 0)
+            if (entry.Definition.Name.Length > 0 && entry.Definition.Presentation.IconPath.Length > 0)
                 GD.Print($"{prefix}_PNG_DECODED");
         }
         else if (_reloader?.InitializationFailed == true)
@@ -317,37 +317,43 @@ public partial class Main : Node
             : "CONTENT_SMOKE_DOMAIN_NOT_EMPTY");
     }
 
-    private static void WriteSmokeGoods()
+    private static void WriteSmokeVoxels()
     {
-        using var file = Godot.FileAccess.Open(SmokeGoodsPath, Godot.FileAccess.ModeFlags.Write);
+        using var file = Godot.FileAccess.Open(SmokeVoxelsPath, Godot.FileAccess.ModeFlags.Write);
         if (file is null)
             return;
         file.StoreString(
             """
             {
               "schema_version": 1,
-              "goods": [
+              "voxels": [
                 {
                   "id": "smoke-ore",
-                  "category": "natural_resource",
                   "name": "冒烟矿",
-                  "description": "开发冒烟测试用的临时货物种类。",
-                  "base_monetary_value": 1,
-                  "visual": {
-                    "icon": "natural/iron-ore/icon.png",
-                    "voxel_top": "natural/iron-ore/top.png",
-                    "voxel_side": "natural/iron-ore/side.png",
-                    "voxel_bottom": "natural/iron-ore/bottom.png"
-                  }
+                  "description": "开发冒烟测试用的临时体素种类。",
+                  "value": 1,
+                  "mass": 1,
+                  "max_durability": 100,
+                  "tags": ["natural_resource"],
+                  "behaviors": [],
+                  "allowed_orientations": "all_24",
+                  "presentation": {
+                    "kind": "cube",
+                    "icon": "voxels/iron-ore/icon.png",
+                    "voxel_top": "voxels/iron-ore/top.png",
+                    "voxel_side": "voxels/iron-ore/side.png",
+                    "voxel_bottom": "voxels/iron-ore/bottom.png"
+                  },
+                  "collision": { "kind": "full_box" }
                 }
               ]
             }
             """);
     }
 
-    private static void TryDeleteSmokeGoods()
+    private static void TryDeleteSmokeVoxels()
     {
-        if (Godot.FileAccess.FileExists(SmokeGoodsPath))
-            DirAccess.RemoveAbsolute(SmokeGoodsPath);
+        if (Godot.FileAccess.FileExists(SmokeVoxelsPath))
+            DirAccess.RemoveAbsolute(SmokeVoxelsPath);
     }
 }

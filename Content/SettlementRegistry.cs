@@ -1,5 +1,5 @@
 using System.Collections.ObjectModel;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 
 namespace Train.Content;
@@ -11,7 +11,7 @@ public sealed class SettlementCandidate
     public string Name { get; }
     public MapPosition Position { get; }
     public int Population { get; }
-    public IReadOnlySet<GoodId> NaturalResourceIds { get; }
+    public IReadOnlySet<VoxelDefinitionId> NaturalResourceIds { get; }
     public ContentPackageKind Kind { get; }
 
     public SettlementCandidate(
@@ -20,7 +20,7 @@ public sealed class SettlementCandidate
         string name,
         MapPosition position,
         int population,
-        IReadOnlySet<GoodId> naturalResourceIds,
+        IReadOnlySet<VoxelDefinitionId> naturalResourceIds,
         ContentPackageKind kind = ContentPackageKind.BuiltIn)
     {
         IdentityText.EnsureDefined(id.Value, nameof(id));

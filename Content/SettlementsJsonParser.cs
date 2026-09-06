@@ -1,5 +1,5 @@
 using System.Text.Json;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 
 namespace Train.Content;
@@ -11,7 +11,7 @@ internal sealed class ParsedSettlement
     public string Name { get; }
     public MapPosition Position { get; }
     public int Population { get; }
-    public IReadOnlyList<GoodId> NaturalResources { get; }
+    public IReadOnlyList<VoxelDefinitionId> NaturalResources { get; }
     public string SourceFile { get; }
 
     public ParsedSettlement(
@@ -20,7 +20,7 @@ internal sealed class ParsedSettlement
         string name,
         MapPosition position,
         int population,
-        IReadOnlyList<GoodId> naturalResources,
+        IReadOnlyList<VoxelDefinitionId> naturalResources,
         string sourceFile)
     {
         LocalId = localId;
@@ -44,7 +44,7 @@ internal static class SettlementsJsonParser
         DiagnosticBag diagnostics)
     {
         diagnostics.Source = sourceFile;
-        if (utf8.Length > ContentLimits.GoodsFileMaxBytes)
+        if (utf8.Length > ContentLimits.JsonFileMaxBytes)
         {
             diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Settlements JSON exceeds the 1 MiB limit.");
             return Array.Empty<ParsedSettlement>();
@@ -143,7 +143,7 @@ internal static class SettlementsJsonParser
         string? name = null;
         int? population = null;
         MapPosition? position = null;
-        IReadOnlyList<GoodId>? resources = null;
+        IReadOnlyList<VoxelDefinitionId>? resources = null;
 
         foreach (var property in element.EnumerateObject())
         {
@@ -186,7 +186,7 @@ internal static class SettlementsJsonParser
             }
         }
 
-        if (localId is null || !GoodId.IsValidPart(localId))
+        if (localId is null || !VoxelDefinitionId.IsValidPart(localId))
         {
             diagnostics.Warn(ContentDiagnosticCodes.LocalIdInvalid, "Local id is invalid.", jsonPath + "/id");
             return false;
@@ -286,33 +286,33 @@ internal static class SettlementsJsonParser
         JsonElement element,
         string jsonPath,
         DiagnosticBag diagnostics,
-        out IReadOnlyList<GoodId> resources)
+        out IReadOnlyList<VoxelDefinitionId> resources)
     {
-        resources = Array.Empty<GoodId>();
+        resources = Array.Empty<VoxelDefinitionId>();
         if (element.ValueKind != JsonValueKind.Array)
         {
             diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "natural_resources must be an array.", jsonPath);
             return false;
         }
 
-        var parsed = new List<GoodId>();
-        var seen = new HashSet<GoodId>();
+        var parsed = new List<VoxelDefinitionId>();
+        var seen = new HashSet<VoxelDefinitionId>();
         var index = 0;
         foreach (var item in element.EnumerateArray())
         {
             var itemPath = $"{jsonPath}/{index}";
-            if (!StrictJson.TryGetString(item, diagnostics, itemPath, ContentDiagnosticCodes.UnresolvedGoodReference, out var raw))
+            if (!StrictJson.TryGetString(item, diagnostics, itemPath, ContentDiagnosticCodes.UnresolvedVoxelReference, out var raw))
                 return false;
 
-            GoodId id;
+            VoxelDefinitionId id;
             try
             {
-                id = GoodId.Parse(raw);
+                id = VoxelDefinitionId.Parse(raw);
             }
             catch (ArgumentException)
             {
                 diagnostics.Warn(
-                    ContentDiagnosticCodes.UnresolvedGoodReference,
+                    ContentDiagnosticCodes.UnresolvedVoxelReference,
                     "Natural resource ids must be fully qualified namespace:local values.",
                     itemPath);
                 return false;

@@ -10,7 +10,7 @@ metadata={
 
 [deps]
 
-source_file="res://builtin/core/resources/natural/iron-ore/icon.png"
+source_file="res://builtin/core/resources/voxels/iron-ore/icon.png"
 dest_files=["res://.godot/imported/icon.png-eab5eeaa039b43828c0566f6fba72d51.ctex"]
 
 [params]

@@ -59,7 +59,7 @@ public sealed class ModManifest
     internal static ModManifestRead Read(byte[] utf8, string source, DiagnosticBag diagnostics)
     {
         diagnostics.Source = source;
-        if (utf8.Length > ContentLimits.GoodsFileMaxBytes)
+        if (utf8.Length > ContentLimits.JsonFileMaxBytes)
         {
             diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Mod manifest exceeds the 1 MiB limit.");
             return ModManifestRead.None;

@@ -101,7 +101,7 @@ internal static class StrictJson
     {
         try
         {
-            normalized = Train.Domain.Goods.GoodDefinition.NormalizeDisplayText(value ?? "", min, max, "value");
+            normalized = Train.Domain.Voxels.VoxelDefinition.NormalizeDisplayText(value ?? "", min, max, "value");
             return true;
         }
         catch (ArgumentException)

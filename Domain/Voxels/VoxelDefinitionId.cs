@@ -1,11 +1,6 @@
-namespace Train.Domain.Goods;
+namespace Train.Domain.Voxels;
 
-public enum GoodCategory
-{
-    NaturalResource = 0
-}
-
-public readonly record struct GoodId
+public readonly record struct VoxelDefinitionId
 {
     public const int PartMinLength = 1;
     public const int PartMaxLength = 64;
@@ -14,7 +9,7 @@ public readonly record struct GoodId
     public string Namespace { get; }
     public string LocalId { get; }
 
-    public GoodId(string @namespace, string localId)
+    public VoxelDefinitionId(string @namespace, string localId)
     {
         Namespace = NormalizePart(@namespace, nameof(@namespace));
         LocalId = NormalizePart(localId, nameof(localId));
@@ -24,15 +19,15 @@ public readonly record struct GoodId
 
     public override string ToString() => Value;
 
-    public static GoodId Parse(string value)
+    public static VoxelDefinitionId Parse(string value)
     {
         ArgumentNullException.ThrowIfNull(value);
         var trimmed = value.Trim();
         var separator = trimmed.IndexOf(':');
         if (separator <= 0 || separator != trimmed.LastIndexOf(':') || separator == trimmed.Length - 1)
-            throw new ArgumentException("GoodId must have the form namespace:local-id.", nameof(value));
+            throw new ArgumentException("VoxelDefinitionId must have the form namespace:local-id.", nameof(value));
 
-        return new GoodId(trimmed[..separator], trimmed[(separator + 1)..]);
+        return new VoxelDefinitionId(trimmed[..separator], trimmed[(separator + 1)..]);
     }
 
     public static bool IsValidPart(string? value)
@@ -62,27 +57,4 @@ public readonly record struct GoodId
     private static bool IsStartChar(char c) => c is (>= 'a' and <= 'z') or (>= '0' and <= '9');
 
     private static bool IsPartChar(char c) => IsStartChar(c) || c is '_' or '-';
-}
-
-public static class GoodCategoryText
-{
-    public const string NaturalResource = "natural_resource";
-
-    public static bool TryParse(string? value, out GoodCategory category)
-    {
-        if (value == NaturalResource)
-        {
-            category = GoodCategory.NaturalResource;
-            return true;
-        }
-
-        category = default;
-        return false;
-    }
-
-    public static string ToWire(GoodCategory category) => category switch
-    {
-        GoodCategory.NaturalResource => NaturalResource,
-        _ => throw new ArgumentOutOfRangeException(nameof(category), category, "Unknown good category.")
-    };
 }

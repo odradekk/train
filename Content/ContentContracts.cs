@@ -1,15 +1,15 @@
 using System.Collections.ObjectModel;
-using Train.Domain.Goods;
+using Train.Domain.Voxels;
 
 namespace Train.Content;
 
 public static class ContentLimits
 {
-    public const int GoodsFileMaxBytes = 1 * 1024 * 1024;
+    public const int JsonFileMaxBytes = 1 * 1024 * 1024;
     public const int PngMaxBytes = 4 * 1024 * 1024;
     public const int ImageMaxDimension = 4096;
-    public const int MaxGoods = 10_000;
-    public const int MaxGoodsPerMod = 1000;
+    public const int MaxVoxels = 10_000;
+    public const int MaxVoxelsPerMod = 1000;
     public const int MaxDiagnosticsPerPackage = 100;
 }
 
@@ -22,20 +22,27 @@ public static class ContentDiagnosticCodes
     public const string LocalIdInvalid = "local_id_invalid";
     public const string NameInvalid = "name_invalid";
     public const string DescriptionInvalid = "description_invalid";
-    public const string BaseMonetaryValueInvalid = "base_monetary_value_invalid";
+    public const string ValueInvalid = "value_invalid";
+    public const string MassInvalid = "mass_invalid";
+    public const string MaxDurabilityInvalid = "max_durability_invalid";
+    public const string TagInvalid = "tag_invalid";
+    public const string BehaviorUnregistered = "behavior_unregistered";
+    public const string OrientationInvalid = "orientation_invalid";
+    public const string CollisionInvalid = "collision_invalid";
+    public const string PresentationInvalid = "presentation_invalid";
+    public const string PresentationRequired = "presentation_required";
     public const string CategoryUnsupported = "category_unsupported";
-    public const string VisualRequired = "visual_required";
     public const string PathInvalid = "path_invalid";
     public const string ImageInvalid = "image_invalid";
     public const string DuplicateLocalId = "duplicate_local_id";
     public const string FileTooLarge = "file_too_large";
     public const string ImageTooLarge = "image_too_large";
-    public const string GlobalGoodLimitExceeded = "global_good_limit_exceeded";
+    public const string GlobalVoxelLimitExceeded = "global_voxel_limit_exceeded";
     public const string DiagnosticsTruncated = "diagnostics_truncated";
     public const string PackageInvalid = "package_invalid";
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
-    public const string UnresolvedGoodReference = "unresolved_good_reference";
-    public const string NaturalResourceCategoryRequired = "natural_resource_category_required";
+    public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
+    public const string NaturalResourceTagRequired = "natural_resource_tag_required";
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     public const string EmptyInitialCatalog = "empty_initial_catalog";
     public const string UnsafeLinkedPath = "unsafe_linked_path";
@@ -44,7 +51,7 @@ public static class ContentDiagnosticCodes
     public const string AuthorsInvalid = "authors_invalid";
     public const string DuplicateModUuid = "duplicate_mod_uuid";
     public const string ModsRootUnavailable = "mods_root_unavailable";
-    public const string ModGoodLimitExceeded = "mod_good_limit_exceeded";
+    public const string ModVoxelLimitExceeded = "mod_voxel_limit_exceeded";
     public const string ModManifestMissing = "mod_manifest_missing";
     public const string PopulationInvalid = "population_invalid";
     public const string PositionInvalid = "position_invalid";
@@ -91,7 +98,7 @@ public sealed class ContentOrigin
 
     public ContentOrigin(string @namespace, string sourceFile)
     {
-        Namespace = GoodId.NormalizePart(@namespace, nameof(@namespace));
+        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(sourceFile);
         SourceFile = sourceFile;
     }
@@ -157,7 +164,7 @@ public sealed class ContentPackage
         string? source = null,
         ModPackageMetadata? mod = null)
     {
-        Namespace = GoodId.NormalizePart(@namespace, nameof(@namespace));
+        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(resourcesRoot);
         ResourcesRoot = resourcesRoot;
         Available = available;
