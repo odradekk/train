@@ -1,6 +1,6 @@
 ## Current phase: core gameplay development
 
-Current version: `0.0.1`.
+Current version: `0.0.2`.
 
 - Develop with agile, playable slices: choose the smallest end-to-end change that answers the current gameplay question.
 - Work in short iterations and validate each slice before expanding scope.
