@@ -10,6 +10,7 @@ public partial class Main : Node
     public const string ReloadContentAction = "reload_content";
 
     public TrainLogger? Logger => _logger;
+    public ContentReloader? Reloader => _reloader;
 
     private const string LoggingSmokeEnvironmentVariable = "TRAIN_LOG_SMOKE";
     private const string LoggingSmokeWorkerEventId = "smoke_worker_event";
@@ -24,6 +25,7 @@ public partial class Main : Node
 
     private TrainLogger? _logger;
     private ContentReloader? _reloader;
+    private GameConsole? _console;
     private bool _smoke;
     private bool _contentSmoke;
     private bool _contentExportSmoke;
@@ -57,9 +59,9 @@ public partial class Main : Node
         var logBuffer = new RingBufferLogSink();
         _logger = TrainLogger.StartSession(logDirectory, buildDefault, new GodotLogOutput(), logBuffer);
         _reloader = new ContentReloader(new GodotContentSource(_logger, modsUserData), _logger);
-        var console = new GameConsole();
-        console.Initialize(_logger, logBuffer, _reloader);
-        AddChild(console);
+        _console = new GameConsole();
+        _console.Initialize(_logger, logBuffer, _reloader);
+        AddChild(_console);
         var loaded = _reloader.Reload();
         ReportDomainEmptyAssertion();
         if (IsLoggingSmokeEnabled())
@@ -70,6 +72,8 @@ public partial class Main : Node
             ReportExportSmoke(loaded);
         if (IsModsExportSmokeEnabled())
             ReportModsExportSmoke(loaded);
+        if (IsVoxelSmokeEnabled() || IsVoxelBaselineEnabled())
+            CallDeferred(nameof(EnterVoxelDevelopmentScene));
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -140,6 +144,28 @@ public partial class Main : Node
 
     private static bool IsModsExportSmokeEnabled() =>
         string.Equals(System.Environment.GetEnvironmentVariable(ModsExportSmokeEnvironmentVariable), "1", StringComparison.Ordinal);
+
+    private static bool IsVoxelSmokeEnabled() =>
+        string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE"), "1", StringComparison.Ordinal);
+
+    private static bool IsVoxelBaselineEnabled() =>
+        string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal);
+
+    public void EnterVoxelDevelopmentScene()
+    {
+        if (_reloader?.Catalog.Current is null)
+        {
+            _logger?.Error("voxel", "development_scene_unavailable", "Voxel content failed to load.");
+            return;
+        }
+
+        var error = GetTree().ChangeSceneToFile("res://Ui/VoxelDeveloperScene.tscn");
+        if (error != Error.Ok)
+            _logger?.Error("voxel", "development_scene_failed", $"Failed to open voxel development scene: {error}.");
+    }
+
+    public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session) =>
+        _console?.SetVoxelDevelopmentSession(session);
 
     private void StartLoggingSmoke()
     {

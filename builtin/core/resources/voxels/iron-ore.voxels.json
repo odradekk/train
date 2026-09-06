@@ -5,7 +5,7 @@
       "id": "iron-ore",
       "name": "铁矿",
       "description": "开发用占位自然资源种类，用于验证内容加载、校验与重载。",
-      "value": 100,
+      "value": 10,
       "mass": 1,
       "max_durability": 100,
       "tags": ["natural_resource"],
