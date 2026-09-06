@@ -196,6 +196,7 @@ public static class ContentLog
     public const string InvalidEventId = "content_invalid";
     public const string ReloadSummaryEventId = "content_reload_summary";
     public const string ReloadFailedEventId = "content_reload_failed";
+    public const string NotifyFailedEventId = "content_notify_failed";
     public const string ModsRootEventId = "content_mods_root";
     public const string ModsScanSummaryEventId = "content_mods_scan_summary";
 }

@@ -130,61 +130,84 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
     }
 
     public static ContentPreCommitDecision FilterSettlementReferences(
-        VoxelCatalogSnapshot candidate,
+        IDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
         IDictionary<SettlementId, SettlementCandidate> settlements)
     {
-        ArgumentNullException.ThrowIfNull(candidate);
+        ArgumentNullException.ThrowIfNull(entries);
         ArgumentNullException.ThrowIfNull(settlements);
         var diagnostics = new List<ContentDiagnostic>();
-        var drop = new List<SettlementId>();
-        var reject = false;
-        foreach (var (id, settlement) in settlements)
+        // Drop an entire invalid mod, then re-check leftovers so a remaining package
+        // cannot keep a reference into the excluded namespace.
+        while (true)
         {
-            var failed = false;
-            foreach (var resourceId in settlement.NaturalResourceIds)
+            var failedMods = new HashSet<string>(StringComparer.Ordinal);
+            var rejectBuiltIn = false;
+            foreach (var settlement in settlements.Values.ToArray())
             {
-                if (!candidate.TryGet(resourceId, out var entry))
-                {
-                    failed = true;
-                    diagnostics.Add(new ContentDiagnostic(
-                        settlement.Kind == ContentPackageKind.BuiltIn
-                            ? ContentDiagnosticSeverity.Error
-                            : ContentDiagnosticSeverity.Warning,
-                        ContentDiagnosticCodes.UnresolvedVoxelReference,
-                        "A referenced voxel is missing from the candidate catalog.",
-                        jsonPath: resourceId.Value));
+                if (SettlementReferencesAreValid(entries, settlement, diagnostics))
                     continue;
-                }
-
-                if (!entry.Definition.HasNaturalResourceTag)
-                {
-                    failed = true;
-                    diagnostics.Add(new ContentDiagnostic(
-                        settlement.Kind == ContentPackageKind.BuiltIn
-                            ? ContentDiagnosticSeverity.Error
-                            : ContentDiagnosticSeverity.Warning,
-                        ContentDiagnosticCodes.NaturalResourceTagRequired,
-                        "A settlement natural resource id does not resolve to a natural_resource voxel.",
-                        jsonPath: resourceId.Value));
-                }
+                if (settlement.Kind == ContentPackageKind.BuiltIn)
+                    rejectBuiltIn = true;
+                else
+                    failedMods.Add(PackageNamespace(settlement.Id));
             }
 
-            if (!failed)
+            if (rejectBuiltIn)
+                return ContentPreCommitDecision.Reject(diagnostics);
+            if (failedMods.Count == 0)
+                return diagnostics.Count == 0
+                    ? ContentPreCommitDecision.Allow()
+                    : ContentPreCommitDecision.Allow(diagnostics);
+
+            foreach (var ns in failedMods)
+            {
+                foreach (var id in entries.Keys.Where(id => id.Namespace == ns).ToArray())
+                    entries.Remove(id);
+                foreach (var id in settlements.Keys.Where(id => id.Value.StartsWith(ns + ":", StringComparison.Ordinal)).ToArray())
+                    settlements.Remove(id);
+            }
+        }
+    }
+
+    private static bool SettlementReferencesAreValid(
+        IDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
+        SettlementCandidate settlement,
+        List<ContentDiagnostic> diagnostics)
+    {
+        var valid = true;
+        var severity = settlement.Kind == ContentPackageKind.BuiltIn
+            ? ContentDiagnosticSeverity.Error
+            : ContentDiagnosticSeverity.Warning;
+        foreach (var resourceId in settlement.NaturalResourceIds)
+        {
+            if (!entries.TryGetValue(resourceId, out var entry))
+            {
+                valid = false;
+                diagnostics.Add(new ContentDiagnostic(
+                    severity,
+                    ContentDiagnosticCodes.UnresolvedVoxelReference,
+                    "A referenced voxel is missing from the candidate catalog.",
+                    jsonPath: resourceId.Value));
                 continue;
-            if (settlement.Kind == ContentPackageKind.BuiltIn)
-                reject = true;
-            else
-                drop.Add(id);
+            }
+
+            if (entry.Definition.HasNaturalResourceTag)
+                continue;
+            valid = false;
+            diagnostics.Add(new ContentDiagnostic(
+                severity,
+                ContentDiagnosticCodes.NaturalResourceTagRequired,
+                "A settlement natural resource id does not resolve to a natural_resource voxel.",
+                jsonPath: resourceId.Value));
         }
 
-        foreach (var id in drop)
-            settlements.Remove(id);
+        return valid;
+    }
 
-        if (reject)
-            return ContentPreCommitDecision.Reject(diagnostics);
-        return diagnostics.Count == 0
-            ? ContentPreCommitDecision.Allow()
-            : ContentPreCommitDecision.Allow(diagnostics);
+    private static string PackageNamespace(SettlementId id)
+    {
+        var separator = id.Value.LastIndexOf(':');
+        return separator <= 0 ? id.Value : id.Value[..separator];
     }
 }
 
@@ -272,10 +295,9 @@ public sealed class ContentReloader
             return rejected;
         }
 
-        var nextGeneration = (Catalog.Current?.Generation ?? 0) + 1;
-        var snapshot = new VoxelCatalogSnapshot(nextGeneration, candidate.Entries);
+        var entries = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>(candidate.Entries);
         var settlements = new Dictionary<SettlementId, SettlementCandidate>(candidate.Settlements);
-        var references = ReferencedVoxelIdValidator.FilterSettlementReferences(snapshot, settlements);
+        var references = ReferencedVoxelIdValidator.FilterSettlementReferences(entries, settlements);
         diagnostics.AddRange(references.Diagnostics);
         if (!references.CanCommit)
         {
@@ -285,6 +307,9 @@ public sealed class ContentReloader
             LogFailure(rejected);
             return rejected;
         }
+
+        var nextGeneration = (Catalog.Current?.Generation ?? 0) + 1;
+        var snapshot = new VoxelCatalogSnapshot(nextGeneration, entries);
 
         if (!Settlements.HasCommitted && settlements.Count == 0)
         {
@@ -310,7 +335,7 @@ public sealed class ContentReloader
             return rejected;
         }
 
-        var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, candidate.Entries);
+        var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, entries);
         var settlementChange = SettlementDiff.Compute(Settlements, settlements);
         var status = diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning)
             ? ContentReloadStatus.CommittedWithWarnings
@@ -325,7 +350,7 @@ public sealed class ContentReloader
                 changed: false,
                 Catalog.Current?.Generation ?? 0,
                 candidate.ScannedFileCount,
-                candidate.Entries.Count,
+                entries.Count,
                 diagnostics,
                 ImmutableSets.Empty,
                 ImmutableSets.Empty,
@@ -340,16 +365,18 @@ public sealed class ContentReloader
         }
 
         if (voxelsChanged)
-            Catalog.TryPublish(snapshot, change, notify: true);
+            Catalog.Publish(snapshot);
         if (settlementsChanged || !Settlements.HasCommitted)
             Settlements.Apply(settlements.Values.ToArray());
         InitializationFailed = false;
+        if (voxelsChanged)
+            Catalog.NotifyChanged(change, LogNotifyFailure);
         var committed = new ContentReloadResult(
             status,
             changed: true,
             voxelsChanged ? snapshot.Generation : Catalog.Current?.Generation ?? 0,
             candidate.ScannedFileCount,
-            candidate.Entries.Count,
+            entries.Count,
             diagnostics,
             voxelsChanged ? change.Added : ImmutableSets.Empty,
             voxelsChanged ? change.Removed : ImmutableSets.Empty,
@@ -422,6 +449,17 @@ public sealed class ContentReloader
             });
         LogSummary(result);
     }
+
+    private void LogNotifyFailure(Exception exception) =>
+        _logger.Error(
+            ContentLog.Category,
+            ContentLog.NotifyFailedEventId,
+            "A catalog change subscriber failed after content was committed.",
+            new Dictionary<string, object?>
+            {
+                ["exception"] = exception.GetType().FullName,
+                ["message"] = exception.Message
+            });
 }
 
 internal sealed class CatalogCandidate
@@ -828,9 +866,7 @@ internal static class CatalogCandidateBuilder
         out VoxelCatalogEntry entry)
     {
         entry = null!;
-        if (!TryLoadImages(source, package, parsed.Presentation, bag, out _))
-            return false;
-        if (!TryLoadAssetRevisions(source, package, parsed.Presentation, bag, out var assetRevisions))
+        if (!TryLoadPresentationAssets(source, package, parsed.Presentation, bag, out var assetRevisions))
             return false;
 
         var id = new VoxelDefinitionId(package.Namespace, parsed.LocalId);
@@ -863,15 +899,16 @@ internal static class CatalogCandidateBuilder
         return true;
     }
 
-    private static bool TryLoadAssetRevisions(
+    private static bool TryLoadPresentationAssets(
         IContentSource source,
         ContentPackage package,
-        VoxelPresentation presentation,
+        VoxelPresentation visual,
         DiagnosticBag bag,
         out Dictionary<string, string> revisions)
     {
         revisions = new Dictionary<string, string>(StringComparer.Ordinal);
-        var paths = new[] { presentation.IconPath, presentation.TopPath, presentation.SidePath, presentation.BottomPath };
+        var images = new Dictionary<string, DecodedImage>(StringComparer.Ordinal);
+        var paths = new[] { visual.IconPath, visual.TopPath, visual.SidePath, visual.BottomPath };
         foreach (var path in paths.Distinct(StringComparer.Ordinal))
         {
             var read = source.ReadFile(package, path, ContentLimits.PngMaxBytes);
@@ -896,26 +933,37 @@ internal static class CatalogCandidateBuilder
                 return false;
             }
 
-            revisions[path] = ContentRevisions.ComputeAssetRevision(read.Bytes);
-        }
-
-        return true;
-    }
-
-    private static bool TryLoadImages(
-        IContentSource source,
-        ContentPackage package,
-        VoxelPresentation visual,
-        DiagnosticBag bag,
-        out Dictionary<string, DecodedImage> images)
-    {
-        images = new Dictionary<string, DecodedImage>(StringComparer.Ordinal);
-        var paths = new[] { visual.IconPath, visual.TopPath, visual.SidePath, visual.BottomPath };
-        foreach (var path in paths.Distinct(StringComparer.Ordinal))
-        {
-            if (!TryDecode(source, package, path, bag, out var decoded))
+            var decoded = source.DecodePng(package, path, read.Bytes);
+            if (decoded.UnsafeLink)
+            {
+                if (package.IsRequired)
+                    bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
+                else
+                    bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
                 return false;
-            images[path] = decoded;
+            }
+
+            if (decoded.TooLarge)
+            {
+                bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the size limit.", path);
+                return false;
+            }
+
+            if (decoded.Failed || decoded.Image is null)
+            {
+                bag.Warn(ContentDiagnosticCodes.ImageInvalid, "PNG could not be decoded.", path);
+                return false;
+            }
+
+            if (decoded.Image.Width is < 1 or > ContentLimits.ImageMaxDimension ||
+                decoded.Image.Height is < 1 or > ContentLimits.ImageMaxDimension)
+            {
+                bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "Decoded image exceeds the dimension limit.", path);
+                return false;
+            }
+
+            images[path] = decoded.Image;
+            revisions[path] = ContentRevisions.ComputeAssetRevision(read.Bytes);
         }
 
         if (!IsSquare(images[visual.IconPath]))
@@ -935,47 +983,6 @@ internal static class CatalogCandidateBuilder
             return false;
         }
 
-        return true;
-    }
-
-    private static bool TryDecode(
-        IContentSource source,
-        ContentPackage package,
-        string path,
-        DiagnosticBag bag,
-        out DecodedImage image)
-    {
-        image = null!;
-        var decoded = source.DecodePng(package, path);
-        if (decoded.UnsafeLink)
-        {
-            if (package.IsRequired)
-                bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
-            else
-                bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", path);
-            return false;
-        }
-
-        if (decoded.TooLarge)
-        {
-            bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the size limit.", path);
-            return false;
-        }
-
-        if (decoded.Failed || decoded.Image is null)
-        {
-            bag.Warn(ContentDiagnosticCodes.ImageInvalid, "PNG could not be decoded.", path);
-            return false;
-        }
-
-        if (decoded.Image.Width is < 1 or > ContentLimits.ImageMaxDimension ||
-            decoded.Image.Height is < 1 or > ContentLimits.ImageMaxDimension)
-        {
-            bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "Decoded image exceeds the dimension limit.", path);
-            return false;
-        }
-
-        image = decoded.Image;
         return true;
     }
 

@@ -304,7 +304,7 @@ public sealed class ModLoadingTests
     }
 
     [TestMethod]
-    public void Mod_city_with_unresolved_good_is_dropped_while_the_package_survives()
+    public void Invalid_mod_reference_excludes_the_whole_package_and_leaves_other_packages()
     {
         using var session = LoggerSession.Create();
         var source = ModFixtures.CorePlusCopper();
@@ -323,15 +323,74 @@ public sealed class ModLoadingTests
             ContentFixtures.SettlementsFile(
                 ContentFixtures.Settlement("ghost", "幽灵城", x: 8, y: 8, resources: new[] { "core:missing-ore" })),
             "memory://mods/pretty-name/resources");
+        source.AddMod("tin-mod", ModFixtures.OtherUuid);
+        source.AddVoxelFile(
+            ModFixtures.OtherUuid,
+            "tin.voxels.json",
+            ContentFixtures.GoodsFile(ContentFixtures.Good("tin", "锡", "锡说明", icon: "tin.png", voxel: "tin.png")),
+            "memory://mods/tin-mod/resources");
+        source.AddImage(ModFixtures.OtherUuid, "tin.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/tin-mod/resources");
+        ContentFixtures.AddExampleCity(
+            source,
+            ModFixtures.OtherUuid,
+            "tin-town",
+            "锡城",
+            x: 6,
+            y: 2,
+            resources: new[] { $"{ModFixtures.OtherUuid}:tin" },
+            resourcesRoot: "memory://mods/tin-mod/resources");
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
-        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:ok-town"), out _));
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "iron-ore"), out _));
+        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:ok-town"), out _));
         Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.SampleUuid}:ghost"), out _));
+        Assert.IsTrue(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "tin"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.OtherUuid}:tin-town"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:example-city"), out _));
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference));
+    }
+
+    [TestMethod]
+    public void Remaining_mod_that_referenced_an_excluded_package_is_also_excluded()
+    {
+        using var session = LoggerSession.Create();
+        var source = ModFixtures.CorePlusCopper();
+        source.AddSettlementsFile(
+            ModFixtures.SampleUuid,
+            "settlements/ghost.settlements.json",
+            ContentFixtures.SettlementsFile(
+                ContentFixtures.Settlement("ghost", "幽灵城", x: 8, y: 8, resources: new[] { "core:missing-ore" })),
+            "memory://mods/pretty-name/resources");
+        source.AddMod("dependent", ModFixtures.OtherUuid);
+        source.AddVoxelFile(
+            ModFixtures.OtherUuid,
+            "tin.voxels.json",
+            ContentFixtures.GoodsFile(ContentFixtures.Good("tin", "锡", "锡说明", icon: "tin.png", voxel: "tin.png")),
+            "memory://mods/dependent/resources");
+        source.AddImage(ModFixtures.OtherUuid, "tin.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/dependent/resources");
+        ContentFixtures.AddExampleCity(
+            source,
+            ModFixtures.OtherUuid,
+            "uses-copper",
+            "依赖城",
+            x: 7,
+            y: 3,
+            resources: new[] { $"{ModFixtures.SampleUuid}:copper" },
+            resourcesRoot: "memory://mods/dependent/resources");
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
+        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "iron-ore"), out _));
+        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "tin"), out _));
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId($"{ModFixtures.OtherUuid}:uses-copper"), out _));
+        Assert.IsTrue(reloader.Settlements.TryGet(new SettlementId("core:example-city"), out _));
     }
 
     [TestMethod]

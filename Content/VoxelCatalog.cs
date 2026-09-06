@@ -82,15 +82,30 @@ public sealed class VoxelCatalog
 
     public event Action<VoxelCatalogChange>? Changed;
 
-    internal bool TryPublish(VoxelCatalogSnapshot snapshot, VoxelCatalogChange change, bool notify)
+    internal void Publish(VoxelCatalogSnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
-        ArgumentNullException.ThrowIfNull(change);
         Volatile.Write(ref _current, snapshot);
-        if (!notify)
-            return true;
-        Changed?.Invoke(change);
-        return true;
+    }
+
+    internal void NotifyChanged(VoxelCatalogChange change, Action<Exception> onFault)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        ArgumentNullException.ThrowIfNull(onFault);
+        var handlers = Changed;
+        if (handlers is null)
+            return;
+        foreach (Action<VoxelCatalogChange> handler in handlers.GetInvocationList())
+        {
+            try
+            {
+                handler(change);
+            }
+            catch (Exception exception)
+            {
+                onFault(exception);
+            }
+        }
     }
 }
 

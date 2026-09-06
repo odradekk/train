@@ -49,6 +49,7 @@ public interface IContentSource
     ContentFileDiscovery ListSettlementFiles(ContentPackage package);
     ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes);
     ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath);
+    ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes);
 }
 
 public sealed class MemoryContentSource : IContentSource
@@ -203,11 +204,26 @@ public sealed class MemoryContentSource : IContentSource
 
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath)
     {
+        var read = ReadFile(package, normalizedRelativePath, ContentLimits.PngMaxBytes);
+        if (read.UnsafeLink)
+            return ImageDecodeResult.Linked();
+        if (read.TooLarge)
+            return ImageDecodeResult.LimitExceeded();
+        if (read.Bytes is null)
+            return ImageDecodeResult.Missing();
+        return DecodePng(package, normalizedRelativePath, read.Bytes);
+    }
+
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes)
+    {
+        ArgumentNullException.ThrowIfNull(rawBytes);
         if (!ContentPath.IsPngPath(normalizedRelativePath))
             return ImageDecodeResult.Missing();
-        if (_bytes.TryGetValue(Key(package, normalizedRelativePath), out var raw) &&
-            raw.Length > ContentLimits.PngMaxBytes)
+        if (rawBytes.Length > ContentLimits.PngMaxBytes)
             return ImageDecodeResult.LimitExceeded();
+        if (_bytes.TryGetValue(Key(package, normalizedRelativePath), out var stored) &&
+            !stored.AsSpan().SequenceEqual(rawBytes))
+            return ImageDecodeResult.Invalid();
         return _images.TryGetValue(Key(package, normalizedRelativePath), out var image)
             ? image
             : ImageDecodeResult.Missing();

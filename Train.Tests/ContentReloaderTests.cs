@@ -666,6 +666,114 @@ public sealed class ContentReloaderTests
     }
 
     [TestMethod]
+    public void Catalog_and_settlements_are_already_consistent_when_Changed_observers_run()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 101)));
+        source.AddSettlementsFile("core", "settlements/example-city.settlements.json", ContentFixtures.SettlementsFile(
+            ContentFixtures.Settlement("example-city", "示例城市", population: 200)));
+        long? observedGeneration = null;
+        long? observedValue = null;
+        int? observedPopulation = null;
+        reloader.Catalog.Changed += _ =>
+        {
+            observedGeneration = reloader.Catalog.Current!.Generation;
+            observedValue = reloader.Catalog.Current.Entries[new VoxelDefinitionId("core", "iron-ore")].Definition.Value;
+            observedPopulation = reloader.Settlements.Items.Single().Population;
+        };
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.AreEqual(2L, observedGeneration);
+        Assert.AreEqual(101L, observedValue);
+        Assert.AreEqual(200, observedPopulation);
+        Assert.AreEqual(2, reloader.Catalog.Current!.Generation);
+        Assert.AreEqual(101, reloader.Catalog.Current.Entries[new VoxelDefinitionId("core", "iron-ore")].Definition.Value);
+        Assert.AreEqual(200, reloader.Settlements.Items.Single().Population);
+    }
+
+    [TestMethod]
+    public void Notify_exception_keeps_the_commit_and_allows_a_later_reload()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 101)));
+        source.AddSettlementsFile("core", "settlements/example-city.settlements.json", ContentFixtures.SettlementsFile(
+            ContentFixtures.Settlement("example-city", "示例城市", population: 200)));
+        var secondSawCommit = false;
+        reloader.Catalog.Changed += _ => throw new InvalidOperationException("observer failure");
+        reloader.Catalog.Changed += _ => secondSawCommit = true;
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.IsTrue(secondSawCommit);
+        Assert.AreEqual(101, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")].Definition.Value);
+        Assert.AreEqual(200, reloader.Settlements.Items.Single().Population);
+        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+            item.EventId == ContentLog.NotifyFailedEventId &&
+            item.Level == LogLevel.Error));
+
+        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 102)));
+        var later = reloader.Reload();
+        Assert.AreEqual(ContentReloadStatus.Committed, later.Status);
+        Assert.AreEqual(102, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")].Definition.Value);
+        Assert.AreEqual(200, reloader.Settlements.Items.Single().Population);
+    }
+
+    [TestMethod]
+    public void Asset_hash_uses_the_same_bytes_that_passed_png_validation()
+    {
+        using var session = LoggerSession.Create();
+        var inner = ContentFixtures.ValidIron();
+        var source = new FlipAfterReadSource(inner);
+        var reloader = ContentFixtures.Create(source, session.Logger);
+
+        var first = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, first.Status);
+        var accepted = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")].AssetRevisions["iron.png"];
+        Assert.AreEqual(Convert.ToHexString(SHA256.HashData(FlipAfterReadSource.GoodBytes)), accepted);
+        Assert.AreNotEqual(Convert.ToHexString(SHA256.HashData(FlipAfterReadSource.BadBytes)), accepted);
+
+        var second = reloader.Reload();
+        Assert.AreEqual(ContentReloadStatus.Rejected, second.Status);
+    }
+
+    [TestMethod]
+    public void Same_pixels_different_raw_png_bytes_change_only_the_asset_revision()
+    {
+        using var session = LoggerSession.Create();
+        var firstBytes = new byte[] { 1, 2, 3, 4 };
+        var secondBytes = new byte[] { 9, 8, 7, 6 };
+        var source = ContentFixtures.ValidIron();
+        source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: firstBytes);
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var baseline = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+
+        source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: secondBytes);
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.IsTrue(result.Changed);
+        var after = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        Assert.AreEqual(baseline.SemanticRevision, after.SemanticRevision);
+        Assert.AreEqual(Convert.ToHexString(SHA256.HashData(firstBytes)), baseline.AssetRevisions["iron.png"]);
+        Assert.AreEqual(Convert.ToHexString(SHA256.HashData(secondBytes)), after.AssetRevisions["iron.png"]);
+        Assert.AreNotEqual(baseline.AssetRevisions["iron.png"], after.AssetRevisions["iron.png"]);
+    }
+
+    [TestMethod]
     public void Reload_reconciles_an_existing_city_in_place()
     {
         using var session = LoggerSession.Create();
@@ -756,6 +864,52 @@ internal sealed class InvalidDiscoverySource : IContentSource
 
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath) =>
         _inner.DecodePng(package, normalizedRelativePath);
+
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes) =>
+        _inner.DecodePng(package, normalizedRelativePath, rawBytes);
+}
+
+internal sealed class FlipAfterReadSource : IContentSource
+{
+    public static readonly byte[] BadBytes = "not a PNG"u8.ToArray();
+    public static readonly byte[] GoodBytes = Enumerable.Repeat((byte)1, 16 * 16 * 4).ToArray();
+
+    private readonly IContentSource _inner;
+    private bool _pngConsumed;
+
+    public FlipAfterReadSource(IContentSource inner) => _inner = inner;
+
+    public IReadOnlyList<ContentPackage> ListPackages() => _inner.ListPackages();
+
+    public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _inner.ListScanDiagnostics();
+
+    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) => _inner.ListVoxelFiles(package);
+
+    public ContentFileDiscovery ListSettlementFiles(ContentPackage package) => _inner.ListSettlementFiles(package);
+
+    public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
+    {
+        if (normalizedRelativePath.EndsWith(".png", StringComparison.Ordinal) && _pngConsumed)
+            return ContentBytesResult.Ok(BadBytes);
+        var read = _inner.ReadFile(package, normalizedRelativePath, maxBytes);
+        if (normalizedRelativePath.EndsWith(".png", StringComparison.Ordinal))
+            _pngConsumed = true;
+        return read;
+    }
+
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath)
+    {
+        var decoded = _inner.DecodePng(package, normalizedRelativePath);
+        _pngConsumed = true;
+        return decoded;
+    }
+
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes)
+    {
+        if (rawBytes.AsSpan().SequenceEqual(BadBytes))
+            return ImageDecodeResult.Invalid();
+        return _inner.DecodePng(package, normalizedRelativePath, rawBytes);
+    }
 }
 
 internal sealed class WarningValidator : IContentPreCommitValidator
@@ -840,7 +994,7 @@ internal static class ContentFixtures
     }
 
     public static ContentReloader Create(
-        MemoryContentSource source,
+        IContentSource source,
         TrainLogger logger,
         IContentPreCommitValidator? validator = null,
         VoxelCatalog? catalog = null,

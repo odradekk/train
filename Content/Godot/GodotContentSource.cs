@@ -157,9 +157,19 @@ public sealed class GodotContentSource : IContentSource
             return ImageDecodeResult.LimitExceeded();
         if (read.Bytes is null)
             return ImageDecodeResult.Missing();
+        return DecodePng(package, normalizedRelativePath, read.Bytes);
+    }
+
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes)
+    {
+        ArgumentNullException.ThrowIfNull(rawBytes);
+        if (!ContentPath.IsPngPath(normalizedRelativePath))
+            return ImageDecodeResult.Missing();
+        if (rawBytes.Length > ContentLimits.PngMaxBytes)
+            return ImageDecodeResult.LimitExceeded();
 
         var image = new Image();
-        if (image.LoadPngFromBuffer(read.Bytes) != Error.Ok)
+        if (image.LoadPngFromBuffer(rawBytes) != Error.Ok)
             return ImageDecodeResult.Invalid();
         if (image.GetWidth() > ContentLimits.ImageMaxDimension || image.GetHeight() > ContentLimits.ImageMaxDimension)
             return ImageDecodeResult.LimitExceeded();
