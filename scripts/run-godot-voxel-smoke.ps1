@@ -58,7 +58,7 @@ function Find-Godot {
 }
 
 $godot = Find-Godot
-$command = '$env:TRAIN_VOXEL_SMOKE="1"; & <godot> --headless --path . --quit-after 45'
+$command = '$env:TRAIN_VOXEL_SMOKE="1"; & <godot> --headless --path . --quit-after 90'
 if (-not $godot) {
     [Console]::Error.WriteLine("Godot executable not found (PATH, GODOT, GODOT_HOME, or standard Program Files).")
     [Console]::Error.WriteLine("Unrun command: $command")
@@ -66,8 +66,19 @@ if (-not $godot) {
 }
 
 Write-Host "Using Godot: $godot"
+foreach ($name in @(
+    "TRAIN_VOXEL_SMOKE_REENTER",
+    "TRAIN_VOXEL_OBSERVE",
+    "TRAIN_VOXEL_BASELINE",
+    "TRAIN_CONTENT_SMOKE",
+    "TRAIN_CONTENT_EXPORT_SMOKE",
+    "TRAIN_MODS_EXPORT_SMOKE",
+    "TRAIN_LOG_SMOKE"
+)) {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
 $env:TRAIN_VOXEL_SMOKE = "1"
-$raw = & $godot --headless --path $root --quit-after 45 2>&1
+$raw = & $godot --headless --path $root --quit-after 90 2>&1
 $godotExitCode = $LASTEXITCODE
 $output = $raw | Out-String
 Write-Host $output
@@ -90,6 +101,14 @@ $required = @(
     "VOXEL_SMOKE_INTERNAL_DESTROY_DISPLAY_UPDATED",
     "VOXEL_SMOKE_MULTI_DAMAGED",
     "VOXEL_SMOKE_MULTI_DISPLAY_UPDATED",
+    "VOXEL_SMOKE_RELOAD_DAMAGED_80",
+    "VOXEL_SMOKE_RELOAD_MAX_150",
+    "VOXEL_SMOKE_RELOAD_TEXT_UPDATED",
+    "VOXEL_SMOKE_RELOAD_ASSET_UPDATED",
+    "VOXEL_SMOKE_RELOAD_MAX_60",
+    "VOXEL_SMOKE_RELOAD_PROBE_ADDED",
+    "VOXEL_SMOKE_RELOAD_REJECTED",
+    "VOXEL_SMOKE_RELOAD_DISPLAY_RETAINED",
     "VOXEL_SMOKE_CONSOLE_CLOSED",
     "VOXEL_SMOKE_RETURNED_TO_MENU",
     "VOXEL_SMOKE_MENU_REENTERED"

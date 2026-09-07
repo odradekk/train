@@ -67,11 +67,29 @@ public sealed class VoxelConsoleCommands
     }
 
     private string FormatWithCount(WorldVoxelQuery query) =>
-        $"{Format(query)} Voxel count: {_session.World.VoxelCount}.";
+        string.Join("\n", FormatLines(query).Append($"Voxel count: {_session.World.VoxelCount}."));
 
-    private static string Format(WorldVoxelQuery query) => query.Voxel is null
-        ? $"Cell ({query.Position.X}, {query.Position.Y}, {query.Position.Z}): empty."
-        : $"Cell ({query.Position.X}, {query.Position.Y}, {query.Position.Z}): {query.Voxel.DefinitionId.Value}, orientation {query.Voxel.Orientation}, durability {query.Voxel.CurrentDurability}.";
+    private static IEnumerable<string> FormatLines(WorldVoxelQuery query)
+    {
+        if (query.Voxel is null)
+        {
+            yield return $"Cell ({query.Position.X}, {query.Position.Y}, {query.Position.Z}): empty.";
+            yield break;
+        }
+
+        // Field-safe lines keep a legal max-length definition ID inside FormatConsole's 200-character clip.
+        yield return $"Cell ({query.Position.X}, {query.Position.Y}, {query.Position.Z}): {query.Voxel.DefinitionId.Value}";
+        yield return $"orientation {query.Voxel.Orientation}";
+        yield return $"durability {query.Voxel.CurrentDurability}";
+        if (query.Value is long value)
+            yield return $"value {value}";
+        if (query.Mass is double mass)
+            yield return $"mass {VoxelDefinition.FormatMass(mass)}";
+        if (query.MaxDurability is int max)
+            yield return $"max {max}";
+    }
+
+    private static string Format(WorldVoxelQuery query) => string.Join("\n", FormatLines(query));
 
     private static bool TryDamageTargets(IReadOnlyList<string> arguments, out IReadOnlyList<VoxelDamageTarget> targets)
     {

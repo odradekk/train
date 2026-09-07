@@ -11,6 +11,7 @@ public partial class Main : Node
 
     public TrainLogger? Logger => _logger;
     public ContentReloader? Reloader => _reloader;
+    public string IsolatedUserDataDirectory => _modsSmokeUserData ?? OS.GetUserDataDir();
 
     private const string LoggingSmokeEnvironmentVariable = "TRAIN_LOG_SMOKE";
     private const string LoggingSmokeWorkerEventId = "smoke_worker_event";
@@ -51,7 +52,9 @@ public partial class Main : Node
 
     public override void _Ready()
     {
-        var modsUserData = IsModsExportSmokeEnabled() ? ResolveModsSmokeUserData() : null;
+        var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled()
+            ? ResolveModsSmokeUserData()
+            : null;
         var logDirectory = Path.Combine(modsUserData ?? OS.GetUserDataDir(), "logs");
         var buildDefault = OS.IsDebugBuild() || Engine.IsEditorHint()
             ? LogLevel.Debug
@@ -167,8 +170,11 @@ public partial class Main : Node
             _logger?.Error("voxel", "development_scene_failed", $"Failed to open voxel development scene: {error}.");
     }
 
-    public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session) =>
+    public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)
+    {
+        _reloader?.SetWorldReloadAdapter(session is null ? null : VoxelWorldReloadAdapter.For(session));
         _console?.SetVoxelDevelopmentSession(session);
+    }
 
     private void StartLoggingSmoke()
     {

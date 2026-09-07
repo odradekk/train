@@ -7,15 +7,26 @@ internal static class VoxelMeshGeometryValidator
     public static void Validate(Godot.Mesh mesh, int expectedFaceCount)
     {
         ArgumentNullException.ThrowIfNull(mesh);
-        if (mesh.SurfaceGetMaterial(0) is not BaseMaterial3D material ||
-            material.CullMode != BaseMaterial3D.CullModeEnum.Back)
+        if (mesh.GetSurfaceCount() < 1)
+            throw new InvalidOperationException("Voxel mesh has no surfaces.");
+
+        var allVertices = new List<Vector3>();
+        var allNormals = new List<Vector3>();
+        for (var surface = 0; surface < mesh.GetSurfaceCount(); surface++)
         {
-            throw new InvalidOperationException("Voxel mesh must retain back-face culling.");
+            if (mesh.SurfaceGetMaterial(surface) is not BaseMaterial3D material ||
+                material.CullMode != BaseMaterial3D.CullModeEnum.Back)
+            {
+                throw new InvalidOperationException("Voxel mesh must retain back-face culling.");
+            }
+
+            var arrays = mesh.SurfaceGetArrays(surface);
+            allVertices.AddRange(arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array());
+            allNormals.AddRange(arrays[(int)Godot.Mesh.ArrayType.Normal].AsVector3Array());
         }
 
-        var arrays = mesh.SurfaceGetArrays(0);
-        var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
-        var normals = arrays[(int)Godot.Mesh.ArrayType.Normal].AsVector3Array();
+        var vertices = allVertices.ToArray();
+        var normals = allNormals.ToArray();
         if (vertices.Length != expectedFaceCount * 6 || normals.Length != vertices.Length)
             throw new InvalidOperationException("Voxel mesh does not contain two triangles per exposed face.");
 

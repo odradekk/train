@@ -5,6 +5,7 @@ namespace Train.Domain.Voxels;
 public sealed class VoxelDevelopmentSession
 {
     private readonly VoxelCatalog _catalog;
+    private readonly Action<VoxelCatalogChange> _onCatalogChanged;
 
     public VoxelWorld World { get; private set; }
     public VoxelWorldCommands Commands { get; private set; }
@@ -18,7 +19,11 @@ public sealed class VoxelDevelopmentSession
         _catalog = catalog;
         World = CreateWorld();
         Commands = new VoxelWorldCommands(World, _catalog);
+        _onCatalogChanged = _ => Changed?.Invoke();
+        _catalog.Changed += _onCatalogChanged;
     }
+
+    public void Detach() => _catalog.Changed -= _onCatalogChanged;
 
     public void Reset()
     {

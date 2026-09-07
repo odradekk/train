@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见本切片）。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见本切片）。
 
 ## 打开控制台与输入规则
 
@@ -21,7 +21,7 @@
 | [help](help.md) | 列出命令名称 | 所有构建 |
 | [clear](clear.md) | 清空控制台日志缓冲区 | 所有构建 |
 | [quit](quit.md) | 退出游戏进程 | 所有构建 |
-| [reload](reload.md) | 重新加载内容目录 | 仅 Debug 构建 |
+| [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例 | 仅 Debug 构建 |
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) | 重建初始开发世界 | 包含 PR #47，且已进入体素开发场景 |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
@@ -43,7 +43,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value 和耐久上限；`voxel query` 会显示这些当前规格。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -146,6 +146,18 @@ voxel query 0 0 0
 ```
 
 在未额外添加 `core:missing` 定义的原始内容下，依次得到 `OutOfBounds`、`UnknownDefinition`、`DisallowedOrientation`、`InvalidDamage`、`Empty`；最后查询仍为空，总数仍为 512，`(4,4,4)` 耐久仍为 100。
+
+### 热重载已有受损体素
+
+```text
+voxel reset
+voxel damage 4 4 4 20
+voxel query 4 4 4
+reload
+voxel query 4 4 4
+```
+
+先把 `(4,4,4)` 打到耐久 80。把同一定义的上限改为 150 后再 `reload`，查询仍为耐久 80，但 `max` 为 150；再改为 60 后重载，耐久与 `max` 均为 60。`voxel query` 按字段分行，长合法 Mod ID 仍须完整显示耐久、当前规格和 `Voxel count`。候选缺少已放置定义或无法保留当前朝向时，整次 `reload` 拒绝，查询和画面保持旧发布结果。
 
 ## 相关快捷键与当前边界
 

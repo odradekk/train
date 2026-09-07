@@ -42,6 +42,7 @@ public static class ContentDiagnosticCodes
     public const string PackageInvalid = "package_invalid";
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
     public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
+    public const string IncompatibleVoxelState = "incompatible_voxel_state";
     public const string NaturalResourceTagRequired = "natural_resource_tag_required";
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     public const string EmptyInitialCatalog = "empty_initial_catalog";

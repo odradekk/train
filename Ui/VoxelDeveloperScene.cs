@@ -1,5 +1,6 @@
 using Godot;
 using System.Diagnostics;
+using Train.Content;
 using Train.Domain.Voxels;
 using Train.Presentation;
 
@@ -25,6 +26,9 @@ public partial class VoxelDeveloperScene : Node3D
     private int _baselineRun;
     private double _stableSeconds;
     private bool _baselineEnabled;
+    private VoxelLiveReloadDriver? _liveReload;
+    private string? _displayFingerprintBeforeAsset;
+    private long _generationBeforeReject;
 
     private enum VoxelSmokePhase
     {
@@ -47,6 +51,22 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitDamageInternalRefresh,
         DamageMulti,
         AwaitDamageMultiRefresh,
+        ReloadReset,
+        ReloadDamage,
+        AwaitReloadDamage,
+        ReloadMax150,
+        AwaitReloadMax150,
+        ReloadText,
+        AwaitReloadText,
+        ReloadAsset,
+        AwaitReloadAsset,
+        ReloadMax60,
+        AwaitReloadMax60,
+        ReloadAddProbe,
+        AwaitReloadAddProbe,
+        ReloadReject,
+        AwaitReloadReject,
+        ReloadRestore,
         OpenConsole,
         AwaitConsoleOpen,
         CloseConsole,
@@ -70,6 +90,16 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitOpenCavity,
         Multi,
         AwaitMulti,
+        ReloadDamage,
+        AwaitReloadDamage,
+        ReloadMax150,
+        AwaitReloadMax150,
+        ReloadDisplay,
+        AwaitReloadDisplay,
+        ReloadMax60,
+        AwaitReloadMax60,
+        ReloadReject,
+        AwaitReloadReject,
         Done
     }
 
@@ -94,6 +124,13 @@ public partial class VoxelDeveloperScene : Node3D
         _mesh = new VoxelChunkMesh();
         AddChild(_mesh);
         CreateHud();
+        if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
+        {
+            _liveReload = new VoxelLiveReloadDriver(main.IsolatedUserDataDirectory);
+            _liveReload.BackupBuiltIn();
+        }
+
         Refresh();
 
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
@@ -155,8 +192,7 @@ public partial class VoxelDeveloperScene : Node3D
         else if (key.Keycode == Key.Escape)
         {
             GetViewport().SetInputAsHandled();
-            GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(null);
-            GetTree().ChangeSceneToFile("res://Ui/StartMenu.tscn");
+            LeaveDevelopmentScene();
         }
     }
 
@@ -181,16 +217,45 @@ public partial class VoxelDeveloperScene : Node3D
         AddChild(layer);
     }
 
+    public override void _ExitTree()
+    {
+        _liveReload?.RestoreBuiltIn();
+        if (_session is not null)
+        {
+            _session.Changed -= MarkDirty;
+            _session.Detach();
+        }
+
+        if (GetNodeOrNull<Main>("/root/Main") is { } main)
+            main.SetVoxelDevelopmentSession(null);
+    }
+
+    private void LeaveDevelopmentScene()
+    {
+        GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(null);
+        GetTree().ChangeSceneToFile("res://Ui/StartMenu.tscn");
+    }
+
     private void MarkDirty() => _dirty = true;
+
+    private string CurrentName(WorldVoxelQuery query)
+    {
+        if (query.Voxel is null)
+            return "";
+        return GetNode<Main>("/root/Main").Reloader?.Catalog.Current is { } catalog &&
+               catalog.TryGet(query.Voxel.DefinitionId, out var entry)
+            ? entry.Definition.Name
+            : query.Voxel.DefinitionId.Value;
+    }
 
     private void Refresh()
     {
-        _mesh.Refresh(_session.World);
+        _mesh.Refresh(_session.World, GetNode<Main>("/root/Main").Reloader?.Catalog.Current);
         _dirty = false;
         var query = _session.Query(_selectedPosition);
         _cell.Text = query.Voxel is null
             ? "目标格 (4,4,4)：空。"
-            : $"目标格 (4,4,4)：占用 · {query.Voxel.DefinitionId.Value} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability}。";
+            : $"目标格 (4,4,4)：占用 · {query.Voxel.DefinitionId.Value} · {CurrentName(query)} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability} · value {query.Value} · mass {query.Mass} · 上限 {query.MaxDurability}。";
     }
 
     private void SetResult(WorldCommandResult result)
@@ -209,6 +274,27 @@ public partial class VoxelDeveloperScene : Node3D
         var summary = string.Join("；", result.Targets.Select(target =>
             $"{target.Status} ({target.Position.X},{target.Position.Y},{target.Position.Z}) by {target.Amount} → {target.RemainingDurability}"));
         _result.Text = $"最近命令：{summary}。";
+    }
+
+    private VoxelLiveReloadDriver RequireLiveReload() =>
+        _liveReload ?? throw new InvalidOperationException("Live reload driver is unavailable.");
+
+    private void RequireCommittedReload(string name)
+    {
+        var result = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+        if (!result.IsCommitted || !result.Changed)
+            throw new InvalidOperationException($"Voxel smoke live reload '{name}' was not committed with changes.");
+    }
+
+    private void RequireInspection(int durability, long value, double mass, int max)
+    {
+        var query = _session.Query(_selectedPosition);
+        if (query.Voxel?.CurrentDurability != durability ||
+            query.Value != value ||
+            query.Mass != mass ||
+            query.MaxDurability != max)
+            throw new InvalidOperationException(
+                $"Live reload query expected durability {durability}, value {value}, mass {mass}, max {max} but was {query.Voxel?.CurrentDurability}/{query.Value}/{query.Mass}/{query.MaxDurability}.");
     }
 
     private void ValidateGeneratedMesh() =>
@@ -366,6 +452,125 @@ public partial class VoxelDeveloperScene : Node3D
                     return;
                 ValidateGeneratedMesh();
                 GD.Print("VOXEL_SMOKE_MULTI_DISPLAY_UPDATED");
+                _smokePhase = VoxelSmokePhase.ReloadReset;
+                return;
+            case VoxelSmokePhase.ReloadReset:
+                _session.Reset();
+                _smokePhase = VoxelSmokePhase.ReloadDamage;
+                return;
+            case VoxelSmokePhase.ReloadDamage:
+                var reloadDamage = _session.Damage(_selectedPosition, 20);
+                if (reloadDamage.Status != WorldCommandStatus.Damaged ||
+                    _session.Query(_selectedPosition).Voxel?.CurrentDurability != 80)
+                    throw new InvalidOperationException("Voxel smoke could not damage (4,4,4) to 80 before live reload.");
+                SetResult(reloadDamage);
+                GD.Print("VOXEL_SMOKE_RELOAD_DAMAGED_80");
+                _smokePhase = VoxelSmokePhase.AwaitReloadDamage;
+                return;
+            case VoxelSmokePhase.AwaitReloadDamage:
+                if (!_cell.Text.Contains("耐久 80", StringComparison.Ordinal))
+                    return;
+                _smokePhase = VoxelSmokePhase.ReloadMax150;
+                return;
+            case VoxelSmokePhase.ReloadMax150:
+                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireCommittedReload("max 150");
+                RequireInspection(80, 10, 1, 150);
+                GD.Print("VOXEL_SMOKE_RELOAD_MAX_150");
+                _smokePhase = VoxelSmokePhase.AwaitReloadMax150;
+                return;
+            case VoxelSmokePhase.AwaitReloadMax150:
+                if (!_cell.Text.Contains("耐久 80", StringComparison.Ordinal) ||
+                    !_cell.Text.Contains("上限 150", StringComparison.Ordinal))
+                    return;
+                if (!_mesh.DisplayFingerprint.Contains("asset:", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Voxel smoke cube display did not use published assets after reload.");
+                ValidateGeneratedMesh();
+                _smokePhase = VoxelSmokePhase.ReloadText;
+                return;
+            case VoxelSmokePhase.ReloadText:
+                RequireLiveReload().WriteIronOre(maxDurability: 150, name: "热重载铁矿");
+                RequireCommittedReload("display text");
+                RequireInspection(80, 10, 1, 150);
+                GD.Print("VOXEL_SMOKE_RELOAD_TEXT_UPDATED");
+                _smokePhase = VoxelSmokePhase.AwaitReloadText;
+                return;
+            case VoxelSmokePhase.AwaitReloadText:
+                if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal) ||
+                    !_cell.Text.Contains("耐久 80", StringComparison.Ordinal))
+                    return;
+                _smokePhase = VoxelSmokePhase.ReloadAsset;
+                return;
+            case VoxelSmokePhase.ReloadAsset:
+                _displayFingerprintBeforeAsset = _mesh.DisplayFingerprint;
+                RequireLiveReload().WriteGreenTopPng();
+                RequireCommittedReload("cube asset");
+                RequireInspection(80, 10, 1, 150);
+                GD.Print("VOXEL_SMOKE_RELOAD_ASSET_QUEUED");
+                _smokePhase = VoxelSmokePhase.AwaitReloadAsset;
+                return;
+            case VoxelSmokePhase.AwaitReloadAsset:
+                if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                    return;
+                if (string.Equals(_displayFingerprintBeforeAsset, _mesh.DisplayFingerprint, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Voxel smoke cube display did not change after a published asset reload.");
+                GD.Print($"VOXEL_SMOKE_RELOAD_ASSET_UPDATED before={_displayFingerprintBeforeAsset} after={_mesh.DisplayFingerprint}");
+                ValidateGeneratedMesh();
+                _smokePhase = VoxelSmokePhase.ReloadMax60;
+                return;
+            case VoxelSmokePhase.ReloadMax60:
+                RequireLiveReload().WriteIronOre(maxDurability: 60, name: "热重载铁矿");
+                RequireCommittedReload("max 60");
+                RequireInspection(60, 10, 1, 60);
+                GD.Print("VOXEL_SMOKE_RELOAD_MAX_60");
+                _smokePhase = VoxelSmokePhase.AwaitReloadMax60;
+                return;
+            case VoxelSmokePhase.AwaitReloadMax60:
+                if (!_cell.Text.Contains("耐久 60", StringComparison.Ordinal) ||
+                    !_cell.Text.Contains("上限 60", StringComparison.Ordinal))
+                    return;
+                _smokePhase = VoxelSmokePhase.ReloadAddProbe;
+                return;
+            case VoxelSmokePhase.ReloadAddProbe:
+                RequireLiveReload().WriteProbeMod();
+                RequireCommittedReload("probe mod");
+                if (_session.Add(new WorldVoxelCoord(0, 0, 0), RequireLiveReload().ProbeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Voxel smoke could not add the isolated probe voxel.");
+                GD.Print("VOXEL_SMOKE_RELOAD_PROBE_ADDED");
+                _smokePhase = VoxelSmokePhase.AwaitReloadAddProbe;
+                return;
+            case VoxelSmokePhase.AwaitReloadAddProbe:
+                if (_session.World.VoxelCount != 513)
+                    return;
+                _smokePhase = VoxelSmokePhase.ReloadReject;
+                return;
+            case VoxelSmokePhase.ReloadReject:
+                _generationBeforeReject = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
+                var fingerprintBeforeReject = _mesh.DisplayFingerprint;
+                RequireLiveReload().InvalidateProbeMod();
+                var rejected = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejected.Status != ContentReloadStatus.Rejected ||
+                    rejected.Changed ||
+                    rejected.CatalogVersion != _generationBeforeReject ||
+                    _session.Query(new WorldVoxelCoord(0, 0, 0)).Voxel?.DefinitionId != RequireLiveReload().ProbeId ||
+                    _session.Query(_selectedPosition).Voxel?.CurrentDurability != 60)
+                    throw new InvalidOperationException("Voxel smoke live reload did not reject a missing required definition atomically.");
+                if (!string.Equals(fingerprintBeforeReject, _mesh.DisplayFingerprint, StringComparison.Ordinal) ||
+                    !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Voxel smoke discarded the published display after a rejected reload.");
+                GD.Print("VOXEL_SMOKE_RELOAD_REJECTED");
+                GD.Print("VOXEL_SMOKE_RELOAD_DISPLAY_RETAINED");
+                _smokePhase = VoxelSmokePhase.AwaitReloadReject;
+                return;
+            case VoxelSmokePhase.AwaitReloadReject:
+                if (_session.World.VoxelCount != 513 ||
+                    !_cell.Text.Contains("耐久 60", StringComparison.Ordinal))
+                    return;
+                ValidateGeneratedMesh();
+                _smokePhase = VoxelSmokePhase.ReloadRestore;
+                return;
+            case VoxelSmokePhase.ReloadRestore:
+                RequireLiveReload().RestoreBuiltIn();
                 _smokePhase = VoxelSmokePhase.OpenConsole;
                 return;
             case VoxelSmokePhase.OpenConsole:
@@ -389,7 +594,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSmokePhase.LeaveScene:
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
-                PressKey(Key.Escape);
+                LeaveDevelopmentScene();
                 _smokePhase = VoxelSmokePhase.Done;
                 return;
         }
@@ -496,6 +701,73 @@ public partial class VoxelDeveloperScene : Node3D
                     throw new InvalidOperationException("Observe multi HUD did not match the current damage result.");
                 GD.Print($"VOXEL_OBSERVE_MULTI_STATE voxels=510 durability75={_session.Query(new WorldVoxelCoord(6, 4, 4)).Voxel!.CurrentDurability} faces={_mesh.FaceCount}");
                 CaptureObserve("issue45-multi", "same-event damage removed two cells, (6,4,4) durability 75");
+                _observePhase = VoxelObservePhase.ReloadDamage;
+                return;
+            case VoxelObservePhase.ReloadDamage:
+                _session.Reset();
+                SetResult(_session.Damage(_selectedPosition, 20));
+                _observeHoldFrames = 8;
+                _observePhase = VoxelObservePhase.AwaitReloadDamage;
+                return;
+            case VoxelObservePhase.AwaitReloadDamage:
+                RequireObserve("reload-80", 512, 80, occupied: true);
+                CaptureObserve("issue46-damaged-80", "formal damage 20 at (4,4,4), durability 80 before live reload");
+                _observePhase = VoxelObservePhase.ReloadMax150;
+                return;
+            case VoxelObservePhase.ReloadMax150:
+                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireCommittedReload("observe max 150");
+                _observeHoldFrames = 8;
+                _observePhase = VoxelObservePhase.AwaitReloadMax150;
+                return;
+            case VoxelObservePhase.AwaitReloadMax150:
+                RequireInspection(80, 10, 1, 150);
+                CaptureObserve("issue46-reload-150", "live reload max 150, absolute durability still 80");
+                _observePhase = VoxelObservePhase.ReloadDisplay;
+                return;
+            case VoxelObservePhase.ReloadDisplay:
+                RequireLiveReload().WriteIronOre(maxDurability: 150, name: "热重载铁矿");
+                RequireLiveReload().WriteGreenTopPng();
+                RequireCommittedReload("observe display");
+                _observeHoldFrames = 8;
+                _observePhase = VoxelObservePhase.AwaitReloadDisplay;
+                return;
+            case VoxelObservePhase.AwaitReloadDisplay:
+                if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Observe display reload did not update the HUD name.");
+                CaptureObserve("issue46-display", "text and cube asset update on the existing damaged voxel");
+                _observePhase = VoxelObservePhase.ReloadMax60;
+                return;
+            case VoxelObservePhase.ReloadMax60:
+                RequireLiveReload().WriteIronOre(maxDurability: 60, name: "热重载铁矿");
+                RequireCommittedReload("observe max 60");
+                _observeHoldFrames = 8;
+                _observePhase = VoxelObservePhase.AwaitReloadMax60;
+                return;
+            case VoxelObservePhase.AwaitReloadMax60:
+                RequireInspection(60, 10, 1, 60);
+                CaptureObserve("issue46-reload-60", "live reload max 60 clamped absolute durability to 60");
+                _observePhase = VoxelObservePhase.ReloadReject;
+                return;
+            case VoxelObservePhase.ReloadReject:
+                RequireLiveReload().WriteProbeMod();
+                RequireCommittedReload("observe probe mod");
+                if (_session.Add(new WorldVoxelCoord(0, 0, 0), RequireLiveReload().ProbeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Observe could not add the isolated probe voxel.");
+                _generationBeforeReject = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
+                RequireLiveReload().InvalidateProbeMod();
+                var rejected = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejected.IsCommitted || rejected.CatalogVersion != _generationBeforeReject)
+                    throw new InvalidOperationException("Observe live reload did not reject the missing probe definition.");
+                _observeHoldFrames = 8;
+                _observePhase = VoxelObservePhase.AwaitReloadReject;
+                return;
+            case VoxelObservePhase.AwaitReloadReject:
+                if (_session.Query(_selectedPosition).Voxel?.CurrentDurability != 60 ||
+                    !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal) ||
+                    _session.Query(new WorldVoxelCoord(0, 0, 0)).Voxel?.DefinitionId != RequireLiveReload().ProbeId)
+                    throw new InvalidOperationException("Observe rejected reload leaked a new published world or display.");
+                CaptureObserve("issue46-rejected", "rejected live reload keeps old published world and display");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _observePhase = VoxelObservePhase.Done;
                 GetTree().Quit();
