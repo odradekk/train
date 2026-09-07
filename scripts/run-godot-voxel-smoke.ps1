@@ -184,6 +184,24 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
+if (-not $IsolationAbort -and $Slice -eq 2) {
+    $publishedMesh = @(
+        "VOXEL_SMOKE_X_BOUNDARY_MESH",
+        "VOXEL_SMOKE_Y_BOUNDARY_MESH",
+        "VOXEL_SMOKE_Z_BOUNDARY_MESH",
+        "VOXEL_SMOKE_JUNCTION_MESH",
+        "VOXEL_SMOKE_CROSS_DAMAGE_MESH"
+    )
+    $staleMesh = @($publishedMesh | Where-Object {
+        $name = $_
+        -not ($output -split "`r?`n" | Where-Object { $_ -like "*$name*" -and $_ -like "*published=1*" })
+    })
+    if ($staleMesh.Count -gt 0) {
+        [Console]::Error.WriteLine("Godot voxel smoke failed. Published ArrayMesh markers missing: $($staleMesh -join ', ')")
+        exit 1
+    }
+}
+
 if ($IsolationAbort) {
     Write-Host "Godot voxel smoke isolation abort kept worktree built-in content unchanged."
 } else {

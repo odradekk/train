@@ -34,6 +34,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelLiveReloadDriver? _liveReload;
     private string? _displayFingerprintBeforeAsset;
     private long _generationBeforeReject;
+    private Dictionary<ChunkCoord, long>? _chunkRevisionsBeforeEdit;
 
     private enum VoxelSmokePhase
     {
@@ -809,6 +810,7 @@ public partial class VoxelDeveloperScene : Node3D
         switch (_slice2SmokePhase)
         {
             case VoxelSlice2SmokePhase.RemoveX:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 15), remove: true, 1087);
                 GD.Print("VOXEL_SMOKE_X_BOUNDARY");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveX;
@@ -816,24 +818,27 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.AwaitRemoveX:
                 if (_meshes.LastWorldVoxelCount != 1087)
                     return;
-                RequireExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
-                RequireMissingVoxelFaces(new WorldVoxelCoord(16, 16, 15));
-                RequirePartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 0));
+                RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
+                RequirePublishedMissingVoxel(new WorldVoxelCoord(16, 16, 15));
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 0));
                 ValidateGeneratedMesh();
-                GD.Print($"VOXEL_SMOKE_X_BOUNDARY_MESH dirty={FormatDirty()}");
+                GD.Print($"VOXEL_SMOKE_X_BOUNDARY_MESH dirty={FormatDirty()} published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreX;
                 return;
             case VoxelSlice2SmokePhase.RestoreX:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 15), remove: false, 1088);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreX;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreX:
                 if (_meshes.LastWorldVoxelCount != 1088)
                     return;
-                RequireHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
+                RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 0));
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveY;
                 return;
             case VoxelSlice2SmokePhase.RemoveY:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(15, 15, 15), remove: true, 1087);
                 GD.Print("VOXEL_SMOKE_Y_BOUNDARY");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveY;
@@ -841,24 +846,27 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.AwaitRemoveY:
                 if (_meshes.LastWorldVoxelCount != 1087)
                     return;
-                RequireExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
-                RequireMissingVoxelFaces(new WorldVoxelCoord(15, 15, 15));
-                RequirePartialRebuild(new ChunkCoord(0, 0, 0), new ChunkCoord(0, 1, 0));
+                RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
+                RequirePublishedMissingVoxel(new WorldVoxelCoord(15, 15, 15));
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 0, 0), new ChunkCoord(0, 1, 0));
                 ValidateGeneratedMesh();
-                GD.Print($"VOXEL_SMOKE_Y_BOUNDARY_MESH dirty={FormatDirty()}");
+                GD.Print($"VOXEL_SMOKE_Y_BOUNDARY_MESH dirty={FormatDirty()} published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreY;
                 return;
             case VoxelSlice2SmokePhase.RestoreY:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(15, 15, 15), remove: false, 1088);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreY;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreY:
                 if (_meshes.LastWorldVoxelCount != 1088)
                     return;
-                RequireHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
+                RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 0, 0), new ChunkCoord(0, 1, 0));
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveZ;
                 return;
             case VoxelSlice2SmokePhase.RemoveZ:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(15, 16, 16), remove: true, 1087);
                 GD.Print("VOXEL_SMOKE_Z_BOUNDARY");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveZ;
@@ -866,24 +874,27 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.AwaitRemoveZ:
                 if (_meshes.LastWorldVoxelCount != 1087)
                     return;
-                RequireExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
-                RequireMissingVoxelFaces(new WorldVoxelCoord(15, 16, 16));
-                RequirePartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(0, 1, 1));
+                RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequirePublishedMissingVoxel(new WorldVoxelCoord(15, 16, 16));
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(0, 1, 1));
                 ValidateGeneratedMesh();
-                GD.Print($"VOXEL_SMOKE_Z_BOUNDARY_MESH dirty={FormatDirty()}");
+                GD.Print($"VOXEL_SMOKE_Z_BOUNDARY_MESH dirty={FormatDirty()} published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreZ;
                 return;
             case VoxelSlice2SmokePhase.RestoreZ:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(15, 16, 16), remove: false, 1088);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreZ;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreZ:
                 if (_meshes.LastWorldVoxelCount != 1088)
                     return;
-                RequireHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(0, 1, 1));
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveJunction;
                 return;
             case VoxelSlice2SmokePhase.RemoveJunction:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 16), remove: true, 1087);
                 GD.Print("VOXEL_SMOKE_JUNCTION");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitJunction;
@@ -891,25 +902,31 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.AwaitJunction:
                 if (_meshes.LastWorldVoxelCount != 1087)
                     return;
-                RequireExposedFace(new WorldVoxelCoord(15, 16, 16), VoxelFaceNormal.PositiveX);
-                RequireExposedFace(new WorldVoxelCoord(16, 15, 16), VoxelFaceNormal.PositiveY);
-                RequireExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.PositiveZ);
-                RequireMissingVoxelFaces(new WorldVoxelCoord(16, 16, 16));
-                RequirePartialRebuild(new ChunkCoord(1, 1, 1));
+                RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 16), VoxelFaceNormal.PositiveX);
+                RequirePublishedExposedFace(new WorldVoxelCoord(16, 15, 16), VoxelFaceNormal.PositiveY);
+                RequirePublishedExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequirePublishedMissingVoxel(new WorldVoxelCoord(16, 16, 16));
+                RequirePublishedPartialRebuild(new ChunkCoord(1, 1, 1));
                 ValidateGeneratedMesh();
-                GD.Print($"VOXEL_SMOKE_JUNCTION_MESH dirty={FormatDirty()}");
+                GD.Print($"VOXEL_SMOKE_JUNCTION_MESH dirty={FormatDirty()} published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreJunction;
                 return;
             case VoxelSlice2SmokePhase.RestoreJunction:
+                NoteChunkRevisions();
                 RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 16), remove: false, 1088);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreJunction;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreJunction:
                 if (_meshes.LastWorldVoxelCount != 1088)
                     return;
+                RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 16), VoxelFaceNormal.PositiveX);
+                RequirePublishedHiddenFace(new WorldVoxelCoord(16, 15, 16), VoxelFaceNormal.PositiveY);
+                RequirePublishedHiddenFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequirePublishedPartialRebuild(new ChunkCoord(1, 1, 1));
                 _slice2SmokePhase = VoxelSlice2SmokePhase.CrossDamage;
                 return;
             case VoxelSlice2SmokePhase.CrossDamage:
+                NoteChunkRevisions();
                 var multi = _session.Damage(new[]
                 {
                     new VoxelDamageTarget(new WorldVoxelCoord(15, 16, 15), 100),
@@ -927,11 +944,12 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.AwaitCrossDamage:
                 if (_meshes.LastWorldVoxelCount != 1086)
                     return;
-                RequireExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.NegativeX);
-                RequireMissingVoxelFaces(new WorldVoxelCoord(15, 16, 15));
-                RequirePartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 1));
+                RequirePublishedExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.NegativeX);
+                RequirePublishedMissingVoxel(new WorldVoxelCoord(15, 16, 15));
+                RequirePublishedMissingVoxel(new WorldVoxelCoord(16, 16, 16));
+                RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 1));
                 ValidateGeneratedMesh();
-                GD.Print($"VOXEL_SMOKE_CROSS_DAMAGE_MESH dirty={FormatDirty()}");
+                GD.Print($"VOXEL_SMOKE_CROSS_DAMAGE_MESH dirty={FormatDirty()} published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RejectDamage;
                 return;
             case VoxelSlice2SmokePhase.RejectDamage:
@@ -964,22 +982,55 @@ public partial class VoxelDeveloperScene : Node3D
         SetResult(new WorldCommandResult(status, position));
     }
 
-    private void RequireExposedFace(WorldVoxelCoord position, VoxelFaceNormal normal)
+    private void NoteChunkRevisions()
     {
-        if (!HasFace(position, normal))
-            throw new InvalidOperationException($"Expected exposed face {position} {normal}.");
+        _chunkRevisionsBeforeEdit = VoxelChunks.All(_session.Identity)
+            .ToDictionary(chunk => chunk, chunk => _meshes.MeshFor(chunk).Revision);
     }
 
-    private void RequireHiddenFace(WorldVoxelCoord position, VoxelFaceNormal normal)
+    private void RequireExposedFace(WorldVoxelCoord position, VoxelFaceNormal normal) =>
+        RequirePublishedExposedFace(position, normal);
+
+    private void RequirePublishedExposedFace(WorldVoxelCoord position, VoxelFaceNormal normal)
     {
-        if (HasFace(position, normal))
-            throw new InvalidOperationException($"Expected culled face {position} {normal}.");
+        if (!HasPublishedFace(position, normal))
+            throw new InvalidOperationException($"Published chunk mesh is missing exposed face {position} {normal}.");
+        if (!HasDomainFace(position, normal))
+            throw new InvalidOperationException($"Domain mesher is missing exposed face {position} {normal}.");
     }
 
-    private void RequireMissingVoxelFaces(WorldVoxelCoord position)
+    private void RequirePublishedHiddenFace(WorldVoxelCoord position, VoxelFaceNormal normal)
     {
+        if (HasPublishedFace(position, normal))
+            throw new InvalidOperationException($"Published chunk mesh still has culled face {position} {normal}.");
+        if (HasDomainFace(position, normal))
+            throw new InvalidOperationException($"Domain mesher still has culled face {position} {normal}.");
+    }
+
+    private void RequirePublishedMissingVoxel(WorldVoxelCoord position)
+    {
+        if (HasAnyPublishedFace(position))
+            throw new InvalidOperationException($"Removed voxel {position} still has published faces.");
         if (VoxelSurfaceMesher.Build(_session.World).Faces.Any(face => face.Position == position))
-            throw new InvalidOperationException($"Removed voxel {position} still contributed a face.");
+            throw new InvalidOperationException($"Removed voxel {position} still contributed a domain face.");
+    }
+
+    private void RequirePublishedPartialRebuild(params ChunkCoord[] required)
+    {
+        RequirePartialRebuild(required);
+        if (_chunkRevisionsBeforeEdit is null)
+            throw new InvalidOperationException("Chunk mesh revisions were not captured before the edit.");
+        foreach (var chunk in VoxelChunks.All(_session.Identity))
+        {
+            var before = _chunkRevisionsBeforeEdit[chunk];
+            var after = _meshes.MeshFor(chunk).Revision;
+            var rebuilt = _meshes.LastRebuiltChunks.Contains(chunk);
+            if (rebuilt && after <= before)
+                throw new InvalidOperationException(
+                    $"Dirty chunk {chunk} kept revision {after}; the published ArrayMesh was not rebuilt.");
+            if (!rebuilt && after != before)
+                throw new InvalidOperationException($"Unaffected chunk {chunk} was rebuilt.");
+        }
     }
 
     private void RequirePartialRebuild(params ChunkCoord[] required)
@@ -994,7 +1045,17 @@ public partial class VoxelDeveloperScene : Node3D
         }
     }
 
-    private bool HasFace(WorldVoxelCoord position, VoxelFaceNormal normal) =>
+    private bool HasPublishedFace(WorldVoxelCoord position, VoxelFaceNormal normal) =>
+        _meshes.Meshes.Any(mesh =>
+            mesh.Mesh is not null &&
+            VoxelMeshGeometryValidator.HasPublishedFace(mesh.Mesh, position, normal));
+
+    private bool HasAnyPublishedFace(WorldVoxelCoord position) =>
+        _meshes.Meshes.Any(mesh =>
+            mesh.Mesh is not null &&
+            VoxelMeshGeometryValidator.HasAnyPublishedFace(mesh.Mesh, position));
+
+    private bool HasDomainFace(WorldVoxelCoord position, VoxelFaceNormal normal) =>
         VoxelSurfaceMesher.Build(_session.World).Faces.Any(face => face.Position == position && face.Normal == normal);
 
     private string FormatDirty() =>
