@@ -26,22 +26,31 @@ public sealed class VoxelConsoleCommandTests
 
         dispatcher.Execute("voxel remove 4 4 4");
         Assert.IsFalse(voxelSession.Query(new WorldVoxelCoord(4, 4, 4)).IsOccupied);
-        var remove = session.Memory.Snapshot().Single(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId);
-        StringAssert.Contains(remove.Message, "Removed");
-        StringAssert.Contains(remove.Message, "empty");
-        StringAssert.Contains(remove.Message, "Voxel count: 511");
+        var removed = string.Join("\n", session.Memory.Snapshot()
+            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
+            .Select(item => item.Message));
+        StringAssert.Contains(removed, "Removed");
+        StringAssert.Contains(removed, "empty");
+        StringAssert.Contains(removed, "Voxel count: 511");
 
         dispatcher.Execute("voxel add 4 4 4 core:iron-ore pz_py");
         var query = voxelSession.Query(new WorldVoxelCoord(4, 4, 4));
         Assert.AreEqual(VoxelOrientation.Yaw90, query.Voxel!.Orientation);
         Assert.AreEqual(100, query.Voxel.CurrentDurability);
+        Assert.AreEqual(100, query.MaxDurability);
 
+        var beforeQuery = session.Memory.Snapshot().Count;
         dispatcher.Execute("voxel query 4 4 4");
-        var queried = session.Memory.Snapshot().Last(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId);
-        StringAssert.Contains(queried.Message, "core:iron-ore");
-        StringAssert.Contains(queried.Message, "pz_py");
-        StringAssert.Contains(queried.Message, "durability 100");
-        StringAssert.Contains(queried.Message, "Voxel count: 512");
+        var queried = string.Join("\n", session.Memory.Snapshot()
+            .Skip(beforeQuery)
+            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
+            .Select(item => item.Message));
+        StringAssert.Contains(queried, "core:iron-ore");
+        StringAssert.Contains(queried, "pz_py");
+        StringAssert.Contains(queried, "durability 100");
+        StringAssert.Contains(queried, "value 100");
+        StringAssert.Contains(queried, "max 100");
+        StringAssert.Contains(queried, "Voxel count: 512");
     }
 
     [TestMethod]

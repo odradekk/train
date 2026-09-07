@@ -86,6 +86,17 @@ public readonly record struct VoxelOrientation
         _ => throw new ArgumentOutOfRangeException(nameof(localAxis), localAxis, "Unknown voxel axis.")
     };
 
+    public VoxelAxis InverseTransform(VoxelAxis worldAxis)
+    {
+        foreach (var local in Axes)
+        {
+            if (Transform(local) == worldAxis)
+                return local;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(worldAxis), worldAxis, "World axis is not produced by this orientation.");
+    }
+
     public override string ToString() => $"{ToWire(Right)}_{ToWire(Up)}";
 
     public static bool TryParse(string? value, out VoxelOrientation orientation)
@@ -183,7 +194,12 @@ public readonly record struct VoxelOrientation
 
 public sealed record WorldVoxel(VoxelDefinitionId DefinitionId, int CurrentDurability, VoxelOrientation Orientation);
 
-public sealed record WorldVoxelQuery(WorldVoxelCoord Position, WorldVoxel? Voxel)
+public sealed record WorldVoxelQuery(
+    WorldVoxelCoord Position,
+    WorldVoxel? Voxel,
+    long? Value = null,
+    double? Mass = null,
+    int? MaxDurability = null)
 {
     public bool IsOccupied => Voxel is not null;
 }
@@ -260,6 +276,13 @@ public sealed class VoxelWorld
         _voxels[position] = voxel;
         return true;
     }
+
+    internal void ReplaceOccupied(IReadOnlyList<(WorldVoxelCoord Position, WorldVoxel Voxel)> replacements)
+    {
+        ArgumentNullException.ThrowIfNull(replacements);
+        foreach (var (position, voxel) in replacements)
+            _voxels[position] = voxel;
+    }
 }
 
 public sealed class VoxelWorldCommands
@@ -275,7 +298,18 @@ public sealed class VoxelWorldCommands
         _catalog = catalog;
     }
 
-    public WorldVoxelQuery Query(WorldVoxelCoord position) => _world.Query(position);
+    public WorldVoxelQuery Query(WorldVoxelCoord position)
+    {
+        var query = _world.Query(position);
+        if (query.Voxel is null || _catalog.Current?.TryGet(query.Voxel.DefinitionId, out var entry) != true)
+            return query;
+        return query with
+        {
+            Value = entry.Definition.Value,
+            Mass = entry.Definition.Mass,
+            MaxDurability = entry.Definition.MaxDurability
+        };
+    }
 
     public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
     {

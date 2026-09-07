@@ -88,6 +88,41 @@ public interface IContentPreCommitValidator
     ContentPreCommitDecision Validate(VoxelCatalogSnapshot candidate);
 }
 
+public interface IContentWorldReloadAdapter
+{
+    ContentWorldReloadPlan Prepare(VoxelCatalogSnapshot candidate);
+}
+
+public sealed class ContentWorldReloadPlan
+{
+    public static ContentWorldReloadPlan None { get; } = Accept(null);
+
+    public bool CanCommit { get; }
+    public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
+
+    private readonly Action? _apply;
+
+    private ContentWorldReloadPlan(
+        bool canCommit,
+        IReadOnlyList<ContentDiagnostic> diagnostics,
+        Action? apply)
+    {
+        CanCommit = canCommit;
+        Diagnostics = ImmutableSets.Freeze(diagnostics);
+        _apply = apply;
+    }
+
+    public static ContentWorldReloadPlan Accept(
+        Action? apply,
+        IEnumerable<ContentDiagnostic>? warnings = null) =>
+        new(true, warnings?.ToArray() ?? Array.Empty<ContentDiagnostic>(), apply);
+
+    public static ContentWorldReloadPlan Reject(IEnumerable<ContentDiagnostic> diagnostics) =>
+        new(false, diagnostics.ToArray(), null);
+
+    public void Apply() => _apply?.Invoke();
+}
+
 public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
 {
     private readonly Func<IReadOnlySet<VoxelDefinitionId>> _referencedIds;
@@ -216,6 +251,7 @@ public sealed class ContentReloader
     private readonly IContentSource _source;
     private readonly TrainLogger _logger;
     private readonly IContentPreCommitValidator? _validator;
+    private IContentWorldReloadAdapter? _worldAdapter;
     private int _busy;
 
     public VoxelCatalog Catalog { get; }
@@ -237,6 +273,9 @@ public sealed class ContentReloader
         Catalog = catalog ?? new VoxelCatalog();
         Settlements = settlements ?? new SettlementRegistry();
     }
+
+    public void SetWorldReloadAdapter(IContentWorldReloadAdapter? adapter) =>
+        _worldAdapter = adapter;
 
     public ContentReloadResult Reload()
     {
@@ -335,6 +374,17 @@ public sealed class ContentReloader
             return rejected;
         }
 
+        var worldPlan = _worldAdapter?.Prepare(snapshot) ?? ContentWorldReloadPlan.None;
+        diagnostics.AddRange(worldPlan.Diagnostics);
+        if (!worldPlan.CanCommit)
+        {
+            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, settlements.Count, diagnostics);
+            if (Catalog.Current is null)
+                InitializationFailed = true;
+            LogFailure(rejected);
+            return rejected;
+        }
+
         var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, entries);
         var settlementChange = SettlementDiff.Compute(Settlements, settlements);
         var status = diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning)
@@ -364,6 +414,7 @@ public sealed class ContentReloader
             return unchanged;
         }
 
+        worldPlan.Apply();
         if (voxelsChanged)
             Catalog.Publish(snapshot);
         if (settlementsChanged || !Settlements.HasCommitted)
@@ -866,7 +917,7 @@ internal static class CatalogCandidateBuilder
         out VoxelCatalogEntry entry)
     {
         entry = null!;
-        if (!TryLoadPresentationAssets(source, package, parsed.Presentation, bag, out var assetRevisions))
+        if (!TryLoadPresentationAssets(source, package, parsed.Presentation, bag, out var assetRevisions, out var images))
             return false;
 
         var id = new VoxelDefinitionId(package.Namespace, parsed.LocalId);
@@ -885,7 +936,7 @@ internal static class CatalogCandidateBuilder
         var origin = new ContentOrigin(package.Namespace, parsed.SourceFile);
         var semantic = ContentRevisions.ComputeSemanticRevision(definition);
         var publication = ContentRevisions.ComputePublicationFingerprint(definition, semantic, assetRevisions);
-        entry = new VoxelCatalogEntry(definition, origin, semantic, assetRevisions, publication);
+        entry = new VoxelCatalogEntry(definition, origin, semantic, assetRevisions, publication, images);
         logger.Debug(
             ContentLog.Category,
             ContentLog.DefinitionAcceptedEventId,
@@ -904,10 +955,11 @@ internal static class CatalogCandidateBuilder
         ContentPackage package,
         VoxelPresentation visual,
         DiagnosticBag bag,
-        out Dictionary<string, string> revisions)
+        out Dictionary<string, string> revisions,
+        out Dictionary<string, DecodedImage> images)
     {
         revisions = new Dictionary<string, string>(StringComparer.Ordinal);
-        var images = new Dictionary<string, DecodedImage>(StringComparer.Ordinal);
+        images = new Dictionary<string, DecodedImage>(StringComparer.Ordinal);
         var paths = new[] { visual.IconPath, visual.TopPath, visual.SidePath, visual.BottomPath };
         foreach (var path in paths.Distinct(StringComparer.Ordinal))
         {

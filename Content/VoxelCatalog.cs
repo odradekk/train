@@ -13,6 +13,7 @@ public sealed class VoxelCatalogEntry
     public ContentOrigin Origin { get; }
     public string SemanticRevision { get; }
     public IReadOnlyDictionary<string, string> AssetRevisions { get; }
+    public IReadOnlyDictionary<string, DecodedImage> PresentationImages { get; }
     public string PublicationFingerprint { get; }
 
     public VoxelCatalogEntry(
@@ -20,7 +21,8 @@ public sealed class VoxelCatalogEntry
         ContentOrigin origin,
         string semanticRevision,
         IReadOnlyDictionary<string, string> assetRevisions,
-        string publicationFingerprint)
+        string publicationFingerprint,
+        IReadOnlyDictionary<string, DecodedImage>? presentationImages = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(origin);
@@ -32,6 +34,8 @@ public sealed class VoxelCatalogEntry
         SemanticRevision = semanticRevision;
         AssetRevisions = assetRevisions as FrozenDictionary<string, string> ??
                          assetRevisions.ToFrozenDictionary(StringComparer.Ordinal);
+        PresentationImages = presentationImages as FrozenDictionary<string, DecodedImage> ??
+                             (presentationImages ?? new Dictionary<string, DecodedImage>()).ToFrozenDictionary(StringComparer.Ordinal);
         PublicationFingerprint = publicationFingerprint;
     }
 }

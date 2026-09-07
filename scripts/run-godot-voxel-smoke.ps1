@@ -1,6 +1,7 @@
 param(
     [ValidateSet(1)]
-    [int] $Slice = 1
+    [int] $Slice = 1,
+    [switch] $IsolationAbort
 )
 
 # Repeatable real-Godot voxel smoke for issue #39 slice 1.
@@ -58,7 +59,7 @@ function Find-Godot {
 }
 
 $godot = Find-Godot
-$command = '$env:TRAIN_VOXEL_SMOKE="1"; & <godot> --headless --path . --quit-after 45'
+$command = '$env:TRAIN_VOXEL_SMOKE="1"; & <godot> --headless --path . --quit-after 90'
 if (-not $godot) {
     [Console]::Error.WriteLine("Godot executable not found (PATH, GODOT, GODOT_HOME, or standard Program Files).")
     [Console]::Error.WriteLine("Unrun command: $command")
@@ -66,34 +67,73 @@ if (-not $godot) {
 }
 
 Write-Host "Using Godot: $godot"
+foreach ($name in @(
+    "TRAIN_VOXEL_SMOKE_REENTER",
+    "TRAIN_VOXEL_SMOKE_ISOLATION_ABORT",
+    "TRAIN_VOXEL_OBSERVE",
+    "TRAIN_VOXEL_BASELINE",
+    "TRAIN_CONTENT_SMOKE",
+    "TRAIN_CONTENT_EXPORT_SMOKE",
+    "TRAIN_MODS_EXPORT_SMOKE",
+    "TRAIN_LOG_SMOKE"
+)) {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
+$ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
+$ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
+$beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
+$beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
 $env:TRAIN_VOXEL_SMOKE = "1"
-$raw = & $godot --headless --path $root --quit-after 45 2>&1
+if ($IsolationAbort) {
+    $env:TRAIN_VOXEL_SMOKE_ISOLATION_ABORT = "1"
+}
+$quitAfter = if ($IsolationAbort) { 30 } else { 90 }
+$raw = & $godot --headless --path $root --quit-after $quitAfter 2>&1
 $godotExitCode = $LASTEXITCODE
 $output = $raw | Out-String
 Write-Host $output
+$afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
+$afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
+if ($beforeJson -ne $afterJson -or $beforeTop -ne $afterTop) {
+    [Console]::Error.WriteLine("Godot voxel smoke rewrote worktree built-in iron-ore content.")
+    exit 1
+}
 
-$required = @(
-    "VOXEL_SMOKE_GEOMETRY_VALID",
-    "VOXEL_SMOKE_SCENE_READY",
-    "VOXEL_SMOKE_REMOVED",
-    "VOXEL_SMOKE_MESH_UPDATED",
-    "VOXEL_SMOKE_ADDED",
-    "VOXEL_SMOKE_DISPLAY_UPDATED",
-    "VOXEL_SMOKE_ORIENTATION_UPDATED",
-    "VOXEL_SMOKE_DAMAGED",
-    "VOXEL_SMOKE_DAMAGE_DISPLAY_UPDATED",
-    "VOXEL_SMOKE_DESTROYED",
-    "VOXEL_SMOKE_DESTROY_DISPLAY_UPDATED",
-    "VOXEL_SMOKE_RESTORED_AFTER_DAMAGE",
-    "VOXEL_SMOKE_INTERNAL_FACE_UPDATED",
-    "VOXEL_SMOKE_INTERNAL_DESTROYED",
-    "VOXEL_SMOKE_INTERNAL_DESTROY_DISPLAY_UPDATED",
-    "VOXEL_SMOKE_MULTI_DAMAGED",
-    "VOXEL_SMOKE_MULTI_DISPLAY_UPDATED",
-    "VOXEL_SMOKE_CONSOLE_CLOSED",
-    "VOXEL_SMOKE_RETURNED_TO_MENU",
-    "VOXEL_SMOKE_MENU_REENTERED"
-)
+$required = if ($IsolationAbort) {
+    @("VOXEL_SMOKE_ISOLATION_WRITE_DONE")
+} else {
+    @(
+        "VOXEL_SMOKE_GEOMETRY_VALID",
+        "VOXEL_SMOKE_SCENE_READY",
+        "VOXEL_SMOKE_REMOVED",
+        "VOXEL_SMOKE_MESH_UPDATED",
+        "VOXEL_SMOKE_ADDED",
+        "VOXEL_SMOKE_DISPLAY_UPDATED",
+        "VOXEL_SMOKE_ORIENTATION_UPDATED",
+        "VOXEL_SMOKE_DAMAGED",
+        "VOXEL_SMOKE_DAMAGE_DISPLAY_UPDATED",
+        "VOXEL_SMOKE_DESTROYED",
+        "VOXEL_SMOKE_DESTROY_DISPLAY_UPDATED",
+        "VOXEL_SMOKE_RESTORED_AFTER_DAMAGE",
+        "VOXEL_SMOKE_INTERNAL_FACE_UPDATED",
+        "VOXEL_SMOKE_INTERNAL_DESTROYED",
+        "VOXEL_SMOKE_INTERNAL_DESTROY_DISPLAY_UPDATED",
+        "VOXEL_SMOKE_MULTI_DAMAGED",
+        "VOXEL_SMOKE_MULTI_DISPLAY_UPDATED",
+        "VOXEL_SMOKE_RELOAD_DAMAGED_80",
+        "VOXEL_SMOKE_RELOAD_MAX_150",
+        "VOXEL_SMOKE_RELOAD_TEXT_UPDATED",
+        "VOXEL_SMOKE_RELOAD_ASSET_UPDATED",
+        "VOXEL_SMOKE_RELOAD_ORIENTATION_MAPPED",
+        "VOXEL_SMOKE_RELOAD_MAX_60",
+        "VOXEL_SMOKE_RELOAD_PROBE_ADDED",
+        "VOXEL_SMOKE_RELOAD_REJECTED",
+        "VOXEL_SMOKE_RELOAD_DISPLAY_RETAINED",
+        "VOXEL_SMOKE_CONSOLE_CLOSED",
+        "VOXEL_SMOKE_RETURNED_TO_MENU",
+        "VOXEL_SMOKE_MENU_REENTERED"
+    )
+}
 $missing = @($required | Where-Object { $output -notlike "*$_*" })
 if ($output -match 'NullReferenceException' -or $output -match 'ERROR: System\.') {
     [Console]::Error.WriteLine("Godot voxel smoke failed. Unexpected exception in engine output.")
@@ -113,5 +153,9 @@ if ($missing.Count -gt 0) {
     exit 1
 }
 
-Write-Host "Godot voxel smoke passed for slice $Slice."
+if ($IsolationAbort) {
+    Write-Host "Godot voxel smoke isolation abort kept worktree built-in content unchanged."
+} else {
+    Write-Host "Godot voxel smoke passed for slice $Slice."
+}
 exit 0

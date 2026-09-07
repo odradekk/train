@@ -1,4 +1,5 @@
 using Godot;
+using Train.Content;
 using Train.Domain.Voxels;
 
 namespace Train.Presentation;
@@ -8,29 +9,80 @@ public partial class VoxelChunkMesh : MeshInstance3D
     public int FaceCount { get; private set; }
     public int LastWorldVoxelCount { get; private set; }
     public long Revision { get; private set; }
+    public string DisplayFingerprint { get; private set; } = "";
 
-    public void Refresh(VoxelWorld world)
+    public void Refresh(VoxelWorld world, VoxelCatalogSnapshot? catalog = null)
     {
         ArgumentNullException.ThrowIfNull(world);
         var surface = VoxelSurfaceMesher.Build(world);
-        var tool = new SurfaceTool();
-        tool.Begin(Mesh.PrimitiveType.Triangles);
+        var groups = new Dictionary<string, (DecodedImage? Image, List<WorldVoxelFace> Faces)>(StringComparer.Ordinal);
         foreach (var face in surface.Faces)
-            AddFace(tool, face);
-
-        tool.SetMaterial(new StandardMaterial3D
         {
-            AlbedoColor = Colors.White,
-            Roughness = 0.88f
-            ,VertexColorUseAsAlbedo = true
-        });
-        Mesh = tool.Commit();
+            var key = TextureKey(face, catalog, out var image);
+            if (!groups.TryGetValue(key, out var group))
+            {
+                group = (image, new List<WorldVoxelFace>());
+                groups[key] = group;
+            }
+
+            group.Faces.Add(face);
+        }
+
+        ArrayMesh? mesh = null;
+        foreach (var (image, faces) in groups.Values)
+        {
+            var tool = new SurfaceTool();
+            tool.Begin(Mesh.PrimitiveType.Triangles);
+            foreach (var face in faces)
+                AddFace(tool, face, textured: image is not null);
+            var material = new StandardMaterial3D
+            {
+                Roughness = 0.88f,
+                VertexColorUseAsAlbedo = true
+            };
+            if (image is not null)
+                material.AlbedoTexture = ImageTexture.CreateFromImage(ToGodotImage(image));
+            else
+                material.AlbedoColor = Colors.White;
+            tool.SetMaterial(material);
+            mesh = tool.Commit(mesh);
+        }
+
+        Mesh = mesh ?? new ArrayMesh();
         FaceCount = surface.FaceCount;
         LastWorldVoxelCount = world.VoxelCount;
+        DisplayFingerprint = string.Join("|", groups
+            .OrderBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(pair => pair.Key));
         Revision++;
     }
 
-    private static void AddFace(SurfaceTool tool, WorldVoxelFace face)
+    private static string TextureKey(WorldVoxelFace face, VoxelCatalogSnapshot? catalog, out DecodedImage? image)
+    {
+        image = null;
+        if (catalog?.TryGet(face.Voxel.DefinitionId, out var entry) != true)
+            return "color:" + face.Voxel.DefinitionId.Value;
+        var path = FaceImagePath(face, entry.Definition.Presentation);
+        if (path is not null && entry.PresentationImages.TryGetValue(path, out image))
+            return entry.AssetRevisions.TryGetValue(path, out var revision)
+                ? "asset:" + revision
+                : "image:" + path;
+        return "color:" + face.Voxel.DefinitionId.Value;
+    }
+
+    private static string? FaceImagePath(WorldVoxelFace face, VoxelPresentation presentation)
+    {
+        var worldAxis = FaceWorldAxis(face.Normal);
+        var localAxis = Enum.GetValues<VoxelAxis>().Single(axis => face.Voxel.Orientation.Transform(axis) == worldAxis);
+        return localAxis switch
+        {
+            VoxelAxis.PositiveY => presentation.TopPath,
+            VoxelAxis.NegativeY => presentation.BottomPath,
+            _ => presentation.SidePath
+        };
+    }
+
+    private static void AddFace(SurfaceTool tool, WorldVoxelFace face, bool textured)
     {
         var p = new Vector3(face.Position.X, face.Position.Y, face.Position.Z);
         var (normal, ccw0, ccw1, ccw2, ccw3) = face.Normal switch
@@ -44,27 +96,34 @@ public partial class VoxelChunkMesh : MeshInstance3D
             _ => throw new ArgumentOutOfRangeException(nameof(face), face.Normal, "Unknown face normal.")
         };
         tool.SetNormal(normal);
-        tool.SetColor(FaceColor(face));
-        tool.AddVertex(ccw0);
-        tool.AddVertex(ccw2);
-        tool.AddVertex(ccw1);
-        tool.AddVertex(ccw0);
-        tool.AddVertex(ccw3);
-        tool.AddVertex(ccw2);
+        tool.SetColor(textured ? Colors.White : FaceColor(face));
+        AddOrientedVertex(tool, face, ccw0);
+        AddOrientedVertex(tool, face, ccw2);
+        AddOrientedVertex(tool, face, ccw1);
+        AddOrientedVertex(tool, face, ccw0);
+        AddOrientedVertex(tool, face, ccw3);
+        AddOrientedVertex(tool, face, ccw2);
+    }
+
+    private static void AddOrientedVertex(SurfaceTool tool, WorldVoxelFace face, Vector3 vertex)
+    {
+        var dx = (int)MathF.Round(vertex.X - face.Position.X);
+        var dy = (int)MathF.Round(vertex.Y - face.Position.Y);
+        var dz = (int)MathF.Round(vertex.Z - face.Position.Z);
+        var (u, v) = VoxelCubeUv.ForWorldFace(face.Voxel.Orientation, face.Normal, dx, dy, dz);
+        tool.SetUV(new Vector2(u, v));
+        tool.AddVertex(vertex);
+    }
+
+    private static Image ToGodotImage(DecodedImage image)
+    {
+        var pixels = image.Pixels as byte[] ?? image.Pixels.ToArray();
+        return Image.CreateFromData(image.Width, image.Height, false, Image.Format.Rgba8, pixels);
     }
 
     private static Color FaceColor(WorldVoxelFace face)
     {
-        var worldAxis = face.Normal switch
-        {
-            VoxelFaceNormal.PositiveX => VoxelAxis.PositiveX,
-            VoxelFaceNormal.NegativeX => VoxelAxis.NegativeX,
-            VoxelFaceNormal.PositiveY => VoxelAxis.PositiveY,
-            VoxelFaceNormal.NegativeY => VoxelAxis.NegativeY,
-            VoxelFaceNormal.PositiveZ => VoxelAxis.PositiveZ,
-            VoxelFaceNormal.NegativeZ => VoxelAxis.NegativeZ,
-            _ => throw new ArgumentOutOfRangeException(nameof(face), face.Normal, "Unknown face normal.")
-        };
+        var worldAxis = FaceWorldAxis(face.Normal);
         var localAxis = Enum.GetValues<VoxelAxis>().Single(axis => face.Voxel.Orientation.Transform(axis) == worldAxis);
         return localAxis switch
         {
@@ -77,4 +136,15 @@ public partial class VoxelChunkMesh : MeshInstance3D
             _ => throw new ArgumentOutOfRangeException(nameof(localAxis), localAxis, "Unknown voxel axis.")
         };
     }
+
+    private static VoxelAxis FaceWorldAxis(VoxelFaceNormal normal) => normal switch
+    {
+        VoxelFaceNormal.PositiveX => VoxelAxis.PositiveX,
+        VoxelFaceNormal.NegativeX => VoxelAxis.NegativeX,
+        VoxelFaceNormal.PositiveY => VoxelAxis.PositiveY,
+        VoxelFaceNormal.NegativeY => VoxelAxis.NegativeY,
+        VoxelFaceNormal.PositiveZ => VoxelAxis.PositiveZ,
+        VoxelFaceNormal.NegativeZ => VoxelAxis.NegativeZ,
+        _ => throw new ArgumentOutOfRangeException(nameof(normal), normal, "Unknown face normal.")
+    };
 }
