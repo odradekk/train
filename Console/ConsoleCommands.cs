@@ -97,12 +97,18 @@ public sealed class ConsoleCommandDispatcher
                 if (_voxelCommands is null)
                     _logger.Warning(Category, VoxelUnavailableEventId, "Enter the voxel development scene before using voxel commands.");
                 else
-                    _logger.Info(Category, VoxelEventId, _voxelCommands.Execute(parsed.Arguments));
+                    WriteVoxelResult(_voxelCommands.Execute(parsed.Arguments));
                 return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
                 return;
         }
+    }
+
+    private void WriteVoxelResult(string text)
+    {
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            _logger.Info(Category, VoxelEventId, line);
     }
 
     private void ApplyLogLevel(IReadOnlyList<string> arguments)

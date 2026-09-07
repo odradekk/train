@@ -18,4 +18,4 @@ Cell (4, 4, 4): core:iron-ore, orientation px_py, durability 100. Voxel count: 5
 
 空格输出 `Cell (...): empty.`，同样附带世界总体素数。这里的 `durability` 是实例当前耐久，不是定义最大耐久；查询不输出 Value、Mass 或定义详情。
 
-当前查询对越界坐标也返回 `empty`，不会报告 `OutOfBounds`，因此不能用查询中的 `empty` 判断坐标可否放置。增删命令会单独验证边界。
+当前查询对越界坐标也返回 `empty`，不会报告 `OutOfBounds`，因此不能用查询中的 `empty` 判断坐标可否放置。增删和伤害命令会单独验证边界。

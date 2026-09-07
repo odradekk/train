@@ -43,6 +43,17 @@ public sealed class VoxelDevelopmentSession
         return result;
     }
 
+    public WorldDamageResult Damage(WorldVoxelCoord position, int amount) =>
+        Damage(new[] { new VoxelDamageTarget(position, amount) });
+
+    public WorldDamageResult Damage(IReadOnlyList<VoxelDamageTarget> targets)
+    {
+        var result = Commands.Damage(targets);
+        if (result.Succeeded)
+            Changed?.Invoke();
+        return result;
+    }
+
     public WorldVoxelQuery Query(WorldVoxelCoord position) => Commands.Query(position);
 
     private VoxelWorld CreateWorld() => VoxelWorldFactory.CreateDevelopmentWorld(
