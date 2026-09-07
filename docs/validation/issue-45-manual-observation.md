@@ -56,6 +56,8 @@ Separate windowed run (worktree-local, not the delivered observe script) entered
 
 The displayed multi result is not the previous truncated `durability 7` / missing count line.
 
+Legal long voxel definition IDs (canonical UUID namespace plus a 64-character local ID) are covered by the formal dispatcher → `FormatConsole` test, not by the observe script. Damage feedback is field-split so the full identity, remaining durability, and world count stay visible inside the existing 200-character Message clip.
+
 Headless `scripts/run-godot-voxel-smoke.ps1 -Slice 1` remains separate automated integration evidence.
 
 Final Acceptance-criteria confirmation remains the reviewer's responsibility.

@@ -60,58 +60,52 @@ public sealed class VoxelConsoleCommandTests
             allowReload: true,
             new VoxelConsoleCommands(voxelSession));
 
+        var beforePartial = session.Memory.Snapshot().Count;
         dispatcher.Execute("voxel damage 4 4 4 25");
         var partial = voxelSession.Query(new WorldVoxelCoord(4, 4, 4));
         Assert.AreEqual(75, partial.Voxel!.CurrentDurability);
         Assert.AreEqual(512, voxelSession.World.VoxelCount);
-        var damaged = session.Memory.Snapshot().Last(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId);
-        StringAssert.Contains(damaged.Message, "Damaged");
-        StringAssert.Contains(damaged.Message, "25");
-        StringAssert.Contains(damaged.Message, "durability 75");
-        StringAssert.Contains(damaged.Message, "Voxel count: 512");
+        AssertDamageDisplay(session, beforePartial, "Damaged", "25", "durability 75", "Voxel count: 512");
 
         dispatcher.Execute("voxel reset");
         var beforeMulti = session.Memory.Snapshot().Count;
         dispatcher.Execute("voxel damage 4 4 4 100 5 4 4 100 6 4 4 25");
         Assert.AreEqual(510, voxelSession.World.VoxelCount);
         Assert.AreEqual(75, voxelSession.Query(new WorldVoxelCoord(6, 4, 4)).Voxel!.CurrentDurability);
-
-        var multiEvents = session.Memory.Snapshot()
-            .Skip(beforeMulti)
-            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
-            .ToArray();
-        Assert.AreEqual(3, multiEvents.Length);
-        var displayed = multiEvents.Select(LogLevelText.FormatConsole).ToArray();
-        foreach (var item in multiEvents)
-            Assert.IsTrue(item.Message.Length <= 200, item.Message);
-        var display = string.Join("\n", displayed);
-        StringAssert.Contains(display, "Removed");
-        StringAssert.Contains(display, "Damaged");
-        StringAssert.Contains(displayed[2], "durability 75");
-        StringAssert.Contains(displayed[2], "Voxel count: 510");
-        Assert.IsFalse(displayed.Any(line => line.Contains("durability 7", StringComparison.Ordinal) &&
-                                            !line.Contains("durability 75", StringComparison.Ordinal)));
+        AssertDamageDisplay(session, beforeMulti, "Removed", "Damaged", "durability 75", "Voxel count: 510");
     }
 
     [TestMethod]
-    public void FormatConsole_still_clips_one_concatenated_three_target_message_at_200()
+    public void Console_damage_keeps_legal_long_mod_id_and_counts_inside_format_bounds()
     {
-        const string concatenated =
-            "Voxel Removed at (4, 4, 4) by 100. Cell (4, 4, 4): empty. Removed at (5, 4, 4) by 100. Cell (5, 4, 4): empty. Damaged at (6, 4, 4) by 25. Cell (6, 4, 4): core:iron-ore, orientation px_py, durability 75. Voxel count: 510.";
-        Assert.IsTrue(concatenated.Length > 200);
-        var displayed = LogLevelText.FormatConsole(new LogEvent(
-            new DateTimeOffset(2026, 9, 3, 14, 31, 4, 123, TimeSpan.Zero),
-            Guid.Empty,
-            1,
-            LogLevel.Info,
-            ConsoleCommandDispatcher.Category,
-            ConsoleCommandDispatcher.VoxelEventId,
-            concatenated,
-            new Dictionary<string, object?>(),
-            exception: null));
-        StringAssert.Contains(displayed, "durability 7");
-        Assert.IsFalse(displayed.Contains("durability 75", StringComparison.Ordinal));
-        Assert.IsFalse(displayed.Contains("Voxel count: 510", StringComparison.Ordinal));
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidIron();
+        var localId = new string('a', VoxelDefinitionId.PartMaxLength);
+        var definitionId = $"{ModFixtures.SampleUuid}:{localId}";
+        source.AddMod("review-long-id", ModFixtures.SampleUuid);
+        source.AddVoxelFile(
+            ModFixtures.SampleUuid,
+            "long.voxels.json",
+            ContentFixtures.GoodsFile(ContentFixtures.Good(localId, "Long ID", "Review")));
+        source.AddImage(ModFixtures.SampleUuid, "iron.png", ContentFixtures.Square(16));
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
+        var dispatcher = new ConsoleCommandDispatcher(
+            session.Logger,
+            static () => { },
+            static () => { },
+            static () => { },
+            allowReload: true,
+            new VoxelConsoleCommands(voxelSession));
+
+        dispatcher.Execute($"voxel add 0 0 0 {definitionId} px_py");
+        Assert.AreEqual(513, voxelSession.World.VoxelCount);
+        var beforeDamage = session.Memory.Snapshot().Count;
+        dispatcher.Execute("voxel damage 0 0 0 1");
+        Assert.AreEqual(513, voxelSession.World.VoxelCount);
+        Assert.AreEqual(99, voxelSession.Query(new WorldVoxelCoord(0, 0, 0)).Voxel!.CurrentDurability);
+        AssertDamageDisplay(session, beforeDamage, definitionId, "Damaged", "by 1", "durability 99", "Voxel count: 513");
     }
 
     [TestMethod]
@@ -150,5 +144,29 @@ public sealed class VoxelConsoleCommandTests
         var usage = session.Memory.Snapshot().Last(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId);
         StringAssert.Contains(usage.Message, "voxel damage");
         Assert.AreEqual(512, voxelSession.World.VoxelCount);
+    }
+
+    private static void AssertDamageDisplay(LoggerSession session, int beforeCount, params string[] required)
+    {
+        var events = session.Memory.Snapshot()
+            .Skip(beforeCount)
+            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
+            .ToArray();
+        Assert.IsTrue(events.Length > 0);
+        foreach (var item in events)
+            Assert.IsTrue(item.Message.Length <= 200, item.Message);
+        var displayed = events.Select(LogLevelText.FormatConsole).ToArray();
+        var display = string.Join("\n", displayed);
+        foreach (var fragment in required)
+            StringAssert.Contains(display, fragment);
+        foreach (var fragment in required.Where(item => item.StartsWith("Voxel count:", StringComparison.Ordinal) ||
+                                                       item.StartsWith("durability ", StringComparison.Ordinal)))
+        {
+            var prefix = fragment[..fragment.LastIndexOf(' ')];
+            Assert.IsFalse(
+                displayed.Any(line => line.Contains(prefix, StringComparison.Ordinal) &&
+                                      !line.Contains(fragment, StringComparison.Ordinal)),
+                display);
+        }
     }
 }
