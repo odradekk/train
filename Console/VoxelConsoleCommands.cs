@@ -52,12 +52,10 @@ public sealed class VoxelConsoleCommands
         if (!result.Succeeded)
             return FormatResult(new WorldCommandResult(result.Status, result.Position));
 
-        var parts = result.Targets.Select(target =>
-        {
-            var query = _session.Query(target.Position);
-            return $"{target.Status} at ({target.Position.X}, {target.Position.Y}, {target.Position.Z}) by {target.Amount}. {Format(query)}";
-        });
-        return $"Voxel {string.Join(" ", parts)} Voxel count: {_session.World.VoxelCount}.";
+        // One bounded console line per target so FormatConsole's 200-character
+        // Message clip cannot drop remaining durability or the world count.
+        return string.Join("\n", result.Targets.Select(target =>
+            $"Voxel {target.Status} at ({target.Position.X}, {target.Position.Y}, {target.Position.Z}) by {target.Amount}. {FormatWithCount(_session.Query(target.Position))}"));
     }
 
     private string FormatWithCount(WorldVoxelQuery query) =>

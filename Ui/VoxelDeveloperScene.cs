@@ -69,6 +69,7 @@ public partial class VoxelDeveloperScene : Node3D
         OpenCavity,
         AwaitOpenCavity,
         Multi,
+        AwaitMulti,
         Done
     }
 
@@ -480,12 +481,19 @@ public partial class VoxelDeveloperScene : Node3D
                     new VoxelDamageTarget(new WorldVoxelCoord(6, 4, 4), 25)
                 }));
                 settle.Stop();
-                Refresh();
                 GD.Print($"VOXEL_OBSERVE_MULTI_SETTLE_MS={settle.Elapsed.TotalMilliseconds:F3}");
                 if (_session.World.VoxelCount != 510 ||
                     _session.Query(new WorldVoxelCoord(4, 4, 4)).IsOccupied ||
                     _session.Query(new WorldVoxelCoord(6, 4, 4)).Voxel?.CurrentDurability != 75)
                     throw new InvalidOperationException("Observe multi-target damage did not match the formal query.");
+                _observeHoldFrames = 12;
+                _observePhase = VoxelObservePhase.AwaitMulti;
+                return;
+            case VoxelObservePhase.AwaitMulti:
+                if (!_cell.Text.Contains("空", StringComparison.Ordinal) ||
+                    !_result.Text.Contains("Damaged (6,4,4) by 25 → 75", StringComparison.Ordinal) ||
+                    !_result.Text.Contains("Removed (4,4,4)", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Observe multi HUD did not match the current damage result.");
                 GD.Print($"VOXEL_OBSERVE_MULTI_STATE voxels=510 durability75={_session.Query(new WorldVoxelCoord(6, 4, 4)).Voxel!.CurrentDurability} faces={_mesh.FaceCount}");
                 CaptureObserve("issue45-multi", "same-event damage removed two cells, (6,4,4) durability 75");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
@@ -527,7 +535,7 @@ public partial class VoxelDeveloperScene : Node3D
             throw;
         }
 
-        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_mesh.FaceCount} hud={_cell.Text} {note}");
+        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_mesh.FaceCount} hud={_cell.Text} result={_result.Text} {note}");
     }
 
     private GameConsole? FindConsole() =>

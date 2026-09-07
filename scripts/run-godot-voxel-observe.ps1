@@ -1,5 +1,8 @@
 # Windowed real-GPU observation for issue #45 damage sequences.
 # Requires Godot 4.7 .NET on PATH or $env:GODOT. Does not use --headless.
+# On Godot 4.7.2 .NET, --quit-after is a main-loop frame budget, not seconds.
+# The scene quits itself after VOXEL_OBSERVE_COMPLETE; 180 is only a fail-closed
+# safety timeout for the full hold/capture sequence.
 param(
     [string] $OutputPath = ".godot/issue45-observe-report.md"
 )
@@ -11,8 +14,19 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     throw "Set GODOT to the Godot 4.7 .NET executable before running observation."
 }
 
+foreach ($name in @(
+    "TRAIN_VOXEL_SMOKE",
+    "TRAIN_VOXEL_SMOKE_REENTER",
+    "TRAIN_VOXEL_BASELINE",
+    "TRAIN_CONTENT_SMOKE",
+    "TRAIN_CONTENT_EXPORT_SMOKE",
+    "TRAIN_MODS_EXPORT_SMOKE",
+    "TRAIN_LOG_SMOKE"
+)) {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
 $env:TRAIN_VOXEL_OBSERVE = "1"
-$output = & $env:GODOT --path $root --quit-after 45 2>&1 | Out-String
+$output = & $env:GODOT --path $root --quit-after 180 2>&1 | Out-String
 $exitCode = $LASTEXITCODE
 Write-Host $output
 if ($exitCode -ne 0 -or $output -notlike "*VOXEL_OBSERVE_COMPLETE*") {
@@ -41,7 +55,7 @@ $report = @(
     "",
     "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 ``.",
     "",
-    "The windowed development scene executed the formal damage commands, waited for derived mesh/HUD refresh, validated geometry, and saved viewport captures under ``.godot/issue45-*.png``. Direct remove was not used as a substitute.",
+    "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, and required the six ``.godot/issue45-*.png`` files to exist. It does not inspect PNG pixels.",
     "",
     "## Procedure",
     "",
@@ -61,7 +75,7 @@ $report = @(
     "",
     $(if ($settle) { "Multi-target settlement: $settle" } else { "Multi-target settlement timing was not printed." }),
     "",
-    "Viewport captures were written to ``.godot/issue45-*.png`` and inspected after the real-GPU run. The headless smoke remains separate automated integration evidence."
+    "Automated capture wrote ``.godot/issue45-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless smoke is separate automated integration evidence."
 )
 $absoluteOutput = Join-Path $root $OutputPath
 $parent = Split-Path -Parent $absoluteOutput

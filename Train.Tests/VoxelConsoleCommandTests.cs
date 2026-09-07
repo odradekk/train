@@ -45,7 +45,7 @@ public sealed class VoxelConsoleCommandTests
     }
 
     [TestMethod]
-    public void Console_damage_reports_remaining_durability_and_uses_one_event_for_many_targets()
+    public void Console_damage_keeps_multi_target_display_inside_format_bounds()
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidIron();
@@ -71,14 +71,47 @@ public sealed class VoxelConsoleCommandTests
         StringAssert.Contains(damaged.Message, "Voxel count: 512");
 
         dispatcher.Execute("voxel reset");
+        var beforeMulti = session.Memory.Snapshot().Count;
         dispatcher.Execute("voxel damage 4 4 4 100 5 4 4 100 6 4 4 25");
         Assert.AreEqual(510, voxelSession.World.VoxelCount);
         Assert.AreEqual(75, voxelSession.Query(new WorldVoxelCoord(6, 4, 4)).Voxel!.CurrentDurability);
-        var multi = session.Memory.Snapshot().Last(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId);
-        StringAssert.Contains(multi.Message, "Removed");
-        StringAssert.Contains(multi.Message, "Damaged");
-        StringAssert.Contains(multi.Message, "durability 75");
-        StringAssert.Contains(multi.Message, "Voxel count: 510");
+
+        var multiEvents = session.Memory.Snapshot()
+            .Skip(beforeMulti)
+            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
+            .ToArray();
+        Assert.AreEqual(3, multiEvents.Length);
+        var displayed = multiEvents.Select(LogLevelText.FormatConsole).ToArray();
+        foreach (var item in multiEvents)
+            Assert.IsTrue(item.Message.Length <= 200, item.Message);
+        var display = string.Join("\n", displayed);
+        StringAssert.Contains(display, "Removed");
+        StringAssert.Contains(display, "Damaged");
+        StringAssert.Contains(displayed[2], "durability 75");
+        StringAssert.Contains(displayed[2], "Voxel count: 510");
+        Assert.IsFalse(displayed.Any(line => line.Contains("durability 7", StringComparison.Ordinal) &&
+                                            !line.Contains("durability 75", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void FormatConsole_still_clips_one_concatenated_three_target_message_at_200()
+    {
+        const string concatenated =
+            "Voxel Removed at (4, 4, 4) by 100. Cell (4, 4, 4): empty. Removed at (5, 4, 4) by 100. Cell (5, 4, 4): empty. Damaged at (6, 4, 4) by 25. Cell (6, 4, 4): core:iron-ore, orientation px_py, durability 75. Voxel count: 510.";
+        Assert.IsTrue(concatenated.Length > 200);
+        var displayed = LogLevelText.FormatConsole(new LogEvent(
+            new DateTimeOffset(2026, 9, 3, 14, 31, 4, 123, TimeSpan.Zero),
+            Guid.Empty,
+            1,
+            LogLevel.Info,
+            ConsoleCommandDispatcher.Category,
+            ConsoleCommandDispatcher.VoxelEventId,
+            concatenated,
+            new Dictionary<string, object?>(),
+            exception: null));
+        StringAssert.Contains(displayed, "durability 7");
+        Assert.IsFalse(displayed.Contains("durability 75", StringComparison.Ordinal));
+        Assert.IsFalse(displayed.Contains("Voxel count: 510", StringComparison.Ordinal));
     }
 
     [TestMethod]
