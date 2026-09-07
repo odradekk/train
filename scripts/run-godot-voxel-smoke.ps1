@@ -1,13 +1,14 @@
 param(
-    [ValidateSet(1)]
+    [ValidateSet(1, 2)]
     [int] $Slice = 1,
     [switch] $IsolationAbort
 )
 
-# Repeatable real-Godot voxel smoke for issue #39 slice 1.
+# Repeatable real-Godot voxel smoke for slice 1 (#39/#46) and slice 2 (#50).
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
+#   .\scripts\run-godot-voxel-smoke.ps1 -Slice 2
 #
 # It loads the formal voxel development scene, removes and re-adds (4,4,4),
 # applies formal single-target and multi-target damage, requires the scene's
@@ -84,10 +85,11 @@ $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
 $env:TRAIN_VOXEL_SMOKE = "1"
+$env:TRAIN_VOXEL_SLICE = "$Slice"
 if ($IsolationAbort) {
     $env:TRAIN_VOXEL_SMOKE_ISOLATION_ABORT = "1"
 }
-$quitAfter = if ($IsolationAbort) { 30 } else { 90 }
+$quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 2) { 150 } else { 90 }
 $raw = & $godot --headless --path $root --quit-after $quitAfter 2>&1
 $godotExitCode = $LASTEXITCODE
 $output = $raw | Out-String
@@ -101,6 +103,35 @@ if ($beforeJson -ne $afterJson -or $beforeTop -ne $afterTop) {
 
 $required = if ($IsolationAbort) {
     @("VOXEL_SMOKE_ISOLATION_WRITE_DONE")
+} elseif ($Slice -eq 2) {
+    @(
+        "VOXEL_SMOKE_GEOMETRY_VALID",
+        "VOXEL_SMOKE_SCENE_READY",
+        "VOXEL_SMOKE_SLICE2_BASE",
+        "VOXEL_SMOKE_X_BOUNDARY",
+        "VOXEL_SMOKE_X_BOUNDARY_MESH",
+        "VOXEL_SMOKE_Y_BOUNDARY",
+        "VOXEL_SMOKE_Y_BOUNDARY_MESH",
+        "VOXEL_SMOKE_Z_BOUNDARY",
+        "VOXEL_SMOKE_Z_BOUNDARY_MESH",
+        "VOXEL_SMOKE_JUNCTION",
+        "VOXEL_SMOKE_JUNCTION_MESH",
+        "VOXEL_SMOKE_CROSS_DAMAGE",
+        "VOXEL_SMOKE_CROSS_DAMAGE_MESH",
+        "VOXEL_SMOKE_REJECT_PRESERVED",
+        "VOXEL_SMOKE_RELOAD_DAMAGED_80",
+        "VOXEL_SMOKE_RELOAD_MAX_150",
+        "VOXEL_SMOKE_RELOAD_TEXT_UPDATED",
+        "VOXEL_SMOKE_RELOAD_ASSET_UPDATED",
+        "VOXEL_SMOKE_RELOAD_ORIENTATION_MAPPED",
+        "VOXEL_SMOKE_RELOAD_MAX_60",
+        "VOXEL_SMOKE_RELOAD_PROBE_ADDED",
+        "VOXEL_SMOKE_RELOAD_REJECTED",
+        "VOXEL_SMOKE_RELOAD_DISPLAY_RETAINED",
+        "VOXEL_SMOKE_CONSOLE_CLOSED",
+        "VOXEL_SMOKE_RETURNED_TO_MENU",
+        "VOXEL_SMOKE_MENU_REENTERED"
+    )
 } else {
     @(
         "VOXEL_SMOKE_GEOMETRY_VALID",

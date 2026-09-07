@@ -163,7 +163,15 @@ public partial class Main : Node
     private static bool IsVoxelObserveEnabled() =>
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE"), "1", StringComparison.Ordinal);
 
-    public void EnterVoxelDevelopmentScene()
+    public VoxelWorldIdentity DevelopmentIdentity { get; private set; } = VoxelWorldIdentity.Slice1;
+
+    public void EnterVoxelDevelopmentScene() =>
+        EnterVoxelDevelopmentSceneCore(ResolveDevelopmentIdentity(null));
+
+    public void EnterVoxelDevelopmentScene(VoxelDevelopmentSlice slice) =>
+        EnterVoxelDevelopmentSceneCore(ResolveDevelopmentIdentity(slice));
+
+    private void EnterVoxelDevelopmentSceneCore(VoxelWorldIdentity identity)
     {
         if (_reloader?.Catalog.Current is null)
         {
@@ -171,9 +179,22 @@ public partial class Main : Node
             return;
         }
 
+        DevelopmentIdentity = identity;
         var error = GetTree().ChangeSceneToFile("res://Ui/VoxelDeveloperScene.tscn");
         if (error != Error.Ok)
             _logger?.Error("voxel", "development_scene_failed", $"Failed to open voxel development scene: {error}.");
+    }
+
+    public static VoxelDevelopmentSlice ReadRequestedSlice()
+    {
+        var value = System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SLICE");
+        return string.Equals(value, "2", StringComparison.Ordinal) ? VoxelDevelopmentSlice.Slice2 : VoxelDevelopmentSlice.Slice1;
+    }
+
+    private VoxelWorldIdentity ResolveDevelopmentIdentity(VoxelDevelopmentSlice? slice)
+    {
+        var resolved = slice ?? ReadRequestedSlice();
+        return resolved == VoxelDevelopmentSlice.Slice2 ? VoxelWorldIdentity.Slice2 : VoxelWorldIdentity.Slice1;
     }
 
     public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)

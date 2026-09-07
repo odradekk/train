@@ -11,19 +11,24 @@ public partial class VoxelDeveloperScene : Node3D
     private const string VoxelSmokeEnvironmentVariable = "TRAIN_VOXEL_SMOKE";
     private const string VoxelSmokeReenterEnvironmentVariable = "TRAIN_VOXEL_SMOKE_REENTER";
     private const string VoxelObserveEnvironmentVariable = "TRAIN_VOXEL_OBSERVE";
-    private readonly WorldVoxelCoord _selectedPosition = new(4, 4, 4);
+    private WorldVoxelCoord _selectedPosition = new(4, 4, 4);
     private VoxelDevelopmentSession _session = null!;
+    private readonly VoxelWorldMeshPresenter _meshes = new();
     private VoxelChunkMesh _mesh = null!;
+    private Label _title = null!;
     private Label _cell = null!;
     private Label _result = null!;
     private bool _dirty = true;
     private VoxelSmokePhase _smokePhase;
+    private VoxelSlice2SmokePhase _slice2SmokePhase;
     private VoxelObservePhase _observePhase;
+    private VoxelSlice2ObservePhase _slice2ObservePhase;
     private int _observeHoldFrames;
     private readonly List<double> _frameMilliseconds = new();
     private Stopwatch? _mutationStopwatch;
     private ulong _lastFrameTicks;
     private int _baselineRun;
+    private int _baselineStage;
     private double _stableSeconds;
     private bool _baselineEnabled;
     private VoxelLiveReloadDriver? _liveReload;
@@ -76,6 +81,55 @@ public partial class VoxelDeveloperScene : Node3D
         Done
     }
 
+    private enum VoxelSlice2SmokePhase
+    {
+        None,
+        RemoveX,
+        AwaitRemoveX,
+        RestoreX,
+        AwaitRestoreX,
+        RemoveY,
+        AwaitRemoveY,
+        RestoreY,
+        AwaitRestoreY,
+        RemoveZ,
+        AwaitRemoveZ,
+        RestoreZ,
+        AwaitRestoreZ,
+        RemoveJunction,
+        AwaitJunction,
+        RestoreJunction,
+        AwaitRestoreJunction,
+        CrossDamage,
+        AwaitCrossDamage,
+        RejectDamage,
+        HandoffReload
+    }
+
+    private enum VoxelSlice2ObservePhase
+    {
+        None,
+        CaptureInitial,
+        AwaitInitial,
+        RemoveX,
+        AwaitRemoveX,
+        RemoveY,
+        AwaitRemoveY,
+        RemoveZ,
+        AwaitRemoveZ,
+        Junction,
+        AwaitJunction,
+        CrossDamage,
+        AwaitCrossDamage,
+        ReloadDamage,
+        AwaitReloadDamage,
+        ReloadMax150,
+        AwaitReloadMax150,
+        ReloadReject,
+        AwaitReloadReject,
+        Done
+    }
+
     private enum VoxelObservePhase
     {
         None,
@@ -109,10 +163,10 @@ public partial class VoxelDeveloperScene : Node3D
     public override void _Ready()
     {
         var main = GetNode<Main>("/root/Main");
-        _session = new VoxelDevelopmentSession(main.Reloader?.Catalog
-            ?? throw new InvalidOperationException("Content reloader is unavailable."));
-        _session.Changed += MarkDirty;
-        main.SetVoxelDevelopmentSession(_session);
+        AttachSession(new VoxelDevelopmentSession(
+            main.Reloader?.Catalog ?? throw new InvalidOperationException("Content reloader is unavailable."),
+            main.DevelopmentIdentity));
+        _selectedPosition = SelectedCell(_session.Identity);
 
         AddChild(new DirectionalLight3D
         {
@@ -121,11 +175,11 @@ public partial class VoxelDeveloperScene : Node3D
             LightEnergy = 1.4f,
             ShadowEnabled = true
         });
-        var camera = new Camera3D { Position = new Vector3(-8, 16, -8) };
+        var camera = new Camera3D();
         AddChild(camera);
-        camera.LookAt(new Vector3(7.5f, 7.5f, 7.5f), Vector3.Up);
-        _mesh = new VoxelChunkMesh();
-        AddChild(_mesh);
+        PlaceCamera(camera, _session.Identity);
+        _meshes.Rebuild(this, _session.Identity);
+        _mesh = _meshes.PrimaryMesh;
         CreateHud();
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
             string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
@@ -152,6 +206,11 @@ public partial class VoxelDeveloperScene : Node3D
             ValidateGeneratedMesh();
             GD.Print("VOXEL_SMOKE_GEOMETRY_VALID");
             GD.Print("VOXEL_SMOKE_SCENE_READY");
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
+            {
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE2_BASE voxels={_session.World.VoxelCount} chunk_size={_session.World.ChunkSize} bounds=32,32,32 chunks=8 seed={_session.Identity.Seed} generator={_session.Identity.GeneratorVersion}");
+            }
             if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable), "1", StringComparison.Ordinal))
             {
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "0");
@@ -160,11 +219,17 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             }
 
-            _smokePhase = VoxelSmokePhase.Remove;
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveX;
+            else
+                _smokePhase = VoxelSmokePhase.Remove;
         }
         else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
         {
-            _observePhase = VoxelObservePhase.CaptureInitial;
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
+                _slice2ObservePhase = VoxelSlice2ObservePhase.CaptureInitial;
+            else
+                _observePhase = VoxelObservePhase.CaptureInitial;
         }
         else if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal))
         {
@@ -179,7 +244,9 @@ public partial class VoxelDeveloperScene : Node3D
         if (_dirty)
             Refresh();
         AdvanceSmoke();
+        AdvanceSlice2Smoke();
         AdvanceObserve();
+        AdvanceSlice2Observe();
         AdvanceBaseline();
     }
 
@@ -190,7 +257,9 @@ public partial class VoxelDeveloperScene : Node3D
         if (key.Keycode == Key.R)
         {
             _session.Reset();
-            _result.Text = "最近命令：已重置正式 16³ 开发世界。";
+            _result.Text = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
+                ? "最近命令：已重置正式切片 2 多 Chunk 世界。"
+                : "最近命令：已重置正式 16³ 开发世界。";
             GetViewport().SetInputAsHandled();
         }
         else if (key.Keycode == Key.Delete)
@@ -216,12 +285,13 @@ public partial class VoxelDeveloperScene : Node3D
         var panel = new PanelContainer
         {
             Position = new Vector2(24, 24),
-            Size = new Vector2(690, 170)
+            Size = new Vector2(760, 190)
         };
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 6);
-        box.AddChild(new Label { Text = "Voxel 开发场景 · 固定视角 · 单 Chunk 16³" });
-        box.AddChild(new Label { Text = "Delete 移除 (4,4,4) · Insert 添加 · R 重置 · ~ 控制台伤害/查询 · Esc 返回" });
+        _title = new Label();
+        box.AddChild(_title);
+        box.AddChild(new Label { Text = "Delete 移除目标格 · Insert 添加 · R 重置 · ~ 控制台伤害/查询 · Esc 返回" });
         _cell = new Label();
         _result = new Label { Text = "最近命令：场景已进入。" };
         box.AddChild(_cell);
@@ -263,12 +333,16 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void Refresh()
     {
-        _mesh.Refresh(_session.World, GetNode<Main>("/root/Main").Reloader?.Catalog.Current);
+        _meshes.Refresh(_session, GetNode<Main>("/root/Main").Reloader?.Catalog.Current);
+        _mesh = _meshes.PrimaryMesh;
         _dirty = false;
         var query = _session.Query(_selectedPosition);
+        _title.Text = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
+            ? "Voxel 开发场景 · 切片 2 · 固定视角 · 2×2×2 Chunk · 32³"
+            : "Voxel 开发场景 · 切片 1 · 固定视角 · 单 Chunk 16³";
         _cell.Text = query.Voxel is null
-            ? "目标格 (4,4,4)：空。"
-            : $"目标格 (4,4,4)：占用 · {query.Voxel.DefinitionId.Value} · {CurrentName(query)} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability} · value {query.Value} · mass {query.Mass} · 上限 {query.MaxDurability}。";
+            ? $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：空。"
+            : $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：占用 · {query.Voxel.DefinitionId.Value} · {CurrentName(query)} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability} · value {query.Value} · mass {query.Mass} · 上限 {query.MaxDurability}。";
     }
 
     private void SetResult(WorldCommandResult result)
@@ -292,10 +366,64 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelLiveReloadDriver RequireLiveReload() =>
         _liveReload ?? throw new InvalidOperationException("Live reload driver is unavailable.");
 
+    private int BaseVoxelCount => _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? 1088 : 512;
+
+    private WorldVoxelCoord ProbePosition =>
+        _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(0, 1, 0) : new(0, 0, 0);
+
+    private WorldVoxelCoord YawCell =>
+        _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(16, 17, 15) : new(4, 11, 4);
+
+    private WorldVoxelCoord TiltCell =>
+        _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(15, 17, 16) : new(5, 11, 4);
+
+    private WorldVoxelCoord IdentityTopCell =>
+        _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(14, 17, 14) : new(6, 11, 4);
+
+    private static WorldVoxelCoord SelectedCell(VoxelWorldIdentity identity) =>
+        identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(15, 16, 15) : new(4, 4, 4);
+
+    private void AttachSession(VoxelDevelopmentSession session)
+    {
+        _session = session;
+        _session.Changed += MarkDirty;
+        GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(_session);
+    }
+
+    private void ReplaceSession(VoxelWorldIdentity identity)
+    {
+        if (_session is not null)
+        {
+            _session.Changed -= MarkDirty;
+            _session.Detach();
+        }
+
+        var catalog = GetNode<Main>("/root/Main").Reloader?.Catalog
+            ?? throw new InvalidOperationException("Content reloader is unavailable.");
+        AttachSession(new VoxelDevelopmentSession(catalog, identity));
+        _selectedPosition = SelectedCell(identity);
+        _meshes.Rebuild(this, identity);
+        _mesh = _meshes.PrimaryMesh;
+        MarkDirty();
+    }
+
+    private static void PlaceCamera(Camera3D camera, VoxelWorldIdentity identity)
+    {
+        if (identity.Slice == VoxelDevelopmentSlice.Slice2)
+        {
+            camera.Position = new Vector3(28, 18, 4);
+            camera.LookAt(new Vector3(16, 6, 16), Vector3.Up);
+            return;
+        }
+
+        camera.Position = new Vector3(-8, 16, -8);
+        camera.LookAt(new Vector3(7.5f, 7.5f, 7.5f), Vector3.Up);
+    }
+
     private void ReorientVisibleTopCells()
     {
-        var yaw = new WorldVoxelCoord(4, 11, 4);
-        var tilt = new WorldVoxelCoord(5, 11, 4);
+        var yaw = YawCell;
+        var tilt = TiltCell;
         var tiltOrientation = new VoxelOrientation(VoxelAxis.PositiveX, VoxelAxis.PositiveZ);
         if (_session.Remove(yaw).Status != WorldCommandStatus.Removed ||
             _session.Add(yaw, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Yaw90).Status != WorldCommandStatus.Added ||
@@ -314,16 +442,17 @@ public partial class VoxelDeveloperScene : Node3D
             throw new InvalidOperationException("Cube top UVs did not rotate with yaw.");
         if (tiltOrientation.InverseTransform(VoxelAxis.PositiveY) != VoxelAxis.NegativeZ)
             throw new InvalidOperationException("Tilt did not map world top to the local side.");
-        RequireGeneratedTopUvs(new WorldVoxelCoord(6, 11, 4), VoxelOrientation.Identity);
-        RequireGeneratedTopUvs(new WorldVoxelCoord(4, 11, 4), VoxelOrientation.Yaw90);
-        RequireGeneratedTopUvs(new WorldVoxelCoord(5, 11, 4), tiltOrientation);
+        RequireGeneratedTopUvs(IdentityTopCell, VoxelOrientation.Identity);
+        RequireGeneratedTopUvs(YawCell, VoxelOrientation.Yaw90);
+        RequireGeneratedTopUvs(TiltCell, tiltOrientation);
         GD.Print($"VOXEL_RELOAD_TOP_UV identity={FormatUv(identity)} yaw90={FormatUv(yaw90)} tilt={FormatUv(tilt)}");
     }
 
     private void RequireGeneratedTopUvs(WorldVoxelCoord cell, VoxelOrientation orientation)
     {
         var expected = VoxelCubeUv.TopCorners(orientation);
-        var actual = VoxelMeshGeometryValidator.ReadWorldTopUvs(_mesh.Mesh, cell);
+        var actual = VoxelMeshGeometryValidator.ReadWorldTopUvs(
+            _meshes.MeshContaining(cell, _session.World.ChunkSize).Mesh, cell);
         foreach (var (corner, uv) in expected)
         {
             if (!actual.TryGetValue(corner, out var generated) ||
@@ -356,8 +485,15 @@ public partial class VoxelDeveloperScene : Node3D
                 $"Live reload query expected durability {durability}, value {value}, mass {mass}, max {max} but was {query.Voxel?.CurrentDurability}/{query.Value}/{query.Mass}/{query.MaxDurability}.");
     }
 
-    private void ValidateGeneratedMesh() =>
-        VoxelMeshGeometryValidator.Validate(_mesh.Mesh, _mesh.FaceCount);
+    private void ValidateGeneratedMesh()
+    {
+        foreach (var mesh in _meshes.Meshes)
+        {
+            if (mesh.FaceCount == 0 || mesh.Mesh is null)
+                continue;
+            VoxelMeshGeometryValidator.Validate(mesh.Mesh, mesh.FaceCount);
+        }
+    }
 
     private void AdvanceSmoke()
     {
@@ -542,7 +678,7 @@ public partial class VoxelDeveloperScene : Node3D
                 if (!_cell.Text.Contains("耐久 80", StringComparison.Ordinal) ||
                     !_cell.Text.Contains("上限 150", StringComparison.Ordinal))
                     return;
-                if (!_mesh.DisplayFingerprint.Contains("asset:", StringComparison.Ordinal))
+                if (!_meshes.DisplayFingerprint.Contains("asset:", StringComparison.Ordinal))
                     throw new InvalidOperationException("Voxel smoke cube display did not use published assets after reload.");
                 ValidateGeneratedMesh();
                 _smokePhase = VoxelSmokePhase.ReloadText;
@@ -561,7 +697,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.ReloadAsset;
                 return;
             case VoxelSmokePhase.ReloadAsset:
-                _displayFingerprintBeforeAsset = _mesh.DisplayFingerprint;
+                _displayFingerprintBeforeAsset = _meshes.DisplayFingerprint;
                 RequireLiveReload().WriteAsymmetricCubePngs();
                 RequireCommittedReload("cube asset");
                 RequireInspection(80, 10, 1, 150);
@@ -571,9 +707,9 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSmokePhase.AwaitReloadAsset:
                 if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
                     return;
-                if (string.Equals(_displayFingerprintBeforeAsset, _mesh.DisplayFingerprint, StringComparison.Ordinal))
+                if (string.Equals(_displayFingerprintBeforeAsset, _meshes.DisplayFingerprint, StringComparison.Ordinal))
                     throw new InvalidOperationException("Voxel smoke cube display did not change after a published asset reload.");
-                GD.Print($"VOXEL_SMOKE_RELOAD_ASSET_UPDATED before={_displayFingerprintBeforeAsset} after={_mesh.DisplayFingerprint}");
+                GD.Print($"VOXEL_SMOKE_RELOAD_ASSET_UPDATED before={_displayFingerprintBeforeAsset} after={_meshes.DisplayFingerprint}");
                 ValidateGeneratedMesh();
                 _smokePhase = VoxelSmokePhase.ReloadOrient;
                 return;
@@ -582,8 +718,8 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.AwaitReloadOrient;
                 return;
             case VoxelSmokePhase.AwaitReloadOrient:
-                if (_session.Query(new WorldVoxelCoord(4, 11, 4)).Voxel?.Orientation != VoxelOrientation.Yaw90 ||
-                    _session.Query(new WorldVoxelCoord(5, 11, 4)).Voxel?.Orientation != new VoxelOrientation(VoxelAxis.PositiveX, VoxelAxis.PositiveZ))
+                if (_session.Query(YawCell).Voxel?.Orientation != VoxelOrientation.Yaw90 ||
+                    _session.Query(TiltCell).Voxel?.Orientation != new VoxelOrientation(VoxelAxis.PositiveX, VoxelAxis.PositiveZ))
                     return;
                 RequireRotatedTopUvs();
                 ValidateGeneratedMesh();
@@ -606,28 +742,28 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSmokePhase.ReloadAddProbe:
                 RequireLiveReload().WriteProbeMod();
                 RequireCommittedReload("probe mod");
-                if (_session.Add(new WorldVoxelCoord(0, 0, 0), RequireLiveReload().ProbeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                if (_session.Add(ProbePosition, RequireLiveReload().ProbeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
                     throw new InvalidOperationException("Voxel smoke could not add the isolated probe voxel.");
                 GD.Print("VOXEL_SMOKE_RELOAD_PROBE_ADDED");
                 _smokePhase = VoxelSmokePhase.AwaitReloadAddProbe;
                 return;
             case VoxelSmokePhase.AwaitReloadAddProbe:
-                if (_session.World.VoxelCount != 513)
+                if (_session.World.VoxelCount != BaseVoxelCount + 1)
                     return;
                 _smokePhase = VoxelSmokePhase.ReloadReject;
                 return;
             case VoxelSmokePhase.ReloadReject:
                 _generationBeforeReject = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
-                var fingerprintBeforeReject = _mesh.DisplayFingerprint;
+                var fingerprintBeforeReject = _meshes.DisplayFingerprint;
                 RequireLiveReload().InvalidateProbeMod();
                 var rejected = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
                 if (rejected.Status != ContentReloadStatus.Rejected ||
                     rejected.Changed ||
                     rejected.CatalogVersion != _generationBeforeReject ||
-                    _session.Query(new WorldVoxelCoord(0, 0, 0)).Voxel?.DefinitionId != RequireLiveReload().ProbeId ||
+                    _session.Query(ProbePosition).Voxel?.DefinitionId != RequireLiveReload().ProbeId ||
                     _session.Query(_selectedPosition).Voxel?.CurrentDurability != 60)
                     throw new InvalidOperationException("Voxel smoke live reload did not reject a missing required definition atomically.");
-                if (!string.Equals(fingerprintBeforeReject, _mesh.DisplayFingerprint, StringComparison.Ordinal) ||
+                if (!string.Equals(fingerprintBeforeReject, _meshes.DisplayFingerprint, StringComparison.Ordinal) ||
                     !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
                     throw new InvalidOperationException("Voxel smoke discarded the published display after a rejected reload.");
                 GD.Print("VOXEL_SMOKE_RELOAD_REJECTED");
@@ -635,7 +771,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.AwaitReloadReject;
                 return;
             case VoxelSmokePhase.AwaitReloadReject:
-                if (_session.World.VoxelCount != 513 ||
+                if (_session.World.VoxelCount != BaseVoxelCount + 1 ||
                     !_cell.Text.Contains("耐久 60", StringComparison.Ordinal))
                     return;
                 ValidateGeneratedMesh();
@@ -668,8 +804,206 @@ public partial class VoxelDeveloperScene : Node3D
         }
     }
 
+    private void AdvanceSlice2Smoke()
+    {
+        switch (_slice2SmokePhase)
+        {
+            case VoxelSlice2SmokePhase.RemoveX:
+                RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 15), remove: true, 1087);
+                GD.Print("VOXEL_SMOKE_X_BOUNDARY");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveX;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRemoveX:
+                if (_meshes.LastWorldVoxelCount != 1087)
+                    return;
+                RequireExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
+                RequireMissingVoxelFaces(new WorldVoxelCoord(16, 16, 15));
+                RequirePartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 0));
+                ValidateGeneratedMesh();
+                GD.Print($"VOXEL_SMOKE_X_BOUNDARY_MESH dirty={FormatDirty()}");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreX;
+                return;
+            case VoxelSlice2SmokePhase.RestoreX:
+                RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 15), remove: false, 1088);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreX;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRestoreX:
+                if (_meshes.LastWorldVoxelCount != 1088)
+                    return;
+                RequireHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveY;
+                return;
+            case VoxelSlice2SmokePhase.RemoveY:
+                RequireOccupancyEdit(new WorldVoxelCoord(15, 15, 15), remove: true, 1087);
+                GD.Print("VOXEL_SMOKE_Y_BOUNDARY");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveY;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRemoveY:
+                if (_meshes.LastWorldVoxelCount != 1087)
+                    return;
+                RequireExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
+                RequireMissingVoxelFaces(new WorldVoxelCoord(15, 15, 15));
+                RequirePartialRebuild(new ChunkCoord(0, 0, 0), new ChunkCoord(0, 1, 0));
+                ValidateGeneratedMesh();
+                GD.Print($"VOXEL_SMOKE_Y_BOUNDARY_MESH dirty={FormatDirty()}");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreY;
+                return;
+            case VoxelSlice2SmokePhase.RestoreY:
+                RequireOccupancyEdit(new WorldVoxelCoord(15, 15, 15), remove: false, 1088);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreY;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRestoreY:
+                if (_meshes.LastWorldVoxelCount != 1088)
+                    return;
+                RequireHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveZ;
+                return;
+            case VoxelSlice2SmokePhase.RemoveZ:
+                RequireOccupancyEdit(new WorldVoxelCoord(15, 16, 16), remove: true, 1087);
+                GD.Print("VOXEL_SMOKE_Z_BOUNDARY");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveZ;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRemoveZ:
+                if (_meshes.LastWorldVoxelCount != 1087)
+                    return;
+                RequireExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequireMissingVoxelFaces(new WorldVoxelCoord(15, 16, 16));
+                RequirePartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(0, 1, 1));
+                ValidateGeneratedMesh();
+                GD.Print($"VOXEL_SMOKE_Z_BOUNDARY_MESH dirty={FormatDirty()}");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreZ;
+                return;
+            case VoxelSlice2SmokePhase.RestoreZ:
+                RequireOccupancyEdit(new WorldVoxelCoord(15, 16, 16), remove: false, 1088);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreZ;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRestoreZ:
+                if (_meshes.LastWorldVoxelCount != 1088)
+                    return;
+                RequireHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveJunction;
+                return;
+            case VoxelSlice2SmokePhase.RemoveJunction:
+                RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 16), remove: true, 1087);
+                GD.Print("VOXEL_SMOKE_JUNCTION");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitJunction;
+                return;
+            case VoxelSlice2SmokePhase.AwaitJunction:
+                if (_meshes.LastWorldVoxelCount != 1087)
+                    return;
+                RequireExposedFace(new WorldVoxelCoord(15, 16, 16), VoxelFaceNormal.PositiveX);
+                RequireExposedFace(new WorldVoxelCoord(16, 15, 16), VoxelFaceNormal.PositiveY);
+                RequireExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.PositiveZ);
+                RequireMissingVoxelFaces(new WorldVoxelCoord(16, 16, 16));
+                RequirePartialRebuild(new ChunkCoord(1, 1, 1));
+                ValidateGeneratedMesh();
+                GD.Print($"VOXEL_SMOKE_JUNCTION_MESH dirty={FormatDirty()}");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreJunction;
+                return;
+            case VoxelSlice2SmokePhase.RestoreJunction:
+                RequireOccupancyEdit(new WorldVoxelCoord(16, 16, 16), remove: false, 1088);
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreJunction;
+                return;
+            case VoxelSlice2SmokePhase.AwaitRestoreJunction:
+                if (_meshes.LastWorldVoxelCount != 1088)
+                    return;
+                _slice2SmokePhase = VoxelSlice2SmokePhase.CrossDamage;
+                return;
+            case VoxelSlice2SmokePhase.CrossDamage:
+                var multi = _session.Damage(new[]
+                {
+                    new VoxelDamageTarget(new WorldVoxelCoord(15, 16, 15), 100),
+                    new VoxelDamageTarget(new WorldVoxelCoord(16, 16, 16), 100),
+                    new VoxelDamageTarget(new WorldVoxelCoord(15, 16, 16), 25)
+                });
+                if (!multi.Succeeded ||
+                    _session.World.VoxelCount != 1086 ||
+                    _session.Query(new WorldVoxelCoord(15, 16, 16)).Voxel?.CurrentDurability != 75)
+                    throw new InvalidOperationException("Slice 2 smoke could not apply the cross-chunk damage event.");
+                SetResult(multi);
+                GD.Print("VOXEL_SMOKE_CROSS_DAMAGE");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitCrossDamage;
+                return;
+            case VoxelSlice2SmokePhase.AwaitCrossDamage:
+                if (_meshes.LastWorldVoxelCount != 1086)
+                    return;
+                RequireExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.NegativeX);
+                RequireMissingVoxelFaces(new WorldVoxelCoord(15, 16, 15));
+                RequirePartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 1));
+                ValidateGeneratedMesh();
+                GD.Print($"VOXEL_SMOKE_CROSS_DAMAGE_MESH dirty={FormatDirty()}");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.RejectDamage;
+                return;
+            case VoxelSlice2SmokePhase.RejectDamage:
+                var before = _session.World.VoxelCount;
+                var rejected = _session.Damage(new[]
+                {
+                    new VoxelDamageTarget(new WorldVoxelCoord(16, 16, 15), 100),
+                    new VoxelDamageTarget(new WorldVoxelCoord(0, 1, 0), 25)
+                });
+                if (rejected.Status != WorldCommandStatus.Empty || _session.World.VoxelCount != before)
+                    throw new InvalidOperationException("Slice 2 smoke rejected damage mutated the world.");
+                GD.Print("VOXEL_SMOKE_REJECT_PRESERVED");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.HandoffReload;
+                return;
+            case VoxelSlice2SmokePhase.HandoffReload:
+                _slice2SmokePhase = VoxelSlice2SmokePhase.None;
+                _smokePhase = VoxelSmokePhase.ReloadReset;
+                return;
+        }
+    }
+
+    private void RequireOccupancyEdit(WorldVoxelCoord position, bool remove, int expectedCount)
+    {
+        var status = remove
+            ? _session.Remove(position).Status
+            : _session.Add(position, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status;
+        var expected = remove ? WorldCommandStatus.Removed : WorldCommandStatus.Added;
+        if (status != expected || _session.World.VoxelCount != expectedCount)
+            throw new InvalidOperationException($"Slice 2 smoke could not {(remove ? "remove" : "restore")} {position}.");
+        SetResult(new WorldCommandResult(status, position));
+    }
+
+    private void RequireExposedFace(WorldVoxelCoord position, VoxelFaceNormal normal)
+    {
+        if (!HasFace(position, normal))
+            throw new InvalidOperationException($"Expected exposed face {position} {normal}.");
+    }
+
+    private void RequireHiddenFace(WorldVoxelCoord position, VoxelFaceNormal normal)
+    {
+        if (HasFace(position, normal))
+            throw new InvalidOperationException($"Expected culled face {position} {normal}.");
+    }
+
+    private void RequireMissingVoxelFaces(WorldVoxelCoord position)
+    {
+        if (VoxelSurfaceMesher.Build(_session.World).Faces.Any(face => face.Position == position))
+            throw new InvalidOperationException($"Removed voxel {position} still contributed a face.");
+    }
+
+    private void RequirePartialRebuild(params ChunkCoord[] required)
+    {
+        var rebuilt = _meshes.LastRebuiltChunks;
+        if (rebuilt.Count >= VoxelChunks.All(_session.Identity).Count)
+            throw new InvalidOperationException("A local edit rebuilt every chunk.");
+        foreach (var chunk in required)
+        {
+            if (!rebuilt.Contains(chunk))
+                throw new InvalidOperationException($"Expected dirty chunk {chunk} but rebuilt {FormatDirty()}.");
+        }
+    }
+
+    private bool HasFace(WorldVoxelCoord position, VoxelFaceNormal normal) =>
+        VoxelSurfaceMesher.Build(_session.World).Faces.Any(face => face.Position == position && face.Normal == normal);
+
+    private string FormatDirty() =>
+        string.Join(";", _meshes.LastRebuiltChunks.Select(chunk => $"{chunk.X},{chunk.Y},{chunk.Z}"));
+
     private void AdvanceObserve()
     {
+        if (_observePhase == VoxelObservePhase.None)
+            return;
         if (_observeHoldFrames > 0)
         {
             _observeHoldFrames--;
@@ -888,7 +1222,155 @@ public partial class VoxelDeveloperScene : Node3D
             throw;
         }
 
-        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_mesh.FaceCount} hud={_cell.Text} result={_result.Text} {note}");
+        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_meshes.FaceCount} hud={_cell.Text} result={_result.Text} {note}");
+    }
+
+    private void AdvanceSlice2Observe()
+    {
+        if (_slice2ObservePhase == VoxelSlice2ObservePhase.None)
+            return;
+        if (_observeHoldFrames > 0)
+        {
+            _observeHoldFrames--;
+            return;
+        }
+
+        try
+        {
+            AdvanceSlice2ObserveStep();
+        }
+        catch (Exception exception)
+        {
+            GD.Print($"VOXEL_OBSERVE_ERROR {_slice2ObservePhase}: {exception.GetType().Name}: {exception.Message}");
+            throw;
+        }
+    }
+
+    private void AdvanceSlice2ObserveStep()
+    {
+        switch (_slice2ObservePhase)
+        {
+            case VoxelSlice2ObservePhase.CaptureInitial:
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitInitial;
+                return;
+            case VoxelSlice2ObservePhase.AwaitInitial:
+                if (_session.World.VoxelCount != 1088)
+                    throw new InvalidOperationException("Slice 2 observe initial world was not the 1088-voxel fixture.");
+                CaptureObserve("issue50-initial", "slice 2 ground plus floating 14..17 cube, 1088 voxels");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.RemoveX;
+                return;
+            case VoxelSlice2ObservePhase.RemoveX:
+                _session.Reset();
+                SetResult(_session.Remove(new WorldVoxelCoord(16, 0, 8)));
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitRemoveX;
+                return;
+            case VoxelSlice2ObservePhase.AwaitRemoveX:
+                RequireExposedFace(new WorldVoxelCoord(15, 0, 8), VoxelFaceNormal.PositiveX);
+                CaptureObserve("issue50-x-boundary", "ground hole at (16,0,8), +X wall of (15,0,8) visible");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.RemoveY;
+                return;
+            case VoxelSlice2ObservePhase.RemoveY:
+                _session.Reset();
+                if (_session.Add(new WorldVoxelCoord(24, 15, 8), VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added ||
+                    _session.Add(new WorldVoxelCoord(24, 16, 8), VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 observe could not build the Y-boundary pillar.");
+                SetResult(_session.Remove(new WorldVoxelCoord(24, 16, 8)));
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitRemoveY;
+                return;
+            case VoxelSlice2ObservePhase.AwaitRemoveY:
+                RequireExposedFace(new WorldVoxelCoord(24, 15, 8), VoxelFaceNormal.PositiveY);
+                CaptureObserve("issue50-y-boundary", "Y 15/16 pillar after removing (24,16,8), top of (24,15,8) exposed near camera");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.RemoveZ;
+                return;
+            case VoxelSlice2ObservePhase.RemoveZ:
+                _session.Reset();
+                SetResult(_session.Remove(new WorldVoxelCoord(8, 0, 16)));
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitRemoveZ;
+                return;
+            case VoxelSlice2ObservePhase.AwaitRemoveZ:
+                RequireExposedFace(new WorldVoxelCoord(8, 0, 15), VoxelFaceNormal.PositiveZ);
+                CaptureObserve("issue50-z-boundary", "ground hole at (8,0,16), +Z wall of (8,0,15) visible");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.Junction;
+                return;
+            case VoxelSlice2ObservePhase.Junction:
+                _session.Reset();
+                SetResult(_session.Remove(new WorldVoxelCoord(16, 0, 16)));
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitJunction;
+                return;
+            case VoxelSlice2ObservePhase.AwaitJunction:
+                RequireExposedFace(new WorldVoxelCoord(15, 0, 16), VoxelFaceNormal.PositiveX);
+                RequireExposedFace(new WorldVoxelCoord(16, 0, 15), VoxelFaceNormal.PositiveZ);
+                CaptureObserve("issue50-junction", "ground hole at (16,0,16) where four chunks meet");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.CrossDamage;
+                return;
+            case VoxelSlice2ObservePhase.CrossDamage:
+                _session.Reset();
+                SetResult(_session.Damage(new[]
+                {
+                    new VoxelDamageTarget(new WorldVoxelCoord(15, 0, 8), 100),
+                    new VoxelDamageTarget(new WorldVoxelCoord(16, 0, 8), 100),
+                    new VoxelDamageTarget(new WorldVoxelCoord(15, 0, 16), 25)
+                }));
+                _observeHoldFrames = 12;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitCrossDamage;
+                return;
+            case VoxelSlice2ObservePhase.AwaitCrossDamage:
+                if (_session.World.VoxelCount != 1086 ||
+                    _session.Query(new WorldVoxelCoord(15, 0, 16)).Voxel?.CurrentDurability != 75)
+                    throw new InvalidOperationException("Slice 2 observe cross-chunk damage did not match the formal query.");
+                CaptureObserve("issue50-cross-damage", "same-event ground holes at x=15/16 and a surviving cell at durability 75");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.ReloadDamage;
+                return;
+            case VoxelSlice2ObservePhase.ReloadDamage:
+                _session.Reset();
+                SetResult(_session.Damage(_selectedPosition, 20));
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitReloadDamage;
+                return;
+            case VoxelSlice2ObservePhase.AwaitReloadDamage:
+                if (_session.Query(_selectedPosition).Voxel?.CurrentDurability != 80)
+                    throw new InvalidOperationException("Slice 2 observe did not damage the selected cell to 80.");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.ReloadMax150;
+                return;
+            case VoxelSlice2ObservePhase.ReloadMax150:
+                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireCommittedReload("observe slice 2 max 150");
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitReloadMax150;
+                return;
+            case VoxelSlice2ObservePhase.AwaitReloadMax150:
+                RequireInspection(80, 10, 1, 150);
+                CaptureObserve("issue50-reload-150", "slice 2 live reload max 150, absolute durability still 80");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.ReloadReject;
+                return;
+            case VoxelSlice2ObservePhase.ReloadReject:
+                RequireLiveReload().WriteProbeMod();
+                RequireCommittedReload("observe slice 2 probe");
+                if (_session.Add(ProbePosition, RequireLiveReload().ProbeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 observe could not add the isolated probe voxel.");
+                _generationBeforeReject = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
+                RequireLiveReload().InvalidateProbeMod();
+                var rejected = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejected.IsCommitted || rejected.CatalogVersion != _generationBeforeReject)
+                    throw new InvalidOperationException("Slice 2 observe live reload did not reject the missing probe definition.");
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitReloadReject;
+                return;
+            case VoxelSlice2ObservePhase.AwaitReloadReject:
+                if (_session.Query(_selectedPosition).Voxel?.CurrentDurability != 80 ||
+                    _session.Query(ProbePosition).Voxel?.DefinitionId != RequireLiveReload().ProbeId)
+                    throw new InvalidOperationException("Slice 2 observe rejected reload leaked a new published world.");
+                CaptureObserve("issue50-rejected", "slice 2 rejected live reload keeps old published world");
+                GD.Print("VOXEL_OBSERVE_COMPLETE");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.Done;
+                GetTree().Quit();
+                return;
+        }
     }
 
     private GameConsole? FindConsole() =>
@@ -932,9 +1414,21 @@ public partial class VoxelDeveloperScene : Node3D
         var average = _frameMilliseconds.Average();
         var maximum = _frameMilliseconds.Max();
         var memory = Performance.GetMonitor(Performance.Monitor.MemoryStatic);
+        var marker = _baselineStage == 0 ? "VOXEL_BASELINE_RUN" : "VOXEL_BASELINE_SLICE2_RUN";
         GD.Print(
-            $"VOXEL_BASELINE_RUN run={_baselineRun + 1} definitions={_session.DefinitionCount} voxels={_session.World.VoxelCount} mutation_ms={_mutationStopwatch.Elapsed.TotalMilliseconds:F3} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
+            $"{marker} run={_baselineRun + 1} definitions={_session.DefinitionCount} voxels={_session.World.VoxelCount} mutation_ms={_mutationStopwatch.Elapsed.TotalMilliseconds:F3} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
         _baselineRun++;
+        if (_baselineRun == 3 && _baselineStage == 0)
+        {
+            ReplaceSession(VoxelWorldIdentity.Slice2);
+            PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice2);
+            Refresh();
+            _baselineStage = 1;
+            _baselineRun = 0;
+            StartBaselineRun();
+            return;
+        }
+
         if (_baselineRun == 3)
         {
             GD.Print("VOXEL_BASELINE_COMPLETE");
@@ -948,6 +1442,19 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void RunMutations()
     {
+        if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
+        {
+            for (var index = 0; index < 100; index++)
+            {
+                var position = new WorldVoxelCoord(15 + index % 2, 1, (index / 2) % 32);
+                if (_session.Add(position, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added ||
+                    _session.Remove(position).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Voxel slice 2 baseline mutation did not complete.");
+            }
+
+            return;
+        }
+
         for (var x = 0; x < 16; x++)
         for (var z = 0; z < 16 && (x * 16 + z) < 100; z++)
         {

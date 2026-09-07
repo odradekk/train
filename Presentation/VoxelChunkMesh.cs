@@ -11,10 +11,13 @@ public partial class VoxelChunkMesh : MeshInstance3D
     public long Revision { get; private set; }
     public string DisplayFingerprint { get; private set; } = "";
 
-    public void Refresh(VoxelWorld world, VoxelCatalogSnapshot? catalog = null)
+    public void Refresh(VoxelWorld world, VoxelCatalogSnapshot? catalog = null) =>
+        Refresh(world, chunk: null, catalog);
+
+    public void Refresh(VoxelWorld world, ChunkCoord? chunk, VoxelCatalogSnapshot? catalog = null)
     {
         ArgumentNullException.ThrowIfNull(world);
-        var surface = VoxelSurfaceMesher.Build(world);
+        var surface = VoxelSurfaceMesher.Build(world, chunk);
         var groups = new Dictionary<string, (DecodedImage? Image, List<WorldVoxelFace> Faces)>(StringComparer.Ordinal);
         foreach (var face in surface.Faces)
         {

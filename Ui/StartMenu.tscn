@@ -27,7 +27,13 @@ theme_override_constants/separation = 16
 unique_name_in_owner = true
 custom_minimum_size = Vector2(240, 48)
 layout_mode = 2
-text = "进入体素开发场景"
+text = "进入切片 1 体素场景"
+
+[node name="StartSlice2" type="Button" parent="Center/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(240, 48)
+layout_mode = 2
+text = "进入切片 2 体素场景"
 
 [node name="QuitGame" type="Button" parent="Center/Buttons"]
 unique_name_in_owner = true

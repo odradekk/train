@@ -18,7 +18,10 @@ public sealed class VoxelConsoleCommands
         if (arguments.Count == 1 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
         {
             _session.Reset();
-            return $"Voxel world reset. {FormatWithCount(_session.Query(new WorldVoxelCoord(4, 4, 4)))}";
+            var sample = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
+                ? new WorldVoxelCoord(15, 16, 15)
+                : new WorldVoxelCoord(4, 4, 4);
+            return $"Voxel world reset. {FormatWithCount(_session.Query(sample))}";
         }
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
