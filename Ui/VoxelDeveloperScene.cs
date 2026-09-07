@@ -60,13 +60,14 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitReloadText,
         ReloadAsset,
         AwaitReloadAsset,
+        ReloadOrient,
+        AwaitReloadOrient,
         ReloadMax60,
         AwaitReloadMax60,
         ReloadAddProbe,
         AwaitReloadAddProbe,
         ReloadReject,
         AwaitReloadReject,
-        ReloadRestore,
         OpenConsole,
         AwaitConsoleOpen,
         CloseConsole,
@@ -96,6 +97,8 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitReloadMax150,
         ReloadDisplay,
         AwaitReloadDisplay,
+        ReloadOrient,
+        AwaitReloadOrient,
         ReloadMax60,
         AwaitReloadMax60,
         ReloadReject,
@@ -127,14 +130,25 @@ public partial class VoxelDeveloperScene : Node3D
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
             string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
         {
-            _liveReload = new VoxelLiveReloadDriver(main.IsolatedUserDataDirectory);
-            _liveReload.BackupBuiltIn();
+            _liveReload = new VoxelLiveReloadDriver(
+                main.IsolatedUserDataDirectory,
+                main.IsolatedBuiltInResourcesDirectory);
         }
 
         Refresh();
 
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
         {
+            if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE_ISOLATION_ABORT"), "1", StringComparison.Ordinal))
+            {
+                RequireLiveReload().WriteIronOre(maxDurability: 150, name: "隔离中止铁矿");
+                RequireLiveReload().WriteAsymmetricCubePngs();
+                RequireCommittedReload("isolation abort");
+                GD.Print("VOXEL_SMOKE_ISOLATION_WRITE_DONE");
+                GetTree().Quit();
+                return;
+            }
+
             ValidateGeneratedMesh();
             GD.Print("VOXEL_SMOKE_GEOMETRY_VALID");
             GD.Print("VOXEL_SMOKE_SCENE_READY");
@@ -219,7 +233,6 @@ public partial class VoxelDeveloperScene : Node3D
 
     public override void _ExitTree()
     {
-        _liveReload?.RestoreBuiltIn();
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
@@ -278,6 +291,52 @@ public partial class VoxelDeveloperScene : Node3D
 
     private VoxelLiveReloadDriver RequireLiveReload() =>
         _liveReload ?? throw new InvalidOperationException("Live reload driver is unavailable.");
+
+    private void ReorientVisibleTopCells()
+    {
+        var yaw = new WorldVoxelCoord(4, 11, 4);
+        var tilt = new WorldVoxelCoord(5, 11, 4);
+        var tiltOrientation = new VoxelOrientation(VoxelAxis.PositiveX, VoxelAxis.PositiveZ);
+        if (_session.Remove(yaw).Status != WorldCommandStatus.Removed ||
+            _session.Add(yaw, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Yaw90).Status != WorldCommandStatus.Added ||
+            _session.Remove(tilt).Status != WorldCommandStatus.Removed ||
+            _session.Add(tilt, VoxelWorldFactory.DevelopmentDefinitionId, tiltOrientation).Status != WorldCommandStatus.Added)
+            throw new InvalidOperationException("Could not reorient visible top cells after the published display reload.");
+    }
+
+    private void RequireRotatedTopUvs()
+    {
+        var identity = VoxelCubeUv.TopCorners(VoxelOrientation.Identity);
+        var yaw90 = VoxelCubeUv.TopCorners(VoxelOrientation.Yaw90);
+        var tiltOrientation = new VoxelOrientation(VoxelAxis.PositiveX, VoxelAxis.PositiveZ);
+        var tilt = VoxelCubeUv.TopCorners(tiltOrientation);
+        if (identity[(0, 1, 0)] == yaw90[(0, 1, 0)])
+            throw new InvalidOperationException("Cube top UVs did not rotate with yaw.");
+        if (tiltOrientation.InverseTransform(VoxelAxis.PositiveY) != VoxelAxis.NegativeZ)
+            throw new InvalidOperationException("Tilt did not map world top to the local side.");
+        RequireGeneratedTopUvs(new WorldVoxelCoord(6, 11, 4), VoxelOrientation.Identity);
+        RequireGeneratedTopUvs(new WorldVoxelCoord(4, 11, 4), VoxelOrientation.Yaw90);
+        RequireGeneratedTopUvs(new WorldVoxelCoord(5, 11, 4), tiltOrientation);
+        GD.Print($"VOXEL_RELOAD_TOP_UV identity={FormatUv(identity)} yaw90={FormatUv(yaw90)} tilt={FormatUv(tilt)}");
+    }
+
+    private void RequireGeneratedTopUvs(WorldVoxelCoord cell, VoxelOrientation orientation)
+    {
+        var expected = VoxelCubeUv.TopCorners(orientation);
+        var actual = VoxelMeshGeometryValidator.ReadWorldTopUvs(_mesh.Mesh, cell);
+        foreach (var (corner, uv) in expected)
+        {
+            if (!actual.TryGetValue(corner, out var generated) ||
+                !Mathf.IsEqualApprox(generated.X, uv.U) ||
+                !Mathf.IsEqualApprox(generated.Y, uv.V))
+                throw new InvalidOperationException(
+                    $"Generated top UV at {cell} {orientation} corner {corner} was {generated} expected {uv}.");
+        }
+    }
+
+    private static string FormatUv(IReadOnlyDictionary<(int X, int Y, int Z), (float U, float V)> corners) =>
+        string.Join(",", corners.OrderBy(pair => pair.Key.X).ThenBy(pair => pair.Key.Z)
+            .Select(pair => $"({pair.Key.X},{pair.Key.Z})={pair.Value.U:0},{pair.Value.V:0}"));
 
     private void RequireCommittedReload(string name)
     {
@@ -503,7 +562,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSmokePhase.ReloadAsset:
                 _displayFingerprintBeforeAsset = _mesh.DisplayFingerprint;
-                RequireLiveReload().WriteGreenTopPng();
+                RequireLiveReload().WriteAsymmetricCubePngs();
                 RequireCommittedReload("cube asset");
                 RequireInspection(80, 10, 1, 150);
                 GD.Print("VOXEL_SMOKE_RELOAD_ASSET_QUEUED");
@@ -516,6 +575,19 @@ public partial class VoxelDeveloperScene : Node3D
                     throw new InvalidOperationException("Voxel smoke cube display did not change after a published asset reload.");
                 GD.Print($"VOXEL_SMOKE_RELOAD_ASSET_UPDATED before={_displayFingerprintBeforeAsset} after={_mesh.DisplayFingerprint}");
                 ValidateGeneratedMesh();
+                _smokePhase = VoxelSmokePhase.ReloadOrient;
+                return;
+            case VoxelSmokePhase.ReloadOrient:
+                ReorientVisibleTopCells();
+                _smokePhase = VoxelSmokePhase.AwaitReloadOrient;
+                return;
+            case VoxelSmokePhase.AwaitReloadOrient:
+                if (_session.Query(new WorldVoxelCoord(4, 11, 4)).Voxel?.Orientation != VoxelOrientation.Yaw90 ||
+                    _session.Query(new WorldVoxelCoord(5, 11, 4)).Voxel?.Orientation != new VoxelOrientation(VoxelAxis.PositiveX, VoxelAxis.PositiveZ))
+                    return;
+                RequireRotatedTopUvs();
+                ValidateGeneratedMesh();
+                GD.Print("VOXEL_SMOKE_RELOAD_ORIENTATION_MAPPED");
                 _smokePhase = VoxelSmokePhase.ReloadMax60;
                 return;
             case VoxelSmokePhase.ReloadMax60:
@@ -567,10 +639,6 @@ public partial class VoxelDeveloperScene : Node3D
                     !_cell.Text.Contains("耐久 60", StringComparison.Ordinal))
                     return;
                 ValidateGeneratedMesh();
-                _smokePhase = VoxelSmokePhase.ReloadRestore;
-                return;
-            case VoxelSmokePhase.ReloadRestore:
-                RequireLiveReload().RestoreBuiltIn();
                 _smokePhase = VoxelSmokePhase.OpenConsole;
                 return;
             case VoxelSmokePhase.OpenConsole:
@@ -727,7 +795,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelObservePhase.ReloadDisplay:
                 RequireLiveReload().WriteIronOre(maxDurability: 150, name: "热重载铁矿");
-                RequireLiveReload().WriteGreenTopPng();
+                RequireLiveReload().WriteAsymmetricCubePngs();
                 RequireCommittedReload("observe display");
                 _observeHoldFrames = 8;
                 _observePhase = VoxelObservePhase.AwaitReloadDisplay;
@@ -735,7 +803,19 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelObservePhase.AwaitReloadDisplay:
                 if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
                     throw new InvalidOperationException("Observe display reload did not update the HUD name.");
-                CaptureObserve("issue46-display", "text and cube asset update on the existing damaged voxel");
+                CaptureObserve("issue46-display", "asymmetric top on identity voxels after published display reload");
+                _observePhase = VoxelObservePhase.ReloadOrient;
+                return;
+            case VoxelObservePhase.ReloadOrient:
+                ReorientVisibleTopCells();
+                _observeHoldFrames = 8;
+                _observePhase = VoxelObservePhase.AwaitReloadOrient;
+                return;
+            case VoxelObservePhase.AwaitReloadOrient:
+                if (_session.Query(new WorldVoxelCoord(4, 11, 4)).Voxel?.Orientation != VoxelOrientation.Yaw90)
+                    throw new InvalidOperationException("Observe yaw cell did not keep pz_py.");
+                RequireRotatedTopUvs();
+                CaptureObserve("issue46-oriented", "asymmetric top rotated on yaw90; tilted cell world top uses mapped side pattern");
                 _observePhase = VoxelObservePhase.ReloadMax60;
                 return;
             case VoxelObservePhase.ReloadMax60:
@@ -765,9 +845,10 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelObservePhase.AwaitReloadReject:
                 if (_session.Query(_selectedPosition).Voxel?.CurrentDurability != 60 ||
                     !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal) ||
-                    _session.Query(new WorldVoxelCoord(0, 0, 0)).Voxel?.DefinitionId != RequireLiveReload().ProbeId)
+                    _session.Query(new WorldVoxelCoord(0, 0, 0)).Voxel?.DefinitionId != RequireLiveReload().ProbeId ||
+                    _session.Query(new WorldVoxelCoord(4, 11, 4)).Voxel?.Orientation != VoxelOrientation.Yaw90)
                     throw new InvalidOperationException("Observe rejected reload leaked a new published world or display.");
-                CaptureObserve("issue46-rejected", "rejected live reload keeps old published world and display");
+                CaptureObserve("issue46-rejected", "rejected live reload keeps old published world, orientations, and display");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _observePhase = VoxelObservePhase.Done;
                 GetTree().Quit();

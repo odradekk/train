@@ -12,23 +12,41 @@ public sealed class GodotContentSource : IContentSource
 
     private readonly TrainLogger? _logger;
     private readonly string? _userDataDirectory;
+    private readonly string _builtInResourcesRoot;
+    private readonly bool _usesPhysicalBuiltIn;
     private IReadOnlyList<ContentDiagnostic> _scanDiagnostics = Array.Empty<ContentDiagnostic>();
 
-    public GodotContentSource(TrainLogger? logger = null, string? userDataDirectory = null)
+    public GodotContentSource(
+        TrainLogger? logger = null,
+        string? userDataDirectory = null,
+        string? builtInResourcesRoot = null)
     {
         _logger = logger;
         _userDataDirectory = userDataDirectory;
+        _builtInResourcesRoot = string.IsNullOrWhiteSpace(builtInResourcesRoot)
+            ? BuiltInResourcesRoot
+            : builtInResourcesRoot;
+        _usesPhysicalBuiltIn = !_builtInResourcesRoot.StartsWith("res://", StringComparison.Ordinal);
     }
 
     public string UserDataDirectory => _userDataDirectory ?? OS.GetUserDataDir();
+    public string BuiltInResourcesRootPath => _builtInResourcesRoot;
 
     public IReadOnlyList<ContentPackage> ListPackages()
     {
-        using var probe = DirAccess.Open(BuiltInResourcesRoot);
-        var available = probe is not null;
+        bool available;
+        if (_usesPhysicalBuiltIn)
+        {
+            available = Directory.Exists(_builtInResourcesRoot);
+        }
+        else
+        {
+            using var probe = DirAccess.Open(_builtInResourcesRoot);
+            available = probe is not null;
+        }
         var packages = new List<ContentPackage>
         {
-            new(VoxelDefinitionId.BuiltInNamespace, BuiltInResourcesRoot, available)
+            new(VoxelDefinitionId.BuiltInNamespace, _builtInResourcesRoot, available)
         };
 
         var userData = UserDataDirectory;
@@ -112,7 +130,7 @@ public sealed class GodotContentSource : IContentSource
 
     private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)
     {
-        if (package.Kind == ContentPackageKind.Mod)
+        if (package.Kind == ContentPackageKind.Mod || IsPhysicalBuiltIn(package))
             return ExternalContent.ListDataFiles(package.ResourcesRoot, fileSuffix);
 
         if (IsLinkedOrUnresolved(package.ResourcesRoot))
@@ -126,7 +144,7 @@ public sealed class GodotContentSource : IContentSource
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
     {
-        if (package.Kind == ContentPackageKind.Mod)
+        if (package.Kind == ContentPackageKind.Mod || IsPhysicalBuiltIn(package))
             return ExternalContent.ReadFile(package.ResourcesRoot, normalizedRelativePath, maxBytes);
 
         if (!ContentPath.TryNormalize(normalizedRelativePath, out var normalized))
@@ -180,6 +198,9 @@ public sealed class GodotContentSource : IContentSource
             NormalizeFormat(image.GetFormat()),
             image.GetData()));
     }
+
+    private bool IsPhysicalBuiltIn(ContentPackage package) =>
+        package.Kind == ContentPackageKind.BuiltIn && _usesPhysicalBuiltIn;
 
     private static IReadOnlyList<ContentTreeEntry>? ListEntries(string current)
     {

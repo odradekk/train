@@ -86,6 +86,17 @@ public readonly record struct VoxelOrientation
         _ => throw new ArgumentOutOfRangeException(nameof(localAxis), localAxis, "Unknown voxel axis.")
     };
 
+    public VoxelAxis InverseTransform(VoxelAxis worldAxis)
+    {
+        foreach (var local in Axes)
+        {
+            if (Transform(local) == worldAxis)
+                return local;
+        }
+
+        throw new ArgumentOutOfRangeException(nameof(worldAxis), worldAxis, "World axis is not produced by this orientation.");
+    }
+
     public override string ToString() => $"{ToWire(Right)}_{ToWire(Up)}";
 
     public static bool TryParse(string? value, out VoxelOrientation orientation)

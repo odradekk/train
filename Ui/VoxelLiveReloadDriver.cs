@@ -10,35 +10,19 @@ internal sealed class VoxelLiveReloadDriver
     public const string ProbeLocalId = "probe";
     public const string ProbeFolder = "voxel-reload-probe";
 
-    private const string IronOreJsonPath = "res://builtin/core/resources/voxels/iron-ore.voxels.json";
-    private const string IronOreTopPath = "res://builtin/core/resources/voxels/iron-ore/top.png";
-
     private readonly string _userDataDirectory;
-    private string? _ironOreJsonBackup;
-    private byte[]? _ironOreTopBackup;
+    private readonly string _builtInResourcesRoot;
 
     public VoxelDefinitionId ProbeId { get; } = new(ProbeNamespace, ProbeLocalId);
 
-    public VoxelLiveReloadDriver(string userDataDirectory)
+    public VoxelLiveReloadDriver(string userDataDirectory, string builtInResourcesRoot)
     {
         ArgumentException.ThrowIfNullOrEmpty(userDataDirectory);
+        ArgumentException.ThrowIfNullOrEmpty(builtInResourcesRoot);
+        if (builtInResourcesRoot.StartsWith("res://", StringComparison.Ordinal))
+            throw new InvalidOperationException("Live-reload test writes must use isolated physical content, not res://.");
         _userDataDirectory = userDataDirectory;
-    }
-
-    public void BackupBuiltIn()
-    {
-        _ironOreJsonBackup = Godot.FileAccess.GetFileAsString(IronOreJsonPath);
-        _ironOreTopBackup = Godot.FileAccess.GetFileAsBytes(IronOreTopPath);
-        if (string.IsNullOrEmpty(_ironOreJsonBackup) || _ironOreTopBackup is null || _ironOreTopBackup.Length == 0)
-            throw new InvalidOperationException("Could not backup built-in iron-ore content for live reload smoke.");
-    }
-
-    public void RestoreBuiltIn()
-    {
-        if (_ironOreJsonBackup is not null)
-            WriteVirtualText(IronOreJsonPath, _ironOreJsonBackup);
-        if (_ironOreTopBackup is not null)
-            WriteVirtualBytes(IronOreTopPath, _ironOreTopBackup);
+        _builtInResourcesRoot = builtInResourcesRoot;
     }
 
     public void WriteIronOre(
@@ -48,16 +32,30 @@ internal sealed class VoxelLiveReloadDriver
         string name = "铁矿",
         string description = "开发用占位自然资源种类，用于验证内容加载、校验与热重载。")
     {
-        WriteVirtualText(IronOreJsonPath, IronOreJson(maxDurability, value, mass, name, description));
+        WriteIsolatedText(IronOreJsonRelative, IronOreJson(maxDurability, value, mass, name, description));
     }
 
-    public void WriteGreenTopPng()
+    public void WriteAsymmetricCubePngs()
+    {
+        WriteAsymmetricPng(IronOreTopRelative, new Color(0.95f, 0.82f, 0.12f), new Color(0.12f, 0.78f, 0.88f));
+        WriteAsymmetricPng(IronOreSideRelative, new Color(0.18f, 0.86f, 0.28f), new Color(0.86f, 0.18f, 0.72f));
+    }
+
+    private void WriteAsymmetricPng(string relativePath, Color strip, Color block)
     {
         var image = Image.CreateEmpty(16, 16, false, Image.Format.Rgba8);
-        image.Fill(new Color(0.12f, 0.78f, 0.28f));
-        var error = image.SavePng(IronOreTopPath);
+        image.Fill(new Color(0.42f, 0.18f, 0.10f));
+        for (var x = 0; x < 16; x++)
+            for (var y = 0; y < 4; y++)
+                image.SetPixel(x, y, strip);
+        for (var x = 12; x < 16; x++)
+            for (var y = 0; y < 8; y++)
+                image.SetPixel(x, y, block);
+        var path = IsolatedPath(relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var error = image.SavePng(path);
         if (error != Error.Ok)
-            throw new InvalidOperationException($"Failed to write isolated iron-ore top.png: {error}.");
+            throw new InvalidOperationException($"Failed to write isolated {relativePath}: {error}.");
     }
 
     public void WriteProbeMod()
@@ -67,10 +65,7 @@ internal sealed class VoxelLiveReloadDriver
         Directory.CreateDirectory(resources);
         File.WriteAllText(Path.Combine(root, ModDiscovery.ManifestFileName), ProbeManifest());
         File.WriteAllText(Path.Combine(resources, "probe.voxels.json"), ProbeVoxels());
-        var png = Godot.FileAccess.GetFileAsBytes("res://builtin/core/resources/voxels/iron-ore/top.png");
-        if (png is null || png.Length == 0)
-            throw new InvalidOperationException("Could not copy an isolated probe PNG from built-in content.");
-        File.WriteAllBytes(Path.Combine(resources, "probe.png"), png);
+        File.WriteAllBytes(Path.Combine(resources, "probe.png"), File.ReadAllBytes(IsolatedPath(IronOreTopRelative)));
     }
 
     public void InvalidateProbeMod()
@@ -82,21 +77,19 @@ internal sealed class VoxelLiveReloadDriver
     public static ContentReloadResult Reload(Main main) =>
         main.Reloader?.Reload() ?? throw new InvalidOperationException("Content reloader is unavailable.");
 
-    private static void WriteVirtualText(string path, string text)
+    private void WriteIsolatedText(string relativePath, string text)
     {
-        using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Write);
-        if (file is null)
-            throw new InvalidOperationException($"Could not write {path}.");
-        file.StoreString(text);
+        var path = IsolatedPath(relativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
     }
 
-    private static void WriteVirtualBytes(string path, byte[] bytes)
-    {
-        using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Write);
-        if (file is null)
-            throw new InvalidOperationException($"Could not write {path}.");
-        file.StoreBuffer(bytes);
-    }
+    private string IsolatedPath(string relativePath) =>
+        Path.Combine(_builtInResourcesRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
+
+    private const string IronOreJsonRelative = "voxels/iron-ore.voxels.json";
+    private const string IronOreTopRelative = "voxels/iron-ore/top.png";
+    private const string IronOreSideRelative = "voxels/iron-ore/side.png";
 
     private static string IronOreJson(int maxDurability, long value, double mass, string name, string description) =>
         $$"""

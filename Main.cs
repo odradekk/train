@@ -12,6 +12,8 @@ public partial class Main : Node
     public TrainLogger? Logger => _logger;
     public ContentReloader? Reloader => _reloader;
     public string IsolatedUserDataDirectory => _modsSmokeUserData ?? OS.GetUserDataDir();
+    public string IsolatedBuiltInResourcesDirectory =>
+        _isolatedBuiltIn ?? throw new InvalidOperationException("Isolated built-in content is not active.");
 
     private const string LoggingSmokeEnvironmentVariable = "TRAIN_LOG_SMOKE";
     private const string LoggingSmokeWorkerEventId = "smoke_worker_event";
@@ -32,6 +34,7 @@ public partial class Main : Node
     private bool _contentExportSmoke;
     private bool _modsExportSmoke;
     private string? _modsSmokeUserData;
+    private string? _isolatedBuiltIn;
     private bool _ownsModsSmokeUserData;
     private volatile bool _smokeWorkerLogged;
     private bool _smokeDrainedFromProcess;
@@ -55,13 +58,16 @@ public partial class Main : Node
         var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled()
             ? ResolveModsSmokeUserData()
             : null;
+        if (IsVoxelSmokeEnabled() || IsVoxelObserveEnabled())
+            _isolatedBuiltIn = IsolatedBuiltInContent.Seed(modsUserData
+                ?? throw new InvalidOperationException("Voxel smoke requires isolated user-data."));
         var logDirectory = Path.Combine(modsUserData ?? OS.GetUserDataDir(), "logs");
         var buildDefault = OS.IsDebugBuild() || Engine.IsEditorHint()
             ? LogLevel.Debug
             : LogLevel.Info;
         var logBuffer = new RingBufferLogSink();
         _logger = TrainLogger.StartSession(logDirectory, buildDefault, new GodotLogOutput(), logBuffer);
-        _reloader = new ContentReloader(new GodotContentSource(_logger, modsUserData), _logger);
+        _reloader = new ContentReloader(new GodotContentSource(_logger, modsUserData, _isolatedBuiltIn), _logger);
         _console = new GameConsole();
         _console.Initialize(_logger, logBuffer, _reloader);
         AddChild(_console);

@@ -97,17 +97,21 @@ public partial class VoxelChunkMesh : MeshInstance3D
         };
         tool.SetNormal(normal);
         tool.SetColor(textured ? Colors.White : FaceColor(face));
-        AddTexturedVertex(tool, ccw0, new Vector2(0, 1));
-        AddTexturedVertex(tool, ccw2, new Vector2(1, 0));
-        AddTexturedVertex(tool, ccw1, new Vector2(0, 0));
-        AddTexturedVertex(tool, ccw0, new Vector2(0, 1));
-        AddTexturedVertex(tool, ccw3, new Vector2(1, 1));
-        AddTexturedVertex(tool, ccw2, new Vector2(1, 0));
+        AddOrientedVertex(tool, face, ccw0);
+        AddOrientedVertex(tool, face, ccw2);
+        AddOrientedVertex(tool, face, ccw1);
+        AddOrientedVertex(tool, face, ccw0);
+        AddOrientedVertex(tool, face, ccw3);
+        AddOrientedVertex(tool, face, ccw2);
     }
 
-    private static void AddTexturedVertex(SurfaceTool tool, Vector3 vertex, Vector2 uv)
+    private static void AddOrientedVertex(SurfaceTool tool, WorldVoxelFace face, Vector3 vertex)
     {
-        tool.SetUV(uv);
+        var dx = (int)MathF.Round(vertex.X - face.Position.X);
+        var dy = (int)MathF.Round(vertex.Y - face.Position.Y);
+        var dz = (int)MathF.Round(vertex.Z - face.Position.Z);
+        var (u, v) = VoxelCubeUv.ForWorldFace(face.Voxel.Orientation, face.Normal, dx, dy, dz);
+        tool.SetUV(new Vector2(u, v));
         tool.AddVertex(vertex);
     }
 

@@ -1,4 +1,5 @@
 using Godot;
+using Train.Domain.Voxels;
 
 namespace Train.Presentation;
 
@@ -59,6 +60,45 @@ internal static class VoxelMeshGeometryValidator
         foreach (var triangles in trianglesByFace.Values)
             ValidateUnitFaceCoverage(triangles);
     }
+
+    public static IReadOnlyDictionary<(int X, int Y, int Z), Vector2> ReadWorldTopUvs(
+        Godot.Mesh mesh,
+        WorldVoxelCoord cell)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        var corners = new Dictionary<(int X, int Y, int Z), Vector2>();
+        for (var surface = 0; surface < mesh.GetSurfaceCount(); surface++)
+        {
+            var arrays = mesh.SurfaceGetArrays(surface);
+            var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+            var uvs = arrays[(int)Godot.Mesh.ArrayType.TexUV].AsVector2Array();
+            if (vertices.Length != uvs.Length || vertices.Length % 3 != 0)
+                continue;
+            for (var index = 0; index < vertices.Length; index += 3)
+            {
+                if (!OnWorldTop(vertices[index], cell) ||
+                    !OnWorldTop(vertices[index + 1], cell) ||
+                    !OnWorldTop(vertices[index + 2], cell))
+                    continue;
+                for (var offset = 0; offset < 3; offset++)
+                {
+                    var vertex = vertices[index + offset];
+                    var dx = (int)Mathf.Round(vertex.X - cell.X);
+                    var dz = (int)Mathf.Round(vertex.Z - cell.Z);
+                    corners[(dx, 1, dz)] = uvs[index + offset];
+                }
+            }
+        }
+
+        if (corners.Count != 4)
+            throw new InvalidOperationException($"Generated mesh is missing world-top UVs for {cell}.");
+        return corners;
+    }
+
+    private static bool OnWorldTop(Vector3 vertex, WorldVoxelCoord cell) =>
+        Mathf.IsEqualApprox(vertex.Y, cell.Y + 1) &&
+        vertex.X >= cell.X - 0.01f && vertex.X <= cell.X + 1.01f &&
+        vertex.Z >= cell.Z - 0.01f && vertex.Z <= cell.Z + 1.01f;
 
     private static void ValidateUnitFaceCoverage(List<Triangle> triangles)
     {
