@@ -20,10 +20,10 @@ This-round results on the implementation worktree (before push; the Issue commen
 
 | Command | Result |
 | --- | --- |
-| `dotnet test Train.Tests/Train.Tests.csproj` | 189 passed, 0 failed (existing 177 + 12 `VoxelLocalBoxTests`) |
+| `dotnet test Train.Tests/Train.Tests.csproj` | 190 passed, 0 failed (existing 177 + 13 `VoxelLocalBoxTests`) |
 | `dotnet build Train.sln` | 0 warnings, 0 errors |
 | `run-godot-voxel-smoke.ps1 -Slice 1` | passed; catalog accepted `core:ledge` (`F8DFDBFA…BE64`) |
-| `run-godot-voxel-smoke.ps1 -Slice 2` | passed; `VOXEL_SMOKE_LOCAL_BOX_*` identity/rotated/removed/reloaded/translated_edge/rejected/lethal all `published=1`; existing mesh/collide markers kept |
+| `run-godot-voxel-smoke.ps1 -Slice 2` | passed; `VOXEL_SMOKE_LOCAL_BOX_*` identity/rotated/removed/reloaded/translated_edge/adapter_underflow/rejected/lethal all `published=1`; existing mesh/collide markers kept |
 | `run-godot-voxel-smoke.ps1 -Slice 2 -IsolationAbort` | passed; worktree iron-ore and ledge hashes unchanged |
 | `run-godot-voxel-observe.ps1 -Slice 2` | exit 0, `VOXEL_OBSERVE_COMPLETE`; eight `issue50-*.png` plus five `issue52-*.png`; `.godot/issue52-observe-report.md` |
 

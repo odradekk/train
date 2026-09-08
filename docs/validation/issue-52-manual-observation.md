@@ -22,6 +22,6 @@ This-round windowed run: Godot 4.7.2.stable.mono Compatibility on NVIDIA GeForce
 7. Repeat steps 4–5: the first probe becomes `Miss`, `15.48 1.38 8.18 15.52 1.42 8.22` becomes `Hit`
 8. `voxel remove 15 1 8` then both probes `Miss`; no leftover debug box
 9. Re-add identity, restore the isolated probe definition (the previous reject left it unloadable), change the isolated overlay ledge geometry, `reload`, and confirm the old pocket misses while the far-corner pocket hits
-10. Write an overflowing `local_box` into the isolated overlay and `reload`: reject, previous corner hits stay. The fifth capture is `issue52-local-rejected.png`
+10. Write an overflowing `local_box` into the isolated overlay and `reload`: reject, previous corner hits stay. The fifth capture is `issue52-local-rejected.png`. Adapter underflow (`1e-50` / `double.Epsilon`) is proven by headless slice 2 smoke (`VOXEL_SMOKE_LOCAL_BOX_ADAPTER_UNDERFLOW`), not an extra observe PNG.
 
 Do not edit worktree `builtin/core/resources/voxels/ledge.voxels.json` or `iron-ore` files. Runtime mutation uses the isolated built-in overlay.

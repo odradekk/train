@@ -275,6 +275,70 @@ public sealed class VoxelLocalBoxTests
     }
 
     [TestMethod]
+    public void Adapter_underflow_sizes_reject_publish_and_keep_representable_hits()
+    {
+        Assert.IsTrue(VoxelCollision.TryCreateLocalBox(0, 0, 0.25, 1e-50, 0.875, 0.5, out _));
+        Assert.IsTrue(VoxelCollision.TryCreateLocalBox(0, 0, 0.25, double.Epsilon, 0.875, 0.5, out _));
+
+        foreach (var sizeX in new[] { 1e-50, double.Epsilon })
+        {
+            using var session = LoggerSession.Create();
+            var source = ContentFixtures.ValidIron();
+            source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]",
+                    collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: sizeX))));
+            var builtIn = ContentFixtures.Create(source, session.Logger);
+            var rejected = builtIn.Reload();
+            Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, $"size.x={sizeX:G17}");
+            Assert.IsNull(builtIn.Catalog.Current);
+        }
+
+        using var harness = LocalBoxHarness.Create();
+        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
+                collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-20))));
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
+        Assert.AreEqual(1e-20, harness.Reloader.Catalog.Current!.Entries[Ledge].Definition.Collision.SizeX);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(Empty, Ledge, VoxelOrientation.Yaw90).Status);
+        Assert.AreEqual(WorldCommandStatus.Damaged, harness.Commands.Damage(Empty, 20).Status);
+        Assert.AreEqual(VoxelOrientation.Yaw90, harness.Commands.Query(Empty).Voxel!.Orientation);
+        Assert.AreEqual(80, harness.Commands.Query(Empty).Voxel!.CurrentDurability);
+        Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(Empty).Status);
+        StringAssert.Contains(new VoxelConsoleCommands(harness.Session).Execute(["collide", "0", "0", "0"]), "Collision Hit");
+
+        var snapshot = harness.Reloader.Catalog.Current;
+        var generation = snapshot.Generation;
+        foreach (var sizeX in new[] { 1e-50, double.Epsilon })
+        {
+            harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
+                    collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: sizeX))));
+            var rejected = harness.Reloader.Reload();
+            Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, $"hot-reload size.x={sizeX:G17}");
+            Assert.AreSame(snapshot, harness.Reloader.Catalog.Current);
+            Assert.AreEqual(generation, rejected.CatalogVersion);
+            Assert.AreEqual(1e-20, harness.Reloader.Catalog.Current!.Entries[Ledge].Definition.Collision.SizeX);
+            Assert.AreEqual(VoxelOrientation.Yaw90, harness.Commands.Query(Empty).Voxel!.Orientation);
+            Assert.AreEqual(80, harness.Commands.Query(Empty).Voxel!.CurrentDurability);
+            Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(Empty).Status);
+            Assert.AreEqual(WorldCommandStatus.Occupied, harness.Commands.Add(Empty, Iron, VoxelOrientation.Identity).Status);
+        }
+
+        using var modSession = LoggerSession.Create();
+        var mixed = ModFixtures.CorePlusCopper();
+        mixed.AddMod("thin-underflow", ModFixtures.OtherUuid);
+        mixed.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
+                collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-50))));
+        mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
+        var mods = ContentFixtures.Create(mixed, modSession.Logger);
+        var isolated = mods.Reload();
+        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, isolated.Status);
+        Assert.IsTrue(mods.Catalog.Current!.TryGet(Iron, out _));
+        Assert.IsFalse(mods.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
+    }
+
+    [TestMethod]
     public void Occupancy_survives_outside_the_box_and_clears_with_remove_or_lethal_damage()
     {
         using var harness = LocalBoxHarness.Create();

@@ -540,6 +540,15 @@ internal static class VoxelsJsonParser
             return false;
         }
 
+        if (!VoxelCollisionAdapter.CanDerivePositiveVolume(collision))
+        {
+            diagnostics.Warn(
+                ContentDiagnosticCodes.CollisionInvalid,
+                "local_box must keep a positive volume after the collision adapter conversion.",
+                jsonPath);
+            return false;
+        }
+
         return true;
     }
 

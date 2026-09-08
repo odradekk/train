@@ -1206,6 +1206,19 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.LocalBoxReject:
                 var generation = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
                 var snapshot = GetNode<Main>("/root/Main").Reloader?.Catalog.Current;
+                foreach (var sizeX in new[] { 1e-50, double.Epsilon })
+                {
+                    RequireLiveReload().WriteLedge(0, 0, 0.25, sizeX, 0.875, 0.5);
+                    var underflow = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                    if (underflow.Status != ContentReloadStatus.Rejected ||
+                        underflow.Changed ||
+                        underflow.CatalogVersion != generation ||
+                        !ReferenceEquals(snapshot, GetNode<Main>("/root/Main").Reloader?.Catalog.Current) ||
+                        !_session.Query(LedgeCell).IsOccupied)
+                        throw new InvalidOperationException(
+                            $"Adapter-underflow local-box reload size.x={sizeX:G17} did not reject atomically.");
+                }
+
                 RequireLiveReload().WriteInvalidLedge();
                 var rejectedBox = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
                 if (rejectedBox.Status != ContentReloadStatus.Rejected ||
@@ -1222,6 +1235,12 @@ public partial class VoxelDeveloperScene : Node3D
                     return;
                 RequirePublishedWholeCell(LedgeCell, expectHit: true);
                 RequirePublishedDerivedSize(LedgeCell, expectedSizeX: 1e-20);
+                if (!_colliders.ColliderFor(VoxelChunks.Of(LedgeCell, _session.Identity.ChunkSize))
+                        .TryGetBoxSize(LedgeCell, out var keptSize) ||
+                    keptSize.X <= 0)
+                    throw new InvalidOperationException(
+                        $"Rejected underflow left a non-positive published Godot size {keptSize}.");
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_ADAPTER_UNDERFLOW domain=kept godot=kept size=local published=1");
                 GD.Print("VOXEL_SMOKE_LOCAL_BOX_REJECTED domain=kept godot=kept published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxLethal;
                 return;
