@@ -341,6 +341,8 @@ public sealed class VoxelWorldCommands
 
     public VoxelCollisionQueryResult QueryCollision(VoxelCollisionBox probe)
     {
+        if (!probe.IsValid)
+            return VoxelCollisionQueryResult.Invalid();
         if (!probe.Overlaps(VoxelCollisionBox.ForWorld(_world.Bounds)))
             return VoxelCollisionQueryResult.OutOfBounds(probe);
 

@@ -92,8 +92,8 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `InvalidDamage` | 伤害值不是正整数，例如 `0` 或负数；世界不变 |
 | `UnknownDefinition` | ID 格式合法，但当前内容目录没有该定义；检查拼写和内容加载诊断 |
 | `DisallowedOrientation` | 编码是合法正交朝向，但该定义不允许；改用其允许的方向 |
-| `Collision Hit` / `Miss` / `OutOfBounds` / `InvalidQuery` | 领域碰撞查询结果；命中按字段分行写出格子、定义和 `kind`。语义见 [voxel collide](voxel-collide.md) |
-| `Usage: voxel ...` | 子命令、参数个数、整数、ID 格式或朝向编码不合法；按本手册的完整语法重新输入 |
+| `Collision Hit` / `Miss` / `OutOfBounds` / `InvalidQuery` | 领域碰撞查询结果；命中按字段分行写出格子、定义和 `kind`。已解析但非有限或零/负体积为 `InvalidQuery`，合法越界单格（含整数极值）为 `OutOfBounds`。语义见 [voxel collide](voxel-collide.md) |
+| `Usage: voxel ...` | 子命令、参数个数、无法解析的坐标文本、ID 格式或朝向编码不合法；按本手册的完整语法重新输入。`NaN` / `Infinity` 能解析为数字，因此走 `InvalidQuery` 而不是 Usage |
 
 格式校验失败时不执行世界命令。例如缺少朝向、ID 使用大写、朝向写成 `90` 或 `px_px`，得到的是用法提示，而不是 `UnknownDefinition` / `DisallowedOrientation`。
 

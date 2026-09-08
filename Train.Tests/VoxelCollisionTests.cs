@@ -49,6 +49,28 @@ public sealed class VoxelCollisionTests
     }
 
     [TestMethod]
+    public void Cell_extrema_and_invalid_probes_use_the_published_query_statuses()
+    {
+        using var harness = CollisionHarness.Create();
+
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(int.MaxValue, 0, 0));
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(0, int.MaxValue, 0));
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(0, 0, int.MaxValue));
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(int.MinValue, 0, 0));
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(0, int.MinValue, 0));
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(0, 0, int.MinValue));
+        AssertOutOfBoundsCell(harness.Commands, new WorldVoxelCoord(32, 0, 0));
+
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(default(VoxelCollisionBox)).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(0, 0, 0, 0, 0, 0).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(1, 0, 0, 1, 1, 1).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(0, 1, 0, 1, 0, 1).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(double.NaN, 0, 0, 1, 1, 1).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(double.PositiveInfinity, 0, 0, 1, 1, 1).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.InvalidQuery, harness.Commands.QueryCollision(0, 0, 0, double.NegativeInfinity, 1, 1).Status);
+    }
+
+    [TestMethod]
     public void Remove_and_lethal_damage_clear_domain_collision_immediately()
     {
         using var harness = CollisionHarness.Create();
@@ -288,6 +310,33 @@ public sealed class VoxelCollisionTests
         Assert.IsTrue(messages.All(message => message.Length <= 200), displayed);
         Assert.IsTrue(voxelSession.Query(new WorldVoxelCoord(0, 0, 0)).IsOccupied);
         Assert.AreEqual(VoxelCollisionQueryStatus.Miss, voxelSession.QueryCollision(new WorldVoxelCoord(0, 0, 0)).Status);
+    }
+
+    [TestMethod]
+    public void Console_collide_maps_extrema_and_invalid_numbers_without_usage_or_throw()
+    {
+        using var harness = CollisionHarness.Create();
+        var console = new VoxelConsoleCommands(harness.Session);
+
+        StringAssert.Contains(console.Execute(["collide", "2147483647", "0", "0"]), "OutOfBounds");
+        StringAssert.Contains(console.Execute(["collide", "0", "2147483647", "0"]), "OutOfBounds");
+        StringAssert.Contains(console.Execute(["collide", "0", "0", "2147483647"]), "OutOfBounds");
+        StringAssert.Contains(console.Execute(["collide", "-2147483648", "0", "0"]), "OutOfBounds");
+        StringAssert.Contains(console.Execute(["collide", "32", "0", "0"]), "OutOfBounds");
+        StringAssert.Contains(console.Execute(["collide", "0", "0", "0", "0", "0", "0"]), "InvalidQuery");
+        StringAssert.Contains(console.Execute(["collide", "NaN", "0", "0", "1", "1", "1"]), "InvalidQuery");
+        StringAssert.Contains(console.Execute(["collide", "Infinity", "0", "0", "1", "1", "1"]), "InvalidQuery");
+        StringAssert.Contains(console.Execute(["collide", "0", "0", "0", "-Infinity", "1", "1"]), "InvalidQuery");
+        StringAssert.Contains(console.Execute(["collide", "foo", "0", "0", "1", "1", "1"]), "Usage:");
+        StringAssert.Contains(console.Execute(["collide", "4", "4"]), "Usage:");
+    }
+
+    private static void AssertOutOfBoundsCell(VoxelWorldCommands commands, WorldVoxelCoord cell)
+    {
+        var result = commands.QueryCollision(cell);
+        Assert.AreEqual(VoxelCollisionQueryStatus.OutOfBounds, result.Status);
+        Assert.IsNotNull(result.Probe);
+        Assert.AreEqual(0, result.Hits.Count);
     }
 
     private sealed class CollisionHarness : IDisposable

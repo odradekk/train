@@ -47,9 +47,20 @@ Collision InvalidQuery.
 | --- | --- |
 | `Hit` | 探测盒与至少一个 `full_box` 占用格重叠；后附每个命中的格子、定义 ID 和 `kind` |
 | `Miss` | 探测盒与世界有重叠，但重叠范围内没有 `full_box`（空格、`none` 占格、或缺少当前定义） |
-| `OutOfBounds` | 单格坐标超出当前切片有效范围；或盒与世界体积完全不相交 |
-| `InvalidQuery` | 盒坐标非有限，或任一轴 `max ≤ min`（零体积或翻转） |
-| `Usage: voxel ...` | 参数个数无法构成单格或六参数盒，或坐标无法解析；不执行查询 |
+| `OutOfBounds` | 已构成合法正体积探测盒，但单格超出当前切片有效范围（含三轴 `int.MinValue` / `int.MaxValue`），或盒与世界体积完全不相交 |
+| `InvalidQuery` | 文本已解析为数字，但盒坐标非有限（`NaN` / `Infinity` / `-Infinity`），或任一轴 `max ≤ min`（零体积、翻转，以及公开 `default(VoxelCollisionBox)`） |
+| `Usage: voxel ...` | 参数个数无法构成单格或六参数盒，或坐标文本无法解析为数字；不执行查询 |
+
+单格在构盒前按世界整数坐标读入；格盒用双精度表示 `[x, x+1]`，因此 `2147483647` 这类合法整数不会在加一时溢出。三种入口共用同一有效性规则：六参数查询、公开 `VoxelCollisionBox` 重载和 `default` 零体积盒都走 `InvalidQuery`，不能把默认 struct 当成合法越界盒。
+
+```text
+voxel collide 2147483647 0 0
+voxel collide 0 0 0 0 0 0
+voxel collide NaN 0 0 1 1 1
+voxel collide foo 0 0 1 1 1
+```
+
+依次得到 `OutOfBounds`、`InvalidQuery`、`InvalidQuery`、`Usage`。
 
 `voxel query` 对越界格仍显示 `empty`，不能用来判断边界。碰撞查询对越界单格返回 `OutOfBounds`。`Miss` 不是空格证明：`core:hollow` 占用时 `voxel query` 有实例，`voxel collide` 仍为 `Miss`。
 

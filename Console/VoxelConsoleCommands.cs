@@ -154,9 +154,7 @@ public sealed class VoxelConsoleCommands
         $"{FormatCoordinate(box.MinX)}, {FormatCoordinate(box.MinY)}, {FormatCoordinate(box.MinZ)} -> {FormatCoordinate(box.MaxX)}, {FormatCoordinate(box.MaxY)}, {FormatCoordinate(box.MaxZ)}";
 
     private static bool TryCoordinate(string text, out double value) =>
-        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
-        !double.IsNaN(value) &&
-        !double.IsInfinity(value);
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
 
     private static string FormatCoordinate(double value) =>
         value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);

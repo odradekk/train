@@ -25,8 +25,10 @@ public readonly record struct VoxelCollisionBox
         MaxZ = maxZ;
     }
 
+    internal bool IsValid => IsValidProbe(MinX, MinY, MinZ, MaxX, MaxY, MaxZ);
+
     public static VoxelCollisionBox ForCell(WorldVoxelCoord cell) =>
-        new(cell.X, cell.Y, cell.Z, cell.X + 1, cell.Y + 1, cell.Z + 1);
+        new(cell.X, cell.Y, cell.Z, cell.X + 1.0, cell.Y + 1.0, cell.Z + 1.0);
 
     public static VoxelCollisionBox ForWorld(VoxelWorldBounds bounds) =>
         new(0, 0, 0, bounds.SizeX, bounds.SizeY, bounds.SizeZ);
@@ -41,9 +43,7 @@ public readonly record struct VoxelCollisionBox
         out VoxelCollisionBox box)
     {
         box = default;
-        if (!IsFinite(minX) || !IsFinite(minY) || !IsFinite(minZ) ||
-            !IsFinite(maxX) || !IsFinite(maxY) || !IsFinite(maxZ) ||
-            maxX <= minX || maxY <= minY || maxZ <= minZ)
+        if (!IsValidProbe(minX, minY, minZ, maxX, maxY, maxZ))
             return false;
 
         box = new VoxelCollisionBox(minX, minY, minZ, maxX, maxY, maxZ);
@@ -54,6 +54,17 @@ public readonly record struct VoxelCollisionBox
         MinX < other.MaxX && MaxX > other.MinX &&
         MinY < other.MaxY && MaxY > other.MinY &&
         MinZ < other.MaxZ && MaxZ > other.MinZ;
+
+    private static bool IsValidProbe(
+        double minX,
+        double minY,
+        double minZ,
+        double maxX,
+        double maxY,
+        double maxZ) =>
+        IsFinite(minX) && IsFinite(minY) && IsFinite(minZ) &&
+        IsFinite(maxX) && IsFinite(maxY) && IsFinite(maxZ) &&
+        maxX > minX && maxY > minY && maxZ > minZ;
 
     private static bool IsFinite(double value) =>
         !double.IsNaN(value) && !double.IsInfinity(value);
