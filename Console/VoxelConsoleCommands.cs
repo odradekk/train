@@ -32,6 +32,11 @@ public sealed class VoxelConsoleCommands
             TryPosition(arguments, 1, out var queryPosition))
             return FormatWithCount(_session.Query(queryPosition));
 
+        if (arguments.Count > 0 &&
+            string.Equals(arguments[0], "collide", StringComparison.OrdinalIgnoreCase) &&
+            TryCollisionQuery(arguments, out var collision))
+            return FormatCollision(collision);
+
         if (arguments.Count == 6 && string.Equals(arguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var addPosition) &&
             TryDefinition(arguments[4], out var definitionId) &&
@@ -44,7 +49,11 @@ public sealed class VoxelConsoleCommands
             TryDamageTargets(arguments, out var targets))
             return FormatDamage(_session.Damage(targets));
 
-        return "Usage: voxel reset | voxel query <x> <y> <z> | voxel remove <x> <y> <z> | voxel add <x> <y> <z> <namespace:id> <orientation> | voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...].";
+        return string.Join('\n',
+            "Usage: voxel reset | voxel query <x> <y> <z> | voxel collide <x> <y> <z>",
+            "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
+            "voxel remove <x> <y> <z> | voxel add <x> <y> <z> <namespace:id> <orientation>",
+            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...].");
     }
 
     private string FormatResult(WorldCommandResult result) =>
@@ -93,6 +102,62 @@ public sealed class VoxelConsoleCommands
     }
 
     private static string Format(WorldVoxelQuery query) => string.Join("\n", FormatLines(query));
+
+    private bool TryCollisionQuery(IReadOnlyList<string> arguments, out VoxelCollisionQueryResult result)
+    {
+        result = VoxelCollisionQueryResult.Invalid();
+        if (arguments.Count == 4 && TryPosition(arguments, 1, out var cell))
+        {
+            result = _session.QueryCollision(cell);
+            return true;
+        }
+
+        if (arguments.Count == 7 &&
+            TryCoordinate(arguments[1], out var minX) &&
+            TryCoordinate(arguments[2], out var minY) &&
+            TryCoordinate(arguments[3], out var minZ) &&
+            TryCoordinate(arguments[4], out var maxX) &&
+            TryCoordinate(arguments[5], out var maxY) &&
+            TryCoordinate(arguments[6], out var maxZ))
+        {
+            result = _session.QueryCollision(minX, minY, minZ, maxX, maxY, maxZ);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string FormatCollision(VoxelCollisionQueryResult result)
+    {
+        if (result.Status == VoxelCollisionQueryStatus.InvalidQuery)
+            return "Collision InvalidQuery.";
+        if (result.Status == VoxelCollisionQueryStatus.OutOfBounds)
+            return result.Probe is { } outOfBounds
+                ? $"Collision OutOfBounds [{FormatBox(outOfBounds)}]."
+                : "Collision OutOfBounds.";
+        if (result.Status == VoxelCollisionQueryStatus.Miss || result.Hits.Count == 0)
+            return result.Probe is { } miss
+                ? $"Collision Miss [{FormatBox(miss)}]."
+                : "Collision Miss.";
+
+        var lines = new List<string> { $"Collision Hit ({result.Hits.Count})" };
+        foreach (var hit in result.Hits)
+        {
+            lines.Add($"cell ({hit.Cell.X}, {hit.Cell.Y}, {hit.Cell.Z}): {hit.DefinitionId.Value}");
+            lines.Add($"kind {VoxelDefinition.ToWire(hit.Kind)}");
+        }
+
+        return string.Join("\n", lines);
+    }
+
+    private static string FormatBox(VoxelCollisionBox box) =>
+        $"{FormatCoordinate(box.MinX)}, {FormatCoordinate(box.MinY)}, {FormatCoordinate(box.MinZ)} -> {FormatCoordinate(box.MaxX)}, {FormatCoordinate(box.MaxY)}, {FormatCoordinate(box.MaxZ)}";
+
+    private static bool TryCoordinate(string text, out double value) =>
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
+
+    private static string FormatCoordinate(double value) =>
+        value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
 
     private static bool TryDamageTargets(IReadOnlyList<string> arguments, out IReadOnlyList<VoxelDamageTarget> targets)
     {

@@ -7,7 +7,9 @@ public sealed class VoxelDevelopmentSession
     private readonly VoxelCatalog _catalog;
     private readonly Action<VoxelCatalogChange> _onCatalogChanged;
     private readonly List<(WorldVoxelCoord Position, bool OccupancyChanged)> _pendingChanges = new();
+    private readonly List<WorldVoxelCoord> _pendingCollisionChanges = new();
     private bool _rebuildAll = true;
+    private bool _rebuildAllCollision = true;
 
     public VoxelWorldIdentity Identity { get; }
     public VoxelWorld World { get; private set; }
@@ -26,6 +28,7 @@ public sealed class VoxelDevelopmentSession
         _onCatalogChanged = _ =>
         {
             _rebuildAll = true;
+            _rebuildAllCollision = true;
             Changed?.Invoke();
         };
         _catalog.Changed += _onCatalogChanged;
@@ -38,7 +41,9 @@ public sealed class VoxelDevelopmentSession
         World = CreateWorld();
         Commands = new VoxelWorldCommands(World, _catalog);
         _pendingChanges.Clear();
+        _pendingCollisionChanges.Clear();
         _rebuildAll = true;
+        _rebuildAllCollision = true;
         Changed?.Invoke();
     }
 
@@ -75,6 +80,19 @@ public sealed class VoxelDevelopmentSession
 
     public WorldVoxelQuery Query(WorldVoxelCoord position) => Commands.Query(position);
 
+    public VoxelCollisionQueryResult QueryCollision(WorldVoxelCoord cell) => Commands.QueryCollision(cell);
+
+    public VoxelCollisionQueryResult QueryCollision(
+        double minX,
+        double minY,
+        double minZ,
+        double maxX,
+        double maxY,
+        double maxZ) =>
+        Commands.QueryCollision(minX, minY, minZ, maxX, maxY, maxZ);
+
+    public VoxelCollisionQueryResult QueryCollision(VoxelCollisionBox probe) => Commands.QueryCollision(probe);
+
     public IReadOnlyList<ChunkCoord> TakePendingDirtyChunks()
     {
         var dirty = new SortedSet<ChunkCoord>();
@@ -100,9 +118,33 @@ public sealed class VoxelDevelopmentSession
         return dirty.ToArray();
     }
 
+    public IReadOnlyList<ChunkCoord> TakePendingCollisionDirtyChunks()
+    {
+        var dirty = new SortedSet<ChunkCoord>();
+        if (_rebuildAllCollision)
+        {
+            foreach (var chunk in VoxelChunks.All(Identity))
+                dirty.Add(chunk);
+        }
+        else
+        {
+            foreach (var position in _pendingCollisionChanges)
+            {
+                foreach (var chunk in VoxelChunks.AffectedByCollision(position, Identity))
+                    dirty.Add(chunk);
+            }
+        }
+
+        _pendingCollisionChanges.Clear();
+        _rebuildAllCollision = false;
+        return dirty.ToArray();
+    }
+
     private void NoteChange(WorldVoxelCoord position, bool occupancyChanged)
     {
         _pendingChanges.Add((position, occupancyChanged));
+        if (occupancyChanged)
+            _pendingCollisionChanges.Add(position);
         Changed?.Invoke();
     }
 

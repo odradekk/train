@@ -1,4 +1,5 @@
-# Windowed real-GPU observation for issue #39 slice 1 parent sequences plus issue #46 live reload.
+# Windowed real-GPU observation for issue #39 slice 1 parent sequences, issue #46
+# live reload, issue #50 slice 2 boundaries, and issue #51 collision HUD / debug shapes.
 # Requires Godot 4.7 .NET on PATH or $env:GODOT. Does not use --headless.
 # On Godot 4.7.2 .NET, --quit-after is a main-loop frame budget, not seconds.
 # The scene quits itself after VOXEL_OBSERVE_COMPLETE; 300 is only a fail-closed
@@ -90,18 +91,18 @@ $report = if ($Slice -eq 2) {
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 2 ``.",
         "",
-        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=2``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the eight ``.godot/issue50-*.png`` files to exist, and required the worktree iron-ore files to keep their pre-run hashes. It does not inspect PNG pixels.",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=2``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the eight ``.godot/issue50-*.png`` files to exist, and required the worktree iron-ore files to keep their pre-run hashes. It does not inspect PNG pixels. Slice 2 observe enables ``DebugCollisionsHint`` and records domain ``collide=`` on each capture line.",
         "",
         "## Procedure",
         "",
         "1. Start the project and choose **进入切片 2 体素场景**, or run the observe script above.",
-        "2. Confirm the y=0 ground covering ``0..31`` plus the floating ``14..17`` cube, HUD target ``(15,16,15)`` occupied, count 1088.",
-        "3. Run ``voxel remove 16 0 8``. Confirm a one-cell hole in the ground at the X=15/16 line and the +X wall of ``(15,0,8)`` with no leftover face.",
-        "4. ``voxel reset``, add ``(24,15,8)`` and ``(24,16,8)``, then ``voxel remove 24 16 8``. Confirm a one-cell pillar near the camera whose top is the newly exposed +Y face.",
-        "5. ``voxel reset`` then ``voxel remove 8 0 16``. Confirm a ground hole at the Z=15/16 line.",
-        "6. ``voxel reset`` then ``voxel remove 16 0 16``. Confirm the four-chunk ground meeting hole without ghosting.",
-        "7. ``voxel reset`` then ``voxel damage 15 0 8 100 16 0 8 100 15 0 16 25``. Confirm count 1086 and durability 75 on ``(15,0,16)``.",
-        "8. Reset, damage ``(15,16,15)`` by 20 so durability is 80, reload max 150, then reject a missing probe definition and confirm the published world stays.",
+        "2. Confirm the y=0 ground covering ``0..31`` plus the floating ``14..17`` cube, HUD target ``(15,16,15)`` occupied and ``碰撞：命中``, count 1088. Debug collision boxes should fill occupied cells.",
+        "3. Run ``voxel remove 16 0 8``. Confirm a one-cell hole in the ground at the X=15/16 line and the +X wall of ``(15,0,8)`` with no leftover face or leftover collision box. ``voxel collide 16 0 8`` is ``Miss``; ``voxel collide 15 0 8`` is ``Hit``.",
+        "4. ``voxel reset``, add ``(24,15,8)`` and ``(24,16,8)``, then ``voxel remove 24 16 8``. Confirm a one-cell pillar near the camera whose top is the newly exposed +Y face. The removed cell has no collision box.",
+        "5. ``voxel reset`` then ``voxel remove 8 0 16``. Confirm a ground hole at the Z=15/16 line and no collision box in the hole.",
+        "6. ``voxel reset`` then ``voxel remove 16 0 16``. Confirm the four-chunk ground meeting hole without ghosting faces or leftover colliders.",
+        "7. ``voxel reset`` then ``voxel damage 15 0 8 100 16 0 8 100 15 0 16 25``. Confirm count 1086 and durability 75 on ``(15,0,16)``. Removed cells miss collision; the damaged cell still hits.",
+        "8. Reset, damage ``(15,16,15)`` by 20 so durability is 80, reload max 150, then reject a missing probe definition and confirm the published world and collision stay.",
         "",
         "## Result",
         "",
@@ -109,7 +110,7 @@ $report = if ($Slice -eq 2) {
         "",
         ($captureLines | ForEach-Object { "- $_" }),
         "",
-        "Automated capture wrote ``.godot/issue50-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless smoke is separate automated integration evidence. Collision and save were not exercised."
+        "Automated capture wrote ``.godot/issue50-*.png``. This report records script exit, COMPLETE, capture logs (including domain ``collide=``), and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 2`` smoke is the automated domain-vs-``IntersectShape`` evidence. Save was not exercised."
     )
 } else {
     @(
