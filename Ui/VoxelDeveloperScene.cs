@@ -14,7 +14,10 @@ public partial class VoxelDeveloperScene : Node3D
     private WorldVoxelCoord _selectedPosition = new(4, 4, 4);
     private VoxelDevelopmentSession _session = null!;
     private readonly VoxelWorldMeshPresenter _meshes = new();
+    private readonly VoxelWorldCollisionPresenter _colliders = new();
     private VoxelChunkMesh _mesh = null!;
+    private int _collisionRefreshGeneration;
+    private int _physicsSeenGeneration;
     private Label _title = null!;
     private Label _cell = null!;
     private Label _result = null!;
@@ -35,6 +38,8 @@ public partial class VoxelDeveloperScene : Node3D
     private string? _displayFingerprintBeforeAsset;
     private long _generationBeforeReject;
     private Dictionary<ChunkCoord, long>? _chunkRevisionsBeforeEdit;
+    private Dictionary<ChunkCoord, long>? _collisionRevisionsBeforeEdit;
+    private static readonly VoxelDefinitionId HollowId = new("core", "hollow");
 
     private enum VoxelSmokePhase
     {
@@ -104,6 +109,14 @@ public partial class VoxelDeveloperScene : Node3D
         CrossDamage,
         AwaitCrossDamage,
         RejectDamage,
+        NoneOccupy,
+        AwaitNoneOccupy,
+        ReloadCollisionNone,
+        AwaitReloadCollisionNone,
+        ReloadPresentationCollision,
+        AwaitReloadPresentationCollision,
+        ReloadCollisionFullBox,
+        AwaitReloadCollisionFullBox,
         HandoffReload
     }
 
@@ -180,6 +193,7 @@ public partial class VoxelDeveloperScene : Node3D
         AddChild(camera);
         PlaceCamera(camera, _session.Identity);
         _meshes.Rebuild(this, _session.Identity);
+        _colliders.Rebuild(this, _session.Identity);
         _mesh = _meshes.PrimaryMesh;
         CreateHud();
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
@@ -227,6 +241,7 @@ public partial class VoxelDeveloperScene : Node3D
         }
         else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
         {
+            GetTree().DebugCollisionsHint = true;
             if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
                 _slice2ObservePhase = VoxelSlice2ObservePhase.CaptureInitial;
             else
@@ -249,6 +264,12 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceObserve();
         AdvanceSlice2Observe();
         AdvanceBaseline();
+    }
+
+    public override void _PhysicsProcess(double delta)
+    {
+        if (_physicsSeenGeneration != _collisionRefreshGeneration)
+            _physicsSeenGeneration = _collisionRefreshGeneration;
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -286,13 +307,13 @@ public partial class VoxelDeveloperScene : Node3D
         var panel = new PanelContainer
         {
             Position = new Vector2(24, 24),
-            Size = new Vector2(760, 190)
+            Size = new Vector2(760, 220)
         };
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 6);
         _title = new Label();
         box.AddChild(_title);
-        box.AddChild(new Label { Text = "Delete 移除目标格 · Insert 添加 · R 重置 · ~ 控制台伤害/查询 · Esc 返回" });
+        box.AddChild(new Label { Text = "Delete 移除目标格 · Insert 添加 · R 重置 · ~ 控制台查询/碰撞 · Esc 返回" });
         _cell = new Label();
         _result = new Label { Text = "最近命令：场景已进入。" };
         box.AddChild(_cell);
@@ -334,16 +355,28 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void Refresh()
     {
-        _meshes.Refresh(_session, GetNode<Main>("/root/Main").Reloader?.Catalog.Current);
+        var catalog = GetNode<Main>("/root/Main").Reloader?.Catalog.Current;
+        _meshes.Refresh(_session, catalog);
+        _colliders.Refresh(_session, catalog);
+        _collisionRefreshGeneration++;
         _mesh = _meshes.PrimaryMesh;
         _dirty = false;
         var query = _session.Query(_selectedPosition);
+        var collide = _session.QueryCollision(_selectedPosition);
         _title.Text = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
             ? "Voxel 开发场景 · 切片 2 · 固定视角 · 2×2×2 Chunk · 32³"
             : "Voxel 开发场景 · 切片 1 · 固定视角 · 单 Chunk 16³";
-        _cell.Text = query.Voxel is null
+        var occupancy = query.Voxel is null
             ? $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：空。"
             : $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：占用 · {query.Voxel.DefinitionId.Value} · {CurrentName(query)} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability} · value {query.Value} · mass {query.Mass} · 上限 {query.MaxDurability}。";
+        var collision = collide.Status switch
+        {
+            VoxelCollisionQueryStatus.Hit => "碰撞：命中 full_box",
+            VoxelCollisionQueryStatus.Miss => "碰撞：未命中",
+            VoxelCollisionQueryStatus.OutOfBounds => "碰撞：越界",
+            _ => "碰撞：非法查询"
+        };
+        _cell.Text = occupancy + " " + collision;
     }
 
     private void SetResult(WorldCommandResult result)
@@ -404,6 +437,7 @@ public partial class VoxelDeveloperScene : Node3D
         AttachSession(new VoxelDevelopmentSession(catalog, identity));
         _selectedPosition = SelectedCell(identity);
         _meshes.Rebuild(this, identity);
+        _colliders.Rebuild(this, identity);
         _mesh = _meshes.PrimaryMesh;
         MarkDirty();
     }
@@ -706,10 +740,11 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.AwaitReloadAsset;
                 return;
             case VoxelSmokePhase.AwaitReloadAsset:
-                if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                if (!CollisionPhysicsReady || !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
                     return;
                 if (string.Equals(_displayFingerprintBeforeAsset, _meshes.DisplayFingerprint, StringComparison.Ordinal))
                     throw new InvalidOperationException("Voxel smoke cube display did not change after a published asset reload.");
+                RequireDomainAndPublishedCollision(_selectedPosition, expectHit: true);
                 GD.Print($"VOXEL_SMOKE_RELOAD_ASSET_UPDATED before={_displayFingerprintBeforeAsset} after={_meshes.DisplayFingerprint}");
                 ValidateGeneratedMesh();
                 _smokePhase = VoxelSmokePhase.ReloadOrient;
@@ -816,13 +851,18 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveX;
                 return;
             case VoxelSlice2SmokePhase.AwaitRemoveX:
-                if (_meshes.LastWorldVoxelCount != 1087)
+                if (_meshes.LastWorldVoxelCount != 1087 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
                 RequirePublishedMissingVoxel(new WorldVoxelCoord(16, 16, 15));
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 0));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 15), expectHit: true);
+                RequireDomainAndPublishedBox(15.25, 16.25, 15.25, 16.75, 16.75, 15.75, new WorldVoxelCoord(15, 16, 15));
+                RequirePublishedCollisionPartialRebuild(new ChunkCoord(1, 1, 0));
                 ValidateGeneratedMesh();
                 GD.Print($"VOXEL_SMOKE_X_BOUNDARY_MESH dirty={FormatDirty()} published=1");
+                GD.Print($"VOXEL_SMOKE_X_BOUNDARY_COLLIDE domain=miss godot=miss neighbor=hit published=1 straddle=1 dirty={FormatCollisionDirty()}");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreX;
                 return;
             case VoxelSlice2SmokePhase.RestoreX:
@@ -831,10 +871,16 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreX;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreX:
-                if (_meshes.LastWorldVoxelCount != 1088)
+                if (_meshes.LastWorldVoxelCount != 1088 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveX);
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 0));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: true);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 15), expectHit: true);
+                RequireDomainAndPublishedBox(
+                    15.25, 16.25, 15.25, 16.75, 16.75, 15.75,
+                    new WorldVoxelCoord(15, 16, 15),
+                    new WorldVoxelCoord(16, 16, 15));
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveY;
                 return;
             case VoxelSlice2SmokePhase.RemoveY:
@@ -844,13 +890,17 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveY;
                 return;
             case VoxelSlice2SmokePhase.AwaitRemoveY:
-                if (_meshes.LastWorldVoxelCount != 1087)
+                if (_meshes.LastWorldVoxelCount != 1087 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
                 RequirePublishedMissingVoxel(new WorldVoxelCoord(15, 15, 15));
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 0, 0), new ChunkCoord(0, 1, 0));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 15, 15), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 15), expectHit: true);
+                RequirePublishedCollisionPartialRebuild(new ChunkCoord(0, 0, 0));
                 ValidateGeneratedMesh();
                 GD.Print($"VOXEL_SMOKE_Y_BOUNDARY_MESH dirty={FormatDirty()} published=1");
+                GD.Print($"VOXEL_SMOKE_Y_BOUNDARY_COLLIDE domain=miss godot=miss neighbor=hit published=1 dirty={FormatCollisionDirty()}");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreY;
                 return;
             case VoxelSlice2SmokePhase.RestoreY:
@@ -859,10 +909,11 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreY;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreY:
-                if (_meshes.LastWorldVoxelCount != 1088)
+                if (_meshes.LastWorldVoxelCount != 1088 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.NegativeY);
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 0, 0), new ChunkCoord(0, 1, 0));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 15, 15), expectHit: true);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveZ;
                 return;
             case VoxelSlice2SmokePhase.RemoveZ:
@@ -872,13 +923,17 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRemoveZ;
                 return;
             case VoxelSlice2SmokePhase.AwaitRemoveZ:
-                if (_meshes.LastWorldVoxelCount != 1087)
+                if (_meshes.LastWorldVoxelCount != 1087 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
                 RequirePublishedMissingVoxel(new WorldVoxelCoord(15, 16, 16));
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(0, 1, 1));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 15), expectHit: true);
+                RequirePublishedCollisionPartialRebuild(new ChunkCoord(0, 1, 1));
                 ValidateGeneratedMesh();
                 GD.Print($"VOXEL_SMOKE_Z_BOUNDARY_MESH dirty={FormatDirty()} published=1");
+                GD.Print($"VOXEL_SMOKE_Z_BOUNDARY_COLLIDE domain=miss godot=miss neighbor=hit published=1 dirty={FormatCollisionDirty()}");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreZ;
                 return;
             case VoxelSlice2SmokePhase.RestoreZ:
@@ -887,10 +942,11 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreZ;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreZ:
-                if (_meshes.LastWorldVoxelCount != 1088)
+                if (_meshes.LastWorldVoxelCount != 1088 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 15), VoxelFaceNormal.PositiveZ);
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(0, 1, 1));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: true);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveJunction;
                 return;
             case VoxelSlice2SmokePhase.RemoveJunction:
@@ -900,15 +956,21 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitJunction;
                 return;
             case VoxelSlice2SmokePhase.AwaitJunction:
-                if (_meshes.LastWorldVoxelCount != 1087)
+                if (_meshes.LastWorldVoxelCount != 1087 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedExposedFace(new WorldVoxelCoord(15, 16, 16), VoxelFaceNormal.PositiveX);
                 RequirePublishedExposedFace(new WorldVoxelCoord(16, 15, 16), VoxelFaceNormal.PositiveY);
                 RequirePublishedExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.PositiveZ);
                 RequirePublishedMissingVoxel(new WorldVoxelCoord(16, 16, 16));
                 RequirePublishedPartialRebuild(new ChunkCoord(1, 1, 1));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 16), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: true);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 15, 16), expectHit: true);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: true);
+                RequirePublishedCollisionPartialRebuild(new ChunkCoord(1, 1, 1));
                 ValidateGeneratedMesh();
                 GD.Print($"VOXEL_SMOKE_JUNCTION_MESH dirty={FormatDirty()} published=1");
+                GD.Print($"VOXEL_SMOKE_JUNCTION_COLLIDE domain=miss godot=miss neighbor=hit published=1 dirty={FormatCollisionDirty()}");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RestoreJunction;
                 return;
             case VoxelSlice2SmokePhase.RestoreJunction:
@@ -917,12 +979,13 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitRestoreJunction;
                 return;
             case VoxelSlice2SmokePhase.AwaitRestoreJunction:
-                if (_meshes.LastWorldVoxelCount != 1088)
+                if (_meshes.LastWorldVoxelCount != 1088 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedHiddenFace(new WorldVoxelCoord(15, 16, 16), VoxelFaceNormal.PositiveX);
                 RequirePublishedHiddenFace(new WorldVoxelCoord(16, 15, 16), VoxelFaceNormal.PositiveY);
                 RequirePublishedHiddenFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.PositiveZ);
                 RequirePublishedPartialRebuild(new ChunkCoord(1, 1, 1));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 16), expectHit: true);
                 _slice2SmokePhase = VoxelSlice2SmokePhase.CrossDamage;
                 return;
             case VoxelSlice2SmokePhase.CrossDamage:
@@ -942,14 +1005,20 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitCrossDamage;
                 return;
             case VoxelSlice2SmokePhase.AwaitCrossDamage:
-                if (_meshes.LastWorldVoxelCount != 1086)
+                if (_meshes.LastWorldVoxelCount != 1086 || !CollisionPhysicsReady)
                     return;
                 RequirePublishedExposedFace(new WorldVoxelCoord(16, 16, 15), VoxelFaceNormal.NegativeX);
                 RequirePublishedMissingVoxel(new WorldVoxelCoord(15, 16, 15));
                 RequirePublishedMissingVoxel(new WorldVoxelCoord(16, 16, 16));
                 RequirePublishedPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 1));
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 15), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 16), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: true);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: true);
+                RequirePublishedCollisionPartialRebuild(new ChunkCoord(0, 1, 0), new ChunkCoord(1, 1, 1));
                 ValidateGeneratedMesh();
                 GD.Print($"VOXEL_SMOKE_CROSS_DAMAGE_MESH dirty={FormatDirty()} published=1");
+                GD.Print($"VOXEL_SMOKE_CROSS_DAMAGE_COLLIDE domain=miss godot=miss neighbor=hit published=1 dirty={FormatCollisionDirty()}");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RejectDamage;
                 return;
             case VoxelSlice2SmokePhase.RejectDamage:
@@ -961,7 +1030,72 @@ public partial class VoxelDeveloperScene : Node3D
                 });
                 if (rejected.Status != WorldCommandStatus.Empty || _session.World.VoxelCount != before)
                     throw new InvalidOperationException("Slice 2 smoke rejected damage mutated the world.");
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: true);
                 GD.Print("VOXEL_SMOKE_REJECT_PRESERVED");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.NoneOccupy;
+                return;
+            case VoxelSlice2SmokePhase.NoneOccupy:
+                if (_session.Add(ProbePosition, HollowId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added ||
+                    _session.Add(ProbePosition, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status != WorldCommandStatus.Occupied)
+                    throw new InvalidOperationException("Slice 2 smoke could not place a none-collision occupant.");
+                if (_session.QueryCollision(ProbePosition).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Domain collision hit a none occupant before Godot refresh.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitNoneOccupy;
+                return;
+            case VoxelSlice2SmokePhase.AwaitNoneOccupy:
+                if (_session.World.VoxelCount != 1087 || !CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(ProbePosition, expectHit: false);
+                if (!_session.Query(ProbePosition).IsOccupied)
+                    throw new InvalidOperationException("None occupant lost occupancy.");
+                GD.Print("VOXEL_SMOKE_NONE_OCCUPIED_NO_HIT");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.ReloadCollisionNone;
+                return;
+            case VoxelSlice2SmokePhase.ReloadCollisionNone:
+                RequireLiveReload().WriteIronOre(collisionKind: "none");
+                RequireCommittedReload("collision none");
+                if (_session.Query(new WorldVoxelCoord(15, 16, 16)).IsOccupied != true ||
+                    _session.QueryCollision(new WorldVoxelCoord(15, 16, 16)).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Legal none collision reload did not make occupied iron-ore miss immediately.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitReloadCollisionNone;
+                return;
+            case VoxelSlice2SmokePhase.AwaitReloadCollisionNone:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: false);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: false);
+                GD.Print("VOXEL_SMOKE_RELOAD_COLLISION_NONE");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.ReloadPresentationCollision;
+                return;
+            case VoxelSlice2SmokePhase.ReloadPresentationCollision:
+                RequireLiveReload().WriteIronOre(name: "热重载铁矿", collisionKind: "none");
+                RequireCommittedReload("presentation keeps none collision");
+                if (_session.QueryCollision(new WorldVoxelCoord(15, 16, 16)).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Presentation reload changed collision away from none.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitReloadPresentationCollision;
+                return;
+            case VoxelSlice2SmokePhase.AwaitReloadPresentationCollision:
+                if (!CollisionPhysicsReady ||
+                    !string.Equals(CurrentName(_session.Query(new WorldVoxelCoord(15, 16, 16))), "热重载铁矿", StringComparison.Ordinal))
+                    return;
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: false);
+                GD.Print("VOXEL_SMOKE_RELOAD_PRESENTATION_COLLISION_UNCHANGED");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.ReloadCollisionFullBox;
+                return;
+            case VoxelSlice2SmokePhase.ReloadCollisionFullBox:
+                RequireLiveReload().WriteIronOre(name: "热重载铁矿", collisionKind: "full_box");
+                RequireCommittedReload("collision full_box");
+                if (_session.QueryCollision(new WorldVoxelCoord(15, 16, 16)).Status != VoxelCollisionQueryStatus.Hit)
+                    throw new InvalidOperationException("Legal full_box collision reload did not restore a domain hit.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitReloadCollisionFullBox;
+                return;
+            case VoxelSlice2SmokePhase.AwaitReloadCollisionFullBox:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: true);
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: true);
+                RequireDomainAndPublishedCollision(ProbePosition, expectHit: false);
+                GD.Print("VOXEL_SMOKE_RELOAD_COLLISION_FULL_BOX");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.HandoffReload;
                 return;
             case VoxelSlice2SmokePhase.HandoffReload:
@@ -986,6 +1120,72 @@ public partial class VoxelDeveloperScene : Node3D
     {
         _chunkRevisionsBeforeEdit = VoxelChunks.All(_session.Identity)
             .ToDictionary(chunk => chunk, chunk => _meshes.MeshFor(chunk).Revision);
+        _collisionRevisionsBeforeEdit = VoxelChunks.All(_session.Identity)
+            .ToDictionary(chunk => chunk, chunk => _colliders.ColliderFor(chunk).Revision);
+    }
+
+    private bool CollisionPhysicsReady =>
+        _physicsSeenGeneration == _collisionRefreshGeneration && _collisionRefreshGeneration > 0;
+
+    private void RequireDomainAndPublishedCollision(WorldVoxelCoord cell, bool expectHit)
+    {
+        var domain = _session.QueryCollision(cell);
+        var domainHit = domain.Status == VoxelCollisionQueryStatus.Hit;
+        if (domainHit != expectHit)
+            throw new InvalidOperationException(
+                $"Domain collision at {cell} was {domain.Status}, expected {(expectHit ? "Hit" : "Miss")}.");
+        var published = _colliders.QueryPublishedCellInterior(GetWorld3D(), cell);
+        if (published != expectHit)
+            throw new InvalidOperationException(
+                $"Published Godot collision at {cell} was {published}, expected {expectHit}.");
+    }
+
+    private void RequireDomainAndPublishedBox(
+        double minX,
+        double minY,
+        double minZ,
+        double maxX,
+        double maxY,
+        double maxZ,
+        params WorldVoxelCoord[] expected)
+    {
+        if (!VoxelCollisionBox.TryCreate(minX, minY, minZ, maxX, maxY, maxZ, out var probe))
+            throw new InvalidOperationException("Slice 2 smoke used an invalid collision box.");
+        var domain = _session.QueryCollision(probe).Hits.Select(hit => hit.Cell).ToArray();
+        if (!expected.SequenceEqual(domain))
+            throw new InvalidOperationException(
+                $"Domain box hits [{string.Join("; ", domain)}] expected [{string.Join("; ", expected)}].");
+        var published = _colliders.QueryPublishedHits(GetWorld3D(), probe);
+        if (!expected.SequenceEqual(published))
+            throw new InvalidOperationException(
+                $"Published Godot box hits [{string.Join("; ", published)}] expected [{string.Join("; ", expected)}].");
+    }
+
+    private void RequirePublishedCollisionPartialRebuild(params ChunkCoord[] required)
+    {
+        if (_collisionRevisionsBeforeEdit is null)
+            throw new InvalidOperationException("Chunk collision revisions were not captured before the edit.");
+        var rebuilt = _colliders.LastRebuiltChunks;
+        if (rebuilt.Count >= VoxelChunks.All(_session.Identity).Count)
+            throw new InvalidOperationException("A local collision edit rebuilt every chunk.");
+        foreach (var chunk in required)
+        {
+            if (!rebuilt.Contains(chunk))
+                throw new InvalidOperationException(
+                    $"Expected dirty collision chunk {chunk} but rebuilt {FormatCollisionDirty()}.");
+        }
+
+        foreach (var chunk in VoxelChunks.All(_session.Identity))
+        {
+            var before = _collisionRevisionsBeforeEdit[chunk];
+            var after = _colliders.ColliderFor(chunk).Revision;
+            var wasRebuilt = rebuilt.Contains(chunk);
+            if (wasRebuilt && after <= before)
+                throw new InvalidOperationException(
+                    $"Dirty collision chunk {chunk} kept revision {after}; the published collider was not rebuilt.");
+            if (!wasRebuilt && after != before)
+                throw new InvalidOperationException($"Unaffected collision chunk {chunk} was rebuilt.");
+        }
     }
 
     private void RequireExposedFace(WorldVoxelCoord position, VoxelFaceNormal normal) =>
@@ -1060,6 +1260,9 @@ public partial class VoxelDeveloperScene : Node3D
 
     private string FormatDirty() =>
         string.Join(";", _meshes.LastRebuiltChunks.Select(chunk => $"{chunk.X},{chunk.Y},{chunk.Z}"));
+
+    private string FormatCollisionDirty() =>
+        string.Join(";", _colliders.LastRebuiltChunks.Select(chunk => $"{chunk.X},{chunk.Y},{chunk.Z}"));
 
     private void AdvanceObserve()
     {
@@ -1283,7 +1486,8 @@ public partial class VoxelDeveloperScene : Node3D
             throw;
         }
 
-        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_meshes.FaceCount} hud={_cell.Text} result={_result.Text} {note}");
+        var collide = _session.QueryCollision(_selectedPosition);
+        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_meshes.FaceCount} collide={collide.Status} hud={_cell.Text} result={_result.Text} {note}");
     }
 
     private void AdvanceSlice2Observe()

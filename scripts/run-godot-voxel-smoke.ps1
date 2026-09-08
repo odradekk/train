@@ -4,7 +4,8 @@ param(
     [switch] $IsolationAbort
 )
 
-# Repeatable real-Godot voxel smoke for slice 1 (#39/#46) and slice 2 (#50).
+# Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
+# and slice 2 collision queries (#51).
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -89,7 +90,7 @@ $env:TRAIN_VOXEL_SLICE = "$Slice"
 if ($IsolationAbort) {
     $env:TRAIN_VOXEL_SMOKE_ISOLATION_ABORT = "1"
 }
-$quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 2) { 150 } else { 90 }
+$quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 2) { 180 } else { 90 }
 $raw = & $godot --headless --path $root --quit-after $quitAfter 2>&1
 $godotExitCode = $LASTEXITCODE
 $output = $raw | Out-String
@@ -110,15 +111,24 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE2_BASE",
         "VOXEL_SMOKE_X_BOUNDARY",
         "VOXEL_SMOKE_X_BOUNDARY_MESH",
+        "VOXEL_SMOKE_X_BOUNDARY_COLLIDE",
         "VOXEL_SMOKE_Y_BOUNDARY",
         "VOXEL_SMOKE_Y_BOUNDARY_MESH",
+        "VOXEL_SMOKE_Y_BOUNDARY_COLLIDE",
         "VOXEL_SMOKE_Z_BOUNDARY",
         "VOXEL_SMOKE_Z_BOUNDARY_MESH",
+        "VOXEL_SMOKE_Z_BOUNDARY_COLLIDE",
         "VOXEL_SMOKE_JUNCTION",
         "VOXEL_SMOKE_JUNCTION_MESH",
+        "VOXEL_SMOKE_JUNCTION_COLLIDE",
         "VOXEL_SMOKE_CROSS_DAMAGE",
         "VOXEL_SMOKE_CROSS_DAMAGE_MESH",
+        "VOXEL_SMOKE_CROSS_DAMAGE_COLLIDE",
         "VOXEL_SMOKE_REJECT_PRESERVED",
+        "VOXEL_SMOKE_NONE_OCCUPIED_NO_HIT",
+        "VOXEL_SMOKE_RELOAD_COLLISION_NONE",
+        "VOXEL_SMOKE_RELOAD_PRESENTATION_COLLISION_UNCHANGED",
+        "VOXEL_SMOKE_RELOAD_COLLISION_FULL_BOX",
         "VOXEL_SMOKE_RELOAD_DAMAGED_80",
         "VOXEL_SMOKE_RELOAD_MAX_150",
         "VOXEL_SMOKE_RELOAD_TEXT_UPDATED",
@@ -198,6 +208,21 @@ if (-not $IsolationAbort -and $Slice -eq 2) {
     })
     if ($staleMesh.Count -gt 0) {
         [Console]::Error.WriteLine("Godot voxel smoke failed. Published ArrayMesh markers missing: $($staleMesh -join ', ')")
+        exit 1
+    }
+    $publishedCollision = @(
+        "VOXEL_SMOKE_X_BOUNDARY_COLLIDE",
+        "VOXEL_SMOKE_Y_BOUNDARY_COLLIDE",
+        "VOXEL_SMOKE_Z_BOUNDARY_COLLIDE",
+        "VOXEL_SMOKE_JUNCTION_COLLIDE",
+        "VOXEL_SMOKE_CROSS_DAMAGE_COLLIDE"
+    )
+    $staleCollision = @($publishedCollision | Where-Object {
+        $name = $_
+        -not ($output -split "`r?`n" | Where-Object { $_ -like "*$name*" -and $_ -like "*published=1*" })
+    })
+    if ($staleCollision.Count -gt 0) {
+        [Console]::Error.WriteLine("Godot voxel smoke failed. Published physics-query collision markers missing: $($staleCollision -join ', ')")
         exit 1
     }
 }

@@ -59,6 +59,11 @@ public static class VoxelChunks
             ? new[] { Of(position, identity.ChunkSize) }
             : Array.Empty<ChunkCoord>();
 
+    public static IReadOnlyList<ChunkCoord> AffectedByCollision(WorldVoxelCoord position, VoxelWorldIdentity identity) =>
+        identity.Bounds.Contains(position)
+            ? new[] { Of(position, identity.ChunkSize) }
+            : Array.Empty<ChunkCoord>();
+
     private static int DivCeil(int value, int divisor) => (value + divisor - 1) / divisor;
 
     private static int FloorDiv(int value, int divisor) =>

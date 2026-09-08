@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50）。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51）。
 
 ## 打开控制台与输入规则
 
@@ -25,6 +25,8 @@
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) | 重建初始开发世界 | 包含 PR #47，且已进入体素开发场景 |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
+| [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格的领域碰撞 | 同上 |
+| [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与 `full_box` 的重叠 | 同上 |
 | [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
@@ -50,7 +52,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value 和耐久上限；`voxel query` 会显示这些当前规格。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -90,6 +92,7 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `InvalidDamage` | 伤害值不是正整数，例如 `0` 或负数；世界不变 |
 | `UnknownDefinition` | ID 格式合法，但当前内容目录没有该定义；检查拼写和内容加载诊断 |
 | `DisallowedOrientation` | 编码是合法正交朝向，但该定义不允许；改用其允许的方向 |
+| `Collision Hit` / `Miss` / `OutOfBounds` / `InvalidQuery` | 领域碰撞查询结果；命中按字段分行写出格子、定义和 `kind`。语义见 [voxel collide](voxel-collide.md) |
 | `Usage: voxel ...` | 子命令、参数个数、整数、ID 格式或朝向编码不合法；按本手册的完整语法重新输入 |
 
 格式校验失败时不执行世界命令。例如缺少朝向、ID 使用大写、朝向写成 `90` 或 `px_px`，得到的是用法提示，而不是 `UnknownDefinition` / `DisallowedOrientation`。
@@ -108,12 +111,18 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 loglevel info
 voxel reset
 voxel query 4 4 4
+voxel collide 4 4 4
 voxel remove 4 4 4
+voxel collide 4 4 4
 voxel add 4 4 4 core:iron-ore px_py
 voxel add 4 4 4 core:iron-ore px_py
+voxel add 0 0 0 core:hollow px_py
+voxel query 0 0 0
+voxel collide 0 0 0
+voxel add 0 0 0 core:iron-ore px_py
 ```
 
-原始定义下应依次观察到初始 512 格、移除后 511 格、重加后 512 格/耐久 100，最后一次为 `Occupied`，仍为 512 格。
+原始定义下应依次观察到初始 512 格、`(4,4,4)` 碰撞 `Hit`/`full_box`、移除后 511 格且该格 `Miss`、重加后 512 格/耐久 100，最后一次铁矿为 `Occupied`。空心占格后总数 513，`query` 占用而 `collide` 为 `Miss`，再放铁矿得到 `Occupied`。
 
 ### 观察部分伤害、归零和内部空腔
 
@@ -178,7 +187,10 @@ voxel query 4 4 4
 loglevel info
 voxel reset
 voxel query 15 16 15
+voxel collide 15 16 15
+voxel collide 15.25 16 15 16.75 17 16
 voxel remove 16 16 15
+voxel collide 16 16 15
 voxel query 15 16 15
 voxel add 16 16 15 core:iron-ore px_py
 voxel remove 15 15 15
@@ -191,7 +203,7 @@ voxel damage 15 16 15 100 16 16 16 100 15 16 16 25
 voxel query 15 16 16
 ```
 
-重置后应为 1,088 格。去掉 `x=16` / `y=15` / `z=16` 一侧后，另一侧 `15/16` 邻接面应露出；交汇格 `(16,16,16)` 删除后邻接暴露面更新，无重叠面或残影。同一事件跨区伤害后总数 1,086，`(15,16,16)` 耐久 75。把最后一组伤害改成含空格或越界目标应整件拒绝，总数保持不变。
+重置后应为 1,088 格。初始 `(15,16,15)` 碰撞 `Hit`；跨 `15/16` 的盒应同时命中两侧。去掉 `x=16` / `y=15` / `z=16` 一侧后，另一侧 `15/16` 邻接面应露出，被删格 `collide` 立即 `Miss`、邻格仍 `Hit`；交汇格 `(16,16,16)` 删除后邻接暴露面更新，无重叠面或残影。同一事件跨区伤害后总数 1,086，`(15,16,16)` 耐久 75 且仍 `Hit`，被删两格 `Miss`。把最后一组伤害改成含空格或越界目标应整件拒绝，占用和碰撞保持不变。
 
 目前没有独立的旋转、保存、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
 

@@ -30,9 +30,10 @@ internal sealed class VoxelLiveReloadDriver
         long value = 10,
         double mass = 1,
         string name = "铁矿",
-        string description = "开发用占位自然资源种类，用于验证内容加载、校验与热重载。")
+        string description = "开发用占位自然资源种类，用于验证内容加载、校验与热重载。",
+        string collisionKind = "full_box")
     {
-        WriteIsolatedText(IronOreJsonRelative, IronOreJson(maxDurability, value, mass, name, description));
+        WriteIsolatedText(IronOreJsonRelative, IronOreJson(maxDurability, value, mass, name, description, collisionKind));
     }
 
     public void WriteAsymmetricCubePngs()
@@ -91,7 +92,13 @@ internal sealed class VoxelLiveReloadDriver
     private const string IronOreTopRelative = "voxels/iron-ore/top.png";
     private const string IronOreSideRelative = "voxels/iron-ore/side.png";
 
-    private static string IronOreJson(int maxDurability, long value, double mass, string name, string description) =>
+    private static string IronOreJson(
+        int maxDurability,
+        long value,
+        double mass,
+        string name,
+        string description,
+        string collisionKind) =>
         $$"""
         {
           "schema_version": 1,
@@ -113,7 +120,7 @@ internal sealed class VoxelLiveReloadDriver
                 "voxel_side": "voxels/iron-ore/side.png",
                 "voxel_bottom": "voxels/iron-ore/bottom.png"
               },
-              "collision": { "kind": "full_box" }
+              "collision": { "kind": "{{collisionKind}}" }
             }
           ]
         }

@@ -318,6 +318,59 @@ public sealed class VoxelWorldCommands
         };
     }
 
+    public VoxelCollisionQueryResult QueryCollision(WorldVoxelCoord cell)
+    {
+        var probe = VoxelCollisionBox.ForCell(cell);
+        if (!_world.Bounds.Contains(cell))
+            return VoxelCollisionQueryResult.OutOfBounds(probe);
+        return QueryCollision(probe);
+    }
+
+    public VoxelCollisionQueryResult QueryCollision(
+        double minX,
+        double minY,
+        double minZ,
+        double maxX,
+        double maxY,
+        double maxZ)
+    {
+        if (!VoxelCollisionBox.TryCreate(minX, minY, minZ, maxX, maxY, maxZ, out var probe))
+            return VoxelCollisionQueryResult.Invalid();
+        return QueryCollision(probe);
+    }
+
+    public VoxelCollisionQueryResult QueryCollision(VoxelCollisionBox probe)
+    {
+        if (!probe.Overlaps(VoxelCollisionBox.ForWorld(_world.Bounds)))
+            return VoxelCollisionQueryResult.OutOfBounds(probe);
+
+        var hits = new List<VoxelCollisionHit>();
+        foreach (var (position, voxel) in _world.OccupiedVoxels())
+        {
+            if (!VoxelCollisionBox.ForCell(position).Overlaps(probe))
+                continue;
+            if (_catalog.Current?.TryGet(voxel.DefinitionId, out var entry) != true)
+                continue;
+            if (entry.Definition.Collision.Kind != VoxelCollisionKind.FullBox)
+                continue;
+            hits.Add(new VoxelCollisionHit(position, voxel.DefinitionId, VoxelCollisionKind.FullBox));
+        }
+
+        hits.Sort(CompareHits);
+        return hits.Count == 0
+            ? VoxelCollisionQueryResult.Miss(probe)
+            : VoxelCollisionQueryResult.Hit(probe, hits);
+    }
+
+    private static int CompareHits(VoxelCollisionHit left, VoxelCollisionHit right)
+    {
+        var x = left.Cell.X.CompareTo(right.Cell.X);
+        if (x != 0)
+            return x;
+        var y = left.Cell.Y.CompareTo(right.Cell.Y);
+        return y != 0 ? y : left.Cell.Z.CompareTo(right.Cell.Z);
+    }
+
     public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
     {
         if (!_world.Bounds.Contains(position))
