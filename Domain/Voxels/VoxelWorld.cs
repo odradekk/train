@@ -107,6 +107,16 @@ public readonly record struct VoxelOrientation
             AlongWorld(VoxelAxis.PositiveZ, localX, localY, localZ));
     }
 
+    public (double X, double Y, double Z) ToLocalCell(double worldX, double worldY, double worldZ)
+    {
+        if (!IsFinite(worldX) || !IsFinite(worldY) || !IsFinite(worldZ))
+            throw new ArgumentOutOfRangeException(nameof(worldX), "World-relative coordinates must be finite.");
+        return (
+            AlongLocal(VoxelAxis.PositiveX, worldX, worldY, worldZ),
+            AlongLocal(VoxelAxis.PositiveY, worldX, worldY, worldZ),
+            AlongLocal(VoxelAxis.PositiveZ, worldX, worldY, worldZ));
+    }
+
     public override string ToString() => $"{ToWire(Right)}_{ToWire(Up)}";
 
     public static bool TryParse(string? value, out VoxelOrientation orientation)
@@ -183,6 +193,21 @@ public readonly record struct VoxelOrientation
         if (Opposite(Forward) == world)
             return 1 - localZ;
         throw new ArgumentOutOfRangeException(nameof(world), world, "World axis is not produced by this orientation.");
+    }
+
+    private double AlongLocal(VoxelAxis local, double worldX, double worldY, double worldZ)
+    {
+        var world = Transform(local);
+        var value = world switch
+        {
+            VoxelAxis.PositiveX or VoxelAxis.NegativeX => worldX,
+            VoxelAxis.PositiveY or VoxelAxis.NegativeY => worldY,
+            VoxelAxis.PositiveZ or VoxelAxis.NegativeZ => worldZ,
+            _ => throw new ArgumentOutOfRangeException(nameof(local), local, "Unknown voxel axis.")
+        };
+        return world is VoxelAxis.NegativeX or VoxelAxis.NegativeY or VoxelAxis.NegativeZ
+            ? 1 - value
+            : value;
     }
 
     private static bool IsFinite(double value) =>
@@ -383,8 +408,7 @@ public sealed class VoxelWorldCommands
                 continue;
             if (_catalog.Current?.TryGet(voxel.DefinitionId, out var entry) != true)
                 continue;
-            if (!entry.Definition.Collision.TryWorldBox(position, voxel.Orientation, out var shape) ||
-                !shape.Overlaps(probe))
+            if (!entry.Definition.Collision.OverlapsProbe(position, voxel.Orientation, probe))
                 continue;
             hits.Add(new VoxelCollisionHit(position, voxel.DefinitionId, entry.Definition.Collision.Kind));
         }

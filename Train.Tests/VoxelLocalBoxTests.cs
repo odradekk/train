@@ -105,7 +105,6 @@ public sealed class VoxelLocalBoxTests
             ContentFixtures.LocalBoxCollision(offsetX: 0.8, sizeX: 0.3),
             ContentFixtures.LocalBoxCollision(offsetX: 0.5, sizeX: 1e-20),
             ContentFixtures.LocalBoxCollision(offsetX: 1, sizeX: 1e-20),
-            ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-20),
             "{\"kind\":\"local_box\"}",
             "{\"kind\":\"local_box\",\"offset\":{\"x\":0.1,\"y\":0.1,\"z\":0.1}}",
             "{\"kind\":\"localBox\",\"offset\":{\"x\":0.125,\"y\":0,\"z\":0.25},\"size\":{\"x\":0.25,\"y\":0.875,\"z\":0.5}}",
@@ -199,7 +198,7 @@ public sealed class VoxelLocalBoxTests
     }
 
     [TestMethod]
-    public void Unrepresentable_local_box_edges_reject_publish_and_keep_existing_hits()
+    public void Collapsed_local_box_ends_reject_publish_and_keep_existing_hits()
     {
         using var harness = LocalBoxHarness.Create();
         var translated = new WorldVoxelCoord(1, 0, 0);
@@ -212,7 +211,7 @@ public sealed class VoxelLocalBoxTests
         var snapshot = harness.Reloader.Catalog.Current;
         var generation = snapshot!.Generation;
 
-        foreach (var (offsetX, sizeX) in new[] { (0.5, 1e-20), (1.0, 1e-20), (0.0, 1e-20) })
+        foreach (var (offsetX, sizeX) in new[] { (0.5, 1e-20), (1.0, 1e-20) })
         {
             harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
@@ -230,6 +229,49 @@ public sealed class VoxelLocalBoxTests
         var thrown = Assert.ThrowsException<ArgumentException>(() =>
             VoxelCollision.CreateLocalBox(0.5, 0, 0.25, 1e-20, 0.875, 0.5));
         Assert.AreNotEqual("sizeX", thrown.ParamName);
+    }
+
+    [TestMethod]
+    public void Thin_local_box_stays_a_hit_after_real_world_translation()
+    {
+        var identity = VoxelWorldIdentity.FromBounds(new VoxelWorldBounds(8, 8, 8), chunkSize: 8);
+        using var harness = LocalBoxHarness.Create(identity);
+        Assert.AreEqual(8, harness.Session.World.Bounds.SizeX);
+        Assert.AreNotEqual(31, harness.Session.World.Bounds.SizeX - 1);
+
+        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
+                collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-20))));
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
+        Assert.AreEqual(1e-20, harness.Reloader.Catalog.Current!.Entries[Ledge].Definition.Collision.SizeX);
+
+        var origin = Empty;
+        var translated = new WorldVoxelCoord(1, 0, 0);
+        var negative = new VoxelOrientation(VoxelAxis.NegativeX, VoxelAxis.PositiveY);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(origin, Ledge, VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(translated, Ledge, negative).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(origin).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(translated).Status);
+        AssertHit(harness.Commands, 0, 0.08, 0.48, 0.01, 0.12, 0.52, origin);
+        AssertHit(harness.Commands, 1.99, 0.08, 0.48, 2, 0.12, 0.52, translated);
+        AssertMiss(harness.Commands, 1.18, 0.08, 0.48, 1.22, 0.12, 0.52);
+
+        var console = new VoxelConsoleCommands(harness.Session);
+        StringAssert.Contains(console.Execute(["collide", "0", "0", "0"]), "Collision Hit");
+        StringAssert.Contains(console.Execute(["collide", "1", "0", "0"]), "Collision Hit");
+
+        var snapshot = harness.Reloader.Catalog.Current;
+        var generation = snapshot.Generation;
+        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
+                collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0.5, sizeX: 1e-20))));
+        var rejected = harness.Reloader.Reload();
+        Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
+        Assert.AreSame(snapshot, harness.Reloader.Catalog.Current);
+        Assert.AreEqual(generation, rejected.CatalogVersion);
+        Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(origin).Status);
+        Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(translated).Status);
+        Assert.IsNotNull(VoxelCollision.CreateLocalBox(0, 0, 0.25, 1e-20, 0.875, 0.5));
     }
 
     [TestMethod]
@@ -403,7 +445,7 @@ public sealed class VoxelLocalBoxTests
 
     // Independent expected geometry for offset (0.125,0,0.25) size (0.25,0.875,0.4).
     // World intervals come from the documented Right/Up/Forward axis map and 1-local
-    // on a negative axis, not from ToWorldCell or TryWorldBox.
+    // on a negative axis, not from ToWorldCell or OverlapsProbe.
     // Each Hit cube occupies a pocket that belongs to only that orientation's AABB, so
     // an axis swap or sign flip misses. Non-identity Miss cubes sit in the identity-only
     // pocket; identity Miss is the in-cell far corner outside the identity AABB.
@@ -501,7 +543,7 @@ public sealed class VoxelLocalBoxTests
             Session = voxelSession;
         }
 
-        public static LocalBoxHarness Create()
+        public static LocalBoxHarness Create(VoxelWorldIdentity? identity = null)
         {
             var session = LoggerSession.Create();
             var source = ContentFixtures.ValidIron();
@@ -512,7 +554,7 @@ public sealed class VoxelLocalBoxTests
                     collisionJson: ContentFixtures.LocalBoxCollision())));
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-            var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
+            var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, identity);
             reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
             return new LocalBoxHarness(
                 session,

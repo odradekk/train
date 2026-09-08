@@ -31,23 +31,25 @@ public partial class VoxelChunkCollider : StaticBody3D
             if (VoxelChunks.Of(position, world.ChunkSize) != chunk)
                 continue;
             if (catalog?.TryGet(voxel.DefinitionId, out var entry) != true ||
-                !entry.Definition.Collision.TryWorldBox(position, voxel.Orientation, out var worldBox))
+                !entry.Definition.Collision.TryDerivedExtents(
+                    position,
+                    voxel.Orientation,
+                    out var centerX,
+                    out var centerY,
+                    out var centerZ,
+                    out var sizeX,
+                    out var sizeY,
+                    out var sizeZ))
                 continue;
 
             var shape = new CollisionShape3D
             {
                 Shape = new BoxShape3D
                 {
-                    Size = new Vector3(
-                        (float)(worldBox.MaxX - worldBox.MinX),
-                        (float)(worldBox.MaxY - worldBox.MinY),
-                        (float)(worldBox.MaxZ - worldBox.MinZ)),
+                    Size = new Vector3((float)sizeX, (float)sizeY, (float)sizeZ),
                     Margin = 0
                 },
-                Position = new Vector3(
-                    (float)((worldBox.MinX + worldBox.MaxX) * 0.5),
-                    (float)((worldBox.MinY + worldBox.MaxY) * 0.5),
-                    (float)((worldBox.MinZ + worldBox.MaxZ) * 0.5))
+                Position = new Vector3((float)centerX, (float)centerY, (float)centerZ)
             };
             shape.SetMeta("cell_x", position.X);
             shape.SetMeta("cell_y", position.Y);
@@ -59,5 +61,27 @@ public partial class VoxelChunkCollider : StaticBody3D
         ShapeCount = shapes;
         LastWorldVoxelCount = world.VoxelCount;
         Revision++;
+    }
+
+    public bool TryGetBoxSize(WorldVoxelCoord cell, out Vector3 size)
+    {
+        size = default;
+        foreach (var child in GetChildren())
+        {
+            if (child is not CollisionShape3D shape ||
+                shape.Shape is not BoxShape3D box ||
+                !shape.HasMeta("cell_x") ||
+                !shape.HasMeta("cell_y") ||
+                !shape.HasMeta("cell_z"))
+                continue;
+            if (shape.GetMeta("cell_x").AsInt32() != cell.X ||
+                shape.GetMeta("cell_y").AsInt32() != cell.Y ||
+                shape.GetMeta("cell_z").AsInt32() != cell.Z)
+                continue;
+            size = box.Size;
+            return true;
+        }
+
+        return false;
     }
 }

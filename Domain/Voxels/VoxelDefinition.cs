@@ -116,42 +116,87 @@ public sealed class VoxelCollision
         double sizeZ)
     {
         if (!TryCreateLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ, out var collision))
-            throw new ArgumentException("Local box must be finite, strictly positive, inside the unit cell, and remain a positive-volume box after orientation and translation.");
+            throw new ArgumentException("Local box must be finite, strictly positive, and a distinguishable interval inside the unit cell.");
         return collision;
     }
 
-    public bool TryWorldBox(WorldVoxelCoord cell, VoxelOrientation orientation, out VoxelCollisionBox box)
+    public bool OverlapsProbe(WorldVoxelCoord cell, VoxelOrientation orientation, VoxelCollisionBox probe)
     {
-        box = default;
+        if (Kind == VoxelCollisionKind.None)
+            return false;
+        if (Kind == VoxelCollisionKind.FullBox)
+            return VoxelCollisionBox.ForCell(cell).Overlaps(probe);
+        return LocalBoxOverlaps(cell, orientation, probe);
+    }
+
+    public bool TryDerivedExtents(
+        WorldVoxelCoord cell,
+        VoxelOrientation orientation,
+        out double centerX,
+        out double centerY,
+        out double centerZ,
+        out double sizeX,
+        out double sizeY,
+        out double sizeZ)
+    {
+        centerX = centerY = centerZ = sizeX = sizeY = sizeZ = 0;
         if (Kind == VoxelCollisionKind.None)
             return false;
         if (Kind == VoxelCollisionKind.FullBox)
         {
-            box = VoxelCollisionBox.ForCell(cell);
+            centerX = cell.X + 0.5;
+            centerY = cell.Y + 0.5;
+            centerZ = cell.Z + 0.5;
+            sizeX = sizeY = sizeZ = 1;
             return true;
         }
 
+        var (localCenterX, localCenterY, localCenterZ) = orientation.ToWorldCell(
+            OffsetX + SizeX * 0.5,
+            OffsetY + SizeY * 0.5,
+            OffsetZ + SizeZ * 0.5);
+        centerX = cell.X + localCenterX;
+        centerY = cell.Y + localCenterY;
+        centerZ = cell.Z + localCenterZ;
+        sizeX = SizeAlong(orientation.InverseTransform(VoxelAxis.PositiveX));
+        sizeY = SizeAlong(orientation.InverseTransform(VoxelAxis.PositiveY));
+        sizeZ = SizeAlong(orientation.InverseTransform(VoxelAxis.PositiveZ));
+        return true;
+    }
+
+    private bool LocalBoxOverlaps(WorldVoxelCoord cell, VoxelOrientation orientation, VoxelCollisionBox probe)
+    {
         var minX = double.PositiveInfinity;
         var minY = double.PositiveInfinity;
         var minZ = double.PositiveInfinity;
         var maxX = double.NegativeInfinity;
         var maxY = double.NegativeInfinity;
         var maxZ = double.NegativeInfinity;
-        foreach (var localX in new[] { OffsetX, OffsetX + SizeX })
-        foreach (var localY in new[] { OffsetY, OffsetY + SizeY })
-        foreach (var localZ in new[] { OffsetZ, OffsetZ + SizeZ })
+        foreach (var worldX in new[] { probe.MinX - cell.X, probe.MaxX - cell.X })
+        foreach (var worldY in new[] { probe.MinY - cell.Y, probe.MaxY - cell.Y })
+        foreach (var worldZ in new[] { probe.MinZ - cell.Z, probe.MaxZ - cell.Z })
         {
-            var (x, y, z) = orientation.ToWorldCell(localX, localY, localZ);
-            minX = Math.Min(minX, cell.X + x);
-            minY = Math.Min(minY, cell.Y + y);
-            minZ = Math.Min(minZ, cell.Z + z);
-            maxX = Math.Max(maxX, cell.X + x);
-            maxY = Math.Max(maxY, cell.Y + y);
-            maxZ = Math.Max(maxZ, cell.Z + z);
+            var (localX, localY, localZ) = orientation.ToLocalCell(worldX, worldY, worldZ);
+            minX = Math.Min(minX, localX);
+            minY = Math.Min(minY, localY);
+            minZ = Math.Min(minZ, localZ);
+            maxX = Math.Max(maxX, localX);
+            maxY = Math.Max(maxY, localY);
+            maxZ = Math.Max(maxZ, localZ);
         }
 
-        return VoxelCollisionBox.TryCreate(minX, minY, minZ, maxX, maxY, maxZ, out box);
+        return minX < OffsetX + SizeX && maxX > OffsetX &&
+               minY < OffsetY + SizeY && maxY > OffsetY &&
+               minZ < OffsetZ + SizeZ && maxZ > OffsetZ;
     }
+
+    private double SizeAlong(VoxelAxis localAxis) => localAxis switch
+    {
+        VoxelAxis.PositiveX or VoxelAxis.NegativeX => SizeX,
+        VoxelAxis.PositiveY or VoxelAxis.NegativeY => SizeY,
+        VoxelAxis.PositiveZ or VoxelAxis.NegativeZ => SizeZ,
+        _ => throw new ArgumentOutOfRangeException(nameof(localAxis), localAxis, "Unknown voxel axis.")
+    };
 
     private static bool IsValidLocalBox(
         double offsetX,
@@ -166,43 +211,12 @@ public sealed class VoxelCollision
             sizeX <= 0 || sizeY <= 0 || sizeZ <= 0 ||
             offsetX < 0 || offsetY < 0 || offsetZ < 0)
             return false;
-        // The represented end must stay distinguishable from the start and inside [0,1].
-        if (offsetX + sizeX <= offsetX || offsetY + sizeY <= offsetY || offsetZ + sizeZ <= offsetZ ||
-            offsetX + sizeX > 1 || offsetY + sizeY > 1 || offsetZ + sizeZ > 1)
-            return false;
-
-        var candidate = new VoxelCollision(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ);
-        // Current development slices are 16³ and 32³. Translation by 1 reproduces the
-        // review case; 31 is the farthest in-bounds cell. This is representability,
-        // not a new authoring minimum size.
-        const int farthestDevelopmentCell = 31;
-        foreach (var cell in new[]
-                 {
-                     new WorldVoxelCoord(0, 0, 0),
-                     new WorldVoxelCoord(1, 0, 0),
-                     new WorldVoxelCoord(0, 1, 0),
-                     new WorldVoxelCoord(0, 0, 1),
-                     new WorldVoxelCoord(farthestDevelopmentCell, farthestDevelopmentCell, farthestDevelopmentCell)
-                 })
-        {
-            foreach (var orientation in VoxelOrientation.All)
-            {
-                if (!candidate.TryWorldBox(cell, orientation, out var box) ||
-                    !RemainsPositiveInDerivedSinglePrecision(box))
-                    return false;
-            }
-        }
-
-        return true;
+        // Ends must stay distinguishable in double and inside the unit cell.
+        // Orthogonal maps send [0,1] to [0,1]; world translation and Godot
+        // single-precision conversion are query/adapter concerns, not content law.
+        return offsetX + sizeX > offsetX && offsetY + sizeY > offsetY && offsetZ + sizeZ > offsetZ &&
+               offsetX + sizeX <= 1 && offsetY + sizeY <= 1 && offsetZ + sizeZ <= 1;
     }
-
-    private static bool RemainsPositiveInDerivedSinglePrecision(VoxelCollisionBox box) =>
-        (float)box.MaxX > (float)box.MinX &&
-        (float)box.MaxY > (float)box.MinY &&
-        (float)box.MaxZ > (float)box.MinZ &&
-        (float)(box.MaxX - box.MinX) > 0 &&
-        (float)(box.MaxY - box.MinY) > 0 &&
-        (float)(box.MaxZ - box.MinZ) > 0;
 
     private static bool IsFinite(double value) =>
         !double.IsNaN(value) && !double.IsInfinity(value);

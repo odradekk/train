@@ -126,6 +126,8 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitLocalBoxRemove,
         LocalBoxReload,
         AwaitLocalBoxReload,
+        LocalBoxThinTranslate,
+        AwaitLocalBoxThinTranslate,
         LocalBoxReject,
         AwaitLocalBoxReject,
         LocalBoxLethal,
@@ -1184,6 +1186,21 @@ public partial class VoxelDeveloperScene : Node3D
                     return;
                 RequireLedgeReloadedRegion();
                 GD.Print("VOXEL_SMOKE_LOCAL_BOX_RELOADED domain=moved godot=moved published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxThinTranslate;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxThinTranslate:
+                RequireLiveReload().WriteLedge(0, 0, 0.25, 1e-20, 0.875, 0.5);
+                RequireCommittedReload("thin local box");
+                if (_session.QueryCollision(LedgeCell).Status != VoxelCollisionQueryStatus.Hit)
+                    throw new InvalidOperationException("Thin local box lost domain collision after translation to the slice-2 cell.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxThinTranslate;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxThinTranslate:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequirePublishedWholeCell(LedgeCell, expectHit: true);
+                RequirePublishedDerivedSize(LedgeCell, expectedSizeX: 1e-20);
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_TRANSLATED_EDGE domain=hit godot=hit size=local published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxReject;
                 return;
             case VoxelSlice2SmokePhase.LocalBoxReject:
@@ -1203,7 +1220,8 @@ public partial class VoxelDeveloperScene : Node3D
             case VoxelSlice2SmokePhase.AwaitLocalBoxReject:
                 if (!CollisionPhysicsReady)
                     return;
-                RequireLedgeReloadedRegion();
+                RequirePublishedWholeCell(LedgeCell, expectHit: true);
+                RequirePublishedDerivedSize(LedgeCell, expectedSizeX: 1e-20);
                 GD.Print("VOXEL_SMOKE_LOCAL_BOX_REJECTED domain=kept godot=kept published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxLethal;
                 return;
@@ -1249,6 +1267,29 @@ public partial class VoxelDeveloperScene : Node3D
 
     private bool CollisionPhysicsReady =>
         _physicsSeenGeneration == _collisionRefreshGeneration && _collisionRefreshGeneration > 0;
+
+    private void RequirePublishedWholeCell(WorldVoxelCoord cell, bool expectHit)
+    {
+        var domain = _session.QueryCollision(cell);
+        var domainHit = domain.Status == VoxelCollisionQueryStatus.Hit;
+        if (domainHit != expectHit)
+            throw new InvalidOperationException(
+                $"Domain whole-cell collision at {cell} was {domain.Status}, expected {(expectHit ? "Hit" : "Miss")}.");
+        var published = _colliders.QueryPublishedHits(GetWorld3D(), VoxelCollisionBox.ForCell(cell)).Contains(cell);
+        if (published != expectHit)
+            throw new InvalidOperationException(
+                $"Published Godot whole-cell collision at {cell} was {published}, expected {expectHit}.");
+    }
+
+    private void RequirePublishedDerivedSize(WorldVoxelCoord cell, double expectedSizeX)
+    {
+        var chunk = VoxelChunks.Of(cell, _session.Identity.ChunkSize);
+        if (!_colliders.ColliderFor(chunk).TryGetBoxSize(cell, out var size) ||
+            size.X != (float)expectedSizeX ||
+            size.X <= 0)
+            throw new InvalidOperationException(
+                $"Published Godot size at {cell} was {size}, expected local size {(float)expectedSizeX}.");
+    }
 
     private void RequireDomainAndPublishedCollision(WorldVoxelCoord cell, bool expectHit)
     {
