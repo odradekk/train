@@ -1039,6 +1039,16 @@ internal static class ContentFixtures
         return $"{{\"id\":{Json(id)},\"name\":{Json(name)},\"description\":{Json(description)},\"value\":{value},\"mass\":{VoxelDefinition.FormatMass(mass)},\"max_durability\":{maxDurability},\"tags\":{tagsJson},\"behaviors\":{behaviorsJson},\"allowed_orientations\":{Json(orientations)},\"presentation\":{presentation},\"collision\":{collisionJson}}}";
     }
 
+    public static string LocalBoxCollision(
+        double offsetX = 0.125,
+        double offsetY = 0,
+        double offsetZ = 0.25,
+        double sizeX = 0.25,
+        double sizeY = 0.875,
+        double sizeZ = 0.5) =>
+        $"{{\"kind\":\"local_box\",\"offset\":{{\"x\":{VoxelDefinition.FormatMass(offsetX)},\"y\":{VoxelDefinition.FormatMass(offsetY)},\"z\":{VoxelDefinition.FormatMass(offsetZ)}}},\"size\":{{\"x\":{VoxelDefinition.FormatMass(sizeX)},\"y\":{VoxelDefinition.FormatMass(sizeY)},\"z\":{VoxelDefinition.FormatMass(sizeZ)}}}}}";
+
+
     public static string ManyGoods(int fromInclusive, int toInclusive)
     {
         var voxels = Enumerable.Range(fromInclusive, toInclusive - fromInclusive + 1)

@@ -480,17 +480,27 @@ internal static class VoxelsJsonParser
         }
 
         string? kindText = null;
+        JsonElement? offset = null;
+        JsonElement? size = null;
         foreach (var property in element.EnumerateObject())
         {
             var fieldPath = jsonPath + "/" + property.Name;
-            if (property.Name != "kind")
+            switch (property.Name)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
-                return false;
+                case "kind":
+                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CollisionInvalid, out kindText))
+                        return false;
+                    break;
+                case "offset":
+                    offset = property.Value;
+                    break;
+                case "size":
+                    size = property.Value;
+                    break;
+                default:
+                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    return false;
             }
-
-            if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CollisionInvalid, out kindText))
-                return false;
         }
 
         if (!VoxelDefinition.TryParseCollisionKind(kindText, out var kind))
@@ -499,7 +509,93 @@ internal static class VoxelsJsonParser
             return false;
         }
 
-        collision = new VoxelCollision(kind);
+        if (kind is VoxelCollisionKind.None or VoxelCollisionKind.FullBox)
+        {
+            if (offset is not null || size is not null)
+            {
+                diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "none and full_box cannot include a local box.", jsonPath);
+                return false;
+            }
+
+            collision = new VoxelCollision(kind);
+            return true;
+        }
+
+        if (offset is null || size is null)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "local_box requires offset and size.", jsonPath);
+            return false;
+        }
+
+        if (!TryParseLocalVector(offset.Value, jsonPath + "/offset", diagnostics, out var offsetX, out var offsetY, out var offsetZ) ||
+            !TryParseLocalVector(size.Value, jsonPath + "/size", diagnostics, out var sizeX, out var sizeY, out var sizeZ))
+            return false;
+
+        if (!VoxelCollision.TryCreateLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ, out collision))
+        {
+            diagnostics.Warn(
+                ContentDiagnosticCodes.CollisionInvalid,
+                "local_box must be finite, strictly positive, and inside the unit cell.",
+                jsonPath);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryParseLocalVector(
+        JsonElement element,
+        string jsonPath,
+        DiagnosticBag diagnostics,
+        out double x,
+        out double y,
+        out double z)
+    {
+        x = 0;
+        y = 0;
+        z = 0;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "Local box vector must be an object.", jsonPath);
+            return false;
+        }
+
+        double? parsedX = null, parsedY = null, parsedZ = null;
+        foreach (var property in element.EnumerateObject())
+        {
+            var fieldPath = jsonPath + "/" + property.Name;
+            switch (property.Name)
+            {
+                case "x":
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CollisionInvalid, out var valueX))
+                        return false;
+                    parsedX = valueX;
+                    break;
+                case "y":
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CollisionInvalid, out var valueY))
+                        return false;
+                    parsedY = valueY;
+                    break;
+                case "z":
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.CollisionInvalid, out var valueZ))
+                        return false;
+                    parsedZ = valueZ;
+                    break;
+                default:
+                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    return false;
+            }
+        }
+
+        if (parsedX is null || parsedY is null || parsedZ is null)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "Local box vector requires x, y, and z.", jsonPath);
+            return false;
+        }
+
+        x = parsedX.Value;
+        y = parsedY.Value;
+        z = parsedZ.Value;
         return true;
     }
 
@@ -526,15 +622,18 @@ internal static class VoxelsJsonParser
         out double value)
     {
         value = 0;
+        var message = code == ContentDiagnosticCodes.MassInvalid
+            ? "Mass must be a finite number."
+            : "Number must be finite.";
         if (element.ValueKind != JsonValueKind.Number)
         {
-            diagnostics.Warn(code, "Mass must be a finite number.", jsonPath);
+            diagnostics.Warn(code, message, jsonPath);
             return false;
         }
 
         if (!element.TryGetDouble(out value) || double.IsNaN(value) || double.IsInfinity(value))
         {
-            diagnostics.Warn(code, "Mass must be a finite number.", jsonPath);
+            diagnostics.Warn(code, message, jsonPath);
             return false;
         }
 

@@ -31,17 +31,23 @@ public partial class VoxelChunkCollider : StaticBody3D
             if (VoxelChunks.Of(position, world.ChunkSize) != chunk)
                 continue;
             if (catalog?.TryGet(voxel.DefinitionId, out var entry) != true ||
-                entry.Definition.Collision.Kind != VoxelCollisionKind.FullBox)
+                !entry.Definition.Collision.TryWorldBox(position, voxel.Orientation, out var worldBox))
                 continue;
 
             var shape = new CollisionShape3D
             {
                 Shape = new BoxShape3D
                 {
-                    Size = Vector3.One,
+                    Size = new Vector3(
+                        (float)(worldBox.MaxX - worldBox.MinX),
+                        (float)(worldBox.MaxY - worldBox.MinY),
+                        (float)(worldBox.MaxZ - worldBox.MinZ)),
                     Margin = 0
                 },
-                Position = new Vector3(position.X + 0.5f, position.Y + 0.5f, position.Z + 0.5f)
+                Position = new Vector3(
+                    (float)((worldBox.MinX + worldBox.MaxX) * 0.5),
+                    (float)((worldBox.MinY + worldBox.MaxY) * 0.5),
+                    (float)((worldBox.MinZ + worldBox.MaxZ) * 0.5))
             };
             shape.SetMeta("cell_x", position.X);
             shape.SetMeta("cell_y", position.Y);

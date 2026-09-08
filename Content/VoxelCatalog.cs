@@ -150,6 +150,22 @@ internal static class ContentRevisions
             writer.WriteEndArray();
             writer.WriteStartObject("collision");
             writer.WriteString("kind", VoxelDefinition.ToWire(definition.Collision.Kind));
+            if (definition.Collision.Kind == VoxelCollisionKind.LocalBox)
+            {
+                writer.WritePropertyName("offset_x");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(definition.Collision.OffsetX));
+                writer.WritePropertyName("offset_y");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(definition.Collision.OffsetY));
+                writer.WritePropertyName("offset_z");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(definition.Collision.OffsetZ));
+                writer.WritePropertyName("size_x");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(definition.Collision.SizeX));
+                writer.WritePropertyName("size_y");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(definition.Collision.SizeY));
+                writer.WritePropertyName("size_z");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(definition.Collision.SizeZ));
+            }
+
             writer.WriteEndObject();
             writer.WriteNumber("encoding_version", SemanticEncodingVersion);
             writer.WriteString("id", definition.Id.Value);

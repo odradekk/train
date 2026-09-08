@@ -24,7 +24,8 @@ public enum VoxelPresentationKind
 public enum VoxelCollisionKind
 {
     None = 0,
-    FullBox = 1
+    FullBox = 1,
+    LocalBox = 2
 }
 
 public sealed class VoxelPresentation
@@ -59,6 +60,12 @@ public sealed class VoxelPresentation
 public sealed class VoxelCollision
 {
     public VoxelCollisionKind Kind { get; }
+    public double OffsetX { get; }
+    public double OffsetY { get; }
+    public double OffsetZ { get; }
+    public double SizeX { get; }
+    public double SizeY { get; }
+    public double SizeZ { get; }
 
     public VoxelCollision(VoxelCollisionKind kind)
     {
@@ -66,6 +73,101 @@ public sealed class VoxelCollision
             throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported collision kind.");
         Kind = kind;
     }
+
+    private VoxelCollision(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ)
+    {
+        Kind = VoxelCollisionKind.LocalBox;
+        OffsetX = offsetX;
+        OffsetY = offsetY;
+        OffsetZ = offsetZ;
+        SizeX = sizeX;
+        SizeY = sizeY;
+        SizeZ = sizeZ;
+    }
+
+    public static bool TryCreateLocalBox(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ,
+        out VoxelCollision collision)
+    {
+        collision = null!;
+        if (!IsValidLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ))
+            return false;
+        collision = new VoxelCollision(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ);
+        return true;
+    }
+
+    public static VoxelCollision CreateLocalBox(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ)
+    {
+        if (!TryCreateLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ, out var collision))
+            throw new ArgumentOutOfRangeException(nameof(sizeX), "Local box must be finite, strictly positive, and inside the unit cell.");
+        return collision;
+    }
+
+    public bool TryWorldBox(WorldVoxelCoord cell, VoxelOrientation orientation, out VoxelCollisionBox box)
+    {
+        box = default;
+        if (Kind == VoxelCollisionKind.None)
+            return false;
+        if (Kind == VoxelCollisionKind.FullBox)
+        {
+            box = VoxelCollisionBox.ForCell(cell);
+            return true;
+        }
+
+        var minX = double.PositiveInfinity;
+        var minY = double.PositiveInfinity;
+        var minZ = double.PositiveInfinity;
+        var maxX = double.NegativeInfinity;
+        var maxY = double.NegativeInfinity;
+        var maxZ = double.NegativeInfinity;
+        foreach (var localX in new[] { OffsetX, OffsetX + SizeX })
+        foreach (var localY in new[] { OffsetY, OffsetY + SizeY })
+        foreach (var localZ in new[] { OffsetZ, OffsetZ + SizeZ })
+        {
+            var (x, y, z) = orientation.ToWorldCell(localX, localY, localZ);
+            minX = Math.Min(minX, cell.X + x);
+            minY = Math.Min(minY, cell.Y + y);
+            minZ = Math.Min(minZ, cell.Z + z);
+            maxX = Math.Max(maxX, cell.X + x);
+            maxY = Math.Max(maxY, cell.Y + y);
+            maxZ = Math.Max(maxZ, cell.Z + z);
+        }
+
+        return VoxelCollisionBox.TryCreate(minX, minY, minZ, maxX, maxY, maxZ, out box);
+    }
+
+    private static bool IsValidLocalBox(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ) =>
+        IsFinite(offsetX) && IsFinite(offsetY) && IsFinite(offsetZ) &&
+        IsFinite(sizeX) && IsFinite(sizeY) && IsFinite(sizeZ) &&
+        sizeX > 0 && sizeY > 0 && sizeZ > 0 &&
+        offsetX >= 0 && offsetY >= 0 && offsetZ >= 0 &&
+        offsetX + sizeX <= 1 && offsetY + sizeY <= 1 && offsetZ + sizeZ <= 1;
+
+    private static bool IsFinite(double value) =>
+        !double.IsNaN(value) && !double.IsInfinity(value);
 }
 
 public sealed class VoxelDefinition
@@ -213,6 +315,7 @@ public sealed class VoxelDefinition
     {
         VoxelCollisionKind.None => "none",
         VoxelCollisionKind.FullBox => "full_box",
+        VoxelCollisionKind.LocalBox => "local_box",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown collision kind.")
     };
 
@@ -222,9 +325,10 @@ public sealed class VoxelDefinition
         {
             "none" => VoxelCollisionKind.None,
             "full_box" => VoxelCollisionKind.FullBox,
+            "local_box" => VoxelCollisionKind.LocalBox,
             _ => default
         };
-        return value is "none" or "full_box";
+        return value is "none" or "full_box" or "local_box";
     }
 
     public static string FormatMass(double mass) =>

@@ -5,7 +5,7 @@ param(
 )
 
 # Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
-# and slice 2 collision queries (#51).
+# slice 2 collision queries (#51), and rotating local boxes (#52).
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -82,8 +82,10 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 $ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
+$ledgeJson = Join-Path $root "builtin\core\resources\voxels\ledge.voxels.json"
 $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
+$beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
 $env:TRAIN_VOXEL_SMOKE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
@@ -96,9 +98,10 @@ $godotExitCode = $LASTEXITCODE
 $output = $raw | Out-String
 Write-Host $output
 $afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
+$afterLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-if ($beforeJson -ne $afterJson -or $beforeTop -ne $afterTop) {
-    [Console]::Error.WriteLine("Godot voxel smoke rewrote worktree built-in iron-ore content.")
+if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -ne $afterTop) {
+    [Console]::Error.WriteLine("Godot voxel smoke rewrote worktree built-in iron-ore or ledge content.")
     exit 1
 }
 
@@ -129,6 +132,12 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_RELOAD_COLLISION_NONE",
         "VOXEL_SMOKE_RELOAD_PRESENTATION_COLLISION_UNCHANGED",
         "VOXEL_SMOKE_RELOAD_COLLISION_FULL_BOX",
+        "VOXEL_SMOKE_LOCAL_BOX_IDENTITY",
+        "VOXEL_SMOKE_LOCAL_BOX_ROTATED",
+        "VOXEL_SMOKE_LOCAL_BOX_REMOVED",
+        "VOXEL_SMOKE_LOCAL_BOX_RELOADED",
+        "VOXEL_SMOKE_LOCAL_BOX_REJECTED",
+        "VOXEL_SMOKE_LOCAL_BOX_LETHAL",
         "VOXEL_SMOKE_RELOAD_DAMAGED_80",
         "VOXEL_SMOKE_RELOAD_MAX_150",
         "VOXEL_SMOKE_RELOAD_TEXT_UPDATED",
@@ -215,7 +224,13 @@ if (-not $IsolationAbort -and $Slice -eq 2) {
         "VOXEL_SMOKE_Y_BOUNDARY_COLLIDE",
         "VOXEL_SMOKE_Z_BOUNDARY_COLLIDE",
         "VOXEL_SMOKE_JUNCTION_COLLIDE",
-        "VOXEL_SMOKE_CROSS_DAMAGE_COLLIDE"
+        "VOXEL_SMOKE_CROSS_DAMAGE_COLLIDE",
+        "VOXEL_SMOKE_LOCAL_BOX_IDENTITY",
+        "VOXEL_SMOKE_LOCAL_BOX_ROTATED",
+        "VOXEL_SMOKE_LOCAL_BOX_REMOVED",
+        "VOXEL_SMOKE_LOCAL_BOX_RELOADED",
+        "VOXEL_SMOKE_LOCAL_BOX_REJECTED",
+        "VOXEL_SMOKE_LOCAL_BOX_LETHAL"
     )
     $staleCollision = @($publishedCollision | Where-Object {
         $name = $_
