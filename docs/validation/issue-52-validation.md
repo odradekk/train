@@ -20,7 +20,7 @@ This-round results on the implementation worktree (before push; the Issue commen
 
 | Command | Result |
 | --- | --- |
-| `dotnet test Train.Tests/Train.Tests.csproj` | 187 passed, 0 failed (existing 177 + 10 `VoxelLocalBoxTests`) |
+| `dotnet test Train.Tests/Train.Tests.csproj` | 188 passed, 0 failed (existing 177 + 11 `VoxelLocalBoxTests`) |
 | `dotnet build Train.sln` | 0 warnings, 0 errors |
 | `run-godot-voxel-smoke.ps1 -Slice 1` | passed; catalog accepted `core:ledge` (`F8DFDBFA…BE64`) |
 | `run-godot-voxel-smoke.ps1 -Slice 2` | passed; `VOXEL_SMOKE_LOCAL_BOX_*` identity/rotated/removed/reloaded/rejected/lethal all `published=1`; existing mesh/collide markers kept |

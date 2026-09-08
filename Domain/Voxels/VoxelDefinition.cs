@@ -116,7 +116,7 @@ public sealed class VoxelCollision
         double sizeZ)
     {
         if (!TryCreateLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ, out var collision))
-            throw new ArgumentOutOfRangeException(nameof(sizeX), "Local box must be finite, strictly positive, and inside the unit cell.");
+            throw new ArgumentException("Local box must be finite, strictly positive, inside the unit cell, and remain a positive-volume box after orientation and translation.");
         return collision;
     }
 
@@ -159,12 +159,50 @@ public sealed class VoxelCollision
         double offsetZ,
         double sizeX,
         double sizeY,
-        double sizeZ) =>
-        IsFinite(offsetX) && IsFinite(offsetY) && IsFinite(offsetZ) &&
-        IsFinite(sizeX) && IsFinite(sizeY) && IsFinite(sizeZ) &&
-        sizeX > 0 && sizeY > 0 && sizeZ > 0 &&
-        offsetX >= 0 && offsetY >= 0 && offsetZ >= 0 &&
-        offsetX + sizeX <= 1 && offsetY + sizeY <= 1 && offsetZ + sizeZ <= 1;
+        double sizeZ)
+    {
+        if (!IsFinite(offsetX) || !IsFinite(offsetY) || !IsFinite(offsetZ) ||
+            !IsFinite(sizeX) || !IsFinite(sizeY) || !IsFinite(sizeZ) ||
+            sizeX <= 0 || sizeY <= 0 || sizeZ <= 0 ||
+            offsetX < 0 || offsetY < 0 || offsetZ < 0)
+            return false;
+        // The represented end must stay distinguishable from the start and inside [0,1].
+        if (offsetX + sizeX <= offsetX || offsetY + sizeY <= offsetY || offsetZ + sizeZ <= offsetZ ||
+            offsetX + sizeX > 1 || offsetY + sizeY > 1 || offsetZ + sizeZ > 1)
+            return false;
+
+        var candidate = new VoxelCollision(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ);
+        // Current development slices are 16³ and 32³. Translation by 1 reproduces the
+        // review case; 31 is the farthest in-bounds cell. This is representability,
+        // not a new authoring minimum size.
+        const int farthestDevelopmentCell = 31;
+        foreach (var cell in new[]
+                 {
+                     new WorldVoxelCoord(0, 0, 0),
+                     new WorldVoxelCoord(1, 0, 0),
+                     new WorldVoxelCoord(0, 1, 0),
+                     new WorldVoxelCoord(0, 0, 1),
+                     new WorldVoxelCoord(farthestDevelopmentCell, farthestDevelopmentCell, farthestDevelopmentCell)
+                 })
+        {
+            foreach (var orientation in VoxelOrientation.All)
+            {
+                if (!candidate.TryWorldBox(cell, orientation, out var box) ||
+                    !RemainsPositiveInDerivedSinglePrecision(box))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool RemainsPositiveInDerivedSinglePrecision(VoxelCollisionBox box) =>
+        (float)box.MaxX > (float)box.MinX &&
+        (float)box.MaxY > (float)box.MinY &&
+        (float)box.MaxZ > (float)box.MinZ &&
+        (float)(box.MaxX - box.MinX) > 0 &&
+        (float)(box.MaxY - box.MinY) > 0 &&
+        (float)(box.MaxZ - box.MinZ) > 0;
 
     private static bool IsFinite(double value) =>
         !double.IsNaN(value) && !double.IsInfinity(value);

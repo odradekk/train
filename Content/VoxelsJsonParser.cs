@@ -535,7 +535,7 @@ internal static class VoxelsJsonParser
         {
             diagnostics.Warn(
                 ContentDiagnosticCodes.CollisionInvalid,
-                "local_box must be finite, strictly positive, and inside the unit cell.",
+                "local_box must be finite, strictly positive, inside the unit cell, and remain a positive-volume box after orientation and translation.",
                 jsonPath);
             return false;
         }

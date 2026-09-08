@@ -103,6 +103,9 @@ public sealed class VoxelLocalBoxTests
             ContentFixtures.LocalBoxCollision(sizeZ: -0.1),
             ContentFixtures.LocalBoxCollision(offsetX: -0.01),
             ContentFixtures.LocalBoxCollision(offsetX: 0.8, sizeX: 0.3),
+            ContentFixtures.LocalBoxCollision(offsetX: 0.5, sizeX: 1e-20),
+            ContentFixtures.LocalBoxCollision(offsetX: 1, sizeX: 1e-20),
+            ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-20),
             "{\"kind\":\"local_box\"}",
             "{\"kind\":\"local_box\",\"offset\":{\"x\":0.1,\"y\":0.1,\"z\":0.1}}",
             "{\"kind\":\"localBox\",\"offset\":{\"x\":0.125,\"y\":0,\"z\":0.25},\"size\":{\"x\":0.25,\"y\":0.875,\"z\":0.5}}",
@@ -176,17 +179,57 @@ public sealed class VoxelLocalBoxTests
         AssertMiss(harness.Commands, IdentityHitMinX, IdentityHitMinY, IdentityHitMinZ, IdentityHitMaxX, IdentityHitMaxY, IdentityHitMaxZ);
         AssertHit(harness.Commands, TiltHitMinX, TiltHitMinY, TiltHitMinZ, TiltHitMaxX, TiltHitMaxY, TiltHitMaxZ);
 
+        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
+                collisionJson: ContentFixtures.LocalBoxCollision(sizeZ: 0.4))));
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
+
         foreach (var orientation in VoxelOrientation.All)
         {
             Assert.AreEqual(WorldCommandStatus.Removed, harness.Commands.Remove(Empty).Status);
             Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(Empty, Ledge, orientation).Status);
             Assert.AreEqual(orientation, harness.Commands.Query(Empty).Voxel!.Orientation);
-            Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(Empty).Status);
-            // Independent of ToWorldCell: this eccentric box never covers the far +X+Y+Z corner.
-            AssertMiss(harness.Commands, 0.88, 0.88, 0.88, 0.96, 0.96, 0.96);
+            Assert.IsTrue(ExpectedAsymmetric24.TryGetValue(orientation.ToString(), out var expected), orientation.ToString());
+            AssertHit(harness.Commands, expected.HitMinX, expected.HitMinY, expected.HitMinZ, expected.HitMaxX, expected.HitMaxY, expected.HitMaxZ);
+            AssertMiss(harness.Commands, expected.MissMinX, expected.MissMinY, expected.MissMinZ, expected.MissMaxX, expected.MissMaxY, expected.MissMaxZ);
         }
 
+        Assert.AreEqual(24, ExpectedAsymmetric24.Count);
         Assert.AreEqual(24, VoxelOrientation.All.Count);
+    }
+
+    [TestMethod]
+    public void Unrepresentable_local_box_edges_reject_publish_and_keep_existing_hits()
+    {
+        using var harness = LocalBoxHarness.Create();
+        var translated = new WorldVoxelCoord(1, 0, 0);
+        var negative = new VoxelOrientation(VoxelAxis.NegativeX, VoxelAxis.PositiveY);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(Empty, Ledge, VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(translated, Ledge, negative).Status);
+        AssertHit(harness.Commands, IdentityHitMinX, IdentityHitMinY, IdentityHitMinZ, IdentityHitMaxX, IdentityHitMaxY, IdentityHitMaxZ);
+        AssertHit(harness.Commands, 1.68, 0.08, 0.48, 1.72, 0.12, 0.52, translated);
+        AssertMiss(harness.Commands, 1.18, 0.08, 0.48, 1.22, 0.12, 0.52);
+        var snapshot = harness.Reloader.Catalog.Current;
+        var generation = snapshot!.Generation;
+
+        foreach (var (offsetX, sizeX) in new[] { (0.5, 1e-20), (1.0, 1e-20), (0.0, 1e-20) })
+        {
+            harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
+                    collisionJson: ContentFixtures.LocalBoxCollision(offsetX: offsetX, sizeX: sizeX))));
+            var rejected = harness.Reloader.Reload();
+            Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, $"offset.x={offsetX} size.x={sizeX}");
+            Assert.AreSame(snapshot, harness.Reloader.Catalog.Current);
+            Assert.AreEqual(generation, rejected.CatalogVersion);
+            AssertHit(harness.Commands, IdentityHitMinX, IdentityHitMinY, IdentityHitMinZ, IdentityHitMaxX, IdentityHitMaxY, IdentityHitMaxZ);
+            AssertHit(harness.Commands, 1.68, 0.08, 0.48, 1.72, 0.12, 0.52, translated);
+            Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(Empty).Status);
+            Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(translated).Status);
+        }
+
+        var thrown = Assert.ThrowsException<ArgumentException>(() =>
+            VoxelCollision.CreateLocalBox(0.5, 0, 0.25, 1e-20, 0.875, 0.5));
+        Assert.AreNotEqual("sizeX", thrown.ParamName);
     }
 
     [TestMethod]
@@ -358,6 +401,40 @@ public sealed class VoxelLocalBoxTests
         Assert.AreEqual(VoxelCollisionQueryStatus.OutOfBounds, harness.Commands.QueryCollision(32, 0, 0, 33, 1, 1).Status);
     }
 
+    // Independent expected geometry for offset (0.125,0,0.25) size (0.25,0.875,0.4).
+    // World intervals come from the documented Right/Up/Forward axis map and 1-local
+    // on a negative axis, not from ToWorldCell or TryWorldBox.
+    // Each Hit cube occupies a pocket that belongs to only that orientation's AABB, so
+    // an axis swap or sign flip misses. Non-identity Miss cubes sit in the identity-only
+    // pocket; identity Miss is the in-cell far corner outside the identity AABB.
+    private static readonly Dictionary<string, (double HitMinX, double HitMinY, double HitMinZ, double HitMaxX, double HitMaxY, double HitMaxZ, double MissMinX, double MissMinY, double MissMinZ, double MissMaxX, double MissMaxY, double MissMaxZ)> ExpectedAsymmetric24 = new()
+    {
+        ["px_py"] = (0.13, 0.00, 0.25, 0.17, 0.04, 0.29, 0.68, 0.38, 0.48, 0.72, 0.42, 0.52),
+        ["px_ny"] = (0.13, 0.88, 0.35, 0.17, 0.92, 0.39, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["px_pz"] = (0.13, 0.35, 0.00, 0.17, 0.39, 0.04, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["px_nz"] = (0.13, 0.25, 0.88, 0.17, 0.29, 0.92, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nx_py"] = (0.63, 0.00, 0.38, 0.67, 0.04, 0.42, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nx_ny"] = (0.63, 0.88, 0.38, 0.67, 0.92, 0.42, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nx_pz"] = (0.63, 0.38, 0.00, 0.67, 0.42, 0.04, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nx_nz"] = (0.63, 0.38, 0.88, 0.67, 0.42, 0.92, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["py_px"] = (0.00, 0.13, 0.35, 0.04, 0.17, 0.39, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["py_nx"] = (0.88, 0.13, 0.25, 0.92, 0.17, 0.29, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["py_pz"] = (0.25, 0.13, 0.00, 0.29, 0.17, 0.04, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["py_nz"] = (0.35, 0.13, 0.88, 0.39, 0.17, 0.92, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["ny_px"] = (0.00, 0.63, 0.38, 0.04, 0.67, 0.42, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["ny_nx"] = (0.88, 0.63, 0.38, 0.92, 0.67, 0.42, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["ny_pz"] = (0.35, 0.76, 0.00, 0.39, 0.80, 0.04, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["ny_nz"] = (0.25, 0.66, 0.88, 0.29, 0.70, 0.92, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["pz_px"] = (0.00, 0.25, 0.13, 0.04, 0.29, 0.17, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["pz_nx"] = (0.88, 0.35, 0.13, 0.92, 0.39, 0.17, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["pz_py"] = (0.35, 0.00, 0.13, 0.39, 0.04, 0.17, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["pz_ny"] = (0.25, 0.88, 0.13, 0.29, 0.92, 0.17, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nz_px"] = (0.00, 0.35, 0.76, 0.04, 0.39, 0.80, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nz_nx"] = (0.88, 0.25, 0.66, 0.92, 0.29, 0.70, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nz_py"] = (0.25, 0.00, 0.66, 0.29, 0.04, 0.70, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30),
+        ["nz_ny"] = (0.35, 0.88, 0.76, 0.39, 0.92, 0.80, 0.13, 0.01, 0.26, 0.17, 0.05, 0.30)
+    };
+
     private static void AssertHit(
         VoxelWorldCommands commands,
         double minX,
@@ -365,11 +442,12 @@ public sealed class VoxelLocalBoxTests
         double minZ,
         double maxX,
         double maxY,
-        double maxZ)
+        double maxZ,
+        WorldVoxelCoord? cell = null)
     {
         var result = commands.QueryCollision(minX, minY, minZ, maxX, maxY, maxZ);
         Assert.AreEqual(VoxelCollisionQueryStatus.Hit, result.Status, $"{minX},{minY},{minZ}->{maxX},{maxY},{maxZ}");
-        Assert.AreEqual(Empty, result.Hits[0].Cell);
+        Assert.AreEqual(cell ?? Empty, result.Hits[0].Cell);
         Assert.AreEqual(VoxelCollisionKind.LocalBox, result.Hits[0].Kind);
     }
 
