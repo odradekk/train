@@ -1,5 +1,6 @@
 # Windowed real-GPU observation for issue #39 slice 1 parent sequences, issue #46
-# live reload, issue #50 slice 2 boundaries, and issue #51 collision HUD / debug shapes.
+# live reload, issue #50 slice 2 boundaries, issue #51 collision HUD / debug shapes,
+# and issue #52 rotating local boxes.
 # Requires Godot 4.7 .NET on PATH or $env:GODOT. Does not use --headless.
 # On Godot 4.7.2 .NET, --quit-after is a main-loop frame budget, not seconds.
 # The scene quits itself after VOXEL_OBSERVE_COMPLETE; 300 is only a fail-closed
@@ -34,16 +35,19 @@ if (-not $OutputPath) {
 $env:TRAIN_VOXEL_OBSERVE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
 $ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
+$ledgeJson = Join-Path $root "builtin\core\resources\voxels\ledge.voxels.json"
 $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
+$beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
 $output = & $env:GODOT --path $root --quit-after 300 2>&1 | Out-String
 $exitCode = $LASTEXITCODE
 Write-Host $output
 $afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
+$afterLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-if ($beforeJson -ne $afterJson -or $beforeTop -ne $afterTop) {
-    throw "Voxel observe rewrote worktree built-in iron-ore content."
+if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -ne $afterTop) {
+    throw "Voxel observe rewrote worktree built-in iron-ore or ledge content."
 }
 if ($exitCode -ne 0 -or $output -notlike "*VOXEL_OBSERVE_COMPLETE*") {
     throw "Voxel observe failed: expected VOXEL_OBSERVE_COMPLETE and exit 0."
@@ -58,7 +62,12 @@ $captures = if ($Slice -eq 2) {
         "issue50-junction.png",
         "issue50-cross-damage.png",
         "issue50-reload-150.png",
-        "issue50-rejected.png"
+        "issue50-rejected.png",
+        "issue52-local-identity.png",
+        "issue52-local-rotated.png",
+        "issue52-local-removed.png",
+        "issue52-local-reloaded.png",
+        "issue52-local-rejected.png"
     )
 } else {
     @(
@@ -91,7 +100,7 @@ $report = if ($Slice -eq 2) {
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 2 ``.",
         "",
-        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=2``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the eight ``.godot/issue50-*.png`` files to exist, and required the worktree iron-ore files to keep their pre-run hashes. It does not inspect PNG pixels. Slice 2 observe enables ``DebugCollisionsHint`` and records domain ``collide=`` on each capture line.",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=2``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the eight ``.godot/issue50-*.png`` plus five ``.godot/issue52-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels. Slice 2 observe enables ``DebugCollisionsHint`` and records domain ``collide=`` on each capture line.",
         "",
         "## Procedure",
         "",
@@ -103,6 +112,11 @@ $report = if ($Slice -eq 2) {
         "6. ``voxel reset`` then ``voxel remove 16 0 16``. Confirm the four-chunk ground meeting hole without ghosting faces or leftover colliders.",
         "7. ``voxel reset`` then ``voxel damage 15 0 8 100 16 0 8 100 15 0 16 25``. Confirm count 1086 and durability 75 on ``(15,0,16)``. Removed cells miss collision; the damaged cell still hits.",
         "8. Reset, damage ``(15,16,15)`` by 20 so durability is 80, reload max 150, then reject a missing probe definition and confirm the published world and collision stay.",
+        "9. Add ``core:ledge`` at ``(16,15,8)`` with ``px_py``. HUD should say ``碰撞：命中 local_box``. The debug box is smaller than the cell and sits on the -X / low-Y / mid-Z side.",
+        "10. ``voxel remove 16 15 8`` then ``voxel add 16 15 8 core:ledge pz_py``. The debug box should move with yaw; it is no longer in the identity hit pocket.",
+        "11. Remove the ledge and confirm the cell has no leftover debug collider.",
+        "12. Re-add identity and restore the isolated probe definition, then hot-reload the isolated ledge to the far-corner box. The debug box should jump to +X/+Y/+Z.",
+        "13. Write an overflowing isolated ``local_box`` and ``reload``. The catalog must reject; the corner debug box and HUD ``local_box`` hit stay.",
         "",
         "## Result",
         "",
@@ -110,7 +124,7 @@ $report = if ($Slice -eq 2) {
         "",
         ($captureLines | ForEach-Object { "- $_" }),
         "",
-        "Automated capture wrote ``.godot/issue50-*.png``. This report records script exit, COMPLETE, capture logs (including domain ``collide=``), and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 2`` smoke is the automated domain-vs-``IntersectShape`` evidence. Save was not exercised."
+        "Automated capture wrote ``.godot/issue50-*.png`` and ``.godot/issue52-*.png``. This report records script exit, COMPLETE, capture logs (including domain ``collide=``), and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 2`` smoke is the automated domain-vs-``IntersectShape`` evidence. Save was not exercised."
     )
 } else {
     @(
@@ -148,3 +162,19 @@ $parent = Split-Path -Parent $absoluteOutput
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
 Set-Content -LiteralPath $absoluteOutput -Value $report -Encoding utf8
 Write-Host "Wrote $absoluteOutput"
+if ($Slice -eq 2) {
+    $issue52 = @(
+        "# Issue #52 visual observation record (automated facts)",
+        "",
+        "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 2 ``.",
+        "",
+        "This file is written beside the existing ``issue50-observe-report.md`` and does not replace historical ``docs/validation/issue-5x-*.md`` baselines.",
+        "",
+        "Required captures: ``issue52-local-identity.png``, ``issue52-local-rotated.png``, ``issue52-local-removed.png``, ``issue52-local-reloaded.png``, ``issue52-local-rejected.png``.",
+        "",
+        ($captureLines | Where-Object { $_ -like "*issue52-*" } | ForEach-Object { "- $_" })
+    )
+    $issue52Path = Join-Path $root ".godot/issue52-observe-report.md"
+    Set-Content -LiteralPath $issue52Path -Value $issue52 -Encoding utf8
+    Write-Host "Wrote $issue52Path"
+}

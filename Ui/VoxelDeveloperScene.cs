@@ -40,6 +40,7 @@ public partial class VoxelDeveloperScene : Node3D
     private Dictionary<ChunkCoord, long>? _chunkRevisionsBeforeEdit;
     private Dictionary<ChunkCoord, long>? _collisionRevisionsBeforeEdit;
     private static readonly VoxelDefinitionId HollowId = new("core", "hollow");
+    private static readonly VoxelDefinitionId LedgeId = new("core", "ledge");
 
     private enum VoxelSmokePhase
     {
@@ -117,6 +118,20 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitReloadPresentationCollision,
         ReloadCollisionFullBox,
         AwaitReloadCollisionFullBox,
+        LocalBoxPlace,
+        AwaitLocalBoxPlace,
+        LocalBoxRotate,
+        AwaitLocalBoxRotate,
+        LocalBoxRemove,
+        AwaitLocalBoxRemove,
+        LocalBoxReload,
+        AwaitLocalBoxReload,
+        LocalBoxThinTranslate,
+        AwaitLocalBoxThinTranslate,
+        LocalBoxReject,
+        AwaitLocalBoxReject,
+        LocalBoxLethal,
+        AwaitLocalBoxLethal,
         HandoffReload
     }
 
@@ -141,6 +156,16 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitReloadMax150,
         ReloadReject,
         AwaitReloadReject,
+        LocalIdentity,
+        AwaitLocalIdentity,
+        LocalRotated,
+        AwaitLocalRotated,
+        LocalRemoved,
+        AwaitLocalRemoved,
+        LocalReloaded,
+        AwaitLocalReloaded,
+        LocalRejected,
+        AwaitLocalRejected,
         Done
     }
 
@@ -371,7 +396,7 @@ public partial class VoxelDeveloperScene : Node3D
             : $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：占用 · {query.Voxel.DefinitionId.Value} · {CurrentName(query)} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability} · value {query.Value} · mass {query.Mass} · 上限 {query.MaxDurability}。";
         var collision = collide.Status switch
         {
-            VoxelCollisionQueryStatus.Hit => "碰撞：命中 full_box",
+            VoxelCollisionQueryStatus.Hit => "碰撞：命中 " + VoxelDefinition.ToWire(collide.Hits[0].Kind),
             VoxelCollisionQueryStatus.Miss => "碰撞：未命中",
             VoxelCollisionQueryStatus.OutOfBounds => "碰撞：越界",
             _ => "碰撞：非法查询"
@@ -404,6 +429,10 @@ public partial class VoxelDeveloperScene : Node3D
 
     private WorldVoxelCoord ProbePosition =>
         _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(0, 1, 0) : new(0, 0, 0);
+
+    private static WorldVoxelCoord LedgeCell => new(15, 1, 8);
+
+    private static WorldVoxelCoord ObserveLedgeCell => new(16, 15, 8);
 
     private WorldVoxelCoord YawCell =>
         _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(16, 17, 15) : new(4, 11, 4);
@@ -1096,6 +1125,137 @@ public partial class VoxelDeveloperScene : Node3D
                 RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 16, 15), expectHit: true);
                 RequireDomainAndPublishedCollision(ProbePosition, expectHit: false);
                 GD.Print("VOXEL_SMOKE_RELOAD_COLLISION_FULL_BOX");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxPlace;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxPlace:
+                if (_session.Add(LedgeCell, LedgeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added ||
+                    _session.Add(LedgeCell, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status != WorldCommandStatus.Occupied ||
+                    _session.World.VoxelCount != 1088)
+                    throw new InvalidOperationException("Slice 2 smoke could not place the eccentric local-box example.");
+                if (_session.QueryCollision(LedgeCell).Hits[0].Kind != VoxelCollisionKind.LocalBox)
+                    throw new InvalidOperationException("Placed ledge did not report local_box from the formal query.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxPlace;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxPlace:
+                if (_session.World.VoxelCount != 1088 || !CollisionPhysicsReady)
+                    return;
+                RequireLedgeIdentityRegion();
+                RequireDomainAndPublishedCollision(new WorldVoxelCoord(16, 1, 8), expectHit: false);
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_IDENTITY domain=hit godot=hit outside=miss neighbor=miss published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxRotate;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxRotate:
+                if (_session.Remove(LedgeCell).Status != WorldCommandStatus.Removed ||
+                    _session.Add(LedgeCell, LedgeId, VoxelOrientation.Yaw90).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 smoke could not reorient the local-box example.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxRotate;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxRotate:
+                if (_session.Query(LedgeCell).Voxel?.Orientation != VoxelOrientation.Yaw90 || !CollisionPhysicsReady)
+                    return;
+                RequireLedgeYawRegion();
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_ROTATED domain=moved godot=moved published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxRemove;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxRemove:
+                if (_session.Remove(LedgeCell).Status != WorldCommandStatus.Removed ||
+                    _session.QueryCollision(LedgeCell).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Slice 2 smoke did not clear domain collision after removing the local box.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxRemove;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxRemove:
+                if (_session.World.VoxelCount != 1087 || !CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(LedgeCell, expectHit: false);
+                RequirePublishedLocalBoxMiss();
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_REMOVED domain=miss godot=miss published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxReload;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxReload:
+                if (_session.Add(LedgeCell, LedgeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 smoke could not restore the local-box example before reload.");
+                RequireLiveReload().WriteLedge(0.5, 0.5, 0.5, 0.375, 0.375, 0.375);
+                RequireCommittedReload("local box geometry");
+                if (_session.Query(LedgeCell).IsOccupied != true ||
+                    _session.Query(LedgeCell).Voxel?.Orientation != VoxelOrientation.Identity)
+                    throw new InvalidOperationException("Local-box geometry reload did not keep occupancy and orientation.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxReload;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxReload:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequireLedgeReloadedRegion();
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_RELOADED domain=moved godot=moved published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxThinTranslate;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxThinTranslate:
+                RequireLiveReload().WriteLedge(0, 0, 0.25, 1e-20, 0.875, 0.5);
+                RequireCommittedReload("thin local box");
+                if (_session.QueryCollision(LedgeCell).Status != VoxelCollisionQueryStatus.Hit)
+                    throw new InvalidOperationException("Thin local box lost domain collision after translation to the slice-2 cell.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxThinTranslate;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxThinTranslate:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequirePublishedWholeCell(LedgeCell, expectHit: true);
+                RequirePublishedDerivedSize(LedgeCell, expectedSizeX: 1e-20);
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_TRANSLATED_EDGE domain=hit godot=hit size=local published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxReject;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxReject:
+                var generation = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
+                var snapshot = GetNode<Main>("/root/Main").Reloader?.Catalog.Current;
+                foreach (var sizeX in new[] { 1e-50, double.Epsilon })
+                {
+                    RequireLiveReload().WriteLedge(0, 0, 0.25, sizeX, 0.875, 0.5);
+                    var underflow = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                    if (underflow.Status != ContentReloadStatus.Rejected ||
+                        underflow.Changed ||
+                        underflow.CatalogVersion != generation ||
+                        !ReferenceEquals(snapshot, GetNode<Main>("/root/Main").Reloader?.Catalog.Current) ||
+                        !_session.Query(LedgeCell).IsOccupied)
+                        throw new InvalidOperationException(
+                            $"Adapter-underflow local-box reload size.x={sizeX:G17} did not reject atomically.");
+                }
+
+                RequireLiveReload().WriteInvalidLedge();
+                var rejectedBox = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejectedBox.Status != ContentReloadStatus.Rejected ||
+                    rejectedBox.Changed ||
+                    rejectedBox.CatalogVersion != generation ||
+                    !ReferenceEquals(snapshot, GetNode<Main>("/root/Main").Reloader?.Catalog.Current) ||
+                    !_session.Query(LedgeCell).IsOccupied)
+                    throw new InvalidOperationException("Illegal local-box reload did not reject atomically.");
+                RequireLiveReload().WriteLedge();
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxReject;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxReject:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequirePublishedWholeCell(LedgeCell, expectHit: true);
+                RequirePublishedDerivedSize(LedgeCell, expectedSizeX: 1e-20);
+                if (!_colliders.ColliderFor(VoxelChunks.Of(LedgeCell, _session.Identity.ChunkSize))
+                        .TryGetBoxSize(LedgeCell, out var keptSize) ||
+                    keptSize.X <= 0)
+                    throw new InvalidOperationException(
+                        $"Rejected underflow left a non-positive published Godot size {keptSize}.");
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_ADAPTER_UNDERFLOW domain=kept godot=kept size=local published=1");
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_REJECTED domain=kept godot=kept published=1");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.LocalBoxLethal;
+                return;
+            case VoxelSlice2SmokePhase.LocalBoxLethal:
+                if (_session.Damage(LedgeCell, 100).Status != WorldCommandStatus.Removed ||
+                    _session.QueryCollision(LedgeCell).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Slice 2 smoke did not clear domain collision after lethal local-box damage.");
+                _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitLocalBoxLethal;
+                return;
+            case VoxelSlice2SmokePhase.AwaitLocalBoxLethal:
+                if (_session.World.VoxelCount != 1087 || !CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(LedgeCell, expectHit: false);
+                RequirePublishedLocalBoxMiss();
+                GD.Print("VOXEL_SMOKE_LOCAL_BOX_LETHAL domain=miss godot=miss published=1");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.HandoffReload;
                 return;
             case VoxelSlice2SmokePhase.HandoffReload:
@@ -1126,6 +1286,29 @@ public partial class VoxelDeveloperScene : Node3D
 
     private bool CollisionPhysicsReady =>
         _physicsSeenGeneration == _collisionRefreshGeneration && _collisionRefreshGeneration > 0;
+
+    private void RequirePublishedWholeCell(WorldVoxelCoord cell, bool expectHit)
+    {
+        var domain = _session.QueryCollision(cell);
+        var domainHit = domain.Status == VoxelCollisionQueryStatus.Hit;
+        if (domainHit != expectHit)
+            throw new InvalidOperationException(
+                $"Domain whole-cell collision at {cell} was {domain.Status}, expected {(expectHit ? "Hit" : "Miss")}.");
+        var published = _colliders.QueryPublishedHits(GetWorld3D(), VoxelCollisionBox.ForCell(cell)).Contains(cell);
+        if (published != expectHit)
+            throw new InvalidOperationException(
+                $"Published Godot whole-cell collision at {cell} was {published}, expected {expectHit}.");
+    }
+
+    private void RequirePublishedDerivedSize(WorldVoxelCoord cell, double expectedSizeX)
+    {
+        var chunk = VoxelChunks.Of(cell, _session.Identity.ChunkSize);
+        if (!_colliders.ColliderFor(chunk).TryGetBoxSize(cell, out var size) ||
+            size.X != (float)expectedSizeX ||
+            size.X <= 0)
+            throw new InvalidOperationException(
+                $"Published Godot size at {cell} was {size}, expected local size {(float)expectedSizeX}.");
+    }
 
     private void RequireDomainAndPublishedCollision(WorldVoxelCoord cell, bool expectHit)
     {
@@ -1159,6 +1342,51 @@ public partial class VoxelDeveloperScene : Node3D
         if (!expected.SequenceEqual(published))
             throw new InvalidOperationException(
                 $"Published Godot box hits [{string.Join("; ", published)}] expected [{string.Join("; ", expected)}].");
+    }
+
+    private void RequireLedgeIdentityRegion()
+    {
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.18, LedgeCell.Y + 0.08, LedgeCell.Z + 0.48,
+            LedgeCell.X + 0.22, LedgeCell.Y + 0.12, LedgeCell.Z + 0.52,
+            LedgeCell);
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.68, LedgeCell.Y + 0.38, LedgeCell.Z + 0.48,
+            LedgeCell.X + 0.72, LedgeCell.Y + 0.42, LedgeCell.Z + 0.52);
+        if (_session.QueryCollision(LedgeCell).Hits[0].Kind != VoxelCollisionKind.LocalBox)
+            throw new InvalidOperationException("Identity local-box cell query did not report local_box.");
+    }
+
+    private void RequireLedgeYawRegion()
+    {
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.18, LedgeCell.Y + 0.08, LedgeCell.Z + 0.48,
+            LedgeCell.X + 0.22, LedgeCell.Y + 0.12, LedgeCell.Z + 0.52);
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.48, LedgeCell.Y + 0.38, LedgeCell.Z + 0.18,
+            LedgeCell.X + 0.52, LedgeCell.Y + 0.42, LedgeCell.Z + 0.22,
+            LedgeCell);
+    }
+
+    private void RequireLedgeReloadedRegion()
+    {
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.18, LedgeCell.Y + 0.08, LedgeCell.Z + 0.48,
+            LedgeCell.X + 0.22, LedgeCell.Y + 0.12, LedgeCell.Z + 0.52);
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.68, LedgeCell.Y + 0.68, LedgeCell.Z + 0.68,
+            LedgeCell.X + 0.72, LedgeCell.Y + 0.72, LedgeCell.Z + 0.72,
+            LedgeCell);
+    }
+
+    private void RequirePublishedLocalBoxMiss()
+    {
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.18, LedgeCell.Y + 0.08, LedgeCell.Z + 0.48,
+            LedgeCell.X + 0.22, LedgeCell.Y + 0.12, LedgeCell.Z + 0.52);
+        RequireDomainAndPublishedBox(
+            LedgeCell.X + 0.48, LedgeCell.Y + 0.38, LedgeCell.Z + 0.18,
+            LedgeCell.X + 0.52, LedgeCell.Y + 0.42, LedgeCell.Z + 0.22);
     }
 
     private void RequirePublishedCollisionPartialRebuild(params ChunkCoord[] required)
@@ -1631,6 +1859,86 @@ public partial class VoxelDeveloperScene : Node3D
                     _session.Query(ProbePosition).Voxel?.DefinitionId != RequireLiveReload().ProbeId)
                     throw new InvalidOperationException("Slice 2 observe rejected reload leaked a new published world.");
                 CaptureObserve("issue50-rejected", "slice 2 rejected live reload keeps old published world");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.LocalIdentity;
+                return;
+            case VoxelSlice2ObservePhase.LocalIdentity:
+                if (_session.Add(ObserveLedgeCell, LedgeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 observe could not place the local-box example.");
+                _selectedPosition = ObserveLedgeCell;
+                MarkDirty();
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitLocalIdentity;
+                return;
+            case VoxelSlice2ObservePhase.AwaitLocalIdentity:
+                if (_session.QueryCollision(ObserveLedgeCell).Hits.FirstOrDefault()?.Kind != VoxelCollisionKind.LocalBox)
+                    throw new InvalidOperationException("Observe local-box identity did not hit local_box.");
+                CaptureObserve("issue52-local-identity", "eccentric local_box at (16,15,8) identity, debug box smaller than the cell");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.LocalRotated;
+                return;
+            case VoxelSlice2ObservePhase.LocalRotated:
+                if (_session.Remove(ObserveLedgeCell).Status != WorldCommandStatus.Removed ||
+                    _session.Add(ObserveLedgeCell, LedgeId, VoxelOrientation.Yaw90).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 observe could not rotate the local-box example.");
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitLocalRotated;
+                return;
+            case VoxelSlice2ObservePhase.AwaitLocalRotated:
+                if (_session.Query(ObserveLedgeCell).Voxel?.Orientation != VoxelOrientation.Yaw90)
+                    throw new InvalidOperationException("Observe local-box yaw did not keep pz_py.");
+                CaptureObserve("issue52-local-rotated", "same local_box after pz_py, debug box moved with orientation");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.LocalRemoved;
+                return;
+            case VoxelSlice2ObservePhase.LocalRemoved:
+                if (_session.Remove(ObserveLedgeCell).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Slice 2 observe could not remove the local-box example.");
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitLocalRemoved;
+                return;
+            case VoxelSlice2ObservePhase.AwaitLocalRemoved:
+                if (_session.QueryCollision(ObserveLedgeCell).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Observe still had domain collision after local-box remove.");
+                CaptureObserve("issue52-local-removed", "removed local_box leaves no debug collider in the cell");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.LocalReloaded;
+                return;
+            case VoxelSlice2ObservePhase.LocalReloaded:
+                if (_session.Add(ObserveLedgeCell, LedgeId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Slice 2 observe could not restore the local-box example.");
+                // The previous reject left an unloadable probe on disk; occupied probe
+                // instances still require that definition, so restore it before ledge reload.
+                RequireLiveReload().WriteProbeMod();
+                RequireLiveReload().WriteLedge(0.5, 0.5, 0.5, 0.375, 0.375, 0.375);
+                RequireCommittedReload("observe local box geometry");
+                if (_session.Query(ObserveLedgeCell).IsOccupied != true ||
+                    _session.Query(ObserveLedgeCell).Voxel?.Orientation != VoxelOrientation.Identity)
+                    throw new InvalidOperationException("Observe local-box geometry reload did not keep occupancy and orientation.");
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitLocalReloaded;
+                return;
+            case VoxelSlice2ObservePhase.AwaitLocalReloaded:
+                if (_session.QueryCollision(ObserveLedgeCell).Hits.FirstOrDefault()?.Kind != VoxelCollisionKind.LocalBox)
+                    throw new InvalidOperationException("Observe reloaded local-box did not keep local_box collision.");
+                CaptureObserve("issue52-local-reloaded", "hot-reloaded local_box occupies the far corner instead of the original ledge");
+                _slice2ObservePhase = VoxelSlice2ObservePhase.LocalRejected;
+                return;
+            case VoxelSlice2ObservePhase.LocalRejected:
+                var generation = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
+                var snapshot = GetNode<Main>("/root/Main").Reloader?.Catalog.Current;
+                RequireLiveReload().WriteInvalidLedge();
+                var rejectedBox = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejectedBox.Status != ContentReloadStatus.Rejected ||
+                    rejectedBox.Changed ||
+                    rejectedBox.CatalogVersion != generation ||
+                    !ReferenceEquals(snapshot, GetNode<Main>("/root/Main").Reloader?.Catalog.Current) ||
+                    !_session.Query(ObserveLedgeCell).IsOccupied)
+                    throw new InvalidOperationException("Observe illegal local-box reload did not reject atomically.");
+                RequireLiveReload().WriteLedge();
+                _observeHoldFrames = 8;
+                _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitLocalRejected;
+                return;
+            case VoxelSlice2ObservePhase.AwaitLocalRejected:
+                if (_session.QueryCollision(ObserveLedgeCell).Hits.FirstOrDefault()?.Kind != VoxelCollisionKind.LocalBox)
+                    throw new InvalidOperationException("Observe rejected local-box reload lost the previous published collision.");
+                CaptureObserve("issue52-local-rejected", "illegal overflowing local_box rejected; corner hit region stays");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _slice2ObservePhase = VoxelSlice2ObservePhase.Done;
                 GetTree().Quit();

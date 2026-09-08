@@ -24,7 +24,8 @@ public enum VoxelPresentationKind
 public enum VoxelCollisionKind
 {
     None = 0,
-    FullBox = 1
+    FullBox = 1,
+    LocalBox = 2
 }
 
 public sealed class VoxelPresentation
@@ -59,6 +60,12 @@ public sealed class VoxelPresentation
 public sealed class VoxelCollision
 {
     public VoxelCollisionKind Kind { get; }
+    public double OffsetX { get; }
+    public double OffsetY { get; }
+    public double OffsetZ { get; }
+    public double SizeX { get; }
+    public double SizeY { get; }
+    public double SizeZ { get; }
 
     public VoxelCollision(VoxelCollisionKind kind)
     {
@@ -66,6 +73,153 @@ public sealed class VoxelCollision
             throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported collision kind.");
         Kind = kind;
     }
+
+    private VoxelCollision(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ)
+    {
+        Kind = VoxelCollisionKind.LocalBox;
+        OffsetX = offsetX;
+        OffsetY = offsetY;
+        OffsetZ = offsetZ;
+        SizeX = sizeX;
+        SizeY = sizeY;
+        SizeZ = sizeZ;
+    }
+
+    public static bool TryCreateLocalBox(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ,
+        out VoxelCollision collision)
+    {
+        collision = null!;
+        if (!IsValidLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ))
+            return false;
+        collision = new VoxelCollision(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ);
+        return true;
+    }
+
+    public static VoxelCollision CreateLocalBox(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ)
+    {
+        if (!TryCreateLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ, out var collision))
+            throw new ArgumentException("Local box must be finite, strictly positive, and a distinguishable interval inside the unit cell.");
+        return collision;
+    }
+
+    public bool OverlapsProbe(WorldVoxelCoord cell, VoxelOrientation orientation, VoxelCollisionBox probe)
+    {
+        if (Kind == VoxelCollisionKind.None)
+            return false;
+        if (Kind == VoxelCollisionKind.FullBox)
+            return VoxelCollisionBox.ForCell(cell).Overlaps(probe);
+        return LocalBoxOverlaps(cell, orientation, probe);
+    }
+
+    public bool TryDerivedExtents(
+        WorldVoxelCoord cell,
+        VoxelOrientation orientation,
+        out double centerX,
+        out double centerY,
+        out double centerZ,
+        out double sizeX,
+        out double sizeY,
+        out double sizeZ)
+    {
+        centerX = centerY = centerZ = sizeX = sizeY = sizeZ = 0;
+        if (Kind == VoxelCollisionKind.None)
+            return false;
+        if (Kind == VoxelCollisionKind.FullBox)
+        {
+            centerX = cell.X + 0.5;
+            centerY = cell.Y + 0.5;
+            centerZ = cell.Z + 0.5;
+            sizeX = sizeY = sizeZ = 1;
+            return true;
+        }
+
+        var (localCenterX, localCenterY, localCenterZ) = orientation.ToWorldCell(
+            OffsetX + SizeX * 0.5,
+            OffsetY + SizeY * 0.5,
+            OffsetZ + SizeZ * 0.5);
+        centerX = cell.X + localCenterX;
+        centerY = cell.Y + localCenterY;
+        centerZ = cell.Z + localCenterZ;
+        sizeX = SizeAlong(orientation.InverseTransform(VoxelAxis.PositiveX));
+        sizeY = SizeAlong(orientation.InverseTransform(VoxelAxis.PositiveY));
+        sizeZ = SizeAlong(orientation.InverseTransform(VoxelAxis.PositiveZ));
+        return true;
+    }
+
+    private bool LocalBoxOverlaps(WorldVoxelCoord cell, VoxelOrientation orientation, VoxelCollisionBox probe)
+    {
+        var minX = double.PositiveInfinity;
+        var minY = double.PositiveInfinity;
+        var minZ = double.PositiveInfinity;
+        var maxX = double.NegativeInfinity;
+        var maxY = double.NegativeInfinity;
+        var maxZ = double.NegativeInfinity;
+        foreach (var worldX in new[] { probe.MinX - cell.X, probe.MaxX - cell.X })
+        foreach (var worldY in new[] { probe.MinY - cell.Y, probe.MaxY - cell.Y })
+        foreach (var worldZ in new[] { probe.MinZ - cell.Z, probe.MaxZ - cell.Z })
+        {
+            var (localX, localY, localZ) = orientation.ToLocalCell(worldX, worldY, worldZ);
+            minX = Math.Min(minX, localX);
+            minY = Math.Min(minY, localY);
+            minZ = Math.Min(minZ, localZ);
+            maxX = Math.Max(maxX, localX);
+            maxY = Math.Max(maxY, localY);
+            maxZ = Math.Max(maxZ, localZ);
+        }
+
+        return minX < OffsetX + SizeX && maxX > OffsetX &&
+               minY < OffsetY + SizeY && maxY > OffsetY &&
+               minZ < OffsetZ + SizeZ && maxZ > OffsetZ;
+    }
+
+    private double SizeAlong(VoxelAxis localAxis) => localAxis switch
+    {
+        VoxelAxis.PositiveX or VoxelAxis.NegativeX => SizeX,
+        VoxelAxis.PositiveY or VoxelAxis.NegativeY => SizeY,
+        VoxelAxis.PositiveZ or VoxelAxis.NegativeZ => SizeZ,
+        _ => throw new ArgumentOutOfRangeException(nameof(localAxis), localAxis, "Unknown voxel axis.")
+    };
+
+    private static bool IsValidLocalBox(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ)
+    {
+        if (!IsFinite(offsetX) || !IsFinite(offsetY) || !IsFinite(offsetZ) ||
+            !IsFinite(sizeX) || !IsFinite(sizeY) || !IsFinite(sizeZ) ||
+            sizeX <= 0 || sizeY <= 0 || sizeZ <= 0 ||
+            offsetX < 0 || offsetY < 0 || offsetZ < 0)
+            return false;
+        // Ends must stay distinguishable in double and inside the unit cell.
+        // Orthogonal maps send [0,1] to [0,1]; world translation and Godot
+        // single-precision conversion are query/adapter concerns, not content law.
+        return offsetX + sizeX > offsetX && offsetY + sizeY > offsetY && offsetZ + sizeZ > offsetZ &&
+               offsetX + sizeX <= 1 && offsetY + sizeY <= 1 && offsetZ + sizeZ <= 1;
+    }
+
+    private static bool IsFinite(double value) =>
+        !double.IsNaN(value) && !double.IsInfinity(value);
 }
 
 public sealed class VoxelDefinition
@@ -213,6 +367,7 @@ public sealed class VoxelDefinition
     {
         VoxelCollisionKind.None => "none",
         VoxelCollisionKind.FullBox => "full_box",
+        VoxelCollisionKind.LocalBox => "local_box",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown collision kind.")
     };
 
@@ -222,9 +377,10 @@ public sealed class VoxelDefinition
         {
             "none" => VoxelCollisionKind.None,
             "full_box" => VoxelCollisionKind.FullBox,
+            "local_box" => VoxelCollisionKind.LocalBox,
             _ => default
         };
-        return value is "none" or "full_box";
+        return value is "none" or "full_box" or "local_box";
     }
 
     public static string FormatMass(double mass) =>

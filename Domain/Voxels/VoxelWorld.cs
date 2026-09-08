@@ -97,6 +97,26 @@ public readonly record struct VoxelOrientation
         throw new ArgumentOutOfRangeException(nameof(worldAxis), worldAxis, "World axis is not produced by this orientation.");
     }
 
+    public (double X, double Y, double Z) ToWorldCell(double localX, double localY, double localZ)
+    {
+        if (!IsFinite(localX) || !IsFinite(localY) || !IsFinite(localZ))
+            throw new ArgumentOutOfRangeException(nameof(localX), "Local coordinates must be finite.");
+        return (
+            AlongWorld(VoxelAxis.PositiveX, localX, localY, localZ),
+            AlongWorld(VoxelAxis.PositiveY, localX, localY, localZ),
+            AlongWorld(VoxelAxis.PositiveZ, localX, localY, localZ));
+    }
+
+    public (double X, double Y, double Z) ToLocalCell(double worldX, double worldY, double worldZ)
+    {
+        if (!IsFinite(worldX) || !IsFinite(worldY) || !IsFinite(worldZ))
+            throw new ArgumentOutOfRangeException(nameof(worldX), "World-relative coordinates must be finite.");
+        return (
+            AlongLocal(VoxelAxis.PositiveX, worldX, worldY, worldZ),
+            AlongLocal(VoxelAxis.PositiveY, worldX, worldY, worldZ),
+            AlongLocal(VoxelAxis.PositiveZ, worldX, worldY, worldZ));
+    }
+
     public override string ToString() => $"{ToWire(Right)}_{ToWire(Up)}";
 
     public static bool TryParse(string? value, out VoxelOrientation orientation)
@@ -157,6 +177,41 @@ public readonly record struct VoxelOrientation
         VoxelAxis.NegativeZ => (0, 0, -1),
         _ => throw new ArgumentOutOfRangeException(nameof(axis), axis, "Unknown voxel axis.")
     };
+
+    private double AlongWorld(VoxelAxis world, double localX, double localY, double localZ)
+    {
+        if (Right == world)
+            return localX;
+        if (Opposite(Right) == world)
+            return 1 - localX;
+        if (Up == world)
+            return localY;
+        if (Opposite(Up) == world)
+            return 1 - localY;
+        if (Forward == world)
+            return localZ;
+        if (Opposite(Forward) == world)
+            return 1 - localZ;
+        throw new ArgumentOutOfRangeException(nameof(world), world, "World axis is not produced by this orientation.");
+    }
+
+    private double AlongLocal(VoxelAxis local, double worldX, double worldY, double worldZ)
+    {
+        var world = Transform(local);
+        var value = world switch
+        {
+            VoxelAxis.PositiveX or VoxelAxis.NegativeX => worldX,
+            VoxelAxis.PositiveY or VoxelAxis.NegativeY => worldY,
+            VoxelAxis.PositiveZ or VoxelAxis.NegativeZ => worldZ,
+            _ => throw new ArgumentOutOfRangeException(nameof(local), local, "Unknown voxel axis.")
+        };
+        return world is VoxelAxis.NegativeX or VoxelAxis.NegativeY or VoxelAxis.NegativeZ
+            ? 1 - value
+            : value;
+    }
+
+    private static bool IsFinite(double value) =>
+        !double.IsNaN(value) && !double.IsInfinity(value);
 
     private static VoxelAxis Opposite(VoxelAxis axis) => axis switch
     {
@@ -353,9 +408,9 @@ public sealed class VoxelWorldCommands
                 continue;
             if (_catalog.Current?.TryGet(voxel.DefinitionId, out var entry) != true)
                 continue;
-            if (entry.Definition.Collision.Kind != VoxelCollisionKind.FullBox)
+            if (!entry.Definition.Collision.OverlapsProbe(position, voxel.Orientation, probe))
                 continue;
-            hits.Add(new VoxelCollisionHit(position, voxel.DefinitionId, VoxelCollisionKind.FullBox));
+            hits.Add(new VoxelCollisionHit(position, voxel.DefinitionId, entry.Definition.Collision.Kind));
         }
 
         hits.Sort(CompareHits);

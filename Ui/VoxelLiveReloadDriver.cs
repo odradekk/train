@@ -59,6 +59,27 @@ internal sealed class VoxelLiveReloadDriver
             throw new InvalidOperationException($"Failed to write isolated {relativePath}: {error}.");
     }
 
+    public void WriteLedge(
+        double offsetX = 0.125,
+        double offsetY = 0,
+        double offsetZ = 0.25,
+        double sizeX = 0.25,
+        double sizeY = 0.875,
+        double sizeZ = 0.5,
+        string orientations = "all_24")
+    {
+        WriteIsolatedText(LedgeJsonRelative, LedgeJson(
+            ContentFixturesCollision(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ),
+            orientations));
+    }
+
+    public void WriteInvalidLedge()
+    {
+        WriteIsolatedText(LedgeJsonRelative, LedgeJson(
+            ContentFixturesCollision(0.8, 0, 0.25, 0.4, 0.875, 0.5),
+            "all_24"));
+    }
+
     public void WriteProbeMod()
     {
         var root = Path.Combine(_userDataDirectory, "mods", ProbeFolder);
@@ -89,6 +110,7 @@ internal sealed class VoxelLiveReloadDriver
         Path.Combine(_builtInResourcesRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
     private const string IronOreJsonRelative = "voxels/iron-ore.voxels.json";
+    private const string LedgeJsonRelative = "voxels/ledge.voxels.json";
     private const string IronOreTopRelative = "voxels/iron-ore/top.png";
     private const string IronOreSideRelative = "voxels/iron-ore/side.png";
 
@@ -121,6 +143,57 @@ internal sealed class VoxelLiveReloadDriver
                 "voxel_bottom": "voxels/iron-ore/bottom.png"
               },
               "collision": { "kind": "{{collisionKind}}" }
+            }
+          ]
+        }
+        """;
+
+    private static string ContentFixturesCollision(
+        double offsetX,
+        double offsetY,
+        double offsetZ,
+        double sizeX,
+        double sizeY,
+        double sizeZ) =>
+        $$"""
+        {
+                "kind": "local_box",
+                "offset": {
+                  "x": {{VoxelDefinition.FormatMass(offsetX)}},
+                  "y": {{VoxelDefinition.FormatMass(offsetY)}},
+                  "z": {{VoxelDefinition.FormatMass(offsetZ)}}
+                },
+                "size": {
+                  "x": {{VoxelDefinition.FormatMass(sizeX)}},
+                  "y": {{VoxelDefinition.FormatMass(sizeY)}},
+                  "z": {{VoxelDefinition.FormatMass(sizeZ)}}
+                }
+              }
+        """;
+
+    private static string LedgeJson(string collision, string orientations) =>
+        $$"""
+        {
+          "schema_version": 1,
+          "voxels": [
+            {
+              "id": "ledge",
+              "name": "偏心台沿",
+              "description": "开发用单个局部碰撞盒。",
+              "value": 10,
+              "mass": 1,
+              "max_durability": 100,
+              "tags": [],
+              "behaviors": [],
+              "allowed_orientations": "{{orientations}}",
+              "presentation": {
+                "kind": "cube",
+                "icon": "voxels/iron-ore/icon.png",
+                "voxel_top": "voxels/iron-ore/top.png",
+                "voxel_side": "voxels/iron-ore/side.png",
+                "voxel_bottom": "voxels/iron-ore/bottom.png"
+              },
+              "collision": {{collision}}
             }
           ]
         }

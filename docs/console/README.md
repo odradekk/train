@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51）。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52）。
 
 ## 打开控制台与输入规则
 
@@ -25,8 +25,8 @@
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) | 重建初始开发世界 | 包含 PR #47，且已进入体素开发场景 |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
-| [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格的领域碰撞 | 同上 |
-| [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与 `full_box` 的重叠 | 同上 |
+| [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格完整盒的领域碰撞（`local_box` 格内盒外须用六参数） | 同上 |
+| [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与当前碰撞形状的重叠 | 同上 |
 | [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
@@ -52,7 +52,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -120,9 +120,16 @@ voxel add 0 0 0 core:hollow px_py
 voxel query 0 0 0
 voxel collide 0 0 0
 voxel add 0 0 0 core:iron-ore px_py
+voxel add 1 0 0 core:ledge px_py
+voxel collide 1.18 0.08 0.48 1.22 0.12 0.52
+voxel collide 1.68 0.38 0.48 1.72 0.42 0.52
+voxel remove 1 0 0
+voxel add 1 0 0 core:ledge pz_py
+voxel collide 1.18 0.08 0.48 1.22 0.12 0.52
+voxel collide 1.48 0.38 0.18 1.52 0.42 0.22
 ```
 
-原始定义下应依次观察到初始 512 格、`(4,4,4)` 碰撞 `Hit`/`full_box`、移除后 511 格且该格 `Miss`、重加后 512 格/耐久 100，最后一次铁矿为 `Occupied`。空心占格后总数 513，`query` 占用而 `collide` 为 `Miss`，再放铁矿得到 `Occupied`。
+原始定义下应依次观察到初始 512 格、`(4,4,4)` 碰撞 `Hit`/`full_box`、移除后 511 格且该格 `Miss`、重加后 512 格/耐久 100，最后一次铁矿为 `Occupied`。空心占格后总数 513，`query` 占用而 `collide` 为 `Miss`，再放铁矿得到 `Occupied`。偏心台沿占 `(1,0,0)` 后，身份朝向下盒内探测 `Hit`/`local_box`、格内盒外 `Miss`；改成 `pz_py` 后原盒内探测变为 `Miss`，旋转后的新区域 `Hit`。
 
 ### 观察部分伤害、归零和内部空腔
 
