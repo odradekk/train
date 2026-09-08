@@ -242,12 +242,19 @@ public sealed class VoxelWorld
 {
     private readonly Dictionary<WorldVoxelCoord, WorldVoxel> _voxels = new();
 
-    public VoxelWorldBounds Bounds { get; }
+    public VoxelWorldIdentity Identity { get; }
+    public VoxelWorldBounds Bounds => Identity.Bounds;
+    public int ChunkSize => Identity.ChunkSize;
     public int VoxelCount => _voxels.Count;
 
     public VoxelWorld(VoxelWorldBounds bounds)
+        : this(VoxelWorldIdentity.FromBounds(bounds))
     {
-        Bounds = bounds;
+    }
+
+    public VoxelWorld(VoxelWorldIdentity identity)
+    {
+        Identity = identity;
     }
 
     public WorldVoxelQuery Query(WorldVoxelCoord position) =>
@@ -390,21 +397,61 @@ public sealed class VoxelWorldCommands
 
 public static class VoxelWorldFactory
 {
-    public static readonly VoxelWorldBounds DevelopmentBounds = new(16, 16, 16);
+    public static readonly VoxelWorldBounds DevelopmentBounds = VoxelWorldIdentity.Slice1.Bounds;
     public static readonly VoxelDefinitionId DevelopmentDefinitionId = new("core", "iron-ore");
 
-    public static VoxelWorld CreateDevelopmentWorld(VoxelCatalogSnapshot catalog)
+    public static VoxelWorld CreateDevelopmentWorld(VoxelCatalogSnapshot catalog) =>
+        Create(catalog, VoxelWorldIdentity.Slice1);
+
+    public static VoxelWorld Create(VoxelCatalogSnapshot catalog, VoxelWorldIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         if (!catalog.TryGet(DevelopmentDefinitionId, out var definition))
             throw new InvalidOperationException("The development world requires core:iron-ore.");
 
-        var world = new VoxelWorld(DevelopmentBounds);
+        var world = new VoxelWorld(identity);
+        var voxel = new WorldVoxel(DevelopmentDefinitionId, definition.Definition.MaxDurability, VoxelOrientation.Identity);
+        if (identity.GeneratorVersion == VoxelWorldIdentity.Slice2GeneratorVersion)
+            FillSlice2(world, voxel);
+        else if (identity.GeneratorVersion == VoxelWorldIdentity.Slice1GeneratorVersion ||
+                 identity.GeneratorVersion == "unspecified")
+            FillSlice1(world, voxel);
+        else
+            throw new InvalidOperationException($"Unknown generator version '{identity.GeneratorVersion}'.");
+
+        return world;
+    }
+
+    private static void FillSlice1(VoxelWorld world, WorldVoxel voxel)
+    {
         for (var x = 4; x <= 11; x++)
         for (var y = 4; y <= 11; y++)
         for (var z = 4; z <= 11; z++)
-            world.TryAdd(new WorldVoxelCoord(x, y, z), new WorldVoxel(DevelopmentDefinitionId, definition.Definition.MaxDurability, VoxelOrientation.Identity));
-        return world;
+        {
+            var position = new WorldVoxelCoord(x, y, z);
+            if (world.Bounds.Contains(position))
+                world.TryAdd(position, voxel);
+        }
+    }
+
+    private static void FillSlice2(VoxelWorld world, WorldVoxel voxel)
+    {
+        for (var x = 0; x < world.Bounds.SizeX; x++)
+        for (var z = 0; z < world.Bounds.SizeZ; z++)
+        {
+            var ground = new WorldVoxelCoord(x, 0, z);
+            if (world.Bounds.Contains(ground))
+                world.TryAdd(ground, voxel);
+        }
+
+        for (var x = 14; x <= 17; x++)
+        for (var y = 14; y <= 17; y++)
+        for (var z = 14; z <= 17; z++)
+        {
+            var position = new WorldVoxelCoord(x, y, z);
+            if (world.Bounds.Contains(position))
+                world.TryAdd(position, voxel);
+        }
     }
 }
 
@@ -443,12 +490,14 @@ public static class VoxelSurfaceMesher
         (VoxelFaceNormal.NegativeZ, 0, 0, -1)
     };
 
-    public static VoxelSurfaceMesh Build(VoxelWorld world)
+    public static VoxelSurfaceMesh Build(VoxelWorld world, ChunkCoord? chunk = null)
     {
         ArgumentNullException.ThrowIfNull(world);
         var faces = new List<WorldVoxelFace>();
         foreach (var (position, voxel) in world.OccupiedVoxels())
         {
+            if (chunk is { } selected && VoxelChunks.Of(position, world.ChunkSize) != selected)
+                continue;
             foreach (var (normal, x, y, z) in Neighbors)
             {
                 if (!world.Query(new WorldVoxelCoord(position.X + x, position.Y + y, position.Z + z)).IsOccupied)

@@ -61,6 +61,44 @@ internal static class VoxelMeshGeometryValidator
             ValidateUnitFaceCoverage(triangles);
     }
 
+    public static bool HasPublishedFace(Godot.Mesh mesh, WorldVoxelCoord position, VoxelFaceNormal normal)
+    {
+        ArgumentNullException.ThrowIfNull(mesh);
+        var expectedNormal = WorldNormal(normal);
+        var (minimum, maximum) = FaceBounds(position, normal);
+        foreach (var (a, b, c) in PublishedTriangles(mesh))
+        {
+            if (!OnBounds(a, minimum, maximum) ||
+                !OnBounds(b, minimum, maximum) ||
+                !OnBounds(c, minimum, maximum))
+            {
+                continue;
+            }
+
+            var geometric = (b - a).Cross(c - a);
+            if (geometric.Length() < 0.5f)
+                continue;
+            // SurfaceTool writes clockwise triangles when viewed from outside, so
+            // (B-A)×(C-A) points inward. The published outward normal is the opposite.
+            var outward = (-geometric).Normalized();
+            if (NormalsEqual(outward, expectedNormal))
+                return true;
+        }
+
+        return false;
+    }
+
+    public static bool HasAnyPublishedFace(Godot.Mesh mesh, WorldVoxelCoord position)
+    {
+        foreach (var normal in Enum.GetValues<VoxelFaceNormal>())
+        {
+            if (HasPublishedFace(mesh, position, normal))
+                return true;
+        }
+
+        return false;
+    }
+
     public static IReadOnlyDictionary<(int X, int Y, int Z), Vector2> ReadWorldTopUvs(
         Godot.Mesh mesh,
         WorldVoxelCoord cell)
@@ -94,6 +132,93 @@ internal static class VoxelMeshGeometryValidator
             throw new InvalidOperationException($"Generated mesh is missing world-top UVs for {cell}.");
         return corners;
     }
+
+    private static IEnumerable<(Vector3 A, Vector3 B, Vector3 C)> PublishedTriangles(Godot.Mesh mesh)
+    {
+        for (var surface = 0; surface < mesh.GetSurfaceCount(); surface++)
+        {
+            var arrays = mesh.SurfaceGetArrays(surface);
+            var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+            if (vertices.Length == 0)
+                continue;
+            var indices = ReadIndices(arrays);
+            var count = indices.Length > 0 ? indices.Length : vertices.Length;
+            if (count % 3 != 0)
+                continue;
+            for (var index = 0; index < count; index += 3)
+            {
+                var first = indices.Length > 0 ? indices[index] : index;
+                var second = indices.Length > 0 ? indices[index + 1] : index + 1;
+                var third = indices.Length > 0 ? indices[index + 2] : index + 2;
+                if (first < 0 || second < 0 || third < 0 ||
+                    first >= vertices.Length || second >= vertices.Length || third >= vertices.Length)
+                    continue;
+                yield return (vertices[first], vertices[second], vertices[third]);
+            }
+        }
+    }
+
+    private static int[] ReadIndices(Godot.Collections.Array arrays)
+    {
+        if (arrays.Count <= (int)Godot.Mesh.ArrayType.Index)
+            return Array.Empty<int>();
+        var values = arrays[(int)Godot.Mesh.ArrayType.Index];
+        if (values.VariantType is Variant.Type.Nil or Variant.Type.Max)
+            return Array.Empty<int>();
+        try
+        {
+            return values.AsInt32Array() ?? Array.Empty<int>();
+        }
+        catch (InvalidCastException)
+        {
+            return Array.Empty<int>();
+        }
+    }
+
+    private static Vector3 WorldNormal(VoxelFaceNormal normal) => normal switch
+    {
+        VoxelFaceNormal.PositiveX => Vector3.Right,
+        VoxelFaceNormal.NegativeX => Vector3.Left,
+        VoxelFaceNormal.PositiveY => Vector3.Up,
+        VoxelFaceNormal.NegativeY => Vector3.Down,
+        VoxelFaceNormal.PositiveZ => Vector3.Back,
+        VoxelFaceNormal.NegativeZ => Vector3.Forward,
+        _ => throw new ArgumentOutOfRangeException(nameof(normal), normal, "Unknown face normal.")
+    };
+
+    private static (Vector3 Minimum, Vector3 Maximum) FaceBounds(WorldVoxelCoord position, VoxelFaceNormal normal) =>
+        normal switch
+        {
+            VoxelFaceNormal.PositiveX => (
+                new Vector3(position.X + 1, position.Y, position.Z),
+                new Vector3(position.X + 1, position.Y + 1, position.Z + 1)),
+            VoxelFaceNormal.NegativeX => (
+                new Vector3(position.X, position.Y, position.Z),
+                new Vector3(position.X, position.Y + 1, position.Z + 1)),
+            VoxelFaceNormal.PositiveY => (
+                new Vector3(position.X, position.Y + 1, position.Z),
+                new Vector3(position.X + 1, position.Y + 1, position.Z + 1)),
+            VoxelFaceNormal.NegativeY => (
+                new Vector3(position.X, position.Y, position.Z),
+                new Vector3(position.X + 1, position.Y, position.Z + 1)),
+            VoxelFaceNormal.PositiveZ => (
+                new Vector3(position.X, position.Y, position.Z + 1),
+                new Vector3(position.X + 1, position.Y + 1, position.Z + 1)),
+            VoxelFaceNormal.NegativeZ => (
+                new Vector3(position.X, position.Y, position.Z),
+                new Vector3(position.X + 1, position.Y + 1, position.Z)),
+            _ => throw new ArgumentOutOfRangeException(nameof(normal), normal, "Unknown face normal.")
+        };
+
+    private static bool NormalsEqual(Vector3 first, Vector3 second) =>
+        Mathf.IsEqualApprox(first.X, second.X) &&
+        Mathf.IsEqualApprox(first.Y, second.Y) &&
+        Mathf.IsEqualApprox(first.Z, second.Z);
+
+    private static bool OnBounds(Vector3 point, Vector3 minimum, Vector3 maximum) =>
+        point.X >= minimum.X - 0.01f && point.X <= maximum.X + 0.01f &&
+        point.Y >= minimum.Y - 0.01f && point.Y <= maximum.Y + 0.01f &&
+        point.Z >= minimum.Z - 0.01f && point.Z <= maximum.Z + 0.01f;
 
     private static bool OnWorldTop(Vector3 vertex, WorldVoxelCoord cell) =>
         Mathf.IsEqualApprox(vertex.Y, cell.Y + 1) &&
