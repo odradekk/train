@@ -21,6 +21,8 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
 foreach ($name in @(
     "TRAIN_VOXEL_SMOKE",
     "TRAIN_VOXEL_SMOKE_REENTER",
+    "TRAIN_VOXEL_SMOKE_RESUME",
+    "TRAIN_VOXEL_SMOKE_SAVE_ID",
     "TRAIN_VOXEL_BASELINE",
     "TRAIN_CONTENT_SMOKE",
     "TRAIN_CONTENT_EXPORT_SMOKE",

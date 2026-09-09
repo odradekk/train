@@ -1,0 +1,1152 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Train.Content;
+
+namespace Train.Domain.Voxels;
+
+public enum WorldSaveStatus
+{
+    Saved,
+    Loaded,
+    WriteFailed,
+    ReadFailed,
+    Truncated,
+    UnknownFormat,
+    UnknownGenerator,
+    IncompatibleBase,
+    MissingDefinition,
+    InvalidDelta,
+    Occupied,
+    OutOfBounds,
+    InvalidName,
+    NotFound,
+    Unavailable
+}
+
+public sealed record WorldSaveResult(WorldSaveStatus Status, Guid? SaveId = null, string? DisplayName = null)
+{
+    public bool Succeeded => Status is WorldSaveStatus.Saved or WorldSaveStatus.Loaded;
+}
+
+public readonly record struct WorldSaveInstance(
+    WorldVoxelCoord Position,
+    VoxelDefinitionId DefinitionId,
+    VoxelOrientation Orientation,
+    int Durability);
+
+public readonly record struct WorldSaveDefinitionRef(
+    VoxelDefinitionId DefinitionId,
+    string SemanticRevision,
+    int MaxDurability);
+
+public sealed class WorldSaveDocument
+{
+    public const int CurrentFormatVersion = 1;
+    public const string DefaultDisplayName = "Development World";
+    public const int DisplayNameMinLength = 1;
+    public const int DisplayNameMaxLength = 64;
+
+    public int FormatVersion { get; }
+    public Guid Id { get; }
+    public string DisplayName { get; }
+    public ulong Seed { get; }
+    public string GeneratorVersion { get; }
+    public VoxelWorldBounds Bounds { get; }
+    public int ChunkSize { get; }
+    public string BaseLayout { get; }
+    public IReadOnlyList<WorldSaveDefinitionRef> ExternalDefinitions { get; }
+    public IReadOnlyList<WorldVoxelCoord> Removed { get; }
+    public IReadOnlyList<WorldSaveInstance> Added { get; }
+    public IReadOnlyList<WorldSaveInstance> Changed { get; }
+
+    public WorldSaveDocument(
+        int formatVersion,
+        Guid id,
+        string displayName,
+        ulong seed,
+        string generatorVersion,
+        VoxelWorldBounds bounds,
+        int chunkSize,
+        string baseLayout,
+        IReadOnlyList<WorldSaveDefinitionRef> externalDefinitions,
+        IReadOnlyList<WorldVoxelCoord> removed,
+        IReadOnlyList<WorldSaveInstance> added,
+        IReadOnlyList<WorldSaveInstance> changed)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(generatorVersion);
+        ArgumentException.ThrowIfNullOrEmpty(baseLayout);
+        ArgumentNullException.ThrowIfNull(externalDefinitions);
+        ArgumentNullException.ThrowIfNull(removed);
+        ArgumentNullException.ThrowIfNull(added);
+        ArgumentNullException.ThrowIfNull(changed);
+        FormatVersion = formatVersion;
+        Id = id;
+        DisplayName = displayName;
+        Seed = seed;
+        GeneratorVersion = generatorVersion;
+        Bounds = bounds;
+        ChunkSize = chunkSize;
+        BaseLayout = baseLayout;
+        ExternalDefinitions = externalDefinitions;
+        Removed = removed;
+        Added = added;
+        Changed = changed;
+    }
+
+    public static bool TryNormalizeDisplayName(string? value, out string name)
+    {
+        name = "";
+        if (value is null)
+            return false;
+        var trimmed = value.Trim();
+        if (trimmed.Length is < DisplayNameMinLength or > DisplayNameMaxLength)
+            return false;
+        if (trimmed is "." or "..")
+            return false;
+        foreach (var c in trimmed)
+        {
+            if (c is '/' or '\\' or ':' or '*' or '?' or '"' or '<' or '>' or '|' or '\0')
+                return false;
+        }
+
+        name = trimmed;
+        return true;
+    }
+}
+
+public static class WorldSaveLayout
+{
+    public static string Fingerprint(VoxelWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        }))
+        {
+            writer.WriteStartArray();
+            foreach (var (position, voxel) in world.OccupiedVoxels()
+                .OrderBy(item => item.Key.X)
+                .ThenBy(item => item.Key.Y)
+                .ThenBy(item => item.Key.Z))
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("x", position.X);
+                writer.WriteNumber("y", position.Y);
+                writer.WriteNumber("z", position.Z);
+                writer.WriteString("definition_id", voxel.DefinitionId.Value);
+                writer.WriteString("orientation", voxel.Orientation.ToString());
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.Flush();
+        }
+
+        return Convert.ToHexString(SHA256.HashData(stream.ToArray()));
+    }
+}
+
+public static class WorldSaveDelta
+{
+    public static void Compute(
+        VoxelWorld generated,
+        VoxelWorld current,
+        out List<WorldVoxelCoord> removed,
+        out List<WorldSaveInstance> added,
+        out List<WorldSaveInstance> changed)
+    {
+        ArgumentNullException.ThrowIfNull(generated);
+        ArgumentNullException.ThrowIfNull(current);
+        var generatedMap = ToMap(generated);
+        var currentMap = ToMap(current);
+        removed = new List<WorldVoxelCoord>();
+        added = new List<WorldSaveInstance>();
+        changed = new List<WorldSaveInstance>();
+
+        foreach (var (position, voxel) in generatedMap)
+        {
+            if (!currentMap.ContainsKey(position))
+                removed.Add(position);
+            else if (!SameInstance(voxel, currentMap[position]))
+                changed.Add(ToInstance(position, currentMap[position]));
+        }
+
+        foreach (var (position, voxel) in currentMap)
+        {
+            if (!generatedMap.ContainsKey(position))
+                added.Add(ToInstance(position, voxel));
+        }
+
+        removed.Sort(CompareCoord);
+        added.Sort(CompareInstance);
+        changed.Sort(CompareInstance);
+    }
+
+    private static Dictionary<WorldVoxelCoord, WorldVoxel> ToMap(VoxelWorld world)
+    {
+        var map = new Dictionary<WorldVoxelCoord, WorldVoxel>();
+        foreach (var (position, voxel) in world.OccupiedVoxels())
+            map.Add(position, voxel);
+        return map;
+    }
+
+    private static bool SameInstance(WorldVoxel left, WorldVoxel right) =>
+        left.DefinitionId == right.DefinitionId &&
+        left.Orientation == right.Orientation &&
+        left.CurrentDurability == right.CurrentDurability;
+
+    private static WorldSaveInstance ToInstance(WorldVoxelCoord position, WorldVoxel voxel) =>
+        new(position, voxel.DefinitionId, voxel.Orientation, voxel.CurrentDurability);
+
+    private static int CompareCoord(WorldVoxelCoord left, WorldVoxelCoord right)
+    {
+        var x = left.X.CompareTo(right.X);
+        if (x != 0)
+            return x;
+        var y = left.Y.CompareTo(right.Y);
+        return y != 0 ? y : left.Z.CompareTo(right.Z);
+    }
+
+    private static int CompareInstance(WorldSaveInstance left, WorldSaveInstance right) =>
+        CompareCoord(left.Position, right.Position);
+}
+
+public static class WorldSaveCodec
+{
+    public static bool TryCapture(
+        VoxelWorld world,
+        VoxelCatalogSnapshot catalog,
+        Guid saveId,
+        string displayName,
+        out WorldSaveDocument document,
+        out WorldSaveStatus status)
+    {
+        document = null!;
+        status = WorldSaveStatus.Saved;
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(catalog);
+        if (!WorldSaveDocument.TryNormalizeDisplayName(displayName, out var name))
+        {
+            status = WorldSaveStatus.InvalidName;
+            return false;
+        }
+
+        VoxelWorld generated;
+        try
+        {
+            generated = VoxelWorldFactory.Create(catalog, world.Identity);
+        }
+        catch (InvalidOperationException)
+        {
+            status = WorldSaveStatus.MissingDefinition;
+            return false;
+        }
+
+        if (!TryCollectReferences(world, generated, catalog, out var references, out status))
+            return false;
+
+        WorldSaveDelta.Compute(generated, world, out var removed, out var added, out var changed);
+        document = new WorldSaveDocument(
+            WorldSaveDocument.CurrentFormatVersion,
+            saveId,
+            name,
+            world.Identity.Seed,
+            world.Identity.GeneratorVersion,
+            world.Identity.Bounds,
+            world.Identity.ChunkSize,
+            WorldSaveLayout.Fingerprint(generated),
+            references,
+            removed,
+            added,
+            changed);
+        status = WorldSaveStatus.Saved;
+        return true;
+    }
+
+    public static string Serialize(WorldSaveDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+        {
+            Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        }))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", document.Id.ToString("D"));
+            writer.WriteString("base_layout", document.BaseLayout);
+            writer.WriteStartObject("bounds");
+            writer.WriteNumber("x", document.Bounds.SizeX);
+            writer.WriteNumber("y", document.Bounds.SizeY);
+            writer.WriteNumber("z", document.Bounds.SizeZ);
+            writer.WriteEndObject();
+            writer.WriteNumber("chunk_size", document.ChunkSize);
+            WriteDelta(writer, document);
+            writer.WriteString("display_name", document.DisplayName);
+            WriteReferences(writer, document.ExternalDefinitions);
+            writer.WriteNumber("save_format_version", document.FormatVersion);
+            writer.WriteNumber("seed", document.Seed);
+            writer.WriteString("generator_version", document.GeneratorVersion);
+            writer.WriteEndObject();
+            writer.Flush();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public static bool TryDeserialize(string json, out WorldSaveDocument document, out WorldSaveStatus status)
+    {
+        document = null!;
+        status = WorldSaveStatus.UnknownFormat;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            status = WorldSaveStatus.Truncated;
+            return false;
+        }
+
+        JsonDocument parsed;
+        try
+        {
+            parsed = JsonDocument.Parse(json, new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow
+            });
+        }
+        catch (JsonException)
+        {
+            status = WorldSaveStatus.Truncated;
+            return false;
+        }
+
+        using (parsed)
+        {
+            if (parsed.RootElement.ValueKind != JsonValueKind.Object)
+                return false;
+            return TryReadDocument(parsed.RootElement, out document, out status);
+        }
+    }
+
+    private static bool TryCollectReferences(
+        VoxelWorld world,
+        VoxelWorld generated,
+        VoxelCatalogSnapshot catalog,
+        out List<WorldSaveDefinitionRef> references,
+        out WorldSaveStatus status)
+    {
+        references = new List<WorldSaveDefinitionRef>();
+        status = WorldSaveStatus.Saved;
+        var seen = new HashSet<VoxelDefinitionId>();
+        foreach (var source in new[] { world, generated })
+        {
+            foreach (var (_, voxel) in source.OccupiedVoxels())
+            {
+                if (!seen.Add(voxel.DefinitionId))
+                    continue;
+                if (!catalog.TryGet(voxel.DefinitionId, out var entry))
+                {
+                    status = WorldSaveStatus.MissingDefinition;
+                    return false;
+                }
+
+                references.Add(new WorldSaveDefinitionRef(
+                    voxel.DefinitionId,
+                    entry.SemanticRevision,
+                    entry.Definition.MaxDurability));
+            }
+        }
+
+        references.Sort((left, right) =>
+            string.Compare(left.DefinitionId.Value, right.DefinitionId.Value, StringComparison.Ordinal));
+        return true;
+    }
+
+    private static void WriteDelta(Utf8JsonWriter writer, WorldSaveDocument document)
+    {
+        writer.WriteStartObject("delta");
+        writer.WriteStartArray("added");
+        foreach (var instance in document.Added)
+            WriteInstance(writer, instance);
+        writer.WriteEndArray();
+        writer.WriteStartArray("changed");
+        foreach (var instance in document.Changed)
+            WriteInstance(writer, instance);
+        writer.WriteEndArray();
+        writer.WriteStartArray("removed");
+        foreach (var position in document.Removed)
+            WriteCoord(writer, position);
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteReferences(Utf8JsonWriter writer, IReadOnlyList<WorldSaveDefinitionRef> references)
+    {
+        writer.WriteStartArray("external_definitions");
+        foreach (var item in references)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("id", item.DefinitionId.Value);
+            writer.WriteNumber("max_durability", item.MaxDurability);
+            writer.WriteString("semantic_revision", item.SemanticRevision);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteInstance(Utf8JsonWriter writer, WorldSaveInstance instance)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("x", instance.Position.X);
+        writer.WriteNumber("y", instance.Position.Y);
+        writer.WriteNumber("z", instance.Position.Z);
+        writer.WriteString("definition_id", instance.DefinitionId.Value);
+        writer.WriteString("orientation", instance.Orientation.ToString());
+        writer.WriteNumber("durability", instance.Durability);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteCoord(Utf8JsonWriter writer, WorldVoxelCoord position)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("x", position.X);
+        writer.WriteNumber("y", position.Y);
+        writer.WriteNumber("z", position.Z);
+        writer.WriteEndObject();
+    }
+
+    private static bool TryReadDocument(JsonElement root, out WorldSaveDocument document, out WorldSaveStatus status)
+    {
+        document = null!;
+        status = WorldSaveStatus.UnknownFormat;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var formatVersion = 0;
+        Guid id = default;
+        string? displayName = null;
+        ulong seed = 0;
+        string? generatorVersion = null;
+        VoxelWorldBounds bounds = default;
+        var chunkSize = 0;
+        string? baseLayout = null;
+        IReadOnlyList<WorldSaveDefinitionRef>? references = null;
+        IReadOnlyList<WorldVoxelCoord>? removed = null;
+        IReadOnlyList<WorldSaveInstance>? added = null;
+        IReadOnlyList<WorldSaveInstance>? changed = null;
+        var hasFormat = false;
+        var hasId = false;
+        var hasSeed = false;
+        var hasBounds = false;
+        var hasChunk = false;
+        var hasDelta = false;
+
+        foreach (var property in root.EnumerateObject())
+        {
+            if (!seen.Add(property.Name))
+                return false;
+            switch (property.Name)
+            {
+                case "save_format_version":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetInt32(out formatVersion))
+                        return false;
+                    hasFormat = true;
+                    break;
+                case "id":
+                    if (property.Value.ValueKind != JsonValueKind.String ||
+                        !Guid.TryParse(property.Value.GetString(), out id))
+                        return false;
+                    hasId = true;
+                    break;
+                case "display_name":
+                    if (property.Value.ValueKind != JsonValueKind.String ||
+                        !WorldSaveDocument.TryNormalizeDisplayName(property.Value.GetString(), out displayName))
+                    {
+                        status = WorldSaveStatus.InvalidName;
+                        return false;
+                    }
+
+                    break;
+                case "seed":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetUInt64(out seed))
+                        return false;
+                    hasSeed = true;
+                    break;
+                case "generator_version":
+                    if (property.Value.ValueKind != JsonValueKind.String)
+                        return false;
+                    generatorVersion = property.Value.GetString();
+                    if (string.IsNullOrWhiteSpace(generatorVersion))
+                        return false;
+                    break;
+                case "bounds":
+                    if (!TryReadBounds(property.Value, out bounds))
+                        return false;
+                    hasBounds = true;
+                    break;
+                case "chunk_size":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetInt32(out chunkSize) ||
+                        chunkSize <= 0)
+                        return false;
+                    hasChunk = true;
+                    break;
+                case "base_layout":
+                    if (property.Value.ValueKind != JsonValueKind.String)
+                        return false;
+                    baseLayout = property.Value.GetString();
+                    if (string.IsNullOrWhiteSpace(baseLayout))
+                        return false;
+                    break;
+                case "external_definitions":
+                    if (!TryReadReferences(property.Value, out references, out status))
+                        return false;
+                    break;
+                case "delta":
+                    if (!TryReadDelta(property.Value, out removed, out added, out changed, out status))
+                        return false;
+                    hasDelta = true;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        if (!hasFormat || !hasId || displayName is null || !hasSeed || generatorVersion is null ||
+            !hasBounds || !hasChunk || baseLayout is null || references is null || !hasDelta)
+            return false;
+        if (formatVersion != WorldSaveDocument.CurrentFormatVersion)
+        {
+            status = WorldSaveStatus.UnknownFormat;
+            return false;
+        }
+
+        document = new WorldSaveDocument(
+            formatVersion,
+            id,
+            displayName,
+            seed,
+            generatorVersion,
+            bounds,
+            chunkSize,
+            baseLayout,
+            references,
+            removed!,
+            added!,
+            changed!);
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryReadBounds(JsonElement element, out VoxelWorldBounds bounds)
+    {
+        bounds = default;
+        if (element.ValueKind != JsonValueKind.Object)
+            return false;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var x = 0;
+        var y = 0;
+        var z = 0;
+        var hasX = false;
+        var hasY = false;
+        var hasZ = false;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!seen.Add(property.Name))
+                return false;
+            if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var value) || value <= 0)
+                return false;
+            switch (property.Name)
+            {
+                case "x":
+                    x = value;
+                    hasX = true;
+                    break;
+                case "y":
+                    y = value;
+                    hasY = true;
+                    break;
+                case "z":
+                    z = value;
+                    hasZ = true;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        if (!hasX || !hasY || !hasZ)
+            return false;
+        bounds = new VoxelWorldBounds(x, y, z);
+        return true;
+    }
+
+    private static bool TryReadReferences(
+        JsonElement element,
+        out IReadOnlyList<WorldSaveDefinitionRef> references,
+        out WorldSaveStatus status)
+    {
+        references = Array.Empty<WorldSaveDefinitionRef>();
+        status = WorldSaveStatus.UnknownFormat;
+        if (element.ValueKind != JsonValueKind.Array)
+            return false;
+        var list = new List<WorldSaveDefinitionRef>();
+        var seen = new HashSet<VoxelDefinitionId>();
+        foreach (var item in element.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.Object)
+                return false;
+            var fields = new HashSet<string>(StringComparer.Ordinal);
+            string? idText = null;
+            string? revision = null;
+            var maxDurability = 0;
+            var hasMax = false;
+            foreach (var property in item.EnumerateObject())
+            {
+                if (!fields.Add(property.Name))
+                    return false;
+                switch (property.Name)
+                {
+                    case "id":
+                        if (property.Value.ValueKind != JsonValueKind.String)
+                            return false;
+                        idText = property.Value.GetString();
+                        break;
+                    case "semantic_revision":
+                        if (property.Value.ValueKind != JsonValueKind.String)
+                            return false;
+                        revision = property.Value.GetString();
+                        break;
+                    case "max_durability":
+                        if (property.Value.ValueKind != JsonValueKind.Number ||
+                            !property.Value.TryGetInt32(out maxDurability) ||
+                            maxDurability is < VoxelDefinition.MaxDurabilityMin or > VoxelDefinition.MaxDurabilityMax)
+                            return false;
+                        hasMax = true;
+                        break;
+                    default:
+                        return false;
+                }
+            }
+
+            if (idText is null || string.IsNullOrWhiteSpace(revision) || !hasMax)
+                return false;
+            try
+            {
+                var id = VoxelDefinitionId.Parse(idText);
+                if (!seen.Add(id))
+                {
+                    status = WorldSaveStatus.InvalidDelta;
+                    return false;
+                }
+
+                list.Add(new WorldSaveDefinitionRef(id, revision, maxDurability));
+            }
+            catch (ArgumentException)
+            {
+                status = WorldSaveStatus.InvalidDelta;
+                return false;
+            }
+        }
+
+        references = list;
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryReadDelta(
+        JsonElement element,
+        out IReadOnlyList<WorldVoxelCoord> removed,
+        out IReadOnlyList<WorldSaveInstance> added,
+        out IReadOnlyList<WorldSaveInstance> changed,
+        out WorldSaveStatus status)
+    {
+        removed = Array.Empty<WorldVoxelCoord>();
+        added = Array.Empty<WorldSaveInstance>();
+        changed = Array.Empty<WorldSaveInstance>();
+        status = WorldSaveStatus.InvalidDelta;
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            status = WorldSaveStatus.UnknownFormat;
+            return false;
+        }
+
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var hasRemoved = false;
+        var hasAdded = false;
+        var hasChanged = false;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!seen.Add(property.Name))
+                return false;
+            switch (property.Name)
+            {
+                case "removed":
+                    if (!TryReadCoords(property.Value, out removed, out status))
+                        return false;
+                    hasRemoved = true;
+                    break;
+                case "added":
+                    if (!TryReadInstances(property.Value, out added, out status))
+                        return false;
+                    hasAdded = true;
+                    break;
+                case "changed":
+                    if (!TryReadInstances(property.Value, out changed, out status))
+                        return false;
+                    hasChanged = true;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        if (!hasRemoved || !hasAdded || !hasChanged)
+        {
+            status = WorldSaveStatus.UnknownFormat;
+            return false;
+        }
+
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryReadCoords(
+        JsonElement element,
+        out IReadOnlyList<WorldVoxelCoord> coords,
+        out WorldSaveStatus status)
+    {
+        coords = Array.Empty<WorldVoxelCoord>();
+        status = WorldSaveStatus.InvalidDelta;
+        if (element.ValueKind != JsonValueKind.Array)
+            return false;
+        var list = new List<WorldVoxelCoord>();
+        var seen = new HashSet<WorldVoxelCoord>();
+        foreach (var item in element.EnumerateArray())
+        {
+            if (!TryReadCoord(item, out var position))
+                return false;
+            if (!seen.Add(position))
+                return false;
+            list.Add(position);
+        }
+
+        coords = list;
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryReadInstances(
+        JsonElement element,
+        out IReadOnlyList<WorldSaveInstance> instances,
+        out WorldSaveStatus status)
+    {
+        instances = Array.Empty<WorldSaveInstance>();
+        status = WorldSaveStatus.InvalidDelta;
+        if (element.ValueKind != JsonValueKind.Array)
+            return false;
+        var list = new List<WorldSaveInstance>();
+        var seen = new HashSet<WorldVoxelCoord>();
+        foreach (var item in element.EnumerateArray())
+        {
+            if (!TryReadInstance(item, out var instance, out status))
+                return false;
+            if (!seen.Add(instance.Position))
+            {
+                status = WorldSaveStatus.Occupied;
+                return false;
+            }
+
+            list.Add(instance);
+        }
+
+        instances = list;
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryReadCoord(JsonElement element, out WorldVoxelCoord position)
+    {
+        position = default;
+        if (element.ValueKind != JsonValueKind.Object)
+            return false;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var x = 0;
+        var y = 0;
+        var z = 0;
+        var hasX = false;
+        var hasY = false;
+        var hasZ = false;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!seen.Add(property.Name))
+                return false;
+            if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var value))
+                return false;
+            switch (property.Name)
+            {
+                case "x":
+                    x = value;
+                    hasX = true;
+                    break;
+                case "y":
+                    y = value;
+                    hasY = true;
+                    break;
+                case "z":
+                    z = value;
+                    hasZ = true;
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        if (!hasX || !hasY || !hasZ)
+            return false;
+        position = new WorldVoxelCoord(x, y, z);
+        return true;
+    }
+
+    private static bool TryReadInstance(JsonElement element, out WorldSaveInstance instance, out WorldSaveStatus status)
+    {
+        instance = default;
+        status = WorldSaveStatus.InvalidDelta;
+        if (element.ValueKind != JsonValueKind.Object)
+            return false;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var x = 0;
+        var y = 0;
+        var z = 0;
+        var durability = 0;
+        string? idText = null;
+        string? orientationText = null;
+        var hasX = false;
+        var hasY = false;
+        var hasZ = false;
+        var hasDurability = false;
+        foreach (var property in element.EnumerateObject())
+        {
+            if (!seen.Add(property.Name))
+                return false;
+            switch (property.Name)
+            {
+                case "x":
+                case "y":
+                case "z":
+                case "durability":
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var number))
+                        return false;
+                    if (property.Name == "x")
+                    {
+                        x = number;
+                        hasX = true;
+                    }
+                    else if (property.Name == "y")
+                    {
+                        y = number;
+                        hasY = true;
+                    }
+                    else if (property.Name == "z")
+                    {
+                        z = number;
+                        hasZ = true;
+                    }
+                    else
+                    {
+                        durability = number;
+                        hasDurability = true;
+                    }
+
+                    break;
+                case "definition_id":
+                    if (property.Value.ValueKind != JsonValueKind.String)
+                        return false;
+                    idText = property.Value.GetString();
+                    break;
+                case "orientation":
+                    if (property.Value.ValueKind != JsonValueKind.String)
+                        return false;
+                    orientationText = property.Value.GetString();
+                    break;
+                default:
+                    return false;
+            }
+        }
+
+        if (!hasX || !hasY || !hasZ || !hasDurability || idText is null || orientationText is null)
+            return false;
+        if (durability <= 0)
+            return false;
+        try
+        {
+            var id = VoxelDefinitionId.Parse(idText);
+            if (!VoxelOrientation.TryParse(orientationText, out var orientation))
+                return false;
+            instance = new WorldSaveInstance(new WorldVoxelCoord(x, y, z), id, orientation, durability);
+            status = WorldSaveStatus.Loaded;
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+}
+
+public static class WorldSaveRestorer
+{
+    public static bool TryBuild(
+        VoxelCatalogSnapshot catalog,
+        WorldSaveDocument document,
+        VoxelWorldIdentity expectedIdentity,
+        out VoxelWorld world,
+        out WorldSaveStatus status)
+    {
+        world = null!;
+        status = WorldSaveStatus.InvalidDelta;
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(document);
+
+        if (document.FormatVersion != WorldSaveDocument.CurrentFormatVersion)
+        {
+            status = WorldSaveStatus.UnknownFormat;
+            return false;
+        }
+
+        if (!TryResolveIdentity(document, out var identity, out status))
+            return false;
+        if (identity != expectedIdentity)
+        {
+            status = WorldSaveStatus.IncompatibleBase;
+            return false;
+        }
+
+        VoxelWorld generated;
+        try
+        {
+            generated = VoxelWorldFactory.Create(catalog, identity);
+        }
+        catch (InvalidOperationException exception)
+        {
+            status = exception.Message.Contains("Unknown generator", StringComparison.Ordinal)
+                ? WorldSaveStatus.UnknownGenerator
+                : WorldSaveStatus.MissingDefinition;
+            return false;
+        }
+
+        if (!string.Equals(WorldSaveLayout.Fingerprint(generated), document.BaseLayout, StringComparison.Ordinal))
+        {
+            status = WorldSaveStatus.IncompatibleBase;
+            return false;
+        }
+
+        if (!TryValidateDelta(catalog, generated, document, out status))
+            return false;
+
+        ApplySavedDurability(catalog, generated, document);
+        ApplyDelta(catalog, generated, document);
+        world = generated;
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    public static bool TryResolveIdentity(
+        WorldSaveDocument document,
+        out VoxelWorldIdentity identity,
+        out WorldSaveStatus status)
+    {
+        identity = default;
+        status = WorldSaveStatus.UnknownGenerator;
+        var slice = document.GeneratorVersion switch
+        {
+            VoxelWorldIdentity.Slice2GeneratorVersion => VoxelDevelopmentSlice.Slice2,
+            VoxelWorldIdentity.Slice1GeneratorVersion => VoxelDevelopmentSlice.Slice1,
+            _ => (VoxelDevelopmentSlice)(-1)
+        };
+        if ((int)slice < 0)
+            return false;
+        try
+        {
+            identity = new VoxelWorldIdentity(
+                slice,
+                document.Seed,
+                document.GeneratorVersion,
+                document.Bounds,
+                document.ChunkSize);
+            status = WorldSaveStatus.Loaded;
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            status = WorldSaveStatus.IncompatibleBase;
+            return false;
+        }
+    }
+
+    private static bool TryValidateDelta(
+        VoxelCatalogSnapshot catalog,
+        VoxelWorld generated,
+        WorldSaveDocument document,
+        out WorldSaveStatus status)
+    {
+        status = WorldSaveStatus.InvalidDelta;
+        var claimed = new HashSet<WorldVoxelCoord>();
+        foreach (var position in document.Removed)
+        {
+            if (!generated.Bounds.Contains(position))
+            {
+                status = WorldSaveStatus.OutOfBounds;
+                return false;
+            }
+
+            if (!generated.Query(position).IsOccupied || !claimed.Add(position))
+                return false;
+        }
+
+        foreach (var instance in document.Changed)
+        {
+            if (!generated.Bounds.Contains(instance.Position))
+            {
+                status = WorldSaveStatus.OutOfBounds;
+                return false;
+            }
+
+            if (!generated.Query(instance.Position).IsOccupied || !claimed.Add(instance.Position))
+            {
+                status = claimed.Contains(instance.Position) ? WorldSaveStatus.Occupied : WorldSaveStatus.InvalidDelta;
+                return false;
+            }
+
+            if (!TryValidateInstance(catalog, instance, out status))
+                return false;
+        }
+
+        foreach (var instance in document.Added)
+        {
+            if (!generated.Bounds.Contains(instance.Position))
+            {
+                status = WorldSaveStatus.OutOfBounds;
+                return false;
+            }
+
+            if (generated.Query(instance.Position).IsOccupied && !document.Removed.Contains(instance.Position))
+            {
+                status = WorldSaveStatus.Occupied;
+                return false;
+            }
+
+            if (!claimed.Add(instance.Position))
+            {
+                status = WorldSaveStatus.Occupied;
+                return false;
+            }
+
+            if (!TryValidateInstance(catalog, instance, out status))
+                return false;
+        }
+
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryValidateInstance(
+        VoxelCatalogSnapshot catalog,
+        WorldSaveInstance instance,
+        out WorldSaveStatus status)
+    {
+        status = WorldSaveStatus.InvalidDelta;
+        if (instance.Durability <= 0)
+            return false;
+        if (!catalog.TryGet(instance.DefinitionId, out var entry))
+        {
+            status = WorldSaveStatus.MissingDefinition;
+            return false;
+        }
+
+        if (!instance.Orientation.IsOrthogonal ||
+            !instance.Orientation.IsAllowedBy(entry.Definition.AllowedOrientations))
+            return false;
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static void ApplySavedDurability(
+        VoxelCatalogSnapshot catalog,
+        VoxelWorld world,
+        WorldSaveDocument document)
+    {
+        var savedMax = document.ExternalDefinitions.ToDictionary(
+            item => item.DefinitionId,
+            item => item.MaxDurability);
+        foreach (var (position, voxel) in world.OccupiedVoxels().ToArray())
+        {
+            if (!catalog.TryGet(voxel.DefinitionId, out var entry))
+                continue;
+            var baseline = savedMax.TryGetValue(voxel.DefinitionId, out var recorded)
+                ? recorded
+                : entry.Definition.MaxDurability;
+            var durability = Math.Min(baseline, entry.Definition.MaxDurability);
+            if (durability != voxel.CurrentDurability)
+                world.TryReplace(position, voxel with { CurrentDurability = durability });
+        }
+    }
+
+    private static void ApplyDelta(
+        VoxelCatalogSnapshot catalog,
+        VoxelWorld world,
+        WorldSaveDocument document)
+    {
+        foreach (var position in document.Removed)
+            world.TryRemove(position);
+        foreach (var instance in document.Changed.Concat(document.Added))
+        {
+            var entry = catalog.Entries[instance.DefinitionId];
+            var durability = Math.Min(instance.Durability, entry.Definition.MaxDurability);
+            var voxel = new WorldVoxel(instance.DefinitionId, durability, instance.Orientation);
+            if (!world.TryReplace(instance.Position, voxel))
+                world.TryAdd(instance.Position, voxel);
+        }
+    }
+}
+
+public static class WorldSaveFixture
+{
+    public static readonly WorldVoxelCoord RemovedGround = new(4, 0, 4);
+    public static readonly WorldVoxelCoord AddedHollow = new(4, 1, 4);
+    public static readonly WorldVoxelCoord DamagedCube = new(14, 14, 14);
+    public static readonly WorldVoxelCoord ReorientedCube = new(17, 17, 17);
+    public static readonly WorldVoxelCoord SavedLedge = new(15, 1, 8);
+    public static readonly VoxelDefinitionId HollowId = new("core", "hollow");
+    public static readonly VoxelDefinitionId LedgeId = new("core", "ledge");
+    public static readonly VoxelOrientation Reoriented = new(VoxelAxis.NegativeZ, VoxelAxis.PositiveY);
+
+    public static void ApplyFixedSequence(VoxelDevelopmentSession session, bool includeLedge = false)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        Require(session.Remove(RemovedGround).Status == WorldCommandStatus.Removed, "remove (4,0,4)");
+        Require(
+            session.Add(AddedHollow, HollowId, VoxelOrientation.Identity).Status == WorldCommandStatus.Added,
+            "add hollow (4,1,4)");
+        Require(session.Damage(DamagedCube, 25).Status == WorldCommandStatus.Damaged, "damage (14,14,14)");
+        Require(session.Remove(ReorientedCube).Status == WorldCommandStatus.Removed, "remove (17,17,17)");
+        Require(
+            session.Add(ReorientedCube, VoxelWorldFactory.DevelopmentDefinitionId, Reoriented).Status ==
+            WorldCommandStatus.Added,
+            "re-add (17,17,17)");
+        if (!includeLedge)
+            return;
+        Require(
+            session.Add(SavedLedge, LedgeId, VoxelOrientation.Yaw90).Status == WorldCommandStatus.Added,
+            "add ledge (15,1,8)");
+    }
+
+    private static void Require(bool condition, string step)
+    {
+        if (!condition)
+            throw new InvalidOperationException($"Fixed save sequence failed at {step}.");
+    }
+}

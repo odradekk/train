@@ -55,7 +55,8 @@ public partial class Main : Node
 
     public override void _Ready()
     {
-        var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled()
+        var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled() ||
+                           IsVoxelBaselineEnabled()
             ? ResolveModsSmokeUserData()
             : null;
         if (IsVoxelSmokeEnabled() || IsVoxelObserveEnabled())

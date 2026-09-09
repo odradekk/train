@@ -10,6 +10,8 @@ public partial class VoxelDeveloperScene : Node3D
 {
     private const string VoxelSmokeEnvironmentVariable = "TRAIN_VOXEL_SMOKE";
     private const string VoxelSmokeReenterEnvironmentVariable = "TRAIN_VOXEL_SMOKE_REENTER";
+    private const string VoxelSmokeResumeEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME";
+    private const string VoxelSmokeSaveIdEnvironmentVariable = "TRAIN_VOXEL_SMOKE_SAVE_ID";
     private const string VoxelObserveEnvironmentVariable = "TRAIN_VOXEL_OBSERVE";
     private WorldVoxelCoord _selectedPosition = new(4, 4, 4);
     private VoxelDevelopmentSession _session = null!;
@@ -24,6 +26,7 @@ public partial class VoxelDeveloperScene : Node3D
     private bool _dirty = true;
     private VoxelSmokePhase _smokePhase;
     private VoxelSlice2SmokePhase _slice2SmokePhase;
+    private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
     private int _observeHoldFrames;
@@ -80,6 +83,7 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitReloadAddProbe,
         ReloadReject,
         AwaitReloadReject,
+        SaveFixedSequence,
         OpenConsole,
         AwaitConsoleOpen,
         CloseConsole,
@@ -133,6 +137,19 @@ public partial class VoxelDeveloperScene : Node3D
         LocalBoxLethal,
         AwaitLocalBoxLethal,
         HandoffReload
+    }
+
+    private enum VoxelResumeSmokePhase
+    {
+        None,
+        Load,
+        AwaitLoad,
+        ReloadMax150,
+        AwaitReloadMax150,
+        ContinueDamage,
+        AwaitContinueDamage,
+        ContinueEdit,
+        Done
     }
 
     private enum VoxelSlice2ObservePhase
@@ -202,9 +219,7 @@ public partial class VoxelDeveloperScene : Node3D
     public override void _Ready()
     {
         var main = GetNode<Main>("/root/Main");
-        AttachSession(new VoxelDevelopmentSession(
-            main.Reloader?.Catalog ?? throw new InvalidOperationException("Content reloader is unavailable."),
-            main.DevelopmentIdentity));
+        AttachSession(CreateDevelopmentSession(main, main.DevelopmentIdentity));
         _selectedPosition = SelectedCell(_session.Identity);
 
         AddChild(new DirectionalLight3D
@@ -259,6 +274,12 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             }
 
+            if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeEnvironmentVariable), "1", StringComparison.Ordinal))
+            {
+                _resumeSmokePhase = VoxelResumeSmokePhase.Load;
+                return;
+            }
+
             if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveX;
             else
@@ -286,6 +307,7 @@ public partial class VoxelDeveloperScene : Node3D
             Refresh();
         AdvanceSmoke();
         AdvanceSlice2Smoke();
+        AdvanceResumeSmoke();
         AdvanceObserve();
         AdvanceSlice2Observe();
         AdvanceBaseline();
@@ -338,7 +360,7 @@ public partial class VoxelDeveloperScene : Node3D
         box.AddThemeConstantOverride("separation", 6);
         _title = new Label();
         box.AddChild(_title);
-        box.AddChild(new Label { Text = "Delete 移除目标格 · Insert 添加 · R 重置 · ~ 控制台查询/碰撞 · Esc 返回" });
+        box.AddChild(new Label { Text = "Delete 移除目标格 · Insert 添加 · R 重置 · ~ 控制台查询/碰撞/保存 · Esc 返回" });
         _cell = new Label();
         _result = new Label { Text = "最近命令：场景已进入。" };
         box.AddChild(_cell);
@@ -446,6 +468,15 @@ public partial class VoxelDeveloperScene : Node3D
     private static WorldVoxelCoord SelectedCell(VoxelWorldIdentity identity) =>
         identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(15, 16, 15) : new(4, 4, 4);
 
+    private static FileWorldSaveStore CreateSaveStore(Main main) =>
+        new(main.IsolatedUserDataDirectory);
+
+    private static VoxelDevelopmentSession CreateDevelopmentSession(Main main, VoxelWorldIdentity identity) =>
+        new(
+            main.Reloader?.Catalog ?? throw new InvalidOperationException("Content reloader is unavailable."),
+            identity,
+            CreateSaveStore(main));
+
     private void AttachSession(VoxelDevelopmentSession session)
     {
         _session = session;
@@ -461,9 +492,7 @@ public partial class VoxelDeveloperScene : Node3D
             _session.Detach();
         }
 
-        var catalog = GetNode<Main>("/root/Main").Reloader?.Catalog
-            ?? throw new InvalidOperationException("Content reloader is unavailable.");
-        AttachSession(new VoxelDevelopmentSession(catalog, identity));
+        AttachSession(CreateDevelopmentSession(GetNode<Main>("/root/Main"), identity));
         _selectedPosition = SelectedCell(identity);
         _meshes.Rebuild(this, identity);
         _colliders.Rebuild(this, identity);
@@ -840,6 +869,12 @@ public partial class VoxelDeveloperScene : Node3D
                     !_cell.Text.Contains("耐久 60", StringComparison.Ordinal))
                     return;
                 ValidateGeneratedMesh();
+                _smokePhase = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
+                    ? VoxelSmokePhase.SaveFixedSequence
+                    : VoxelSmokePhase.OpenConsole;
+                return;
+            case VoxelSmokePhase.SaveFixedSequence:
+                WriteSmokeSave();
                 _smokePhase = VoxelSmokePhase.OpenConsole;
                 return;
             case VoxelSmokePhase.OpenConsole:
@@ -1263,6 +1298,140 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.ReloadReset;
                 return;
         }
+    }
+
+    private void AdvanceResumeSmoke()
+    {
+        switch (_resumeSmokePhase)
+        {
+            case VoxelResumeSmokePhase.Load:
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Voxel resume smoke is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Voxel resume smoke could not load {saveId:D}: {loaded.Status}.");
+                GD.Print($"VOXEL_SMOKE_RESUME_LOADED id={saveId:D} voxels={_session.World.VoxelCount} name={loaded.DisplayName}");
+                _resumeSmokePhase = VoxelResumeSmokePhase.AwaitLoad;
+                return;
+            case VoxelResumeSmokePhase.AwaitLoad:
+                if (_session.World.VoxelCount != 1089 || !CollisionPhysicsReady)
+                    return;
+                RequireRestoredSaveWorld();
+                ValidateGeneratedMesh();
+                GD.Print("VOXEL_SMOKE_RESUME_COLLIDE_NONE domain=miss godot=miss published=1");
+                GD.Print("VOXEL_SMOKE_RESUME_COLLIDE_FULL_BOX domain=hit godot=hit published=1");
+                GD.Print("VOXEL_SMOKE_RESUME_COLLIDE_LOCAL_BOX domain=moved godot=moved published=1");
+                _resumeSmokePhase = VoxelResumeSmokePhase.ReloadMax150;
+                return;
+            case VoxelResumeSmokePhase.ReloadMax150:
+                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireCommittedReload("resume max 150");
+                if (_session.Query(WorldSaveFixture.DamagedCube).Voxel?.CurrentDurability != 75 ||
+                    _session.Query(WorldSaveFixture.DamagedCube).MaxDurability != 150)
+                    throw new InvalidOperationException("Voxel resume smoke did not keep absolute durability after reload.");
+                GD.Print("VOXEL_SMOKE_RESUME_RELOAD_MAX_150 durability=75 max=150");
+                _resumeSmokePhase = VoxelResumeSmokePhase.AwaitReloadMax150;
+                return;
+            case VoxelResumeSmokePhase.AwaitReloadMax150:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequireRestoredSaveWorld(expectMax: 150);
+                _resumeSmokePhase = VoxelResumeSmokePhase.ContinueDamage;
+                return;
+            case VoxelResumeSmokePhase.ContinueDamage:
+                if (_session.Damage(WorldSaveFixture.DamagedCube, 75).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Voxel resume smoke could not continue damage (14,14,14) by 75.");
+                GD.Print($"VOXEL_SMOKE_RESUME_CONTINUE_DAMAGE voxels={_session.World.VoxelCount}");
+                _resumeSmokePhase = VoxelResumeSmokePhase.AwaitContinueDamage;
+                return;
+            case VoxelResumeSmokePhase.AwaitContinueDamage:
+                if (_session.World.VoxelCount != 1088 || !CollisionPhysicsReady)
+                    return;
+                if (_session.Query(WorldSaveFixture.DamagedCube).IsOccupied)
+                    throw new InvalidOperationException("Voxel resume smoke left (14,14,14) occupied after lethal damage.");
+                RequirePublishedWholeCell(WorldSaveFixture.DamagedCube, false);
+                RequirePublishedWholeCell(WorldSaveFixture.AddedHollow, false);
+                RequirePublishedWholeCell(WorldSaveFixture.ReorientedCube, true);
+                RequireLedgeYawRegion();
+                ValidateGeneratedMesh();
+                _resumeSmokePhase = VoxelResumeSmokePhase.ContinueEdit;
+                return;
+            case VoxelResumeSmokePhase.ContinueEdit:
+                var extra = new WorldVoxelCoord(0, 1, 1);
+                if (_session.Add(extra, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status !=
+                    WorldCommandStatus.Added ||
+                    _session.Remove(extra).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Voxel resume smoke could not continue editing after restore.");
+                for (var index = 0; index < 100; index++)
+                {
+                    // y=2 stays on the 15/16 boundary and avoids the restored hollow/ledge on y=1.
+                    var position = new WorldVoxelCoord(15 + index % 2, 2, (index / 2) % 32);
+                    if (_session.Add(position, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status !=
+                        WorldCommandStatus.Added ||
+                        _session.Remove(position).Status != WorldCommandStatus.Removed)
+                        throw new InvalidOperationException("Voxel resume smoke cross-boundary pair failed.");
+                }
+
+                GD.Print("VOXEL_SMOKE_RESUME_CONTINUE_EDIT");
+                GD.Print("VOXEL_SMOKE_RESUME_BOUNDARY_PAIRS pairs=100");
+                var saved = _session.Save("Slice 2 Smoke");
+                if (saved.Status != WorldSaveStatus.Saved || saved.SaveId != _session.SaveId)
+                    throw new InvalidOperationException($"Voxel resume smoke could not save again: {saved.Status}.");
+                var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId!.Value);
+                GD.Print($"VOXEL_SMOKE_RESUME_SAVED id={saved.SaveId:D} bytes={new FileInfo(path).Length}");
+                _resumeSmokePhase = VoxelResumeSmokePhase.Done;
+                GetTree().Quit();
+                return;
+        }
+    }
+
+    private void WriteSmokeSave()
+    {
+        if (_session.Query(ProbePosition).IsOccupied &&
+            _session.Remove(ProbePosition).Status != WorldCommandStatus.Removed)
+            throw new InvalidOperationException("Voxel smoke could not remove the probe voxel before save.");
+        RequireLiveReload().WriteIronOre();
+        RequireLiveReload().WriteLedge();
+        RequireCommittedReload("restore defaults for save");
+        _session.Reset();
+        WorldSaveFixture.ApplyFixedSequence(_session, includeLedge: true);
+        var saved = _session.Save("Slice 2 Smoke");
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Voxel smoke could not write the slice 2 save: {saved.Status}.");
+        var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        if (!File.Exists(path))
+            throw new InvalidOperationException($"Voxel smoke save file was not created at {path}.");
+        GD.Print($"VOXEL_SMOKE_SAVE_SEQUENCE voxels={_session.World.VoxelCount}");
+        GD.Print($"VOXEL_SMOKE_SAVE_WRITTEN id={saved.SaveId:D} bytes={new FileInfo(path).Length} path={path}");
+    }
+
+    private void RequireRestoredSaveWorld(int expectMax = 100)
+    {
+        if (_session.Query(WorldSaveFixture.RemovedGround).IsOccupied)
+            throw new InvalidOperationException("Restored world still occupies (4,0,4).");
+        var hollow = _session.Query(WorldSaveFixture.AddedHollow);
+        if (hollow.Voxel?.DefinitionId != WorldSaveFixture.HollowId ||
+            hollow.Voxel.Orientation != VoxelOrientation.Identity)
+            throw new InvalidOperationException("Restored (4,1,4) is not the hollow voxel.");
+        var damaged = _session.Query(WorldSaveFixture.DamagedCube);
+        if (damaged.Voxel?.DefinitionId != VoxelWorldFactory.DevelopmentDefinitionId ||
+            damaged.Voxel.CurrentDurability != 75 ||
+            damaged.MaxDurability != expectMax)
+            throw new InvalidOperationException(
+                $"Restored (14,14,14) durability/max was {damaged.Voxel?.CurrentDurability}/{damaged.MaxDurability}.");
+        var rotated = _session.Query(WorldSaveFixture.ReorientedCube);
+        if (rotated.Voxel?.DefinitionId != VoxelWorldFactory.DevelopmentDefinitionId ||
+            rotated.Voxel.Orientation != WorldSaveFixture.Reoriented)
+            throw new InvalidOperationException("Restored (17,17,17) did not keep nz_py.");
+        var ledge = _session.Query(WorldSaveFixture.SavedLedge);
+        if (ledge.Voxel?.DefinitionId != WorldSaveFixture.LedgeId ||
+            ledge.Voxel.Orientation != VoxelOrientation.Yaw90)
+            throw new InvalidOperationException("Restored (15,1,8) is not the yaw-90 ledge.");
+        RequirePublishedWholeCell(WorldSaveFixture.AddedHollow, false);
+        RequirePublishedWholeCell(WorldSaveFixture.DamagedCube, true);
+        RequirePublishedWholeCell(WorldSaveFixture.ReorientedCube, true);
+        RequireLedgeYawRegion();
     }
 
     private void RequireOccupancyEdit(WorldVoxelCoord position, bool remove, int expectedCount)
@@ -2004,6 +2173,7 @@ public partial class VoxelDeveloperScene : Node3D
 
         if (_baselineRun == 3)
         {
+            RecordSaveLoadBaseline();
             GD.Print("VOXEL_BASELINE_COMPLETE");
             _baselineEnabled = false;
             GetTree().Quit();
@@ -2011,6 +2181,37 @@ public partial class VoxelDeveloperScene : Node3D
         }
 
         StartBaselineRun();
+    }
+
+    private void RecordSaveLoadBaseline()
+    {
+        MeasureSaveLoad(warmup: true);
+        for (var run = 1; run <= 3; run++)
+            MeasureSaveLoad(warmup: false, run);
+    }
+
+    private void MeasureSaveLoad(bool warmup, int run = 0)
+    {
+        _session.Reset();
+        WorldSaveFixture.ApplyFixedSequence(_session, includeLedge: true);
+        var saveWatch = Stopwatch.StartNew();
+        var saved = _session.Save("Baseline World");
+        saveWatch.Stop();
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Voxel baseline could not save: {saved.Status}.");
+        var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        var bytes = new FileInfo(path).Length;
+        _session.Reset();
+        var loadWatch = Stopwatch.StartNew();
+        var loaded = _session.Load(saved.SaveId.Value);
+        loadWatch.Stop();
+        if (loaded.Status != WorldSaveStatus.Loaded || _session.World.VoxelCount != 1089)
+            throw new InvalidOperationException($"Voxel baseline could not load: {loaded.Status}.");
+        if (warmup)
+            return;
+        var memory = Performance.GetMonitor(Performance.Monitor.MemoryStatic);
+        GD.Print(
+            $"VOXEL_BASELINE_SAVE_RUN run={run} voxels={_session.World.VoxelCount} save_ms={saveWatch.Elapsed.TotalMilliseconds:F3} load_ms={loadWatch.Elapsed.TotalMilliseconds:F3} file_bytes={bytes} memory_bytes={memory:F0}");
     }
 
     private void RunMutations()
