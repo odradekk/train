@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Voxels;
@@ -284,6 +287,130 @@ public sealed class WorldSaveTests
     }
 
     [TestMethod]
+    public void Load_rejects_path_uuid_that_does_not_match_document_and_later_save_stays_on_the_original()
+    {
+        using var first = SaveHarness.Create();
+        WorldSaveFixture.ApplyFixedSequence(first.Session);
+        var savedA = first.Session.Save("World A");
+        var pathA = first.Store.PathFor(savedA.SaveId!.Value);
+
+        using var second = SaveHarness.Create(first.UserData);
+        WorldSaveFixture.ApplyFixedSequence(second.Session);
+        Assert.AreEqual(WorldCommandStatus.Added, second.Session.Add(
+            new WorldVoxelCoord(0, 1, 0), Iron, VoxelOrientation.Identity).Status);
+        var savedB = second.Session.Save("World B");
+        var pathB = second.Store.PathFor(savedB.SaveId!.Value);
+        var hashB = FileHash(pathB);
+
+        var swapped = Mutate(
+            File.ReadAllText(pathA),
+            $"\"id\":\"{savedA.SaveId.Value:D}\"",
+            $"\"id\":\"{savedB.SaveId.Value:D}\"");
+        File.WriteAllText(pathA, swapped);
+
+        var before = Snapshot(first.Session);
+        var loaded = first.Session.Load(savedA.SaveId.Value);
+        Assert.AreEqual(WorldSaveStatus.MismatchedId, loaded.Status);
+        Assert.IsFalse(loaded.Succeeded);
+        Assert.AreEqual(savedA.SaveId, first.Session.SaveId);
+        Assert.AreEqual("World A", first.Session.DisplayName);
+        AssertState(first.Session, before);
+        Assert.AreEqual(hashB, FileHash(pathB));
+        Assert.AreEqual(WorldCommandStatus.Added, first.Session.Add(
+            new WorldVoxelCoord(1, 1, 1), Iron, VoxelOrientation.Identity).Status);
+        var again = first.Session.Save("World A after load");
+        Assert.AreEqual(WorldSaveStatus.Saved, again.Status);
+        Assert.AreEqual(savedA.SaveId, again.SaveId);
+        Assert.AreEqual(savedA.SaveId, first.Session.SaveId);
+        Assert.AreEqual("World A after load", first.Session.DisplayName);
+        Assert.AreEqual(hashB, FileHash(pathB));
+        StringAssert.Contains(File.ReadAllText(pathA), savedA.SaveId.Value.ToString("D"));
+        StringAssert.Contains(File.ReadAllText(pathB), savedB.SaveId.Value.ToString("D"));
+    }
+
+    [TestMethod]
+    public void Missing_required_definition_records_reject_load_and_do_not_heal_generated_durability()
+    {
+        using var harness = SaveHarness.Create();
+        WorldSaveFixture.ApplyFixedSequence(harness.Session, includeLedge: true);
+        var saved = harness.Session.Save("Baseline");
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var original = File.ReadAllText(path);
+        var ground = new WorldVoxelCoord(15, 16, 15);
+
+        File.WriteAllText(path, WithExternalDefinitions(original, _ => new JsonArray()));
+        harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("iron-ore", "新铁矿", "说明", value: 250, mass: 3, maxDurability: 150)));
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
+        Assert.AreEqual(100, harness.Session.Query(ground).Voxel!.CurrentDurability);
+        Assert.AreEqual(150, harness.Session.Query(ground).MaxDurability);
+        var empty = harness.Session.Load(saved.SaveId.Value);
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, empty.Status);
+        Assert.IsFalse(empty.Succeeded);
+        Assert.AreEqual(saved.SaveId, harness.Session.SaveId);
+        Assert.AreEqual(100, harness.Session.Query(ground).Voxel!.CurrentDurability);
+        Assert.AreEqual(75, harness.Session.Query(WorldSaveFixture.DamagedCube).Voxel!.CurrentDurability);
+
+        File.WriteAllText(path, RemoveDefinitionRecord(original, "core:iron-ore"));
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, harness.Session.Load(saved.SaveId.Value).Status);
+        File.WriteAllText(path, RemoveDefinitionRecord(original, "core:hollow"));
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, harness.Session.Load(saved.SaveId.Value).Status);
+        File.WriteAllText(path, RemoveDefinitionRecord(original, "core:ledge"));
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, harness.Session.Load(saved.SaveId.Value).Status);
+        Assert.AreEqual(100, harness.Session.Query(ground).Voxel!.CurrentDurability);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Session.Add(
+            new WorldVoxelCoord(2, 1, 2), Iron, VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Remove(new WorldVoxelCoord(2, 1, 2)).Status);
+
+        File.WriteAllText(path, original);
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(saved.SaveId.Value).Status);
+        Assert.AreEqual(100, harness.Session.Query(ground).Voxel!.CurrentDurability);
+        Assert.AreEqual(75, harness.Session.Query(WorldSaveFixture.DamagedCube).Voxel!.CurrentDurability);
+        Assert.AreEqual(150, harness.Session.Query(ground).MaxDurability);
+        Assert.AreEqual(250, harness.Session.Query(WorldSaveFixture.DamagedCube).Value);
+        AssertLocalBox(harness.Session, WorldSaveFixture.SavedLedge, VoxelOrientation.Yaw90);
+    }
+
+    [TestMethod]
+    public void Parse_failures_report_unsuccessful_status_through_session_and_console()
+    {
+        using var harness = SaveHarness.Create();
+        var dispatcher = new ConsoleCommandDispatcher(
+            harness.Logger,
+            static () => { },
+            static () => { },
+            static () => { },
+            allowReload: true,
+            new VoxelConsoleCommands(harness.Session));
+        WorldSaveFixture.ApplyFixedSequence(harness.Session);
+        var good = harness.Session.Save("Good");
+        var goodPath = harness.Store.PathFor(good.SaveId!.Value);
+        var goodJson = File.ReadAllText(goodPath);
+        var before = Snapshot(harness.Session);
+
+        AssertLoadKeepsWorld(harness, AppendRootField(goodJson, "unexpected", "invalid"), WorldSaveStatus.UnknownFormat);
+        AssertLoadKeepsWorld(harness, AppendDeltaField(goodJson, "surprise", true), WorldSaveStatus.UnknownFormat);
+        AssertLoadKeepsWorld(harness, RemoveRootField(goodJson, "display_name"), WorldSaveStatus.Truncated);
+
+        File.WriteAllText(goodPath, ReverseRootFields(goodJson));
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(good.SaveId.Value).Status);
+        AssertRestoredSequence(harness.Session);
+
+        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
+            AppendRootField(goodJson, "unexpected", "invalid"), "UnknownFormat", expectLoaded: false);
+        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
+            AppendDeltaField(goodJson, "surprise", true), "UnknownFormat", expectLoaded: false);
+        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
+            RemoveRootField(goodJson, "display_name"), "Truncated", expectLoaded: false);
+        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
+            ReverseRootFields(goodJson), "Voxel Loaded.", expectLoaded: true);
+
+        File.WriteAllText(goodPath, goodJson);
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(good.SaveId.Value).Status);
+        AssertRestoredSequence(harness.Session);
+    }
+
+    [TestMethod]
     public void Console_save_and_load_use_the_session_and_report_failures_without_mutating()
     {
         using var harness = SaveHarness.Create();
@@ -391,19 +518,117 @@ public sealed class WorldSaveTests
     private static int CountCoordObjects(string json) =>
         json.Split("\"x\":", StringSplitOptions.None).Length - 1;
 
-    private static void AssertLoadKeepsWorld(SaveHarness harness, string json, WorldSaveStatus expected)
+    private static void AssertLoadKeepsWorld(
+        SaveHarness harness,
+        string json,
+        WorldSaveStatus expected)
     {
         var brokenId = Guid.NewGuid();
         Directory.CreateDirectory(harness.Store.DirectoryFor(brokenId));
-        File.WriteAllText(harness.Store.PathFor(brokenId), json);
+        File.WriteAllText(harness.Store.PathFor(brokenId), AlignDocumentId(json, brokenId));
         var before = Snapshot(harness.Session);
-        Assert.AreEqual(expected, harness.Session.Load(brokenId).Status, expected.ToString());
+        var loaded = harness.Session.Load(brokenId);
+        Assert.AreEqual(expected, loaded.Status, expected.ToString());
+        Assert.IsFalse(loaded.Succeeded);
         AssertState(harness.Session, before);
         Assert.AreEqual(WorldCommandStatus.Added, harness.Session.Add(
             new WorldVoxelCoord(2, 1, 2), Iron, VoxelOrientation.Identity).Status);
         Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Remove(new WorldVoxelCoord(2, 1, 2)).Status);
         AssertState(harness.Session, before);
     }
+
+    private static void AssertConsoleLoad(
+        SaveHarness harness,
+        ConsoleCommandDispatcher dispatcher,
+        string path,
+        Guid saveId,
+        IReadOnlyDictionary<WorldVoxelCoord, WorldVoxel> before,
+        string json,
+        string expectedText,
+        bool expectLoaded)
+    {
+        File.WriteAllText(path, json);
+        var watermark = harness.Memory.Snapshot().Count;
+        dispatcher.Execute($"voxel load {saveId:D}");
+        var added = harness.Memory.Snapshot().Skip(watermark).Select(item => item.Message).ToArray();
+        Assert.IsTrue(added.Any(message => message.Contains(expectedText, StringComparison.Ordinal)), expectedText);
+        if (expectLoaded)
+        {
+            AssertRestoredSequence(harness.Session);
+            Assert.AreEqual(saveId, harness.Session.SaveId);
+            return;
+        }
+
+        Assert.IsFalse(added.Any(message => message.Contains("Voxel Loaded.", StringComparison.Ordinal)));
+        AssertState(harness.Session, before);
+        Assert.AreEqual(saveId, harness.Session.SaveId);
+        Assert.AreEqual("Good", harness.Session.DisplayName);
+    }
+
+    private static string AlignDocumentId(string json, Guid id)
+    {
+        var match = Regex.Match(
+            json,
+            "\"id\":\"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\"");
+        return match.Success
+            ? string.Concat(json[..match.Index], $"\"id\":\"{id:D}\"", json[(match.Index + match.Length)..])
+            : json;
+    }
+
+    private static string AppendRootField(string json, string name, string value)
+    {
+        var trimmed = json.TrimEnd();
+        if (!trimmed.EndsWith('}'))
+            return json;
+        return trimmed[..^1] + $",\"{name}\":\"{value}\"}}";
+    }
+
+    private static string AppendDeltaField(string json, string name, bool value)
+    {
+        var root = JsonNode.Parse(json)!.AsObject();
+        root["delta"]![name] = value;
+        return root.ToJsonString();
+    }
+
+    private static string RemoveRootField(string json, string name)
+    {
+        var root = JsonNode.Parse(json)!.AsObject();
+        root.Remove(name);
+        return root.ToJsonString();
+    }
+
+    private static string ReverseRootFields(string json)
+    {
+        var root = JsonNode.Parse(json)!.AsObject();
+        var reversed = new JsonObject();
+        foreach (var property in root.Reverse())
+            reversed[property.Key] = property.Value?.DeepClone();
+        return reversed.ToJsonString();
+    }
+
+    private static string WithExternalDefinitions(string json, Func<JsonArray, JsonArray> mutate)
+    {
+        var root = JsonNode.Parse(json)!.AsObject();
+        root["external_definitions"] = mutate(root["external_definitions"]!.AsArray());
+        return root.ToJsonString();
+    }
+
+    private static string RemoveDefinitionRecord(string json, string definitionId) =>
+        WithExternalDefinitions(json, references =>
+        {
+            var kept = new JsonArray();
+            foreach (var item in references)
+            {
+                if (item?["id"]?.GetValue<string>() == definitionId)
+                    continue;
+                kept.Add(item?.DeepClone());
+            }
+
+            return kept;
+        });
+
+    private static string FileHash(string path) =>
+        Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
 
     private static string Mutate(string json, string from, string to) =>
         json.Replace(from, to, StringComparison.Ordinal);

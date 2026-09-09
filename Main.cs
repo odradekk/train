@@ -162,7 +162,8 @@ public partial class Main : Node
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal);
 
     private static bool IsVoxelObserveEnabled() =>
-        string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE"), "1", StringComparison.Ordinal);
+        string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE"), "1", StringComparison.Ordinal) ||
+        string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE_RESUME"), "1", StringComparison.Ordinal);
 
     public VoxelWorldIdentity DevelopmentIdentity { get; private set; } = VoxelWorldIdentity.Slice1;
 

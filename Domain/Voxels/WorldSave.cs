@@ -20,6 +20,7 @@ public enum WorldSaveStatus
     Occupied,
     OutOfBounds,
     InvalidName,
+    MismatchedId,
     NotFound,
     Unavailable
 }
@@ -325,7 +326,7 @@ public static class WorldSaveCodec
         using (parsed)
         {
             if (parsed.RootElement.ValueKind != JsonValueKind.Object)
-                return false;
+                return Reject(WorldSaveStatus.UnknownFormat, out status);
             return TryReadDocument(parsed.RootElement, out document, out status);
         }
     }
@@ -445,61 +446,57 @@ public static class WorldSaveCodec
         foreach (var property in root.EnumerateObject())
         {
             if (!seen.Add(property.Name))
-                return false;
+                return Reject(WorldSaveStatus.UnknownFormat, out status);
             switch (property.Name)
             {
                 case "save_format_version":
                     if (property.Value.ValueKind != JsonValueKind.Number ||
                         !property.Value.TryGetInt32(out formatVersion))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     hasFormat = true;
                     break;
                 case "id":
                     if (property.Value.ValueKind != JsonValueKind.String ||
                         !Guid.TryParse(property.Value.GetString(), out id))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     hasId = true;
                     break;
                 case "display_name":
                     if (property.Value.ValueKind != JsonValueKind.String ||
                         !WorldSaveDocument.TryNormalizeDisplayName(property.Value.GetString(), out displayName))
-                    {
-                        status = WorldSaveStatus.InvalidName;
-                        return false;
-                    }
-
+                        return Reject(WorldSaveStatus.InvalidName, out status);
                     break;
                 case "seed":
                     if (property.Value.ValueKind != JsonValueKind.Number ||
                         !property.Value.TryGetUInt64(out seed))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     hasSeed = true;
                     break;
                 case "generator_version":
                     if (property.Value.ValueKind != JsonValueKind.String)
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     generatorVersion = property.Value.GetString();
                     if (string.IsNullOrWhiteSpace(generatorVersion))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     break;
                 case "bounds":
                     if (!TryReadBounds(property.Value, out bounds))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     hasBounds = true;
                     break;
                 case "chunk_size":
                     if (property.Value.ValueKind != JsonValueKind.Number ||
                         !property.Value.TryGetInt32(out chunkSize) ||
                         chunkSize <= 0)
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     hasChunk = true;
                     break;
                 case "base_layout":
                     if (property.Value.ValueKind != JsonValueKind.String)
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     baseLayout = property.Value.GetString();
                     if (string.IsNullOrWhiteSpace(baseLayout))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     break;
                 case "external_definitions":
                     if (!TryReadReferences(property.Value, out references, out status))
@@ -511,13 +508,13 @@ public static class WorldSaveCodec
                     hasDelta = true;
                     break;
                 default:
-                    return false;
+                    return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
         }
 
         if (!hasFormat || !hasId || displayName is null || !hasSeed || generatorVersion is null ||
             !hasBounds || !hasChunk || baseLayout is null || references is null || !hasDelta)
-            return false;
+            return Reject(WorldSaveStatus.Truncated, out status);
         if (formatVersion != WorldSaveDocument.CurrentFormatVersion)
         {
             status = WorldSaveStatus.UnknownFormat;
@@ -539,6 +536,12 @@ public static class WorldSaveCodec
             changed!);
         status = WorldSaveStatus.Loaded;
         return true;
+    }
+
+    private static bool Reject(WorldSaveStatus value, out WorldSaveStatus status)
+    {
+        status = value;
+        return false;
     }
 
     private static bool TryReadBounds(JsonElement element, out VoxelWorldBounds bounds)
@@ -592,13 +595,13 @@ public static class WorldSaveCodec
         references = Array.Empty<WorldSaveDefinitionRef>();
         status = WorldSaveStatus.UnknownFormat;
         if (element.ValueKind != JsonValueKind.Array)
-            return false;
+            return Reject(WorldSaveStatus.UnknownFormat, out status);
         var list = new List<WorldSaveDefinitionRef>();
         var seen = new HashSet<VoxelDefinitionId>();
         foreach (var item in element.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.Object)
-                return false;
+                return Reject(WorldSaveStatus.UnknownFormat, out status);
             var fields = new HashSet<string>(StringComparer.Ordinal);
             string? idText = null;
             string? revision = null;
@@ -607,33 +610,33 @@ public static class WorldSaveCodec
             foreach (var property in item.EnumerateObject())
             {
                 if (!fields.Add(property.Name))
-                    return false;
+                    return Reject(WorldSaveStatus.UnknownFormat, out status);
                 switch (property.Name)
                 {
                     case "id":
                         if (property.Value.ValueKind != JsonValueKind.String)
-                            return false;
+                            return Reject(WorldSaveStatus.UnknownFormat, out status);
                         idText = property.Value.GetString();
                         break;
                     case "semantic_revision":
                         if (property.Value.ValueKind != JsonValueKind.String)
-                            return false;
+                            return Reject(WorldSaveStatus.UnknownFormat, out status);
                         revision = property.Value.GetString();
                         break;
                     case "max_durability":
                         if (property.Value.ValueKind != JsonValueKind.Number ||
                             !property.Value.TryGetInt32(out maxDurability) ||
                             maxDurability is < VoxelDefinition.MaxDurabilityMin or > VoxelDefinition.MaxDurabilityMax)
-                            return false;
+                            return Reject(WorldSaveStatus.UnknownFormat, out status);
                         hasMax = true;
                         break;
                     default:
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                 }
             }
 
             if (idText is null || string.IsNullOrWhiteSpace(revision) || !hasMax)
-                return false;
+                return Reject(WorldSaveStatus.Truncated, out status);
             try
             {
                 var id = VoxelDefinitionId.Parse(idText);
@@ -681,7 +684,7 @@ public static class WorldSaveCodec
         foreach (var property in element.EnumerateObject())
         {
             if (!seen.Add(property.Name))
-                return false;
+                return Reject(WorldSaveStatus.UnknownFormat, out status);
             switch (property.Name)
             {
                 case "removed":
@@ -700,7 +703,7 @@ public static class WorldSaveCodec
                     hasChanged = true;
                     break;
                 default:
-                    return false;
+                    return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
         }
 
@@ -722,15 +725,15 @@ public static class WorldSaveCodec
         coords = Array.Empty<WorldVoxelCoord>();
         status = WorldSaveStatus.InvalidDelta;
         if (element.ValueKind != JsonValueKind.Array)
-            return false;
+            return Reject(WorldSaveStatus.UnknownFormat, out status);
         var list = new List<WorldVoxelCoord>();
         var seen = new HashSet<WorldVoxelCoord>();
         foreach (var item in element.EnumerateArray())
         {
             if (!TryReadCoord(item, out var position))
-                return false;
+                return Reject(WorldSaveStatus.UnknownFormat, out status);
             if (!seen.Add(position))
-                return false;
+                return Reject(WorldSaveStatus.InvalidDelta, out status);
             list.Add(position);
         }
 
@@ -747,7 +750,7 @@ public static class WorldSaveCodec
         instances = Array.Empty<WorldSaveInstance>();
         status = WorldSaveStatus.InvalidDelta;
         if (element.ValueKind != JsonValueKind.Array)
-            return false;
+            return Reject(WorldSaveStatus.UnknownFormat, out status);
         var list = new List<WorldSaveInstance>();
         var seen = new HashSet<WorldVoxelCoord>();
         foreach (var item in element.EnumerateArray())
@@ -816,7 +819,7 @@ public static class WorldSaveCodec
         instance = default;
         status = WorldSaveStatus.InvalidDelta;
         if (element.ValueKind != JsonValueKind.Object)
-            return false;
+            return Reject(WorldSaveStatus.UnknownFormat, out status);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var x = 0;
         var y = 0;
@@ -831,7 +834,7 @@ public static class WorldSaveCodec
         foreach (var property in element.EnumerateObject())
         {
             if (!seen.Add(property.Name))
-                return false;
+                return Reject(WorldSaveStatus.UnknownFormat, out status);
             switch (property.Name)
             {
                 case "x":
@@ -839,7 +842,7 @@ public static class WorldSaveCodec
                 case "z":
                 case "durability":
                     if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var number))
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     if (property.Name == "x")
                     {
                         x = number;
@@ -864,35 +867,35 @@ public static class WorldSaveCodec
                     break;
                 case "definition_id":
                     if (property.Value.ValueKind != JsonValueKind.String)
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     idText = property.Value.GetString();
                     break;
                 case "orientation":
                     if (property.Value.ValueKind != JsonValueKind.String)
-                        return false;
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
                     orientationText = property.Value.GetString();
                     break;
                 default:
-                    return false;
+                    return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
         }
 
         if (!hasX || !hasY || !hasZ || !hasDurability || idText is null || orientationText is null)
-            return false;
+            return Reject(WorldSaveStatus.Truncated, out status);
         if (durability <= 0)
-            return false;
+            return Reject(WorldSaveStatus.InvalidDelta, out status);
         try
         {
             var id = VoxelDefinitionId.Parse(idText);
             if (!VoxelOrientation.TryParse(orientationText, out var orientation))
-                return false;
+                return Reject(WorldSaveStatus.InvalidDelta, out status);
             instance = new WorldSaveInstance(new WorldVoxelCoord(x, y, z), id, orientation, durability);
             status = WorldSaveStatus.Loaded;
             return true;
         }
         catch (ArgumentException)
         {
-            return false;
+            return Reject(WorldSaveStatus.InvalidDelta, out status);
         }
     }
 }
@@ -944,10 +947,16 @@ public static class WorldSaveRestorer
             return false;
         }
 
+        if (!TryValidateDefinitionRecords(catalog, generated, document, out status))
+            return false;
         if (!TryValidateDelta(catalog, generated, document, out status))
             return false;
+        if (!ApplySavedDurability(catalog, generated, document))
+        {
+            status = WorldSaveStatus.MissingDefinition;
+            return false;
+        }
 
-        ApplySavedDurability(catalog, generated, document);
         ApplyDelta(catalog, generated, document);
         world = generated;
         status = WorldSaveStatus.Loaded;
@@ -985,6 +994,39 @@ public static class WorldSaveRestorer
             status = WorldSaveStatus.IncompatibleBase;
             return false;
         }
+    }
+
+    private static bool TryValidateDefinitionRecords(
+        VoxelCatalogSnapshot catalog,
+        VoxelWorld generated,
+        WorldSaveDocument document,
+        out WorldSaveStatus status)
+    {
+        status = WorldSaveStatus.MissingDefinition;
+        var required = new HashSet<VoxelDefinitionId>();
+        foreach (var (_, voxel) in generated.OccupiedVoxels())
+            required.Add(voxel.DefinitionId);
+        foreach (var instance in document.Added.Concat(document.Changed))
+            required.Add(instance.DefinitionId);
+
+        var recorded = new HashSet<VoxelDefinitionId>();
+        foreach (var item in document.ExternalDefinitions)
+        {
+            if (!recorded.Add(item.DefinitionId))
+            {
+                status = WorldSaveStatus.InvalidDelta;
+                return false;
+            }
+        }
+
+        foreach (var id in required)
+        {
+            if (!recorded.Contains(id) || !catalog.TryGet(id, out _))
+                return false;
+        }
+
+        status = WorldSaveStatus.Loaded;
+        return true;
     }
 
     private static bool TryValidateDelta(
@@ -1074,7 +1116,7 @@ public static class WorldSaveRestorer
         return true;
     }
 
-    private static void ApplySavedDurability(
+    private static bool ApplySavedDurability(
         VoxelCatalogSnapshot catalog,
         VoxelWorld world,
         WorldSaveDocument document)
@@ -1085,14 +1127,15 @@ public static class WorldSaveRestorer
         foreach (var (position, voxel) in world.OccupiedVoxels().ToArray())
         {
             if (!catalog.TryGet(voxel.DefinitionId, out var entry))
-                continue;
-            var baseline = savedMax.TryGetValue(voxel.DefinitionId, out var recorded)
-                ? recorded
-                : entry.Definition.MaxDurability;
-            var durability = Math.Min(baseline, entry.Definition.MaxDurability);
+                return false;
+            if (!savedMax.TryGetValue(voxel.DefinitionId, out var recorded))
+                return false;
+            var durability = Math.Min(recorded, entry.Definition.MaxDurability);
             if (durability != voxel.CurrentDurability)
                 world.TryReplace(position, voxel with { CurrentDurability = durability });
         }
+
+        return true;
     }
 
     private static void ApplyDelta(

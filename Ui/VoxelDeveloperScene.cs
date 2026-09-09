@@ -13,6 +13,8 @@ public partial class VoxelDeveloperScene : Node3D
     private const string VoxelSmokeResumeEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME";
     private const string VoxelSmokeSaveIdEnvironmentVariable = "TRAIN_VOXEL_SMOKE_SAVE_ID";
     private const string VoxelObserveEnvironmentVariable = "TRAIN_VOXEL_OBSERVE";
+    private const string VoxelObserveResumeEnvironmentVariable = "TRAIN_VOXEL_OBSERVE_RESUME";
+    private const string VoxelObserveSaveIdEnvironmentVariable = "TRAIN_VOXEL_OBSERVE_SAVE_ID";
     private WorldVoxelCoord _selectedPosition = new(4, 4, 4);
     private VoxelDevelopmentSession _session = null!;
     private readonly VoxelWorldMeshPresenter _meshes = new();
@@ -29,6 +31,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
+    private VoxelResumeObservePhase _resumeObservePhase;
     private int _observeHoldFrames;
     private readonly List<double> _frameMilliseconds = new();
     private Stopwatch? _mutationStopwatch;
@@ -186,6 +189,24 @@ public partial class VoxelDeveloperScene : Node3D
         Done
     }
 
+    private enum VoxelResumeObservePhase
+    {
+        None,
+        Write,
+        Load,
+        AwaitLoad,
+        CaptureRestored,
+        AimBoundary,
+        AwaitBoundary,
+        AimHole,
+        AwaitHole,
+        AimLedge,
+        AwaitLedge,
+        ContinueDamage,
+        AwaitContinueDamage,
+        Done
+    }
+
     private enum VoxelObservePhase
     {
         None,
@@ -285,6 +306,14 @@ public partial class VoxelDeveloperScene : Node3D
             else
                 _smokePhase = VoxelSmokePhase.Remove;
         }
+        else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveResumeEnvironmentVariable), "1", StringComparison.Ordinal))
+        {
+            GetTree().DebugCollisionsHint = true;
+            var rawId = System.Environment.GetEnvironmentVariable(VoxelObserveSaveIdEnvironmentVariable);
+            _resumeObservePhase = Guid.TryParse(rawId, out _)
+                ? VoxelResumeObservePhase.Load
+                : VoxelResumeObservePhase.Write;
+        }
         else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
         {
             GetTree().DebugCollisionsHint = true;
@@ -310,6 +339,7 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceResumeSmoke();
         AdvanceObserve();
         AdvanceSlice2Observe();
+        AdvanceResumeObserve();
         AdvanceBaseline();
     }
 
@@ -1660,6 +1690,142 @@ public partial class VoxelDeveloperScene : Node3D
 
     private string FormatCollisionDirty() =>
         string.Join(";", _colliders.LastRebuiltChunks.Select(chunk => $"{chunk.X},{chunk.Y},{chunk.Z}"));
+
+    private void AdvanceResumeObserve()
+    {
+        if (_resumeObservePhase == VoxelResumeObservePhase.None)
+            return;
+        if (_observeHoldFrames > 0)
+        {
+            _observeHoldFrames--;
+            return;
+        }
+
+        try
+        {
+            AdvanceResumeObserveStep();
+        }
+        catch (Exception exception)
+        {
+            GD.Print($"VOXEL_OBSERVE_RESUME_ERROR {_resumeObservePhase}: {exception.GetType().Name}: {exception.Message}");
+            throw;
+        }
+    }
+
+    private void AdvanceResumeObserveStep()
+    {
+        switch (_resumeObservePhase)
+        {
+            case VoxelResumeObservePhase.Write:
+                WorldSaveFixture.ApplyFixedSequence(_session, includeLedge: true);
+                var saved = _session.Save("Slice 2 Resume");
+                if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+                    throw new InvalidOperationException($"Resume observe could not save: {saved.Status}.");
+                var written = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+                if (!File.Exists(written))
+                    throw new InvalidOperationException($"Resume observe save file was not created at {written}.");
+                GD.Print($"VOXEL_OBSERVE_RESUME_WRITTEN id={saved.SaveId.Value:D} bytes={new FileInfo(written).Length} voxels={_session.World.VoxelCount}");
+                _resumeObservePhase = VoxelResumeObservePhase.Done;
+                GetTree().Quit();
+                return;
+            case VoxelResumeObservePhase.Load:
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelObserveSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Resume observe is missing TRAIN_VOXEL_OBSERVE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Resume observe could not load {saveId:D}: {loaded.Status}.");
+                GD.Print($"VOXEL_OBSERVE_RESUME_LOADED id={saveId:D} voxels={_session.World.VoxelCount} name={loaded.DisplayName}");
+                _resumeObservePhase = VoxelResumeObservePhase.AwaitLoad;
+                return;
+            case VoxelResumeObservePhase.AwaitLoad:
+                if (_session.World.VoxelCount != 1089 || !CollisionPhysicsReady)
+                    return;
+                RequireRestoredSaveWorld();
+                RequireExposedFace(new WorldVoxelCoord(3, 0, 4), VoxelFaceNormal.PositiveX);
+                SelectObserveCell(WorldSaveFixture.DamagedCube);
+                PlaceCamera(GetChildren().OfType<Camera3D>().Single(), _session.Identity);
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.CaptureRestored;
+                return;
+            case VoxelResumeObservePhase.CaptureRestored:
+                CaptureObserve("issue53-resume-restored", "new-process load: (14,14,14) durability 75, 1089 voxels");
+                _resumeObservePhase = VoxelResumeObservePhase.AimBoundary;
+                return;
+            case VoxelResumeObservePhase.AimBoundary:
+                if (_session.Remove(new WorldVoxelCoord(16, 0, 8)).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Resume observe could not open the x=15/16 ground seam.");
+                SelectObserveCell(new WorldVoxelCoord(16, 0, 8));
+                AimCamera(new Vector3(20, 8, 2), new Vector3(16, 0.4f, 8));
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.AwaitBoundary;
+                return;
+            case VoxelResumeObservePhase.AwaitBoundary:
+                RequireExposedFace(new WorldVoxelCoord(15, 0, 8), VoxelFaceNormal.PositiveX);
+                CaptureObserve("issue53-resume-chunk-boundary", "new-process load then remove (16,0,8): x=15/16 ground seam");
+                if (_session.Add(new WorldVoxelCoord(16, 0, 8), VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Status !=
+                    WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Resume observe could not restore (16,0,8) after the boundary shot.");
+                _resumeObservePhase = VoxelResumeObservePhase.AimHole;
+                return;
+            case VoxelResumeObservePhase.AimHole:
+                SelectObserveCell(WorldSaveFixture.RemovedGround);
+                AimCamera(new Vector3(8, 7, -2), new Vector3(4, 0.4f, 4));
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.AwaitHole;
+                return;
+            case VoxelResumeObservePhase.AwaitHole:
+                if (_session.Query(WorldSaveFixture.RemovedGround).IsOccupied)
+                    throw new InvalidOperationException("Resume observe ground hole at (4,0,4) was occupied.");
+                CaptureObserve("issue53-resume-ground-hole", "new-process load: visible ground hole at (4,0,4)");
+                _resumeObservePhase = VoxelResumeObservePhase.AimLedge;
+                return;
+            case VoxelResumeObservePhase.AimLedge:
+                SelectObserveCell(WorldSaveFixture.SavedLedge);
+                AimCamera(new Vector3(19, 6, 3), new Vector3(15, 1.2f, 8));
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.AwaitLedge;
+                return;
+            case VoxelResumeObservePhase.AwaitLedge:
+                if (_session.QueryCollision(WorldSaveFixture.SavedLedge).Hits.FirstOrDefault()?.Kind != VoxelCollisionKind.LocalBox)
+                    throw new InvalidOperationException("Resume observe ledge was not local_box.");
+                CaptureObserve("issue53-resume-ledge", "new-process load: yaw-90 ledge local_box at (15,1,8)");
+                _resumeObservePhase = VoxelResumeObservePhase.ContinueDamage;
+                return;
+            case VoxelResumeObservePhase.ContinueDamage:
+                var continued = _session.Damage(WorldSaveFixture.DamagedCube, 75);
+                if (continued.Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Resume observe could not continue damage (14,14,14) by 75.");
+                SetResult(continued);
+                SelectObserveCell(WorldSaveFixture.DamagedCube);
+                AimCamera(new Vector3(22, 20, 8), new Vector3(14, 14, 14));
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.AwaitContinueDamage;
+                return;
+            case VoxelResumeObservePhase.AwaitContinueDamage:
+                if (_session.World.VoxelCount != 1088 || _session.Query(WorldSaveFixture.DamagedCube).IsOccupied)
+                    throw new InvalidOperationException("Resume observe left (14,14,14) occupied after continue damage.");
+                CaptureObserve("issue53-resume-continue-damage", "new-process load then damage 75: (14,14,14) empty, 1088 voxels");
+                GD.Print("VOXEL_OBSERVE_RESUME_COMPLETE");
+                _resumeObservePhase = VoxelResumeObservePhase.Done;
+                GetTree().Quit();
+                return;
+        }
+    }
+
+    private void SelectObserveCell(WorldVoxelCoord cell)
+    {
+        _selectedPosition = cell;
+        MarkDirty();
+        Refresh();
+    }
+
+    private void AimCamera(Vector3 position, Vector3 target)
+    {
+        var camera = GetChildren().OfType<Camera3D>().Single();
+        camera.Position = position;
+        camera.LookAt(target, Vector3.Up);
+    }
 
     private void AdvanceObserve()
     {

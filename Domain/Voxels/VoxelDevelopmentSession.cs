@@ -129,8 +129,14 @@ public sealed class VoxelDevelopmentSession
 
         if (!_store.TryRead(saveId, out var json, out var readStatus))
             return new WorldSaveResult(readStatus, SaveId, DisplayName);
-        if (!WorldSaveCodec.TryDeserialize(json, out var document, out var parseStatus))
-            return new WorldSaveResult(parseStatus, SaveId, DisplayName);
+        if (!WorldSaveCodec.TryDeserialize(json, out var document, out var parseStatus) ||
+            (parseStatus is WorldSaveStatus.Loaded && document is null))
+            return new WorldSaveResult(
+                parseStatus is WorldSaveStatus.Loaded ? WorldSaveStatus.UnknownFormat : parseStatus,
+                SaveId,
+                DisplayName);
+        if (document.Id != saveId)
+            return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName);
         if (!WorldSaveRestorer.TryBuild(_catalog.Current, document, Identity, out var candidate, out var buildStatus))
             return new WorldSaveResult(buildStatus, SaveId, DisplayName);
 
