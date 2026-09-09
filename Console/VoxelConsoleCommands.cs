@@ -49,8 +49,16 @@ public sealed class VoxelConsoleCommands
             TryDamageTargets(arguments, out var targets))
             return FormatDamage(_session.Damage(targets));
 
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
+            return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
+
+        if (arguments.Count == 2 &&
+            string.Equals(arguments[0], "load", StringComparison.OrdinalIgnoreCase) &&
+            Guid.TryParse(arguments[1], out var saveId))
+            return FormatSave(_session.Load(saveId));
+
         return string.Join('\n',
-            "Usage: voxel reset | voxel query <x> <y> <z> | voxel collide <x> <y> <z>",
+            "Usage: voxel reset | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid>",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel remove <x> <y> <z> | voxel add <x> <y> <z> <namespace:id> <orientation>",
             "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...].");
@@ -76,6 +84,17 @@ public sealed class VoxelConsoleCommands
                 $"Voxel count: {_session.World.VoxelCount}."
             };
         }));
+    }
+
+    private string FormatSave(WorldSaveResult result)
+    {
+        if (!result.Succeeded)
+            return string.Join("\n", $"Voxel {result.Status}.", $"Voxel count: {_session.World.VoxelCount}.");
+        return string.Join("\n",
+            $"Voxel {result.Status}.",
+            $"id {result.SaveId:D}",
+            $"name {result.DisplayName}",
+            $"Voxel count: {_session.World.VoxelCount}.");
     }
 
     private string FormatWithCount(WorldVoxelQuery query) =>

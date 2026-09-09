@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52）。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）。
 
 ## 打开控制台与输入规则
 
@@ -30,6 +30,8 @@
 | [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
+| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界原子写入 `user://saves/<UUID>/save.json` | 同上 |
+| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换世界 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -93,13 +95,16 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `UnknownDefinition` | ID 格式合法，但当前内容目录没有该定义；检查拼写和内容加载诊断 |
 | `DisallowedOrientation` | 编码是合法正交朝向，但该定义不允许；改用其允许的方向 |
 | `Collision Hit` / `Miss` / `OutOfBounds` / `InvalidQuery` | 领域碰撞查询结果；命中按字段分行写出格子、定义和 `kind`。已解析但非有限或零/负体积为 `InvalidQuery`，合法越界单格（含整数极值）为 `OutOfBounds`。语义见 [voxel collide](voxel-collide.md) |
-| `Usage: voxel ...` | 子命令、参数个数、无法解析的坐标文本、ID 格式或朝向编码不合法；按本手册的完整语法重新输入。`NaN` / `Infinity` 能解析为数字，因此走 `InvalidQuery` 而不是 Usage |
+| `Usage: voxel ...` | 子命令、参数个数、无法解析的坐标文本、ID 格式或朝向编码不合法；按本手册的完整语法重新输入。`NaN` / `Infinity` 能解析为数字，因此走 `InvalidQuery` 而不是 Usage。非法 UUID 文本也是用法提示，不会读文件 |
+| `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前总数 |
+| `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
+| `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功 |
 
 格式校验失败时不执行世界命令。例如缺少朝向、ID 使用大写、朝向写成 `90` 或 `px_px`，得到的是用法提示，而不是 `UnknownDefinition` / `DisallowedOrientation`。
 
 格式全部合法后，添加按边界、占用、定义存在性、定义允许朝向的顺序检查；伤害按伤害值、边界、占用的顺序检查。一次只返回首先遇到的问题。例如在已占用格测试未知定义会先得到 `Occupied`，应选择空格验证目标错误。多目标伤害先校验全部目标，任一项失败则整件事失败。所有失败增删和伤害均保留原世界状态。
 
-`voxel` 的返回文本（包括失败状态）统一以 `info` 级别写入日志，不能仅根据日志颜色或严重等级判断操作是否成功。
+`voxel` 的返回文本（包括失败状态）统一以 `info` 级别写入日志，不能仅根据日志颜色或严重等级判断操作是否成功。`voxel save` / `voxel load` 失败同样写 `info`，并保留当前可编辑世界和上一份有效存档。
 
 ## 常用操作示例
 
@@ -184,7 +189,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，`R` 重置当前切片基底，`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。退出场景后再次进入会创建新的开发世界。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，`R` 重置当前切片基底，`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。
 
 ### 切片 2 边界复现
 
@@ -212,7 +217,45 @@ voxel query 15 16 16
 
 重置后应为 1,088 格。初始 `(15,16,15)` 碰撞 `Hit`；跨 `15/16` 的盒应同时命中两侧。去掉 `x=16` / `y=15` / `z=16` 一侧后，另一侧 `15/16` 邻接面应露出，被删格 `collide` 立即 `Miss`、邻格仍 `Hit`；交汇格 `(16,16,16)` 删除后邻接暴露面更新，无重叠面或残影。同一事件跨区伤害后总数 1,086，`(15,16,16)` 耐久 75 且仍 `Hit`，被删两格 `Miss`。把最后一组伤害改成含空格或越界目标应整件拒绝，占用和碰撞保持不变。
 
-目前没有独立的旋转、保存、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
+### 保存、退出进程并恢复后继续修改
+
+从主菜单进入切片 2 后逐行执行。这是正式入口，不要用销毁会话代替退出进程：
+
+```text
+loglevel info
+voxel reset
+voxel remove 4 0 4
+voxel add 4 1 4 core:hollow px_py
+voxel damage 14 14 14 25
+voxel remove 17 17 17
+voxel add 17 17 17 core:iron-ore nz_py
+voxel add 15 1 8 core:ledge pz_py
+voxel query 14 14 14
+voxel collide 4 1 4
+voxel collide 14 14 14
+voxel collide 15.48 1.38 8.18 15.52 1.42 8.22
+voxel save Slice 2 Resume
+```
+
+记下 `id` 行的 UUID。`quit` 退出游戏进程，再启动同一构建，从主菜单重新进入切片 2，然后：
+
+```text
+loglevel info
+voxel load <刚才的 UUID>
+voxel query 4 0 4
+voxel query 4 1 4
+voxel query 14 14 14
+voxel query 17 17 17
+voxel collide 4 1 4
+voxel collide 14 14 14
+voxel collide 15.48 1.38 8.18 15.52 1.42 8.22
+voxel damage 14 14 14 75
+voxel query 14 14 14
+```
+
+恢复后 `(4,0,4)` 为空，`(4,1,4)` 为 `core:hollow` 且整格 `collide` 为 `Miss`，`(14,14,14)` 耐久 75 且 `full_box` 命中，`(17,17,17)` 朝向 `nz_py`，`(15,1,8)` 的偏心盒在 `pz_py` 下命中上述探测盒。继续伤害 75 后该格删除，总数比恢复时少 1。重复 `voxel save` 仍写入同一 UUID；改显示名不改路径。验证时使用独立用户数据，不要覆盖实际存档。
+
+目前没有独立的旋转、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
 
 ## 维护与实现依据
 

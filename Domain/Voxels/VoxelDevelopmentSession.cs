@@ -5,6 +5,7 @@ namespace Train.Domain.Voxels;
 public sealed class VoxelDevelopmentSession
 {
     private readonly VoxelCatalog _catalog;
+    private readonly IWorldSaveStore? _store;
     private readonly Action<VoxelCatalogChange> _onCatalogChanged;
     private readonly List<(WorldVoxelCoord Position, bool OccupancyChanged)> _pendingChanges = new();
     private readonly List<WorldVoxelCoord> _pendingCollisionChanges = new();
@@ -14,14 +15,20 @@ public sealed class VoxelDevelopmentSession
     public VoxelWorldIdentity Identity { get; }
     public VoxelWorld World { get; private set; }
     public VoxelWorldCommands Commands { get; private set; }
+    public Guid? SaveId { get; private set; }
+    public string DisplayName { get; private set; } = WorldSaveDocument.DefaultDisplayName;
     public int DefinitionCount => _catalog.Current?.Entries.Count ?? 0;
 
     public event Action? Changed;
 
-    public VoxelDevelopmentSession(VoxelCatalog catalog, VoxelWorldIdentity? identity = null)
+    public VoxelDevelopmentSession(
+        VoxelCatalog catalog,
+        VoxelWorldIdentity? identity = null,
+        IWorldSaveStore? store = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
         _catalog = catalog;
+        _store = store;
         Identity = identity ?? VoxelWorldIdentity.Slice1;
         World = CreateWorld();
         Commands = new VoxelWorldCommands(World, _catalog);
@@ -93,6 +100,52 @@ public sealed class VoxelDevelopmentSession
 
     public VoxelCollisionQueryResult QueryCollision(VoxelCollisionBox probe) => Commands.QueryCollision(probe);
 
+    public WorldSaveResult Save(string? displayName = null)
+    {
+        if (_store is null || _catalog.Current is null)
+            return new WorldSaveResult(WorldSaveStatus.Unavailable);
+
+        var name = displayName ?? DisplayName;
+        if (!WorldSaveDocument.TryNormalizeDisplayName(name, out var normalized))
+            return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
+
+        var id = SaveId ?? Guid.NewGuid();
+        if (!WorldSaveCodec.TryCapture(World, _catalog.Current, id, normalized, out var document, out var captureStatus))
+            return new WorldSaveResult(captureStatus, SaveId, DisplayName);
+
+        var json = WorldSaveCodec.Serialize(document);
+        if (!_store.TryWrite(id, json, out var writeStatus))
+            return new WorldSaveResult(writeStatus, SaveId, DisplayName);
+
+        SaveId = id;
+        DisplayName = normalized;
+        return new WorldSaveResult(WorldSaveStatus.Saved, SaveId, DisplayName);
+    }
+
+    public WorldSaveResult Load(Guid saveId)
+    {
+        if (_store is null || _catalog.Current is null)
+            return new WorldSaveResult(WorldSaveStatus.Unavailable);
+
+        if (!_store.TryRead(saveId, out var json, out var readStatus))
+            return new WorldSaveResult(readStatus, SaveId, DisplayName);
+        if (!WorldSaveCodec.TryDeserialize(json, out var document, out var parseStatus) ||
+            (parseStatus is WorldSaveStatus.Loaded && document is null))
+            return new WorldSaveResult(
+                parseStatus is WorldSaveStatus.Loaded ? WorldSaveStatus.UnknownFormat : parseStatus,
+                SaveId,
+                DisplayName);
+        if (document.Id != saveId)
+            return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName);
+        if (!WorldSaveRestorer.TryBuild(_catalog.Current, document, Identity, out var candidate, out var buildStatus))
+            return new WorldSaveResult(buildStatus, SaveId, DisplayName);
+
+        ReplaceWorld(candidate);
+        SaveId = document.Id;
+        DisplayName = document.DisplayName;
+        return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);
+    }
+
     public IReadOnlyList<ChunkCoord> TakePendingDirtyChunks()
     {
         var dirty = new SortedSet<ChunkCoord>();
@@ -145,6 +198,17 @@ public sealed class VoxelDevelopmentSession
         _pendingChanges.Add((position, occupancyChanged));
         if (occupancyChanged)
             _pendingCollisionChanges.Add(position);
+        Changed?.Invoke();
+    }
+
+    private void ReplaceWorld(VoxelWorld world)
+    {
+        World = world;
+        Commands = new VoxelWorldCommands(World, _catalog);
+        _pendingChanges.Clear();
+        _pendingCollisionChanges.Clear();
+        _rebuildAll = true;
+        _rebuildAllCollision = true;
         Changed?.Invoke();
     }
 

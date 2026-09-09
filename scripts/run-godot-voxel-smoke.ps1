@@ -5,7 +5,8 @@ param(
 )
 
 # Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
-# slice 2 collision queries (#51), and rotating local boxes (#52).
+# slice 2 collision queries (#51), rotating local boxes (#52), and
+# world save / process-restart resume (#53).
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -72,6 +73,9 @@ Write-Host "Using Godot: $godot"
 foreach ($name in @(
     "TRAIN_VOXEL_SMOKE_REENTER",
     "TRAIN_VOXEL_SMOKE_ISOLATION_ABORT",
+    "TRAIN_VOXEL_SMOKE_RESUME",
+    "TRAIN_VOXEL_SMOKE_SAVE_ID",
+    "TRAIN_MODS_SMOKE_USER_DATA",
     "TRAIN_VOXEL_OBSERVE",
     "TRAIN_VOXEL_BASELINE",
     "TRAIN_CONTENT_SMOKE",
@@ -92,11 +96,66 @@ $env:TRAIN_VOXEL_SLICE = "$Slice"
 if ($IsolationAbort) {
     $env:TRAIN_VOXEL_SMOKE_ISOLATION_ABORT = "1"
 }
-$quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 2) { 180 } else { 90 }
-$raw = & $godot --headless --path $root --quit-after $quitAfter 2>&1
-$godotExitCode = $LASTEXITCODE
-$output = $raw | Out-String
-Write-Host $output
+
+function Invoke-GodotVoxelSmoke {
+    param(
+        [int] $QuitAfter,
+        [string] $Label
+    )
+    Write-Host "Starting Godot voxel smoke process: $Label"
+    $raw = & $godot --headless --path $root --quit-after $QuitAfter 2>&1
+    return @{
+        Output = ($raw | Out-String)
+        ExitCode = $LASTEXITCODE
+    }
+}
+
+$godotExitCode = 0
+$output = ""
+$userData = $null
+try {
+    if (-not $IsolationAbort -and $Slice -eq 2) {
+        $userData = Join-Path ([System.IO.Path]::GetTempPath()) ("train-issue53-smoke-" + [guid]::NewGuid().ToString("N"))
+        New-Item -ItemType Directory -Force -Path $userData | Out-Null
+        $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+        $write = Invoke-GodotVoxelSmoke -QuitAfter 240 -Label "slice 2 write"
+        Write-Host $write.Output
+        if ($write.Output -notmatch "VOXEL_SMOKE_SAVE_WRITTEN id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
+            [Console]::Error.WriteLine("Godot voxel smoke failed. Process 1 did not print a save UUID.")
+            exit 1
+        }
+        $saveId = $Matches[1]
+        $savePath = Join-Path $userData (Join-Path "saves" (Join-Path $saveId "save.json"))
+        if (-not (Test-Path -LiteralPath $savePath)) {
+            [Console]::Error.WriteLine("Godot voxel smoke failed. Save file was not on disk: $savePath")
+            exit 1
+        }
+        $env:TRAIN_VOXEL_SMOKE_RESUME = "1"
+        $env:TRAIN_VOXEL_SMOKE_SAVE_ID = $saveId
+        $resume = Invoke-GodotVoxelSmoke -QuitAfter 120 -Label "slice 2 resume"
+        Write-Host $resume.Output
+        $output = $write.Output + "`n" + $resume.Output
+        if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
+    }
+    else {
+        $quitAfter = if ($IsolationAbort) { 30 } else { 90 }
+        $single = Invoke-GodotVoxelSmoke -QuitAfter $quitAfter -Label ("slice $Slice")
+        $output = $single.Output
+        $godotExitCode = $single.ExitCode
+        Write-Host $output
+    }
+}
+finally {
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE_SAVE_ID" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_MODS_SMOKE_USER_DATA" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SLICE" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE_ISOLATION_ABORT" -ErrorAction SilentlyContinue
+    if ($userData -and (Test-Path -LiteralPath $userData)) {
+        Remove-Item -LiteralPath $userData -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
 $afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $afterLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
@@ -149,6 +208,17 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_RELOAD_PROBE_ADDED",
         "VOXEL_SMOKE_RELOAD_REJECTED",
         "VOXEL_SMOKE_RELOAD_DISPLAY_RETAINED",
+        "VOXEL_SMOKE_SAVE_SEQUENCE",
+        "VOXEL_SMOKE_SAVE_WRITTEN",
+        "VOXEL_SMOKE_RESUME_LOADED",
+        "VOXEL_SMOKE_RESUME_COLLIDE_NONE",
+        "VOXEL_SMOKE_RESUME_COLLIDE_FULL_BOX",
+        "VOXEL_SMOKE_RESUME_COLLIDE_LOCAL_BOX",
+        "VOXEL_SMOKE_RESUME_RELOAD_MAX_150",
+        "VOXEL_SMOKE_RESUME_CONTINUE_DAMAGE",
+        "VOXEL_SMOKE_RESUME_CONTINUE_EDIT",
+        "VOXEL_SMOKE_RESUME_BOUNDARY_PAIRS",
+        "VOXEL_SMOKE_RESUME_SAVED",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"
@@ -234,7 +304,10 @@ if (-not $IsolationAbort -and $Slice -eq 2) {
         "VOXEL_SMOKE_LOCAL_BOX_TRANSLATED_EDGE",
         "VOXEL_SMOKE_LOCAL_BOX_ADAPTER_UNDERFLOW",
         "VOXEL_SMOKE_LOCAL_BOX_REJECTED",
-        "VOXEL_SMOKE_LOCAL_BOX_LETHAL"
+        "VOXEL_SMOKE_LOCAL_BOX_LETHAL",
+        "VOXEL_SMOKE_RESUME_COLLIDE_NONE",
+        "VOXEL_SMOKE_RESUME_COLLIDE_FULL_BOX",
+        "VOXEL_SMOKE_RESUME_COLLIDE_LOCAL_BOX"
     )
     $staleCollision = @($publishedCollision | Where-Object {
         $name = $_
