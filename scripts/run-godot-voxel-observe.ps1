@@ -6,7 +6,7 @@
 # The scene quits itself after VOXEL_OBSERVE_COMPLETE; 300 is only a fail-closed
 # safety timeout for the full hold/capture sequence.
 param(
-    [ValidateSet(1, 2)]
+    [ValidateSet(1, 2, 3)]
     [int] $Slice = 1,
     [string] $OutputPath = ""
 )
@@ -32,7 +32,7 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
+    $OutputPath = if ($Slice -eq 3) { ".godot/issue58-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
 }
 $env:TRAIN_VOXEL_OBSERVE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
@@ -55,7 +55,14 @@ if ($exitCode -ne 0 -or $output -notlike "*VOXEL_OBSERVE_COMPLETE*") {
     throw "Voxel observe failed: expected VOXEL_OBSERVE_COMPLETE and exit 0."
 }
 
-$captures = if ($Slice -eq 2) {
+$captures = if ($Slice -eq 3) {
+    @(
+        "issue58-empty.png",
+        "issue58-exterior.png",
+        "issue58-interior.png",
+        "issue58-reset.png"
+    )
+} elseif ($Slice -eq 2) {
     @(
         "issue50-initial.png",
         "issue50-x-boundary.png",
@@ -96,7 +103,31 @@ $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty 
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $settle = ($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_MULTI_SETTLE_MS=*" } | Select-Object -Last 1)
 $captureLines = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" })
-$report = if ($Slice -eq 2) {
+$report = if ($Slice -eq 3) {
+    @(
+        "# Issue #58 visual observation record (automated facts)",
+        "",
+        "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 3 ``.",
+        "",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
+        "",
+        "## Procedure",
+        "",
+        "1. Start the project and choose **进入切片 3 静置车辆场景**, or run the observe script above.",
+        "2. Confirm an empty 32³ world, Seed 42, HUD vehicles 0 and world voxel count 0.",
+        "3. Run ``composite manufacture`` or press ``M``. Confirm one parked hollow shell, 168 parts, contacts ``(1,-0.75,1.5)`` / ``(7,-0.75,1.5)``, envelope ``[0,0,-1]->[8,6,4]``, and no world-chunk duplicate mesh.",
+        "4. Move the camera into the cavity and confirm inner faces without a solid fill.",
+        "5. Run ``composite reset`` or press ``R``. Confirm the vehicle and derived visual are gone.",
+        "",
+        "## Result",
+        "",
+        "Automated windowed capture completed with exit 0. Capture log:",
+        "",
+        ($captureLines | ForEach-Object { "- $_" }),
+        "",
+        "Automated capture wrote ``.godot/issue58-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / query / visual-sync evidence."
+    )
+} elseif ($Slice -eq 2) {
     @(
         "# Issue #50 visual observation record (automated facts)",
         "",

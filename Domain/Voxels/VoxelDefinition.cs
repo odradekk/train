@@ -7,6 +7,7 @@ namespace Train.Domain.Voxels;
 public static class VoxelTags
 {
     public const string NaturalResource = "natural_resource";
+    public const string IdentityCore = "identity_core";
 }
 
 public enum VoxelOrientationConstraint

@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置）。
 
 ## 打开控制台与输入规则
 
@@ -10,7 +10,7 @@
 - 输入一条命令后按 `Enter` 执行。下文代码块中的每一行都需分别提交。
 - 命令不带 `/` 前缀。`<参数>` 表示必填，`[参数]` 表示可选；实际输入时去掉尖括号和方括号。
 - 参数按空白分隔；连续空白和首尾空白会被忽略。没有引号转义、多命令分号串联或行内注释语法。
-- 命令名、`voxel` 子命令、日志等级和朝向编码不区分大小写；定义 ID 必须使用小写。
+- 命令名、`voxel` / `composite` 子命令、日志等级和朝向编码不区分大小写；定义 ID 必须使用小写。
 - 空行无操作；未知命令报告 `Unknown command: ...`。
 - 命令回显及多数结果使用 `info` 日志。如果看不到结果，先执行 `loglevel info`，再重试查询。
 
@@ -32,21 +32,25 @@
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界原子写入 `user://saves/<UUID>/save.json` | 同上 |
 | [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换世界 | 同上 |
+| [composite reset](composite-reset.md) | 清空已制造车辆并重建当前切片世界 | 包含切片 3，且已进入体素开发场景 |
+| [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
+| [composite query](composite-query.md) `[<id>]` | 查询一辆或全部已制造车辆 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
 ## 使用前提与通用参数
 
-运行当前构建，从主菜单选择“进入切片 1 体素场景”或“进入切片 2 体素场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。
+运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”或“进入切片 3 静置车辆场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。
 
-两个切片都是有限测试配置，不是产品尺寸限制。Chunk 只作空间分区，不改变占用、耐久或朝向规则。
+三个切片都是有限测试配置，不是产品尺寸限制。Chunk 只作空间分区，不改变占用、耐久或朝向规则。切片 3 车辆体素不属于世界占用。
 
 | 切片 | 入口 | Chunk / 世界 | 初始占用 | 有效坐标 |
 | --- | --- | --- | --- | --- |
 | 1 | 进入切片 1 体素场景 | 一个 16³ Chunk | 各轴 `4..11`，共 512 格 | `0..15` |
 | 2 | 进入切片 2 体素场景 | 边长 16，世界 32³，共 2×2×2 个 Chunk | 地面 `x,z=0..31`、`y=0`，加 `14..17` 三轴交汇 4³ 实心块，共 1,088 格 | `0..31` |
+| 3 | 进入切片 3 静置车辆场景 | 边长 16，世界 32³，Seed=42 | 空世界；正式夹具制造后有 1 辆 168 格空心壳，不进入世界网格 | `0..31` |
 
-切片 2 基底带有明确的 Seed、`GeneratorVersion=slice-2-integer-fixture-v1` 和尺寸参数；相同输入与有效内容重复生成同一基底。Seed 只作世界身份，不参与随机。`voxel reset` 走同一正式生成入口。
+切片 2 基底带有明确的 Seed、`GeneratorVersion=slice-2-integer-fixture-v1` 和尺寸参数；切片 3 使用 Seed=42 与 `GeneratorVersion=slice-3-parked-vehicle-v1`。相同输入与有效内容重复生成同一基底。Seed 只作世界身份，不参与随机。`voxel reset` / `composite reset` 走同一正式生成入口。
 
 | 参数 | 格式与范围 | 示例 |
 | --- | --- | --- |
@@ -97,6 +101,7 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `Collision Hit` / `Miss` / `OutOfBounds` / `InvalidQuery` | 领域碰撞查询结果；命中按字段分行写出格子、定义和 `kind`。已解析但非有限或零/负体积为 `InvalidQuery`，合法越界单格（含整数极值）为 `OutOfBounds`。语义见 [voxel collide](voxel-collide.md) |
 | `Usage: voxel ...` | 子命令、参数个数、无法解析的坐标文本、ID 格式或朝向编码不合法；按本手册的完整语法重新输入。`NaN` / `Infinity` 能解析为数字，因此走 `InvalidQuery` 而不是 Usage。非法 UUID 文本也是用法提示，不会读文件 |
 | `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前总数 |
+| `UnsupportedVehicles` | 当前会话已有车辆，世界存档入口明确拒绝；不写文件、不读档、不丢弃车辆 |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功 |
 
@@ -189,7 +194,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，`R` 重置当前切片基底，`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。当前会话存在车辆时，`voxel save` / `voxel load` 返回 `UnsupportedVehicles`，不会报告成功却丢车。
 
 ### 切片 2 边界复现
 
@@ -255,10 +260,24 @@ voxel query 14 14 14
 
 恢复后 `(4,0,4)` 为空，`(4,1,4)` 为 `core:hollow` 且整格 `collide` 为 `Miss`，`(14,14,14)` 耐久 75 且 `full_box` 命中，`(17,17,17)` 朝向 `nz_py`，`(15,1,8)` 的偏心盒在 `pz_py` 下命中上述探测盒。继续伤害 75 后该格删除，总数比恢复时少 1。重复 `voxel save` 仍写入同一 UUID；改显示名不改路径。验证时使用独立用户数据，不要覆盖实际存档。
 
+### 切片 3 制造、查询和重置
+
+从主菜单进入切片 3 后逐行执行：
+
+```text
+loglevel info
+composite manufacture
+composite query
+voxel save Should Fail
+composite reset
+```
+
+原始夹具下应制造 1 辆 168 零件的空心壳，查询给出 `(8,8,8)` 平移、包络 `[0,0,-1]->[8,6,4]`，以及接触点 `(1,-0.75,1.5)` / `(7,-0.75,1.5)`。世界体素数保持 0。有车辆时 `voxel save` 返回 `UnsupportedVehicles`。重置后车辆数为 0，`NextEntityId` 回到 1。
+
 目前没有独立的旋转、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
 
 ## 维护与实现依据
 
 每个可执行命令各用一个文件，`voxel` 子命令也分别维护。新增、修改或移除命令时，同步更新对应文件和本页索引；共享参数、朝向编码与组合示例统一保留在本页。每份命令文档应覆盖语法、参数、使用方法、结果和限制，尚未交付的命令明确标注。
 
-基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`；体素显示与快捷键位于 `Ui/VoxelDeveloperScene.cs`。
+基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`；体素显示与快捷键位于 `Ui/VoxelDeveloperScene.cs`。

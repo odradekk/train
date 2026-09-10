@@ -1,6 +1,7 @@
 using Godot;
 using System.Diagnostics;
 using Train.Content;
+using Train.Domain.Composites;
 using Train.Domain.Voxels;
 using Train.Presentation;
 
@@ -19,6 +20,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelDevelopmentSession _session = null!;
     private readonly VoxelWorldMeshPresenter _meshes = new();
     private readonly VoxelWorldCollisionPresenter _colliders = new();
+    private readonly CompositeVisualPresenter _composites = new();
     private VoxelChunkMesh _mesh = null!;
     private int _collisionRefreshGeneration;
     private int _physicsSeenGeneration;
@@ -28,9 +30,11 @@ public partial class VoxelDeveloperScene : Node3D
     private bool _dirty = true;
     private VoxelSmokePhase _smokePhase;
     private VoxelSlice2SmokePhase _slice2SmokePhase;
+    private VoxelSlice3SmokePhase _slice3SmokePhase;
     private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
+    private VoxelSlice3ObservePhase _slice3ObservePhase;
     private VoxelResumeObservePhase _resumeObservePhase;
     private int _observeHoldFrames;
     private readonly List<double> _frameMilliseconds = new();
@@ -142,6 +146,17 @@ public partial class VoxelDeveloperScene : Node3D
         HandoffReload
     }
 
+    private enum VoxelSlice3SmokePhase
+    {
+        None,
+        Manufacture,
+        AwaitManufacture,
+        Query,
+        Reset,
+        AwaitReset,
+        HandoffConsole
+    }
+
     private enum VoxelResumeSmokePhase
     {
         None,
@@ -186,6 +201,22 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitLocalReloaded,
         LocalRejected,
         AwaitLocalRejected,
+        Done
+    }
+
+    private enum VoxelSlice3ObservePhase
+    {
+        None,
+        CaptureEmpty,
+        AwaitEmpty,
+        Manufacture,
+        AwaitManufacture,
+        CaptureExterior,
+        AwaitExterior,
+        AimInterior,
+        AwaitInterior,
+        Reset,
+        AwaitReset,
         Done
     }
 
@@ -250,6 +281,27 @@ public partial class VoxelDeveloperScene : Node3D
             LightEnergy = 1.4f,
             ShadowEnabled = true
         });
+        if (main.DevelopmentIdentity.Slice == VoxelDevelopmentSlice.Slice3)
+        {
+            AddChild(new WorldEnvironment
+            {
+                Environment = new Godot.Environment
+                {
+                    BackgroundMode = Godot.Environment.BGMode.Color,
+                    BackgroundColor = new Color(0.42f, 0.43f, 0.45f),
+                    AmbientLightSource = Godot.Environment.AmbientSource.Color,
+                    AmbientLightColor = Colors.White,
+                    AmbientLightEnergy = 0.7f
+                }
+            });
+            AddChild(new OmniLight3D
+            {
+                Position = new Vector3(12, 11, 9.5f),
+                LightEnergy = 4.0f,
+                OmniRange = 14,
+                ShadowEnabled = false
+            });
+        }
         var camera = new Camera3D();
         AddChild(camera);
         PlaceCamera(camera, _session.Identity);
@@ -287,6 +339,11 @@ public partial class VoxelDeveloperScene : Node3D
                 GD.Print(
                     $"VOXEL_SMOKE_SLICE2_BASE voxels={_session.World.VoxelCount} chunk_size={_session.World.ChunkSize} bounds=32,32,32 chunks=8 seed={_session.Identity.Seed} generator={_session.Identity.GeneratorVersion}");
             }
+            else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+            {
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE3_BASE voxels={_session.World.VoxelCount} chunk_size={_session.World.ChunkSize} bounds=32,32,32 chunks=8 seed={_session.Identity.Seed} generator={_session.Identity.GeneratorVersion}");
+            }
             if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable), "1", StringComparison.Ordinal))
             {
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "0");
@@ -301,7 +358,9 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             }
 
-            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Manufacture;
+            else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveX;
             else
                 _smokePhase = VoxelSmokePhase.Remove;
@@ -317,7 +376,9 @@ public partial class VoxelDeveloperScene : Node3D
         else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
         {
             GetTree().DebugCollisionsHint = true;
-            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureEmpty;
+            else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
                 _slice2ObservePhase = VoxelSlice2ObservePhase.CaptureInitial;
             else
                 _observePhase = VoxelObservePhase.CaptureInitial;
@@ -336,9 +397,11 @@ public partial class VoxelDeveloperScene : Node3D
             Refresh();
         AdvanceSmoke();
         AdvanceSlice2Smoke();
+        AdvanceSlice3Smoke();
         AdvanceResumeSmoke();
         AdvanceObserve();
         AdvanceSlice2Observe();
+        AdvanceSlice3Observe();
         AdvanceResumeObserve();
         AdvanceBaseline();
     }
@@ -356,9 +419,17 @@ public partial class VoxelDeveloperScene : Node3D
         if (key.Keycode == Key.R)
         {
             _session.Reset();
-            _result.Text = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
-                ? "最近命令：已重置正式切片 2 多 Chunk 世界。"
-                : "最近命令：已重置正式 16³ 开发世界。";
+            _result.Text = _session.Identity.Slice switch
+            {
+                VoxelDevelopmentSlice.Slice3 => "最近命令：已重置正式切片 3 静置车辆世界。",
+                VoxelDevelopmentSlice.Slice2 => "最近命令：已重置正式切片 2 多 Chunk 世界。",
+                _ => "最近命令：已重置正式 16³ 开发世界。"
+            };
+            GetViewport().SetInputAsHandled();
+        }
+        else if (key.Keycode == Key.M && _session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+        {
+            SetCompositeResult(_session.Manufacture(HollowShellFixture.DefinitionId));
             GetViewport().SetInputAsHandled();
         }
         else if (key.Keycode == Key.Delete)
@@ -384,13 +455,16 @@ public partial class VoxelDeveloperScene : Node3D
         var panel = new PanelContainer
         {
             Position = new Vector2(24, 24),
-            Size = new Vector2(760, 220)
+            Size = new Vector2(760, 280)
         };
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 6);
         _title = new Label();
         box.AddChild(_title);
-        box.AddChild(new Label { Text = "Delete 移除目标格 · Insert 添加 · R 重置 · ~ 控制台查询/碰撞/保存 · Esc 返回" });
+        box.AddChild(new Label
+        {
+            Text = "Delete 移除目标格 · Insert 添加 · M 制造夹具 · R 重置 · ~ 控制台查询/碰撞/保存 · Esc 返回"
+        });
         _cell = new Label();
         _result = new Label { Text = "最近命令：场景已进入。" };
         box.AddChild(_cell);
@@ -435,14 +509,18 @@ public partial class VoxelDeveloperScene : Node3D
         var catalog = GetNode<Main>("/root/Main").Reloader?.Catalog.Current;
         _meshes.Refresh(_session, catalog);
         _colliders.Refresh(_session, catalog);
+        _composites.Refresh(this, _session, catalog);
         _collisionRefreshGeneration++;
         _mesh = _meshes.PrimaryMesh;
         _dirty = false;
         var query = _session.Query(_selectedPosition);
         var collide = _session.QueryCollision(_selectedPosition);
-        _title.Text = _session.Identity.Slice == VoxelDevelopmentSlice.Slice2
-            ? "Voxel 开发场景 · 切片 2 · 固定视角 · 2×2×2 Chunk · 32³"
-            : "Voxel 开发场景 · 切片 1 · 固定视角 · 单 Chunk 16³";
+        _title.Text = _session.Identity.Slice switch
+        {
+            VoxelDevelopmentSlice.Slice3 => "Voxel 开发场景 · 切片 3 · 固定视角 · 32³ · 静置车辆",
+            VoxelDevelopmentSlice.Slice2 => "Voxel 开发场景 · 切片 2 · 固定视角 · 2×2×2 Chunk · 32³",
+            _ => "Voxel 开发场景 · 切片 1 · 固定视角 · 单 Chunk 16³"
+        };
         var occupancy = query.Voxel is null
             ? $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：空。"
             : $"目标格 ({_selectedPosition.X},{_selectedPosition.Y},{_selectedPosition.Z})：占用 · {query.Voxel.DefinitionId.Value} · {CurrentName(query)} · 朝向 {query.Voxel.Orientation} · 耐久 {query.Voxel.CurrentDurability} · value {query.Value} · mass {query.Mass} · 上限 {query.MaxDurability}。";
@@ -453,7 +531,7 @@ public partial class VoxelDeveloperScene : Node3D
             VoxelCollisionQueryStatus.OutOfBounds => "碰撞：越界",
             _ => "碰撞：非法查询"
         };
-        _cell.Text = occupancy + " " + collision;
+        _cell.Text = occupancy + " " + collision + " " + FormatVehicleHud();
     }
 
     private void SetResult(WorldCommandResult result)
@@ -472,6 +550,25 @@ public partial class VoxelDeveloperScene : Node3D
         var summary = string.Join("；", result.Targets.Select(target =>
             $"{target.Status} ({target.Position.X},{target.Position.Y},{target.Position.Z}) by {target.Amount} → {target.RemainingDurability}"));
         _result.Text = $"最近命令：{summary}。";
+    }
+
+    private void SetCompositeResult(CompositeManufactureResult result)
+    {
+        _result.Text = result.Succeeded
+            ? $"最近命令：已制造车辆 {result.VehicleId}，零件 {result.Parts!.Count}。"
+            : $"最近命令：制造失败 {result.Status}。";
+    }
+
+    private string FormatVehicleHud()
+    {
+        var vehicles = _session.QueryComposites();
+        if (vehicles.Count == 0)
+            return $"车辆 0。世界体素 {_session.World.VoxelCount}。显示面 {_composites.FaceCount}。";
+        var vehicle = vehicles[0];
+        var envelope = vehicle.Envelope is { } box
+            ? $"包络 [{box.MinX},{box.MinY},{box.MinZ}]-[{box.MaxX},{box.MaxY},{box.MaxZ}]"
+            : "包络 none";
+        return $"车辆 {vehicle.Id} {vehicle.DefinitionId.Value} 零件 {vehicle.Parts.Count} {envelope} 显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
     }
 
     private VoxelLiveReloadDriver RequireLiveReload() =>
@@ -505,7 +602,8 @@ public partial class VoxelDeveloperScene : Node3D
         new(
             main.Reloader?.Catalog ?? throw new InvalidOperationException("Content reloader is unavailable."),
             identity,
-            CreateSaveStore(main));
+            CreateSaveStore(main),
+            main.Reloader!.Composites);
 
     private void AttachSession(VoxelDevelopmentSession session)
     {
@@ -526,12 +624,20 @@ public partial class VoxelDeveloperScene : Node3D
         _selectedPosition = SelectedCell(identity);
         _meshes.Rebuild(this, identity);
         _colliders.Rebuild(this, identity);
+        _composites.Clear();
         _mesh = _meshes.PrimaryMesh;
         MarkDirty();
     }
 
     private static void PlaceCamera(Camera3D camera, VoxelWorldIdentity identity)
     {
+        if (identity.Slice == VoxelDevelopmentSlice.Slice3)
+        {
+            camera.Position = new Vector3(24, 18, 0);
+            camera.LookAt(new Vector3(12, 11, 9.5f), Vector3.Up);
+            return;
+        }
+
         if (identity.Slice == VoxelDevelopmentSlice.Slice2)
         {
             camera.Position = new Vector3(28, 18, 4);
@@ -1330,6 +1436,77 @@ public partial class VoxelDeveloperScene : Node3D
         }
     }
 
+    private void AdvanceSlice3Smoke()
+    {
+        switch (_slice3SmokePhase)
+        {
+            case VoxelSlice3SmokePhase.Manufacture:
+                if (GetNode<Main>("/root/Main").Reloader?.Composites.Current.TryGet(HollowShellFixture.DefinitionId, out _) != true)
+                    throw new InvalidOperationException("Slice 3 smoke did not load core:dev-hollow-shell from JSON.");
+                GD.Print("VOXEL_SMOKE_SLICE3_LOADED");
+                var manufactured = _session.Manufacture(HollowShellFixture.DefinitionId);
+                if (!manufactured.Succeeded || manufactured.Parts?.Count != 168)
+                    throw new InvalidOperationException($"Slice 3 smoke manufacture failed: {manufactured.Status}.");
+                SetCompositeResult(manufactured);
+                GD.Print($"VOXEL_SMOKE_SLICE3_MANUFACTURED vehicle={manufactured.VehicleId} parts={manufactured.Parts.Count} next={_session.NextEntityId}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitManufacture;
+                return;
+            case VoxelSlice3SmokePhase.AwaitManufacture:
+                if (_composites.VehicleCount != 1 || _composites.FaceCount == 0 || _composites.MeshInstanceCount != 1)
+                    return;
+                ValidateGeneratedMesh();
+                ValidateCompositeVisual();
+                GD.Print($"VOXEL_SMOKE_SLICE3_VISUAL vehicles={_composites.VehicleCount} meshes={_composites.MeshInstanceCount} faces={_composites.FaceCount} world_faces={_meshes.FaceCount}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Query;
+                return;
+            case VoxelSlice3SmokePhase.Query:
+                var query = _session.QueryComposites();
+                if (query.Count != 1 || query[0].Parts.Count != 168 || query[0].Contacts.Count != 2)
+                    throw new InvalidOperationException("Slice 3 smoke query did not return the formal fixture.");
+                if (_session.World.VoxelCount != 0 || _meshes.FaceCount != 0)
+                    throw new InvalidOperationException("Slice 3 smoke published vehicle voxels into the world mesh.");
+                if (query[0].Envelope != HollowShellFixture.Envelope ||
+                    query[0].Contacts[0].BoundCell != HollowShellFixture.CoreCell ||
+                    query[0].Contacts[0].Y != -0.75)
+                    throw new InvalidOperationException("Slice 3 smoke query did not keep contact coordinates separate from bound cells.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE3_QUERY id={query[0].Id} parts={query[0].Parts.Count} construction={query[0].Construction} identity={query[0].IdentityRetention} envelope=0,0,-1->8,6,4 world={_session.World.VoxelCount}");
+                GD.Print("VOXEL_SMOKE_SLICE3_WORLD_EMPTY");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Reset;
+                return;
+            case VoxelSlice3SmokePhase.Reset:
+                _session.Reset();
+                _result.Text = "最近命令：已重置正式切片 3 静置车辆世界。";
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReset;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReset:
+                if (_session.QueryComposites().Count != 0 || _composites.VehicleCount != 0)
+                    return;
+                GD.Print($"VOXEL_SMOKE_SLICE3_RESET vehicles=0 next={_session.NextEntityId} transactions={_session.TransactionCount}");
+                GD.Print("COMPOSITE_SMOKE_OK");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.HandoffConsole;
+                return;
+            case VoxelSlice3SmokePhase.HandoffConsole:
+                _slice3SmokePhase = VoxelSlice3SmokePhase.None;
+                _smokePhase = VoxelSmokePhase.OpenConsole;
+                return;
+        }
+    }
+
+    private void ValidateCompositeVisual()
+    {
+        if (_composites.MeshInstanceCount != _composites.VehicleCount)
+            throw new InvalidOperationException("Composite visual created more mesh instances than vehicles.");
+        foreach (var visual in _composites.Visuals)
+        {
+            if (visual.GeneratedMesh is null || visual.FaceCount == 0)
+                throw new InvalidOperationException("Composite visual has no batched mesh.");
+            if (visual.Scale != Vector3.One)
+                throw new InvalidOperationException("Composite visual applied a non-uniform scale.");
+            VoxelMeshGeometryValidator.Validate(visual.GeneratedMesh, visual.FaceCount);
+        }
+    }
+
     private void AdvanceResumeSmoke()
     {
         switch (_resumeSmokePhase)
@@ -2035,6 +2212,7 @@ public partial class VoxelDeveloperScene : Node3D
         try
         {
             RenderingServer.ForceDraw();
+            RenderingServer.ForceDraw();
             var texture = GetViewport().GetTexture();
             var image = texture?.GetImage();
             if (image is null)
@@ -2050,7 +2228,7 @@ public partial class VoxelDeveloperScene : Node3D
         }
 
         var collide = _session.QueryCollision(_selectedPosition);
-        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_meshes.FaceCount} collide={collide.Status} hud={_cell.Text} result={_result.Text} {note}");
+        GD.Print($"VOXEL_OBSERVE_CAPTURE {fileName} voxels={_session.World.VoxelCount} faces={_meshes.FaceCount} vehicles={_composites.VehicleCount} composite_faces={_composites.FaceCount} collide={collide.Status} hud={_cell.Text} result={_result.Text} {note}");
     }
 
     private void AdvanceSlice2Observe()
@@ -2276,6 +2454,91 @@ public partial class VoxelDeveloperScene : Node3D
                 CaptureObserve("issue52-local-rejected", "illegal overflowing local_box rejected; corner hit region stays");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _slice2ObservePhase = VoxelSlice2ObservePhase.Done;
+                GetTree().Quit();
+                return;
+        }
+    }
+
+    private void AdvanceSlice3Observe()
+    {
+        if (_slice3ObservePhase == VoxelSlice3ObservePhase.None)
+            return;
+        if (_observeHoldFrames > 0)
+        {
+            _observeHoldFrames--;
+            return;
+        }
+
+        try
+        {
+            AdvanceSlice3ObserveStep();
+        }
+        catch (Exception exception)
+        {
+            GD.Print($"VOXEL_OBSERVE_ERROR {_slice3ObservePhase}: {exception.GetType().Name}: {exception.Message}");
+            throw;
+        }
+    }
+
+    private void AdvanceSlice3ObserveStep()
+    {
+        switch (_slice3ObservePhase)
+        {
+            case VoxelSlice3ObservePhase.CaptureEmpty:
+                CaptureObserve("issue58-empty", "empty slice 3 world before manufacture");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitEmpty;
+                return;
+            case VoxelSlice3ObservePhase.AwaitEmpty:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Manufacture;
+                return;
+            case VoxelSlice3ObservePhase.Manufacture:
+                var manufactured = _session.Manufacture(HollowShellFixture.DefinitionId);
+                if (!manufactured.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 observe manufacture failed: {manufactured.Status}.");
+                SetCompositeResult(manufactured);
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitManufacture;
+                return;
+            case VoxelSlice3ObservePhase.AwaitManufacture:
+                if (_composites.VehicleCount != 1 || _composites.FaceCount == 0)
+                    return;
+                ValidateCompositeVisual();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureExterior;
+                return;
+            case VoxelSlice3ObservePhase.CaptureExterior:
+                CaptureObserve("issue58-exterior", "parked hollow shell from outside, world mesh empty");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitExterior;
+                return;
+            case VoxelSlice3ObservePhase.AwaitExterior:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AimInterior;
+                return;
+            case VoxelSlice3ObservePhase.AimInterior:
+                var camera = GetChildren().OfType<Camera3D>().Single();
+                camera.Position = new Vector3(11.5f, 10.5f, 9f);
+                camera.LookAt(new Vector3(8.6f, 8.6f, 7.6f), Vector3.Up);
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitInterior;
+                return;
+            case VoxelSlice3ObservePhase.AwaitInterior:
+                CaptureObserve("issue58-interior", "camera inside hollow cavity looking at inner -X/-Y/-Z walls");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Reset;
+                return;
+            case VoxelSlice3ObservePhase.Reset:
+                _session.Reset();
+                PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+                _result.Text = "最近命令：已重置正式切片 3 静置车辆世界。";
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReset;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReset:
+                if (_session.QueryComposites().Count != 0 ||
+                    _composites.VehicleCount != 0 ||
+                    !_cell.Text.Contains("车辆 0", StringComparison.Ordinal))
+                    return;
+                CaptureObserve("issue58-reset", "reset clears manufactured vehicle and derived visual");
+                GD.Print("VOXEL_OBSERVE_COMPLETE");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Done;
                 GetTree().Quit();
                 return;
         }

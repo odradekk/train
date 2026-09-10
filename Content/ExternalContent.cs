@@ -3,6 +3,7 @@ namespace Train.Content;
 public static class ExternalContent
 {
     public const string ModsGodotPath = "user://mods";
+    public const string BlueprintsGodotPath = "user://blueprints";
 
     public static bool TryEnsureDirectory(string trustedUserDataRoot, string modsPath, out string? error)
     {
@@ -121,6 +122,81 @@ public static class ExternalContent
 
     public static ContentFileDiscovery ListSettlementFiles(string resourcesRoot) =>
         ListDataFiles(resourcesRoot, ".settlements.json");
+
+    public static ContentFileDiscovery ListCompositeFiles(string resourcesRoot) =>
+        ListDataFiles(resourcesRoot, ".composites.json");
+
+    public static bool TryListBlueprintFiles(
+        string trustedUserDataRoot,
+        string blueprintsPath,
+        out IReadOnlyList<(string FileName, string FullPath)> files,
+        out string? error)
+    {
+        files = Array.Empty<(string, string)>();
+        error = null;
+        if (!ExternalPath.TryValidateTrustedChain(trustedUserDataRoot, blueprintsPath, out error))
+            return false;
+
+        string root;
+        try
+        {
+            root = ExternalPath.NormalizeRoot(blueprintsPath);
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+
+        if (!ExternalPath.TryStat(root, out var rootAttributes, out var exists))
+        {
+            error = "Blueprints directory could not be read.";
+            return false;
+        }
+
+        if (!exists)
+        {
+            error = "Blueprints directory is unavailable.";
+            return false;
+        }
+
+        if ((rootAttributes & FileAttributes.Directory) == 0 ||
+            (rootAttributes & FileAttributes.ReparsePoint) != 0)
+        {
+            error = "Blueprints directory is a linked or reparse path.";
+            return false;
+        }
+
+        try
+        {
+            var found = new List<(string FileName, string FullPath)>();
+            foreach (var info in new DirectoryInfo(root).EnumerateFileSystemInfos())
+            {
+                if (info.Name is "." or ".." ||
+                    (info.Attributes & FileAttributes.Directory) != 0)
+                    continue;
+                if (!info.Name.EndsWith(".composites.json", StringComparison.Ordinal))
+                    continue;
+                found.Add((info.Name, info.FullName));
+            }
+
+            found.Sort((left, right) => string.CompareOrdinal(left.FileName, right.FileName));
+            files = found;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = exception.Message;
+            return false;
+        }
+    }
+
+    public static ContentDiagnostic BlueprintsRootUnavailable(string source, string message) =>
+        new(
+            ContentDiagnosticSeverity.Warning,
+            ContentDiagnosticCodes.BlueprintsRootUnavailable,
+            message,
+            source);
 
     public static ContentFileDiscovery ListDataFiles(string resourcesRoot, string fileSuffix)
     {

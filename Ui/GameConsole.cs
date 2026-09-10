@@ -46,7 +46,8 @@ public partial class GameConsole : CanvasLayer
             () => GetTree().Quit(),
             () => _reloader?.Reload(),
             OS.IsDebugBuild(),
-            _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession));
+            _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession),
+            _voxelSession is null ? null : new CompositeConsoleCommands(_voxelSession));
     }
 
     public override void _Ready()

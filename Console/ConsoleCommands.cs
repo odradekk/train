@@ -37,6 +37,8 @@ public sealed class ConsoleCommandDispatcher
     public const string LogLevelUsageEventId = "log_level_usage";
     public const string VoxelEventId = "voxel";
     public const string VoxelUnavailableEventId = "voxel_unavailable";
+    public const string CompositeEventId = "composite";
+    public const string CompositeUnavailableEventId = "composite_unavailable";
 
     private readonly TrainLogger _logger;
     private readonly Action _clear;
@@ -44,6 +46,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly Action _reload;
     private readonly bool _allowReload;
     private readonly VoxelConsoleCommands? _voxelCommands;
+    private readonly CompositeConsoleCommands? _compositeCommands;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
@@ -51,7 +54,8 @@ public sealed class ConsoleCommandDispatcher
         Action quit,
         Action reload,
         bool allowReload,
-        VoxelConsoleCommands? voxelCommands = null)
+        VoxelConsoleCommands? voxelCommands = null,
+        CompositeConsoleCommands? compositeCommands = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -63,6 +67,7 @@ public sealed class ConsoleCommandDispatcher
         _reload = reload;
         _allowReload = allowReload;
         _voxelCommands = voxelCommands;
+        _compositeCommands = compositeCommands;
     }
 
     public void Execute(string line)
@@ -97,7 +102,13 @@ public sealed class ConsoleCommandDispatcher
                 if (_voxelCommands is null)
                     _logger.Warning(Category, VoxelUnavailableEventId, "Enter the voxel development scene before using voxel commands.");
                 else
-                    WriteVoxelResult(_voxelCommands.Execute(parsed.Arguments));
+                    WriteResult(VoxelEventId, _voxelCommands.Execute(parsed.Arguments));
+                return;
+            case "composite":
+                if (_compositeCommands is null)
+                    _logger.Warning(Category, CompositeUnavailableEventId, "Enter the voxel development scene before using composite commands.");
+                else
+                    WriteResult(CompositeEventId, _compositeCommands.Execute(parsed.Arguments));
                 return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
@@ -105,10 +116,10 @@ public sealed class ConsoleCommandDispatcher
         }
     }
 
-    private void WriteVoxelResult(string text)
+    private void WriteResult(string eventId, string text)
     {
         foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-            _logger.Info(Category, VoxelEventId, line);
+            _logger.Info(Category, eventId, line);
     }
 
     private void ApplyLogLevel(IReadOnlyList<string> arguments)
@@ -141,8 +152,8 @@ public sealed class ConsoleCommandDispatcher
     private string HelpMessage()
     {
         var commands = _allowReload
-            ? "help, clear, quit, reload, loglevel, voxel"
-            : "help, clear, quit, loglevel, voxel";
+            ? "help, clear, quit, reload, loglevel, voxel, composite"
+            : "help, clear, quit, loglevel, voxel, composite";
         return $"Available commands: {commands}.";
     }
 }

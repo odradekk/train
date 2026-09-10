@@ -59,6 +59,13 @@ public static class ContentDiagnosticCodes
     public const string DuplicatePosition = "duplicate_position";
     public const string DuplicateNaturalResource = "duplicate_natural_resource";
     public const string EmptyInitialSettlements = "empty_initial_settlements";
+    public const string UnresolvedArchetypeReference = "unresolved_archetype_reference";
+    public const string UnresolvedCompositeReference = "unresolved_composite_reference";
+    public const string UnsupportedVehicleAdaptation = "unsupported_vehicle_adaptation";
+    public const string BlueprintsRootUnavailable = "blueprints_root_unavailable";
+    public const string SizeClassInvalid = "size_class_invalid";
+    public const string ContactInvalid = "contact_invalid";
+    public const string LayoutInvalid = "layout_invalid";
 }
 
 public enum ContentDiagnosticSeverity
@@ -126,7 +133,8 @@ public sealed class DecodedImage
 public enum ContentPackageKind
 {
     BuiltIn = 0,
-    Mod = 1
+    Mod = 1,
+    PlayerBlueprint = 2
 }
 
 public sealed class ModPackageMetadata

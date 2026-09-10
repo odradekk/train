@@ -47,6 +47,7 @@ public interface IContentSource
     IReadOnlyList<ContentDiagnostic> ListScanDiagnostics();
     ContentFileDiscovery ListVoxelFiles(ContentPackage package);
     ContentFileDiscovery ListSettlementFiles(ContentPackage package);
+    ContentFileDiscovery ListCompositeFiles(ContentPackage package) => ContentFileDiscovery.Of(Array.Empty<string>());
     ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes);
     ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath);
     ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes);
@@ -182,6 +183,31 @@ public sealed class MemoryContentSource : IContentSource
 
     public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
         ListDataFiles(package, ".settlements.json");
+
+    public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
+    {
+        var discovery = ListDataFiles(package, ".composites.json");
+        if (package.Kind != ContentPackageKind.PlayerBlueprint)
+            return discovery;
+        var expected = package.Namespace + ".composites.json";
+        return new ContentFileDiscovery(
+            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
+            discovery.Diagnostics,
+            discovery.Invalid);
+    }
+
+    public void AddCompositeFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null) =>
+        AddCompositeFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
+
+    public void AddCompositeFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null) =>
+        AddDataFile(@namespace, relativePath, bytes, ".composites.json", "Composite files must use a safe relative *.composites.json path.", resourcesRoot);
+
+    public void AddBlueprint(string uuid, string utf8Text)
+    {
+        var file = uuid + ".composites.json";
+        AddPackage(uuid, "memory://blueprints/" + uuid, kind: ContentPackageKind.PlayerBlueprint, source: file);
+        AddCompositeFile(uuid, file, utf8Text, "memory://blueprints/" + uuid);
+    }
 
     private ContentFileDiscovery ListDataFiles(ContentPackage package, string suffix)
     {
