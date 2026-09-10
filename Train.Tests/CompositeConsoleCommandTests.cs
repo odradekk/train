@@ -107,6 +107,98 @@ public sealed class CompositeConsoleCommandTests
     }
 
     [TestMethod]
+    public void Console_query_pages_every_vehicle_through_the_ring_buffer()
+    {
+        using var session = LoggerSession.Create();
+        var source = CompositeFixtures.FormalFixturePackage();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+        var directory = Directory.CreateTempSubdirectory("train-fleet-query-").FullName;
+        var buffer = new RingBufferLogSink();
+        try
+        {
+            using var logger = new TrainLogger(directory, LogLevel.Info, session.Godot, buffer, readEnvironmentVariable: false);
+            var dispatcher = new ConsoleCommandDispatcher(
+                logger,
+                buffer.Clear,
+                static () => { },
+                static () => { },
+                allowReload: true,
+                new VoxelConsoleCommands(voxelSession),
+                new CompositeConsoleCommands(voxelSession));
+
+            var manufactured = new List<EntityId>();
+            for (var i = 0; i < 12; i++)
+            {
+                dispatcher.Execute("composite manufacture");
+                var line = buffer.Snapshot().Last(item =>
+                    item.EventId == ConsoleCommandDispatcher.CompositeEventId &&
+                    item.Message.StartsWith("vehicle ", StringComparison.Ordinal));
+                manufactured.Add(new EntityId(ulong.Parse(line.Message.Split(' ')[1])));
+            }
+
+            Assert.AreEqual(12, manufactured.Count);
+            var before = voxelSession.CaptureAuthority();
+            var discovered = new List<EntityId>();
+            var page = 1;
+            int totalPages;
+            do
+            {
+                dispatcher.Execute(page == 1 ? "composite query" : $"composite query page {page}");
+                var visible = buffer.Snapshot();
+                Assert.IsTrue(visible.Count <= RingBufferLogSink.Capacity, visible.Count.ToString());
+                var lines = LinesAfterLastEcho(visible, page == 1 ? "composite query" : $"composite query page {page}");
+                var header = lines.Single(line => line.StartsWith("vehicles page ", StringComparison.Ordinal));
+                totalPages = int.Parse(header.Split(' ')[2].Split('/')[1]);
+                Assert.IsTrue(totalPages > 1);
+                foreach (var line in lines.Where(item => item.StartsWith("vehicle ", StringComparison.Ordinal)))
+                    discovered.Add(new EntityId(ulong.Parse(line.Split(' ')[1])));
+                page++;
+            }
+            while (page <= totalPages);
+
+            CollectionAssert.AreEqual(manufactured, discovered);
+            Assert.IsTrue(buffer.Snapshot().Any(item =>
+                item.EventId == ConsoleCommandDispatcher.CompositeEventId &&
+                item.Message.StartsWith($"vehicle {manufactured[0]} ", StringComparison.Ordinal)));
+
+            foreach (var vehicleId in manufactured)
+            {
+                var expected = voxelSession.QueryComposite(vehicleId)!.Parts;
+                var listed = new List<string>();
+                var partPage = 1;
+                int partPages;
+                do
+                {
+                    dispatcher.Execute($"composite query {vehicleId} parts {partPage}");
+                    var lines = LinesAfterLastEcho(buffer.Snapshot(), $"composite query {vehicleId} parts {partPage}");
+                    var header = lines.Single(line => line.StartsWith("parts page ", StringComparison.Ordinal));
+                    partPages = int.Parse(header.Split(' ')[2].Split('/')[1]);
+                    listed.AddRange(lines.Where(line => line.StartsWith("part ", StringComparison.Ordinal)));
+                    partPage++;
+                }
+                while (partPage <= partPages);
+
+                Assert.AreEqual(expected.Count, listed.Count, vehicleId.ToString());
+                for (var i = 0; i < expected.Count; i++)
+                {
+                    var part = expected[i];
+                    StringAssert.StartsWith(
+                        listed[i],
+                        $"part {part.Id} cell ({part.Cell.X},{part.Cell.Y},{part.Cell.Z}) {part.DefinitionId.Value} {part.Orientation} durability {part.CurrentDurability}");
+                }
+            }
+
+            Assert.AreEqual(before, voxelSession.CaptureAuthority());
+        }
+        finally
+        {
+            TryDeleteDirectory(directory);
+        }
+    }
+
+    [TestMethod]
     public void Illegal_manufacture_command_does_not_change_authority()
     {
         using var session = LoggerSession.Create();
@@ -141,5 +233,28 @@ public sealed class CompositeConsoleCommandTests
         var snapshot = session.Memory.Snapshot();
         var last = snapshot.Last(item => item.EventId == eventId).Sequence;
         return string.Join("\n", snapshot.Where(item => item.EventId == eventId && item.Sequence >= last - span).Select(item => item.Message));
+    }
+
+    private static IReadOnlyList<string> LinesAfterLastEcho(IReadOnlyList<LogEvent> snapshot, string command)
+    {
+        var echo = snapshot.Last(item =>
+            item.EventId == ConsoleCommandDispatcher.EchoEventId &&
+            item.Message == command);
+        return snapshot
+            .Where(item => item.Sequence > echo.Sequence && item.EventId == ConsoleCommandDispatcher.CompositeEventId)
+            .Select(item => item.Message)
+            .ToArray();
+    }
+
+    private static void TryDeleteDirectory(string path)
+    {
+        try
+        {
+            Directory.Delete(path, true);
+        }
+        catch
+        {
+            // Best-effort cleanup for temp directories that Windows may still have open.
+        }
     }
 }

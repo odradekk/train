@@ -6,6 +6,7 @@ namespace Train;
 public sealed class CompositeConsoleCommands
 {
     public const int PartPageSize = 32;
+    public const int VehiclePageSize = 8;
 
     private readonly VoxelDevelopmentSession _session;
 
@@ -29,29 +30,33 @@ public sealed class CompositeConsoleCommands
             TryDefinition(arguments.Count == 1 ? HollowShellFixture.DefinitionId.Value : arguments[1], out var definitionId))
             return FormatManufacture(_session.Manufacture(definitionId));
 
-        if (arguments.Count == 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
-            return FormatQueries(_session.QueryComposites());
-
-        if (arguments.Count >= 2 &&
-            string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase) &&
-            ulong.TryParse(arguments[1], out var rawId) &&
-            rawId > 0)
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
         {
-            var query = _session.QueryComposite(new EntityId(rawId));
-            if (query is null)
-                return $"Composite UnknownVehicle {rawId}.";
-            if (arguments.Count == 2)
-                return FormatQuery(query);
-            if (arguments.Count is 3 or 4 &&
-                string.Equals(arguments[2], "parts", StringComparison.OrdinalIgnoreCase) &&
-                TryPage(arguments, out var page))
-                return FormatPartsPage(query, page);
+            if (arguments.Count == 1)
+                return FormatVehiclePage(_session.QueryComposites(), 1);
+            if (arguments.Count is 2 or 3 &&
+                string.Equals(arguments[1], "page", StringComparison.OrdinalIgnoreCase) &&
+                TryListPage(arguments, out var listPage))
+                return FormatVehiclePage(_session.QueryComposites(), listPage);
+            if (ulong.TryParse(arguments[1], out var rawId) && rawId > 0)
+            {
+                var query = _session.QueryComposite(new EntityId(rawId));
+                if (query is null)
+                    return $"Composite UnknownVehicle {rawId}.";
+                if (arguments.Count == 2)
+                    return FormatQuery(query);
+                if (arguments.Count is 3 or 4 &&
+                    string.Equals(arguments[2], "parts", StringComparison.OrdinalIgnoreCase) &&
+                    TryPartPage(arguments, out var partPage))
+                    return FormatPartsPage(query, partPage);
+            }
         }
 
         return string.Join('\n',
-            "Usage: composite reset | composite manufacture [<namespace:id>] | composite query [<id> [parts [<page>]]]",
-            "Default manufacture id is core:dev-hollow-shell. Query without an id lists every manufactured vehicle.",
-            $"Part pages are {PartPageSize} entries, sorted by local cell. Page numbers start at 1.");
+            "Usage: composite reset | composite manufacture [<namespace:id>] | composite query [page [<page>] | <id> [parts [<page>]]]",
+            "Default manufacture id is core:dev-hollow-shell. Query without an id lists one page of compact vehicle summaries.",
+            $"Vehicle pages are {VehiclePageSize} entries, sorted by runtime id. Part pages are {PartPageSize} entries, sorted by local cell.",
+            "Page numbers start at 1.");
     }
 
     private string FormatReset()
@@ -76,11 +81,27 @@ public sealed class CompositeConsoleCommands
             $"parts {result.Parts!.Count}");
     }
 
-    private static string FormatQueries(IReadOnlyList<CompositeQuery> queries)
+    private static string FormatVehiclePage(IReadOnlyList<CompositeQuery> queries, int page)
     {
         if (queries.Count == 0)
             return "Composite none.";
-        return string.Join('\n', queries.SelectMany(query => FormatQuery(query).Split('\n')));
+        var ordered = queries.OrderBy(query => query.Id.Value).ToArray();
+        var totalPages = Math.Max(1, (int)Math.Ceiling(ordered.Length / (double)VehiclePageSize));
+        var lines = new List<string>
+        {
+            $"vehicles {ordered.Length}",
+            $"vehicles page {page}/{totalPages}"
+        };
+        if (page < 1 || page > totalPages)
+            return string.Join('\n', lines);
+        var start = (page - 1) * VehiclePageSize;
+        foreach (var query in ordered.Skip(start).Take(VehiclePageSize))
+        {
+            lines.Add(
+                $"vehicle {query.Id} {query.DefinitionId.Value} parts {query.Parts.Count} construction {query.Construction} identity {query.IdentityRetention}");
+        }
+
+        return string.Join('\n', lines);
     }
 
     private static string FormatQuery(CompositeQuery query)
@@ -135,7 +156,15 @@ public sealed class CompositeConsoleCommands
         }
     }
 
-    private static bool TryPage(IReadOnlyList<string> arguments, out int page)
+    private static bool TryListPage(IReadOnlyList<string> arguments, out int page)
+    {
+        page = 1;
+        if (arguments.Count == 2)
+            return true;
+        return arguments.Count == 3 && int.TryParse(arguments[2], out page) && page > 0;
+    }
+
+    private static bool TryPartPage(IReadOnlyList<string> arguments, out int page)
     {
         page = 1;
         if (arguments.Count == 3)

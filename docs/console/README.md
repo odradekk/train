@@ -34,7 +34,7 @@
 | [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换世界 | 同上 |
 | [composite reset](composite-reset.md) | 清空已制造车辆并重建当前切片世界 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
-| [composite query](composite-query.md) `[<id> [parts [<page>]]]` | 查询车辆摘要、接触与分页零件布局 | 同上 |
+| [composite query](composite-query.md) `[page [<page>] \| <id> [parts [<page>]]]` | 分页列出车辆摘要，或查询单车接触与零件布局 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -268,12 +268,13 @@ voxel query 14 14 14
 loglevel info
 composite manufacture
 composite query
+composite query 1
 composite query 1 parts 2
 voxel save Should Fail
 composite reset
 ```
 
-原始夹具下应制造 1 辆 168 零件的空心壳，查询给出 `(8,8,8)` 平移、包络 `[0,0,-1]->[8,6,4]`，以及接触点 `(1,-0.75,1.5)` / `(7,-0.75,1.5)`。世界体素数保持 0。有车辆时 `voxel save` 返回 `UnsupportedVehicles`。重置后车辆数为 0，`NextEntityId` 回到 1。
+原始夹具下应制造 1 辆 168 零件的空心壳。不带 ID 的查询只给出第 1 页紧凑摘要（含车辆 ID 和零件数）。`composite query 1` 给出 `(8,8,8)` 平移、包络 `[0,0,-1]->[8,6,4]`，以及接触点 `(1,-0.75,1.5)` / `(7,-0.75,1.5)`。世界体素数保持 0。有车辆时 `voxel save` 返回 `UnsupportedVehicles`。重置后车辆数为 0，`NextEntityId` 回到 1。
 
 目前没有独立的旋转、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
 
