@@ -115,6 +115,8 @@ public sealed class VoxelConsoleCommands
         yield return $"Cell ({query.Position.X}, {query.Position.Y}, {query.Position.Z}): {query.Voxel.DefinitionId.Value}";
         yield return $"orientation {query.Voxel.Orientation}";
         yield return $"durability {query.Voxel.CurrentDurability}";
+        if (query.Voxel.RuntimeId is { } runtimeId)
+            yield return $"runtime {runtimeId}";
         if (query.Value is long value)
             yield return $"value {value}";
         if (query.Mass is double mass)

@@ -24,4 +24,4 @@ Voxel count: 1089.
 
 失败同样以 `info` 写出 `Voxel <Status>.` 和当前总数，例如非法名称得到 `InvalidName`。没有独立的存档列表或选档 UI；记下输出中的 UUID，之后用 [`voxel load`](voxel-load.md) 恢复。
 
-当前范围只保存体素世界。不保存车辆、Blueprint、铁路、贸易或未出现的运行时 ID。当前会话已有车辆时返回 `UnsupportedVehicles`，不写文件，也不把丢车的世界存档报告为成功。
+当前范围只保存体素世界。不保存车辆、Blueprint、铁路、贸易或运行时身份。当前会话已有车辆时返回 `UnsupportedVehicles`。世界里已有带 `RuntimeId` 的体素（例如伤害脱落后的碎块）时返回 `UnsupportedIdentities`。这两种拒绝都不写文件、不改 `SaveId`，也不把丢失身份或丢车的世界存档报告为成功。普通无身份世界仍可保存。

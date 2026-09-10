@@ -23,7 +23,8 @@ public enum WorldSaveStatus
     MismatchedId,
     NotFound,
     Unavailable,
-    UnsupportedVehicles
+    UnsupportedVehicles,
+    UnsupportedIdentities
 }
 
 public sealed record WorldSaveResult(WorldSaveStatus Status, Guid? SaveId = null, string? DisplayName = null)

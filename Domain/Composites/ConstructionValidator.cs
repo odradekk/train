@@ -5,13 +5,6 @@ namespace Train.Domain.Composites;
 
 public static class ConstructionValidator
 {
-    private static readonly (int X, int Y, int Z)[] Neighbors =
-    {
-        (1, 0, 0), (-1, 0, 0),
-        (0, 1, 0), (0, -1, 0),
-        (0, 0, 1), (0, 0, -1)
-    };
-
     public static ConstructionStatus Validate(
         CompositeDefinition definition,
         CompositeArchetype archetype,
@@ -21,10 +14,7 @@ public static class ConstructionValidator
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(archetype);
         ArgumentNullException.ThrowIfNull(voxels);
-        if (!transform.Orientation.IsOrthogonal ||
-            !double.IsFinite(transform.OriginX) ||
-            !double.IsFinite(transform.OriginY) ||
-            !double.IsFinite(transform.OriginZ))
+        if (!transform.IsValid)
             return ConstructionStatus.NonFiniteTransform;
 
         var occupancy = new Dictionary<LocalVoxelCoord, CompositeVoxelSpec>();
@@ -43,7 +33,7 @@ public static class ConstructionValidator
         {
             if (occupancy.Count == 0)
                 return ConstructionStatus.Empty;
-            if (!IsSixConnected(occupancy.Keys))
+            if (!VoxelConnectivity.IsSixConnected(occupancy.Keys))
                 return ConstructionStatus.Disconnected;
         }
 
@@ -95,18 +85,7 @@ public static class ConstructionValidator
         VoxelCatalogSnapshot voxels)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        ArgumentNullException.ThrowIfNull(archetype);
-        ArgumentNullException.ThrowIfNull(voxels);
-        var tag = archetype.IdentityRetention.RequiredCoreTag;
-        foreach (var spec in definition.Voxels)
-        {
-            if (!voxels.TryGet(spec.DefinitionId, out var entry))
-                continue;
-            if (entry.Definition.Tags.Contains(tag))
-                return IdentityRetentionStatus.Retained;
-        }
-
-        return IdentityRetentionStatus.MissingCoreTag;
+        return EvaluateIdentity(definition.Voxels.Select(spec => spec.DefinitionId), archetype, voxels);
     }
 
     public static IdentityRetentionStatus EvaluateIdentity(
@@ -115,39 +94,26 @@ public static class ConstructionValidator
         VoxelCatalogSnapshot voxels)
     {
         ArgumentNullException.ThrowIfNull(instance);
+        return EvaluateIdentity(instance.Parts.Select(part => part.DefinitionId), archetype, voxels);
+    }
+
+    public static IdentityRetentionStatus EvaluateIdentity(
+        IEnumerable<VoxelDefinitionId> definitionIds,
+        CompositeArchetype archetype,
+        VoxelCatalogSnapshot voxels)
+    {
+        ArgumentNullException.ThrowIfNull(definitionIds);
         ArgumentNullException.ThrowIfNull(archetype);
         ArgumentNullException.ThrowIfNull(voxels);
         var tag = archetype.IdentityRetention.RequiredCoreTag;
-        foreach (var part in instance.Parts)
+        foreach (var definitionId in definitionIds)
         {
-            if (!voxels.TryGet(part.DefinitionId, out var entry))
+            if (!voxels.TryGet(definitionId, out var entry))
                 continue;
             if (entry.Definition.Tags.Contains(tag))
                 return IdentityRetentionStatus.Retained;
         }
 
         return IdentityRetentionStatus.MissingCoreTag;
-    }
-
-    private static bool IsSixConnected(IReadOnlyCollection<LocalVoxelCoord> cells)
-    {
-        var remaining = cells.ToHashSet();
-        var start = remaining.First();
-        var queue = new Queue<LocalVoxelCoord>();
-        queue.Enqueue(start);
-        remaining.Remove(start);
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            foreach (var (x, y, z) in Neighbors)
-            {
-                var neighbor = new LocalVoxelCoord(current.X + x, current.Y + y, current.Z + z);
-                if (!remaining.Remove(neighbor))
-                    continue;
-                queue.Enqueue(neighbor);
-            }
-        }
-
-        return remaining.Count == 0;
     }
 }

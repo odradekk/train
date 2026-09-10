@@ -22,6 +22,6 @@ max 150
 Voxel count: 512.
 ```
 
-`durability` 是实例当前耐久；`value`、`mass`、`max` 来自当前已发布目录，不是实例私有副本。空格输出 `Cell (...): empty.`，同样附带世界总体素数。
+`durability` 是实例当前耐久；`value`、`mass`、`max` 来自当前已发布目录，不是实例私有副本。从车辆脱落转入的世界体素额外输出 `runtime <id>`，保留原零件 RuntimeId；普通世界体素没有该行，也不会因此补发身份。空格输出 `Cell (...): empty.`，同样附带世界总体素数。
 
 当前查询对越界坐标也返回 `empty`，不会报告 `OutOfBounds`，因此不能用查询中的 `empty` 判断坐标可否放置。增删和伤害命令会单独验证边界。

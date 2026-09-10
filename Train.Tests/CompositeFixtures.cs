@@ -62,12 +62,16 @@ internal static class CompositeFixtures
         return document.RootElement.GetProperty("composites")[0].GetRawText();
     }
 
-    public static string FixtureFileText()
+    public static string FixtureFileText() => BuiltinText("composites", "dev-hollow-shell.composites.json");
+
+    public static string BridgeFileText() => BuiltinText("composites", "dev-bridge.composites.json");
+
+    public static string BuiltinText(params string[] relative)
     {
         var repo = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        var path = Path.Combine(repo, "builtin", "core", "resources", "composites", "dev-hollow-shell.composites.json");
+        var path = Path.Combine(new[] { repo, "builtin", "core", "resources" }.Concat(relative).ToArray());
         if (!System.IO.File.Exists(path))
-            path = Path.GetFullPath(Path.Combine(Environment.CurrentDirectory, "builtin", "core", "resources", "composites", "dev-hollow-shell.composites.json"));
+            path = Path.GetFullPath(Path.Combine(new[] { Environment.CurrentDirectory, "builtin", "core", "resources" }.Concat(relative).ToArray()));
         return System.IO.File.ReadAllText(path);
     }
 
@@ -78,8 +82,11 @@ internal static class CompositeFixtures
             ContentFixtures.Good("vehicle-shell", "壳体", "壳体说明", value: 10, tagsJson: "[]")));
         source.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("identity-core", "核心", "核心说明", value: 10, tagsJson: "[\"identity_core\"]")));
+        source.AddVoxelFile("core", "voxels/identity-core-heavy.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("identity-core-heavy", "重核", "重核说明", value: 20, tagsJson: "[\"identity_core\"]")));
         ContentFixtures.AddSquareImages(source, "iron.png");
         source.AddCompositeFile("core", "composites/dev-hollow-shell.composites.json", FixtureFileText());
+        source.AddCompositeFile("core", "composites/dev-bridge.composites.json", BridgeFileText());
         return source;
     }
 

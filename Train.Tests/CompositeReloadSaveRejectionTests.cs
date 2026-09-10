@@ -44,6 +44,51 @@ public sealed class CompositeReloadSaveRejectionTests
     }
 
     [TestMethod]
+    public void Save_rejects_dropped_runtime_ids_on_slice_2_and_leaves_ordinary_world_saves()
+    {
+        var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());
+        using (logger)
+        {
+            var store = new RecordingStore();
+            var session = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2, store, reloader.Composites);
+            var manufactured = session.Manufacture(BridgeFixture.DefinitionId);
+            Assert.IsTrue(manufactured.Succeeded);
+            var vehicleId = manufactured.VehicleId!.Value;
+            Assert.IsTrue(session.Damage(new[]
+            {
+                new CompositeDamageTarget(vehicleId, BridgeFixture.BridgeCell, 100),
+                new CompositeDamageTarget(vehicleId, BridgeFixture.LeftCoreCell, 100),
+                new CompositeDamageTarget(vehicleId, BridgeFixture.RightCoreCell, 100)
+            }).Succeeded);
+            Assert.AreEqual(0, session.QueryComposites().Count);
+            Assert.AreEqual(52, session.World.OccupiedVoxels().Count(item => item.Value.RuntimeId is not null));
+            var before = session.CaptureAuthority();
+            var existingSaveId = session.SaveId;
+
+            var saved = session.Save("Should Keep Identities");
+            Assert.AreEqual(WorldSaveStatus.UnsupportedIdentities, saved.Status);
+            Assert.IsFalse(saved.Succeeded);
+            Assert.IsFalse(store.Wrote);
+            Assert.AreEqual(existingSaveId, session.SaveId);
+            Assert.AreEqual(before, session.CaptureAuthority());
+            Assert.AreEqual(52, session.World.OccupiedVoxels().Count(item => item.Value.RuntimeId is not null));
+
+            var loaded = session.Load(Guid.Parse("11111111-2222-4333-8444-555555555555"));
+            Assert.AreEqual(WorldSaveStatus.UnsupportedIdentities, loaded.Status);
+            Assert.IsFalse(loaded.Succeeded);
+            Assert.AreEqual(before, session.CaptureAuthority());
+            Assert.AreEqual(existingSaveId, session.SaveId);
+
+            var ordinaryStore = new RecordingStore();
+            var ordinary = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2, ordinaryStore, reloader.Composites);
+            var ordinarySaved = ordinary.Save("Ordinary World");
+            Assert.AreEqual(WorldSaveStatus.Saved, ordinarySaved.Status);
+            Assert.IsTrue(ordinarySaved.Succeeded);
+            Assert.IsTrue(ordinaryStore.Wrote);
+        }
+    }
+
+    [TestMethod]
     public void Hot_reload_rejects_missing_vehicle_references_and_unsupported_adaptation()
     {
         using var session = LoggerSession.Create();

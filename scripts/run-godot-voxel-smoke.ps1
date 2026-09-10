@@ -140,7 +140,7 @@ try {
         if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
     }
     else {
-        $quitAfter = if ($IsolationAbort) { 30 } else { 90 }
+        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 3) { 150 } else { 90 }
         $single = Invoke-GodotVoxelSmoke -QuitAfter $quitAfter -Label ("slice $Slice")
         $output = $single.Output
         $godotExitCode = $single.ExitCode
@@ -179,6 +179,12 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE3_QUERY",
         "VOXEL_SMOKE_SLICE3_WORLD_EMPTY",
         "VOXEL_SMOKE_SLICE3_RESET",
+        "VOXEL_SMOKE_SLICE3_BRIDGE",
+        "VOXEL_SMOKE_SLICE3_FRACTURE",
+        "VOXEL_SMOKE_SLICE3_OWNERSHIP",
+        "VOXEL_SMOKE_SLICE3_PARTIAL",
+        "VOXEL_SMOKE_SLICE3_PARTIAL_OWNERSHIP",
+        "VOXEL_SMOKE_SLICE3_DROP",
         "COMPOSITE_SMOKE_OK",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",

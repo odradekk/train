@@ -30,7 +30,8 @@ public enum IdentityRetentionStatus
 
 public enum OperationalCondition
 {
-    Unevaluated = 0
+    Unevaluated = 0,
+    Disabled = 1
 }
 
 public sealed class CompositePart
@@ -175,7 +176,7 @@ public sealed record CompositeQuery(
 
 public sealed record CompositeAuthoritySnapshot(
     int WorldVoxelCount,
-    IReadOnlyList<(WorldVoxelCoord Position, VoxelDefinitionId DefinitionId, int Durability, string Orientation)> WorldVoxels,
+    IReadOnlyList<(WorldVoxelCoord Position, VoxelDefinitionId DefinitionId, int Durability, string Orientation, ulong? RuntimeId)> WorldVoxels,
     IReadOnlyList<CompositeQuery> Vehicles,
     ulong NextEntityId,
     ulong TransactionCount)

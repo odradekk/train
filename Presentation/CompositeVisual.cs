@@ -78,22 +78,11 @@ public partial class CompositeVisual : Node3D
     {
         Position = new Vector3((float)transform.OriginX, (float)transform.OriginY, (float)transform.OriginZ);
         Basis = new Basis(
-            Axis(transform.Orientation.Right),
-            Axis(transform.Orientation.Up),
-            Axis(transform.Orientation.Forward));
+            new Vector3((float)transform.RightX, (float)transform.RightY, (float)transform.RightZ),
+            new Vector3((float)transform.UpX, (float)transform.UpY, (float)transform.UpZ),
+            new Vector3((float)transform.ForwardX, (float)transform.ForwardY, (float)transform.ForwardZ));
         Scale = Vector3.One;
     }
-
-    private static Vector3 Axis(VoxelAxis axis) => axis switch
-    {
-        VoxelAxis.PositiveX => Vector3.Right,
-        VoxelAxis.NegativeX => Vector3.Left,
-        VoxelAxis.PositiveY => Vector3.Up,
-        VoxelAxis.NegativeY => Vector3.Down,
-        VoxelAxis.PositiveZ => Vector3.Back,
-        VoxelAxis.NegativeZ => Vector3.Forward,
-        _ => throw new ArgumentOutOfRangeException(nameof(axis), axis, "Unknown voxel axis.")
-    };
 
     private static string TextureKey(CompositeVoxelFace face, VoxelCatalogSnapshot? catalog, out DecodedImage? image)
     {

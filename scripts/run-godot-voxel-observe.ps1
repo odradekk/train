@@ -32,7 +32,7 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 3) { ".godot/issue58-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
+    $OutputPath = if ($Slice -eq 3) { ".godot/issue59-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
 }
 $env:TRAIN_VOXEL_OBSERVE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
@@ -42,7 +42,8 @@ $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-$output = & $env:GODOT --path $root --quit-after 300 2>&1 | Out-String
+$quitAfter = if ($Slice -eq 3) { 450 } else { 300 }
+$output = & $env:GODOT --path $root --quit-after $quitAfter 2>&1 | Out-String
 $exitCode = $LASTEXITCODE
 Write-Host $output
 $afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
@@ -60,7 +61,11 @@ $captures = if ($Slice -eq 3) {
         "issue58-empty.png",
         "issue58-exterior.png",
         "issue58-interior.png",
-        "issue58-reset.png"
+        "issue58-reset.png",
+        "issue59-bridge.png",
+        "issue59-fracture.png",
+        "issue59-partial.png",
+        "issue59-drop.png"
     )
 } elseif ($Slice -eq 2) {
     @(
@@ -105,11 +110,11 @@ $settle = ($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_MULT
 $captureLines = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" })
 $report = if ($Slice -eq 3) {
     @(
-        "# Issue #58 visual observation record (automated facts)",
+        "# Issue #59 visual observation record (automated facts)",
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 3 ``.",
         "",
-        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png`` plus four ``.godot/issue59-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
         "",
         "## Procedure",
         "",
@@ -118,6 +123,9 @@ $report = if ($Slice -eq 3) {
         "3. Run ``composite manufacture`` or press ``M``. Confirm one parked hollow shell, 168 parts, contacts ``(1,-0.75,1.5)`` / ``(7,-0.75,1.5)``, envelope ``[0,0,-1]->[8,6,4]``, and no world-chunk duplicate mesh.",
         "4. Move the camera into the cavity and confirm inner faces without a solid fill.",
         "5. Run ``composite reset`` or press ``R``. Confirm the vehicle and derived visual are gone.",
+        "6. Run ``composite reset bridge``. Confirm one parked 55-part bridge, no world duplicate.",
+        "7. Run ``composite damage 1 3 1 1 100``. Confirm two surviving composites, two independent meshes, no world duplicate, no stretch or shear.",
+        "8. Reset, manufacture the bridge, then damage the bridge and both cores. Confirm the vehicle meshes disappear and fragments appear once in the world mesh.",
         "",
         "## Result",
         "",
@@ -125,7 +133,7 @@ $report = if ($Slice -eq 3) {
         "",
         ($captureLines | ForEach-Object { "- $_" }),
         "",
-        "Automated capture wrote ``.godot/issue58-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / query / visual-sync evidence."
+        "Automated capture wrote ``.godot/issue58-*.png`` and ``.godot/issue59-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / damage / ownership / visual-sync evidence."
     )
 } elseif ($Slice -eq 2) {
     @(

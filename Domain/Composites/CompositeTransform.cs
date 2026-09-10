@@ -7,14 +7,58 @@ public readonly record struct CompositeTransform
     public double OriginX { get; }
     public double OriginY { get; }
     public double OriginZ { get; }
-    public VoxelOrientation Orientation { get; }
+    public double RightX { get; }
+    public double RightY { get; }
+    public double RightZ { get; }
+    public double UpX { get; }
+    public double UpY { get; }
+    public double UpZ { get; }
 
-    private CompositeTransform(double originX, double originY, double originZ, VoxelOrientation orientation)
+    public (double X, double Y, double Z) Right => (RightX, RightY, RightZ);
+    public (double X, double Y, double Z) Up => (UpX, UpY, UpZ);
+    public (double X, double Y, double Z) Forward
+    {
+        get
+        {
+            var forward = Normalize(Cross(Right, Up));
+            return forward;
+        }
+    }
+
+    public double ForwardX => Forward.X;
+    public double ForwardY => Forward.Y;
+    public double ForwardZ => Forward.Z;
+
+    public VoxelOrientation Orientation => FragmentGridSnap.SnapRotation(Right, Up);
+
+    public bool IsFinite =>
+        double.IsFinite(OriginX) && double.IsFinite(OriginY) && double.IsFinite(OriginZ) &&
+        double.IsFinite(RightX) && double.IsFinite(RightY) && double.IsFinite(RightZ) &&
+        double.IsFinite(UpX) && double.IsFinite(UpY) && double.IsFinite(UpZ);
+
+    public bool IsValid =>
+        IsFinite && TryOrthonormalize(Right, Up, out _, out _);
+
+    private CompositeTransform(
+        double originX,
+        double originY,
+        double originZ,
+        double rightX,
+        double rightY,
+        double rightZ,
+        double upX,
+        double upY,
+        double upZ)
     {
         OriginX = originX;
         OriginY = originY;
         OriginZ = originZ;
-        Orientation = orientation;
+        RightX = rightX;
+        RightY = rightY;
+        RightZ = rightZ;
+        UpX = upX;
+        UpY = upY;
+        UpZ = upZ;
     }
 
     public static CompositeTransform Identity { get; } = Translation(0, 0, 0);
@@ -31,12 +75,75 @@ public readonly record struct CompositeTransform
         VoxelOrientation orientation,
         out CompositeTransform transform)
     {
+        var right = FragmentGridSnap.AxisVector(orientation.Right);
+        var up = FragmentGridSnap.AxisVector(orientation.Up);
+        return TryCreate(originX, originY, originZ, right.X, right.Y, right.Z, up.X, up.Y, up.Z, out transform);
+    }
+
+    public static bool TryCreate(
+        double originX,
+        double originY,
+        double originZ,
+        double rightX,
+        double rightY,
+        double rightZ,
+        double upX,
+        double upY,
+        double upZ,
+        out CompositeTransform transform)
+    {
         transform = default;
-        if (!double.IsFinite(originX) || !double.IsFinite(originY) || !double.IsFinite(originZ))
+        if (!double.IsFinite(originX) || !double.IsFinite(originY) || !double.IsFinite(originZ) ||
+            !double.IsFinite(rightX) || !double.IsFinite(rightY) || !double.IsFinite(rightZ) ||
+            !double.IsFinite(upX) || !double.IsFinite(upY) || !double.IsFinite(upZ))
             return false;
-        if (!orientation.IsOrthogonal)
+        if (!TryOrthonormalize((rightX, rightY, rightZ), (upX, upY, upZ), out var right, out var up))
             return false;
-        transform = new CompositeTransform(originX, originY, originZ, orientation);
+        transform = new CompositeTransform(originX, originY, originZ, right.X, right.Y, right.Z, up.X, up.Y, up.Z);
         return true;
     }
+
+    private static bool TryOrthonormalize(
+        (double X, double Y, double Z) right,
+        (double X, double Y, double Z) up,
+        out (double X, double Y, double Z) orthonormalRight,
+        out (double X, double Y, double Z) orthonormalUp)
+    {
+        orthonormalRight = default;
+        orthonormalUp = default;
+        if (!TryNormalize(right, out var unitRight) || !TryNormalize(up, out var unitUp))
+            return false;
+        var forward = Cross(unitRight, unitUp);
+        if (!TryNormalize(forward, out var unitForward))
+            return false;
+        orthonormalRight = unitRight;
+        orthonormalUp = Cross(unitForward, unitRight);
+        return TryNormalize(orthonormalUp, out orthonormalUp);
+    }
+
+    private static bool TryNormalize((double X, double Y, double Z) value, out (double X, double Y, double Z) normalized)
+    {
+        var length = Math.Sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
+        if (length == 0 || !double.IsFinite(length))
+        {
+            normalized = default;
+            return false;
+        }
+
+        normalized = (value.X / length, value.Y / length, value.Z / length);
+        return true;
+    }
+
+    private static (double X, double Y, double Z) Normalize((double X, double Y, double Z) value) =>
+        TryNormalize(value, out var normalized)
+            ? normalized
+            : throw new ArgumentOutOfRangeException(nameof(value), "Rotation axes must be finite and non-zero.");
+
+    private static (double X, double Y, double Z) Cross(
+        (double X, double Y, double Z) left,
+        (double X, double Y, double Z) right) =>
+        (
+            left.Y * right.Z - left.Z * right.Y,
+            left.Z * right.X - left.X * right.Z,
+            left.X * right.Y - left.Y * right.X);
 }
