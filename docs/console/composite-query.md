@@ -17,7 +17,7 @@ composite query 1 parts 2
 
 `composite query <id>` 查询单车完整摘要、接触和第 1 页零件。`parts` 子参数只读某一页零件。零件页码从 1 开始，每页 32 条，按 Local Cell 稳定排序。省略页码时读第 1 页。超出总页数仍返回 `parts page <n>/<total>`，不含零件行。绑定零件 ID 与零件行都以本次制造返回值为准，不要写死恰好分到的整数。
 
-列表成功时先写车辆总数和页码，再按行写身份、定义、零件数、构造和身份保留。单车成功时按字段分行写出身份、声明规格、构造/身份保留/运营状态、刚体 Transform、固定包络、零件数和接触锚点。接触坐标与绑定零件格分别列出，不能把接触点 Y 误当成零件格 Y。零件行给出身份、Local Cell、定义、朝向和当前耐久。
+列表成功时先写车辆总数和页码，再按行写身份、定义、零件数、构造和身份保留。单车成功时按字段分行写出身份、声明规格、构造/身份保留/运营状态、刚体 Transform、固定包络、零件数和接触锚点。Transform 先写连续原点，再写归一化的局部 +X/+Y 轴，最后写 Rotation Snap 后的 24 向编码；显示与领域权威使用同一连续轴，脱落才整体吸附。接触坐标与绑定零件格分别列出，不能把接触点 Y 误当成零件格 Y。零件行给出身份、Local Cell、定义、朝向和当前耐久。
 
 ```text
 vehicles 12
@@ -32,7 +32,7 @@ size small
 construction Valid
 identity Retained
 operational Unevaluated
-transform 8,8,8 px_py
+transform 8,8,8 1,0,0 0,1,0 px_py
 envelope 0,0,-1 -> 8,6,4
 parts 168
 contact 1,-0.75,1.5 cell (1,0,1) part <core-part-id>

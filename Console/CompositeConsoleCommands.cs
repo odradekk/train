@@ -113,8 +113,14 @@ public sealed class CompositeConsoleCommands
         var lines = new List<string> { $"Composite {result.Status}." };
         foreach (var target in result.Targets ?? Array.Empty<CompositeDamageTargetResult>())
         {
+            var location = target.VehicleId is { } owner
+                ? $" vehicle {owner}"
+                : target.WorldCell is { } world
+                    ? $" world ({world.X},{world.Y},{world.Z})"
+                    : "";
+            var part = target.PartId is { } partId ? $" part {partId}" : "";
             lines.Add(
-                $"target ({target.Cell.X},{target.Cell.Y},{target.Cell.Z}) {target.Status} by {target.Amount} durability {target.RemainingDurability}");
+                $"target ({target.Cell.X},{target.Cell.Y},{target.Cell.Z}) {target.Status} by {target.Amount} durability {target.RemainingDurability}{location}{part}");
         }
 
         var vehicles = _session.QueryComposites();
@@ -183,7 +189,7 @@ public sealed class CompositeConsoleCommands
             $"construction {query.Construction}",
             $"identity {query.IdentityRetention}",
             $"operational {query.OperationalCondition}",
-            $"transform {FormatNumber(query.Transform.OriginX)},{FormatNumber(query.Transform.OriginY)},{FormatNumber(query.Transform.OriginZ)} {query.Transform.Orientation}",
+            $"transform {FormatNumber(query.Transform.OriginX)},{FormatNumber(query.Transform.OriginY)},{FormatNumber(query.Transform.OriginZ)} {FormatNumber(query.Transform.RightX)},{FormatNumber(query.Transform.RightY)},{FormatNumber(query.Transform.RightZ)} {FormatNumber(query.Transform.UpX)},{FormatNumber(query.Transform.UpY)},{FormatNumber(query.Transform.UpZ)} {query.Transform.Orientation}",
             envelope,
             $"parts {query.Parts.Count}"
         };
@@ -222,31 +228,26 @@ public sealed class CompositeConsoleCommands
         }
     }
 
-    private static bool TryListPage(IReadOnlyList<string> arguments, out int page)
-    {
-        page = 1;
-        if (arguments.Count == 2)
-            return true;
-        return arguments.Count == 3 && int.TryParse(arguments[2], out page) && page > 0;
-    }
+    private static bool TryListPage(IReadOnlyList<string> arguments, out int page) =>
+        TryOptionalTrailingPage(arguments, 2, out page);
 
-    private static bool TryPartPage(IReadOnlyList<string> arguments, out int page)
-    {
-        page = 1;
-        if (arguments.Count == 3)
-            return true;
-        return arguments.Count == 4 && int.TryParse(arguments[3], out page) && page > 0;
-    }
+    private static bool TryPartPage(IReadOnlyList<string> arguments, out int page) =>
+        TryOptionalTrailingPage(arguments, 3, out page);
 
     private static string FormatNumber(double value) =>
         value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
 
-    private static bool TryDamagedPage(IReadOnlyList<string> arguments, out int page)
+    private static bool TryDamagedPage(IReadOnlyList<string> arguments, out int page) =>
+        TryOptionalTrailingPage(arguments, 2, out page);
+
+    private static bool TryOptionalTrailingPage(IReadOnlyList<string> arguments, int pageArgumentIndex, out int page)
     {
         page = 1;
-        if (arguments.Count == 2)
+        if (arguments.Count == pageArgumentIndex)
             return true;
-        return arguments.Count == 3 && int.TryParse(arguments[2], out page) && page > 0;
+        return arguments.Count == pageArgumentIndex + 1 &&
+               int.TryParse(arguments[pageArgumentIndex], out page) &&
+               page > 0;
     }
 
     private static bool TryFixture(string text, out CompositeDefinitionId definitionId)

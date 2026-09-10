@@ -15,10 +15,12 @@ public readonly record struct CompositeDamageTarget(EntityId VehicleId, LocalVox
 
 public sealed record CompositeDamageTargetResult(
     CompositeDamageStatus Status,
-    EntityId VehicleId,
+    EntityId? VehicleId,
     LocalVoxelCoord Cell,
     int Amount,
-    int RemainingDurability);
+    int RemainingDurability,
+    EntityId? PartId = null,
+    WorldVoxelCoord? WorldCell = null);
 
 public sealed record CompositeDamageResult(
     CompositeDamageStatus Status,

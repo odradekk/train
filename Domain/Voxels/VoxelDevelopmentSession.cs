@@ -120,6 +120,12 @@ public sealed class VoxelDevelopmentSession
                 return new CompositeDamageResult(CompositeDamageStatus.Empty, target.VehicleId);
         }
 
+        var tracked = targets.Select(target =>
+        {
+            var part = _vehicles.First(item => item.Id == target.VehicleId).PartAt(target.Cell)!;
+            return (Target: target, PartId: part.Id);
+        }).ToArray();
+        var allocatedFrom = NextEntityId;
         TransactionCount++;
         var reserved = new HashSet<WorldVoxelCoord>();
         var affected = targets.Select(target => target.VehicleId).Distinct().OrderBy(id => id.Value).ToArray();
@@ -127,25 +133,14 @@ public sealed class VoxelDevelopmentSession
             SettleVehicleDamage(vehicleId, targets.Where(target => target.VehicleId == vehicleId).ToArray(), reserved);
 
         var outcomes = new CompositeDamageTargetResult[targets.Count];
-        var overall = CompositeDamageStatus.Removed;
         for (var index = 0; index < targets.Count; index++)
-        {
-            var target = targets[index];
-            var vehicle = _vehicles.FirstOrDefault(item => item.Id == target.VehicleId);
-            var part = vehicle?.PartAt(target.Cell);
-            var status = part is null ? CompositeDamageStatus.Removed : CompositeDamageStatus.Damaged;
-            if (status == CompositeDamageStatus.Damaged || _vehicles.Count > 0)
-                overall = CompositeDamageStatus.Damaged;
-            outcomes[index] = new CompositeDamageTargetResult(
-                status,
-                target.VehicleId,
-                target.Cell,
-                target.Amount,
-                part?.CurrentDurability ?? 0);
-        }
+            outcomes[index] = DescribeSettledTarget(tracked[index].Target, tracked[index].PartId);
 
-        if (_vehicles.Count == 0)
-            overall = CompositeDamageStatus.Removed;
+        var overall = _vehicles.Any(vehicle =>
+                affected.Contains(vehicle.Id) ||
+                (vehicle.Id.Value >= allocatedFrom && vehicle.Id.Value < NextEntityId))
+            ? CompositeDamageStatus.Damaged
+            : CompositeDamageStatus.Removed;
 
         _rebuildComposites = true;
         Changed?.Invoke();
@@ -257,7 +252,7 @@ public sealed class VoxelDevelopmentSession
             .OrderBy(item => item.Key.X)
             .ThenBy(item => item.Key.Y)
             .ThenBy(item => item.Key.Z)
-            .Select(item => (item.Key, item.Value.DefinitionId, item.Value.CurrentDurability, item.Value.Orientation.ToString()))
+            .Select(item => (item.Key, item.Value.DefinitionId, item.Value.CurrentDurability, item.Value.Orientation.ToString(), item.Value.RuntimeId?.Value))
             .ToArray();
         return new CompositeAuthoritySnapshot(
             World.VoxelCount,
@@ -371,12 +366,13 @@ public sealed class VoxelDevelopmentSession
         return dirty.ToArray();
     }
 
-    private void NoteChange(WorldVoxelCoord position, bool occupancyChanged)
+    private void NoteChange(WorldVoxelCoord position, bool occupancyChanged, bool publish = true)
     {
         _pendingChanges.Add((position, occupancyChanged));
         if (occupancyChanged)
             _pendingCollisionChanges.Add(position);
-        Changed?.Invoke();
+        if (publish)
+            Changed?.Invoke();
     }
 
     private void ReplaceWorld(VoxelWorld world)
@@ -477,21 +473,55 @@ public sealed class VoxelDevelopmentSession
         _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
     }
 
+    private CompositeDamageTargetResult DescribeSettledTarget(CompositeDamageTarget target, EntityId partId)
+    {
+        foreach (var vehicle in _vehicles)
+        {
+            var part = vehicle.Parts.FirstOrDefault(item => item.Id == partId);
+            if (part is null)
+                continue;
+            return new CompositeDamageTargetResult(
+                CompositeDamageStatus.Damaged,
+                vehicle.Id,
+                target.Cell,
+                target.Amount,
+                part.CurrentDurability,
+                partId);
+        }
+
+        foreach (var occupied in World.OccupiedVoxels())
+        {
+            if (occupied.Value.RuntimeId != partId)
+                continue;
+            return new CompositeDamageTargetResult(
+                CompositeDamageStatus.Damaged,
+                null,
+                target.Cell,
+                target.Amount,
+                occupied.Value.CurrentDurability,
+                partId,
+                occupied.Key);
+        }
+
+        return new CompositeDamageTargetResult(
+            CompositeDamageStatus.Removed,
+            null,
+            target.Cell,
+            target.Amount,
+            0,
+            partId);
+    }
+
     private static bool RetainsIdentity(
         IReadOnlyList<CompositePart> parts,
         CompositeArchetype? archetype,
         VoxelCatalogSnapshot voxels)
     {
-        if (archetype is null)
-            return false;
-        var tag = archetype.IdentityRetention.RequiredCoreTag;
-        foreach (var part in parts)
-        {
-            if (voxels.TryGet(part.DefinitionId, out var entry) && entry.Definition.Tags.Contains(tag))
-                return true;
-        }
-
-        return false;
+        return archetype is not null &&
+               ConstructionValidator.EvaluateIdentity(
+                   parts.Select(part => part.DefinitionId),
+                   archetype,
+                   voxels) == IdentityRetentionStatus.Retained;
     }
 
     private static long ValueOf(IReadOnlyList<CompositePart> parts, VoxelCatalogSnapshot voxels)
@@ -580,11 +610,12 @@ public sealed class VoxelDevelopmentSession
                 var placed = new WorldVoxel(
                     part.DefinitionId,
                     part.CurrentDurability,
-                    FragmentGridSnap.Compose(orientation, part.Orientation));
+                    FragmentGridSnap.Compose(orientation, part.Orientation),
+                    part.Id);
                 if (!World.TryAdd(targets[index], placed))
                     throw new InvalidOperationException("Fragment placement passed checks but failed to transfer ownership.");
                 reserved.Add(targets[index]);
-                NoteChange(targets[index], occupancyChanged: true);
+                NoteChange(targets[index], occupancyChanged: true, publish: false);
             }
 
             return;

@@ -286,6 +286,159 @@ public sealed class CompositeDamageTests
     }
 
     [TestMethod]
+    public void Changed_observers_never_see_partial_fragment_transfer()
+    {
+        using var world = Open();
+        var manufactured = world.Session.Manufacture(BridgeFixture.DefinitionId);
+        var originalId = manufactured.VehicleId!.Value;
+        var notifications = 0;
+        var dual = false;
+        world.Session.Changed += () =>
+        {
+            notifications++;
+            if (HasDualOwnership(world.Session))
+                dual = true;
+            var original = world.Session.QueryComposite(originalId);
+            if (original is { Parts.Count: 55 } && world.Session.World.VoxelCount > 0)
+                dual = true;
+        };
+
+        Assert.IsTrue(world.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(originalId, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(originalId, BridgeFixture.LeftCoreCell, 100)
+        }).Succeeded);
+        Assert.AreEqual(1, notifications);
+        Assert.IsFalse(dual);
+        Assert.AreEqual(1, world.Session.QueryComposites().Count);
+        Assert.AreEqual(26, world.Session.World.VoxelCount);
+        AssertNoSharedOwnership(world.Session);
+    }
+
+    [TestMethod]
+    public void Dropped_parts_keep_runtime_id_and_state()
+    {
+        using var world = Open();
+        var manufactured = world.Session.Manufacture(BridgeFixture.DefinitionId);
+        var originalId = manufactured.VehicleId!.Value;
+        var leftCorner = manufactured.Parts!.Single(part => part.Cell.Equals(new LocalVoxelCoord(0, 0, 0)));
+        Assert.IsTrue(world.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(originalId, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(originalId, BridgeFixture.LeftCoreCell, 100)
+        }).Succeeded);
+
+        var dropped = world.Session.Query(new WorldVoxelCoord(8, 8, 8));
+        Assert.AreEqual(leftCorner.Id, dropped.Voxel!.RuntimeId);
+        Assert.AreEqual(leftCorner.DefinitionId, dropped.Voxel.DefinitionId);
+        Assert.AreEqual(100, dropped.Voxel.CurrentDurability);
+        Assert.AreEqual(leftCorner.Orientation, dropped.Voxel.Orientation);
+        Assert.IsFalse(world.Session.QueryComposites().SelectMany(item => item.Parts).Any(part => part.Id == leftCorner.Id));
+        Assert.AreEqual(
+            WorldCommandStatus.Added,
+            world.Session.Add(new WorldVoxelCoord(1, 1, 1), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+        Assert.IsNull(world.Session.Query(new WorldVoxelCoord(1, 1, 1)).Voxel!.RuntimeId);
+        AssertNoSharedOwnership(world.Session);
+    }
+
+    [TestMethod]
+    public void Continuous_pose_manufacture_snaps_fragments_on_the_formal_path()
+    {
+        using var tie = Open();
+        Assert.IsTrue(CompositeTransform.TryCreate(8, 8, 8, 1, 0, 1, 0, 1, 0, out var fortyFive));
+        var tied = tie.Session.Manufacture(BridgeFixture.DefinitionId, fortyFive);
+        var tiedQuery = tie.Session.QueryComposite(tied.VehicleId!.Value)!;
+        Assert.AreEqual(Math.Sqrt(0.5), tiedQuery.Transform.RightX, 1e-12);
+        Assert.AreEqual(0, tiedQuery.Transform.RightY, 1e-12);
+        Assert.AreEqual(Math.Sqrt(0.5), tiedQuery.Transform.RightZ, 1e-12);
+        Assert.AreEqual(VoxelOrientation.Identity, tiedQuery.Transform.Orientation);
+        Assert.IsTrue(tie.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(tied.VehicleId.Value, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(tied.VehicleId.Value, BridgeFixture.LeftCoreCell, 100),
+            new CompositeDamageTarget(tied.VehicleId.Value, BridgeFixture.RightCoreCell, 100)
+        }).Succeeded);
+        Assert.AreEqual(52, tie.Session.World.VoxelCount);
+        Assert.IsTrue(tie.Session.Query(new WorldVoxelCoord(8, 8, 8)).IsOccupied);
+        Assert.AreEqual(VoxelOrientation.Identity, tie.Session.Query(new WorldVoxelCoord(8, 8, 8)).Voxel!.Orientation);
+        Assert.IsTrue(tie.Session.Query(new WorldVoxelCoord(10, 10, 10)).IsOccupied);
+
+        using var yaw = Open();
+        Assert.IsTrue(CompositeTransform.TryCreate(8, 8, 8, 0.4, 0, 1, 0, 1, 0, out var towardYaw));
+        var rotated = yaw.Session.Manufacture(BridgeFixture.DefinitionId, towardYaw);
+        Assert.AreEqual(VoxelOrientation.Yaw90, yaw.Session.QueryComposite(rotated.VehicleId!.Value)!.Transform.Orientation);
+        Assert.IsTrue(yaw.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(rotated.VehicleId.Value, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(rotated.VehicleId.Value, BridgeFixture.LeftCoreCell, 100),
+            new CompositeDamageTarget(rotated.VehicleId.Value, BridgeFixture.RightCoreCell, 100)
+        }).Succeeded);
+        var droppedCorner = yaw.Session.Query(new WorldVoxelCoord(7, 8, 8));
+        Assert.IsTrue(droppedCorner.IsOccupied);
+        Assert.AreEqual(VoxelOrientation.Yaw90, droppedCorner.Voxel!.Orientation);
+        Assert.AreEqual(rotated.Parts!.Single(part => part.Cell.Equals(new LocalVoxelCoord(0, 0, 0))).Id, droppedCorner.Voxel.RuntimeId);
+        Assert.IsTrue(yaw.Session.Query(new WorldVoxelCoord(7, 8, 10)).IsOccupied);
+        Assert.AreEqual(52, yaw.Session.World.VoxelCount);
+        AssertNoSharedOwnership(yaw.Session);
+    }
+
+    [TestMethod]
+    public void Damage_results_follow_surviving_parts_and_ignore_unrelated_vehicles()
+    {
+        using var heavy = Open();
+        var manufactured = heavy.Session.Manufacture(BridgeFixture.RightHeavyDefinitionId);
+        var originalId = manufactured.VehicleId!.Value;
+        var leftCorner = manufactured.Parts!.Single(part => part.Cell.Equals(new LocalVoxelCoord(0, 0, 0)));
+        var damaged = heavy.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(originalId, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(originalId, new LocalVoxelCoord(0, 0, 0), 1)
+        });
+        Assert.AreEqual(CompositeDamageStatus.Damaged, damaged.Status);
+        Assert.AreEqual(CompositeDamageStatus.Removed, damaged.Targets![0].Status);
+        Assert.AreEqual(CompositeDamageStatus.Damaged, damaged.Targets[1].Status);
+        Assert.AreEqual(99, damaged.Targets[1].RemainingDurability);
+        Assert.AreEqual(new EntityId(57), damaged.Targets[1].VehicleId);
+        Assert.AreEqual(leftCorner.Id, damaged.Targets[1].PartId);
+        Assert.AreEqual(99, heavy.Session.QueryComposite(new EntityId(57))!.Parts.Single(part => part.Id == leftCorner.Id).CurrentDurability);
+
+        using var world = Open();
+        var first = world.Session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
+        var second = world.Session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
+        var corner = world.Session.QueryComposite(first)!.Parts.Single(part => part.Cell.Equals(new LocalVoxelCoord(0, 0, 0)));
+        var destroyed = world.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(first, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(first, BridgeFixture.LeftCoreCell, 100),
+            new CompositeDamageTarget(first, BridgeFixture.RightCoreCell, 100),
+            new CompositeDamageTarget(first, new LocalVoxelCoord(0, 0, 0), 1)
+        });
+        Assert.AreEqual(CompositeDamageStatus.Removed, destroyed.Status);
+        Assert.IsNull(world.Session.QueryComposite(first));
+        Assert.AreEqual(second, world.Session.QueryComposites().Single().Id);
+        Assert.AreEqual(0, world.Session.World.VoxelCount);
+        Assert.AreEqual(CompositeDamageStatus.Removed, destroyed.Targets!.Single(item => item.Cell.Equals(new LocalVoxelCoord(0, 0, 0))).Status);
+
+        using var dropped = Open();
+        var dropId = dropped.Session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
+        var dropCorner = dropped.Session.QueryComposite(dropId)!.Parts.Single(part => part.Cell.Equals(new LocalVoxelCoord(0, 0, 0)));
+        var partial = dropped.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(dropId, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(dropId, BridgeFixture.LeftCoreCell, 100),
+            new CompositeDamageTarget(dropId, new LocalVoxelCoord(0, 0, 0), 1)
+        });
+        Assert.AreEqual(CompositeDamageStatus.Damaged, partial.Status);
+        var worldTarget = partial.Targets!.Single(item => item.Cell.Equals(new LocalVoxelCoord(0, 0, 0)));
+        Assert.AreEqual(CompositeDamageStatus.Damaged, worldTarget.Status);
+        Assert.IsNull(worldTarget.VehicleId);
+        Assert.AreEqual(dropCorner.Id, worldTarget.PartId);
+        Assert.AreEqual(99, worldTarget.RemainingDurability);
+        Assert.AreEqual(new WorldVoxelCoord(8, 8, 8), worldTarget.WorldCell);
+        Assert.AreEqual(dropCorner.Id, dropped.Session.Query(new WorldVoxelCoord(8, 8, 8)).Voxel!.RuntimeId);
+    }
+
+    [TestMethod]
     public void Half_cell_anchor_snaps_the_whole_fragment()
     {
         using var world = Open();
@@ -318,8 +471,23 @@ public sealed class CompositeDamageTests
 
     private static void AssertNoSharedOwnership(VoxelDevelopmentSession session)
     {
-        var partIds = session.QueryComposites().SelectMany(item => item.Parts).Select(part => part.Id.Value).ToArray();
-        Assert.AreEqual(partIds.Length, partIds.Distinct().Count());
+        Assert.IsFalse(HasDualOwnership(session));
+    }
+
+    private static bool HasDualOwnership(VoxelDevelopmentSession session)
+    {
+        var vehicleIds = session.QueryComposites().SelectMany(item => item.Parts).Select(part => part.Id.Value).ToArray();
+        if (vehicleIds.Length != vehicleIds.Distinct().Count())
+            return true;
+        var worldIds = session.World.OccupiedVoxels()
+            .Select(item => item.Value.RuntimeId?.Value)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToArray();
+        if (worldIds.Length != worldIds.Distinct().Count())
+            return true;
+        if (vehicleIds.Intersect(worldIds).Any())
+            return true;
         foreach (var vehicle in session.QueryComposites())
         {
             foreach (var part in vehicle.Parts)
@@ -328,9 +496,12 @@ public sealed class CompositeDamageTests
                     vehicle.Transform.Orientation,
                     part.Cell,
                     FragmentGridSnap.SnapAnchor(vehicle.Transform.OriginX, vehicle.Transform.OriginY, vehicle.Transform.OriginZ));
-                Assert.IsFalse(session.Query(worldCell).IsOccupied, $"vehicle {vehicle.Id} part {part.Cell} also occupies {worldCell}");
+                if (session.Query(worldCell).IsOccupied)
+                    return true;
             }
         }
+
+        return false;
     }
 
     private static SessionHandle Open()

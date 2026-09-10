@@ -1623,6 +1623,13 @@ public partial class VoxelDeveloperScene : Node3D
         var partIds = _session.QueryComposites().SelectMany(item => item.Parts).Select(part => part.Id.Value).ToArray();
         if (partIds.Length != partIds.Distinct().Count())
             throw new InvalidOperationException("Slice 3 smoke duplicated part identities.");
+        var worldIds = _session.World.OccupiedVoxels()
+            .Select(item => item.Value.RuntimeId?.Value)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToArray();
+        if (worldIds.Length != worldIds.Distinct().Count() || partIds.Intersect(worldIds).Any())
+            throw new InvalidOperationException("Slice 3 smoke duplicated runtime identities across owners.");
         foreach (var vehicle in _session.QueryComposites())
         {
             foreach (var part in vehicle.Parts)

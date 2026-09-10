@@ -226,6 +226,7 @@ public sealed class CompositeConsoleCommandTests
         StringAssert.Contains(damaged, "Composite Damaged.");
         StringAssert.Contains(damaged, "vehicles 2");
         StringAssert.Contains(damaged, "operational Disabled");
+        StringAssert.Contains(damaged, "part ");
         Assert.AreEqual(2, voxelSession.QueryComposites().Count);
 
         voxelSession.Reset();

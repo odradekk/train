@@ -169,6 +169,10 @@ public sealed class CompositeManufactureTests
         var transform = CompositeTransform.Translation(8, 8, 8);
         Assert.AreEqual(8, transform.OriginX);
         Assert.AreEqual(VoxelOrientation.Identity, transform.Orientation);
+        Assert.IsFalse(CompositeTransform.TryCreate(8, 8, 8, 1, 0, 0, 1, 0, 0, out _));
+        Assert.IsTrue(CompositeTransform.TryCreate(8, 8, 8, 1, 0, 1, 0, 1, 0, out var continuous));
+        Assert.AreEqual(Math.Sqrt(0.5), continuous.RightX, 1e-12);
+        Assert.AreEqual(VoxelOrientation.Identity, continuous.Orientation);
     }
 
     [TestMethod]

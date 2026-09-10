@@ -9,7 +9,7 @@ composite manufacture core:dev-hollow-shell
 
 参数：可选的已发布 Composite 定义 ID，必须是小写 `namespace:id`。省略时制造正式夹具 `core:dev-hollow-shell`。场景快捷键 `M` 在切片 3 中走同一入口，只制造该夹具。
 
-成功时按当前内容目录中的不可变定义做 Construction Validity 校验，再分配车辆与零件的稳定整数 ID，写入会话运行态。默认刚体平移为 `(8,8,8)`、朝向 `px_py`。车辆体素不进入世界 Chunk 网格。测试和场景读取命令返回的 ID，不硬编码恰好分配的数字。
+成功时按当前内容目录中的不可变定义做 Construction Validity 校验，再分配车辆与零件的稳定整数 ID，写入会话运行态。默认刚体平移为 `(8,8,8)`，连续姿态的局部 +X/+Y 为 `(1,0,0)` / `(0,1,0)`，Rotation Snap 为 `px_py`。控制台制造只使用该默认姿态；正式会话可以提交有限连续轴，伤害脱落时再整体吸附。车辆体素不进入世界 Chunk 网格。测试和场景读取命令返回的 ID，不硬编码恰好分配的数字。
 
 成功按字段分行：
 

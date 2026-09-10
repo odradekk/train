@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Train.Content;
+using Train.Domain.Composites;
 
 namespace Train.Domain.Voxels;
 
@@ -247,7 +248,11 @@ public readonly record struct VoxelOrientation
     };
 }
 
-public sealed record WorldVoxel(VoxelDefinitionId DefinitionId, int CurrentDurability, VoxelOrientation Orientation);
+public sealed record WorldVoxel(
+    VoxelDefinitionId DefinitionId,
+    int CurrentDurability,
+    VoxelOrientation Orientation,
+    EntityId? RuntimeId = null);
 
 public sealed record WorldVoxelQuery(
     WorldVoxelCoord Position,
