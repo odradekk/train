@@ -100,6 +100,58 @@ public sealed class VoxelDevelopmentSession
         return result;
     }
 
+    public CompositeDamageResult Damage(EntityId vehicleId, LocalVoxelCoord cell, int amount) =>
+        Damage(new[] { new CompositeDamageTarget(vehicleId, cell, amount) });
+
+    public CompositeDamageResult Damage(IReadOnlyList<CompositeDamageTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        if (targets.Count == 0)
+            return new CompositeDamageResult(CompositeDamageStatus.InvalidDamage);
+
+        foreach (var target in targets)
+        {
+            if (target.Amount <= 0)
+                return new CompositeDamageResult(CompositeDamageStatus.InvalidDamage, target.VehicleId);
+            var vehicle = _vehicles.FirstOrDefault(item => item.Id == target.VehicleId);
+            if (vehicle is null)
+                return new CompositeDamageResult(CompositeDamageStatus.UnknownVehicle, target.VehicleId);
+            if (vehicle.PartAt(target.Cell) is null)
+                return new CompositeDamageResult(CompositeDamageStatus.Empty, target.VehicleId);
+        }
+
+        TransactionCount++;
+        var reserved = new HashSet<WorldVoxelCoord>();
+        var affected = targets.Select(target => target.VehicleId).Distinct().OrderBy(id => id.Value).ToArray();
+        foreach (var vehicleId in affected)
+            SettleVehicleDamage(vehicleId, targets.Where(target => target.VehicleId == vehicleId).ToArray(), reserved);
+
+        var outcomes = new CompositeDamageTargetResult[targets.Count];
+        var overall = CompositeDamageStatus.Removed;
+        for (var index = 0; index < targets.Count; index++)
+        {
+            var target = targets[index];
+            var vehicle = _vehicles.FirstOrDefault(item => item.Id == target.VehicleId);
+            var part = vehicle?.PartAt(target.Cell);
+            var status = part is null ? CompositeDamageStatus.Removed : CompositeDamageStatus.Damaged;
+            if (status == CompositeDamageStatus.Damaged || _vehicles.Count > 0)
+                overall = CompositeDamageStatus.Damaged;
+            outcomes[index] = new CompositeDamageTargetResult(
+                status,
+                target.VehicleId,
+                target.Cell,
+                target.Amount,
+                part?.CurrentDurability ?? 0);
+        }
+
+        if (_vehicles.Count == 0)
+            overall = CompositeDamageStatus.Removed;
+
+        _rebuildComposites = true;
+        Changed?.Invoke();
+        return new CompositeDamageResult(overall, targets[0].VehicleId, outcomes);
+    }
+
     public WorldVoxelQuery Query(WorldVoxelCoord position) => Commands.Query(position);
 
     public VoxelCollisionQueryResult QueryCollision(WorldVoxelCoord cell) => Commands.QueryCollision(cell);
@@ -171,7 +223,33 @@ public sealed class VoxelDevelopmentSession
     }
 
     public IReadOnlyList<CompositeQuery> QueryComposites() =>
-        _vehicles.Select(ToQuery).ToArray();
+        _vehicles.OrderBy(item => item.Id.Value).Select(ToQuery).ToArray();
+
+    public IReadOnlyList<CompositeDamagedPartQuery> QueryDamagedParts()
+    {
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded.");
+        var damaged = new List<CompositeDamagedPartQuery>();
+        foreach (var vehicle in _vehicles.OrderBy(item => item.Id.Value))
+        {
+            foreach (var part in vehicle.Parts)
+            {
+                if (!voxels.TryGet(part.DefinitionId, out var entry))
+                    continue;
+                if (part.CurrentDurability >= entry.Definition.MaxDurability)
+                    continue;
+                damaged.Add(new CompositeDamagedPartQuery(
+                    vehicle.Id,
+                    part.Id,
+                    part.Cell,
+                    part.DefinitionId,
+                    part.Orientation,
+                    part.CurrentDurability,
+                    entry.Definition.MaxDurability));
+            }
+        }
+
+        return damaged;
+    }
 
     public CompositeAuthoritySnapshot CaptureAuthority()
     {
@@ -316,6 +394,203 @@ public sealed class VoxelDevelopmentSession
         Changed?.Invoke();
     }
 
+    private void SettleVehicleDamage(
+        EntityId vehicleId,
+        IReadOnlyList<CompositeDamageTarget> targets,
+        HashSet<WorldVoxelCoord> reserved)
+    {
+        var index = _vehicles.FindIndex(item => item.Id == vehicleId);
+        var vehicle = _vehicles[index];
+        var remaining = vehicle.Parts.ToDictionary(part => part.Cell);
+        var totals = new Dictionary<LocalVoxelCoord, long>();
+        foreach (var target in targets)
+            totals[target.Cell] = totals.GetValueOrDefault(target.Cell) + target.Amount;
+
+        foreach (var (cell, amount) in totals
+            .OrderBy(pair => pair.Key))
+        {
+            var part = remaining[cell];
+            var nextDurability = part.CurrentDurability - amount;
+            if (nextDurability > 0)
+            {
+                remaining[cell] = new CompositePart(
+                    part.Id,
+                    part.Cell,
+                    part.DefinitionId,
+                    part.Orientation,
+                    (int)nextDurability,
+                    part.LastUsedRevision);
+            }
+            else
+            {
+                remaining.Remove(cell);
+            }
+        }
+
+        if (remaining.Count == 0)
+        {
+            _vehicles.RemoveAt(index);
+            return;
+        }
+
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded.");
+        _composites.Current.TryGet(vehicle.ArchetypeId, out var archetypeEntry);
+        var components = VoxelConnectivity.Components(remaining.Values.ToArray(), part => part.Cell);
+        var survivors = new List<(IReadOnlyList<CompositePart> Parts, long Value, ulong Candidate)>();
+        var fragments = new List<IReadOnlyList<CompositePart>>();
+        foreach (var component in components)
+        {
+            if (RetainsIdentity(component, archetypeEntry?.Archetype, voxels))
+            {
+                survivors.Add((component, ValueOf(component, voxels), component.Min(part => part.Id.Value)));
+            }
+            else
+            {
+                fragments.Add(component);
+            }
+        }
+
+        var replacements = new List<CompositeInstance>();
+        if (survivors.Count == 1)
+        {
+            replacements.Add(Successor(vehicle, vehicle.Id, survivors[0].Parts));
+        }
+        else if (survivors.Count > 1)
+        {
+            var maxValue = survivors.Max(item => item.Value);
+            var primaryCandidate = SplitMix64.SelectPrimaryCandidate(
+                Identity.Seed,
+                TransactionCount,
+                survivors.Where(item => item.Value == maxValue).Select(item => item.Candidate).ToArray());
+            var primary = survivors.First(item => item.Value == maxValue && item.Candidate == primaryCandidate);
+            replacements.Add(Successor(vehicle, vehicle.Id, primary.Parts));
+            foreach (var secondary in survivors.Where(item => item.Candidate != primary.Candidate).OrderBy(item => item.Candidate))
+                replacements.Add(Successor(vehicle, new EntityId(NextEntityId++), secondary.Parts));
+        }
+
+        var blockedByVehicles = OccupiedByOtherVehicles(vehicleId, replacements);
+        foreach (var fragment in fragments.OrderBy(item => item.Min(part => part.Id.Value)))
+            TryPlaceFragment(fragment, vehicle.Transform, reserved, blockedByVehicles);
+
+        _vehicles.RemoveAt(index);
+        _vehicles.AddRange(replacements);
+        _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+    }
+
+    private static bool RetainsIdentity(
+        IReadOnlyList<CompositePart> parts,
+        CompositeArchetype? archetype,
+        VoxelCatalogSnapshot voxels)
+    {
+        if (archetype is null)
+            return false;
+        var tag = archetype.IdentityRetention.RequiredCoreTag;
+        foreach (var part in parts)
+        {
+            if (voxels.TryGet(part.DefinitionId, out var entry) && entry.Definition.Tags.Contains(tag))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static long ValueOf(IReadOnlyList<CompositePart> parts, VoxelCatalogSnapshot voxels)
+    {
+        long sum = 0;
+        foreach (var part in parts)
+        {
+            if (voxels.TryGet(part.DefinitionId, out var entry))
+                sum += entry.Definition.Value;
+        }
+
+        return sum;
+    }
+
+    private static CompositeInstance Successor(
+        CompositeInstance source,
+        EntityId id,
+        IReadOnlyList<CompositePart> parts)
+    {
+        var contacts = source.Contacts
+            .Where(contact => parts.Any(part => part.Cell == contact.BoundCell))
+            .ToArray();
+        return new CompositeInstance(
+            id,
+            source.DefinitionId,
+            source.LastUsedRevision,
+            source.ArchetypeId,
+            source.LastUsedArchetypeRevision,
+            source.SizeClass,
+            source.Transform,
+            parts,
+            contacts);
+    }
+
+    private HashSet<WorldVoxelCoord> OccupiedByOtherVehicles(
+        EntityId except,
+        IEnumerable<CompositeInstance> extras)
+    {
+        var occupied = new HashSet<WorldVoxelCoord>();
+        foreach (var vehicle in _vehicles)
+        {
+            if (vehicle.Id == except)
+                continue;
+            AddSnappedOccupancy(occupied, vehicle);
+        }
+
+        foreach (var vehicle in extras)
+            AddSnappedOccupancy(occupied, vehicle);
+        return occupied;
+    }
+
+    private static void AddSnappedOccupancy(HashSet<WorldVoxelCoord> occupied, CompositeInstance vehicle)
+    {
+        foreach (var cell in FragmentGridSnap.TargetCells(
+            vehicle.Transform,
+            vehicle.Parts.Select(part => part.Cell).ToArray(),
+            new WorldVoxelCoord(0, 0, 0)))
+        {
+            occupied.Add(cell);
+        }
+    }
+
+    private void TryPlaceFragment(
+        IReadOnlyList<CompositePart> parts,
+        CompositeTransform transform,
+        HashSet<WorldVoxelCoord> reserved,
+        HashSet<WorldVoxelCoord> blockedByVehicles)
+    {
+        var cells = parts.Select(part => part.Cell).ToArray();
+        var orientation = FragmentGridSnap.SnapRotation(transform.Orientation);
+        foreach (var offset in FragmentGridSnap.SearchOffsets)
+        {
+            var targets = FragmentGridSnap.TargetCells(transform, cells, offset);
+            if (targets.Distinct().Count() != targets.Count)
+                continue;
+            if (targets.Any(cell =>
+                    !World.Bounds.Contains(cell) ||
+                    World.Query(cell).IsOccupied ||
+                    reserved.Contains(cell) ||
+                    blockedByVehicles.Contains(cell)))
+                continue;
+
+            for (var index = 0; index < parts.Count; index++)
+            {
+                var part = parts[index];
+                var placed = new WorldVoxel(
+                    part.DefinitionId,
+                    part.CurrentDurability,
+                    FragmentGridSnap.Compose(orientation, part.Orientation));
+                if (!World.TryAdd(targets[index], placed))
+                    throw new InvalidOperationException("Fragment placement passed checks but failed to transfer ownership.");
+                reserved.Add(targets[index]);
+                NoteChange(targets[index], occupancyChanged: true);
+            }
+
+            return;
+        }
+    }
+
     private CompositeQuery ToQuery(CompositeInstance instance)
     {
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded.");
@@ -337,23 +612,26 @@ public sealed class VoxelDevelopmentSession
         var identity = archetypeEntry is null
             ? IdentityRetentionStatus.MissingCoreTag
             : ConstructionValidator.EvaluateIdentity(instance, archetypeEntry.Archetype, voxels);
-        VehicleEnvelope.TryFromContacts(instance.SizeClass, instance.Contacts, out var envelope);
+        var boundContacts = instance.Contacts.Count(contact => instance.PartAt(contact.BoundCell) is not null);
+        var operational = boundContacts < 2 ? OperationalCondition.Disabled : OperationalCondition.Unevaluated;
         var parts = instance.Parts
             .Select(part => new CompositePartQuery(part.Id, part.Cell, part.DefinitionId, part.Orientation, part.CurrentDurability))
             .ToArray();
         var contacts = instance.Contacts
             .Select(contact =>
             {
-                var bound = instance.PartAt(contact.BoundCell)
-                    ?? throw new InvalidOperationException(
-                        $"Contact ({contact.X},{contact.Y},{contact.Z}) is not bound to a manufactured part.");
-                return new CompositeContactQuery(
-                    contact.X,
-                    contact.Y,
-                    contact.Z,
-                    contact.BoundCell,
-                    bound.Id);
+                var bound = instance.PartAt(contact.BoundCell);
+                return bound is null
+                    ? null
+                    : new CompositeContactQuery(
+                        contact.X,
+                        contact.Y,
+                        contact.Z,
+                        contact.BoundCell,
+                        bound.Id);
             })
+            .Where(contact => contact is not null)
+            .Select(contact => contact!)
             .ToArray();
         return new CompositeQuery(
             instance.Id,
@@ -363,10 +641,10 @@ public sealed class VoxelDevelopmentSession
             instance.Transform,
             construction,
             identity,
-            OperationalCondition.Unevaluated,
+            operational,
             parts,
             contacts,
-            VehicleEnvelope.TryFromContacts(instance.SizeClass, instance.Contacts, out envelope) ? envelope : null);
+            VehicleEnvelope.TryFromContacts(instance.SizeClass, instance.Contacts, out var envelope) ? envelope : null);
     }
 
     private VoxelWorld CreateWorld() => VoxelWorldFactory.Create(

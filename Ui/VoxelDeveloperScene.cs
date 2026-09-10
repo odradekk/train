@@ -154,6 +154,14 @@ public partial class VoxelDeveloperScene : Node3D
         Query,
         Reset,
         AwaitReset,
+        Bridge,
+        AwaitBridge,
+        Fracture,
+        AwaitFracture,
+        Partial,
+        AwaitPartial,
+        Drop,
+        AwaitDrop,
         HandoffConsole
     }
 
@@ -217,6 +225,21 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitInterior,
         Reset,
         AwaitReset,
+        Bridge,
+        AwaitBridge,
+        CaptureBridge,
+        AwaitBridgeView,
+        Fracture,
+        AwaitFracture,
+        CaptureFracture,
+        AwaitFractureView,
+        Partial,
+        AwaitPartial,
+        CapturePartial,
+        AwaitPartialView,
+        Drop,
+        AwaitDrop,
+        CaptureDrop,
         Done
     }
 
@@ -563,7 +586,14 @@ public partial class VoxelDeveloperScene : Node3D
     {
         var vehicles = _session.QueryComposites();
         if (vehicles.Count == 0)
-            return $"车辆 0。世界体素 {_session.World.VoxelCount}。显示面 {_composites.FaceCount}。";
+            return $"车辆 0。世界体素 {_session.World.VoxelCount}。世界面 {_meshes.FaceCount}。显示面 {_composites.FaceCount}。";
+        if (vehicles.Count > 1)
+        {
+            var summary = string.Join("；", vehicles.Select(item =>
+                $"{item.Id} 零件 {item.Parts.Count} {item.IdentityRetention}/{item.OperationalCondition}"));
+            return $"车辆 {vehicles.Count}：{summary}。显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
+        }
+
         var vehicle = vehicles[0];
         var envelope = vehicle.Envelope is { } box
             ? $"包络 [{box.MinX},{box.MinY},{box.MinZ}]-[{box.MaxX},{box.MaxY},{box.MaxZ}]"
@@ -1483,6 +1513,101 @@ public partial class VoxelDeveloperScene : Node3D
                 if (_session.QueryComposites().Count != 0 || _composites.VehicleCount != 0)
                     return;
                 GD.Print($"VOXEL_SMOKE_SLICE3_RESET vehicles=0 next={_session.NextEntityId} transactions={_session.TransactionCount}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Bridge;
+                return;
+            case VoxelSlice3SmokePhase.Bridge:
+                if (GetNode<Main>("/root/Main").Reloader?.Composites.Current.TryGet(BridgeFixture.DefinitionId, out _) != true)
+                    throw new InvalidOperationException("Slice 3 smoke did not load core:dev-bridge from JSON.");
+                var bridged = _session.Manufacture(BridgeFixture.DefinitionId);
+                if (!bridged.Succeeded || bridged.Parts?.Count != 55)
+                    throw new InvalidOperationException($"Slice 3 smoke bridge manufacture failed: {bridged.Status}.");
+                SetCompositeResult(bridged);
+                GD.Print($"VOXEL_SMOKE_SLICE3_BRIDGE vehicle={bridged.VehicleId} parts={bridged.Parts.Count}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitBridge;
+                return;
+            case VoxelSlice3SmokePhase.AwaitBridge:
+                if (_composites.VehicleCount != 1 || _composites.FaceCount == 0)
+                    return;
+                ValidateCompositeVisual();
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Fracture;
+                return;
+            case VoxelSlice3SmokePhase.Fracture:
+                var bridgeVehicle = _session.QueryComposites().Single();
+                var fractured = _session.Damage(bridgeVehicle.Id, BridgeFixture.BridgeCell, 100);
+                if (!fractured.Succeeded || _session.QueryComposites().Count != 2)
+                    throw new InvalidOperationException($"Slice 3 smoke bridge damage failed: {fractured.Status}.");
+                if (_session.World.VoxelCount != 0)
+                    throw new InvalidOperationException("Equal-value bridge survivors must not drop into the world.");
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：桥接伤害已结算断裂。";
+                GD.Print($"VOXEL_SMOKE_SLICE3_FRACTURE vehicles=2 world={_session.World.VoxelCount} primary={_session.QueryComposites()[0].Id} secondary={_session.QueryComposites()[1].Id}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitFracture;
+                return;
+            case VoxelSlice3SmokePhase.AwaitFracture:
+                if (_composites.VehicleCount != 2 || _composites.MeshInstanceCount != 2 || _meshes.FaceCount != 0)
+                    return;
+                ValidateCompositeVisual();
+                GD.Print($"VOXEL_SMOKE_SLICE3_OWNERSHIP vehicles={_composites.VehicleCount} meshes={_composites.MeshInstanceCount} world_faces={_meshes.FaceCount}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Partial;
+                return;
+            case VoxelSlice3SmokePhase.Partial:
+                _session.Reset();
+                var partialVehicle = _session.Manufacture(BridgeFixture.DefinitionId);
+                if (!partialVehicle.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 smoke partial manufacture failed: {partialVehicle.Status}.");
+                var partial = _session.Damage(new[]
+                {
+                    new CompositeDamageTarget(partialVehicle.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
+                    new CompositeDamageTarget(partialVehicle.VehicleId.Value, BridgeFixture.LeftCoreCell, 100)
+                });
+                if (!partial.Succeeded || _session.QueryComposites().Count != 1 || _session.World.VoxelCount != 26)
+                    throw new InvalidOperationException($"Slice 3 smoke partial drop failed: {partial.Status} vehicles={_session.QueryComposites().Count} world={_session.World.VoxelCount}.");
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：桥和左核心伤害已结算。";
+                GD.Print($"VOXEL_SMOKE_SLICE3_PARTIAL vehicles=1 world={_session.World.VoxelCount}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitPartial;
+                return;
+            case VoxelSlice3SmokePhase.AwaitPartial:
+                if (_composites.VehicleCount != 1 ||
+                    _session.World.VoxelCount != 26 ||
+                    _composites.FaceCount == 0 ||
+                    _meshes.FaceCount == 0 ||
+                    !CollisionPhysicsReady)
+                    return;
+                RequirePublishedWholeCell(new WorldVoxelCoord(8, 8, 8), true);
+                RequirePublishedWholeCell(new WorldVoxelCoord(11, 9, 9), false);
+                ValidateGeneratedMesh();
+                ValidateCompositeVisual();
+                GD.Print($"VOXEL_SMOKE_SLICE3_PARTIAL_OWNERSHIP vehicles={_composites.VehicleCount} world_faces={_meshes.FaceCount} collide=hit");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Drop;
+                return;
+            case VoxelSlice3SmokePhase.Drop:
+                _session.Reset();
+                var dropVehicle = _session.Manufacture(BridgeFixture.DefinitionId);
+                if (!dropVehicle.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 smoke drop manufacture failed: {dropVehicle.Status}.");
+                var dropped = _session.Damage(new[]
+                {
+                    new CompositeDamageTarget(dropVehicle.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
+                    new CompositeDamageTarget(dropVehicle.VehicleId.Value, BridgeFixture.LeftCoreCell, 100),
+                    new CompositeDamageTarget(dropVehicle.VehicleId.Value, BridgeFixture.RightCoreCell, 100)
+                });
+                if (dropped.Status != CompositeDamageStatus.Removed || _session.QueryComposites().Count != 0 || _session.World.VoxelCount != 52)
+                    throw new InvalidOperationException($"Slice 3 smoke drop failed: {dropped.Status} vehicles={_session.QueryComposites().Count} world={_session.World.VoxelCount}.");
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：双核心伤害已整体脱落。";
+                GD.Print($"VOXEL_SMOKE_SLICE3_DROP vehicles=0 world={_session.World.VoxelCount}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitDrop;
+                return;
+            case VoxelSlice3SmokePhase.AwaitDrop:
+                if (_composites.VehicleCount != 0 ||
+                    _session.World.VoxelCount != 52 ||
+                    _meshes.FaceCount == 0 ||
+                    !CollisionPhysicsReady)
+                    return;
+                RequirePublishedWholeCell(new WorldVoxelCoord(8, 8, 8), true);
+                RequirePublishedWholeCell(new WorldVoxelCoord(11, 9, 9), false);
+                ValidateGeneratedMesh();
                 GD.Print("COMPOSITE_SMOKE_OK");
                 _slice3SmokePhase = VoxelSlice3SmokePhase.HandoffConsole;
                 return;
@@ -1490,6 +1615,25 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice3SmokePhase = VoxelSlice3SmokePhase.None;
                 _smokePhase = VoxelSmokePhase.OpenConsole;
                 return;
+        }
+    }
+
+    private void AssertUniqueOwnership()
+    {
+        var partIds = _session.QueryComposites().SelectMany(item => item.Parts).Select(part => part.Id.Value).ToArray();
+        if (partIds.Length != partIds.Distinct().Count())
+            throw new InvalidOperationException("Slice 3 smoke duplicated part identities.");
+        foreach (var vehicle in _session.QueryComposites())
+        {
+            foreach (var part in vehicle.Parts)
+            {
+                var worldCell = FragmentGridSnap.TransformCell(
+                    vehicle.Transform.Orientation,
+                    part.Cell,
+                    FragmentGridSnap.SnapAnchor(vehicle.Transform.OriginX, vehicle.Transform.OriginY, vehicle.Transform.OriginZ));
+                if (_session.Query(worldCell).IsOccupied)
+                    throw new InvalidOperationException($"Slice 3 smoke found shared ownership at {worldCell}.");
+            }
         }
     }
 
@@ -2537,6 +2681,103 @@ public partial class VoxelDeveloperScene : Node3D
                     !_cell.Text.Contains("车辆 0", StringComparison.Ordinal))
                     return;
                 CaptureObserve("issue58-reset", "reset clears manufactured vehicle and derived visual");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Bridge;
+                return;
+            case VoxelSlice3ObservePhase.Bridge:
+                var bridged = _session.Manufacture(BridgeFixture.DefinitionId);
+                if (!bridged.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 observe bridge manufacture failed: {bridged.Status}.");
+                SetCompositeResult(bridged);
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitBridge;
+                return;
+            case VoxelSlice3ObservePhase.AwaitBridge:
+                if (_composites.VehicleCount != 1 || _composites.FaceCount == 0)
+                    return;
+                ValidateCompositeVisual();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureBridge;
+                return;
+            case VoxelSlice3ObservePhase.CaptureBridge:
+                PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+                CaptureObserve("issue59-bridge", "parked bridge fixture before damage");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitBridgeView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitBridgeView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Fracture;
+                return;
+            case VoxelSlice3ObservePhase.Fracture:
+                var bridgeVehicle = _session.QueryComposites().Single();
+                var fractured = _session.Damage(bridgeVehicle.Id, BridgeFixture.BridgeCell, 100);
+                if (!fractured.Succeeded || _session.QueryComposites().Count != 2)
+                    throw new InvalidOperationException($"Slice 3 observe fracture failed: {fractured.Status}.");
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：桥接伤害已结算断裂。";
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitFracture;
+                return;
+            case VoxelSlice3ObservePhase.AwaitFracture:
+                if (_composites.VehicleCount != 2 || _composites.MeshInstanceCount != 2)
+                    return;
+                ValidateCompositeVisual();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureFracture;
+                return;
+            case VoxelSlice3ObservePhase.CaptureFracture:
+                CaptureObserve("issue59-fracture", "two surviving composites after bridge break, no world duplicate");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitFractureView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitFractureView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Partial;
+                return;
+            case VoxelSlice3ObservePhase.Partial:
+                _session.Reset();
+                var partialVehicle = _session.Manufacture(BridgeFixture.DefinitionId);
+                var partial = _session.Damage(new[]
+                {
+                    new CompositeDamageTarget(partialVehicle.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
+                    new CompositeDamageTarget(partialVehicle.VehicleId.Value, BridgeFixture.LeftCoreCell, 100)
+                });
+                if (!partial.Succeeded || _session.QueryComposites().Count != 1 || _session.World.VoxelCount != 26)
+                    throw new InvalidOperationException($"Slice 3 observe partial drop failed: {partial.Status}.");
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：桥和左核心伤害已结算。";
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitPartial;
+                return;
+            case VoxelSlice3ObservePhase.AwaitPartial:
+                if (_composites.VehicleCount != 1 || _session.World.VoxelCount != 26 || _meshes.FaceCount == 0)
+                    return;
+                ValidateCompositeVisual();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CapturePartial;
+                return;
+            case VoxelSlice3ObservePhase.CapturePartial:
+                CaptureObserve("issue59-partial", "right composite remains; left fragment appears once in the world mesh");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitPartialView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitPartialView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.Drop;
+                return;
+            case VoxelSlice3ObservePhase.Drop:
+                _session.Reset();
+                var dropVehicle = _session.Manufacture(BridgeFixture.DefinitionId);
+                var dropped = _session.Damage(new[]
+                {
+                    new CompositeDamageTarget(dropVehicle.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
+                    new CompositeDamageTarget(dropVehicle.VehicleId.Value, BridgeFixture.LeftCoreCell, 100),
+                    new CompositeDamageTarget(dropVehicle.VehicleId.Value, BridgeFixture.RightCoreCell, 100)
+                });
+                if (dropped.Status != CompositeDamageStatus.Removed || _session.World.VoxelCount != 52)
+                    throw new InvalidOperationException($"Slice 3 observe drop failed: {dropped.Status}.");
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：双核心伤害已整体脱落。";
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitDrop;
+                return;
+            case VoxelSlice3ObservePhase.AwaitDrop:
+                if (_composites.VehicleCount != 0 || _meshes.FaceCount == 0)
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureDrop;
+                return;
+            case VoxelSlice3ObservePhase.CaptureDrop:
+                CaptureObserve("issue59-drop", "identity-less fragments appear once in the world mesh");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _slice3ObservePhase = VoxelSlice3ObservePhase.Done;
                 GetTree().Quit();

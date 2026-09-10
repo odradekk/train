@@ -30,4 +30,4 @@ parts 168
 | `EnvelopeExceeded` / `UnknownSizeClass` | 声明规格或固定包络不成立 |
 | `UnknownVoxel` / `DisallowedOrientation` / `NonFiniteTransform` | 零件定义、朝向或 Transform 非法 |
 
-当前不支持沿轨运动、破坏、完整改装或车辆存档。非法 ID 文本返回用法提示，不执行制造。
+伤害、断裂与脱落使用 [`composite damage`](composite-damage.md)。当前不支持沿轨运动、完整改装或车辆存档。非法 ID 文本返回用法提示，不执行制造。

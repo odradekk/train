@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "voxels": [
+    {
+      "id": "identity-core-heavy",
+      "name": "开发夹具重核",
+      "description": "桥接断裂夹具右侧核心。与 identity-core 相同标签和耐久，仅 Value=20，用于价值继承验证。",
+      "value": 20,
+      "mass": 1,
+      "max_durability": 100,
+      "tags": ["identity_core"],
+      "behaviors": [],
+      "allowed_orientations": "all_24",
+      "presentation": {
+        "kind": "cube",
+        "icon": "voxels/iron-ore/icon.png",
+        "voxel_top": "voxels/iron-ore/top.png",
+        "voxel_side": "voxels/iron-ore/side.png",
+        "voxel_bottom": "voxels/iron-ore/bottom.png"
+      },
+      "collision": {
+        "kind": "full_box"
+      }
+    }
+  ]
+}

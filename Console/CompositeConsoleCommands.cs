@@ -19,16 +19,34 @@ public sealed class CompositeConsoleCommands
     public string Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        if (arguments.Count == 1 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
         {
-            _session.Reset();
-            return FormatReset();
+            if (arguments.Count == 1)
+            {
+                _session.Reset();
+                return FormatReset();
+            }
+
+            if (arguments.Count == 2 && TryFixture(arguments[1], out var resetId))
+            {
+                _session.Reset();
+                var manufactured = _session.Manufacture(resetId);
+                return string.Join('\n', FormatReset(), FormatManufacture(manufactured));
+            }
         }
 
         if (arguments.Count is 1 or 2 &&
             string.Equals(arguments[0], "manufacture", StringComparison.OrdinalIgnoreCase) &&
             TryDefinition(arguments.Count == 1 ? HollowShellFixture.DefinitionId.Value : arguments[1], out var definitionId))
             return FormatManufacture(_session.Manufacture(definitionId));
+
+        if (arguments.Count >= 6 &&
+            string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
+            (arguments.Count - 2) % 4 == 0 &&
+            ulong.TryParse(arguments[1], out var damageId) &&
+            damageId > 0 &&
+            TryDamageTargets(new EntityId(damageId), arguments, out var targets))
+            return FormatDamage(_session.Damage(targets));
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
         {
@@ -38,6 +56,10 @@ public sealed class CompositeConsoleCommands
                 string.Equals(arguments[1], "page", StringComparison.OrdinalIgnoreCase) &&
                 TryListPage(arguments, out var listPage))
                 return FormatVehiclePage(_session.QueryComposites(), listPage);
+            if (arguments.Count is 2 or 3 &&
+                string.Equals(arguments[1], "damaged", StringComparison.OrdinalIgnoreCase) &&
+                TryDamagedPage(arguments, out var damagedPage))
+                return FormatDamagedPage(_session.QueryDamagedParts(), damagedPage);
             if (ulong.TryParse(arguments[1], out var rawId) && rawId > 0)
             {
                 var query = _session.QueryComposite(new EntityId(rawId));
@@ -53,10 +75,12 @@ public sealed class CompositeConsoleCommands
         }
 
         return string.Join('\n',
-            "Usage: composite reset | composite manufacture [<namespace:id>] | composite query [page [<page>] | <id> [parts [<page>]]]",
-            "Default manufacture id is core:dev-hollow-shell. Query without an id lists one page of compact vehicle summaries.",
+            "Usage: composite reset [hollow|bridge|bridge-right] | composite manufacture [<namespace:id>]",
+            "composite damage <id> <x> <y> <z> <amount> [<x> <y> <z> <amount> ...]",
+            "composite query [page [<page>] | damaged [<page>] | <id> [parts [<page>]]]",
+            "Default manufacture id is core:dev-hollow-shell. reset hollow/bridge rebuilds that fixture after clearing the session.",
             $"Vehicle pages are {VehiclePageSize} entries, sorted by runtime id. Part pages are {PartPageSize} entries, sorted by local cell.",
-            "Page numbers start at 1.");
+            "Damage uses local cells on one vehicle, one event. Page numbers start at 1.");
     }
 
     private string FormatReset()
@@ -79,6 +103,48 @@ public sealed class CompositeConsoleCommands
             $"Composite {result.Status}.",
             $"vehicle {result.VehicleId}",
             $"parts {result.Parts!.Count}");
+    }
+
+    private string FormatDamage(CompositeDamageResult result)
+    {
+        if (!result.Succeeded)
+            return $"Composite {result.Status}{(result.VehicleId is { } id ? $" {id}" : "")}.";
+
+        var lines = new List<string> { $"Composite {result.Status}." };
+        foreach (var target in result.Targets ?? Array.Empty<CompositeDamageTargetResult>())
+        {
+            lines.Add(
+                $"target ({target.Cell.X},{target.Cell.Y},{target.Cell.Z}) {target.Status} by {target.Amount} durability {target.RemainingDurability}");
+        }
+
+        var vehicles = _session.QueryComposites();
+        lines.Add($"vehicles {vehicles.Count}");
+        foreach (var query in vehicles)
+            lines.Add($"vehicle {query.Id} parts {query.Parts.Count} construction {query.Construction} identity {query.IdentityRetention} operational {query.OperationalCondition}");
+        lines.Add($"Voxel count: {_session.World.VoxelCount}.");
+        return string.Join('\n', lines);
+    }
+
+    private static string FormatDamagedPage(IReadOnlyList<CompositeDamagedPartQuery> parts, int page)
+    {
+        if (parts.Count == 0)
+            return "Composite damaged none.";
+        var totalPages = Math.Max(1, (int)Math.Ceiling(parts.Count / (double)PartPageSize));
+        var lines = new List<string>
+        {
+            $"damaged {parts.Count}",
+            $"damaged page {page}/{totalPages}"
+        };
+        if (page < 1 || page > totalPages)
+            return string.Join('\n', lines);
+        var start = (page - 1) * PartPageSize;
+        foreach (var part in parts.Skip(start).Take(PartPageSize))
+        {
+            lines.Add(
+                $"damaged vehicle {part.VehicleId} part {part.PartId} cell ({part.Cell.X},{part.Cell.Y},{part.Cell.Z}) {part.DefinitionId.Value} durability {part.CurrentDurability}/{part.MaxDurability}");
+        }
+
+        return string.Join('\n', lines);
     }
 
     private static string FormatVehiclePage(IReadOnlyList<CompositeQuery> queries, int page)
@@ -174,6 +240,63 @@ public sealed class CompositeConsoleCommands
 
     private static string FormatNumber(double value) =>
         value.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static bool TryDamagedPage(IReadOnlyList<string> arguments, out int page)
+    {
+        page = 1;
+        if (arguments.Count == 2)
+            return true;
+        return arguments.Count == 3 && int.TryParse(arguments[2], out page) && page > 0;
+    }
+
+    private static bool TryFixture(string text, out CompositeDefinitionId definitionId)
+    {
+        if (string.Equals(text, "hollow", StringComparison.OrdinalIgnoreCase))
+        {
+            definitionId = HollowShellFixture.DefinitionId;
+            return true;
+        }
+
+        if (string.Equals(text, "bridge", StringComparison.OrdinalIgnoreCase))
+        {
+            definitionId = BridgeFixture.DefinitionId;
+            return true;
+        }
+
+        if (string.Equals(text, "bridge-right", StringComparison.OrdinalIgnoreCase))
+        {
+            definitionId = BridgeFixture.RightHeavyDefinitionId;
+            return true;
+        }
+
+        definitionId = default;
+        return false;
+    }
+
+    private static bool TryDamageTargets(
+        EntityId vehicleId,
+        IReadOnlyList<string> arguments,
+        out IReadOnlyList<CompositeDamageTarget> targets)
+    {
+        var parsed = new CompositeDamageTarget[(arguments.Count - 2) / 4];
+        for (var index = 0; index < parsed.Length; index++)
+        {
+            var start = 2 + index * 4;
+            if (!int.TryParse(arguments[start], out var x) ||
+                !int.TryParse(arguments[start + 1], out var y) ||
+                !int.TryParse(arguments[start + 2], out var z) ||
+                !int.TryParse(arguments[start + 3], out var amount))
+            {
+                targets = Array.Empty<CompositeDamageTarget>();
+                return false;
+            }
+
+            parsed[index] = new CompositeDamageTarget(vehicleId, new LocalVoxelCoord(x, y, z), amount);
+        }
+
+        targets = parsed;
+        return true;
+    }
 
     private static bool TryDefinition(string text, out CompositeDefinitionId definitionId)
     {

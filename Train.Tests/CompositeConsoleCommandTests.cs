@@ -199,6 +199,48 @@ public sealed class CompositeConsoleCommandTests
     }
 
     [TestMethod]
+    public void Console_reset_damage_and_damaged_query_cover_the_bridge_fixture()
+    {
+        using var session = LoggerSession.Create();
+        var reloader = ContentFixtures.Create(CompositeFixtures.FormalFixturePackage(), session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+        var commands = new CompositeConsoleCommands(voxelSession);
+
+        var reset = commands.Execute(new[] { "reset", "bridge" });
+        StringAssert.Contains(reset, "Composite Valid.");
+        StringAssert.Contains(reset, "parts 55");
+        var beforeUnknown = voxelSession.CaptureAuthority();
+        StringAssert.Contains(commands.Execute(new[] { "reset", "core:dev-bridge" }), "Usage:");
+        Assert.AreEqual(beforeUnknown, voxelSession.CaptureAuthority());
+        var vehicleId = voxelSession.QueryComposites()[0].Id;
+        var before = voxelSession.CaptureAuthority();
+        Assert.AreEqual(before, voxelSession.CaptureAuthority());
+
+        var damaged = commands.Execute(new[]
+        {
+            "damage",
+            vehicleId.ToString(),
+            "3", "1", "1", "100"
+        });
+        StringAssert.Contains(damaged, "Composite Damaged.");
+        StringAssert.Contains(damaged, "vehicles 2");
+        StringAssert.Contains(damaged, "operational Disabled");
+        Assert.AreEqual(2, voxelSession.QueryComposites().Count);
+
+        voxelSession.Reset();
+        voxelSession.Manufacture(HollowShellFixture.DefinitionId);
+        var hollowId = voxelSession.QueryComposites()[0].Id;
+        commands.Execute(new[] { "damage", hollowId.ToString(), "0", "1", "0", "25" });
+        var listed = commands.Execute(new[] { "query", "damaged" });
+        StringAssert.Contains(listed, "damaged 1");
+        StringAssert.Contains(listed, "durability 75/100");
+        var unchanged = voxelSession.CaptureAuthority();
+        commands.Execute(new[] { "query", "damaged" });
+        Assert.AreEqual(unchanged, voxelSession.CaptureAuthority());
+    }
+
+    [TestMethod]
     public void Illegal_manufacture_command_does_not_change_authority()
     {
         using var session = LoggerSession.Create();

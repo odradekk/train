@@ -30,7 +30,8 @@ public enum IdentityRetentionStatus
 
 public enum OperationalCondition
 {
-    Unevaluated = 0
+    Unevaluated = 0,
+    Disabled = 1
 }
 
 public sealed class CompositePart

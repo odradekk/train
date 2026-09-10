@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置）。
+适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落）。
 
 ## 打开控制台与输入规则
 
@@ -32,9 +32,10 @@
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界原子写入 `user://saves/<UUID>/save.json` | 同上 |
 | [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换世界 | 同上 |
-| [composite reset](composite-reset.md) | 清空已制造车辆并重建当前切片世界 | 包含切片 3，且已进入体素开发场景 |
+| [composite reset](composite-reset.md) `[hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
-| [composite query](composite-query.md) `[page [<page>] \| <id> [parts [<page>]]]` | 分页列出车辆摘要，或查询单车接触与零件布局 | 同上 |
+| [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
+| [composite query](composite-query.md) `[page [<page>] \| damaged [<page>] \| <id> [parts [<page>]]]` | 分页列出车辆摘要、受损零件，或查询单车接触与零件布局 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -48,9 +49,9 @@
 | --- | --- | --- | --- | --- |
 | 1 | 进入切片 1 体素场景 | 一个 16³ Chunk | 各轴 `4..11`，共 512 格 | `0..15` |
 | 2 | 进入切片 2 体素场景 | 边长 16，世界 32³，共 2×2×2 个 Chunk | 地面 `x,z=0..31`、`y=0`，加 `14..17` 三轴交汇 4³ 实心块，共 1,088 格 | `0..31` |
-| 3 | 进入切片 3 静置车辆场景 | 边长 16，世界 32³，Seed=42 | 空世界；正式夹具制造后有 1 辆 168 格空心壳，不进入世界网格 | `0..31` |
+| 3 | 进入切片 3 静置车辆场景 | 边长 16，世界 32³，Seed=42 | 空世界；可制造 168 格空心壳或 55 格桥接夹具，车辆体素不进入世界网格；失去身份的碎块才转入世界 | `0..31` |
 
-切片 2 基底带有明确的 Seed、`GeneratorVersion=slice-2-integer-fixture-v1` 和尺寸参数；切片 3 使用 Seed=42 与 `GeneratorVersion=slice-3-parked-vehicle-v1`。相同输入与有效内容重复生成同一基底。Seed 只作世界身份，不参与随机。`voxel reset` / `composite reset` 走同一正式生成入口。
+切片 2 基底带有明确的 Seed、`GeneratorVersion=slice-2-integer-fixture-v1` 和尺寸参数；切片 3 使用 Seed=42 与 `GeneratorVersion=slice-3-parked-vehicle-v1`。相同输入与有效内容重复生成同一基底。世界生成不消费随机流；切片 3 断裂平局使用 Seed 与事务 ID 的无状态 SplitMix64 键。`voxel reset` / `composite reset` 走同一正式生成入口。
 
 | 参数 | 格式与范围 | 示例 |
 | --- | --- | --- |
@@ -91,7 +92,8 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 
 | 返回内容 | 含义与处理 |
 | --- | --- |
-| `Added` / `Removed` / `Damaged` | 修改成功，后附修改后的正式查询和总数；`Damaged` 表示未归零，当前耐久已更新。伤害结果按字段分行，避免合法长 `namespace:id` 把耐久或总数截成错误数字 |
+| `Added` / `Removed` / `Damaged` | 修改成功，后附修改后的正式查询和总数；`Damaged` 表示未归零，当前耐久已更新。伤害结果按字段分行，避免合法长 `namespace:id` 把耐久或总数截成错误数字。车辆伤害成功后还会列出仍存在的车辆；无人保留身份时为 `Removed` |
+| `UnknownVehicle` | 车辆伤害或查询的运行时 ID 不存在；会话不变 |
 | `OutOfBounds` | 增删或伤害坐标超出当前切片有效范围（切片 1 为 `0..15`，切片 2 为 `0..31`），改用有效坐标 |
 | `Occupied` | 添加目标已占用；改选空格，或明确移除原体素后再添加 |
 | `Empty` | 移除或伤害目标本来就是空格，无体素可操作，也不会创建实例 |
@@ -276,7 +278,22 @@ composite reset
 
 原始夹具下应制造 1 辆 168 零件的空心壳。不带 ID 的查询只给出第 1 页紧凑摘要（含车辆 ID 和零件数）。`composite query 1` 给出 `(8,8,8)` 平移、包络 `[0,0,-1]->[8,6,4]`，以及接触点 `(1,-0.75,1.5)` / `(7,-0.75,1.5)`。世界体素数保持 0。有车辆时 `voxel save` 返回 `UnsupportedVehicles`。重置后车辆数为 0，`NextEntityId` 回到 1。
 
-目前没有独立的旋转、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。
+继续验证桥接伤害：
+
+```text
+composite reset bridge
+composite query
+composite damage 1 3 1 1 100
+composite query
+composite query damaged
+composite reset bridge
+composite damage 1 3 1 1 100 1 1 1 100
+voxel query 8 8 8
+```
+
+等值桥断裂后应有 2 辆仍保留身份但 `Disabled` 的车，世界体素仍为 0。桥加左核心同事件伤害后只剩右侧车辆，左侧碎块出现在世界网格，且不会同时属于车辆。
+
+目前没有独立的旋转、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。车辆存档和改装仍明确拒绝。
 
 ## 维护与实现依据
 

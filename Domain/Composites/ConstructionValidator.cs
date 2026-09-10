@@ -5,13 +5,6 @@ namespace Train.Domain.Composites;
 
 public static class ConstructionValidator
 {
-    private static readonly (int X, int Y, int Z)[] Neighbors =
-    {
-        (1, 0, 0), (-1, 0, 0),
-        (0, 1, 0), (0, -1, 0),
-        (0, 0, 1), (0, 0, -1)
-    };
-
     public static ConstructionStatus Validate(
         CompositeDefinition definition,
         CompositeArchetype archetype,
@@ -43,7 +36,7 @@ public static class ConstructionValidator
         {
             if (occupancy.Count == 0)
                 return ConstructionStatus.Empty;
-            if (!IsSixConnected(occupancy.Keys))
+            if (!VoxelConnectivity.IsSixConnected(occupancy.Keys))
                 return ConstructionStatus.Disconnected;
         }
 
@@ -127,27 +120,5 @@ public static class ConstructionValidator
         }
 
         return IdentityRetentionStatus.MissingCoreTag;
-    }
-
-    private static bool IsSixConnected(IReadOnlyCollection<LocalVoxelCoord> cells)
-    {
-        var remaining = cells.ToHashSet();
-        var start = remaining.First();
-        var queue = new Queue<LocalVoxelCoord>();
-        queue.Enqueue(start);
-        remaining.Remove(start);
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            foreach (var (x, y, z) in Neighbors)
-            {
-                var neighbor = new LocalVoxelCoord(current.X + x, current.Y + y, current.Z + z);
-                if (!remaining.Remove(neighbor))
-                    continue;
-                queue.Enqueue(neighbor);
-            }
-        }
-
-        return remaining.Count == 0;
     }
 }
