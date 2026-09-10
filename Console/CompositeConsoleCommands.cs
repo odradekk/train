@@ -5,6 +5,8 @@ namespace Train;
 
 public sealed class CompositeConsoleCommands
 {
+    public const int PartPageSize = 32;
+
     private readonly VoxelDevelopmentSession _session;
 
     public CompositeConsoleCommands(VoxelDevelopmentSession session)
@@ -30,20 +32,26 @@ public sealed class CompositeConsoleCommands
         if (arguments.Count == 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
             return FormatQueries(_session.QueryComposites());
 
-        if (arguments.Count == 2 &&
+        if (arguments.Count >= 2 &&
             string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase) &&
             ulong.TryParse(arguments[1], out var rawId) &&
             rawId > 0)
         {
             var query = _session.QueryComposite(new EntityId(rawId));
-            return query is null
-                ? $"Composite UnknownVehicle {rawId}."
-                : FormatQuery(query);
+            if (query is null)
+                return $"Composite UnknownVehicle {rawId}.";
+            if (arguments.Count == 2)
+                return FormatQuery(query);
+            if (arguments.Count is 3 or 4 &&
+                string.Equals(arguments[2], "parts", StringComparison.OrdinalIgnoreCase) &&
+                TryPage(arguments, out var page))
+                return FormatPartsPage(query, page);
         }
 
         return string.Join('\n',
-            "Usage: composite reset | composite manufacture [<namespace:id>] | composite query [<id>]",
-            "Default manufacture id is core:dev-hollow-shell. Query without an id lists every manufactured vehicle.");
+            "Usage: composite reset | composite manufacture [<namespace:id>] | composite query [<id> [parts [<page>]]]",
+            "Default manufacture id is core:dev-hollow-shell. Query without an id lists every manufactured vehicle.",
+            $"Part pages are {PartPageSize} entries, sorted by local cell. Page numbers start at 1.");
     }
 
     private string FormatReset()
@@ -98,7 +106,41 @@ public sealed class CompositeConsoleCommands
                 $"contact {FormatNumber(contact.X)},{FormatNumber(contact.Y)},{FormatNumber(contact.Z)} cell ({contact.BoundCell.X},{contact.BoundCell.Y},{contact.BoundCell.Z}) part {contact.BoundPartId}");
         }
 
+        AddPartPage(lines, query, 1);
         return string.Join('\n', lines);
+    }
+
+    private static string FormatPartsPage(CompositeQuery query, int page)
+    {
+        var lines = new List<string>
+        {
+            $"Composite {query.Id} {query.DefinitionId.Value}",
+            $"parts {query.Parts.Count}"
+        };
+        AddPartPage(lines, query, page);
+        return string.Join('\n', lines);
+    }
+
+    private static void AddPartPage(List<string> lines, CompositeQuery query, int page)
+    {
+        var totalPages = Math.Max(1, (int)Math.Ceiling(query.Parts.Count / (double)PartPageSize));
+        lines.Add($"parts page {page}/{totalPages}");
+        if (page < 1 || page > totalPages)
+            return;
+        var start = (page - 1) * PartPageSize;
+        foreach (var part in query.Parts.Skip(start).Take(PartPageSize))
+        {
+            lines.Add(
+                $"part {part.Id} cell ({part.Cell.X},{part.Cell.Y},{part.Cell.Z}) {part.DefinitionId.Value} {part.Orientation} durability {part.CurrentDurability}");
+        }
+    }
+
+    private static bool TryPage(IReadOnlyList<string> arguments, out int page)
+    {
+        page = 1;
+        if (arguments.Count == 3)
+            return true;
+        return arguments.Count == 4 && int.TryParse(arguments[3], out page) && page > 0;
     }
 
     private static string FormatNumber(double value) =>

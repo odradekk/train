@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Settlements;
 using Train.Domain.Voxels;
 
 namespace Train.Tests;
@@ -145,6 +146,137 @@ public sealed class CompositeContentTests
     }
 
     [TestMethod]
+    public void Missing_required_composite_fields_reject_built_in_and_keep_generation()
+    {
+        var (baseline, logger) = CompositeFixtures.Load();
+        using (logger)
+        {
+            var catalogGeneration = baseline.Catalog.Current!.Generation;
+            var compositeGeneration = baseline.Composites.Current.Generation;
+            var cases = new (string Json, string[] Paths)[]
+            {
+                ("{\"schema_version\":1,\"archetypes\":[{\"id\":\"missing-rules\"}]}",
+                    new[] { "/archetypes/0/construction", "/archetypes/0/identity_retention" }),
+                (CompositeFixtures.File(null, CompositeFixtures.Archetype(), CompositeWithout("voxels")),
+                    new[] { "/composites/0/voxels" }),
+                (CompositeFixtures.File(null, CompositeFixtures.Archetype(), CompositeWithout("contacts")),
+                    new[] { "/composites/0/contacts" })
+            };
+
+            foreach (var (json, paths) in cases)
+            {
+                var source = CompositeFixtures.VehiclePackage();
+                source.AddCompositeFile("core", "bad.composites.json", json);
+                var reloader = ContentFixtures.Create(source, logger.Logger, catalog: baseline.Catalog, settlements: baseline.Settlements, composites: baseline.Composites);
+                var result = reloader.Reload();
+                Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, json);
+                Assert.IsTrue(result.Diagnostics.Any(), json);
+                foreach (var path in paths)
+                    Assert.IsTrue(result.Diagnostics.Any(item => item.JsonPath == path), json + " " + path);
+                Assert.AreEqual(catalogGeneration, baseline.Catalog.Current.Generation, json);
+                Assert.AreEqual(compositeGeneration, baseline.Composites.Current.Generation, json);
+                Assert.IsTrue(baseline.Composites.Current.TryGet(HollowShellFixture.DefinitionId, out _));
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Missing_required_fields_isolate_an_external_package()
+    {
+        using var session = LoggerSession.Create();
+        const string broken = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        var cases = new (string Json, string[] Paths, CompositeArchetypeId? Archetype, CompositeDefinitionId? Composite)[]
+        {
+            ("{\"schema_version\":1,\"archetypes\":[{\"id\":\"missing-rules\"}]}",
+                new[] { "/archetypes/0/construction", "/archetypes/0/identity_retention" },
+                new CompositeArchetypeId(broken, "missing-rules"),
+                null),
+            (CompositeFixtures.File(null, CompositeFixtures.Archetype("mod-archetype"), CompositeWithout("voxels", "mod-car", "mod-archetype")),
+                new[] { "/composites/0/voxels" },
+                new CompositeArchetypeId(broken, "mod-archetype"),
+                new CompositeDefinitionId(broken, "mod-car")),
+            (CompositeFixtures.File(null, CompositeFixtures.Archetype("mod-archetype"), CompositeWithout("contacts", "mod-car", "mod-archetype")),
+                new[] { "/composites/0/contacts" },
+                new CompositeArchetypeId(broken, "mod-archetype"),
+                new CompositeDefinitionId(broken, "mod-car"))
+        };
+
+        foreach (var (json, paths, archetype, composite) in cases)
+        {
+            var source = CompositeFixtures.VehiclePackage();
+            source.AddMod("broken", broken);
+            source.AddCompositeFile(broken, "bad.composites.json", json, "memory://mods/broken/resources");
+            var reloader = ContentFixtures.Create(source, session.Logger);
+            var result = reloader.Reload();
+            Assert.IsTrue(result.IsCommitted, json);
+            Assert.IsTrue(reloader.Composites.Current.TryGet(HollowShellFixture.DefinitionId, out _), json);
+            if (archetype is { } archetypeId)
+                Assert.IsFalse(reloader.Composites.Current.TryGet(archetypeId, out _), json);
+            if (composite is { } compositeId)
+                Assert.IsFalse(reloader.Composites.Current.TryGet(compositeId, out _), json);
+            foreach (var path in paths)
+                Assert.IsTrue(result.Diagnostics.Any(item => item.JsonPath == path), json + " " + path);
+        }
+    }
+
+    [TestMethod]
+    public void Failed_settlement_package_drops_its_archetypes_and_composites()
+    {
+        using var session = LoggerSession.Create();
+        var source = CompositeFixtures.VehiclePackage();
+        const string broken = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+        source.AddMod("broken", broken);
+        source.AddVoxelFile(broken, "voxels/mod-shell.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("mod-shell", "模组壳体", "模组壳体说明", value: 10, tagsJson: "[]")),
+            "memory://mods/broken/resources");
+        source.AddImage(broken, "iron.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/broken/resources");
+        source.AddCompositeFile(
+            broken,
+            "car.composites.json",
+            CompositeFixtures.File(
+                null,
+                CompositeFixtures.Archetype("mod-archetype"),
+                CompositeFixtures.Composite(
+                    id: "mod-car",
+                    archetype: "mod-archetype",
+                    voxels: string.Join(",", CompositeFixtures.Voxel(0, 0, 0, "core:vehicle-shell"), CompositeFixtures.Voxel(1, 0, 0, "core:identity-core")),
+                    contacts: string.Join(",", CompositeFixtures.Contact(0, -0.75, 0.5, 0, 0, 0), CompositeFixtures.Contact(1, -0.75, 0.5, 1, 0, 0)))),
+            "memory://mods/broken/resources");
+        source.AddSettlementsFile(
+            broken,
+            "bad.settlements.json",
+            ContentFixtures.SettlementsFile(
+                ContentFixtures.Settlement("bad-city", "坏城市", x: 9, y: 9, resources: new[] { "core:missing" })),
+            "memory://mods/broken/resources");
+
+        const string dependent = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+        source.AddMod("dependent", dependent);
+        source.AddCompositeFile(
+            dependent,
+            "uses-broken.composites.json",
+            CompositeFixtures.File(
+                null,
+                "",
+                CompositeFixtures.Composite(
+                    id: "dep-car",
+                    archetype: broken + ":mod-archetype",
+                    voxels: string.Join(",", CompositeFixtures.Voxel(0, 0, 0, "core:vehicle-shell"), CompositeFixtures.Voxel(1, 0, 0, "core:identity-core")),
+                    contacts: string.Join(",", CompositeFixtures.Contact(0, -0.75, 0.5, 0, 0, 0), CompositeFixtures.Contact(1, -0.75, 0.5, 1, 0, 0)))),
+            "memory://mods/dependent/resources");
+
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        var result = reloader.Reload();
+        Assert.IsTrue(result.IsCommitted);
+        Assert.IsTrue(reloader.Composites.Current.TryGet(HollowShellFixture.DefinitionId, out _));
+        Assert.IsFalse(reloader.Composites.Current.TryGet(new CompositeArchetypeId(broken, "mod-archetype"), out _));
+        Assert.IsFalse(reloader.Composites.Current.TryGet(new CompositeDefinitionId(broken, "mod-car"), out _));
+        Assert.IsFalse(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId(broken, "mod-shell"), out _));
+        Assert.IsFalse(reloader.Settlements.TryGet(new SettlementId(broken + ":bad-city"), out _));
+        Assert.IsFalse(reloader.Composites.Current.TryGet(new CompositeDefinitionId(dependent, "dep-car"), out _));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference));
+    }
+
+    [TestMethod]
     public void Semantic_revision_ignores_layout_and_excludes_display_and_target_revisions()
     {
         using var session = LoggerSession.Create();
@@ -186,5 +318,36 @@ public sealed class CompositeContentTests
         var semantic = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites).Reload();
         Assert.IsTrue(semantic.Changed);
         Assert.AreNotEqual(baseline, reloader.Composites.Current.Composites[HollowShellFixture.DefinitionId].SemanticRevision);
+    }
+
+    private static string CompositeWithout(string field, string id = "dev-hollow-shell", string archetype = "dev-hollow-shell")
+    {
+        var json = CompositeFixtures.Composite(id: id, archetype: archetype);
+        return field switch
+        {
+            "voxels" => json.Replace(",\"voxels\":" + SliceArray(json, "voxels"), "", StringComparison.Ordinal),
+            "contacts" => json.Replace(",\"contacts\":" + SliceArray(json, "contacts"), "", StringComparison.Ordinal),
+            _ => throw new ArgumentOutOfRangeException(nameof(field), field, "Unsupported composite field.")
+        };
+    }
+
+    private static string SliceArray(string json, string field)
+    {
+        var key = "\"" + field + "\":";
+        var start = json.IndexOf(key, StringComparison.Ordinal) + key.Length;
+        var depth = 0;
+        for (var i = start; i < json.Length; i++)
+        {
+            if (json[i] == '[')
+                depth++;
+            else if (json[i] == ']')
+            {
+                depth--;
+                if (depth == 0)
+                    return json[start..(i + 1)];
+            }
+        }
+
+        throw new InvalidOperationException("Array field " + field + " was not found.");
     }
 }

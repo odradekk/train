@@ -68,6 +68,7 @@ public sealed class CompositeInstance
     public CompositeDefinitionId DefinitionId { get; }
     public string LastUsedRevision { get; }
     public CompositeArchetypeId ArchetypeId { get; }
+    public string LastUsedArchetypeRevision { get; }
     public VehicleSizeClass SizeClass { get; }
     public CompositeTransform Transform { get; }
     public IReadOnlyList<CompositePart> Parts { get; }
@@ -78,18 +79,21 @@ public sealed class CompositeInstance
         CompositeDefinitionId definitionId,
         string lastUsedRevision,
         CompositeArchetypeId archetypeId,
+        string lastUsedArchetypeRevision,
         VehicleSizeClass sizeClass,
         CompositeTransform transform,
         IReadOnlyList<CompositePart> parts,
         IReadOnlyList<CompositeContactAnchor> contacts)
     {
         ArgumentException.ThrowIfNullOrEmpty(lastUsedRevision);
+        ArgumentException.ThrowIfNullOrEmpty(lastUsedArchetypeRevision);
         ArgumentNullException.ThrowIfNull(parts);
         ArgumentNullException.ThrowIfNull(contacts);
         Id = id;
         DefinitionId = definitionId;
         LastUsedRevision = lastUsedRevision;
         ArchetypeId = archetypeId;
+        LastUsedArchetypeRevision = lastUsedArchetypeRevision;
         SizeClass = sizeClass;
         Transform = transform;
         Parts = new ReadOnlyCollection<CompositePart>(parts.OrderBy(part => part.Cell).ToArray());

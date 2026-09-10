@@ -247,14 +247,29 @@ internal static class CompositesJsonParser
             return false;
         }
 
-        if (construction is null ||
-            !TryParseConstruction(construction.Value, jsonPath + "/construction", diagnostics, out var rules))
-            return false;
-        if (identity is null ||
-            !TryParseIdentity(identity.Value, jsonPath + "/identity_retention", diagnostics, out var retention))
+        var missingRequired = false;
+        ConstructionRules? rules = null;
+        if (construction is null)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "construction is required.", jsonPath + "/construction");
+            missingRequired = true;
+        }
+        else if (!TryParseConstruction(construction.Value, jsonPath + "/construction", diagnostics, out rules))
             return false;
 
-        archetype = new ParsedCompositeArchetype(localId, rules, retention, sourceFile);
+        IdentityRetentionRules? retention = null;
+        if (identity is null)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "identity_retention is required.", jsonPath + "/identity_retention");
+            missingRequired = true;
+        }
+        else if (!TryParseIdentity(identity.Value, jsonPath + "/identity_retention", diagnostics, out retention))
+            return false;
+
+        if (missingRequired)
+            return false;
+
+        archetype = new ParsedCompositeArchetype(localId, rules!, retention!, sourceFile);
         return true;
     }
 
@@ -452,11 +467,26 @@ internal static class CompositesJsonParser
             return false;
         }
 
-        if (voxels is null ||
-            !TryParseVoxels(voxels.Value, packageNamespace, jsonPath + "/voxels", diagnostics, out var voxelSpecs))
+        var missingRequired = false;
+        IReadOnlyList<CompositeVoxelSpec> voxelSpecs = Array.Empty<CompositeVoxelSpec>();
+        if (voxels is null)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "voxels is required.", jsonPath + "/voxels");
+            missingRequired = true;
+        }
+        else if (!TryParseVoxels(voxels.Value, packageNamespace, jsonPath + "/voxels", diagnostics, out voxelSpecs))
             return false;
-        if (contacts is null ||
-            !TryParseContacts(contacts.Value, jsonPath + "/contacts", diagnostics, out var contactSpecs))
+
+        IReadOnlyList<CompositeContactAnchor> contactSpecs = Array.Empty<CompositeContactAnchor>();
+        if (contacts is null)
+        {
+            diagnostics.Warn(ContentDiagnosticCodes.ContactInvalid, "contacts is required.", jsonPath + "/contacts");
+            missingRequired = true;
+        }
+        else if (!TryParseContacts(contacts.Value, jsonPath + "/contacts", diagnostics, out contactSpecs))
+            return false;
+
+        if (missingRequired)
             return false;
 
         composite = new ParsedCompositeDefinition(

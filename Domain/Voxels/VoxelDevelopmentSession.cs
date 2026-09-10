@@ -151,6 +151,7 @@ public sealed class VoxelDevelopmentSession
             definition.Id,
             compositeEntry.SemanticRevision,
             definition.ArchetypeId,
+            archetypeEntry.SemanticRevision,
             definition.SizeClass,
             pose,
             parts,

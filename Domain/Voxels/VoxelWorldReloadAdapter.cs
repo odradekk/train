@@ -82,12 +82,20 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
                         jsonPath: vehicle.DefinitionId.Value));
                 }
 
-                if (!composites.TryGet(vehicle.ArchetypeId, out _))
+                if (!composites.TryGet(vehicle.ArchetypeId, out var archetypeEntry))
                 {
                     diagnostics.Add(new ContentDiagnostic(
                         ContentDiagnosticSeverity.Error,
                         ContentDiagnosticCodes.UnresolvedArchetypeReference,
                         "A manufactured vehicle archetype is missing from the candidate catalog.",
+                        jsonPath: vehicle.ArchetypeId.Value));
+                }
+                else if (!string.Equals(archetypeEntry.SemanticRevision, vehicle.LastUsedArchetypeRevision, StringComparison.Ordinal))
+                {
+                    diagnostics.Add(new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Error,
+                        ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                        "Vehicle archetype adaptation is not supported yet.",
                         jsonPath: vehicle.ArchetypeId.Value));
                 }
 

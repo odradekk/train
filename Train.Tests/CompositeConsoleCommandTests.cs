@@ -41,13 +41,14 @@ public sealed class CompositeConsoleCommandTests
         StringAssert.Contains(manufactureLog, "parts 168");
 
         dispatcher.Execute($"composite query {vehicleId}");
-        var queryLog = Recent(session, ConsoleCommandDispatcher.CompositeEventId);
+        var queryLog = Recent(session, ConsoleCommandDispatcher.CompositeEventId, 80);
         StringAssert.Contains(queryLog, HollowShellFixture.DefinitionId.Value);
         StringAssert.Contains(queryLog, "identity Retained");
         StringAssert.Contains(queryLog, "operational Unevaluated");
         StringAssert.Contains(queryLog, "8,8,8");
         StringAssert.Contains(queryLog, "contact 1,-0.75,1.5");
         StringAssert.Contains(queryLog, "cell (1,0,1)");
+        StringAssert.Contains(queryLog, "parts page 1/");
 
         var before = voxelSession.CaptureAuthority();
         dispatcher.Execute("voxel save Should Fail");
@@ -59,6 +60,50 @@ public sealed class CompositeConsoleCommandTests
         Assert.AreEqual(1UL, voxelSession.NextEntityId);
         Assert.AreEqual(0UL, voxelSession.TransactionCount);
         StringAssert.Contains(Recent(session, ConsoleCommandDispatcher.CompositeEventId), "vehicles 0");
+    }
+
+    [TestMethod]
+    public void Console_query_pages_every_part_from_the_manufacture_result()
+    {
+        using var session = LoggerSession.Create();
+        var source = CompositeFixtures.FormalFixturePackage();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+        var commands = new CompositeConsoleCommands(voxelSession);
+        var manufactured = voxelSession.Manufacture(HollowShellFixture.DefinitionId);
+        Assert.IsTrue(manufactured.Succeeded);
+        var before = voxelSession.CaptureAuthority();
+        var vehicleId = manufactured.VehicleId!.Value;
+        var expected = manufactured.Parts!.OrderBy(part => part.Cell).ToArray();
+
+        var listed = new List<string>();
+        var page = 1;
+        int totalPages;
+        do
+        {
+            var text = commands.Execute(new[] { "query", vehicleId.ToString(), "parts", page.ToString() });
+            var lines = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var header = lines.Single(line => line.StartsWith("parts page ", StringComparison.Ordinal));
+            var parts = header.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            totalPages = int.Parse(parts[2].Split('/')[1]);
+            listed.AddRange(lines.Where(line => line.StartsWith("part ", StringComparison.Ordinal)));
+            page++;
+        }
+        while (page <= totalPages);
+
+        Assert.AreEqual(expected.Length, listed.Count);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var part = expected[i];
+            StringAssert.StartsWith(
+                listed[i],
+                $"part {part.Id} cell ({part.Cell.X},{part.Cell.Y},{part.Cell.Z}) {part.DefinitionId.Value} {part.Orientation} durability {part.CurrentDurability}");
+        }
+
+        var unknownPage = commands.Execute(new[] { "query", vehicleId.ToString(), "parts", (totalPages + 1).ToString() });
+        StringAssert.Contains(unknownPage, "parts page");
+        Assert.AreEqual(before, voxelSession.CaptureAuthority());
     }
 
     [TestMethod]
@@ -91,10 +136,10 @@ public sealed class CompositeConsoleCommandTests
         StringAssert.Contains(warning.Message, "voxel development scene");
     }
 
-    private static string Recent(LoggerSession session, string eventId)
+    private static string Recent(LoggerSession session, string eventId, int span = 12)
     {
         var snapshot = session.Memory.Snapshot();
         var last = snapshot.Last(item => item.EventId == eventId).Sequence;
-        return string.Join("\n", snapshot.Where(item => item.EventId == eventId && item.Sequence >= last - 12).Select(item => item.Message));
+        return string.Join("\n", snapshot.Where(item => item.EventId == eventId && item.Sequence >= last - span).Select(item => item.Message));
     }
 }

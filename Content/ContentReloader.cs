@@ -168,47 +168,7 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
             : ContentPreCommitDecision.Reject(diagnostics);
     }
 
-    public static ContentPreCommitDecision FilterSettlementReferences(
-        IDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
-        IDictionary<SettlementId, SettlementCandidate> settlements)
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        ArgumentNullException.ThrowIfNull(settlements);
-        var diagnostics = new List<ContentDiagnostic>();
-        // Drop an entire invalid mod, then re-check leftovers so a remaining package
-        // cannot keep a reference into the excluded namespace.
-        while (true)
-        {
-            var failedMods = new HashSet<string>(StringComparer.Ordinal);
-            var rejectBuiltIn = false;
-            foreach (var settlement in settlements.Values.ToArray())
-            {
-                if (SettlementReferencesAreValid(entries, settlement, diagnostics))
-                    continue;
-                if (settlement.Kind == ContentPackageKind.BuiltIn)
-                    rejectBuiltIn = true;
-                else
-                    failedMods.Add(PackageNamespace(settlement.Id));
-            }
-
-            if (rejectBuiltIn)
-                return ContentPreCommitDecision.Reject(diagnostics);
-            if (failedMods.Count == 0)
-                return diagnostics.Count == 0
-                    ? ContentPreCommitDecision.Allow()
-                    : ContentPreCommitDecision.Allow(diagnostics);
-
-            foreach (var ns in failedMods)
-            {
-                foreach (var id in entries.Keys.Where(id => id.Namespace == ns).ToArray())
-                    entries.Remove(id);
-                foreach (var id in settlements.Keys.Where(id => id.Value.StartsWith(ns + ":", StringComparison.Ordinal)).ToArray())
-                    settlements.Remove(id);
-            }
-        }
-    }
-
-    private static bool SettlementReferencesAreValid(
+    internal static bool SettlementReferencesAreValid(
         IDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
         SettlementCandidate settlement,
         List<ContentDiagnostic> diagnostics)
@@ -243,7 +203,7 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
         return valid;
     }
 
-    private static string PackageNamespace(SettlementId id)
+    internal static string PackageNamespace(SettlementId id)
     {
         var separator = id.Value.LastIndexOf(':');
         return separator <= 0 ? id.Value : id.Value[..separator];
@@ -345,29 +305,7 @@ public sealed class ContentReloader
         var settlements = new Dictionary<SettlementId, SettlementCandidate>(candidate.Settlements);
         var archetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>(candidate.Archetypes);
         var composites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>(candidate.Composites);
-        var references = ReferencedVoxelIdValidator.FilterSettlementReferences(entries, settlements);
-        diagnostics.AddRange(references.Diagnostics);
-        if (!references.CanCommit)
-        {
-            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
-            if (Catalog.Current is null)
-                InitializationFailed = true;
-            LogFailure(rejected);
-            return rejected;
-        }
-
-        var compositeReferences = CompositeReferenceValidator.Filter(entries, settlements, archetypes, composites);
-        diagnostics.AddRange(compositeReferences.Diagnostics);
-        if (!compositeReferences.CanCommit)
-        {
-            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, 0, diagnostics);
-            if (Catalog.Current is null)
-                InitializationFailed = true;
-            LogFailure(rejected);
-            return rejected;
-        }
-
-        references = ReferencedVoxelIdValidator.FilterSettlementReferences(entries, settlements);
+        var references = CompositeReferenceValidator.Filter(entries, settlements, archetypes, composites);
         diagnostics.AddRange(references.Diagnostics);
         if (!references.CanCommit)
         {

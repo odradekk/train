@@ -34,7 +34,7 @@
 | [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换世界 | 同上 |
 | [composite reset](composite-reset.md) | 清空已制造车辆并重建当前切片世界 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
-| [composite query](composite-query.md) `[<id>]` | 查询一辆或全部已制造车辆 | 同上 |
+| [composite query](composite-query.md) `[<id> [parts [<page>]]]` | 查询车辆摘要、接触与分页零件布局 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -268,6 +268,7 @@ voxel query 14 14 14
 loglevel info
 composite manufacture
 composite query
+composite query 1 parts 2
 voxel save Should Fail
 composite reset
 ```

@@ -383,6 +383,16 @@ internal static class CompositeReferenceValidator
             var failedMods = new HashSet<string>(StringComparer.Ordinal);
             var failedPlayers = new HashSet<string>(StringComparer.Ordinal);
             var rejectBuiltIn = false;
+            foreach (var settlement in settlements.Values.ToArray())
+            {
+                if (ReferencedVoxelIdValidator.SettlementReferencesAreValid(voxels, settlement, diagnostics))
+                    continue;
+                if (settlement.Kind == ContentPackageKind.BuiltIn)
+                    rejectBuiltIn = true;
+                else
+                    failedMods.Add(ReferencedVoxelIdValidator.PackageNamespace(settlement.Id));
+            }
+
             foreach (var composite in composites.Values.ToArray())
             {
                 if (CompositeReferencesAreValid(voxels, archetypes, composite, diagnostics))

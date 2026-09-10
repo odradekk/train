@@ -56,6 +56,12 @@ internal static class CompositeFixtures
         return source;
     }
 
+    public static string CompositeFromFixture()
+    {
+        var document = System.Text.Json.JsonDocument.Parse(FixtureFileText());
+        return document.RootElement.GetProperty("composites")[0].GetRawText();
+    }
+
     public static string FixtureFileText()
     {
         var repo = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
