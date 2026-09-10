@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "voxels": [
+    {
+      "id": "vehicle-shell",
+      "name": "开发夹具壳体",
+      "description": "切片 3 静置车辆空心壳的基础结构体素。Value=10、MaxDurability=100、Mass=1，允许全部正交朝向。",
+      "value": 10,
+      "mass": 1,
+      "max_durability": 100,
+      "tags": [],
+      "behaviors": [],
+      "allowed_orientations": "all_24",
+      "presentation": {
+        "kind": "cube",
+        "icon": "voxels/iron-ore/icon.png",
+        "voxel_top": "voxels/iron-ore/top.png",
+        "voxel_side": "voxels/iron-ore/side.png",
+        "voxel_bottom": "voxels/iron-ore/bottom.png"
+      },
+      "collision": {
+        "kind": "full_box"
+      }
+    }
+  ]
+}

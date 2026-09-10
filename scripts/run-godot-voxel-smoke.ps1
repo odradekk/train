@@ -1,16 +1,18 @@
 param(
-    [ValidateSet(1, 2)]
+    [ValidateSet(1, 2, 3)]
     [int] $Slice = 1,
     [switch] $IsolationAbort
 )
 
 # Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
-# slice 2 collision queries (#51), rotating local boxes (#52), and
-# world save / process-restart resume (#53).
+# slice 2 collision queries (#51), rotating local boxes (#52),
+# world save / process-restart resume (#53), and slice 3 parked-vehicle
+# manufacture (#58). Slice 3 does not reuse the slice 2 save/resume path.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 2
+#   .\scripts\run-godot-voxel-smoke.ps1 -Slice 3
 #
 # It loads the formal voxel development scene, removes and re-adds (4,4,4),
 # applies formal single-target and multi-target damage, requires the scene's
@@ -166,6 +168,22 @@ if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -
 
 $required = if ($IsolationAbort) {
     @("VOXEL_SMOKE_ISOLATION_WRITE_DONE")
+} elseif ($Slice -eq 3) {
+    @(
+        "VOXEL_SMOKE_GEOMETRY_VALID",
+        "VOXEL_SMOKE_SCENE_READY",
+        "VOXEL_SMOKE_SLICE3_BASE",
+        "VOXEL_SMOKE_SLICE3_LOADED",
+        "VOXEL_SMOKE_SLICE3_MANUFACTURED",
+        "VOXEL_SMOKE_SLICE3_VISUAL",
+        "VOXEL_SMOKE_SLICE3_QUERY",
+        "VOXEL_SMOKE_SLICE3_WORLD_EMPTY",
+        "VOXEL_SMOKE_SLICE3_RESET",
+        "COMPOSITE_SMOKE_OK",
+        "VOXEL_SMOKE_CONSOLE_CLOSED",
+        "VOXEL_SMOKE_RETURNED_TO_MENU",
+        "VOXEL_SMOKE_MENU_REENTERED"
+    )
 } elseif ($Slice -eq 2) {
     @(
         "VOXEL_SMOKE_GEOMETRY_VALID",

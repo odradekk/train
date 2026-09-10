@@ -24,4 +24,4 @@ Voxel count: 1089.
 
 失败同样以 `info` 写出 `Voxel <Status>.` 和当前总数，例如非法名称得到 `InvalidName`。没有独立的存档列表或选档 UI；记下输出中的 UUID，之后用 [`voxel load`](voxel-load.md) 恢复。
 
-当前范围只保存体素世界。不保存车辆、Blueprint、铁路、贸易或未出现的运行时 ID。
+当前范围只保存体素世界。不保存车辆、Blueprint、铁路、贸易或未出现的运行时 ID。当前会话已有车辆时返回 `UnsupportedVehicles`，不写文件，也不把丢车的世界存档报告为成功。

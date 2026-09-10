@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using Train.Domain.Composites;
 using Train.Domain.Voxels;
 using Train.Domain.Settlements;
 using Train.Logging;
@@ -91,6 +92,9 @@ public interface IContentPreCommitValidator
 public interface IContentWorldReloadAdapter
 {
     ContentWorldReloadPlan Prepare(VoxelCatalogSnapshot candidate);
+
+    ContentWorldReloadPlan Prepare(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites) =>
+        Prepare(voxels);
 }
 
 public sealed class ContentWorldReloadPlan
@@ -164,47 +168,7 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
             : ContentPreCommitDecision.Reject(diagnostics);
     }
 
-    public static ContentPreCommitDecision FilterSettlementReferences(
-        IDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
-        IDictionary<SettlementId, SettlementCandidate> settlements)
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        ArgumentNullException.ThrowIfNull(settlements);
-        var diagnostics = new List<ContentDiagnostic>();
-        // Drop an entire invalid mod, then re-check leftovers so a remaining package
-        // cannot keep a reference into the excluded namespace.
-        while (true)
-        {
-            var failedMods = new HashSet<string>(StringComparer.Ordinal);
-            var rejectBuiltIn = false;
-            foreach (var settlement in settlements.Values.ToArray())
-            {
-                if (SettlementReferencesAreValid(entries, settlement, diagnostics))
-                    continue;
-                if (settlement.Kind == ContentPackageKind.BuiltIn)
-                    rejectBuiltIn = true;
-                else
-                    failedMods.Add(PackageNamespace(settlement.Id));
-            }
-
-            if (rejectBuiltIn)
-                return ContentPreCommitDecision.Reject(diagnostics);
-            if (failedMods.Count == 0)
-                return diagnostics.Count == 0
-                    ? ContentPreCommitDecision.Allow()
-                    : ContentPreCommitDecision.Allow(diagnostics);
-
-            foreach (var ns in failedMods)
-            {
-                foreach (var id in entries.Keys.Where(id => id.Namespace == ns).ToArray())
-                    entries.Remove(id);
-                foreach (var id in settlements.Keys.Where(id => id.Value.StartsWith(ns + ":", StringComparison.Ordinal)).ToArray())
-                    settlements.Remove(id);
-            }
-        }
-    }
-
-    private static bool SettlementReferencesAreValid(
+    internal static bool SettlementReferencesAreValid(
         IDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
         SettlementCandidate settlement,
         List<ContentDiagnostic> diagnostics)
@@ -239,7 +203,7 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
         return valid;
     }
 
-    private static string PackageNamespace(SettlementId id)
+    internal static string PackageNamespace(SettlementId id)
     {
         var separator = id.Value.LastIndexOf(':');
         return separator <= 0 ? id.Value : id.Value[..separator];
@@ -255,6 +219,7 @@ public sealed class ContentReloader
     private int _busy;
 
     public VoxelCatalog Catalog { get; }
+    public CompositeCatalog Composites { get; }
     public SettlementRegistry Settlements { get; }
     public bool InitializationFailed { get; private set; }
 
@@ -263,7 +228,8 @@ public sealed class ContentReloader
         TrainLogger logger,
         VoxelCatalog? catalog = null,
         IContentPreCommitValidator? validator = null,
-        SettlementRegistry? settlements = null)
+        SettlementRegistry? settlements = null,
+        CompositeCatalog? composites = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(logger);
@@ -271,6 +237,7 @@ public sealed class ContentReloader
         _logger = logger;
         _validator = validator;
         Catalog = catalog ?? new VoxelCatalog();
+        Composites = composites ?? new CompositeCatalog();
         Settlements = settlements ?? new SettlementRegistry();
     }
 
@@ -336,7 +303,9 @@ public sealed class ContentReloader
 
         var entries = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>(candidate.Entries);
         var settlements = new Dictionary<SettlementId, SettlementCandidate>(candidate.Settlements);
-        var references = ReferencedVoxelIdValidator.FilterSettlementReferences(entries, settlements);
+        var archetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>(candidate.Archetypes);
+        var composites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>(candidate.Composites);
+        var references = CompositeReferenceValidator.Filter(entries, settlements, archetypes, composites);
         diagnostics.AddRange(references.Diagnostics);
         if (!references.CanCommit)
         {
@@ -349,6 +318,8 @@ public sealed class ContentReloader
 
         var nextGeneration = (Catalog.Current?.Generation ?? 0) + 1;
         var snapshot = new VoxelCatalogSnapshot(nextGeneration, entries);
+        var nextCompositeGeneration = Composites.Current.Generation + 1;
+        var compositeSnapshot = new CompositeCatalogSnapshot(nextCompositeGeneration, archetypes, composites);
 
         if (!Settlements.HasCommitted && settlements.Count == 0)
         {
@@ -374,7 +345,7 @@ public sealed class ContentReloader
             return rejected;
         }
 
-        var worldPlan = _worldAdapter?.Prepare(snapshot) ?? ContentWorldReloadPlan.None;
+        var worldPlan = _worldAdapter?.Prepare(snapshot, compositeSnapshot) ?? ContentWorldReloadPlan.None;
         diagnostics.AddRange(worldPlan.Diagnostics);
         if (!worldPlan.CanCommit)
         {
@@ -387,13 +358,19 @@ public sealed class ContentReloader
 
         var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, entries);
         var settlementChange = SettlementDiff.Compute(Settlements, settlements);
+        var compositeChange = CompositeCatalogDiff.Compute(
+            compositeSnapshot.Generation,
+            Composites.Current.Generation == 0 ? null : Composites.Current,
+            archetypes,
+            composites);
         var status = diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning)
             ? ContentReloadStatus.CommittedWithWarnings
             : ContentReloadStatus.Committed;
         var voxelsChanged = CatalogDiff.HasChanges(change);
         var settlementsChanged = SettlementDiff.HasChanges(settlementChange);
+        var compositesChanged = compositeChange.HasChanges;
 
-        if (!voxelsChanged && !settlementsChanged)
+        if (!voxelsChanged && !settlementsChanged && !compositesChanged)
         {
             var unchanged = new ContentReloadResult(
                 status,
@@ -417,11 +394,15 @@ public sealed class ContentReloader
         worldPlan.Apply();
         if (voxelsChanged)
             Catalog.Publish(snapshot);
+        if (compositesChanged)
+            Composites.Publish(compositeSnapshot);
         if (settlementsChanged || !Settlements.HasCommitted)
             Settlements.Apply(settlements.Values.ToArray());
         InitializationFailed = false;
         if (voxelsChanged)
             Catalog.NotifyChanged(change, LogNotifyFailure);
+        if (compositesChanged)
+            Composites.NotifyChanged(compositeChange, LogNotifyFailure);
         var committed = new ContentReloadResult(
             status,
             changed: true,
@@ -517,6 +498,8 @@ internal sealed class CatalogCandidate
 {
     public IReadOnlyDictionary<VoxelDefinitionId, VoxelCatalogEntry> Entries { get; }
     public IReadOnlyDictionary<SettlementId, SettlementCandidate> Settlements { get; }
+    public IReadOnlyDictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> Archetypes { get; }
+    public IReadOnlyDictionary<CompositeDefinitionId, CompositeCatalogEntry> Composites { get; }
     public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
     public int ScannedFileCount { get; }
     public bool CanCommit { get; }
@@ -525,6 +508,8 @@ internal sealed class CatalogCandidate
     public CatalogCandidate(
         IReadOnlyDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
         IReadOnlyDictionary<SettlementId, SettlementCandidate> settlements,
+        IReadOnlyDictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
+        IReadOnlyDictionary<CompositeDefinitionId, CompositeCatalogEntry> composites,
         IReadOnlyList<ContentDiagnostic> diagnostics,
         int scannedFileCount,
         bool canCommit,
@@ -532,6 +517,8 @@ internal sealed class CatalogCandidate
     {
         Entries = entries;
         Settlements = settlements;
+        Archetypes = archetypes;
+        Composites = composites;
         Diagnostics = diagnostics;
         ScannedFileCount = scannedFileCount;
         CanCommit = canCommit;
@@ -583,6 +570,8 @@ internal static class CatalogCandidateBuilder
         var diagnostics = new List<ContentDiagnostic>();
         var accepted = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>();
         var acceptedSettlements = new Dictionary<SettlementId, SettlementCandidate>();
+        var acceptedArchetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>();
+        var acceptedComposites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>();
         var occupied = new Dictionary<MapPosition, SettlementId>();
         var scanned = 0;
         var requiredInvalid = false;
@@ -601,7 +590,7 @@ internal static class CatalogCandidateBuilder
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.BuiltInPackageUnavailable,
                 "The built-in content package was not provided."));
-            return new CatalogCandidate(accepted, acceptedSettlements, diagnostics, 0, false, true);
+            return new CatalogCandidate(accepted, acceptedSettlements, acceptedArchetypes, acceptedComposites, diagnostics, 0, false, true);
         }
 
         var duplicateModIds = packages
@@ -634,7 +623,9 @@ internal static class CatalogCandidateBuilder
                 bag.Warn(ContentDiagnosticCodes.ModVoxelLimitExceeded, "A mod exceeds the 1000-voxel package limit.");
                 packageContent = new PackageContent(
                     new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>(),
-                    new Dictionary<SettlementId, SettlementCandidate>());
+                    new Dictionary<SettlementId, SettlementCandidate>(),
+                    new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>(),
+                    new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>());
             }
 
             foreach (var diagnostic in bag.Items)
@@ -652,7 +643,10 @@ internal static class CatalogCandidateBuilder
             if (package.Kind == ContentPackageKind.Mod)
                 acceptedMods++;
 
-            if (packageContent.Voxels.Count == 0 && packageContent.Settlements.Count == 0)
+            if (packageContent.Voxels.Count == 0 &&
+                packageContent.Settlements.Count == 0 &&
+                packageContent.Archetypes.Count == 0 &&
+                packageContent.Composites.Count == 0)
             {
                 logger.Debug(
                     ContentLog.Category,
@@ -663,6 +657,10 @@ internal static class CatalogCandidateBuilder
 
             foreach (var (id, entry) in packageContent.Voxels)
                 accepted[id] = entry;
+            foreach (var (id, entry) in packageContent.Archetypes)
+                acceptedArchetypes[id] = entry;
+            foreach (var (id, entry) in packageContent.Composites)
+                acceptedComposites[id] = entry;
             foreach (var (id, settlement) in packageContent.Settlements)
             {
                 if (occupied.TryGetValue(settlement.Position, out var prior))
@@ -704,12 +702,14 @@ internal static class CatalogCandidateBuilder
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.GlobalVoxelLimitExceeded,
                 "The catalog exceeds the global voxel limit."));
-            return new CatalogCandidate(accepted, acceptedSettlements, diagnostics, scanned, false, true);
+            return new CatalogCandidate(accepted, acceptedSettlements, acceptedArchetypes, acceptedComposites, diagnostics, scanned, false, true);
         }
 
         return new CatalogCandidate(
             accepted.ToFrozenDictionary(),
             acceptedSettlements,
+            acceptedArchetypes,
+            acceptedComposites,
             diagnostics,
             scanned,
             canCommit: !requiredInvalid,
@@ -720,13 +720,19 @@ internal static class CatalogCandidateBuilder
     {
         public Dictionary<VoxelDefinitionId, VoxelCatalogEntry> Voxels { get; }
         public Dictionary<SettlementId, SettlementCandidate> Settlements { get; }
+        public Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> Archetypes { get; }
+        public Dictionary<CompositeDefinitionId, CompositeCatalogEntry> Composites { get; }
 
         public PackageContent(
             Dictionary<VoxelDefinitionId, VoxelCatalogEntry> voxels,
-            Dictionary<SettlementId, SettlementCandidate> settlements)
+            Dictionary<SettlementId, SettlementCandidate> settlements,
+            Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
+            Dictionary<CompositeDefinitionId, CompositeCatalogEntry> composites)
         {
             Voxels = voxels;
             Settlements = settlements;
+            Archetypes = archetypes;
+            Composites = composites;
         }
     }
 
@@ -739,25 +745,28 @@ internal static class CatalogCandidateBuilder
     {
         var accepted = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>();
         var settlements = new Dictionary<SettlementId, SettlementCandidate>();
+        var archetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>();
+        var composites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>();
         if (!package.Available)
         {
             if (package.IsRequired)
                 bag.Error(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package is unavailable.");
             else
                 bag.Warn(ContentDiagnosticCodes.PackageInvalid, "Mod package is unavailable.");
-            return new PackageContent(accepted, settlements);
+            return new PackageContent(accepted, settlements, archetypes, composites);
         }
 
         var discovery = source.ListVoxelFiles(package);
         var settlementDiscovery = source.ListSettlementFiles(package);
-        scanned += discovery.Files.Count + settlementDiscovery.Files.Count;
-        foreach (var diagnostic in discovery.Diagnostics.Concat(settlementDiscovery.Diagnostics))
+        var compositeDiscovery = source.ListCompositeFiles(package);
+        scanned += discovery.Files.Count + settlementDiscovery.Files.Count + compositeDiscovery.Files.Count;
+        foreach (var diagnostic in discovery.Diagnostics.Concat(settlementDiscovery.Diagnostics).Concat(compositeDiscovery.Diagnostics))
             bag.Add(
                 package.IsRequired ? diagnostic.Severity : ContentDiagnosticSeverity.Warning,
                 diagnostic.Code,
                 diagnostic.Message,
                 diagnostic.JsonPath ?? diagnostic.Source);
-        if (discovery.Invalid || settlementDiscovery.Invalid)
+        if (discovery.Invalid || settlementDiscovery.Invalid || compositeDiscovery.Invalid)
             bag.MarkInvalid();
         var parsed = new List<ParsedVoxel>();
         var acceptedByFile = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -817,7 +826,138 @@ internal static class CatalogCandidateBuilder
             LogFileScanned(logger, package, file, "voxels", acceptedByFile[file]);
 
         AcceptSettlements(source, package, settlementDiscovery, bag, logger, settlements);
-        return new PackageContent(accepted, settlements);
+        AcceptComposites(source, package, compositeDiscovery, bag, logger, archetypes, composites);
+        return new PackageContent(accepted, settlements, archetypes, composites);
+    }
+
+    private static void AcceptComposites(
+        IContentSource source,
+        ContentPackage package,
+        ContentFileDiscovery discovery,
+        DiagnosticBag bag,
+        TrainLogger logger,
+        Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
+        Dictionary<CompositeDefinitionId, CompositeCatalogEntry> composites)
+    {
+        var parsedArchetypes = new List<ParsedCompositeArchetype>();
+        var parsedComposites = new List<(ParsedCompositeDefinition Parsed, string? DisplayName)>();
+        var acceptedByFile = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var file in discovery.Files)
+            acceptedByFile[file] = 0;
+        foreach (var file in discovery.Files)
+        {
+            bag.Source = file;
+            var read = source.ReadFile(package, file, ContentLimits.JsonFileMaxBytes);
+            if (read.UnsafeLink)
+            {
+                if (package.IsRequired)
+                    bag.Error(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
+                else
+                    bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.", file);
+                continue;
+            }
+
+            if (read.TooLarge)
+            {
+                bag.Warn(ContentDiagnosticCodes.FileTooLarge, "Composite JSON exceeds the 1 MiB limit.");
+                continue;
+            }
+
+            if (read.Bytes is null)
+            {
+                bag.Warn(ContentDiagnosticCodes.InvalidJson, "Composite file could not be read.");
+                continue;
+            }
+
+            var document = CompositesJsonParser.Parse(read.Bytes, package.Namespace, file, bag);
+            if (document is null)
+                continue;
+            foreach (var archetype in document.Archetypes)
+                parsedArchetypes.Add(archetype);
+            foreach (var composite in document.Composites)
+                parsedComposites.Add((composite, document.DisplayName));
+        }
+
+        var duplicateArchetypes = parsedArchetypes
+            .GroupBy(item => item.LocalId, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1);
+        var duplicateArchetypeIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in duplicateArchetypes)
+        {
+            duplicateArchetypeIds.Add(group.Key);
+            bag.Source = group.First().SourceFile;
+            bag.Warn(ContentDiagnosticCodes.DuplicateLocalId, "Duplicate local id in the package.", group.Key);
+        }
+
+        var duplicateComposites = parsedComposites
+            .GroupBy(item => item.Parsed.LocalId, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1);
+        var duplicateCompositeIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var group in duplicateComposites)
+        {
+            duplicateCompositeIds.Add(group.Key);
+            bag.Source = group.First().Parsed.SourceFile;
+            bag.Warn(ContentDiagnosticCodes.DuplicateLocalId, "Duplicate local id in the package.", group.Key);
+        }
+
+        foreach (var parsed in parsedArchetypes)
+        {
+            if (duplicateArchetypeIds.Contains(parsed.LocalId))
+                continue;
+            var id = new CompositeArchetypeId(package.Namespace, parsed.LocalId);
+            var archetype = new CompositeArchetype(id, parsed.Construction, parsed.IdentityRetention);
+            var semantic = CompositeRevisions.ComputeSemanticRevision(archetype);
+            archetypes[id] = new CompositeArchetypeCatalogEntry(
+                archetype,
+                new ContentOrigin(package.Namespace, parsed.SourceFile),
+                semantic,
+                CompositeRevisions.ComputePublicationFingerprint(archetype, semantic));
+            acceptedByFile[parsed.SourceFile] = acceptedByFile.GetValueOrDefault(parsed.SourceFile) + 1;
+            logger.Debug(
+                ContentLog.Category,
+                ContentLog.DefinitionAcceptedEventId,
+                "Accepted composite archetype.",
+                new Dictionary<string, object?>
+                {
+                    ["archetype_id"] = id.Value,
+                    ["source"] = parsed.SourceFile,
+                    ["semantic_revision"] = semantic
+                });
+        }
+
+        foreach (var (parsed, displayName) in parsedComposites)
+        {
+            if (duplicateCompositeIds.Contains(parsed.LocalId))
+                continue;
+            bag.Source = parsed.SourceFile;
+            var id = new CompositeDefinitionId(package.Namespace, parsed.LocalId);
+            var definition = new CompositeDefinition(
+                id,
+                parsed.Name,
+                parsed.Description,
+                CompositesJsonParser.ResolveArchetypeId(parsed.ArchetypeRaw, package.Namespace),
+                parsed.SizeClass,
+                parsed.Voxels,
+                parsed.Contacts);
+            var origin = new ContentOrigin(package.Namespace, parsed.SourceFile);
+            var semantic = CompositeRevisions.ComputeSemanticRevision(definition);
+            var publication = CompositeRevisions.ComputePublicationFingerprint(definition, displayName, semantic);
+            composites[id] = new CompositeCatalogEntry(definition, origin, displayName, semantic, publication);
+            acceptedByFile[parsed.SourceFile] = acceptedByFile.GetValueOrDefault(parsed.SourceFile) + 1;
+            logger.Debug(
+                ContentLog.Category,
+                ContentLog.DefinitionAcceptedEventId,
+                "Accepted composite definition.",
+                new Dictionary<string, object?>
+                {
+                    ["composite_id"] = id.Value,
+                    ["source"] = parsed.SourceFile,
+                    ["semantic_revision"] = semantic
+                });
+        }
+
+        foreach (var file in discovery.Files)
+            LogFileScanned(logger, package, file, "composites", acceptedByFile[file]);
     }
 
     private static void AcceptSettlements(

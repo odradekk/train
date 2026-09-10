@@ -521,6 +521,8 @@ public static class VoxelWorldFactory
 
         var world = new VoxelWorld(identity);
         var voxel = new WorldVoxel(DevelopmentDefinitionId, definition.Definition.MaxDurability, VoxelOrientation.Identity);
+        if (identity.GeneratorVersion == VoxelWorldIdentity.Slice3GeneratorVersion)
+            return world;
         if (identity.GeneratorVersion == VoxelWorldIdentity.Slice2GeneratorVersion)
             FillSlice2(world, voxel);
         else if (identity.GeneratorVersion == VoxelWorldIdentity.Slice1GeneratorVersion ||

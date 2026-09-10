@@ -190,13 +190,23 @@ public partial class Main : Node
     public static VoxelDevelopmentSlice ReadRequestedSlice()
     {
         var value = System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SLICE");
-        return string.Equals(value, "2", StringComparison.Ordinal) ? VoxelDevelopmentSlice.Slice2 : VoxelDevelopmentSlice.Slice1;
+        return value switch
+        {
+            "3" => VoxelDevelopmentSlice.Slice3,
+            "2" => VoxelDevelopmentSlice.Slice2,
+            _ => VoxelDevelopmentSlice.Slice1
+        };
     }
 
     private VoxelWorldIdentity ResolveDevelopmentIdentity(VoxelDevelopmentSlice? slice)
     {
         var resolved = slice ?? ReadRequestedSlice();
-        return resolved == VoxelDevelopmentSlice.Slice2 ? VoxelWorldIdentity.Slice2 : VoxelWorldIdentity.Slice1;
+        return resolved switch
+        {
+            VoxelDevelopmentSlice.Slice3 => VoxelWorldIdentity.Slice3,
+            VoxelDevelopmentSlice.Slice2 => VoxelWorldIdentity.Slice2,
+            _ => VoxelWorldIdentity.Slice1
+        };
     }
 
     public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)

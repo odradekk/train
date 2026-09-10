@@ -9,6 +9,7 @@ public sealed class GodotContentSource : IContentSource
     // Keep assets off Content/ so Windows can host C# sources and built-in files side by side.
     public const string BuiltInResourcesRoot = "res://builtin/core/resources";
     public const string ModsGodotPath = ExternalContent.ModsGodotPath;
+    public const string BlueprintsGodotPath = ExternalContent.BlueprintsGodotPath;
 
     private readonly TrainLogger? _logger;
     private readonly string? _userDataDirectory;
@@ -67,6 +68,7 @@ public sealed class GodotContentSource : IContentSource
             {
                 using var user = DirAccess.Open("user://");
                 user?.MakeDir("mods");
+                user?.MakeDir("blueprints");
             }
             catch
             {
@@ -74,49 +76,42 @@ public sealed class GodotContentSource : IContentSource
             }
         }
 
+        var diagnostics = new List<ContentDiagnostic>();
         if (!ExternalContent.TryEnsureDirectory(userData, physical, out var error))
         {
-            _scanDiagnostics = new[]
+            diagnostics.Add(ExternalContent.ModsRootUnavailable(ModsGodotPath, error ?? "Mods directory is unavailable."));
+        }
+        else if (!ExternalContent.TryListDirectChildren(userData, physical, out var children, out var listError))
+        {
+            diagnostics.Add(ExternalContent.ModsRootUnavailable(ModsGodotPath, listError ?? "Mods directory could not be read."));
+        }
+        else
+        {
+            try
             {
-                ExternalContent.ModsRootUnavailable(ModsGodotPath, error ?? "Mods directory is unavailable.")
-            };
-            return packages;
+                var scan = ModDiscovery.Scan(children);
+                diagnostics.AddRange(scan.Diagnostics);
+                packages.AddRange(scan.Packages);
+                _logger?.Info(
+                    ContentLog.Category,
+                    ContentLog.ModsScanSummaryEventId,
+                    "Mod scan finished.",
+                    new Dictionary<string, object?>
+                    {
+                        ["godot_path"] = ModsGodotPath,
+                        ["physical_path"] = physical,
+                        ["candidate_count"] = scan.CandidateCount,
+                        ["accepted_count"] = scan.AcceptedCount
+                    });
+            }
+            catch (Exception exception)
+            {
+                diagnostics.Add(ExternalContent.ModsRootUnavailable(ModsGodotPath, exception.Message));
+            }
         }
 
-        if (!ExternalContent.TryListDirectChildren(userData, physical, out var children, out var listError))
-        {
-            _scanDiagnostics = new[]
-            {
-                ExternalContent.ModsRootUnavailable(ModsGodotPath, listError ?? "Mods directory could not be read.")
-            };
-            return packages;
-        }
-
-        try
-        {
-            var scan = ModDiscovery.Scan(children);
-            _scanDiagnostics = scan.Diagnostics;
-            packages.AddRange(scan.Packages);
-            _logger?.Info(
-                ContentLog.Category,
-                ContentLog.ModsScanSummaryEventId,
-                "Mod scan finished.",
-                new Dictionary<string, object?>
-                {
-                    ["godot_path"] = ModsGodotPath,
-                    ["physical_path"] = physical,
-                    ["candidate_count"] = scan.CandidateCount,
-                    ["accepted_count"] = scan.AcceptedCount
-                });
-        }
-        catch (Exception exception)
-        {
-            _scanDiagnostics = new[]
-            {
-                ExternalContent.ModsRootUnavailable(ModsGodotPath, exception.Message)
-            };
-        }
-
+        packages.AddRange(ListBlueprintPackages(userData, diagnostics));
+        _scanDiagnostics = diagnostics;
         return packages;
     }
 
@@ -128,9 +123,21 @@ public sealed class GodotContentSource : IContentSource
     public ContentFileDiscovery ListSettlementFiles(ContentPackage package) =>
         ListDataFiles(package, ".settlements.json");
 
+    public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
+    {
+        var discovery = ListDataFiles(package, ".composites.json");
+        if (package.Kind != ContentPackageKind.PlayerBlueprint)
+            return discovery;
+        var expected = package.Namespace + ".composites.json";
+        return new ContentFileDiscovery(
+            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
+            discovery.Diagnostics,
+            discovery.Invalid);
+    }
+
     private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)
     {
-        if (package.Kind == ContentPackageKind.Mod || IsPhysicalBuiltIn(package))
+        if (package.Kind is ContentPackageKind.Mod or ContentPackageKind.PlayerBlueprint || IsPhysicalBuiltIn(package))
             return ExternalContent.ListDataFiles(package.ResourcesRoot, fileSuffix);
 
         if (IsLinkedOrUnresolved(package.ResourcesRoot))
@@ -144,7 +151,7 @@ public sealed class GodotContentSource : IContentSource
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
     {
-        if (package.Kind == ContentPackageKind.Mod || IsPhysicalBuiltIn(package))
+        if (package.Kind is ContentPackageKind.Mod or ContentPackageKind.PlayerBlueprint || IsPhysicalBuiltIn(package))
             return ExternalContent.ReadFile(package.ResourcesRoot, normalizedRelativePath, maxBytes);
 
         if (!ContentPath.TryNormalize(normalizedRelativePath, out var normalized))
@@ -197,6 +204,51 @@ public sealed class GodotContentSource : IContentSource
             image.GetHeight(),
             NormalizeFormat(image.GetFormat()),
             image.GetData()));
+    }
+
+    private IReadOnlyList<ContentPackage> ListBlueprintPackages(string userData, List<ContentDiagnostic> diagnostics)
+    {
+        var physical = Path.Combine(userData, "blueprints");
+        if (!ExternalContent.TryEnsureDirectory(userData, physical, out var error))
+        {
+            diagnostics.Add(ExternalContent.BlueprintsRootUnavailable(
+                BlueprintsGodotPath,
+                error ?? "Blueprints directory is unavailable."));
+            return Array.Empty<ContentPackage>();
+        }
+
+        if (!ExternalContent.TryListBlueprintFiles(userData, physical, out var files, out var listError))
+        {
+            diagnostics.Add(ExternalContent.BlueprintsRootUnavailable(
+                BlueprintsGodotPath,
+                listError ?? "Blueprints directory could not be read."));
+            return Array.Empty<ContentPackage>();
+        }
+
+        var packages = new List<ContentPackage>();
+        foreach (var (fileName, _) in files)
+        {
+            var idText = fileName[..^".composites.json".Length];
+            if (!Guid.TryParseExact(idText, "D", out var guid) ||
+                !string.Equals(idText, guid.ToString("D"), StringComparison.Ordinal))
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Warning,
+                    ContentDiagnosticCodes.UuidInvalid,
+                    "Player blueprint file name must be a lowercase UUID.",
+                    fileName));
+                continue;
+            }
+
+            packages.Add(new ContentPackage(
+                idText,
+                physical,
+                available: true,
+                ContentPackageKind.PlayerBlueprint,
+                fileName));
+        }
+
+        return packages;
     }
 
     private bool IsPhysicalBuiltIn(ContentPackage package) =>

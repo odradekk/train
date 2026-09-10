@@ -3,13 +3,15 @@ namespace Train.Domain.Voxels;
 public enum VoxelDevelopmentSlice
 {
     Slice1 = 1,
-    Slice2 = 2
+    Slice2 = 2,
+    Slice3 = 3
 }
 
 public readonly record struct VoxelWorldIdentity
 {
     public const string Slice1GeneratorVersion = "slice-1-integer-fixture-v1";
     public const string Slice2GeneratorVersion = "slice-2-integer-fixture-v1";
+    public const string Slice3GeneratorVersion = "slice-3-parked-vehicle-v1";
 
     public VoxelDevelopmentSlice Slice { get; init; }
     public ulong Seed { get; init; }
@@ -28,6 +30,13 @@ public readonly record struct VoxelWorldIdentity
         VoxelDevelopmentSlice.Slice2,
         2,
         Slice2GeneratorVersion,
+        new VoxelWorldBounds(32, 32, 32),
+        16);
+
+    public static VoxelWorldIdentity Slice3 { get; } = new(
+        VoxelDevelopmentSlice.Slice3,
+        42,
+        Slice3GeneratorVersion,
         new VoxelWorldBounds(32, 32, 32),
         16);
 

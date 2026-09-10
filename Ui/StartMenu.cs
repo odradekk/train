@@ -9,15 +9,19 @@ public partial class StartMenu : Control
     {
         GetNode<Button>("%StartGame").Pressed += OnStartPressed;
         GetNode<Button>("%StartSlice2").Pressed += OnSlice2Pressed;
+        GetNode<Button>("%StartSlice3").Pressed += OnSlice3Pressed;
         GetNode<Button>("%QuitGame").Pressed += OnQuitPressed;
         if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE"), "1", StringComparison.Ordinal) &&
             string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE_REENTER"), "1", StringComparison.Ordinal))
         {
             GD.Print("VOXEL_SMOKE_RETURNED_TO_MENU");
-            if (Main.ReadRequestedSlice() == VoxelDevelopmentSlice.Slice2)
-                GetNode<Button>("%StartSlice2").EmitSignal(BaseButton.SignalName.Pressed);
-            else
-                GetNode<Button>("%StartGame").EmitSignal(BaseButton.SignalName.Pressed);
+            var start = Main.ReadRequestedSlice() switch
+            {
+                VoxelDevelopmentSlice.Slice3 => GetNode<Button>("%StartSlice3"),
+                VoxelDevelopmentSlice.Slice2 => GetNode<Button>("%StartSlice2"),
+                _ => GetNode<Button>("%StartGame")
+            };
+            start.EmitSignal(BaseButton.SignalName.Pressed);
         }
     }
 
@@ -26,6 +30,9 @@ public partial class StartMenu : Control
 
     private void OnSlice2Pressed() =>
         GetNode<Main>("/root/Main").EnterVoxelDevelopmentScene(VoxelDevelopmentSlice.Slice2);
+
+    private void OnSlice3Pressed() =>
+        GetNode<Main>("/root/Main").EnterVoxelDevelopmentScene(VoxelDevelopmentSlice.Slice3);
 
     private void OnQuitPressed() => GetTree().Quit();
 }

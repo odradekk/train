@@ -24,5 +24,6 @@ voxel load 11111111-2222-4333-8444-555555555555
 | `MismatchedId` | 路径 UUID 与文件内 `id` 不一致 |
 | `MissingDefinition` | 当前目录缺少存档用到的定义，或缺少重建所需的 `external_definitions` 记录（本切片不回退缺失 Mod，也不用当前上限补基线） |
 | `InvalidDelta` / `Occupied` / `OutOfBounds` | Delta 非法、重复占格或越界 |
+| `UnsupportedVehicles` | 当前会话已有车辆；拒绝用只含世界的旧存档覆盖并丢弃车辆 |
 
 退出进程后再启动、进入同一切片，再用本命令恢复。不要用销毁会话或仅 `voxel reset` 代替进程重启验证。

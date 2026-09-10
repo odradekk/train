@@ -998,8 +998,9 @@ internal static class ContentFixtures
         TrainLogger logger,
         IContentPreCommitValidator? validator = null,
         VoxelCatalog? catalog = null,
-        SettlementRegistry? settlements = null) =>
-        new(source, logger, catalog, validator, settlements);
+        SettlementRegistry? settlements = null,
+        CompositeCatalog? composites = null) =>
+        new(source, logger, catalog, validator, settlements, composites);
 
     public static void AddSquareImages(MemoryContentSource source, params string[] paths)
     {
