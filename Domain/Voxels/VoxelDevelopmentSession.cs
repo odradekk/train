@@ -273,6 +273,8 @@ public sealed class VoxelDevelopmentSession
     {
         if (_vehicles.Count > 0)
             return new WorldSaveResult(WorldSaveStatus.UnsupportedVehicles, SaveId, DisplayName);
+        if (HasRuntimeIds())
+            return new WorldSaveResult(WorldSaveStatus.UnsupportedIdentities, SaveId, DisplayName);
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
@@ -297,6 +299,8 @@ public sealed class VoxelDevelopmentSession
     {
         if (_vehicles.Count > 0)
             return new WorldSaveResult(WorldSaveStatus.UnsupportedVehicles, SaveId, DisplayName);
+        if (HasRuntimeIds())
+            return new WorldSaveResult(WorldSaveStatus.UnsupportedIdentities, SaveId, DisplayName);
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
@@ -374,6 +378,9 @@ public sealed class VoxelDevelopmentSession
         if (publish)
             Changed?.Invoke();
     }
+
+    private bool HasRuntimeIds() =>
+        World.OccupiedVoxels().Any(item => item.Value.RuntimeId is not null);
 
     private void ReplaceWorld(VoxelWorld world)
     {

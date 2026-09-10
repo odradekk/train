@@ -36,6 +36,9 @@ public readonly record struct CompositeTransform
         double.IsFinite(RightX) && double.IsFinite(RightY) && double.IsFinite(RightZ) &&
         double.IsFinite(UpX) && double.IsFinite(UpY) && double.IsFinite(UpZ);
 
+    public bool IsValid =>
+        IsFinite && TryOrthonormalize(Right, Up, out _, out _);
+
     private CompositeTransform(
         double originX,
         double originY,

@@ -28,6 +28,6 @@ parts 168
 | `Disconnected` / `Empty` / `DuplicateOccupancy` | 布局不满足 Archetype 的非空六邻接规则 |
 | `MissingContact` / `DuplicateContact` / `CoincidentContacts` / `UnboundContact` | 接触锚点数量、重合或绑定失败 |
 | `EnvelopeExceeded` / `UnknownSizeClass` | 声明规格或固定包络不成立 |
-| `UnknownVoxel` / `DisallowedOrientation` / `NonFiniteTransform` | 零件定义、朝向或 Transform 非法 |
+| `UnknownVoxel` / `DisallowedOrientation` / `NonFiniteTransform` | 零件定义、朝向或 Transform 非法。`default` 或轴长为零的姿态虽有限但不是合法旋转，制造前拒绝，不分配 ID、不推进事务 |
 
 伤害、断裂与脱落使用 [`composite damage`](composite-damage.md)。当前不支持沿轨运动、完整改装或车辆存档。非法 ID 文本返回用法提示，不执行制造。

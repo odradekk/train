@@ -14,7 +14,7 @@ public static class ConstructionValidator
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(archetype);
         ArgumentNullException.ThrowIfNull(voxels);
-        if (!transform.IsFinite)
+        if (!transform.IsValid)
             return ConstructionStatus.NonFiniteTransform;
 
         var occupancy = new Dictionary<LocalVoxelCoord, CompositeVoxelSpec>();

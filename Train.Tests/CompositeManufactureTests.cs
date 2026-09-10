@@ -176,6 +176,29 @@ public sealed class CompositeManufactureTests
     }
 
     [TestMethod]
+    public void Default_transform_is_rejected_at_manufacture_and_does_not_advance_ids()
+    {
+        var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());
+        using (logger)
+        {
+            var session = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+            var before = session.CaptureAuthority();
+            Assert.IsFalse(default(CompositeTransform).IsValid);
+            Assert.IsTrue(HollowShellFixture.DefaultTransform.IsValid);
+            var rejected = session.Manufacture(BridgeFixture.DefinitionId, default(CompositeTransform));
+            Assert.AreEqual(ConstructionStatus.NonFiniteTransform, rejected.Status);
+            Assert.IsFalse(rejected.Succeeded);
+            Assert.AreEqual(before, session.CaptureAuthority());
+            Assert.AreEqual(1UL, session.NextEntityId);
+            Assert.AreEqual(0UL, session.TransactionCount);
+
+            Assert.IsTrue(session.Manufacture(BridgeFixture.DefinitionId, HollowShellFixture.DefaultTransform).Succeeded);
+            Assert.AreEqual(1, session.QueryComposites().Count);
+            Assert.AreEqual(55, session.QueryComposites()[0].Parts.Count);
+        }
+    }
+
+    [TestMethod]
     public void Rebuilding_the_derived_mesh_does_not_change_identity_or_layout()
     {
         var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());

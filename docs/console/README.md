@@ -104,6 +104,7 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `Usage: voxel ...` | 子命令、参数个数、无法解析的坐标文本、ID 格式或朝向编码不合法；按本手册的完整语法重新输入。`NaN` / `Infinity` 能解析为数字，因此走 `InvalidQuery` 而不是 Usage。非法 UUID 文本也是用法提示，不会读文件 |
 | `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前总数 |
 | `UnsupportedVehicles` | 当前会话已有车辆，世界存档入口明确拒绝；不写文件、不读档、不丢弃车辆 |
+| `UnsupportedIdentities` | 当前世界已有带 `RuntimeId` 的体素，世界存档入口明确拒绝；不写文件、不读档、不丢掉身份 |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功 |
 
@@ -196,7 +197,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。当前会话存在车辆时，`voxel save` / `voxel load` 返回 `UnsupportedVehicles`，不会报告成功却丢车。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。当前会话存在车辆时，`voxel save` / `voxel load` 返回 `UnsupportedVehicles`，不会报告成功却丢车。世界里已有带 `RuntimeId` 的体素时返回 `UnsupportedIdentities`，不会报告成功却丢掉身份；普通无身份世界仍可存档。
 
 ### 切片 2 边界复现
 
