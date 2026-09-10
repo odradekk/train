@@ -627,18 +627,35 @@ public sealed class VoxelDevelopmentSession
         var contacts = source.Contacts
             .Where(contact => parts.Any(part => part.Cell == contact.BoundCell))
             .ToArray();
+        var lastUsedRevision = source.LastUsedRevision;
+        string? saveLocalRevision = null;
+        CompositeDefinition? saveLocal = null;
+        if (source.SaveLocalDefinition is { } previous)
+        {
+            saveLocal = new CompositeDefinition(
+                previous.Id,
+                previous.Name,
+                previous.Description,
+                previous.ArchetypeId,
+                previous.SizeClass,
+                parts.Select(part => new CompositeVoxelSpec(part.Cell, part.DefinitionId, part.Orientation)).ToArray(),
+                contacts);
+            saveLocalRevision = CompositeRevisions.ComputeSemanticRevision(saveLocal);
+            lastUsedRevision = saveLocalRevision;
+        }
+
         return new CompositeInstance(
             id,
             source.DefinitionId,
-            source.LastUsedRevision,
+            lastUsedRevision,
             source.ArchetypeId,
             source.LastUsedArchetypeRevision,
             source.SizeClass,
             source.Transform,
             parts,
             contacts,
-            source.SaveLocalRevision,
-            source.SaveLocalDefinition);
+            saveLocalRevision,
+            saveLocal);
     }
 
     private HashSet<WorldVoxelCoord> OccupiedByOtherVehicles(

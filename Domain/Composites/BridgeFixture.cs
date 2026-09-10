@@ -16,6 +16,7 @@ public static class BridgeFixture
     public static LocalVoxelCoord LeftCoreCell { get; } = new(1, 1, 1);
     public static LocalVoxelCoord RightCoreCell { get; } = new(5, 1, 1);
     public static LocalVoxelCoord BridgeCell { get; } = new(3, 1, 1);
+    public static LocalVoxelCoord SecondBridgeCell { get; } = new(3, 0, 1);
     public static LocalVoxelCoord FrontBoundCell { get; } = new(1, 0, 1);
     public static LocalVoxelCoord RearBoundCell { get; } = new(6, 0, 1);
     public static CompositeContactAnchor FrontContact { get; } = new(1, -0.75, 1.5, FrontBoundCell);

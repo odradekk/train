@@ -65,7 +65,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同且侧面有局部 +X 箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -331,6 +331,15 @@ composite rotate 1 <locked> nz_py
 ```
 
 前三例应整批拒绝且 P 仍为 `nz_py`、耐久 75；非法旋转返回 `DisallowedOrientation`。权威不变后仍可 `composite move 1 <P> 3 1 0`。单项移到对方占用格应 `DuplicateOccupancy`；同批两个 `move` 才能交换。
+
+改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。当前仍不支持完整车辆存档。
+
+```text
+composite reset bridge
+composite add 1 3 0 1 core:refit-marker px_py
+composite damage 1 3 1 1 100 1 3 0 1 100
+composite query
+```
 
 ## 维护与实现依据
 

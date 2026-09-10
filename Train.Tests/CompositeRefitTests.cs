@@ -247,6 +247,92 @@ public sealed class CompositeRefitTests
     }
 
     [TestMethod]
+    public void Fatal_delete_after_refit_without_split_updates_save_local()
+    {
+        using var world = Open();
+        var session = world.Session;
+        var vehicleId = session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var trace = HollowShellRefit.ApplySuccess(session, vehicleId);
+        var before = session.Vehicles.Single();
+        Assert.AreEqual(169, before.Parts.Count);
+        Assert.AreEqual(169, before.SaveLocalDefinition!.Voxels.Count);
+        var staleRevision = before.SaveLocalRevision;
+        Assert.IsFalse(string.IsNullOrEmpty(staleRevision));
+
+        var damaged = session.Damage(vehicleId, HollowShellRefit.Occupied, 100);
+        Assert.AreEqual(CompositeDamageStatus.Damaged, damaged.Status);
+        Assert.AreEqual(1, session.QueryComposites().Count);
+        Assert.AreEqual(vehicleId, session.QueryComposites()[0].Id);
+        Assert.AreEqual(168, session.QueryComposites()[0].Parts.Count);
+        Assert.IsFalse(session.QueryComposites()[0].Parts.Any(part => part.Cell == HollowShellRefit.Occupied));
+        var p = session.QueryComposite(vehicleId)!.Parts.Single(part => part.Id == trace.P);
+        Assert.AreEqual(HollowShellRefit.SecondAdd, p.Cell);
+        Assert.AreEqual(75, p.CurrentDurability);
+        Assert.AreEqual(HollowShellRefit.MarkerOrientation, p.Orientation);
+        Assert.AreEqual(0, session.World.VoxelCount);
+        AssertSaveLocalMatchesSuccessor(session.Vehicles.Single(), staleRevision!);
+        AssertUniquePartIds(session);
+    }
+
+    [TestMethod]
+    public void Dual_bridge_same_event_after_second_bridge_updates_each_successor_save_local()
+    {
+        using var world = Open();
+        var session = world.Session;
+        var vehicleId = session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
+        Assert.IsNull(session.Vehicles.Single().SaveLocalDefinition);
+
+        var added = session.Refit(
+            vehicleId,
+            CompositeRefitOperation.Add(BridgeFixture.SecondBridgeCell, HollowShellRefit.MarkerId, VoxelOrientation.Identity));
+        Assert.IsTrue(added.Succeeded);
+        var refitted = session.Vehicles.Single();
+        Assert.AreEqual(56, refitted.Parts.Count);
+        Assert.AreEqual(56, refitted.SaveLocalDefinition!.Voxels.Count);
+        Assert.AreEqual(2, refitted.SaveLocalDefinition.Contacts.Count);
+        var staleRevision = refitted.SaveLocalRevision;
+        Assert.IsFalse(string.IsNullOrEmpty(staleRevision));
+        Assert.AreEqual(staleRevision, refitted.LastUsedRevision);
+
+        var damaged = session.Damage(new[]
+        {
+            new CompositeDamageTarget(vehicleId, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(vehicleId, BridgeFixture.SecondBridgeCell, 100)
+        });
+        Assert.AreEqual(CompositeDamageStatus.Damaged, damaged.Status);
+        Assert.AreEqual(2, session.Vehicles.Count);
+        Assert.AreEqual(0, session.World.VoxelCount);
+
+        foreach (var successor in session.Vehicles)
+        {
+            Assert.AreEqual(27, successor.Parts.Count);
+            Assert.AreEqual(1, successor.Contacts.Count);
+            AssertSaveLocalMatchesSuccessor(successor, staleRevision!);
+        }
+
+        Assert.AreNotEqual(session.Vehicles[0].SaveLocalRevision, session.Vehicles[1].SaveLocalRevision);
+        Assert.IsFalse(session.Vehicles[0].Parts.Select(part => part.Cell).Intersect(session.Vehicles[1].Parts.Select(part => part.Cell)).Any());
+        AssertUniquePartIds(session);
+    }
+
+    [TestMethod]
+    public void Unrefitted_fracture_does_not_invent_save_local()
+    {
+        using var world = Open();
+        var session = world.Session;
+        var vehicleId = session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
+        Assert.IsNull(session.Vehicles.Single().SaveLocalDefinition);
+        Assert.IsTrue(session.Damage(vehicleId, BridgeFixture.BridgeCell, 100).Succeeded);
+        Assert.AreEqual(2, session.Vehicles.Count);
+        foreach (var successor in session.Vehicles)
+        {
+            Assert.IsNull(successor.SaveLocalDefinition);
+            Assert.IsNull(successor.SaveLocalRevision);
+            Assert.AreEqual(27, successor.Parts.Count);
+        }
+    }
+
+    [TestMethod]
     public void Added_and_replaced_definitions_enter_candidate_content_protection()
     {
         using var session = LoggerSession.Create();
@@ -361,6 +447,41 @@ public sealed class CompositeRefitTests
         Assert.AreEqual(before, session.CaptureAuthority());
         Assert.AreEqual(ConstructionStatus.UnknownVoxel, session.Refit(vehicleId, CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, new VoxelDefinitionId("core", "missing"), VoxelOrientation.Identity)).Status);
         Assert.AreEqual(before, session.CaptureAuthority());
+    }
+
+    private static void AssertSaveLocalMatchesSuccessor(CompositeInstance vehicle, string staleRevision)
+    {
+        var saved = vehicle.SaveLocalDefinition;
+        Assert.IsNotNull(saved);
+        Assert.AreEqual(vehicle.Parts.Count, saved.Voxels.Count);
+        Assert.AreEqual(vehicle.Contacts.Count, saved.Contacts.Count);
+        var actualCells = vehicle.Parts.Select(part => part.Cell).ToHashSet();
+        Assert.AreEqual(0, saved.Voxels.Count(spec => !actualCells.Contains(spec.Cell)));
+        foreach (var part in vehicle.Parts)
+        {
+            var spec = saved.Voxels.Single(item => item.Cell == part.Cell);
+            Assert.AreEqual(part.DefinitionId, spec.DefinitionId);
+            Assert.AreEqual(part.Orientation, spec.Orientation);
+        }
+
+        foreach (var contact in vehicle.Contacts)
+        {
+            Assert.IsTrue(saved.Contacts.Any(item =>
+                item.BoundCell == contact.BoundCell &&
+                item.X == contact.X &&
+                item.Y == contact.Y &&
+                item.Z == contact.Z));
+        }
+
+        Assert.AreEqual(vehicle.SaveLocalRevision, vehicle.LastUsedRevision);
+        Assert.AreNotEqual(staleRevision, vehicle.SaveLocalRevision);
+        Assert.AreNotEqual(staleRevision, vehicle.LastUsedRevision);
+    }
+
+    private static void AssertUniquePartIds(VoxelDevelopmentSession session)
+    {
+        var ids = session.Vehicles.SelectMany(vehicle => vehicle.Parts).Select(part => part.Id.Value).ToArray();
+        Assert.AreEqual(ids.Length, ids.Distinct().Count());
     }
 
     private static SessionHandle Open()

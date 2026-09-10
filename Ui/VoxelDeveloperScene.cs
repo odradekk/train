@@ -56,6 +56,13 @@ public partial class VoxelDeveloperScene : Node3D
     private EntityId _refitQ;
     private EntityId _refitR;
     private CompositeAuthoritySnapshot? _refitSuccess;
+    private int _refitMetricRun;
+    private int _refitMetricFrameSamples;
+    private double _refitMutationMs;
+    private double _refitRefreshMs;
+    private double _refitFrameMs;
+    private long _refitMemoryBefore;
+    private bool _refitMetricSampling;
 
     private enum VoxelSmokePhase
     {
@@ -177,6 +184,8 @@ public partial class VoxelDeveloperScene : Node3D
         RefitContinue,
         AwaitRefitContinue,
         RefitPairs,
+        RefitMetricsRun,
+        AwaitRefitMetrics,
         Reset,
         AwaitReset,
         Bridge,
@@ -187,6 +196,8 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitPartial,
         Drop,
         AwaitDrop,
+        RefitFracture,
+        AwaitRefitFracture,
         HandoffConsole
     }
 
@@ -294,6 +305,10 @@ public partial class VoxelDeveloperScene : Node3D
         Drop,
         AwaitDrop,
         CaptureDrop,
+        AwaitDropView,
+        RefitFracture,
+        AwaitRefitFracture,
+        CaptureRefitFracture,
         Done
     }
 
@@ -470,8 +485,24 @@ public partial class VoxelDeveloperScene : Node3D
 
     public override void _Process(double delta)
     {
+        if (_refitMetricSampling)
+        {
+            _refitFrameMs += delta * 1000.0;
+            _refitMetricFrameSamples++;
+        }
+
         if (_dirty)
-            Refresh();
+        {
+            if (_refitMetricSampling)
+            {
+                var refresh = Stopwatch.StartNew();
+                Refresh();
+                refresh.Stop();
+                _refitRefreshMs = refresh.Elapsed.TotalMilliseconds;
+            }
+            else
+                Refresh();
+        }
         AdvanceSmoke();
         AdvanceSlice2Smoke();
         AdvanceSlice3Smoke();
@@ -749,30 +780,33 @@ public partial class VoxelDeveloperScene : Node3D
         SetRefitResult(result);
     }
 
-    private void RecordRefitMetrics()
+    private void AimRefitCamera(LocalVoxelCoord cell)
     {
-        for (var run = 1; run <= 3; run++)
-        {
-            var memoryBefore = GC.GetTotalMemory(true);
-            var mutation = Stopwatch.StartNew();
-            HollowShellRefit.RunMoveReturnPairs(_session, _refitVehicle, _refitP, 100);
-            mutation.Stop();
-            var refresh = Stopwatch.StartNew();
-            Refresh();
-            refresh.Stop();
-            var memoryAfter = GC.GetTotalMemory(false);
-            GD.Print(
-                $"REFIT_METRICS run={run} parts={_session.QueryComposite(_refitVehicle)!.Parts.Count} world={_session.World.VoxelCount} mutation_ms={mutation.Elapsed.TotalMilliseconds:F3} frame_ms={refresh.Elapsed.TotalMilliseconds:F3} process_delta_ms={GetProcessDeltaTime() * 1000.0:F3} memory_bytes={memoryAfter} memory_delta={memoryAfter - memoryBefore}");
-        }
-
-        RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+        var target = new Vector3(8f + cell.X + 0.5f, 8f + cell.Y + 0.5f, 8f + cell.Z + 0.5f);
+        var camera = GetChildren().OfType<Camera3D>().Single();
+        camera.Position = target + new Vector3(0.05f, 2.65f, 1.4f);
+        camera.LookAt(target, Vector3.Up);
     }
 
-    private void AimRefitCamera()
+    private void RequireSuccessorSaveLocal(string staleRevision)
     {
-        var camera = GetChildren().OfType<Camera3D>().Single();
-        camera.Position = new Vector3(11.5f, 10.6f, 9.3f);
-        camera.LookAt(new Vector3(10.6f, 9.15f, 8.15f), Vector3.Up);
+        foreach (var vehicle in _session.Vehicles)
+        {
+            var saved = vehicle.SaveLocalDefinition
+                ?? throw new InvalidOperationException("Slice 3 refit-fracture successor lost its save-local definition.");
+            var actualCells = vehicle.Parts.Select(part => part.Cell).ToHashSet();
+            if (saved.Voxels.Count != vehicle.Parts.Count ||
+                saved.Contacts.Count != vehicle.Contacts.Count ||
+                saved.Voxels.Any(spec => !actualCells.Contains(spec.Cell)) ||
+                !string.Equals(vehicle.SaveLocalRevision, vehicle.LastUsedRevision, StringComparison.Ordinal) ||
+                string.Equals(vehicle.SaveLocalRevision, staleRevision, StringComparison.Ordinal))
+                throw new InvalidOperationException(
+                    $"Slice 3 refit-fracture save-local mismatch id={vehicle.Id} parts={vehicle.Parts.Count} saved={saved.Voxels.Count} contacts={vehicle.Contacts.Count}/{saved.Contacts.Count}.");
+        }
+
+        if (_session.Vehicles.Count == 2 &&
+            string.Equals(_session.Vehicles[0].SaveLocalRevision, _session.Vehicles[1].SaveLocalRevision, StringComparison.Ordinal))
+            throw new InvalidOperationException("Slice 3 refit-fracture successors kept the same save-local revision.");
     }
 
     private string FormatVehicleHud()
@@ -1845,7 +1879,39 @@ public partial class VoxelDeveloperScene : Node3D
                 HollowShellRefit.RunMoveReturnPairs(_session, _refitVehicle, _refitP, 100);
                 RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
                 GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_PAIRS id={_refitP} pairs=100 parts={_session.QueryComposite(_refitVehicle)!.Parts.Count}");
-                RecordRefitMetrics();
+                _refitMetricRun = 1;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitMetricsRun;
+                return;
+            case VoxelSlice3SmokePhase.RefitMetricsRun:
+                _refitMetricSampling = false;
+                _refitFrameMs = 0;
+                _refitRefreshMs = 0;
+                _refitMetricFrameSamples = 0;
+                _refitMemoryBefore = GC.GetTotalMemory(true);
+                var mutation = Stopwatch.StartNew();
+                HollowShellRefit.RunMoveReturnPairs(_session, _refitVehicle, _refitP, 100);
+                mutation.Stop();
+                _refitMutationMs = mutation.Elapsed.TotalMilliseconds;
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                _refitMetricSampling = true;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitMetrics;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitMetrics:
+                if (_refitMetricFrameSamples < 2 || !AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                var memoryAfter = GC.GetTotalMemory(false);
+                GD.Print(
+                    $"REFIT_METRICS run={_refitMetricRun} parts={_session.QueryComposite(_refitVehicle)!.Parts.Count} world={_session.World.VoxelCount} mutation_ms={_refitMutationMs:F3} refresh_ms={_refitRefreshMs:F3} frame_ms={_refitFrameMs:F3} frame_samples={_refitMetricFrameSamples} process_delta_ms={GetProcessDeltaTime() * 1000.0:F3} memory_bytes={memoryAfter} memory_delta={memoryAfter - _refitMemoryBefore}");
+                if (_refitMetricRun < 3)
+                {
+                    _refitMetricRun++;
+                    _refitMetricSampling = false;
+                    _slice3SmokePhase = VoxelSlice3SmokePhase.RefitMetricsRun;
+                    return;
+                }
+
+                _refitMetricSampling = false;
                 GD.Print("COMPOSITE_REFIT_SMOKE_OK");
                 _slice3SmokePhase = VoxelSlice3SmokePhase.Reset;
                 return;
@@ -1954,6 +2020,44 @@ public partial class VoxelDeveloperScene : Node3D
                 RequirePublishedWholeCell(new WorldVoxelCoord(11, 9, 9), false);
                 ValidateGeneratedMesh();
                 GD.Print("COMPOSITE_SMOKE_OK");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitFracture;
+                return;
+            case VoxelSlice3SmokePhase.RefitFracture:
+                _session.Reset();
+                var refitBridge = _session.Manufacture(BridgeFixture.DefinitionId);
+                if (!refitBridge.Succeeded || refitBridge.Parts?.Count != 55)
+                    throw new InvalidOperationException($"Slice 3 smoke refit-fracture manufacture failed: {refitBridge.Status}.");
+                RequireCommittedRefit(
+                    _session.Refit(
+                        refitBridge.VehicleId!.Value,
+                        CompositeRefitOperation.Add(BridgeFixture.SecondBridgeCell, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+                    "second bridge");
+                var staleRevision = _session.Vehicles.Single().SaveLocalRevision
+                    ?? throw new InvalidOperationException("Slice 3 smoke refit-fracture did not write a save-local revision.");
+                if (_session.Vehicles.Single().Parts.Count != 56)
+                    throw new InvalidOperationException("Slice 3 smoke second bridge did not produce 56 parts.");
+                var refitCut = _session.Damage(new[]
+                {
+                    new CompositeDamageTarget(refitBridge.VehicleId.Value, BridgeFixture.BridgeCell, 100),
+                    new CompositeDamageTarget(refitBridge.VehicleId.Value, BridgeFixture.SecondBridgeCell, 100)
+                });
+                if (!refitCut.Succeeded ||
+                    _session.Vehicles.Count != 2 ||
+                    _session.World.VoxelCount != 0 ||
+                    _session.Vehicles.Any(vehicle => vehicle.Parts.Count != 27 || vehicle.Contacts.Count != 1))
+                    throw new InvalidOperationException(
+                        $"Slice 3 smoke refit-fracture failed: {refitCut.Status} vehicles={_session.Vehicles.Count} world={_session.World.VoxelCount}.");
+                RequireSuccessorSaveLocal(staleRevision);
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：改装后双桥同事件断裂已结算。";
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE3_REFIT_FRACTURE vehicles=2 parts={_session.Vehicles[0].Parts.Count},{_session.Vehicles[1].Parts.Count} world={_session.World.VoxelCount}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitFracture;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitFracture:
+                if (!AwaitCommittedVehicleVisual(2, 27))
+                    return;
+                ValidateCompositeVisual();
                 _slice3SmokePhase = VoxelSlice3SmokePhase.HandoffConsole;
                 return;
             case VoxelSlice3SmokePhase.HandoffConsole:
@@ -3021,7 +3125,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice3ObservePhase = VoxelSlice3ObservePhase.AimRefit;
                 return;
             case VoxelSlice3ObservePhase.AimRefit:
-                AimRefitCamera();
+                AimRefitCamera(HollowShellRefit.FirstAdd);
                 _observeHoldFrames = 8;
                 _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitAimRefit;
                 return;
@@ -3054,6 +3158,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice3ObservePhase.RefitMove:
                 RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Moved)), "observe move P");
+                AimRefitCamera(HollowShellRefit.Moved);
                 _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitMove;
                 return;
             case VoxelSlice3ObservePhase.AwaitRefitMove:
@@ -3079,7 +3184,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureRotated;
                 return;
             case VoxelSlice3ObservePhase.CaptureRotated:
-                CaptureObserve("issue60-rotated", "P at (3,1,0) rotated to nz_py so the +X arrow faces the camera");
+                CaptureObserve("issue60-rotated", "P at (3,1,0) rotated to nz_py; top +X mark turns toward world -Z");
                 _observeHoldFrames = 8;
                 _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRotated;
                 return;
@@ -3276,6 +3381,44 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice3ObservePhase.CaptureDrop:
                 CaptureObserve("issue59-drop", "identity-less fragments appear once in the world mesh");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitDropView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitDropView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitFracture;
+                return;
+            case VoxelSlice3ObservePhase.RefitFracture:
+                _session.Reset();
+                PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+                var refitBridge = _session.Manufacture(BridgeFixture.DefinitionId);
+                if (!refitBridge.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 observe refit-fracture manufacture failed: {refitBridge.Status}.");
+                RequireCommittedRefit(
+                    _session.Refit(
+                        refitBridge.VehicleId!.Value,
+                        CompositeRefitOperation.Add(BridgeFixture.SecondBridgeCell, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+                    "observe second bridge");
+                var staleRevision = _session.Vehicles.Single().SaveLocalRevision
+                    ?? throw new InvalidOperationException("Slice 3 observe refit-fracture missing save-local revision.");
+                var refitCut = _session.Damage(new[]
+                {
+                    new CompositeDamageTarget(refitBridge.VehicleId.Value, BridgeFixture.BridgeCell, 100),
+                    new CompositeDamageTarget(refitBridge.VehicleId.Value, BridgeFixture.SecondBridgeCell, 100)
+                });
+                if (!refitCut.Succeeded || _session.Vehicles.Count != 2 || _session.World.VoxelCount != 0)
+                    throw new InvalidOperationException($"Slice 3 observe refit-fracture failed: {refitCut.Status}.");
+                RequireSuccessorSaveLocal(staleRevision);
+                AssertUniqueOwnership();
+                _result.Text = "最近命令：改装后双桥同事件断裂已结算。";
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitFracture;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitFracture:
+                if (!AwaitCommittedVehicleVisual(2, 27))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureRefitFracture;
+                return;
+            case VoxelSlice3ObservePhase.CaptureRefitFracture:
+                CaptureObserve("issue60-refit-fracture", "refitted dual-bridge cut leaves two 27-part successors, world empty");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _slice3ObservePhase = VoxelSlice3ObservePhase.Done;
                 GetTree().Quit();

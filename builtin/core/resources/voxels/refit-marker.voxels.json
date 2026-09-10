@@ -4,7 +4,7 @@
     {
       "id": "refit-marker",
       "name": "改装朝向标记",
-      "description": "与壳体同 Value/Mass/耐久上限，但顶/侧/底纹理不同，用于辨认正交朝向。局部 +X 侧面有箭头标记。",
+      "description": "与壳体同 Value/Mass/耐久上限，但顶/侧/底纹理不同，用于辨认正交朝向。顶面与侧面均有指向局部 +X 的箭头。",
       "value": 10,
       "mass": 1,
       "max_durability": 100,

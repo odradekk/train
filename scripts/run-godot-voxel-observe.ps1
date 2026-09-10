@@ -42,7 +42,7 @@ $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-$quitAfter = if ($Slice -eq 3) { 700 } else { 300 }
+$quitAfter = if ($Slice -eq 3) { 780 } else { 300 }
 $output = & $env:GODOT --path $root --quit-after $quitAfter 2>&1 | Out-String
 $exitCode = $LASTEXITCODE
 Write-Host $output
@@ -72,7 +72,8 @@ $captures = if ($Slice -eq 3) {
         "issue60-swapped.png",
         "issue60-replaced.png",
         "issue60-removed.png",
-        "issue60-rejected.png"
+        "issue60-rejected.png",
+        "issue60-refit-fracture.png"
     )
 } elseif ($Slice -eq 2) {
     @(
@@ -121,7 +122,7 @@ $report = if ($Slice -eq 3) {
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 3 ``.",
         "",
-        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png``, four ``.godot/issue59-*.png``, and seven ``.godot/issue60-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png``, four ``.godot/issue59-*.png``, and eight ``.godot/issue60-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
         "",
         "## Procedure",
         "",
@@ -135,6 +136,7 @@ $report = if ($Slice -eq 3) {
         "8. Run ``composite reset bridge``. Confirm one parked 55-part bridge, no world duplicate.",
         "9. Run ``composite damage 1 3 1 1 100``. Confirm two surviving composites, two independent meshes, no world duplicate, no stretch or shear.",
         "10. Reset, manufacture the bridge, then damage the bridge and both cores. Confirm the vehicle meshes disappear and fragments appear once in the world mesh.",
+        "11. Reset, add a second bridge at ``(3,0,1)``, then cut both bridges in one event. Confirm two 27-part successors, empty world mesh, and that each successor's save-local layout matches its live parts.",
         "",
         "## Result",
         "",

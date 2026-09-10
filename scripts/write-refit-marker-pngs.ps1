@@ -161,7 +161,7 @@ $marker = Join-Path $root "builtin/core/resources/voxels/refit-marker"
 $repl = Join-Path $root "builtin/core/resources/voxels/refit-replacement"
 New-Item -ItemType Directory -Force -Path $marker, $repl | Out-Null
 [RefitMarkerPng]::WriteSolid((Join-Path $marker "icon.png"), 32, 32, 40, 200, 255)
-[RefitMarkerPng]::WriteSolid((Join-Path $marker "top.png"), 16, 16, 255, 220, 40)
+[RefitMarkerPng]::WriteArrowSide((Join-Path $marker "top.png"), 16, 16, 255, 220, 40, 20, 40, 90)
 [RefitMarkerPng]::WriteArrowSide((Join-Path $marker "side.png"), 16, 16, 20, 120, 220, 255, 255, 255)
 [RefitMarkerPng]::WriteSolid((Join-Path $marker "bottom.png"), 16, 16, 20, 40, 90)
 [RefitMarkerPng]::WriteSolid((Join-Path $repl "icon.png"), 32, 32, 220, 80, 40)
