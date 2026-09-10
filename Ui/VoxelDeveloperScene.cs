@@ -51,6 +51,11 @@ public partial class VoxelDeveloperScene : Node3D
     private Dictionary<ChunkCoord, long>? _collisionRevisionsBeforeEdit;
     private static readonly VoxelDefinitionId HollowId = new("core", "hollow");
     private static readonly VoxelDefinitionId LedgeId = new("core", "ledge");
+    private EntityId _refitVehicle;
+    private EntityId _refitP;
+    private EntityId _refitQ;
+    private EntityId _refitR;
+    private CompositeAuthoritySnapshot? _refitSuccess;
 
     private enum VoxelSmokePhase
     {
@@ -152,6 +157,26 @@ public partial class VoxelDeveloperScene : Node3D
         Manufacture,
         AwaitManufacture,
         Query,
+        RefitAdd,
+        AwaitRefitAdd,
+        RefitDamage,
+        AwaitRefitDamage,
+        RefitMove,
+        AwaitRefitMove,
+        RefitRotate,
+        AwaitRefitRotate,
+        RefitAddQ,
+        AwaitRefitAddQ,
+        RefitSwap,
+        AwaitRefitSwap,
+        RefitReplace,
+        AwaitRefitReplace,
+        RefitRemove,
+        AwaitRefitRemove,
+        RefitReject,
+        RefitContinue,
+        AwaitRefitContinue,
+        RefitPairs,
         Reset,
         AwaitReset,
         Bridge,
@@ -223,6 +248,35 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitExterior,
         AimInterior,
         AwaitInterior,
+        AimRefit,
+        AwaitAimRefit,
+        RefitAdd,
+        AwaitRefitAdd,
+        CaptureAdded,
+        AwaitAdded,
+        RefitMove,
+        AwaitRefitMove,
+        CaptureMoved,
+        AwaitMoved,
+        RefitRotate,
+        AwaitRefitRotate,
+        CaptureRotated,
+        AwaitRotated,
+        RefitSwap,
+        AwaitRefitSwap,
+        CaptureSwapped,
+        AwaitSwapped,
+        RefitReplace,
+        AwaitRefitReplace,
+        CaptureReplaced,
+        AwaitReplaced,
+        RefitRemove,
+        AwaitRefitRemove,
+        CaptureRemoved,
+        AwaitRemoved,
+        RefitReject,
+        CaptureRejected,
+        AwaitRejected,
         Reset,
         AwaitReset,
         Bridge,
@@ -580,6 +634,145 @@ public partial class VoxelDeveloperScene : Node3D
         _result.Text = result.Succeeded
             ? $"最近命令：已制造车辆 {result.VehicleId}，零件 {result.Parts!.Count}。"
             : $"最近命令：制造失败 {result.Status}。";
+    }
+
+    private void SetRefitResult(CompositeRefitResult result)
+    {
+        _result.Text = result.Succeeded
+            ? $"最近命令：改装成功 {result.Status}，零件 {result.Parts!.Count}。"
+            : $"最近命令：改装失败 {result.Status}。";
+    }
+
+    private CompositeRefitResult RequireCommittedRefit(CompositeRefitResult result, string step)
+    {
+        if (!result.Succeeded)
+            throw new InvalidOperationException($"Slice 3 {step} failed: {result.Status}.");
+        SetRefitResult(result);
+        return result;
+    }
+
+    private static EntityId RequireSingleAllocated(CompositeRefitResult result, string step)
+    {
+        if (result.AllocatedIds is not { Count: 1 })
+            throw new InvalidOperationException($"Slice 3 {step} did not allocate exactly one id.");
+        return result.AllocatedIds[0];
+    }
+
+    private void RequirePart(
+        EntityId vehicleId,
+        LocalVoxelCoord cell,
+        EntityId partId,
+        int durability,
+        VoxelOrientation orientation,
+        VoxelDefinitionId definitionId)
+    {
+        var part = _session.QueryComposite(vehicleId)?.Parts.SingleOrDefault(item => item.Id == partId);
+        if (part is null ||
+            part.Cell != cell ||
+            part.CurrentDurability != durability ||
+            part.Orientation != orientation ||
+            part.DefinitionId != definitionId)
+            throw new InvalidOperationException(
+                $"Slice 3 official query mismatch for {partId}: cell={part?.Cell} durability={part?.CurrentDurability} orientation={part?.Orientation} definition={part?.DefinitionId}.");
+    }
+
+    private bool AwaitCommittedVehicleVisual(int vehicles, int parts)
+    {
+        if (_dirty)
+            return false;
+        var query = _session.QueryComposites();
+        if (query.Count != vehicles || query[0].Parts.Count != parts)
+            return false;
+        if (_composites.VehicleCount != vehicles || _composites.FaceCount == 0 || _composites.MeshInstanceCount != vehicles)
+            return false;
+        if (_session.World.VoxelCount != 0 || _meshes.FaceCount != 0)
+            throw new InvalidOperationException("Slice 3 refit published vehicle voxels into the world mesh.");
+        ValidateCompositeVisual();
+        AssertUniqueOwnership();
+        return true;
+    }
+
+    private void RunOfficialRefitFailures()
+    {
+        var before = _refitSuccess ?? throw new InvalidOperationException("Slice 3 refit success snapshot is missing.");
+        RequireRejectedRefit(
+            _session.Refit(_refitVehicle, new[]
+            {
+                CompositeRefitOperation.Rotate(_refitP, VoxelOrientation.Identity),
+                CompositeRefitOperation.Add(HollowShellRefit.OutOfEnvelope, HollowShellRefit.MarkerId, VoxelOrientation.Identity)
+            }),
+            ConstructionStatus.EnvelopeExceeded,
+            before,
+            "envelope batch");
+        RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+        RequireRejectedRefit(
+            _session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Occupied)),
+            ConstructionStatus.DuplicateOccupancy,
+            before,
+            "occupied move");
+        RequireRejectedRefit(
+            _session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Disconnected)),
+            ConstructionStatus.Disconnected,
+            before,
+            "disconnected move");
+        var locked = RequireCommittedRefit(
+            _session.Refit(_refitVehicle, CompositeRefitOperation.Add(HollowShellRefit.LockedCell, HollowShellRefit.LockedId, VoxelOrientation.Identity)),
+            "add locked");
+        var lockedId = RequireSingleAllocated(locked, "add locked");
+        var afterLocked = _session.CaptureAuthority();
+        RequireRejectedRefit(
+            _session.Refit(_refitVehicle, CompositeRefitOperation.Rotate(lockedId, HollowShellRefit.MarkerOrientation)),
+            ConstructionStatus.DisallowedOrientation,
+            afterLocked,
+            "locked rotate");
+        RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Remove(lockedId)), "remove locked");
+        var restored = _session.QueryComposite(_refitVehicle)!;
+        if (restored.Parts.Count != before.Vehicles[0].Parts.Count ||
+            restored.Id != before.Vehicles[0].Id ||
+            _session.World.VoxelCount != 0)
+            throw new InvalidOperationException("Slice 3 official failures did not restore the success layout.");
+        RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+    }
+
+    private void RequireRejectedRefit(
+        CompositeRefitResult result,
+        ConstructionStatus expected,
+        CompositeAuthoritySnapshot before,
+        string step)
+    {
+        if (result.Status != expected || result.Succeeded)
+            throw new InvalidOperationException($"Slice 3 {step} expected {expected} but was {result.Status}.");
+        if (!before.Equals(_session.CaptureAuthority()))
+            throw new InvalidOperationException($"Slice 3 {step} mutated authority.");
+        if (_session.World.VoxelCount != 0 || _session.QueryComposites().Count != 1)
+            throw new InvalidOperationException($"Slice 3 {step} turned illegal construction into a drop.");
+        SetRefitResult(result);
+    }
+
+    private void RecordRefitMetrics()
+    {
+        for (var run = 1; run <= 3; run++)
+        {
+            var memoryBefore = GC.GetTotalMemory(true);
+            var mutation = Stopwatch.StartNew();
+            HollowShellRefit.RunMoveReturnPairs(_session, _refitVehicle, _refitP, 100);
+            mutation.Stop();
+            var refresh = Stopwatch.StartNew();
+            Refresh();
+            refresh.Stop();
+            var memoryAfter = GC.GetTotalMemory(false);
+            GD.Print(
+                $"REFIT_METRICS run={run} parts={_session.QueryComposite(_refitVehicle)!.Parts.Count} world={_session.World.VoxelCount} mutation_ms={mutation.Elapsed.TotalMilliseconds:F3} frame_ms={refresh.Elapsed.TotalMilliseconds:F3} process_delta_ms={GetProcessDeltaTime() * 1000.0:F3} memory_bytes={memoryAfter} memory_delta={memoryAfter - memoryBefore}");
+        }
+
+        RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+    }
+
+    private void AimRefitCamera()
+    {
+        var camera = GetChildren().OfType<Camera3D>().Single();
+        camera.Position = new Vector3(11.5f, 10.6f, 9.3f);
+        camera.LookAt(new Vector3(10.6f, 9.15f, 8.15f), Vector3.Up);
     }
 
     private string FormatVehicleHud()
@@ -1502,6 +1695,158 @@ public partial class VoxelDeveloperScene : Node3D
                 GD.Print(
                     $"VOXEL_SMOKE_SLICE3_QUERY id={query[0].Id} parts={query[0].Parts.Count} construction={query[0].Construction} identity={query[0].IdentityRetention} envelope=0,0,-1->8,6,4 world={_session.World.VoxelCount}");
                 GD.Print("VOXEL_SMOKE_SLICE3_WORLD_EMPTY");
+                _refitVehicle = query[0].Id;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitAdd;
+                return;
+            case VoxelSlice3SmokePhase.RefitAdd:
+                var added = RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+                    "add P");
+                _refitP = RequireSingleAllocated(added, "add P");
+                RequirePart(_refitVehicle, HollowShellRefit.FirstAdd, _refitP, 100, VoxelOrientation.Identity, HollowShellRefit.MarkerId);
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_ADDED id={_refitP} cell=2,1,0 durability=100");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitAdd;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitAdd:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitDamage;
+                return;
+            case VoxelSlice3SmokePhase.RefitDamage:
+                var damaged = _session.Damage(_refitVehicle, HollowShellRefit.FirstAdd, 25);
+                if (!damaged.Succeeded || damaged.Targets?[0].RemainingDurability != 75)
+                    throw new InvalidOperationException($"Slice 3 smoke refit damage failed: {damaged.Status}.");
+                RequirePart(_refitVehicle, HollowShellRefit.FirstAdd, _refitP, 75, VoxelOrientation.Identity, HollowShellRefit.MarkerId);
+                _result.Text = "最近命令：改装标记件已伤害 25。";
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_DAMAGED id={_refitP} durability=75");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitDamage;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitDamage:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitMove;
+                return;
+            case VoxelSlice3SmokePhase.RefitMove:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Moved)), "move P");
+                RequirePart(_refitVehicle, HollowShellRefit.Moved, _refitP, 75, VoxelOrientation.Identity, HollowShellRefit.MarkerId);
+                if (_session.QueryComposite(_refitVehicle)!.Parts.Any(part => part.Cell == HollowShellRefit.FirstAdd))
+                    throw new InvalidOperationException("Slice 3 smoke move left the old cell occupied.");
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_MOVED id={_refitP} cell=3,1,0");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitMove;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitMove:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitRotate;
+                return;
+            case VoxelSlice3SmokePhase.RefitRotate:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Rotate(_refitP, HollowShellRefit.MarkerOrientation)), "rotate P");
+                RequirePart(_refitVehicle, HollowShellRefit.Moved, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_ROTATED id={_refitP} orientation=nz_py");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitRotate;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitRotate:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitAddQ;
+                return;
+            case VoxelSlice3SmokePhase.RefitAddQ:
+                var addedQ = RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, CompositeRefitOperation.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+                    "add Q");
+                _refitQ = RequireSingleAllocated(addedQ, "add Q");
+                if (_refitP == _refitQ)
+                    throw new InvalidOperationException("Slice 3 smoke allocated the same id to P and Q.");
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_ADDED_Q id={_refitQ} cell=4,1,0");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitAddQ;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitAddQ:
+                if (!AwaitCommittedVehicleVisual(1, 170))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitSwap;
+                return;
+            case VoxelSlice3SmokePhase.RefitSwap:
+                var sequential = _session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.SecondAdd));
+                if (sequential.Status != ConstructionStatus.DuplicateOccupancy)
+                    throw new InvalidOperationException($"Slice 3 smoke sequential swap was {sequential.Status}.");
+                RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, new[]
+                    {
+                        CompositeRefitOperation.Move(_refitP, HollowShellRefit.SecondAdd),
+                        CompositeRefitOperation.Move(_refitQ, HollowShellRefit.Moved)
+                    }),
+                    "swap");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                RequirePart(_refitVehicle, HollowShellRefit.Moved, _refitQ, 100, VoxelOrientation.Identity, HollowShellRefit.MarkerId);
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_SWAPPED p={_refitP} q={_refitQ}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitSwap;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitSwap:
+                if (!AwaitCommittedVehicleVisual(1, 170))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitReplace;
+                return;
+            case VoxelSlice3SmokePhase.RefitReplace:
+                var replaced = RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, CompositeRefitOperation.Replace(HollowShellRefit.Moved, HollowShellRefit.ReplacementId, VoxelOrientation.Identity)),
+                    "replace Q");
+                _refitR = RequireSingleAllocated(replaced, "replace Q");
+                if (_refitR == _refitP || _refitR == _refitQ)
+                    throw new InvalidOperationException("Slice 3 smoke replace reused an old identity.");
+                if (_session.QueryComposite(_refitVehicle)!.Parts.Any(part => part.Id == _refitQ))
+                    throw new InvalidOperationException("Slice 3 smoke replace kept Q.");
+                RequirePart(_refitVehicle, HollowShellRefit.Moved, _refitR, 150, VoxelOrientation.Identity, HollowShellRefit.ReplacementId);
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_REPLACED r={_refitR} durability=150");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitReplace;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitReplace:
+                if (!AwaitCommittedVehicleVisual(1, 170))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitRemove;
+                return;
+            case VoxelSlice3SmokePhase.RefitRemove:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Remove(_refitR)), "remove R");
+                var success = _session.QueryComposite(_refitVehicle)!;
+                if (success.Parts.Any(part => part.Id == _refitQ || part.Id == _refitR) || success.Parts.Count != 169)
+                    throw new InvalidOperationException("Slice 3 smoke success layout was not 169 parts with P retained.");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                _refitSuccess = _session.CaptureAuthority();
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_REMOVED p={_refitP} parts=169");
+                GD.Print("VOXEL_SMOKE_SLICE3_REFIT_SUCCESS");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitRemove;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitRemove:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitReject;
+                return;
+            case VoxelSlice3SmokePhase.RefitReject:
+                RunOfficialRefitFailures();
+                GD.Print("VOXEL_SMOKE_SLICE3_REFIT_REJECT_ENVELOPE");
+                GD.Print("VOXEL_SMOKE_SLICE3_REFIT_REJECT_OCCUPIED");
+                GD.Print("VOXEL_SMOKE_SLICE3_REFIT_REJECT_DISCONNECTED");
+                GD.Print("VOXEL_SMOKE_SLICE3_REFIT_REJECT_ORIENTATION");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitContinue;
+                return;
+            case VoxelSlice3SmokePhase.RefitContinue:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Moved)), "continue move");
+                RequirePart(_refitVehicle, HollowShellRefit.Moved, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.SecondAdd)), "continue return");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_CONTINUE id={_refitP}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitContinue;
+                return;
+            case VoxelSlice3SmokePhase.AwaitRefitContinue:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.RefitPairs;
+                return;
+            case VoxelSlice3SmokePhase.RefitPairs:
+                HollowShellRefit.RunMoveReturnPairs(_session, _refitVehicle, _refitP, 100);
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_PAIRS id={_refitP} pairs=100 parts={_session.QueryComposite(_refitVehicle)!.Parts.Count}");
+                RecordRefitMetrics();
+                GD.Print("COMPOSITE_REFIT_SMOKE_OK");
                 _slice3SmokePhase = VoxelSlice3SmokePhase.Reset;
                 return;
             case VoxelSlice3SmokePhase.Reset:
@@ -2673,6 +3018,152 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice3ObservePhase.AwaitInterior:
                 CaptureObserve("issue58-interior", "camera inside hollow cavity looking at inner -X/-Y/-Z walls");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AimRefit;
+                return;
+            case VoxelSlice3ObservePhase.AimRefit:
+                AimRefitCamera();
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitAimRefit;
+                return;
+            case VoxelSlice3ObservePhase.AwaitAimRefit:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitAdd;
+                return;
+            case VoxelSlice3ObservePhase.RefitAdd:
+                _refitVehicle = _session.QueryComposites().Single().Id;
+                var added = RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+                    "observe add P");
+                _refitP = RequireSingleAllocated(added, "observe add P");
+                var damaged = _session.Damage(_refitVehicle, HollowShellRefit.FirstAdd, 25);
+                if (!damaged.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 observe refit damage failed: {damaged.Status}.");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitAdd;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitAdd:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureAdded;
+                return;
+            case VoxelSlice3ObservePhase.CaptureAdded:
+                CaptureObserve("issue60-added", "added visible-orientation marker P at (2,1,0), durability 75");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitAdded;
+                return;
+            case VoxelSlice3ObservePhase.AwaitAdded:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitMove;
+                return;
+            case VoxelSlice3ObservePhase.RefitMove:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Moved)), "observe move P");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitMove;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitMove:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureMoved;
+                return;
+            case VoxelSlice3ObservePhase.CaptureMoved:
+                CaptureObserve("issue60-moved", "same P moved to (3,1,0) with durability 75");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitMoved;
+                return;
+            case VoxelSlice3ObservePhase.AwaitMoved:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitRotate;
+                return;
+            case VoxelSlice3ObservePhase.RefitRotate:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Rotate(_refitP, HollowShellRefit.MarkerOrientation)), "observe rotate P");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitRotate;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitRotate:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureRotated;
+                return;
+            case VoxelSlice3ObservePhase.CaptureRotated:
+                CaptureObserve("issue60-rotated", "P at (3,1,0) rotated to nz_py so the +X arrow faces the camera");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRotated;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRotated:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitSwap;
+                return;
+            case VoxelSlice3ObservePhase.RefitSwap:
+                var addedQ = RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, CompositeRefitOperation.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+                    "observe add Q");
+                _refitQ = RequireSingleAllocated(addedQ, "observe add Q");
+                RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, new[]
+                    {
+                        CompositeRefitOperation.Move(_refitP, HollowShellRefit.SecondAdd),
+                        CompositeRefitOperation.Move(_refitQ, HollowShellRefit.Moved)
+                    }),
+                    "observe swap");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitSwap;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitSwap:
+                if (!AwaitCommittedVehicleVisual(1, 170))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureSwapped;
+                return;
+            case VoxelSlice3ObservePhase.CaptureSwapped:
+                CaptureObserve("issue60-swapped", "atomic swap: P at (4,1,0) still nz_py/75, Q at (3,1,0)");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitSwapped;
+                return;
+            case VoxelSlice3ObservePhase.AwaitSwapped:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitReplace;
+                return;
+            case VoxelSlice3ObservePhase.RefitReplace:
+                var replaced = RequireCommittedRefit(
+                    _session.Refit(_refitVehicle, CompositeRefitOperation.Replace(HollowShellRefit.Moved, HollowShellRefit.ReplacementId, VoxelOrientation.Identity)),
+                    "observe replace");
+                _refitR = RequireSingleAllocated(replaced, "observe replace");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitReplace;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitReplace:
+                if (!AwaitCommittedVehicleVisual(1, 170))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReplaced;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReplaced:
+                CaptureObserve("issue60-replaced", "Q replaced by new R (max 150) at (3,1,0); P unchanged");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReplaced;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReplaced:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitRemove;
+                return;
+            case VoxelSlice3ObservePhase.RefitRemove:
+                RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Remove(_refitR)), "observe remove R");
+                _refitSuccess = _session.CaptureAuthority();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitRemove;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitRemove:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureRemoved;
+                return;
+            case VoxelSlice3ObservePhase.CaptureRemoved:
+                CaptureObserve("issue60-removed", "R removed; P remains at (4,1,0) with durability 75 and nz_py");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRemoved;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRemoved:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.RefitReject;
+                return;
+            case VoxelSlice3ObservePhase.RefitReject:
+                RunOfficialRefitFailures();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureRejected;
+                return;
+            case VoxelSlice3ObservePhase.CaptureRejected:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+                CaptureObserve("issue60-rejected", "failed batches keep the committed success layout; no drop into world");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRejected;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRejected:
                 _slice3ObservePhase = VoxelSlice3ObservePhase.Reset;
                 return;
             case VoxelSlice3ObservePhase.Reset:

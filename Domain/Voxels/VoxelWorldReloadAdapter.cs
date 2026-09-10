@@ -73,7 +73,18 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
                     continue;
                 }
 
-                if (!string.Equals(compositeEntry.SemanticRevision, vehicle.LastUsedRevision, StringComparison.Ordinal))
+                if (vehicle.SaveLocalRevision is not null)
+                {
+                    if (!string.Equals(vehicle.SaveLocalRevision, vehicle.LastUsedRevision, StringComparison.Ordinal))
+                    {
+                        diagnostics.Add(new ContentDiagnostic(
+                            ContentDiagnosticSeverity.Error,
+                            ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                            "Save-local vehicle layout revision is inconsistent.",
+                            jsonPath: vehicle.DefinitionId.Value));
+                    }
+                }
+                else if (!string.Equals(compositeEntry.SemanticRevision, vehicle.LastUsedRevision, StringComparison.Ordinal))
                 {
                     diagnostics.Add(new ContentDiagnostic(
                         ContentDiagnosticSeverity.Error,

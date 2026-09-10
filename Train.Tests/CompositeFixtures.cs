@@ -84,7 +84,13 @@ internal static class CompositeFixtures
             ContentFixtures.Good("identity-core", "核心", "核心说明", value: 10, tagsJson: "[\"identity_core\"]")));
         source.AddVoxelFile("core", "voxels/identity-core-heavy.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("identity-core-heavy", "重核", "重核说明", value: 20, tagsJson: "[\"identity_core\"]")));
-        ContentFixtures.AddSquareImages(source, "iron.png");
+        source.AddVoxelFile("core", "voxels/refit-marker.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("refit-marker", "改装标记", "带可见朝向标记的改装设备", value: 10, tagsJson: "[]")));
+        source.AddVoxelFile("core", "voxels/refit-replacement.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("refit-replacement", "改装替换件", "上限 150 的替换设备", value: 10, maxDurability: 150, tagsJson: "[]")));
+        source.AddVoxelFile("core", "voxels/fixed.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("fixed", "固定朝向方块", "只允许默认朝向", value: 10, tagsJson: "[]", orientations: "none")));
+        ContentFixtures.AddSquareImages(source, "iron.png", "voxels/refit-marker/icon.png", "voxels/refit-marker/top.png", "voxels/refit-marker/side.png", "voxels/refit-marker/bottom.png");
         source.AddCompositeFile("core", "composites/dev-hollow-shell.composites.json", FixtureFileText());
         source.AddCompositeFile("core", "composites/dev-bridge.composites.json", BridgeFileText());
         return source;
