@@ -54,7 +54,7 @@ composite damage 1 3 1 1 100 1 1 1 100 5 1 1 100
 ```text
 composite reset bridge
 composite add 1 3 0 1 core:refit-marker px_py
-composite damage 1 3 1 1 100 1 3 0 1 100
+composite damage 1 3 1 1 100 3 0 1 100
 composite query
 ```
 

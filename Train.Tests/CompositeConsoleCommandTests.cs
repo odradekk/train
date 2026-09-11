@@ -242,6 +242,37 @@ public sealed class CompositeConsoleCommandTests
     }
 
     [TestMethod]
+    public void Console_refit_fracture_damage_line_keeps_one_vehicle_id()
+    {
+        using var session = LoggerSession.Create();
+        var reloader = ContentFixtures.Create(CompositeFixtures.FormalFixturePackage(), session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+        var commands = new CompositeConsoleCommands(voxelSession);
+
+        StringAssert.Contains(commands.Execute(new[] { "reset", "bridge" }), "parts 55");
+        StringAssert.Contains(
+            commands.Execute(new[] { "add", "1", "3", "0", "1", HollowShellRefit.MarkerId.Value, "px_py" }),
+            "Composite Valid.");
+        Assert.AreEqual(56, voxelSession.QueryComposites()[0].Parts.Count);
+
+        var extraIdUsage = commands.Execute(new[]
+        {
+            "damage", "1", "3", "1", "1", "100", "1", "3", "0", "1", "100"
+        });
+        StringAssert.Contains(extraIdUsage, "Usage:");
+        Assert.AreEqual(1, voxelSession.QueryComposites().Count);
+        Assert.AreEqual(56, voxelSession.QueryComposites()[0].Parts.Count);
+
+        var cut = commands.Execute(new[] { "damage", "1", "3", "1", "1", "100", "3", "0", "1", "100" });
+        StringAssert.Contains(cut, "Composite Damaged.");
+        Assert.AreEqual(2, voxelSession.Vehicles.Count);
+        Assert.AreEqual(0, voxelSession.World.VoxelCount);
+        foreach (var successor in voxelSession.Vehicles)
+            Assert.AreEqual(27, successor.Parts.Count);
+    }
+
+    [TestMethod]
     public void Console_refit_covers_five_operations_and_atomic_swap()
     {
         using var session = LoggerSession.Create();

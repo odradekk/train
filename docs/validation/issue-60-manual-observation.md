@@ -9,7 +9,7 @@ $env:GODOT = 'D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_c
 
 Godot `4.7.2.stable.mono.official.ed1daf0bf`, .NET SDK `9.0.318`, NVIDIA GeForce RTX 3080 Laptop GPU / OpenGL 3.3 Compatibility. Isolated smoke user-data. Worktree iron-ore and ledge hashes unchanged.
 
-**Who viewed what:** this implementation agent launched the windowed observe script, then opened each `.godot/issue60-*.png` (and the retained issue58/issue59 frames). COMPLETE is not treated as a visual pass. `issue60-moved.png` and `issue60-rotated.png` were compared by opening both images and by SHA-256; they are not the same file.
+**Who viewed what:** the R2 windowed observe at head `25303bd` launched the script and opened each `.godot/issue60-*.png` (and the retained issue58/issue59 frames). This R3-only round did not change textures, camera, or observe capture logic, so those PNGs were reused; COMPLETE is not treated as a visual pass. `issue60-moved.png` and `issue60-rotated.png` were compared by opening both images and by SHA-256; they are not the same file. Coordinator re-opened the same frames in the second review and confirmed the top-arrow change.
 
 ## Automated script facts
 
@@ -34,10 +34,10 @@ Refit close-ups use a downward interior camera on the peach cavity floor so the 
 
 1. `issue60-added.png` — one yellow-top cyan cube on the peach inner floor; top arrow points screen-right (world +X / `px_py`). HUD 零件 169 / 显示面 346 / 世界体素 0.
 2. `issue60-moved.png` — same cube, same `px_py` top arrow pointing screen-right, now framed on `(3,1,0)`. SHA-256 `D286A063…`. Still one extra part, no world mesh.
-3. `issue60-rotated.png` — **not** the moved frame (SHA-256 `02F8E963…`). Same cell and camera; the top arrow now points toward the camera (world −Z after `nz_py`). Side faces stay cyan. Query/`nz_py` was not used as a substitute for this image difference.
+3. `issue60-rotated.png` — **not** the moved frame (SHA-256 `02F8E963…`). Same cell and camera; the top arrow now points toward the top of the frame / away from the camera (world −Z after `nz_py`; the camera sits on the target’s +Z side). Side faces stay cyan. Query/`nz_py` was not used as a substitute for this image difference.
 4. `issue60-swapped.png` — two yellow-top cyan cubes: Q at `(3,1,0)` with a right-pointing top arrow, P at `(4,1,0)` still `nz_py`. HUD 零件 170. No world mesh.
 5. `issue60-replaced.png` — the near cube is solid orange-red (new R). P remains at the right with the `nz_py` top arrow. Replacement does not keep Q’s cyan/arrow look.
-6. `issue60-removed.png` — orange cube gone; only P remains, still `nz_py` with the top arrow toward the camera. HUD 零件 169.
+6. `issue60-removed.png` — orange cube gone; only P remains, still `nz_py` with the top arrow toward the top of the frame / away from the camera. HUD 零件 169.
 7. `issue60-rejected.png` — exterior three-quarter of one intact parked shell on the gray void. No world-grid fragments, no second mesh, HUD 零件 169 / 世界体素 0. Failed batches did not drop parts.
 8. `issue60-refit-fracture.png` — two separate 27-part parked boxes after adding a second bridge and cutting both in one event. HUD 车辆 2 / 世界体素 0 / 显示批次 2. No world-grid duplicate.
 

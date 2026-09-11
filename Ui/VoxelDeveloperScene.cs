@@ -57,12 +57,13 @@ public partial class VoxelDeveloperScene : Node3D
     private EntityId _refitR;
     private CompositeAuthoritySnapshot? _refitSuccess;
     private int _refitMetricRun;
-    private int _refitMetricFrameSamples;
+    private int _refitMetricStamps;
     private double _refitMutationMs;
     private double _refitRefreshMs;
-    private double _refitFrameMs;
     private long _refitMemoryBefore;
-    private bool _refitMetricSampling;
+    private ulong _refitTickA;
+    private ulong _refitTickB;
+    private ulong _refitTickC;
 
     private enum VoxelSmokePhase
     {
@@ -485,15 +486,10 @@ public partial class VoxelDeveloperScene : Node3D
 
     public override void _Process(double delta)
     {
-        if (_refitMetricSampling)
-        {
-            _refitFrameMs += delta * 1000.0;
-            _refitMetricFrameSamples++;
-        }
-
+        StampRefitMetricFrame();
         if (_dirty)
         {
-            if (_refitMetricSampling)
+            if (_refitMetricStamps == 2)
             {
                 var refresh = Stopwatch.StartNew();
                 Refresh();
@@ -778,6 +774,31 @@ public partial class VoxelDeveloperScene : Node3D
         if (_session.World.VoxelCount != 0 || _session.QueryComposites().Count != 1)
             throw new InvalidOperationException($"Slice 3 {step} turned illegal construction into a drop.");
         SetRefitResult(result);
+    }
+
+    private void StampRefitMetricFrame()
+    {
+        if (_slice3SmokePhase == VoxelSlice3SmokePhase.RefitMetricsRun && _refitMetricStamps == 0)
+        {
+            _refitTickA = Time.GetTicksUsec();
+            _refitMetricStamps = 1;
+            return;
+        }
+
+        if (_slice3SmokePhase != VoxelSlice3SmokePhase.AwaitRefitMetrics)
+            return;
+
+        var now = Time.GetTicksUsec();
+        if (_refitMetricStamps == 1)
+        {
+            _refitTickB = now;
+            _refitMetricStamps = 2;
+        }
+        else if (_refitMetricStamps == 2)
+        {
+            _refitTickC = now;
+            _refitMetricStamps = 3;
+        }
     }
 
     private void AimRefitCamera(LocalVoxelCoord cell)
@@ -1880,38 +1901,37 @@ public partial class VoxelDeveloperScene : Node3D
                 RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
                 GD.Print($"VOXEL_SMOKE_SLICE3_REFIT_PAIRS id={_refitP} pairs=100 parts={_session.QueryComposite(_refitVehicle)!.Parts.Count}");
                 _refitMetricRun = 1;
+                _refitMetricStamps = 0;
                 _slice3SmokePhase = VoxelSlice3SmokePhase.RefitMetricsRun;
                 return;
             case VoxelSlice3SmokePhase.RefitMetricsRun:
-                _refitMetricSampling = false;
-                _refitFrameMs = 0;
                 _refitRefreshMs = 0;
-                _refitMetricFrameSamples = 0;
                 _refitMemoryBefore = GC.GetTotalMemory(true);
                 var mutation = Stopwatch.StartNew();
                 HollowShellRefit.RunMoveReturnPairs(_session, _refitVehicle, _refitP, 100);
                 mutation.Stop();
                 _refitMutationMs = mutation.Elapsed.TotalMilliseconds;
                 RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
-                _refitMetricSampling = true;
                 _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitRefitMetrics;
                 return;
             case VoxelSlice3SmokePhase.AwaitRefitMetrics:
-                if (_refitMetricFrameSamples < 2 || !AwaitCommittedVehicleVisual(1, 169))
+                if (_refitMetricStamps < 3 || !AwaitCommittedVehicleVisual(1, 169))
                     return;
                 RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
                 var memoryAfter = GC.GetTotalMemory(false);
+                var mutationFrameMs = (_refitTickB - _refitTickA) / 1000.0;
+                var refreshFrameMs = (_refitTickC - _refitTickB) / 1000.0;
+                var frameMs = (_refitTickC - _refitTickA) / 1000.0;
                 GD.Print(
-                    $"REFIT_METRICS run={_refitMetricRun} parts={_session.QueryComposite(_refitVehicle)!.Parts.Count} world={_session.World.VoxelCount} mutation_ms={_refitMutationMs:F3} refresh_ms={_refitRefreshMs:F3} frame_ms={_refitFrameMs:F3} frame_samples={_refitMetricFrameSamples} process_delta_ms={GetProcessDeltaTime() * 1000.0:F3} memory_bytes={memoryAfter} memory_delta={memoryAfter - _refitMemoryBefore}");
+                    $"REFIT_METRICS run={_refitMetricRun} parts={_session.QueryComposite(_refitVehicle)!.Parts.Count} world={_session.World.VoxelCount} mutation_ms={_refitMutationMs:F3} refresh_ms={_refitRefreshMs:F3} frame_ms={frameMs:F3} mutation_frame_ms={mutationFrameMs:F3} refresh_frame_ms={refreshFrameMs:F3} process_delta_ms={GetProcessDeltaTime() * 1000.0:F3} memory_bytes={memoryAfter} memory_delta={memoryAfter - _refitMemoryBefore}");
                 if (_refitMetricRun < 3)
                 {
                     _refitMetricRun++;
-                    _refitMetricSampling = false;
+                    _refitMetricStamps = 0;
                     _slice3SmokePhase = VoxelSlice3SmokePhase.RefitMetricsRun;
                     return;
                 }
 
-                _refitMetricSampling = false;
                 GD.Print("COMPOSITE_REFIT_SMOKE_OK");
                 _slice3SmokePhase = VoxelSlice3SmokePhase.Reset;
                 return;
