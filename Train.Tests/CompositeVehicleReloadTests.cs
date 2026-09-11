@@ -152,15 +152,14 @@ public sealed class CompositeVehicleReloadTests
     }
 
     [TestMethod]
-    public void Identity_or_missing_references_reject_the_whole_candidate_including_mixed_vehicles()
+    public void Identity_rule_changes_reject_the_whole_candidate()
     {
         using var world = Open();
-        var stockId = world.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
-        var refitId = world.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
-        var trace = HollowShellRefit.ApplySuccess(world.Session, refitId);
+        world.Session.Manufacture(HollowShellFixture.DefinitionId);
         var generation = world.Reloader.Catalog.Current!.Generation;
         var compositeGeneration = world.Reloader.Composites.Current.Generation;
         var snapshot = world.Reloader.Catalog.Current;
+        var composites = world.Reloader.Composites.Current;
         var before = world.Session.CaptureAuthority();
 
         world.Source.AddCompositeFile(
@@ -169,11 +168,28 @@ public sealed class CompositeVehicleReloadTests
             CompositeFixtures.File(null, CompositeFixtures.Archetype(coreTag: "other_core"), CompositeFixtures.CompositeFromFixture()));
         var identity = Reload(world);
         Assert.AreEqual(ContentReloadStatus.Rejected, identity.Status);
-        Assert.IsTrue(identity.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.IncompatibleVoxelState));
+        Assert.IsTrue(identity.Diagnostics.Any(item =>
+            item.Code == ContentDiagnosticCodes.IncompatibleVoxelState &&
+            item.JsonPath == HollowShellFixture.DefinitionId.Value &&
+            item.Message.Contains("identity", StringComparison.Ordinal)));
         Assert.AreSame(snapshot, world.Reloader.Catalog.Current);
+        Assert.AreSame(composites, world.Reloader.Composites.Current);
         Assert.AreEqual(generation, world.Reloader.Catalog.Current!.Generation);
         Assert.AreEqual(compositeGeneration, world.Reloader.Composites.Current.Generation);
         Assert.AreEqual(before, world.Session.CaptureAuthority());
+        Assert.AreEqual(ConstructionStatus.Valid, world.Session.QueryComposites()[0].Construction);
+        Assert.AreEqual(IdentityRetentionStatus.Retained, world.Session.QueryComposites()[0].IdentityRetention);
+    }
+
+    [TestMethod]
+    public void Missing_required_part_definitions_reject_the_whole_candidate()
+    {
+        using var world = Open();
+        var refitId = world.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        HollowShellRefit.ApplySuccess(world.Session, refitId);
+        var generation = world.Reloader.Catalog.Current!.Generation;
+        var snapshot = world.Reloader.Catalog.Current;
+        var before = world.Session.CaptureAuthority();
 
         var missing = CompositeFixtures.FormalFixturePackage();
         missing.AddVoxelFile("core", "voxels/refit-marker.voxels.json", ContentFixtures.GoodsFile(
@@ -181,33 +197,93 @@ public sealed class CompositeVehicleReloadTests
         var stripped = Rebuild(world, missing);
         var missingResult = stripped.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, missingResult.Status);
-        Assert.IsTrue(missingResult.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference));
+        Assert.IsTrue(missingResult.Diagnostics.Any(item =>
+            item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference &&
+            item.JsonPath == HollowShellRefit.MarkerId.Value));
+        Assert.AreSame(snapshot, world.Reloader.Catalog.Current);
         Assert.AreEqual(before, world.Session.CaptureAuthority());
         Assert.AreEqual(generation, world.Reloader.Catalog.Current.Generation);
+        Assert.AreEqual(169, world.Session.QueryComposite(refitId)!.Parts.Count);
+    }
 
-        world.Source.AddVoxelFile(
-            "core",
-            "voxels/refit-marker.voxels.json",
-            ContentFixtures.GoodsFile(ContentFixtures.Good(
-                "refit-marker",
-                "改装标记",
-                "带可见朝向标记的改装设备",
-                value: 10,
-                tagsJson: "[]",
-                orientations: "none",
-                top: "voxels/refit-marker/top.png",
-                side: "voxels/refit-marker/side.png",
-                bottom: "voxels/refit-marker/bottom.png",
-                icon: "voxels/refit-marker/icon.png")));
-        var mixed = Reload(world);
-        Assert.AreEqual(ContentReloadStatus.Rejected, mixed.Status);
-        Assert.IsTrue(mixed.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.IncompatibleVoxelState));
+    [TestMethod]
+    public void Single_disallowed_orientation_rejects_pending_adaptations_then_commits_after_restore()
+    {
+        using var world = Open();
+        var worldCell = new WorldVoxelCoord(2, 2, 2);
+        Assert.AreEqual(WorldCommandStatus.Added, world.Session.Add(worldCell, HollowShellFixture.ShellId, VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Damaged, world.Session.Damage(worldCell, 25).Status);
+
+        var stockId = world.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var stockCell = new LocalVoxelCoord(0, 1, 0);
+        Assert.IsTrue(world.Session.Damage(stockId, stockCell, 25).Succeeded);
+
+        var refitId = world.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var trace = HollowShellRefit.ApplySuccess(world.Session, refitId);
+        var generation = world.Reloader.Catalog.Current!.Generation;
+        var compositeGeneration = world.Reloader.Composites.Current.Generation;
+        var snapshot = world.Reloader.Catalog.Current;
+        var composites = world.Reloader.Composites.Current;
+        var before = world.Session.CaptureAuthority();
+        var stockBefore = world.Session.QueryComposite(stockId)!;
+        var refitBefore = world.Session.QueryComposite(refitId)!;
+        var refitted = world.Session.Vehicles.Single(item => item.Id == refitId);
+
+        WriteShellMax(world, 60);
+        WriteMarker(world, orientations: "none");
+        var rejected = Reload(world);
+        Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
+        Assert.IsFalse(rejected.Changed);
+        Assert.AreEqual(1, rejected.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.IncompatibleVoxelState));
+        Assert.IsTrue(rejected.Diagnostics.Any(item =>
+            item.Code == ContentDiagnosticCodes.IncompatibleVoxelState &&
+            item.JsonPath == HollowShellRefit.MarkerId.Value &&
+            item.Message.Contains("orientation", StringComparison.Ordinal)));
+        Assert.IsFalse(rejected.Diagnostics.Any(item => item.Message.Contains("identity", StringComparison.Ordinal)));
+        Assert.AreSame(snapshot, world.Reloader.Catalog.Current);
+        Assert.AreSame(composites, world.Reloader.Composites.Current);
+        Assert.AreEqual(generation, world.Reloader.Catalog.Current!.Generation);
+        Assert.AreEqual(compositeGeneration, world.Reloader.Composites.Current.Generation);
         Assert.AreEqual(before, world.Session.CaptureAuthority());
-        Assert.AreEqual(ConstructionStatus.Valid, world.Session.QueryComposite(stockId)!.Construction);
+        Assert.AreEqual(75, world.Session.Query(worldCell).Voxel!.CurrentDurability);
+        Assert.AreEqual(100, world.Session.Query(worldCell).MaxDurability);
+        Assert.AreEqual(75, world.Session.QueryComposite(stockId)!.Parts.Single(part => part.Cell == stockCell).CurrentDurability);
+        Assert.AreEqual(stockBefore.Id, world.Session.QueryComposite(stockId)!.Id);
+        Assert.AreEqual(stockBefore.Transform, world.Session.QueryComposite(stockId)!.Transform);
+        Assert.IsTrue(stockBefore.Contacts.SequenceEqual(world.Session.QueryComposite(stockId)!.Contacts));
+        Assert.AreEqual(refitBefore.Id, world.Session.QueryComposite(refitId)!.Id);
+        Assert.AreEqual(refitBefore.Transform, world.Session.QueryComposite(refitId)!.Transform);
+        Assert.AreEqual(refitBefore.SaveLocalRevision, world.Session.QueryComposite(refitId)!.SaveLocalRevision);
+        Assert.AreEqual(refitted.SaveLocalRevision, world.Session.Vehicles.Single(item => item.Id == refitId).SaveLocalRevision);
+        Assert.AreEqual(HollowShellRefit.MarkerOrientation, world.Session.QueryComposite(refitId)!.Parts.Single(part => part.Id == trace.P).Orientation);
         Assert.AreEqual(75, world.Session.QueryComposite(refitId)!.Parts.Single(part => part.Id == trace.P).CurrentDurability);
+        Assert.AreEqual(ConstructionStatus.Valid, world.Session.QueryComposite(stockId)!.Construction);
+        Assert.AreEqual(IdentityRetentionStatus.Retained, world.Session.QueryComposite(stockId)!.IdentityRetention);
+        Assert.AreEqual(IdentityRetentionStatus.Retained, world.Session.QueryComposite(refitId)!.IdentityRetention);
 
-        Assert.IsTrue(world.Session.Damage(stockId, new LocalVoxelCoord(0, 1, 0), 10).Succeeded);
-        Assert.AreEqual(90, world.Session.QueryComposite(stockId)!.Parts.Single(part => part.Cell == new LocalVoxelCoord(0, 1, 0)).CurrentDurability);
+        Assert.IsNotNull(world.Session.QueryComposite(stockId));
+        var illegal = world.Session.CaptureAuthority();
+        Assert.IsFalse(world.Session.Refit(refitId, CompositeRefitOperation.Move(trace.P, HollowShellRefit.Occupied)).Succeeded);
+        Assert.AreEqual(illegal, world.Session.CaptureAuthority());
+        Assert.IsTrue(world.Session.Damage(stockId, stockCell, 10).Succeeded);
+        Assert.AreEqual(65, world.Session.QueryComposite(stockId)!.Parts.Single(part => part.Cell == stockCell).CurrentDurability);
+
+        WriteMarker(world, orientations: "all_24");
+        var committed = Reload(world);
+        Assert.AreEqual(ContentReloadStatus.Committed, committed.Status);
+        Assert.IsTrue(committed.Changed);
+        Assert.AreNotSame(snapshot, world.Reloader.Catalog.Current);
+        Assert.AreNotEqual(generation, world.Reloader.Catalog.Current!.Generation);
+        Assert.AreEqual(60, world.Session.Query(worldCell).Voxel!.CurrentDurability);
+        Assert.AreEqual(60, world.Session.Query(worldCell).MaxDurability);
+        Assert.AreEqual(60, world.Session.QueryComposite(stockId)!.Parts.Single(part => part.Cell == stockCell).CurrentDurability);
+        Assert.AreEqual(stockBefore.Id, world.Session.QueryComposite(stockId)!.Id);
+        Assert.AreEqual(refitBefore.Id, world.Session.QueryComposite(refitId)!.Id);
+        Assert.AreEqual(HollowShellRefit.SecondAdd, world.Session.QueryComposite(refitId)!.Parts.Single(part => part.Id == trace.P).Cell);
+        Assert.AreEqual(HollowShellRefit.MarkerOrientation, world.Session.QueryComposite(refitId)!.Parts.Single(part => part.Id == trace.P).Orientation);
+        Assert.AreEqual(75, world.Session.QueryComposite(refitId)!.Parts.Single(part => part.Id == trace.P).CurrentDurability);
+        Assert.AreEqual(refitted.SaveLocalRevision, world.Session.Vehicles.Single(item => item.Id == refitId).SaveLocalRevision);
+        Assert.AreEqual(IdentityRetentionStatus.Retained, world.Session.QueryComposite(refitId)!.IdentityRetention);
         Assert.IsTrue(world.Session.Refit(refitId, CompositeRefitOperation.Move(trace.P, HollowShellRefit.Moved)).Succeeded);
         Assert.AreEqual(HollowShellRefit.Moved, world.Session.QueryComposite(refitId)!.Parts.Single(part => part.Id == trace.P).Cell);
     }
@@ -387,6 +463,35 @@ public sealed class CompositeVehicleReloadTests
 
         Assert.IsFalse(world.Session.QueryDamagedParts().Any(part => part.PartId == refitPart));
     }
+
+    private static void WriteShellMax(SessionHandle world, int maxDurability) =>
+        world.Source.AddVoxelFile(
+            "core",
+            "voxels/vehicle-shell.voxels.json",
+            ContentFixtures.GoodsFile(ContentFixtures.Good(
+                "vehicle-shell",
+                "壳体",
+                "壳体说明",
+                value: 10,
+                maxDurability: maxDurability,
+                tagsJson: "[]")));
+
+    private static void WriteMarker(SessionHandle world, string orientations, int maxDurability = 100) =>
+        world.Source.AddVoxelFile(
+            "core",
+            "voxels/refit-marker.voxels.json",
+            ContentFixtures.GoodsFile(ContentFixtures.Good(
+                "refit-marker",
+                "改装标记",
+                "带可见朝向标记的改装设备",
+                value: 10,
+                maxDurability: maxDurability,
+                tagsJson: "[]",
+                orientations: orientations,
+                top: "voxels/refit-marker/top.png",
+                side: "voxels/refit-marker/side.png",
+                bottom: "voxels/refit-marker/bottom.png",
+                icon: "voxels/refit-marker/icon.png")));
 
     private static ContentReloadResult ReloadMarkerAndShell(SessionHandle world, int maxDurability)
     {
