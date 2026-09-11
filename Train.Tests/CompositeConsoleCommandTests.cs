@@ -52,7 +52,7 @@ public sealed class CompositeConsoleCommandTests
 
         var before = voxelSession.CaptureAuthority();
         dispatcher.Execute("voxel save Should Fail");
-        Assert.AreEqual(WorldSaveStatus.UnsupportedVehicles, voxelSession.Save("again").Status);
+        Assert.AreEqual(WorldSaveStatus.Unavailable, voxelSession.Save("again").Status);
         Assert.AreEqual(before, voxelSession.CaptureAuthority());
 
         dispatcher.Execute("composite reset");

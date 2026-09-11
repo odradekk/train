@@ -408,7 +408,7 @@ public sealed class CompositeVehicleReloadTests
     }
 
     [TestMethod]
-    public void Save_still_rejects_vehicles_after_successful_adaptation()
+    public void Save_writes_adapted_vehicles_without_changing_live_authority()
     {
         using var world = Open();
         var store = new RecordingStore();
@@ -428,8 +428,8 @@ public sealed class CompositeVehicleReloadTests
                 tagsJson: "[]")));
         Assert.AreEqual(ContentReloadStatus.Committed, world.Reloader.Reload().Status);
         var before = session.CaptureAuthority();
-        Assert.AreEqual(WorldSaveStatus.UnsupportedVehicles, session.Save("Should Fail").Status);
-        Assert.IsFalse(store.Wrote);
+        Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Should Persist").Status);
+        Assert.IsTrue(store.Wrote);
         Assert.AreEqual(before, session.CaptureAuthority());
         session.Detach();
     }

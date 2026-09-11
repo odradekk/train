@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Train.Content;
+using Train.Domain.Composites;
 
 namespace Train.Domain.Voxels;
 
@@ -36,7 +37,8 @@ public readonly record struct WorldSaveInstance(
     WorldVoxelCoord Position,
     VoxelDefinitionId DefinitionId,
     VoxelOrientation Orientation,
-    int Durability);
+    int Durability,
+    EntityId? RuntimeId = null);
 
 public readonly record struct WorldSaveDefinitionRef(
     VoxelDefinitionId DefinitionId,
@@ -45,7 +47,7 @@ public readonly record struct WorldSaveDefinitionRef(
 
 public sealed class WorldSaveDocument
 {
-    public const int CurrentFormatVersion = 1;
+    public const int CurrentFormatVersion = 2;
     public const string DefaultDisplayName = "Development World";
     public const int DisplayNameMinLength = 1;
     public const int DisplayNameMaxLength = 64;
@@ -62,6 +64,10 @@ public sealed class WorldSaveDocument
     public IReadOnlyList<WorldVoxelCoord> Removed { get; }
     public IReadOnlyList<WorldSaveInstance> Added { get; }
     public IReadOnlyList<WorldSaveInstance> Changed { get; }
+    public ulong NextEntityId { get; }
+    public ulong TransactionCount { get; }
+    public IReadOnlyList<WorldSaveVehicle> Vehicles { get; }
+    public IReadOnlyList<WorldSaveLocalDefinition> SaveLocalDefinitions { get; }
 
     public WorldSaveDocument(
         int formatVersion,
@@ -75,7 +81,11 @@ public sealed class WorldSaveDocument
         IReadOnlyList<WorldSaveDefinitionRef> externalDefinitions,
         IReadOnlyList<WorldVoxelCoord> removed,
         IReadOnlyList<WorldSaveInstance> added,
-        IReadOnlyList<WorldSaveInstance> changed)
+        IReadOnlyList<WorldSaveInstance> changed,
+        ulong nextEntityId,
+        ulong transactionCount,
+        IReadOnlyList<WorldSaveVehicle> vehicles,
+        IReadOnlyList<WorldSaveLocalDefinition> saveLocalDefinitions)
     {
         ArgumentException.ThrowIfNullOrEmpty(generatorVersion);
         ArgumentException.ThrowIfNullOrEmpty(baseLayout);
@@ -83,6 +93,8 @@ public sealed class WorldSaveDocument
         ArgumentNullException.ThrowIfNull(removed);
         ArgumentNullException.ThrowIfNull(added);
         ArgumentNullException.ThrowIfNull(changed);
+        ArgumentNullException.ThrowIfNull(vehicles);
+        ArgumentNullException.ThrowIfNull(saveLocalDefinitions);
         FormatVersion = formatVersion;
         Id = id;
         DisplayName = displayName;
@@ -95,6 +107,10 @@ public sealed class WorldSaveDocument
         Removed = removed;
         Added = added;
         Changed = changed;
+        NextEntityId = nextEntityId;
+        TransactionCount = transactionCount;
+        Vehicles = vehicles;
+        SaveLocalDefinitions = saveLocalDefinitions;
     }
 
     public static bool TryNormalizeDisplayName(string? value, out string name)
@@ -199,10 +215,11 @@ public static class WorldSaveDelta
     private static bool SameInstance(WorldVoxel left, WorldVoxel right) =>
         left.DefinitionId == right.DefinitionId &&
         left.Orientation == right.Orientation &&
-        left.CurrentDurability == right.CurrentDurability;
+        left.CurrentDurability == right.CurrentDurability &&
+        left.RuntimeId == right.RuntimeId;
 
     private static WorldSaveInstance ToInstance(WorldVoxelCoord position, WorldVoxel voxel) =>
-        new(position, voxel.DefinitionId, voxel.Orientation, voxel.CurrentDurability);
+        new(position, voxel.DefinitionId, voxel.Orientation, voxel.CurrentDurability, voxel.RuntimeId);
 
     private static int CompareCoord(WorldVoxelCoord left, WorldVoxelCoord right)
     {
@@ -224,6 +241,9 @@ public static class WorldSaveCodec
         VoxelCatalogSnapshot catalog,
         Guid saveId,
         string displayName,
+        IReadOnlyList<CompositeInstance> vehicles,
+        ulong nextEntityId,
+        ulong transactionCount,
         out WorldSaveDocument document,
         out WorldSaveStatus status)
     {
@@ -231,6 +251,7 @@ public static class WorldSaveCodec
         status = WorldSaveStatus.Saved;
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(vehicles);
         if (!WorldSaveDocument.TryNormalizeDisplayName(displayName, out var name))
         {
             status = WorldSaveStatus.InvalidName;
@@ -248,7 +269,9 @@ public static class WorldSaveCodec
             return false;
         }
 
-        if (!TryCollectReferences(world, generated, catalog, out var references, out status))
+        var savedVehicles = WorldSaveVehicleCodec.Capture(vehicles);
+        var savedLocals = WorldSaveVehicleCodec.CaptureLocals(vehicles);
+        if (!TryCollectReferences(world, generated, catalog, savedVehicles, savedLocals, out var references, out status))
             return false;
 
         WorldSaveDelta.Compute(generated, world, out var removed, out var added, out var changed);
@@ -264,7 +287,11 @@ public static class WorldSaveCodec
             references,
             removed,
             added,
-            changed);
+            changed,
+            nextEntityId,
+            transactionCount,
+            savedVehicles,
+            savedLocals);
         status = WorldSaveStatus.Saved;
         return true;
     }
@@ -293,6 +320,10 @@ public static class WorldSaveCodec
             writer.WriteNumber("save_format_version", document.FormatVersion);
             writer.WriteNumber("seed", document.Seed);
             writer.WriteString("generator_version", document.GeneratorVersion);
+            writer.WriteNumber("next_entity_id", document.NextEntityId);
+            writer.WriteNumber("transaction_count", document.TransactionCount);
+            WorldSaveVehicleCodec.WriteVehicles(writer, document.Vehicles);
+            WorldSaveVehicleCodec.WriteLocals(writer, document.SaveLocalDefinitions);
             writer.WriteEndObject();
             writer.Flush();
         }
@@ -307,6 +338,12 @@ public static class WorldSaveCodec
         if (string.IsNullOrWhiteSpace(json))
         {
             status = WorldSaveStatus.Truncated;
+            return false;
+        }
+
+        if (WorldSaveVehicleCodec.ContainsNonFiniteLiteral(json))
+        {
+            status = WorldSaveStatus.InvalidDelta;
             return false;
         }
 
@@ -337,29 +374,36 @@ public static class WorldSaveCodec
         VoxelWorld world,
         VoxelWorld generated,
         VoxelCatalogSnapshot catalog,
+        IReadOnlyList<WorldSaveVehicle> vehicles,
+        IReadOnlyList<WorldSaveLocalDefinition> locals,
         out List<WorldSaveDefinitionRef> references,
         out WorldSaveStatus status)
     {
         references = new List<WorldSaveDefinitionRef>();
         status = WorldSaveStatus.Saved;
         var seen = new HashSet<VoxelDefinitionId>();
+        var extra = new HashSet<VoxelDefinitionId>();
+        WorldSaveVehicleCodec.CollectVoxelIds(vehicles, locals, extra);
         foreach (var source in new[] { world, generated })
         {
             foreach (var (_, voxel) in source.OccupiedVoxels())
-            {
-                if (!seen.Add(voxel.DefinitionId))
-                    continue;
-                if (!catalog.TryGet(voxel.DefinitionId, out var entry))
-                {
-                    status = WorldSaveStatus.MissingDefinition;
-                    return false;
-                }
+                extra.Add(voxel.DefinitionId);
+        }
 
-                references.Add(new WorldSaveDefinitionRef(
-                    voxel.DefinitionId,
-                    entry.SemanticRevision,
-                    entry.Definition.MaxDurability));
+        foreach (var id in extra)
+        {
+            if (!seen.Add(id))
+                continue;
+            if (!catalog.TryGet(id, out var entry))
+            {
+                status = WorldSaveStatus.MissingDefinition;
+                return false;
             }
+
+            references.Add(new WorldSaveDefinitionRef(
+                id,
+                entry.SemanticRevision,
+                entry.Definition.MaxDurability));
         }
 
         references.Sort((left, right) =>
@@ -409,6 +453,8 @@ public static class WorldSaveCodec
         writer.WriteString("definition_id", instance.DefinitionId.Value);
         writer.WriteString("orientation", instance.Orientation.ToString());
         writer.WriteNumber("durability", instance.Durability);
+        if (instance.RuntimeId is { } runtimeId)
+            writer.WriteNumber("runtime_id", runtimeId.Value);
         writer.WriteEndObject();
     }
 
@@ -438,12 +484,18 @@ public static class WorldSaveCodec
         IReadOnlyList<WorldVoxelCoord>? removed = null;
         IReadOnlyList<WorldSaveInstance>? added = null;
         IReadOnlyList<WorldSaveInstance>? changed = null;
+        IReadOnlyList<WorldSaveVehicle>? vehicles = null;
+        IReadOnlyList<WorldSaveLocalDefinition>? locals = null;
+        ulong nextEntityId = 0;
+        ulong transactionCount = 0;
         var hasFormat = false;
         var hasId = false;
         var hasSeed = false;
         var hasBounds = false;
         var hasChunk = false;
         var hasDelta = false;
+        var hasNextEntity = false;
+        var hasTransaction = false;
 
         foreach (var property in root.EnumerateObject())
         {
@@ -509,13 +561,34 @@ public static class WorldSaveCodec
                         return false;
                     hasDelta = true;
                     break;
+                case "next_entity_id":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetUInt64(out nextEntityId))
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
+                    hasNextEntity = true;
+                    break;
+                case "transaction_count":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetUInt64(out transactionCount))
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
+                    hasTransaction = true;
+                    break;
+                case "vehicles":
+                    if (!WorldSaveVehicleCodec.TryReadVehicles(property.Value, out vehicles, out status))
+                        return false;
+                    break;
+                case "save_local_definitions":
+                    if (!WorldSaveVehicleCodec.TryReadLocals(property.Value, out locals, out status))
+                        return false;
+                    break;
                 default:
                     return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
         }
 
         if (!hasFormat || !hasId || displayName is null || !hasSeed || generatorVersion is null ||
-            !hasBounds || !hasChunk || baseLayout is null || references is null || !hasDelta)
+            !hasBounds || !hasChunk || baseLayout is null || references is null || !hasDelta ||
+            !hasNextEntity || !hasTransaction || vehicles is null || locals is null)
             return Reject(WorldSaveStatus.Truncated, out status);
         if (formatVersion != WorldSaveDocument.CurrentFormatVersion)
         {
@@ -535,7 +608,11 @@ public static class WorldSaveCodec
             references,
             removed!,
             added!,
-            changed!);
+            changed!,
+            nextEntityId,
+            transactionCount,
+            vehicles,
+            locals);
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -829,6 +906,7 @@ public static class WorldSaveCodec
         var durability = 0;
         string? idText = null;
         string? orientationText = null;
+        EntityId? runtimeId = null;
         var hasX = false;
         var hasY = false;
         var hasZ = false;
@@ -877,6 +955,13 @@ public static class WorldSaveCodec
                         return Reject(WorldSaveStatus.UnknownFormat, out status);
                     orientationText = property.Value.GetString();
                     break;
+                case "runtime_id":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetUInt64(out var runtime) ||
+                        runtime == 0)
+                        return Reject(WorldSaveStatus.InvalidDelta, out status);
+                    runtimeId = new EntityId(runtime);
+                    break;
                 default:
                     return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
@@ -891,7 +976,7 @@ public static class WorldSaveCodec
             var id = VoxelDefinitionId.Parse(idText);
             if (!VoxelOrientation.TryParse(orientationText, out var orientation))
                 return Reject(WorldSaveStatus.InvalidDelta, out status);
-            instance = new WorldSaveInstance(new WorldVoxelCoord(x, y, z), id, orientation, durability);
+            instance = new WorldSaveInstance(new WorldVoxelCoord(x, y, z), id, orientation, durability, runtimeId);
             status = WorldSaveStatus.Loaded;
             return true;
         }
@@ -906,14 +991,16 @@ public static class WorldSaveRestorer
 {
     public static bool TryBuild(
         VoxelCatalogSnapshot catalog,
+        CompositeCatalogSnapshot composites,
         WorldSaveDocument document,
         VoxelWorldIdentity expectedIdentity,
-        out VoxelWorld world,
+        out WorldSaveRestore restore,
         out WorldSaveStatus status)
     {
-        world = null!;
+        restore = null!;
         status = WorldSaveStatus.InvalidDelta;
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(composites);
         ArgumentNullException.ThrowIfNull(document);
 
         if (document.FormatVersion != WorldSaveDocument.CurrentFormatVersion)
@@ -960,7 +1047,15 @@ public static class WorldSaveRestorer
         }
 
         ApplyDelta(catalog, generated, document);
-        world = generated;
+        if (!WorldSaveVehicleCodec.TryRestoreVehicles(
+                document,
+                catalog,
+                composites,
+                generated,
+                out var vehicles,
+                out status))
+            return false;
+        restore = new WorldSaveRestore(generated, vehicles, document.NextEntityId, document.TransactionCount);
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -974,6 +1069,7 @@ public static class WorldSaveRestorer
         status = WorldSaveStatus.UnknownGenerator;
         var slice = document.GeneratorVersion switch
         {
+            VoxelWorldIdentity.Slice3GeneratorVersion => VoxelDevelopmentSlice.Slice3,
             VoxelWorldIdentity.Slice2GeneratorVersion => VoxelDevelopmentSlice.Slice2,
             VoxelWorldIdentity.Slice1GeneratorVersion => VoxelDevelopmentSlice.Slice1,
             _ => (VoxelDevelopmentSlice)(-1)
@@ -1010,6 +1106,17 @@ public static class WorldSaveRestorer
             required.Add(voxel.DefinitionId);
         foreach (var instance in document.Added.Concat(document.Changed))
             required.Add(instance.DefinitionId);
+        foreach (var vehicle in document.Vehicles)
+        {
+            foreach (var part in vehicle.Parts)
+                required.Add(part.DefinitionId);
+        }
+
+        foreach (var local in document.SaveLocalDefinitions)
+        {
+            foreach (var voxel in local.Definition.Voxels)
+                required.Add(voxel.DefinitionId);
+        }
 
         var recorded = new HashSet<VoxelDefinitionId>();
         foreach (var item in document.ExternalDefinitions)
@@ -1151,7 +1258,7 @@ public static class WorldSaveRestorer
         {
             var entry = catalog.Entries[instance.DefinitionId];
             var durability = Math.Min(instance.Durability, entry.Definition.MaxDurability);
-            var voxel = new WorldVoxel(instance.DefinitionId, durability, instance.Orientation);
+            var voxel = new WorldVoxel(instance.DefinitionId, durability, instance.Orientation, instance.RuntimeId);
             if (!world.TryReplace(instance.Position, voxel))
                 world.TryAdd(instance.Position, voxel);
         }

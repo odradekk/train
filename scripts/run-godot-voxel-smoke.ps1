@@ -9,7 +9,8 @@ param(
 # world save / process-restart resume (#53), slice 3 parked-vehicle
 # manufacture (#58), damage/fracture (#59), atomic refit (#60),
 # and existing-vehicle content reload (#61).
-# Slice 3 does not reuse the slice 2 save/resume path.
+# Slice 3 reuses the isolated two-process save/resume path with a
+# different persist fixture and does not load the slice 2 1089-voxel save.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -127,17 +128,25 @@ $godotExitCode = 0
 $output = ""
 $userData = $null
 try {
-    if (-not $IsolationAbort -and $Slice -eq 2) {
-        $userData = Join-Path ([System.IO.Path]::GetTempPath()) ("train-issue53-smoke-" + [guid]::NewGuid().ToString("N"))
+    if (-not $IsolationAbort -and $Slice -in 2, 3) {
+        $prefix = if ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
+        $writtenMarker = if ($Slice -eq 3) { "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN" } else { "VOXEL_SMOKE_SAVE_WRITTEN" }
+        $writeAfter = if ($Slice -eq 3) { 700 } else { 240 }
+        $resumeAfter = if ($Slice -eq 3) { 200 } else { 120 }
+        $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($prefix + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Force -Path $userData | Out-Null
         $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
-        $write = Invoke-GodotVoxelSmoke -QuitAfter 240 -Label "slice 2 write"
+        $write = Invoke-GodotVoxelSmoke -QuitAfter $writeAfter -Label "slice $Slice write"
         Write-Host $write.Output
-        if ($write.Output -notmatch "VOXEL_SMOKE_SAVE_WRITTEN id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
+        if ($write.Output -notmatch "$writtenMarker id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
             [Console]::Error.WriteLine("Godot voxel smoke failed. Process 1 did not print a save UUID.")
             exit 1
         }
         $saveId = $Matches[1]
+        $writeP = $null
+        if ($Slice -eq 3 -and $write.Output -match "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN .* p_id=(\d+)") {
+            $writeP = $Matches[1]
+        }
         $savePath = Join-Path $userData (Join-Path "saves" (Join-Path $saveId "save.json"))
         if (-not (Test-Path -LiteralPath $savePath)) {
             [Console]::Error.WriteLine("Godot voxel smoke failed. Save file was not on disk: $savePath")
@@ -145,8 +154,14 @@ try {
         }
         $env:TRAIN_VOXEL_SMOKE_RESUME = "1"
         $env:TRAIN_VOXEL_SMOKE_SAVE_ID = $saveId
-        $resume = Invoke-GodotVoxelSmoke -QuitAfter 120 -Label "slice 2 resume"
+        $resume = Invoke-GodotVoxelSmoke -QuitAfter $resumeAfter -Label "slice $Slice resume"
         Write-Host $resume.Output
+        if ($Slice -eq 3) {
+            if (-not $writeP -or $resume.Output -notmatch "VOXEL_SMOKE_SLICE3_RESUME_LOADED .* p_id=$writeP(\D|$)") {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Process 2 did not restore the same P id as process 1 (p_id=$writeP).")
+                exit 1
+            }
+        }
         $output = $write.Output + "`n" + $resume.Output
         if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
     }
@@ -223,6 +238,12 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE3_RELOAD_VALUE",
         "VOXEL_SMOKE_SLICE3_RELOAD_FRACTURE",
         "COMPOSITE_RELOAD_SMOKE_OK",
+        "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN",
+        "VOXEL_SMOKE_SLICE3_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE3_RESUME_OWNERSHIP",
+        "VOXEL_SMOKE_SLICE3_RESUME_CONTINUE",
+        "VOXEL_SMOKE_SLICE3_RESUME_SAVED",
+        "COMPOSITE_PERSIST_SMOKE_OK",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"

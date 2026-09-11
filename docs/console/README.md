@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装，以及已有车辆的当前内容热重载）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装，以及已有车辆的当前内容热重载）。
 
 ## 打开控制台与输入规则
 
@@ -30,8 +30,8 @@
 | [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
-| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界原子写入 `user://saves/<UUID>/save.json` | 同上 |
-| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换世界 | 同上 |
+| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、静置车辆和脱落身份原子写入 `user://saves/<UUID>/save.json` | 同上 |
+| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换会话 | 同上 |
 | [composite reset](composite-reset.md) `[hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
 | [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
@@ -108,9 +108,9 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `DisallowedOrientation` | 编码是合法正交朝向，但该定义不允许；改用其允许的方向 |
 | `Collision Hit` / `Miss` / `OutOfBounds` / `InvalidQuery` | 领域碰撞查询结果；命中按字段分行写出格子、定义和 `kind`。已解析但非有限或零/负体积为 `InvalidQuery`，合法越界单格（含整数极值）为 `OutOfBounds`。语义见 [voxel collide](voxel-collide.md) |
 | `Usage: voxel ...` | 子命令、参数个数、无法解析的坐标文本、ID 格式或朝向编码不合法；按本手册的完整语法重新输入。`NaN` / `Infinity` 能解析为数字，因此走 `InvalidQuery` 而不是 Usage。非法 UUID 文本也是用法提示，不会读文件 |
-| `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前总数 |
-| `UnsupportedVehicles` | 当前会话已有车辆，世界存档入口明确拒绝；不写文件、不读档、不丢弃车辆 |
-| `UnsupportedIdentities` | 当前世界已有带 `RuntimeId` 的体素，世界存档入口明确拒绝；不写文件、不读档、不丢掉身份 |
+| `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前世界体素总数 |
+| `Unavailable` | 当前会话没有可用的存档 store 或目录；不写文件、不读档 |
+| `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功 |
 
@@ -199,11 +199,11 @@ reload
 voxel query 4 4 4
 ```
 
-先把 `(4,4,4)` 打到耐久 80。把同一定义的上限改为 150 后再 `reload`，查询仍为耐久 80，但 `max` 为 150；再改为 60 后重载，耐久与 `max` 均为 60。`voxel query` 按字段分行，长合法 Mod ID 仍须完整显示耐久、当前规格和 `Voxel count`。候选缺少已放置定义或无法保留当前朝向时，整次 `reload` 拒绝，查询和画面保持旧发布结果。切片 3 已有车辆走同一入口：改装设备 P 耐久 75 时上限 100→150 仍为 75，再到 60 后截断为 60；`composite query damaged` 显示当前上限。核心标签或必要定义缺失时整次拒绝，车辆、目录 Generation 和画面不变，之后仍可查询、改装和伤害。完整车辆存档仍返回 `UnsupportedVehicles`。
+先把 `(4,4,4)` 打到耐久 80。把同一定义的上限改为 150 后再 `reload`，查询仍为耐久 80，但 `max` 为 150；再改为 60 后重载，耐久与 `max` 均为 60。`voxel query` 按字段分行，长合法 Mod ID 仍须完整显示耐久、当前规格和 `Voxel count`。候选缺少已放置定义或无法保留当前朝向时，整次 `reload` 拒绝，查询和画面保持旧发布结果。切片 3 已有车辆走同一入口：改装设备 P 耐久 75 时上限 100→150 仍为 75，再到 60 后截断为 60；`composite query damaged` 显示当前上限。核心标签或必要定义缺失时整次拒绝，车辆、目录 Generation 和画面不变，之后仍可查询、改装和伤害。读档后的车辆沿用同一适配规则。
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。当前会话存在车辆时，`voxel save` / `voxel load` 返回 `UnsupportedVehicles`，不会报告成功却丢车。世界里已有带 `RuntimeId` 的体素时返回 `UnsupportedIdentities`，不会报告成功却丢掉身份；普通无身份世界仍可存档。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId 随格式 2 一并保存；失败时保留旧会话，不会报告成功却丢车或丢 ID。
 
 ### 切片 2 边界复现
 
@@ -251,7 +251,7 @@ voxel collide 15.48 1.38 8.18 15.52 1.42 8.22
 voxel save Slice 2 Resume
 ```
 
-记下 `id` 行的 UUID。`quit` 退出游戏进程，再启动同一构建，从主菜单重新进入切片 2，然后：
+记下 `id` 行的 UUID。关闭控制台后 `Esc` 返回主菜单，或 `quit` 退出游戏进程，再启动同一构建，从主菜单重新进入切片 2，然后：
 
 ```text
 loglevel info
@@ -279,11 +279,11 @@ composite manufacture
 composite query
 composite query 1
 composite query 1 parts 2
-voxel save Should Fail
+voxel save Slice 3 Persist
 composite reset
 ```
 
-原始夹具下应制造 1 辆 168 零件的空心壳。不带 ID 的查询只给出第 1 页紧凑摘要（含车辆 ID 和零件数）。`composite query 1` 给出连续 Transform `8,8,8 1,0,0 0,1,0 px_py`、包络 `[0,0,-1]->[8,6,4]`，以及接触点 `(1,-0.75,1.5)` / `(7,-0.75,1.5)`。世界体素数保持 0。有车辆时 `voxel save` 返回 `UnsupportedVehicles`。重置后车辆数为 0，`NextEntityId` 回到 1。
+原始夹具下应制造 1 辆 168 零件的空心壳。不带 ID 的查询只给出第 1 页紧凑摘要（含车辆 ID 和零件数）。`composite query 1` 给出连续 Transform `8,8,8 1,0,0 0,1,0 px_py`、包络 `[0,0,-1]->[8,6,4]`，以及接触点 `(1,-0.75,1.5)` / `(7,-0.75,1.5)`。世界体素数保持 0。`voxel save Slice 3 Persist` 应返回 `Saved` 并写出 UUID。重置后车辆数为 0，`NextEntityId` 回到 1；已分配的存档 UUID 仍在，可用 `voxel load` 把车读回来。
 
 继续验证桥接伤害：
 
@@ -300,7 +300,63 @@ voxel query 8 8 8
 
 等值桥断裂后应有 2 辆仍保留身份但 `Disabled` 的车，世界体素仍为 0。桥加左核心同事件伤害后只剩右侧车辆，左侧碎块出现在世界网格，且不会同时属于车辆。`voxel query 8 8 8` 对脱落零件额外给出 `runtime <id>`，与原零件 ID 相同；普通世界体素没有该行。
 
-目前没有独立的撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。车辆存档仍明确拒绝：有车时 `voxel save` / `voxel load` 返回 `UnsupportedVehicles`，世界里已有带 `RuntimeId` 的体素返回 `UnsupportedIdentities`，不能放开这两项导致静默丢状态。
+### 切片 3 保存、退出进程并恢复后继续
+
+从主菜单进入切片 3 后逐行执行。这是正式入口，不要用销毁会话代替退出进程，也不要用未恢复的旧截图当证据：
+
+```text
+loglevel info
+composite manufacture
+composite add 1 2 1 0 core:refit-marker px_py
+composite damage 1 2 1 0 25
+composite move 1 <P> 3 1 0
+composite rotate 1 <P> nz_py
+composite add 1 4 1 0 core:refit-marker px_py
+composite move 1 <P> 4 1 0 <Q> 3 1 0
+composite replace 1 <Q> core:refit-replacement px_py
+composite remove 1 <R>
+voxel save Slice 3 Persist
+```
+
+记下 `id` 行的 UUID。关闭控制台，`Esc` 返回主菜单，再 `quit` 退出进程。重新启动同一构建，从主菜单进入切片 3，然后：
+
+```text
+loglevel info
+voxel load <刚才的 UUID>
+composite query
+composite query damaged
+voxel collide 8 8 8
+composite move 1 <P> 3 1 0
+composite move 1 <P> 4 1 0
+composite damage 1 0 1 0 10
+voxel save Slice 3 Persist
+```
+
+恢复后应仍是一辆 169 零件的改装壳：P 保留原 ID、耐久 75、朝向 `nz_py`，Q/R 不在车上。显示与已支持碰撞从权威状态重建，不能出现重复网格、残影或拉伸。继续改装、伤害、`reload` 和再次 `voxel save` 都绑定恢复后的会话，并复用同一 UUID。验证时使用独立用户数据，不要覆盖实际存档或 worktree 内置内容。
+
+第二类夹具（桥接伤害后的主 / 次继承者与脱落世界体素）从主菜单进入切片 3 后逐行执行，同样不要用销毁会话代替退出进程：
+
+```text
+loglevel info
+composite reset bridge
+composite damage 1 3 1 1 100
+composite query
+voxel save Slice 3 Bridge
+```
+
+记下 UUID。`Esc` 回主菜单后 `quit`，再启动同一构建进入切片 3：
+
+```text
+loglevel info
+voxel load <刚才的 UUID>
+composite query
+```
+
+恢复后仍是两辆 `Disabled` / `MissingContact` 的后继，世界体素 0，原 / 新 Composite ID 与零件 ID 保持。若要核对脱落，把伤害换成 `composite damage 1 3 1 1 100 1 1 1 100`，保存前 `voxel query 8 8 8` 应有 `runtime <id>`；新进程加载后同一格仍占用且 RuntimeId 不变，`voxel collide 8 8 8` 为 `Hit` / `full_box`。
+
+读档错误复现（独立用户数据）：对一个已保存的 UUID 执行 `voxel load` 后，把 `save.json` 的 `save_format_version` 改成 `1` 或 `99` 再加载，应得 `UnknownFormat` 且当前会话车辆数不变；删掉 `save_local_definitions` 或把零件朝向改成 `none`，分别得 `MissingDefinition` / `InvalidDelta`；缺文件得 `NotFound`。失败后仍可 `composite manufacture` 或加载上一份有效文件。
+
+目前没有独立的撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。沿轨运行、编组牵引和正式设计器仍不在当前切片。
 
 ### 切片 3 五类原子改装
 
@@ -332,7 +388,7 @@ composite rotate 1 <locked> nz_py
 
 前三例应整批拒绝且 P 仍为 `nz_py`、耐久 75；非法旋转返回 `DisallowedOrientation`。权威不变后仍可 `composite move 1 <P> 3 1 0`。单项移到对方占用格应 `DuplicateOccupancy`；同批两个 `move` 才能交换。
 
-改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。当前仍不支持完整车辆存档。
+改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。这些实际布局可随格式 2 保存，恢复时不得按外部 Blueprint 名称重造。
 
 ```text
 composite reset bridge
@@ -351,7 +407,7 @@ reload
 composite query damaged
 ```
 
-把隔离副本里的 `core:refit-marker` 上限改为 150 后 `reload`，P 仍为 75，`damaged` 行的 `max` 为 150；再改为 60 后重载，P 截断为 60 并从受损列表消失。外部蓝图增加内部格后，已有车零件数不变，再 `composite manufacture` 才使用新模板。先 `composite reset bridge-right`（或把 `core:identity-core-heavy` 的 Value 从 10 改到 20 后 `reload` 已有右侧重核桥），再 `composite damage 1 3 1 1 100`，右侧成为主继承者；不要只改默认等值 `core:dev-bridge` 的普通核心。删除必要核心定义后 `reload` 整次拒绝，`composite query`、改装、伤害与画面保持拒绝前状态。当前仍不支持完整车辆存档。
+把隔离副本里的 `core:refit-marker` 上限改为 150 后 `reload`，P 仍为 75，`damaged` 行的 `max` 为 150；再改为 60 后重载，P 截断为 60 并从受损列表消失。外部蓝图增加内部格后，已有车零件数不变，再 `composite manufacture` 才使用新模板。先 `composite reset bridge-right`（或把 `core:identity-core-heavy` 的 Value 从 10 改到 20 后 `reload` 已有右侧重核桥），再 `composite damage 1 3 1 1 100`，右侧成为主继承者；不要只改默认等值 `core:dev-bridge` 的普通核心。删除必要核心定义后 `reload` 整次拒绝，`composite query`、改装、伤害与画面保持拒绝前状态。读档后的车辆走同一适配入口。
 
 ## 维护与实现依据
 

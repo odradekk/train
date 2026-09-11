@@ -375,7 +375,7 @@ public sealed class CompositeRefitTests
     }
 
     [TestMethod]
-    public void Save_still_rejects_vehicles_and_identities_after_refit()
+    public void Save_writes_refit_vehicles_without_changing_live_authority()
     {
         var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());
         using (logger)
@@ -385,8 +385,8 @@ public sealed class CompositeRefitTests
             var vehicleId = session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
             HollowShellRefit.ApplySuccess(session, vehicleId);
             var before = session.CaptureAuthority();
-            Assert.AreEqual(WorldSaveStatus.UnsupportedVehicles, session.Save("Should Fail").Status);
-            Assert.IsFalse(store.Wrote);
+            Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Should Persist").Status);
+            Assert.IsTrue(store.Wrote);
             Assert.AreEqual(before, session.CaptureAuthority());
         }
     }

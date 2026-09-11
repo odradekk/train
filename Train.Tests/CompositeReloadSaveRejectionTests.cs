@@ -9,7 +9,7 @@ namespace Train.Tests;
 public sealed class CompositeReloadSaveRejectionTests
 {
     [TestMethod]
-    public void Save_rejects_when_vehicles_exist_and_leaves_the_session_unchanged()
+    public void Save_writes_vehicles_and_keeps_the_session_authority()
     {
         var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());
         using (logger)
@@ -18,16 +18,17 @@ public sealed class CompositeReloadSaveRejectionTests
             var session = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, store, reloader.Composites);
             session.Manufacture(HollowShellFixture.DefinitionId);
             var before = session.CaptureAuthority();
-            var saved = session.Save("Should Fail");
-            Assert.AreEqual(WorldSaveStatus.UnsupportedVehicles, saved.Status);
-            Assert.IsFalse(saved.Succeeded);
-            Assert.IsFalse(store.Wrote);
+            var saved = session.Save("Should Persist");
+            Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+            Assert.IsTrue(saved.Succeeded);
+            Assert.IsTrue(store.Wrote);
             Assert.AreEqual(before, session.CaptureAuthority());
+            Assert.AreEqual(168, session.QueryComposites()[0].Parts.Count);
         }
     }
 
     [TestMethod]
-    public void Load_rejects_when_vehicles_exist_and_leaves_the_session_unchanged()
+    public void Missing_save_with_vehicles_present_keeps_the_session_unchanged()
     {
         var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());
         using (logger)
@@ -37,14 +38,15 @@ public sealed class CompositeReloadSaveRejectionTests
             session.Manufacture(HollowShellFixture.DefinitionId);
             var before = session.CaptureAuthority();
             var loaded = session.Load(Guid.Parse("11111111-2222-4333-8444-555555555555"));
-            Assert.AreEqual(WorldSaveStatus.UnsupportedVehicles, loaded.Status);
+            Assert.AreEqual(WorldSaveStatus.NotFound, loaded.Status);
             Assert.IsFalse(loaded.Succeeded);
             Assert.AreEqual(before, session.CaptureAuthority());
+            Assert.AreEqual(ConstructionStatus.Valid, session.QueryComposites()[0].Construction);
         }
     }
 
     [TestMethod]
-    public void Save_rejects_dropped_runtime_ids_on_slice_2_and_leaves_ordinary_world_saves()
+    public void Save_keeps_dropped_runtime_ids_on_slice_2_and_still_writes_ordinary_world_saves()
     {
         var (reloader, logger) = CompositeFixtures.Load(CompositeFixtures.FormalFixturePackage());
         using (logger)
@@ -63,21 +65,17 @@ public sealed class CompositeReloadSaveRejectionTests
             Assert.AreEqual(0, session.QueryComposites().Count);
             Assert.AreEqual(52, session.World.OccupiedVoxels().Count(item => item.Value.RuntimeId is not null));
             var before = session.CaptureAuthority();
-            var existingSaveId = session.SaveId;
 
-            var saved = session.Save("Should Keep Identities");
-            Assert.AreEqual(WorldSaveStatus.UnsupportedIdentities, saved.Status);
-            Assert.IsFalse(saved.Succeeded);
-            Assert.IsFalse(store.Wrote);
-            Assert.AreEqual(existingSaveId, session.SaveId);
+            var saved = session.Save("Keep Identities");
+            Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+            Assert.IsTrue(saved.Succeeded);
+            Assert.IsTrue(store.Wrote);
             Assert.AreEqual(before, session.CaptureAuthority());
             Assert.AreEqual(52, session.World.OccupiedVoxels().Count(item => item.Value.RuntimeId is not null));
 
-            var loaded = session.Load(Guid.Parse("11111111-2222-4333-8444-555555555555"));
-            Assert.AreEqual(WorldSaveStatus.UnsupportedIdentities, loaded.Status);
-            Assert.IsFalse(loaded.Succeeded);
+            var missing = session.Load(Guid.Parse("11111111-2222-4333-8444-555555555555"));
+            Assert.AreEqual(WorldSaveStatus.NotFound, missing.Status);
             Assert.AreEqual(before, session.CaptureAuthority());
-            Assert.AreEqual(existingSaveId, session.SaveId);
 
             var ordinaryStore = new RecordingStore();
             var ordinary = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2, ordinaryStore, reloader.Composites);

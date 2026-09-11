@@ -49,7 +49,7 @@ composite damage 1 3 1 1 100 1 1 1 100 5 1 1 100
 
 桥和两核心同事件归零后无人保留 Composite 身份，剩余体素仍走完整脱落规则。
 
-`amount` 为 `0` 或负数返回 `InvalidDamage`；未知车辆返回 `UnknownVehicle`；目标局部格没有零件返回 `Empty`。任一项失败则整件事失败，已提交布局、零件状态、所有权和车辆身份保持不变。查询（含 `composite query damaged`）不推进事务。参数个数无法解析时只给出用法，不执行伤害。改装后的伤害必须读实际布局与同一身份，不能用改装前的旧格子打到已搬走的零件。若该车已有存档内自定义定义，致命删除或断裂后的每个后继按自己的真实零件和仍绑定的接触点重建该定义与 Revision，并把 `LastUsedRevision` 对齐到新的 `SaveLocalRevision`；不对受损碎块再跑施工合法性。从未改装过的车（没有存档内定义）断裂后仍保持 `SaveLocalDefinition` 为空，不发明完整存档。当前不支持车辆存档或沿轨运动。
+`amount` 为 `0` 或负数返回 `InvalidDamage`；未知车辆返回 `UnknownVehicle`；目标局部格没有零件返回 `Empty`。任一项失败则整件事失败，已提交布局、零件状态、所有权和车辆身份保持不变。查询（含 `composite query damaged`）不推进事务。参数个数无法解析时只给出用法，不执行伤害。改装后的伤害必须读实际布局与同一身份，不能用改装前的旧格子打到已搬走的零件。若该车已有存档内自定义定义，致命删除或断裂后的每个后继按自己的真实零件和仍绑定的接触点重建该定义与 Revision，并把 `LastUsedRevision` 对齐到新的 `SaveLocalRevision`；不对受损碎块再跑施工合法性。从未改装过的车（没有存档内定义）断裂后仍保持 `SaveLocalDefinition` 为空，不发明完整存档。这些实际后继与脱落身份可随 [`voxel save`](voxel-save.md) 写入格式 2，沿轨运动仍不在当前切片。
 
 ```text
 composite reset bridge

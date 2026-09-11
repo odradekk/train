@@ -1,11 +1,13 @@
-# Reproducible issue #53 measurement baseline. The real Godot scene performs one
+# Reproducible measurement baseline. The real Godot scene performs one
 # slice 1 warm-up, three recorded slice 1 100-cell y=0 add/remove runs (10 s each),
-# three slice 2 cross-boundary 100-pair add/remove runs in the same process, then
-# one unrecorded save/load warm-up and three recorded save/load timings.
-# Results are written to docs/validation/issue-53-voxel-baseline.md by default.
-# This script does not overwrite docs/validation/issue-50-voxel-baseline.md.
+# three slice 2 cross-boundary 100-pair add/remove runs in the same process,
+# one unrecorded save/load warm-up and three recorded world save/load timings,
+# then one unrecorded slice 3 persist warm-up and three recorded parked-vehicle
+# 100-pair move/return + bridge damage + save/load timings (10 s frames each).
+# Results are written to docs/validation/issue-62-voxel-baseline.md by default.
+# This script does not overwrite docs/validation/issue-53-voxel-baseline.md.
 param(
-    [string] $OutputPath = "docs/validation/issue-53-voxel-baseline.md"
+    [string] $OutputPath = "docs/validation/issue-62-voxel-baseline.md"
 )
 
 $ErrorActionPreference = "Continue"
@@ -49,8 +51,9 @@ Write-Host $output
 $runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_RUN run=*" })
 $slice2Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE2_RUN*" })
 $saveRuns = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SAVE_RUN*" })
-if ($exitCode -ne 0 -or $runs.Count -ne 3 -or $slice2Runs.Count -ne 3 -or $saveRuns.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
-    throw "Voxel baseline failed: expected three slice 1 runs, three slice 2 boundary runs, three save/load runs, and the completion marker."
+$slice3Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE3_RUN*" })
+if ($exitCode -ne 0 -or $runs.Count -ne 3 -or $slice2Runs.Count -ne 3 -or $saveRuns.Count -ne 3 -or $slice3Runs.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
+    throw "Voxel baseline failed: expected three slice 1 runs, three slice 2 boundary runs, three save/load runs, three slice 3 persist runs, and the completion marker."
 }
 
 $cpu = Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name
@@ -58,7 +61,7 @@ $memory = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
 $runtime = (& dotnet --list-runtimes | Select-String -Pattern "^Microsoft.NETCore.App 8\." | Select-Object -Last 1).ToString().Trim()
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $report = @(
-    "# Issue #53 voxel baseline",
+    "# Issue #62 voxel baseline",
     "",
     ("Command: `$env:GODOT = '" + $env:GODOT + "'; .\\scripts\\run-godot-voxel-baseline.ps1"),
     "",
@@ -66,7 +69,7 @@ $report = @(
     "- .NET: $runtime",
     "- CPU: $cpu",
     "- Physical memory bytes: $memory",
-    "- Sequence: one warm-up of the slice 1 100-cell y=0 add/remove pairs; three recorded slice 1 runs (10 s each); then the same process switches to the slice 2 fixture and records three 100-pair cross-boundary add/remove runs (x=15/16, y=1); then one unrecorded save/load warm-up and three recorded save/load timings with file size. Isolated temporary user-data; does not write the player's saves.",
+    "- Sequence: one warm-up of the slice 1 100-cell y=0 add/remove pairs; three recorded slice 1 runs (10 s each); then the same process switches to the slice 2 fixture and records three 100-pair cross-boundary add/remove runs (x=15/16, y=1); then one unrecorded save/load warm-up and three recorded world save/load timings; then one unrecorded slice 3 persist warm-up and three recorded 100-pair move/return + bridge damage + save/restore timings (10 s frames each). Isolated temporary user-data; does not write the player's saves. No FPS or vehicle-count threshold is asserted.",
     "",
     "## Slice 1 recorded runs",
     "",
@@ -76,9 +79,13 @@ $report = @(
     "",
     $slice2Runs,
     "",
-    "## Save / load recorded runs",
+    "## World save / load recorded runs",
     "",
-    $saveRuns
+    $saveRuns,
+    "",
+    "## Slice 3 persist recorded runs",
+    "",
+    $slice3Runs
 )
 $absoluteOutput = Join-Path $root $OutputPath
 $parent = Split-Path -Parent $absoluteOutput

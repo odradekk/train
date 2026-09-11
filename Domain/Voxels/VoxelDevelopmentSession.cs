@@ -371,10 +371,6 @@ public sealed class VoxelDevelopmentSession
 
     public WorldSaveResult Save(string? displayName = null)
     {
-        if (_vehicles.Count > 0)
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedVehicles, SaveId, DisplayName);
-        if (HasRuntimeIds())
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedIdentities, SaveId, DisplayName);
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
@@ -383,7 +379,16 @@ public sealed class VoxelDevelopmentSession
             return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
 
         var id = SaveId ?? Guid.NewGuid();
-        if (!WorldSaveCodec.TryCapture(World, _catalog.Current, id, normalized, out var document, out var captureStatus))
+        if (!WorldSaveCodec.TryCapture(
+                World,
+                _catalog.Current,
+                id,
+                normalized,
+                _vehicles,
+                NextEntityId,
+                TransactionCount,
+                out var document,
+                out var captureStatus))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
         var json = WorldSaveCodec.Serialize(document);
@@ -397,10 +402,6 @@ public sealed class VoxelDevelopmentSession
 
     public WorldSaveResult Load(Guid saveId)
     {
-        if (_vehicles.Count > 0)
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedVehicles, SaveId, DisplayName);
-        if (HasRuntimeIds())
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedIdentities, SaveId, DisplayName);
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
@@ -414,10 +415,16 @@ public sealed class VoxelDevelopmentSession
                 DisplayName);
         if (document.Id != saveId)
             return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName);
-        if (!WorldSaveRestorer.TryBuild(_catalog.Current, document, Identity, out var candidate, out var buildStatus))
+        if (!WorldSaveRestorer.TryBuild(
+                _catalog.Current,
+                _composites.Current,
+                document,
+                Identity,
+                out var restore,
+                out var buildStatus))
             return new WorldSaveResult(buildStatus, SaveId, DisplayName);
 
-        ReplaceWorld(candidate);
+        ReplaceSession(restore.World, restore.Vehicles, restore.NextEntityId, restore.TransactionCount);
         SaveId = document.Id;
         DisplayName = document.DisplayName;
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);
@@ -479,16 +486,19 @@ public sealed class VoxelDevelopmentSession
             Changed?.Invoke();
     }
 
-    private bool HasRuntimeIds() =>
-        World.OccupiedVoxels().Any(item => item.Value.RuntimeId is not null);
-
-    private void ReplaceWorld(VoxelWorld world)
+    private void ReplaceSession(
+        VoxelWorld world,
+        IReadOnlyList<CompositeInstance> vehicles,
+        ulong nextEntityId,
+        ulong transactionCount)
     {
         World = world;
         Commands = new VoxelWorldCommands(World, _catalog);
         _vehicles.Clear();
-        NextEntityId = 1;
-        TransactionCount = 0;
+        _vehicles.AddRange(vehicles);
+        _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+        NextEntityId = nextEntityId;
+        TransactionCount = transactionCount;
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _rebuildAll = true;

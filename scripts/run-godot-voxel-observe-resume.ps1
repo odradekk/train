@@ -1,11 +1,15 @@
-# Windowed save → quit → new-process load observation for issue #53.
-# Process 1 writes the slice 2 fixed sequence (including ledge) and exits.
-# Process 2 is a new Godot process that loads the same UUID and captures
-# restored / ground-hole / ledge / continue-damage frames.
+# Windowed save → quit → new-process load observation.
+# Slice 2 (issue #53): process 1 writes the fixed world sequence; process 2
+# captures restored / ground-hole / ledge / continue-damage frames.
+# Slice 3 (issue #62): process 1 writes the parked-vehicle persist fixtures;
+# process 2 loads the same UUID and captures hollow / refit / fracture / dropped
+# frames after the restored session is actually displayed.
 # Requires Godot 4.7 .NET on PATH or $env:GODOT. Does not use --headless.
 # On Godot 4.7.2 .NET, --quit-after is a main-loop frame budget, not seconds.
 param(
-    [string] $OutputPath = ".godot/issue53-resume-observe-report.md"
+    [ValidateSet(2, 3)]
+    [int] $Slice = 2,
+    [string] $OutputPath = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -13,6 +17,10 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     throw "Set GODOT to the Godot 4.7 .NET executable before running resume observation."
+}
+
+if (-not $OutputPath) {
+    $OutputPath = if ($Slice -eq 3) { ".godot/issue62-resume-observe-report.md" } else { ".godot/issue53-resume-observe-report.md" }
 }
 
 foreach ($name in @(
@@ -36,26 +44,41 @@ foreach ($name in @(
 $ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
 $ledgeJson = Join-Path $root "builtin\core\resources\voxels\ledge.voxels.json"
 $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
+$markerJson = Join-Path $root "builtin\core\resources\voxels\refit-marker.voxels.json"
+$hollowJson = Join-Path $root "builtin\core\resources\composites\dev-hollow-shell.composites.json"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
+$beforeMarker = (Get-FileHash -LiteralPath $markerJson -Algorithm SHA256).Hash
+$beforeHollow = (Get-FileHash -LiteralPath $hollowJson -Algorithm SHA256).Hash
 
-$captures = @(
-    "issue53-resume-restored.png",
-    "issue53-resume-chunk-boundary.png",
-    "issue53-resume-ground-hole.png",
-    "issue53-resume-ledge.png",
-    "issue53-resume-continue-damage.png"
-)
+$captures = if ($Slice -eq 3) {
+    @(
+        "issue62-resume-hollow.png",
+        "issue62-resume-refit.png",
+        "issue62-resume-fracture.png",
+        "issue62-resume-dropped.png"
+    )
+} else {
+    @(
+        "issue53-resume-restored.png",
+        "issue53-resume-chunk-boundary.png",
+        "issue53-resume-ground-hole.png",
+        "issue53-resume-ledge.png",
+        "issue53-resume-continue-damage.png"
+    )
+}
 $captureDir = Join-Path $root ".godot"
-$recordDir = Join-Path $root "docs\validation\issue-53-resume"
+$recordName = if ($Slice -eq 3) { "issue-62-resume" } else { "issue-53-resume" }
+$recordDir = Join-Path $root "docs\validation\$recordName"
 New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
 New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
 
-$userData = Join-Path ([System.IO.Path]::GetTempPath()) ("train-issue53-observe-" + [guid]::NewGuid().ToString("N"))
+$userPrefix = if ($Slice -eq 3) { "train-issue62-observe-" } else { "train-issue53-observe-" }
+$userData = Join-Path ([System.IO.Path]::GetTempPath()) ($userPrefix + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $userData | Out-Null
 $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
-$env:TRAIN_VOXEL_SLICE = "2"
+$env:TRAIN_VOXEL_SLICE = "$Slice"
 $env:TRAIN_VOXEL_OBSERVE_RESUME = "1"
 
 function Invoke-ResumeObserve {
@@ -73,7 +96,9 @@ function Invoke-ResumeObserve {
 
 $combined = ""
 try {
-    $write = Invoke-ResumeObserve -QuitAfter 90 -Label "write"
+    $writeAfter = if ($Slice -eq 3) { 120 } else { 90 }
+    $loadAfter = if ($Slice -eq 3) { 200 } else { 180 }
+    $write = Invoke-ResumeObserve -QuitAfter $writeAfter -Label "write"
     Write-Host $write.Output
     if ($write.Output -notmatch "VOXEL_OBSERVE_RESUME_WRITTEN id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
         throw "Resume observe failed. Process 1 did not print a save UUID."
@@ -84,7 +109,7 @@ try {
         throw "Resume observe failed. Save file was not on disk: $savePath"
     }
     $env:TRAIN_VOXEL_OBSERVE_SAVE_ID = $saveId
-    $resume = Invoke-ResumeObserve -QuitAfter 180 -Label "load"
+    $resume = Invoke-ResumeObserve -QuitAfter $loadAfter -Label "load"
     Write-Host $resume.Output
     $combined = $write.Output + "`n" + $resume.Output
     if ($write.ExitCode -ne 0) {
@@ -107,8 +132,10 @@ finally {
 $afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $afterLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -ne $afterTop) {
-    throw "Resume observe rewrote worktree built-in iron-ore or ledge content."
+$afterMarker = (Get-FileHash -LiteralPath $markerJson -Algorithm SHA256).Hash
+$afterHollow = (Get-FileHash -LiteralPath $hollowJson -Algorithm SHA256).Hash
+if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -ne $afterTop -or $beforeMarker -ne $afterMarker -or $beforeHollow -ne $afterHollow) {
+    throw "Resume observe rewrote worktree built-in content."
 }
 
 $missing = @($captures | Where-Object { -not (Test-Path (Join-Path $captureDir $_)) })
@@ -131,19 +158,25 @@ $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $captureLines = @($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" -or $_ -like "*VOXEL_OBSERVE_RESUME_*" })
 $written = ($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_RESUME_WRITTEN*" } | Select-Object -Last 1)
 $loaded = ($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_RESUME_LOADED*" } | Select-Object -Last 1)
+$issue = if ($Slice -eq 3) { "#62" } else { "#53" }
+$facts = if ($Slice -eq 3) {
+    "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` and ``TRAIN_VOXEL_SLICE=3`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the parked-vehicle persist fixtures, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, four ``issue62-resume-*.png`` files generated after the restored session loaded, and unchanged worktree built-in hashes. The script does not inspect PNG pixels and does not reuse ``issue58-*.png``, ``issue60-*.png``, or ``issue61-*.png``."
+} else {
+    "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the slice 2 fixed sequence, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, five ``issue53-resume-*.png`` files, and unchanged worktree iron-ore/ledge hashes. The script does not inspect PNG pixels and does not reuse ``issue50-*.png`` or ``issue52-*.png``."
+}
 
 $report = @(
-    "# Issue #53 resume observation (automated facts)",
+    "# Issue $issue resume observation (automated facts)",
     "",
-    "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe-resume.ps1 ``.",
+    "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe-resume.ps1 -Slice $Slice ``.",
     "",
-    "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the slice 2 fixed sequence, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, five ``issue53-resume-*.png`` files, and unchanged worktree iron-ore/ledge hashes. The script does not inspect PNG pixels and does not reuse ``issue50-*.png`` or ``issue52-*.png``.",
+    $facts,
     "",
     "- $written",
     "- $loaded",
     "",
     "Copied captures:",
-    ($hashes | ForEach-Object { "- ``docs/validation/issue-53-resume/$($_.Name)`` SHA256 ``$($_.Hash)``" }),
+    ($hashes | ForEach-Object { "- ``docs/validation/$recordName/$($_.Name)`` SHA256 ``$($_.Hash)``" }),
     "",
     "Capture log:",
     "",

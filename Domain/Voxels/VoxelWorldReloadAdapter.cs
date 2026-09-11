@@ -80,6 +80,35 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
             changedVehicles ? vehicles : null));
     }
 
+    public static bool TryAdaptVehicles(
+        IReadOnlyList<CompositeInstance> vehicles,
+        VoxelCatalogSnapshot voxels,
+        CompositeCatalogSnapshot composites,
+        out IReadOnlyList<CompositeInstance> adapted,
+        out WorldSaveStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(vehicles);
+        ArgumentNullException.ThrowIfNull(voxels);
+        ArgumentNullException.ThrowIfNull(composites);
+        var diagnostics = new List<ContentDiagnostic>();
+        var next = AdaptVehicles(vehicles, voxels, composites, diagnostics);
+        if (diagnostics.Count == 0)
+        {
+            adapted = next;
+            status = WorldSaveStatus.Loaded;
+            return true;
+        }
+
+        adapted = Array.Empty<CompositeInstance>();
+        status = diagnostics.Any(item =>
+            item.Code is ContentDiagnosticCodes.UnresolvedVoxelReference
+                or ContentDiagnosticCodes.UnresolvedCompositeReference
+                or ContentDiagnosticCodes.UnresolvedArchetypeReference)
+            ? WorldSaveStatus.MissingDefinition
+            : WorldSaveStatus.InvalidDelta;
+        return false;
+    }
+
     private static List<CompositeInstance> AdaptVehicles(
         IReadOnlyList<CompositeInstance> vehicles,
         VoxelCatalogSnapshot voxels,
