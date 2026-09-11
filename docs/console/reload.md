@@ -19,4 +19,4 @@ reload
 - 已有重载正在进行时，新请求会被拒绝。
 - 非 Debug 构建执行该命令会提示 `reload is only available in debug builds.`。
 
-当前限制：完整车辆存档仍明确拒绝（`UnsupportedVehicles` / `UnsupportedIdentities`），读档对齐本命令的当前定义适配规则留到后续票。需要丢弃当前布局并重建初始开发世界时使用 `voxel reset` 或 `composite reset`。
+读档后的车辆走同一适配入口：保留实际改装 / 断裂布局，不按 Blueprint 名称重造。已有完整存档内自定义定义时，外部 Composite 条目可以缺失，仍按该定义与当前零件/Archetype 适配；没有内嵌定义的库存车仍要求外部 Composite 存在。需要丢弃当前布局并重建初始开发世界时使用 `voxel reset` 或 `composite reset`。

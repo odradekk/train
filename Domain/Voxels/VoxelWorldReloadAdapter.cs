@@ -80,6 +80,35 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
             changedVehicles ? vehicles : null));
     }
 
+    public static bool TryAdaptVehicles(
+        IReadOnlyList<CompositeInstance> vehicles,
+        VoxelCatalogSnapshot voxels,
+        CompositeCatalogSnapshot composites,
+        out IReadOnlyList<CompositeInstance> adapted,
+        out WorldSaveStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(vehicles);
+        ArgumentNullException.ThrowIfNull(voxels);
+        ArgumentNullException.ThrowIfNull(composites);
+        var diagnostics = new List<ContentDiagnostic>();
+        var next = AdaptVehicles(vehicles, voxels, composites, diagnostics);
+        if (diagnostics.Count == 0)
+        {
+            adapted = next;
+            status = WorldSaveStatus.Loaded;
+            return true;
+        }
+
+        adapted = Array.Empty<CompositeInstance>();
+        status = diagnostics.Any(item =>
+            item.Code is ContentDiagnosticCodes.UnresolvedVoxelReference
+                or ContentDiagnosticCodes.UnresolvedCompositeReference
+                or ContentDiagnosticCodes.UnresolvedArchetypeReference)
+            ? WorldSaveStatus.MissingDefinition
+            : WorldSaveStatus.InvalidDelta;
+        return false;
+    }
+
     private static List<CompositeInstance> AdaptVehicles(
         IReadOnlyList<CompositeInstance> vehicles,
         VoxelCatalogSnapshot voxels,
@@ -89,7 +118,9 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         var adapted = new List<CompositeInstance>(vehicles.Count);
         foreach (var vehicle in vehicles)
         {
-            if (!composites.TryGet(vehicle.DefinitionId, out var compositeEntry))
+            CompositeCatalogEntry? compositeEntry = null;
+            if (vehicle.SaveLocalDefinition is null &&
+                !composites.TryGet(vehicle.DefinitionId, out compositeEntry))
             {
                 diagnostics.Add(new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
@@ -170,7 +201,25 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
 
             // Change detection only: stamp the composite revision we resolved against.
             // Save-local layouts keep their own revision so blueprint edits cannot rewrite them.
-            var lastUsedRevision = vehicle.SaveLocalRevision ?? compositeEntry.SemanticRevision;
+            string lastUsedRevision;
+            if (vehicle.SaveLocalDefinition is not null)
+            {
+                if (string.IsNullOrEmpty(vehicle.SaveLocalRevision))
+                {
+                    diagnostics.Add(new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Error,
+                        ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                        "Save-local vehicle layout is missing its revision.",
+                        jsonPath: vehicle.DefinitionId.Value));
+                    continue;
+                }
+
+                lastUsedRevision = vehicle.SaveLocalRevision;
+            }
+            else
+            {
+                lastUsedRevision = compositeEntry!.SemanticRevision;
+            }
             adapted.Add(new CompositeInstance(
                 vehicle.Id,
                 vehicle.DefinitionId,

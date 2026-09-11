@@ -149,8 +149,11 @@ public sealed class VoxelDevelopmentSession
             var part = _vehicles.First(item => item.Id == target.VehicleId).PartAt(target.Cell)!;
             return (Target: target, PartId: part.Id);
         }).ToArray();
+        if (!CanCommitTransaction())
+            return new CompositeDamageResult(CompositeDamageStatus.TransactionExhausted, targets[0].VehicleId);
+        CommitTransaction();
+
         var allocatedFrom = NextEntityId;
-        TransactionCount++;
         var reserved = new HashSet<WorldVoxelCoord>();
         var affected = targets.Select(target => target.VehicleId).Distinct().OrderBy(id => id.Value).ToArray();
         foreach (var vehicleId in affected)
@@ -201,6 +204,9 @@ public sealed class VoxelDevelopmentSession
         if (status != ConstructionStatus.Valid)
             return new CompositeManufactureResult(status);
 
+        if (!CanCommitTransaction())
+            return new CompositeManufactureResult(ConstructionStatus.TransactionExhausted);
+
         var next = NextEntityId;
         var vehicleId = new EntityId(next++);
         var parts = new List<CompositePart>(definition.Voxels.Count);
@@ -229,7 +235,7 @@ public sealed class VoxelDevelopmentSession
             definition.Contacts);
         _vehicles.Add(instance);
         NextEntityId = next;
-        TransactionCount++;
+        CommitTransaction();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeManufactureResult(ConstructionStatus.Valid, vehicleId, instance.Parts);
@@ -279,13 +285,15 @@ public sealed class VoxelDevelopmentSession
         }
 
         var current = _vehicles[index];
-        if (!_composites.Current.TryGet(current.DefinitionId, out var published))
+        if (!TryPublishedOrSaveLocalNames(current, out var sourceName, out var sourceDescription))
             return new CompositeRefitResult(ConstructionStatus.UnknownDefinition, vehicleId);
+        if (!CanCommitTransaction())
+            return new CompositeRefitResult(ConstructionStatus.TransactionExhausted, vehicleId);
 
         var saveLocal = new CompositeDefinition(
             current.DefinitionId,
-            published.Definition.Name,
-            published.Definition.Description,
+            sourceName,
+            sourceDescription,
             current.ArchetypeId,
             current.SizeClass,
             parts.Select(part => new CompositeVoxelSpec(part.Cell, part.DefinitionId, part.Orientation)).ToArray(),
@@ -305,7 +313,7 @@ public sealed class VoxelDevelopmentSession
             saveLocal);
         _vehicles[index] = instance;
         NextEntityId = next;
-        TransactionCount++;
+        CommitTransaction();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeRefitResult(ConstructionStatus.Valid, vehicleId, instance.Parts, allocated);
@@ -371,10 +379,6 @@ public sealed class VoxelDevelopmentSession
 
     public WorldSaveResult Save(string? displayName = null)
     {
-        if (_vehicles.Count > 0)
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedVehicles, SaveId, DisplayName);
-        if (HasRuntimeIds())
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedIdentities, SaveId, DisplayName);
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
@@ -383,7 +387,16 @@ public sealed class VoxelDevelopmentSession
             return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
 
         var id = SaveId ?? Guid.NewGuid();
-        if (!WorldSaveCodec.TryCapture(World, _catalog.Current, id, normalized, out var document, out var captureStatus))
+        if (!WorldSaveCodec.TryCapture(
+                World,
+                _catalog.Current,
+                id,
+                normalized,
+                _vehicles,
+                NextEntityId,
+                TransactionCount,
+                out var document,
+                out var captureStatus))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
         var json = WorldSaveCodec.Serialize(document);
@@ -397,10 +410,6 @@ public sealed class VoxelDevelopmentSession
 
     public WorldSaveResult Load(Guid saveId)
     {
-        if (_vehicles.Count > 0)
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedVehicles, SaveId, DisplayName);
-        if (HasRuntimeIds())
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedIdentities, SaveId, DisplayName);
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
@@ -414,10 +423,16 @@ public sealed class VoxelDevelopmentSession
                 DisplayName);
         if (document.Id != saveId)
             return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName);
-        if (!WorldSaveRestorer.TryBuild(_catalog.Current, document, Identity, out var candidate, out var buildStatus))
+        if (!WorldSaveRestorer.TryBuild(
+                _catalog.Current,
+                _composites.Current,
+                document,
+                Identity,
+                out var restore,
+                out var buildStatus))
             return new WorldSaveResult(buildStatus, SaveId, DisplayName);
 
-        ReplaceWorld(candidate);
+        ReplaceSession(restore.World, restore.Vehicles, restore.NextEntityId, restore.TransactionCount);
         SaveId = document.Id;
         DisplayName = document.DisplayName;
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);
@@ -479,16 +494,52 @@ public sealed class VoxelDevelopmentSession
             Changed?.Invoke();
     }
 
-    private bool HasRuntimeIds() =>
-        World.OccupiedVoxels().Any(item => item.Value.RuntimeId is not null);
+    private bool CanCommitTransaction() => TransactionCount < ulong.MaxValue - 1;
 
-    private void ReplaceWorld(VoxelWorld world)
+    private void CommitTransaction()
+    {
+        if (TransactionCount >= ulong.MaxValue - 1)
+            throw new InvalidOperationException("Transaction count is exhausted.");
+        TransactionCount++;
+    }
+
+    private bool TryPublishedOrSaveLocalNames(
+        CompositeInstance vehicle,
+        out string name,
+        out string description)
+    {
+        if (_composites.Current.TryGet(vehicle.DefinitionId, out var published))
+        {
+            name = published.Definition.Name;
+            description = published.Definition.Description;
+            return true;
+        }
+
+        if (vehicle.SaveLocalDefinition is { } local)
+        {
+            name = local.Name;
+            description = local.Description;
+            return true;
+        }
+
+        name = "";
+        description = "";
+        return false;
+    }
+
+    private void ReplaceSession(
+        VoxelWorld world,
+        IReadOnlyList<CompositeInstance> vehicles,
+        ulong nextEntityId,
+        ulong transactionCount)
     {
         World = world;
         Commands = new VoxelWorldCommands(World, _catalog);
         _vehicles.Clear();
-        NextEntityId = 1;
-        TransactionCount = 0;
+        _vehicles.AddRange(vehicles);
+        _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+        NextEntityId = nextEntityId;
+        TransactionCount = transactionCount;
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _rebuildAll = true;

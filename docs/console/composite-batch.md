@@ -33,6 +33,6 @@ Voxel count: 0.
 
 同批含添加／替换时，`allocated` 按提交顺序列出新 ID。
 
-票定失败例：同批把 P 旋回默认朝向再越界添加 `(8,1,0)`，整批 `EnvelopeExceeded`，P 仍为 `nz_py`，`NextEntityId` 与事务不变。随后仍可继续合法移动。其它常见整批拒绝：`UnknownVehicle`、`UnknownPart`、`UnknownVoxel`、`DuplicateOccupancy`、`Disconnected`、`DisallowedOrientation`、`Empty`。失败行是 `Composite <Status> <id>.`，权威不变，也不会脱落到世界网格。
+票定失败例：同批把 P 旋回默认朝向再越界添加 `(8,1,0)`，整批 `EnvelopeExceeded`，P 仍为 `nz_py`，`NextEntityId` 与事务不变。随后仍可继续合法移动。其它常见整批拒绝：`UnknownVehicle`、`UnknownPart`、`UnknownVoxel`、`DuplicateOccupancy`、`Disconnected`、`DisallowedOrientation`、`Empty`、`TransactionExhausted`。失败行是 `Composite <Status> <id>.`，权威不变，也不会脱落到世界网格。
 
 操作词无法解析或批次为空时只给出 Usage，不执行改装。单项入口见 [add](composite-add.md)、[remove](composite-remove.md)、[move](composite-move.md)、[rotate](composite-rotate.md)、[replace](composite-replace.md)。

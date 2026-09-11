@@ -8,7 +8,8 @@ public enum CompositeDamageStatus
     Removed = 1,
     InvalidDamage = 2,
     Empty = 3,
-    UnknownVehicle = 4
+    UnknownVehicle = 4,
+    TransactionExhausted = 5
 }
 
 public readonly record struct CompositeDamageTarget(EntityId VehicleId, LocalVoxelCoord Cell, int Amount);

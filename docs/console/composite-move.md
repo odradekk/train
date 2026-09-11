@@ -20,4 +20,4 @@ construction Valid
 Voxel count: 0.
 ```
 
-失败（占用、不连通、越包络、未知零件）整笔拒绝，布局、RuntimeId、耐久、引用、`NextEntityId` 和事务保持。非法移动不会变成脱落。用法不合法时只给出 Usage。
+失败（占用、不连通、越包络、未知零件、事务计数耗尽）整笔拒绝，布局、RuntimeId、耐久、引用、`NextEntityId` 和事务保持。非法移动不会变成脱落。用法不合法时只给出 Usage。

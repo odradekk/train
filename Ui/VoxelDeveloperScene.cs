@@ -32,6 +32,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelSlice2SmokePhase _slice2SmokePhase;
     private VoxelSlice3SmokePhase _slice3SmokePhase;
     private VoxelResumeSmokePhase _resumeSmokePhase;
+    private VoxelSlice3ResumeSmokePhase _slice3ResumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
     private VoxelSlice3ObservePhase _slice3ObservePhase;
@@ -67,6 +68,16 @@ public partial class VoxelDeveloperScene : Node3D
     private string? _reloadFingerprint;
     private CompositeAuthoritySnapshot? _reloadAuthority;
     private WorldVoxelCoord _reloadWorldCell = new(2, 2, 2);
+    private double _slice3MutationMs;
+    private double _slice3StructureMs;
+    private double _slice3RefreshMs;
+    private double _slice3SaveMs;
+    private double _slice3LoadMs;
+    private long _slice3Bytes;
+    private int _slice3Voxels;
+    private int _slice3Parts;
+    private static readonly CompositeTransform PersistEqualBridgePose = CompositeTransform.Translation(20, 8, 8);
+    private static readonly CompositeTransform PersistDropBridgePose = CompositeTransform.Translation(8, 8, 20);
 
     private enum VoxelSmokePhase
     {
@@ -190,6 +201,9 @@ public partial class VoxelDeveloperScene : Node3D
         RefitPairs,
         RefitMetricsRun,
         AwaitRefitMetrics,
+        PersistBridges,
+        AwaitPersist,
+        PersistSave,
         Reset,
         AwaitReset,
         Bridge,
@@ -233,6 +247,19 @@ public partial class VoxelDeveloperScene : Node3D
         ContinueDamage,
         AwaitContinueDamage,
         ContinueEdit,
+        Done
+    }
+
+    private enum VoxelSlice3ResumeSmokePhase
+    {
+        None,
+        Load,
+        AwaitLoad,
+        Continue,
+        AwaitContinue,
+        Reload,
+        AwaitReload,
+        Resave,
         Done
     }
 
@@ -379,6 +406,10 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitLedge,
         ContinueDamage,
         AwaitContinueDamage,
+        CaptureHollow,
+        CaptureRefit,
+        CaptureFracture,
+        CaptureDropped,
         Done
     }
 
@@ -498,7 +529,10 @@ public partial class VoxelDeveloperScene : Node3D
 
             if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeEnvironmentVariable), "1", StringComparison.Ordinal))
             {
-                _resumeSmokePhase = VoxelResumeSmokePhase.Load;
+                if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+                    _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.Load;
+                else
+                    _resumeSmokePhase = VoxelResumeSmokePhase.Load;
                 return;
             }
 
@@ -554,6 +588,7 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceSlice2Smoke();
         AdvanceSlice3Smoke();
         AdvanceResumeSmoke();
+        AdvanceSlice3ResumeSmoke();
         AdvanceObserve();
         AdvanceSlice2Observe();
         AdvanceSlice3Observe();
@@ -2028,6 +2063,19 @@ public partial class VoxelDeveloperScene : Node3D
                 }
 
                 GD.Print("COMPOSITE_REFIT_SMOKE_OK");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.PersistBridges;
+                return;
+            case VoxelSlice3SmokePhase.PersistBridges:
+                AddSlice3PersistBridges();
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitPersist;
+                return;
+            case VoxelSlice3SmokePhase.AwaitPersist:
+                if (!AwaitSlice3PersistVisual())
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.PersistSave;
+                return;
+            case VoxelSlice3SmokePhase.PersistSave:
+                WriteSlice3PersistSave();
                 _slice3SmokePhase = VoxelSlice3SmokePhase.Reset;
                 return;
             case VoxelSlice3SmokePhase.Reset:
@@ -2370,6 +2418,157 @@ public partial class VoxelDeveloperScene : Node3D
             if (visual.Scale != Vector3.One)
                 throw new InvalidOperationException("Composite visual applied a non-uniform scale.");
             VoxelMeshGeometryValidator.Validate(visual.GeneratedMesh, visual.FaceCount);
+        }
+    }
+
+    private void AddSlice3PersistBridges()
+    {
+        if (_session.QueryComposites().Count != 1 ||
+            _session.QueryComposite(_refitVehicle)?.Parts.Count != 169)
+            throw new InvalidOperationException("Slice 3 persist expected the official refit shell before adding bridges.");
+        var equal = _session.Manufacture(BridgeFixture.DefinitionId, PersistEqualBridgePose);
+        if (!equal.Succeeded)
+            throw new InvalidOperationException($"Slice 3 persist equal-bridge manufacture failed: {equal.Status}.");
+        if (!_session.Damage(equal.VehicleId!.Value, BridgeFixture.BridgeCell, 100).Succeeded ||
+            _session.QueryComposites().Count != 3 ||
+            _session.World.VoxelCount != 0)
+            throw new InvalidOperationException("Slice 3 persist equal-value fracture did not keep two successors.");
+        var drop = _session.Manufacture(BridgeFixture.DefinitionId, PersistDropBridgePose);
+        if (!drop.Succeeded)
+            throw new InvalidOperationException($"Slice 3 persist drop-bridge manufacture failed: {drop.Status}.");
+        if (!_session.Damage(new[]
+            {
+                new CompositeDamageTarget(drop.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
+                new CompositeDamageTarget(drop.VehicleId.Value, BridgeFixture.LeftCoreCell, 100)
+            }).Succeeded ||
+            _session.QueryComposites().Count != 4 ||
+            _session.World.VoxelCount != 26)
+            throw new InvalidOperationException(
+                $"Slice 3 persist partial drop failed: vehicles={_session.QueryComposites().Count} world={_session.World.VoxelCount}.");
+        RequireRestoredSlice3Persist();
+        _result.Text = "最近命令：已准备切片 3 存档夹具。";
+    }
+
+    private bool AwaitSlice3PersistVisual()
+    {
+        if (_dirty)
+            return false;
+        if (_session.QueryComposites().Count != 4 || _session.World.VoxelCount != 26)
+            return false;
+        if (_composites.VehicleCount != 4 ||
+            _composites.MeshInstanceCount != 4 ||
+            _composites.FaceCount == 0 ||
+            _meshes.FaceCount == 0 ||
+            !CollisionPhysicsReady)
+            return false;
+        ValidateCompositeVisual();
+        ValidateGeneratedMesh();
+        AssertUniqueOwnership();
+        var dropped = _session.World.OccupiedVoxels().First(item => item.Value.RuntimeId is not null).Key;
+        RequirePublishedWholeCell(dropped, true);
+        return true;
+    }
+
+    private void WriteSlice3PersistSave()
+    {
+        var saved = _session.Save("Slice 3 Persist");
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Slice 3 persist could not write the save: {saved.Status}.");
+        var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        if (!File.Exists(path))
+            throw new InvalidOperationException($"Slice 3 persist save file was not created at {path}.");
+        var persistShell = _session.QueryComposites().Single(item => item.DefinitionId == HollowShellFixture.DefinitionId);
+        var persistP = persistShell.Parts.Single(part => part.Cell == HollowShellRefit.SecondAdd).Id;
+        GD.Print($"VOXEL_SMOKE_SLICE3_SAVE_WRITTEN id={saved.SaveId:D} bytes={new FileInfo(path).Length} path={path} vehicles={_session.QueryComposites().Count} world={_session.World.VoxelCount} vehicle={persistShell.Id} p_id={persistP}");
+    }
+
+    private void RequireRestoredSlice3Persist()
+    {
+        var vehicles = _session.QueryComposites();
+        if (vehicles.Count != 4 || _session.World.VoxelCount != 26)
+            throw new InvalidOperationException(
+                $"Slice 3 persist authority was vehicles={vehicles.Count} world={_session.World.VoxelCount}.");
+        var hollows = vehicles.Where(item => item.DefinitionId == HollowShellFixture.DefinitionId).ToArray();
+        if (hollows.Length != 1 || hollows[0].Parts.Count != 169)
+            throw new InvalidOperationException("Slice 3 persist did not keep the official refit shell.");
+        var marker = hollows[0].Parts.Single(part => part.Cell == HollowShellRefit.SecondAdd);
+        if (marker.Id.Value == 0 ||
+            marker.CurrentDurability != 75 ||
+            marker.Orientation != HollowShellRefit.MarkerOrientation ||
+            marker.DefinitionId != HollowShellRefit.MarkerId)
+            throw new InvalidOperationException("Slice 3 persist lost P id, durability, or rotation.");
+        if (hollows[0].Parts.Count(part => part.DefinitionId == HollowShellRefit.MarkerId) != 1)
+            throw new InvalidOperationException("Slice 3 persist still has Q or another marker.");
+        var fragments = vehicles.Where(item => item.DefinitionId == BridgeFixture.DefinitionId).ToArray();
+        if (fragments.Length != 3 ||
+            fragments.Any(item => item.Construction != ConstructionStatus.MissingContact) ||
+            fragments.Any(item => item.OperationalCondition != OperationalCondition.Disabled) ||
+            fragments.Any(item => item.IdentityRetention != IdentityRetentionStatus.Retained))
+            throw new InvalidOperationException("Slice 3 persist did not keep primary/secondary fragments and the drop successor.");
+        if (_session.World.OccupiedVoxels().Any(item => item.Value.RuntimeId is null))
+            throw new InvalidOperationException("Slice 3 persist dropped voxels are missing runtime ids.");
+        AssertUniqueOwnership();
+    }
+
+    private void AdvanceSlice3ResumeSmoke()
+    {
+        switch (_slice3ResumeSmokePhase)
+        {
+            case VoxelSlice3ResumeSmokePhase.Load:
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Slice 3 persist smoke is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Slice 3 persist smoke could not load {saveId:D}: {loaded.Status}.");
+                RequireRestoredSlice3Persist();
+                var resumedShell = _session.QueryComposites().Single(item => item.DefinitionId == HollowShellFixture.DefinitionId);
+                var resumedP = resumedShell.Parts.Single(part => part.Cell == HollowShellRefit.SecondAdd).Id;
+                GD.Print($"VOXEL_SMOKE_SLICE3_RESUME_LOADED id={saveId:D} vehicles={_session.QueryComposites().Count} world={_session.World.VoxelCount} name={loaded.DisplayName} vehicle={resumedShell.Id} p_id={resumedP}");
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.AwaitLoad;
+                return;
+            case VoxelSlice3ResumeSmokePhase.AwaitLoad:
+                if (!AwaitSlice3PersistVisual())
+                    return;
+                GD.Print($"VOXEL_SMOKE_SLICE3_RESUME_OWNERSHIP vehicles={_composites.VehicleCount} meshes={_composites.MeshInstanceCount} world_faces={_meshes.FaceCount}");
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.Continue;
+                return;
+            case VoxelSlice3ResumeSmokePhase.Continue:
+                var hollow = _session.QueryComposites().Single(item => item.DefinitionId == HollowShellFixture.DefinitionId);
+                var persistP = hollow.Parts.Single(part => part.Cell == HollowShellRefit.SecondAdd).Id;
+                HollowShellRefit.RunMoveReturnPairs(_session, hollow.Id, persistP, 1);
+                if (!_session.Damage(hollow.Id, HollowShellRefit.Occupied, 10).Succeeded)
+                    throw new InvalidOperationException("Slice 3 persist resume could not continue damage.");
+                _refitVehicle = hollow.Id;
+                _refitP = persistP;
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.AwaitContinue;
+                return;
+            case VoxelSlice3ResumeSmokePhase.AwaitContinue:
+                if (!AwaitSlice3PersistVisual())
+                    return;
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.Reload;
+                return;
+            case VoxelSlice3ResumeSmokePhase.Reload:
+                RequireLiveReload().WriteRefitMarkerMax(150);
+                RequireCommittedReload("slice3-persist-max-150");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                GD.Print("VOXEL_SMOKE_SLICE3_RESUME_CONTINUE durability=75 max=150");
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.AwaitReload;
+                return;
+            case VoxelSlice3ResumeSmokePhase.AwaitReload:
+                if (!AwaitSlice3PersistVisual())
+                    return;
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.Resave;
+                return;
+            case VoxelSlice3ResumeSmokePhase.Resave:
+                var saved = _session.Save("Slice 3 Persist");
+                if (saved.Status != WorldSaveStatus.Saved || saved.SaveId != _session.SaveId)
+                    throw new InvalidOperationException($"Slice 3 persist resume could not save again: {saved.Status}.");
+                GD.Print($"VOXEL_SMOKE_SLICE3_RESUME_SAVED id={saved.SaveId:D}");
+                GD.Print("COMPOSITE_PERSIST_SMOKE_OK");
+                _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.Done;
+                GetTree().Quit();
+                return;
         }
     }
 
@@ -2760,16 +2959,10 @@ public partial class VoxelDeveloperScene : Node3D
         switch (_resumeObservePhase)
         {
             case VoxelResumeObservePhase.Write:
-                WorldSaveFixture.ApplyFixedSequence(_session, includeLedge: true);
-                var saved = _session.Save("Slice 2 Resume");
-                if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
-                    throw new InvalidOperationException($"Resume observe could not save: {saved.Status}.");
-                var written = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
-                if (!File.Exists(written))
-                    throw new InvalidOperationException($"Resume observe save file was not created at {written}.");
-                GD.Print($"VOXEL_OBSERVE_RESUME_WRITTEN id={saved.SaveId.Value:D} bytes={new FileInfo(written).Length} voxels={_session.World.VoxelCount}");
-                _resumeObservePhase = VoxelResumeObservePhase.Done;
-                GetTree().Quit();
+                if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+                    WriteSlice3ResumeObserve();
+                else
+                    WriteSlice2ResumeObserve();
                 return;
             case VoxelResumeObservePhase.Load:
                 var rawId = System.Environment.GetEnvironmentVariable(VoxelObserveSaveIdEnvironmentVariable);
@@ -2778,10 +2971,21 @@ public partial class VoxelDeveloperScene : Node3D
                 var loaded = _session.Load(saveId);
                 if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
                     throw new InvalidOperationException($"Resume observe could not load {saveId:D}: {loaded.Status}.");
-                GD.Print($"VOXEL_OBSERVE_RESUME_LOADED id={saveId:D} voxels={_session.World.VoxelCount} name={loaded.DisplayName}");
+                GD.Print($"VOXEL_OBSERVE_RESUME_LOADED id={saveId:D} voxels={_session.World.VoxelCount} vehicles={_session.QueryComposites().Count} name={loaded.DisplayName}");
                 _resumeObservePhase = VoxelResumeObservePhase.AwaitLoad;
                 return;
             case VoxelResumeObservePhase.AwaitLoad:
+                if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+                {
+                    if (!AwaitSlice3PersistVisual())
+                        return;
+                    RequireRestoredSlice3Persist();
+                    AimInteriorCamera();
+                    _observeHoldFrames = 10;
+                    _resumeObservePhase = VoxelResumeObservePhase.CaptureHollow;
+                    return;
+                }
+
                 if (_session.World.VoxelCount != 1089 || !CollisionPhysicsReady)
                     return;
                 RequireRestoredSaveWorld();
@@ -2853,7 +3057,74 @@ public partial class VoxelDeveloperScene : Node3D
                 _resumeObservePhase = VoxelResumeObservePhase.Done;
                 GetTree().Quit();
                 return;
+            case VoxelResumeObservePhase.CaptureHollow:
+                CaptureObserve("issue62-resume-hollow", "new-process load: hollow interior of the restored parked shell");
+                AimRefitCamera(HollowShellRefit.SecondAdd);
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.CaptureRefit;
+                return;
+            case VoxelResumeObservePhase.CaptureRefit:
+                CaptureObserve("issue62-resume-refit", "new-process load: restored P at (4,1,0), durability 75, nz_py");
+                AimCamera(new Vector3(28, 16, 4), new Vector3(20, 9, 8));
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.CaptureFracture;
+                return;
+            case VoxelResumeObservePhase.CaptureFracture:
+                CaptureObserve("issue62-resume-fracture", "new-process load: primary and secondary bridge successors");
+                var dropped = _session.World.OccupiedVoxels().First(item => item.Value.RuntimeId is not null).Key;
+                SelectObserveCell(dropped);
+                AimCamera(new Vector3(16, 14, 28), new Vector3(8, 8, 20));
+                _observeHoldFrames = 10;
+                _resumeObservePhase = VoxelResumeObservePhase.CaptureDropped;
+                return;
+            case VoxelResumeObservePhase.CaptureDropped:
+                CaptureObserve("issue62-resume-dropped", "new-process load: dropped world voxels keep runtime ids");
+                GD.Print("VOXEL_OBSERVE_RESUME_COMPLETE");
+                _resumeObservePhase = VoxelResumeObservePhase.Done;
+                GetTree().Quit();
+                return;
         }
+    }
+
+    private void WriteSlice2ResumeObserve()
+    {
+        WorldSaveFixture.ApplyFixedSequence(_session, includeLedge: true);
+        var saved = _session.Save("Slice 2 Resume");
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Resume observe could not save: {saved.Status}.");
+        var written = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        if (!File.Exists(written))
+            throw new InvalidOperationException($"Resume observe save file was not created at {written}.");
+        GD.Print($"VOXEL_OBSERVE_RESUME_WRITTEN id={saved.SaveId.Value:D} bytes={new FileInfo(written).Length} voxels={_session.World.VoxelCount}");
+        _resumeObservePhase = VoxelResumeObservePhase.Done;
+        GetTree().Quit();
+    }
+
+    private void WriteSlice3ResumeObserve()
+    {
+        var manufactured = _session.Manufacture(HollowShellFixture.DefinitionId);
+        if (!manufactured.Succeeded)
+            throw new InvalidOperationException($"Resume observe hollow manufacture failed: {manufactured.Status}.");
+        _refitVehicle = manufactured.VehicleId!.Value;
+        var trace = HollowShellRefit.ApplySuccess(_session, _refitVehicle);
+        _refitP = trace.P;
+        AddSlice3PersistBridges();
+        var saved = _session.Save("Slice 3 Persist");
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Resume observe could not save slice 3: {saved.Status}.");
+        var written = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        if (!File.Exists(written))
+            throw new InvalidOperationException($"Resume observe save file was not created at {written}.");
+        GD.Print($"VOXEL_OBSERVE_RESUME_WRITTEN id={saved.SaveId.Value:D} bytes={new FileInfo(written).Length} vehicles={_session.QueryComposites().Count} world={_session.World.VoxelCount}");
+        _resumeObservePhase = VoxelResumeObservePhase.Done;
+        GetTree().Quit();
+    }
+
+    private void AimInteriorCamera()
+    {
+        var camera = GetChildren().OfType<Camera3D>().Single();
+        camera.Position = new Vector3(11.5f, 10.5f, 9f);
+        camera.LookAt(new Vector3(8.6f, 8.6f, 7.6f), Vector3.Up);
     }
 
     private void SelectObserveCell(WorldVoxelCoord cell)
@@ -3911,6 +4182,23 @@ public partial class VoxelDeveloperScene : Node3D
         var average = _frameMilliseconds.Average();
         var maximum = _frameMilliseconds.Max();
         var memory = Performance.GetMonitor(Performance.Monitor.MemoryStatic);
+        if (_baselineStage == 2)
+        {
+            GD.Print(
+                $"VOXEL_BASELINE_SLICE3_RUN run={_baselineRun + 1} voxels={_slice3Voxels} parts={_slice3Parts} mutation_ms={_slice3MutationMs:F3} structure_ms={_slice3StructureMs:F3} refresh_ms={_slice3RefreshMs:F3} save_ms={_slice3SaveMs:F3} load_ms={_slice3LoadMs:F3} file_bytes={_slice3Bytes} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
+            _baselineRun++;
+            if (_baselineRun == 3)
+            {
+                GD.Print("VOXEL_BASELINE_COMPLETE");
+                _baselineEnabled = false;
+                GetTree().Quit();
+                return;
+            }
+
+            StartSlice3BaselineRun();
+            return;
+        }
+
         var marker = _baselineStage == 0 ? "VOXEL_BASELINE_RUN" : "VOXEL_BASELINE_SLICE2_RUN";
         GD.Print(
             $"{marker} run={_baselineRun + 1} definitions={_session.DefinitionCount} voxels={_session.World.VoxelCount} mutation_ms={_mutationStopwatch.Elapsed.TotalMilliseconds:F3} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
@@ -3929,13 +4217,76 @@ public partial class VoxelDeveloperScene : Node3D
         if (_baselineRun == 3)
         {
             RecordSaveLoadBaseline();
-            GD.Print("VOXEL_BASELINE_COMPLETE");
-            _baselineEnabled = false;
-            GetTree().Quit();
+            ReplaceSession(VoxelWorldIdentity.Slice3);
+            PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+            Refresh();
+            MeasureSlice3PersistBaseline(warmup: true);
+            _baselineStage = 2;
+            _baselineRun = 0;
+            StartSlice3BaselineRun();
             return;
         }
 
         StartBaselineRun();
+    }
+
+    private void StartSlice3BaselineRun()
+    {
+        MeasureSlice3PersistBaseline(warmup: false);
+        _mutationStopwatch = Stopwatch.StartNew();
+        _frameMilliseconds.Clear();
+        _stableSeconds = 0;
+        _lastFrameTicks = Time.GetTicksUsec();
+    }
+
+    private void MeasureSlice3PersistBaseline(bool warmup)
+    {
+        _session.Reset();
+        var mutation = Stopwatch.StartNew();
+        var hollow = _session.Manufacture(HollowShellFixture.DefinitionId);
+        if (!hollow.Succeeded)
+            throw new InvalidOperationException($"Slice 3 baseline manufacture failed: {hollow.Status}.");
+        var trace = HollowShellRefit.ApplySuccess(_session, hollow.VehicleId!.Value);
+        HollowShellRefit.RunMoveReturnPairs(_session, hollow.VehicleId.Value, trace.P, 100);
+        var bridge = _session.Manufacture(BridgeFixture.DefinitionId, PersistDropBridgePose);
+        if (!bridge.Succeeded)
+            throw new InvalidOperationException($"Slice 3 baseline bridge manufacture failed: {bridge.Status}.");
+        mutation.Stop();
+        var structure = Stopwatch.StartNew();
+        if (!_session.Damage(new[]
+            {
+                new CompositeDamageTarget(bridge.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
+                new CompositeDamageTarget(bridge.VehicleId.Value, BridgeFixture.LeftCoreCell, 100)
+            }).Succeeded)
+            throw new InvalidOperationException("Slice 3 baseline bridge damage failed.");
+        structure.Stop();
+        var refresh = Stopwatch.StartNew();
+        Refresh();
+        refresh.Stop();
+        var saveWatch = Stopwatch.StartNew();
+        var saved = _session.Save("Slice 3 Baseline");
+        saveWatch.Stop();
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Slice 3 baseline could not save: {saved.Status}.");
+        var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        var bytes = new FileInfo(path).Length;
+        var beforeLoad = _session.CaptureAuthority();
+        _session.Reset();
+        var loadWatch = Stopwatch.StartNew();
+        var loaded = _session.Load(saved.SaveId.Value);
+        loadWatch.Stop();
+        if (loaded.Status != WorldSaveStatus.Loaded || _session.CaptureAuthority() != beforeLoad)
+            throw new InvalidOperationException($"Slice 3 baseline could not restore authority: {loaded.Status}.");
+        if (warmup)
+            return;
+        _slice3MutationMs = mutation.Elapsed.TotalMilliseconds;
+        _slice3StructureMs = structure.Elapsed.TotalMilliseconds;
+        _slice3RefreshMs = refresh.Elapsed.TotalMilliseconds;
+        _slice3SaveMs = saveWatch.Elapsed.TotalMilliseconds;
+        _slice3LoadMs = loadWatch.Elapsed.TotalMilliseconds;
+        _slice3Bytes = bytes;
+        _slice3Voxels = _session.World.VoxelCount;
+        _slice3Parts = _session.QueryComposites().Sum(item => item.Parts.Count);
     }
 
     private void RecordSaveLoadBaseline()
