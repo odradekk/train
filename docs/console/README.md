@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落，以及五类原子改装）。
 
 ## 打开控制台与输入规则
 
@@ -36,6 +36,12 @@
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
 | [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
 | [composite query](composite-query.md) `[page [<page>] \| damaged [<page>] \| <id> [parts [<page>]]]` | 分页列出车辆摘要、受损零件，或查询单车接触与零件布局 | 同上 |
+| [composite add](composite-add.md) `<id> <x> <y> <z> <namespace:id> <orientation>` | 向已有车辆添加零件，成功才分配新身份 | 同上 |
+| [composite remove](composite-remove.md) `<id> <partId>` | 按真实 RuntimeId 拆除零件 | 同上 |
+| [composite move](composite-move.md) `<id> <partId> <x> <y> <z>` | 移动已有零件并保留身份与状态 | 同上 |
+| [composite rotate](composite-rotate.md) `<id> <partId> <orientation>` | 旋转已有零件并保留身份与状态 | 同上 |
+| [composite replace](composite-replace.md) `<id> <x> <y> <z> <namespace:id> <orientation>` | 拆除旧件并初始化新件 | 同上 |
+| [composite batch](composite-batch.md) `<id> <op> ...` | 原子批量改装；占格交换合法，失败整批拒绝 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -59,7 +65,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -294,7 +300,46 @@ voxel query 8 8 8
 
 等值桥断裂后应有 2 辆仍保留身份但 `Disabled` 的车，世界体素仍为 0。桥加左核心同事件伤害后只剩右侧车辆，左侧碎块出现在世界网格，且不会同时属于车辆。`voxel query 8 8 8` 对脱落零件额外给出 `runtime <id>`，与原零件 ID 相同；普通世界体素没有该行。
 
-目前没有独立的旋转、撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。车辆存档和改装仍明确拒绝。
+目前没有独立的撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。车辆存档仍明确拒绝：有车时 `voxel save` / `voxel load` 返回 `UnsupportedVehicles`，世界里已有带 `RuntimeId` 的体素返回 `UnsupportedIdentities`，不能放开这两项导致静默丢状态。
+
+### 切片 3 五类原子改装
+
+从主菜单进入切片 3 后逐行执行。逐步用 `composite query` 核对返回的真实 ID、耐久和朝向，不要写死恰好分到的整数：
+
+```text
+loglevel info
+composite manufacture
+composite add 1 2 1 0 core:refit-marker px_py
+composite damage 1 2 1 0 25
+composite query damaged
+composite move 1 <P> 3 1 0
+composite rotate 1 <P> nz_py
+composite add 1 4 1 0 core:refit-marker px_py
+composite batch 1 move <P> 4 1 0 move <Q> 3 1 0
+composite replace 1 3 1 0 core:refit-replacement px_py
+composite remove 1 <R>
+```
+
+`<P>` / `<Q>` / `<R>` 分别取自两次 `allocated` 行和替换返回的新 ID。成功末态：P 在 `(4,1,0)`，耐久 75，朝向 `nz_py`；Q/R 不存在；零件 169；世界体素 0。再从该固定结果验证失败：
+
+```text
+composite batch 1 rotate <P> px_py add 8 1 0 core:refit-marker px_py
+composite move 1 <P> 0 1 0
+composite move 1 <P> 3 2 1
+composite add 1 5 1 0 core:fixed px_py
+composite rotate 1 <locked> nz_py
+```
+
+前三例应整批拒绝且 P 仍为 `nz_py`、耐久 75；非法旋转返回 `DisallowedOrientation`。权威不变后仍可 `composite move 1 <P> 3 1 0`。单项移到对方占用格应 `DuplicateOccupancy`；同批两个 `move` 才能交换。
+
+改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。当前仍不支持完整车辆存档。
+
+```text
+composite reset bridge
+composite add 1 3 0 1 core:refit-marker px_py
+composite damage 1 3 1 1 100 3 0 1 100
+composite query
+```
 
 ## 维护与实现依据
 

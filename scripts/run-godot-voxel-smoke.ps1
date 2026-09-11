@@ -6,8 +6,9 @@ param(
 
 # Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
 # slice 2 collision queries (#51), rotating local boxes (#52),
-# world save / process-restart resume (#53), and slice 3 parked-vehicle
-# manufacture (#58). Slice 3 does not reuse the slice 2 save/resume path.
+# world save / process-restart resume (#53), slice 3 parked-vehicle
+# manufacture (#58), damage/fracture (#59), and atomic refit (#60).
+# Slice 3 does not reuse the slice 2 save/resume path.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -140,7 +141,7 @@ try {
         if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
     }
     else {
-        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 3) { 150 } else { 90 }
+        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 3) { 380 } else { 90 }
         $single = Invoke-GodotVoxelSmoke -QuitAfter $quitAfter -Label ("slice $Slice")
         $output = $single.Output
         $godotExitCode = $single.ExitCode
@@ -178,6 +179,21 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE3_VISUAL",
         "VOXEL_SMOKE_SLICE3_QUERY",
         "VOXEL_SMOKE_SLICE3_WORLD_EMPTY",
+        "VOXEL_SMOKE_SLICE3_REFIT_ADDED",
+        "VOXEL_SMOKE_SLICE3_REFIT_DAMAGED",
+        "VOXEL_SMOKE_SLICE3_REFIT_MOVED",
+        "VOXEL_SMOKE_SLICE3_REFIT_ROTATED",
+        "VOXEL_SMOKE_SLICE3_REFIT_SWAPPED",
+        "VOXEL_SMOKE_SLICE3_REFIT_REPLACED",
+        "VOXEL_SMOKE_SLICE3_REFIT_REMOVED",
+        "VOXEL_SMOKE_SLICE3_REFIT_SUCCESS",
+        "VOXEL_SMOKE_SLICE3_REFIT_REJECT_ENVELOPE",
+        "VOXEL_SMOKE_SLICE3_REFIT_REJECT_OCCUPIED",
+        "VOXEL_SMOKE_SLICE3_REFIT_REJECT_DISCONNECTED",
+        "VOXEL_SMOKE_SLICE3_REFIT_REJECT_ORIENTATION",
+        "VOXEL_SMOKE_SLICE3_REFIT_CONTINUE",
+        "VOXEL_SMOKE_SLICE3_REFIT_PAIRS",
+        "COMPOSITE_REFIT_SMOKE_OK",
         "VOXEL_SMOKE_SLICE3_RESET",
         "VOXEL_SMOKE_SLICE3_BRIDGE",
         "VOXEL_SMOKE_SLICE3_FRACTURE",
@@ -186,6 +202,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE3_PARTIAL_OWNERSHIP",
         "VOXEL_SMOKE_SLICE3_DROP",
         "COMPOSITE_SMOKE_OK",
+        "VOXEL_SMOKE_SLICE3_REFIT_FRACTURE",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"

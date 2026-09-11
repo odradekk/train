@@ -74,13 +74,85 @@ public sealed class CompositeConsoleCommands
             }
         }
 
+        if (TryRefit(arguments, out var refitText))
+            return refitText;
+
         return string.Join('\n',
             "Usage: composite reset [hollow|bridge|bridge-right] | composite manufacture [<namespace:id>]",
             "composite damage <id> <x> <y> <z> <amount> [<x> <y> <z> <amount> ...]",
             "composite query [page [<page>] | damaged [<page>] | <id> [parts [<page>]]]",
+            "composite add <id> <x> <y> <z> <namespace:id> <orientation>",
+            "composite remove <id> <partId> | composite move <id> <partId> <x> <y> <z>",
+            "composite rotate <id> <partId> <orientation>",
+            "composite replace <id> <x> <y> <z> <namespace:id> <orientation>",
+            "composite batch <id> <add|remove|move|rotate|replace> ...",
             "Default manufacture id is core:dev-hollow-shell. reset hollow/bridge rebuilds that fixture after clearing the session.",
             $"Vehicle pages are {VehiclePageSize} entries, sorted by runtime id. Part pages are {PartPageSize} entries, sorted by local cell.",
-            "Damage uses local cells on one vehicle, one event. Page numbers start at 1.");
+            "Damage uses local cells on one vehicle, one event. Page numbers start at 1.",
+            "Refit is one atomic transaction. Batch occupancy swaps are legal; a failed batch leaves authority unchanged.");
+    }
+
+    private bool TryRefit(IReadOnlyList<string> arguments, out string text)
+    {
+        text = "";
+        if (arguments.Count < 2)
+            return false;
+        if (!TryEntityId(arguments[1], out var vehicleId))
+            return false;
+
+        IReadOnlyList<CompositeRefitOperation>? operations = null;
+        if (string.Equals(arguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
+            arguments.Count == 7 &&
+            TryCell(arguments, 2, out var addCell) &&
+            TryVoxelDefinition(arguments[5], out var addDefinition) &&
+            VoxelOrientation.TryParse(arguments[6], out var addOrientation))
+            operations = new[] { CompositeRefitOperation.Add(addCell, addDefinition, addOrientation) };
+        else if (string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
+                 arguments.Count == 3 &&
+                 TryEntityId(arguments[2], out var removeId))
+            operations = new[] { CompositeRefitOperation.Remove(removeId) };
+        else if (string.Equals(arguments[0], "move", StringComparison.OrdinalIgnoreCase) &&
+                 arguments.Count == 6 &&
+                 TryEntityId(arguments[2], out var moveId) &&
+                 TryCell(arguments, 3, out var destination))
+            operations = new[] { CompositeRefitOperation.Move(moveId, destination) };
+        else if (string.Equals(arguments[0], "rotate", StringComparison.OrdinalIgnoreCase) &&
+                 arguments.Count == 4 &&
+                 TryEntityId(arguments[2], out var rotateId) &&
+                 VoxelOrientation.TryParse(arguments[3], out var rotateOrientation))
+            operations = new[] { CompositeRefitOperation.Rotate(rotateId, rotateOrientation) };
+        else if (string.Equals(arguments[0], "replace", StringComparison.OrdinalIgnoreCase) &&
+                 arguments.Count == 7 &&
+                 TryCell(arguments, 2, out var replaceCell) &&
+                 TryVoxelDefinition(arguments[5], out var replaceDefinition) &&
+                 VoxelOrientation.TryParse(arguments[6], out var replaceOrientation))
+            operations = new[] { CompositeRefitOperation.Replace(replaceCell, replaceDefinition, replaceOrientation) };
+        else if (string.Equals(arguments[0], "batch", StringComparison.OrdinalIgnoreCase) &&
+                 TryBatchOperations(arguments, out var batch))
+            operations = batch;
+
+        if (operations is null)
+            return false;
+        text = FormatRefit(_session.Refit(vehicleId, operations));
+        return true;
+    }
+
+    private string FormatRefit(CompositeRefitResult result)
+    {
+        if (!result.Succeeded)
+            return $"Composite {result.Status}{(result.VehicleId is { } id ? $" {id}" : "")}.";
+
+        var allocated = result.AllocatedIds is { Count: > 0 }
+            ? string.Join(' ', result.AllocatedIds.Select(item => item.ToString()))
+            : "none";
+        var query = _session.QueryComposite(result.VehicleId!.Value)!;
+        return string.Join('\n',
+            $"Composite {result.Status}.",
+            $"vehicle {result.VehicleId}",
+            $"allocated {allocated}",
+            $"parts {query.Parts.Count}",
+            $"construction {query.Construction}",
+            $"Voxel count: {_session.World.VoxelCount}.");
     }
 
     private string FormatReset()
@@ -311,5 +383,111 @@ public sealed class CompositeConsoleCommands
             definitionId = default;
             return false;
         }
+    }
+
+    private static bool TryVoxelDefinition(string text, out VoxelDefinitionId definitionId)
+    {
+        try
+        {
+            definitionId = VoxelDefinitionId.Parse(text);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            definitionId = default;
+            return false;
+        }
+    }
+
+    private static bool TryEntityId(string text, out EntityId id)
+    {
+        if (ulong.TryParse(text, out var raw) && raw > 0)
+        {
+            id = new EntityId(raw);
+            return true;
+        }
+
+        id = default;
+        return false;
+    }
+
+    private static bool TryCell(IReadOnlyList<string> arguments, int start, out LocalVoxelCoord cell)
+    {
+        if (int.TryParse(arguments[start], out var x) &&
+            int.TryParse(arguments[start + 1], out var y) &&
+            int.TryParse(arguments[start + 2], out var z))
+        {
+            cell = new LocalVoxelCoord(x, y, z);
+            return true;
+        }
+
+        cell = default;
+        return false;
+    }
+
+    private static bool TryBatchOperations(IReadOnlyList<string> arguments, out IReadOnlyList<CompositeRefitOperation> operations)
+    {
+        var parsed = new List<CompositeRefitOperation>();
+        var index = 2;
+        while (index < arguments.Count)
+        {
+            var kind = arguments[index];
+            if (string.Equals(kind, "add", StringComparison.OrdinalIgnoreCase) &&
+                index + 5 < arguments.Count &&
+                TryCell(arguments, index + 1, out var addCell) &&
+                TryVoxelDefinition(arguments[index + 4], out var addDefinition) &&
+                VoxelOrientation.TryParse(arguments[index + 5], out var addOrientation))
+            {
+                parsed.Add(CompositeRefitOperation.Add(addCell, addDefinition, addOrientation));
+                index += 6;
+                continue;
+            }
+
+            if (string.Equals(kind, "remove", StringComparison.OrdinalIgnoreCase) &&
+                index + 1 < arguments.Count &&
+                TryEntityId(arguments[index + 1], out var removeId))
+            {
+                parsed.Add(CompositeRefitOperation.Remove(removeId));
+                index += 2;
+                continue;
+            }
+
+            if (string.Equals(kind, "move", StringComparison.OrdinalIgnoreCase) &&
+                index + 4 < arguments.Count &&
+                TryEntityId(arguments[index + 1], out var moveId) &&
+                TryCell(arguments, index + 2, out var destination))
+            {
+                parsed.Add(CompositeRefitOperation.Move(moveId, destination));
+                index += 5;
+                continue;
+            }
+
+            if (string.Equals(kind, "rotate", StringComparison.OrdinalIgnoreCase) &&
+                index + 2 < arguments.Count &&
+                TryEntityId(arguments[index + 1], out var rotateId) &&
+                VoxelOrientation.TryParse(arguments[index + 2], out var rotateOrientation))
+            {
+                parsed.Add(CompositeRefitOperation.Rotate(rotateId, rotateOrientation));
+                index += 3;
+                continue;
+            }
+
+            if (string.Equals(kind, "replace", StringComparison.OrdinalIgnoreCase) &&
+                index + 5 < arguments.Count &&
+                TryCell(arguments, index + 1, out var replaceCell) &&
+                TryVoxelDefinition(arguments[index + 4], out var replaceDefinition) &&
+                VoxelOrientation.TryParse(arguments[index + 5], out var replaceOrientation))
+            {
+                parsed.Add(CompositeRefitOperation.Replace(replaceCell, replaceDefinition, replaceOrientation));
+                index += 6;
+                continue;
+            }
+
+            operations = Array.Empty<CompositeRefitOperation>();
+            return false;
+        }
+
+        operations = parsed;
+        return parsed.Count > 0;
     }
 }

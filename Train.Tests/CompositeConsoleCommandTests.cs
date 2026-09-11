@@ -242,6 +242,98 @@ public sealed class CompositeConsoleCommandTests
     }
 
     [TestMethod]
+    public void Console_refit_fracture_damage_line_keeps_one_vehicle_id()
+    {
+        using var session = LoggerSession.Create();
+        var reloader = ContentFixtures.Create(CompositeFixtures.FormalFixturePackage(), session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+        var commands = new CompositeConsoleCommands(voxelSession);
+
+        StringAssert.Contains(commands.Execute(new[] { "reset", "bridge" }), "parts 55");
+        StringAssert.Contains(
+            commands.Execute(new[] { "add", "1", "3", "0", "1", HollowShellRefit.MarkerId.Value, "px_py" }),
+            "Composite Valid.");
+        Assert.AreEqual(56, voxelSession.QueryComposites()[0].Parts.Count);
+
+        var extraIdUsage = commands.Execute(new[]
+        {
+            "damage", "1", "3", "1", "1", "100", "1", "3", "0", "1", "100"
+        });
+        StringAssert.Contains(extraIdUsage, "Usage:");
+        Assert.AreEqual(1, voxelSession.QueryComposites().Count);
+        Assert.AreEqual(56, voxelSession.QueryComposites()[0].Parts.Count);
+
+        var cut = commands.Execute(new[] { "damage", "1", "3", "1", "1", "100", "3", "0", "1", "100" });
+        StringAssert.Contains(cut, "Composite Damaged.");
+        Assert.AreEqual(2, voxelSession.Vehicles.Count);
+        Assert.AreEqual(0, voxelSession.World.VoxelCount);
+        foreach (var successor in voxelSession.Vehicles)
+            Assert.AreEqual(27, successor.Parts.Count);
+    }
+
+    [TestMethod]
+    public void Console_refit_covers_five_operations_and_atomic_swap()
+    {
+        using var session = LoggerSession.Create();
+        var reloader = ContentFixtures.Create(CompositeFixtures.FormalFixturePackage(), session.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
+        var commands = new CompositeConsoleCommands(voxelSession);
+        var manufactured = voxelSession.Manufacture(HollowShellFixture.DefinitionId);
+        Assert.IsTrue(manufactured.Succeeded);
+        var vehicleId = manufactured.VehicleId!.Value.ToString();
+
+        var added = commands.Execute(new[] { "add", vehicleId, "2", "1", "0", HollowShellRefit.MarkerId.Value, "px_py" });
+        StringAssert.Contains(added, "Composite Valid.");
+        var p = AllocatedId(added);
+        commands.Execute(new[] { "damage", vehicleId, "2", "1", "0", "25" });
+        StringAssert.Contains(commands.Execute(new[] { "move", vehicleId, p.ToString(), "3", "1", "0" }), "allocated none");
+        StringAssert.Contains(commands.Execute(new[] { "rotate", vehicleId, p.ToString(), "nz_py" }), "Valid");
+        var addedQ = commands.Execute(new[] { "add", vehicleId, "4", "1", "0", HollowShellRefit.MarkerId.Value, "px_py" });
+        var q = AllocatedId(addedQ);
+        Assert.AreNotEqual(p, q);
+
+        var sequential = commands.Execute(new[] { "move", vehicleId, p.ToString(), "4", "1", "0" });
+        StringAssert.Contains(sequential, "DuplicateOccupancy");
+        Assert.AreEqual(p, voxelSession.QueryComposite(manufactured.VehicleId!.Value)!.Parts.Single(part => part.Cell == HollowShellRefit.Moved).Id);
+
+        var swapped = commands.Execute(new[]
+        {
+            "batch", vehicleId,
+            "move", p.ToString(), "4", "1", "0",
+            "move", q.ToString(), "3", "1", "0"
+        });
+        StringAssert.Contains(swapped, "Composite Valid.");
+        Assert.AreEqual(p, voxelSession.QueryComposite(manufactured.VehicleId.Value)!.Parts.Single(part => part.Cell == HollowShellRefit.SecondAdd).Id);
+        Assert.AreEqual(q, voxelSession.QueryComposite(manufactured.VehicleId.Value)!.Parts.Single(part => part.Cell == HollowShellRefit.Moved).Id);
+
+        var replaced = commands.Execute(new[] { "replace", vehicleId, "3", "1", "0", HollowShellRefit.ReplacementId.Value, "px_py" });
+        var r = AllocatedId(replaced);
+        Assert.AreNotEqual(q, r);
+        Assert.AreEqual(150, voxelSession.QueryComposite(manufactured.VehicleId.Value)!.Parts.Single(part => part.Id == r).CurrentDurability);
+        StringAssert.Contains(commands.Execute(new[] { "remove", vehicleId, r.ToString() }), "allocated none");
+
+        var final = voxelSession.QueryComposite(manufactured.VehicleId.Value)!;
+        Assert.AreEqual(p, final.Parts.Single(part => part.Cell == HollowShellRefit.SecondAdd).Id);
+        Assert.AreEqual(75, final.Parts.Single(part => part.Id == p).CurrentDurability);
+        Assert.AreEqual(HollowShellRefit.MarkerOrientation, final.Parts.Single(part => part.Id == p).Orientation);
+        Assert.AreEqual(169, final.Parts.Count);
+
+        var before = voxelSession.CaptureAuthority();
+        var rejected = commands.Execute(new[]
+        {
+            "batch", vehicleId,
+            "rotate", p.ToString(), "px_py",
+            "add", "8", "1", "0", HollowShellRefit.MarkerId.Value, "px_py"
+        });
+        StringAssert.Contains(rejected, "EnvelopeExceeded");
+        Assert.AreEqual(before, voxelSession.CaptureAuthority());
+        Assert.AreEqual(HollowShellRefit.MarkerOrientation, voxelSession.QueryComposite(manufactured.VehicleId.Value)!.Parts.Single(part => part.Id == p).Orientation);
+        StringAssert.Contains(commands.Execute(new[] { "move", vehicleId, p.ToString(), "3", "1", "0" }), "Valid");
+    }
+
+    [TestMethod]
     public void Illegal_manufacture_command_does_not_change_authority()
     {
         using var session = LoggerSession.Create();
@@ -269,6 +361,15 @@ public sealed class CompositeConsoleCommandTests
         harness.Dispatcher.Execute("composite query");
         var warning = harness.ConsoleEvents.Single(item => item.EventId == ConsoleCommandDispatcher.CompositeUnavailableEventId);
         StringAssert.Contains(warning.Message, "voxel development scene");
+    }
+
+    private static EntityId AllocatedId(string text)
+    {
+        var line = text.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Single(item => item.StartsWith("allocated ", StringComparison.Ordinal));
+        var token = line.Split(' ', StringSplitOptions.RemoveEmptyEntries)[1];
+        Assert.AreNotEqual("none", token);
+        return new EntityId(ulong.Parse(token));
     }
 
     private static string Recent(LoggerSession session, string eventId, int span = 12)

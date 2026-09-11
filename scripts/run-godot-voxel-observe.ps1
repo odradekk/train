@@ -32,7 +32,7 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 3) { ".godot/issue59-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
+    $OutputPath = if ($Slice -eq 3) { ".godot/issue60-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
 }
 $env:TRAIN_VOXEL_OBSERVE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
@@ -42,7 +42,7 @@ $ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
 $beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
 $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-$quitAfter = if ($Slice -eq 3) { 450 } else { 300 }
+$quitAfter = if ($Slice -eq 3) { 780 } else { 300 }
 $output = & $env:GODOT --path $root --quit-after $quitAfter 2>&1 | Out-String
 $exitCode = $LASTEXITCODE
 Write-Host $output
@@ -65,7 +65,15 @@ $captures = if ($Slice -eq 3) {
         "issue59-bridge.png",
         "issue59-fracture.png",
         "issue59-partial.png",
-        "issue59-drop.png"
+        "issue59-drop.png",
+        "issue60-added.png",
+        "issue60-moved.png",
+        "issue60-rotated.png",
+        "issue60-swapped.png",
+        "issue60-replaced.png",
+        "issue60-removed.png",
+        "issue60-rejected.png",
+        "issue60-refit-fracture.png"
     )
 } elseif ($Slice -eq 2) {
     @(
@@ -110,11 +118,11 @@ $settle = ($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_MULT
 $captureLines = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" })
 $report = if ($Slice -eq 3) {
     @(
-        "# Issue #59 visual observation record (automated facts)",
+        "# Issue #60 visual observation record (automated facts)",
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 3 ``.",
         "",
-        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png`` plus four ``.godot/issue59-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png``, four ``.godot/issue59-*.png``, and eight ``.godot/issue60-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
         "",
         "## Procedure",
         "",
@@ -122,10 +130,13 @@ $report = if ($Slice -eq 3) {
         "2. Confirm an empty 32³ world, Seed 42, HUD vehicles 0 and world voxel count 0.",
         "3. Run ``composite manufacture`` or press ``M``. Confirm one parked hollow shell, 168 parts, contacts ``(1,-0.75,1.5)`` / ``(7,-0.75,1.5)``, envelope ``[0,0,-1]->[8,6,4]``, and no world-chunk duplicate mesh.",
         "4. Move the camera into the cavity and confirm inner faces without a solid fill.",
-        "5. Run ``composite reset`` or press ``R``. Confirm the vehicle and derived visual are gone.",
-        "6. Run ``composite reset bridge``. Confirm one parked 55-part bridge, no world duplicate.",
-        "7. Run ``composite damage 1 3 1 1 100``. Confirm two surviving composites, two independent meshes, no world duplicate, no stretch or shear.",
-        "8. Reset, manufacture the bridge, then damage the bridge and both cores. Confirm the vehicle meshes disappear and fragments appear once in the world mesh.",
+        "5. Add ``core:refit-marker`` at ``(2,1,0)``, damage 25, move to ``(3,1,0)``, rotate to ``nz_py``. Confirm the cyan/yellow marker and side arrow, then batch-swap with Q, replace Q with orange ``core:refit-replacement``, and remove R. World mesh stays empty.",
+        "6. From that committed result, reject the official illegal batches. The parked marker must stay at ``(4,1,0)``; nothing appears in the world grid.",
+        "7. Run ``composite reset`` or press ``R``. Confirm the vehicle and derived visual are gone.",
+        "8. Run ``composite reset bridge``. Confirm one parked 55-part bridge, no world duplicate.",
+        "9. Run ``composite damage 1 3 1 1 100``. Confirm two surviving composites, two independent meshes, no world duplicate, no stretch or shear.",
+        "10. Reset, manufacture the bridge, then damage the bridge and both cores. Confirm the vehicle meshes disappear and fragments appear once in the world mesh.",
+        "11. Reset, add a second bridge at ``(3,0,1)``, then cut both bridges in one event. Confirm two 27-part successors, empty world mesh, and that each successor's save-local layout matches its live parts.",
         "",
         "## Result",
         "",
@@ -133,7 +144,7 @@ $report = if ($Slice -eq 3) {
         "",
         ($captureLines | ForEach-Object { "- $_" }),
         "",
-        "Automated capture wrote ``.godot/issue58-*.png`` and ``.godot/issue59-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / damage / ownership / visual-sync evidence."
+        "Automated capture wrote ``.godot/issue58-*.png``, ``.godot/issue59-*.png``, and ``.godot/issue60-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / refit / damage / ownership / visual-sync evidence."
     )
 } elseif ($Slice -eq 2) {
     @(

@@ -19,7 +19,9 @@ public enum ConstructionStatus
     DisallowedOrientation = 11,
     NonFiniteTransform = 12,
     UnknownDefinition = 13,
-    UnknownArchetype = 14
+    UnknownArchetype = 14,
+    UnknownVehicle = 15,
+    UnknownPart = 16
 }
 
 public enum IdentityRetentionStatus
@@ -74,6 +76,8 @@ public sealed class CompositeInstance
     public CompositeTransform Transform { get; }
     public IReadOnlyList<CompositePart> Parts { get; }
     public IReadOnlyList<CompositeContactAnchor> Contacts { get; }
+    public string? SaveLocalRevision { get; }
+    public CompositeDefinition? SaveLocalDefinition { get; }
 
     public CompositeInstance(
         EntityId id,
@@ -84,7 +88,9 @@ public sealed class CompositeInstance
         VehicleSizeClass sizeClass,
         CompositeTransform transform,
         IReadOnlyList<CompositePart> parts,
-        IReadOnlyList<CompositeContactAnchor> contacts)
+        IReadOnlyList<CompositeContactAnchor> contacts,
+        string? saveLocalRevision = null,
+        CompositeDefinition? saveLocalDefinition = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(lastUsedRevision);
         ArgumentException.ThrowIfNullOrEmpty(lastUsedArchetypeRevision);
@@ -99,6 +105,8 @@ public sealed class CompositeInstance
         Transform = transform;
         Parts = new ReadOnlyCollection<CompositePart>(parts.OrderBy(part => part.Cell).ToArray());
         Contacts = new ReadOnlyCollection<CompositeContactAnchor>(contacts.ToArray());
+        SaveLocalRevision = saveLocalRevision;
+        SaveLocalDefinition = saveLocalDefinition;
     }
 
     public CompositePart? PartAt(LocalVoxelCoord cell) =>
@@ -138,7 +146,9 @@ public sealed record CompositeQuery(
     OperationalCondition OperationalCondition,
     IReadOnlyList<CompositePartQuery> Parts,
     IReadOnlyList<CompositeContactQuery> Contacts,
-    VehicleEnvelopeBox? Envelope)
+    VehicleEnvelopeBox? Envelope,
+    string LastUsedRevision,
+    string? SaveLocalRevision = null)
 {
     public bool Equals(CompositeQuery? other) =>
         other is not null &&
@@ -151,6 +161,8 @@ public sealed record CompositeQuery(
         IdentityRetention == other.IdentityRetention &&
         OperationalCondition == other.OperationalCondition &&
         Envelope == other.Envelope &&
+        LastUsedRevision == other.LastUsedRevision &&
+        SaveLocalRevision == other.SaveLocalRevision &&
         Parts.SequenceEqual(other.Parts) &&
         Contacts.SequenceEqual(other.Contacts);
 
@@ -166,6 +178,8 @@ public sealed record CompositeQuery(
         hash.Add(IdentityRetention);
         hash.Add(OperationalCondition);
         hash.Add(Envelope);
+        hash.Add(LastUsedRevision);
+        hash.Add(SaveLocalRevision);
         foreach (var part in Parts)
             hash.Add(part);
         foreach (var contact in Contacts)

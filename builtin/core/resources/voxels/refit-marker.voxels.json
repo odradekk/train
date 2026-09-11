@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "voxels": [
+    {
+      "id": "refit-marker",
+      "name": "改装朝向标记",
+      "description": "与壳体同 Value/Mass/耐久上限，但顶/侧/底纹理不同，用于辨认正交朝向。顶面与侧面均有指向局部 +X 的箭头。",
+      "value": 10,
+      "mass": 1,
+      "max_durability": 100,
+      "tags": [],
+      "behaviors": [],
+      "allowed_orientations": "all_24",
+      "presentation": {
+        "kind": "cube",
+        "icon": "voxels/refit-marker/icon.png",
+        "voxel_top": "voxels/refit-marker/top.png",
+        "voxel_side": "voxels/refit-marker/side.png",
+        "voxel_bottom": "voxels/refit-marker/bottom.png"
+      },
+      "collision": {
+        "kind": "full_box"
+      }
+    }
+  ]
+}

@@ -211,6 +211,82 @@ public sealed class VoxelDevelopmentSession
         return new CompositeManufactureResult(ConstructionStatus.Valid, vehicleId, instance.Parts);
     }
 
+    public CompositeRefitResult Refit(EntityId vehicleId, CompositeRefitOperation operation) =>
+        Refit(vehicleId, new[] { operation });
+
+    public CompositeRefitResult Refit(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations)
+    {
+        ArgumentNullException.ThrowIfNull(operations);
+        var index = _vehicles.FindIndex(item => item.Id == vehicleId);
+        if (index < 0)
+            return new CompositeRefitResult(ConstructionStatus.UnknownVehicle, vehicleId);
+
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before refitting.");
+        var status = CompositeRefitPlanner.TryPlan(_vehicles[index], operations, voxels, _composites.Current, out var planned);
+        if (status != ConstructionStatus.Valid)
+            return new CompositeRefitResult(status, vehicleId);
+
+        var next = NextEntityId;
+        var allocated = new List<EntityId>();
+        var parts = new List<CompositePart>(planned.Count);
+        foreach (var plannedPart in planned)
+        {
+            if (plannedPart.Allocate)
+            {
+                var id = new EntityId(next++);
+                allocated.Add(id);
+                parts.Add(new CompositePart(
+                    id,
+                    plannedPart.Cell,
+                    plannedPart.DefinitionId,
+                    plannedPart.Orientation,
+                    plannedPart.CurrentDurability,
+                    plannedPart.LastUsedRevision));
+                continue;
+            }
+
+            parts.Add(new CompositePart(
+                plannedPart.ExistingId!.Value,
+                plannedPart.Cell,
+                plannedPart.DefinitionId,
+                plannedPart.Orientation,
+                plannedPart.CurrentDurability,
+                plannedPart.LastUsedRevision));
+        }
+
+        var current = _vehicles[index];
+        if (!_composites.Current.TryGet(current.DefinitionId, out var published))
+            return new CompositeRefitResult(ConstructionStatus.UnknownDefinition, vehicleId);
+
+        var saveLocal = new CompositeDefinition(
+            current.DefinitionId,
+            published.Definition.Name,
+            published.Definition.Description,
+            current.ArchetypeId,
+            current.SizeClass,
+            parts.Select(part => new CompositeVoxelSpec(part.Cell, part.DefinitionId, part.Orientation)).ToArray(),
+            current.Contacts);
+        var saveLocalRevision = CompositeRevisions.ComputeSemanticRevision(saveLocal);
+        var instance = new CompositeInstance(
+            current.Id,
+            current.DefinitionId,
+            saveLocalRevision,
+            current.ArchetypeId,
+            current.LastUsedArchetypeRevision,
+            current.SizeClass,
+            current.Transform,
+            parts,
+            current.Contacts,
+            saveLocalRevision,
+            saveLocal);
+        _vehicles[index] = instance;
+        NextEntityId = next;
+        TransactionCount++;
+        _rebuildComposites = true;
+        Changed?.Invoke();
+        return new CompositeRefitResult(ConstructionStatus.Valid, vehicleId, instance.Parts, allocated);
+    }
+
     public CompositeQuery? QueryComposite(EntityId id)
     {
         var instance = _vehicles.FirstOrDefault(item => item.Id == id);
@@ -551,16 +627,35 @@ public sealed class VoxelDevelopmentSession
         var contacts = source.Contacts
             .Where(contact => parts.Any(part => part.Cell == contact.BoundCell))
             .ToArray();
+        var lastUsedRevision = source.LastUsedRevision;
+        string? saveLocalRevision = null;
+        CompositeDefinition? saveLocal = null;
+        if (source.SaveLocalDefinition is { } previous)
+        {
+            saveLocal = new CompositeDefinition(
+                previous.Id,
+                previous.Name,
+                previous.Description,
+                previous.ArchetypeId,
+                previous.SizeClass,
+                parts.Select(part => new CompositeVoxelSpec(part.Cell, part.DefinitionId, part.Orientation)).ToArray(),
+                contacts);
+            saveLocalRevision = CompositeRevisions.ComputeSemanticRevision(saveLocal);
+            lastUsedRevision = saveLocalRevision;
+        }
+
         return new CompositeInstance(
             id,
             source.DefinitionId,
-            source.LastUsedRevision,
+            lastUsedRevision,
             source.ArchetypeId,
             source.LastUsedArchetypeRevision,
             source.SizeClass,
             source.Transform,
             parts,
-            contacts);
+            contacts,
+            saveLocalRevision,
+            saveLocal);
     }
 
     private HashSet<WorldVoxelCoord> OccupiedByOtherVehicles(
@@ -682,7 +777,9 @@ public sealed class VoxelDevelopmentSession
             operational,
             parts,
             contacts,
-            VehicleEnvelope.TryFromContacts(instance.SizeClass, instance.Contacts, out var envelope) ? envelope : null);
+            VehicleEnvelope.TryFromContacts(instance.SizeClass, instance.Contacts, out var envelope) ? envelope : null,
+            instance.LastUsedRevision,
+            instance.SaveLocalRevision);
     }
 
     private VoxelWorld CreateWorld() => VoxelWorldFactory.Create(
