@@ -291,9 +291,13 @@ internal static class CompositeRefitPlanner
                 allocate: true);
         }
 
-        if (!composites.TryGet(vehicle.DefinitionId, out var published) ||
-            !composites.TryGet(vehicle.ArchetypeId, out var archetypeEntry))
+        if (!composites.TryGet(vehicle.ArchetypeId, out var archetypeEntry))
+            return ConstructionStatus.UnknownArchetype;
+        if (!composites.TryGet(vehicle.DefinitionId, out var published) &&
+            vehicle.SaveLocalDefinition is null)
             return ConstructionStatus.UnknownDefinition;
+        var name = published?.Definition.Name ?? vehicle.SaveLocalDefinition!.Name;
+        var description = published?.Definition.Description ?? vehicle.SaveLocalDefinition!.Description;
 
         var ordered = new List<PlannedRefitPart>();
         foreach (var part in placed.Values.Where(item => !item.Allocate).OrderBy(item => item.Cell))
@@ -304,8 +308,8 @@ internal static class CompositeRefitPlanner
         var status = ConstructionValidator.Validate(
             new CompositeDefinition(
                 vehicle.DefinitionId,
-                published.Definition.Name,
-                published.Definition.Description,
+                name,
+                description,
                 vehicle.ArchetypeId,
                 vehicle.SizeClass,
                 ordered.Select(part => new CompositeVoxelSpec(part.Cell, part.DefinitionId, part.Orientation)).ToArray(),

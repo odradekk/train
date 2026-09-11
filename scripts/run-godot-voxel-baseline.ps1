@@ -3,7 +3,10 @@
 # three slice 2 cross-boundary 100-pair add/remove runs in the same process,
 # one unrecorded save/load warm-up and three recorded world save/load timings,
 # then one unrecorded slice 3 persist warm-up and three recorded parked-vehicle
-# 100-pair move/return + bridge damage + save/load timings (10 s frames each).
+# 100-pair move/return (mutation_ms), bridge damage/structural resolution
+# (structure_ms), display Refresh (refresh_ms), and save/load timings
+# (10 s frames each). structure_ms is the Damage call only; refresh_ms is
+# not reported as structural settlement.
 # Results are written to docs/validation/issue-62-voxel-baseline.md by default.
 # This script does not overwrite docs/validation/issue-53-voxel-baseline.md.
 param(
@@ -69,7 +72,7 @@ $report = @(
     "- .NET: $runtime",
     "- CPU: $cpu",
     "- Physical memory bytes: $memory",
-    "- Sequence: one warm-up of the slice 1 100-cell y=0 add/remove pairs; three recorded slice 1 runs (10 s each); then the same process switches to the slice 2 fixture and records three 100-pair cross-boundary add/remove runs (x=15/16, y=1); then one unrecorded save/load warm-up and three recorded world save/load timings; then one unrecorded slice 3 persist warm-up and three recorded 100-pair move/return + bridge damage + save/restore timings (10 s frames each). Isolated temporary user-data; does not write the player's saves. No FPS or vehicle-count threshold is asserted.",
+    "- Sequence: one warm-up of the slice 1 100-cell y=0 add/remove pairs; three recorded slice 1 runs (10 s each); then the same process switches to the slice 2 fixture and records three 100-pair cross-boundary add/remove runs (x=15/16, y=1); then one unrecorded save/load warm-up and three recorded world save/load timings; then one unrecorded slice 3 persist warm-up and three recorded 100-pair move/return (mutation_ms), bridge damage/structural resolution (structure_ms), display Refresh (refresh_ms), and save/restore timings (10 s frames each). Isolated temporary user-data; does not write the player's saves. No FPS or vehicle-count threshold is asserted.",
     "",
     "## Slice 1 recorded runs",
     "",

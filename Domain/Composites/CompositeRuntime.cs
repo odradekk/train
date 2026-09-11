@@ -21,7 +21,8 @@ public enum ConstructionStatus
     UnknownDefinition = 13,
     UnknownArchetype = 14,
     UnknownVehicle = 15,
-    UnknownPart = 16
+    UnknownPart = 16,
+    TransactionExhausted = 17
 }
 
 public enum IdentityRetentionStatus

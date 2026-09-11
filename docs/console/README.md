@@ -112,7 +112,8 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `Unavailable` | 当前会话没有可用的存档 store 或目录；不写文件、不读档 |
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
-| `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功 |
+| `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。耗尽的 `transaction_count`、以及 save-local 与车辆身份不一致，属于 `InvalidDelta` |
+| `TransactionExhausted` | 制造 / 改装 / 车辆伤害时事务计数已无法再分配；不绕回、不部分提交 |
 
 格式校验失败时不执行世界命令。例如缺少朝向、ID 使用大写、朝向写成 `90` 或 `px_px`，得到的是用法提示，而不是 `UnknownDefinition` / `DisallowedOrientation`。
 

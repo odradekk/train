@@ -20,4 +20,4 @@ construction Valid
 Voxel count: 0.
 ```
 
-未知车辆或未知零件返回 `UnknownVehicle` / `UnknownPart`，权威不变。用法不合法时只给出 Usage。批量拆除见 [`composite batch`](composite-batch.md)。
+未知车辆或未知零件返回 `UnknownVehicle` / `UnknownPart`；事务计数无法再分配返回 `TransactionExhausted`。权威不变。用法不合法时只给出 Usage。批量拆除见 [`composite batch`](composite-batch.md)。

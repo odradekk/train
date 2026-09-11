@@ -314,6 +314,13 @@ internal static class WorldSaveVehicleCodec
                 }
 
                 saveLocal = local.Definition;
+                if (saveLocal.Id != saved.DefinitionId ||
+                    saveLocal.ArchetypeId != saved.ArchetypeId ||
+                    saveLocal.SizeClass != saved.SizeClass)
+                {
+                    status = WorldSaveStatus.InvalidDelta;
+                    return false;
+                }
             }
 
             var parts = new List<CompositePart>(saved.Parts.Count);
@@ -421,7 +428,9 @@ internal static class WorldSaveVehicleCodec
             maxId = Math.Max(maxId, runtime.Value);
         }
 
-        if (document.NextEntityId == 0 || (maxId != 0 && document.NextEntityId <= maxId))
+        if (document.NextEntityId == 0 ||
+            (maxId != 0 && document.NextEntityId <= maxId) ||
+            document.TransactionCount == ulong.MaxValue)
             return false;
         status = WorldSaveStatus.Loaded;
         return true;
@@ -1036,7 +1045,7 @@ internal static class WorldSaveVehicleCodec
             return false;
         }
 
-        if (!CompositeTransform.TryCreate(ox, oy, oz, rx, ry, rz, ux, uy, uz, out transform))
+        if (!CompositeTransform.TryRestore(ox, oy, oz, rx, ry, rz, ux, uy, uz, out transform))
         {
             status = WorldSaveStatus.InvalidDelta;
             return false;

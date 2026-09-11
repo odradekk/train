@@ -103,6 +103,29 @@ public readonly record struct CompositeTransform
         return true;
     }
 
+    public static bool TryRestore(
+        double originX,
+        double originY,
+        double originZ,
+        double rightX,
+        double rightY,
+        double rightZ,
+        double upX,
+        double upY,
+        double upZ,
+        out CompositeTransform transform)
+    {
+        transform = default;
+        if (!double.IsFinite(originX) || !double.IsFinite(originY) || !double.IsFinite(originZ) ||
+            !double.IsFinite(rightX) || !double.IsFinite(rightY) || !double.IsFinite(rightZ) ||
+            !double.IsFinite(upX) || !double.IsFinite(upY) || !double.IsFinite(upZ))
+            return false;
+        if (!TryOrthonormalize((rightX, rightY, rightZ), (upX, upY, upZ), out _, out _))
+            return false;
+        transform = new CompositeTransform(originX, originY, originZ, rightX, rightY, rightZ, upX, upY, upZ);
+        return true;
+    }
+
     private static bool TryOrthonormalize(
         (double X, double Y, double Z) right,
         (double X, double Y, double Z) up,

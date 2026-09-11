@@ -70,6 +70,7 @@ public partial class VoxelDeveloperScene : Node3D
     private WorldVoxelCoord _reloadWorldCell = new(2, 2, 2);
     private double _slice3MutationMs;
     private double _slice3StructureMs;
+    private double _slice3RefreshMs;
     private double _slice3SaveMs;
     private double _slice3LoadMs;
     private long _slice3Bytes;
@@ -4184,7 +4185,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (_baselineStage == 2)
         {
             GD.Print(
-                $"VOXEL_BASELINE_SLICE3_RUN run={_baselineRun + 1} voxels={_slice3Voxels} parts={_slice3Parts} mutation_ms={_slice3MutationMs:F3} structure_ms={_slice3StructureMs:F3} save_ms={_slice3SaveMs:F3} load_ms={_slice3LoadMs:F3} file_bytes={_slice3Bytes} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
+                $"VOXEL_BASELINE_SLICE3_RUN run={_baselineRun + 1} voxels={_slice3Voxels} parts={_slice3Parts} mutation_ms={_slice3MutationMs:F3} structure_ms={_slice3StructureMs:F3} refresh_ms={_slice3RefreshMs:F3} save_ms={_slice3SaveMs:F3} load_ms={_slice3LoadMs:F3} file_bytes={_slice3Bytes} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
             _baselineRun++;
             if (_baselineRun == 3)
             {
@@ -4250,16 +4251,18 @@ public partial class VoxelDeveloperScene : Node3D
         var bridge = _session.Manufacture(BridgeFixture.DefinitionId, PersistDropBridgePose);
         if (!bridge.Succeeded)
             throw new InvalidOperationException($"Slice 3 baseline bridge manufacture failed: {bridge.Status}.");
+        mutation.Stop();
+        var structure = Stopwatch.StartNew();
         if (!_session.Damage(new[]
             {
                 new CompositeDamageTarget(bridge.VehicleId!.Value, BridgeFixture.BridgeCell, 100),
                 new CompositeDamageTarget(bridge.VehicleId.Value, BridgeFixture.LeftCoreCell, 100)
             }).Succeeded)
             throw new InvalidOperationException("Slice 3 baseline bridge damage failed.");
-        mutation.Stop();
-        var structure = Stopwatch.StartNew();
-        Refresh();
         structure.Stop();
+        var refresh = Stopwatch.StartNew();
+        Refresh();
+        refresh.Stop();
         var saveWatch = Stopwatch.StartNew();
         var saved = _session.Save("Slice 3 Baseline");
         saveWatch.Stop();
@@ -4278,6 +4281,7 @@ public partial class VoxelDeveloperScene : Node3D
             return;
         _slice3MutationMs = mutation.Elapsed.TotalMilliseconds;
         _slice3StructureMs = structure.Elapsed.TotalMilliseconds;
+        _slice3RefreshMs = refresh.Elapsed.TotalMilliseconds;
         _slice3SaveMs = saveWatch.Elapsed.TotalMilliseconds;
         _slice3LoadMs = loadWatch.Elapsed.TotalMilliseconds;
         _slice3Bytes = bytes;

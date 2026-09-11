@@ -149,8 +149,11 @@ public sealed class VoxelDevelopmentSession
             var part = _vehicles.First(item => item.Id == target.VehicleId).PartAt(target.Cell)!;
             return (Target: target, PartId: part.Id);
         }).ToArray();
+        if (!CanCommitTransaction())
+            return new CompositeDamageResult(CompositeDamageStatus.TransactionExhausted, targets[0].VehicleId);
+        CommitTransaction();
+
         var allocatedFrom = NextEntityId;
-        TransactionCount++;
         var reserved = new HashSet<WorldVoxelCoord>();
         var affected = targets.Select(target => target.VehicleId).Distinct().OrderBy(id => id.Value).ToArray();
         foreach (var vehicleId in affected)
@@ -201,6 +204,9 @@ public sealed class VoxelDevelopmentSession
         if (status != ConstructionStatus.Valid)
             return new CompositeManufactureResult(status);
 
+        if (!CanCommitTransaction())
+            return new CompositeManufactureResult(ConstructionStatus.TransactionExhausted);
+
         var next = NextEntityId;
         var vehicleId = new EntityId(next++);
         var parts = new List<CompositePart>(definition.Voxels.Count);
@@ -229,7 +235,7 @@ public sealed class VoxelDevelopmentSession
             definition.Contacts);
         _vehicles.Add(instance);
         NextEntityId = next;
-        TransactionCount++;
+        CommitTransaction();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeManufactureResult(ConstructionStatus.Valid, vehicleId, instance.Parts);
@@ -279,13 +285,15 @@ public sealed class VoxelDevelopmentSession
         }
 
         var current = _vehicles[index];
-        if (!_composites.Current.TryGet(current.DefinitionId, out var published))
+        if (!TryPublishedOrSaveLocalNames(current, out var sourceName, out var sourceDescription))
             return new CompositeRefitResult(ConstructionStatus.UnknownDefinition, vehicleId);
+        if (!CanCommitTransaction())
+            return new CompositeRefitResult(ConstructionStatus.TransactionExhausted, vehicleId);
 
         var saveLocal = new CompositeDefinition(
             current.DefinitionId,
-            published.Definition.Name,
-            published.Definition.Description,
+            sourceName,
+            sourceDescription,
             current.ArchetypeId,
             current.SizeClass,
             parts.Select(part => new CompositeVoxelSpec(part.Cell, part.DefinitionId, part.Orientation)).ToArray(),
@@ -305,7 +313,7 @@ public sealed class VoxelDevelopmentSession
             saveLocal);
         _vehicles[index] = instance;
         NextEntityId = next;
-        TransactionCount++;
+        CommitTransaction();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeRefitResult(ConstructionStatus.Valid, vehicleId, instance.Parts, allocated);
@@ -484,6 +492,39 @@ public sealed class VoxelDevelopmentSession
             _pendingCollisionChanges.Add(position);
         if (publish)
             Changed?.Invoke();
+    }
+
+    private bool CanCommitTransaction() => TransactionCount != ulong.MaxValue;
+
+    private void CommitTransaction()
+    {
+        if (TransactionCount == ulong.MaxValue)
+            throw new InvalidOperationException("Transaction count is exhausted.");
+        TransactionCount++;
+    }
+
+    private bool TryPublishedOrSaveLocalNames(
+        CompositeInstance vehicle,
+        out string name,
+        out string description)
+    {
+        if (_composites.Current.TryGet(vehicle.DefinitionId, out var published))
+        {
+            name = published.Definition.Name;
+            description = published.Definition.Description;
+            return true;
+        }
+
+        if (vehicle.SaveLocalDefinition is { } local)
+        {
+            name = local.Name;
+            description = local.Description;
+            return true;
+        }
+
+        name = "";
+        description = "";
+        return false;
     }
 
     private void ReplaceSession(
