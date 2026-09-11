@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落，以及五类原子改装）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53）和 `composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装，以及已有车辆的当前内容热重载）。
 
 ## 打开控制台与输入规则
 
@@ -21,7 +21,7 @@
 | [help](help.md) | 列出命令名称 | 所有构建 |
 | [clear](clear.md) | 清空控制台日志缓冲区 | 所有构建 |
 | [quit](quit.md) | 退出游戏进程 | 所有构建 |
-| [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例 | 仅 Debug 构建 |
+| [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例、车辆、碎块和接触绑定 | 仅 Debug 构建 |
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) | 重建初始开发世界 | 包含 PR #47，且已进入体素开发场景 |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
@@ -65,7 +65,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有实例按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` 显示规格，`voxel collide` 使用当前碰撞。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有世界体素和已有车辆零件按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` / `composite query` 显示当前规格，`voxel collide` 使用当前碰撞。外部蓝图布局更新不覆盖已有实际车辆；新制造使用新模板。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -199,7 +199,7 @@ reload
 voxel query 4 4 4
 ```
 
-先把 `(4,4,4)` 打到耐久 80。把同一定义的上限改为 150 后再 `reload`，查询仍为耐久 80，但 `max` 为 150；再改为 60 后重载，耐久与 `max` 均为 60。`voxel query` 按字段分行，长合法 Mod ID 仍须完整显示耐久、当前规格和 `Voxel count`。候选缺少已放置定义或无法保留当前朝向时，整次 `reload` 拒绝，查询和画面保持旧发布结果。
+先把 `(4,4,4)` 打到耐久 80。把同一定义的上限改为 150 后再 `reload`，查询仍为耐久 80，但 `max` 为 150；再改为 60 后重载，耐久与 `max` 均为 60。`voxel query` 按字段分行，长合法 Mod ID 仍须完整显示耐久、当前规格和 `Voxel count`。候选缺少已放置定义或无法保留当前朝向时，整次 `reload` 拒绝，查询和画面保持旧发布结果。切片 3 已有车辆走同一入口：改装设备 P 耐久 75 时上限 100→150 仍为 75，再到 60 后截断为 60；`composite query damaged` 显示当前上限。核心标签或必要定义缺失时整次拒绝，车辆、目录 Generation 和画面不变，之后仍可查询、改装和伤害。完整车辆存档仍返回 `UnsupportedVehicles`。
 
 ## 相关快捷键与当前边界
 
@@ -340,6 +340,18 @@ composite add 1 3 0 1 core:refit-marker px_py
 composite damage 1 3 1 1 100 3 0 1 100
 composite query
 ```
+
+### 切片 3 已有车辆热重载
+
+进入切片 3 后先完成固定改装序列，使 P 耐久为 75，再改隔离内容后执行正式 `reload`。不要改玩家文件或仓库内置内容：
+
+```text
+composite query damaged
+reload
+composite query damaged
+```
+
+把隔离副本里的 `core:refit-marker` 上限改为 150 后 `reload`，P 仍为 75，`damaged` 行的 `max` 为 150；再改为 60 后重载，P 截断为 60 并从受损列表消失。外部蓝图增加内部格后，已有车零件数不变，再 `composite manufacture` 才使用新模板。先 `composite reset bridge-right`（或把 `core:identity-core-heavy` 的 Value 从 10 改到 20 后 `reload` 已有右侧重核桥），再 `composite damage 1 3 1 1 100`，右侧成为主继承者；不要只改默认等值 `core:dev-bridge` 的普通核心。删除必要核心定义后 `reload` 整次拒绝，`composite query`、改装、伤害与画面保持拒绝前状态。当前仍不支持完整车辆存档。
 
 ## 维护与实现依据
 

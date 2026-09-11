@@ -36,21 +36,30 @@ if (-not $OutputPath) {
 }
 $env:TRAIN_VOXEL_OBSERVE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
-$ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
-$ledgeJson = Join-Path $root "builtin\core\resources\voxels\ledge.voxels.json"
-$ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
-$beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
-$beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
-$beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-$quitAfter = if ($Slice -eq 3) { 780 } else { 300 }
+$protected = @(
+    "builtin\core\resources\voxels\iron-ore.voxels.json",
+    "builtin\core\resources\voxels\ledge.voxels.json",
+    "builtin\core\resources\voxels\iron-ore\top.png",
+    "builtin\core\resources\voxels\refit-marker.voxels.json",
+    "builtin\core\resources\voxels\refit-marker\top.png",
+    "builtin\core\resources\voxels\identity-core.voxels.json",
+    "builtin\core\resources\voxels\identity-core-heavy.voxels.json",
+    "builtin\core\resources\voxels\vehicle-shell.voxels.json",
+    "builtin\core\resources\composites\dev-hollow-shell.composites.json"
+)
+$beforeHashes = @{}
+foreach ($relative in $protected) {
+    $beforeHashes[$relative] = (Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256).Hash
+}
+$quitAfter = if ($Slice -eq 3) { 1100 } else { 300 }
 $output = & $env:GODOT --path $root --quit-after $quitAfter 2>&1 | Out-String
 $exitCode = $LASTEXITCODE
 Write-Host $output
-$afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
-$afterLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
-$afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -ne $afterTop) {
-    throw "Voxel observe rewrote worktree built-in iron-ore or ledge content."
+$rewritten = @($protected | Where-Object {
+    $beforeHashes[$_] -ne (Get-FileHash -LiteralPath (Join-Path $root $_) -Algorithm SHA256).Hash
+})
+if ($rewritten.Count -gt 0) {
+    throw "Voxel observe rewrote worktree built-in content: $($rewritten -join ', ')"
 }
 if ($exitCode -ne 0 -or $output -notlike "*VOXEL_OBSERVE_COMPLETE*") {
     throw "Voxel observe failed: expected VOXEL_OBSERVE_COMPLETE and exit 0."
@@ -73,7 +82,14 @@ $captures = if ($Slice -eq 3) {
         "issue60-replaced.png",
         "issue60-removed.png",
         "issue60-rejected.png",
-        "issue60-refit-fracture.png"
+        "issue60-refit-fracture.png",
+        "issue61-reload-150.png",
+        "issue61-reload-60.png",
+        "issue61-display.png",
+        "issue61-template.png",
+        "issue61-collision.png",
+        "issue61-rejected.png",
+        "issue61-value-fracture.png"
     )
 } elseif ($Slice -eq 2) {
     @(
@@ -122,7 +138,7 @@ $report = if ($Slice -eq 3) {
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 3 ``.",
         "",
-        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png``, four ``.godot/issue59-*.png``, and eight ``.godot/issue60-*.png`` files to exist, and required the worktree iron-ore and ledge files to keep their pre-run hashes. It does not inspect PNG pixels.",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=3``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, required the four ``.godot/issue58-*.png``, four ``.godot/issue59-*.png``, eight ``.godot/issue60-*.png``, and seven ``.godot/issue61-*.png`` files to exist, and required the worktree iron-ore, ledge, refit-marker, identity-core, vehicle-shell, and hollow-shell files to keep their pre-run hashes. It does not inspect PNG pixels.",
         "",
         "## Procedure",
         "",
@@ -137,6 +153,10 @@ $report = if ($Slice -eq 3) {
         "9. Run ``composite damage 1 3 1 1 100``. Confirm two surviving composites, two independent meshes, no world duplicate, no stretch or shear.",
         "10. Reset, manufacture the bridge, then damage the bridge and both cores. Confirm the vehicle meshes disappear and fragments appear once in the world mesh.",
         "11. Reset, add a second bridge at ``(3,0,1)``, then cut both bridges in one event. Confirm two 27-part successors, empty world mesh, and that each successor's save-local layout matches its live parts.",
+        "12. Reset, manufacture a hollow shell, add/damage/move/rotate ``core:refit-marker`` P to durability 75, then formally reload marker max 150 then 60. Query must stay 75 then clamp to 60; the parked 169-part layout and P identity stay.",
+        "13. Publish a marker name/asset-only update and confirm the existing vehicle display fingerprint changes. Add an extra interior cell to the hollow-shell blueprint; the parked refit stays 169 parts while a new manufacture uses the extra cell.",
+        "14. Place a world ``core:vehicle-shell`` and reload collision ``none``. Domain and published collision both miss. Delete ``identity-core`` and ``reload``; the candidate is rejected and vehicles, world, generation, and collision stay.",
+        "15. Reset, manufacture the right-heavy bridge after setting ``identity-core-heavy`` Value to 10, reload Value 20, then cut the bridge. The original vehicle id must stay on the right fragment.",
         "",
         "## Result",
         "",
@@ -144,7 +164,7 @@ $report = if ($Slice -eq 3) {
         "",
         ($captureLines | ForEach-Object { "- $_" }),
         "",
-        "Automated capture wrote ``.godot/issue58-*.png``, ``.godot/issue59-*.png``, and ``.godot/issue60-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / refit / damage / ownership / visual-sync evidence."
+        "Automated capture wrote ``.godot/issue58-*.png``, ``.godot/issue59-*.png``, ``.godot/issue60-*.png``, and ``.godot/issue61-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 3`` smoke is the automated JSON load / manufacture / refit / damage / reload / ownership / visual-sync evidence."
     )
 } elseif ($Slice -eq 2) {
     @(
@@ -214,6 +234,22 @@ $parent = Split-Path -Parent $absoluteOutput
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
 Set-Content -LiteralPath $absoluteOutput -Value $report -Encoding utf8
 Write-Host "Wrote $absoluteOutput"
+if ($Slice -eq 3) {
+    $issue61 = @(
+        "# Issue #61 visual observation record (automated facts)",
+        "",
+        "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 3 ``.",
+        "",
+        "This file is written beside the existing ``issue60-observe-report.md`` and records the #61 hot-reload captures only.",
+        "",
+        "Required captures: ``issue61-reload-150.png``, ``issue61-reload-60.png``, ``issue61-display.png``, ``issue61-template.png``, ``issue61-collision.png``, ``issue61-rejected.png``, ``issue61-value-fracture.png``.",
+        "",
+        ($captureLines | Where-Object { $_ -like "*issue61-*" } | ForEach-Object { "- $_" })
+    )
+    $issue61Path = Join-Path $root ".godot/issue61-observe-report.md"
+    Set-Content -LiteralPath $issue61Path -Value $issue61 -Encoding utf8
+    Write-Host "Wrote $issue61Path"
+}
 if ($Slice -eq 2) {
     $issue52 = @(
         "# Issue #52 visual observation record (automated facts)",

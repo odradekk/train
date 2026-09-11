@@ -59,94 +59,161 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
                 replacements.Add((position, voxel with { CurrentDurability = durability }));
         }
 
+        List<CompositeInstance>? vehicles = null;
         if (_session is not null)
-        {
-            foreach (var vehicle in _session.Vehicles)
-            {
-                if (!composites.TryGet(vehicle.DefinitionId, out var compositeEntry))
-                {
-                    diagnostics.Add(new ContentDiagnostic(
-                        ContentDiagnosticSeverity.Error,
-                        ContentDiagnosticCodes.UnresolvedCompositeReference,
-                        "A manufactured vehicle is missing from the candidate composite catalog.",
-                        jsonPath: vehicle.DefinitionId.Value));
-                    continue;
-                }
-
-                if (vehicle.SaveLocalRevision is not null)
-                {
-                    if (!string.Equals(vehicle.SaveLocalRevision, vehicle.LastUsedRevision, StringComparison.Ordinal))
-                    {
-                        diagnostics.Add(new ContentDiagnostic(
-                            ContentDiagnosticSeverity.Error,
-                            ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
-                            "Save-local vehicle layout revision is inconsistent.",
-                            jsonPath: vehicle.DefinitionId.Value));
-                    }
-                }
-                else if (!string.Equals(compositeEntry.SemanticRevision, vehicle.LastUsedRevision, StringComparison.Ordinal))
-                {
-                    diagnostics.Add(new ContentDiagnostic(
-                        ContentDiagnosticSeverity.Error,
-                        ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
-                        "Vehicle definition adaptation is not supported yet.",
-                        jsonPath: vehicle.DefinitionId.Value));
-                }
-
-                if (!composites.TryGet(vehicle.ArchetypeId, out var archetypeEntry))
-                {
-                    diagnostics.Add(new ContentDiagnostic(
-                        ContentDiagnosticSeverity.Error,
-                        ContentDiagnosticCodes.UnresolvedArchetypeReference,
-                        "A manufactured vehicle archetype is missing from the candidate catalog.",
-                        jsonPath: vehicle.ArchetypeId.Value));
-                }
-                else if (!string.Equals(archetypeEntry.SemanticRevision, vehicle.LastUsedArchetypeRevision, StringComparison.Ordinal))
-                {
-                    diagnostics.Add(new ContentDiagnostic(
-                        ContentDiagnosticSeverity.Error,
-                        ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
-                        "Vehicle archetype adaptation is not supported yet.",
-                        jsonPath: vehicle.ArchetypeId.Value));
-                }
-
-                foreach (var part in vehicle.Parts)
-                {
-                    if (!voxels.TryGet(part.DefinitionId, out var partEntry))
-                    {
-                        diagnostics.Add(new ContentDiagnostic(
-                            ContentDiagnosticSeverity.Error,
-                            ContentDiagnosticCodes.UnresolvedVoxelReference,
-                            "A vehicle part is missing from the candidate catalog.",
-                            jsonPath: part.DefinitionId.Value));
-                        continue;
-                    }
-
-                    if (!part.Orientation.IsAllowedBy(partEntry.Definition.AllowedOrientations))
-                    {
-                        diagnostics.Add(new ContentDiagnostic(
-                            ContentDiagnosticSeverity.Error,
-                            ContentDiagnosticCodes.IncompatibleVoxelState,
-                            "A vehicle part keeps an orientation the candidate definition does not allow.",
-                            jsonPath: part.DefinitionId.Value));
-                    }
-
-                    if (!string.Equals(partEntry.SemanticRevision, part.LastUsedRevision, StringComparison.Ordinal))
-                    {
-                        diagnostics.Add(new ContentDiagnostic(
-                            ContentDiagnosticSeverity.Error,
-                            ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
-                            "Vehicle part adaptation is not supported yet.",
-                            jsonPath: part.DefinitionId.Value));
-                    }
-                }
-            }
-        }
+            vehicles = AdaptVehicles(_session.Vehicles, voxels, composites, diagnostics);
 
         if (diagnostics.Count > 0)
             return ContentWorldReloadPlan.Reject(diagnostics);
 
-        return ContentWorldReloadPlan.Accept(
-            replacements.Count == 0 ? null : () => world.ReplaceOccupied(replacements));
+        var changedVehicles = _session is not null &&
+                              vehicles is not null &&
+                              VehiclesDiffer(_session.Vehicles, vehicles);
+        if (replacements.Count == 0 && !changedVehicles)
+            return ContentWorldReloadPlan.Accept(null);
+
+        if (_session is null)
+            return ContentWorldReloadPlan.Accept(() => world.ReplaceOccupied(replacements));
+
+        return ContentWorldReloadPlan.Accept(() => _session.ApplyContentReload(
+            replacements,
+            changedVehicles ? vehicles : null));
+    }
+
+    private static List<CompositeInstance> AdaptVehicles(
+        IReadOnlyList<CompositeInstance> vehicles,
+        VoxelCatalogSnapshot voxels,
+        CompositeCatalogSnapshot composites,
+        List<ContentDiagnostic> diagnostics)
+    {
+        var adapted = new List<CompositeInstance>(vehicles.Count);
+        foreach (var vehicle in vehicles)
+        {
+            if (!composites.TryGet(vehicle.DefinitionId, out var compositeEntry))
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.UnresolvedCompositeReference,
+                    "A manufactured vehicle is missing from the candidate composite catalog.",
+                    jsonPath: vehicle.DefinitionId.Value));
+                continue;
+            }
+
+            if (vehicle.SaveLocalRevision is not null &&
+                !string.Equals(vehicle.SaveLocalRevision, vehicle.LastUsedRevision, StringComparison.Ordinal))
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                    "Save-local vehicle layout revision is inconsistent.",
+                    jsonPath: vehicle.DefinitionId.Value));
+            }
+
+            if (!composites.TryGet(vehicle.ArchetypeId, out var archetypeEntry))
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.UnresolvedArchetypeReference,
+                    "A manufactured vehicle archetype is missing from the candidate catalog.",
+                    jsonPath: vehicle.ArchetypeId.Value));
+                continue;
+            }
+
+            if (ConstructionValidator.EvaluateIdentity(vehicle, archetypeEntry.Archetype, voxels) !=
+                IdentityRetentionStatus.Retained)
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.IncompatibleVoxelState,
+                    "A manufactured vehicle can no longer retain its identity under the candidate rules.",
+                    jsonPath: vehicle.DefinitionId.Value));
+                continue;
+            }
+
+            var parts = new List<CompositePart>(vehicle.Parts.Count);
+            var partsValid = true;
+            foreach (var part in vehicle.Parts)
+            {
+                if (!voxels.TryGet(part.DefinitionId, out var partEntry))
+                {
+                    diagnostics.Add(new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Error,
+                        ContentDiagnosticCodes.UnresolvedVoxelReference,
+                        "A vehicle part is missing from the candidate catalog.",
+                        jsonPath: part.DefinitionId.Value));
+                    partsValid = false;
+                    continue;
+                }
+
+                if (!part.Orientation.IsAllowedBy(partEntry.Definition.AllowedOrientations))
+                {
+                    diagnostics.Add(new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Error,
+                        ContentDiagnosticCodes.IncompatibleVoxelState,
+                        "A vehicle part keeps an orientation the candidate definition does not allow.",
+                        jsonPath: part.DefinitionId.Value));
+                    partsValid = false;
+                    continue;
+                }
+
+                parts.Add(new CompositePart(
+                    part.Id,
+                    part.Cell,
+                    part.DefinitionId,
+                    part.Orientation,
+                    Math.Min(part.CurrentDurability, partEntry.Definition.MaxDurability),
+                    partEntry.SemanticRevision));
+            }
+
+            if (!partsValid)
+                continue;
+
+            // Change detection only: stamp the composite revision we resolved against.
+            // Save-local layouts keep their own revision so blueprint edits cannot rewrite them.
+            var lastUsedRevision = vehicle.SaveLocalRevision ?? compositeEntry.SemanticRevision;
+            adapted.Add(new CompositeInstance(
+                vehicle.Id,
+                vehicle.DefinitionId,
+                lastUsedRevision,
+                vehicle.ArchetypeId,
+                archetypeEntry.SemanticRevision,
+                vehicle.SizeClass,
+                vehicle.Transform,
+                parts,
+                vehicle.Contacts,
+                vehicle.SaveLocalRevision,
+                vehicle.SaveLocalDefinition));
+        }
+
+        return adapted;
+    }
+
+    private static bool VehiclesDiffer(
+        IReadOnlyList<CompositeInstance> current,
+        IReadOnlyList<CompositeInstance> next)
+    {
+        if (current.Count != next.Count)
+            return true;
+        for (var index = 0; index < current.Count; index++)
+        {
+            var left = current[index];
+            var right = next[index];
+            if (left.Id != right.Id ||
+                !string.Equals(left.LastUsedRevision, right.LastUsedRevision, StringComparison.Ordinal) ||
+                !string.Equals(left.LastUsedArchetypeRevision, right.LastUsedArchetypeRevision, StringComparison.Ordinal) ||
+                left.Parts.Count != right.Parts.Count)
+                return true;
+            for (var partIndex = 0; partIndex < left.Parts.Count; partIndex++)
+            {
+                var leftPart = left.Parts[partIndex];
+                var rightPart = right.Parts[partIndex];
+                if (leftPart.Id != rightPart.Id ||
+                    leftPart.CurrentDurability != rightPart.CurrentDurability ||
+                    !string.Equals(leftPart.LastUsedRevision, rightPart.LastUsedRevision, StringComparison.Ordinal))
+                    return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -9,6 +9,7 @@ public sealed class VoxelDevelopmentSession
     private readonly CompositeCatalog _composites;
     private readonly IWorldSaveStore? _store;
     private readonly Action<VoxelCatalogChange> _onCatalogChanged;
+    private readonly Action<CompositeCatalogChange> _onCompositesChanged;
     private readonly List<(WorldVoxelCoord Position, bool OccupancyChanged)> _pendingChanges = new();
     private readonly List<WorldVoxelCoord> _pendingCollisionChanges = new();
     private readonly List<CompositeInstance> _vehicles = new();
@@ -42,17 +43,40 @@ public sealed class VoxelDevelopmentSession
         Identity = identity ?? VoxelWorldIdentity.Slice1;
         World = CreateWorld();
         Commands = new VoxelWorldCommands(World, _catalog);
-        _onCatalogChanged = _ =>
-        {
-            _rebuildAll = true;
-            _rebuildAllCollision = true;
-            _rebuildComposites = true;
-            Changed?.Invoke();
-        };
+        _onCatalogChanged = _ => MarkCatalogDirty();
+        _onCompositesChanged = _ => MarkCatalogDirty();
         _catalog.Changed += _onCatalogChanged;
+        _composites.Changed += _onCompositesChanged;
     }
 
-    public void Detach() => _catalog.Changed -= _onCatalogChanged;
+    public void Detach()
+    {
+        _catalog.Changed -= _onCatalogChanged;
+        _composites.Changed -= _onCompositesChanged;
+    }
+
+    internal void ApplyContentReload(
+        IReadOnlyList<(WorldVoxelCoord Position, WorldVoxel Voxel)> worldReplacements,
+        IReadOnlyList<CompositeInstance>? vehicles)
+    {
+        ArgumentNullException.ThrowIfNull(worldReplacements);
+        if (worldReplacements.Count > 0)
+            World.ReplaceOccupied(worldReplacements);
+        if (vehicles is null)
+            return;
+
+        _vehicles.Clear();
+        _vehicles.AddRange(vehicles);
+        _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+    }
+
+    private void MarkCatalogDirty()
+    {
+        _rebuildAll = true;
+        _rebuildAllCollision = true;
+        _rebuildComposites = true;
+        Changed?.Invoke();
+    }
 
     public void Reset()
     {
