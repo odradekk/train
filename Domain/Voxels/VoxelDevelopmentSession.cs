@@ -494,11 +494,11 @@ public sealed class VoxelDevelopmentSession
             Changed?.Invoke();
     }
 
-    private bool CanCommitTransaction() => TransactionCount != ulong.MaxValue;
+    private bool CanCommitTransaction() => TransactionCount < ulong.MaxValue - 1;
 
     private void CommitTransaction()
     {
-        if (TransactionCount == ulong.MaxValue)
+        if (TransactionCount >= ulong.MaxValue - 1)
             throw new InvalidOperationException("Transaction count is exhausted.");
         TransactionCount++;
     }

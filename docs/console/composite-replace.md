@@ -20,4 +20,4 @@ construction Valid
 Voxel count: 0.
 ```
 
-失败不分配新 ID；事务计数无法再分配时返回 `TransactionExhausted`。用法不合法时只给出 Usage。批量替换见 [`composite batch`](composite-batch.md)。
+失败不分配新 ID；再提交会进入不可加载的事务计数时返回 `TransactionExhausted`。用法不合法时只给出 Usage。批量替换见 [`composite batch`](composite-batch.md)。

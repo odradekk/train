@@ -22,7 +22,7 @@ voxel save Slice 3 Persist
 
 不保存网格、Collider、场景树或高亮，也不新增有状态 RNG。不从渲染 float 反推 Transform。
 
-写入先完成候选文件 `save.json.candidate` 并 flush，再整体替换目标文件。失败返回 `WriteFailed` 或 `InvalidName` 等状态，当前可编辑会话和上一份有效存档都保持不变。
+写入先完成候选文件 `save.json.candidate` 并 flush，再整体替换目标文件。失败返回 `WriteFailed` 或 `InvalidName` 等状态，当前可编辑会话和上一份有效存档都保持不变。`transaction_count` 已为 `ulong.MaxValue` 时捕获失败并返回 `InvalidDelta`，不覆盖上一份可读存档。提交入口在计数到达 `MaxValue - 1` 时即拒绝再分配，因此正常提交不会写出随后无法加载的计数。
 
 成功按字段分行输出：
 

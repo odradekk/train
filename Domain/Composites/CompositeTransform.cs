@@ -4,6 +4,8 @@ namespace Train.Domain.Composites;
 
 public readonly record struct CompositeTransform
 {
+    private const double RigidRotationTolerance = 1e-12;
+
     public double OriginX { get; }
     public double OriginY { get; }
     public double OriginZ { get; }
@@ -37,7 +39,7 @@ public readonly record struct CompositeTransform
         double.IsFinite(UpX) && double.IsFinite(UpY) && double.IsFinite(UpZ);
 
     public bool IsValid =>
-        IsFinite && TryOrthonormalize(Right, Up, out _, out _);
+        IsFinite && IsRigidRotation(Right, Up);
 
     private CompositeTransform(
         double originX,
@@ -120,11 +122,30 @@ public readonly record struct CompositeTransform
             !double.IsFinite(rightX) || !double.IsFinite(rightY) || !double.IsFinite(rightZ) ||
             !double.IsFinite(upX) || !double.IsFinite(upY) || !double.IsFinite(upZ))
             return false;
-        if (!TryOrthonormalize((rightX, rightY, rightZ), (upX, upY, upZ), out _, out _))
+        if (!IsRigidRotation((rightX, rightY, rightZ), (upX, upY, upZ)))
             return false;
         transform = new CompositeTransform(originX, originY, originZ, rightX, rightY, rightZ, upX, upY, upZ);
         return true;
     }
+
+    private static bool IsRigidRotation(
+        (double X, double Y, double Z) right,
+        (double X, double Y, double Z) up) =>
+        IsNearlyUnit(right) &&
+        IsNearlyUnit(up) &&
+        Math.Abs(Dot(right, up)) <= RigidRotationTolerance &&
+        IsNearlyUnit(Cross(right, up));
+
+    private static bool IsNearlyUnit((double X, double Y, double Z) value)
+    {
+        var lengthSquared = value.X * value.X + value.Y * value.Y + value.Z * value.Z;
+        return double.IsFinite(lengthSquared) && Math.Abs(lengthSquared - 1) <= RigidRotationTolerance;
+    }
+
+    private static double Dot(
+        (double X, double Y, double Z) left,
+        (double X, double Y, double Z) right) =>
+        left.X * right.X + left.Y * right.Y + left.Z * right.Z;
 
     private static bool TryOrthonormalize(
         (double X, double Y, double Z) right,

@@ -239,6 +239,18 @@ public sealed class CompositeVehiclePersistenceTests
     }
 
     [TestMethod]
+    public void Scaled_rotation_axes_are_rejected_on_formal_load()
+    {
+        AssertIllegalAxesKeepThePreviousSession(2, 0, 0, 0, 1, 0);
+    }
+
+    [TestMethod]
+    public void Skewed_rotation_axes_are_rejected_on_formal_load()
+    {
+        AssertIllegalAxesKeepThePreviousSession(1, 0, 0, 1, 1, 0);
+    }
+
+    [TestMethod]
     public void Isolated_duplicate_id_rejects_without_polluting_the_next_case()
     {
         using var harness = Open();
@@ -546,6 +558,10 @@ public sealed class CompositeVehiclePersistenceTests
         using var harness = Open();
         var first = harness.Session.Manufacture(HollowShellFixture.DefinitionId);
         Assert.IsTrue(first.Succeeded);
+        var saved = harness.Session.Save("Readable Before Exhaustion");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var previous = File.ReadAllText(path);
         typeof(VoxelDevelopmentSession)
             .GetProperty(nameof(VoxelDevelopmentSession.TransactionCount))!
             .SetValue(harness.Session, ulong.MaxValue);
@@ -567,6 +583,59 @@ public sealed class CompositeVehiclePersistenceTests
         Assert.AreEqual(before, harness.Session.CaptureAuthority());
         Assert.AreEqual(1, harness.Session.QueryComposites().Count);
         Assert.AreEqual(168, harness.Session.QueryComposites()[0].Parts.Count);
+        Assert.AreEqual(WorldSaveStatus.InvalidDelta, harness.Session.Save("Must Stay Readable").Status);
+        Assert.AreEqual(saved.SaveId, harness.Session.SaveId);
+        Assert.AreEqual(previous, File.ReadAllText(path));
+        using var reader = Open(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(saved.SaveId.Value).Status);
+        Assert.AreEqual(1UL, reader.Session.TransactionCount);
+    }
+
+    [TestMethod]
+    public void Penultimate_transaction_count_cannot_commit_or_overwrite_with_an_unreadable_save()
+    {
+        using var writer = Open();
+        var vehicleId = writer.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var checkpoint = writer.Session.Save("Penultimate");
+        var path = writer.Store.PathFor(checkpoint.SaveId!.Value);
+        File.WriteAllText(
+            path,
+            MutateField(
+                File.ReadAllText(path),
+                "transaction_count",
+                (ulong.MaxValue - 1).ToString(CultureInfo.InvariantCulture)));
+
+        using var resumed = Open(writer.UserData, writer.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, resumed.Session.Load(checkpoint.SaveId.Value).Status);
+        Assert.AreEqual(ulong.MaxValue - 1, resumed.Session.TransactionCount);
+        var before = resumed.Session.CaptureAuthority();
+        Assert.AreEqual(
+            ConstructionStatus.TransactionExhausted,
+            resumed.Session.Manufacture(BridgeFixture.DefinitionId, CompositeTransform.Translation(20, 8, 8)).Status);
+        Assert.AreEqual(
+            ConstructionStatus.TransactionExhausted,
+            resumed.Session.Refit(
+                vehicleId,
+                CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)).Status);
+        Assert.AreEqual(
+            CompositeDamageStatus.TransactionExhausted,
+            resumed.Session.Damage(vehicleId, HollowShellRefit.Occupied, 1).Status);
+        Assert.AreEqual(before, resumed.Session.CaptureAuthority());
+        Assert.AreEqual(ulong.MaxValue - 1, resumed.Session.TransactionCount);
+        Assert.AreEqual(1, resumed.Session.QueryComposites().Count);
+        var saved = resumed.Session.Save("Still Readable");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        Assert.AreEqual(checkpoint.SaveId, saved.SaveId);
+
+        using var fresh = Open(writer.UserData, writer.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, fresh.Session.Load(checkpoint.SaveId.Value).Status);
+        Assert.AreEqual(ulong.MaxValue - 1, fresh.Session.TransactionCount);
+        Assert.AreEqual(1, fresh.Session.QueryComposites().Count);
+        Assert.AreEqual(168, fresh.Session.QueryComposites()[0].Parts.Count);
+        Assert.AreEqual(
+            ConstructionStatus.TransactionExhausted,
+            fresh.Session.Manufacture(BridgeFixture.DefinitionId, CompositeTransform.Translation(20, 8, 8)).Status);
+        Assert.AreEqual(1, fresh.Session.QueryComposites().Count);
     }
 
     [TestMethod]
@@ -649,6 +718,54 @@ public sealed class CompositeVehiclePersistenceTests
 
     private static void AssertEqualBits(double expected, double actual) =>
         Assert.AreEqual(BitConverter.DoubleToInt64Bits(expected), BitConverter.DoubleToInt64Bits(actual));
+
+    private static void AssertIllegalAxesKeepThePreviousSession(
+        double rightX,
+        double rightY,
+        double rightZ,
+        double upX,
+        double upY,
+        double upZ)
+    {
+        using var writer = Open();
+        writer.Session.Manufacture(HollowShellFixture.DefinitionId);
+        var saved = writer.Session.Save("Illegal Axes");
+        var json = File.ReadAllText(writer.Store.PathFor(saved.SaveId!.Value));
+        var mutated = SetVehicleAxes(json, rightX, rightY, rightZ, upX, upY, upZ);
+
+        using var world = Open();
+        var vehicleId = world.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var before = world.Session.CaptureAuthority();
+        AssertLoadKeepsSession(world, mutated, WorldSaveStatus.InvalidDelta);
+        Assert.AreEqual(before, world.Session.CaptureAuthority());
+        Assert.AreEqual(1, world.Session.QueryComposites().Count);
+        Assert.AreEqual(1, world.Session.QueryComposite(vehicleId)!.Transform.RightX);
+        Assert.AreEqual(0, world.Session.QueryComposite(vehicleId)!.Transform.UpX);
+        Assert.IsTrue(world.Session.Manufacture(
+            HollowShellFixture.DefinitionId,
+            CompositeTransform.Translation(20, 8, 8)).Succeeded);
+        Assert.AreEqual(2, world.Session.QueryComposites().Count);
+    }
+
+    private static string SetVehicleAxes(
+        string json,
+        double rightX,
+        double rightY,
+        double rightZ,
+        double upX,
+        double upY,
+        double upZ)
+    {
+        var root = JsonNode.Parse(json)!.AsObject();
+        var axes = root["vehicles"]![0]!["transform"]!.AsObject();
+        axes["right_x"] = rightX;
+        axes["right_y"] = rightY;
+        axes["right_z"] = rightZ;
+        axes["up_x"] = upX;
+        axes["up_y"] = upY;
+        axes["up_z"] = upZ;
+        return root.ToJsonString();
+    }
 
     private static CompositeDefinition?[] RequireSaveLocalIfPresent(VoxelDevelopmentSession session) =>
         session.Vehicles.Select(item => item.SaveLocalDefinition).ToArray();

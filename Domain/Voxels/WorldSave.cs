@@ -258,6 +258,12 @@ public static class WorldSaveCodec
             return false;
         }
 
+        if (transactionCount == ulong.MaxValue)
+        {
+            status = WorldSaveStatus.InvalidDelta;
+            return false;
+        }
+
         VoxelWorld generated;
         try
         {
