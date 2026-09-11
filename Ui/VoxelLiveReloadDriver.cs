@@ -12,6 +12,7 @@ internal sealed class VoxelLiveReloadDriver
 
     private readonly string _userDataDirectory;
     private readonly string _builtInResourcesRoot;
+    private string? _identityCoreBackup;
 
     public VoxelDefinitionId ProbeId { get; } = new(ProbeNamespace, ProbeLocalId);
 
@@ -40,6 +41,44 @@ internal sealed class VoxelLiveReloadDriver
     {
         WriteAsymmetricPng(IronOreTopRelative, new Color(0.95f, 0.82f, 0.12f), new Color(0.12f, 0.78f, 0.88f));
         WriteAsymmetricPng(IronOreSideRelative, new Color(0.18f, 0.86f, 0.28f), new Color(0.86f, 0.18f, 0.72f));
+    }
+
+    public void WriteRefitMarkerMax(int maxDurability) =>
+        PatchIsolatedText(RefitMarkerJsonRelative, text => ReplaceNumber(text, "max_durability", maxDurability));
+
+    public void WriteRefitMarkerName(string name) =>
+        PatchIsolatedText(RefitMarkerJsonRelative, text => ReplaceFirstString(text, "name", name));
+
+    public void WriteAsymmetricMarkerTop() =>
+        WriteAsymmetricPng(RefitMarkerTopRelative, new Color(0.95f, 0.82f, 0.12f), new Color(0.12f, 0.78f, 0.88f));
+
+    public void WriteIdentityCoreHeavyValue(long value) =>
+        PatchIsolatedText(IdentityCoreHeavyJsonRelative, text => ReplaceNumber(text, "value", value));
+
+    public void WriteVehicleShellCollision(string kind) =>
+        PatchIsolatedText(VehicleShellJsonRelative, text =>
+            text.Replace("\"kind\": \"full_box\"", $"\"kind\": \"{kind}\"", StringComparison.Ordinal)
+                .Replace("\"kind\":\"full_box\"", $"\"kind\":\"{kind}\"", StringComparison.Ordinal));
+
+    public void AddHollowShellExtraCell() =>
+        PatchIsolatedText(HollowShellCompositeRelative, text =>
+            text.Replace(
+                "{ \"x\": 0, \"y\": 0, \"z\": -1, \"definition\": \"vehicle-shell\", \"orientation\": \"px_py\" }",
+                "{ \"x\": 0, \"y\": 0, \"z\": -1, \"definition\": \"vehicle-shell\", \"orientation\": \"px_py\" },\n        { \"x\": 2, \"y\": 1, \"z\": 0, \"definition\": \"vehicle-shell\", \"orientation\": \"px_py\" }",
+                StringComparison.Ordinal));
+
+    public void RemoveIdentityCore()
+    {
+        var path = IsolatedPath(IdentityCoreJsonRelative);
+        _identityCoreBackup ??= File.ReadAllText(path);
+        File.Delete(path);
+    }
+
+    public void RestoreIdentityCore()
+    {
+        if (_identityCoreBackup is null)
+            return;
+        WriteIsolatedText(IdentityCoreJsonRelative, _identityCoreBackup);
     }
 
     private void WriteAsymmetricPng(string relativePath, Color strip, Color block)
@@ -113,6 +152,36 @@ internal sealed class VoxelLiveReloadDriver
     private const string LedgeJsonRelative = "voxels/ledge.voxels.json";
     private const string IronOreTopRelative = "voxels/iron-ore/top.png";
     private const string IronOreSideRelative = "voxels/iron-ore/side.png";
+    private const string RefitMarkerJsonRelative = "voxels/refit-marker.voxels.json";
+    private const string RefitMarkerTopRelative = "voxels/refit-marker/top.png";
+    private const string IdentityCoreJsonRelative = "voxels/identity-core.voxels.json";
+    private const string IdentityCoreHeavyJsonRelative = "voxels/identity-core-heavy.voxels.json";
+    private const string VehicleShellJsonRelative = "voxels/vehicle-shell.voxels.json";
+    private const string HollowShellCompositeRelative = "composites/dev-hollow-shell.composites.json";
+
+    private void PatchIsolatedText(string relativePath, Func<string, string> patch)
+    {
+        var path = IsolatedPath(relativePath);
+        File.WriteAllText(path, patch(File.ReadAllText(path)));
+    }
+
+    private static string ReplaceNumber(string json, string field, long value) =>
+        System.Text.RegularExpressions.Regex.Replace(
+            json,
+            $"\"{field}\":\\s*-?\\d+",
+            $"\"{field}\": {value}",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static string ReplaceFirstString(string json, string field, string value)
+    {
+        var pattern = $"\"{field}\":\\s*\"[^\"]*\"";
+        return System.Text.RegularExpressions.Regex.Replace(
+            json,
+            pattern,
+            $"\"{field}\": \"{value}\"",
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(1));
+    }
 
     private static string IronOreJson(
         int maxDurability,

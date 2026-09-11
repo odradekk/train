@@ -43,6 +43,6 @@ part <id> cell (0,0,-1) core:vehicle-shell px_py durability 100
 
 12 辆夹具车共 2 页列表。第 2 页用 `composite query page 2`。168 格夹具共 6 页零件。第 6 页用 `composite query <id> parts 6`。没有车辆时返回 `Composite none.`。
 
-`composite query damaged` 分页列出当前耐久低于定义上限的零件，每页 32 条，按车辆 ID 再按 Local Cell 稳定排序。省略页码时读第 1 页。没有受损零件时返回 `Composite damaged none.`。
+`composite query damaged` 分页列出当前耐久低于**当前目录**定义上限的零件，每页 32 条，按车辆 ID 再按 Local Cell 稳定排序。省略页码时读第 1 页。没有受损零件时返回 `Composite damaged none.`。热重载提高上限后，未超界的绝对耐久仍显示为受损并带上新的 `max`；上限降到不超过当前耐久后该零件离开受损列表。
 
 完整合法车辆的运营状态仍为 `Unevaluated`，不伪造牵引或其他 Capability。缺少两个接触点的存活碎块标记为 `Disabled`，不能当成可运行车辆。查询不改变权威身份、布局、事务计数或 `NextEntityId`。

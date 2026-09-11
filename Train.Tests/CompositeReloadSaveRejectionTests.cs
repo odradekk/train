@@ -89,7 +89,7 @@ public sealed class CompositeReloadSaveRejectionTests
     }
 
     [TestMethod]
-    public void Hot_reload_rejects_missing_vehicle_references_and_unsupported_adaptation()
+    public void Hot_reload_adapts_current_part_specs_and_still_rejects_missing_vehicle_references()
     {
         using var session = LoggerSession.Create();
         var source = CompositeFixtures.FormalFixturePackage();
@@ -99,6 +99,7 @@ public sealed class CompositeReloadSaveRejectionTests
         voxelSession.Manufacture(HollowShellFixture.DefinitionId);
         reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
         var before = voxelSession.CaptureAuthority();
+        var coreRevision = reloader.Catalog.Current!.Entries[HollowShellFixture.CoreId].SemanticRevision;
 
         var later = CompositeFixtures.FormalFixturePackage();
         later.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
@@ -106,19 +107,23 @@ public sealed class CompositeReloadSaveRejectionTests
         var adapted = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
         adapted.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
         var semanticChange = adapted.Reload();
-        Assert.AreEqual(ContentReloadStatus.Rejected, semanticChange.Status);
-        Assert.AreEqual(before, voxelSession.CaptureAuthority());
+        Assert.AreEqual(ContentReloadStatus.Committed, semanticChange.Status);
+        Assert.AreEqual(before.Vehicles[0].Id, voxelSession.QueryComposites()[0].Id);
+        Assert.AreEqual(168, voxelSession.QueryComposites()[0].Parts.Count);
+        Assert.AreEqual(20, adapted.Catalog.Current!.Entries[HollowShellFixture.CoreId].Definition.Value);
+        Assert.AreNotEqual(coreRevision, adapted.Catalog.Current.Entries[HollowShellFixture.CoreId].SemanticRevision);
 
         var missing = ContentFixtures.ValidIron();
         var stripped = ContentFixtures.Create(missing, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
         stripped.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var afterAdapt = voxelSession.CaptureAuthority();
         var missingResult = stripped.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, missingResult.Status);
-        Assert.AreEqual(before, voxelSession.CaptureAuthority());
+        Assert.AreEqual(afterAdapt, voxelSession.CaptureAuthority());
     }
 
     [TestMethod]
-    public void Hot_reload_rejects_archetype_construction_and_identity_rule_changes()
+    public void Hot_reload_rejects_identity_rule_changes_that_cannot_retain_existing_vehicles()
     {
         using var session = LoggerSession.Create();
         var source = CompositeFixtures.FormalFixturePackage();
@@ -129,22 +134,6 @@ public sealed class CompositeReloadSaveRejectionTests
         var before = voxelSession.CaptureAuthority();
         var catalogGeneration = reloader.Catalog.Current!.Generation;
         var compositeGeneration = reloader.Composites.Current.Generation;
-        var compositeRevision = reloader.Composites.Current.Composites[HollowShellFixture.DefinitionId].SemanticRevision;
-
-        source.AddCompositeFile(
-            "core",
-            "composites/dev-hollow-shell.composites.json",
-            CompositeFixtures.File(null, CompositeFixtures.Archetype(contactCount: 3), CompositeFixtures.CompositeFromFixture()));
-        var construction = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        construction.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
-        var constructionReload = construction.Reload();
-        Assert.AreEqual(ContentReloadStatus.Rejected, constructionReload.Status);
-        Assert.IsTrue(constructionReload.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsupportedVehicleAdaptation));
-        Assert.AreEqual(before, voxelSession.CaptureAuthority());
-        Assert.AreEqual(ConstructionStatus.Valid, voxelSession.QueryComposites()[0].Construction);
-        Assert.AreEqual(catalogGeneration, reloader.Catalog.Current.Generation);
-        Assert.AreEqual(compositeGeneration, reloader.Composites.Current.Generation);
-        Assert.AreEqual(compositeRevision, reloader.Composites.Current.Composites[HollowShellFixture.DefinitionId].SemanticRevision);
 
         source.AddCompositeFile(
             "core",
@@ -154,9 +143,10 @@ public sealed class CompositeReloadSaveRejectionTests
         identity.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
         var identityReload = identity.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, identityReload.Status);
-        Assert.IsTrue(identityReload.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsupportedVehicleAdaptation));
+        Assert.IsTrue(identityReload.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.IncompatibleVoxelState));
         Assert.AreEqual(before, voxelSession.CaptureAuthority());
         Assert.AreEqual(ConstructionStatus.Valid, voxelSession.QueryComposites()[0].Construction);
+        Assert.AreEqual(catalogGeneration, reloader.Catalog.Current.Generation);
         Assert.AreEqual(compositeGeneration, reloader.Composites.Current.Generation);
     }
 

@@ -64,6 +64,9 @@ public partial class VoxelDeveloperScene : Node3D
     private ulong _refitTickA;
     private ulong _refitTickB;
     private ulong _refitTickC;
+    private string? _reloadFingerprint;
+    private CompositeAuthoritySnapshot? _reloadAuthority;
+    private WorldVoxelCoord _reloadWorldCell = new(2, 2, 2);
 
     private enum VoxelSmokePhase
     {
@@ -199,6 +202,24 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitDrop,
         RefitFracture,
         AwaitRefitFracture,
+        ReloadSetup,
+        AwaitReloadSetup,
+        ReloadMax150,
+        AwaitReloadMax150,
+        ReloadMax60,
+        AwaitReloadMax60,
+        ReloadDisplay,
+        AwaitReloadDisplay,
+        ReloadTemplate,
+        AwaitReloadTemplate,
+        ReloadCollision,
+        AwaitReloadCollision,
+        ReloadReject,
+        AwaitReloadReject,
+        ReloadValue,
+        AwaitReloadValue,
+        ReloadFracture,
+        AwaitReloadFracture,
         HandoffConsole
     }
 
@@ -310,6 +331,36 @@ public partial class VoxelDeveloperScene : Node3D
         RefitFracture,
         AwaitRefitFracture,
         CaptureRefitFracture,
+        AwaitRefitFractureView,
+        ReloadSetup,
+        AwaitReloadSetup,
+        CaptureReload150,
+        AwaitReload150,
+        ReloadMax60,
+        AwaitReloadMax60,
+        CaptureReload60,
+        AwaitReload60,
+        ReloadDisplay,
+        AwaitReloadDisplay,
+        CaptureReloadDisplay,
+        AwaitReloadDisplayView,
+        ReloadTemplate,
+        AwaitReloadTemplate,
+        CaptureReloadTemplate,
+        AwaitReloadTemplateView,
+        ReloadCollision,
+        AwaitReloadCollision,
+        CaptureReloadCollision,
+        AwaitReloadCollisionView,
+        ReloadReject,
+        AwaitReloadReject,
+        CaptureReloadRejected,
+        AwaitReloadRejectedView,
+        ReloadValue,
+        AwaitReloadValue,
+        ReloadFracture,
+        AwaitReloadFracture,
+        CaptureReloadFracture,
         Done
     }
 
@@ -701,6 +752,50 @@ public partial class VoxelDeveloperScene : Node3D
             part.DefinitionId != definitionId)
             throw new InvalidOperationException(
                 $"Slice 3 official query mismatch for {partId}: cell={part?.Cell} durability={part?.CurrentDurability} orientation={part?.Orientation} definition={part?.DefinitionId}.");
+    }
+
+    private void RequireDamagedMax(EntityId partId, int durability, int max)
+    {
+        var damaged = _session.QueryDamagedParts().SingleOrDefault(part => part.PartId == partId);
+        if (damaged is null || damaged.CurrentDurability != durability || damaged.MaxDurability != max)
+            throw new InvalidOperationException(
+                $"Damaged part {partId} expected durability {durability}/{max} but was {damaged?.CurrentDurability}/{damaged?.MaxDurability}.");
+    }
+
+    private string CurrentCompositeFingerprint() =>
+        string.Join("|", _composites.Visuals.Select(item => item.DisplayFingerprint));
+
+    private void RequireContinueAfterRejectedReload()
+    {
+        if (_session.QueryComposite(_refitVehicle)?.Parts.Count != 169)
+            throw new InvalidOperationException("Rejected reload left official composite query unusable.");
+        var before = _session.CaptureAuthority();
+        if (_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.Occupied)).Succeeded ||
+            before != _session.CaptureAuthority())
+            throw new InvalidOperationException("Rejected reload did not keep later illegal refit atomic.");
+        if (!_session.Damage(_refitVehicle, new LocalVoxelCoord(0, 1, 0), 10).Succeeded)
+            throw new InvalidOperationException("Rejected reload blocked later official damage.");
+    }
+
+    private void RunSlice3ReloadSetup()
+    {
+        _session.Reset();
+        PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+        var manufactured = _session.Manufacture(HollowShellFixture.DefinitionId);
+        if (!manufactured.Succeeded)
+            throw new InvalidOperationException($"Slice 3 reload setup manufacture failed: {manufactured.Status}.");
+        _refitVehicle = manufactured.VehicleId!.Value;
+        var added = RequireCommittedRefit(
+            _session.Refit(_refitVehicle, CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+            "reload add P");
+        _refitP = RequireSingleAllocated(added, "reload add P");
+        if (!_session.Damage(_refitVehicle, HollowShellRefit.FirstAdd, 25).Succeeded)
+            throw new InvalidOperationException("Slice 3 reload setup could not damage P to 75.");
+        RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Move(_refitP, HollowShellRefit.SecondAdd)), "reload move P");
+        RequireCommittedRefit(_session.Refit(_refitVehicle, CompositeRefitOperation.Rotate(_refitP, HollowShellRefit.MarkerOrientation)), "reload rotate P");
+        RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+        AimRefitCamera(HollowShellRefit.SecondAdd);
+        _result.Text = "最近命令：已准备切片 3 热重载改装车。";
     }
 
     private bool AwaitCommittedVehicleVisual(int vehicles, int parts)
@@ -2078,6 +2173,157 @@ public partial class VoxelDeveloperScene : Node3D
                 if (!AwaitCommittedVehicleVisual(2, 27))
                     return;
                 ValidateCompositeVisual();
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadSetup;
+                return;
+            case VoxelSlice3SmokePhase.ReloadSetup:
+                RunSlice3ReloadSetup();
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadSetup;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadSetup:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadMax150;
+                return;
+            case VoxelSlice3SmokePhase.ReloadMax150:
+                RequireLiveReload().WriteRefitMarkerMax(150);
+                RequireCommittedReload("slice3-marker-max-150");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                RequireDamagedMax(_refitP, 75, 150);
+                GD.Print($"VOXEL_SMOKE_SLICE3_RELOAD_MAX_150 id={_refitP} durability=75 max=150");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadMax150;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadMax150:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadMax60;
+                return;
+            case VoxelSlice3SmokePhase.ReloadMax60:
+                RequireLiveReload().WriteRefitMarkerMax(60);
+                RequireCommittedReload("slice3-marker-max-60");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 60, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                if (_session.QueryDamagedParts().Any(part => part.PartId == _refitP))
+                    throw new InvalidOperationException("Clamped marker durability should no longer be below the new maximum.");
+                GD.Print($"VOXEL_SMOKE_SLICE3_RELOAD_MAX_60 id={_refitP} durability=60 max=60");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadMax60;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadMax60:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadDisplay;
+                return;
+            case VoxelSlice3SmokePhase.ReloadDisplay:
+                _reloadFingerprint = CurrentCompositeFingerprint();
+                RequireLiveReload().WriteRefitMarkerName("显示改装标记");
+                RequireLiveReload().WriteAsymmetricMarkerTop();
+                RequireCommittedReload("slice3-marker-display");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 60, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadDisplay;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadDisplay:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                if (string.Equals(_reloadFingerprint, CurrentCompositeFingerprint(), StringComparison.Ordinal))
+                    throw new InvalidOperationException("Slice 3 display reload did not refresh existing vehicle textures.");
+                GD.Print("VOXEL_SMOKE_SLICE3_RELOAD_DISPLAY");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadTemplate;
+                return;
+            case VoxelSlice3SmokePhase.ReloadTemplate:
+                RequireLiveReload().AddHollowShellExtraCell();
+                RequireCommittedReload("slice3-hollow-template");
+                if (_session.QueryComposite(_refitVehicle)!.Parts.Count != 169 ||
+                    _session.QueryComposite(_refitVehicle)!.Parts.Any(part => part.Cell == HollowShellRefit.FirstAdd))
+                    throw new InvalidOperationException("Template reload rebuilt the existing refitted vehicle.");
+                var fresh = _session.Manufacture(HollowShellFixture.DefinitionId);
+                if (!fresh.Succeeded || fresh.Parts?.Count != 169 || fresh.Parts.All(part => part.Cell != HollowShellRefit.FirstAdd))
+                    throw new InvalidOperationException("New manufacture did not use the updated hollow-shell template.");
+                GD.Print($"VOXEL_SMOKE_SLICE3_RELOAD_TEMPLATE existing=169 manufactured={fresh.Parts.Count}");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadTemplate;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadTemplate:
+                if (!AwaitCommittedVehicleVisual(2, 169))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadCollision;
+                return;
+            case VoxelSlice3SmokePhase.ReloadCollision:
+                if (_session.Add(_reloadWorldCell, HollowShellFixture.ShellId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added ||
+                    _session.QueryCollision(_reloadWorldCell).Status != VoxelCollisionQueryStatus.Hit)
+                    throw new InvalidOperationException("Slice 3 collision setup did not place a full_box world shell.");
+                RequireLiveReload().WriteVehicleShellCollision("none");
+                RequireCommittedReload("slice3-shell-collision-none");
+                if (_session.QueryCollision(_reloadWorldCell).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Vehicle-shell collision reload did not update supported world collision.");
+                GD.Print("VOXEL_SMOKE_SLICE3_RELOAD_COLLISION domain=miss");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadCollision;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadCollision:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(_reloadWorldCell, expectHit: false);
+                GD.Print("VOXEL_SMOKE_SLICE3_RELOAD_COLLISION_PUBLISHED published=1");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadReject;
+                return;
+            case VoxelSlice3SmokePhase.ReloadReject:
+                _reloadFingerprint = CurrentCompositeFingerprint();
+                _reloadAuthority = _session.CaptureAuthority();
+                _generationBeforeReject = GetNode<Main>("/root/Main").Reloader?.Catalog.Current?.Generation ?? 0;
+                var compositeGeneration = GetNode<Main>("/root/Main").Reloader?.Composites.Current.Generation ?? 0;
+                RequireLiveReload().RemoveIdentityCore();
+                var rejected = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejected.Status != ContentReloadStatus.Rejected ||
+                    rejected.Changed ||
+                    rejected.CatalogVersion != _generationBeforeReject ||
+                    GetNode<Main>("/root/Main").Reloader!.Composites.Current.Generation != compositeGeneration ||
+                    _reloadAuthority != _session.CaptureAuthority())
+                    throw new InvalidOperationException("Slice 3 missing-core reload did not reject atomically.");
+                if (!string.Equals(_reloadFingerprint, CurrentCompositeFingerprint(), StringComparison.Ordinal))
+                    throw new InvalidOperationException("Slice 3 rejected reload changed existing vehicle display.");
+                RequireContinueAfterRejectedReload();
+                RequireLiveReload().RestoreIdentityCore();
+                GD.Print("VOXEL_SMOKE_SLICE3_RELOAD_REJECTED");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadReject;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadReject:
+                if (_session.QueryComposites().Count != 2)
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadValue;
+                return;
+            case VoxelSlice3SmokePhase.ReloadValue:
+                _session.Reset();
+                RequireLiveReload().WriteIdentityCoreHeavyValue(10);
+                RequireCommittedReload("slice3-heavy-core-10");
+                var rightHeavy = _session.Manufacture(BridgeFixture.RightHeavyDefinitionId);
+                if (!rightHeavy.Succeeded)
+                    throw new InvalidOperationException($"Slice 3 right-heavy manufacture failed: {rightHeavy.Status}.");
+                _refitVehicle = rightHeavy.VehicleId!.Value;
+                RequireLiveReload().WriteIdentityCoreHeavyValue(20);
+                RequireCommittedReload("slice3-heavy-core-20");
+                if (GetNode<Main>("/root/Main").Reloader!.Catalog.Current!.Entries[BridgeFixture.HeavyCoreDefinitionId].Definition.Value != 20)
+                    throw new InvalidOperationException("Reloaded right-core value was not 20.");
+                GD.Print("VOXEL_SMOKE_SLICE3_RELOAD_VALUE value=20");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadValue;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadValue:
+                if (!AwaitCommittedVehicleVisual(1, 55))
+                    return;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.ReloadFracture;
+                return;
+            case VoxelSlice3SmokePhase.ReloadFracture:
+                if (!_session.Damage(_refitVehicle, BridgeFixture.BridgeCell, 100).Succeeded)
+                    throw new InvalidOperationException("Slice 3 value-fracture damage failed.");
+                var successors = _session.QueryComposites();
+                if (successors.Count != 2 ||
+                    successors[0].Id != _refitVehicle ||
+                    successors[0].Parts.Any(part => !BridgeFixture.IsRightCell(part.Cell)) ||
+                    successors[0].OperationalCondition != OperationalCondition.Disabled)
+                    throw new InvalidOperationException("Reloaded right-core value did not become the primary successor.");
+                GD.Print($"VOXEL_SMOKE_SLICE3_RELOAD_FRACTURE primary={successors[0].Id} side=right");
+                GD.Print("COMPOSITE_RELOAD_SMOKE_OK");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitReloadFracture;
+                return;
+            case VoxelSlice3SmokePhase.AwaitReloadFracture:
+                if (!AwaitCommittedVehicleVisual(2, 27))
+                    return;
+                ValidateCompositeVisual();
                 _slice3SmokePhase = VoxelSlice3SmokePhase.HandoffConsole;
                 return;
             case VoxelSlice3SmokePhase.HandoffConsole:
@@ -3439,6 +3685,184 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice3ObservePhase.CaptureRefitFracture:
                 CaptureObserve("issue60-refit-fracture", "refitted dual-bridge cut leaves two 27-part successors, world empty");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitRefitFractureView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitRefitFractureView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadSetup;
+                return;
+            case VoxelSlice3ObservePhase.ReloadSetup:
+                RunSlice3ReloadSetup();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadSetup;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadSetup:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                RequireLiveReload().WriteRefitMarkerMax(150);
+                RequireCommittedReload("observe-marker-max-150");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 75, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                RequireDamagedMax(_refitP, 75, 150);
+                AimRefitCamera(HollowShellRefit.SecondAdd);
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReload150;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReload150:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                AimRefitCamera(HollowShellRefit.SecondAdd);
+                CaptureObserve("issue61-reload-150", "refit marker max 150, P durability still 75");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReload150;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReload150:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadMax60;
+                return;
+            case VoxelSlice3ObservePhase.ReloadMax60:
+                RequireLiveReload().WriteRefitMarkerMax(60);
+                RequireCommittedReload("observe-marker-max-60");
+                RequirePart(_refitVehicle, HollowShellRefit.SecondAdd, _refitP, 60, HollowShellRefit.MarkerOrientation, HollowShellRefit.MarkerId);
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadMax60;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadMax60:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReload60;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReload60:
+                CaptureObserve("issue61-reload-60", "refit marker max 60 clamped P durability to 60");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReload60;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReload60:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadDisplay;
+                return;
+            case VoxelSlice3ObservePhase.ReloadDisplay:
+                _reloadFingerprint = CurrentCompositeFingerprint();
+                RequireLiveReload().WriteRefitMarkerName("显示改装标记");
+                RequireLiveReload().WriteAsymmetricMarkerTop();
+                RequireCommittedReload("observe-marker-display");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadDisplay;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadDisplay:
+                if (!AwaitCommittedVehicleVisual(1, 169))
+                    return;
+                if (string.Equals(_reloadFingerprint, CurrentCompositeFingerprint(), StringComparison.Ordinal))
+                    throw new InvalidOperationException("Observe display reload did not refresh existing vehicle textures.");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReloadDisplay;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReloadDisplay:
+                CaptureObserve("issue61-display", "published marker name/asset update refreshes the existing vehicle");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadDisplayView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadDisplayView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadTemplate;
+                return;
+            case VoxelSlice3ObservePhase.ReloadTemplate:
+                RequireLiveReload().AddHollowShellExtraCell();
+                RequireCommittedReload("observe-hollow-template");
+                if (_session.QueryComposite(_refitVehicle)!.Parts.Count != 169)
+                    throw new InvalidOperationException("Observe template reload rebuilt the existing vehicle.");
+                var fresh = _session.Manufacture(HollowShellFixture.DefinitionId);
+                if (!fresh.Succeeded || fresh.Parts?.Count != 169)
+                    throw new InvalidOperationException("Observe new manufacture did not use the updated template.");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadTemplate;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadTemplate:
+                if (!AwaitCommittedVehicleVisual(2, 169))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReloadTemplate;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReloadTemplate:
+                CaptureObserve("issue61-template", "existing 169-part refit kept; new manufacture uses extra interior cell");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadTemplateView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadTemplateView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadCollision;
+                return;
+            case VoxelSlice3ObservePhase.ReloadCollision:
+                if (_session.Add(_reloadWorldCell, HollowShellFixture.ShellId, VoxelOrientation.Identity).Status != WorldCommandStatus.Added)
+                    throw new InvalidOperationException("Observe collision setup failed to place a world shell.");
+                RequireLiveReload().WriteVehicleShellCollision("none");
+                RequireCommittedReload("observe-shell-collision-none");
+                if (_session.QueryCollision(_reloadWorldCell).Status != VoxelCollisionQueryStatus.Miss)
+                    throw new InvalidOperationException("Observe collision reload did not miss the world shell.");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadCollision;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadCollision:
+                if (!CollisionPhysicsReady)
+                    return;
+                RequireDomainAndPublishedCollision(_reloadWorldCell, expectHit: false);
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReloadCollision;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReloadCollision:
+                CaptureObserve("issue61-collision", "supported world collision misses after vehicle-shell kind none");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadCollisionView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadCollisionView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadReject;
+                return;
+            case VoxelSlice3ObservePhase.ReloadReject:
+                _reloadFingerprint = CurrentCompositeFingerprint();
+                _reloadAuthority = _session.CaptureAuthority();
+                RequireLiveReload().RemoveIdentityCore();
+                var rejected = VoxelLiveReloadDriver.Reload(GetNode<Main>("/root/Main"));
+                if (rejected.Status != ContentReloadStatus.Rejected || _reloadAuthority != _session.CaptureAuthority())
+                    throw new InvalidOperationException("Observe missing-core reload did not reject atomically.");
+                if (!string.Equals(_reloadFingerprint, CurrentCompositeFingerprint(), StringComparison.Ordinal))
+                    throw new InvalidOperationException("Observe rejected reload changed existing vehicle display.");
+                RequireContinueAfterRejectedReload();
+                RequireLiveReload().RestoreIdentityCore();
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadReject;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadReject:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReloadRejected;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReloadRejected:
+                CaptureObserve("issue61-rejected", "rejected missing identity-core keeps vehicles, world, and collision");
+                _observeHoldFrames = 8;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadRejectedView;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadRejectedView:
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadValue;
+                return;
+            case VoxelSlice3ObservePhase.ReloadValue:
+                _session.Reset();
+                PlaceCamera(GetChildren().OfType<Camera3D>().Single(), VoxelWorldIdentity.Slice3);
+                RequireLiveReload().WriteIdentityCoreHeavyValue(10);
+                RequireCommittedReload("observe-heavy-core-10");
+                var rightHeavy = _session.Manufacture(BridgeFixture.RightHeavyDefinitionId);
+                if (!rightHeavy.Succeeded)
+                    throw new InvalidOperationException($"Observe right-heavy manufacture failed: {rightHeavy.Status}.");
+                _refitVehicle = rightHeavy.VehicleId!.Value;
+                RequireLiveReload().WriteIdentityCoreHeavyValue(20);
+                RequireCommittedReload("observe-heavy-core-20");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadValue;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadValue:
+                if (!AwaitCommittedVehicleVisual(1, 55))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.ReloadFracture;
+                return;
+            case VoxelSlice3ObservePhase.ReloadFracture:
+                if (!_session.Damage(_refitVehicle, BridgeFixture.BridgeCell, 100).Succeeded)
+                    throw new InvalidOperationException("Observe value-fracture damage failed.");
+                var successors = _session.QueryComposites();
+                if (successors.Count != 2 ||
+                    successors[0].Id != _refitVehicle ||
+                    successors[0].Parts.Any(part => !BridgeFixture.IsRightCell(part.Cell)))
+                    throw new InvalidOperationException("Observe reloaded right-core value did not become the primary successor.");
+                _slice3ObservePhase = VoxelSlice3ObservePhase.AwaitReloadFracture;
+                return;
+            case VoxelSlice3ObservePhase.AwaitReloadFracture:
+                if (!AwaitCommittedVehicleVisual(2, 27))
+                    return;
+                _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureReloadFracture;
+                return;
+            case VoxelSlice3ObservePhase.CaptureReloadFracture:
+                CaptureObserve("issue61-value-fracture", "after Value=20 reload, right fragment inherits the original vehicle id");
                 GD.Print("VOXEL_OBSERVE_COMPLETE");
                 _slice3ObservePhase = VoxelSlice3ObservePhase.Done;
                 GetTree().Quit();

@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Train.Domain.Voxels;
 
 namespace Train.Domain.Composites;
 
@@ -12,6 +13,8 @@ public static class HollowShellFixture
 
     public static CompositeDefinitionId DefinitionId { get; } = new("core", CompositeLocalId);
     public static CompositeArchetypeId ArchetypeId { get; } = new("core", ArchetypeLocalId);
+    public static VoxelDefinitionId ShellId { get; } = new("core", ShellLocalId);
+    public static VoxelDefinitionId CoreId { get; } = new("core", CoreLocalId);
     public static LocalVoxelCoord CoreCell { get; } = new(1, 0, 1);
     public static LocalVoxelCoord RearBoundCell { get; } = new(7, 0, 1);
     public static CompositeContactAnchor FrontContact { get; } = new(1, -0.75, 1.5, CoreCell);

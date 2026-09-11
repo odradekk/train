@@ -7,7 +7,8 @@ param(
 # Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
 # slice 2 collision queries (#51), rotating local boxes (#52),
 # world save / process-restart resume (#53), slice 3 parked-vehicle
-# manufacture (#58), damage/fracture (#59), and atomic refit (#60).
+# manufacture (#58), damage/fracture (#59), atomic refit (#60),
+# and existing-vehicle content reload (#61).
 # Slice 3 does not reuse the slice 2 save/resume path.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
@@ -88,12 +89,21 @@ foreach ($name in @(
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
-$ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
-$ledgeJson = Join-Path $root "builtin\core\resources\voxels\ledge.voxels.json"
-$ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
-$beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
-$beforeLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
-$beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
+$protected = @(
+    "builtin\core\resources\voxels\iron-ore.voxels.json",
+    "builtin\core\resources\voxels\ledge.voxels.json",
+    "builtin\core\resources\voxels\iron-ore\top.png",
+    "builtin\core\resources\voxels\refit-marker.voxels.json",
+    "builtin\core\resources\voxels\refit-marker\top.png",
+    "builtin\core\resources\voxels\identity-core.voxels.json",
+    "builtin\core\resources\voxels\identity-core-heavy.voxels.json",
+    "builtin\core\resources\voxels\vehicle-shell.voxels.json",
+    "builtin\core\resources\composites\dev-hollow-shell.composites.json"
+)
+$beforeHashes = @{}
+foreach ($relative in $protected) {
+    $beforeHashes[$relative] = (Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256).Hash
+}
 $env:TRAIN_VOXEL_SMOKE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
 if ($IsolationAbort) {
@@ -141,7 +151,7 @@ try {
         if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
     }
     else {
-        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 3) { 380 } else { 90 }
+        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 3) { 520 } else { 90 }
         $single = Invoke-GodotVoxelSmoke -QuitAfter $quitAfter -Label ("slice $Slice")
         $output = $single.Output
         $godotExitCode = $single.ExitCode
@@ -159,11 +169,11 @@ finally {
         Remove-Item -LiteralPath $userData -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-$afterJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
-$afterLedge = (Get-FileHash -LiteralPath $ledgeJson -Algorithm SHA256).Hash
-$afterTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
-if ($beforeJson -ne $afterJson -or $beforeLedge -ne $afterLedge -or $beforeTop -ne $afterTop) {
-    [Console]::Error.WriteLine("Godot voxel smoke rewrote worktree built-in iron-ore or ledge content.")
+$rewritten = @($protected | Where-Object {
+    $beforeHashes[$_] -ne (Get-FileHash -LiteralPath (Join-Path $root $_) -Algorithm SHA256).Hash
+})
+if ($rewritten.Count -gt 0) {
+    [Console]::Error.WriteLine("Godot voxel smoke rewrote worktree built-in content: $($rewritten -join ', ')")
     exit 1
 }
 
@@ -203,6 +213,16 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE3_DROP",
         "COMPOSITE_SMOKE_OK",
         "VOXEL_SMOKE_SLICE3_REFIT_FRACTURE",
+        "VOXEL_SMOKE_SLICE3_RELOAD_MAX_150",
+        "VOXEL_SMOKE_SLICE3_RELOAD_MAX_60",
+        "VOXEL_SMOKE_SLICE3_RELOAD_DISPLAY",
+        "VOXEL_SMOKE_SLICE3_RELOAD_TEMPLATE",
+        "VOXEL_SMOKE_SLICE3_RELOAD_COLLISION",
+        "VOXEL_SMOKE_SLICE3_RELOAD_COLLISION_PUBLISHED",
+        "VOXEL_SMOKE_SLICE3_RELOAD_REJECTED",
+        "VOXEL_SMOKE_SLICE3_RELOAD_VALUE",
+        "VOXEL_SMOKE_SLICE3_RELOAD_FRACTURE",
+        "COMPOSITE_RELOAD_SMOKE_OK",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"
