@@ -113,6 +113,18 @@ public sealed class PhysicalRailTests
             StraightRailFixture.LeftRail(120, 144),
             StraightRailFixture.RightRail(120, 144)
         };
+        var leftGappedRails = new[]
+        {
+            StraightRailFixture.LeftRail(16, 100),
+            StraightRailFixture.LeftRail(120, 144),
+            StraightRailFixture.RightRail(16, 144)
+        };
+        var rightGappedRails = new[]
+        {
+            StraightRailFixture.LeftRail(16, 144),
+            StraightRailFixture.RightRail(16, 100),
+            StraightRailFixture.RightRail(120, 144)
+        };
         AssertRejected(
             harness,
             new RailConstructionPlan(
@@ -120,6 +132,107 @@ public sealed class PhysicalRailTests
                 Array.Empty<PlannedRailConnection>()),
             RailEditStatus.InvalidPlan,
             voxels: 0);
+
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { RailVolumes = leftGappedRails } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+        Assert.IsFalse(
+            harness.Session.QueryDerivedRailGraph().TreatsIntervalAsTraversable(new EntityId(1), new RailInterval(110.4, 110.6)));
+
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { RailVolumes = rightGappedRails } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { RailVolumes = new[] { new RailVolumeBox(16, 1, 14.5, 144, 2, 17.5) } } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[]
+                {
+                    first with
+                    {
+                        SleeperVolumes = first.SleeperVolumes
+                            .Append(new RailVolumeBox(80, 1, 13, 80.2, 2, 19))
+                            .ToArray()
+                    }
+                },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[]
+                {
+                    first with
+                    {
+                        SleeperVolumes = first.SleeperVolumes
+                            .Append(new RailVolumeBox(80, 1.65, 14.75, 90, 1.85, 17.25))
+                            .ToArray()
+                    }
+                },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+        Assert.AreEqual(0, harness.Session.QueryRails().Segments.Count);
+        Assert.AreEqual(0, harness.Session.QueryRails().Occupancy.Count);
+
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        var authority = harness.Session.CaptureRailAuthority();
+        var query = harness.Session.QueryRails();
+        var derived = harness.Session.QueryDerivedRailGraph();
+        var leftRailCell = new WorldVoxelCoord(110, 1, 15);
+        Assert.IsTrue(derived.Current);
+        Assert.IsTrue(derived.TreatsIntervalAsTraversable(query.Segments[0].Id, new RailInterval(110.4, 110.6)));
+        CollectionAssert.AreEqual(
+            query.Segments[0].TraversableWorldX.ToArray(),
+            derived.Segments[0].TraversableWorldX.ToArray());
+        Assert.IsTrue(harness.Session.Query(leftRailCell).IsOccupied);
+        Assert.IsTrue(harness.Session.Rails.TryGetOccupancy(leftRailCell, out var leftOccupancy));
+        var leftSupports = leftOccupancy.Supports
+            .Select(support => (support.SegmentId, support.WorldX.Start, support.WorldX.End))
+            .ToArray();
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { RailVolumes = leftGappedRails } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan);
+        var afterReject = harness.Session.CaptureRailAuthority();
+        Assert.AreEqual(authority.WorldVoxelCount, afterReject.WorldVoxelCount);
+        Assert.AreEqual(authority.SegmentCount, afterReject.SegmentCount);
+        Assert.AreEqual(authority.OccupiedCellCount, afterReject.OccupiedCellCount);
+        Assert.AreEqual(authority.ConnectionCount, afterReject.ConnectionCount);
+        Assert.AreEqual(authority.NextEntityId, afterReject.NextEntityId);
+        Assert.AreEqual(authority.TransactionCount, afterReject.TransactionCount);
+        CollectionAssert.AreEqual(authority.SegmentIds.ToArray(), afterReject.SegmentIds.ToArray());
+        CollectionAssert.AreEqual(authority.Occupied.ToArray(), afterReject.Occupied.ToArray());
+        CollectionAssert.AreEqual(query.Connections.ToArray(), harness.Session.QueryRails().Connections.ToArray());
+        Assert.IsTrue(harness.Session.Rails.AreConnected(authority.SegmentIds[0], authority.SegmentIds[1]));
+        Assert.IsTrue(harness.Session.Query(leftRailCell).IsOccupied);
+        Assert.IsTrue(harness.Session.Rails.TryGetOccupancy(leftRailCell, out var stillMapped));
+        CollectionAssert.AreEqual(
+            leftSupports,
+            stillMapped.Supports.Select(support => (support.SegmentId, support.WorldX.Start, support.WorldX.End)).ToArray());
+        Assert.IsTrue(
+            harness.Session.QueryDerivedRailGraph().TreatsIntervalAsTraversable(
+                query.Segments[0].Id,
+                new RailInterval(110.4, 110.6)));
 
         Assert.IsTrue(harness.Session.ConstructRails(ShiftZ(StraightRailFixture.CreateFixturePlan(), 8)).Succeeded);
         Assert.IsTrue(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 23)));
@@ -134,23 +247,31 @@ public sealed class PhysicalRailTests
         using var harness = RailHarness.Create();
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
         var ids = harness.Session.Rails.Segments.Select(segment => segment.Id).ToArray();
+        var rightRailCell = new WorldVoxelCoord(110, 1, 16);
         Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(DamageCell, 100).Status);
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(rightRailCell, 100).Status);
         AssertRejected(
             harness,
             new RailConstructionPlan(
                 new[]
                 {
                     new PlannedRailSegment(
-                        new HorizontalStraightAlignment(110.1, 2, 16, 110.9, 2, 16),
-                        new[] { new RailVolumeBox(110.1, 1.1, 15.1, 110.9, 1.9, 15.9) },
+                        new HorizontalStraightAlignment(110, 2, 16, 111, 2, 16),
+                        new[]
+                        {
+                            StraightRailFixture.LeftRail(110, 111),
+                            StraightRailFixture.RightRail(110, 111)
+                        },
                         Array.Empty<RailVolumeBox>())
                 },
                 Array.Empty<PlannedRailConnection>()),
             RailEditStatus.IndependentLineConflict,
-            voxels: 1031);
+            voxels: 1030);
         CollectionAssert.AreEqual(ids, harness.Session.Rails.Segments.Select(segment => segment.Id).ToArray());
         Assert.IsTrue(harness.Session.Rails.Occupies(DamageCell));
+        Assert.IsTrue(harness.Session.Rails.Occupies(rightRailCell));
         Assert.IsFalse(harness.Session.Query(DamageCell).IsOccupied);
+        Assert.IsFalse(harness.Session.Query(rightRailCell).IsOccupied);
     }
 
     [TestMethod]

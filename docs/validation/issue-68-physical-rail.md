@@ -1,6 +1,6 @@
 # Issue #68 validation
 
-Formal straight-rail construction, occupancy, local damage/repair, and save rejection for slice 4. Headless Godot smoke is the official engine evidence. Missing Godot is not a pass.
+Formal straight-rail construction, occupancy, local damage/repair, and save rejection for slice 4. Each rail side must match the fixture section and cover the alignment; a one-sided gap or a single wide solid is rejected. Headless Godot smoke is the official engine evidence. Missing Godot is not a pass.
 
 Host: Fedora Linux `7.2.4-200.fc44.x86_64`. .NET SDK `10.0.111`. Godot `4.7.2.stable.mono.official.ed1daf0bf` at `/usr/local/bin/godot-dotnet`. PowerShell `7.6.6`.
 

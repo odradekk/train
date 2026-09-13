@@ -55,6 +55,8 @@ public sealed class PreparedRailEdit
 
 public static class RailEditTransaction
 {
+    private const double RelativeSectionTolerance = 1e-9;
+
     public static RailEditStatus TryPrepare(
         RailConstructionPlan plan,
         VoxelWorld world,
@@ -228,16 +230,20 @@ public static class RailEditTransaction
     {
         var alignment = segment.Alignment;
         var worldX = alignment.WorldX;
+        var leftSpans = new List<RailInterval>();
+        var rightSpans = new List<RailInterval>();
         foreach (var rail in segment.RailVolumes)
         {
             if (rail.MinX < alignment.StartX || rail.MaxX > alignment.EndX)
                 return false;
-            if (!OverlapsExpectedRail(rail, alignment))
+            var left = MatchesRailSection(rail, alignment, left: true);
+            var right = MatchesRailSection(rail, alignment, left: false);
+            if (left == right)
                 return false;
+            (left ? leftSpans : rightSpans).Add(new RailInterval(rail.MinX, rail.MaxX));
         }
 
-        var covered = RailIntervals.Merge(segment.RailVolumes.Select(volume => new RailInterval(volume.MinX, volume.MaxX)));
-        if (covered.Count != 1 || !SameInterval(covered[0], worldX))
+        if (!CoversAlignment(leftSpans, worldX) || !CoversAlignment(rightSpans, worldX))
             return false;
 
         var slack = StraightRailFixture.SleeperLength / 2.0;
@@ -245,29 +251,52 @@ public static class RailEditTransaction
         {
             if (sleeper.MinX < alignment.StartX - slack || sleeper.MaxX > alignment.EndX + slack)
                 return false;
-            if (!OverlapsExpectedSleeper(sleeper, alignment))
+            if (!MatchesSleeperSection(sleeper, alignment))
                 return false;
         }
 
         return true;
     }
 
-    private static bool OverlapsExpectedRail(RailVolumeBox rail, HorizontalStraightAlignment alignment) =>
-        rail.Overlaps(StraightRailFixture.LeftRail(alignment.StartX, alignment.EndX, alignment.StartY, alignment.StartZ)) ||
-        rail.Overlaps(StraightRailFixture.RightRail(alignment.StartX, alignment.EndX, alignment.StartY, alignment.StartZ));
-
-    private static bool OverlapsExpectedSleeper(RailVolumeBox sleeper, HorizontalStraightAlignment alignment)
+    private static bool CoversAlignment(IEnumerable<RailInterval> spans, RailInterval worldX)
     {
-        var slack = StraightRailFixture.SleeperLength / 2.0;
-        var envelope = new RailVolumeBox(
-            alignment.StartX - slack,
-            alignment.StartY + (StraightRailFixture.SleeperMinY - StraightRailFixture.CenterY),
-            alignment.StartZ - StraightRailFixture.SleeperWidth / 2.0,
-            alignment.EndX + slack,
-            alignment.StartY + (StraightRailFixture.SleeperMaxY - StraightRailFixture.CenterY),
-            alignment.StartZ + StraightRailFixture.SleeperWidth / 2.0);
-        return sleeper.Overlaps(envelope);
+        var covered = RailIntervals.Merge(spans);
+        return covered.Count == 1 && SameInterval(covered[0], worldX);
     }
+
+    private static bool MatchesRailSection(RailVolumeBox rail, HorizontalStraightAlignment alignment, bool left)
+    {
+        var canonical = left
+            ? StraightRailFixture.LeftRail(rail.MinX, rail.MaxX)
+            : StraightRailFixture.RightRail(rail.MinX, rail.MaxX);
+        return SameRelativeSection(rail, alignment, canonical);
+    }
+
+    private static bool MatchesSleeperSection(RailVolumeBox sleeper, HorizontalStraightAlignment alignment)
+    {
+        if (Math.Abs(sleeper.MaxX - sleeper.MinX - StraightRailFixture.SleeperLength) > RelativeSectionTolerance)
+            return false;
+        var canonical = new RailVolumeBox(
+            sleeper.MinX,
+            StraightRailFixture.SleeperMinY,
+            StraightRailFixture.SleeperCenterZ - StraightRailFixture.SleeperWidth / 2.0,
+            sleeper.MaxX,
+            StraightRailFixture.SleeperMaxY,
+            StraightRailFixture.SleeperCenterZ + StraightRailFixture.SleeperWidth / 2.0);
+        return SameRelativeSection(sleeper, alignment, canonical);
+    }
+
+    private static bool SameRelativeSection(
+        RailVolumeBox actual,
+        HorizontalStraightAlignment alignment,
+        RailVolumeBox canonical) =>
+        SameRelative(actual.MinY, alignment.StartY, canonical.MinY, StraightRailFixture.CenterY) &&
+        SameRelative(actual.MaxY, alignment.StartY, canonical.MaxY, StraightRailFixture.CenterY) &&
+        SameRelative(actual.MinZ, alignment.StartZ, canonical.MinZ, StraightRailFixture.CenterZ) &&
+        SameRelative(actual.MaxZ, alignment.StartZ, canonical.MaxZ, StraightRailFixture.CenterZ);
+
+    private static bool SameRelative(double actual, double alignment, double canonical, double origin) =>
+        Math.Abs((actual - alignment) - (canonical - origin)) <= RelativeSectionTolerance;
 
     private static bool HasIndependentOverlapInPlan(
         Dictionary<WorldVoxelCoord, List<RailCellSupport>> occupancy,
