@@ -2,6 +2,7 @@ using Godot;
 using System.Diagnostics;
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.Voxels;
 using Train.Presentation;
 
@@ -21,6 +22,7 @@ public partial class VoxelDeveloperScene : Node3D
     private readonly VoxelWorldMeshPresenter _meshes = new();
     private readonly VoxelWorldCollisionPresenter _colliders = new();
     private readonly CompositeVisualPresenter _composites = new();
+    private readonly TrackRendererPresenter _tracks = new();
     private VoxelChunkMesh _mesh = null!;
     private int _collisionRefreshGeneration;
     private int _physicsSeenGeneration;
@@ -31,6 +33,11 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelSmokePhase _smokePhase;
     private VoxelSlice2SmokePhase _slice2SmokePhase;
     private VoxelSlice3SmokePhase _slice3SmokePhase;
+    private VoxelSlice4SmokePhase _slice4SmokePhase;
+    private Guid? _slice4EmptySaveId;
+    private string? _slice4EmptySaveHash;
+    private ulong _slice4FarMeshId;
+    private ulong _slice4ZNeighborMeshId;
     private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelSlice3ResumeSmokePhase _slice3ResumeSmokePhase;
     private VoxelObservePhase _observePhase;
@@ -171,6 +178,30 @@ public partial class VoxelDeveloperScene : Node3D
         LocalBoxLethal,
         AwaitLocalBoxLethal,
         HandoffReload
+    }
+
+    private enum VoxelSlice4SmokePhase
+    {
+        None,
+        SaveEmpty,
+        Construct,
+        AwaitConstruct,
+        Inspect,
+        EdgeDamage,
+        AwaitEdgeDamage,
+        RepairEdge,
+        AwaitRepairEdge,
+        Damage,
+        AwaitDamage,
+        Repair,
+        AwaitRepair,
+        SaveReject,
+        OpenConsole,
+        AwaitConsoleOpen,
+        CloseConsole,
+        AwaitConsoleClosed,
+        LeaveScene,
+        Done
     }
 
     private enum VoxelSlice3SmokePhase
@@ -456,7 +487,7 @@ public partial class VoxelDeveloperScene : Node3D
             LightEnergy = 1.4f,
             ShadowEnabled = true
         });
-        if (main.DevelopmentIdentity.Slice == VoxelDevelopmentSlice.Slice3)
+        if (main.DevelopmentIdentity.Slice is VoxelDevelopmentSlice.Slice3 or VoxelDevelopmentSlice.Slice4)
         {
             AddChild(new WorldEnvironment
             {
@@ -493,6 +524,10 @@ public partial class VoxelDeveloperScene : Node3D
         }
 
         Refresh();
+        if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
+            !string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) &&
+            !_session.ConstructRails().Succeeded)
+            throw new InvalidOperationException("Slice 4 could not construct the fixture railway.");
 
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
         {
@@ -519,6 +554,11 @@ public partial class VoxelDeveloperScene : Node3D
                 GD.Print(
                     $"VOXEL_SMOKE_SLICE3_BASE voxels={_session.World.VoxelCount} chunk_size={_session.World.ChunkSize} bounds=32,32,32 chunks=8 seed={_session.Identity.Seed} generator={_session.Identity.GeneratorVersion}");
             }
+            else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+            {
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_BASE voxels={_session.World.VoxelCount} chunk_size={_session.World.ChunkSize} bounds=320,32,32 chunks=80 seed={_session.Identity.Seed} generator={_session.Identity.GeneratorVersion}");
+            }
             if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable), "1", StringComparison.Ordinal))
             {
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "0");
@@ -538,6 +578,11 @@ public partial class VoxelDeveloperScene : Node3D
 
             if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
                 _slice3SmokePhase = VoxelSlice3SmokePhase.Manufacture;
+            else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+            {
+                _smokePhase = VoxelSmokePhase.None;
+                _slice4SmokePhase = VoxelSlice4SmokePhase.SaveEmpty;
+            }
             else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
                 _slice2SmokePhase = VoxelSlice2SmokePhase.RemoveX;
             else
@@ -587,6 +632,7 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceSmoke();
         AdvanceSlice2Smoke();
         AdvanceSlice3Smoke();
+        AdvanceSlice4Smoke();
         AdvanceResumeSmoke();
         AdvanceSlice3ResumeSmoke();
         AdvanceObserve();
@@ -609,8 +655,12 @@ public partial class VoxelDeveloperScene : Node3D
         if (key.Keycode == Key.R)
         {
             _session.Reset();
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
+                !_session.ConstructRails().Succeeded)
+                throw new InvalidOperationException("Slice 4 reset could not reconstruct the fixture railway.");
             _result.Text = _session.Identity.Slice switch
             {
+                VoxelDevelopmentSlice.Slice4 => "最近命令：已重置并施工正式切片 4 直轨。",
                 VoxelDevelopmentSlice.Slice3 => "最近命令：已重置正式切片 3 静置车辆世界。",
                 VoxelDevelopmentSlice.Slice2 => "最近命令：已重置正式切片 2 多 Chunk 世界。",
                 _ => "最近命令：已重置正式 16³ 开发世界。"
@@ -700,6 +750,7 @@ public partial class VoxelDeveloperScene : Node3D
         _meshes.Refresh(_session, catalog);
         _colliders.Refresh(_session, catalog);
         _composites.Refresh(this, _session, catalog);
+        _tracks.Refresh(this, _session);
         _collisionRefreshGeneration++;
         _mesh = _meshes.PrimaryMesh;
         _dirty = false;
@@ -707,6 +758,7 @@ public partial class VoxelDeveloperScene : Node3D
         var collide = _session.QueryCollision(_selectedPosition);
         _title.Text = _session.Identity.Slice switch
         {
+            VoxelDevelopmentSlice.Slice4 => "Voxel 开发场景 · 切片 4 · 固定视角 · 320×32×32 · 正式直轨",
             VoxelDevelopmentSlice.Slice3 => "Voxel 开发场景 · 切片 3 · 固定视角 · 32³ · 静置车辆",
             VoxelDevelopmentSlice.Slice2 => "Voxel 开发场景 · 切片 2 · 固定视角 · 2×2×2 Chunk · 32³",
             _ => "Voxel 开发场景 · 切片 1 · 固定视角 · 单 Chunk 16³"
@@ -1001,7 +1053,12 @@ public partial class VoxelDeveloperScene : Node3D
         _session.Identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(14, 17, 14) : new(6, 11, 4);
 
     private static WorldVoxelCoord SelectedCell(VoxelWorldIdentity identity) =>
-        identity.Slice == VoxelDevelopmentSlice.Slice2 ? new(15, 16, 15) : new(4, 4, 4);
+        identity.Slice switch
+        {
+            VoxelDevelopmentSlice.Slice4 => StraightRailFixture.LeftRailSample,
+            VoxelDevelopmentSlice.Slice2 => new(15, 16, 15),
+            _ => new(4, 4, 4)
+        };
 
     private static FileWorldSaveStore CreateSaveStore(Main main) =>
         new(main.IsolatedUserDataDirectory);
@@ -1033,12 +1090,20 @@ public partial class VoxelDeveloperScene : Node3D
         _meshes.Rebuild(this, identity);
         _colliders.Rebuild(this, identity);
         _composites.Clear();
+        _tracks.Clear();
         _mesh = _meshes.PrimaryMesh;
         MarkDirty();
     }
 
     private static void PlaceCamera(Camera3D camera, VoxelWorldIdentity identity)
     {
+        if (identity.Slice == VoxelDevelopmentSlice.Slice4)
+        {
+            camera.Position = new Vector3(144, 20, -10);
+            camera.LookAt(new Vector3(144, 2, 16), Vector3.Up);
+            return;
+        }
+
         if (identity.Slice == VoxelDevelopmentSlice.Slice3)
         {
             camera.Position = new Vector3(24, 18, 0);
@@ -4143,6 +4208,167 @@ public partial class VoxelDeveloperScene : Node3D
 
     private GameConsole? FindConsole() =>
         GetNode<Main>("/root/Main").GetChildren().OfType<GameConsole>().SingleOrDefault();
+
+    private void AdvanceSlice4Smoke()
+    {
+        switch (_slice4SmokePhase)
+        {
+            case VoxelSlice4SmokePhase.SaveEmpty:
+                if (_session.World.VoxelCount != 0 || _session.HasRailway)
+                    throw new InvalidOperationException("Slice 4 smoke must start from an empty world.");
+                var emptySave = _session.Save("Slice 4 Empty");
+                if (emptySave.Status != WorldSaveStatus.Saved || !emptySave.SaveId.HasValue)
+                    throw new InvalidOperationException($"Slice 4 empty save failed: {emptySave.Status}.");
+                _slice4EmptySaveId = emptySave.SaveId;
+                var emptyPath = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(emptySave.SaveId.Value);
+                _slice4EmptySaveHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(emptyPath)));
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Construct;
+                return;
+            case VoxelSlice4SmokePhase.Construct:
+                if (!_session.ConstructRails().Succeeded || _session.World.VoxelCount != 1032)
+                    throw new InvalidOperationException("Slice 4 smoke could not construct the fixture railway.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_CONSTRUCTED voxels={_session.World.VoxelCount} sleepers={_session.QueryRails().SleeperCount} segments={_session.Rails.Segments.Count} solids={_tracks.SolidCount}");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitConstruct;
+                return;
+            case VoxelSlice4SmokePhase.AwaitConstruct:
+                if (_tracks.SolidCount == 0 || _dirty)
+                    return;
+                ValidateGeneratedMesh();
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Inspect;
+                return;
+            case VoxelSlice4SmokePhase.Inspect:
+                RequireSlice4Occupancy(StraightRailFixture.EdgeCell, "VOXEL_SMOKE_SLICE4_EDGE_CELL");
+                RequireSlice4Occupancy(StraightRailFixture.LeftRailSample, "VOXEL_SMOKE_SLICE4_RAILS");
+                RequireSlice4Occupancy(StraightRailFixture.RightRailSample, "VOXEL_SMOKE_SLICE4_RAILS");
+                if (_session.QueryRails().SleeperCount != 257)
+                    throw new InvalidOperationException("Slice 4 sleeper count is not 257.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_SLEEPERS count={_session.QueryRails().SleeperCount}");
+                if (!_session.Rails.AreConnected(new EntityId(1), new EntityId(2)))
+                    throw new InvalidOperationException("Slice 4 technical segments are not connected.");
+                GD.Print("VOXEL_SMOKE_SLICE4_CONNECTION connected=1");
+                _slice4FarMeshId = _tracks.MeshFor(new ChunkCoord(1, 0, 0))?.GetInstanceId() ?? 0;
+                _slice4ZNeighborMeshId = _tracks.MeshFor(new ChunkCoord(6, 0, 1))?.GetInstanceId() ?? 0;
+                if (_slice4FarMeshId == 0 || _slice4ZNeighborMeshId == 0)
+                    throw new InvalidOperationException("Slice 4 smoke is missing the far or z-boundary track mesh.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.EdgeDamage;
+                return;
+            case VoxelSlice4SmokePhase.EdgeDamage:
+                if (_session.Damage(new WorldVoxelCoord(110, 1, 14), 100).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Slice 4 smoke could not destroy the sleeper-edge cell.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitEdgeDamage;
+                return;
+            case VoxelSlice4SmokePhase.AwaitEdgeDamage:
+                if (_dirty)
+                    Refresh();
+                var edge = new WorldVoxelCoord(110, 1, 14);
+                var intact = new WorldVoxelCoord(110, 1, 17);
+                var farChunk = new ChunkCoord(1, 0, 0);
+                var zChunk = new ChunkCoord(6, 0, 1);
+                if (!_tracks.HasGapNear(edge))
+                    throw new InvalidOperationException("Slice 4 edge damage still covers the destroyed sleeper cell.");
+                if (!_tracks.Model.Sections.SelectMany(section => section.Solids).Any(solid =>
+                        solid.Kind == TrackSolidKind.Sleeper && solid.Volume.OverlapsCell(intact)))
+                    throw new InvalidOperationException("Slice 4 edge damage deleted the intact sleeper half.");
+                if (_tracks.LastRebuiltChunks.Contains(farChunk) || _tracks.LastRebuiltChunks.Contains(zChunk))
+                    throw new InvalidOperationException(
+                        $"Slice 4 edge damage rebuilt unrelated sections: {string.Join(',', _tracks.LastRebuiltChunks)}");
+                if (_tracks.MeshFor(farChunk)?.GetInstanceId() != _slice4FarMeshId ||
+                    _tracks.MeshFor(zChunk)?.GetInstanceId() != _slice4ZNeighborMeshId)
+                    throw new InvalidOperationException("Slice 4 local refresh replaced an unrelated section mesh.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_RENDER_LOCAL rebuilt={_tracks.LastRebuiltChunks.Count} retained={_tracks.LastRetainedChunks.Count} far_kept=1 z_kept=1");
+                GD.Print("VOXEL_SMOKE_SLICE4_EDGE_CLIP intact_sleeper=1");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.RepairEdge;
+                return;
+            case VoxelSlice4SmokePhase.RepairEdge:
+                if (!_session.RepairRails(new[] { new WorldVoxelCoord(110, 1, 14) }).Succeeded)
+                    throw new InvalidOperationException("Slice 4 smoke could not repair the sleeper-edge cell.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitRepairEdge;
+                return;
+            case VoxelSlice4SmokePhase.AwaitRepairEdge:
+                if (_dirty || _tracks.HasGapNear(new WorldVoxelCoord(110, 1, 14)))
+                    return;
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Damage;
+                return;
+            case VoxelSlice4SmokePhase.Damage:
+                if (_session.Damage(StraightRailFixture.FirstSegmentDamageCell, 100).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Slice 4 smoke could not destroy the fixture support cell.");
+                GD.Print("VOXEL_SMOKE_SLICE4_DAMAGED");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitDamage;
+                return;
+            case VoxelSlice4SmokePhase.AwaitDamage:
+                if (_dirty)
+                    Refresh();
+                var first = _session.Rails.TraversableWorldX(new EntityId(1), _session.World);
+                if (first.Any(interval => interval.Start <= 110 && interval.End >= 111))
+                    throw new InvalidOperationException(
+                        $"Slice 4 damage did not open x=110..111: {string.Join(',', first.Select(item => $"{item.Start}..{item.End}"))}");
+                if (!_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
+                    _tracks.Refresh(this, _session);
+                if (!_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
+                    throw new InvalidOperationException("Slice 4 track render still covers the destroyed support cell.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_GAP intervals={string.Join(',', first.Select(item => $"{item.Start}..{item.End}"))}");
+                GD.Print($"VOXEL_SMOKE_SLICE4_RENDER_GAP solids={_tracks.SolidCount}");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Repair;
+                return;
+            case VoxelSlice4SmokePhase.Repair:
+                if (!_session.RepairRails(new[] { StraightRailFixture.FirstSegmentDamageCell }).Succeeded)
+                    throw new InvalidOperationException("Slice 4 smoke could not repair the fixture support cell.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitRepair;
+                return;
+            case VoxelSlice4SmokePhase.AwaitRepair:
+                if (_dirty || !_session.Query(StraightRailFixture.FirstSegmentDamageCell).IsOccupied)
+                    return;
+                if (_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
+                    return;
+                GD.Print("VOXEL_SMOKE_SLICE4_REPAIRED");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.SaveReject;
+                return;
+            case VoxelSlice4SmokePhase.SaveReject:
+                var rejected = _session.Save("Slice 4 Railway");
+                if (rejected.Status != WorldSaveStatus.UnsupportedRailway)
+                    throw new InvalidOperationException($"Slice 4 railway save should be rejected, got {rejected.Status}.");
+                var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(_slice4EmptySaveId!.Value);
+                var currentHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(path)));
+                if (!string.Equals(_slice4EmptySaveHash, currentHash, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Slice 4 railway save overwrote the previous valid file.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_SAVE_REJECTED status={rejected.Status}");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.OpenConsole;
+                return;
+            case VoxelSlice4SmokePhase.OpenConsole:
+                PressKey(Key.Quoteleft, '`');
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitConsoleOpen;
+                return;
+            case VoxelSlice4SmokePhase.AwaitConsoleOpen:
+                if (FindConsole()?.IsOpen != true)
+                    return;
+                _slice4SmokePhase = VoxelSlice4SmokePhase.CloseConsole;
+                return;
+            case VoxelSlice4SmokePhase.CloseConsole:
+                PressKey(Key.Escape);
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitConsoleClosed;
+                return;
+            case VoxelSlice4SmokePhase.AwaitConsoleClosed:
+                if (FindConsole()?.IsOpen != false)
+                    return;
+                GD.Print("VOXEL_SMOKE_CONSOLE_CLOSED");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.LeaveScene;
+                return;
+            case VoxelSlice4SmokePhase.LeaveScene:
+                System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
+                LeaveDevelopmentScene();
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Done;
+                return;
+        }
+    }
+
+    private void RequireSlice4Occupancy(WorldVoxelCoord cell, string marker)
+    {
+        if (!_session.Rails.Occupies(cell) || !_session.Query(cell).IsOccupied)
+            throw new InvalidOperationException($"Slice 4 missing occupancy at {cell}.");
+        GD.Print($"{marker} cell={cell.X},{cell.Y},{cell.Z}");
+    }
 
     private static void PressKey(Key keycode, int unicode = 0)
     {

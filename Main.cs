@@ -192,6 +192,7 @@ public partial class Main : Node
         var value = System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SLICE");
         return value switch
         {
+            "4" => VoxelDevelopmentSlice.Slice4,
             "3" => VoxelDevelopmentSlice.Slice3,
             "2" => VoxelDevelopmentSlice.Slice2,
             _ => VoxelDevelopmentSlice.Slice1
@@ -203,6 +204,7 @@ public partial class Main : Node
         var resolved = slice ?? ReadRequestedSlice();
         return resolved switch
         {
+            VoxelDevelopmentSlice.Slice4 => VoxelWorldIdentity.Slice4,
             VoxelDevelopmentSlice.Slice3 => VoxelWorldIdentity.Slice3,
             VoxelDevelopmentSlice.Slice2 => VoxelWorldIdentity.Slice2,
             _ => VoxelWorldIdentity.Slice1

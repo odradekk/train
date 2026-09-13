@@ -47,7 +47,8 @@ public partial class GameConsole : CanvasLayer
             () => _reloader?.Reload(),
             OS.IsDebugBuild(),
             _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession),
-            _voxelSession is null ? null : new CompositeConsoleCommands(_voxelSession));
+            _voxelSession is null ? null : new CompositeConsoleCommands(_voxelSession),
+            _voxelSession is null ? null : new RailConsoleCommands(_voxelSession));
     }
 
     public override void _Ready()

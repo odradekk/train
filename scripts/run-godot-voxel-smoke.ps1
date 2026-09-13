@@ -1,5 +1,5 @@
 param(
-    [ValidateSet(1, 2, 3)]
+    [ValidateSet(1, 2, 3, 4)]
     [int] $Slice = 1,
     [switch] $IsolationAbort
 )
@@ -8,14 +8,17 @@ param(
 # slice 2 collision queries (#51), rotating local boxes (#52),
 # world save / process-restart resume (#53), slice 3 parked-vehicle
 # manufacture (#58), damage/fracture (#59), atomic refit (#60),
-# and existing-vehicle content reload (#61).
+# existing-vehicle content reload (#61), and slice 4 formal straight
+# rail construction / occupancy / local damage (#68).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
+# Slice 4 is a single process: it must not require later-ticket train motion.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 2
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 3
+#   .\scripts\run-godot-voxel-smoke.ps1 -Slice 4
 #
 # It loads the formal voxel development scene, removes and re-adds (4,4,4),
 # applies formal single-target and multi-target damage, requires the scene's
@@ -99,7 +102,9 @@ $protected = @(
     "builtin\core\resources\voxels\identity-core.voxels.json",
     "builtin\core\resources\voxels\identity-core-heavy.voxels.json",
     "builtin\core\resources\voxels\vehicle-shell.voxels.json",
-    "builtin\core\resources\composites\dev-hollow-shell.composites.json"
+    "builtin\core\resources\composites\dev-hollow-shell.composites.json",
+    "builtin\core\resources\voxels\rail.voxels.json",
+    "builtin\core\resources\voxels\rail\top.png"
 )
 $beforeHashes = @{}
 foreach ($relative in $protected) {
@@ -166,7 +171,7 @@ try {
         if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
     }
     else {
-        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 3) { 520 } else { 90 }
+        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 4) { 720 } elseif ($Slice -eq 3) { 520 } else { 90 }
         $single = Invoke-GodotVoxelSmoke -QuitAfter $quitAfter -Label ("slice $Slice")
         $output = $single.Output
         $godotExitCode = $single.ExitCode
@@ -194,6 +199,27 @@ if ($rewritten.Count -gt 0) {
 
 $required = if ($IsolationAbort) {
     @("VOXEL_SMOKE_ISOLATION_WRITE_DONE")
+} elseif ($Slice -eq 4) {
+    @(
+        "VOXEL_SMOKE_GEOMETRY_VALID",
+        "VOXEL_SMOKE_SCENE_READY",
+        "VOXEL_SMOKE_SLICE4_BASE",
+        "VOXEL_SMOKE_SLICE4_CONSTRUCTED",
+        "VOXEL_SMOKE_SLICE4_EDGE_CELL",
+        "VOXEL_SMOKE_SLICE4_RAILS",
+        "VOXEL_SMOKE_SLICE4_SLEEPERS",
+        "VOXEL_SMOKE_SLICE4_CONNECTION",
+        "VOXEL_SMOKE_SLICE4_RENDER_LOCAL",
+        "VOXEL_SMOKE_SLICE4_EDGE_CLIP",
+        "VOXEL_SMOKE_SLICE4_DAMAGED",
+        "VOXEL_SMOKE_SLICE4_GAP",
+        "VOXEL_SMOKE_SLICE4_RENDER_GAP",
+        "VOXEL_SMOKE_SLICE4_REPAIRED",
+        "VOXEL_SMOKE_SLICE4_SAVE_REJECTED",
+        "VOXEL_SMOKE_CONSOLE_CLOSED",
+        "VOXEL_SMOKE_RETURNED_TO_MENU",
+        "VOXEL_SMOKE_MENU_REENTERED"
+    )
 } elseif ($Slice -eq 3) {
     @(
         "VOXEL_SMOKE_GEOMETRY_VALID",

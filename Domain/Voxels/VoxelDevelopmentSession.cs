@@ -1,5 +1,6 @@
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
@@ -13,9 +14,12 @@ public sealed class VoxelDevelopmentSession
     private readonly List<(WorldVoxelCoord Position, bool OccupancyChanged)> _pendingChanges = new();
     private readonly List<WorldVoxelCoord> _pendingCollisionChanges = new();
     private readonly List<CompositeInstance> _vehicles = new();
+    private readonly PhysicalRailState _rails = new();
+    private readonly List<ChunkCoord> _pendingTrackChunks = new();
     private bool _rebuildAll = true;
     private bool _rebuildAllCollision = true;
     private bool _rebuildComposites = true;
+    private bool _rebuildTracks = true;
 
     public VoxelWorldIdentity Identity { get; }
     public VoxelWorld World { get; private set; }
@@ -26,6 +30,8 @@ public sealed class VoxelDevelopmentSession
     public ulong NextEntityId { get; private set; } = 1;
     public ulong TransactionCount { get; private set; }
     public IReadOnlyList<CompositeInstance> Vehicles => _vehicles;
+    public PhysicalRailState Rails => _rails;
+    public bool HasRailway => _rails.HasRailway;
     internal CompositeCatalogSnapshot CurrentComposites => _composites.Current;
 
     public event Action? Changed;
@@ -75,6 +81,7 @@ public sealed class VoxelDevelopmentSession
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;
+        _rebuildTracks = true;
         Changed?.Invoke();
     }
 
@@ -83,13 +90,16 @@ public sealed class VoxelDevelopmentSession
         World = CreateWorld();
         Commands = new VoxelWorldCommands(World, _catalog);
         _vehicles.Clear();
+        _rails.Clear();
         NextEntityId = 1;
         TransactionCount = 0;
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
+        _pendingTrackChunks.Clear();
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;
+        _rebuildTracks = true;
         Changed?.Invoke();
     }
 
@@ -179,6 +189,100 @@ public sealed class VoxelDevelopmentSession
         Changed?.Invoke();
         return new CompositeDamageResult(overall, targets[0].VehicleId, outcomes);
     }
+
+    public RailEditResult ConstructRails(RailConstructionPlan? plan = null)
+    {
+        plan ??= StraightRailFixture.CreateFixturePlan();
+        if (_catalog.Current is null)
+            return new RailEditResult(RailEditStatus.UnknownDefinition);
+
+        var preparedStatus = RailEditTransaction.TryPrepare(plan, World, _catalog.Current, _rails, out var prepared);
+        if (preparedStatus != RailEditStatus.Committed)
+            return new RailEditResult(preparedStatus);
+        if (!CanCommitTransaction())
+            return new RailEditResult(RailEditStatus.TransactionExhausted);
+        if (!CanAllocateEntityIds((ulong)prepared.RequiredEntityIds))
+            return new RailEditResult(RailEditStatus.EntityIdExhausted);
+
+        foreach (var cell in prepared.CellsToAdd)
+        {
+            var added = Commands.Add(cell, StraightRailFixture.RailDefinitionId, VoxelOrientation.Identity);
+            if (!added.Succeeded)
+                throw new InvalidOperationException($"Prepared rail cell {cell} could not be added: {added.Status}.");
+            NoteChange(cell, occupancyChanged: true, publish: false);
+            MarkTrackChunk(cell);
+        }
+
+        var firstId = NextEntityId;
+        NextEntityId += (ulong)prepared.RequiredEntityIds;
+        CommitTransaction();
+        _rails.MergeCommitted(RailEditTransaction.Commit(prepared, plan, firstId));
+        Changed?.Invoke();
+        return new RailEditResult(RailEditStatus.Committed, _rails.Segments.Select(segment => segment.Id).ToArray());
+    }
+
+    public RailRepairResult RepairRails(IReadOnlyList<WorldVoxelCoord> cells)
+    {
+        ArgumentNullException.ThrowIfNull(cells);
+        if (cells.Count == 0)
+            return new RailRepairResult(RailRepairStatus.InvalidRepair, default);
+
+        foreach (var cell in cells)
+        {
+            var status = _rails.ValidateRepair(cell, World, out _);
+            if (status != RailRepairStatus.Repaired)
+                return new RailRepairResult(status, cell);
+        }
+
+        if (!CanCommitTransaction())
+            return new RailRepairResult(RailRepairStatus.TransactionExhausted, cells[0]);
+
+        if (_catalog.Current is null ||
+            !_catalog.Current.TryGet(StraightRailFixture.RailDefinitionId, out var entry))
+            return new RailRepairResult(RailRepairStatus.Conflict, cells[0]);
+
+        CommitTransaction();
+        var restored = new List<WorldVoxelCoord>();
+        foreach (var cell in cells)
+        {
+            var query = World.Query(cell);
+            var voxel = new WorldVoxel(
+                StraightRailFixture.RailDefinitionId,
+                entry.Definition.MaxDurability,
+                VoxelOrientation.Identity);
+            if (query.IsOccupied)
+            {
+                if (!World.TryReplace(cell, voxel))
+                    throw new InvalidOperationException($"Could not restore rail cell {cell}.");
+                NoteChange(cell, occupancyChanged: false, publish: false);
+            }
+            else
+            {
+                if (!World.TryAdd(cell, voxel))
+                    throw new InvalidOperationException($"Could not restore missing rail cell {cell}.");
+                NoteChange(cell, occupancyChanged: true, publish: false);
+            }
+
+            _rails.NoteRestored(cell);
+            restored.Add(cell);
+            MarkTrackChunk(cell);
+        }
+
+        Changed?.Invoke();
+        return new RailRepairResult(RailRepairStatus.Repaired, cells[0], restored);
+    }
+
+    public RailQuery QueryRails() => _rails.Query(World);
+
+    public DerivedRailGraph QueryDerivedRailGraph() => _rails.QueryDerivedGraph();
+
+    public void RebuildDerivedRailGraph() => _rails.RebuildDerivedGraph();
+
+    public TrackRenderModel BuildTrackRenderModel() =>
+        TrackRenderModel.From(_rails, World, World.ChunkSize);
+
+    public RailAuthoritySnapshot CaptureRailAuthority() =>
+        _rails.Capture(World, NextEntityId, TransactionCount);
 
     public WorldVoxelQuery Query(WorldVoxelCoord position) => Commands.Query(position);
 
@@ -392,6 +496,9 @@ public sealed class VoxelDevelopmentSession
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
+        if (HasRailway)
+            return new WorldSaveResult(WorldSaveStatus.UnsupportedRailway, SaveId, DisplayName);
+
         var name = displayName ?? DisplayName;
         if (!WorldSaveDocument.TryNormalizeDisplayName(name, out var normalized))
             return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
@@ -473,6 +580,23 @@ public sealed class VoxelDevelopmentSession
         return dirty.ToArray();
     }
 
+    public IReadOnlyList<ChunkCoord> TakePendingTrackChunks()
+    {
+        if (_rebuildTracks)
+        {
+            _rebuildTracks = false;
+            _pendingTrackChunks.Clear();
+            return VoxelChunks.All(Identity);
+        }
+
+        var dirty = _pendingTrackChunks
+            .Distinct()
+            .OrderBy(chunk => chunk)
+            .ToArray();
+        _pendingTrackChunks.Clear();
+        return dirty;
+    }
+
     public IReadOnlyList<ChunkCoord> TakePendingCollisionDirtyChunks()
     {
         var dirty = new SortedSet<ChunkCoord>();
@@ -500,9 +624,15 @@ public sealed class VoxelDevelopmentSession
         _pendingChanges.Add((position, occupancyChanged));
         if (occupancyChanged)
             _pendingCollisionChanges.Add(position);
+        _rails.NoteWorldChange(position, occupancyChanged);
+        if (_rails.Occupies(position))
+            MarkTrackChunk(position);
         if (publish)
             Changed?.Invoke();
     }
+
+    private void MarkTrackChunk(WorldVoxelCoord position) =>
+        _pendingTrackChunks.Add(VoxelChunks.Of(position, World.ChunkSize));
 
     private bool CanCommitTransaction() => TransactionCount < ulong.MaxValue - 1;
 
@@ -555,9 +685,12 @@ public sealed class VoxelDevelopmentSession
         TransactionCount = transactionCount;
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
+        _pendingTrackChunks.Clear();
+        _rails.Clear();
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;
+        _rebuildTracks = true;
         Changed?.Invoke();
     }
 

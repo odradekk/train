@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
@@ -526,7 +527,8 @@ public static class VoxelWorldFactory
 
         var world = new VoxelWorld(identity);
         var voxel = new WorldVoxel(DevelopmentDefinitionId, definition.Definition.MaxDurability, VoxelOrientation.Identity);
-        if (identity.GeneratorVersion == VoxelWorldIdentity.Slice3GeneratorVersion)
+        if (identity.GeneratorVersion == VoxelWorldIdentity.Slice3GeneratorVersion ||
+            identity.GeneratorVersion == VoxelWorldIdentity.Slice4GeneratorVersion)
             return world;
         if (identity.GeneratorVersion == VoxelWorldIdentity.Slice2GeneratorVersion)
             FillSlice2(world, voxel);
@@ -614,6 +616,8 @@ public static class VoxelSurfaceMesher
         foreach (var (position, voxel) in world.OccupiedVoxels())
         {
             if (chunk is { } selected && VoxelChunks.Of(position, world.ChunkSize) != selected)
+                continue;
+            if (voxel.DefinitionId == StraightRailFixture.RailDefinitionId)
                 continue;
             foreach (var (normal, x, y, z) in Neighbors)
             {

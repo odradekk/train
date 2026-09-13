@@ -41,6 +41,12 @@ custom_minimum_size = Vector2(240, 48)
 layout_mode = 2
 text = "进入切片 3 静置车辆场景"
 
+[node name="StartSlice4" type="Button" parent="Center/Buttons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(280, 48)
+layout_mode = 2
+text = "进入切片 4 正式直轨场景"
+
 [node name="QuitGame" type="Button" parent="Center/Buttons"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(240, 48)
