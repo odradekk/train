@@ -20,6 +20,6 @@ construction Valid
 Voxel count: 0.
 ```
 
-失败只返回 `Composite <Status> <id>.`，不分配身份、不推进 `NextEntityId` 或事务，也不改布局。常见状态：`UnknownVehicle`、`UnknownVoxel`、`DuplicateOccupancy`、`Disconnected`、`EnvelopeExceeded`、`DisallowedOrientation`、`TransactionExhausted`。非法施工不会转成脱落或写入世界网格。
+提交前按最终保留的新件数量预检 ID；单项添加需要一个。失败只返回 `Composite <Status> <id>.`，不分配身份、不推进 `NextEntityId` 或事务，也不改布局。常见状态：`UnknownVehicle`、`UnknownVoxel`、`DuplicateOccupancy`、`Disconnected`、`EnvelopeExceeded`、`DisallowedOrientation`、`TransactionExhausted`、`EntityIdExhausted`。非法施工不会转成脱落或写入世界网格。
 
 用法不合法时只给出 Usage，不执行改装。批量添加见 [`composite batch`](composite-batch.md)。

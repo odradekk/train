@@ -258,11 +258,8 @@ public static class WorldSaveCodec
             return false;
         }
 
-        if (transactionCount == ulong.MaxValue)
-        {
-            status = WorldSaveStatus.InvalidDelta;
+        if (!WorldSaveVehicleCodec.TryValidateIdentities(world, vehicles, nextEntityId, transactionCount, out status))
             return false;
-        }
 
         VoxelWorld generated;
         try

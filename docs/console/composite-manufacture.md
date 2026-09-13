@@ -9,7 +9,7 @@ composite manufacture core:dev-hollow-shell
 
 参数：可选的已发布 Composite 定义 ID，必须是小写 `namespace:id`。省略时制造正式夹具 `core:dev-hollow-shell`。场景快捷键 `M` 在切片 3 中走同一入口，只制造该夹具。
 
-成功时按当前内容目录中的不可变定义做 Construction Validity 校验，再分配车辆与零件的稳定整数 ID，写入会话运行态。默认刚体平移为 `(8,8,8)`，连续姿态的局部 +X/+Y 为 `(1,0,0)` / `(0,1,0)`，Rotation Snap 为 `px_py`。控制台制造只使用该默认姿态；正式会话可以提交有限连续轴，伤害脱落时再整体吸附。车辆体素不进入世界 Chunk 网格。测试和场景读取命令返回的 ID，不硬编码恰好分配的数字。
+成功时按当前内容目录中的不可变定义做 Construction Validity 校验，再预检车辆和全部零件所需的稳定整数 ID，随后写入会话运行态。默认刚体平移为 `(8,8,8)`，连续姿态的局部 +X/+Y 为 `(1,0,0)` / `(0,1,0)`，Rotation Snap 为 `px_py`。控制台制造只使用该默认姿态；正式会话可以提交有限连续轴，伤害脱落时再整体吸附。车辆体素不进入世界 Chunk 网格。测试和场景读取命令返回的 ID，不硬编码恰好分配的数字。
 
 成功按字段分行：
 
@@ -30,5 +30,6 @@ parts 168
 | `EnvelopeExceeded` / `UnknownSizeClass` | 声明规格或固定包络不成立 |
 | `UnknownVoxel` / `DisallowedOrientation` / `NonFiniteTransform` | 零件定义、朝向或 Transform 非法。`default` 或轴长为零的姿态虽有限但不是合法旋转，制造前拒绝，不分配 ID、不推进事务 |
 | `TransactionExhausted` | 再提交会进入不可加载的事务计数（`MaxValue - 1` 或 `MaxValue`）；不制造、不绕回、不改车辆 |
+| `EntityIdExhausted` | 车辆加全部零件所需 ID 不能一次满足；不制造，权威状态、`NextEntityId` 和事务计数不变 |
 
 伤害、断裂与脱落使用 [`composite damage`](composite-damage.md)。已制造车辆的五类原子改装使用 [`composite add`](composite-add.md) / [`remove`](composite-remove.md) / [`move`](composite-move.md) / [`rotate`](composite-rotate.md) / [`replace`](composite-replace.md) 与 [`composite batch`](composite-batch.md)。制造后的实际车辆随 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md) 按格式 2 保存和恢复，不按 Blueprint 名称重造。当前不支持沿轨运动。非法 ID 文本返回用法提示，不执行制造。

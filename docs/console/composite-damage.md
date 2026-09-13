@@ -8,7 +8,7 @@ composite damage 1 3 1 1 100
 composite damage 1 3 1 1 100 1 1 1 100
 ```
 
-参数：车辆运行时 ID，以及一组或多组局部格子 `x y z amount`。`amount` 必须是正整数。坐标是车辆 Local Grid，不是世界格子，也不接受小数。一组目标走单目标伤害；多组目标属于同一伤害事件：先完整校验，再统一扣耐久、删除归零零件，最后只计算一次六面连通分量并完成身份裁决与脱落。不能用 `voxel remove` 或直接删零件代替本命令验证破坏。
+参数：车辆运行时 ID，以及一组或多组局部格子 `x y z amount`。`amount` 必须是正整数。坐标是车辆 Local Grid，不是世界格子，也不接受小数。一组目标走单目标伤害；多组目标属于同一伤害事件：先完整校验并规划扣耐久、删除归零零件后的六面连通分量，预检整次事件的次继承者所需新 ID 后，才统一提交伤害、身份裁决与脱落。不能用 `voxel remove` 或直接删零件代替本命令验证破坏。
 
 成功时先写总状态，再按输入顺序列出每个目标的局部格、状态、伤害值、剩余耐久，以及结算后的零件身份与当前位置（仍在车上则写当前车辆 ID，已转入世界则写世界格）。总状态只看本次受影响车辆及其后继，不因场上无关车辆改为 `Damaged`。部分伤害或断裂后仍有受影响 Composite 返回 `Damaged`；这些车辆都不再保留身份时返回 `Removed`，剩余碎块按整体 Snap 转入世界或整块销毁。转入世界的目标若零件仍在，对应行是 `Damaged` 且带 `world` 格与 `part` ID，不是 `Removed/0`。
 
@@ -49,7 +49,7 @@ composite damage 1 3 1 1 100 1 1 1 100 5 1 1 100
 
 桥和两核心同事件归零后无人保留 Composite 身份，剩余体素仍走完整脱落规则。
 
-`amount` 为 `0` 或负数返回 `InvalidDamage`；未知车辆返回 `UnknownVehicle`；目标局部格没有零件返回 `Empty`；再提交会进入不可加载的事务计数返回 `TransactionExhausted`。任一项失败则整件事失败，已提交布局、零件状态、所有权和车辆身份保持不变。查询（含 `composite query damaged`）不推进事务。参数个数无法解析时只给出用法，不执行伤害。改装后的伤害必须读实际布局与同一身份，不能用改装前的旧格子打到已搬走的零件。若该车已有存档内自定义定义，致命删除或断裂后的每个后继按自己的真实零件和仍绑定的接触点重建该定义与 Revision，并把 `LastUsedRevision` 对齐到新的 `SaveLocalRevision`；不对受损碎块再跑施工合法性。从未改装过的车（没有存档内定义）断裂后仍保持 `SaveLocalDefinition` 为空，不发明完整存档。这些实际后继与脱落身份可随 [`voxel save`](voxel-save.md) 写入格式 2，沿轨运动仍不在当前切片。
+`amount` 为 `0` 或负数返回 `InvalidDamage`；未知车辆返回 `UnknownVehicle`；目标局部格没有零件返回 `Empty`；再提交会进入不可加载的事务计数返回 `TransactionExhausted`；次继承者所需 ID 不足返回 `EntityIdExhausted`。任一项失败则整件事失败，已提交布局、零件状态、所有权和车辆身份，以及 `NextEntityId` 和事务计数保持不变。查询（含 `composite query damaged`）不推进事务。参数个数无法解析时只给出用法，不执行伤害。改装后的伤害必须读实际布局与同一身份，不能用改装前的旧格子打到已搬走的零件。若该车已有存档内自定义定义，致命删除或断裂后的每个后继按自己的真实零件和仍绑定的接触点重建该定义与 Revision，并把 `LastUsedRevision` 对齐到新的 `SaveLocalRevision`；不对受损碎块再跑施工合法性。从未改装过的车（没有存档内定义）断裂后仍保持 `SaveLocalDefinition` 为空，不发明完整存档。这些实际后继与脱落身份可随 [`voxel save`](voxel-save.md) 写入格式 2，沿轨运动仍不在当前切片。
 
 ```text
 composite reset bridge

@@ -385,7 +385,7 @@ internal static class WorldSaveVehicleCodec
 
         if (!VoxelWorldReloadAdapter.TryAdaptVehicles(reconstructed, voxels, composites, out var adapted, out status))
             return false;
-        if (!TryValidateIdentities(document, world, adapted, out status))
+        if (!TryValidateIdentities(world, adapted, document.NextEntityId, document.TransactionCount, out status))
             return false;
         vehicles = adapted;
         status = WorldSaveStatus.Loaded;
@@ -397,10 +397,11 @@ internal static class WorldSaveVehicleCodec
             json,
             @"(?<=[:\[,])\s*(-?Infinity|NaN)\s*(?=[,\]}])");
 
-    private static bool TryValidateIdentities(
-        WorldSaveDocument document,
+    internal static bool TryValidateIdentities(
         VoxelWorld world,
         IReadOnlyList<CompositeInstance> vehicles,
+        ulong nextEntityId,
+        ulong transactionCount,
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
@@ -428,9 +429,9 @@ internal static class WorldSaveVehicleCodec
             maxId = Math.Max(maxId, runtime.Value);
         }
 
-        if (document.NextEntityId == 0 ||
-            (maxId != 0 && document.NextEntityId <= maxId) ||
-            document.TransactionCount == ulong.MaxValue)
+        if (nextEntityId == 0 ||
+            (maxId != 0 && nextEntityId <= maxId) ||
+            transactionCount == ulong.MaxValue)
             return false;
         status = WorldSaveStatus.Loaded;
         return true;

@@ -151,13 +151,19 @@ public sealed class VoxelDevelopmentSession
         }).ToArray();
         if (!CanCommitTransaction())
             return new CompositeDamageResult(CompositeDamageStatus.TransactionExhausted, targets[0].VehicleId);
+        var affected = targets.Select(target => target.VehicleId).Distinct().OrderBy(id => id.Value).ToArray();
+        var plans = affected.Select(vehicleId => PlanVehicleDamage(
+            _vehicles.First(vehicle => vehicle.Id == vehicleId),
+            targets.Where(target => target.VehicleId == vehicleId).ToArray())).ToArray();
+        var requiredIds = plans.Sum(plan => (long)Math.Max(0, plan.Survivors.Count - 1));
+        if (!CanAllocateEntityIds((ulong)requiredIds))
+            return new CompositeDamageResult(CompositeDamageStatus.EntityIdExhausted, targets[0].VehicleId);
         CommitTransaction();
 
         var allocatedFrom = NextEntityId;
         var reserved = new HashSet<WorldVoxelCoord>();
-        var affected = targets.Select(target => target.VehicleId).Distinct().OrderBy(id => id.Value).ToArray();
-        foreach (var vehicleId in affected)
-            SettleVehicleDamage(vehicleId, targets.Where(target => target.VehicleId == vehicleId).ToArray(), reserved);
+        foreach (var plan in plans)
+            SettleVehicleDamage(plan, reserved);
 
         var outcomes = new CompositeDamageTargetResult[targets.Count];
         for (var index = 0; index < targets.Count; index++)
@@ -206,6 +212,8 @@ public sealed class VoxelDevelopmentSession
 
         if (!CanCommitTransaction())
             return new CompositeManufactureResult(ConstructionStatus.TransactionExhausted);
+        if (!CanAllocateEntityIds(1UL + (ulong)definition.Voxels.Count))
+            return new CompositeManufactureResult(ConstructionStatus.EntityIdExhausted);
 
         var next = NextEntityId;
         var vehicleId = new EntityId(next++);
@@ -256,6 +264,14 @@ public sealed class VoxelDevelopmentSession
         if (status != ConstructionStatus.Valid)
             return new CompositeRefitResult(status, vehicleId);
 
+        var current = _vehicles[index];
+        if (!TryPublishedOrSaveLocalNames(current, out var sourceName, out var sourceDescription))
+            return new CompositeRefitResult(ConstructionStatus.UnknownDefinition, vehicleId);
+        if (!CanCommitTransaction())
+            return new CompositeRefitResult(ConstructionStatus.TransactionExhausted, vehicleId);
+        if (!CanAllocateEntityIds((ulong)planned.Count(part => part.Allocate)))
+            return new CompositeRefitResult(ConstructionStatus.EntityIdExhausted, vehicleId);
+
         var next = NextEntityId;
         var allocated = new List<EntityId>();
         var parts = new List<CompositePart>(planned.Count);
@@ -283,12 +299,6 @@ public sealed class VoxelDevelopmentSession
                 plannedPart.CurrentDurability,
                 plannedPart.LastUsedRevision));
         }
-
-        var current = _vehicles[index];
-        if (!TryPublishedOrSaveLocalNames(current, out var sourceName, out var sourceDescription))
-            return new CompositeRefitResult(ConstructionStatus.UnknownDefinition, vehicleId);
-        if (!CanCommitTransaction())
-            return new CompositeRefitResult(ConstructionStatus.TransactionExhausted, vehicleId);
 
         var saveLocal = new CompositeDefinition(
             current.DefinitionId,
@@ -496,6 +506,9 @@ public sealed class VoxelDevelopmentSession
 
     private bool CanCommitTransaction() => TransactionCount < ulong.MaxValue - 1;
 
+    // Keep MaxValue as an exhausted cursor: saves require the next ID to exceed every allocated ID.
+    private bool CanAllocateEntityIds(ulong count) => NextEntityId != 0 && count <= ulong.MaxValue - NextEntityId;
+
     private void CommitTransaction()
     {
         if (TransactionCount >= ulong.MaxValue - 1)
@@ -548,13 +561,15 @@ public sealed class VoxelDevelopmentSession
         Changed?.Invoke();
     }
 
-    private void SettleVehicleDamage(
-        EntityId vehicleId,
-        IReadOnlyList<CompositeDamageTarget> targets,
-        HashSet<WorldVoxelCoord> reserved)
+    private sealed record VehicleDamagePlan(
+        CompositeInstance Vehicle,
+        IReadOnlyList<(IReadOnlyList<CompositePart> Parts, long Value, ulong Candidate)> Survivors,
+        IReadOnlyList<IReadOnlyList<CompositePart>> Fragments);
+
+    private VehicleDamagePlan PlanVehicleDamage(
+        CompositeInstance vehicle,
+        IReadOnlyList<CompositeDamageTarget> targets)
     {
-        var index = _vehicles.FindIndex(item => item.Id == vehicleId);
-        var vehicle = _vehicles[index];
         var remaining = vehicle.Parts.ToDictionary(part => part.Cell);
         var totals = new Dictionary<LocalVoxelCoord, long>();
         foreach (var target in targets)
@@ -581,12 +596,6 @@ public sealed class VoxelDevelopmentSession
             }
         }
 
-        if (remaining.Count == 0)
-        {
-            _vehicles.RemoveAt(index);
-            return;
-        }
-
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded.");
         _composites.Current.TryGet(vehicle.ArchetypeId, out var archetypeEntry);
         var components = VoxelConnectivity.Components(remaining.Values.ToArray(), part => part.Cell);
@@ -604,6 +613,13 @@ public sealed class VoxelDevelopmentSession
             }
         }
 
+        return new VehicleDamagePlan(vehicle, survivors, fragments);
+    }
+
+    private void SettleVehicleDamage(VehicleDamagePlan plan, HashSet<WorldVoxelCoord> reserved)
+    {
+        var vehicle = plan.Vehicle;
+        var survivors = plan.Survivors;
         var replacements = new List<CompositeInstance>();
         if (survivors.Count == 1)
         {
@@ -622,11 +638,11 @@ public sealed class VoxelDevelopmentSession
                 replacements.Add(Successor(vehicle, new EntityId(NextEntityId++), secondary.Parts));
         }
 
-        var blockedByVehicles = OccupiedByOtherVehicles(vehicleId, replacements);
-        foreach (var fragment in fragments.OrderBy(item => item.Min(part => part.Id.Value)))
+        var blockedByVehicles = OccupiedByOtherVehicles(vehicle.Id, replacements);
+        foreach (var fragment in plan.Fragments.OrderBy(item => item.Min(part => part.Id.Value)))
             TryPlaceFragment(fragment, vehicle.Transform, reserved, blockedByVehicles);
 
-        _vehicles.RemoveAt(index);
+        _vehicles.Remove(vehicle);
         _vehicles.AddRange(replacements);
         _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
     }

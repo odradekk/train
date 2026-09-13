@@ -654,6 +654,174 @@ public sealed class CompositeVehiclePersistenceTests
     }
 
     [TestMethod]
+    public void Exhausted_entity_cursor_loads_and_allows_work_that_does_not_allocate()
+    {
+        using var writer = Open();
+        var hollow = writer.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var trace = HollowShellRefit.ApplySuccess(writer.Session, hollow);
+        var bridge = writer.Session.Manufacture(BridgeFixture.DefinitionId, CompositeTransform.Translation(20, 8, 8)).VehicleId!.Value;
+        var saved = writer.Session.Save("Exhausted Cursor");
+
+        using var resumed = LoadWithNextEntityId(writer, saved.SaveId!.Value, ulong.MaxValue);
+        var changed = 0;
+        resumed.Session.Changed += () => changed++;
+
+        Assert.IsTrue(resumed.Session.Refit(hollow, CompositeRefitOperation.Move(trace.P, HollowShellRefit.Moved)).Succeeded);
+        Assert.IsTrue(resumed.Session.Refit(hollow, CompositeRefitOperation.Rotate(trace.P, VoxelOrientation.Identity)).Succeeded);
+        Assert.IsTrue(resumed.Session.Refit(hollow, CompositeRefitOperation.Remove(trace.P)).Succeeded);
+        Assert.IsTrue(resumed.Session.Damage(hollow, HollowShellRefit.Occupied, 1).Succeeded);
+        Assert.IsTrue(resumed.Session.Damage(new[]
+        {
+            new CompositeDamageTarget(bridge, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(bridge, BridgeFixture.LeftCoreCell, 100)
+        }).Succeeded);
+
+        Assert.AreEqual(5, changed);
+        Assert.AreEqual(ulong.MaxValue, resumed.Session.NextEntityId);
+        Assert.IsFalse(HasDualOwnership(resumed.Session));
+        Assert.IsTrue(resumed.Session.QueryComposites().SelectMany(item => item.Parts).All(part => part.Id.Value < ulong.MaxValue));
+    }
+
+    [TestMethod]
+    public void Entity_cursor_manufacture_requires_every_vehicle_and_part_id_and_round_trips_exhaustion()
+    {
+        using var shortWriter = Open();
+        shortWriter.Session.Manufacture(HollowShellFixture.DefinitionId);
+        var shortSave = shortWriter.Session.Save("Manufacture Short");
+        using var shortReader = LoadWithNextEntityId(shortWriter, shortSave.SaveId!.Value, ulong.MaxValue - 168);
+        AssertEntityExhaustionKeepsAuthority(
+            shortReader.Session,
+            () => shortReader.Session.Manufacture(HollowShellFixture.DefinitionId),
+            ConstructionStatus.EntityIdExhausted);
+
+        using var exactWriter = Open();
+        exactWriter.Session.Manufacture(HollowShellFixture.DefinitionId);
+        var exactSave = exactWriter.Session.Save("Manufacture Exact");
+        using var exactReader = LoadWithNextEntityId(exactWriter, exactSave.SaveId!.Value, ulong.MaxValue - 169);
+        var manufactured = exactReader.Session.Manufacture(HollowShellFixture.DefinitionId, CompositeTransform.Translation(20, 8, 8));
+        Assert.IsTrue(manufactured.Succeeded);
+        Assert.AreEqual(ulong.MaxValue - 169, manufactured.VehicleId!.Value.Value);
+        Assert.AreEqual(ulong.MaxValue - 1, manufactured.Parts!.Max(part => part.Id.Value));
+        Assert.AreEqual(ulong.MaxValue, exactReader.Session.NextEntityId);
+        AssertEntityExhaustionKeepsAuthority(
+            exactReader.Session,
+            () => exactReader.Session.Manufacture(HollowShellFixture.DefinitionId, CompositeTransform.Translation(40, 8, 8)),
+            ConstructionStatus.EntityIdExhausted);
+
+        var exhausted = exactReader.Session.Save("Manufacture Exhausted");
+        using var fresh = Open(exactWriter.UserData, exactWriter.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, fresh.Session.Load(exhausted.SaveId!.Value).Status);
+        Assert.AreEqual(exactReader.Session.CaptureAuthority(), fresh.Session.CaptureAuthority());
+        Assert.AreEqual(ulong.MaxValue, fresh.Session.NextEntityId);
+    }
+
+    [TestMethod]
+    public void Entity_cursor_refit_counts_add_replace_and_the_final_batch_plan()
+    {
+        using var writer = Open();
+        var vehicle = writer.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
+        var saved = writer.Session.Save("Refit Cursor");
+
+        using var add = LoadWithNextEntityId(writer, saved.SaveId!.Value, ulong.MaxValue - 1);
+        Assert.IsTrue(add.Session.Refit(
+            vehicle,
+            CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)).Succeeded);
+        Assert.AreEqual(ulong.MaxValue, add.Session.NextEntityId);
+        AssertEntityExhaustionKeepsAuthority(
+            add.Session,
+            () => add.Session.Refit(
+                vehicle,
+                CompositeRefitOperation.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity)),
+            ConstructionStatus.EntityIdExhausted);
+
+        using var replace = LoadWithNextEntityId(writer, saved.SaveId.Value, ulong.MaxValue - 1);
+        Assert.IsTrue(replace.Session.Refit(
+            vehicle,
+            CompositeRefitOperation.Replace(HollowShellRefit.Occupied, HollowShellRefit.ReplacementId, VoxelOrientation.Identity)).Succeeded);
+        Assert.AreEqual(ulong.MaxValue, replace.Session.NextEntityId);
+        var secondReplace = replace.Session.QueryComposite(vehicle)!.Parts
+            .First(part => part.Cell != HollowShellRefit.Occupied).Cell;
+        AssertEntityExhaustionKeepsAuthority(
+            replace.Session,
+            () => replace.Session.Refit(
+                vehicle,
+                CompositeRefitOperation.Replace(secondReplace, HollowShellRefit.ReplacementId, VoxelOrientation.Identity)),
+            ConstructionStatus.EntityIdExhausted);
+
+        var batch = new[]
+        {
+            CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity),
+            CompositeRefitOperation.Replace(HollowShellRefit.Occupied, HollowShellRefit.ReplacementId, VoxelOrientation.Identity)
+        };
+        using var shortReader = LoadWithNextEntityId(writer, saved.SaveId.Value, ulong.MaxValue - 1);
+        AssertEntityExhaustionKeepsAuthority(
+            shortReader.Session,
+            () => shortReader.Session.Refit(vehicle, batch),
+            ConstructionStatus.EntityIdExhausted);
+
+        using var exactReader = LoadWithNextEntityId(writer, saved.SaveId.Value, ulong.MaxValue - 2);
+        var exact = exactReader.Session.Refit(vehicle, batch);
+        Assert.IsTrue(exact.Succeeded);
+        CollectionAssert.AreEqual(
+            new[] { new EntityId(ulong.MaxValue - 2), new EntityId(ulong.MaxValue - 1) },
+            exact.AllocatedIds!.ToArray());
+        Assert.AreEqual(ulong.MaxValue, exactReader.Session.NextEntityId);
+        var exhausted = exactReader.Session.Save("Refit Exhausted");
+        using var fresh = Open(writer.UserData, writer.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, fresh.Session.Load(exhausted.SaveId!.Value).Status);
+        Assert.AreEqual(exactReader.Session.CaptureAuthority(), fresh.Session.CaptureAuthority());
+    }
+
+    [TestMethod]
+    public void Entity_cursor_damage_reserves_all_successors_for_the_whole_event()
+    {
+        using var writer = Open();
+        var first = writer.Session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
+        var second = writer.Session.Manufacture(BridgeFixture.DefinitionId, CompositeTransform.Translation(20, 8, 8)).VehicleId!.Value;
+        var saved = writer.Session.Save("Damage Cursor");
+        var breaks = new[]
+        {
+            new CompositeDamageTarget(first, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(second, BridgeFixture.BridgeCell, 100)
+        };
+
+        using var exhaustedReader = LoadWithNextEntityId(writer, saved.SaveId!.Value, ulong.MaxValue);
+        AssertDamageExhaustionKeepsAuthority(exhaustedReader.Session, () => exhaustedReader.Session.Damage(breaks));
+
+        using var shortReader = LoadWithNextEntityId(writer, saved.SaveId.Value, ulong.MaxValue - 1);
+        AssertDamageExhaustionKeepsAuthority(shortReader.Session, () => shortReader.Session.Damage(breaks));
+
+        using var exactReader = LoadWithNextEntityId(writer, saved.SaveId.Value, ulong.MaxValue - 2);
+        Assert.IsTrue(exactReader.Session.Damage(breaks).Succeeded);
+        Assert.AreEqual(4, exactReader.Session.QueryComposites().Count);
+        Assert.AreEqual(ulong.MaxValue, exactReader.Session.NextEntityId);
+        Assert.IsFalse(HasDualOwnership(exactReader.Session));
+        var exhausted = exactReader.Session.Save("Damage Exhausted");
+        using var fresh = Open(writer.UserData, writer.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, fresh.Session.Load(exhausted.SaveId!.Value).Status);
+        Assert.AreEqual(exactReader.Session.CaptureAuthority(), fresh.Session.CaptureAuthority());
+    }
+
+    [TestMethod]
+    public void Save_rejects_invalid_internal_entity_cursors_without_overwriting_the_file()
+    {
+        using var harness = Open();
+        harness.Session.Manufacture(HollowShellFixture.DefinitionId);
+        var saved = harness.Session.Save("Valid Cursor");
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var previous = File.ReadAllText(path);
+        var next = typeof(VoxelDevelopmentSession).GetProperty(nameof(VoxelDevelopmentSession.NextEntityId))!;
+
+        foreach (var invalid in new[] { 0UL, 1UL })
+        {
+            next.SetValue(harness.Session, invalid);
+            Assert.AreEqual(WorldSaveStatus.InvalidDelta, harness.Session.Save("Invalid Cursor").Status);
+            Assert.AreEqual(saved.SaveId, harness.Session.SaveId);
+            Assert.AreEqual(previous, File.ReadAllText(path));
+        }
+    }
+
+    [TestMethod]
     public void WorldSeed_42_save_resume_matches_uninterrupted_authority_including_ties()
     {
         using var live = Open();
@@ -968,6 +1136,65 @@ public sealed class CompositeVehiclePersistenceTests
             else
                 AssertSaveLocalEqual(locals[index]!, harness.Session.Vehicles[index].SaveLocalDefinition!);
         }
+    }
+
+    private static SessionHandle LoadWithNextEntityId(SessionHandle writer, Guid saveId, ulong nextEntityId)
+    {
+        var path = writer.Store.PathFor(saveId);
+        File.WriteAllText(
+            path,
+            MutateField(
+                File.ReadAllText(path),
+                "next_entity_id",
+                nextEntityId.ToString(CultureInfo.InvariantCulture)));
+        var reader = Open(writer.UserData, writer.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(saveId).Status);
+        Assert.AreEqual(nextEntityId, reader.Session.NextEntityId);
+        return reader;
+    }
+
+    private static void AssertEntityExhaustionKeepsAuthority(
+        VoxelDevelopmentSession session,
+        Func<CompositeManufactureResult> action,
+        ConstructionStatus expected)
+    {
+        var before = session.CaptureAuthority();
+        var changed = 0;
+        session.Changed += () => changed++;
+        var result = action();
+        Assert.AreEqual(expected, result.Status);
+        Assert.AreEqual(before, session.CaptureAuthority());
+        Assert.AreEqual(0, changed);
+        Assert.IsFalse(HasDualOwnership(session));
+    }
+
+    private static void AssertEntityExhaustionKeepsAuthority(
+        VoxelDevelopmentSession session,
+        Func<CompositeRefitResult> action,
+        ConstructionStatus expected)
+    {
+        var before = session.CaptureAuthority();
+        var changed = 0;
+        session.Changed += () => changed++;
+        var result = action();
+        Assert.AreEqual(expected, result.Status);
+        Assert.AreEqual(before, session.CaptureAuthority());
+        Assert.AreEqual(0, changed);
+        Assert.IsFalse(HasDualOwnership(session));
+    }
+
+    private static void AssertDamageExhaustionKeepsAuthority(
+        VoxelDevelopmentSession session,
+        Func<CompositeDamageResult> action)
+    {
+        var before = session.CaptureAuthority();
+        var changed = 0;
+        session.Changed += () => changed++;
+        var result = action();
+        Assert.AreEqual(CompositeDamageStatus.EntityIdExhausted, result.Status);
+        Assert.AreEqual(before, session.CaptureAuthority());
+        Assert.AreEqual(0, changed);
+        Assert.IsFalse(HasDualOwnership(session));
     }
 
     private static string AlignDocumentId(string json, Guid id)
