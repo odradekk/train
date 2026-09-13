@@ -143,16 +143,19 @@ public static class StraightRailFixture
             Array.Empty<PlannedRailConnection>());
     }
 
-    public static RailVolumeBox SmallVehicleSweptClearance()
+    public static RailVolumeBox SweptClearanceFor(HorizontalStraightAlignment alignment)
     {
         var dimensions = VehicleSize.Small;
-        var bodyBottom = CenterY + ContactClearance;
+        var bodyBottom = alignment.StartY + ContactClearance;
         return new RailVolumeBox(
-            LineStartX - 1.0,
+            alignment.StartX - 1.0,
             bodyBottom,
-            CenterZ - dimensions.Width / 2.0,
-            LineEndX + 1.0,
+            alignment.StartZ - dimensions.Width / 2.0,
+            alignment.EndX + 1.0,
             bodyBottom + dimensions.Height,
-            CenterZ + dimensions.Width / 2.0);
+            alignment.StartZ + dimensions.Width / 2.0);
     }
+
+    public static RailVolumeBox SmallVehicleSweptClearance() =>
+        SweptClearanceFor(new HorizontalStraightAlignment(LineStartX, CenterY, CenterZ, LineEndX, CenterY, CenterZ));
 }

@@ -36,6 +36,8 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelSlice4SmokePhase _slice4SmokePhase;
     private Guid? _slice4EmptySaveId;
     private string? _slice4EmptySaveHash;
+    private ulong _slice4FarMeshId;
+    private ulong _slice4ZNeighborMeshId;
     private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelSlice3ResumeSmokePhase _slice3ResumeSmokePhase;
     private VoxelObservePhase _observePhase;
@@ -185,6 +187,10 @@ public partial class VoxelDeveloperScene : Node3D
         Construct,
         AwaitConstruct,
         Inspect,
+        EdgeDamage,
+        AwaitEdgeDamage,
+        RepairEdge,
+        AwaitRepairEdge,
         Damage,
         AwaitDamage,
         Repair,
@@ -4241,6 +4247,48 @@ public partial class VoxelDeveloperScene : Node3D
                 if (!_session.Rails.AreConnected(new EntityId(1), new EntityId(2)))
                     throw new InvalidOperationException("Slice 4 technical segments are not connected.");
                 GD.Print("VOXEL_SMOKE_SLICE4_CONNECTION connected=1");
+                _slice4FarMeshId = _tracks.MeshFor(new ChunkCoord(1, 0, 0))?.GetInstanceId() ?? 0;
+                _slice4ZNeighborMeshId = _tracks.MeshFor(new ChunkCoord(6, 0, 1))?.GetInstanceId() ?? 0;
+                if (_slice4FarMeshId == 0 || _slice4ZNeighborMeshId == 0)
+                    throw new InvalidOperationException("Slice 4 smoke is missing the far or z-boundary track mesh.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.EdgeDamage;
+                return;
+            case VoxelSlice4SmokePhase.EdgeDamage:
+                if (_session.Damage(new WorldVoxelCoord(110, 1, 14), 100).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Slice 4 smoke could not destroy the sleeper-edge cell.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitEdgeDamage;
+                return;
+            case VoxelSlice4SmokePhase.AwaitEdgeDamage:
+                if (_dirty)
+                    Refresh();
+                var edge = new WorldVoxelCoord(110, 1, 14);
+                var intact = new WorldVoxelCoord(110, 1, 17);
+                var farChunk = new ChunkCoord(1, 0, 0);
+                var zChunk = new ChunkCoord(6, 0, 1);
+                if (!_tracks.HasGapNear(edge))
+                    throw new InvalidOperationException("Slice 4 edge damage still covers the destroyed sleeper cell.");
+                if (!_tracks.Model.Sections.SelectMany(section => section.Solids).Any(solid =>
+                        solid.Kind == TrackSolidKind.Sleeper && solid.Volume.OverlapsCell(intact)))
+                    throw new InvalidOperationException("Slice 4 edge damage deleted the intact sleeper half.");
+                if (_tracks.LastRebuiltChunks.Contains(farChunk) || _tracks.LastRebuiltChunks.Contains(zChunk))
+                    throw new InvalidOperationException(
+                        $"Slice 4 edge damage rebuilt unrelated sections: {string.Join(',', _tracks.LastRebuiltChunks)}");
+                if (_tracks.MeshFor(farChunk)?.GetInstanceId() != _slice4FarMeshId ||
+                    _tracks.MeshFor(zChunk)?.GetInstanceId() != _slice4ZNeighborMeshId)
+                    throw new InvalidOperationException("Slice 4 local refresh replaced an unrelated section mesh.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_RENDER_LOCAL rebuilt={_tracks.LastRebuiltChunks.Count} retained={_tracks.LastRetainedChunks.Count} far_kept=1 z_kept=1");
+                GD.Print("VOXEL_SMOKE_SLICE4_EDGE_CLIP intact_sleeper=1");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.RepairEdge;
+                return;
+            case VoxelSlice4SmokePhase.RepairEdge:
+                if (!_session.RepairRails(new[] { new WorldVoxelCoord(110, 1, 14) }).Succeeded)
+                    throw new InvalidOperationException("Slice 4 smoke could not repair the sleeper-edge cell.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitRepairEdge;
+                return;
+            case VoxelSlice4SmokePhase.AwaitRepairEdge:
+                if (_dirty || _tracks.HasGapNear(new WorldVoxelCoord(110, 1, 14)))
+                    return;
                 _slice4SmokePhase = VoxelSlice4SmokePhase.Damage;
                 return;
             case VoxelSlice4SmokePhase.Damage:

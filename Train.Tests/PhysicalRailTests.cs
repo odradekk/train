@@ -62,6 +62,227 @@ public sealed class PhysicalRailTests
     }
 
     [TestMethod]
+    public void Independent_segments_in_the_same_plan_cannot_share_occupancy()
+    {
+        using var harness = RailHarness.Create();
+        var fixture = StraightRailFixture.CreateFixturePlan();
+        var overlapping = new RailConstructionPlan(
+            new[] { fixture.Segments[0], fixture.Segments[0] },
+            Array.Empty<PlannedRailConnection>());
+        AssertRejected(harness, overlapping, RailEditStatus.IndependentLineConflict, voxels: 0);
+        Assert.AreEqual(0, harness.Session.QueryRails().Segments.Count);
+        Assert.AreEqual(0, harness.Session.QueryRails().Connections.Count);
+    }
+
+    [TestMethod]
+    public void Noncoincident_or_wrong_end_connections_are_rejected()
+    {
+        using var harness = RailHarness.Create();
+        var fixture = StraightRailFixture.CreateFixturePlan();
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                fixture.Segments,
+                new[] { new PlannedRailConnection(0, RailEnd.Start, 1, RailEnd.End) }),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                fixture.Segments,
+                new[] { new PlannedRailConnection(0, RailEnd.End, 1, RailEnd.End) }),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                fixture.Segments,
+                new[] { new PlannedRailConnection(0, RailEnd.End, 1, (RailEnd)42) }),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+
+        Assert.IsTrue(harness.Session.ConstructRails(fixture).Succeeded);
+        Assert.IsTrue(harness.Session.Rails.AreConnected(new EntityId(1), new EntityId(2)));
+    }
+
+    [TestMethod]
+    public void Clearance_follows_the_planned_alignment()
+    {
+        using var harness = RailHarness.Create();
+        var shifted = ShiftZ(StraightRailFixture.CreateFixturePlan(), 8);
+        Assert.IsTrue(harness.Session.Add(
+            new WorldVoxelCoord(80, 3, 24),
+            new VoxelDefinitionId("core", "iron-ore"),
+            VoxelOrientation.Identity).Succeeded);
+        AssertRejected(harness, shifted, RailEditStatus.ClearanceConflict, voxels: 1);
+
+        harness.Session.Reset();
+        Assert.IsTrue(harness.Session.Add(
+            new WorldVoxelCoord(80, 3, 16),
+            new VoxelDefinitionId("core", "iron-ore"),
+            VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.ConstructRails(shifted).Succeeded);
+        Assert.IsFalse(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 15)));
+        Assert.IsTrue(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 23)));
+
+        harness.Session.Reset();
+        Assert.IsTrue(harness.Session.Add(
+            new WorldVoxelCoord(80, 3, 24),
+            new VoxelDefinitionId("core", "iron-ore"),
+            VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+    }
+
+    [TestMethod]
+    public void Committed_geometry_is_isolated_from_caller_mutations()
+    {
+        using var harness = RailHarness.Create();
+        var rails = StraightRailFixture.CreateFixturePlan().Segments[0].RailVolumes.ToList();
+        var plan = new RailConstructionPlan(
+            new[]
+            {
+                StraightRailFixture.CreateFixturePlan().Segments[0] with { RailVolumes = rails }
+            },
+            Array.Empty<PlannedRailConnection>());
+        Assert.IsTrue(harness.Session.ConstructRails(plan).Succeeded);
+        var committedCount = harness.Session.Rails.Segments[0].RailVolumes.Count;
+        Assert.IsTrue(committedCount > 0);
+        rails.Clear();
+        Assert.AreEqual(committedCount, harness.Session.Rails.Segments[0].RailVolumes.Count);
+        Assert.AreEqual(520, harness.Session.World.VoxelCount);
+        Assert.AreEqual(1UL, harness.Session.TransactionCount);
+
+        var query = harness.Session.QueryRails();
+        if (query.Occupancy[0].Supports is RailCellSupport[] supportArray)
+            Array.Clear(supportArray);
+        else if (query.Occupancy[0].Supports is IList<RailCellSupport> supports && !supports.IsReadOnly)
+            supports.Clear();
+        Assert.IsTrue(harness.Session.Rails.TryGetOccupancy(new WorldVoxelCoord(16, 1, 15), out var occupancy));
+        Assert.IsTrue(occupancy.Supports.Count > 0);
+    }
+
+    [TestMethod]
+    public void Second_nonoverlapping_plan_merges_existing_authority()
+    {
+        using var harness = RailHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        var firstIds = harness.Session.Rails.Segments.Select(segment => segment.Id).ToArray();
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(DamageCell, 100).Status);
+        var damaged = harness.Session.Rails.TraversableWorldX(firstIds[0], harness.Session.World).ToArray();
+
+        var second = harness.Session.ConstructRails(ShiftZ(StraightRailFixture.CreateFixturePlan(), 8));
+        Assert.IsTrue(second.Succeeded);
+        Assert.AreEqual(2063, harness.Session.World.VoxelCount);
+        Assert.AreEqual(2063, harness.Session.Rails.OccupiedCellCount);
+        Assert.AreEqual(4, harness.Session.Rails.Segments.Count);
+        Assert.IsTrue(firstIds.All(id => harness.Session.Rails.Segments.Any(segment => segment.Id == id)));
+        Assert.IsTrue(harness.Session.Query(new WorldVoxelCoord(80, 1, 15)).IsOccupied);
+        Assert.IsTrue(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 15)));
+        Assert.IsTrue(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 23)));
+        Assert.IsFalse(harness.Session.Query(DamageCell).IsOccupied);
+        CollectionAssert.AreEqual(
+            damaged,
+            harness.Session.Rails.TraversableWorldX(firstIds[0], harness.Session.World).ToArray());
+        Assert.IsTrue(harness.Session.Rails.AreConnected(firstIds[0], firstIds[1]));
+        Assert.IsTrue(harness.Session.Rails.AreConnected(new EntityId(3), new EntityId(4)));
+        Assert.IsFalse(harness.Session.Rails.AreConnected(firstIds[0], new EntityId(3)));
+
+        var repaired = harness.Session.RepairRails(new[] { DamageCell });
+        Assert.IsTrue(repaired.Succeeded);
+        CollectionAssert.AreEqual(firstIds, harness.Session.Rails.Segments.Take(2).Select(segment => segment.Id).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { new RailInterval(16, 144) },
+            harness.Session.Rails.TraversableWorldX(firstIds[0], harness.Session.World).ToArray());
+        Assert.AreEqual(100, harness.Session.Query(DamageCell).Voxel!.CurrentDurability);
+        Assert.AreEqual(2064, harness.Session.World.VoxelCount);
+    }
+
+    [TestMethod]
+    public void Edge_cell_damage_clips_only_the_destroyed_volume()
+    {
+        using var harness = RailHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        var edge = new WorldVoxelCoord(110, 1, 14);
+        var intact = new WorldVoxelCoord(110, 1, 17);
+        var leftRail = new WorldVoxelCoord(110, 1, 15);
+        var rightRail = new WorldVoxelCoord(110, 1, 16);
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(edge, 100).Status);
+        Assert.IsTrue(harness.Session.Query(intact).IsOccupied);
+        Assert.IsTrue(harness.Session.Query(leftRail).IsOccupied);
+        Assert.IsTrue(harness.Session.Query(rightRail).IsOccupied);
+
+        var render = harness.Session.BuildTrackRenderModel();
+        Assert.IsTrue(render.HasGapNear(edge));
+        Assert.IsTrue(
+            render.Sections.SelectMany(section => section.Solids).Any(solid =>
+                solid.Kind == TrackSolidKind.Sleeper && solid.Volume.OverlapsCell(intact)),
+            "The surviving sleeper half must remain visible.");
+        Assert.IsTrue(
+            render.Sections.SelectMany(section => section.Solids).Any(solid =>
+                solid.Kind == TrackSolidKind.Rail && solid.Volume.OverlapsCell(leftRail)));
+        Assert.IsTrue(
+            render.Sections.SelectMany(section => section.Solids).Any(solid =>
+                solid.Kind == TrackSolidKind.Rail && solid.Volume.OverlapsCell(rightRail)));
+
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(leftRail, 100).Status);
+        var afterRail = harness.Session.BuildTrackRenderModel();
+        Assert.IsTrue(afterRail.HasGapNear(leftRail));
+        Assert.IsTrue(
+            afterRail.Sections.SelectMany(section => section.Solids).Any(solid =>
+                solid.Kind == TrackSolidKind.Rail && solid.Volume.OverlapsCell(rightRail)));
+        Assert.IsTrue(
+            afterRail.Sections.SelectMany(section => section.Solids).Any(solid =>
+                solid.Kind == TrackSolidKind.Sleeper && solid.Volume.OverlapsCell(intact)));
+    }
+
+    [TestMethod]
+    public void Local_refresh_keeps_unrelated_sections()
+    {
+        using var harness = RailHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        harness.Session.TakePendingTrackChunks();
+        var chunkSize = harness.Session.World.ChunkSize;
+        var initial = TrackRenderModel.From(harness.Session.Rails, harness.Session.World, chunkSize);
+        var farChunk = VoxelChunks.Of(StraightRailFixture.ChunkSeamCell, chunkSize);
+        var edge = new WorldVoxelCoord(110, 1, 14);
+        var zNeighbor = VoxelChunks.Of(new WorldVoxelCoord(110, 1, 17), chunkSize);
+        var seam = StraightRailFixture.SharedSeamCell;
+        var farSection = initial.Sections.Single(section => section.Chunk.Equals(farChunk));
+        var zSection = initial.Sections.Single(section => section.Chunk.Equals(zNeighbor));
+
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(edge, 100).Status);
+        var dirty = harness.Session.TakePendingTrackChunks();
+        Assert.IsTrue(dirty.Contains(VoxelChunks.Of(edge, chunkSize)));
+        Assert.IsFalse(dirty.Contains(farChunk));
+        Assert.IsFalse(dirty.Contains(zNeighbor));
+        Assert.IsTrue(dirty.Count < VoxelChunks.All(harness.Session.Identity).Count);
+
+        var refreshed = initial.RefreshLocal(harness.Session.Rails, harness.Session.World, chunkSize, dirty);
+        Assert.AreSame(farSection, refreshed.Model.Sections.Single(section => section.Chunk.Equals(farChunk)));
+        Assert.AreSame(zSection, refreshed.Model.Sections.Single(section => section.Chunk.Equals(zNeighbor)));
+        CollectionAssert.DoesNotContain(refreshed.RebuiltChunks.ToArray(), farChunk);
+        CollectionAssert.DoesNotContain(refreshed.RetainedChunks.ToArray(), VoxelChunks.Of(edge, chunkSize));
+        Assert.IsTrue(
+            refreshed.Model.Sections.SelectMany(section => section.Solids).Any(solid =>
+                solid.Kind == TrackSolidKind.Sleeper &&
+                solid.Volume.OverlapsCell(new WorldVoxelCoord(110, 1, 17))));
+
+        Assert.IsTrue(harness.Session.RepairRails(new[] { edge }).Succeeded);
+        var afterRepair = harness.Session.TakePendingTrackChunks();
+        Assert.IsTrue(afterRepair.Contains(VoxelChunks.Of(edge, chunkSize)));
+        Assert.IsFalse(afterRepair.Contains(farChunk));
+
+        var seamModel = TrackRenderModel.From(harness.Session.Rails, harness.Session.World, chunkSize);
+        var beforeSeamFar = seamModel.Sections.Single(section => section.Chunk.Equals(farChunk));
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(seam, 100).Status);
+        var seamDirty = harness.Session.TakePendingTrackChunks();
+        Assert.IsTrue(seamDirty.Contains(VoxelChunks.Of(seam, chunkSize)));
+        Assert.IsFalse(seamDirty.Contains(farChunk));
+        var afterSeam = seamModel.RefreshLocal(harness.Session.Rails, harness.Session.World, chunkSize, seamDirty);
+        Assert.AreSame(beforeSeamFar, afterSeam.Model.Sections.Single(section => section.Chunk.Equals(farChunk)));
+    }
+
+    [TestMethod]
     public void Illegal_plans_fail_atomically()
     {
         using var harness = RailHarness.Create();
@@ -286,13 +507,45 @@ public sealed class PhysicalRailTests
         var beforeId = harness.Session.NextEntityId;
         var beforeTx = harness.Session.TransactionCount;
         var snapshot = Snapshot(harness);
-        Assert.AreEqual(status, harness.Session.ConstructRails(plan).Status);
+        var notifications = 0;
+        harness.Session.Changed += Count;
+        try
+        {
+            Assert.AreEqual(status, harness.Session.ConstructRails(plan).Status);
+        }
+        finally
+        {
+            harness.Session.Changed -= Count;
+        }
+
         Assert.AreEqual(expected?.Voxels ?? beforeVoxels, harness.Session.World.VoxelCount);
         Assert.AreEqual(expected?.NextId ?? beforeId, harness.Session.NextEntityId);
         Assert.AreEqual(expected?.Transactions ?? beforeTx, harness.Session.TransactionCount);
+        Assert.AreEqual(0, notifications);
         if (expected is null)
             AssertState(harness, snapshot);
+        return;
+
+        void Count() => notifications++;
     }
+
+    private static RailConstructionPlan ShiftZ(RailConstructionPlan plan, double deltaZ) =>
+        new(
+            plan.Segments.Select(segment => segment with
+            {
+                Alignment = segment.Alignment with
+                {
+                    StartZ = segment.Alignment.StartZ + deltaZ,
+                    EndZ = segment.Alignment.EndZ + deltaZ
+                },
+                RailVolumes = segment.RailVolumes
+                    .Select(volume => volume with { MinZ = volume.MinZ + deltaZ, MaxZ = volume.MaxZ + deltaZ })
+                    .ToArray(),
+                SleeperVolumes = segment.SleeperVolumes
+                    .Select(volume => volume with { MinZ = volume.MinZ + deltaZ, MaxZ = volume.MaxZ + deltaZ })
+                    .ToArray()
+            }).ToArray(),
+            plan.Connections.ToArray());
 
     private static Dictionary<WorldVoxelCoord, WorldVoxel> Snapshot(RailHarness harness)
     {

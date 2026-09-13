@@ -12,8 +12,8 @@ public sealed class PhysicalRailState
     private DerivedRailGraph _derived;
     private bool _derivedCurrent;
 
-    public IReadOnlyList<PhysicalRailSegment> Segments => _segments;
-    public IReadOnlyList<RailConnection> Connections => _connections;
+    public IReadOnlyList<PhysicalRailSegment> Segments => RailSnapshots.Freeze(_segments);
+    public IReadOnlyList<RailConnection> Connections => RailSnapshots.Freeze(_connections);
     public IReadOnlyList<RailOccupancyCell> OccupancyCells => _occupancy.Values
         .OrderBy(item => item.Cell.X)
         .ThenBy(item => item.Cell.Y)
@@ -41,20 +41,34 @@ public sealed class PhysicalRailState
         state._segments.AddRange(segments);
         state._connections.AddRange(connections);
         foreach (var cell in occupancy)
-            state._occupancy[cell.Cell] = cell;
+            state._occupancy[cell.Cell] = new RailOccupancyCell(cell.Cell, RailSnapshots.Freeze(cell.Supports));
         state.RebuildDerivedGraph();
         return state;
     }
 
-    public void CopyCommitted(PhysicalRailState committed)
+    public void MergeCommitted(PhysicalRailState committed)
     {
         ArgumentNullException.ThrowIfNull(committed);
-        Clear();
         _segments.AddRange(committed._segments);
         _connections.AddRange(committed._connections);
         foreach (var pair in committed._occupancy)
+        {
+            if (_occupancy.TryGetValue(pair.Key, out var existing))
+            {
+                _occupancy[pair.Key] = new RailOccupancyCell(
+                    pair.Key,
+                    RailSnapshots.Freeze(existing.Supports.Concat(pair.Value.Supports)));
+                continue;
+            }
+
             _occupancy[pair.Key] = pair.Value;
-        SleeperCount = committed.SleeperCount;
+        }
+
+        SleeperCount = _segments
+            .SelectMany(segment => segment.SleeperVolumes)
+            .Select(volume => (volume.MinX, volume.MinZ))
+            .Distinct()
+            .Count();
         RebuildDerivedGraph();
     }
 
@@ -89,7 +103,12 @@ public sealed class PhysicalRailState
             .Select(item => item.Cell)
             .ToArray();
         var segments = _segments.Select(segment => ToSegmentQuery(segment, world)).ToArray();
-        return new RailQuery(segments, _connections.ToArray(), occupied, occupancy, SleeperCount);
+        return new RailQuery(
+            segments,
+            RailSnapshots.Freeze(_connections),
+            occupied,
+            occupancy.Select(cell => new RailOccupancyCell(cell.Cell, RailSnapshots.Freeze(cell.Supports))).ToArray(),
+            SleeperCount);
     }
 
     public IReadOnlyList<RailInterval> TraversableWorldX(EntityId segmentId, VoxelWorld world)

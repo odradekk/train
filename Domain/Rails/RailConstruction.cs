@@ -88,7 +88,8 @@ public static class RailEditTransaction
         {
             if (connection.FromSegment < 0 || connection.FromSegment >= plan.Segments.Count ||
                 connection.ToSegment < 0 || connection.ToSegment >= plan.Segments.Count ||
-                connection.FromSegment == connection.ToSegment)
+                connection.FromSegment == connection.ToSegment ||
+                !IsContinuousConnection(plan, connection))
                 return RailEditStatus.InvalidPlan;
         }
 
@@ -105,7 +106,10 @@ public static class RailEditTransaction
 
         if (occupancyByCell.Count == 0)
             return RailEditStatus.InvalidPlan;
+        if (HasIndependentOverlapInPlan(occupancyByCell, plan))
+            return RailEditStatus.IndependentLineConflict;
 
+        var plannedCells = occupancyByCell.Keys.ToHashSet();
         var cells = occupancyByCell.Keys.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToArray();
         foreach (var cell in cells)
         {
@@ -119,17 +123,14 @@ public static class RailEditTransaction
             return RailEditStatus.WorldObstacle;
         }
 
-        if (existing.Segments.Count > 0 && CellsOverlapExistingIndependentLine(cells, existing, plan))
-            return RailEditStatus.IndependentLineConflict;
-
-        if (HasClearanceConflict(world, existing, occupancyByCell.Keys))
+        if (HasClearanceConflict(world, plannedCells, plan))
             return RailEditStatus.ClearanceConflict;
 
         var requiredIds = plan.Segments.Count;
         prepared = new PreparedRailEdit(
             Array.Empty<PhysicalRailSegment>(),
             Array.Empty<RailConnection>(),
-            occupancyByCell.Select(pair => new RailOccupancyCell(pair.Key, pair.Value)).ToArray(),
+            occupancyByCell.Select(pair => new RailOccupancyCell(pair.Key, RailSnapshots.Freeze(pair.Value))).ToArray(),
             cells,
             requiredIds,
             uniqueSleepers.Count);
@@ -150,7 +151,11 @@ public static class RailEditTransaction
             var id = new EntityId(firstEntityId + (ulong)index);
             idByIndex[index] = id;
             var planned = plan.Segments[index];
-            segments[index] = new PhysicalRailSegment(id, planned.Alignment, planned.RailVolumes, planned.SleeperVolumes);
+            segments[index] = new PhysicalRailSegment(
+                id,
+                planned.Alignment,
+                RailSnapshots.Freeze(planned.RailVolumes),
+                RailSnapshots.Freeze(planned.SleeperVolumes));
         }
 
         var occupancy = new List<RailOccupancyCell>(prepared.Occupancy.Count);
@@ -160,17 +165,16 @@ public static class RailEditTransaction
             {
                 var segmentIndex = (int)support.SegmentId.Value - 1;
                 return support with { SegmentId = idByIndex[segmentIndex] };
-            }).ToArray();
-            occupancy.Add(new RailOccupancyCell(cell.Cell, supports));
+            });
+            occupancy.Add(new RailOccupancyCell(cell.Cell, RailSnapshots.Freeze(supports)));
         }
 
-        var connections = plan.Connections
+        var connections = RailSnapshots.Freeze(plan.Connections
             .Select(connection => new RailConnection(
                 idByIndex[connection.FromSegment],
                 connection.FromEnd,
                 idByIndex[connection.ToSegment],
-                connection.ToEnd))
-            .ToArray();
+                connection.ToEnd)));
 
         return PhysicalRailState.FromCommitted(segments, connections, occupancy, prepared.SleeperCount);
     }
@@ -220,41 +224,108 @@ public static class RailEditTransaction
     private static bool SameInterval(RailInterval left, RailInterval right) =>
         left.Start == right.Start && left.End == right.End;
 
-    private static bool CellsOverlapExistingIndependentLine(
-        IReadOnlyList<WorldVoxelCoord> cells,
-        PhysicalRailState existing,
+    private static bool HasIndependentOverlapInPlan(
+        Dictionary<WorldVoxelCoord, List<RailCellSupport>> occupancy,
         RailConstructionPlan plan)
     {
-        foreach (var cell in cells)
+        foreach (var (cell, supports) in occupancy)
         {
-            if (!existing.TryGetOccupancy(cell, out var occupancy))
+            var indices = supports
+                .Select(support => (int)support.SegmentId.Value - 1)
+                .Distinct()
+                .ToArray();
+            for (var left = 0; left < indices.Length; left++)
+            for (var right = left + 1; right < indices.Length; right++)
+            {
+                if (!SharesTechnicalSeam(plan, indices[left], indices[right], cell))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool SharesTechnicalSeam(
+        RailConstructionPlan plan,
+        int left,
+        int right,
+        WorldVoxelCoord cell)
+    {
+        foreach (var connection in plan.Connections)
+        {
+            var paired =
+                connection.FromSegment == left && connection.ToSegment == right ||
+                connection.FromSegment == right && connection.ToSegment == left;
+            if (!paired || !TryConnectionPoint(plan, connection, out var seamX, out _, out _))
                 continue;
-            if (!IsTechnicalSeamShare(occupancy, plan))
+            if (cell.X <= seamX && seamX <= cell.X + 1.0)
                 return true;
         }
 
         return false;
     }
 
-    private static bool IsTechnicalSeamShare(RailOccupancyCell occupancy, RailConstructionPlan plan)
+    private static bool IsContinuousConnection(RailConstructionPlan plan, PlannedRailConnection connection)
     {
-        if (plan.Connections.Count == 0)
+        if (!TryEndPoint(plan.Segments[connection.FromSegment], connection.FromEnd, out var fromX, out var fromY, out var fromZ) ||
+            !TryEndPoint(plan.Segments[connection.ToSegment], connection.ToEnd, out var toX, out var toY, out var toZ))
             return false;
-        return occupancy.Cell.X == (int)StraightRailFixture.SeamX ||
-               occupancy.Cell.X == (int)StraightRailFixture.SeamX - 1;
+        if (connection.FromEnd == connection.ToEnd)
+            return false;
+        return fromX == toX && fromY == toY && fromZ == toZ;
+    }
+
+    private static bool TryConnectionPoint(
+        RailConstructionPlan plan,
+        PlannedRailConnection connection,
+        out double x,
+        out double y,
+        out double z)
+    {
+        x = y = z = 0;
+        if (!IsContinuousConnection(plan, connection))
+            return false;
+        return TryEndPoint(plan.Segments[connection.FromSegment], connection.FromEnd, out x, out y, out z);
+    }
+
+    private static bool TryEndPoint(
+        PlannedRailSegment segment,
+        RailEnd end,
+        out double x,
+        out double y,
+        out double z)
+    {
+        switch (end)
+        {
+            case RailEnd.Start:
+                x = segment.Alignment.StartX;
+                y = segment.Alignment.StartY;
+                z = segment.Alignment.StartZ;
+                return true;
+            case RailEnd.End:
+                x = segment.Alignment.EndX;
+                y = segment.Alignment.EndY;
+                z = segment.Alignment.EndZ;
+                return true;
+            default:
+                x = y = z = 0;
+                return false;
+        }
     }
 
     private static bool HasClearanceConflict(
         VoxelWorld world,
-        PhysicalRailState existing,
-        IReadOnlyCollection<WorldVoxelCoord> plannedCells)
+        IReadOnlySet<WorldVoxelCoord> plannedCells,
+        RailConstructionPlan plan)
     {
-        var clearance = StraightRailFixture.SmallVehicleSweptClearance();
+        var clearance = plan.Segments
+            .Select(segment => StraightRailFixture.SweptClearanceFor(segment.Alignment))
+            .ToArray();
         foreach (var (position, _) in world.OccupiedVoxels())
         {
-            if (plannedCells.Contains(position) || existing.Occupies(position))
+            if (plannedCells.Contains(position))
                 continue;
-            if (clearance.OverlapsCell(position))
+            if (clearance.Any(box => box.OverlapsCell(position)))
                 return true;
         }
 

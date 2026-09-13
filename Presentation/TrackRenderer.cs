@@ -13,6 +13,11 @@ public sealed class TrackRendererPresenter
     public int RailSolidCount => _model.RailSolidCount;
     public int SleeperSolidCount => _model.SleeperSolidCount;
     public TrackRenderModel Model => _model;
+    public IReadOnlyList<ChunkCoord> LastRebuiltChunks { get; private set; } = Array.Empty<ChunkCoord>();
+    public IReadOnlyList<ChunkCoord> LastRetainedChunks { get; private set; } = Array.Empty<ChunkCoord>();
+
+    public Mesh? MeshFor(ChunkCoord chunk) =>
+        _sections.TryGetValue(chunk, out var mesh) ? mesh.Mesh : null;
 
     public void Clear()
     {
@@ -20,20 +25,26 @@ public sealed class TrackRendererPresenter
             mesh.QueueFree();
         _sections.Clear();
         _model = new TrackRenderModel(Array.Empty<TrackRenderSection>());
+        LastRebuiltChunks = Array.Empty<ChunkCoord>();
+        LastRetainedChunks = Array.Empty<ChunkCoord>();
     }
 
     public void Refresh(Node parent, VoxelDevelopmentSession session)
     {
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(session);
-        session.TakePendingTrackChunks();
+        var dirty = session.TakePendingTrackChunks();
         if (!session.HasRailway)
         {
             Clear();
+            LastRebuiltChunks = dirty;
             return;
         }
 
-        _model = TrackRenderModel.From(session.Rails, session.World, session.World.ChunkSize);
+        var refresh = _model.RefreshLocal(session.Rails, session.World, session.World.ChunkSize, dirty);
+        _model = refresh.Model;
+        LastRebuiltChunks = refresh.RebuiltChunks;
+        LastRetainedChunks = refresh.RetainedChunks;
         var keep = _model.Sections.Select(section => section.Chunk).ToHashSet();
         foreach (var chunk in _sections.Keys.ToArray())
         {
@@ -43,13 +54,21 @@ public sealed class TrackRendererPresenter
             _sections.Remove(chunk);
         }
 
-        foreach (var section in _model.Sections)
+        foreach (var chunk in refresh.RebuiltChunks)
         {
-            if (!_sections.TryGetValue(section.Chunk, out var mesh))
+            var section = _model.Sections.FirstOrDefault(item => item.Chunk.Equals(chunk));
+            if (section is null)
+            {
+                if (_sections.Remove(chunk, out var stale))
+                    stale.QueueFree();
+                continue;
+            }
+
+            if (!_sections.TryGetValue(chunk, out var mesh))
             {
                 mesh = new MeshInstance3D();
                 parent.AddChild(mesh);
-                _sections[section.Chunk] = mesh;
+                _sections[chunk] = mesh;
             }
 
             mesh.Mesh = BuildMesh(section);

@@ -210,13 +210,13 @@ public sealed class VoxelDevelopmentSession
             if (!added.Succeeded)
                 throw new InvalidOperationException($"Prepared rail cell {cell} could not be added: {added.Status}.");
             NoteChange(cell, occupancyChanged: true, publish: false);
+            MarkTrackChunk(cell);
         }
 
         var firstId = NextEntityId;
         NextEntityId += (ulong)prepared.RequiredEntityIds;
         CommitTransaction();
-        _rails.CopyCommitted(RailEditTransaction.Commit(prepared, plan, firstId));
-        _rebuildTracks = true;
+        _rails.MergeCommitted(RailEditTransaction.Commit(prepared, plan, firstId));
         Changed?.Invoke();
         return new RailEditResult(RailEditStatus.Committed, _rails.Segments.Select(segment => segment.Id).ToArray());
     }
@@ -597,13 +597,6 @@ public sealed class VoxelDevelopmentSession
         return dirty;
     }
 
-    public bool TakePendingTrackRebuild()
-    {
-        var dirty = _rebuildTracks;
-        _rebuildTracks = false;
-        return dirty;
-    }
-
     public IReadOnlyList<ChunkCoord> TakePendingCollisionDirtyChunks()
     {
         var dirty = new SortedSet<ChunkCoord>();
@@ -633,10 +626,7 @@ public sealed class VoxelDevelopmentSession
             _pendingCollisionChanges.Add(position);
         _rails.NoteWorldChange(position, occupancyChanged);
         if (_rails.Occupies(position))
-        {
             MarkTrackChunk(position);
-            _rebuildTracks = true;
-        }
         if (publish)
             Changed?.Invoke();
     }

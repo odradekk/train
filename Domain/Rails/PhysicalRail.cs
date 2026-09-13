@@ -80,6 +80,94 @@ public readonly record struct RailVolumeBox(
         interval = new RailInterval(Math.Max(MinX, cell.X), Math.Min(MaxX, cell.X + 1.0));
         return interval.HasPositiveLength;
     }
+
+    public bool Overlaps(RailVolumeBox other)
+    {
+        var overlapX = Math.Min(MaxX, other.MaxX) - Math.Max(MinX, other.MinX);
+        var overlapY = Math.Min(MaxY, other.MaxY) - Math.Max(MinY, other.MinY);
+        var overlapZ = Math.Min(MaxZ, other.MaxZ) - Math.Max(MinZ, other.MinZ);
+        return overlapX > 0 && overlapY > 0 && overlapZ > 0;
+    }
+
+    public RailVolumeBox? Intersection(RailVolumeBox other)
+    {
+        var box = new RailVolumeBox(
+            Math.Max(MinX, other.MinX),
+            Math.Max(MinY, other.MinY),
+            Math.Max(MinZ, other.MinZ),
+            Math.Min(MaxX, other.MaxX),
+            Math.Min(MaxY, other.MaxY),
+            Math.Min(MaxZ, other.MaxZ));
+        return box.HasPositiveVolume ? box : null;
+    }
+
+    public static RailVolumeBox ForCell(WorldVoxelCoord cell) =>
+        new(cell.X, cell.Y, cell.Z, cell.X + 1.0, cell.Y + 1.0, cell.Z + 1.0);
+
+    public static RailVolumeBox ForChunk(ChunkCoord chunk, int chunkSize)
+    {
+        if (chunkSize <= 0)
+            throw new ArgumentOutOfRangeException(nameof(chunkSize), "Chunk size must be positive.");
+        return new(
+            chunk.X * (double)chunkSize,
+            chunk.Y * (double)chunkSize,
+            chunk.Z * (double)chunkSize,
+            (chunk.X + 1) * (double)chunkSize,
+            (chunk.Y + 1) * (double)chunkSize,
+            (chunk.Z + 1) * (double)chunkSize);
+    }
+
+    public static IReadOnlyList<RailVolumeBox> Subtract(RailVolumeBox box, IEnumerable<RailVolumeBox> holes)
+    {
+        ArgumentNullException.ThrowIfNull(holes);
+        IReadOnlyList<RailVolumeBox> remaining = box.HasPositiveVolume ? new[] { box } : Array.Empty<RailVolumeBox>();
+        foreach (var hole in holes)
+        {
+            var next = new List<RailVolumeBox>();
+            foreach (var piece in remaining)
+                next.AddRange(Subtract(piece, hole));
+            remaining = next;
+        }
+
+        return remaining;
+    }
+
+    public static IReadOnlyList<RailVolumeBox> Subtract(RailVolumeBox box, RailVolumeBox hole)
+    {
+        if (!box.HasPositiveVolume)
+            return Array.Empty<RailVolumeBox>();
+        if (!box.Overlaps(hole))
+            return new[] { box };
+
+        var ix0 = Math.Max(box.MinX, hole.MinX);
+        var ix1 = Math.Min(box.MaxX, hole.MaxX);
+        var iy0 = Math.Max(box.MinY, hole.MinY);
+        var iy1 = Math.Min(box.MaxY, hole.MaxY);
+        var iz0 = Math.Max(box.MinZ, hole.MinZ);
+        var iz1 = Math.Min(box.MaxZ, hole.MaxZ);
+        var remaining = new List<RailVolumeBox>(6);
+        Add(remaining, box.MinX, box.MinY, box.MinZ, ix0, box.MaxY, box.MaxZ);
+        Add(remaining, ix1, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ);
+        Add(remaining, ix0, box.MinY, box.MinZ, ix1, iy0, box.MaxZ);
+        Add(remaining, ix0, iy1, box.MinZ, ix1, box.MaxY, box.MaxZ);
+        Add(remaining, ix0, iy0, box.MinZ, ix1, iy1, iz0);
+        Add(remaining, ix0, iy0, iz1, ix1, iy1, box.MaxZ);
+        return remaining;
+    }
+
+    private static void Add(
+        List<RailVolumeBox> remaining,
+        double minX,
+        double minY,
+        double minZ,
+        double maxX,
+        double maxY,
+        double maxZ)
+    {
+        var piece = new RailVolumeBox(minX, minY, minZ, maxX, maxY, maxZ);
+        if (piece.HasPositiveVolume)
+            remaining.Add(piece);
+    }
 }
 
 public readonly record struct HorizontalStraightAlignment(
@@ -236,5 +324,14 @@ public static class RailIntervals
         }
 
         return Merge(remaining);
+    }
+}
+
+internal static class RailSnapshots
+{
+    public static IReadOnlyList<T> Freeze<T>(IEnumerable<T> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+        return Array.AsReadOnly(items.ToArray());
     }
 }
