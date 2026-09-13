@@ -75,6 +75,31 @@ public sealed class PhysicalRailTests
     }
 
     [TestMethod]
+    public void Destroyed_registered_cells_still_block_independent_occupancy()
+    {
+        using var harness = RailHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        var ids = harness.Session.Rails.Segments.Select(segment => segment.Id).ToArray();
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(DamageCell, 100).Status);
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[]
+                {
+                    new PlannedRailSegment(
+                        new HorizontalStraightAlignment(110.1, 2, 16, 110.9, 2, 16),
+                        new[] { new RailVolumeBox(110.1, 1.1, 15.1, 110.9, 1.9, 15.9) },
+                        Array.Empty<RailVolumeBox>())
+                },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.IndependentLineConflict,
+            voxels: 1031);
+        CollectionAssert.AreEqual(ids, harness.Session.Rails.Segments.Select(segment => segment.Id).ToArray());
+        Assert.IsTrue(harness.Session.Rails.Occupies(DamageCell));
+        Assert.IsFalse(harness.Session.Query(DamageCell).IsOccupied);
+    }
+
+    [TestMethod]
     public void Noncoincident_or_wrong_end_connections_are_rejected()
     {
         using var harness = RailHarness.Create();

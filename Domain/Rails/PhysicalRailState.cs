@@ -53,14 +53,8 @@ public sealed class PhysicalRailState
         _connections.AddRange(committed._connections);
         foreach (var pair in committed._occupancy)
         {
-            if (_occupancy.TryGetValue(pair.Key, out var existing))
-            {
-                _occupancy[pair.Key] = new RailOccupancyCell(
-                    pair.Key,
-                    RailSnapshots.Freeze(existing.Supports.Concat(pair.Value.Supports)));
-                continue;
-            }
-
+            if (_occupancy.ContainsKey(pair.Key))
+                throw new InvalidOperationException($"Prepared rail occupancy overlaps existing cell {pair.Key}.");
             _occupancy[pair.Key] = pair.Value;
         }
 

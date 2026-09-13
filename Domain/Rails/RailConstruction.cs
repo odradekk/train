@@ -115,12 +115,10 @@ public static class RailEditTransaction
         {
             if (!world.Bounds.Contains(cell))
                 return RailEditStatus.OutOfBounds;
-            var query = world.Query(cell);
-            if (!query.IsOccupied)
-                continue;
             if (existing.Occupies(cell))
                 return RailEditStatus.IndependentLineConflict;
-            return RailEditStatus.WorldObstacle;
+            if (world.Query(cell).IsOccupied)
+                return RailEditStatus.WorldObstacle;
         }
 
         if (HasClearanceConflict(world, plannedCells, plan))
