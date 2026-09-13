@@ -48,21 +48,26 @@ public static class StraightRailFixture
     public static HorizontalStraightAlignment SecondAlignment { get; } = new(
         SeamX, CenterY, CenterZ, LineEndX, CenterY, CenterZ);
 
-    public static RailVolumeBox LeftRail(double startX, double endX) => new(
-        startX,
-        RailMinY,
-        LeftRailCenterZ - RailWidth / 2.0,
-        endX,
-        RailMaxY,
-        LeftRailCenterZ + RailWidth / 2.0);
+    public static RailVolumeBox LeftRail(double startX, double endX) =>
+        LeftRail(startX, endX, CenterY, CenterZ);
 
-    public static RailVolumeBox RightRail(double startX, double endX) => new(
-        startX,
-        RailMinY,
-        RightRailCenterZ - RailWidth / 2.0,
-        endX,
-        RailMaxY,
-        RightRailCenterZ + RailWidth / 2.0);
+    public static RailVolumeBox RightRail(double startX, double endX) =>
+        RightRail(startX, endX, CenterY, CenterZ);
+
+    public static RailVolumeBox LeftRail(double startX, double endX, double centerY, double centerZ) =>
+        RailAlong(startX, endX, centerY, centerZ - Gauge / 2.0);
+
+    public static RailVolumeBox RightRail(double startX, double endX, double centerY, double centerZ) =>
+        RailAlong(startX, endX, centerY, centerZ + Gauge / 2.0);
+
+    private static RailVolumeBox RailAlong(double startX, double endX, double centerY, double railCenterZ) =>
+        new(
+            startX,
+            centerY + (RailMinY - CenterY),
+            railCenterZ - RailWidth / 2.0,
+            endX,
+            centerY + (RailMaxY - CenterY),
+            railCenterZ + RailWidth / 2.0);
 
     public static RailVolumeBox Sleeper(int index)
     {

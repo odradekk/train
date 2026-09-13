@@ -211,7 +211,7 @@ public sealed class PhysicalRailState
     private RailSegmentQuery ToSegmentQuery(PhysicalRailSegment segment, VoxelWorld? world)
     {
         var worldX = world is null
-            ? CurrentTraversableWorldX(segment, requirePresent: false)
+            ? TraversableFromSupports(segment, alongTrack: false, requireWorld: null)
             : TraversableFor(segment, world, alongTrack: false);
         var along = world is null
             ? worldX.Select(interval => interval.Translate(-segment.Alignment.StartX)).ToArray()
@@ -226,40 +226,33 @@ public sealed class PhysicalRailState
     private IReadOnlyList<RailInterval> TraversableFor(
         PhysicalRailSegment segment,
         VoxelWorld world,
-        bool alongTrack)
+        bool alongTrack) =>
+        TraversableFromSupports(segment, alongTrack, world);
+
+    private IReadOnlyList<RailInterval> TraversableFromSupports(
+        PhysicalRailSegment segment,
+        bool alongTrack,
+        VoxelWorld? requireWorld)
     {
+        var supported = new List<RailInterval>();
         var holes = new List<RailInterval>();
         foreach (var occupancy in _occupancy.Values)
         {
-            if (!occupancy.Supports.Any(support => support.SegmentId == segment.Id))
-                continue;
-            var present = world.Query(occupancy.Cell).IsOccupied &&
-                          world.Query(occupancy.Cell).Voxel!.DefinitionId == StraightRailFixture.RailDefinitionId &&
-                          !_destroyed.Contains(occupancy.Cell);
-            if (present)
-                continue;
             foreach (var support in occupancy.Supports.Where(item => item.SegmentId == segment.Id))
-                holes.Add(alongTrack ? support.AlongTrack : support.WorldX);
+            {
+                var interval = alongTrack ? support.AlongTrack : support.WorldX;
+                supported.Add(interval);
+                var present = !_destroyed.Contains(occupancy.Cell) &&
+                              (requireWorld is null ||
+                               requireWorld.Query(occupancy.Cell).IsOccupied &&
+                               requireWorld.Query(occupancy.Cell).Voxel!.DefinitionId ==
+                               StraightRailFixture.RailDefinitionId);
+                if (!present)
+                    holes.Add(interval);
+            }
         }
 
-        return RailIntervals.Subtract(new[] { alongTrack ? new RailInterval(0, segment.Alignment.Length) : segment.Alignment.WorldX }, holes);
-    }
-
-    private IReadOnlyList<RailInterval> CurrentTraversableWorldX(PhysicalRailSegment segment, bool requirePresent)
-    {
-        var holes = new List<RailInterval>();
-        foreach (var occupancy in _occupancy.Values)
-        {
-            if (!occupancy.Supports.Any(support => support.SegmentId == segment.Id))
-                continue;
-            if (requirePresent && !_destroyed.Contains(occupancy.Cell))
-                continue;
-            if (!_destroyed.Contains(occupancy.Cell))
-                continue;
-            foreach (var support in occupancy.Supports.Where(item => item.SegmentId == segment.Id))
-                holes.Add(support.WorldX);
-        }
-
-        return RailIntervals.Subtract(new[] { segment.Alignment.WorldX }, holes);
+        var span = alongTrack ? new RailInterval(0, segment.Alignment.Length) : segment.Alignment.WorldX;
+        return RailIntervals.Subtract(RailIntervals.ClipTo(supported, span), holes);
     }
 }

@@ -325,6 +325,19 @@ public static class RailIntervals
 
         return Merge(remaining);
     }
+
+    public static IReadOnlyList<RailInterval> ClipTo(IEnumerable<RailInterval> intervals, RailInterval span)
+    {
+        ArgumentNullException.ThrowIfNull(intervals);
+        var clipped = new List<RailInterval>();
+        foreach (var interval in intervals)
+        {
+            if (RailInterval.Overlap(interval, span) is { } overlap)
+                clipped.Add(overlap);
+        }
+
+        return Merge(clipped);
+    }
 }
 
 internal static class RailSnapshots

@@ -75,6 +75,60 @@ public sealed class PhysicalRailTests
     }
 
     [TestMethod]
+    public void Alignment_must_match_rail_and_sleeper_solids()
+    {
+        using var harness = RailHarness.Create();
+        var first = StraightRailFixture.CreateFixturePlan().Segments[0];
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { Alignment = first.Alignment with { EndX = 200 } } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+        Assert.IsFalse(harness.Session.Query(new WorldVoxelCoord(180, 1, 15)).IsOccupied);
+        Assert.IsFalse(
+            harness.Session.QueryDerivedRailGraph().TreatsIntervalAsTraversable(new EntityId(1), new RailInterval(180, 181)));
+
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { Alignment = first.Alignment with { EndX = 80 } } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { Alignment = first.Alignment with { StartZ = 24, EndZ = 24 } } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+
+        var gappedRails = new[]
+        {
+            StraightRailFixture.LeftRail(16, 100),
+            StraightRailFixture.RightRail(16, 100),
+            StraightRailFixture.LeftRail(120, 144),
+            StraightRailFixture.RightRail(120, 144)
+        };
+        AssertRejected(
+            harness,
+            new RailConstructionPlan(
+                new[] { first with { RailVolumes = gappedRails } },
+                Array.Empty<PlannedRailConnection>()),
+            RailEditStatus.InvalidPlan,
+            voxels: 0);
+
+        Assert.IsTrue(harness.Session.ConstructRails(ShiftZ(StraightRailFixture.CreateFixturePlan(), 8)).Succeeded);
+        Assert.IsTrue(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 23)));
+        Assert.IsFalse(harness.Session.QueryDerivedRailGraph().TreatsIntervalAsTraversable(
+            harness.Session.Rails.Segments[0].Id,
+            new RailInterval(180, 181)));
+    }
+
+    [TestMethod]
     public void Destroyed_registered_cells_still_block_independent_occupancy()
     {
         using var harness = RailHarness.Create();

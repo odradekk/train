@@ -82,6 +82,8 @@ public static class RailEditTransaction
                 return RailEditStatus.InvalidPlan;
             if (segment.SleeperVolumes.Any(volume => !volume.HasPositiveVolume))
                 return RailEditStatus.InvalidPlan;
+            if (!AlignmentMatchesSolids(segment))
+                return RailEditStatus.InvalidPlan;
         }
 
         foreach (var connection in plan.Connections)
@@ -221,6 +223,51 @@ public static class RailEditTransaction
 
     private static bool SameInterval(RailInterval left, RailInterval right) =>
         left.Start == right.Start && left.End == right.End;
+
+    private static bool AlignmentMatchesSolids(PlannedRailSegment segment)
+    {
+        var alignment = segment.Alignment;
+        var worldX = alignment.WorldX;
+        foreach (var rail in segment.RailVolumes)
+        {
+            if (rail.MinX < alignment.StartX || rail.MaxX > alignment.EndX)
+                return false;
+            if (!OverlapsExpectedRail(rail, alignment))
+                return false;
+        }
+
+        var covered = RailIntervals.Merge(segment.RailVolumes.Select(volume => new RailInterval(volume.MinX, volume.MaxX)));
+        if (covered.Count != 1 || !SameInterval(covered[0], worldX))
+            return false;
+
+        var slack = StraightRailFixture.SleeperLength / 2.0;
+        foreach (var sleeper in segment.SleeperVolumes)
+        {
+            if (sleeper.MinX < alignment.StartX - slack || sleeper.MaxX > alignment.EndX + slack)
+                return false;
+            if (!OverlapsExpectedSleeper(sleeper, alignment))
+                return false;
+        }
+
+        return true;
+    }
+
+    private static bool OverlapsExpectedRail(RailVolumeBox rail, HorizontalStraightAlignment alignment) =>
+        rail.Overlaps(StraightRailFixture.LeftRail(alignment.StartX, alignment.EndX, alignment.StartY, alignment.StartZ)) ||
+        rail.Overlaps(StraightRailFixture.RightRail(alignment.StartX, alignment.EndX, alignment.StartY, alignment.StartZ));
+
+    private static bool OverlapsExpectedSleeper(RailVolumeBox sleeper, HorizontalStraightAlignment alignment)
+    {
+        var slack = StraightRailFixture.SleeperLength / 2.0;
+        var envelope = new RailVolumeBox(
+            alignment.StartX - slack,
+            alignment.StartY + (StraightRailFixture.SleeperMinY - StraightRailFixture.CenterY),
+            alignment.StartZ - StraightRailFixture.SleeperWidth / 2.0,
+            alignment.EndX + slack,
+            alignment.StartY + (StraightRailFixture.SleeperMaxY - StraightRailFixture.CenterY),
+            alignment.StartZ + StraightRailFixture.SleeperWidth / 2.0);
+        return sleeper.Overlaps(envelope);
+    }
 
     private static bool HasIndependentOverlapInPlan(
         Dictionary<WorldVoxelCoord, List<RailCellSupport>> occupancy,
