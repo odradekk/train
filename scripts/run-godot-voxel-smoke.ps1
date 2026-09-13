@@ -38,7 +38,7 @@ function Find-Godot {
         return $null
     }
 
-    foreach ($name in @("godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
+    foreach ($name in @("godot-dotnet", "godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
         $command = Get-Command $name -ErrorAction SilentlyContinue
         if ($command) {
             return $command.Source

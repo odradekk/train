@@ -14,6 +14,7 @@ param(
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot "Get-HostHardwareInfo.ps1")
 if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     throw "Set GODOT to the Godot 4.7 .NET executable before running observation."
 }
@@ -128,7 +129,7 @@ if ($missing.Count -gt 0) {
     throw "Voxel observe failed. Missing captures: $($missing -join ', ')"
 }
 
-$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name
+$cpu = Get-HostCpuName
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $settle = ($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_MULTI_SETTLE_MS=*" } | Select-Object -Last 1)
 $captureLines = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" })

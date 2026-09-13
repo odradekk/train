@@ -526,7 +526,7 @@ public sealed class CompositeVehiclePersistenceTests
     }
 
     [TestMethod]
-    public void Real_file_replace_failure_keeps_the_previous_save()
+    public void Real_file_write_failure_keeps_the_previous_save()
     {
         using var harness = Open();
         var vehicleId = harness.Session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
@@ -535,9 +535,24 @@ public sealed class CompositeVehiclePersistenceTests
         var path = harness.Store.PathFor(first.SaveId!.Value);
         var previous = File.ReadAllText(path);
         var before = harness.Session.CaptureAuthority();
-        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        if (OperatingSystem.IsWindows())
         {
+            using var lockedSave = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             Assert.AreEqual(WorldSaveStatus.WriteFailed, harness.Session.Save("Should Fail").Status);
+        }
+        else
+        {
+            // Unix permits replacing an open file; a directory at the candidate path blocks file creation even as root.
+            var candidate = Path.Combine(harness.Store.DirectoryFor(first.SaveId.Value), FileWorldSaveStore.CandidateFileName);
+            Directory.CreateDirectory(candidate);
+            try
+            {
+                Assert.AreEqual(WorldSaveStatus.WriteFailed, harness.Session.Save("Should Fail").Status);
+            }
+            finally
+            {
+                Directory.Delete(candidate);
+            }
         }
 
         Assert.AreEqual(first.SaveId, harness.Session.SaveId);

@@ -5,7 +5,7 @@
 #   & $godot --headless --path . --quit-after 15
 #
 # The script resolves $godot, runs that command, and requires stdout to contain:
-#   application/application_ready   (Main._Ready -> GodotLogOutput)
+#   [application][application_ready] (Main._Ready -> GodotLogOutput)
 #   smoke_worker_event              (background log reached Godot output)
 #   SMOKE_PROCESS_DRAINED           (Main._Process drained the queued event)
 #   SMOKE_LOGGER_DISPOSED           (Main._ExitTree disposed the logger)
@@ -26,7 +26,7 @@ function Find-Godot {
         return $null
     }
 
-    foreach ($name in @("godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
+    foreach ($name in @("godot-dotnet", "godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd) {
             return $cmd.Source
@@ -71,7 +71,7 @@ $output = $raw | Out-String
 Write-Host $output
 
 $required = @(
-    "application/application_ready",
+    "[application][application_ready]",
     "smoke_worker_event",
     "SMOKE_PROCESS_DRAINED",
     "SMOKE_LOGGER_DISPOSED"

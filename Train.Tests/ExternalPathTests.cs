@@ -87,10 +87,10 @@ public sealed class ExternalPathTests
         File.WriteAllText(Path.Combine(target, "hidden.voxels.json"), ContentFixtures.GoodsFile());
 
         var junction = Path.Combine(resources, "escaped");
-        if (!TryCreateJunction(junction, target))
+        if (!TryCreateDirectoryLink(junction, target))
         {
             TryDelete(root);
-            Assert.Inconclusive("Could not create a Windows junction in this environment.");
+            Assert.Inconclusive("Could not create a directory link in this environment.");
             return;
         }
 
@@ -170,12 +170,12 @@ public sealed class ExternalPathTests
         var real = Path.Combine(trusted, "real");
         var junction = Path.Combine(trusted, "linked-parent");
         Directory.CreateDirectory(real);
-        if (!TryCreateJunction(junction, real))
+        if (!TryCreateDirectoryLink(junction, real))
         {
             Assert.IsFalse(ExternalPath.TryValidateTrustedChain(trusted, Path.Combine(trusted, "..", "outside", "mods"), out var escaped));
             Assert.IsFalse(string.IsNullOrEmpty(escaped));
             TryDelete(trusted);
-            Assert.Inconclusive("Could not create a Windows junction/symlink ancestor in this environment.");
+            Assert.Inconclusive("Could not create a directory link ancestor in this environment.");
             return;
         }
 
@@ -199,10 +199,16 @@ public sealed class ExternalPathTests
         }
     }
 
-    private static bool TryCreateJunction(string link, string target)
+    private static bool TryCreateDirectoryLink(string link, string target)
     {
         try
         {
+            if (!OperatingSystem.IsWindows())
+            {
+                Directory.CreateSymbolicLink(link, target);
+                return Directory.Exists(link) && ExternalPath.IsReparsePoint(link);
+            }
+
             using var process = Process.Start(new ProcessStartInfo
             {
                 FileName = "cmd.exe",

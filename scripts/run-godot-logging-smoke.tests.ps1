@@ -3,6 +3,8 @@
 
 $ErrorActionPreference = "Stop"
 $smoke = Join-Path $PSScriptRoot "run-godot-logging-smoke.ps1"
+. (Join-Path $PSScriptRoot "SmokeTests.Helpers.ps1")
+$pwsh = Get-TestPowerShellPath
 $failed = 0
 
 function Invoke-Smoke {
@@ -21,8 +23,8 @@ function Invoke-Smoke {
             $env:GODOT = $GodotPath
             Remove-Item Env:TRAIN_LOG_SMOKE_NO_SEARCH -ErrorAction SilentlyContinue
         }
-        $process = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-File", $smoke) -Wait -PassThru -NoNewWindow
-        return [int] $process.ExitCode
+        & $pwsh -NoProfile -File $smoke 2>&1 | Out-Host
+        return [int] $LASTEXITCODE
     }
     finally {
         if ($null -eq $previous) {
@@ -42,14 +44,7 @@ function Invoke-Smoke {
 
 function New-FakeGodot {
     param([int] $ExitCode, [string[]] $Lines)
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("train-fake-godot-" + [guid]::NewGuid().ToString("N") + ".cmd")
-    $body = @(
-        "@echo off"
-    ) + ($Lines | ForEach-Object { "echo $_" }) + @(
-        "exit /b $ExitCode"
-    )
-    Set-Content -LiteralPath $path -Value $body -Encoding Ascii
-    return $path
+    return New-FakeNativeProgram -Name "train-fake-godot" -ExitCode $ExitCode -Lines $Lines
 }
 
 function Assert-SmokeExit {
@@ -63,7 +58,7 @@ function Assert-SmokeExit {
 }
 
 $allMarkers = @(
-    "application/application_ready",
+    "[application][application_ready]",
     "smoke_worker_event",
     "SMOKE_PROCESS_DRAINED",
     "SMOKE_LOGGER_DISPOSED"
@@ -71,7 +66,7 @@ $allMarkers = @(
 
 $failingFake = New-FakeGodot -ExitCode 7 -Lines $allMarkers
 $passingFake = New-FakeGodot -ExitCode 0 -Lines $allMarkers
-$missingFake = New-FakeGodot -ExitCode 0 -Lines @("application/application_ready")
+$missingFake = New-FakeGodot -ExitCode 0 -Lines @("[application][application_ready]")
 try {
     Assert-SmokeExit -Name "nonzero Godot with all markers" -Expected 1 -Actual (Invoke-Smoke -GodotPath $failingFake)
     Assert-SmokeExit -Name "unavailable Godot" -Expected 2 -Actual (Invoke-Smoke -ForceUnavailable)

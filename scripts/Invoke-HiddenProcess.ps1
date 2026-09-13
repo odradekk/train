@@ -36,6 +36,9 @@ function Invoke-HiddenProcess {
     $args = ConvertTo-HiddenProcessArgumentString -ArgumentList $ArgumentList
     $extension = [System.IO.Path]::GetExtension($FilePath)
     if ($extension -eq ".cmd" -or $extension -eq ".bat") {
+        if ($env:OS -ne "Windows_NT") {
+            throw "Cannot run Windows batch files on this host: $FilePath"
+        }
         $psi.FileName = $env:ComSpec
         if ([string]::IsNullOrEmpty($psi.FileName)) {
             $psi.FileName = "cmd.exe"

@@ -9,18 +9,24 @@
 param(
     [ValidateSet(2, 3)]
     [int] $Slice = 2,
-    [string] $OutputPath = ""
+    [string] $OutputPath = "",
+    [string] $CaptureOutputPath = ""
 )
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot "Get-HostHardwareInfo.ps1")
 if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     throw "Set GODOT to the Godot 4.7 .NET executable before running resume observation."
 }
 
 if (-not $OutputPath) {
     $OutputPath = if ($Slice -eq 3) { ".godot/issue62-resume-observe-report.md" } else { ".godot/issue53-resume-observe-report.md" }
+}
+$recordName = if ($Slice -eq 3) { "issue-62-resume" } else { "issue-53-resume" }
+if (-not $CaptureOutputPath) {
+    $CaptureOutputPath = "docs/validation/$recordName"
 }
 
 foreach ($name in @(
@@ -69,8 +75,7 @@ $captures = if ($Slice -eq 3) {
     )
 }
 $captureDir = Join-Path $root ".godot"
-$recordName = if ($Slice -eq 3) { "issue-62-resume" } else { "issue-53-resume" }
-$recordDir = Join-Path $root "docs\validation\$recordName"
+$recordDir = Join-Path $root $CaptureOutputPath
 New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
 New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
 
@@ -153,7 +158,7 @@ foreach ($name in $captures) {
     }
 }
 
-$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name
+$cpu = Get-HostCpuName
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $captureLines = @($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" -or $_ -like "*VOXEL_OBSERVE_RESUME_*" })
 $written = ($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_RESUME_WRITTEN*" } | Select-Object -Last 1)

@@ -16,6 +16,7 @@ param(
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+. (Join-Path $PSScriptRoot "Get-HostHardwareInfo.ps1")
 if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     throw "Set GODOT to the Godot 4.7 .NET executable before running this baseline."
 }
@@ -59,9 +60,9 @@ if ($exitCode -ne 0 -or $runs.Count -ne 3 -or $slice2Runs.Count -ne 3 -or $saveR
     throw "Voxel baseline failed: expected three slice 1 runs, three slice 2 boundary runs, three save/load runs, three slice 3 persist runs, and the completion marker."
 }
 
-$cpu = Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name
-$memory = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory
-$runtime = (& dotnet --list-runtimes | Select-String -Pattern "^Microsoft.NETCore.App 8\." | Select-Object -Last 1).ToString().Trim()
+$cpu = Get-HostCpuName
+$memory = Get-HostPhysicalMemoryBytes
+$runtime = (& dotnet --list-runtimes | Select-String -Pattern "^Microsoft.NETCore.App 10\." | Select-Object -Last 1).ToString().Trim()
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $report = @(
     "# Issue #62 voxel baseline",

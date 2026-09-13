@@ -17,10 +17,12 @@ Current version: `0.0.13`.
 - Treat `archive/mvp/` as read-only validation evidence. Reuse an archived implementation only by deliberately moving or rewriting the necessary code into the root project; do not continue product development inside the archive.
 - Keep generated Godot state, build outputs, and restored packages out of the archive; regenerate them only when reproducing an MVP result.
 
-## Local Godot validation
+## Local development environment
 
-- On this Windows machine, Godot 4.7.2 .NET is installed at `D:\Godot_v4.7.2-stable_mono_win64\`.
-- Before running Godot integration checks in the checkout under test, set `$env:GODOT = 'D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe'` so the existing smoke scripts can find the engine and capture its output.
+- Development runs on Fedora. Invoke the local Godot .NET engine with `godot-dotnet --headless` for headless checks.
+- Use PowerShell 7 (`pwsh`) for the validation scripts. From Bash, set `export GODOT="$(command -v godot-dotnet)"` and run them with `pwsh -NoProfile -File`. The scripts expect `GODOT` to be an executable path, without arguments.
+- The local Windows filesystems are mounted under `/mnt`. Windows builds may be exported directly to a dedicated directory on the mounted filesystem.
+- For validation prerequisites, script platform limits, and Windows export commands, read [Local validation and Windows builds](docs/tickets-sop.md#local-validation-and-windows-builds).
 
 ## Agent skills
 

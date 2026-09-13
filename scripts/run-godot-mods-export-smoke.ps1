@@ -16,6 +16,13 @@
 #
 # Exit 2 if Godot is unavailable and no exported binary was supplied.
 # Exit 1 if export or the exported process fails, or a required marker is missing.
+# On a non-Windows host, use -ExportOnly after a successful Windows export; that
+# validates the export but cannot validate the Windows runtime.
+
+param(
+    [switch] $ExportOnly,
+    [string] $OutputPath = ""
+)
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot
@@ -31,7 +38,7 @@ function Find-Godot {
         return $null
     }
 
-    foreach ($name in @("godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
+    foreach ($name in @("godot-dotnet", "godot", "godot-mono", "Godot_v4.7.2-stable_mono_win64_console", "Godot_v4.7.2-stable_mono_win64")) {
         $cmd = Get-Command $name -ErrorAction SilentlyContinue
         if ($cmd) {
             return $cmd.Source
@@ -60,20 +67,33 @@ function Find-Godot {
     return $null
 }
 
-$exported = $env:TRAIN_MODS_EXPORT_BIN
+$exportedWasSupplied = [bool] (-not $OutputPath -and $env:TRAIN_MODS_EXPORT_BIN)
+$exported = if ($exportedWasSupplied) {
+    $env:TRAIN_MODS_EXPORT_BIN
+} elseif ($OutputPath) {
+    $OutputPath
+} else {
+    Join-Path $root "builds/mods-smoke/train.exe"
+}
 $godot = Find-Godot
-$exportCommand = '& <godot> --headless --path . --export-release "Windows Desktop" builds/mods-smoke/train.exe'
+$exportCommand = '& <godot> --headless --path . --export-release "Windows Desktop" "' + $exported + '"'
 $runCommand = '$env:TRAIN_MODS_EXPORT_SMOKE="1"; $env:TRAIN_MODS_SMOKE_USER_DATA="<isolated-user-data>"; .\builds\mods-smoke\train.exe --user-data-dir "<isolated-user-data>"'
-if (-not $exported -and -not $godot) {
+if ($ExportOnly -and $exportedWasSupplied) {
+    [Console]::Error.WriteLine("-ExportOnly requires a Godot export. Remove TRAIN_MODS_EXPORT_BIN or pass -OutputPath.")
+    exit 2
+}
+if (-not $exportedWasSupplied -and -not $godot) {
     [Console]::Error.WriteLine("Godot executable not found (PATH, GODOT, GODOT_HOME, or standard Program Files).")
     [Console]::Error.WriteLine("Unrun export command: $exportCommand")
     [Console]::Error.WriteLine("Unrun exported-process command: $runCommand")
     exit 2
 }
 
-if (-not $exported) {
-    $exported = Join-Path $root "builds/mods-smoke/train.exe"
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exported) | Out-Null
+if (-not $exportedWasSupplied) {
+    $exportParent = Split-Path -Parent $exported
+    if ($exportParent) {
+        New-Item -ItemType Directory -Force -Path $exportParent | Out-Null
+    }
     Write-Host "Using Godot: $godot"
     & $godot --headless --path $root --export-release "Windows Desktop" $exported
     if ($LASTEXITCODE -ne 0) {
@@ -88,6 +108,19 @@ if (-not (Test-Path -LiteralPath $exported)) {
 }
 
 Write-Host "Using exported binary: $exported"
+if ($ExportOnly) {
+    Write-Host "Godot mods export completed; Windows runtime validation was not run (-ExportOnly)."
+    exit 0
+}
+if ($env:OS -ne "Windows_NT" -and ((-not $exportedWasSupplied) -or [System.IO.Path]::GetExtension($exported).ToLowerInvariant() -in @(".exe", ".cmd", ".bat"))) {
+    if ($exportedWasSupplied) {
+        [Console]::Error.WriteLine("Godot mods export smoke cannot run a supplied Windows executable on this host. Run it on Windows.")
+    }
+    else {
+        [Console]::Error.WriteLine("Godot mods export completed, but Windows runtime validation was not run on this host. Re-run on Windows or pass -ExportOnly to validate export only.")
+    }
+    exit 2
+}
 $isolated = Join-Path ([System.IO.Path]::GetTempPath()) ("train-mods-smoke-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $isolated | Out-Null
 $previousSmokeRoot = $env:TRAIN_MODS_SMOKE_USER_DATA

@@ -20,7 +20,7 @@ Before dispatch, verify:
 - The specification and Acceptance criteria are executable without unresolved design choices.
 - The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
 - The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them before promising a PR; report any required user action.
-- The agent command is available, setup succeeds, and required validation tools are located. For Godot, consult the checkout's `AGENTS.md`; distinguish real engine checks from script harness tests.
+- The agent command is available, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](#local-validation-and-windows-builds); check the SDK, script runtime, and target-platform requirements before dispatch.
 
 Use an independent top-level worktree from the repository's default base unless the user selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
 
@@ -86,7 +86,7 @@ cleanup, and Issue closure to the coordinator after explicit user approval.
 
 - PR URL, base branch, and tested head SHA.
 - What changed and which Acceptance criteria it covers.
-- Exact validation commands, tool versions where relevant, results, and anything not run.
+- Exact validation commands, host OS and tool versions where relevant, results, and anything not run. For Windows builds, include the export path and report export and Windows runtime validation separately.
 - Reproduction steps or example content needed to verify the behavior.
 - Remaining risks/blockers, or an explicit statement that none are known.
 
@@ -153,6 +153,62 @@ These rules describe this project's development milestones, not automatic classi
 Apply one increase per completed task, not per implementation commit, repair round, or review attempt. The version-only closeout commit does not trigger another increase.
 
 **Complete when:** the approved version is consistently recorded and published, and the closed Issue links its version commit. If this step is blocked, keep the already merged PR and closed Issue as they are, record the pending version update, and resume only this step when unblocked.
+
+## Local validation and Windows builds
+
+Run commands from the checkout under test. The development host is Fedora; the Windows export target remains `Windows Desktop` in `export_presets.cfg`.
+
+### Fedora validation
+
+Check the local tools before selecting validation commands:
+
+```bash
+godot-dotnet --headless --version
+dotnet --list-sdks
+dotnet --version
+pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+```
+
+`dotnet --version` must resolve the SDK required by `global.json`; having another SDK installed is insufficient when roll-forward is disabled. Both projects target `net10.0`. The `.ps1` scripts use PowerShell 7 (`pwsh`) on Fedora and Windows; Windows PowerShell 5 (`powershell.exe`) is not the validation host. Report missing prerequisites as validation blockers.
+
+For changes that require domain tests, a project build, and real Godot voxel smoke, use the applicable commands below after resolving those prerequisites. Select the slice required by the Issue:
+
+```bash
+export GODOT="$(command -v godot-dotnet)"
+dotnet test Train.Tests/Train.Tests.csproj
+dotnet build Train.csproj
+pwsh -NoProfile -File scripts/run-godot-voxel-smoke.ps1 -Slice 1
+```
+
+Smoke scripts can discover `godot-dotnet` on PATH. Set `GODOT` explicitly when running observation/baseline scripts or selecting a particular engine. In an existing PowerShell 7 session, the equivalent setting is `$env:GODOT = (Get-Command godot-dotnet).Source`.
+
+The four `scripts/run-godot-*.tests.ps1` harnesses reuse the current PowerShell 7 host and select fake native programs for the host OS. They verify the scripts' success/failure handling; they do not run the real game. Windows GUI-process capture cases run only on Windows and are explicitly skipped on Fedora. Distinguish these harness results from real Godot checks.
+
+Visual observation requires a graphical session. For fresh evidence, select new report and capture paths so historical validation records remain intact. For example:
+
+```bash
+pwsh -NoProfile -File scripts/run-godot-voxel-observe.ps1 -Slice 3 -OutputPath .godot/validation/observe.md
+pwsh -NoProfile -File scripts/run-godot-voxel-observe-resume.ps1 -Slice 3 -OutputPath .godot/validation/resume.md -CaptureOutputPath .godot/validation/resume
+pwsh -NoProfile -File scripts/run-godot-voxel-baseline.ps1 -OutputPath .godot/validation/baseline.md
+```
+
+### Export to the mounted Windows filesystem
+
+The local mounts are `/mnt/windows-c` and `/mnt/windows-d`. Verify the selected mount is available and writable, then choose a dedicated output directory. For example, from Bash:
+
+```bash
+windows_build_dir='/mnt/windows-d/train-builds/local'
+mkdir -p "$windows_build_dir"
+pwsh -NoProfile -File scripts/run-godot-content-export-smoke.ps1 -ExportOnly -OutputPath "$windows_build_dir/train.exe"
+```
+
+Export requires the project's .NET SDK and matching Godot .NET Windows export templates. Passing the output path on the command line keeps machine-specific mount paths out of `export_presets.cfg`. Keep the complete export directory, including the PCK and .NET output, together when running or copying the build.
+
+The content/mods export smoke scripts' `-OutputPath` selects a fresh export destination; `-ExportOnly` stops after verifying that export completed and the executable exists. For runtime checks against an existing native build for the current host, set `TRAIN_CONTENT_EXPORT_BIN` or `TRAIN_MODS_EXPORT_BIN` to its executable path and invoke the corresponding script without `-ExportOnly`. Windows `.exe` builds require Windows. `-ExportOnly` cannot validate a pre-existing binary supplied through these environment variables; use `-OutputPath` for a new export instead.
+
+A mounted Windows filesystem provides file access, not a Windows execution environment. Verify Windows-specific behavior in Windows and record the build's tested commit, runtime results, and logs. If Windows execution is unavailable, report that part as unverified even when export succeeds.
+
+Historical records in `docs/validation/`, `docs/research/`, and `archive/mvp/` retain the OS, paths, commands, and results used at the time. New validation records must describe the environment actually used.
 
 ## Recovery
 

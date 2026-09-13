@@ -2,12 +2,16 @@
 
 $ErrorActionPreference = "Stop"
 $smoke = Join-Path $PSScriptRoot "run-godot-mods-export-smoke.ps1"
+. (Join-Path $PSScriptRoot "SmokeTests.Helpers.ps1")
+$pwsh = Get-TestPowerShellPath
 $failed = 0
 
 function Invoke-Smoke {
     param(
         [string] $GodotPath,
         [string] $ExportBin,
+        [string] $OutputPath,
+        [switch] $ExportOnly,
         [switch] $ForceUnavailable
     )
     $previousGodot = $env:GODOT
@@ -24,8 +28,11 @@ function Invoke-Smoke {
             if ($ExportBin) { $env:TRAIN_MODS_EXPORT_BIN = $ExportBin } else { Remove-Item Env:TRAIN_MODS_EXPORT_BIN -ErrorAction SilentlyContinue }
             Remove-Item Env:TRAIN_MODS_EXPORT_SMOKE_NO_SEARCH -ErrorAction SilentlyContinue
         }
-        $process = Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-File", $smoke) -Wait -PassThru -NoNewWindow
-        return [int] $process.ExitCode
+        $arguments = @("-NoProfile", "-File", $smoke)
+        if ($OutputPath) { $arguments += @("-OutputPath", $OutputPath) }
+        if ($ExportOnly) { $arguments += "-ExportOnly" }
+        & $pwsh @arguments 2>&1 | Out-Host
+        return [int] $LASTEXITCODE
     }
     finally {
         if ($null -eq $previousGodot) { Remove-Item Env:GODOT -ErrorAction SilentlyContinue } else { $env:GODOT = $previousGodot }
@@ -36,34 +43,7 @@ function Invoke-Smoke {
 
 function New-FakeProgram {
     param([int] $ExitCode, [string[]] $Lines)
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("train-fake-mods-export-" + [guid]::NewGuid().ToString("N") + ".cmd")
-    $body = @(
-        "@echo off"
-    ) + ($Lines | ForEach-Object { "echo $_" }) + @(
-        "exit /b $ExitCode"
-    )
-    Set-Content -LiteralPath $path -Value $body -Encoding Ascii
-    return $path
-}
-
-function New-FakeWinExe {
-    param([int] $ExitCode, [string[]] $Lines)
-    $id = [guid]::NewGuid().ToString("N")
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("train-fake-mods-winexe-" + $id + ".exe")
-    $prints = @($Lines | ForEach-Object {
-        $escaped = $_.Replace("\", "\\").Replace('"', '\"')
-        "        System.Console.WriteLine(`"$escaped`");"
-    }) -join "`r`n"
-    $code = @"
-public static class TrainFakeModsWinExe$id {
-    public static int Main() {
-$prints
-        return $ExitCode;
-    }
-}
-"@
-    Add-Type -TypeDefinition $code -OutputType WindowsApplication -OutputAssembly $path -ReferencedAssemblies System
-    return $path
+    return New-FakeNativeProgram -Name "train-fake-mods-export" -ExitCode $ExitCode -Lines $Lines
 }
 
 function Assert-SmokeExit {
@@ -76,35 +56,83 @@ function Assert-SmokeExit {
     Write-Host "ok $Name"
 }
 
+function Assert-SmokeCondition {
+    param([string] $Name, [bool] $Condition)
+    if (-not $Condition) {
+        Write-Host "FAIL $Name"
+        $script:failed++
+        return
+    }
+    Write-Host "ok $Name"
+}
+
 $allMarkers = @(
     "MODS_EXPORT_IRON_ORE_LOADED",
     "MODS_EXPORT_INIT_OK",
     "MODS_EXPORT_ROOT_EMPTY"
 )
 
-$failingExport = New-FakeProgram -ExitCode 7 -Lines @("export failed")
 $passingBin = New-FakeProgram -ExitCode 0 -Lines $allMarkers
 $unavailableRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_UNAVAILABLE")
 $presentRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_PRESENT")
 $missingBin = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED")
 $nonzeroProcess = New-FakeProgram -ExitCode 7 -Lines $allMarkers
-$passingWinExe = New-FakeWinExe -ExitCode 0 -Lines $allMarkers
-$silentWinExe = New-FakeWinExe -ExitCode 0 -Lines @()
-$nonzeroWinExe = New-FakeWinExe -ExitCode 7 -Lines $allMarkers
+$exportRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("train mods export " + [guid]::NewGuid().ToString("N"))
+$outputPath = Join-Path $exportRoot "output with spaces/train.exe"
+$invocationPath = Join-Path $exportRoot "godot-arguments.txt"
+New-Item -ItemType Directory -Path $exportRoot | Out-Null
+$successfulExporter = New-FakeGodotExporter -Name "train-fake-mods-godot" -InvocationPath $invocationPath -ExitCode 0
+$failingExporter = New-FakeGodotExporter -Name "train-failing-mods-godot" -InvocationPath $invocationPath -ExitCode 7
+$passingWinExe = $null
+$silentWinExe = $null
+$nonzeroWinExe = $null
+$windowsNamedBins = @()
 try {
-    Assert-SmokeExit -Name "unavailable Godot" -Expected 2 -Actual (Invoke-Smoke -ForceUnavailable)
-    Assert-SmokeExit -Name "failed export" -Expected 1 -Actual (Invoke-Smoke -GodotPath $failingExport)
+    if ($IsWindows) {
+        $passingWinExe = New-FakeWindowsGuiExe -Name "train-passing-mods-winexe" -ExitCode 0 -Lines $allMarkers
+        $silentWinExe = New-FakeWindowsGuiExe -Name "train-silent-mods-winexe" -ExitCode 0 -Lines @()
+        $nonzeroWinExe = New-FakeWindowsGuiExe -Name "train-nonzero-mods-winexe" -ExitCode 7 -Lines $allMarkers
+    }
+    Assert-SmokeExit -Name "unavailable Godot with fresh OutputPath" -Expected 2 -Actual (Invoke-Smoke -OutputPath $outputPath -ForceUnavailable)
+    Assert-SmokeCondition -Name "unavailable Godot does not create OutputPath" -Condition (-not (Test-Path -LiteralPath $outputPath))
+    Assert-SmokeExit -Name "failed export with fresh OutputPath" -Expected 1 -Actual (Invoke-Smoke -GodotPath $failingExporter -OutputPath $outputPath)
+    Assert-SmokeCondition -Name "failed export does not create OutputPath" -Condition (-not (Test-Path -LiteralPath $outputPath))
     Assert-SmokeExit -Name "exported binary with empty mods root" -Expected 0 -Actual (Invoke-Smoke -ExportBin $passingBin)
     Assert-SmokeExit -Name "exported binary with unavailable mods root" -Expected 0 -Actual (Invoke-Smoke -ExportBin $unavailableRoot)
     Assert-SmokeExit -Name "ROOT_PRESENT does not satisfy missing/empty" -Expected 1 -Actual (Invoke-Smoke -ExportBin $presentRoot)
     Assert-SmokeExit -Name "exported binary missing a marker" -Expected 1 -Actual (Invoke-Smoke -ExportBin $missingBin)
     Assert-SmokeExit -Name "nonzero exported process" -Expected 1 -Actual (Invoke-Smoke -ExportBin $nonzeroProcess)
-    Assert-SmokeExit -Name "Windows GUI exe with all markers" -Expected 0 -Actual (Invoke-Smoke -ExportBin $passingWinExe)
-    Assert-SmokeExit -Name "Windows GUI exe exit 0 without markers" -Expected 1 -Actual (Invoke-Smoke -ExportBin $silentWinExe)
-    Assert-SmokeExit -Name "Windows GUI exe nonzero exit" -Expected 1 -Actual (Invoke-Smoke -ExportBin $nonzeroWinExe)
+    Assert-SmokeExit -Name "ExportOnly rejects a supplied environment binary" -Expected 2 -Actual (Invoke-Smoke -ExportBin $passingBin -ExportOnly)
+    if (-not $IsWindows) {
+        foreach ($extension in @(".exe", ".cmd", ".bat")) {
+            $windowsNamedBin = New-FakeNativeProgram -Name "train-mods-windows-named" -ExitCode 0 -Lines $allMarkers -Extension $extension
+            $windowsNamedBins += $windowsNamedBin
+            Assert-SmokeExit -Name "non-Windows rejects supplied $extension binary" -Expected 2 -Actual (Invoke-Smoke -ExportBin $windowsNamedBin)
+        }
+    }
+    Remove-Item -LiteralPath $invocationPath -ErrorAction SilentlyContinue
+    Assert-SmokeExit -Name "OutputPath exports to a new path with spaces" -Expected 0 -Actual (Invoke-Smoke -GodotPath $successfulExporter -ExportBin $missingBin -OutputPath $outputPath -ExportOnly)
+    $exportArguments = @(Get-Content -LiteralPath $invocationPath -ErrorAction SilentlyContinue)
+    Assert-SmokeCondition -Name "OutputPath invokes Godot export-release" -Condition ($exportArguments -contains "--export-release")
+    Assert-SmokeCondition -Name "OutputPath is passed intact to Godot" -Condition ($exportArguments -contains $outputPath)
+    Assert-SmokeCondition -Name "Godot creates the requested OutputPath" -Condition (Test-Path -LiteralPath $outputPath)
+    if ($IsWindows) {
+        Assert-SmokeExit -Name "Windows GUI exe with all markers" -Expected 0 -Actual (Invoke-Smoke -ExportBin $passingWinExe.FilePath)
+        Assert-SmokeExit -Name "Windows GUI exe exit 0 without markers" -Expected 1 -Actual (Invoke-Smoke -ExportBin $silentWinExe.FilePath)
+        Assert-SmokeExit -Name "Windows GUI exe nonzero exit" -Expected 1 -Actual (Invoke-Smoke -ExportBin $nonzeroWinExe.FilePath)
+    }
+    else {
+        Write-Host "SKIP Windows GUI exe smoke cases (Windows only)"
+    }
 }
 finally {
-    Remove-Item -LiteralPath $failingExport, $passingBin, $unavailableRoot, $presentRoot, $missingBin, $nonzeroProcess, $passingWinExe, $silentWinExe, $nonzeroWinExe -ErrorAction SilentlyContinue
+    @($passingBin, $unavailableRoot, $presentRoot, $missingBin, $nonzeroProcess, $successfulExporter, $failingExporter) + $windowsNamedBins |
+        Where-Object { $_ } |
+        Remove-Item -ErrorAction SilentlyContinue
+    @($passingWinExe, $silentWinExe, $nonzeroWinExe) |
+        Where-Object { $_ } |
+        ForEach-Object { Remove-Item -LiteralPath $_.Root -Recurse -Force -ErrorAction SilentlyContinue }
+    Remove-Item -LiteralPath $exportRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($failed -gt 0) {
