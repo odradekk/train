@@ -261,6 +261,7 @@ public sealed class CompositeConsoleCommands
             $"construction {query.Construction}",
             $"identity {query.IdentityRetention}",
             $"operational {query.OperationalCondition}",
+            $"capabilities {(query.Capabilities.Count == 0 ? "none" : string.Join(',', query.Capabilities))}",
             $"transform {FormatNumber(query.Transform.OriginX)},{FormatNumber(query.Transform.OriginY)},{FormatNumber(query.Transform.OriginZ)} {FormatNumber(query.Transform.RightX)},{FormatNumber(query.Transform.RightY)},{FormatNumber(query.Transform.RightZ)} {FormatNumber(query.Transform.UpX)},{FormatNumber(query.Transform.UpY)},{FormatNumber(query.Transform.UpZ)} {query.Transform.Orientation}",
             envelope,
             $"parts {query.Parts.Count}"

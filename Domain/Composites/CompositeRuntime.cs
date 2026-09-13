@@ -35,7 +35,8 @@ public enum IdentityRetentionStatus
 public enum OperationalCondition
 {
     Unevaluated = 0,
-    Disabled = 1
+    Disabled = 1,
+    Operational = 2
 }
 
 public sealed class CompositePart
@@ -113,6 +114,23 @@ public sealed class CompositeInstance
 
     public CompositePart? PartAt(LocalVoxelCoord cell) =>
         Parts.FirstOrDefault(part => part.Cell == cell);
+
+    public CompositePart? PartById(EntityId id) =>
+        Parts.FirstOrDefault(part => part.Id == id);
+
+    public CompositeInstance WithTransform(CompositeTransform transform) =>
+        new(
+            Id,
+            DefinitionId,
+            LastUsedRevision,
+            ArchetypeId,
+            LastUsedArchetypeRevision,
+            SizeClass,
+            transform,
+            Parts,
+            Contacts,
+            SaveLocalRevision,
+            SaveLocalDefinition);
 }
 
 public sealed record CompositeManufactureResult(
@@ -146,6 +164,7 @@ public sealed record CompositeQuery(
     ConstructionStatus Construction,
     IdentityRetentionStatus IdentityRetention,
     OperationalCondition OperationalCondition,
+    IReadOnlyList<string> Capabilities,
     IReadOnlyList<CompositePartQuery> Parts,
     IReadOnlyList<CompositeContactQuery> Contacts,
     VehicleEnvelopeBox? Envelope,
@@ -165,6 +184,7 @@ public sealed record CompositeQuery(
         Envelope == other.Envelope &&
         LastUsedRevision == other.LastUsedRevision &&
         SaveLocalRevision == other.SaveLocalRevision &&
+        Capabilities.SequenceEqual(other.Capabilities) &&
         Parts.SequenceEqual(other.Parts) &&
         Contacts.SequenceEqual(other.Contacts);
 
@@ -182,6 +202,8 @@ public sealed record CompositeQuery(
         hash.Add(Envelope);
         hash.Add(LastUsedRevision);
         hash.Add(SaveLocalRevision);
+        foreach (var capability in Capabilities)
+            hash.Add(capability);
         foreach (var part in Parts)
             hash.Add(part);
         foreach (var contact in Contacts)

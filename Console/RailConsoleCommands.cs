@@ -20,6 +20,9 @@ public sealed class RailConsoleCommands
         if (arguments.Count == 1 && string.Equals(arguments[0], "construct", StringComparison.OrdinalIgnoreCase))
             return FormatConstruct(_session.ConstructRails());
 
+        if (arguments.Count == 1 && string.Equals(arguments[0], "assemble", StringComparison.OrdinalIgnoreCase))
+            return FormatAssemble(_session.AssembleStaticTrain());
+
         if (arguments.Count >= 2 &&
             string.Equals(arguments[0], "repair", StringComparison.OrdinalIgnoreCase) &&
             (arguments.Count - 1) % 3 == 0 &&
@@ -30,7 +33,7 @@ public sealed class RailConsoleCommands
             return FormatQuery(arguments.Skip(1).ToArray());
 
         return string.Join('\n',
-            "Usage: rail construct | rail query [occupancy|intervals|connections|graph|rebuild] | rail query <x> <y> <z>",
+            "Usage: rail construct | rail assemble | rail query [occupancy|intervals|connections|graph|rebuild|assembly] | rail query <x> <y> <z>",
             "rail repair <x> <y> <z> [<x> <y> <z> ...].");
     }
 
@@ -99,7 +102,48 @@ public sealed class RailConsoleCommands
             return FormatQuery(new[] { "graph" });
         }
 
-        return "Usage: rail query [occupancy|intervals|connections|graph|rebuild] | rail query <x> <y> <z>";
+        if (arguments.Count == 1 && string.Equals(arguments[0], "assembly", StringComparison.OrdinalIgnoreCase))
+            return FormatAssemblies(_session.QueryTrainAssemblies());
+
+        return "Usage: rail query [occupancy|intervals|connections|graph|rebuild|assembly] | rail query <x> <y> <z>";
+    }
+
+    private static string FormatAssemble(TrainAssemblyResult result)
+    {
+        if (!result.Succeeded)
+            return $"Rail assemble {result.Status}.";
+        return $"Rail assemble {result.Status} assembly {result.AssemblyId}.";
+    }
+
+    private string FormatAssemblies(IReadOnlyList<TrainAssemblyQuery> assemblies)
+    {
+        if (assemblies.Count == 0)
+            return "Rail assembly none.";
+        return string.Join('\n', assemblies.Select(FormatAssembly));
+    }
+
+    private string FormatAssembly(TrainAssemblyQuery assembly)
+    {
+        var lines = new List<string>
+        {
+            $"Rail assembly {assembly.Id} active {assembly.ActiveLocomotiveId} heading {assembly.Reference.Heading} distance {FormatNumber(assembly.Reference.Distance)}",
+            $"vehicles {string.Join(',', assembly.VehicleIds.Select(id => id.Value.ToString(CultureInfo.InvariantCulture)))}"
+        };
+        foreach (var vehicle in assembly.Vehicles)
+        {
+            var query = _session.QueryComposite(vehicle.VehicleId);
+            var operational = query?.OperationalCondition.ToString() ?? "Unknown";
+            lines.Add(
+                $"vehicle {vehicle.VehicleId} front {FormatNumber(vehicle.FrontContact.X)},{FormatNumber(vehicle.FrontContact.Y)},{FormatNumber(vehicle.FrontContact.Z)} {operational}");
+        }
+
+        foreach (var connection in assembly.Connections)
+        {
+            lines.Add(
+                $"coupler {connection.FromVehicleId}:{connection.FromPartId} ({connection.FromCell.X},{connection.FromCell.Y},{connection.FromCell.Z}) -> {connection.ToVehicleId}:{connection.ToPartId} ({connection.ToCell.X},{connection.ToCell.Y},{connection.ToCell.Z})");
+        }
+
+        return string.Join('\n', lines);
     }
 
     private string FormatCell(WorldVoxelCoord cell)

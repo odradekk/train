@@ -33,6 +33,12 @@ public readonly record struct CompositeTransform
 
     public VoxelOrientation Orientation => FragmentGridSnap.SnapRotation(Right, Up);
 
+    public (double X, double Y, double Z) TransformPoint(double x, double y, double z) =>
+        (
+            OriginX + x * RightX + y * UpX + z * ForwardX,
+            OriginY + x * RightY + y * UpY + z * ForwardY,
+            OriginZ + x * RightZ + y * UpZ + z * ForwardZ);
+
     public bool IsFinite =>
         double.IsFinite(OriginX) && double.IsFinite(OriginY) && double.IsFinite(OriginZ) &&
         double.IsFinite(RightX) && double.IsFinite(RightY) && double.IsFinite(RightZ) &&

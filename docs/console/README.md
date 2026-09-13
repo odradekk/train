@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复；铁路存档由后续票接入）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢静态编组；铁路与编组存档由后续票接入）。
 
 ## 打开控制台与输入规则
 
@@ -43,7 +43,8 @@
 | [composite replace](composite-replace.md) `<id> <x> <y> <z> <namespace:id> <orientation>` | 拆除旧件并初始化新件 | 同上 |
 | [composite batch](composite-batch.md) `<id> <op> ...` | 原子批量改装；占格交换合法，失败整批拒绝 | 同上 |
 | [rail construct](rail-construct.md) | 提交切片 4 固定直轨施工计划 | 包含切片 4，且已进入体素开发场景 |
-| [rail query](rail-query.md) `[occupancy\|intervals\|connections\|graph\|rebuild \| <x> <y> <z>]` | 查询轨段、连接、实际占格或通行区间 | 同上 |
+| [rail assemble](rail-assemble.md) | 制造并定位一车头一车厢的刚性编组 | 同上 |
+| [rail query](rail-query.md) `[occupancy\|intervals\|connections\|graph\|rebuild\|assembly \| <x> <y> <z>]` | 查询轨段、连接、实际占格、通行区间或静态编组 | 同上 |
 | [rail repair](rail-repair.md) `<x> <y> <z> [...]` | 修复原轨段损坏占格并恢复依赖区间 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
@@ -59,7 +60,7 @@
 | 1 | 进入切片 1 体素场景 | 一个 16³ Chunk | 各轴 `4..11`，共 512 格 | `0..15` |
 | 2 | 进入切片 2 体素场景 | 边长 16，世界 32³，共 2×2×2 个 Chunk | 地面 `x,z=0..31`、`y=0`，加 `14..17` 三轴交汇 4³ 实心块，共 1,088 格 | `0..31` |
 | 3 | 进入切片 3 静置车辆场景 | 边长 16，世界 32³，Seed=42 | 空世界；可制造 168 格空心壳或 55 格桥接夹具，车辆体素不进入世界网格；失去身份的碎块才转入世界 | `0..31` |
-| 4 | 进入切片 4 正式直轨场景 | 边长 16，世界 320×32×32，Seed=4 | 菜单进入或 `R` 后施工固定直轨，257 根轨枕、1032 个正体积占格；`voxel reset` 清空轨道 | `0..319` / `0..31` / `0..31` |
+| 4 | 进入切片 4 正式直轨场景 | 边长 16，世界 320×32×32，Seed=4 | 菜单进入或 `R` 后施工固定直轨并制造一车头一车厢刚性编组，257 根轨枕、1032 个正体积占格；车辆体素不属于世界占用；`voxel reset` 清空轨道与编组 | `0..319` / `0..31` / `0..31` |
 
 切片 2 基底带有明确的 Seed、`GeneratorVersion=slice-2-integer-fixture-v1` 和尺寸参数；切片 3 使用 Seed=42 与 `GeneratorVersion=slice-3-parked-vehicle-v1`；切片 4 使用 Seed=4 与 `GeneratorVersion=slice-4-straight-rail-v1`。相同输入与有效内容重复生成同一基底。世界生成不消费随机流；切片 3 断裂平局使用 Seed 与事务 ID 的无状态 SplitMix64 键。`voxel reset` / `composite reset` 走同一正式生成入口。切片 4 的 `rail construct` 走 `RailEditTransaction`，不在重置时偷偷写入轨道。
 
@@ -117,10 +118,11 @@ PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixe
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
 | `UnsupportedRailway` | 当前会话已有正式铁路状态，尚不能完整写入存档；不写文件、不报告 `Saved`，上一份有效存档保持不变 |
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
+| `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。`transaction_count` 为 `ulong.MaxValue`、缩放/剪切轴、以及 save-local 与车辆身份不一致，属于 `InvalidDelta` |
-| `TransactionExhausted` | 制造 / 改装 / 车辆伤害时再提交会写出不可加载的计数（当前值已为 `MaxValue - 1` 或 `MaxValue`）；不绕回、不部分提交、不覆盖可读存档 |
-| `EntityIdExhausted` | 制造、改装或车辆伤害预检整次提交所需的新实体 ID 后发现不足。拒绝时权威状态、`NextEntityId` 与事务计数都不变。`ulong.MaxValue` 是合法的耗尽游标但绝不分配；已耗尽时仍可执行不需要新 ID 的改装或伤害，并可保存、加载 |
+| `TransactionExhausted` | 制造 / 改装 / 车辆伤害 / 编组时再提交会写出不可加载的计数（当前值已为 `MaxValue - 1` 或 `MaxValue`）；不绕回、不部分提交、不覆盖可读存档 |
+| `EntityIdExhausted` | 制造、改装、车辆伤害或编组预检整次提交所需的新实体 ID 后发现不足。拒绝时权威状态、`NextEntityId` 与事务计数都不变。`ulong.MaxValue` 是合法的耗尽游标但绝不分配；已耗尽时仍可执行不需要新 ID 的改装或伤害，并可保存、加载 |
 
 格式校验失败时不执行世界命令。例如缺少朝向、ID 使用大写、朝向写成 `90` 或 `px_px`，得到的是用法提示，而不是 `UnknownDefinition` / `DisallowedOrientation`。
 
@@ -211,22 +213,25 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId 随格式 2 一并保存；失败时保留旧会话，不会报告成功却丢车或丢 ID。已有正式铁路时 `voxel save` 返回 `UnsupportedRailway`，不覆盖上一份有效文件。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId 随格式 2 一并保存；失败时保留旧会话，不会报告成功却丢车或丢 ID。已有正式铁路或编组时 `voxel save` 返回 `UnsupportedRailway`，不覆盖上一份有效文件。
 
 ### 切片 4 正式直轨
 
-从主菜单进入切片 4 后，菜单进入已经施工固定直轨。若先 `voxel reset`，再逐行执行：
+从主菜单进入切片 4 后，菜单进入已经施工固定直轨，并制造一车头一车厢刚性编组。若先 `voxel reset`，再逐行执行：
 
 ```text
 loglevel info
 voxel reset
 voxel save Slice 4 Empty
 rail construct
+rail assemble
 rail query
+rail query assembly
 rail query 80 1 14
 rail query 80 1 15
 rail query 80 1 16
 rail query connections
+composite query
 voxel damage 110 1 15 100
 rail query intervals
 rail query graph
@@ -234,7 +239,7 @@ rail repair 110 1 15
 voxel save After Railway
 ```
 
-空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行。修复恢复原身份。有铁路后再保存得到 `UnsupportedRailway`，上一份空世界文件不变。
+空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行，也不会移动已提交编组。修复恢复原身份。有铁路后再保存得到 `UnsupportedRailway`，上一份空世界文件不变。
 
 ### 切片 2 边界复现
 

@@ -265,7 +265,37 @@ public sealed record RailAuthoritySnapshot(
     IReadOnlyList<(WorldVoxelCoord Cell, VoxelDefinitionId DefinitionId, int Durability)> Occupied,
     ulong NextEntityId,
     ulong TransactionCount,
-    bool DerivedGraphCurrent);
+    bool DerivedGraphCurrent)
+{
+    public bool Equals(RailAuthoritySnapshot? other) =>
+        other is not null &&
+        WorldVoxelCount == other.WorldVoxelCount &&
+        SegmentCount == other.SegmentCount &&
+        OccupiedCellCount == other.OccupiedCellCount &&
+        ConnectionCount == other.ConnectionCount &&
+        NextEntityId == other.NextEntityId &&
+        TransactionCount == other.TransactionCount &&
+        DerivedGraphCurrent == other.DerivedGraphCurrent &&
+        SegmentIds.SequenceEqual(other.SegmentIds) &&
+        Occupied.SequenceEqual(other.Occupied);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(WorldVoxelCount);
+        hash.Add(SegmentCount);
+        hash.Add(OccupiedCellCount);
+        hash.Add(ConnectionCount);
+        hash.Add(NextEntityId);
+        hash.Add(TransactionCount);
+        hash.Add(DerivedGraphCurrent);
+        foreach (var id in SegmentIds)
+            hash.Add(id);
+        foreach (var occupied in Occupied)
+            hash.Add(occupied);
+        return hash.ToHashCode();
+    }
+}
 
 public static class RailIntervals
 {

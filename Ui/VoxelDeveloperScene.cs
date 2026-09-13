@@ -187,6 +187,8 @@ public partial class VoxelDeveloperScene : Node3D
         Construct,
         AwaitConstruct,
         Inspect,
+        Assemble,
+        AwaitAssemble,
         EdgeDamage,
         AwaitEdgeDamage,
         RepairEdge,
@@ -526,8 +528,8 @@ public partial class VoxelDeveloperScene : Node3D
         Refresh();
         if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
             !string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) &&
-            !_session.ConstructRails().Succeeded)
-            throw new InvalidOperationException("Slice 4 could not construct the fixture railway.");
+            !EnterSlice4Fixture())
+            throw new InvalidOperationException("Slice 4 could not construct the fixture railway and static train.");
 
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
         {
@@ -656,11 +658,11 @@ public partial class VoxelDeveloperScene : Node3D
         {
             _session.Reset();
             if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
-                !_session.ConstructRails().Succeeded)
-                throw new InvalidOperationException("Slice 4 reset could not reconstruct the fixture railway.");
+                !EnterSlice4Fixture())
+                throw new InvalidOperationException("Slice 4 reset could not reconstruct the fixture railway and static train.");
             _result.Text = _session.Identity.Slice switch
             {
-                VoxelDevelopmentSlice.Slice4 => "最近命令：已重置并施工正式切片 4 直轨。",
+                VoxelDevelopmentSlice.Slice4 => "最近命令：已重置并施工正式切片 4 直轨与静态编组。",
                 VoxelDevelopmentSlice.Slice3 => "最近命令：已重置正式切片 3 静置车辆世界。",
                 VoxelDevelopmentSlice.Slice2 => "最近命令：已重置正式切片 2 多 Chunk 世界。",
                 _ => "最近命令：已重置正式 16³ 开发世界。"
@@ -1021,7 +1023,11 @@ public partial class VoxelDeveloperScene : Node3D
         {
             var summary = string.Join("；", vehicles.Select(item =>
                 $"{item.Id} 零件 {item.Parts.Count} {item.IdentityRetention}/{item.OperationalCondition}"));
-            return $"车辆 {vehicles.Count}：{summary}。显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
+            var assemblies = _session.QueryTrainAssemblies();
+            var assemblyText = assemblies.Count == 0
+                ? ""
+                : $" 编组 {assemblies[0].Id} 活动车头 {assemblies[0].ActiveLocomotiveId} 车钩 {assemblies[0].Connections[0].FromPartId}->{assemblies[0].Connections[0].ToPartId}。";
+            return $"车辆 {vehicles.Count}：{summary}。{assemblyText}显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
         }
 
         var vehicle = vehicles[0];
@@ -1099,8 +1105,8 @@ public partial class VoxelDeveloperScene : Node3D
     {
         if (identity.Slice == VoxelDevelopmentSlice.Slice4)
         {
-            camera.Position = new Vector3(144, 20, -10);
-            camera.LookAt(new Vector3(144, 2, 16), Vector3.Up);
+            camera.Position = new Vector3(76, 16, -8);
+            camera.LookAt(new Vector3(76, 2, 16), Vector3.Up);
             return;
         }
 
@@ -4251,6 +4257,23 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice4ZNeighborMeshId = _tracks.MeshFor(new ChunkCoord(6, 0, 1))?.GetInstanceId() ?? 0;
                 if (_slice4FarMeshId == 0 || _slice4ZNeighborMeshId == 0)
                     throw new InvalidOperationException("Slice 4 smoke is missing the far or z-boundary track mesh.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Assemble;
+                return;
+            case VoxelSlice4SmokePhase.Assemble:
+                if (!_session.AssembleStaticTrain().Succeeded)
+                    throw new InvalidOperationException("Slice 4 smoke could not assemble the formal locomotive and carriage.");
+                RequireSlice4TrainMarkers();
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitAssemble;
+                return;
+            case VoxelSlice4SmokePhase.AwaitAssemble:
+                if (_dirty)
+                    return;
+                if (_composites.VehicleCount != 2 || _composites.FaceCount == 0 || _composites.MeshInstanceCount != 2)
+                    return;
+                if (_session.World.VoxelCount != 1032)
+                    throw new InvalidOperationException("Slice 4 train assembly published vehicle voxels into the world.");
+                ValidateCompositeVisual();
+                GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_VISUAL vehicles={_composites.VehicleCount} meshes={_composites.MeshInstanceCount} faces={_composites.FaceCount}");
                 _slice4SmokePhase = VoxelSlice4SmokePhase.EdgeDamage;
                 return;
             case VoxelSlice4SmokePhase.EdgeDamage:
@@ -4361,6 +4384,40 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice4SmokePhase = VoxelSlice4SmokePhase.Done;
                 return;
         }
+    }
+
+    private bool EnterSlice4Fixture() =>
+        _session.ConstructRails().Succeeded && _session.AssembleStaticTrain().Succeeded;
+
+    private void RequireSlice4TrainMarkers()
+    {
+        var assemblies = _session.QueryTrainAssemblies();
+        if (assemblies.Count != 1)
+            throw new InvalidOperationException($"Slice 4 smoke expected one train assembly, got {assemblies.Count}.");
+        var assembly = assemblies[0];
+        var loco = _session.QueryComposite(assembly.VehicleIds[0]);
+        var carriage = _session.QueryComposite(assembly.VehicleIds[1]);
+        if (loco is null || carriage is null)
+            throw new InvalidOperationException("Slice 4 smoke assembly is missing a vehicle query.");
+        if (loco.DefinitionId != StaticTrainFixture.LocomotiveId ||
+            carriage.DefinitionId != StaticTrainFixture.CarriageId)
+            throw new InvalidOperationException("Slice 4 smoke did not manufacture the formal locomotive and carriage.");
+        if (loco.OperationalCondition != OperationalCondition.Operational ||
+            carriage.OperationalCondition != OperationalCondition.Operational)
+            throw new InvalidOperationException("Slice 4 smoke assembly is not operational.");
+        if (assembly.Connections.Count != 1 ||
+            assembly.Connections[0].FromPartId == default ||
+            assembly.Connections[0].ToPartId == default)
+            throw new InvalidOperationException("Slice 4 smoke assembly is missing a live coupler connection.");
+        if (Math.Abs(assembly.Vehicles[0].FrontContact.X - 80) > 1e-8 ||
+            Math.Abs(assembly.Vehicles[1].FrontContact.X - 71) > 1e-8)
+            throw new InvalidOperationException("Slice 4 smoke contact positions are not the formal static poses.");
+        GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_ASSEMBLED id={assembly.Id} vehicles=2");
+        GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_LOCO id={loco.Id} front=80");
+        GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_CARRIAGE id={carriage.Id} front=71");
+        GD.Print(
+            $"VOXEL_SMOKE_SLICE4_TRAIN_COUPLER from={assembly.Connections[0].FromPartId} to={assembly.Connections[0].ToPartId} cell={assembly.Connections[0].FromCell.X},{assembly.Connections[0].FromCell.Y},{assembly.Connections[0].FromCell.Z}");
+        GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_QUALIFIED loco={loco.OperationalCondition} carriage={carriage.OperationalCondition}");
     }
 
     private void RequireSlice4Occupancy(WorldVoxelCoord cell, string marker)

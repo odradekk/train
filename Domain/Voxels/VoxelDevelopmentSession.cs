@@ -4,7 +4,7 @@ using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
-public sealed class VoxelDevelopmentSession
+public sealed partial class VoxelDevelopmentSession
 {
     private readonly VoxelCatalog _catalog;
     private readonly CompositeCatalog _composites;
@@ -74,6 +74,7 @@ public sealed class VoxelDevelopmentSession
         _vehicles.Clear();
         _vehicles.AddRange(vehicles);
         _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+        _assemblies.Clear();
     }
 
     private void MarkCatalogDirty()
@@ -91,6 +92,7 @@ public sealed class VoxelDevelopmentSession
         Commands = new VoxelWorldCommands(World, _catalog);
         _vehicles.Clear();
         _rails.Clear();
+        _assemblies.Clear();
         NextEntityId = 1;
         TransactionCount = 0;
         _pendingChanges.Clear();
@@ -185,6 +187,7 @@ public sealed class VoxelDevelopmentSession
             ? CompositeDamageStatus.Damaged
             : CompositeDamageStatus.Removed;
 
+        DissolveBrokenAssemblies();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeDamageResult(overall, targets[0].VehicleId, outcomes);
@@ -428,6 +431,7 @@ public sealed class VoxelDevelopmentSession
         _vehicles[index] = instance;
         NextEntityId = next;
         CommitTransaction();
+        DissolveBrokenAssemblies();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeRefitResult(ConstructionStatus.Valid, vehicleId, instance.Parts, allocated);
@@ -681,6 +685,7 @@ public sealed class VoxelDevelopmentSession
         _vehicles.Clear();
         _vehicles.AddRange(vehicles);
         _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+        _assemblies.Clear();
         NextEntityId = nextEntityId;
         TransactionCount = transactionCount;
         _pendingChanges.Clear();
@@ -970,7 +975,8 @@ public sealed class VoxelDevelopmentSession
             ? IdentityRetentionStatus.MissingCoreTag
             : ConstructionValidator.EvaluateIdentity(instance, archetypeEntry.Archetype, voxels);
         var boundContacts = instance.Contacts.Count(contact => instance.PartAt(contact.BoundCell) is not null);
-        var operational = boundContacts < 2 ? OperationalCondition.Disabled : OperationalCondition.Unevaluated;
+        var capabilities = TrainAssemblyRules.LiveCapabilities(instance, voxels);
+        var operational = TrainAssemblyRules.EvaluateOperational(boundContacts, capabilities);
         var parts = instance.Parts
             .Select(part => new CompositePartQuery(part.Id, part.Cell, part.DefinitionId, part.Orientation, part.CurrentDurability))
             .ToArray();
@@ -999,6 +1005,7 @@ public sealed class VoxelDevelopmentSession
             construction,
             identity,
             operational,
+            capabilities,
             parts,
             contacts,
             VehicleEnvelope.TryFromContacts(instance.SizeClass, instance.Contacts, out var envelope) ? envelope : null,

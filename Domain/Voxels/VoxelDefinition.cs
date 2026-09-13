@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using Train.Domain.Behaviors;
 
 namespace Train.Domain.Voxels;
 
@@ -288,8 +289,8 @@ public sealed class VoxelDefinition
         var normalizedDescription = NormalizeDisplayText(description, DescriptionMinLength, DescriptionMaxLength, nameof(description));
         var tagSet = NormalizeTags(tags);
         var behaviorList = behaviors.ToArray();
-        if (behaviorList.Length > 0)
-            throw new ArgumentException("No behaviors are registered.", nameof(behaviors));
+        if (behaviorList.Any(behavior => !BehaviorRegistry.IsRegistered(behavior)))
+            throw new ArgumentException("Unknown or unregistered behavior.", nameof(behaviors));
 
         Id = id;
         Name = normalizedName;

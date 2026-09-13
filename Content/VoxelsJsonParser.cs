@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Train.Domain.Behaviors;
 using Train.Domain.Voxels;
 
 namespace Train.Content;
@@ -267,7 +268,7 @@ internal static class VoxelsJsonParser
             return false;
         }
 
-        if (behaviors.Count > 0)
+        if (behaviors.Any(behavior => !BehaviorRegistry.IsRegistered(behavior)))
         {
             diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Unknown or unregistered behavior.", jsonPath + "/behaviors");
             return false;
