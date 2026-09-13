@@ -4,7 +4,8 @@ public enum VoxelDevelopmentSlice
 {
     Slice1 = 1,
     Slice2 = 2,
-    Slice3 = 3
+    Slice3 = 3,
+    Slice4 = 4
 }
 
 public readonly record struct VoxelWorldIdentity
@@ -12,6 +13,7 @@ public readonly record struct VoxelWorldIdentity
     public const string Slice1GeneratorVersion = "slice-1-integer-fixture-v1";
     public const string Slice2GeneratorVersion = "slice-2-integer-fixture-v1";
     public const string Slice3GeneratorVersion = "slice-3-parked-vehicle-v1";
+    public const string Slice4GeneratorVersion = "slice-4-straight-rail-v1";
 
     public VoxelDevelopmentSlice Slice { get; init; }
     public ulong Seed { get; init; }
@@ -38,6 +40,13 @@ public readonly record struct VoxelWorldIdentity
         42,
         Slice3GeneratorVersion,
         new VoxelWorldBounds(32, 32, 32),
+        16);
+
+    public static VoxelWorldIdentity Slice4 { get; } = new(
+        VoxelDevelopmentSlice.Slice4,
+        4,
+        Slice4GeneratorVersion,
+        new VoxelWorldBounds(320, 32, 32),
         16);
 
     public VoxelWorldIdentity(

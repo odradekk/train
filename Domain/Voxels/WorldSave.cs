@@ -25,7 +25,8 @@ public enum WorldSaveStatus
     NotFound,
     Unavailable,
     UnsupportedVehicles,
-    UnsupportedIdentities
+    UnsupportedIdentities,
+    UnsupportedRailway
 }
 
 public sealed record WorldSaveResult(WorldSaveStatus Status, Guid? SaveId = null, string? DisplayName = null)
@@ -1072,6 +1073,7 @@ public static class WorldSaveRestorer
         status = WorldSaveStatus.UnknownGenerator;
         var slice = document.GeneratorVersion switch
         {
+            VoxelWorldIdentity.Slice4GeneratorVersion => VoxelDevelopmentSlice.Slice4,
             VoxelWorldIdentity.Slice3GeneratorVersion => VoxelDevelopmentSlice.Slice3,
             VoxelWorldIdentity.Slice2GeneratorVersion => VoxelDevelopmentSlice.Slice2,
             VoxelWorldIdentity.Slice1GeneratorVersion => VoxelDevelopmentSlice.Slice1,

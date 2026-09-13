@@ -33,6 +33,6 @@ name Slice 3 Persist
 Voxel count: 26.
 ```
 
-失败同样以 `info` 写出 `Voxel <Status>.` 和当前总数，例如非法名称得到 `InvalidName`。没有独立的存档列表或选档 UI；记下输出中的 UUID，之后用 [`voxel load`](voxel-load.md) 恢复。当前切片已实现完整车辆与脱落身份持久化后，有车或有 RuntimeId 不再返回 `UnsupportedVehicles` / `UnsupportedIdentities`。沿轨运行、编组、铁路机械和正式设计器仍不在本命令范围内。
+失败同样以 `info` 写出 `Voxel <Status>.` 和当前总数，例如非法名称得到 `InvalidName`。没有独立的存档列表或选档 UI；记下输出中的 UUID，之后用 [`voxel load`](voxel-load.md) 恢复。当前切片已实现完整车辆与脱落身份持久化后，有车或有 RuntimeId 不再返回 `UnsupportedVehicles` / `UnsupportedIdentities`。已有正式铁路状态时返回 `UnsupportedRailway`：不写候选文件、不报告 `Saved`，上一份有效存档保持不变。无铁路的切片 4 空世界仍可保存。沿轨运行、编组、铁路机械和正式设计器仍不在本命令范围内。
 
 正式菜单下两种夹具（五类改装壳体、桥接断裂 / 脱落）的保存 → 退出进程 → 新进程加载 → 继续，以及读档错误复现，见 [命令索引](README.md#切片-3-保存退出进程并恢复后继续)。

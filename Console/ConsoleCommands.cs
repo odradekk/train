@@ -39,6 +39,8 @@ public sealed class ConsoleCommandDispatcher
     public const string VoxelUnavailableEventId = "voxel_unavailable";
     public const string CompositeEventId = "composite";
     public const string CompositeUnavailableEventId = "composite_unavailable";
+    public const string RailEventId = "rail";
+    public const string RailUnavailableEventId = "rail_unavailable";
 
     private readonly TrainLogger _logger;
     private readonly Action _clear;
@@ -47,6 +49,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly bool _allowReload;
     private readonly VoxelConsoleCommands? _voxelCommands;
     private readonly CompositeConsoleCommands? _compositeCommands;
+    private readonly RailConsoleCommands? _railCommands;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
@@ -55,7 +58,8 @@ public sealed class ConsoleCommandDispatcher
         Action reload,
         bool allowReload,
         VoxelConsoleCommands? voxelCommands = null,
-        CompositeConsoleCommands? compositeCommands = null)
+        CompositeConsoleCommands? compositeCommands = null,
+        RailConsoleCommands? railCommands = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -68,6 +72,7 @@ public sealed class ConsoleCommandDispatcher
         _allowReload = allowReload;
         _voxelCommands = voxelCommands;
         _compositeCommands = compositeCommands;
+        _railCommands = railCommands;
     }
 
     public void Execute(string line)
@@ -109,6 +114,12 @@ public sealed class ConsoleCommandDispatcher
                     _logger.Warning(Category, CompositeUnavailableEventId, "Enter the voxel development scene before using composite commands.");
                 else
                     WriteResult(CompositeEventId, _compositeCommands.Execute(parsed.Arguments));
+                return;
+            case "rail":
+                if (_railCommands is null)
+                    _logger.Warning(Category, RailUnavailableEventId, "Enter the voxel development scene before using rail commands.");
+                else
+                    WriteResult(RailEventId, _railCommands.Execute(parsed.Arguments));
                 return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
@@ -152,8 +163,8 @@ public sealed class ConsoleCommandDispatcher
     private string HelpMessage()
     {
         var commands = _allowReload
-            ? "help, clear, quit, reload, loglevel, voxel, composite"
-            : "help, clear, quit, loglevel, voxel, composite";
+            ? "help, clear, quit, reload, loglevel, voxel, composite, rail"
+            : "help, clear, quit, loglevel, voxel, composite, rail";
         return $"Available commands: {commands}.";
     }
 }

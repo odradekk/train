@@ -8,4 +8,4 @@ help
 
 参数：无。输出 `Available commands: ...`，列出当前构建的顶层命令名称，不提供逐项参数帮助。
 
-非 Debug 构建的列表不包含 `reload`。包含 PR #47 的构建会列出 `voxel`，包含切片 3 的构建会列出 `composite`，但这不表示当前已进入可执行这些命令的场景。`voxel` 与 `composite` 的子命令不会出现在 `help` 的顶层列表里。
+非 Debug 构建的列表不包含 `reload`。包含 PR #47 的构建会列出 `voxel`，包含切片 3 的构建会列出 `composite`，包含切片 4 的构建会列出 `rail`，但这不表示当前已进入可执行这些命令的场景。`voxel`、`composite` 与 `rail` 的子命令不会出现在 `help` 的顶层列表里。

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "voxels": [
+    {
+      "id": "rail",
+      "name": "钢轨",
+      "description": "切片 4 正式直轨占格。显示由 TrackRenderer 生成，不走普通立方体面。",
+      "value": 10,
+      "mass": 1,
+      "max_durability": 100,
+      "tags": [],
+      "behaviors": [],
+      "allowed_orientations": "none",
+      "presentation": {
+        "kind": "cube",
+        "icon": "voxels/rail/icon.png",
+        "voxel_top": "voxels/rail/top.png",
+        "voxel_side": "voxels/rail/side.png",
+        "voxel_bottom": "voxels/rail/bottom.png"
+      },
+      "collision": {
+        "kind": "full_box"
+      }
+    }
+  ]
+}

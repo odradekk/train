@@ -22,6 +22,7 @@ public sealed class VoxelConsoleCommands
             {
                 VoxelDevelopmentSlice.Slice2 => new WorldVoxelCoord(15, 16, 15),
                 VoxelDevelopmentSlice.Slice3 => new WorldVoxelCoord(8, 8, 8),
+                VoxelDevelopmentSlice.Slice4 => new WorldVoxelCoord(80, 1, 15),
                 _ => new WorldVoxelCoord(4, 4, 4)
             };
             return $"Voxel world reset. {FormatWithCount(_session.Query(sample))}";
