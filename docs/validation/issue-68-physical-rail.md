@@ -16,7 +16,7 @@ pwsh -NoProfile -File scripts/run-godot-voxel-smoke.ps1 -Slice 4
 
 | Check | Result |
 | --- | --- |
-| `dotnet test Train.Tests/Train.Tests.csproj` | 329 passed, 0 failed |
+| `dotnet test Train.Tests/Train.Tests.csproj` | 331 passed, 0 failed |
 | `dotnet build Train.csproj` | 0 warnings, 0 errors |
 | `run-godot-voxel-smoke.ps1 -Slice 1` | passed |
 | `run-godot-voxel-smoke.ps1 -Slice 2` | passed |
