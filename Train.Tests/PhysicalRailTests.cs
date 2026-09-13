@@ -69,6 +69,12 @@ public sealed class PhysicalRailTests
         AssertRejected(harness, StraightRailFixture.CreateFixturePlan(), RailEditStatus.WorldObstacle, voxels: 1);
 
         harness.Session.Reset();
+        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 1, 13), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded, "y=1 beside the sleeper is occupancy, not swept clearance.");
+        harness.Session.Reset();
+        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 8, 16), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
+        AssertRejected(harness, StraightRailFixture.CreateFixturePlan(), RailEditStatus.ClearanceConflict, voxels: 1);
+        harness.Session.Reset();
         Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 3, 16), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
         AssertRejected(harness, StraightRailFixture.CreateFixturePlan(), RailEditStatus.ClearanceConflict, voxels: 1);
 

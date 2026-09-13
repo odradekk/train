@@ -387,7 +387,7 @@ composite query
 
 读档错误复现（独立用户数据）：对一个已保存的 UUID 执行 `voxel load` 后，把 `save.json` 的 `save_format_version` 改成 `1` 或 `99` 再加载，应得 `UnknownFormat` 且当前会话车辆数不变；删掉 `save_local_definitions` 或把零件朝向改成 `none`，分别得 `MissingDefinition` / `InvalidDelta`；缺文件得 `NotFound`。失败后仍可 `composite manufacture` 或加载上一份有效文件。
 
-目前没有独立的撤销、列车或铁路控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。沿轨运行、编组牵引和正式设计器仍不在当前切片。
+目前没有独立的撤销或列车运行控制台命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail query`](rail-query.md) / [`rail repair`](rail-repair.md)。沿轨运行、编组牵引和正式设计器仍不在当前切片。
 
 ### 切片 3 五类原子改装
 
@@ -444,4 +444,4 @@ composite query damaged
 
 每个可执行命令各用一个文件，`voxel` 子命令也分别维护。新增、修改或移除命令时，同步更新对应文件和本页索引；共享参数、朝向编码与组合示例统一保留在本页。每份命令文档应覆盖语法、参数、使用方法、结果和限制，尚未交付的命令明确标注。
 
-基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`；体素显示与快捷键位于 `Ui/VoxelDeveloperScene.cs`。
+基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，轨道命令实现为 `Console/RailConsoleCommands.cs`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`，正式直轨位于 `Domain/Rails/`；体素显示、TrackRenderer 与快捷键位于 `Ui/VoxelDeveloperScene.cs`。

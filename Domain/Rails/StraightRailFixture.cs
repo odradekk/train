@@ -146,7 +146,7 @@ public static class StraightRailFixture
     public static RailVolumeBox SmallVehicleSweptClearance()
     {
         var dimensions = VehicleSize.Small;
-        var bodyBottom = CenterY - ContactClearance;
+        var bodyBottom = CenterY + ContactClearance;
         return new RailVolumeBox(
             LineStartX - 1.0,
             bodyBottom,
