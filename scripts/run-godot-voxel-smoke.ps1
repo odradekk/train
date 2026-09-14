@@ -9,7 +9,8 @@ param(
 # world save / process-restart resume (#53), slice 3 parked-vehicle
 # manufacture (#58), damage/fracture (#59), atomic refit (#60),
 # existing-vehicle content reload (#61), and slice 4 formal straight
-# rail construction / occupancy / local damage (#68).
+# rail construction / occupancy / local damage (#68) and the static
+# locomotive-and-carriage assembly (#69).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
 # Slice 4 is a single process: it must not require later-ticket train motion.
@@ -104,7 +105,14 @@ $protected = @(
     "builtin\core\resources\voxels\vehicle-shell.voxels.json",
     "builtin\core\resources\composites\dev-hollow-shell.composites.json",
     "builtin\core\resources\voxels\rail.voxels.json",
-    "builtin\core\resources\voxels\rail\top.png"
+    "builtin\core\resources\voxels\rail\top.png",
+    "builtin\core\resources\voxels\propulsion.voxels.json",
+    "builtin\core\resources\voxels\control.voxels.json",
+    "builtin\core\resources\voxels\track-contact.voxels.json",
+    "builtin\core\resources\voxels\locomotive-core.voxels.json",
+    "builtin\core\resources\voxels\carriage-core.voxels.json",
+    "builtin\core\resources\composites\dev-locomotive.composites.json",
+    "builtin\core\resources\composites\dev-carriage.composites.json"
 )
 $beforeHashes = @{}
 foreach ($relative in $protected) {
@@ -209,6 +217,13 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_RAILS",
         "VOXEL_SMOKE_SLICE4_SLEEPERS",
         "VOXEL_SMOKE_SLICE4_CONNECTION",
+        "VOXEL_SMOKE_SLICE4_TRAIN_ASSEMBLED",
+        "VOXEL_SMOKE_SLICE4_TRAIN_LOCO",
+        "VOXEL_SMOKE_SLICE4_TRAIN_CARRIAGE",
+        "VOXEL_SMOKE_SLICE4_TRAIN_COUPLER",
+        "VOXEL_SMOKE_SLICE4_TRAIN_QUALIFIED",
+        "VOXEL_SMOKE_SLICE4_TRAIN_VISUAL",
+        "VOXEL_SMOKE_SLICE4_TRAIN_CONTACT_LOST",
         "VOXEL_SMOKE_SLICE4_RENDER_LOCAL",
         "VOXEL_SMOKE_SLICE4_EDGE_CLIP",
         "VOXEL_SMOKE_SLICE4_DAMAGED",
