@@ -82,7 +82,13 @@ public static class TrainAssemblyRules
         var carriageCoupler = request.CarriageCouplerCell ?? StaticTrainFixture.CarriageFrontCouplerCell;
         if (locomotive.Id == carriage.Id ||
             IsReservedCell(locomotive, locoCoupler) ||
-            IsReservedCell(carriage, carriageCoupler))
+            IsReservedCell(carriage, carriageCoupler) ||
+            !StraightTrainSolver.TryValidateCouplerConnection(
+                locomotive,
+                carriage,
+                locoCoupler,
+                carriageCoupler,
+                out _))
             return TrainAssemblyStatus.InvalidConnection;
 
         var fromPart = locomotive.PartAt(locoCoupler);
@@ -97,18 +103,21 @@ public static class TrainAssemblyRules
         var locoRear = StraightTrainSolver.WorldContact(locomotive.Transform, locomotive.Contacts[1]);
         var carriageFront = StraightTrainSolver.WorldContact(carriage.Transform, carriage.Contacts[0]);
         var carriageRear = StraightTrainSolver.WorldContact(carriage.Transform, carriage.Contacts[1]);
-        var contactXs = new[] { locoFront.X, locoRear.X, carriageFront.X, carriageRear.X };
-        var supportSegments = new List<EntityId>();
-        foreach (var worldX in contactXs)
+        var contacts = new[] { locoFront, locoRear, carriageFront, carriageRear };
+        foreach (var contact in contacts)
         {
-            if (!TrySupportingSegment(rails, world, worldX, out var segmentId))
+            if (!StraightTrainSolver.TrySupportingSegment(rails, world, contact, out _))
                 return TrainAssemblyStatus.InsufficientSupport;
-            supportSegments.Add(segmentId);
         }
 
-        if (!StraightTrainSolver.TryResolveReference(rails, locoFront.X, RailHeading.AlongAlignment, out reference))
+        if (!StraightTrainSolver.TryResolveReference(
+                rails,
+                world,
+                locoFront,
+                RailHeading.AlongAlignment,
+                out reference))
             return TrainAssemblyStatus.InsufficientSupport;
-        if (!AreOnOnePath(rails, supportSegments))
+        if (!StraightTrainSolver.HasContinuousSupport(rails, world, contacts, reference))
             return TrainAssemblyStatus.DisconnectedPath;
 
         connection = new CouplerConnectionQuery(
@@ -124,47 +133,4 @@ public static class TrainAssemblyRules
     private static bool IsReservedCell(CompositeInstance vehicle, LocalVoxelCoord cell) =>
         vehicle.Contacts.Any(contact => contact.BoundCell == cell) ||
         cell == HollowShellFixture.CoreCell;
-
-    private static bool TrySupportingSegment(
-        PhysicalRailState rails,
-        VoxelWorld world,
-        double worldX,
-        out EntityId segmentId)
-    {
-        foreach (var segment in rails.Segments)
-        {
-            if (rails.TraversableWorldX(segment.Id, world).Any(interval =>
-                    interval.Start <= worldX && worldX <= interval.End))
-            {
-                segmentId = segment.Id;
-                return true;
-            }
-        }
-
-        segmentId = default;
-        return false;
-    }
-
-    private static bool AreOnOnePath(PhysicalRailState rails, IReadOnlyList<EntityId> segmentIds)
-    {
-        var distinct = segmentIds.Distinct().ToArray();
-        if (distinct.Length <= 1)
-            return true;
-        var seen = new HashSet<EntityId> { distinct[0] };
-        var queue = new Queue<EntityId>();
-        queue.Enqueue(distinct[0]);
-        while (queue.Count > 0)
-        {
-            var current = queue.Dequeue();
-            foreach (var other in rails.Segments.Select(segment => segment.Id))
-            {
-                if (seen.Contains(other) || !rails.AreConnected(current, other))
-                    continue;
-                seen.Add(other);
-                queue.Enqueue(other);
-            }
-        }
-
-        return distinct.All(seen.Contains);
-    }
 }

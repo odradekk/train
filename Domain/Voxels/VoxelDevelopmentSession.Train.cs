@@ -23,6 +23,14 @@ public sealed partial class VoxelDevelopmentSession
             preparedCarriage is null)
             return new TrainAssemblyResult(MapConstruction(carriageStatus));
 
+        var requiredIds = 1UL + (ulong)preparedLoco.Composite.Definition.Voxels.Count
+            + 1UL + (ulong)preparedCarriage.Composite.Definition.Voxels.Count
+            + 1UL;
+        if (!CanCommitTransaction())
+            return new TrainAssemblyResult(TrainAssemblyStatus.TransactionExhausted);
+        if (!CanAllocateEntityIds(requiredIds))
+            return new TrainAssemblyResult(TrainAssemblyStatus.EntityIdExhausted);
+
         var next = NextEntityId;
         var locomotive = Materialize(preparedLoco.Composite, preparedLoco.Archetype, voxels, preparedLoco.Transform, ref next);
         var carriage = Materialize(preparedCarriage.Composite, preparedCarriage.Archetype, voxels, preparedCarriage.Transform, ref next);
@@ -43,12 +51,6 @@ public sealed partial class VoxelDevelopmentSession
             out var reference);
         if (status != TrainAssemblyStatus.Formed || connection is null)
             return new TrainAssemblyResult(status);
-
-        var requiredIds = next - NextEntityId + 1;
-        if (!CanCommitTransaction())
-            return new TrainAssemblyResult(TrainAssemblyStatus.TransactionExhausted);
-        if (!CanAllocateEntityIds(requiredIds))
-            return new TrainAssemblyResult(TrainAssemblyStatus.EntityIdExhausted);
 
         var assemblyId = new EntityId(next++);
         _vehicles.Add(locomotive);
@@ -110,7 +112,7 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     public IReadOnlyList<TrainAssemblyQuery> QueryTrainAssemblies() =>
-        _assemblies.OrderBy(item => item.Id.Value).Select(ToQuery).ToArray();
+        _assemblies.OrderBy(item => item.Id.Value).Select(ToQuery).OfType<TrainAssemblyQuery>().ToArray();
 
     public TrainAssemblyQuery? QueryTrainAssembly(EntityId id)
     {
@@ -126,13 +128,21 @@ public sealed partial class VoxelDevelopmentSession
         _assemblies.RemoveAll(assembly =>
             assembly.Connections.Any(connection =>
                 !HasLivePart(connection.FromVehicleId, connection.FromPartId) ||
-                !HasLivePart(connection.ToVehicleId, connection.ToPartId)));
+                !HasLivePart(connection.ToVehicleId, connection.ToPartId)) ||
+            assembly.VehicleIds.Any(id => !HasRequiredContacts(id)));
     }
 
     private bool HasLivePart(EntityId vehicleId, EntityId partId)
     {
         var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
         return vehicle?.PartById(partId) is not null;
+    }
+
+    private bool HasRequiredContacts(EntityId vehicleId)
+    {
+        var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
+        return vehicle is not null &&
+               vehicle.Contacts.Count(contact => vehicle.PartAt(contact.BoundCell) is not null) >= 2;
     }
 
     private bool TryLoadPublished(
@@ -202,17 +212,17 @@ public sealed partial class VoxelDevelopmentSession
         _vehicles[index] = vehicle;
     }
 
-    private TrainAssemblyQuery ToQuery(TrainAssembly assembly)
+    private TrainAssemblyQuery? ToQuery(TrainAssembly assembly)
     {
         var poses = new List<TrainVehiclePoseQuery>(assembly.VehicleIds.Count);
         foreach (var vehicleId in assembly.VehicleIds)
         {
-            var vehicle = _vehicles.First(item => item.Id == vehicleId);
-            poses.Add(new TrainVehiclePoseQuery(
-                vehicle.Id,
-                vehicle.Transform,
-                StraightTrainSolver.ToWorldContact(vehicle, 0),
-                StraightTrainSolver.ToWorldContact(vehicle, 1)));
+            var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
+            if (vehicle is null ||
+                !StraightTrainSolver.TryToWorldContact(vehicle, 0, out var front) ||
+                !StraightTrainSolver.TryToWorldContact(vehicle, 1, out var rear))
+                return null;
+            poses.Add(new TrainVehiclePoseQuery(vehicle.Id, vehicle.Transform, front, rear));
         }
 
         return new TrainAssemblyQuery(

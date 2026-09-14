@@ -1,3 +1,4 @@
+using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Behaviors;
@@ -157,22 +158,28 @@ public sealed class StaticTrainAssemblyTests
         using var harness = StaticTrainHarness.Create();
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
         var empty = harness.Session.CaptureTrainAuthority();
-        Assert.AreEqual(TrainAssemblyStatus.NoRailway, new VoxelDevelopmentSession(
-            harness.Reloader.Catalog,
-            VoxelWorldIdentity.Slice4,
-            composites: harness.Reloader.Composites).AssembleStaticTrain().Status);
+        AssertRejected(
+            harness,
+            TrainAssemblyStatus.NoRailway,
+            () => new VoxelDevelopmentSession(
+                harness.Reloader.Catalog,
+                VoxelWorldIdentity.Slice4,
+                composites: harness.Reloader.Composites).AssembleStaticTrain());
 
-        Assert.AreEqual(TrainAssemblyStatus.UnknownVehicle, harness.Session.AssembleTrain(
-            new TrainAssemblyRequest(new EntityId(99), new EntityId(100))).Status);
-        Assert.AreEqual(empty, harness.Session.CaptureTrainAuthority());
+        AssertRejected(
+            harness,
+            TrainAssemblyStatus.UnknownVehicle,
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(new EntityId(99), new EntityId(100))),
+            empty);
 
         Assert.IsTrue(harness.Session.Manufacture(HollowShellFixture.DefinitionId).Succeeded);
         var parked = harness.Session.CaptureTrainAuthority();
         var shell = harness.Session.QueryComposites()[0].Id;
-        Assert.AreEqual(
+        AssertRejected(
+            harness,
             TrainAssemblyStatus.MissingPropulsion,
-            harness.Session.AssembleTrain(new TrainAssemblyRequest(shell, shell)).Status);
-        Assert.AreEqual(parked, harness.Session.CaptureTrainAuthority());
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(shell, shell)),
+            parked);
 
         harness.Session.Reset();
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
@@ -181,21 +188,230 @@ public sealed class StaticTrainAssemblyTests
         var locoId = harness.Session.QueryComposites().Single(item => item.DefinitionId == StaticTrainFixture.LocomotiveId).Id;
         var carriageId = harness.Session.QueryComposites().Single(item => item.DefinitionId == StaticTrainFixture.CarriageId).Id;
         var manufactured = harness.Session.CaptureTrainAuthority();
-        Assert.AreEqual(
+        AssertRejected(
+            harness,
             TrainAssemblyStatus.InvalidConnection,
-            harness.Session.AssembleTrain(new TrainAssemblyRequest(
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(
                 locoId,
                 carriageId,
                 HollowShellFixture.CoreCell,
-                StaticTrainFixture.CarriageFrontCouplerCell)).Status);
-        Assert.AreEqual(manufactured, harness.Session.CaptureTrainAuthority());
+                StaticTrainFixture.CarriageFrontCouplerCell)),
+            manufactured);
 
         harness.Session.Reset();
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
         Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
         var formed = harness.Session.CaptureTrainAuthority();
-        Assert.AreEqual(TrainAssemblyStatus.AlreadyAssembled, harness.Session.AssembleStaticTrain().Status);
-        Assert.AreEqual(formed, harness.Session.CaptureTrainAuthority());
+        AssertRejected(harness, TrainAssemblyStatus.AlreadyAssembled, () => harness.Session.AssembleStaticTrain(), formed);
+    }
+
+    [TestMethod]
+    public void Offset_only_railway_rejects_static_assembly_for_insufficient_support()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails(ShiftZ(StraightRailFixture.CreateFixturePlan(), 8)).Succeeded);
+        Assert.AreEqual(24.0, harness.Session.Rails.Segments[0].Alignment.StartZ, Tolerance);
+        AssertRejected(harness, TrainAssemblyStatus.InsufficientSupport, () => harness.Session.AssembleStaticTrain());
+        Assert.AreEqual(0, harness.Session.QueryComposites().Count);
+    }
+
+    [TestMethod]
+    public void Same_world_x_rails_select_the_three_dimensional_supporting_segment()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails(ShiftZ(StraightRailFixture.CreateFixturePlan(), 8)).Succeeded);
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        var offsetFirst = harness.Session.Rails.Segments[0];
+        Assert.AreEqual(24.0, offsetFirst.Alignment.StartZ, Tolerance);
+        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
+
+        var assembly = harness.Session.QueryTrainAssemblies().Single();
+        var supporting = harness.Session.Rails.Segments.Single(segment =>
+            Math.Abs(segment.Alignment.StartZ - StraightRailFixture.CenterZ) <= Tolerance &&
+            Math.Abs(segment.Alignment.StartX - StraightRailFixture.LineStartX) <= Tolerance);
+        Assert.AreEqual(supporting.Id, assembly.Reference.SegmentId);
+        Assert.AreNotEqual(offsetFirst.Id, assembly.Reference.SegmentId);
+        AssertWorldContact(assembly.Vehicles[0].FrontContact, 80, 2, 16);
+        AssertWorldContact(assembly.Vehicles[1].FrontContact, 71, 2, 16);
+    }
+
+    [TestMethod]
+    public void Damage_between_contacts_rejects_disconnected_path()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        var firstId = harness.Session.Rails.Segments[0].Id;
+        Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(new WorldVoxelCoord(77, 1, 15), 100).Status);
+        var intervals = harness.Session.Rails.TraversableWorldX(firstId, harness.Session.World);
+        Assert.IsFalse(intervals.Any(interval => interval.Start <= 65 && interval.End >= 80));
+        Assert.IsTrue(intervals.Any(interval => interval.Start <= 65 && 65 <= interval.End));
+        Assert.IsTrue(intervals.Any(interval => interval.Start <= 80 && 80 <= interval.End));
+        AssertRejected(harness, TrainAssemblyStatus.DisconnectedPath, () => harness.Session.AssembleStaticTrain());
+    }
+
+    [TestMethod]
+    public void Unconnected_segments_under_contacts_reject_disconnected_path()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails(CreateSplitUnconnectedPlan()).Succeeded);
+        Assert.AreEqual(2, harness.Session.Rails.Segments.Count);
+        Assert.IsFalse(harness.Session.Rails.AreConnected(
+            harness.Session.Rails.Segments[0].Id,
+            harness.Session.Rails.Segments[1].Id));
+        AssertRejected(harness, TrainAssemblyStatus.DisconnectedPath, () => harness.Session.AssembleStaticTrain());
+    }
+
+    [TestMethod]
+    public void Destroying_a_locomotive_contact_keeps_vehicles_and_queryable_break()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
+        var before = harness.Session.QueryTrainAssemblies().Single();
+        var locoId = before.VehicleIds[0];
+        var pose = before.Vehicles[0].Transform;
+
+        var damaged = harness.Session.Damage(locoId, HollowShellFixture.RearBoundCell, 100);
+        Assert.AreEqual(CompositeDamageStatus.Damaged, damaged.Status);
+        var assemblies = harness.Session.QueryTrainAssemblies();
+        Assert.AreEqual(0, assemblies.Count);
+        var authority = harness.Session.CaptureTrainAuthority();
+        Assert.AreEqual(0, authority.Assemblies.Count);
+        var loco = harness.Session.QueryComposite(locoId)!;
+        Assert.AreEqual(IdentityRetentionStatus.Retained, loco.IdentityRetention);
+        Assert.AreEqual(OperationalCondition.Disabled, loco.OperationalCondition);
+        Assert.AreEqual(1, loco.Contacts.Count);
+        Assert.AreEqual(pose, loco.Transform);
+        Assert.AreEqual(2, harness.Session.QueryComposites().Count);
+        Assert.AreEqual(before.Vehicles[1].Transform, harness.Session.QueryComposite(before.VehicleIds[1])!.Transform);
+    }
+
+    [TestMethod]
+    public void Destroying_a_carriage_contact_is_queryable_from_console()
+    {
+        using var harness = StaticTrainHarness.Create();
+        var dispatcher = new ConsoleCommandDispatcher(
+            harness.Logger,
+            static () => { },
+            static () => { },
+            static () => { },
+            allowReload: true,
+            new VoxelConsoleCommands(harness.Session),
+            new CompositeConsoleCommands(harness.Session),
+            new RailConsoleCommands(harness.Session));
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
+        var carriageId = harness.Session.QueryTrainAssemblies().Single().VehicleIds[1];
+
+        Assert.AreEqual(
+            CompositeDamageStatus.Damaged,
+            harness.Session.Damage(carriageId, HollowShellFixture.RearBoundCell, 100).Status);
+        Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
+        Assert.AreEqual(OperationalCondition.Disabled, harness.Session.QueryComposite(carriageId)!.OperationalCondition);
+
+        dispatcher.Execute("rail query assembly");
+        dispatcher.Execute($"composite query {carriageId.Value}");
+        var railLog = Messages(harness, ConsoleCommandDispatcher.RailEventId);
+        var compositeLog = Messages(harness, ConsoleCommandDispatcher.CompositeEventId);
+        StringAssert.Contains(railLog, "Rail assembly none.");
+        StringAssert.Contains(compositeLog, StaticTrainFixture.CarriageId.Value);
+        StringAssert.Contains(compositeLog, "operational Disabled");
+    }
+
+    [TestMethod]
+    public void AssembleStaticTrain_prechecks_entity_and_transaction_capacity()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        const ulong requiredIds = 2UL * (1UL + HollowShellFixture.CellCount) + 1UL;
+
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.NextEntityId), ulong.MaxValue);
+        AssertRejected(harness, TrainAssemblyStatus.EntityIdExhausted, () => harness.Session.AssembleStaticTrain());
+        Assert.AreEqual(ulong.MaxValue, harness.Session.NextEntityId);
+
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.NextEntityId), ulong.MaxValue - requiredIds + 1);
+        AssertRejected(harness, TrainAssemblyStatus.EntityIdExhausted, () => harness.Session.AssembleStaticTrain());
+        Assert.AreEqual(ulong.MaxValue - requiredIds + 1, harness.Session.NextEntityId);
+
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.TransactionCount), ulong.MaxValue - 1);
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.NextEntityId), 3);
+        AssertRejected(harness, TrainAssemblyStatus.TransactionExhausted, () => harness.Session.AssembleStaticTrain());
+        Assert.AreEqual(ulong.MaxValue - 1, harness.Session.TransactionCount);
+        Assert.AreEqual(3UL, harness.Session.NextEntityId);
+
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.TransactionCount), 1);
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.NextEntityId), ulong.MaxValue - requiredIds);
+        var assembled = harness.Session.AssembleStaticTrain();
+        Assert.IsTrue(assembled.Succeeded, assembled.Status.ToString());
+        Assert.AreEqual(ulong.MaxValue, harness.Session.NextEntityId);
+        Assert.AreEqual(1, harness.Session.QueryTrainAssemblies().Count);
+        Assert.AreEqual(2, harness.Session.QueryComposites().Count);
+    }
+
+    [TestMethod]
+    public void Illegal_coupler_ends_are_rejected_without_forming()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(harness.Session.Manufacture(StaticTrainFixture.LocomotiveId).Succeeded);
+        Assert.IsTrue(harness.Session.Manufacture(StaticTrainFixture.CarriageId).Succeeded);
+        var locoId = harness.Session.QueryComposites().Single(item => item.DefinitionId == StaticTrainFixture.LocomotiveId).Id;
+        var carriageId = harness.Session.QueryComposites().Single(item => item.DefinitionId == StaticTrainFixture.CarriageId).Id;
+        var manufactured = harness.Session.CaptureTrainAuthority();
+
+        AssertRejected(
+            harness,
+            TrainAssemblyStatus.InvalidConnection,
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(
+                locoId,
+                carriageId,
+                new LocalVoxelCoord(0, 5, -1),
+                new LocalVoxelCoord(7, 5, 3))),
+            manufactured);
+        AssertRejected(
+            harness,
+            TrainAssemblyStatus.InvalidConnection,
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(
+                locoId,
+                carriageId,
+                StaticTrainFixture.CarriageFrontCouplerCell,
+                StaticTrainFixture.CarriageFrontCouplerCell)),
+            manufactured);
+        AssertRejected(
+            harness,
+            TrainAssemblyStatus.InvalidConnection,
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(
+                locoId,
+                carriageId,
+                StaticTrainFixture.LocomotiveRearCouplerCell,
+                StaticTrainFixture.LocomotiveRearCouplerCell)),
+            manufactured);
+
+        Assert.IsTrue(harness.Session.Damage(locoId, StaticTrainFixture.LocomotiveRearCouplerCell, 100).Succeeded);
+        var afterDamage = harness.Session.CaptureTrainAuthority();
+        AssertRejected(
+            harness,
+            TrainAssemblyStatus.MissingConnection,
+            () => harness.Session.AssembleTrain(new TrainAssemblyRequest(
+                locoId,
+                carriageId,
+                StaticTrainFixture.LocomotiveRearCouplerCell,
+                StaticTrainFixture.CarriageFrontCouplerCell)),
+            afterDamage);
+
+        harness.Session.Reset();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(harness.Session.Manufacture(StaticTrainFixture.LocomotiveId).Succeeded);
+        Assert.IsTrue(harness.Session.Manufacture(StaticTrainFixture.CarriageId).Succeeded);
+        locoId = harness.Session.QueryComposites().Single(item => item.DefinitionId == StaticTrainFixture.LocomotiveId).Id;
+        carriageId = harness.Session.QueryComposites().Single(item => item.DefinitionId == StaticTrainFixture.CarriageId).Id;
+        var formed = harness.Session.AssembleTrain(new TrainAssemblyRequest(
+            locoId,
+            carriageId,
+            StaticTrainFixture.LocomotiveRearCouplerCell,
+            StaticTrainFixture.CarriageFrontCouplerCell));
+        Assert.IsTrue(formed.Succeeded, formed.Status.ToString());
+        Assert.AreEqual(StaticTrainFixture.LocomotiveRearCouplerCell, harness.Session.QueryTrainAssemblies().Single().Connections[0].FromCell);
     }
 
     [TestMethod]
@@ -275,6 +491,81 @@ public sealed class StaticTrainAssemblyTests
 
     private static string Messages(StaticTrainHarness harness, string eventId) =>
         string.Join('\n', harness.Memory.Snapshot().Where(item => item.EventId == eventId).Select(item => item.Message));
+
+    private static void AssertRejected(
+        StaticTrainHarness harness,
+        TrainAssemblyStatus expected,
+        Func<TrainAssemblyResult> act,
+        TrainAuthoritySnapshot? expectedAuthority = null)
+    {
+        var before = expectedAuthority ?? harness.Session.CaptureTrainAuthority();
+        var notifications = 0;
+        harness.Session.Changed += Count;
+        try
+        {
+            Assert.AreEqual(expected, act().Status);
+            Assert.AreEqual(before, harness.Session.CaptureTrainAuthority());
+            Assert.AreEqual(0, notifications);
+        }
+        finally
+        {
+            harness.Session.Changed -= Count;
+        }
+
+        void Count() => notifications++;
+    }
+
+    private static void SetCursor(VoxelDevelopmentSession session, string name, ulong value) =>
+        typeof(VoxelDevelopmentSession).GetProperty(name)!.SetValue(session, value);
+
+    private static RailConstructionPlan ShiftZ(RailConstructionPlan plan, double deltaZ) =>
+        new(
+            plan.Segments.Select(segment => segment with
+            {
+                Alignment = segment.Alignment with
+                {
+                    StartZ = segment.Alignment.StartZ + deltaZ,
+                    EndZ = segment.Alignment.EndZ + deltaZ
+                },
+                RailVolumes = segment.RailVolumes
+                    .Select(volume => volume with { MinZ = volume.MinZ + deltaZ, MaxZ = volume.MaxZ + deltaZ })
+                    .ToArray(),
+                SleeperVolumes = segment.SleeperVolumes
+                    .Select(volume => volume with { MinZ = volume.MinZ + deltaZ, MaxZ = volume.MaxZ + deltaZ })
+                    .ToArray()
+            }).ToArray(),
+            plan.Connections.ToArray());
+
+    private static RailConstructionPlan CreateSplitUnconnectedPlan()
+    {
+        var first = new HorizontalStraightAlignment(
+            StraightRailFixture.LineStartX,
+            StraightRailFixture.CenterY,
+            StraightRailFixture.CenterZ,
+            72,
+            StraightRailFixture.CenterY,
+            StraightRailFixture.CenterZ);
+        var second = new HorizontalStraightAlignment(
+            74,
+            StraightRailFixture.CenterY,
+            StraightRailFixture.CenterZ,
+            StraightRailFixture.SeamX,
+            StraightRailFixture.CenterY,
+            StraightRailFixture.CenterZ);
+        return new RailConstructionPlan(
+            new[]
+            {
+                new PlannedRailSegment(
+                    first,
+                    new[] { StraightRailFixture.LeftRail(first.StartX, first.EndX), StraightRailFixture.RightRail(first.StartX, first.EndX) },
+                    StraightRailFixture.SleepersFor(first, includeSharedSeam: false)),
+                new PlannedRailSegment(
+                    second,
+                    new[] { StraightRailFixture.LeftRail(second.StartX, second.EndX), StraightRailFixture.RightRail(second.StartX, second.EndX) },
+                    StraightRailFixture.SleepersFor(second, includeSharedSeam: false))
+            },
+            Array.Empty<PlannedRailConnection>());
+    }
 }
 
 internal sealed class StaticTrainHarness : IDisposable

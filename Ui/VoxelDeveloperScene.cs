@@ -189,6 +189,7 @@ public partial class VoxelDeveloperScene : Node3D
         Inspect,
         Assemble,
         AwaitAssemble,
+        ContactDamage,
         EdgeDamage,
         AwaitEdgeDamage,
         RepairEdge,
@@ -4274,8 +4275,33 @@ public partial class VoxelDeveloperScene : Node3D
                     throw new InvalidOperationException("Slice 4 train assembly published vehicle voxels into the world.");
                 ValidateCompositeVisual();
                 GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_VISUAL vehicles={_composites.VehicleCount} meshes={_composites.MeshInstanceCount} faces={_composites.FaceCount}");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.ContactDamage;
+                return;
+            case VoxelSlice4SmokePhase.ContactDamage:
+            {
+                var assembled = _session.QueryTrainAssemblies();
+                if (assembled.Count != 1)
+                    throw new InvalidOperationException("Slice 4 smoke lost the assembled train before contact damage.");
+                var locoId = assembled[0].VehicleIds[0];
+                var carriageId = assembled[0].VehicleIds[1];
+                if (_session.Damage(locoId, HollowShellFixture.RearBoundCell, 100).Status != CompositeDamageStatus.Damaged)
+                    throw new InvalidOperationException("Slice 4 smoke could not destroy the locomotive rear contact.");
+                if (_session.Damage(carriageId, HollowShellFixture.RearBoundCell, 100).Status != CompositeDamageStatus.Damaged)
+                    throw new InvalidOperationException("Slice 4 smoke could not destroy the carriage rear contact.");
+                var remaining = _session.QueryTrainAssemblies();
+                var loco = _session.QueryComposite(locoId);
+                var carriage = _session.QueryComposite(carriageId);
+                if (remaining.Count != 0)
+                    throw new InvalidOperationException("Slice 4 smoke still reports an assembly after required contact loss.");
+                if (loco is null || loco.OperationalCondition != OperationalCondition.Disabled)
+                    throw new InvalidOperationException("Slice 4 smoke contact loss did not disable the locomotive.");
+                if (carriage is null || carriage.OperationalCondition != OperationalCondition.Disabled)
+                    throw new InvalidOperationException("Slice 4 smoke contact loss did not disable the carriage.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_TRAIN_CONTACT_LOST assemblies={remaining.Count} loco={loco.OperationalCondition} carriage={carriage.OperationalCondition}");
                 _slice4SmokePhase = VoxelSlice4SmokePhase.EdgeDamage;
                 return;
+            }
             case VoxelSlice4SmokePhase.EdgeDamage:
                 if (_session.Damage(new WorldVoxelCoord(110, 1, 14), 100).Status != WorldCommandStatus.Removed)
                     throw new InvalidOperationException("Slice 4 smoke could not destroy the sleeper-edge cell.");
