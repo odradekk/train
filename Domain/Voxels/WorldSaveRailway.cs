@@ -317,16 +317,14 @@ internal static class WorldSaveRailwayCodec
 
         if (!TryValidateRailway(document.Railway, out status))
             return false;
-        rails.RestoreFrom(
-            document.Railway.Segments,
-            document.Railway.Connections,
-            document.Railway.Occupancy,
-            document.Railway.SleeperCount,
-            world);
-
         if (!TryValidateAssemblies(document.Assemblies, document.Railway, vehicles, catalog, out status))
             return false;
-        if (!TryValidateCommands(document.SimulationStep, document.ScheduledCommands, document.ScheduledSequence, out status))
+        if (!TryValidateCommands(
+                document.SimulationStep,
+                document.ScheduledCommands,
+                document.ScheduledSequence,
+                document.TransactionCount,
+                out status))
             return false;
 
         var extraIds = document.Railway.CollectIds()
@@ -341,6 +339,12 @@ internal static class WorldSaveRailwayCodec
                 extraIds))
             return false;
 
+        rails.RestoreFrom(
+            document.Railway.Segments,
+            document.Railway.Connections,
+            document.Railway.Occupancy,
+            document.Railway.SleeperCount,
+            world);
         assemblies = document.Assemblies.ToArray();
         status = WorldSaveStatus.Loaded;
         return true;
@@ -349,38 +353,12 @@ internal static class WorldSaveRailwayCodec
     private static bool TryValidateRailway(WorldSaveRailway railway, out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
-        var ids = new HashSet<ulong>();
-        foreach (var segment in railway.Segments)
-        {
-            if (segment.Id.Value == 0 || !ids.Add(segment.Id.Value))
-                return false;
-            if (!IsFiniteAlignment(segment.Alignment))
-                return false;
-            if (segment.RailVolumes.Any(volume => !IsFiniteVolume(volume)) ||
-                segment.SleeperVolumes.Any(volume => !IsFiniteVolume(volume)))
-                return false;
-        }
-
-        foreach (var connection in railway.Connections)
-        {
-            if (!ids.Contains(connection.FromSegment.Value) || !ids.Contains(connection.ToSegment.Value))
-                return false;
-        }
-
-        var cells = new HashSet<WorldVoxelCoord>();
-        foreach (var occupancy in railway.Occupancy)
-        {
-            if (!cells.Add(occupancy.Cell))
-                return false;
-            foreach (var support in occupancy.Supports)
-            {
-                if (!ids.Contains(support.SegmentId.Value) ||
-                    !support.WorldX.HasPositiveLength ||
-                    !support.AlongTrack.HasPositiveLength)
-                    return false;
-            }
-        }
-
+        if (!RailEditTransaction.TryValidatePersisted(
+                railway.SleeperCount,
+                railway.Segments,
+                railway.Connections,
+                railway.Occupancy))
+            return false;
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -394,32 +372,30 @@ internal static class WorldSaveRailwayCodec
     {
         status = WorldSaveStatus.InvalidDelta;
         var assemblyIds = new HashSet<ulong>();
+        var claimedVehicles = new HashSet<EntityId>();
         var vehicleById = vehicles.ToDictionary(item => item.Id);
-        var segmentIds = railway.Segments.Select(item => item.Id).ToHashSet();
+        var segments = railway.Segments.ToDictionary(item => item.Id);
         foreach (var assembly in assemblies)
         {
             if (assembly.Id.Value == 0 || !assemblyIds.Add(assembly.Id.Value))
                 return false;
-            if (assembly.VehicleIds.Count == 0 || assembly.VehicleIds.Any(id => !vehicleById.ContainsKey(id)))
+            if (assembly.VehicleIds.Count == 0 ||
+                assembly.VehicleIds.Any(id => !vehicleById.ContainsKey(id) || !claimedVehicles.Add(id)))
                 return false;
             if (!assembly.VehicleIds.Contains(assembly.ActiveLocomotiveId))
                 return false;
-            if (!segmentIds.Contains(assembly.Reference.SegmentId) || !assembly.Reference.IsFinite)
+            if (!segments.TryGetValue(assembly.Reference.SegmentId, out var segment) ||
+                !assembly.Reference.IsFinite ||
+                assembly.Reference.Distance < 0 ||
+                assembly.Reference.Distance - segment.Alignment.Length > StaticTrainFixture.ConstraintTolerance ||
+                assembly.Reference.Heading != RailHeading.AlongAlignment)
                 return false;
-            if (!double.IsFinite(assembly.Speed) || assembly.Speed < 0)
+            if (!double.IsFinite(assembly.Speed) || assembly.Speed < 0 ||
+                (!assembly.Running && assembly.Speed > 0))
                 return false;
-            foreach (var connection in assembly.Connections)
-            {
-                if (!vehicleById.TryGetValue(connection.FromVehicleId, out var from) ||
-                    !vehicleById.TryGetValue(connection.ToVehicleId, out var to) ||
-                    from.PartById(connection.FromPartId) is null ||
-                    to.PartById(connection.ToPartId) is null)
-                    return false;
-            }
-
-            if ((assembly.Running || assembly.Speed > 0) &&
-                (!vehicleById.TryGetValue(assembly.ActiveLocomotiveId, out var locomotive) ||
-                 !StraightTrainMotion.TryResolvePropulsion(locomotive, catalog, out _)))
+            if (assembly.Connections.Count != assembly.VehicleIds.Count - 1)
+                return false;
+            if (!TryValidateAssemblyMembers(assembly, vehicleById, segment, catalog))
                 return false;
         }
 
@@ -427,13 +403,70 @@ internal static class WorldSaveRailwayCodec
         return true;
     }
 
+    private static bool TryValidateAssemblyMembers(
+        TrainAssembly assembly,
+        IReadOnlyDictionary<EntityId, CompositeInstance> vehicleById,
+        PhysicalRailSegment segment,
+        VoxelCatalogSnapshot catalog)
+    {
+        var locomotive = vehicleById[assembly.ActiveLocomotiveId];
+        if (!StraightTrainSolver.TryToWorldContact(locomotive, 0, out var front))
+            return false;
+        if (Math.Abs(StaticTrainFixture.AlongTrackDistance(front.X, segment.Alignment) - assembly.Reference.Distance) >
+            StaticTrainFixture.ConstraintTolerance ||
+            Math.Abs(front.Y - segment.Alignment.StartY) > StaticTrainFixture.ConstraintTolerance ||
+            Math.Abs(front.Z - segment.Alignment.StartZ) > StaticTrainFixture.ConstraintTolerance)
+            return false;
+
+        CompositeInstance? carriage = null;
+        foreach (var id in assembly.VehicleIds)
+        {
+            if (id != assembly.ActiveLocomotiveId)
+                carriage = vehicleById[id];
+        }
+
+        if (carriage is not null)
+        {
+            if (!StraightTrainSolver.TryValidatePoses(locomotive, carriage, out _))
+                return false;
+        }
+
+        foreach (var connection in assembly.Connections)
+        {
+            if (!assembly.VehicleIds.Contains(connection.FromVehicleId) ||
+                !assembly.VehicleIds.Contains(connection.ToVehicleId) ||
+                connection.FromVehicleId == connection.ToVehicleId)
+                return false;
+            var from = vehicleById[connection.FromVehicleId];
+            var to = vehicleById[connection.ToVehicleId];
+            var fromPart = from.PartAt(connection.FromCell);
+            var toPart = to.PartAt(connection.ToCell);
+            if (fromPart is null || fromPart.Id != connection.FromPartId ||
+                toPart is null || toPart.Id != connection.ToPartId)
+                return false;
+            if (!StraightTrainSolver.TryValidateCouplerConnection(
+                    from,
+                    to,
+                    connection.FromCell,
+                    connection.ToCell,
+                    out _))
+                return false;
+        }
+
+        return (!assembly.Running && assembly.Speed == 0) ||
+               StraightTrainMotion.TryResolvePropulsion(locomotive, catalog, out _);
+    }
+
     private static bool TryValidateCommands(
         ulong simulationStep,
         IReadOnlyList<ScheduledTrainCommandQuery> commands,
         ulong scheduledSequence,
+        ulong transactionCount,
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
+        if (scheduledSequence > transactionCount)
+            return false;
         var sequences = new HashSet<ulong>();
         foreach (var command in commands)
         {
@@ -1362,19 +1395,4 @@ internal static class WorldSaveRailwayCodec
         }
     }
 
-    private static bool IsFiniteAlignment(HorizontalStraightAlignment alignment) =>
-        double.IsFinite(alignment.StartX) &&
-        double.IsFinite(alignment.StartY) &&
-        double.IsFinite(alignment.StartZ) &&
-        double.IsFinite(alignment.EndX) &&
-        double.IsFinite(alignment.EndY) &&
-        double.IsFinite(alignment.EndZ);
-
-    private static bool IsFiniteVolume(RailVolumeBox volume) =>
-        double.IsFinite(volume.MinX) &&
-        double.IsFinite(volume.MinY) &&
-        double.IsFinite(volume.MinZ) &&
-        double.IsFinite(volume.MaxX) &&
-        double.IsFinite(volume.MaxY) &&
-        double.IsFinite(volume.MaxZ);
 }

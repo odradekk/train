@@ -255,6 +255,105 @@ public sealed class TrainPersistenceTests
     }
 
     [TestMethod]
+    public void Illegal_railway_and_assembly_files_are_rejected_before_replacing_the_session()
+    {
+        using var harness = Parked();
+        Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
+        var saved = harness.Session.Save("Review Baseline");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var previous = File.ReadAllText(path);
+        var before = harness.Session.CaptureTrainAuthority();
+        var fingerprint = WorldSaveAuthority.Fingerprint(harness.Session);
+        var sequence = harness.Session.ScheduledCommandSequence;
+        Assert.AreEqual(4.0, harness.Session.QueryTrainAssemblies().Single().Speed, Tolerance);
+        Assert.IsTrue(harness.Session.QueryTrainAssemblies().Single().Running);
+
+        AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["distance"] = -1d), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["connections"] = new JsonArray()), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["running"] = false), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, root => root["railway"]!["occupancy"] = new JsonArray()), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, root =>
+        {
+            var occupancy = root["railway"]!["occupancy"]!.AsArray();
+            occupancy[1] = occupancy[0]!.DeepClone();
+        }), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, root => root["railway"]!["sleeper_count"] = 0), before, fingerprint, sequence);
+
+        Assert.AreEqual(previous, File.ReadAllText(path));
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(before, harness.Session.CaptureTrainAuthority());
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(harness.Session));
+    }
+
+    [TestMethod]
+    public void Illegal_scheduled_sequence_is_rejected_and_legal_restore_keeps_same_step_fifo()
+    {
+        using var harness = Parked();
+        Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
+        var saved = harness.Session.Save("Sequence Baseline");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var previous = File.ReadAllText(path);
+        var before = harness.Session.CaptureTrainAuthority();
+        var fingerprint = WorldSaveAuthority.Fingerprint(harness.Session);
+        var sequence = harness.Session.ScheduledCommandSequence;
+        var transactions = harness.Session.TransactionCount;
+        Assert.IsTrue(sequence <= transactions);
+
+        AssertLoadKeeps(harness, Mutate(previous, root => root["scheduled_sequence"] = ulong.MaxValue), before, fingerprint, sequence);
+        AssertLoadKeeps(
+            harness,
+            Mutate(previous, root => root["scheduled_sequence"] = transactions + 1),
+            before,
+            fingerprint,
+            sequence);
+
+        File.WriteAllText(path, Mutate(previous, root => root["scheduled_sequence"] = transactions));
+        using var boundary = StaticTrainHarness.Create(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, boundary.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(transactions, boundary.Session.ScheduledCommandSequence);
+        Assert.AreEqual(0, boundary.Session.QueryScheduledTrainCommands().Count);
+        Assert.AreEqual(300UL, boundary.Session.SimulationStep);
+        Assert.AreEqual(TrainMotionStatus.Started, boundary.Session.StartTrain(RailHeading.AlongAlignment, 301).Status);
+        Assert.AreEqual(TrainMotionStatus.Stopped, boundary.Session.StopTrain(301).Status);
+        var boundaryPending = boundary.Session.QueryScheduledTrainCommands();
+        Assert.AreEqual(2, boundaryPending.Count);
+        Assert.IsTrue(boundaryPending[0].Start);
+        Assert.IsFalse(boundaryPending[1].Start);
+        Assert.AreEqual(transactions, boundaryPending[0].Sequence);
+        Assert.AreEqual(transactions + 1, boundaryPending[1].Sequence);
+        Assert.IsTrue(boundary.Session.AdvanceSimulation(2).Succeeded);
+        Assert.IsFalse(boundary.Session.QueryTrainAssemblies().Single().Running);
+
+        File.WriteAllText(path, previous);
+        using var resumed = StaticTrainHarness.Create(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, resumed.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(sequence, resumed.Session.ScheduledCommandSequence);
+        Assert.AreEqual(TrainMotionStatus.Started, resumed.Session.StartTrain(RailHeading.AlongAlignment, 301).Status);
+        Assert.AreEqual(TrainMotionStatus.Stopped, resumed.Session.StopTrain(301).Status);
+        var pending = resumed.Session.QueryScheduledTrainCommands();
+        Assert.AreEqual(2, pending.Count);
+        Assert.IsTrue(pending[0].Start);
+        Assert.IsFalse(pending[1].Start);
+        Assert.AreEqual(pending[0].Sequence + 1, pending[1].Sequence);
+        Assert.IsTrue(resumed.Session.AdvanceSimulation(2).Succeeded);
+        Assert.IsFalse(resumed.Session.QueryTrainAssemblies().Single().Running);
+        Assert.AreEqual(0.0, resumed.Session.QueryTrainAssemblies().Single().Speed, Tolerance);
+
+        using var live = Parked();
+        Assert.IsTrue(live.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(live.Session.AdvanceSimulation(300).Succeeded);
+        Assert.IsTrue(live.Session.StartTrain(RailHeading.AlongAlignment, 301).Succeeded);
+        Assert.IsTrue(live.Session.StopTrain(301).Succeeded);
+        Assert.IsTrue(live.Session.AdvanceSimulation(2).Succeeded);
+        Assert.AreEqual(live.Session.CaptureTrainAuthority(), resumed.Session.CaptureTrainAuthority());
+        Assert.AreEqual(WorldSaveAuthority.Fingerprint(live.Session), WorldSaveAuthority.Fingerprint(resumed.Session));
+    }
+
+    [TestMethod]
     public void Missing_segment_unknown_format_and_io_failures_keep_the_old_session_and_file()
     {
         using var harness = Parked();
@@ -436,12 +535,34 @@ public sealed class TrainPersistenceTests
         WorldSaveStatus expected,
         TrainAuthoritySnapshot before)
     {
+        AssertLoadKeeps(harness, json, before, fingerprint: null, sequence: null, expected);
+    }
+
+    private static void AssertLoadKeeps(
+        StaticTrainHarness harness,
+        string json,
+        TrainAuthoritySnapshot before,
+        string? fingerprint,
+        ulong? sequence,
+        WorldSaveStatus expected = WorldSaveStatus.InvalidDelta)
+    {
         var path = harness.Store.PathFor(harness.Session.SaveId!.Value);
         var previous = File.ReadAllText(path);
         File.WriteAllText(path, json);
         Assert.AreEqual(expected, harness.Session.Load(harness.Session.SaveId.Value).Status);
         Assert.AreEqual(before, harness.Session.CaptureTrainAuthority());
+        if (fingerprint is not null)
+            Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(harness.Session));
+        if (sequence is not null)
+            Assert.AreEqual(sequence.Value, harness.Session.ScheduledCommandSequence);
         File.WriteAllText(path, previous);
+    }
+
+    private static string Mutate(string json, Action<JsonObject> mutate)
+    {
+        var root = JsonNode.Parse(json)!.AsObject();
+        mutate(root);
+        return root.ToJsonString();
     }
 
     private static StaticTrainHarness Parked()

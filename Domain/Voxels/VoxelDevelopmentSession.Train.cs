@@ -338,7 +338,7 @@ public sealed partial class VoxelDevelopmentSession
             return RejectMotion(TrainMotionStatus.PastStep, atStep);
         if (start && !CanStartNow(out var status))
             return RejectMotion(status, atStep);
-        if (!CanCommitTransaction())
+        if (!CanCommitTransaction() || _scheduledSequence == ulong.MaxValue)
             return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
 
         var snapshot = CaptureMotionSnapshot();
