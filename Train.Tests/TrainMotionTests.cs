@@ -361,19 +361,23 @@ public sealed class TrainMotionTests
     }
 
     [TestMethod]
-    public void Save_rejects_railway_motion_and_keeps_the_previous_file()
+    public void Save_round_trips_railway_motion_through_a_new_session_file_load()
     {
         using var harness = Parked();
         harness.Session.Reset();
         Assert.AreEqual(WorldSaveStatus.Saved, harness.Session.Save("Empty").Status);
-        var path = harness.Store.PathFor(harness.Session.SaveId!.Value);
-        var previous = File.ReadAllText(path);
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
         Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
         Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
-        Assert.AreEqual(WorldSaveStatus.UnsupportedRailway, harness.Session.Save("Motion").Status);
-        Assert.AreEqual(previous, File.ReadAllText(path));
+        var before = harness.Session.CaptureTrainAuthority();
+        Assert.AreEqual(WorldSaveStatus.Saved, harness.Session.Save("Motion").Status);
+
+        using var reader = StaticTrainHarness.Create(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(harness.Session.SaveId!.Value).Status);
+        Assert.AreEqual(before, reader.Session.CaptureTrainAuthority());
+        Assert.AreEqual(96.0, reader.Session.QueryTrainAssemblies().Single().Vehicles[0].FrontContact.X, 1e-8);
+        Assert.AreEqual(4.0, reader.Session.QueryTrainAssemblies().Single().Speed, 1e-8);
     }
 
     [TestMethod]

@@ -13,6 +13,8 @@ public sealed partial class VoxelDevelopmentSession
     private readonly SimulationScheduler _hostScheduler = new();
     private ulong _scheduledSequence;
 
+    public ulong ScheduledCommandSequence => _scheduledSequence;
+
     private readonly record struct ScheduledTrainCommand(ulong AtStep, bool Start, ulong Sequence);
 
     public TrainAssemblyResult AssembleStaticTrain()

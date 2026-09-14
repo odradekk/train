@@ -34,13 +34,12 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelSlice2SmokePhase _slice2SmokePhase;
     private VoxelSlice3SmokePhase _slice3SmokePhase;
     private VoxelSlice4SmokePhase _slice4SmokePhase;
-    private Guid? _slice4EmptySaveId;
-    private string? _slice4EmptySaveHash;
     private ulong _slice4FarMeshId;
     private ulong _slice4ZNeighborMeshId;
     private ulong[] _slice4TrainMeshIds = Array.Empty<ulong>();
     private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelSlice3ResumeSmokePhase _slice3ResumeSmokePhase;
+    private VoxelSlice4ResumeSmokePhase _slice4ResumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
     private VoxelSlice3ObservePhase _slice3ObservePhase;
@@ -202,7 +201,7 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitDamage,
         Repair,
         AwaitRepair,
-        SaveReject,
+        SaveAt900,
         OpenConsole,
         AwaitConsoleOpen,
         CloseConsole,
@@ -298,6 +297,16 @@ public partial class VoxelDeveloperScene : Node3D
         Reload,
         AwaitReload,
         Resave,
+        Done
+    }
+
+    private enum VoxelSlice4ResumeSmokePhase
+    {
+        None,
+        Load,
+        AwaitLoad,
+        ContinueMotion,
+        AwaitContinueVisual,
         Done
     }
 
@@ -578,6 +587,11 @@ public partial class VoxelDeveloperScene : Node3D
             {
                 if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
                     _slice3ResumeSmokePhase = VoxelSlice3ResumeSmokePhase.Load;
+                else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+                {
+                    _session.PauseSimulation();
+                    _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.Load;
+                }
                 else
                     _resumeSmokePhase = VoxelResumeSmokePhase.Load;
                 return;
@@ -643,6 +657,7 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceSlice4Smoke();
         AdvanceResumeSmoke();
         AdvanceSlice3ResumeSmoke();
+        AdvanceSlice4ResumeSmoke();
         AdvanceHostSimulation(delta);
         AdvanceObserve();
         AdvanceSlice2Observe();
@@ -4248,6 +4263,55 @@ public partial class VoxelDeveloperScene : Node3D
     private GameConsole? FindConsole() =>
         GetNode<Main>("/root/Main").GetChildren().OfType<GameConsole>().SingleOrDefault();
 
+    private void AdvanceSlice4ResumeSmoke()
+    {
+        switch (_slice4ResumeSmokePhase)
+        {
+            case VoxelSlice4ResumeSmokePhase.Load:
+            {
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Slice 4 persist smoke is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Slice 4 persist smoke could not load {saveId:D}: {loaded.Status}.");
+                var restored = RequireSlice4Assembly();
+                if (_session.SimulationStep != 900 ||
+                    Math.Abs(restored.Vehicles[0].FrontContact.X - 136) > 1e-8 ||
+                    Math.Abs(restored.Speed - 4) > 1e-8 ||
+                    !restored.Running)
+                    throw new InvalidOperationException(
+                        $"Slice 4 resume loaded step={_session.SimulationStep} front={restored.Vehicles[0].FrontContact.X} speed={restored.Speed}.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_RESUME_LOADED id={saveId:D} step={_session.SimulationStep} front={restored.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={restored.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hash={WorldSaveAuthority.Fingerprint(_session)} name={loaded.DisplayName}");
+                _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.AwaitLoad;
+                return;
+            }
+            case VoxelSlice4ResumeSmokePhase.AwaitLoad:
+                if (_dirty || _tracks.SolidCount == 0 || _composites.VehicleCount != 2)
+                    return;
+                ValidateGeneratedMesh();
+                ValidateCompositeVisual();
+                _slice4TrainMeshIds = _composites.MeshInstanceIds.ToArray();
+                _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.ContinueMotion;
+                return;
+            case VoxelSlice4ResumeSmokePhase.ContinueMotion:
+                ContinueSlice4MotionToStop();
+                _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.AwaitContinueVisual;
+                return;
+            case VoxelSlice4ResumeSmokePhase.AwaitContinueVisual:
+                if (_dirty || _composites.VehicleCount != 2)
+                    return;
+                ValidateCompositeVisual();
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_RESUME_TRANSFORM_ONLY rebuilt={(_composites.LastSync == CompositeVisualSyncKind.TransformOnly ? 0 : 1)} meshes={_composites.MeshInstanceCount}");
+                RunSlice4EndStopSmoke();
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitResetAfterMotion;
+                _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.Done;
+                return;
+        }
+    }
+
     private void AdvanceSlice4Smoke()
     {
         switch (_slice4SmokePhase)
@@ -4258,9 +4322,6 @@ public partial class VoxelDeveloperScene : Node3D
                 var emptySave = _session.Save("Slice 4 Empty");
                 if (emptySave.Status != WorldSaveStatus.Saved || !emptySave.SaveId.HasValue)
                     throw new InvalidOperationException($"Slice 4 empty save failed: {emptySave.Status}.");
-                _slice4EmptySaveId = emptySave.SaveId;
-                var emptyPath = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(emptySave.SaveId.Value);
-                _slice4EmptySaveHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(emptyPath)));
                 _slice4SmokePhase = VoxelSlice4SmokePhase.Construct;
                 return;
             case VoxelSlice4SmokePhase.Construct:
@@ -4319,8 +4380,24 @@ public partial class VoxelDeveloperScene : Node3D
                 if (!_slice4TrainMeshIds.SequenceEqual(_composites.MeshInstanceIds))
                     throw new InvalidOperationException("Slice 4 motion replaced composite mesh instances.");
                 GD.Print("VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY rebuilt=0");
-                FinishSlice4MotionSmoke();
-                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitResetAfterMotion;
+                if (!_session.AdvanceSimulation(600).Succeeded || _session.SimulationStep != 900)
+                    throw new InvalidOperationException("Slice 4 smoke could not continue to step 900.");
+                var step900 = RequireSlice4Assembly();
+                if (Math.Abs(step900.Vehicles[0].FrontContact.X - 136) > 1e-8 ||
+                    Math.Abs(step900.Speed - 4) > 1e-8 ||
+                    !step900.Running)
+                    throw new InvalidOperationException(
+                        $"Slice 4 step 900 is {step900.Vehicles[0].FrontContact.X},{step900.Speed},{step900.Running}.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_STEP900 loco={step900.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step900.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hash={WorldSaveAuthority.Fingerprint(_session)}");
+                var saved = _session.Save("Slice 4 Step 900");
+                if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+                    throw new InvalidOperationException($"Slice 4 smoke could not save at step 900: {saved.Status}.");
+                var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+                if (!File.Exists(path))
+                    throw new InvalidOperationException($"Slice 4 smoke save file was not created at {path}.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_SAVE_WRITTEN id={saved.SaveId:D} bytes={new FileInfo(path).Length} path={path} step={_session.SimulationStep}");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.OpenConsole;
                 return;
             case VoxelSlice4SmokePhase.AwaitResetAfterMotion:
                 if (_dirty || _tracks.SolidCount == 0 || _composites.VehicleCount != 2)
@@ -4423,18 +4500,15 @@ public partial class VoxelDeveloperScene : Node3D
                 if (_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
                     return;
                 GD.Print("VOXEL_SMOKE_SLICE4_REPAIRED");
-                _slice4SmokePhase = VoxelSlice4SmokePhase.SaveReject;
+                _slice4SmokePhase = VoxelSlice4SmokePhase.SaveAt900;
                 return;
-            case VoxelSlice4SmokePhase.SaveReject:
-                var rejected = _session.Save("Slice 4 Railway");
-                if (rejected.Status != WorldSaveStatus.UnsupportedRailway)
-                    throw new InvalidOperationException($"Slice 4 railway save should be rejected, got {rejected.Status}.");
-                var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(_slice4EmptySaveId!.Value);
-                var currentHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.IO.File.ReadAllBytes(path)));
-                if (!string.Equals(_slice4EmptySaveHash, currentHash, StringComparison.Ordinal))
-                    throw new InvalidOperationException("Slice 4 railway save overwrote the previous valid file.");
-                GD.Print($"VOXEL_SMOKE_SLICE4_SAVE_REJECTED status={rejected.Status}");
-                _slice4SmokePhase = VoxelSlice4SmokePhase.OpenConsole;
+            case VoxelSlice4SmokePhase.SaveAt900:
+                var resumedSave = _session.Save("Slice 4 Resume");
+                if (resumedSave.Status != WorldSaveStatus.Saved || !resumedSave.SaveId.HasValue)
+                    throw new InvalidOperationException($"Slice 4 resume could not save again: {resumedSave.Status}.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_RESUME_SAVED id={resumedSave.SaveId:D} step={_session.SimulationStep}");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.Done;
+                GetTree().Quit();
                 return;
             case VoxelSlice4SmokePhase.OpenConsole:
                 PressKey(Key.Quoteleft, '`');
@@ -4505,10 +4579,13 @@ public partial class VoxelDeveloperScene : Node3D
             $"VOXEL_SMOKE_SLICE4_STEP300 loco={step300.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={step300.Vehicles[1].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step300.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
     }
 
-    private void FinishSlice4MotionSmoke()
+    private void ContinueSlice4MotionToStop()
     {
-        if (!_session.AdvanceSimulation(1500).Succeeded)
+        var remaining = 1800UL - _session.SimulationStep;
+        if (remaining > 0 && !_session.AdvanceSimulation(remaining).Succeeded)
             throw new InvalidOperationException("Slice 4 smoke could not continue to step 1800.");
+        if (_session.SimulationStep != 1800)
+            throw new InvalidOperationException($"Slice 4 smoke expected step 1800, got {_session.SimulationStep}.");
         var step1800 = RequireSlice4Assembly();
         if (Math.Abs(step1800.Vehicles[0].FrontContact.X - 196) > 1e-8)
             throw new InvalidOperationException($"Slice 4 step 1800 front is {step1800.Vehicles[0].FrontContact.X}.");
@@ -4531,7 +4608,10 @@ public partial class VoxelDeveloperScene : Node3D
         if (!_session.ResumeSimulation().Succeeded)
             throw new InvalidOperationException("Slice 4 smoke could not resume.");
         GD.Print($"VOXEL_SMOKE_SLICE4_PAUSED step={beforePause}");
+    }
 
+    private void RunSlice4EndStopSmoke()
+    {
         _session.Reset();
         if (!EnterSlice4Fixture() || !_session.StartTrain(RailHeading.AlongAlignment).Succeeded)
             throw new InvalidOperationException("Slice 4 smoke could not rebuild the fixture for the end stop.");

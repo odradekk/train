@@ -17,4 +17,4 @@ rail start reverse 0
 
 失败状态：`NoRailway`、`NoAssembly`、`MissingPropulsion`、`MissingControl`、`InsufficientSupport`、`VehicleConstraint`、`TransactionExhausted`、`PastStep`。
 
-用 [`rail query assembly`](rail-query.md) 或 [`rail query motion`](rail-query.md) 查看速度、牵引开关、步号和待执行命令。停车见 [`rail stop`](rail-stop.md)。铁路与运动状态仍不能完整存档：[`voxel save`](voxel-save.md) 返回 `UnsupportedRailway`。
+用 [`rail query assembly`](rail-query.md) 或 [`rail query motion`](rail-query.md) 查看速度、牵引开关、步号和待执行命令。停车见 [`rail stop`](rail-stop.md)。正式铁路、编组、运动和待执行命令随 [`voxel save`](voxel-save.md) 写入格式 3；[`voxel load`](voxel-load.md) 从文件恢复后须再执行本命令才会从开发停车或末端零速重新启动。

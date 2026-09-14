@@ -465,19 +465,22 @@ public sealed class StaticTrainAssemblyTests
     }
 
     [TestMethod]
-    public void Railway_and_assembly_save_is_rejected_and_parked_vehicle_save_still_works()
+    public void Railway_and_assembly_save_round_trips_and_parked_vehicle_save_still_works()
     {
         using var harness = StaticTrainHarness.Create();
         var empty = harness.Session.Save("Slice 4 Empty");
         Assert.AreEqual(WorldSaveStatus.Saved, empty.Status);
-        var path = harness.Store.PathFor(empty.SaveId!.Value);
-        var previous = File.ReadAllText(path);
 
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
         Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
-        var rejected = harness.Session.Save("Should Not Write");
-        Assert.AreEqual(WorldSaveStatus.UnsupportedRailway, rejected.Status);
-        Assert.AreEqual(previous, File.ReadAllText(path));
+        var before = harness.Session.CaptureTrainAuthority();
+        var saved = harness.Session.Save("Slice 4 Railway");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        Assert.AreEqual(empty.SaveId, saved.SaveId);
+
+        using var reader = StaticTrainHarness.Create(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(before, reader.Session.CaptureTrainAuthority());
 
         harness.Session.Reset();
         Assert.IsTrue(harness.Session.Manufacture(HollowShellFixture.DefinitionId).Succeeded);
@@ -668,6 +671,7 @@ public sealed class StaticTrainAssemblyTests
 internal sealed class StaticTrainHarness : IDisposable
 {
     private readonly LoggerSession _logger;
+    private readonly bool _ownsUserData;
 
     public string UserData { get; }
     public FileWorldSaveStore Store { get; }
@@ -683,7 +687,8 @@ internal sealed class StaticTrainHarness : IDisposable
         FileWorldSaveStore store,
         MemoryContentSource source,
         ContentReloader reloader,
-        VoxelDevelopmentSession session)
+        VoxelDevelopmentSession session,
+        bool ownsUserData)
     {
         _logger = logger;
         UserData = userData;
@@ -691,22 +696,24 @@ internal sealed class StaticTrainHarness : IDisposable
         Source = source;
         Reloader = reloader;
         Session = session;
+        _ownsUserData = ownsUserData;
     }
 
-    public static StaticTrainHarness Create()
+    public static StaticTrainHarness Create(string? existingUserData = null, MemoryContentSource? source = null)
     {
         var logger = LoggerSession.Create();
-        var userData = Directory.CreateTempSubdirectory("train-static-").FullName;
+        var userData = existingUserData ?? Directory.CreateTempSubdirectory("train-static-").FullName;
         var store = new FileWorldSaveStore(userData);
-        var source = Package();
-        var reloader = ContentFixtures.Create(source, logger.Logger);
+        var content = source ?? Package();
+        var reloader = ContentFixtures.Create(content, logger.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var session = new VoxelDevelopmentSession(
             reloader.Catalog,
             VoxelWorldIdentity.Slice4,
             store,
             reloader.Composites);
-        return new StaticTrainHarness(logger, userData, store, source, reloader, session);
+        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(session));
+        return new StaticTrainHarness(logger, userData, store, content, reloader, session, existingUserData is null);
     }
 
     public static MemoryContentSource Package()
@@ -734,7 +741,7 @@ internal sealed class StaticTrainHarness : IDisposable
     {
         Session.Detach();
         _logger.Dispose();
-        if (Directory.Exists(UserData))
+        if (_ownsUserData && Directory.Exists(UserData))
             Directory.Delete(UserData, true);
     }
 }
