@@ -47,4 +47,21 @@ public static class BehaviorRegistry
 
         return capabilities.ToArray();
     }
+
+    public static bool TryNormalizePropulsion(
+        double? targetSpeed,
+        double? acceleration,
+        out PropulsionParameters parameters)
+    {
+        var target = targetSpeed ?? PropulsionParameters.DefaultTargetSpeed;
+        var accel = acceleration ?? PropulsionParameters.DefaultAcceleration;
+        if (!PropulsionParameters.TryCreate(target, accel, out var created) || created is null)
+        {
+            parameters = PropulsionParameters.Default;
+            return false;
+        }
+
+        parameters = created;
+        return true;
+    }
 }

@@ -14,6 +14,7 @@ internal sealed class ParsedVoxel
     public int MaxDurability { get; }
     public IReadOnlyList<string> Tags { get; }
     public IReadOnlyList<string> Behaviors { get; }
+    public PropulsionParameters? Propulsion { get; }
     public VoxelOrientationConstraint AllowedOrientations { get; }
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
@@ -28,6 +29,7 @@ internal sealed class ParsedVoxel
         int maxDurability,
         IReadOnlyList<string> tags,
         IReadOnlyList<string> behaviors,
+        PropulsionParameters? propulsion,
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
         VoxelCollision collision,
@@ -41,6 +43,7 @@ internal sealed class ParsedVoxel
         MaxDurability = maxDurability;
         Tags = tags;
         Behaviors = behaviors;
+        Propulsion = propulsion;
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;
@@ -155,6 +158,7 @@ internal static class VoxelsJsonParser
         int? maxDurability = null;
         IReadOnlyList<string>? tags = null;
         IReadOnlyList<string>? behaviors = null;
+        PropulsionParameters? propulsion = null;
         string? orientationsText = null;
         JsonElement? presentation = null;
         JsonElement? collision = null;
@@ -204,7 +208,7 @@ internal static class VoxelsJsonParser
                         return false;
                     break;
                 case "behaviors":
-                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors))
+                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors, out propulsion))
                         return false;
                     break;
                 case "allowed_orientations":
@@ -303,6 +307,7 @@ internal static class VoxelsJsonParser
             maxDurability.Value,
             tags,
             behaviors,
+            propulsion,
             orientations,
             parsedPresentation,
             parsedCollision,
@@ -359,9 +364,11 @@ internal static class VoxelsJsonParser
         JsonElement element,
         string jsonPath,
         DiagnosticBag diagnostics,
-        out IReadOnlyList<string> behaviors)
+        out IReadOnlyList<string> behaviors,
+        out PropulsionParameters? propulsion)
     {
         behaviors = Array.Empty<string>();
+        propulsion = null;
         if (element.ValueKind != JsonValueKind.Array)
         {
             diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath);
@@ -380,21 +387,65 @@ internal static class VoxelsJsonParser
             }
 
             string? type = null;
+            double? targetSpeed = null;
+            double? acceleration = null;
+            if (item.TryGetProperty("type", out var typeElement) &&
+                !StrictJson.TryGetString(typeElement, diagnostics, itemPath + "/type", ContentDiagnosticCodes.BehaviorUnregistered, out type))
+                return false;
+
             foreach (var property in item.EnumerateObject())
             {
-                if (property.Name != "type")
+                if (property.Name == "type")
+                    continue;
+
+                if (type == BehaviorTypes.Propulsion && property.Name == "target_speed")
                 {
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath + "/" + property.Name);
-                    return false;
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/target_speed", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedTarget))
+                        return false;
+                    targetSpeed = parsedTarget;
+                    continue;
                 }
 
-                if (!StrictJson.TryGetString(property.Value, diagnostics, itemPath + "/type", ContentDiagnosticCodes.BehaviorUnregistered, out type))
-                    return false;
+                if (type == BehaviorTypes.Propulsion && property.Name == "acceleration")
+                {
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/acceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedAcceleration))
+                        return false;
+                    acceleration = parsedAcceleration;
+                    continue;
+                }
+
+                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath + "/" + property.Name);
+                return false;
             }
 
             if (string.IsNullOrEmpty(type))
             {
                 diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Behavior type is required.", itemPath + "/type");
+                return false;
+            }
+
+            if (type == BehaviorTypes.Propulsion)
+            {
+                if (propulsion is not null)
+                {
+                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Only one propulsion behavior is allowed.", itemPath);
+                    return false;
+                }
+
+                if (!BehaviorRegistry.TryNormalizePropulsion(targetSpeed, acceleration, out var parameters))
+                {
+                    diagnostics.Warn(
+                        ContentDiagnosticCodes.BehaviorUnregistered,
+                        "Propulsion parameters must be finite and strictly positive.",
+                        itemPath);
+                    return false;
+                }
+
+                propulsion = parameters;
+            }
+            else if (targetSpeed is not null || acceleration is not null)
+            {
+                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath);
                 return false;
             }
 

@@ -1,12 +1,19 @@
 using Train.Content;
+using Train.Domain.Behaviors;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
+using Train.Domain.Simulation;
 
 namespace Train.Domain.Voxels;
 
 public sealed partial class VoxelDevelopmentSession
 {
     private readonly List<TrainAssembly> _assemblies = new();
+    private readonly List<ScheduledTrainCommand> _scheduled = new();
+    private readonly SimulationScheduler _hostScheduler = new();
+    private ulong _scheduledSequence;
+
+    private readonly record struct ScheduledTrainCommand(ulong AtStep, bool Start, ulong Sequence);
 
     public TrainAssemblyResult AssembleStaticTrain()
     {
@@ -121,7 +128,85 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     public TrainAuthoritySnapshot CaptureTrainAuthority() =>
-        new(CaptureAuthority(), CaptureRailAuthority(), QueryTrainAssemblies());
+        new(CaptureAuthority(), CaptureRailAuthority(), QueryTrainAssemblies(), SimulationStep, QueryScheduledTrainCommands());
+
+    public IReadOnlyList<ScheduledTrainCommandQuery> QueryScheduledTrainCommands() =>
+        _scheduled
+            .OrderBy(item => item.Sequence)
+            .Select(item => new ScheduledTrainCommandQuery(item.AtStep, item.Start, item.Sequence))
+            .ToArray();
+
+    public ulong CollectHostSteps(double displayDelta) =>
+        _hostScheduler.CollectSteps(displayDelta, SimulationPaused);
+
+    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null)
+    {
+        if (heading == RailHeading.AgainstAlignment)
+            return RejectMotion(TrainMotionStatus.ReverseUnsupported);
+        if (!HasRailway)
+            return RejectMotion(TrainMotionStatus.NoRailway);
+        if (_assemblies.Count == 0)
+            return RejectMotion(TrainMotionStatus.NoAssembly);
+
+        return AcceptTrainCommand(atStep ?? SimulationStep, start: true);
+    }
+
+    public TrainMotionResult StopTrain(ulong? atStep = null)
+    {
+        if (_assemblies.Count == 0)
+            return RejectMotion(TrainMotionStatus.NoAssembly);
+
+        return AcceptTrainCommand(atStep ?? SimulationStep, start: false);
+    }
+
+    public TrainMotionResult PauseSimulation()
+    {
+        SimulationPaused = true;
+        Changed?.Invoke();
+        return new TrainMotionResult(TrainMotionStatus.Paused, SimulationStep);
+    }
+
+    public TrainMotionResult ResumeSimulation()
+    {
+        SimulationPaused = false;
+        Changed?.Invoke();
+        return new TrainMotionResult(TrainMotionStatus.Resumed, SimulationStep);
+    }
+
+    public TrainMotionResult AdvanceSimulation(ulong steps)
+    {
+        if (steps == 0)
+            return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, 0);
+        if (steps > ulong.MaxValue - SimulationStep)
+            return RejectMotion(TrainMotionStatus.StepOverflow);
+
+        var snapshot = CaptureMotionSnapshot();
+        for (ulong i = 0; i < steps; i++)
+        {
+            if (!TryApplyScheduledCommands(SimulationStep, out var scheduledStatus))
+            {
+                RestoreMotionSnapshot(snapshot);
+                return RejectMotion(scheduledStatus);
+            }
+
+            if (_assemblies.Count > 0 && !TryAdvanceOneAssembly(out var status))
+            {
+                RestoreMotionSnapshot(snapshot);
+                return RejectMotion(status);
+            }
+
+            SimulationStep++;
+            if (SimulationStep == ulong.MaxValue &&
+                !TryApplyScheduledCommands(SimulationStep, out scheduledStatus))
+            {
+                RestoreMotionSnapshot(snapshot);
+                return RejectMotion(scheduledStatus);
+            }
+        }
+
+        Changed?.Invoke();
+        return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, steps);
+    }
 
     private void DissolveBrokenAssemblies()
     {
@@ -231,8 +316,246 @@ public sealed partial class VoxelDevelopmentSession
             assembly.Reference,
             assembly.VehicleIds,
             assembly.Connections,
-            poses);
+            poses,
+            assembly.Speed,
+            assembly.Running);
     }
+
+    private void ResetMotionState()
+    {
+        SimulationStep = 0;
+        SimulationPaused = false;
+        _scheduled.Clear();
+        _scheduledSequence = 0;
+        _hostScheduler.Reset();
+    }
+
+    private TrainMotionResult AcceptTrainCommand(ulong atStep, bool start)
+    {
+        if (atStep < SimulationStep)
+            return RejectMotion(TrainMotionStatus.PastStep, atStep);
+        if (start && !CanStartNow(out var status))
+            return RejectMotion(status, atStep);
+        if (!CanCommitTransaction())
+            return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
+
+        var snapshot = CaptureMotionSnapshot();
+        CommitTransaction();
+        _scheduled.Add(new ScheduledTrainCommand(atStep, start, _scheduledSequence++));
+        if (atStep == SimulationStep && !TryApplyScheduledCommands(SimulationStep, out var applyStatus))
+        {
+            RestoreMotionSnapshot(snapshot);
+            return RejectMotion(applyStatus, atStep);
+        }
+
+        Changed?.Invoke();
+        return new TrainMotionResult(
+            start ? TrainMotionStatus.Started : TrainMotionStatus.Stopped,
+            SimulationStep,
+            AtStep: atStep);
+    }
+
+    private bool TryApplyScheduledCommands(ulong step, out TrainMotionStatus status)
+    {
+        status = TrainMotionStatus.Advanced;
+        var due = _scheduled.Where(item => item.AtStep == step).OrderBy(item => item.Sequence).ToArray();
+        foreach (var command in due)
+        {
+            _scheduled.Remove(command);
+            if (_assemblies.Count == 0)
+                continue;
+            if (command.Start)
+            {
+                if (!CanStartNow(out status) && !_assemblies[0].Running)
+                    return false;
+                ApplyStartCore();
+            }
+            else
+                ApplyStopCore();
+        }
+
+        return true;
+    }
+
+    private void ApplyStartCore()
+    {
+        var assembly = _assemblies[0];
+        _assemblies[0] = assembly.WithMotion(assembly.Speed, running: true);
+    }
+
+    private void ApplyStopCore() =>
+        _assemblies[0] = _assemblies[0].WithMotion(0, running: false);
+
+    private bool CanStartNow(out TrainMotionStatus status)
+    {
+        status = TrainMotionStatus.Started;
+        if (!HasRailway)
+        {
+            status = TrainMotionStatus.NoRailway;
+            return false;
+        }
+
+        if (_assemblies.Count == 0)
+        {
+            status = TrainMotionStatus.NoAssembly;
+            return false;
+        }
+
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before starting a train.");
+        var assembly = _assemblies[0];
+        var locomotive = _vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
+        var carriage = _vehicles.FirstOrDefault(item => item.Id == assembly.VehicleIds.FirstOrDefault(id => id != assembly.ActiveLocomotiveId));
+        if (locomotive is null || carriage is null)
+        {
+            status = TrainMotionStatus.NoAssembly;
+            return false;
+        }
+
+        var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
+        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Propulsion))
+        {
+            status = TrainMotionStatus.MissingPropulsion;
+            return false;
+        }
+
+        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Control))
+        {
+            status = TrainMotionStatus.MissingControl;
+            return false;
+        }
+
+        if (!StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
+        {
+            status = TrainMotionStatus.MissingPropulsion;
+            return false;
+        }
+
+        if (assembly.Connections.Count == 0 ||
+            assembly.Connections.Any(connection =>
+                !HasLivePart(connection.FromVehicleId, connection.FromPartId) ||
+                !HasLivePart(connection.ToVehicleId, connection.ToPartId)))
+        {
+            status = TrainMotionStatus.VehicleConstraint;
+            return false;
+        }
+
+        if (!TryAssemblyContacts(locomotive, carriage, out var contacts))
+        {
+            status = TrainMotionStatus.VehicleConstraint;
+            return false;
+        }
+
+        if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, assembly.Reference))
+        {
+            status = TrainMotionStatus.InsufficientSupport;
+            return false;
+        }
+
+        return true;
+    }
+
+    private bool TryAdvanceOneAssembly(out TrainMotionStatus status)
+    {
+        status = TrainMotionStatus.Advanced;
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before advancing simulation.");
+        var assembly = _assemblies[0];
+        var locomotive = _vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
+        var carriage = _vehicles.FirstOrDefault(item => item.Id == assembly.VehicleIds.FirstOrDefault(id => id != assembly.ActiveLocomotiveId));
+        if (locomotive is null || carriage is null)
+        {
+            status = TrainMotionStatus.NoAssembly;
+            return false;
+        }
+
+        if (!StraightTrainMotion.TryAdvanceAssembly(
+                assembly,
+                locomotive,
+                carriage,
+                _rails,
+                World,
+                voxels,
+                out var updated,
+                out var newLoco,
+                out var newCarriage,
+                out status))
+            return false;
+
+        ReplaceVehicle(newLoco);
+        ReplaceVehicle(newCarriage);
+        _assemblies[0] = updated;
+        return true;
+    }
+
+    private MotionSnapshot CaptureMotionSnapshot() =>
+        new(
+            SimulationStep,
+            _vehicles.ToArray(),
+            _assemblies.ToArray(),
+            _scheduled.ToArray(),
+            _scheduledSequence,
+            TransactionCount);
+
+    private void RestoreMotionSnapshot(MotionSnapshot snapshot)
+    {
+        SimulationStep = snapshot.Step;
+        _vehicles.Clear();
+        _vehicles.AddRange(snapshot.Vehicles);
+        _assemblies.Clear();
+        _assemblies.AddRange(snapshot.Assemblies);
+        _scheduled.Clear();
+        _scheduled.AddRange(snapshot.Scheduled);
+        _scheduledSequence = snapshot.ScheduledSequence;
+        TransactionCount = snapshot.TransactionCount;
+    }
+
+    private void AdaptAssembliesToLiveCatalog()
+    {
+        var voxels = _catalog.Current;
+        if (voxels is null)
+            return;
+        for (var index = 0; index < _assemblies.Count; index++)
+        {
+            var assembly = _assemblies[index];
+            var locomotive = _vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
+            if (locomotive is null || !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out var propulsion))
+                continue;
+            var speed = Math.Min(assembly.Speed, propulsion.TargetSpeed);
+            if (speed != assembly.Speed)
+                _assemblies[index] = assembly.WithMotion(speed, assembly.Running);
+        }
+    }
+
+    private TrainMotionResult RejectMotion(TrainMotionStatus status, ulong? atStep = null) =>
+        new(status, SimulationStep, AtStep: atStep ?? SimulationStep);
+
+    private static bool TryAssemblyContacts(
+        CompositeInstance locomotive,
+        CompositeInstance carriage,
+        out (double X, double Y, double Z)[] contacts)
+    {
+        contacts = Array.Empty<(double X, double Y, double Z)>();
+        if (!StraightTrainSolver.TryToWorldContact(locomotive, 0, out var locoFront) ||
+            !StraightTrainSolver.TryToWorldContact(locomotive, 1, out var locoRear) ||
+            !StraightTrainSolver.TryToWorldContact(carriage, 0, out var carriageFront) ||
+            !StraightTrainSolver.TryToWorldContact(carriage, 1, out var carriageRear))
+            return false;
+        contacts =
+        [
+            (locoFront.X, locoFront.Y, locoFront.Z),
+            (locoRear.X, locoRear.Y, locoRear.Z),
+            (carriageFront.X, carriageFront.Y, carriageFront.Z),
+            (carriageRear.X, carriageRear.Y, carriageRear.Z)
+        ];
+        return true;
+    }
+
+    private sealed record MotionSnapshot(
+        ulong Step,
+        IReadOnlyList<CompositeInstance> Vehicles,
+        IReadOnlyList<TrainAssembly> Assemblies,
+        IReadOnlyList<ScheduledTrainCommand> Scheduled,
+        ulong ScheduledSequence,
+        ulong TransactionCount);
 
     private static TrainAssemblyStatus MapConstruction(ConstructionStatus status) => status switch
     {

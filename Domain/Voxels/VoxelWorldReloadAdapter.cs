@@ -1,5 +1,6 @@
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
@@ -62,6 +63,9 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         List<CompositeInstance>? vehicles = null;
         if (_session is not null)
             vehicles = AdaptVehicles(_session.Vehicles, voxels, composites, diagnostics);
+
+        if (_session is not null && vehicles is not null)
+            ValidateAssemblies(_session, vehicles, voxels, diagnostics);
 
         if (diagnostics.Count > 0)
             return ContentWorldReloadPlan.Reject(diagnostics);
@@ -235,6 +239,38 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         }
 
         return adapted;
+    }
+
+    private static void ValidateAssemblies(
+        VoxelDevelopmentSession session,
+        IReadOnlyList<CompositeInstance> vehicles,
+        VoxelCatalogSnapshot voxels,
+        List<ContentDiagnostic> diagnostics)
+    {
+        foreach (var assembly in session.QueryTrainAssemblies())
+        {
+            var locomotive = vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
+            if (locomotive is null)
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                    "A train assembly is missing its locomotive under the candidate catalog.",
+                    jsonPath: assembly.ActiveLocomotiveId.Value.ToString()));
+                continue;
+            }
+
+            var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
+            if (!TrainAssemblyRules.HasLocomotiveCapabilities(capabilities) ||
+                !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
+            {
+                diagnostics.Add(new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                    "A train assembly cannot keep its required propulsion or control under the candidate catalog.",
+                    jsonPath: locomotive.DefinitionId.Value));
+            }
+        }
     }
 
     private static bool VehiclesDiffer(

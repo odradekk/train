@@ -671,6 +671,7 @@ internal sealed class StaticTrainHarness : IDisposable
 
     public string UserData { get; }
     public FileWorldSaveStore Store { get; }
+    public MemoryContentSource Source { get; }
     public VoxelDevelopmentSession Session { get; }
     public ContentReloader Reloader { get; }
     public TrainLogger Logger => _logger.Logger;
@@ -680,12 +681,14 @@ internal sealed class StaticTrainHarness : IDisposable
         LoggerSession logger,
         string userData,
         FileWorldSaveStore store,
+        MemoryContentSource source,
         ContentReloader reloader,
         VoxelDevelopmentSession session)
     {
         _logger = logger;
         UserData = userData;
         Store = store;
+        Source = source;
         Reloader = reloader;
         Session = session;
     }
@@ -703,7 +706,7 @@ internal sealed class StaticTrainHarness : IDisposable
             VoxelWorldIdentity.Slice4,
             store,
             reloader.Composites);
-        return new StaticTrainHarness(logger, userData, store, reloader, session);
+        return new StaticTrainHarness(logger, userData, store, source, reloader, session);
     }
 
     public static MemoryContentSource Package()

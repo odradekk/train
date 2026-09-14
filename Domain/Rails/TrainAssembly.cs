@@ -74,7 +74,9 @@ public sealed record TrainAssemblyQuery(
     RailPosition Reference,
     IReadOnlyList<EntityId> VehicleIds,
     IReadOnlyList<CouplerConnectionQuery> Connections,
-    IReadOnlyList<TrainVehiclePoseQuery> Vehicles)
+    IReadOnlyList<TrainVehiclePoseQuery> Vehicles,
+    double Speed = 0,
+    bool Running = false)
 {
     public bool Equals(TrainAssemblyQuery? other) =>
         other is not null &&
@@ -83,7 +85,9 @@ public sealed record TrainAssemblyQuery(
         Reference == other.Reference &&
         VehicleIds.SequenceEqual(other.VehicleIds) &&
         Connections.SequenceEqual(other.Connections) &&
-        Vehicles.SequenceEqual(other.Vehicles);
+        Vehicles.SequenceEqual(other.Vehicles) &&
+        Speed == other.Speed &&
+        Running == other.Running;
 
     public override int GetHashCode()
     {
@@ -97,6 +101,8 @@ public sealed record TrainAssemblyQuery(
             hash.Add(connection);
         foreach (var vehicle in Vehicles)
             hash.Add(vehicle);
+        hash.Add(Speed);
+        hash.Add(Running);
         return hash.ToHashCode();
     }
 }
@@ -104,13 +110,20 @@ public sealed record TrainAssemblyQuery(
 public sealed record TrainAuthoritySnapshot(
     CompositeAuthoritySnapshot Composites,
     RailAuthoritySnapshot Rails,
-    IReadOnlyList<TrainAssemblyQuery> Assemblies)
+    IReadOnlyList<TrainAssemblyQuery> Assemblies,
+    ulong SimulationStep = 0,
+    IReadOnlyList<ScheduledTrainCommandQuery>? ScheduledCommands = null)
 {
+    public IReadOnlyList<ScheduledTrainCommandQuery> PendingCommands =>
+        ScheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
+
     public bool Equals(TrainAuthoritySnapshot? other) =>
         other is not null &&
         Composites == other.Composites &&
         Rails == other.Rails &&
-        Assemblies.SequenceEqual(other.Assemblies);
+        Assemblies.SequenceEqual(other.Assemblies) &&
+        SimulationStep == other.SimulationStep &&
+        PendingCommands.SequenceEqual(other.PendingCommands);
 
     public override int GetHashCode()
     {
@@ -119,6 +132,9 @@ public sealed record TrainAuthoritySnapshot(
         hash.Add(Rails);
         foreach (var assembly in Assemblies)
             hash.Add(assembly);
+        hash.Add(SimulationStep);
+        foreach (var command in PendingCommands)
+            hash.Add(command);
         return hash.ToHashCode();
     }
 }
@@ -130,20 +146,34 @@ public sealed class TrainAssembly
     public RailPosition Reference { get; }
     public IReadOnlyList<EntityId> VehicleIds { get; }
     public IReadOnlyList<CouplerConnectionQuery> Connections { get; }
+    public double Speed { get; }
+    public bool Running { get; }
 
     public TrainAssembly(
         EntityId id,
         EntityId activeLocomotiveId,
         RailPosition reference,
         IReadOnlyList<EntityId> vehicleIds,
-        IReadOnlyList<CouplerConnectionQuery> connections)
+        IReadOnlyList<CouplerConnectionQuery> connections,
+        double speed = 0,
+        bool running = false)
     {
         ArgumentNullException.ThrowIfNull(vehicleIds);
         ArgumentNullException.ThrowIfNull(connections);
+        if (!double.IsFinite(speed) || speed < 0)
+            throw new ArgumentOutOfRangeException(nameof(speed), speed, "Speed must be finite and non-negative.");
         Id = id;
         ActiveLocomotiveId = activeLocomotiveId;
         Reference = reference;
         VehicleIds = new ReadOnlyCollection<EntityId>(vehicleIds.ToArray());
         Connections = new ReadOnlyCollection<CouplerConnectionQuery>(connections.ToArray());
+        Speed = speed;
+        Running = running;
     }
+
+    public TrainAssembly WithMotion(double speed, bool running) =>
+        new(Id, ActiveLocomotiveId, Reference, VehicleIds, Connections, speed, running);
+
+    public TrainAssembly WithReferenceAndMotion(RailPosition reference, double speed, bool running) =>
+        new(Id, ActiveLocomotiveId, reference, VehicleIds, Connections, speed, running);
 }

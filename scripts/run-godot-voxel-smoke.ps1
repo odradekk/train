@@ -9,11 +9,12 @@ param(
 # world save / process-restart resume (#53), slice 3 parked-vehicle
 # manufacture (#58), damage/fracture (#59), atomic refit (#60),
 # existing-vehicle content reload (#61), and slice 4 formal straight
-# rail construction / occupancy / local damage (#68) and the static
-# locomotive-and-carriage assembly (#69).
+# rail construction / occupancy / local damage (#68), the static
+# locomotive-and-carriage assembly (#69), and fixed-step traction /
+# start-stop / cross-segment motion (#70).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
-# Slice 4 is a single process: it must not require later-ticket train motion.
+# Slice 4 is a single process: railway motion persistence is still later.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -223,6 +224,14 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_TRAIN_COUPLER",
         "VOXEL_SMOKE_SLICE4_TRAIN_QUALIFIED",
         "VOXEL_SMOKE_SLICE4_TRAIN_VISUAL",
+        "VOXEL_SMOKE_SLICE4_REVERSE_REJECTED",
+        "VOXEL_SMOKE_SLICE4_STEP300",
+        "VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY",
+        "VOXEL_SMOKE_SLICE4_CROSS_SEAM",
+        "VOXEL_SMOKE_SLICE4_STEP1800",
+        "VOXEL_SMOKE_SLICE4_STOPPED",
+        "VOXEL_SMOKE_SLICE4_PAUSED",
+        "VOXEL_SMOKE_SLICE4_END_STOP",
         "VOXEL_SMOKE_SLICE4_TRAIN_CONTACT_LOST",
         "VOXEL_SMOKE_SLICE4_RENDER_LOCAL",
         "VOXEL_SMOKE_SLICE4_EDGE_CLIP",

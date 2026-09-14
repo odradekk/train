@@ -247,6 +247,7 @@ public sealed class VoxelDefinition
     public int MaxDurability { get; }
     public IReadOnlySet<string> Tags { get; }
     public IReadOnlyList<string> Behaviors { get; }
+    public PropulsionParameters? Propulsion { get; }
     public VoxelOrientationConstraint AllowedOrientations { get; }
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
@@ -264,7 +265,8 @@ public sealed class VoxelDefinition
         IEnumerable<string> behaviors,
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
-        VoxelCollision collision)
+        VoxelCollision collision,
+        PropulsionParameters? propulsion = null)
     {
         if (string.IsNullOrEmpty(id.Namespace) || string.IsNullOrEmpty(id.LocalId))
             throw new ArgumentException("VoxelDefinitionId cannot be blank.", nameof(id));
@@ -300,6 +302,13 @@ public sealed class VoxelDefinition
         MaxDurability = maxDurability;
         Tags = tagSet;
         Behaviors = new ReadOnlyCollection<string>(behaviorList);
+        var hasPropulsion = behaviorList.Contains(BehaviorTypes.Propulsion);
+        if (hasPropulsion)
+            Propulsion = propulsion ?? PropulsionParameters.Default;
+        else if (propulsion is not null)
+            throw new ArgumentException("Propulsion parameters require a registered propulsion behavior.", nameof(propulsion));
+        else
+            Propulsion = null;
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;
