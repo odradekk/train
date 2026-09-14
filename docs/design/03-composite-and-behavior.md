@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文定义 Composite 的结构、合法性、玩家设计与 Refit、所有权、连通与断裂、死亡与解体、Damage Transaction，以及 Tag、Behavior、Capability 三层与 Behavior 执行架构。Composite 的渲染见 [07](07-rendering.md)；Damage Transaction 在 Tick 中的位置见 [04](04-deterministic-simulation.md)；车辆在铁路上的运动、碰撞与脱落见 [06](06-railway.md)。
+本文定义 Composite 的结构、合法性、玩家设计与 Refit、所有权、连通与断裂、死亡与解体、Damage Transaction，以及 Tag、Behavior、Capability 三层与 Behavior 执行架构。Composite 的渲染见 [07](07-rendering.md)；Damage Transaction 在 Tick 中的位置见 [04](04-deterministic-simulation.md)；车辆在铁路上的运动、碰撞与脱落见 [06](06-railway.md)；正式 Gameplay 中消耗 Goods 的耗时 Construction、Refit 与 Deconstruction Job 见 [14](14-construction-refit-and-deconstruction.md)。
 
 ## 不变量
 
@@ -38,7 +38,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 ### Draft 与玩家设计
 
-- 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局。
+- 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局。建筑 Composite 与车辆共用同一套 Construction 规则与成本派生，聚居地层面主要放置预置建筑，见 [14](14-construction-refit-and-deconstruction.md)。
 - 设计器允许保存非法 Draft：Draft → validate → Valid Definition → Instantiate。只有合法 Definition 可以制造。
 - 首版用手写 JSON 提供车辆 Blueprint，由测试场景加载、校验并生成车辆，验证正式的设计与制造流程；正式设计器留到后续版本。
 - 每个车头或车厢声明 [06](06-railway.md) 的五档尺寸之一；可以不填满固定包络，但所有实体体素与附加模块均不得越界，也不能自动升档。制造与改装同时检查机械约束，尺寸合法不等于可任意布置接触点。尺寸为可进入的内部空间留出余量，角色通行与正式内部设计玩法尚未验证。
@@ -46,7 +46,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 ### Refit
 
 - 玩家修改已经存在的 Composite 时，Instance #100 从 Definition r17 Refit 到 r18，Instance Identity 保持；只有真正拆除并重新制造才创建新 Instance ID。
-- Refit 首版采用 Atomic Transaction，不让施工中间状态暴露给 Simulation。
+- Refit 采用 Atomic Transaction，不让施工中间状态暴露给 Simulation。当前测试场景的瞬时 Atomic Refit 是开发验证入口；正式 Gameplay 的 Refit 是消耗 Delta BOM 的耗时 Job，完成时原子提交最终 Layout，期间 Composite 处于 UnderRefit 锁定状态，见 [14](14-construction-refit-and-deconstruction.md)。
 - Refit 必须追踪真实 Voxel Identity：把同一个 Engine 从 old cell 移到 new cell，它仍然是同一个 Engine，Durability、Temperature、Behavior State 不会被重置。
 
 Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](02-definitions-and-content.md) 采用当前外部规格，同时保留实际布局和实例身份，按新约束适配状态。Refit 表达玩家对车辆结构的显式修改；外部引擎数值更新不改变自定义车辆设计自身的 Revision。
@@ -86,13 +86,13 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 ### 死亡与解体
 
 - 无法满足 IdentityRetentionRules 的 Fragment：Composite ownership → World ownership；Voxel Runtime State 保留。
-- 不会自动扫描这些 Voxel 并尝试组成另一个 Composite。Composite Creation 必须来自显式行为：World Generator、玩家 Construction、AI Construction、Blueprint Instantiation、Composite Fracture。世界绝不会根据 Voxel 排列"猜测"一个 Composite。
+- 不会自动扫描这些 Voxel 并尝试组成另一个 Composite。Composite Creation 必须来自显式行为：World Generator、玩家 Construction、AI Construction、Blueprint Instantiation、Composite Fracture。世界绝不会根据 Voxel 排列"猜测"一个 Composite。正式 Gameplay 的 Construction 消费库存中的 Voxel Goods 并在耗时 Job 完成时原子实例化，见 [14](14-construction-refit-and-deconstruction.md)。
 
 ### Damage Transaction
 
 同一逻辑 Damage Event 内的所有破坏首先统一应用：apply damage → remove hp ≤ 0 → mark topology dirty → connectivity calculation → fragmentation。不能"destroy one voxel → fracture → destroy another → fracture again"，否则结果可能依赖遍历顺序。
 
-首版由测试场景的调试操作对指定体素施加指定伤害，支持一次事件影响多个体素，覆盖地形体素与车辆体素。测试必须经过正式的耐久扣减、归零删除与断裂结算流程，不能只用直接删除代替伤害验证。事故碰撞等玩法触发源后续再做。
+首版由测试场景的调试操作对指定体素施加指定伤害，支持一次事件影响多个体素，覆盖地形体素与车辆体素。测试必须经过正式的耐久扣减、归零删除与断裂结算流程，不能只用直接删除代替伤害验证。事故碰撞等玩法触发源后续再做。Extraction 是 Damage Transaction 的一种显式 Gameplay 使用方式，只有它产生 Raw Good，见 [10](10-resources-and-extraction.md)。
 
 ### Tag、Behavior、Capability
 
@@ -100,7 +100,7 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 
 - **Tag** 用于被动分类：metal、structural、organic 等。
 - **Behavior** 描述真正的逻辑机制：EngineBehavior、WeaponBehavior、StorageBehavior、HeatBehavior 等。
-- **Capability** 是 Behavior 对外提供的能力：Propulsion、Traction、Cargo、Weapon、Power 等。Capability 不允许在 Mod JSON 中任意伪造，它由实际注册的 Behavior 推导。
+- **Capability** 是 Behavior 对外提供的能力：Propulsion、Traction、Cargo、Weapon、Power 等。Capability 不允许在 Mod JSON 中任意伪造，它由实际注册的 Behavior 推导。Facility 的 Production、Extraction、Construction、Storage、Power Capability 同样只来自建筑内真实设备 Voxel 的 Behavior，Facility Tag 只表达兼容性，见 [13](13-production-runtime-and-facilities.md)。
 
 ### Behavior 架构
 

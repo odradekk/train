@@ -44,7 +44,7 @@
 
 正式游戏场景、经济与自动贸易玩法、正式车辆设计 UI、事故碰撞等伤害玩法触发源、专门遮挡检测后续开发。Faction 的设计与实现整体延后，首版不保留占位字段；当前测试场景复用正式世界模型、模拟、渲染与存档代码，并提供开发测试所需操作。
 
-TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 与自然资源标签属于当前体素定义，继续保留。
+TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 属于当前体素定义，继续保留。资源与生产系统（[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)）的设计已定，其实现与相关 Runtime State 的存档接入不在当前四个切片，随后续切片安排；`natural_resource` 到 `raw_good` / `resource_source` 的代码与内容迁移已开票 [#77](https://github.com/odradekk/train/issues/77)、[#78](https://github.com/odradekk/train/issues/78)。
 
 首版不实现有状态随机流或定点数体系；领域层暂不使用硬件宽度可变的向量计算，后续优化须经性能与确定性验证（#34）。
 
@@ -59,6 +59,8 @@ TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；V
 ## 暂不冻结的参数
 
 必须通过实际开发确定，进入 Config / Tuning 而不是架构不变量：Chunk Size、World Size、Simulation Tick Rate、Camera FOV、Zoom Min/Max、Render Residency Radius、Unload Radius、Directional Prefetch Distance、Rail Gauge、Loading Gauge、非车辆 Blueprint 尺寸限制、World Generation Retry Count、Meshing Threshold、Custom Mesh LOD Distance、Voxel Geometry LOD Distance、Window Default Height、默认渲染帧率上限。
+
+资源与生产系统的未冻结参数（各 Resource Source 的 MaxDurability 与 Yield 比率、Cluster 分布、Extraction Range、WorkPerDamage、配方数量、WorkRequired、PowerPerWork、LaborPerWork、各设备 base capability、Storage Equipment capacity、FuelEnergyPerUnit、各类 WorkPerVoxel、Recovery BaseOutput、Site 条件阈值、Resource Renewal 触发规则、Facility Priority 默认值与 Resolver 调度参数）列于 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 各文档的开放问题，通过实现、经济模拟和 Playtest 决定。
 
 车辆五档尺寸已由 #32 确定，见 [06](06-railway.md)。水平半径 192、缓和长度 160、坡角 10°、左右各 8 格净空与顶部净空 12 为原型通过的起始参数，不是最小安全值；接触点、车钩、底部高度与轨距等实验配置尚未成为正式规格。弯坡叠加、多节编组、连续扫掠、实际占格与局部破坏以及 Godot 集成须在铁路切片补验，未验证线路组合不默认开放给生成器。
 

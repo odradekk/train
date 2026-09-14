@@ -24,6 +24,7 @@
 
 - 首版只有一种基础 `core:rail`。长期采用混合模型：Rail Definition = 轨道的种类、属性与能力；Track Topology = 当前实例的空间连接。
 - 未来可以新增 heavy rail、high-speed rail 等；但直线、曲线、坡道、道岔、交叉不作为独立 Definition。
+- Rail 是可生产、可库存、可交易的 Voxel Good（Structural Metal → Rail）；Rail Definition 只表达轨道种类，直线、曲线、坡道等是实例空间拓扑，不产生不同 Rail 商品，见 [11](11-goods-and-production-network.md)。
 
 ### Track Topology
 

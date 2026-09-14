@@ -31,7 +31,7 @@
 
 ### 耐久与破坏
 
-- 首版只有统一的 Durability：CurrentDurability 与 MaxDurability。CurrentDurability ≤ 0 时 Voxel 直接消失，视觉上用碎片、火花、烟尘表现。
+- 首版只有统一的 Durability：CurrentDurability 与 MaxDurability。CurrentDurability ≤ 0 时 Voxel 直接消失，视觉上用碎片、火花、烟尘表现。Resource Source Voxel 不增加 Reserve 字段，其 CurrentDurability 同时表达剩余可开采量，见 [10](10-resources-and-extraction.md)。
 - 首版不建立 kinetic、fire、electric、corrosion 等 Damage Type Matrix；复杂损伤机制未来通过 Behavior 增加。
 - 同一逻辑 Damage Event 内的破坏统一结算，见 [03](03-composite-and-behavior.md) Damage Transaction。
 

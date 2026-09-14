@@ -2,7 +2,7 @@
 
 Revised on 2026-09-05 through [#31](https://github.com/odradekk/train/issues/31). The first slice that needs voxel definitions will replace the root project's separate goods model, catalog, content files and references with `VoxelDefinition` and `VoxelDefinitionId`. It will introduce new definition schemas at version 1, with no legacy goods compatibility layer; `archive/mvp/` remains unchanged. This is an accepted migration decision, not a claim that the code has already migrated.
 
-Built-in and mod definitions retain the `<namespace>:<local-id>` identity shape. Natural resources use the `natural_resource` tag instead of a closed goods category; the tag is independent of tradability. `Value` remains on voxel definitions because fracture identity inheritance already needs it, while `TradeMetadata` design and implementation wait for the later trade feature.
+Built-in and mod definitions retain the `<namespace>:<local-id>` identity shape. Natural resources originally used the `natural_resource` tag instead of a closed goods category; the tag is independent of tradability. Revised on 2026-09-14 by the resource and production design ([10](../design/10-resources-and-extraction.md)): world resource source voxels use `resource_source` with a ResourceSourceBehavior that defines their yields, and tradable primary goods use `raw_good`; `natural_resource` is retired without a compatibility alias. The code migration is tracked in [#77](https://github.com/odradekk/train/issues/77) and [#78](https://github.com/odradekk/train/issues/78). `Value` remains on voxel definitions because fracture identity inheritance already needs it, while `TradeMetadata` design and implementation wait for the later trade feature.
 
 ## Consequences
 

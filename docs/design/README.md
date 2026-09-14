@@ -1,6 +1,6 @@
 # 设计文档集：火车放置贸易游戏
 
-本目录是项目唯一且权威的设计契约。每条决定的出处见 `docs/research/gdd-grilling-transcript.md`，正文以"转录 Qn"引用。它由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据。
+本目录是项目唯一且权威的设计契约。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。
 
 **文档内写明的内容视为已定。** 未定或自相矛盾之处只出现在各文档的"开放问题"小节，并链接到 wayfinder 地图 [规范化 GDD+Technical Contract 并产出首批切片 spec](https://github.com/odradekk/train/issues/24) 下的票；票关闭后由该票的会话回写对应章节。
 
@@ -16,7 +16,7 @@
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
 7. Deterministic Simulation 是整个项目的基础架构原则。
 
-经济、AI、自动贸易、列车调度、车辆设计 UI 等系统在后续独立扩充。
+资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，实现随后续切片安排；市场与价格、人口经济、AI、自动贸易、列车调度、车辆设计 UI 等系统在后续独立扩充。
 
 ## 文档地图
 
@@ -32,11 +32,16 @@
 | [07-rendering.md](07-rendering.md) | 渲染 |
 | [08-desktop-window-and-camera.md](08-desktop-window-and-camera.md) | 桌面窗口与相机 |
 | [09-persistence.md](09-persistence.md) | 存档 |
+| [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
+| [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
+| [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
+| [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
+| [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | Composite 的建造、改装与拆解 |
 | [roadmap.md](roadmap.md) | 首版范围、明确延后、未冻结参数、实施顺序 |
 
 每份文档的固定小节：边界、不变量、规则、首版范围、明确延后、开放问题。
 
-术语以仓库根目录 `CONTEXT.md` 为准：体素定义、体素定义标识、物理轨道状态、物理轨段、沿轨位置、列车编组、活动车头、车辆尺寸档位、聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；RailPosition、Train Assembly 分别对应沿轨位置、列车编组。Voxel、Composite、Revision 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准：体素定义、体素定义标识、物理轨道状态、物理轨段、沿轨位置、列车编组、活动车头、车辆尺寸档位、聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；RailPosition、Train Assembly 分别对应沿轨位置、列车编组。Voxel、Composite、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack、ItemInstance 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
 ## 总体架构
 
@@ -97,6 +102,11 @@ Render  Audio    Input
 23. Price 属于 Market Context，不属于 Voxel。
 24. Inventory Quantity 不等于空间 Voxel Instance。
 25. 首版性能优化必须服从 Profiling，而不是提前猜测。
+26. 所有标准货物都是 VoxelDefinition；Composite 不是普通 Goods。
+27. Resource Source 与 Raw Good 严格分离；Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good。
+28. Capability 必须来自真实 Behavior；Facility Tag 只表达兼容性。
+29. Composite 的 BOM 由实际 Voxel Layout 派生，Construction 消费完成的 Goods，不递归展开配方。
+30. 影响未来模拟的长生命周期 Job、Buffer、Reservation 与设备 Runtime State 必须持久化。
 
 ## 设计指导思想
 

@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及 Inventory 数量与空间实例的关系。Composite 的 Definition 与 Archetype 见 [03](03-composite-and-behavior.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；经济价格属于市场上下文，规则留待后续扩充。
+本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及 Inventory 数量与空间实例的关系。Composite 的 Definition 与 Archetype 见 [03](03-composite-and-behavior.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；Resource Source、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；Stack 与 ItemInstance 的库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
 
 ## 不变量
 
@@ -24,18 +24,18 @@
 - **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Iron Ore = 70，Capital 的 Iron Ore = 135。
 - **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
 - **Material**：首版没有通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
-- **自然资源**：以 Tags 中约定的 `natural_resource` 标签替代 GoodCategory.NaturalResource。世界生成、聚居地资源记录及其引用校验统一检查此标签；它不代表可交易性，也不限制其他标签。
+- **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-generation-and-settlements.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层；当前代码与内置内容仍使用 `natural_resource`，迁移由 [#77](https://github.com/odradekk/train/issues/77)（`raw_good` 与聚居地资源种类）和 [#78](https://github.com/odradekk/train/issues/78)（ResourceSourceBehavior 与 `resource_source`）执行。
 
 ### Good 迁移边界
 
 - 在首个需要体素定义的切片中，一次性迁移根目录项目的 GoodDefinition、GoodId、GoodCatalog、内容文件及其消费者和引用，改用体素定义与 VoxelDefinitionId；不保留旧 goods schema 的兼容层或临时双轨目录。
-- 新 schema 从版本 1 开始，不作为 goods schema v2。迁移时将自然资源类别转为 `natural_resource` 标签，基本货币价值保留为 Value；Value 已用于断裂后的身份继承，不随 TradeMetadata 一起延后。
+- 新 schema 从版本 1 开始，不作为 goods schema v2。切片 1 已将自然资源类别转为 `natural_resource` 标签；按 [10](10-resources-and-extraction.md) 的语义，这些可交易货物应改为 `raw_good`，对应的世界资源源体素另行以 `resource_source` 定义，具体迁移随资源系统切片执行。基本货币价值保留为 Value；Value 已用于断裂后的身份继承，不随 TradeMetadata 一起延后。
 - `archive/mvp/` 保持原样。本票只确定方案，不执行生产代码或内容文件迁移。Catalog 版本、Revision 哈希与存档绑定按下文执行。
 
 ### Inventory 与实体化
 
 - Inventory 中的数量不是空间 Voxel Instance。Cargo Stack { VoxelDefinitionId = `core:iron-ore`, Quantity = 500 } 表示 500 个可实体化的单位；只有被放置进入世界时才产生 Voxel Instance。
-- 普通无特殊 Runtime State 的 Voxel 被收纳时可以转化为 Stack。未来复杂设备可能需要保存 Durability、Behavior State、Voxel Runtime ID，届时使用独立的 Item Instance，而不是 Stack。
+- 普通无特殊 Runtime State 的 Voxel 被收纳时可以转化为 Stack；需要保存 Durability、Behavior State、Voxel Runtime ID 的 Voxel 使用独立的 ItemInstance。统一的 Stackability predicate、库存地点、容量与 ItemInstance 消费规则见 [12](12-inventory-and-storage.md)。
 
 ### Definition、Revision 与 Instance
 
@@ -125,4 +125,4 @@ TradeMetadata 的字段与实现、Code Mod API、通用 Material System；跨�
 
 ## 开放问题
 
-- 地图迷雾：库存系统与非堆叠 Item Instance（转录 Q175）。
+- 无。库存系统与非堆叠 ItemInstance（转录 Q175）已由 [12](12-inventory-and-storage.md) 确定。

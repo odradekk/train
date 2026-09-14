@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文定义存档的组成、世界重建方式与兼容策略。Save-local Definition 的来源规则见 [02](02-definitions-and-content.md)；Stateful RNG 与运行时 ID 见 [04](04-deterministic-simulation.md)。
+本文定义存档的组成、世界重建方式与兼容策略。Save-local Definition 的来源规则见 [02](02-definitions-and-content.md)；Stateful RNG 与运行时 ID 见 [04](04-deterministic-simulation.md)；资源与生产系统各 Job 的语义见 [10](10-resources-and-extraction.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md)。
 
 ## 不变量
 
@@ -50,6 +50,10 @@ Save
 - 当前规格变化时保留状态绝对值，仅按新的允许范围修正，重新计算相关能力；耐久上限升高不自动修复、上限降低时截断。具体规则见 [02](02-definitions-and-content.md)。
 - 缺失必需定义或无法解释保存的状态时明确加载失败；这也包括缺失 Mod 或必需资产导致所需内容包无法通过校验的情况。不自动替换、删除或回退到旧定义。更新 Mod 数值后产生不同模拟结果是预期行为，不属于无损往返失败。
 - 若生成内容更新改变了重建基底，使旧 Runtime Delta 无法正确恢复原实际布局，按不兼容读档失败处理；不能把旧 Delta 静默应用到不同布局后当作成功恢复。
+
+### 资源与生产状态恢复
+
+资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含 FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、ExtractionJob、RecoveryJob、ConstructionJob、RefitJob、DeconstructionJob、Spatial Reservations、Storage Reservations、Power Equipment 的 CurrentFuelEnergyRemaining、库存中的 ItemInstance 及 Job 选定的 ItemInstances / identity mapping、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
 
 ### 文件位置
 

@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文定义程序生成流水线、资源生成、聚居地的结构、聚居地与铁路的关系、Layout 放置。铁路的拓扑、图与施工见 [06](06-railway.md)；聚居地的经济规则留待后续扩充；术语以 `CONTEXT.md` 为准。
+本文定义程序生成流水线、资源生成、聚居地的结构、聚居地与铁路的关系、Layout 放置。铁路的拓扑、图与施工见 [06](06-railway.md)；Resource Source 的开采、耗尽与 Resource Renewal 见 [10](10-resources-and-extraction.md)；聚居地的生产、库存与设施见 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)，市场与人口规则留待后续扩充；术语以 `CONTEXT.md` 为准。
 
 ## 不变量
 
@@ -44,17 +44,19 @@ WorldSeed
 ### 资源生成
 
 - Resource Potential Field → Actual Resource Voxels。Potential Field 用于宏观判断资源分布并选择符合资源偏好的聚居地类型，不作为聚居地当前资源种类的事实来源。
+- 实际资源体素是带 `resource_source` 标签、由 ResourceSourceBehavior 定义产出的 Resource Source Voxel；矿床、森林资源区只是 Source Voxel 的空间 Cluster，不建立第二份储量事实。不可再生资源耗尽后不在原地 Respawn，长期可持续由 Resource Renewal Event 在合格的未开发区域生成新 Cluster，其选择服从 WorldSeed 与稳定随机键，见 [10](10-resources-and-extraction.md)。
 - 聚居地类型原则上响应自然资源，而不是为了聚居地类型强行生成资源；允许少量 Gameplay Validation 和保证性调整。
 
 ### 聚居地资源种类
 
-- 资源种类从聚居地周边当前实际存在、带 `natural_resource` 标签的体素派生，不固定保存生成时的清单；Layout 不另行声明资源种类。
+- 资源种类从聚居地周边当前实际存在的 Resource Source Voxel 派生：nearby Resource Source Voxels → ResourceSourceBehavior → 可获得的 Raw Good DefinitionIds。不固定保存生成时的清单；Layout 不另行声明资源种类。旧的按 `natural_resource` 标签直接派生的规则废止，代码迁移见 [#77](https://github.com/odradekk/train/issues/77)、[#78](https://github.com/odradekk/train/issues/78)（[02](02-definitions-and-content.md)、[10](10-resources-and-extraction.md)）。
 - 查询范围以聚居地锚点为基准，由生成配置明确，不能把 Layout 中声明的建筑占地隐式当作资源范围。具体范围形状与参数随生成切片确定。
-- 一种资源在范围内被采尽后，从派生种类中消失；体素或其资源标签变化后，查询结果须反映当前世界。该结果只表示种类，不表示储量或产量。
+- 一种资源在范围内被采尽后，从派生种类中消失；体素或其 Resource Source 定义变化后，查询结果须反映当前世界。该结果只表示种类，不表示储量或产量；储量由实际 Source Voxel 的 CurrentDurability 与 Yield 派生。
+- 周边资源种类、当前生产能力与当前货物库存是三份独立事实：农业聚居地可以没有 Grain Source 却大量生产 Grain，种类查询不从生产或库存反推，见 [13](13-production-runtime-and-facilities.md)。
 
 ### 聚居地
 
-- 聚居地本身不是 Composite。首版模型记录 SettlementId、Archetype、三维布局锚点、朝向、实际建筑实例引用及可选 Station，保留既有的静态常住人口数据及其正数约束；生产、消费、人口变化与 Faction 的玩法设计和实现延后，首版不保留阵营占位字段。
+- 聚居地本身不是 Composite。首版模型记录 SettlementId、Archetype、三维布局锚点、朝向、实际建筑实例引用及可选 Station，保留既有的静态常住人口数据及其正数约束；消费、人口变化与 Faction 的玩法设计和实现延后，首版不保留阵营占位字段。聚居地的生产、库存、Power Pool 与 Labor Pool 接口由 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 定义，能力来自建筑 Composite 内的真实设备 Voxel，聚居地不拥有无来源的抽象产能。
 - **SettlementArchetype** 与术语表的聚居地类型是同一概念，不维护两套分类；首版描述生成所需的资源偏好与候选 Layout，不产生经济模拟行为。
 - **SettlementLayoutDefinition** 负责空间布局：Building Composite、World Voxel、Decoration、Site Constraints、optional Station/Rail Socket。建筑为 Composite，道路与装饰为世界体素（转录 Q93）。
 
@@ -92,7 +94,7 @@ Seed、GeneratorVersion、Terrain、Resources、三维 Settlement placement 与�
 
 ## 明确延后
 
-生产、消费、人口变化等经济行为，Faction 的设计与实现，多站台运营与复杂调度；复杂桥梁生成、复杂隧道生成、AI 铁路施工；Mirror、环路密度调节（转录）。
+消费、人口变化、市场等经济行为，Faction 的设计与实现，多站台运营与复杂调度；复杂桥梁生成、复杂隧道生成、AI 铁路施工；Mirror、环路密度调节（转录）。生产、开采与库存的设计见 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)，其实现同样不在当前体素切片。
 
 ## 开放问题
 
