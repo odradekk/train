@@ -43,7 +43,7 @@ public static class ContentDiagnosticCodes
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
     public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
     public const string IncompatibleVoxelState = "incompatible_voxel_state";
-    public const string NaturalResourceTagRequired = "natural_resource_tag_required";
+    public const string RawGoodTagRequired = "raw_good_tag_required";
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     public const string EmptyInitialCatalog = "empty_initial_catalog";
     public const string UnsafeLinkedPath = "unsafe_linked_path";
@@ -57,7 +57,7 @@ public static class ContentDiagnosticCodes
     public const string PopulationInvalid = "population_invalid";
     public const string PositionInvalid = "position_invalid";
     public const string DuplicatePosition = "duplicate_position";
-    public const string DuplicateNaturalResource = "duplicate_natural_resource";
+    public const string DuplicateAvailableRawGood = "duplicate_available_raw_good";
     public const string EmptyInitialSettlements = "empty_initial_settlements";
     public const string UnresolvedArchetypeReference = "unresolved_archetype_reference";
     public const string UnresolvedCompositeReference = "unresolved_composite_reference";

@@ -68,7 +68,7 @@ function Assert-SmokeCondition {
 }
 
 $allMarkers = @(
-    "CONTENT_EXPORT_IRON_ORE_LOADED",
+    "CONTENT_EXPORT_FERROUS_ORE_LOADED",
     "CONTENT_EXPORT_PNG_DECODED",
     "CONTENT_EXPORT_INIT_OK",
     "CONTENT_EXPORT_JSON_READABLE",
@@ -100,7 +100,7 @@ else {
 }
 
 $passingBin = New-FakeProgram -ExitCode 0 -Lines $allMarkers
-$missingBin = New-FakeProgram -ExitCode 0 -Lines @("CONTENT_EXPORT_IRON_ORE_LOADED")
+$missingBin = New-FakeProgram -ExitCode 0 -Lines @("CONTENT_EXPORT_FERROUS_ORE_LOADED")
 $exportRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("train content export " + [guid]::NewGuid().ToString("N"))
 $outputPath = Join-Path $exportRoot "output with spaces/train.exe"
 $invocationPath = Join-Path $exportRoot "godot-arguments.txt"

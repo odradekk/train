@@ -7,7 +7,7 @@
 #   .\builds\mods-smoke\train.exe --user-data-dir "<isolated empty user-data>"
 #
 # Requires the exported process stdout to contain:
-#   MODS_EXPORT_IRON_ORE_LOADED
+#   MODS_EXPORT_FERROUS_ORE_LOADED
 #   MODS_EXPORT_INIT_OK
 # and one of:
 #   MODS_EXPORT_ROOT_EMPTY
@@ -145,7 +145,7 @@ finally {
 }
 
 $required = @(
-    "MODS_EXPORT_IRON_ORE_LOADED",
+    "MODS_EXPORT_FERROUS_ORE_LOADED",
     "MODS_EXPORT_INIT_OK"
 )
 $missing = @($required | Where-Object { $output -notlike "*$_*" })

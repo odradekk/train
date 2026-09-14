@@ -250,7 +250,7 @@ public sealed class VoxelMultiChunkTests
     public void Console_and_session_share_the_slice2_command_boundary()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2);
@@ -264,7 +264,7 @@ public sealed class VoxelMultiChunkTests
 
         dispatcher.Execute("voxel query 15 16 15");
         dispatcher.Execute("voxel remove 16 16 15");
-        dispatcher.Execute("voxel add 16 16 15 core:iron-ore px_py");
+        dispatcher.Execute("voxel add 16 16 15 core:ferrous-ore px_py");
         dispatcher.Execute("voxel damage 15 16 15 100 16 16 16 25");
         Assert.IsFalse(voxelSession.Query(new WorldVoxelCoord(15, 16, 15)).IsOccupied);
         Assert.AreEqual(75, voxelSession.Query(new WorldVoxelCoord(16, 16, 16)).Voxel!.CurrentDurability);
@@ -275,7 +275,7 @@ public sealed class VoxelMultiChunkTests
         Assert.IsTrue(voxelSession.Query(new WorldVoxelCoord(15, 16, 15)).IsOccupied);
 
         var before = voxelSession.World.VoxelCount;
-        dispatcher.Execute("voxel add 32 0 0 core:iron-ore px_py");
+        dispatcher.Execute("voxel add 32 0 0 core:ferrous-ore px_py");
         Assert.AreEqual(before, voxelSession.World.VoxelCount);
     }
 
@@ -283,7 +283,7 @@ public sealed class VoxelMultiChunkTests
     public void Slice2_live_reload_keeps_absolute_durability_and_rejects_without_mutating_the_world()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2);
@@ -292,8 +292,8 @@ public sealed class VoxelMultiChunkTests
         Assert.AreEqual(WorldCommandStatus.Damaged, voxelSession.Damage(cell, 20).Status);
         Assert.AreEqual(80, voxelSession.Query(cell).Voxel!.CurrentDurability);
 
-        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 250, mass: 2, maxDurability: 150)));
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 250, mass: 2, maxDurability: 150)));
         var risen = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, risen.Status);
         Assert.AreEqual(1088, voxelSession.World.VoxelCount);
@@ -301,8 +301,8 @@ public sealed class VoxelMultiChunkTests
         Assert.AreEqual(150, voxelSession.Query(cell).MaxDurability);
         Assert.AreEqual(250, voxelSession.Query(cell).Value);
 
-        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 250, mass: 2, maxDurability: 60)));
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 250, mass: 2, maxDurability: 60)));
         var clamped = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, clamped.Status);
         Assert.AreEqual(60, voxelSession.Query(cell).Voxel!.CurrentDurability);
@@ -313,8 +313,8 @@ public sealed class VoxelMultiChunkTests
             yaw, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Yaw90).Status);
         var generation = reloader.Catalog.Current!.Generation;
         var snapshot = reloader.Catalog.Current;
-        source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 250, mass: 2, maxDurability: 60, orientations: "none")));
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 250, mass: 2, maxDurability: 60, orientations: "none")));
         var rejected = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
         Assert.AreSame(snapshot, reloader.Catalog.Current);
@@ -371,7 +371,7 @@ public sealed class VoxelMultiChunkTests
         public static MultiChunkHarness Create(VoxelWorldIdentity? identity = null)
         {
             var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/fixed.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("fixed", "固定", "固定方向", orientations: "none")));
             var reloader = ContentFixtures.Create(source, session.Logger);
@@ -387,7 +387,7 @@ public sealed class VoxelMultiChunkTests
         public static MultiChunkHarness CreateSession()
         {
             var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
             var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2);

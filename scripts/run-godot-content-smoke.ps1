@@ -5,7 +5,7 @@
 #   & $godot --headless --path . --quit-after 20
 #
 # Requires stdout to contain:
-#   CONTENT_IRON_ORE_LOADED
+#   CONTENT_FERROUS_ORE_LOADED
 #   CONTENT_PNG_DECODED
 #   CONTENT_INIT_OK
 #   CONTENT_RELOAD_ACTION_PRESENT
@@ -75,7 +75,7 @@ $output = $raw | Out-String
 Write-Host $output
 
 $required = @(
-    "CONTENT_IRON_ORE_LOADED",
+    "CONTENT_FERROUS_ORE_LOADED",
     "CONTENT_PNG_DECODED",
     "CONTENT_INIT_OK",
     "CONTENT_RELOAD_ACTION_PRESENT",

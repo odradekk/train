@@ -32,7 +32,7 @@ public sealed class WorldSaveTests
         StringAssert.Contains(json, "\"x\":32");
         StringAssert.Contains(json, "\"chunk_size\":16");
         StringAssert.Contains(json, "\"base_layout\"");
-        StringAssert.Contains(json, "core:iron-ore");
+        StringAssert.Contains(json, "core:ferrous-ore");
         StringAssert.Contains(json, "semantic_revision");
         Assert.IsFalse(json.Contains("\"value\"", StringComparison.Ordinal));
         Assert.IsFalse(json.Contains("full_box", StringComparison.Ordinal));
@@ -100,8 +100,8 @@ public sealed class WorldSaveTests
         Assert.AreEqual(VoxelCollisionQueryStatus.Hit, restored.Session.QueryCollision(WorldSaveFixture.ReorientedCube).Status);
         AssertLocalBox(restored.Session, WorldSaveFixture.SavedLedge, VoxelOrientation.Yaw90);
 
-        restored.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", value: 250, mass: 2, maxDurability: 150)));
+        restored.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 250, mass: 2, maxDurability: 150)));
         Assert.AreEqual(ContentReloadStatus.Committed, restored.Reloader.Reload().Status);
         Assert.AreEqual(75, restored.Session.Query(WorldSaveFixture.DamagedCube).Voxel!.CurrentDurability);
         Assert.AreEqual(150, restored.Session.Query(WorldSaveFixture.DamagedCube).MaxDurability);
@@ -142,8 +142,8 @@ public sealed class WorldSaveTests
         var ironRevision = writer.Reloader.Catalog.Current!.Entries[Iron].SemanticRevision;
 
         using var risen = SaveHarness.Create(writer.UserData);
-        risen.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "新铁矿", "说明", value: 250, mass: 3, maxDurability: 150,
+        risen.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "新亚铁矿", "说明", value: 250, mass: 3, maxDurability: 150,
                 collisionJson: "{\"kind\":\"none\"}")));
         Assert.AreEqual(ContentReloadStatus.Committed, risen.Reloader.Reload().Status);
         Assert.AreNotEqual(ironRevision, risen.Reloader.Catalog.Current!.Entries[Iron].SemanticRevision);
@@ -159,8 +159,8 @@ public sealed class WorldSaveTests
         AssertLocalBox(risen.Session, WorldSaveFixture.SavedLedge, VoxelOrientation.Yaw90);
 
         using var clamped = SaveHarness.Create(writer.UserData);
-        clamped.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", maxDurability: 60)));
+        clamped.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", maxDurability: 60)));
         Assert.AreEqual(ContentReloadStatus.Committed, clamped.Reloader.Reload().Status);
         Assert.AreEqual(WorldSaveStatus.Loaded, clamped.Session.Load(saved.SaveId!.Value).Status);
         Assert.AreEqual(60, clamped.Session.Query(WorldSaveFixture.DamagedCube).Voxel!.CurrentDurability);
@@ -168,8 +168,8 @@ public sealed class WorldSaveTests
         Assert.AreEqual(60, clamped.Session.Query(new WorldVoxelCoord(15, 16, 15)).Voxel!.CurrentDurability);
         var truncated = clamped.Session.Save();
         using var risenAfterClamp = SaveHarness.Create(writer.UserData);
-        risenAfterClamp.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "新铁矿", "说明", maxDurability: 150)));
+        risenAfterClamp.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "新亚铁矿", "说明", maxDurability: 150)));
         Assert.AreEqual(ContentReloadStatus.Committed, risenAfterClamp.Reloader.Reload().Status);
         Assert.AreEqual(WorldSaveStatus.Loaded, risenAfterClamp.Session.Load(truncated.SaveId!.Value).Status);
         Assert.AreEqual(60, risenAfterClamp.Session.Query(WorldSaveFixture.DamagedCube).Voxel!.CurrentDurability);
@@ -184,8 +184,8 @@ public sealed class WorldSaveTests
         var saved = writer.Session.Save();
 
         using var reader = SaveHarness.Create(writer.UserData);
-        reader.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "显示更新", "只改名称", value: 10)));
+        reader.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "显示更新", "只改名称", value: 10)));
         reader.Source.AddVoxelFile("core", "voxels/fixed.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("fixed", "固定改名", "无关", orientations: "none")));
         Assert.AreEqual(ContentReloadStatus.Committed, reader.Reloader.Reload().Status);
@@ -248,7 +248,7 @@ public sealed class WorldSaveTests
         Assert.AreEqual(WorldCommandStatus.Added, missingMod.Session.Add(
             new WorldVoxelCoord(0, 1, 0), Copper, VoxelOrientation.Identity).Status);
         var withMod = missingMod.Session.Save("Modded");
-        using var withoutMod = SaveHarness.Create(missingMod.UserData, ContentFixtures.ValidIron());
+        using var withoutMod = SaveHarness.Create(missingMod.UserData, ContentFixtures.ValidFerrousOre());
         withoutMod.AddHollowAndLedge();
         Assert.AreEqual(ContentReloadStatus.Committed, withoutMod.Reloader.Reload().Status);
         Assert.AreEqual(1088, withoutMod.Session.World.VoxelCount);
@@ -340,8 +340,8 @@ public sealed class WorldSaveTests
         var ground = new WorldVoxelCoord(15, 16, 15);
 
         File.WriteAllText(path, WithExternalDefinitions(original, _ => new JsonArray()));
-        harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "新铁矿", "说明", value: 250, mass: 3, maxDurability: 150)));
+        harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "新亚铁矿", "说明", value: 250, mass: 3, maxDurability: 150)));
         Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
         Assert.AreEqual(100, harness.Session.Query(ground).Voxel!.CurrentDurability);
         Assert.AreEqual(150, harness.Session.Query(ground).MaxDurability);
@@ -352,7 +352,7 @@ public sealed class WorldSaveTests
         Assert.AreEqual(100, harness.Session.Query(ground).Voxel!.CurrentDurability);
         Assert.AreEqual(75, harness.Session.Query(WorldSaveFixture.DamagedCube).Voxel!.CurrentDurability);
 
-        File.WriteAllText(path, RemoveDefinitionRecord(original, "core:iron-ore"));
+        File.WriteAllText(path, RemoveDefinitionRecord(original, "core:ferrous-ore"));
         Assert.AreEqual(WorldSaveStatus.MissingDefinition, harness.Session.Load(saved.SaveId.Value).Status);
         File.WriteAllText(path, RemoveDefinitionRecord(original, "core:hollow"));
         Assert.AreEqual(WorldSaveStatus.MissingDefinition, harness.Session.Load(saved.SaveId.Value).Status);

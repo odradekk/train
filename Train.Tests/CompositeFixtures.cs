@@ -46,7 +46,7 @@ internal static class CompositeFixtures
 
     public static MemoryContentSource VehiclePackage()
     {
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         source.AddVoxelFile("core", "voxels/vehicle-shell.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("vehicle-shell", "壳体", "壳体说明", value: 10, tagsJson: "[]")));
         source.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
@@ -77,7 +77,7 @@ internal static class CompositeFixtures
 
     public static MemoryContentSource FormalFixturePackage()
     {
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         source.AddVoxelFile("core", "voxels/vehicle-shell.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("vehicle-shell", "壳体", "壳体说明", value: 10, tagsJson: "[]")));
         source.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(

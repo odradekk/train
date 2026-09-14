@@ -111,7 +111,7 @@ public sealed class CompositeReloadSaveRejectionTests
         Assert.AreEqual(20, adapted.Catalog.Current!.Entries[HollowShellFixture.CoreId].Definition.Value);
         Assert.AreNotEqual(coreRevision, adapted.Catalog.Current.Entries[HollowShellFixture.CoreId].SemanticRevision);
 
-        var missing = ContentFixtures.ValidIron();
+        var missing = ContentFixtures.ValidFerrousOre();
         var stripped = ContentFixtures.Create(missing, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
         stripped.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
         var afterAdapt = voxelSession.CaptureAuthority();

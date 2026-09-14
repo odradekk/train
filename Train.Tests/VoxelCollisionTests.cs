@@ -8,7 +8,7 @@ namespace Train.Tests;
 [TestClass]
 public sealed class VoxelCollisionTests
 {
-    private static readonly VoxelDefinitionId Iron = new("core", "iron-ore");
+    private static readonly VoxelDefinitionId Iron = new("core", "ferrous-ore");
     private static readonly VoxelDefinitionId Hollow = new("core", "hollow");
 
     [TestMethod]
@@ -231,8 +231,8 @@ public sealed class VoxelCollisionTests
         var semantic = harness.Reloader.Catalog.Current.Entries[Iron].SemanticRevision;
         Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Session.QueryCollision(cell).Status);
 
-        harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", collisionJson: "{\"kind\":\"none\"}")));
+        harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", collisionJson: "{\"kind\":\"none\"}")));
         var none = harness.Reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, none.Status);
         Assert.AreNotEqual(semantic, harness.Reloader.Catalog.Current!.Entries[Iron].SemanticRevision);
@@ -243,16 +243,16 @@ public sealed class VoxelCollisionTests
             VoxelChunks.All(harness.Session.Identity).ToArray(),
             harness.Session.TakePendingCollisionDirtyChunks().ToArray());
 
-        harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "新铁矿", "新说明", collisionJson: "{\"kind\":\"none\"}")));
+        harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", collisionJson: "{\"kind\":\"none\"}")));
         var display = harness.Reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, display.Status);
         Assert.AreEqual(noneSemantic, harness.Reloader.Catalog.Current!.Entries[Iron].SemanticRevision);
-        Assert.AreEqual("新铁矿", harness.Reloader.Catalog.Current.Entries[Iron].Definition.Name);
+        Assert.AreEqual("新亚铁矿", harness.Reloader.Catalog.Current.Entries[Iron].Definition.Name);
         Assert.AreEqual(VoxelCollisionQueryStatus.Miss, harness.Session.QueryCollision(cell).Status);
 
-        harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "新铁矿", "新说明", collisionJson: "{\"kind\":\"full_box\"}")));
+        harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", collisionJson: "{\"kind\":\"full_box\"}")));
         var restored = harness.Reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, restored.Status);
         Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Session.QueryCollision(cell).Status);
@@ -260,8 +260,8 @@ public sealed class VoxelCollisionTests
         var snapshot = harness.Reloader.Catalog.Current;
         var afterHit = harness.Reloader.Catalog.Current.Generation;
         harness.Session.Add(new WorldVoxelCoord(0, 0, 0), Iron, VoxelOrientation.Yaw90);
-        harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("iron-ore", "铁矿", "说明", orientations: "none", collisionJson: "{\"kind\":\"none\"}")));
+        harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", orientations: "none", collisionJson: "{\"kind\":\"none\"}")));
         var rejected = harness.Reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
         Assert.AreSame(snapshot, harness.Reloader.Catalog.Current);
@@ -367,7 +367,7 @@ public sealed class VoxelCollisionTests
 
         public static MemoryContentSource Content()
         {
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/hollow.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("hollow", "空心占格", "占格但不碰撞", tagsJson: "[]", collisionJson: "{\"kind\":\"none\"}")));
             return source;

@@ -13,7 +13,7 @@ voxel query 0 0 0
 占用格按字段分行输出（省略日志前缀），避免合法长 `namespace:id` 把规格截断：
 
 ```text
-Cell (4, 4, 4): core:iron-ore
+Cell (4, 4, 4): core:ferrous-ore
 orientation px_py
 durability 80
 value 10

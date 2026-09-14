@@ -4,7 +4,7 @@
 
 ```text
 voxel add <x> <y> <z> <namespace:id> <orientation>
-voxel add 0 0 0 core:iron-ore px_py
+voxel add 0 0 0 core:ferrous-ore px_py
 voxel add 1 0 0 core:ledge pz_py
 ```
 
@@ -16,6 +16,6 @@ voxel add 1 0 0 core:ledge pz_py
 
 ```text
 voxel remove 4 4 4
-voxel add 4 4 4 core:iron-ore pz_py
+voxel add 4 4 4 core:ferrous-ore pz_py
 voxel query 4 4 4
 ```

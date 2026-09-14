@@ -49,7 +49,7 @@ WorldSeed
 
 ### 聚居地资源种类
 
-- 资源种类从聚居地周边当前实际存在的 Resource Source Voxel 派生：nearby Resource Source Voxels → ResourceSourceBehavior → 可获得的 Raw Good DefinitionIds。不固定保存生成时的清单；Layout 不另行声明资源种类。旧的按 `natural_resource` 标签直接派生的规则废止，代码迁移见 [#77](https://github.com/odradekk/train/issues/77)、[#78](https://github.com/odradekk/train/issues/78)（[02](02-definitions-and-content.md)、[10](10-resources-and-extraction.md)）。
+- 资源种类从聚居地周边当前实际存在的 Resource Source Voxel 派生：nearby Resource Source Voxels → ResourceSourceBehavior → 可获得的 Raw Good DefinitionIds。不固定保存生成时的清单；Layout 不另行声明资源种类。旧的按 `natural_resource` 标签直接派生的规则废止。[#77](https://github.com/odradekk/train/issues/77) 已把聚居地内容与领域模型改为引用带 `raw_good` 的初级货物种类；[#78](https://github.com/odradekk/train/issues/78) 仍待实现 ResourceSourceBehavior，以及从周边资源源扫描派生该集合（[02](02-definitions-and-content.md)、[10](10-resources-and-extraction.md)）。当前实现仍把种类集合作为聚居地内容字段加载，不是运行时扫描结果。
 - 查询范围以聚居地锚点为基准，由生成配置明确，不能把 Layout 中声明的建筑占地隐式当作资源范围。具体范围形状与参数随生成切片确定。
 - 一种资源在范围内被采尽后，从派生种类中消失；体素或其 Resource Source 定义变化后，查询结果须反映当前世界。该结果只表示种类，不表示储量或产量；储量由实际 Source Voxel 的 CurrentDurability 与 Yield 派生。
 - 周边资源种类、当前生产能力与当前货物库存是三份独立事实：农业聚居地可以没有 Grain Source 却大量生产 Grain，种类查询不从生产或库存反推，见 [13](13-production-runtime-and-facilities.md)。

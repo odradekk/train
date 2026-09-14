@@ -153,12 +153,12 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
                 continue;
             }
 
-            if (!entry.Definition.HasNaturalResourceTag)
+            if (!entry.Definition.HasRawGoodTag)
             {
                 diagnostics.Add(new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
-                    ContentDiagnosticCodes.NaturalResourceTagRequired,
-                    "A settlement natural resource id does not resolve to a natural_resource voxel.",
+                    ContentDiagnosticCodes.RawGoodTagRequired,
+                    "A settlement available raw good id does not resolve to a raw_good voxel.",
                     jsonPath: id.Value));
             }
         }
@@ -177,7 +177,7 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
         var severity = settlement.Kind == ContentPackageKind.BuiltIn
             ? ContentDiagnosticSeverity.Error
             : ContentDiagnosticSeverity.Warning;
-        foreach (var resourceId in settlement.NaturalResourceIds)
+        foreach (var resourceId in settlement.AvailableRawGoodIds)
         {
             if (!entries.TryGetValue(resourceId, out var entry))
             {
@@ -190,13 +190,13 @@ public sealed class ReferencedVoxelIdValidator : IContentPreCommitValidator
                 continue;
             }
 
-            if (entry.Definition.HasNaturalResourceTag)
+            if (entry.Definition.HasRawGoodTag)
                 continue;
             valid = false;
             diagnostics.Add(new ContentDiagnostic(
                 severity,
-                ContentDiagnosticCodes.NaturalResourceTagRequired,
-                "A settlement natural resource id does not resolve to a natural_resource voxel.",
+                ContentDiagnosticCodes.RawGoodTagRequired,
+                "A settlement available raw good id does not resolve to a raw_good voxel.",
                 jsonPath: resourceId.Value));
         }
 
@@ -1030,7 +1030,7 @@ internal static class CatalogCandidateBuilder
                 item.Name,
                 item.Position,
                 item.Population,
-                item.NaturalResources.ToHashSet(),
+                item.AvailableRawGoods.ToHashSet(),
                 package.Kind);
             acceptedByFile[item.SourceFile] = acceptedByFile.GetValueOrDefault(item.SourceFile) + 1;
             logger.Debug(

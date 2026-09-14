@@ -12,7 +12,7 @@ public sealed class VoxelConsoleCommandTests
     public void Console_uses_the_development_sessions_formal_world_commands_and_query()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
@@ -33,7 +33,7 @@ public sealed class VoxelConsoleCommandTests
         StringAssert.Contains(removed, "empty");
         StringAssert.Contains(removed, "Voxel count: 511");
 
-        dispatcher.Execute("voxel add 4 4 4 core:iron-ore pz_py");
+        dispatcher.Execute("voxel add 4 4 4 core:ferrous-ore pz_py");
         var query = voxelSession.Query(new WorldVoxelCoord(4, 4, 4));
         Assert.AreEqual(VoxelOrientation.Yaw90, query.Voxel!.Orientation);
         Assert.AreEqual(100, query.Voxel.CurrentDurability);
@@ -45,7 +45,7 @@ public sealed class VoxelConsoleCommandTests
             .Skip(beforeQuery)
             .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
             .Select(item => item.Message));
-        StringAssert.Contains(queried, "core:iron-ore");
+        StringAssert.Contains(queried, "core:ferrous-ore");
         StringAssert.Contains(queried, "pz_py");
         StringAssert.Contains(queried, "durability 100");
         StringAssert.Contains(queried, "value 100");
@@ -57,7 +57,7 @@ public sealed class VoxelConsoleCommandTests
     public void Console_damage_keeps_multi_target_display_inside_format_bounds()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
@@ -88,7 +88,7 @@ public sealed class VoxelConsoleCommandTests
     public void Console_damage_keeps_legal_long_mod_id_and_counts_inside_format_bounds()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         var localId = new string('a', VoxelDefinitionId.PartMaxLength);
         var definitionId = $"{ModFixtures.SampleUuid}:{localId}";
         source.AddMod("review-long-id", ModFixtures.SampleUuid);
@@ -121,7 +121,7 @@ public sealed class VoxelConsoleCommandTests
     public void Console_damage_failures_keep_the_world_and_report_the_first_reason()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);

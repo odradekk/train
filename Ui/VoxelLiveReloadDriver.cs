@@ -26,21 +26,21 @@ internal sealed class VoxelLiveReloadDriver
         _builtInResourcesRoot = builtInResourcesRoot;
     }
 
-    public void WriteIronOre(
+    public void WriteFerrousOre(
         int maxDurability = 100,
         long value = 10,
         double mass = 1,
-        string name = "铁矿",
-        string description = "开发用占位自然资源种类，用于验证内容加载、校验与热重载。",
+        string name = "Ferrous Ore",
+        string description = "开发用占位初级货物，用于验证内容加载、校验与热重载。",
         string collisionKind = "full_box")
     {
-        WriteIsolatedText(IronOreJsonRelative, IronOreJson(maxDurability, value, mass, name, description, collisionKind));
+        WriteIsolatedText(FerrousOreJsonRelative, FerrousOreJson(maxDurability, value, mass, name, description, collisionKind));
     }
 
     public void WriteAsymmetricCubePngs()
     {
-        WriteAsymmetricPng(IronOreTopRelative, new Color(0.95f, 0.82f, 0.12f), new Color(0.12f, 0.78f, 0.88f));
-        WriteAsymmetricPng(IronOreSideRelative, new Color(0.18f, 0.86f, 0.28f), new Color(0.86f, 0.18f, 0.72f));
+        WriteAsymmetricPng(FerrousOreTopRelative, new Color(0.95f, 0.82f, 0.12f), new Color(0.12f, 0.78f, 0.88f));
+        WriteAsymmetricPng(FerrousOreSideRelative, new Color(0.18f, 0.86f, 0.28f), new Color(0.86f, 0.18f, 0.72f));
     }
 
     public void WriteRefitMarkerMax(int maxDurability) =>
@@ -126,7 +126,7 @@ internal sealed class VoxelLiveReloadDriver
         Directory.CreateDirectory(resources);
         File.WriteAllText(Path.Combine(root, ModDiscovery.ManifestFileName), ProbeManifest());
         File.WriteAllText(Path.Combine(resources, "probe.voxels.json"), ProbeVoxels());
-        File.WriteAllBytes(Path.Combine(resources, "probe.png"), File.ReadAllBytes(IsolatedPath(IronOreTopRelative)));
+        File.WriteAllBytes(Path.Combine(resources, "probe.png"), File.ReadAllBytes(IsolatedPath(FerrousOreTopRelative)));
     }
 
     public void InvalidateProbeMod()
@@ -148,10 +148,10 @@ internal sealed class VoxelLiveReloadDriver
     private string IsolatedPath(string relativePath) =>
         Path.Combine(_builtInResourcesRoot, relativePath.Replace('/', Path.DirectorySeparatorChar));
 
-    private const string IronOreJsonRelative = "voxels/iron-ore.voxels.json";
+    private const string FerrousOreJsonRelative = "voxels/ferrous-ore.voxels.json";
     private const string LedgeJsonRelative = "voxels/ledge.voxels.json";
-    private const string IronOreTopRelative = "voxels/iron-ore/top.png";
-    private const string IronOreSideRelative = "voxels/iron-ore/side.png";
+    private const string FerrousOreTopRelative = "voxels/ferrous-ore/top.png";
+    private const string FerrousOreSideRelative = "voxels/ferrous-ore/side.png";
     private const string RefitMarkerJsonRelative = "voxels/refit-marker.voxels.json";
     private const string RefitMarkerTopRelative = "voxels/refit-marker/top.png";
     private const string IdentityCoreJsonRelative = "voxels/identity-core.voxels.json";
@@ -183,7 +183,7 @@ internal sealed class VoxelLiveReloadDriver
             TimeSpan.FromSeconds(1));
     }
 
-    private static string IronOreJson(
+    private static string FerrousOreJson(
         int maxDurability,
         long value,
         double mass,
@@ -195,21 +195,21 @@ internal sealed class VoxelLiveReloadDriver
           "schema_version": 1,
           "voxels": [
             {
-              "id": "iron-ore",
+              "id": "ferrous-ore",
               "name": "{{name}}",
               "description": "{{description}}",
               "value": {{value}},
               "mass": {{VoxelDefinition.FormatMass(mass)}},
               "max_durability": {{maxDurability}},
-              "tags": ["natural_resource"],
+              "tags": ["raw_good"],
               "behaviors": [],
               "allowed_orientations": "all_24",
               "presentation": {
                 "kind": "cube",
-                "icon": "voxels/iron-ore/icon.png",
-                "voxel_top": "voxels/iron-ore/top.png",
-                "voxel_side": "voxels/iron-ore/side.png",
-                "voxel_bottom": "voxels/iron-ore/bottom.png"
+                "icon": "voxels/ferrous-ore/icon.png",
+                "voxel_top": "voxels/ferrous-ore/top.png",
+                "voxel_side": "voxels/ferrous-ore/side.png",
+                "voxel_bottom": "voxels/ferrous-ore/bottom.png"
               },
               "collision": { "kind": "{{collisionKind}}" }
             }
@@ -257,10 +257,10 @@ internal sealed class VoxelLiveReloadDriver
               "allowed_orientations": "{{orientations}}",
               "presentation": {
                 "kind": "cube",
-                "icon": "voxels/iron-ore/icon.png",
-                "voxel_top": "voxels/iron-ore/top.png",
-                "voxel_side": "voxels/iron-ore/side.png",
-                "voxel_bottom": "voxels/iron-ore/bottom.png"
+                "icon": "voxels/ferrous-ore/icon.png",
+                "voxel_top": "voxels/ferrous-ore/top.png",
+                "voxel_side": "voxels/ferrous-ore/side.png",
+                "voxel_bottom": "voxels/ferrous-ore/bottom.png"
               },
               "collision": {{collision}}
             }

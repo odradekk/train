@@ -44,7 +44,7 @@ public sealed class CompositeDamageTests
         using var world = Open();
         var manufactured = world.Session.Manufacture(HollowShellFixture.DefinitionId);
         var vehicleId = manufactured.VehicleId!.Value;
-        world.Session.Add(new WorldVoxelCoord(2, 2, 2), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity);
+        world.Session.Add(new WorldVoxelCoord(2, 2, 2), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity);
         var before = world.Session.CaptureAuthority();
 
         Assert.AreEqual(CompositeDamageStatus.InvalidDamage, world.Session.Damage(vehicleId, new LocalVoxelCoord(0, 0, -1), 0).Status);
@@ -222,7 +222,7 @@ public sealed class CompositeDamageTests
         var originalId = manufactured.VehicleId!.Value;
         Assert.AreEqual(
             WorldCommandStatus.Added,
-            neighbor.Session.Add(new WorldVoxelCoord(8, 8, 8), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+            neighbor.Session.Add(new WorldVoxelCoord(8, 8, 8), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
 
         Assert.IsTrue(neighbor.Session.Damage(new[]
         {
@@ -230,7 +230,7 @@ public sealed class CompositeDamageTests
             new CompositeDamageTarget(originalId, BridgeFixture.LeftCoreCell, 100)
         }).Succeeded);
         Assert.AreEqual(1, neighbor.Session.QueryComposites().Count);
-        Assert.AreEqual(new VoxelDefinitionId("core", "iron-ore"), neighbor.Session.Query(new WorldVoxelCoord(8, 8, 8)).Voxel!.DefinitionId);
+        Assert.AreEqual(new VoxelDefinitionId("core", "ferrous-ore"), neighbor.Session.Query(new WorldVoxelCoord(8, 8, 8)).Voxel!.DefinitionId);
         var shifted = new WorldVoxelCoord(8, 8, 9);
         Assert.IsTrue(neighbor.Session.Query(shifted).IsOccupied);
         Assert.AreEqual(new VoxelDefinitionId("core", "vehicle-shell"), neighbor.Session.Query(shifted).Voxel!.DefinitionId);
@@ -252,7 +252,7 @@ public sealed class CompositeDamageTests
                     new WorldVoxelCoord(8 + offset.X, 8 + offset.Y, 8 + offset.Z));
                 if (!blocked.Session.World.Bounds.Contains(worldCell) || blocked.Session.Query(worldCell).IsOccupied)
                     continue;
-                blocked.Session.Add(worldCell, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity);
+                blocked.Session.Add(worldCell, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity);
             }
         }
 
@@ -336,7 +336,7 @@ public sealed class CompositeDamageTests
         Assert.IsFalse(world.Session.QueryComposites().SelectMany(item => item.Parts).Any(part => part.Id == leftCorner.Id));
         Assert.AreEqual(
             WorldCommandStatus.Added,
-            world.Session.Add(new WorldVoxelCoord(1, 1, 1), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+            world.Session.Add(new WorldVoxelCoord(1, 1, 1), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         Assert.IsNull(world.Session.Query(new WorldVoxelCoord(1, 1, 1)).Voxel!.RuntimeId);
         AssertNoSharedOwnership(world.Session);
     }

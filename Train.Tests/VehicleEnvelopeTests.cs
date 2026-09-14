@@ -84,7 +84,7 @@ public sealed class VehicleEnvelopeTests
     public void Unknown_size_class_is_rejected_by_the_parser()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         source.AddVoxelFile("core", "voxels/vehicle-shell.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("vehicle-shell", "壳体", "说明", value: 10, tagsJson: "[]")));
         source.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
