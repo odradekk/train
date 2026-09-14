@@ -33,7 +33,7 @@ _Avoid_: 列车等级、线路等级、自动尺寸分类
 _Avoid_: 体素实例、货物定义、资源配置
 
 **体素定义标识**：
-唯一标识一种体素定义的稳定身份，例如 `core:iron-ore`；身份不表达分类、文件路径或具体版本。
+唯一标识一种体素定义的稳定身份，例如 `core:ferrous-ore`；身份不表达分类、文件路径或具体版本。
 _Avoid_: 体素实例标识、显示名称、文件路径
 
 **贸易环线**：
@@ -81,7 +81,7 @@ _Avoid_: 建筑实例、建筑列表
 _Avoid_: 库存、资源储量、加工产物
 
 **自然资源种类定义**：
-资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；初级货物带 `raw_good` 标签。二者都是普通体素定义，可同时带有其他标签；聚居地资源查询的派生结果引用初级货物的体素定义标识，不复制定义。当前代码仍使用旧的 `natural_resource` 标签，迁移见 #77、#78。
+资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；初级货物带 `raw_good` 标签。二者都是普通体素定义，可同时带有其他标签；聚居地资源查询的派生结果引用初级货物的体素定义标识，不复制定义。[#77](https://github.com/odradekk/train/issues/77) 已把代码与内容中的可交易初级货物改为 `raw_good`，聚居地种类集合引用这些初级货物标识。资源源体素、ResourceSourceBehavior 以及从周边资源源扫描派生种类尚未实现，见 [#78](https://github.com/odradekk/train/issues/78)。
 _Avoid_: 自然资源、自然资源实例、资源配置
 
 **基本货币价值**：

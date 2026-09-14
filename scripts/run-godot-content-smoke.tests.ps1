@@ -57,7 +57,7 @@ function Assert-SmokeExit {
 }
 
 $allMarkers = @(
-    "CONTENT_IRON_ORE_LOADED",
+    "CONTENT_FERROUS_ORE_LOADED",
     "CONTENT_PNG_DECODED",
     "CONTENT_INIT_OK",
     "CONTENT_RELOAD_ACTION_PRESENT",
@@ -68,7 +68,7 @@ $allMarkers = @(
 )
 
 $legacyMarkers = @(
-    "CONTENT_IRON_ORE_LOADED",
+    "CONTENT_FERROUS_ORE_LOADED",
     "CONTENT_PNG_DECODED",
     "CONTENT_INIT_OK",
     "CONTENT_RELOAD_ACTION_PRESENT",
@@ -79,7 +79,7 @@ $legacyMarkers = @(
 )
 $failingFake = New-FakeGodot -ExitCode 7 -Lines $allMarkers
 $passingFake = New-FakeGodot -ExitCode 0 -Lines $allMarkers
-$missingFake = New-FakeGodot -ExitCode 0 -Lines @("CONTENT_IRON_ORE_LOADED")
+$missingFake = New-FakeGodot -ExitCode 0 -Lines @("CONTENT_FERROUS_ORE_LOADED")
 $legacyFake = New-FakeGodot -ExitCode 0 -Lines $legacyMarkers
 try {
     Assert-SmokeExit -Name "nonzero Godot with all markers" -Expected 1 -Actual (Invoke-Smoke -GodotPath $failingFake)

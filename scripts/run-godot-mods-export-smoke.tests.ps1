@@ -67,15 +67,15 @@ function Assert-SmokeCondition {
 }
 
 $allMarkers = @(
-    "MODS_EXPORT_IRON_ORE_LOADED",
+    "MODS_EXPORT_FERROUS_ORE_LOADED",
     "MODS_EXPORT_INIT_OK",
     "MODS_EXPORT_ROOT_EMPTY"
 )
 
 $passingBin = New-FakeProgram -ExitCode 0 -Lines $allMarkers
-$unavailableRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_UNAVAILABLE")
-$presentRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_PRESENT")
-$missingBin = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_IRON_ORE_LOADED")
+$unavailableRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_FERROUS_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_UNAVAILABLE")
+$presentRoot = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_FERROUS_ORE_LOADED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_PRESENT")
+$missingBin = New-FakeProgram -ExitCode 0 -Lines @("MODS_EXPORT_FERROUS_ORE_LOADED")
 $nonzeroProcess = New-FakeProgram -ExitCode 7 -Lines $allMarkers
 $exportRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("train mods export " + [guid]::NewGuid().ToString("N"))
 $outputPath = Join-Path $exportRoot "output with spaces/train.exe"

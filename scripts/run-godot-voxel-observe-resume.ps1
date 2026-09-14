@@ -47,9 +47,9 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 
-$ironJson = Join-Path $root "builtin\core\resources\voxels\iron-ore.voxels.json"
+$ironJson = Join-Path $root "builtin\core\resources\voxels\ferrous-ore.voxels.json"
 $ledgeJson = Join-Path $root "builtin\core\resources\voxels\ledge.voxels.json"
-$ironTop = Join-Path $root "builtin\core\resources\voxels\iron-ore\top.png"
+$ironTop = Join-Path $root "builtin\core\resources\voxels\ferrous-ore\top.png"
 $markerJson = Join-Path $root "builtin\core\resources\voxels\refit-marker.voxels.json"
 $hollowJson = Join-Path $root "builtin\core\resources\composites\dev-hollow-shell.composites.json"
 $beforeJson = (Get-FileHash -LiteralPath $ironJson -Algorithm SHA256).Hash
@@ -167,7 +167,7 @@ $issue = if ($Slice -eq 3) { "#62" } else { "#53" }
 $facts = if ($Slice -eq 3) {
     "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` and ``TRAIN_VOXEL_SLICE=3`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the parked-vehicle persist fixtures, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, four ``issue62-resume-*.png`` files generated after the restored session loaded, and unchanged worktree built-in hashes. The script does not inspect PNG pixels and does not reuse ``issue58-*.png``, ``issue60-*.png``, or ``issue61-*.png``."
 } else {
-    "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the slice 2 fixed sequence, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, five ``issue53-resume-*.png`` files, and unchanged worktree iron-ore/ledge hashes. The script does not inspect PNG pixels and does not reuse ``issue50-*.png`` or ``issue52-*.png``."
+    "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the slice 2 fixed sequence, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, five ``issue53-resume-*.png`` files, and unchanged worktree ferrous-ore/ledge hashes. The script does not inspect PNG pixels and does not reuse ``issue50-*.png`` or ``issue52-*.png``."
 }
 
 $report = @(

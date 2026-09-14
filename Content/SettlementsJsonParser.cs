@@ -11,7 +11,7 @@ internal sealed class ParsedSettlement
     public string Name { get; }
     public MapPosition Position { get; }
     public int Population { get; }
-    public IReadOnlyList<VoxelDefinitionId> NaturalResources { get; }
+    public IReadOnlyList<VoxelDefinitionId> AvailableRawGoods { get; }
     public string SourceFile { get; }
 
     public ParsedSettlement(
@@ -20,7 +20,7 @@ internal sealed class ParsedSettlement
         string name,
         MapPosition position,
         int population,
-        IReadOnlyList<VoxelDefinitionId> naturalResources,
+        IReadOnlyList<VoxelDefinitionId> availableRawGoods,
         string sourceFile)
     {
         LocalId = localId;
@@ -28,7 +28,7 @@ internal sealed class ParsedSettlement
         Name = name;
         Position = position;
         Population = population;
-        NaturalResources = naturalResources;
+        AvailableRawGoods = availableRawGoods;
         SourceFile = sourceFile;
     }
 }
@@ -176,7 +176,7 @@ internal static class SettlementsJsonParser
                         return false;
                     position = parsedPosition;
                     break;
-                case "natural_resources":
+                case "available_raw_goods":
                     if (!TryParseResources(property.Value, fieldPath, diagnostics, out resources))
                         return false;
                     break;
@@ -219,7 +219,7 @@ internal static class SettlementsJsonParser
 
         if (resources is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "natural_resources must be an array.", jsonPath + "/natural_resources");
+            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "available_raw_goods must be an array.", jsonPath + "/available_raw_goods");
             return false;
         }
 
@@ -291,7 +291,7 @@ internal static class SettlementsJsonParser
         resources = Array.Empty<VoxelDefinitionId>();
         if (element.ValueKind != JsonValueKind.Array)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "natural_resources must be an array.", jsonPath);
+            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "available_raw_goods must be an array.", jsonPath);
             return false;
         }
 
@@ -313,7 +313,7 @@ internal static class SettlementsJsonParser
             {
                 diagnostics.Warn(
                     ContentDiagnosticCodes.UnresolvedVoxelReference,
-                    "Natural resource ids must be fully qualified namespace:local values.",
+                    "Available raw good ids must be fully qualified namespace:local values.",
                     itemPath);
                 return false;
             }
@@ -321,8 +321,8 @@ internal static class SettlementsJsonParser
             if (!seen.Add(id))
             {
                 diagnostics.Warn(
-                    ContentDiagnosticCodes.DuplicateNaturalResource,
-                    "Duplicate natural resource id.",
+                    ContentDiagnosticCodes.DuplicateAvailableRawGood,
+                    "Duplicate available raw good id.",
                     itemPath);
                 return false;
             }

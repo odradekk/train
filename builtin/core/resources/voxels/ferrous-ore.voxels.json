@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "voxels": [
+    {
+      "id": "ferrous-ore",
+      "name": "Ferrous Ore",
+      "description": "开发用占位初级货物，用于验证内容加载、校验与重载。",
+      "value": 10,
+      "mass": 1,
+      "max_durability": 100,
+      "tags": ["raw_good"],
+      "behaviors": [],
+      "allowed_orientations": "all_24",
+      "presentation": {
+        "kind": "cube",
+        "icon": "voxels/ferrous-ore/icon.png",
+        "voxel_top": "voxels/ferrous-ore/top.png",
+        "voxel_side": "voxels/ferrous-ore/side.png",
+        "voxel_bottom": "voxels/ferrous-ore/bottom.png"
+      },
+      "collision": {
+        "kind": "full_box"
+      }
+    }
+  ]
+}

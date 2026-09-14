@@ -18,8 +18,8 @@ voxel damage 4 4 4 100 5 4 4 100 6 4 4 25
 voxel reset
 voxel damage 4 4 4 25
 voxel damage 4 4 4 75
-voxel add 4 4 4 core:iron-ore px_py
-voxel add 4 4 4 core:iron-ore px_py
+voxel add 4 4 4 core:ferrous-ore px_py
+voxel add 4 4 4 core:ferrous-ore px_py
 ```
 
 应依次得到耐久 75 / 总数 512、该格为空 / 总数 511、重加后耐久 100 / 总数 512，最后一次为 `Occupied`。
@@ -41,7 +41,7 @@ voxel damage 4 4 4 100 5 4 4 100 6 4 4 25
 
 ```text
 Voxel Damaged at (6, 4, 4) by 25.
-Cell (6, 4, 4): core:iron-ore, orientation px_py, durability 75.
+Cell (6, 4, 4): core:ferrous-ore, orientation px_py, durability 75.
 Voxel count: 510.
 ```
 

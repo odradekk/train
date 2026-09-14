@@ -95,9 +95,9 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 $protected = @(
-    "builtin\core\resources\voxels\iron-ore.voxels.json",
+    "builtin\core\resources\voxels\ferrous-ore.voxels.json",
     "builtin\core\resources\voxels\ledge.voxels.json",
-    "builtin\core\resources\voxels\iron-ore\top.png",
+    "builtin\core\resources\voxels\ferrous-ore\top.png",
     "builtin\core\resources\voxels\refit-marker.voxels.json",
     "builtin\core\resources\voxels\refit-marker\top.png",
     "builtin\core\resources\voxels\identity-core.voxels.json",

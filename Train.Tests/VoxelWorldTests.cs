@@ -20,7 +20,7 @@ public sealed class VoxelWorldTests
 
         var corner = harness.Commands.Query(new WorldVoxelCoord(4, 4, 4));
         Assert.IsTrue(corner.IsOccupied);
-        Assert.AreEqual(new VoxelDefinitionId("core", "iron-ore"), corner.Voxel!.DefinitionId);
+        Assert.AreEqual(new VoxelDefinitionId("core", "ferrous-ore"), corner.Voxel!.DefinitionId);
         Assert.AreEqual(100, corner.Voxel.CurrentDurability);
         Assert.AreEqual(VoxelOrientation.Identity, corner.Voxel.Orientation);
         Assert.IsFalse(harness.Commands.Query(new WorldVoxelCoord(3, 4, 4)).IsOccupied);
@@ -37,14 +37,14 @@ public sealed class VoxelWorldTests
         Assert.AreEqual(511, harness.World.VoxelCount);
         Assert.IsFalse(harness.Commands.Query(position).IsOccupied);
 
-        var added = harness.Commands.Add(position, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity);
+        var added = harness.Commands.Add(position, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity);
         Assert.AreEqual(WorldCommandStatus.Added, added.Status);
         Assert.AreEqual(512, harness.World.VoxelCount);
         var query = harness.Commands.Query(position);
         Assert.IsTrue(query.IsOccupied);
         Assert.AreEqual(100, query.Voxel!.CurrentDurability);
 
-        Assert.AreEqual(WorldCommandStatus.Occupied, harness.Commands.Add(position, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Occupied, harness.Commands.Add(position, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         Assert.AreEqual(512, harness.World.VoxelCount);
         Assert.AreEqual(WorldCommandStatus.Empty, harness.Commands.Remove(new WorldVoxelCoord(0, 0, 0)).Status);
         Assert.IsFalse(harness.Commands.Query(new WorldVoxelCoord(0, 0, 0)).IsOccupied);
@@ -56,7 +56,7 @@ public sealed class VoxelWorldTests
         using var harness = WorldHarness.Create();
         var before = harness.World.VoxelCount;
 
-        Assert.AreEqual(WorldCommandStatus.OutOfBounds, harness.Commands.Add(new WorldVoxelCoord(16, 4, 4), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.OutOfBounds, harness.Commands.Add(new WorldVoxelCoord(16, 4, 4), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         Assert.AreEqual(WorldCommandStatus.UnknownDefinition, harness.Commands.Add(new WorldVoxelCoord(0, 0, 0), new VoxelDefinitionId("core", "unknown"), VoxelOrientation.Identity).Status);
         Assert.AreEqual(WorldCommandStatus.DisallowedOrientation, harness.Commands.Add(new WorldVoxelCoord(0, 0, 0), new VoxelDefinitionId("core", "fixed"), VoxelOrientation.Yaw90).Status);
 
@@ -76,7 +76,7 @@ public sealed class VoxelWorldTests
         var position = new WorldVoxelCoord(0, 0, 0);
         foreach (var orientation in VoxelOrientation.All)
         {
-            var add = harness.Commands.Add(position, new VoxelDefinitionId("core", "iron-ore"), orientation);
+            var add = harness.Commands.Add(position, new VoxelDefinitionId("core", "ferrous-ore"), orientation);
             Assert.AreEqual(WorldCommandStatus.Added, add.Status, orientation.ToString());
             Assert.AreEqual(orientation, harness.Commands.Query(position).Voxel!.Orientation);
             Assert.AreEqual(WorldCommandStatus.Removed, harness.Commands.Remove(position).Status);
@@ -178,10 +178,10 @@ public sealed class VoxelWorldTests
         var exposed = VoxelSurfaceMesher.Build(harness.World);
         Assert.IsTrue(exposed.Faces.Any(face => face.Position == new WorldVoxelCoord(5, 4, 4) && face.Normal == VoxelFaceNormal.NegativeX));
 
-        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(position, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Commands.Add(position, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         Assert.AreEqual(100, harness.Commands.Query(position).Voxel!.CurrentDurability);
         Assert.AreEqual(512, harness.World.VoxelCount);
-        Assert.AreEqual(WorldCommandStatus.Occupied, harness.Commands.Add(position, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.Occupied, harness.Commands.Add(position, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         Assert.AreEqual(512, harness.World.VoxelCount);
         Assert.AreEqual(100, harness.Commands.Query(position).Voxel!.CurrentDurability);
     }
@@ -289,7 +289,7 @@ public sealed class VoxelWorldTests
         public static WorldHarness Create()
         {
             var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/fixed.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("fixed", "固定", "固定方向", orientations: "none")));
             var reloader = ContentFixtures.Create(source, session.Logger);

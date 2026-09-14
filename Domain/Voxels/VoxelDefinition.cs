@@ -7,7 +7,7 @@ namespace Train.Domain.Voxels;
 
 public static class VoxelTags
 {
-    public const string NaturalResource = "natural_resource";
+    public const string RawGood = "raw_good";
     public const string IdentityCore = "identity_core";
 }
 
@@ -251,7 +251,7 @@ public sealed class VoxelDefinition
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
 
-    public bool HasNaturalResourceTag => Tags.Contains(VoxelTags.NaturalResource);
+    public bool HasRawGoodTag => Tags.Contains(VoxelTags.RawGood);
 
     public VoxelDefinition(
         VoxelDefinitionId id,

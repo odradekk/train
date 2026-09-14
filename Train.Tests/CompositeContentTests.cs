@@ -61,7 +61,7 @@ public sealed class CompositeContentTests
         foreach (var json in cases)
         {
             using var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddCompositeFile("core", "bad.composites.json", json);
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Rejected, reloader.Reload().Status, json);
@@ -72,7 +72,7 @@ public sealed class CompositeContentTests
     public void Duplicate_composite_ids_invalidate_the_owning_package()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidIron();
+        var source = ContentFixtures.ValidFerrousOre();
         source.AddCompositeFile("core", "a.composites.json", CompositeFixtures.File(null, CompositeFixtures.Archetype(), CompositeFixtures.Composite()));
         source.AddCompositeFile("core", "b.composites.json", CompositeFixtures.File(null, "", CompositeFixtures.Composite()));
         var reloader = ContentFixtures.Create(source, session.Logger);

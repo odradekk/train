@@ -20,7 +20,7 @@ voxel collide 15.25 16 15 16.75 17 16
 
 | 定义 | 碰撞 | 查询 |
 | --- | --- | --- |
-| `core:iron-ore`、`core:fixed` | `full_box` | 完整 Cell 盒参与命中 |
+| `core:ferrous-ore`、`core:fixed` | `full_box` | 完整 Cell 盒参与命中 |
 | `core:hollow` | `none` | 仍占格、不能重复放置，查询不命中 |
 | `core:ledge` | `local_box` | 仍占一整格；只有旋转后的局部盒与探测重叠才命中 |
 
@@ -46,7 +46,7 @@ voxel collide 15.25 16 15 16.75 17 16
 
 ```text
 Collision Hit (1)
-cell (4, 4, 4): core:iron-ore
+cell (4, 4, 4): core:ferrous-ore
 kind full_box
 ```
 

@@ -20,7 +20,7 @@ public sealed class VoxelLiveReloadTests
         AssertInspection(harness, corner, durability: 80, value: 100, mass: 1, max: 100);
         AssertInspection(harness, other, durability: 90, value: 100, mass: 1, max: 100);
 
-        var afterRise = harness.ReloadIron(maxDurability: 150, value: 250, mass: 2);
+        var afterRise = harness.ReloadFerrousOre(maxDurability: 150, value: 250, mass: 2);
         Assert.AreEqual(ContentReloadStatus.Committed, afterRise.Status);
         Assert.IsTrue(afterRise.Changed);
         Assert.AreEqual(2, afterRise.CatalogVersion);
@@ -29,13 +29,13 @@ public sealed class VoxelLiveReloadTests
         AssertInspection(harness, other, durability: 90, value: 250, mass: 2, max: 150);
         Assert.AreEqual(VoxelOrientation.Identity, harness.Session.Query(corner).Voxel!.Orientation);
 
-        var afterClamp = harness.ReloadIron(maxDurability: 60, value: 250, mass: 2);
+        var afterClamp = harness.ReloadFerrousOre(maxDurability: 60, value: 250, mass: 2);
         Assert.AreEqual(ContentReloadStatus.Committed, afterClamp.Status);
         Assert.AreEqual(3, afterClamp.CatalogVersion);
         Assert.AreEqual(512, harness.Session.World.VoxelCount);
         AssertInspection(harness, corner, durability: 60, value: 250, mass: 2, max: 60);
         AssertInspection(harness, other, durability: 60, value: 250, mass: 2, max: 60);
-        Assert.AreEqual(new VoxelDefinitionId("core", "iron-ore"), harness.Session.Query(corner).Voxel!.DefinitionId);
+        Assert.AreEqual(new VoxelDefinitionId("core", "ferrous-ore"), harness.Session.Query(corner).Voxel!.DefinitionId);
         Assert.AreEqual(VoxelOrientation.Identity, harness.Session.Query(corner).Voxel!.Orientation);
     }
 
@@ -46,11 +46,11 @@ public sealed class VoxelLiveReloadTests
         var corner = new WorldVoxelCoord(4, 4, 4);
         var oriented = new WorldVoxelCoord(0, 0, 0);
         Assert.AreEqual(WorldCommandStatus.Damaged, harness.Session.Damage(corner, 20).Status);
-        Assert.AreEqual(WorldCommandStatus.Added, harness.Session.Add(oriented, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Yaw90).Status);
+        Assert.AreEqual(WorldCommandStatus.Added, harness.Session.Add(oriented, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Yaw90).Status);
         var generation = harness.Reloader.Catalog.Current!.Generation;
         var snapshot = harness.Reloader.Catalog.Current;
 
-        var rejected = harness.ReloadIron(maxDurability: 60, orientations: "none");
+        var rejected = harness.ReloadFerrousOre(maxDurability: 60, orientations: "none");
 
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
         Assert.IsFalse(rejected.Changed);
@@ -73,7 +73,7 @@ public sealed class VoxelLiveReloadTests
         var generation = harness.Reloader.Catalog.Current!.Generation;
         var snapshot = harness.Reloader.Catalog.Current;
 
-        var later = ContentFixtures.ValidIron();
+        var later = ContentFixtures.ValidFerrousOre();
         var rebuilt = ContentFixtures.Create(later, harness.Logger, catalog: harness.Reloader.Catalog, settlements: harness.Reloader.Settlements);
         rebuilt.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(harness.Session));
         var rejected = rebuilt.Reload();
@@ -97,7 +97,7 @@ public sealed class VoxelLiveReloadTests
         var generation = harness.Reloader.Catalog.Current!.Generation;
         var snapshot = harness.Reloader.Catalog.Current;
 
-        var later = ContentFixtures.ValidIron();
+        var later = ContentFixtures.ValidFerrousOre();
         later.AddMod("broken", ModFixtures.SampleUuid);
         later.AddVoxelFile(ModFixtures.SampleUuid, "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
         var rebuilt = ContentFixtures.Create(later, harness.Logger, catalog: harness.Reloader.Catalog, settlements: harness.Reloader.Settlements);
@@ -142,17 +142,17 @@ public sealed class VoxelLiveReloadTests
         using var harness = LiveReloadHarness.Create();
         var corner = new WorldVoxelCoord(4, 4, 4);
         Assert.AreEqual(WorldCommandStatus.Damaged, harness.Session.Damage(corner, 20).Status);
-        var baseline = harness.Reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        var baseline = harness.Reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
         var worldNotifications = 0;
         harness.Session.Changed += () => worldNotifications++;
 
-        var display = harness.ReloadIron(name: "新铁矿", description: "新说明");
+        var display = harness.ReloadFerrousOre(name: "新亚铁矿", description: "新说明");
 
         Assert.AreEqual(ContentReloadStatus.Committed, display.Status);
         Assert.IsTrue(display.Changed);
-        var after = harness.Reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "iron-ore")];
+        var after = harness.Reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreEqual(baseline.SemanticRevision, after.SemanticRevision);
-        Assert.AreEqual("新铁矿", after.Definition.Name);
+        Assert.AreEqual("新亚铁矿", after.Definition.Name);
         AssertInspection(harness, corner, durability: 80, value: 100, mass: 1, max: 100);
         Assert.AreEqual(1, worldNotifications);
     }
@@ -170,7 +170,7 @@ public sealed class VoxelLiveReloadTests
             new VoxelConsoleCommands(harness.Session));
 
         Assert.AreEqual(WorldCommandStatus.Damaged, harness.Session.Damage(new WorldVoxelCoord(4, 4, 4), 20).Status);
-        Assert.AreEqual(ContentReloadStatus.Committed, harness.ReloadIron(maxDurability: 150).Status);
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.ReloadFerrousOre(maxDurability: 150).Status);
 
         var before = harness.Memory.Snapshot().Count;
         dispatcher.Execute("voxel query 4 4 4");
@@ -179,7 +179,7 @@ public sealed class VoxelLiveReloadTests
             .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
             .Select(LogLevelText.FormatConsole));
 
-        StringAssert.Contains(display, "core:iron-ore");
+        StringAssert.Contains(display, "core:ferrous-ore");
         StringAssert.Contains(display, "durability 80");
         StringAssert.Contains(display, "value 100");
         StringAssert.Contains(display, "mass 1");
@@ -230,7 +230,7 @@ public sealed class VoxelLiveReloadTests
         public static LiveReloadHarness Create(bool withCopper = false)
         {
             var session = LoggerSession.Create();
-            var source = withCopper ? ModFixtures.CorePlusCopper() : ContentFixtures.ValidIron();
+            var source = withCopper ? ModFixtures.CorePlusCopper() : ContentFixtures.ValidFerrousOre();
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
             var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
@@ -238,17 +238,17 @@ public sealed class VoxelLiveReloadTests
             return new LiveReloadHarness(session, source, reloader, voxelSession);
         }
 
-        public ContentReloadResult ReloadIron(
+        public ContentReloadResult ReloadFerrousOre(
             int maxDurability = 100,
             long value = 100,
             double mass = 1,
-            string name = "铁矿",
+            string name = "Ferrous Ore",
             string description = "说明",
             string orientations = "all_24")
         {
-            Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
+            Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good(
-                    "iron-ore",
+                    "ferrous-ore",
                     name,
                     description,
                     value: value,

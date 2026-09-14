@@ -713,10 +713,10 @@ internal sealed class StaticTrainHarness : IDisposable
             ContentFixtures.Good("rail", "钢轨", "正式直轨占格", value: 10, tagsJson: "[]")));
         ContentFixtures.AddSquareImages(
             source,
-            "voxels/iron-ore/icon.png",
-            "voxels/iron-ore/top.png",
-            "voxels/iron-ore/side.png",
-            "voxels/iron-ore/bottom.png");
+            "voxels/ferrous-ore/icon.png",
+            "voxels/ferrous-ore/top.png",
+            "voxels/ferrous-ore/side.png",
+            "voxels/ferrous-ore/bottom.png");
         source.AddVoxelFile("core", "voxels/propulsion.voxels.json", CompositeFixtures.BuiltinText("voxels", "propulsion.voxels.json"));
         source.AddVoxelFile("core", "voxels/control.voxels.json", CompositeFixtures.BuiltinText("voxels", "control.voxels.json"));
         source.AddVoxelFile("core", "voxels/track-contact.voxels.json", CompositeFixtures.BuiltinText("voxels", "track-contact.voxels.json"));

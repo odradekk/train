@@ -44,7 +44,7 @@
 
 正式游戏场景、经济与自动贸易玩法、正式车辆设计 UI、事故碰撞等伤害玩法触发源、专门遮挡检测后续开发。Faction 的设计与实现整体延后，首版不保留占位字段；当前测试场景复用正式世界模型、模拟、渲染与存档代码，并提供开发测试所需操作。
 
-TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 属于当前体素定义，继续保留。资源与生产系统（[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)）的设计已定，其实现与相关 Runtime State 的存档接入不在当前四个切片，随后续切片安排；`natural_resource` 到 `raw_good` / `resource_source` 的代码与内容迁移已开票 [#77](https://github.com/odradekk/train/issues/77)、[#78](https://github.com/odradekk/train/issues/78)。
+TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 属于当前体素定义，继续保留。资源与生产系统（[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)）的设计已定，其实现与相关 Runtime State 的存档接入不在当前四个切片，随后续切片安排；[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`，[#78](https://github.com/odradekk/train/issues/78) 仍待实现 `resource_source` 与 ResourceSourceBehavior。
 
 首版不实现有状态随机流或定点数体系；领域层暂不使用硬件宽度可变的向量计算，后续优化须经性能与确定性验证（#34）。
 

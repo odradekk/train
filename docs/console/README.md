@@ -67,10 +67,10 @@
 | 参数 | 格式与范围 | 示例 |
 | --- | --- | --- |
 | `x`、`y`、`z` | 三个单独的十进制整数，按世界 X/Y/Z 顺序填写；有效范围取决于当前切片（上表）。Y 是竖直轴，不接受小数、逗号三元组或括号 | 切片 1：`4 4 4`；切片 2 边界：`15 16 15` |
-| `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:iron-ore` |
+| `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:ferrous-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-PR #47 内置测试定义 `core:iron-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有世界体素和已有车辆零件按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` / `composite query` 显示当前规格，`voxel collide` 使用当前碰撞。外部蓝图布局更新不覆盖已有实际车辆；新制造使用新模板。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+PR #47 内置测试定义 `core:ferrous-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有世界体素和已有车辆零件按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` / `composite query` 显示当前规格，`voxel collide` 使用当前碰撞。外部蓝图布局更新不覆盖已有实际车辆；新制造使用新模板。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -143,12 +143,12 @@ voxel query 4 4 4
 voxel collide 4 4 4
 voxel remove 4 4 4
 voxel collide 4 4 4
-voxel add 4 4 4 core:iron-ore px_py
-voxel add 4 4 4 core:iron-ore px_py
+voxel add 4 4 4 core:ferrous-ore px_py
+voxel add 4 4 4 core:ferrous-ore px_py
 voxel add 0 0 0 core:hollow px_py
 voxel query 0 0 0
 voxel collide 0 0 0
-voxel add 0 0 0 core:iron-ore px_py
+voxel add 0 0 0 core:ferrous-ore px_py
 voxel add 1 0 0 core:ledge px_py
 voxel collide 1.18 0.08 0.48 1.22 0.12 0.52
 voxel collide 1.68 0.38 0.48 1.72 0.42 0.52
@@ -158,7 +158,7 @@ voxel collide 1.18 0.08 0.48 1.22 0.12 0.52
 voxel collide 1.48 0.38 0.18 1.52 0.42 0.22
 ```
 
-原始定义下应依次观察到初始 512 格、`(4,4,4)` 碰撞 `Hit`/`full_box`、移除后 511 格且该格 `Miss`、重加后 512 格/耐久 100，最后一次铁矿为 `Occupied`。空心占格后总数 513，`query` 占用而 `collide` 为 `Miss`，再放铁矿得到 `Occupied`。偏心台沿占 `(1,0,0)` 后，身份朝向下盒内探测 `Hit`/`local_box`、格内盒外 `Miss`；改成 `pz_py` 后原盒内探测变为 `Miss`，旋转后的新区域 `Hit`。
+原始定义下应依次观察到初始 512 格、`(4,4,4)` 碰撞 `Hit`/`full_box`、移除后 511 格且该格 `Miss`、重加后 512 格/耐久 100，最后一次 `core:ferrous-ore` 为 `Occupied`。空心占格后总数 513，`query` 占用而 `collide` 为 `Miss`，再放 `core:ferrous-ore` 得到 `Occupied`。偏心台沿占 `(1,0,0)` 后，身份朝向下盒内探测 `Hit`/`local_box`、格内盒外 `Miss`；改成 `pz_py` 后原盒内探测变为 `Miss`，旋转后的新区域 `Hit`。
 
 ### 观察部分伤害、归零和内部空腔
 
@@ -166,7 +166,7 @@ voxel collide 1.48 0.38 0.18 1.52 0.42 0.22
 voxel reset
 voxel damage 4 4 4 25
 voxel damage 4 4 4 75
-voxel add 4 4 4 core:iron-ore px_py
+voxel add 4 4 4 core:ferrous-ore px_py
 voxel reset
 voxel damage 5 5 5 100
 voxel query 5 5 5
@@ -189,7 +189,7 @@ voxel query 6 4 4
 
 ```text
 voxel reset
-voxel add 16 4 4 core:iron-ore px_py
+voxel add 16 4 4 core:ferrous-ore px_py
 voxel add 0 0 0 core:missing px_py
 voxel add 0 0 0 core:fixed pz_py
 voxel damage 4 4 4 0
@@ -213,7 +213,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:iron-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId 随格式 2 一并保存；失败时保留旧会话，不会报告成功却丢车或丢 ID。已有正式铁路或编组时 `voxel save` 返回 `UnsupportedRailway`，不覆盖上一份有效文件。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId 随格式 2 一并保存；失败时保留旧会话，不会报告成功却丢车或丢 ID。已有正式铁路或编组时 `voxel save` 返回 `UnsupportedRailway`，不覆盖上一份有效文件。
 
 ### 切片 4 正式直轨
 
@@ -254,13 +254,13 @@ voxel collide 15.25 16 15 16.75 17 16
 voxel remove 16 16 15
 voxel collide 16 16 15
 voxel query 15 16 15
-voxel add 16 16 15 core:iron-ore px_py
+voxel add 16 16 15 core:ferrous-ore px_py
 voxel remove 15 15 15
-voxel add 15 15 15 core:iron-ore px_py
+voxel add 15 15 15 core:ferrous-ore px_py
 voxel remove 15 16 16
-voxel add 15 16 16 core:iron-ore px_py
+voxel add 15 16 16 core:ferrous-ore px_py
 voxel remove 16 16 16
-voxel add 16 16 16 core:iron-ore px_py
+voxel add 16 16 16 core:ferrous-ore px_py
 voxel damage 15 16 15 100 16 16 16 100 15 16 16 25
 voxel query 15 16 16
 ```
@@ -278,7 +278,7 @@ voxel remove 4 0 4
 voxel add 4 1 4 core:hollow px_py
 voxel damage 14 14 14 25
 voxel remove 17 17 17
-voxel add 17 17 17 core:iron-ore nz_py
+voxel add 17 17 17 core:ferrous-ore nz_py
 voxel add 15 1 8 core:ledge pz_py
 voxel query 14 14 14
 voxel collide 4 1 4

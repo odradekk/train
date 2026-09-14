@@ -9,7 +9,7 @@ namespace Train.Tests;
 [TestClass]
 public sealed class VoxelLocalBoxTests
 {
-    private static readonly VoxelDefinitionId Iron = new("core", "iron-ore");
+    private static readonly VoxelDefinitionId Iron = new("core", "ferrous-ore");
     private static readonly VoxelDefinitionId Hollow = new("core", "hollow");
     private static readonly VoxelDefinitionId Ledge = new("core", "ledge");
     private static readonly WorldVoxelCoord Empty = new(0, 0, 0);
@@ -59,10 +59,10 @@ public sealed class VoxelLocalBoxTests
         harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", fromDisk);
         ContentFixtures.AddSquareImages(
             harness.Source,
-            "voxels/iron-ore/icon.png",
-            "voxels/iron-ore/top.png",
-            "voxels/iron-ore/side.png",
-            "voxels/iron-ore/bottom.png");
+            "voxels/ferrous-ore/icon.png",
+            "voxels/ferrous-ore/top.png",
+            "voxels/ferrous-ore/side.png",
+            "voxels/ferrous-ore/bottom.png");
         var reloaded = harness.Reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, reloaded.Status);
         Assert.AreEqual(VoxelCollisionKind.LocalBox, harness.Reloader.Catalog.Current!.Entries[Ledge].Definition.Collision.Kind);
@@ -84,8 +84,8 @@ public sealed class VoxelLocalBoxTests
                      "{\"kind\":\"full_box\",\"extra\":1}"
                  })
         {
-            harness.Source.AddVoxelFile("core", "voxels/iron-ore.voxels.json", ContentFixtures.GoodsFile(
-                ContentFixtures.Good("iron-ore", "铁矿", "说明", collisionJson: collision)));
+            harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", collisionJson: collision)));
             var rejected = harness.Reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, collision);
             Assert.AreEqual(VoxelCollisionKind.FullBox, harness.Reloader.Catalog.Current!.Entries[Iron].Definition.Collision.Kind);
@@ -115,7 +115,7 @@ public sealed class VoxelLocalBoxTests
         foreach (var collision in invalids)
         {
             using var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", collisionJson: collision)));
             var builtIn = ContentFixtures.Create(source, session.Logger);
@@ -283,7 +283,7 @@ public sealed class VoxelLocalBoxTests
         foreach (var sizeX in new[] { 1e-50, double.Epsilon })
         {
             using var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]",
                     collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: sizeX))));
@@ -610,7 +610,7 @@ public sealed class VoxelLocalBoxTests
         public static LocalBoxHarness Create(VoxelWorldIdentity? identity = null)
         {
             var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/hollow.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("hollow", "空心占格", "占格但不碰撞", tagsJson: "[]", collisionJson: "{\"kind\":\"none\"}")));
             source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(

@@ -1,7 +1,7 @@
-# Generates the built-in core:iron-ore placeholder PNGs. Run from the repository root.
+# Generates the built-in core:ferrous-ore placeholder PNGs. Run from the repository root.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$dir = Join-Path $root "builtin/core/resources/voxels/iron-ore"
+$dir = Join-Path $root "builtin/core/resources/voxels/ferrous-ore"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
 Add-Type -TypeDefinition @"

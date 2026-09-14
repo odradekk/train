@@ -236,9 +236,9 @@ public partial class Main : Node
         GD.Print(InputMap.HasAction(ReloadContentAction)
             ? "CONTENT_RELOAD_ACTION_PRESENT"
             : "CONTENT_RELOAD_ACTION_MISSING");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore.voxels.json"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore.voxels.json"))
             GD.Print("CONTENT_VFS_JSON_READABLE");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/icon.png"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore/icon.png"))
             GD.Print("CONTENT_VFS_PNG_READABLE");
     }
 
@@ -351,12 +351,12 @@ public partial class Main : Node
     {
         _contentExportSmoke = true;
         ReportCatalogMarkers(loaded, "CONTENT_EXPORT");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore.voxels.json"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore.voxels.json"))
             GD.Print("CONTENT_EXPORT_JSON_READABLE");
-        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/icon.png") &&
-            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/top.png") &&
-            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/side.png") &&
-            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/iron-ore/bottom.png"))
+        if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore/icon.png") &&
+            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore/top.png") &&
+            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore/side.png") &&
+            Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore/bottom.png"))
             GD.Print("CONTENT_EXPORT_PNG_READABLE");
         if (_logger?.JsonlPath is not null && File.Exists(_logger.JsonlPath))
             GD.Print("CONTENT_EXPORT_JSONL_CREATED");
@@ -365,9 +365,9 @@ public partial class Main : Node
     private void ReportCatalogMarkers(ContentReloadResult loaded, string prefix)
     {
         if (loaded.IsCommitted &&
-            _reloader?.Catalog.Current?.TryGet(new VoxelDefinitionId("core", "iron-ore"), out var entry) == true)
+            _reloader?.Catalog.Current?.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out var entry) == true)
         {
-            GD.Print($"{prefix}_IRON_ORE_LOADED");
+            GD.Print($"{prefix}_FERROUS_ORE_LOADED");
             if (entry.Definition.Name.Length > 0 && entry.Definition.Presentation.IconPath.Length > 0)
                 GD.Print($"{prefix}_PNG_DECODED");
         }
@@ -410,15 +410,15 @@ public partial class Main : Node
                   "value": 1,
                   "mass": 1,
                   "max_durability": 100,
-                  "tags": ["natural_resource"],
+                  "tags": ["raw_good"],
                   "behaviors": [],
                   "allowed_orientations": "all_24",
                   "presentation": {
                     "kind": "cube",
-                    "icon": "voxels/iron-ore/icon.png",
-                    "voxel_top": "voxels/iron-ore/top.png",
-                    "voxel_side": "voxels/iron-ore/side.png",
-                    "voxel_bottom": "voxels/iron-ore/bottom.png"
+                    "icon": "voxels/ferrous-ore/icon.png",
+                    "voxel_top": "voxels/ferrous-ore/top.png",
+                    "voxel_side": "voxels/ferrous-ore/side.png",
+                    "voxel_bottom": "voxels/ferrous-ore/bottom.png"
                   },
                   "collision": { "kind": "full_box" }
                 }

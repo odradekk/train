@@ -7,7 +7,7 @@
       "name": "示例城市",
       "position": { "x": 0, "y": 0 },
       "population": 100,
-      "natural_resources": ["core:iron-ore"]
+      "available_raw_goods": ["core:ferrous-ore"]
     }
   ]
 }

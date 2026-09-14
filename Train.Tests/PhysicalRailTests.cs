@@ -312,14 +312,14 @@ public sealed class PhysicalRailTests
         var shifted = ShiftZ(StraightRailFixture.CreateFixturePlan(), 8);
         Assert.IsTrue(harness.Session.Add(
             new WorldVoxelCoord(80, 3, 24),
-            new VoxelDefinitionId("core", "iron-ore"),
+            new VoxelDefinitionId("core", "ferrous-ore"),
             VoxelOrientation.Identity).Succeeded);
         AssertRejected(harness, shifted, RailEditStatus.ClearanceConflict, voxels: 1);
 
         harness.Session.Reset();
         Assert.IsTrue(harness.Session.Add(
             new WorldVoxelCoord(80, 3, 16),
-            new VoxelDefinitionId("core", "iron-ore"),
+            new VoxelDefinitionId("core", "ferrous-ore"),
             VoxelOrientation.Identity).Succeeded);
         Assert.IsTrue(harness.Session.ConstructRails(shifted).Succeeded);
         Assert.IsFalse(harness.Session.Rails.Occupies(new WorldVoxelCoord(80, 1, 15)));
@@ -328,7 +328,7 @@ public sealed class PhysicalRailTests
         harness.Session.Reset();
         Assert.IsTrue(harness.Session.Add(
             new WorldVoxelCoord(80, 3, 24),
-            new VoxelDefinitionId("core", "iron-ore"),
+            new VoxelDefinitionId("core", "ferrous-ore"),
             VoxelOrientation.Identity).Succeeded);
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
     }
@@ -486,17 +486,17 @@ public sealed class PhysicalRailTests
     public void Illegal_plans_fail_atomically()
     {
         using var harness = RailHarness.Create();
-        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 1, 15), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 1, 15), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Succeeded);
         AssertRejected(harness, StraightRailFixture.CreateFixturePlan(), RailEditStatus.WorldObstacle, voxels: 1);
 
         harness.Session.Reset();
-        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 1, 13), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 1, 13), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Succeeded);
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded, "y=1 beside the sleeper is occupancy, not swept clearance.");
         harness.Session.Reset();
-        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 8, 16), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 8, 16), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Succeeded);
         AssertRejected(harness, StraightRailFixture.CreateFixturePlan(), RailEditStatus.ClearanceConflict, voxels: 1);
         harness.Session.Reset();
-        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 3, 16), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Succeeded);
+        Assert.IsTrue(harness.Session.Add(new WorldVoxelCoord(80, 3, 16), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Succeeded);
         AssertRejected(harness, StraightRailFixture.CreateFixturePlan(), RailEditStatus.ClearanceConflict, voxels: 1);
 
         harness.Session.Reset();
@@ -599,9 +599,9 @@ public sealed class PhysicalRailTests
         Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Damage(DamageCell, 100).Status);
         Assert.AreEqual(
             WorldCommandStatus.Added,
-            harness.Session.Add(DamageCell, new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity).Status);
+            harness.Session.Add(DamageCell, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         Assert.AreEqual(RailRepairStatus.Conflict, harness.Session.RepairRails(new[] { DamageCell }).Status);
-        Assert.AreEqual(new VoxelDefinitionId("core", "iron-ore"), harness.Session.Query(DamageCell).Voxel!.DefinitionId);
+        Assert.AreEqual(new VoxelDefinitionId("core", "ferrous-ore"), harness.Session.Query(DamageCell).Voxel!.DefinitionId);
         CollectionAssert.AreEqual(ids, harness.Session.Rails.Segments.Select(segment => segment.Id).ToArray());
     }
 
@@ -815,7 +815,7 @@ public sealed class PhysicalRailTests
 
         public static MemoryContentSource RailPackage()
         {
-            var source = ContentFixtures.ValidIron();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddVoxelFile("core", "voxels/rail.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("rail", "钢轨", "正式直轨占格", value: 10, tagsJson: "[]")));
             return source;

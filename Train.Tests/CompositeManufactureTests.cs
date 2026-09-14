@@ -65,7 +65,7 @@ public sealed class CompositeManufactureTests
         using (logger)
         {
             var session = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
-            session.Add(new WorldVoxelCoord(1, 1, 1), new VoxelDefinitionId("core", "iron-ore"), VoxelOrientation.Identity);
+            session.Add(new WorldVoxelCoord(1, 1, 1), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity);
             var before = session.CaptureAuthority();
 
             Assert.AreEqual(ConstructionStatus.UnknownDefinition, session.Manufacture(new CompositeDefinitionId("core", "missing-car")).Status);

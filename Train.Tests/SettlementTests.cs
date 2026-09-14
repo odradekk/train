@@ -28,12 +28,12 @@ public sealed class SettlementTests
         Assert.AreEqual(new MapPosition(-3, 8), settlement.Position);
         Assert.AreEqual(12, settlement.Population);
         Assert.AreEqual(2, settlement.Buildings[mill]);
-        Assert.IsTrue(settlement.NaturalResourceIds.Contains(iron));
+        Assert.IsTrue(settlement.AvailableRawGoodIds.Contains(iron));
         Assert.AreEqual(station, settlement.Station);
 
         var empty = Create();
         Assert.AreEqual(0, empty.Buildings.Count);
-        Assert.AreEqual(0, empty.NaturalResourceIds.Count);
+        Assert.AreEqual(0, empty.AvailableRawGoodIds.Count);
         Assert.IsNull(empty.Station);
     }
 
@@ -99,7 +99,7 @@ public sealed class SettlementTests
     }
 
     [TestMethod]
-    public void Position_and_natural_resource_ids_mutate_with_same_value_early_return()
+    public void Position_and_available_raw_good_ids_mutate_with_same_value_early_return()
     {
         var iron = new VoxelDefinitionId("core", "iron");
         var coal = new VoxelDefinitionId("core", "coal");
@@ -107,8 +107,8 @@ public sealed class SettlementTests
         var settlement = Create(x: 4, y: -9, resources: input);
 
         input.Add(coal);
-        Assert.AreEqual(1, settlement.NaturalResourceIds.Count);
-        Assert.IsFalse(settlement.NaturalResourceIds.Contains(coal));
+        Assert.AreEqual(1, settlement.AvailableRawGoodIds.Count);
+        Assert.IsFalse(settlement.AvailableRawGoodIds.Contains(coal));
 
         settlement.SetPosition(new MapPosition(4, -9));
         Assert.AreEqual(new MapPosition(4, -9), settlement.Position);
@@ -116,18 +116,18 @@ public sealed class SettlementTests
         Assert.AreEqual(new MapPosition(-1, 7), settlement.Position);
 
         var replacement = new HashSet<VoxelDefinitionId> { iron, coal };
-        settlement.SetNaturalResourceIds(replacement);
+        settlement.SetAvailableRawGoodIds(replacement);
         replacement.Remove(iron);
-        Assert.AreEqual(2, settlement.NaturalResourceIds.Count);
-        Assert.IsTrue(settlement.NaturalResourceIds.Contains(iron));
-        Assert.IsTrue(settlement.NaturalResourceIds.Contains(coal));
+        Assert.AreEqual(2, settlement.AvailableRawGoodIds.Count);
+        Assert.IsTrue(settlement.AvailableRawGoodIds.Contains(iron));
+        Assert.IsTrue(settlement.AvailableRawGoodIds.Contains(coal));
 
-        settlement.SetNaturalResourceIds(new HashSet<VoxelDefinitionId> { coal, iron });
-        Assert.AreEqual(2, settlement.NaturalResourceIds.Count);
-        Assert.IsTrue(settlement.NaturalResourceIds.SetEquals(new[] { iron, coal }));
+        settlement.SetAvailableRawGoodIds(new HashSet<VoxelDefinitionId> { coal, iron });
+        Assert.AreEqual(2, settlement.AvailableRawGoodIds.Count);
+        Assert.IsTrue(settlement.AvailableRawGoodIds.SetEquals(new[] { iron, coal }));
 
-        Assert.ThrowsException<ArgumentNullException>(() => settlement.SetNaturalResourceIds(null!));
-        Assert.ThrowsException<ArgumentException>(() => settlement.SetNaturalResourceIds(new HashSet<VoxelDefinitionId> { default }));
+        Assert.ThrowsException<ArgumentNullException>(() => settlement.SetAvailableRawGoodIds(null!));
+        Assert.ThrowsException<ArgumentException>(() => settlement.SetAvailableRawGoodIds(new HashSet<VoxelDefinitionId> { default }));
     }
 
     [TestMethod]
@@ -190,14 +190,14 @@ public sealed class SettlementTests
 
         Assert.AreEqual(2, settlement.Buildings[mill]);
         Assert.AreEqual(1, settlement.Buildings.Count);
-        Assert.AreEqual(1, settlement.NaturalResourceIds.Count);
+        Assert.AreEqual(1, settlement.AvailableRawGoodIds.Count);
 
         var buildingView = (ICollection<KeyValuePair<BuildingTypeId, int>>)settlement.Buildings;
         Assert.IsTrue(buildingView.IsReadOnly);
         Assert.ThrowsException<NotSupportedException>(() => buildingView.Add(
             new KeyValuePair<BuildingTypeId, int>(new BuildingTypeId("shop"), 1)));
 
-        var resourceView = (ICollection<VoxelDefinitionId>)settlement.NaturalResourceIds;
+        var resourceView = (ICollection<VoxelDefinitionId>)settlement.AvailableRawGoodIds;
         Assert.IsTrue(resourceView.IsReadOnly);
         Assert.ThrowsException<NotSupportedException>(() => resourceView.Add(new VoxelDefinitionId("core", "coal")));
     }

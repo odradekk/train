@@ -14,7 +14,7 @@ public sealed class Settlement : IEquatable<Settlement>
     public MapPosition Position { get; private set; }
     public int Population { get; private set; }
     public IReadOnlyDictionary<BuildingTypeId, int> Buildings { get; }
-    public IReadOnlySet<VoxelDefinitionId> NaturalResourceIds { get; private set; }
+    public IReadOnlySet<VoxelDefinitionId> AvailableRawGoodIds { get; private set; }
     public Station? Station { get; private set; }
 
     public Settlement(
@@ -24,13 +24,13 @@ public sealed class Settlement : IEquatable<Settlement>
         MapPosition position,
         int population,
         IReadOnlyDictionary<BuildingTypeId, int> buildings,
-        IReadOnlySet<VoxelDefinitionId> naturalResourceIds,
+        IReadOnlySet<VoxelDefinitionId> availableRawGoodIds,
         Station? station = null)
     {
         IdentityText.EnsureDefined(id.Value, nameof(id));
         IdentityText.EnsureDefined(type.Value, nameof(type));
         ArgumentNullException.ThrowIfNull(buildings);
-        ArgumentNullException.ThrowIfNull(naturalResourceIds);
+        ArgumentNullException.ThrowIfNull(availableRawGoodIds);
 
         Id = id;
         Name = NormalizeName(name);
@@ -39,7 +39,7 @@ public sealed class Settlement : IEquatable<Settlement>
         Population = EnsurePositivePopulation(population);
         CopyBuildings(buildings);
         Buildings = new ReadOnlyDictionary<BuildingTypeId, int>(_buildings);
-        NaturalResourceIds = CopyNaturalResourceIds(naturalResourceIds);
+        AvailableRawGoodIds = CopyAvailableRawGoodIds(availableRawGoodIds);
         if (station is not null)
             IdentityText.EnsureDefined(station.Id.Value, nameof(station));
         Station = station;
@@ -76,13 +76,13 @@ public sealed class Settlement : IEquatable<Settlement>
         Position = position;
     }
 
-    public void SetNaturalResourceIds(IReadOnlySet<VoxelDefinitionId> naturalResourceIds)
+    public void SetAvailableRawGoodIds(IReadOnlySet<VoxelDefinitionId> availableRawGoodIds)
     {
-        ArgumentNullException.ThrowIfNull(naturalResourceIds);
-        var copy = CopyNaturalResourceIds(naturalResourceIds);
-        if (NaturalResourceIds.SetEquals(copy))
+        ArgumentNullException.ThrowIfNull(availableRawGoodIds);
+        var copy = CopyAvailableRawGoodIds(availableRawGoodIds);
+        if (AvailableRawGoodIds.SetEquals(copy))
             return;
-        NaturalResourceIds = copy;
+        AvailableRawGoodIds = copy;
     }
 
     public void SetBuildingCount(BuildingTypeId buildingType, int count)
@@ -153,13 +153,13 @@ public sealed class Settlement : IEquatable<Settlement>
         }
     }
 
-    private static FrozenSet<VoxelDefinitionId> CopyNaturalResourceIds(IReadOnlySet<VoxelDefinitionId> naturalResourceIds)
+    private static FrozenSet<VoxelDefinitionId> CopyAvailableRawGoodIds(IReadOnlySet<VoxelDefinitionId> availableRawGoodIds)
     {
         var copy = new HashSet<VoxelDefinitionId>();
-        foreach (var resourceId in naturalResourceIds)
+        foreach (var resourceId in availableRawGoodIds)
         {
             if (string.IsNullOrEmpty(resourceId.Namespace) || string.IsNullOrEmpty(resourceId.LocalId))
-                throw new ArgumentException("VoxelDefinitionId cannot be blank.", nameof(naturalResourceIds));
+                throw new ArgumentException("VoxelDefinitionId cannot be blank.", nameof(availableRawGoodIds));
             copy.Add(resourceId);
         }
 

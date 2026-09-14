@@ -514,7 +514,7 @@ public sealed class VoxelWorldCommands
 public static class VoxelWorldFactory
 {
     public static readonly VoxelWorldBounds DevelopmentBounds = VoxelWorldIdentity.Slice1.Bounds;
-    public static readonly VoxelDefinitionId DevelopmentDefinitionId = new("core", "iron-ore");
+    public static readonly VoxelDefinitionId DevelopmentDefinitionId = new("core", "ferrous-ore");
 
     public static VoxelWorld CreateDevelopmentWorld(VoxelCatalogSnapshot catalog) =>
         Create(catalog, VoxelWorldIdentity.Slice1);
@@ -523,7 +523,7 @@ public static class VoxelWorldFactory
     {
         ArgumentNullException.ThrowIfNull(catalog);
         if (!catalog.TryGet(DevelopmentDefinitionId, out var definition))
-            throw new InvalidOperationException("The development world requires core:iron-ore.");
+            throw new InvalidOperationException("The development world requires core:ferrous-ore.");
 
         var world = new VoxelWorld(identity);
         var voxel = new WorldVoxel(DevelopmentDefinitionId, definition.Definition.MaxDurability, VoxelOrientation.Identity);

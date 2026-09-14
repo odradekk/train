@@ -11,7 +11,7 @@ public sealed class SettlementCandidate
     public string Name { get; }
     public MapPosition Position { get; }
     public int Population { get; }
-    public IReadOnlySet<VoxelDefinitionId> NaturalResourceIds { get; }
+    public IReadOnlySet<VoxelDefinitionId> AvailableRawGoodIds { get; }
     public ContentPackageKind Kind { get; }
 
     public SettlementCandidate(
@@ -20,19 +20,19 @@ public sealed class SettlementCandidate
         string name,
         MapPosition position,
         int population,
-        IReadOnlySet<VoxelDefinitionId> naturalResourceIds,
+        IReadOnlySet<VoxelDefinitionId> availableRawGoodIds,
         ContentPackageKind kind = ContentPackageKind.BuiltIn)
     {
         IdentityText.EnsureDefined(id.Value, nameof(id));
         IdentityText.EnsureDefined(type.Value, nameof(type));
         ArgumentException.ThrowIfNullOrEmpty(name);
-        ArgumentNullException.ThrowIfNull(naturalResourceIds);
+        ArgumentNullException.ThrowIfNull(availableRawGoodIds);
         Id = id;
         Type = type;
         Name = name;
         Position = position;
         Population = population;
-        NaturalResourceIds = naturalResourceIds;
+        AvailableRawGoodIds = availableRawGoodIds;
         Kind = kind;
     }
 
@@ -42,7 +42,7 @@ public sealed class SettlementCandidate
         settlement.Name == Name &&
         settlement.Position.Equals(Position) &&
         settlement.Population == Population &&
-        settlement.NaturalResourceIds.SetEquals(NaturalResourceIds);
+        settlement.AvailableRawGoodIds.SetEquals(AvailableRawGoodIds);
 }
 
 public sealed class SettlementRegistry
@@ -81,7 +81,7 @@ public sealed class SettlementRegistry
                 existing.ChangeType(candidate.Type);
                 existing.SetPopulation(candidate.Population);
                 existing.SetPosition(candidate.Position);
-                existing.SetNaturalResourceIds(candidate.NaturalResourceIds);
+                existing.SetAvailableRawGoodIds(candidate.AvailableRawGoodIds);
                 continue;
             }
 
@@ -92,7 +92,7 @@ public sealed class SettlementRegistry
                 candidate.Position,
                 candidate.Population,
                 new Dictionary<BuildingTypeId, int>(),
-                candidate.NaturalResourceIds);
+                candidate.AvailableRawGoodIds);
             _items[candidate.Id] = created;
             _order.Add(created);
         }

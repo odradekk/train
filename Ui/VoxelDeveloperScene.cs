@@ -536,7 +536,7 @@ public partial class VoxelDeveloperScene : Node3D
         {
             if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE_ISOLATION_ABORT"), "1", StringComparison.Ordinal))
             {
-                RequireLiveReload().WriteIronOre(maxDurability: 150, name: "隔离中止铁矿");
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150, name: "隔离中止亚铁矿");
                 RequireLiveReload().WriteAsymmetricCubePngs();
                 RequireCommittedReload("isolation abort");
                 GD.Print("VOXEL_SMOKE_ISOLATION_WRITE_DONE");
@@ -1377,7 +1377,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.ReloadMax150;
                 return;
             case VoxelSmokePhase.ReloadMax150:
-                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150);
                 RequireCommittedReload("max 150");
                 RequireInspection(80, 10, 1, 150);
                 GD.Print("VOXEL_SMOKE_RELOAD_MAX_150");
@@ -1393,14 +1393,14 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.ReloadText;
                 return;
             case VoxelSmokePhase.ReloadText:
-                RequireLiveReload().WriteIronOre(maxDurability: 150, name: "热重载铁矿");
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150, name: "热重载亚铁矿");
                 RequireCommittedReload("display text");
                 RequireInspection(80, 10, 1, 150);
                 GD.Print("VOXEL_SMOKE_RELOAD_TEXT_UPDATED");
                 _smokePhase = VoxelSmokePhase.AwaitReloadText;
                 return;
             case VoxelSmokePhase.AwaitReloadText:
-                if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal) ||
+                if (!_cell.Text.Contains("热重载亚铁矿", StringComparison.Ordinal) ||
                     !_cell.Text.Contains("耐久 80", StringComparison.Ordinal))
                     return;
                 _smokePhase = VoxelSmokePhase.ReloadAsset;
@@ -1414,7 +1414,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.AwaitReloadAsset;
                 return;
             case VoxelSmokePhase.AwaitReloadAsset:
-                if (!CollisionPhysicsReady || !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                if (!CollisionPhysicsReady || !_cell.Text.Contains("热重载亚铁矿", StringComparison.Ordinal))
                     return;
                 if (string.Equals(_displayFingerprintBeforeAsset, _meshes.DisplayFingerprint, StringComparison.Ordinal))
                     throw new InvalidOperationException("Voxel smoke cube display did not change after a published asset reload.");
@@ -1437,7 +1437,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _smokePhase = VoxelSmokePhase.ReloadMax60;
                 return;
             case VoxelSmokePhase.ReloadMax60:
-                RequireLiveReload().WriteIronOre(maxDurability: 60, name: "热重载铁矿");
+                RequireLiveReload().WriteFerrousOre(maxDurability: 60, name: "热重载亚铁矿");
                 RequireCommittedReload("max 60");
                 RequireInspection(60, 10, 1, 60);
                 GD.Print("VOXEL_SMOKE_RELOAD_MAX_60");
@@ -1474,7 +1474,7 @@ public partial class VoxelDeveloperScene : Node3D
                     _session.Query(_selectedPosition).Voxel?.CurrentDurability != 60)
                     throw new InvalidOperationException("Voxel smoke live reload did not reject a missing required definition atomically.");
                 if (!string.Equals(fingerprintBeforeReject, _meshes.DisplayFingerprint, StringComparison.Ordinal) ||
-                    !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                    !_cell.Text.Contains("热重载亚铁矿", StringComparison.Ordinal))
                     throw new InvalidOperationException("Voxel smoke discarded the published display after a rejected reload.");
                 GD.Print("VOXEL_SMOKE_RELOAD_REJECTED");
                 GD.Print("VOXEL_SMOKE_RELOAD_DISPLAY_RETAINED");
@@ -1732,11 +1732,11 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.ReloadCollisionNone;
                 return;
             case VoxelSlice2SmokePhase.ReloadCollisionNone:
-                RequireLiveReload().WriteIronOre(collisionKind: "none");
+                RequireLiveReload().WriteFerrousOre(collisionKind: "none");
                 RequireCommittedReload("collision none");
                 if (_session.Query(new WorldVoxelCoord(15, 16, 16)).IsOccupied != true ||
                     _session.QueryCollision(new WorldVoxelCoord(15, 16, 16)).Status != VoxelCollisionQueryStatus.Miss)
-                    throw new InvalidOperationException("Legal none collision reload did not make occupied iron-ore miss immediately.");
+                    throw new InvalidOperationException("Legal none collision reload did not make occupied ferrous-ore miss immediately.");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.AwaitReloadCollisionNone;
                 return;
             case VoxelSlice2SmokePhase.AwaitReloadCollisionNone:
@@ -1748,7 +1748,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2SmokePhase = VoxelSlice2SmokePhase.ReloadPresentationCollision;
                 return;
             case VoxelSlice2SmokePhase.ReloadPresentationCollision:
-                RequireLiveReload().WriteIronOre(name: "热重载铁矿", collisionKind: "none");
+                RequireLiveReload().WriteFerrousOre(name: "热重载亚铁矿", collisionKind: "none");
                 RequireCommittedReload("presentation keeps none collision");
                 if (_session.QueryCollision(new WorldVoxelCoord(15, 16, 16)).Status != VoxelCollisionQueryStatus.Miss)
                     throw new InvalidOperationException("Presentation reload changed collision away from none.");
@@ -1756,14 +1756,14 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice2SmokePhase.AwaitReloadPresentationCollision:
                 if (!CollisionPhysicsReady ||
-                    !string.Equals(CurrentName(_session.Query(new WorldVoxelCoord(15, 16, 16))), "热重载铁矿", StringComparison.Ordinal))
+                    !string.Equals(CurrentName(_session.Query(new WorldVoxelCoord(15, 16, 16))), "热重载亚铁矿", StringComparison.Ordinal))
                     return;
                 RequireDomainAndPublishedCollision(new WorldVoxelCoord(15, 16, 16), expectHit: false);
                 GD.Print("VOXEL_SMOKE_RELOAD_PRESENTATION_COLLISION_UNCHANGED");
                 _slice2SmokePhase = VoxelSlice2SmokePhase.ReloadCollisionFullBox;
                 return;
             case VoxelSlice2SmokePhase.ReloadCollisionFullBox:
-                RequireLiveReload().WriteIronOre(name: "热重载铁矿", collisionKind: "full_box");
+                RequireLiveReload().WriteFerrousOre(name: "热重载亚铁矿", collisionKind: "full_box");
                 RequireCommittedReload("collision full_box");
                 if (_session.QueryCollision(new WorldVoxelCoord(15, 16, 16)).Status != VoxelCollisionQueryStatus.Hit)
                     throw new InvalidOperationException("Legal full_box collision reload did not restore a domain hit.");
@@ -2669,7 +2669,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _resumeSmokePhase = VoxelResumeSmokePhase.ReloadMax150;
                 return;
             case VoxelResumeSmokePhase.ReloadMax150:
-                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150);
                 RequireCommittedReload("resume max 150");
                 if (_session.Query(WorldSaveFixture.DamagedCube).Voxel?.CurrentDurability != 75 ||
                     _session.Query(WorldSaveFixture.DamagedCube).MaxDurability != 150)
@@ -2735,7 +2735,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (_session.Query(ProbePosition).IsOccupied &&
             _session.Remove(ProbePosition).Status != WorldCommandStatus.Removed)
             throw new InvalidOperationException("Voxel smoke could not remove the probe voxel before save.");
-        RequireLiveReload().WriteIronOre();
+        RequireLiveReload().WriteFerrousOre();
         RequireLiveReload().WriteLedge();
         RequireCommittedReload("restore defaults for save");
         _session.Reset();
@@ -3330,7 +3330,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _observePhase = VoxelObservePhase.ReloadMax150;
                 return;
             case VoxelObservePhase.ReloadMax150:
-                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150);
                 RequireCommittedReload("observe max 150");
                 _observeHoldFrames = 8;
                 _observePhase = VoxelObservePhase.AwaitReloadMax150;
@@ -3341,14 +3341,14 @@ public partial class VoxelDeveloperScene : Node3D
                 _observePhase = VoxelObservePhase.ReloadDisplay;
                 return;
             case VoxelObservePhase.ReloadDisplay:
-                RequireLiveReload().WriteIronOre(maxDurability: 150, name: "热重载铁矿");
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150, name: "热重载亚铁矿");
                 RequireLiveReload().WriteAsymmetricCubePngs();
                 RequireCommittedReload("observe display");
                 _observeHoldFrames = 8;
                 _observePhase = VoxelObservePhase.AwaitReloadDisplay;
                 return;
             case VoxelObservePhase.AwaitReloadDisplay:
-                if (!_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal))
+                if (!_cell.Text.Contains("热重载亚铁矿", StringComparison.Ordinal))
                     throw new InvalidOperationException("Observe display reload did not update the HUD name.");
                 CaptureObserve("issue46-display", "asymmetric top on identity voxels after published display reload");
                 _observePhase = VoxelObservePhase.ReloadOrient;
@@ -3366,7 +3366,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _observePhase = VoxelObservePhase.ReloadMax60;
                 return;
             case VoxelObservePhase.ReloadMax60:
-                RequireLiveReload().WriteIronOre(maxDurability: 60, name: "热重载铁矿");
+                RequireLiveReload().WriteFerrousOre(maxDurability: 60, name: "热重载亚铁矿");
                 RequireCommittedReload("observe max 60");
                 _observeHoldFrames = 8;
                 _observePhase = VoxelObservePhase.AwaitReloadMax60;
@@ -3391,7 +3391,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelObservePhase.AwaitReloadReject:
                 if (_session.Query(_selectedPosition).Voxel?.CurrentDurability != 60 ||
-                    !_cell.Text.Contains("热重载铁矿", StringComparison.Ordinal) ||
+                    !_cell.Text.Contains("热重载亚铁矿", StringComparison.Ordinal) ||
                     _session.Query(new WorldVoxelCoord(0, 0, 0)).Voxel?.DefinitionId != RequireLiveReload().ProbeId ||
                     _session.Query(new WorldVoxelCoord(4, 11, 4)).Voxel?.Orientation != VoxelOrientation.Yaw90)
                     throw new InvalidOperationException("Observe rejected reload leaked a new published world or display.");
@@ -3553,7 +3553,7 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice2ObservePhase = VoxelSlice2ObservePhase.ReloadMax150;
                 return;
             case VoxelSlice2ObservePhase.ReloadMax150:
-                RequireLiveReload().WriteIronOre(maxDurability: 150);
+                RequireLiveReload().WriteFerrousOre(maxDurability: 150);
                 RequireCommittedReload("observe slice 2 max 150");
                 _observeHoldFrames = 8;
                 _slice2ObservePhase = VoxelSlice2ObservePhase.AwaitReloadMax150;

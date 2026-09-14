@@ -6,7 +6,7 @@
 #   .\builds\content-smoke\train.exe
 #
 # Requires the exported process stdout to contain:
-#   CONTENT_EXPORT_IRON_ORE_LOADED
+#   CONTENT_EXPORT_FERROUS_ORE_LOADED
 #   CONTENT_EXPORT_PNG_DECODED
 #   CONTENT_EXPORT_INIT_OK
 #   CONTENT_EXPORT_JSON_READABLE
@@ -127,7 +127,7 @@ $output = $run.Output
 Write-Host $output
 
 $required = @(
-    "CONTENT_EXPORT_IRON_ORE_LOADED",
+    "CONTENT_EXPORT_FERROUS_ORE_LOADED",
     "CONTENT_EXPORT_PNG_DECODED",
     "CONTENT_EXPORT_INIT_OK",
     "CONTENT_EXPORT_JSON_READABLE",
