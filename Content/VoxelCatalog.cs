@@ -2,6 +2,7 @@ using System.Collections.Frozen;
 using System.Collections.ObjectModel;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Train.Domain.Behaviors;
 using Train.Domain.Settlements;
 using Train.Domain.Voxels;
 
@@ -148,6 +149,14 @@ internal static class ContentRevisions
             foreach (var behavior in definition.Behaviors)
                 writer.WriteStringValue(behavior);
             writer.WriteEndArray();
+            if (definition.Behaviors.Contains(BehaviorTypes.Propulsion))
+            {
+                var propulsion = definition.Propulsion ?? PropulsionParameters.Default;
+                writer.WritePropertyName("propulsion_target_speed");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.TargetSpeed));
+                writer.WritePropertyName("propulsion_acceleration");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.Acceleration));
+            }
             writer.WriteStartObject("collision");
             writer.WriteString("kind", VoxelDefinition.ToWire(definition.Collision.Kind));
             if (definition.Collision.Kind == VoxelCollisionKind.LocalBox)

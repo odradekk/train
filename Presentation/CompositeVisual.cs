@@ -74,7 +74,9 @@ public partial class CompositeVisual : Node3D
         ApplyRigidTransform(instance.Transform);
     }
 
-    private void ApplyRigidTransform(CompositeTransform transform)
+    public ulong MeshInstanceId => _mesh?.GetInstanceId() ?? 0;
+
+    public void ApplyRigidTransform(CompositeTransform transform)
     {
         Position = new Vector3((float)transform.OriginX, (float)transform.OriginY, (float)transform.OriginZ);
         Basis = new Basis(
@@ -176,6 +178,13 @@ public partial class CompositeVisual : Node3D
     };
 }
 
+public enum CompositeVisualSyncKind
+{
+    None = 0,
+    Rebuilt = 1,
+    TransformOnly = 2
+}
+
 public sealed class CompositeVisualPresenter
 {
     private readonly Dictionary<EntityId, CompositeVisual> _visuals = new();
@@ -183,7 +192,10 @@ public sealed class CompositeVisualPresenter
     public int VehicleCount => _visuals.Count;
     public int FaceCount => _visuals.Values.Sum(visual => visual.FaceCount);
     public int MeshInstanceCount => _visuals.Values.Sum(visual => visual.MeshInstanceCount);
+    public CompositeVisualSyncKind LastSync { get; private set; }
     public IEnumerable<CompositeVisual> Visuals => _visuals.Values;
+    public IReadOnlyList<ulong> MeshInstanceIds =>
+        _visuals.OrderBy(pair => pair.Key.Value).Select(pair => pair.Value.MeshInstanceId).ToArray();
 
     public void Clear()
     {
@@ -197,7 +209,16 @@ public sealed class CompositeVisualPresenter
         ArgumentNullException.ThrowIfNull(parent);
         ArgumentNullException.ThrowIfNull(session);
         if (!session.TakePendingCompositeVisualRebuild() && _visuals.Count == session.Vehicles.Count)
+        {
+            foreach (var vehicle in session.Vehicles)
+            {
+                if (_visuals.TryGetValue(vehicle.Id, out var visual))
+                    visual.ApplyRigidTransform(vehicle.Transform);
+            }
+
+            LastSync = CompositeVisualSyncKind.TransformOnly;
             return;
+        }
 
         Clear();
         foreach (var vehicle in session.Vehicles)
@@ -207,5 +228,7 @@ public sealed class CompositeVisualPresenter
             visual.Rebuild(vehicle, catalog);
             _visuals[vehicle.Id] = visual;
         }
+
+        LastSync = CompositeVisualSyncKind.Rebuilt;
     }
 }

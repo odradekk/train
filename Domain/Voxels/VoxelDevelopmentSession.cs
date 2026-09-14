@@ -1,6 +1,7 @@
 using Train.Content;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
+using Train.Domain.Simulation;
 
 namespace Train.Domain.Voxels;
 
@@ -29,6 +30,8 @@ public sealed partial class VoxelDevelopmentSession
     public int DefinitionCount => _catalog.Current?.Entries.Count ?? 0;
     public ulong NextEntityId { get; private set; } = 1;
     public ulong TransactionCount { get; private set; }
+    public ulong SimulationStep { get; private set; }
+    public bool SimulationPaused { get; private set; }
     public IReadOnlyList<CompositeInstance> Vehicles => _vehicles;
     public PhysicalRailState Rails => _rails;
     public bool HasRailway => _rails.HasRailway;
@@ -68,17 +71,19 @@ public sealed partial class VoxelDevelopmentSession
         ArgumentNullException.ThrowIfNull(worldReplacements);
         if (worldReplacements.Count > 0)
             World.ReplaceOccupied(worldReplacements);
-        if (vehicles is null)
-            return;
+        if (vehicles is not null)
+        {
+            _vehicles.Clear();
+            _vehicles.AddRange(vehicles);
+            _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
+        }
 
-        _vehicles.Clear();
-        _vehicles.AddRange(vehicles);
-        _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
-        _assemblies.Clear();
+        AdaptAssembliesToLiveCatalog();
     }
 
     private void MarkCatalogDirty()
     {
+        AdaptAssembliesToLiveCatalog();
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;
@@ -95,6 +100,7 @@ public sealed partial class VoxelDevelopmentSession
         _assemblies.Clear();
         NextEntityId = 1;
         TransactionCount = 0;
+        ResetMotionState();
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _pendingTrackChunks.Clear();
@@ -688,6 +694,7 @@ public sealed partial class VoxelDevelopmentSession
         _assemblies.Clear();
         NextEntityId = nextEntityId;
         TransactionCount = transactionCount;
+        ResetMotionState();
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _pendingTrackChunks.Clear();

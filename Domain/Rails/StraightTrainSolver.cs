@@ -105,12 +105,13 @@ public static class StraightTrainSolver
         VoxelWorld world,
         (double X, double Y, double Z) frontContact,
         RailHeading heading,
-        out RailPosition position)
+        out RailPosition position,
+        EntityId? preferredSegment = null)
     {
         position = default;
         ArgumentNullException.ThrowIfNull(rails);
         ArgumentNullException.ThrowIfNull(world);
-        if (!TryResolveOwningSegment(rails, world, frontContact, heading, out var segment))
+        if (!TryResolveOwningSegment(rails, world, frontContact, heading, out var segment, preferredSegment))
             return false;
         position = new RailPosition(
             segment.Id,
@@ -125,7 +126,7 @@ public static class StraightTrainSolver
         (double X, double Y, double Z) contact,
         out EntityId segmentId)
     {
-        if (!TryResolveOwningSegment(rails, world, contact, RailHeading.AlongAlignment, out var segment))
+        if (!TryResolveOwningSegment(rails, world, contact, RailHeading.AlongAlignment, out var segment, preferredSegment: null))
         {
             segmentId = default;
             return false;
@@ -140,7 +141,8 @@ public static class StraightTrainSolver
         VoxelWorld world,
         (double X, double Y, double Z) contact,
         RailHeading heading,
-        out PhysicalRailSegment owner)
+        out PhysicalRailSegment owner,
+        EntityId? preferredSegment)
     {
         ArgumentNullException.ThrowIfNull(rails);
         ArgumentNullException.ThrowIfNull(world);
@@ -160,7 +162,15 @@ public static class StraightTrainSolver
         }
 
         if (!AreOneConnectedComponent(rails, matches.Select(segment => segment.Id)))
-            return false;
+        {
+            var preferred = preferredSegment is { } id
+                ? matches.FirstOrDefault(segment => segment.Id == id)
+                : null;
+            if (preferred is null)
+                return false;
+            owner = preferred;
+            return true;
+        }
 
         var interiors = matches
             .Where(segment =>
@@ -264,6 +274,23 @@ public static class StraightTrainSolver
         if (referenceSegment is null)
             return false;
 
+        var merged = ConnectedTraversableWorldX(rails, world, reference);
+        var minX = contacts.Min(contact => contact.X);
+        var maxX = contacts.Max(contact => contact.X);
+        return merged.Any(interval => interval.Start <= minX && maxX <= interval.End);
+    }
+
+    public static IReadOnlyList<RailInterval> ConnectedTraversableWorldX(
+        PhysicalRailState rails,
+        VoxelWorld world,
+        RailPosition reference)
+    {
+        ArgumentNullException.ThrowIfNull(rails);
+        ArgumentNullException.ThrowIfNull(world);
+        var referenceSegment = rails.Segments.FirstOrDefault(item => item.Id == reference.SegmentId);
+        if (referenceSegment is null)
+            return Array.Empty<RailInterval>();
+
         var seen = new HashSet<EntityId> { reference.SegmentId };
         var queue = new Queue<EntityId>();
         queue.Enqueue(reference.SegmentId);
@@ -287,9 +314,46 @@ public static class StraightTrainSolver
             }
         }
 
-        var minX = contacts.Min(contact => contact.X);
-        var maxX = contacts.Max(contact => contact.X);
-        return RailIntervals.Merge(intervals).Any(interval => interval.Start <= minX && maxX <= interval.End);
+        return RailIntervals.Merge(intervals);
+    }
+
+    public static bool TryContainingInterval(
+        IReadOnlyList<RailInterval> intervals,
+        double worldX,
+        out RailInterval interval)
+    {
+        ArgumentNullException.ThrowIfNull(intervals);
+        foreach (var candidate in intervals)
+        {
+            if (candidate.Start - StaticTrainFixture.ConstraintTolerance <= worldX &&
+                worldX <= candidate.End + StaticTrainFixture.ConstraintTolerance)
+            {
+                interval = candidate;
+                return true;
+            }
+        }
+
+        interval = default;
+        return false;
+    }
+
+    public static double MaxForwardTravel(
+        IReadOnlyList<(double X, double Y, double Z)> contacts,
+        IReadOnlyList<RailInterval> intervals)
+    {
+        ArgumentNullException.ThrowIfNull(contacts);
+        ArgumentNullException.ThrowIfNull(intervals);
+        if (contacts.Count == 0)
+            return 0;
+        var allowed = double.PositiveInfinity;
+        foreach (var contact in contacts)
+        {
+            if (!TryContainingInterval(intervals, contact.X, out var interval))
+                return 0;
+            allowed = Math.Min(allowed, interval.End - contact.X);
+        }
+
+        return double.IsFinite(allowed) ? Math.Max(0, allowed) : 0;
     }
 
     public static bool TryValidateCouplerConnection(
