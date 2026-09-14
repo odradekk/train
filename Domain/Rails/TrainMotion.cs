@@ -16,13 +16,17 @@ public enum TrainMotionStatus
     DisconnectedPath = 11,
     VehicleConstraint = 12,
     StepOverflow = 13,
-    TransactionExhausted = 14
+    TransactionExhausted = 14,
+    PastStep = 15
 }
+
+public sealed record ScheduledTrainCommandQuery(ulong AtStep, bool Start, ulong Sequence);
 
 public sealed record TrainMotionResult(
     TrainMotionStatus Status,
     ulong SimulationStep = 0,
-    ulong AdvancedSteps = 0)
+    ulong AdvancedSteps = 0,
+    ulong AtStep = 0)
 {
     public bool Succeeded => Status is
         TrainMotionStatus.Started or

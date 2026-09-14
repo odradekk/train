@@ -9,7 +9,11 @@ namespace Train.Domain.Voxels;
 public sealed partial class VoxelDevelopmentSession
 {
     private readonly List<TrainAssembly> _assemblies = new();
+    private readonly List<ScheduledTrainCommand> _scheduled = new();
     private readonly SimulationScheduler _hostScheduler = new();
+    private ulong _scheduledSequence;
+
+    private readonly record struct ScheduledTrainCommand(ulong AtStep, bool Start, ulong Sequence);
 
     public TrainAssemblyResult AssembleStaticTrain()
     {
@@ -124,12 +128,18 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     public TrainAuthoritySnapshot CaptureTrainAuthority() =>
-        new(CaptureAuthority(), CaptureRailAuthority(), QueryTrainAssemblies(), SimulationStep);
+        new(CaptureAuthority(), CaptureRailAuthority(), QueryTrainAssemblies(), SimulationStep, QueryScheduledTrainCommands());
+
+    public IReadOnlyList<ScheduledTrainCommandQuery> QueryScheduledTrainCommands() =>
+        _scheduled
+            .OrderBy(item => item.Sequence)
+            .Select(item => new ScheduledTrainCommandQuery(item.AtStep, item.Start, item.Sequence))
+            .ToArray();
 
     public ulong CollectHostSteps(double displayDelta) =>
         _hostScheduler.CollectSteps(displayDelta, SimulationPaused);
 
-    public TrainMotionResult StartTrain(RailHeading heading)
+    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null)
     {
         if (heading == RailHeading.AgainstAlignment)
             return RejectMotion(TrainMotionStatus.ReverseUnsupported);
@@ -137,14 +147,26 @@ public sealed partial class VoxelDevelopmentSession
             return RejectMotion(TrainMotionStatus.NoRailway);
         if (_assemblies.Count == 0)
             return RejectMotion(TrainMotionStatus.NoAssembly);
-        return ApplyStartNow();
+
+        var step = atStep ?? SimulationStep;
+        if (step < SimulationStep)
+            return RejectMotion(TrainMotionStatus.PastStep);
+        if (step == SimulationStep)
+            return ApplyStartNow(step);
+        return ScheduleCommand(step, start: true);
     }
 
-    public TrainMotionResult StopTrain()
+    public TrainMotionResult StopTrain(ulong? atStep = null)
     {
         if (_assemblies.Count == 0)
             return RejectMotion(TrainMotionStatus.NoAssembly);
-        return ApplyStopNow();
+
+        var step = atStep ?? SimulationStep;
+        if (step < SimulationStep)
+            return RejectMotion(TrainMotionStatus.PastStep);
+        if (step == SimulationStep)
+            return ApplyStopNow(step);
+        return ScheduleCommand(step, start: false);
     }
 
     public TrainMotionResult PauseSimulation()
@@ -171,6 +193,12 @@ public sealed partial class VoxelDevelopmentSession
         var snapshot = CaptureMotionSnapshot();
         for (ulong i = 0; i < steps; i++)
         {
+            if (!TryApplyScheduledCommands(SimulationStep, out var scheduledStatus))
+            {
+                RestoreMotionSnapshot(snapshot);
+                return RejectMotion(scheduledStatus);
+            }
+
             if (_assemblies.Count > 0 && !TryAdvanceOneAssembly(out var status))
             {
                 RestoreMotionSnapshot(snapshot);
@@ -301,35 +329,74 @@ public sealed partial class VoxelDevelopmentSession
     {
         SimulationStep = 0;
         SimulationPaused = false;
+        _scheduled.Clear();
+        _scheduledSequence = 0;
         _hostScheduler.Reset();
     }
 
-    private TrainMotionResult ApplyStartNow()
+    private TrainMotionResult ApplyStartNow(ulong atStep)
     {
         if (!CanStartNow(out var status))
-            return RejectMotion(status);
+            return RejectMotion(status, atStep);
         var assembly = _assemblies[0];
         if (assembly.Running)
-            return new TrainMotionResult(TrainMotionStatus.Started, SimulationStep);
+            return new TrainMotionResult(TrainMotionStatus.Started, SimulationStep, AtStep: atStep);
         if (!CanCommitTransaction())
-            return RejectMotion(TrainMotionStatus.TransactionExhausted);
+            return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
         CommitTransaction();
         ApplyStartCore();
         Changed?.Invoke();
-        return new TrainMotionResult(TrainMotionStatus.Started, SimulationStep);
+        return new TrainMotionResult(TrainMotionStatus.Started, SimulationStep, AtStep: atStep);
     }
 
-    private TrainMotionResult ApplyStopNow()
+    private TrainMotionResult ApplyStopNow(ulong atStep)
     {
         var assembly = _assemblies[0];
         if (!assembly.Running && assembly.Speed == 0)
-            return new TrainMotionResult(TrainMotionStatus.Stopped, SimulationStep);
+            return new TrainMotionResult(TrainMotionStatus.Stopped, SimulationStep, AtStep: atStep);
         if (!CanCommitTransaction())
-            return RejectMotion(TrainMotionStatus.TransactionExhausted);
+            return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
         CommitTransaction();
         ApplyStopCore();
         Changed?.Invoke();
-        return new TrainMotionResult(TrainMotionStatus.Stopped, SimulationStep);
+        return new TrainMotionResult(TrainMotionStatus.Stopped, SimulationStep, AtStep: atStep);
+    }
+
+    private TrainMotionResult ScheduleCommand(ulong atStep, bool start)
+    {
+        if (start && !CanStartNow(out var status))
+            return RejectMotion(status, atStep);
+        if (!CanCommitTransaction())
+            return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
+        CommitTransaction();
+        _scheduled.Add(new ScheduledTrainCommand(atStep, start, _scheduledSequence++));
+        Changed?.Invoke();
+        return new TrainMotionResult(
+            start ? TrainMotionStatus.Started : TrainMotionStatus.Stopped,
+            SimulationStep,
+            AtStep: atStep);
+    }
+
+    private bool TryApplyScheduledCommands(ulong step, out TrainMotionStatus status)
+    {
+        status = TrainMotionStatus.Advanced;
+        var due = _scheduled.Where(item => item.AtStep == step).OrderBy(item => item.Sequence).ToArray();
+        foreach (var command in due)
+        {
+            _scheduled.Remove(command);
+            if (_assemblies.Count == 0)
+                continue;
+            if (command.Start)
+            {
+                if (!CanStartNow(out status) && !_assemblies[0].Running)
+                    return false;
+                ApplyStartCore();
+            }
+            else
+                ApplyStopCore();
+        }
+
+        return true;
     }
 
     private void ApplyStartCore()
@@ -446,6 +513,8 @@ public sealed partial class VoxelDevelopmentSession
             SimulationStep,
             _vehicles.ToArray(),
             _assemblies.ToArray(),
+            _scheduled.ToArray(),
+            _scheduledSequence,
             TransactionCount);
 
     private void RestoreMotionSnapshot(MotionSnapshot snapshot)
@@ -455,6 +524,9 @@ public sealed partial class VoxelDevelopmentSession
         _vehicles.AddRange(snapshot.Vehicles);
         _assemblies.Clear();
         _assemblies.AddRange(snapshot.Assemblies);
+        _scheduled.Clear();
+        _scheduled.AddRange(snapshot.Scheduled);
+        _scheduledSequence = snapshot.ScheduledSequence;
         TransactionCount = snapshot.TransactionCount;
     }
 
@@ -475,8 +547,8 @@ public sealed partial class VoxelDevelopmentSession
         }
     }
 
-    private TrainMotionResult RejectMotion(TrainMotionStatus status) =>
-        new(status, SimulationStep);
+    private TrainMotionResult RejectMotion(TrainMotionStatus status, ulong? atStep = null) =>
+        new(status, SimulationStep, AtStep: atStep ?? SimulationStep);
 
     private static bool TryAssemblyContacts(
         CompositeInstance locomotive,
@@ -503,6 +575,8 @@ public sealed partial class VoxelDevelopmentSession
         ulong Step,
         IReadOnlyList<CompositeInstance> Vehicles,
         IReadOnlyList<TrainAssembly> Assemblies,
+        IReadOnlyList<ScheduledTrainCommand> Scheduled,
+        ulong ScheduledSequence,
         ulong TransactionCount);
 
     private static TrainAssemblyStatus MapConstruction(ConstructionStatus status) => status switch

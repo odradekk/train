@@ -111,14 +111,19 @@ public sealed record TrainAuthoritySnapshot(
     CompositeAuthoritySnapshot Composites,
     RailAuthoritySnapshot Rails,
     IReadOnlyList<TrainAssemblyQuery> Assemblies,
-    ulong SimulationStep = 0)
+    ulong SimulationStep = 0,
+    IReadOnlyList<ScheduledTrainCommandQuery>? ScheduledCommands = null)
 {
+    public IReadOnlyList<ScheduledTrainCommandQuery> PendingCommands =>
+        ScheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
+
     public bool Equals(TrainAuthoritySnapshot? other) =>
         other is not null &&
         Composites == other.Composites &&
         Rails == other.Rails &&
         Assemblies.SequenceEqual(other.Assemblies) &&
-        SimulationStep == other.SimulationStep;
+        SimulationStep == other.SimulationStep &&
+        PendingCommands.SequenceEqual(other.PendingCommands);
 
     public override int GetHashCode()
     {
@@ -128,6 +133,8 @@ public sealed record TrainAuthoritySnapshot(
         foreach (var assembly in Assemblies)
             hash.Add(assembly);
         hash.Add(SimulationStep);
+        foreach (var command in PendingCommands)
+            hash.Add(command);
         return hash.ToHashCode();
     }
 }

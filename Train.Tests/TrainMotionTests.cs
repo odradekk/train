@@ -178,6 +178,72 @@ public sealed class TrainMotionTests
     }
 
     [TestMethod]
+    public void Scheduled_start_and_stop_match_across_display_batches()
+    {
+        using var batch = Parked();
+        Assert.IsTrue(batch.Session.StartTrain(RailHeading.AlongAlignment, atStep: 0).Succeeded);
+        Assert.IsTrue(batch.Session.StopTrain(101).Succeeded);
+        Assert.AreEqual(0UL, batch.Session.SimulationStep);
+        Assert.IsTrue(batch.Session.QueryTrainAssemblies().Single().Running);
+        Assert.IsTrue(batch.Session.AdvanceSimulation(102).Succeeded);
+        var expected = batch.Session.CaptureTrainAuthority();
+        Assert.AreEqual(102UL, batch.Session.SimulationStep);
+        AssertMotion(batch, 82.833611111111111, 73.833611111111111, 0, running: false);
+
+        using var fps30 = Parked();
+        ScheduleStartStop(fps30.Session);
+        DriveDisplay(fps30.Session, 1.0 / 30.0, 102);
+        Assert.AreEqual(expected, fps30.Session.CaptureTrainAuthority());
+
+        using var fps60 = Parked();
+        ScheduleStartStop(fps60.Session);
+        DriveDisplay(fps60.Session, 1.0 / 60.0, 102);
+        Assert.AreEqual(expected, fps60.Session.CaptureTrainAuthority());
+
+        using var fps144 = Parked();
+        ScheduleStartStop(fps144.Session);
+        DriveDisplay(fps144.Session, 1.0 / 144.0, 102);
+        Assert.AreEqual(expected, fps144.Session.CaptureTrainAuthority());
+
+        using var paused = Parked();
+        ScheduleStartStop(paused.Session);
+        DriveDisplay(paused.Session, 1.0 / 30.0, 102, pauseAfterFrames: 10, pauseFrames: 5);
+        Assert.AreEqual(expected, paused.Session.CaptureTrainAuthority());
+    }
+
+    [TestMethod]
+    public void Same_step_commands_keep_enqueue_order_and_past_steps_are_atomic()
+    {
+        using var startThenStop = Parked();
+        Assert.IsTrue(startThenStop.Session.StartTrain(RailHeading.AlongAlignment, 10).Succeeded);
+        Assert.IsTrue(startThenStop.Session.StopTrain(10).Succeeded);
+        Assert.IsTrue(startThenStop.Session.AdvanceSimulation(11).Succeeded);
+        AssertMotion(startThenStop, 80, 71, 0, running: false);
+
+        using var stopThenStart = Parked();
+        Assert.IsTrue(stopThenStart.Session.StopTrain(10).Succeeded);
+        Assert.IsTrue(stopThenStart.Session.StartTrain(RailHeading.AlongAlignment, 10).Succeeded);
+        Assert.IsTrue(stopThenStart.Session.AdvanceSimulation(11).Succeeded);
+        var moved = stopThenStart.Session.QueryTrainAssemblies().Single();
+        Assert.IsTrue(moved.Running);
+        Assert.IsTrue(moved.Vehicles[0].FrontContact.X > 80 + Tolerance);
+
+        using var past = Parked();
+        Assert.IsTrue(past.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(past.Session.AdvanceSimulation(10).Succeeded);
+        AssertRejectedMotion(past, TrainMotionStatus.PastStep, () =>
+            past.Session.StopTrain(9));
+        Assert.AreEqual(10UL, past.Session.SimulationStep);
+
+        using var exhausted = Parked();
+        SetCursor(exhausted.Session, nameof(VoxelDevelopmentSession.TransactionCount), ulong.MaxValue - 1);
+        AssertRejectedMotion(exhausted, TrainMotionStatus.TransactionExhausted, () =>
+            exhausted.Session.StopTrain(50));
+        Assert.AreEqual(0UL, exhausted.Session.SimulationStep);
+        Assert.AreEqual(0, exhausted.Session.QueryScheduledTrainCommands().Count);
+    }
+
+    [TestMethod]
     public void Propulsion_reload_keeps_absolute_state_and_rejects_illegal_candidates()
     {
         using var harness = Parked();
@@ -242,19 +308,21 @@ public sealed class TrainMotionTests
             new RailConsoleCommands(harness.Session));
 
         dispatcher.Execute("rail start reverse");
-        dispatcher.Execute("rail start");
-        dispatcher.Execute("rail step 300");
-        dispatcher.Execute("rail query assembly");
+        dispatcher.Execute("rail start 0");
+        dispatcher.Execute("rail stop 101");
         dispatcher.Execute("rail query motion");
-        dispatcher.Execute("rail stop");
+        dispatcher.Execute("rail step 102");
+        dispatcher.Execute("rail query assembly");
         dispatcher.Execute("rail pause");
         dispatcher.Execute("rail resume");
         var log = string.Join('\n', harness.Memory.Snapshot().Where(item => item.EventId == ConsoleCommandDispatcher.RailEventId).Select(item => item.Message));
         StringAssert.Contains(log, "ReverseUnsupported");
         StringAssert.Contains(log, "Started");
-        StringAssert.Contains(log, "speed 4");
-        StringAssert.Contains(log, "running true");
+        StringAssert.Contains(log, "at 0");
+        StringAssert.Contains(log, "at 101");
+        StringAssert.Contains(log, "pending stop 101");
         StringAssert.Contains(log, "Stopped");
+        StringAssert.Contains(log, "speed 0");
         StringAssert.Contains(log, "Paused");
         StringAssert.Contains(log, "Resumed");
     }
@@ -296,6 +364,35 @@ public sealed class TrainMotionTests
     {
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(300).Succeeded);
+    }
+
+    private static void ScheduleStartStop(VoxelDevelopmentSession session)
+    {
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, 0).Succeeded);
+        Assert.IsTrue(session.StopTrain(101).Succeeded);
+    }
+
+    private static void DriveDisplay(
+        VoxelDevelopmentSession session,
+        double delta,
+        ulong targetStep,
+        int pauseAfterFrames = -1,
+        int pauseFrames = 0)
+    {
+        var frames = 0;
+        while (session.SimulationStep < targetStep)
+        {
+            if (pauseAfterFrames >= 0 && frames == pauseAfterFrames)
+                Assert.IsTrue(session.PauseSimulation().Succeeded);
+            if (pauseAfterFrames >= 0 && frames == pauseAfterFrames + pauseFrames)
+                Assert.IsTrue(session.ResumeSimulation().Succeeded);
+            var steps = session.CollectHostSteps(delta);
+            if (steps > 0)
+                Assert.IsTrue(session.AdvanceSimulation(steps).Succeeded);
+            frames++;
+            if (frames > 10_000)
+                Assert.Fail($"Display drive did not reach step {targetStep}.");
+        }
     }
 
     private static ulong CollectDisplay(double delta, int frames)

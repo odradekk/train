@@ -71,3 +71,17 @@ voxel save After Motion
 ```
 
 `rail start reverse` 为 `ReverseUnsupported` 且停在 80。`rail step 300` 后前接触 96/87、速度 4。再 `rail step 1500` 后跨 x=144，参考落到第二段。有铁路或运动后再保存为 `UnsupportedRailway`，空世界文件不变。快捷键 `T`/`Y`/`P` 与控制台走同一会话命令。
+
+## Revision R1
+
+补齐指定模拟步起停，并在一帧多步批次内部按入队顺序执行。不覆盖 `.godot/validation/review70/`。本轮日志：`.godot/validation/issue-70-r1/slice4-smoke.log`。
+
+| Check | Result |
+| --- | --- |
+| `dotnet test Train.Tests/Train.Tests.csproj` | 369 passed, 0 failed（新增 `Scheduled_start_and_stop_match_across_display_batches`、`Same_step_commands_keep_enqueue_order_and_past_steps_are_atomic`） |
+| `dotnet build Train.csproj` | 0 warnings, 0 errors |
+| `run-godot-voxel-smoke.ps1 -Slice 4` | 真实 Godot 通过 |
+| Slice 1–3 | 本轮未重跑；协调者已在旧 head `df9a0eb` 于 `.godot/validation/review70/` 通过。本修订不改这些切片路径 |
+| Windows / 人工观感 | 未执行 |
+
+同一 `start@0` / `stop@101` 在 30/60/144 FPS 按帧 `CollectHostSteps` + `AdvanceSimulation`，以及 Pause/恢复后，状态 102 权威快照一致：前接触 `82.833611111111111` / `73.833611111111111`，速度 0。`PastStep` 与入队时事务耗尽整次拒绝。

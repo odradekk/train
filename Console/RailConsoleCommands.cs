@@ -29,11 +29,23 @@ public sealed class RailConsoleCommands
                 return FormatMotion(_session.StartTrain(RailHeading.AlongAlignment));
             if (arguments.Count == 2 && string.Equals(arguments[1], "reverse", StringComparison.OrdinalIgnoreCase))
                 return FormatMotion(_session.StartTrain(RailHeading.AgainstAlignment));
+            if (arguments.Count == 2 && TryStep(arguments[1], out var startAt))
+                return FormatMotion(_session.StartTrain(RailHeading.AlongAlignment, startAt));
+            if (arguments.Count == 3 &&
+                string.Equals(arguments[1], "reverse", StringComparison.OrdinalIgnoreCase) &&
+                TryStep(arguments[2], out var reverseAt))
+                return FormatMotion(_session.StartTrain(RailHeading.AgainstAlignment, reverseAt));
             return Usage();
         }
 
-        if (arguments.Count == 1 && string.Equals(arguments[0], "stop", StringComparison.OrdinalIgnoreCase))
-            return FormatMotion(_session.StopTrain());
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "stop", StringComparison.OrdinalIgnoreCase))
+        {
+            if (arguments.Count == 1)
+                return FormatMotion(_session.StopTrain());
+            if (arguments.Count == 2 && TryStep(arguments[1], out var stopAt))
+                return FormatMotion(_session.StopTrain(stopAt));
+            return Usage();
+        }
 
         if (arguments.Count == 1 && string.Equals(arguments[0], "pause", StringComparison.OrdinalIgnoreCase))
             return FormatMotion(_session.PauseSimulation());
@@ -65,7 +77,7 @@ public sealed class RailConsoleCommands
 
     private static string Usage() =>
         string.Join('\n',
-            "Usage: rail construct | rail assemble | rail start [reverse] | rail stop | rail pause | rail resume | rail step [n]",
+            "Usage: rail construct | rail assemble | rail start [reverse] [step] | rail stop [step] | rail pause | rail resume | rail step [n]",
             "rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion] | rail query <x> <y> <z>",
             "rail repair <x> <y> <z> [<x> <y> <z> ...].");
 
@@ -147,9 +159,11 @@ public sealed class RailConsoleCommands
     {
         if (!result.Succeeded)
             return $"Rail {result.Status}.";
-        return result.Status == TrainMotionStatus.Advanced
-            ? $"Rail {result.Status} step {result.SimulationStep} advanced {result.AdvancedSteps}."
-            : $"Rail {result.Status} step {result.SimulationStep}.";
+        if (result.Status == TrainMotionStatus.Advanced)
+            return $"Rail {result.Status} step {result.SimulationStep} advanced {result.AdvancedSteps}.";
+        if (result.Status is TrainMotionStatus.Started or TrainMotionStatus.Stopped)
+            return $"Rail {result.Status} step {result.SimulationStep} at {result.AtStep}.";
+        return $"Rail {result.Status} step {result.SimulationStep}.";
     }
 
     private string FormatMotionQuery()
@@ -159,6 +173,11 @@ public sealed class RailConsoleCommands
         {
             $"Rail motion step {_session.SimulationStep} paused {_session.SimulationPaused.ToString().ToLowerInvariant()}"
         };
+        foreach (var command in _session.QueryScheduledTrainCommands())
+        {
+            lines.Add(
+                $"pending {(command.Start ? "start" : "stop")} {command.AtStep.ToString(CultureInfo.InvariantCulture)}");
+        }
         if (assemblies.Count == 0)
         {
             lines.Add("assembly none");
@@ -253,6 +272,9 @@ public sealed class RailConsoleCommands
         cells = parsed;
         return parsed.Count > 0;
     }
+
+    private static bool TryStep(string text, out ulong step) =>
+        ulong.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out step);
 
     private static bool TryCell(IReadOnlyList<string> arguments, int start, out WorldVoxelCoord cell)
     {
