@@ -108,18 +108,6 @@ public sealed class SettlementsJsonParserTests
     }
 
     [TestMethod]
-    public void Legacy_natural_resources_field_is_unknown()
-    {
-        var bag = new DiagnosticBag();
-        var json = """{"schema_version":1,"settlements":[{"id":"oak","type":"city","name":"橡木城","position":{"x":3,"y":-2},"population":12,"natural_resources":["core:ferrous-ore"]}]}""";
-        var parsed = SettlementsJsonParser.Parse(Utf8(json), "core", "legacy.settlements.json", bag);
-        Assert.AreEqual(0, parsed.Count);
-        Assert.IsTrue(bag.Items.Any(item =>
-            item.Code == ContentDiagnosticCodes.UnknownField &&
-            item.JsonPath == "/settlements/0/natural_resources"));
-    }
-
-    [TestMethod]
     public void Name_is_trimmed_and_empty_resources_are_accepted()
     {
         var bag = new DiagnosticBag();

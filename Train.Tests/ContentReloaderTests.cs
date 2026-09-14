@@ -83,7 +83,7 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("iron", "铁矿", ""),
             ContentFixtures.Good("iron", "铁矿", "说明", value: 0),
             ContentFixtures.Good("iron", "铁矿", "说明", value: 1_000_000_001),
-            ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Natural_Resource\"]"),
+            ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Raw_Good\"]"),
             ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: "[{\"type\":\"future\"}]"),
             ContentFixtures.Good("iron", "铁矿", "说明", orientations: "free"),
             ContentFixtures.Good("iron", "铁矿", "说明", mass: 0),
