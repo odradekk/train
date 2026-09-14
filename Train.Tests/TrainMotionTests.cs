@@ -244,6 +244,89 @@ public sealed class TrainMotionTests
     }
 
     [TestMethod]
+    public void Same_step_submit_timing_keeps_order_counts_and_display_batches()
+    {
+        using var queued = Parked();
+        QueueStopThenStartAt101(queued.Session);
+        Assert.IsTrue(queued.Session.AdvanceSimulation(102).Succeeded);
+        var expected = queued.Session.CaptureTrainAuthority();
+        Assert.AreEqual(102UL, queued.Session.SimulationStep);
+        Assert.AreEqual(5UL, queued.Session.TransactionCount);
+        AssertMotion(queued, 82.833888888888893, 73.833888888888893, 0.033333333333333333, running: true);
+
+        using var arrived = Parked();
+        Assert.IsTrue(arrived.Session.StartTrain(RailHeading.AlongAlignment, 0).Succeeded);
+        Assert.IsTrue(arrived.Session.StopTrain(101).Succeeded);
+        Assert.IsTrue(arrived.Session.AdvanceSimulation(101).Succeeded);
+        Assert.IsTrue(arrived.Session.StartTrain(RailHeading.AlongAlignment, 101).Succeeded);
+        Assert.IsTrue(arrived.Session.AdvanceSimulation(1).Succeeded);
+        Assert.AreEqual(expected, arrived.Session.CaptureTrainAuthority());
+
+        using var fps30 = Parked();
+        QueueStopThenStartAt101(fps30.Session);
+        DriveDisplay(fps30.Session, 1.0 / 30.0, 102);
+        Assert.AreEqual(expected, fps30.Session.CaptureTrainAuthority());
+
+        using var fps60 = Parked();
+        QueueStopThenStartAt101(fps60.Session);
+        DriveDisplay(fps60.Session, 1.0 / 60.0, 102);
+        Assert.AreEqual(expected, fps60.Session.CaptureTrainAuthority());
+
+        using var fps144 = Parked();
+        QueueStopThenStartAt101(fps144.Session);
+        DriveDisplay(fps144.Session, 1.0 / 144.0, 102);
+        Assert.AreEqual(expected, fps144.Session.CaptureTrainAuthority());
+
+        using var paused = Parked();
+        QueueStopThenStartAt101(paused.Session);
+        DriveDisplay(paused.Session, 1.0 / 30.0, 102, pauseAfterFrames: 10, pauseFrames: 5);
+        Assert.AreEqual(expected, paused.Session.CaptureTrainAuthority());
+
+        using var earlyIdempotent = Parked();
+        Assert.IsTrue(earlyIdempotent.Session.StartTrain(RailHeading.AlongAlignment, 0).Succeeded);
+        Assert.IsTrue(earlyIdempotent.Session.StartTrain(RailHeading.AlongAlignment, 101).Succeeded);
+        Assert.IsTrue(earlyIdempotent.Session.AdvanceSimulation(102).Succeeded);
+        var idempotent = earlyIdempotent.Session.CaptureTrainAuthority();
+        Assert.AreEqual(4UL, earlyIdempotent.Session.TransactionCount);
+
+        using var lateIdempotent = Parked();
+        Assert.IsTrue(lateIdempotent.Session.StartTrain(RailHeading.AlongAlignment, 0).Succeeded);
+        Assert.IsTrue(lateIdempotent.Session.AdvanceSimulation(101).Succeeded);
+        Assert.IsTrue(lateIdempotent.Session.StartTrain(RailHeading.AlongAlignment, 101).Succeeded);
+        Assert.IsTrue(lateIdempotent.Session.AdvanceSimulation(1).Succeeded);
+        Assert.AreEqual(idempotent, lateIdempotent.Session.CaptureTrainAuthority());
+    }
+
+    [TestMethod]
+    public void Terminal_step_commands_run_when_the_clock_reaches_max_value()
+    {
+        using var harness = Parked();
+        Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        SetCursor(harness.Session, nameof(VoxelDevelopmentSession.SimulationStep), ulong.MaxValue - 1);
+        var before = harness.Session.CaptureTrainAuthority();
+        Assert.IsTrue(harness.Session.StopTrain(ulong.MaxValue).Succeeded);
+        Assert.AreEqual(1, harness.Session.QueryScheduledTrainCommands().Count);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(1).Succeeded);
+        Assert.AreEqual(ulong.MaxValue, harness.Session.SimulationStep);
+        Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
+        var stopped = harness.Session.QueryTrainAssemblies().Single();
+        Assert.IsFalse(stopped.Running);
+        Assert.AreEqual(0.0, stopped.Speed, Tolerance);
+        AssertRejectedMotion(harness, TrainMotionStatus.StepOverflow, () =>
+            harness.Session.AdvanceSimulation(1));
+        Assert.AreNotEqual(before, harness.Session.CaptureTrainAuthority());
+
+        using var current = Parked();
+        Assert.IsTrue(current.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        SetCursor(current.Session, nameof(VoxelDevelopmentSession.SimulationStep), ulong.MaxValue);
+        Assert.IsTrue(current.Session.StopTrain(ulong.MaxValue).Succeeded);
+        Assert.AreEqual(ulong.MaxValue, current.Session.SimulationStep);
+        Assert.AreEqual(0, current.Session.QueryScheduledTrainCommands().Count);
+        Assert.IsFalse(current.Session.QueryTrainAssemblies().Single().Running);
+        Assert.AreEqual(0.0, current.Session.QueryTrainAssemblies().Single().Speed, Tolerance);
+    }
+
+    [TestMethod]
     public void Propulsion_reload_keeps_absolute_state_and_rejects_illegal_candidates()
     {
         using var harness = Parked();
@@ -370,6 +453,13 @@ public sealed class TrainMotionTests
     {
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, 0).Succeeded);
         Assert.IsTrue(session.StopTrain(101).Succeeded);
+    }
+
+    private static void QueueStopThenStartAt101(VoxelDevelopmentSession session)
+    {
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, 0).Succeeded);
+        Assert.IsTrue(session.StopTrain(101).Succeeded);
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, 101).Succeeded);
     }
 
     private static void DriveDisplay(

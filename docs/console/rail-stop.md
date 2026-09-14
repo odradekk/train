@@ -7,8 +7,8 @@ rail stop
 rail stop 101
 ```
 
-无参数或目标步等于当前模拟步时，立即把编组速度置零并关闭牵引，不保留待恢复的旧速度。成功输出 `Rail Stopped step <now> at <target>.`。已经停车时为幂等成功。没有编组时输出 `Rail NoAssembly.`。
+可执行目标步是闭区间 `[当前模拟步, ulong.MaxValue]`。无参数表示当前步。小于当前步输出 `Rail PastStep.`，不改权威状态、不入队、不消费事务。没有编组时输出 `Rail NoAssembly.`。`ulong.MaxValue` 是终态步：到达后仍执行已接受的停车，再推进为 `StepOverflow`。
 
-一个十进制整数表示目标模拟步。大于当前步时先入队，到达该步时在该步积分前按入队顺序执行；30/60/144 FPS 一帧推进多步时仍在目标步停车，不能用显示帧切分代替。目标步小于当前步输出 `Rail PastStep.`，不改权威状态、不消费事务。
+接受后一律入队并消费一次事务（已经停车再次提交也是），把速度置零并关闭牵引，不保留待恢复的旧速度，不分配实体 ID，也不推进模拟步。当前步与未来步走同一执行路径：按入队 `Sequence` 执行，到步时新提交的命令不能越过此前已接受的同目标步命令。目标等于当前步时，入队后立刻执行该步全部到期命令。未来步在 [`rail step`](rail-step.md) 于该步积分前按同一顺序执行；30/60/144 FPS 一帧推进多步时仍在目标步停车。成功输出 `Rail Stopped step <now> at <target>.`。
 
-停车消费一次事务，不分配实体 ID，也不推进模拟步。之后 [`rail step`](rail-step.md) 只会推进时钟，不会再产生位移，除非再次 [`rail start`](rail-start.md)。
+之后 [`rail step`](rail-step.md) 只会推进时钟，不会再产生位移，除非再次 [`rail start`](rail-start.md)。

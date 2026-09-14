@@ -9,11 +9,11 @@ rail start 0
 rail start reverse 0
 ```
 
-无参数或目标步等于当前模拟步时，立即启动已编组列车的牵引，不推进步号。初态速度仍为 0；之后用 [`rail step`](rail-step.md) 或开发场景的 1× 主机时钟积分。成功输出 `Rail Started step <now> at <target>.`。已在牵引中再次启动为幂等成功。
+可执行目标步是闭区间 `[当前模拟步, ulong.MaxValue]`。无参数表示当前步。小于当前步输出 `Rail PastStep.`，权威状态不变、不入队、不消费事务。`ulong.MaxValue` 是终态步：到达后仍按同一路径执行已接受命令，但不能再 [`rail step`](rail-step.md)。
 
-一个十进制整数表示目标模拟步。大于当前步时先入队，到达该步时在该步积分前按入队顺序执行；与 [`rail stop`](rail-stop.md) 共用同一正式入口，Host 一帧推进多步时也会在批次内部执行。目标步小于当前步输出 `Rail PastStep.`，权威状态不变。
+接受后一律入队并消费一次事务（已在牵引中再次启动也是），不分配实体 ID，也不推进步号。当前步与未来步走同一执行路径：按入队 `Sequence` 执行，到步时新提交的命令不能越过此前已接受的同目标步命令。目标等于当前步时，入队后立刻执行该步全部到期命令，不积分。未来步在 [`rail step`](rail-step.md) 于该步积分前按同一顺序执行；时钟从 `MaxValue - 1` 到达 `MaxValue` 后也会执行终态步命令。成功输出 `Rail Started step <now> at <target>.`。初态速度仍为 0；之后用步进或开发场景的 1× 主机时钟积分。
 
-`reverse` 在本票单车头夹具上明确拒绝，输出 `Rail ReverseUnsupported.`，权威状态不变，也不会自动改用其他动力。启动会检查铁路、编组、实际车钩零件、活动动力/控制、接触支撑和前方方向，并消费一次事务、不分配实体 ID。
+`reverse` 在本票单车头夹具上明确拒绝，输出 `Rail ReverseUnsupported.`，权威状态不变，也不会自动改用其他动力。启动会检查铁路、编组、实际车钩零件、活动动力/控制、接触支撑和前方方向。
 
 失败状态：`NoRailway`、`NoAssembly`、`MissingPropulsion`、`MissingControl`、`InsufficientSupport`、`VehicleConstraint`、`TransactionExhausted`、`PastStep`。
 

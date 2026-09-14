@@ -85,3 +85,17 @@ voxel save After Motion
 | Windows / 人工观感 | 未执行 |
 
 同一 `start@0` / `stop@101` 在 30/60/144 FPS 按帧 `CollectHostSteps` + `AdvanceSimulation`，以及 Pause/恢复后，状态 102 权威快照一致：前接触 `82.833611111111111` / `73.833611111111111`，速度 0。`PastStep` 与入队时事务耗尽整次拒绝。
+
+## Revision R2
+
+统一当前步与未来步的入队/执行路径，并让 `ulong.MaxValue` 成为可执行终态步。不覆盖 `.godot/validation/review70/`、`.godot/validation/review70-r2/` 或 `.godot/validation/issue-70-r1/`。本轮日志：`.godot/validation/issue-70-r2/`。
+
+| Check | Result |
+| --- | --- |
+| `dotnet test Train.Tests/Train.Tests.csproj` | 371 passed, 0 failed（新增 `Same_step_submit_timing_keeps_order_counts_and_display_batches`、`Terminal_step_commands_run_when_the_clock_reaches_max_value`） |
+| `dotnet build Train.csproj` | 0 warnings, 0 errors |
+| `run-godot-voxel-smoke.ps1 -Slice 4` | 真实 Godot 通过 |
+| Slice 1–3 | 本轮未重跑；协调者已在更早 head 于 `.godot/validation/review70/` 通过。本修订只改按步命令路径与手册 |
+| Windows / 人工观感 | 未执行 |
+
+`start 0; stop 101; start 101; step 102` 与 `start 0; stop 101; step 101; start 101; step 1` 在状态 102 的完整权威快照一致：运行中、前接触 `82.833888888888893`、速度 `0.033333333333333333`、事务计数 5。同一对序列经 30/60/144 FPS 与 Pause/恢复后快照仍相等。仅幂等 `start@101` 提前入队与到步提交的事务计数均为 4。从 `MaxValue-1` 入队 `stop@MaxValue` 再推 1 步后 pending=0、停车；再推进为 `StepOverflow`。
