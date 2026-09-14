@@ -11,11 +11,6 @@ public static class StraightTrainSolver
     public static (double X, double Y, double Z) WorldContact(CompositeTransform transform, CompositeContactAnchor contact) =>
         WorldPoint(transform, contact.X, contact.Y, contact.Z);
 
-    public static WorldContactQuery ToWorldContact(CompositeInstance vehicle, int index) =>
-        TryToWorldContact(vehicle, index, out var query)
-            ? query
-            : throw new InvalidOperationException($"Contact {index} is not bound on vehicle {vehicle.Id}.");
-
     public static bool TryToWorldContact(CompositeInstance vehicle, int index, out WorldContactQuery query)
     {
         query = default!;
@@ -115,9 +110,8 @@ public static class StraightTrainSolver
         position = default;
         ArgumentNullException.ThrowIfNull(rails);
         ArgumentNullException.ThrowIfNull(world);
-        if (!TrySupportingSegment(rails, world, frontContact, out var segmentId))
+        if (!TryResolveOwningSegment(rails, world, frontContact, heading, out var segment))
             return false;
-        var segment = rails.Segments.First(item => item.Id == segmentId);
         position = new RailPosition(
             segment.Id,
             StaticTrainFixture.AlongTrackDistance(frontContact.X, segment.Alignment),
@@ -131,31 +125,129 @@ public static class StraightTrainSolver
         (double X, double Y, double Z) contact,
         out EntityId segmentId)
     {
-        ArgumentNullException.ThrowIfNull(rails);
-        ArgumentNullException.ThrowIfNull(world);
-        segmentId = default;
-        EntityId? found = null;
-        foreach (var segment in rails.Segments)
+        if (!TryResolveOwningSegment(rails, world, contact, RailHeading.AlongAlignment, out var segment))
         {
-            if (!MatchesAlignment(segment.Alignment, contact.Y, contact.Z))
-                continue;
-            if (!rails.TraversableWorldX(segment.Id, world).Any(interval =>
-                    interval.Start <= contact.X && contact.X <= interval.End))
-                continue;
-            if (found is not null)
-            {
-                segmentId = default;
-                return false;
-            }
-
-            found = segment.Id;
+            segmentId = default;
+            return false;
         }
 
-        if (found is null)
-            return false;
-        segmentId = found.Value;
+        segmentId = segment.Id;
         return true;
     }
+
+    private static bool TryResolveOwningSegment(
+        PhysicalRailState rails,
+        VoxelWorld world,
+        (double X, double Y, double Z) contact,
+        RailHeading heading,
+        out PhysicalRailSegment owner)
+    {
+        ArgumentNullException.ThrowIfNull(rails);
+        ArgumentNullException.ThrowIfNull(world);
+        owner = null!;
+        var matches = rails.Segments
+            .Where(segment =>
+                MatchesAlignment(segment.Alignment, contact.Y, contact.Z) &&
+                rails.TraversableWorldX(segment.Id, world).Any(interval =>
+                    interval.Start <= contact.X && contact.X <= interval.End))
+            .ToArray();
+        if (matches.Length == 0)
+            return false;
+        if (matches.Length == 1)
+        {
+            owner = matches[0];
+            return true;
+        }
+
+        if (!AreOneConnectedComponent(rails, matches.Select(segment => segment.Id)))
+            return false;
+
+        var interiors = matches
+            .Where(segment =>
+                segment.Alignment.StartX < contact.X && contact.X < segment.Alignment.EndX)
+            .ToArray();
+        if (interiors.Length == 1)
+        {
+            owner = interiors[0];
+            return true;
+        }
+
+        if (interiors.Length > 1)
+            return false;
+
+        return TryOwnConnectedEndpoint(rails, matches, contact.X, heading, out owner);
+    }
+
+    private static bool AreOneConnectedComponent(PhysicalRailState rails, IEnumerable<EntityId> segmentIds)
+    {
+        var distinct = segmentIds.Distinct().ToArray();
+        if (distinct.Length <= 1)
+            return true;
+        var seen = new HashSet<EntityId> { distinct[0] };
+        var queue = new Queue<EntityId>();
+        queue.Enqueue(distinct[0]);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            foreach (var other in distinct)
+            {
+                if (seen.Contains(other) || !rails.AreConnected(current, other))
+                    continue;
+                seen.Add(other);
+                queue.Enqueue(other);
+            }
+        }
+
+        return distinct.All(seen.Contains);
+    }
+
+    private static bool TryOwnConnectedEndpoint(
+        PhysicalRailState rails,
+        IReadOnlyList<PhysicalRailSegment> matches,
+        double worldX,
+        RailHeading heading,
+        out PhysicalRailSegment owner)
+    {
+        owner = null!;
+        foreach (var connection in rails.Connections)
+        {
+            var from = matches.FirstOrDefault(segment => segment.Id == connection.FromSegment);
+            var to = matches.FirstOrDefault(segment => segment.Id == connection.ToSegment);
+            if (from is null || to is null)
+                continue;
+            var fromX = EndWorldX(from.Alignment, connection.FromEnd);
+            var toX = EndWorldX(to.Alignment, connection.ToEnd);
+            if (Math.Abs(fromX - worldX) > StaticTrainFixture.ConstraintTolerance ||
+                Math.Abs(toX - worldX) > StaticTrainFixture.ConstraintTolerance)
+                continue;
+
+            owner = heading == RailHeading.AlongAlignment
+                ? SegmentAtTravelEnd(from, to, worldX)
+                : SegmentAtTravelStart(from, to, worldX);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static PhysicalRailSegment SegmentAtTravelEnd(
+        PhysicalRailSegment from,
+        PhysicalRailSegment to,
+        double worldX) =>
+        Math.Abs(from.Alignment.EndX - worldX) <= StaticTrainFixture.ConstraintTolerance
+            ? from
+            : to;
+
+    private static PhysicalRailSegment SegmentAtTravelStart(
+        PhysicalRailSegment from,
+        PhysicalRailSegment to,
+        double worldX) =>
+        Math.Abs(from.Alignment.StartX - worldX) <= StaticTrainFixture.ConstraintTolerance
+            ? from
+            : to;
+
+    private static double EndWorldX(HorizontalStraightAlignment alignment, RailEnd end) =>
+        end == RailEnd.Start ? alignment.StartX : alignment.EndX;
 
     public static bool HasContinuousSupport(
         PhysicalRailState rails,

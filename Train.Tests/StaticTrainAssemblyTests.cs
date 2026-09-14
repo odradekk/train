@@ -262,6 +262,42 @@ public sealed class StaticTrainAssemblyTests
     }
 
     [TestMethod]
+    public void Explicitly_connected_technical_seams_at_contacts_still_form()
+    {
+        foreach (var seam in new[] { 72.0, 80.0, 74.0, 71.0, 65.0 })
+            AssertConnectedSeamForms(seam, reverseSegments: false);
+
+        AssertConnectedSeamForms(80.0, reverseSegments: true);
+    }
+
+    [TestMethod]
+    public void Rebuilding_after_a_reference_contact_seam_keeps_authority()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails(CreateConnectedSeamPlan(80, reverseSegments: false)).Succeeded);
+        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
+        var before = harness.Session.CaptureTrainAuthority();
+        var assembly = harness.Session.QueryTrainAssemblies().Single();
+        harness.Session.RebuildDerivedRailGraph();
+        Assert.AreEqual(before, harness.Session.CaptureTrainAuthority());
+        Assert.AreEqual(assembly, harness.Session.QueryTrainAssemblies().Single());
+        Assert.AreEqual(assembly.Reference, harness.Session.QueryTrainAssemblies().Single().Reference);
+        AssertWorldContact(assembly.Vehicles[0].FrontContact, 80, 2, 16);
+        AssertWorldContact(assembly.Vehicles[1].FrontContact, 71, 2, 16);
+    }
+
+    [TestMethod]
+    public void Unconnected_shared_endpoint_at_a_contact_is_not_a_path()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails(CreateConnectedSeamPlan(80, reverseSegments: false, connect: false)).Succeeded);
+        Assert.IsFalse(harness.Session.Rails.AreConnected(
+            harness.Session.Rails.Segments[0].Id,
+            harness.Session.Rails.Segments[1].Id));
+        AssertRejected(harness, TrainAssemblyStatus.InsufficientSupport, () => harness.Session.AssembleStaticTrain());
+    }
+
+    [TestMethod]
     public void Destroying_a_locomotive_contact_keeps_vehicles_and_queryable_break()
     {
         using var harness = StaticTrainHarness.Create();
@@ -535,6 +571,67 @@ public sealed class StaticTrainAssemblyTests
                     .ToArray()
             }).ToArray(),
             plan.Connections.ToArray());
+
+    private static void AssertConnectedSeamForms(double seam, bool reverseSegments)
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(
+            harness.Session.ConstructRails(CreateConnectedSeamPlan(seam, reverseSegments)).Succeeded,
+            $"seam {seam} reverse={reverseSegments}");
+        Assert.IsTrue(harness.Session.Rails.AreConnected(
+            harness.Session.Rails.Segments[0].Id,
+            harness.Session.Rails.Segments[1].Id));
+        var assembled = harness.Session.AssembleStaticTrain();
+        Assert.IsTrue(assembled.Succeeded, $"seam {seam} reverse={reverseSegments} {assembled.Status}");
+        var assembly = harness.Session.QueryTrainAssemblies().Single();
+        var owner = harness.Session.Rails.Segments.Single(segment =>
+            Math.Abs(segment.Alignment.EndX - seam) <= Tolerance &&
+            Math.Abs(segment.Alignment.StartX - StraightRailFixture.LineStartX) <= Tolerance);
+        if (Math.Abs(seam - StaticTrainFixture.LocomotiveFrontContactX) <= Tolerance)
+        {
+            Assert.AreEqual(owner.Id, assembly.Reference.SegmentId, $"seam {seam} reverse={reverseSegments}");
+            Assert.AreEqual(
+                StaticTrainFixture.AlongTrackDistance(StaticTrainFixture.LocomotiveFrontContactX, owner.Alignment),
+                assembly.Reference.Distance,
+                Tolerance);
+        }
+
+        Assert.AreEqual(RailHeading.AlongAlignment, assembly.Reference.Heading);
+        AssertWorldContact(assembly.Vehicles[0].FrontContact, 80, 2, 16);
+        AssertWorldContact(assembly.Vehicles[1].FrontContact, 71, 2, 16);
+        Assert.AreEqual(2, harness.Session.QueryComposites().Count);
+    }
+
+    private static RailConstructionPlan CreateConnectedSeamPlan(
+        double seam,
+        bool reverseSegments,
+        bool connect = true)
+    {
+        PlannedRailSegment Segment(double startX, double endX) =>
+            new(
+                new HorizontalStraightAlignment(
+                    startX,
+                    StraightRailFixture.CenterY,
+                    StraightRailFixture.CenterZ,
+                    endX,
+                    StraightRailFixture.CenterY,
+                    StraightRailFixture.CenterZ),
+                new[] { StraightRailFixture.LeftRail(startX, endX), StraightRailFixture.RightRail(startX, endX) },
+                Array.Empty<RailVolumeBox>());
+
+        var first = Segment(StraightRailFixture.LineStartX, seam);
+        var second = Segment(seam, StraightRailFixture.SeamX);
+        var segments = reverseSegments ? new[] { second, first } : new[] { first, second };
+        var connections = connect
+            ? new[]
+            {
+                reverseSegments
+                    ? new PlannedRailConnection(1, RailEnd.End, 0, RailEnd.Start)
+                    : new PlannedRailConnection(0, RailEnd.End, 1, RailEnd.Start)
+            }
+            : Array.Empty<PlannedRailConnection>();
+        return new RailConstructionPlan(segments, connections);
+    }
 
     private static RailConstructionPlan CreateSplitUnconnectedPlan()
     {
