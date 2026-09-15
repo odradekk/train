@@ -169,15 +169,18 @@ public static class AlongRailDisplay
         IReadOnlyList<TrainAssemblyQuery> from,
         IReadOnlyList<TrainAssemblyQuery> to,
         ulong fromGraph,
-        ulong toGraph) =>
-        fromGraph != toGraph ||
-        from.Count != to.Count ||
-        !from.Select(item => item.Id).SequenceEqual(to.Select(item => item.Id)) ||
-        from.Zip(to, (left, right) =>
-                !left.VehicleIds.SequenceEqual(right.VehicleIds) ||
-                (left.HaltReason == TrainHaltReason.SupportLost) !=
-                (right.HaltReason == TrainHaltReason.SupportLost))
-            .Any(ended => ended);
+        ulong toGraph)
+    {
+        _ = fromGraph;
+        _ = toGraph;
+        return from.Count != to.Count ||
+               !from.Select(item => item.Id).SequenceEqual(to.Select(item => item.Id)) ||
+               from.Zip(to, (left, right) =>
+                       !left.VehicleIds.SequenceEqual(right.VehicleIds) ||
+                       (left.HaltReason == TrainHaltReason.SupportLost) !=
+                       (right.HaltReason == TrainHaltReason.SupportLost))
+                   .Any(ended => ended);
+    }
 
     private static bool TryPose(
         IReadOnlyDictionary<EntityId, CompositeInstance> vehicles,

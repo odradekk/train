@@ -42,7 +42,7 @@ foreach ($name in @(
 }
 
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 4) { "docs/validation/issue-74-rail-presentation.md" } else { "docs/validation/issue-62-voxel-baseline.md" }
+    $OutputPath = if ($Slice -eq 4) { ".godot/validation/issue74/baseline-report.md" } else { "docs/validation/issue-62-voxel-baseline.md" }
 }
 $userPrefix = if ($Slice -eq 4) { "train-issue74-baseline-" } else { "train-issue53-baseline-" }
 $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($userPrefix + [guid]::NewGuid().ToString("N"))
@@ -67,8 +67,11 @@ finally {
 Write-Host $output
 if ($Slice -eq 4) {
     $slice4Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE4_RUN*" })
-    if ($exitCode -ne 0 -or $slice4Runs.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
-        throw "Voxel baseline failed: expected three slice 4 1800-step presentation runs and the completion marker."
+    $running = @($slice4Runs | Where-Object { $_ -like "*kind=running*" })
+    $damage = @($slice4Runs | Where-Object { $_ -like "*kind=damage*" })
+    $saveload = @($slice4Runs | Where-Object { $_ -like "*kind=saveload*" })
+    if ($exitCode -ne 0 -or $running.Count -ne 3 -or $damage.Count -ne 3 -or $saveload.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
+        throw "Voxel baseline failed: expected three recorded running/damage/saveload slice 4 lines each and the completion marker."
     }
 } else {
     $runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_RUN run=*" })
@@ -94,7 +97,7 @@ $report = if ($Slice -eq 4) {
         "- .NET: $runtime",
         "- CPU: $cpu",
         "- Physical memory bytes: $memory",
-        "- Sequence: one unrecorded warm-up of construct + assemble + start + 1800 steps + single gap damage + save/load; then three recorded runs of the same formal commands. Each recorded line reports voxels, sim_ms (1800-step Advance), mutation_ms (single gap damage), refresh_ms (display Refresh), save_ms / load_ms / file_bytes, and a 10 s paused display-frame sample. Isolated temporary user-data. Fedora numbers are not Windows x64 evidence.",
+        "- Sequence: one unrecorded warm-up cycle, then three recorded cycles. Each cycle uses formal rail construct/assemble/start, then records running frames while advancing 1800 steps in 30-step chunks with display apply, then the gap-damage event frame, then the save/load event frame. Kinds are not mixed. Isolated temporary user-data. Fedora numbers are not Windows x64 evidence.",
         "",
         "## Slice 4 recorded runs",
         "",

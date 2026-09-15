@@ -118,6 +118,28 @@ public sealed class TrainDisplayPresentationTests
     }
 
     [TestMethod]
+    public void Forward_gap_final_step_interpolates_and_still_notifies_the_graph()
+    {
+        using var harness = RunningAt300();
+        var graph = harness.Session.AssemblyGraphGeneration;
+        Assert.AreEqual(
+            WorldCommandStatus.Removed,
+            harness.Session.Damage(StraightRailFixture.BetweenContactGapCell, 100).Status);
+        AssertLastLimitStepInterpolates(harness, TrainHaltReason.ForwardGap);
+        Assert.IsTrue(harness.Session.AssemblyGraphGeneration > graph);
+    }
+
+    [TestMethod]
+    public void End_of_line_final_step_interpolates_without_snapping_the_interval()
+    {
+        using var harness = Parked();
+        Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(2700).Succeeded);
+        Assert.AreEqual(TrainHaltReason.None, harness.Session.QueryTrainAssemblies().Single().HaltReason);
+        AssertLastLimitStepInterpolates(harness, TrainHaltReason.EndOfLine);
+    }
+
+    [TestMethod]
     public void Display_sampling_does_not_write_back_or_enter_the_authority_hash()
     {
         using var harness = Parked();
@@ -232,6 +254,37 @@ public sealed class TrainDisplayPresentationTests
         StringAssert.Contains(log, "alpha");
         StringAssert.Contains(log, "follow");
         StringAssert.Contains(log, carriage.Value.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private static void AssertLastLimitStepInterpolates(StaticTrainHarness harness, TrainHaltReason expected)
+    {
+        for (var i = 0; i < 400; i++)
+        {
+            var before = harness.Session.QueryTrainAssemblies().Single();
+            Assert.IsTrue(harness.Session.AdvanceSimulation(1).Succeeded);
+            var after = harness.Session.QueryTrainAssemblies().Single();
+            if (after.HaltReason != expected)
+                continue;
+            AssertInterpolatedFinalStep(harness, before.Vehicles[0].FrontContact.X, after.Vehicles[0].FrontContact.X);
+            return;
+        }
+
+        Assert.Fail($"Did not reach {expected} within 400 steps.");
+    }
+
+    private static void AssertInterpolatedFinalStep(StaticTrainHarness harness, double fromX, double toX)
+    {
+        var zero = harness.Session.QueryDisplayPoses(0);
+        var mid = harness.Session.QueryDisplayPoses(0.5);
+        var one = harness.Session.QueryDisplayPoses(1);
+        Assert.IsFalse(zero.IntervalEnded);
+        Assert.IsFalse(mid.IntervalEnded);
+        Assert.IsFalse(one.IntervalEnded);
+        Assert.AreEqual(fromX, zero.Vehicles[0].FrontContact.X, Tolerance);
+        Assert.AreEqual((fromX + toX) * 0.5, mid.Vehicles[0].FrontContact.X, Tolerance);
+        Assert.AreEqual(toX, one.Vehicles[0].FrontContact.X, Tolerance);
+        Assert.AreNotEqual(toX, fromX, 1e-6);
+        _ = harness;
     }
 
     private static void AssertDisplayConstraints(StaticTrainHarness harness, TrainDisplaySample sample)

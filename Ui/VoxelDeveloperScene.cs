@@ -30,8 +30,13 @@ public partial class VoxelDeveloperScene : Node3D
     private int _collisionRefreshGeneration;
     private int _physicsSeenGeneration;
     private Label _title = null!;
+    private Label _halt = null!;
     private Label _cell = null!;
     private Label _result = null!;
+    private VoxelSlice4BaselinePhase _slice4BaselinePhase;
+    private bool _slice4BaselineRecording;
+    private ulong _slice4BaselineMaxStep;
+    private double _slice4EventFrameMs;
     private bool _dirty = true;
     private VoxelSmokePhase _smokePhase;
     private VoxelSlice2SmokePhase _slice2SmokePhase;
@@ -499,6 +504,14 @@ public partial class VoxelDeveloperScene : Node3D
         Done
     }
 
+    private enum VoxelSlice4BaselinePhase
+    {
+        None,
+        Running,
+        Damage,
+        SaveLoad
+    }
+
     private enum VoxelResumeObservePhase
     {
         None,
@@ -727,8 +740,9 @@ public partial class VoxelDeveloperScene : Node3D
             if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
             {
                 _slice4Baseline = true;
-                MeasureSlice4PresentationBaseline(warmup: true);
-                StartSlice4BaselineRun();
+                _slice4BaselineRecording = false;
+                _baselineRun = 0;
+                BeginSlice4BaselineCycle();
             }
             else
             {
@@ -856,24 +870,34 @@ public partial class VoxelDeveloperScene : Node3D
         var layer = new CanvasLayer();
         var panel = new PanelContainer
         {
-            Position = new Vector2(24, 24),
-            Size = new Vector2(760, 280)
+            Position = new Vector2(16, 16),
+            CustomMinimumSize = new Vector2(640, 0)
         };
         var box = new VBoxContainer();
-        box.AddThemeConstantOverride("separation", 6);
-        _title = new Label();
+        box.AddThemeConstantOverride("separation", 4);
+        _title = WrapLabel();
+        _halt = WrapLabel();
         box.AddChild(_title);
-        box.AddChild(new Label
-        {
-            Text = "Delete 移除目标格 · Insert 添加 · M 制造夹具 · R 重置 · ~ 控制台查询/碰撞/保存 · Esc 返回"
-        });
-        _cell = new Label();
-        _result = new Label { Text = "最近命令：场景已进入。" };
+        box.AddChild(_halt);
+        box.AddChild(WrapLabel("Delete 移除 · Insert 添加 · M 夹具 · R 重置 · T 启动 · Y 停车 · P 暂停 · F 跟随 · ~ 控制台 · Esc 返回"));
+        _cell = WrapLabel();
+        _result = WrapLabel("最近命令：场景已进入。");
         box.AddChild(_cell);
         box.AddChild(_result);
         panel.AddChild(box);
         layer.AddChild(panel);
         AddChild(layer);
+    }
+
+    private static Label WrapLabel(string text = "")
+    {
+        var label = new Label
+        {
+            Text = text,
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+            CustomMinimumSize = new Vector2(600, 0)
+        };
+        return label;
     }
 
     public override void _ExitTree()
@@ -936,7 +960,9 @@ public partial class VoxelDeveloperScene : Node3D
             VoxelCollisionQueryStatus.OutOfBounds => "碰撞：越界",
             _ => "碰撞：非法查询"
         };
-        _cell.Text = occupancy + " " + collision + " " + FormatVehicleHud();
+        if (_halt is not null && _session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+            _halt.Text = HaltHud();
+        _cell.Text = occupancy + "\n" + collision + "\n" + FormatVehicleHud();
     }
 
     private void SetResult(WorldCommandResult result)
@@ -1187,22 +1213,22 @@ public partial class VoxelDeveloperScene : Node3D
             var assemblies = _session.QueryTrainAssemblies();
             var assemblyText = assemblies.Count == 0
                 ? ""
-                : " " + string.Join(" ", assemblies.Select(item =>
+                : "\n" + string.Join("\n", assemblies.Select(item =>
                 {
                     var coupler = item.Connections.Count == 0
                         ? "无车钩"
                         : $"车钩 {item.Connections[0].FromPartId}->{item.Connections[0].ToPartId}";
-                    var front = item.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+                    var front = item.Vehicles[0].FrontContact.X.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
                     var halt = item.HaltReason switch
                     {
-                        TrainHaltReason.SupportLost => " 支撑失效",
-                        TrainHaltReason.ForwardGap => " 前方缺口",
-                        TrainHaltReason.EndOfLine => " 线路末端",
-                        _ => ""
+                        TrainHaltReason.SupportLost => "支撑失效",
+                        TrainHaltReason.ForwardGap => "前方缺口",
+                        TrainHaltReason.EndOfLine => "线路末端",
+                        _ => item.Running ? "运行" : "静止"
                     };
-                    return $"编组 {item.Id} 活动车头 {item.ActiveLocomotiveId?.ToString() ?? "无"} {coupler} 前接触 {front} 速度 {item.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} 牵引 {(item.Running ? "开" : "关")}{halt}";
-                })) + $" 图 {_session.AssemblyGraphGeneration} 步 {_session.SimulationStep}{(_session.SimulationPaused ? " 暂停" : "")}。";
-            return $"车辆 {vehicles.Count}：{summary}。{assemblyText}显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
+                    return $"编组 {item.Id} 车头 {item.ActiveLocomotiveId?.ToString() ?? "无"} {coupler} 前 {front} 速 {item.Speed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} {halt}";
+                })) + $"\n图 {_session.AssemblyGraphGeneration} 步 {_session.SimulationStep}{(_session.SimulationPaused ? " 暂停" : "")}";
+            return $"车辆 {vehicles.Count}：{summary}。{assemblyText}\n显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
         }
 
         var vehicle = vehicles[0];
@@ -4901,12 +4927,33 @@ public partial class VoxelDeveloperScene : Node3D
         ApplyFollowCamera();
         if (_title is not null)
             _title.Text = FollowTitle();
+        if (_halt is not null)
+            _halt.Text = HaltHud();
     }
 
     private string FollowTitle()
     {
         var followed = _session.FollowedVehicleId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none";
-        return $"Voxel 开发场景 · 切片 4 · 跟随车辆 {followed} · 320×32×32 · 正式直轨";
+        return $"切片 4 · 跟随 {followed} · 侧向观察车体/车钩 · {HaltHud()}";
+    }
+
+    private string HaltHud()
+    {
+        var assemblies = _session.QueryTrainAssemblies();
+        if (assemblies.Count == 0)
+            return "停因 无编组";
+        var parts = assemblies.Select(item =>
+        {
+            var halt = item.HaltReason switch
+            {
+                TrainHaltReason.SupportLost => "支撑失效",
+                TrainHaltReason.ForwardGap => "前方缺口",
+                TrainHaltReason.EndOfLine => "线路末端",
+                _ => item.Running ? "运行" : "静止"
+            };
+            return $"编组{item.Id.Value} {halt}";
+        });
+        return "停因 " + string.Join(" · ", parts);
     }
 
     private void ApplyFollowCamera()
@@ -4922,9 +4969,17 @@ public partial class VoxelDeveloperScene : Node3D
         if (heading.LengthSquared() < 1e-8f)
             heading = Vector3.Right;
         heading = heading.Normalized();
-        camera.Position = focus - heading * 18f + Vector3.Up * 8f;
-        if ((camera.Position - focus).LengthSquared() > 1e-8f)
-            camera.LookAt(focus, Vector3.Up);
+        var right = heading.Cross(Vector3.Up);
+        if (right.LengthSquared() < 1e-8f)
+            right = Vector3.Forward;
+        right = right.Normalized();
+        var lead = _session.QueryTrainAssemblies()
+            .FirstOrDefault(item => item.VehicleIds.Contains(follow.VehicleId));
+        var towardCoupler = lead is not null && lead.VehicleIds[0] == follow.VehicleId ? -5f : 4f;
+        var look = focus + heading * towardCoupler;
+        camera.Position = look - heading * 7f + Vector3.Up * 10f + right * 20f;
+        if ((camera.Position - look).LengthSquared() > 1e-8f)
+            camera.LookAt(look, Vector3.Up);
     }
 
     private void CycleFollowedVehicle()
@@ -5419,14 +5474,16 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void AdvanceBaseline()
     {
-        if (!_baselineEnabled || _mutationStopwatch is null)
+        if (!_baselineEnabled)
             return;
-
         if (_slice4Baseline)
         {
             AdvanceSlice4Baseline();
             return;
         }
+
+        if (_mutationStopwatch is null)
+            return;
 
         var now = Time.GetTicksUsec();
         _frameMilliseconds.Add((now - _lastFrameTicks) / 1000.0);
@@ -5489,66 +5546,110 @@ public partial class VoxelDeveloperScene : Node3D
     private void AdvanceSlice4Baseline()
     {
         var now = Time.GetTicksUsec();
-        _frameMilliseconds.Add((now - _lastFrameTicks) / 1000.0);
-        _lastFrameTicks = now;
-        _stableSeconds += GetProcessDeltaTime();
-        ApplyRailPresentation();
-        if (_stableSeconds < 10)
-            return;
-
-        var average = _frameMilliseconds.Average();
-        var maximum = _frameMilliseconds.Max();
-        var memory = Performance.GetMonitor(Performance.Monitor.MemoryStatic);
-        GD.Print(
-            $"VOXEL_BASELINE_SLICE4_RUN run={_baselineRun + 1} voxels={_slice4Voxels} sim_ms={_slice4SimMs:F3} mutation_ms={_slice4MutationMs:F3} refresh_ms={_slice4RefreshMs:F3} save_ms={_slice4SaveMs:F3} load_ms={_slice4LoadMs:F3} file_bytes={_slice4Bytes} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
-        _baselineRun++;
-        if (_baselineRun == 3)
+        if (_lastFrameTicks != 0)
         {
-            GD.Print("VOXEL_BASELINE_COMPLETE");
-            _baselineEnabled = false;
-            GetTree().Quit();
-            return;
+            var frameMs = (now - _lastFrameTicks) / 1000.0;
+            _frameMilliseconds.Add(frameMs);
+            if (_slice4BaselinePhase == VoxelSlice4BaselinePhase.Running &&
+                (_slice4BaselineMaxStep == 0 || frameMs >= _frameMilliseconds.Max()))
+                _slice4BaselineMaxStep = _session.SimulationStep;
         }
 
-        StartSlice4BaselineRun();
+        _lastFrameTicks = now;
+        switch (_slice4BaselinePhase)
+        {
+            case VoxelSlice4BaselinePhase.Running:
+            {
+                var remaining = 1800UL - _session.SimulationStep;
+                if (remaining > 0)
+                {
+                    var chunk = remaining > 30 ? 30UL : remaining;
+                    var sim = Stopwatch.StartNew();
+                    if (!_session.AdvanceSimulation(chunk).Succeeded)
+                        throw new InvalidOperationException("Slice 4 baseline could not advance a running chunk.");
+                    sim.Stop();
+                    _slice4SimMs += sim.Elapsed.TotalMilliseconds;
+                    ApplyRailPresentation();
+                    return;
+                }
+
+                PrintSlice4BaselineKind("running");
+                _slice4BaselinePhase = VoxelSlice4BaselinePhase.Damage;
+                _frameMilliseconds.Clear();
+                _lastFrameTicks = 0;
+                return;
+            }
+            case VoxelSlice4BaselinePhase.Damage:
+                MeasureSlice4BaselineDamage();
+                PrintSlice4BaselineKind("damage");
+                _slice4BaselinePhase = VoxelSlice4BaselinePhase.SaveLoad;
+                _frameMilliseconds.Clear();
+                _lastFrameTicks = 0;
+                return;
+            case VoxelSlice4BaselinePhase.SaveLoad:
+                MeasureSlice4BaselineSaveLoad();
+                PrintSlice4BaselineKind("saveload");
+                if (!_slice4BaselineRecording)
+                {
+                    _slice4BaselineRecording = true;
+                    _baselineRun = 0;
+                    BeginSlice4BaselineCycle();
+                    return;
+                }
+
+                _baselineRun++;
+                if (_baselineRun == 3)
+                {
+                    GD.Print("VOXEL_BASELINE_COMPLETE");
+                    _baselineEnabled = false;
+                    GetTree().Quit();
+                    return;
+                }
+
+                BeginSlice4BaselineCycle();
+                return;
+        }
     }
 
-    private void StartSlice4BaselineRun()
-    {
-        MeasureSlice4PresentationBaseline(warmup: false);
-        _mutationStopwatch = Stopwatch.StartNew();
-        _mutationStopwatch.Stop();
-        _frameMilliseconds.Clear();
-        _stableSeconds = 0;
-        _lastFrameTicks = Time.GetTicksUsec();
-    }
-
-    private void MeasureSlice4PresentationBaseline(bool warmup)
+    private void BeginSlice4BaselineCycle()
     {
         _session.Reset();
         if (!EnterSlice4Fixture() || !_session.StartTrain(RailHeading.AlongAlignment).Succeeded)
             throw new InvalidOperationException("Slice 4 baseline could not assemble and start the fixture.");
-        var sim = Stopwatch.StartNew();
-        if (!_session.AdvanceSimulation(1800).Succeeded)
-            throw new InvalidOperationException("Slice 4 baseline could not advance 1800 steps.");
-        sim.Stop();
-        var refresh = Stopwatch.StartNew();
-        Refresh();
-        refresh.Stop();
+        _slice4BaselinePhase = VoxelSlice4BaselinePhase.Running;
+        _slice4SimMs = 0;
+        _slice4BaselineMaxStep = 0;
+        _frameMilliseconds.Clear();
+        _lastFrameTicks = 0;
+        ApplyRailPresentation();
+    }
+
+    private void MeasureSlice4BaselineDamage()
+    {
         var mutation = Stopwatch.StartNew();
-        if (_session.Damage(new WorldVoxelCoord(110, 1, 15), 100).Status != WorldCommandStatus.Removed)
+        if (_session.Damage(StraightRailFixture.FirstSegmentDamageCell, 100).Status != WorldCommandStatus.Removed)
             throw new InvalidOperationException("Slice 4 baseline could not apply the single gap damage.");
         mutation.Stop();
-        var refreshAfterDamage = Stopwatch.StartNew();
+        var refresh = Stopwatch.StartNew();
         Refresh();
-        refreshAfterDamage.Stop();
+        ApplyRailPresentation();
+        refresh.Stop();
+        _slice4MutationMs = mutation.Elapsed.TotalMilliseconds;
+        _slice4RefreshMs = refresh.Elapsed.TotalMilliseconds;
+        _slice4EventFrameMs = _slice4MutationMs + _slice4RefreshMs;
+        _slice4Voxels = _session.World.VoxelCount;
+    }
+
+    private void MeasureSlice4BaselineSaveLoad()
+    {
+        var eventClock = Stopwatch.StartNew();
         var saveClock = Stopwatch.StartNew();
-        var saved = _session.Save(warmup ? "Slice 4 Baseline Warmup" : "Slice 4 Baseline");
+        var saved = _session.Save(_slice4BaselineRecording ? "Slice 4 Baseline" : "Slice 4 Baseline Warmup");
         saveClock.Stop();
         if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
             throw new InvalidOperationException($"Slice 4 baseline save failed: {saved.Status}.");
         var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
-        var bytes = new FileInfo(path).Length;
+        _slice4Bytes = new FileInfo(path).Length;
         _session.Reset();
         if (!EnterSlice4Fixture())
             throw new InvalidOperationException("Slice 4 baseline could not rebuild before load.");
@@ -5558,15 +5659,38 @@ public partial class VoxelDeveloperScene : Node3D
         if (loaded.Status != WorldSaveStatus.Loaded)
             throw new InvalidOperationException($"Slice 4 baseline load failed: {loaded.Status}.");
         Refresh();
-        if (!warmup)
+        ApplyRailPresentation();
+        eventClock.Stop();
+        _slice4SaveMs = saveClock.Elapsed.TotalMilliseconds;
+        _slice4LoadMs = loadClock.Elapsed.TotalMilliseconds;
+        _slice4EventFrameMs = eventClock.Elapsed.TotalMilliseconds;
+        _slice4Voxels = _session.World.VoxelCount;
+    }
+
+    private void PrintSlice4BaselineKind(string kind)
+    {
+        if (!_slice4BaselineRecording)
+            return;
+        var memory = Performance.GetMonitor(Performance.Monitor.MemoryStatic);
+        var run = _baselineRun + 1;
+        switch (kind)
         {
-            _slice4SimMs = sim.Elapsed.TotalMilliseconds;
-            _slice4MutationMs = mutation.Elapsed.TotalMilliseconds;
-            _slice4RefreshMs = refresh.Elapsed.TotalMilliseconds + refreshAfterDamage.Elapsed.TotalMilliseconds;
-            _slice4SaveMs = saveClock.Elapsed.TotalMilliseconds;
-            _slice4LoadMs = loadClock.Elapsed.TotalMilliseconds;
-            _slice4Bytes = bytes;
-            _slice4Voxels = _session.World.VoxelCount;
+            case "running":
+            {
+                var average = _frameMilliseconds.Count == 0 ? 0 : _frameMilliseconds.Average();
+                var maximum = _frameMilliseconds.Count == 0 ? 0 : _frameMilliseconds.Max();
+                GD.Print(
+                    $"VOXEL_BASELINE_SLICE4_RUN kind=running run={run} voxels={_session.World.VoxelCount} sim_ms={_slice4SimMs:F3} frames={_frameMilliseconds.Count} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} frame_max_step={_slice4BaselineMaxStep} memory_bytes={memory:F0}");
+                return;
+            }
+            case "damage":
+                GD.Print(
+                    $"VOXEL_BASELINE_SLICE4_RUN kind=damage run={run} voxels={_slice4Voxels} mutation_ms={_slice4MutationMs:F3} refresh_ms={_slice4RefreshMs:F3} frame_ms={_slice4EventFrameMs:F3} memory_bytes={memory:F0}");
+                return;
+            default:
+                GD.Print(
+                    $"VOXEL_BASELINE_SLICE4_RUN kind=saveload run={run} voxels={_slice4Voxels} save_ms={_slice4SaveMs:F3} load_ms={_slice4LoadMs:F3} file_bytes={_slice4Bytes} frame_ms={_slice4EventFrameMs:F3} memory_bytes={memory:F0}");
+                return;
         }
     }
 
