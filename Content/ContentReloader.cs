@@ -1073,7 +1073,8 @@ internal static class CatalogCandidateBuilder
             parsed.AllowedOrientations,
             parsed.Presentation,
             parsed.Collision,
-            parsed.Propulsion);
+            parsed.Propulsion,
+            parsed.TrackContact);
         var origin = new ContentOrigin(package.Namespace, parsed.SourceFile);
         var semantic = ContentRevisions.ComputeSemanticRevision(definition);
         var publication = ContentRevisions.ComputePublicationFingerprint(definition, semantic, assetRevisions);

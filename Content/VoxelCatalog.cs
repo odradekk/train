@@ -157,6 +157,12 @@ internal static class ContentRevisions
                 writer.WritePropertyName("propulsion_acceleration");
                 writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.Acceleration));
             }
+            if (definition.Behaviors.Contains(BehaviorTypes.TrackContact))
+            {
+                var trackContact = definition.TrackContact ?? TrackContactParameters.Default;
+                writer.WritePropertyName("track_contact_coast_deceleration");
+                writer.WriteRawValue(VoxelDefinition.FormatMass(trackContact.CoastDeceleration));
+            }
             writer.WriteStartObject("collision");
             writer.WriteString("kind", VoxelDefinition.ToWire(definition.Collision.Kind));
             if (definition.Collision.Kind == VoxelCollisionKind.LocalBox)

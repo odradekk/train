@@ -29,6 +29,7 @@ public sealed partial class VoxelDevelopmentSession
     public string DisplayName { get; private set; } = WorldSaveDocument.DefaultDisplayName;
     public int DefinitionCount => _catalog.Current?.Entries.Count ?? 0;
     public ulong NextEntityId { get; private set; } = 1;
+    public ulong AssemblyGraphGeneration { get; private set; }
     public ulong TransactionCount { get; private set; }
     public ulong SimulationStep { get; private set; }
     public bool SimulationPaused { get; private set; }
@@ -100,6 +101,7 @@ public sealed partial class VoxelDevelopmentSession
         _assemblies.Clear();
         NextEntityId = 1;
         TransactionCount = 0;
+        NoteAssemblyGraphCommit();
         ResetMotionState();
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
@@ -173,8 +175,13 @@ public sealed partial class VoxelDevelopmentSession
         var plans = affected.Select(vehicleId => PlanVehicleDamage(
             _vehicles.First(vehicle => vehicle.Id == vehicleId),
             targets.Where(target => target.VehicleId == vehicleId).ToArray())).ToArray();
-        var requiredIds = plans.Sum(plan => (long)Math.Max(0, plan.Survivors.Count - 1));
-        if (!CanAllocateEntityIds((ulong)requiredIds))
+        var requiredSuccessorIds = (ulong)plans.Sum(plan => Math.Max(0, plan.Survivors.Count - 1));
+        if (!CanAllocateEntityIds(requiredSuccessorIds))
+            return new CompositeDamageResult(CompositeDamageStatus.EntityIdExhausted, targets[0].VehicleId);
+        var next = NextEntityId;
+        var projected = ProjectDamagedVehicles(plans, ref next, TransactionCount + 1);
+        if (!TryPlanAssemblyRebuild(projected, ref next, out var plannedAssemblies) ||
+            !CanAllocateEntityIds(next - NextEntityId))
             return new CompositeDamageResult(CompositeDamageStatus.EntityIdExhausted, targets[0].VehicleId);
         CommitTransaction();
 
@@ -193,7 +200,7 @@ public sealed partial class VoxelDevelopmentSession
             ? CompositeDamageStatus.Damaged
             : CompositeDamageStatus.Removed;
 
-        DissolveBrokenAssemblies();
+        ApplyPlannedAssemblies(plannedAssemblies, next);
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeDamageResult(overall, targets[0].VehicleId, outcomes);
@@ -382,7 +389,8 @@ public sealed partial class VoxelDevelopmentSession
             return new CompositeRefitResult(ConstructionStatus.UnknownDefinition, vehicleId);
         if (!CanCommitTransaction())
             return new CompositeRefitResult(ConstructionStatus.TransactionExhausted, vehicleId);
-        if (!CanAllocateEntityIds((ulong)planned.Count(part => part.Allocate)))
+        var allocatedParts = (ulong)planned.Count(part => part.Allocate);
+        if (!CanAllocateEntityIds(allocatedParts))
             return new CompositeRefitResult(ConstructionStatus.EntityIdExhausted, vehicleId);
 
         var next = NextEntityId;
@@ -434,10 +442,14 @@ public sealed partial class VoxelDevelopmentSession
             current.Contacts,
             saveLocalRevision,
             saveLocal);
+        var projected = _vehicles.ToList();
+        projected[index] = instance;
+        if (!TryPlanAssemblyRebuild(projected, ref next, out var plannedAssemblies) ||
+            !CanAllocateEntityIds(next - NextEntityId))
+            return new CompositeRefitResult(ConstructionStatus.EntityIdExhausted, vehicleId);
         _vehicles[index] = instance;
-        NextEntityId = next;
         CommitTransaction();
-        DissolveBrokenAssemblies();
+        ApplyPlannedAssemblies(plannedAssemblies, next);
         _rebuildComposites = true;
         Changed?.Invoke();
         return new CompositeRefitResult(ConstructionStatus.Valid, vehicleId, instance.Parts, allocated);
@@ -697,9 +709,14 @@ public sealed partial class VoxelDevelopmentSession
         SimulationPaused = false;
         _scheduled.Clear();
         foreach (var command in restore.ScheduledCommands)
-            _scheduled.Add(new ScheduledTrainCommand(command.AtStep, command.Start, command.Sequence));
+            _scheduled.Add(new ScheduledTrainCommand(
+                command.AtStep,
+                command.Start,
+                command.Sequence,
+                command.AssemblyId ?? throw new InvalidOperationException("Restored train commands must name an assembly.")));
         _scheduledSequence = restore.ScheduledSequence;
         _hostScheduler.Reset();
+        NoteAssemblyGraphCommit();
         _rails.Clear();
         if (restore.Rails is not null)
         {
@@ -780,24 +797,9 @@ public sealed partial class VoxelDevelopmentSession
     private void SettleVehicleDamage(VehicleDamagePlan plan, HashSet<WorldVoxelCoord> reserved)
     {
         var vehicle = plan.Vehicle;
-        var survivors = plan.Survivors;
-        var replacements = new List<CompositeInstance>();
-        if (survivors.Count == 1)
-        {
-            replacements.Add(Successor(vehicle, vehicle.Id, survivors[0].Parts));
-        }
-        else if (survivors.Count > 1)
-        {
-            var maxValue = survivors.Max(item => item.Value);
-            var primaryCandidate = SplitMix64.SelectPrimaryCandidate(
-                Identity.Seed,
-                TransactionCount,
-                survivors.Where(item => item.Value == maxValue).Select(item => item.Candidate).ToArray());
-            var primary = survivors.First(item => item.Value == maxValue && item.Candidate == primaryCandidate);
-            replacements.Add(Successor(vehicle, vehicle.Id, primary.Parts));
-            foreach (var secondary in survivors.Where(item => item.Candidate != primary.Candidate).OrderBy(item => item.Candidate))
-                replacements.Add(Successor(vehicle, new EntityId(NextEntityId++), secondary.Parts));
-        }
+        var next = NextEntityId;
+        var replacements = MaterializeDamageReplacements(plan, ref next, TransactionCount);
+        NextEntityId = next;
 
         var blockedByVehicles = OccupiedByOtherVehicles(vehicle.Id, replacements);
         foreach (var fragment in plan.Fragments.OrderBy(item => item.Min(part => part.Id.Value)))

@@ -248,6 +248,7 @@ public sealed class VoxelDefinition
     public IReadOnlySet<string> Tags { get; }
     public IReadOnlyList<string> Behaviors { get; }
     public PropulsionParameters? Propulsion { get; }
+    public TrackContactParameters? TrackContact { get; }
     public VoxelOrientationConstraint AllowedOrientations { get; }
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
@@ -266,7 +267,8 @@ public sealed class VoxelDefinition
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
         VoxelCollision collision,
-        PropulsionParameters? propulsion = null)
+        PropulsionParameters? propulsion = null,
+        TrackContactParameters? trackContact = null)
     {
         if (string.IsNullOrEmpty(id.Namespace) || string.IsNullOrEmpty(id.LocalId))
             throw new ArgumentException("VoxelDefinitionId cannot be blank.", nameof(id));
@@ -309,6 +311,13 @@ public sealed class VoxelDefinition
             throw new ArgumentException("Propulsion parameters require a registered propulsion behavior.", nameof(propulsion));
         else
             Propulsion = null;
+        var hasTrackContact = behaviorList.Contains(BehaviorTypes.TrackContact);
+        if (hasTrackContact)
+            TrackContact = trackContact ?? TrackContactParameters.Default;
+        else if (trackContact is not null)
+            throw new ArgumentException("Track contact parameters require a registered track_contact behavior.", nameof(trackContact));
+        else
+            TrackContact = null;
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;

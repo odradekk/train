@@ -148,7 +148,7 @@ public sealed class StaticTrainAssemblyTests
         Assert.IsNull(loco.Parts.FirstOrDefault(part => part.Cell == coupler.FromCell));
         Assert.AreEqual(167, loco.Parts.Count);
         Assert.AreEqual(beforeVehicles, harness.Session.QueryComposites().Count);
-        Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
+        Assert.AreEqual(2, harness.Session.QueryTrainAssemblies().Count);
         Assert.AreEqual(beforeWorld, harness.Session.World.VoxelCount);
     }
 

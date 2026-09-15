@@ -15,6 +15,7 @@ internal sealed class ParsedVoxel
     public IReadOnlyList<string> Tags { get; }
     public IReadOnlyList<string> Behaviors { get; }
     public PropulsionParameters? Propulsion { get; }
+    public TrackContactParameters? TrackContact { get; }
     public VoxelOrientationConstraint AllowedOrientations { get; }
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
@@ -30,6 +31,7 @@ internal sealed class ParsedVoxel
         IReadOnlyList<string> tags,
         IReadOnlyList<string> behaviors,
         PropulsionParameters? propulsion,
+        TrackContactParameters? trackContact,
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
         VoxelCollision collision,
@@ -44,6 +46,7 @@ internal sealed class ParsedVoxel
         Tags = tags;
         Behaviors = behaviors;
         Propulsion = propulsion;
+        TrackContact = trackContact;
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;
@@ -159,6 +162,7 @@ internal static class VoxelsJsonParser
         IReadOnlyList<string>? tags = null;
         IReadOnlyList<string>? behaviors = null;
         PropulsionParameters? propulsion = null;
+        TrackContactParameters? trackContact = null;
         string? orientationsText = null;
         JsonElement? presentation = null;
         JsonElement? collision = null;
@@ -208,7 +212,7 @@ internal static class VoxelsJsonParser
                         return false;
                     break;
                 case "behaviors":
-                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors, out propulsion))
+                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors, out propulsion, out trackContact))
                         return false;
                     break;
                 case "allowed_orientations":
@@ -308,6 +312,7 @@ internal static class VoxelsJsonParser
             tags,
             behaviors,
             propulsion,
+            trackContact,
             orientations,
             parsedPresentation,
             parsedCollision,
@@ -365,10 +370,12 @@ internal static class VoxelsJsonParser
         string jsonPath,
         DiagnosticBag diagnostics,
         out IReadOnlyList<string> behaviors,
-        out PropulsionParameters? propulsion)
+        out PropulsionParameters? propulsion,
+        out TrackContactParameters? trackContact)
     {
         behaviors = Array.Empty<string>();
         propulsion = null;
+        trackContact = null;
         if (element.ValueKind != JsonValueKind.Array)
         {
             diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath);
@@ -389,6 +396,7 @@ internal static class VoxelsJsonParser
             string? type = null;
             double? targetSpeed = null;
             double? acceleration = null;
+            double? coastDeceleration = null;
             if (item.TryGetProperty("type", out var typeElement) &&
                 !StrictJson.TryGetString(typeElement, diagnostics, itemPath + "/type", ContentDiagnosticCodes.BehaviorUnregistered, out type))
                 return false;
@@ -411,6 +419,14 @@ internal static class VoxelsJsonParser
                     if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/acceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedAcceleration))
                         return false;
                     acceleration = parsedAcceleration;
+                    continue;
+                }
+
+                if (type == BehaviorTypes.TrackContact && property.Name == "coast_deceleration")
+                {
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/coast_deceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedCoast))
+                        return false;
+                    coastDeceleration = parsedCoast;
                     continue;
                 }
 
@@ -443,7 +459,26 @@ internal static class VoxelsJsonParser
 
                 propulsion = parameters;
             }
-            else if (targetSpeed is not null || acceleration is not null)
+            else if (type == BehaviorTypes.TrackContact)
+            {
+                if (trackContact is not null)
+                {
+                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Only one track_contact behavior is allowed.", itemPath);
+                    return false;
+                }
+
+                if (!BehaviorRegistry.TryNormalizeTrackContact(coastDeceleration, out var parameters))
+                {
+                    diagnostics.Warn(
+                        ContentDiagnosticCodes.BehaviorUnregistered,
+                        "Track contact coast deceleration must be finite and strictly positive.",
+                        itemPath);
+                    return false;
+                }
+
+                trackContact = parameters;
+            }
+            else if (targetSpeed is not null || acceleration is not null || coastDeceleration is not null)
             {
                 diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath);
                 return false;

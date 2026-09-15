@@ -18,8 +18,8 @@ voxel save Slice 3 Persist
 - 必要的存档内（save-local）定义及其依赖；外部只存 ID 与 LastUsedRevision，不嵌入旧 Mod
 - 带 RuntimeId 的脱落世界体素
 - 正式铁路：轨段身份、几何、明确连接、占格与依赖映射；损伤由世界占用与占格对照恢复，不从 Mesh 或派生图反推
-- 实际编组：车辆引用、车钩、接触姿态、参考游标、速度与运行/停车开关
-- 模拟步、同一步 FIFO 待执行命令及其顺序计数
+- 实际编组：一个或多个独立编组的车辆引用、存活车钩、各自接触姿态与参考游标、活动动力或无动力滑行、速度与运行/停车开关。无活动车头写 `active_locomotive_id=0`
+- 模拟步、同一步 FIFO 待执行命令及其目标编组与顺序计数
 - `WorldSeed`、`NextEntityId`、下一事务计数等影响后续提交 / 断裂 / 命令入队的权威状态；数组按稳定顺序写出
 - 文化无关的 JSON 数值，double 按 `G17` 往返
 
@@ -36,6 +36,6 @@ name Slice 3 Persist
 Voxel count: 26.
 ```
 
-失败同样以 `info` 写出 `Voxel <Status>.` 和当前总数，例如非法名称得到 `InvalidName`。没有独立的存档列表或选档 UI；记下输出中的 UUID，之后用 [`voxel load`](voxel-load.md) 恢复。有车、有 RuntimeId、有正式铁路、编组或运动状态都不再返回 `UnsupportedVehicles` / `UnsupportedIdentities` / `UnsupportedRailway`。缺必需引用、未知格式/生成器、不兼容基底或真实 I/O 失败时保留旧会话和上一份有效文件。断开滑行、完整断轨安全停车和正式设计器仍不在本命令范围内。
+失败同样以 `info` 写出 `Voxel <Status>.` 和当前总数，例如非法名称得到 `InvalidName`。没有独立的存档列表或选档 UI；记下输出中的 UUID，之后用 [`voxel load`](voxel-load.md) 恢复。有车、有 RuntimeId、有正式铁路、编组或运动状态都不再返回 `UnsupportedVehicles` / `UnsupportedIdentities` / `UnsupportedRailway`。缺必需引用、未知格式/生成器、不兼容基底或真实 I/O 失败时保留旧会话和上一份有效文件。完整断轨安全停车和正式设计器仍不在本命令范围内。
 
 正式菜单下两种夹具（五类改装壳体、桥接断裂 / 脱落）的保存 → 退出进程 → 新进程加载 → 继续，以及读档错误复现，见 [命令索引](README.md#切片-3-保存退出进程并恢复后继续)。

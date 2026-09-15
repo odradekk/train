@@ -249,26 +249,56 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
     {
         foreach (var assembly in session.QueryTrainAssemblies())
         {
-            var locomotive = vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
-            if (locomotive is null)
+            var members = assembly.VehicleIds
+                .Select(id => vehicles.FirstOrDefault(item => item.Id == id))
+                .ToArray();
+            if (members.Any(item => item is null))
             {
                 diagnostics.Add(new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
                     ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
-                    "A train assembly is missing its locomotive under the candidate catalog.",
-                    jsonPath: assembly.ActiveLocomotiveId.Value.ToString()));
+                    "A train assembly is missing a member under the candidate catalog.",
+                    jsonPath: assembly.Id.Value.ToString()));
                 continue;
             }
 
-            var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
-            if (!TrainAssemblyRules.HasLocomotiveCapabilities(capabilities) ||
-                !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
+            if (assembly.Running)
+            {
+                var locomotive = assembly.ActiveLocomotiveId is { } locoId
+                    ? members.FirstOrDefault(item => item!.Id == locoId)
+                    : null;
+                if (locomotive is null)
+                {
+                    diagnostics.Add(new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Error,
+                        ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                        "A train assembly is missing its locomotive under the candidate catalog.",
+                        jsonPath: assembly.Id.Value.ToString()));
+                    continue;
+                }
+
+                var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
+                if (!TrainAssemblyRules.HasLocomotiveCapabilities(capabilities) ||
+                    !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
+                {
+                    diagnostics.Add(new ContentDiagnostic(
+                        ContentDiagnosticSeverity.Error,
+                        ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
+                        "A train assembly cannot keep its required propulsion or control under the candidate catalog.",
+                        jsonPath: locomotive.DefinitionId.Value));
+                }
+
+                continue;
+            }
+
+            if (assembly.Speed > 0 &&
+                !StraightTrainMotion.TryResolveTrackContact(members!, voxels, out _))
             {
                 diagnostics.Add(new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
                     ContentDiagnosticCodes.UnsupportedVehicleAdaptation,
-                    "A train assembly cannot keep its required propulsion or control under the candidate catalog.",
-                    jsonPath: locomotive.DefinitionId.Value));
+                    "A coasting assembly cannot resolve track_contact coast deceleration under the candidate catalog.",
+                    jsonPath: assembly.Id.Value.ToString()));
             }
         }
     }
