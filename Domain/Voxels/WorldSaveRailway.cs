@@ -393,7 +393,7 @@ internal static class WorldSaveRailwayCodec
             if (!double.IsFinite(assembly.Speed) || assembly.Speed < 0 ||
                 (!assembly.Running && assembly.Speed > 0))
                 return false;
-            if (assembly.Connections.Count != assembly.VehicleIds.Count - 1)
+            if (assembly.VehicleIds.Count != 2 || assembly.Connections.Count != 1)
                 return false;
             if (!TryValidateAssemblyMembers(assembly, vehicleById, segment, catalog))
                 return false;
@@ -418,18 +418,11 @@ internal static class WorldSaveRailwayCodec
             Math.Abs(front.Z - segment.Alignment.StartZ) > StaticTrainFixture.ConstraintTolerance)
             return false;
 
-        CompositeInstance? carriage = null;
-        foreach (var id in assembly.VehicleIds)
-        {
-            if (id != assembly.ActiveLocomotiveId)
-                carriage = vehicleById[id];
-        }
-
-        if (carriage is not null)
-        {
-            if (!StraightTrainSolver.TryValidatePoses(locomotive, carriage, out _))
-                return false;
-        }
+        var carriageId = assembly.VehicleIds.FirstOrDefault(id => id != assembly.ActiveLocomotiveId);
+        if (carriageId.Value == 0 || !vehicleById.TryGetValue(carriageId, out var carriage))
+            return false;
+        if (!StraightTrainSolver.TryValidatePoses(locomotive, carriage, out _))
+            return false;
 
         foreach (var connection in assembly.Connections)
         {

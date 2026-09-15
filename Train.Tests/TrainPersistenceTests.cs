@@ -272,6 +272,12 @@ public sealed class TrainPersistenceTests
 
         AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["distance"] = -1d), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["connections"] = new JsonArray()), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, root =>
+        {
+            var assembly = root["assemblies"]![0]!;
+            assembly["vehicle_ids"] = new JsonArray(assembly["active_locomotive_id"]!.DeepClone());
+            assembly["connections"] = new JsonArray();
+        }), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["running"] = false), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root => root["railway"]!["occupancy"] = new JsonArray()), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root =>
