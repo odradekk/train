@@ -16,8 +16,12 @@ param(
 # coupler destruction with independent coasting plus a 330-step persist (#72).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
-# Slice 4 uses the same isolated two-process path: process 1 saves the
-# split coasting trains at step 330, process 2 loads that file and continues.
+# Slice 4 uses an isolated four-process path: process 1 saves the
+# split coasting trains at step 330 and executes gap/support-loss stops,
+# process 2 loads that 330 file, repeats support-loss, writes a distinct
+# support-loss save, reloads the 330 file, continues the #72 path, then
+# writes a distinct gap-stop save; process 3 loads the gap-stop file;
+# process 4 loads the support-loss file.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -87,6 +91,8 @@ foreach ($name in @(
     "TRAIN_VOXEL_SMOKE_REENTER",
     "TRAIN_VOXEL_SMOKE_ISOLATION_ABORT",
     "TRAIN_VOXEL_SMOKE_RESUME",
+    "TRAIN_VOXEL_SMOKE_RESUME_GAP",
+    "TRAIN_VOXEL_SMOKE_RESUME_SUPPORT",
     "TRAIN_VOXEL_SMOKE_SAVE_ID",
     "TRAIN_MODS_SMOKE_USER_DATA",
     "TRAIN_VOXEL_OBSERVE",
@@ -146,10 +152,11 @@ $output = ""
 $userData = $null
 try {
     if (-not $IsolationAbort -and $Slice -in 2, 3, 4) {
-        $prefix = if ($Slice -eq 4) { "train-issue72-smoke-" } elseif ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
+        $prefix = if ($Slice -eq 4) { "train-issue73-smoke-" } elseif ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
         $writtenMarker = if ($Slice -eq 4) { "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN" } elseif ($Slice -eq 3) { "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN" } else { "VOXEL_SMOKE_SAVE_WRITTEN" }
-        $writeAfter = if ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 700 } else { 240 }
-        $resumeAfter = if ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 200 } else { 120 }
+        $writeAfter = if ($Slice -eq 4) { 700 } elseif ($Slice -eq 3) { 700 } else { 240 }
+        $resumeAfter = if ($Slice -eq 4) { 700 } elseif ($Slice -eq 3) { 200 } else { 120 }
+        $gapAfter = if ($Slice -eq 4) { 200 } else { 0 }
         $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($prefix + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Force -Path $userData | Out-Null
         $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
@@ -180,7 +187,42 @@ try {
             }
         }
         $output = $write.Output + "`n" + $resume.Output
-        if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
+        if ($Slice -eq 4) {
+            if ($resume.Output -notmatch "VOXEL_SMOKE_SLICE4_RESUME_SAVED id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Process 2 did not print a distinct gap-stop save UUID.")
+                exit 1
+            }
+            $gapSaveId = $Matches[1]
+            if ($resume.Output -notmatch "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_SAVE_WRITTEN id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Process 2 did not print a distinct support-loss save UUID.")
+                exit 1
+            }
+            $supportSaveId = $Matches[1]
+            $gapSavePath = Join-Path $userData (Join-Path "saves" (Join-Path $gapSaveId "save.json"))
+            $supportSavePath = Join-Path $userData (Join-Path "saves" (Join-Path $supportSaveId "save.json"))
+            $coastSavePath = Join-Path $userData (Join-Path "saves" (Join-Path $saveId "save.json"))
+            if (-not (Test-Path -LiteralPath $gapSavePath) -or -not (Test-Path -LiteralPath $supportSavePath) -or -not (Test-Path -LiteralPath $coastSavePath)) {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Distinct slice 4 save files were missing.")
+                exit 1
+            }
+            Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME" -ErrorAction SilentlyContinue
+            $env:TRAIN_VOXEL_SMOKE_RESUME_GAP = "1"
+            $env:TRAIN_VOXEL_SMOKE_SAVE_ID = $gapSaveId
+            $gap = Invoke-GodotVoxelSmoke -QuitAfter $gapAfter -Label "slice $Slice gap resume"
+            Write-Host $gap.Output
+            Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_GAP" -ErrorAction SilentlyContinue
+            $env:TRAIN_VOXEL_SMOKE_RESUME_SUPPORT = "1"
+            $env:TRAIN_VOXEL_SMOKE_SAVE_ID = $supportSaveId
+            $support = Invoke-GodotVoxelSmoke -QuitAfter $gapAfter -Label "slice $Slice support resume"
+            Write-Host $support.Output
+            $output = $output + "`n" + $gap.Output + "`n" + $support.Output
+            if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode }
+            elseif ($resume.ExitCode -ne 0) { $godotExitCode = $resume.ExitCode }
+            elseif ($gap.ExitCode -ne 0) { $godotExitCode = $gap.ExitCode }
+            else { $godotExitCode = $support.ExitCode }
+        }
+        elseif ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode }
+        else { $godotExitCode = $resume.ExitCode }
     }
     else {
         $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 520 } else { 90 }
@@ -192,6 +234,8 @@ try {
 }
 finally {
     Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_GAP" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_SUPPORT" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_VOXEL_SMOKE_SAVE_ID" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_MODS_SMOKE_USER_DATA" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_VOXEL_SMOKE" -ErrorAction SilentlyContinue
@@ -233,7 +277,11 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_COAST_SPLIT",
         "VOXEL_SMOKE_SLICE4_COAST_STEP330",
         "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN",
+        "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS",
+        "VOXEL_SMOKE_SLICE4_GAP_STOP",
         "VOXEL_SMOKE_SLICE4_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUMED",
+        "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_SAVE_WRITTEN",
         "VOXEL_SMOKE_SLICE4_COAST_RESUMED",
         "VOXEL_SMOKE_SLICE4_RESUME_TRANSFORM_ONLY",
         "VOXEL_SMOKE_SLICE4_STEP900",
@@ -250,6 +298,10 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_RENDER_GAP",
         "VOXEL_SMOKE_SLICE4_REPAIRED",
         "VOXEL_SMOKE_SLICE4_RESUME_SAVED",
+        "VOXEL_SMOKE_SLICE4_GAP_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE4_GAP_RESUME_RENDER",
+        "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUME_RENDER",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"
@@ -398,7 +450,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_MENU_REENTERED"
     )
 }
-$logDir = Join-Path $root ".godot/validation/issue-72-review"
+$logDir = Join-Path $root ".godot/validation/issue-73"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 @(
     "os=$([System.Environment]::OSVersion.VersionString)"

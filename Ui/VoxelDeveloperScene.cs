@@ -13,6 +13,8 @@ public partial class VoxelDeveloperScene : Node3D
     private const string VoxelSmokeEnvironmentVariable = "TRAIN_VOXEL_SMOKE";
     private const string VoxelSmokeReenterEnvironmentVariable = "TRAIN_VOXEL_SMOKE_REENTER";
     private const string VoxelSmokeResumeEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME";
+    private const string VoxelSmokeResumeGapEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME_GAP";
+    private const string VoxelSmokeResumeSupportEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME_SUPPORT";
     private const string VoxelSmokeSaveIdEnvironmentVariable = "TRAIN_VOXEL_SMOKE_SAVE_ID";
     private const string VoxelObserveEnvironmentVariable = "TRAIN_VOXEL_OBSERVE";
     private const string VoxelObserveResumeEnvironmentVariable = "TRAIN_VOXEL_OBSERVE_RESUME";
@@ -40,6 +42,8 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelResumeSmokePhase _resumeSmokePhase;
     private VoxelSlice3ResumeSmokePhase _slice3ResumeSmokePhase;
     private VoxelSlice4ResumeSmokePhase _slice4ResumeSmokePhase;
+    private VoxelSlice4GapResumeSmokePhase _slice4GapResumeSmokePhase;
+    private VoxelSlice4SupportResumeSmokePhase _slice4SupportResumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
     private VoxelSlice3ObservePhase _slice3ObservePhase;
@@ -307,6 +311,22 @@ public partial class VoxelDeveloperScene : Node3D
         AwaitLoad,
         ContinueMotion,
         AwaitContinueVisual,
+        Done
+    }
+
+    private enum VoxelSlice4GapResumeSmokePhase
+    {
+        None,
+        Load,
+        AwaitLoad,
+        Done
+    }
+
+    private enum VoxelSlice4SupportResumeSmokePhase
+    {
+        None,
+        Load,
+        AwaitLoad,
         Done
     }
 
@@ -583,6 +603,24 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             }
 
+            if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeGapEnvironmentVariable), "1", StringComparison.Ordinal))
+            {
+                if (_session.Identity.Slice != VoxelDevelopmentSlice.Slice4)
+                    throw new InvalidOperationException("Gap resume smoke is only defined for slice 4.");
+                _session.PauseSimulation();
+                _slice4GapResumeSmokePhase = VoxelSlice4GapResumeSmokePhase.Load;
+                return;
+            }
+
+            if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeSupportEnvironmentVariable), "1", StringComparison.Ordinal))
+            {
+                if (_session.Identity.Slice != VoxelDevelopmentSlice.Slice4)
+                    throw new InvalidOperationException("Support-loss resume smoke is only defined for slice 4.");
+                _session.PauseSimulation();
+                _slice4SupportResumeSmokePhase = VoxelSlice4SupportResumeSmokePhase.Load;
+                return;
+            }
+
             if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeEnvironmentVariable), "1", StringComparison.Ordinal))
             {
                 if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
@@ -658,6 +696,8 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceResumeSmoke();
         AdvanceSlice3ResumeSmoke();
         AdvanceSlice4ResumeSmoke();
+        AdvanceSlice4GapResumeSmoke();
+        AdvanceSlice4SupportResumeSmoke();
         AdvanceHostSimulation(delta);
         AdvanceObserve();
         AdvanceSlice2Observe();
@@ -1080,7 +1120,14 @@ public partial class VoxelDeveloperScene : Node3D
                         ? "无车钩"
                         : $"车钩 {item.Connections[0].FromPartId}->{item.Connections[0].ToPartId}";
                     var front = item.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
-                    return $"编组 {item.Id} 活动车头 {item.ActiveLocomotiveId?.ToString() ?? "无"} {coupler} 前接触 {front} 速度 {item.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} 牵引 {(item.Running ? "开" : "关")}";
+                    var halt = item.HaltReason switch
+                    {
+                        TrainHaltReason.SupportLost => " 支撑失效",
+                        TrainHaltReason.ForwardGap => " 前方缺口",
+                        TrainHaltReason.EndOfLine => " 线路末端",
+                        _ => ""
+                    };
+                    return $"编组 {item.Id} 活动车头 {item.ActiveLocomotiveId?.ToString() ?? "无"} {coupler} 前接触 {front} 速度 {item.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} 牵引 {(item.Running ? "开" : "关")}{halt}";
                 })) + $" 图 {_session.AssemblyGraphGeneration} 步 {_session.SimulationStep}{(_session.SimulationPaused ? " 暂停" : "")}。";
             return $"车辆 {vehicles.Count}：{summary}。{assemblyText}显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
         }
@@ -4291,13 +4338,28 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             }
             case VoxelSlice4ResumeSmokePhase.AwaitLoad:
+            {
                 if (_dirty || _tracks.SolidCount == 0 || _composites.VehicleCount != 2)
                     return;
                 ValidateGeneratedMesh();
                 ValidateCompositeVisual();
                 _slice4TrainMeshIds = _composites.MeshInstanceIds.ToArray();
+                RunSlice4SupportLossSmoke("VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUMED");
+                var supportSave = SaveSlice4Detached("Slice 4 Support Loss");
+                var supportPath = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(supportSave);
+                if (!File.Exists(supportPath))
+                    throw new InvalidOperationException($"Slice 4 support-loss save was not created at {supportPath}.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_SAVE_WRITTEN id={supportSave:D} bytes={new FileInfo(supportPath).Length} path={supportPath}");
+                var resumeIdText = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(resumeIdText, out var resumeId))
+                    throw new InvalidOperationException("Slice 4 persist smoke is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var reload = _session.Load(resumeId);
+                if (reload.Status != WorldSaveStatus.Loaded || reload.SaveId != resumeId)
+                    throw new InvalidOperationException($"Slice 4 smoke could not restore the 330 save after support loss: {reload.Status}.");
+                RequireSlice4CoastAssemblies(98, 88.875, 4, 3.5, frontRunning: true);
                 _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.ContinueMotion;
                 return;
+            }
             case VoxelSlice4ResumeSmokePhase.ContinueMotion:
                 if (!_session.AdvanceSimulation(30).Succeeded || _session.SimulationStep != 360)
                     throw new InvalidOperationException("Slice 4 smoke could not continue coasting after resume.");
@@ -4413,6 +4475,9 @@ public partial class VoxelDeveloperScene : Node3D
                 if (!File.Exists(path))
                     throw new InvalidOperationException($"Slice 4 smoke save file was not created at {path}.");
                 GD.Print($"VOXEL_SMOKE_SLICE4_SAVE_WRITTEN id={saved.SaveId:D} bytes={new FileInfo(path).Length} path={path} step={_session.SimulationStep}");
+                RunSlice4SupportLossSmoke("VOXEL_SMOKE_SLICE4_SUPPORT_LOSS");
+                ResetSlice4AfterMotion();
+                RunSlice4GapStopSmoke("VOXEL_SMOKE_SLICE4_GAP_STOP");
                 _slice4SmokePhase = VoxelSlice4SmokePhase.OpenConsole;
                 return;
             case VoxelSlice4SmokePhase.AwaitResetAfterMotion:
@@ -4516,13 +4581,13 @@ public partial class VoxelDeveloperScene : Node3D
                 if (_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
                     return;
                 GD.Print("VOXEL_SMOKE_SLICE4_REPAIRED");
+                ResetSlice4AfterMotion();
+                RunSlice4GapStopSmoke("VOXEL_SMOKE_SLICE4_GAP_STOP");
                 _slice4SmokePhase = VoxelSlice4SmokePhase.SaveAt900;
                 return;
             case VoxelSlice4SmokePhase.SaveAt900:
-                var resumedSave = _session.Save("Slice 4 Resume");
-                if (resumedSave.Status != WorldSaveStatus.Saved || !resumedSave.SaveId.HasValue)
-                    throw new InvalidOperationException($"Slice 4 resume could not save again: {resumedSave.Status}.");
-                GD.Print($"VOXEL_SMOKE_SLICE4_RESUME_SAVED id={resumedSave.SaveId:D} step={_session.SimulationStep}");
+                var resumedSave = SaveSlice4Detached("Slice 4 Gap Halt");
+                GD.Print($"VOXEL_SMOKE_SLICE4_RESUME_SAVED id={resumedSave:D} step={_session.SimulationStep}");
                 _slice4SmokePhase = VoxelSlice4SmokePhase.Done;
                 GetTree().Quit();
                 return;
@@ -4593,6 +4658,144 @@ public partial class VoxelDeveloperScene : Node3D
                 $"Slice 4 step 300 is {step300.Vehicles[0].FrontContact.X},{step300.Vehicles[1].FrontContact.X},{step300.Speed}.");
         GD.Print(
             $"VOXEL_SMOKE_SLICE4_STEP300 loco={step300.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={step300.Vehicles[1].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step300.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+    }
+
+    private void AdvanceSlice4GapResumeSmoke()
+    {
+        switch (_slice4GapResumeSmokePhase)
+        {
+            case VoxelSlice4GapResumeSmokePhase.Load:
+            {
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Slice 4 gap resume smoke is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Slice 4 gap resume could not load {saveId:D}: {loaded.Status}.");
+                var stopped = RequireSlice4Assembly();
+                if (stopped.Vehicles[0].FrontContact.X > 110 + 1e-8 ||
+                    stopped.Speed != 0 ||
+                    stopped.Running ||
+                    stopped.HaltReason != TrainHaltReason.ForwardGap)
+                    throw new InvalidOperationException(
+                        $"Slice 4 gap resume is {stopped.Vehicles[0].FrontContact.X} speed {stopped.Speed} halt {stopped.HaltReason}.");
+                if (stopped.Vehicles.Any(vehicle =>
+                        vehicle.FrontContact.X > 110 + 1e-8 && vehicle.FrontContact.X < 111 - 1e-8 ||
+                        vehicle.RearContact.X > 110 + 1e-8 && vehicle.RearContact.X < 111 - 1e-8))
+                    throw new InvalidOperationException("Slice 4 gap resume placed a contact inside the gap.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_GAP_RESUME_LOADED id={saveId:D} front={stopped.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={stopped.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} halt={stopped.HaltReason} hash={WorldSaveAuthority.Fingerprint(_session)} name={loaded.DisplayName}");
+                _slice4GapResumeSmokePhase = VoxelSlice4GapResumeSmokePhase.AwaitLoad;
+                return;
+            }
+            case VoxelSlice4GapResumeSmokePhase.AwaitLoad:
+                if (_dirty || _tracks.SolidCount == 0)
+                    return;
+                if (!_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
+                    _tracks.Refresh(this, _session);
+                if (!_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
+                    throw new InvalidOperationException("Slice 4 gap resume render still covers the destroyed support cell.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_GAP_RESUME_RENDER solids={_tracks.SolidCount}");
+                _slice4GapResumeSmokePhase = VoxelSlice4GapResumeSmokePhase.Done;
+                GetTree().Quit();
+                return;
+        }
+    }
+
+    private void AdvanceSlice4SupportResumeSmoke()
+    {
+        switch (_slice4SupportResumeSmokePhase)
+        {
+            case VoxelSlice4SupportResumeSmokePhase.Load:
+            {
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Slice 4 support-loss resume is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Slice 4 support-loss resume could not load {saveId:D}: {loaded.Status}.");
+                var restored = RequireSlice4CoastAssemblies(98, 88.875, 4, 0, frontRunning: true);
+                if (restored.Carriage.HaltReason != TrainHaltReason.SupportLost ||
+                    restored.Loco.HaltReason != TrainHaltReason.None ||
+                    !restored.Loco.Running)
+                    throw new InvalidOperationException(
+                        $"Slice 4 support-loss resume halt is {restored.Carriage.HaltReason}/{restored.Loco.HaltReason}.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUME_LOADED id={saveId:D} loco={restored.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={restored.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} loco_speed={restored.Loco.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage_speed={restored.Carriage.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} halt={restored.Carriage.HaltReason} hash={WorldSaveAuthority.Fingerprint(_session)} name={loaded.DisplayName}");
+                _slice4SupportResumeSmokePhase = VoxelSlice4SupportResumeSmokePhase.AwaitLoad;
+                return;
+            }
+            case VoxelSlice4SupportResumeSmokePhase.AwaitLoad:
+                if (_dirty || _tracks.SolidCount == 0 || _composites.VehicleCount != 2)
+                    return;
+                ValidateGeneratedMesh();
+                ValidateCompositeVisual();
+                _tracks.Refresh(this, _session);
+                if (!_tracks.HasGapNear(StraightRailFixture.SupportLossCell))
+                    throw new InvalidOperationException("Slice 4 support-loss resume render still covers the destroyed cell.");
+                GD.Print($"VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUME_RENDER solids={_tracks.SolidCount}");
+                _slice4SupportResumeSmokePhase = VoxelSlice4SupportResumeSmokePhase.Done;
+                GetTree().Quit();
+                return;
+        }
+    }
+
+    private Guid SaveSlice4Detached(string displayName)
+    {
+        _session.DetachSaveIdentity();
+        var saved = _session.Save(displayName);
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Slice 4 detached save '{displayName}' failed: {saved.Status}.");
+        return saved.SaveId.Value;
+    }
+
+    private void RunSlice4SupportLossSmoke(string marker)
+    {
+        var before = RequireSlice4CoastAssemblies(98, 88.875, 4, 3.5, frontRunning: true);
+        var graph = _session.AssemblyGraphGeneration;
+        if (_session.Damage(StraightRailFixture.SupportLossCell, 100).Status != WorldCommandStatus.Removed)
+            throw new InvalidOperationException("Slice 4 smoke could not destroy the support-loss cell.");
+        var after = RequireSlice4CoastAssemblies(98, 88.875, 4, 0, frontRunning: true);
+        if (after.Carriage.HaltReason != TrainHaltReason.SupportLost)
+            throw new InvalidOperationException($"Slice 4 support-loss halt is {after.Carriage.HaltReason}.");
+        if (after.Loco.HaltReason != TrainHaltReason.None || !after.Loco.Running)
+            throw new InvalidOperationException("Slice 4 support-loss froze the unaffected locomotive.");
+        if (after.Carriage.Vehicles[0].Transform != before.Carriage.Vehicles[0].Transform)
+            throw new InvalidOperationException("Slice 4 support-loss moved the coasting carriage.");
+        if (_session.AssemblyGraphGeneration <= graph)
+            throw new InvalidOperationException("Slice 4 support-loss did not commit a new assembly graph generation.");
+        _tracks.Refresh(this, _session);
+        if (!_tracks.HasGapNear(StraightRailFixture.SupportLossCell))
+            throw new InvalidOperationException("Slice 4 support-loss render still covers the destroyed cell.");
+        GD.Print(
+            $"{marker} loco={after.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={after.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} loco_speed={after.Loco.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage_speed={after.Carriage.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} halt={after.Carriage.HaltReason} graph={_session.AssemblyGraphGeneration}");
+    }
+
+    private void RunSlice4GapStopSmoke(string marker)
+    {
+        if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+            !_session.AdvanceSimulation(300).Succeeded)
+            throw new InvalidOperationException("Slice 4 smoke could not reach step 300 before the gap stop.");
+        if (_session.Damage(StraightRailFixture.FirstSegmentDamageCell, 100).Status != WorldCommandStatus.Removed)
+            throw new InvalidOperationException("Slice 4 smoke could not open the fixture gap.");
+        if (!_session.AdvanceSimulation(2000).Succeeded)
+            throw new InvalidOperationException("Slice 4 smoke could not advance to the gap boundary.");
+        var stopped = RequireSlice4Assembly();
+        if (stopped.Vehicles[0].FrontContact.X > 110 + 1e-8 ||
+            stopped.Speed != 0 ||
+            stopped.Running ||
+            stopped.HaltReason != TrainHaltReason.ForwardGap)
+            throw new InvalidOperationException(
+                $"Slice 4 gap stop is {stopped.Vehicles[0].FrontContact.X} speed {stopped.Speed} halt {stopped.HaltReason}.");
+        if (stopped.Vehicles.Any(vehicle =>
+                vehicle.FrontContact.X > 110 + 1e-8 && vehicle.FrontContact.X < 111 - 1e-8 ||
+                vehicle.RearContact.X > 110 + 1e-8 && vehicle.RearContact.X < 111 - 1e-8))
+            throw new InvalidOperationException("Slice 4 gap stop placed a contact inside the gap.");
+        _tracks.Refresh(this, _session);
+        if (!_tracks.HasGapNear(StraightRailFixture.FirstSegmentDamageCell))
+            throw new InvalidOperationException("Slice 4 gap stop render still covers the destroyed support cell.");
+        GD.Print(
+            $"{marker} front={stopped.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={stopped.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} halt={stopped.HaltReason} graph={_session.AssemblyGraphGeneration}");
     }
 
     private void RunSlice4CouplerCoastSmoke()

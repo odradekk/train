@@ -243,6 +243,12 @@ public static class StraightTrainMotion
             return false;
         }
 
+        if (!StraightTrainSolver.HasLiveSupport(rails, world, contacts, assembly.Reference))
+        {
+            updated = assembly.WithMotion(0, running: false);
+            return true;
+        }
+
         var intervals = StraightTrainSolver.ConnectedTraversableWorldX(rails, world, assembly.Reference);
         var allowed = StraightTrainSolver.MaxForwardTravel(contacts, intervals);
         var actualDx = Math.Min(Math.Max(0, requestedDx), allowed);
@@ -250,7 +256,7 @@ public static class StraightTrainMotion
                        allowed <= StaticTrainFixture.ConstraintTolerance;
         var newSpeed = hitLimit ? 0 : requestedSpeed;
         var running = assembly.Running && !hitLimit;
-        if (actualDx <= 0 && !hitLimit)
+        if (actualDx <= 0)
         {
             updated = assembly.WithMotion(newSpeed, running);
             return true;

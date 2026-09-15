@@ -178,7 +178,7 @@ public sealed class RailConsoleCommands
         foreach (var assembly in assemblies)
         {
             lines.Add(
-                $"assembly {assembly.Id} speed {FormatNumber(assembly.Speed)} running {assembly.Running.ToString().ToLowerInvariant()} heading {assembly.Reference.Heading}");
+                $"assembly {assembly.Id} speed {FormatNumber(assembly.Speed)} running {assembly.Running.ToString().ToLowerInvariant()} heading {assembly.Reference.Heading} halt {FormatHalt(assembly.HaltReason)}");
         }
 
         return string.Join('\n', lines);
@@ -204,6 +204,7 @@ public sealed class RailConsoleCommands
         {
             $"Rail assembly {assembly.Id} active {assembly.ActiveLocomotiveId?.ToString() ?? "none"} heading {assembly.Reference.Heading} distance {FormatNumber(assembly.Reference.Distance)}",
             $"speed {FormatNumber(assembly.Speed)} running {assembly.Running.ToString().ToLowerInvariant()}",
+            $"halt {FormatHalt(assembly.HaltReason)}",
             $"graph {_session.AssemblyGraphGeneration}",
             $"step {_session.SimulationStep} paused {_session.SimulationPaused.ToString().ToLowerInvariant()}",
             $"vehicles {string.Join(',', assembly.VehicleIds.Select(id => id.Value.ToString(CultureInfo.InvariantCulture)))}"
@@ -246,6 +247,14 @@ public sealed class RailConsoleCommands
 
     private static string FormatNumber(double value) =>
         value.ToString("G17", CultureInfo.InvariantCulture);
+
+    private static string FormatHalt(TrainHaltReason reason) => reason switch
+    {
+        TrainHaltReason.SupportLost => "support-lost",
+        TrainHaltReason.ForwardGap => "forward-gap",
+        TrainHaltReason.EndOfLine => "end-of-line",
+        _ => "none"
+    };
 
     private static bool TryCells(IReadOnlyList<string> arguments, int start, out IReadOnlyList<WorldVoxelCoord> cells)
     {
