@@ -143,7 +143,7 @@ internal static class WorldSaveRailwayCodec
         {
             writer.WriteStartObject();
             writer.WriteNumber("id", assembly.Id.Value);
-            writer.WriteNumber("active_locomotive_id", assembly.ActiveLocomotiveId.Value);
+            writer.WriteNumber("active_locomotive_id", assembly.ActiveLocomotiveId?.Value ?? 0);
             writer.WritePropertyName("vehicle_ids");
             writer.WriteStartArray();
             foreach (var id in assembly.VehicleIds)
@@ -191,6 +191,7 @@ internal static class WorldSaveRailwayCodec
             writer.WriteNumber("at_step", command.AtStep);
             writer.WriteBoolean("start", command.Start);
             writer.WriteNumber("sequence", command.Sequence);
+            writer.WriteNumber("assembly_id", command.AssemblyId?.Value ?? 0);
             writer.WriteEndObject();
         }
 
@@ -305,10 +306,12 @@ internal static class WorldSaveRailwayCodec
         VoxelCatalogSnapshot catalog,
         out PhysicalRailState rails,
         out IReadOnlyList<TrainAssembly> assemblies,
+        out IReadOnlyList<ScheduledTrainCommandQuery> commands,
         out WorldSaveStatus status)
     {
         rails = new PhysicalRailState();
         assemblies = Array.Empty<TrainAssembly>();
+        commands = Array.Empty<ScheduledTrainCommandQuery>();
         status = WorldSaveStatus.InvalidDelta;
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(world);
@@ -319,11 +322,13 @@ internal static class WorldSaveRailwayCodec
             return false;
         if (!TryValidateAssemblies(document.Assemblies, document.Railway, vehicles, catalog, out status))
             return false;
-        if (!TryValidateCommands(
-                document.SimulationStep,
+        if (!TryBindScheduledCommands(
                 document.ScheduledCommands,
+                document.Assemblies,
+                document.SimulationStep,
                 document.ScheduledSequence,
                 document.TransactionCount,
+                out var boundCommands,
                 out status))
             return false;
 
@@ -346,6 +351,7 @@ internal static class WorldSaveRailwayCodec
             document.Railway.SleeperCount,
             world);
         assemblies = document.Assemblies.ToArray();
+        commands = boundCommands;
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -371,8 +377,6 @@ internal static class WorldSaveRailwayCodec
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
-        if (assemblies.Count > 1)
-            return false;
         var assemblyIds = new HashSet<ulong>();
         var claimedVehicles = new HashSet<EntityId>();
         var vehicleById = vehicles.ToDictionary(item => item.Id);
@@ -384,7 +388,9 @@ internal static class WorldSaveRailwayCodec
             if (assembly.VehicleIds.Count == 0 ||
                 assembly.VehicleIds.Any(id => !vehicleById.ContainsKey(id) || !claimedVehicles.Add(id)))
                 return false;
-            if (!assembly.VehicleIds.Contains(assembly.ActiveLocomotiveId))
+            if (assembly.ActiveLocomotiveId is { } locoId && !assembly.VehicleIds.Contains(locoId))
+                return false;
+            if (assembly.Running && assembly.ActiveLocomotiveId is null)
                 return false;
             if (!segments.TryGetValue(assembly.Reference.SegmentId, out var segment) ||
                 !assembly.Reference.IsFinite ||
@@ -392,11 +398,25 @@ internal static class WorldSaveRailwayCodec
                 assembly.Reference.Distance - segment.Alignment.Length > StaticTrainFixture.ConstraintTolerance ||
                 assembly.Reference.Heading != RailHeading.AlongAlignment)
                 return false;
-            if (!double.IsFinite(assembly.Speed) || assembly.Speed < 0 ||
-                (!assembly.Running && assembly.Speed > 0))
+            if (!double.IsFinite(assembly.Speed) || assembly.Speed < 0)
                 return false;
-            if (assembly.VehicleIds.Count != 2 || assembly.Connections.Count != 1)
+            if (!assembly.Running && assembly.Speed > 0 && assembly.ActiveLocomotiveId is not null)
                 return false;
+            if (assembly.VehicleIds.Count == 1)
+            {
+                if (assembly.Connections.Count != 0)
+                    return false;
+            }
+            else if (assembly.VehicleIds.Count == 2)
+            {
+                if (assembly.Connections.Count != 1)
+                    return false;
+            }
+            else if (!AreConnectionsATree(assembly))
+            {
+                return false;
+            }
+
             if (!TryValidateAssemblyMembers(assembly, vehicleById, segment, catalog))
                 return false;
         }
@@ -411,19 +431,28 @@ internal static class WorldSaveRailwayCodec
         PhysicalRailSegment segment,
         VoxelCatalogSnapshot catalog)
     {
-        var locomotive = vehicleById[assembly.ActiveLocomotiveId];
-        if (!StraightTrainSolver.TryToWorldContact(locomotive, 0, out var front))
-            return false;
-        if (Math.Abs(StaticTrainFixture.AlongTrackDistance(front.X, segment.Alignment) - assembly.Reference.Distance) >
-            StaticTrainFixture.ConstraintTolerance ||
-            Math.Abs(front.Y - segment.Alignment.StartY) > StaticTrainFixture.ConstraintTolerance ||
-            Math.Abs(front.Z - segment.Alignment.StartZ) > StaticTrainFixture.ConstraintTolerance)
-            return false;
+        var members = new List<CompositeInstance>(assembly.VehicleIds.Count);
+        var contacts = new List<(double X, double Y, double Z)>();
+        foreach (var id in assembly.VehicleIds)
+        {
+            var vehicle = vehicleById[id];
+            if (!StraightTrainSolver.TryCollectLiveContacts(vehicle, out var vehicleContacts, out var front, out _))
+                return false;
+            if (members.Count == 0)
+            {
+                if (Math.Abs(StaticTrainFixture.AlongTrackDistance(front.X, segment.Alignment) - assembly.Reference.Distance) >
+                    StaticTrainFixture.ConstraintTolerance ||
+                    Math.Abs(front.Y - segment.Alignment.StartY) > StaticTrainFixture.ConstraintTolerance ||
+                    Math.Abs(front.Z - segment.Alignment.StartZ) > StaticTrainFixture.ConstraintTolerance)
+                    return false;
+            }
 
-        var carriageId = assembly.VehicleIds.FirstOrDefault(id => id != assembly.ActiveLocomotiveId);
-        if (carriageId.Value == 0 || !vehicleById.TryGetValue(carriageId, out var carriage))
-            return false;
-        if (!StraightTrainSolver.TryValidatePoses(locomotive, carriage, out _))
+            members.Add(vehicle);
+            contacts.AddRange(vehicleContacts);
+        }
+
+        if (members.Count == 2 &&
+            !StraightTrainSolver.TryValidatePoses(members[0], members[1], out _))
             return false;
 
         foreach (var connection in assembly.Connections)
@@ -448,29 +477,80 @@ internal static class WorldSaveRailwayCodec
                 return false;
         }
 
-        return (!assembly.Running && assembly.Speed == 0) ||
-               StraightTrainMotion.TryResolvePropulsion(locomotive, catalog, out _);
+        if (assembly.Running)
+        {
+            if (assembly.ActiveLocomotiveId is not { } locoId)
+                return false;
+            return StraightTrainMotion.TryResolveLocomotive(vehicleById[locoId], catalog, out _, out _);
+        }
+
+        if (assembly.Speed > 0)
+            return StraightTrainMotion.TryResolveTrackContact(members, catalog, out _);
+        return true;
     }
 
-    private static bool TryValidateCommands(
-        ulong simulationStep,
+    private static bool AreConnectionsATree(TrainAssembly assembly)
+    {
+        if (assembly.Connections.Count != assembly.VehicleIds.Count - 1)
+            return false;
+        var parent = assembly.VehicleIds.ToDictionary(item => item, item => item);
+        EntityId Find(EntityId id)
+        {
+            while (parent[id] != id)
+                id = parent[id] = parent[parent[id]];
+            return id;
+        }
+
+        foreach (var connection in assembly.Connections)
+        {
+            if (!parent.ContainsKey(connection.FromVehicleId) || !parent.ContainsKey(connection.ToVehicleId))
+                return false;
+            var from = Find(connection.FromVehicleId);
+            var to = Find(connection.ToVehicleId);
+            if (from == to)
+                return false;
+            parent[to] = from;
+        }
+
+        return assembly.VehicleIds.Select(Find).Distinct().Count() == 1;
+    }
+
+    private static bool TryBindScheduledCommands(
         IReadOnlyList<ScheduledTrainCommandQuery> commands,
+        IReadOnlyList<TrainAssembly> assemblies,
+        ulong simulationStep,
         ulong scheduledSequence,
         ulong transactionCount,
+        out IReadOnlyList<ScheduledTrainCommandQuery> bound,
         out WorldSaveStatus status)
     {
+        bound = Array.Empty<ScheduledTrainCommandQuery>();
         status = WorldSaveStatus.InvalidDelta;
         if (scheduledSequence > transactionCount)
             return false;
         var sequences = new HashSet<ulong>();
+        var assemblyIds = assemblies.Select(item => item.Id).ToHashSet();
+        var items = new List<ScheduledTrainCommandQuery>(commands.Count);
         foreach (var command in commands)
         {
             if (command.AtStep < simulationStep ||
                 command.Sequence >= scheduledSequence ||
                 !sequences.Add(command.Sequence))
                 return false;
+            if (command.AssemblyId is { } explicitId)
+            {
+                if (!assemblyIds.Contains(explicitId))
+                    return false;
+                items.Add(command);
+                continue;
+            }
+
+            if (assemblies.Count != 1)
+                return false;
+            items.Add(command with { AssemblyId = assemblies[0].Id });
         }
 
+        bound = items;
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -889,7 +969,7 @@ internal static class WorldSaveRailwayCodec
                     hasId = true;
                     break;
                 case "active_locomotive_id":
-                    if (!WorldSaveVehicleCodec.TryReadEntityId(property.Value, out locoId))
+                    if (!TryReadOptionalEntityId(property.Value, out locoId))
                     {
                         status = WorldSaveStatus.InvalidDelta;
                         return false;
@@ -955,7 +1035,7 @@ internal static class WorldSaveRailwayCodec
 
         assembly = new TrainAssembly(
             new EntityId(id),
-            new EntityId(locoId),
+            locoId == 0 ? null : new EntityId(locoId),
             new RailPosition(new EntityId(segmentId), distance, heading),
             vehicleIds,
             connections,
@@ -975,11 +1055,12 @@ internal static class WorldSaveRailwayCodec
         if (element.ValueKind != JsonValueKind.Object)
             return false;
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        ulong atStep = 0, sequence = 0;
+        ulong atStep = 0, sequence = 0, assemblyId = 0;
         var start = false;
         var hasAt = false;
         var hasStart = false;
         var hasSequence = false;
+        var hasAssembly = false;
         foreach (var property in element.EnumerateObject())
         {
             if (!seen.Add(property.Name))
@@ -1010,6 +1091,15 @@ internal static class WorldSaveRailwayCodec
 
                     hasSequence = true;
                     break;
+                case "assembly_id":
+                    if (!TryReadOptionalEntityId(property.Value, out assemblyId))
+                    {
+                        status = WorldSaveStatus.InvalidDelta;
+                        return false;
+                    }
+
+                    hasAssembly = true;
+                    break;
                 default:
                     return false;
             }
@@ -1021,9 +1111,19 @@ internal static class WorldSaveRailwayCodec
             return false;
         }
 
-        command = new ScheduledTrainCommandQuery(atStep, start, sequence);
+        command = new ScheduledTrainCommandQuery(
+            atStep,
+            start,
+            sequence,
+            hasAssembly && assemblyId != 0 ? new EntityId(assemblyId) : null);
         status = WorldSaveStatus.Loaded;
         return true;
+    }
+
+    private static bool TryReadOptionalEntityId(JsonElement element, out ulong id)
+    {
+        id = 0;
+        return element.ValueKind == JsonValueKind.Number && element.TryGetUInt64(out id);
     }
 
     private static bool TryReadCouplers(

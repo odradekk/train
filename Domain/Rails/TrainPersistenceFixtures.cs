@@ -26,7 +26,8 @@ public static class TrainPersistenceFixtures
     private static WorldSaveDocument Relocate(WorldSaveDocument document, Guid id, double frontX)
     {
         var assembly = document.Assemblies.Single();
-        var locomotiveId = assembly.ActiveLocomotiveId;
+        var locomotiveId = assembly.ActiveLocomotiveId
+            ?? throw new InvalidOperationException("High-speed fixture requires an active locomotive.");
         var carriageId = assembly.VehicleIds.First(item => item != locomotiveId);
         var vehicles = document.Vehicles
             .Select(vehicle =>

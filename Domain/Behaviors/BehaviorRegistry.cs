@@ -64,4 +64,19 @@ public static class BehaviorRegistry
         parameters = created;
         return true;
     }
+
+    public static bool TryNormalizeTrackContact(
+        double? coastDeceleration,
+        out TrackContactParameters parameters)
+    {
+        var deceleration = coastDeceleration ?? TrackContactParameters.DefaultCoastDeceleration;
+        if (!TrackContactParameters.TryCreate(deceleration, out var created) || created is null)
+        {
+            parameters = TrackContactParameters.Default;
+            return false;
+        }
+
+        parameters = created;
+        return true;
+    }
 }

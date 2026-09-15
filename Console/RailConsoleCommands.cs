@@ -1,4 +1,5 @@
 using System.Globalization;
+using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
@@ -25,25 +26,15 @@ public sealed class RailConsoleCommands
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "start", StringComparison.OrdinalIgnoreCase))
         {
-            if (arguments.Count == 1)
-                return FormatMotion(_session.StartTrain(RailHeading.AlongAlignment));
-            if (arguments.Count == 2 && string.Equals(arguments[1], "reverse", StringComparison.OrdinalIgnoreCase))
-                return FormatMotion(_session.StartTrain(RailHeading.AgainstAlignment));
-            if (arguments.Count == 2 && TryStep(arguments[1], out var startAt))
-                return FormatMotion(_session.StartTrain(RailHeading.AlongAlignment, startAt));
-            if (arguments.Count == 3 &&
-                string.Equals(arguments[1], "reverse", StringComparison.OrdinalIgnoreCase) &&
-                TryStep(arguments[2], out var reverseAt))
-                return FormatMotion(_session.StartTrain(RailHeading.AgainstAlignment, reverseAt));
+            if (TryStartArguments(arguments, out var heading, out var startAt, out var assemblyId))
+                return FormatMotion(_session.StartTrain(heading, startAt, assemblyId));
             return Usage();
         }
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "stop", StringComparison.OrdinalIgnoreCase))
         {
-            if (arguments.Count == 1)
-                return FormatMotion(_session.StopTrain());
-            if (arguments.Count == 2 && TryStep(arguments[1], out var stopAt))
-                return FormatMotion(_session.StopTrain(stopAt));
+            if (TryStopArguments(arguments, out var stopAt, out var stopAssemblyId))
+                return FormatMotion(_session.StopTrain(stopAt, stopAssemblyId));
             return Usage();
         }
 
@@ -77,7 +68,7 @@ public sealed class RailConsoleCommands
 
     private static string Usage() =>
         string.Join('\n',
-            "Usage: rail construct | rail assemble | rail start [reverse] [step] | rail stop [step] | rail pause | rail resume | rail step [n]",
+            "Usage: rail construct | rail assemble | rail start [assembly <id>] [reverse] [step] | rail stop [assembly <id>] [step] | rail pause | rail resume | rail step [n]",
             "rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion] | rail query <x> <y> <z>",
             "rail repair <x> <y> <z> [<x> <y> <z> ...].");
 
@@ -176,7 +167,7 @@ public sealed class RailConsoleCommands
         foreach (var command in _session.QueryScheduledTrainCommands())
         {
             lines.Add(
-                $"pending {(command.Start ? "start" : "stop")} {command.AtStep.ToString(CultureInfo.InvariantCulture)}");
+                $"pending {(command.Start ? "start" : "stop")} {command.AtStep.ToString(CultureInfo.InvariantCulture)} assembly {(command.AssemblyId?.ToString() ?? "none")}");
         }
         if (assemblies.Count == 0)
         {
@@ -211,8 +202,9 @@ public sealed class RailConsoleCommands
     {
         var lines = new List<string>
         {
-            $"Rail assembly {assembly.Id} active {assembly.ActiveLocomotiveId} heading {assembly.Reference.Heading} distance {FormatNumber(assembly.Reference.Distance)}",
+            $"Rail assembly {assembly.Id} active {assembly.ActiveLocomotiveId?.ToString() ?? "none"} heading {assembly.Reference.Heading} distance {FormatNumber(assembly.Reference.Distance)}",
             $"speed {FormatNumber(assembly.Speed)} running {assembly.Running.ToString().ToLowerInvariant()}",
+            $"graph {_session.AssemblyGraphGeneration}",
             $"step {_session.SimulationStep} paused {_session.SimulationPaused.ToString().ToLowerInvariant()}",
             $"vehicles {string.Join(',', assembly.VehicleIds.Select(id => id.Value.ToString(CultureInfo.InvariantCulture)))}"
         };
@@ -273,8 +265,79 @@ public sealed class RailConsoleCommands
         return parsed.Count > 0;
     }
 
+    private static bool TryStartArguments(
+        IReadOnlyList<string> arguments,
+        out RailHeading heading,
+        out ulong? atStep,
+        out EntityId? assemblyId)
+    {
+        heading = RailHeading.AlongAlignment;
+        atStep = null;
+        assemblyId = null;
+        var index = 1;
+        if (index < arguments.Count && string.Equals(arguments[index], "assembly", StringComparison.OrdinalIgnoreCase))
+        {
+            if (index + 1 >= arguments.Count || !TryEntityId(arguments[index + 1], out var id))
+                return false;
+            assemblyId = id;
+            index += 2;
+        }
+
+        if (index < arguments.Count && string.Equals(arguments[index], "reverse", StringComparison.OrdinalIgnoreCase))
+        {
+            heading = RailHeading.AgainstAlignment;
+            index++;
+        }
+
+        if (index < arguments.Count)
+        {
+            if (!TryStep(arguments[index], out var step))
+                return false;
+            atStep = step;
+            index++;
+        }
+
+        return index == arguments.Count;
+    }
+
+    private static bool TryStopArguments(
+        IReadOnlyList<string> arguments,
+        out ulong? atStep,
+        out EntityId? assemblyId)
+    {
+        atStep = null;
+        assemblyId = null;
+        var index = 1;
+        if (index < arguments.Count && string.Equals(arguments[index], "assembly", StringComparison.OrdinalIgnoreCase))
+        {
+            if (index + 1 >= arguments.Count || !TryEntityId(arguments[index + 1], out var id))
+                return false;
+            assemblyId = id;
+            index += 2;
+        }
+
+        if (index < arguments.Count)
+        {
+            if (!TryStep(arguments[index], out var step))
+                return false;
+            atStep = step;
+            index++;
+        }
+
+        return index == arguments.Count;
+    }
+
     private static bool TryStep(string text, out ulong step) =>
         ulong.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out step);
+
+    private static bool TryEntityId(string text, out EntityId id)
+    {
+        id = default;
+        if (!ulong.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) || value == 0)
+            return false;
+        id = new EntityId(value);
+        return true;
+    }
 
     private static bool TryCell(IReadOnlyList<string> arguments, int start, out WorldVoxelCoord cell)
     {

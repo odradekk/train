@@ -275,7 +275,6 @@ public sealed class TrainPersistenceTests
         AssertLoadKeeps(harness, Mutate(previous, root =>
         {
             var assembly = root["assemblies"]![0]!;
-            assembly["vehicle_ids"] = new JsonArray(assembly["active_locomotive_id"]!.DeepClone());
             assembly["connections"] = new JsonArray();
         }), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root => root["assemblies"]![0]!["running"] = false), before, fingerprint, sequence);
@@ -286,7 +285,12 @@ public sealed class TrainPersistenceTests
             occupancy[1] = occupancy[0]!.DeepClone();
         }), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root => root["railway"]!["sleeper_count"] = 0), before, fingerprint, sequence);
-        AssertLoadKeeps(harness, Mutate(previous, AddSecondAssembly), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, DuplicateVehiclesAcrossAssemblies), before, fingerprint, sequence);
+        File.WriteAllText(path, Mutate(previous, AddSecondAssembly));
+        using var multi = StaticTrainHarness.Create(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, multi.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(2, multi.Session.QueryTrainAssemblies().Count);
+        File.WriteAllText(path, previous);
         Assert.AreEqual(saved.SaveId, harness.Session.SaveId);
 
         Assert.AreEqual(previous, File.ReadAllText(path));
@@ -571,6 +575,16 @@ public sealed class TrainPersistenceTests
         var root = JsonNode.Parse(json)!.AsObject();
         mutate(root);
         return root.ToJsonString();
+    }
+
+    private static void DuplicateVehiclesAcrossAssemblies(JsonObject root)
+    {
+        var first = root["assemblies"]![0]!.AsObject();
+        var second = first.DeepClone().AsObject();
+        second["id"] = first["id"]!.GetValue<ulong>() + 1000;
+        root["assemblies"]!.AsArray().Add(second);
+        var next = Math.Max(root["next_entity_id"]!.GetValue<ulong>(), second["id"]!.GetValue<ulong>() + 1);
+        root["next_entity_id"] = next;
     }
 
     private static void AddSecondAssembly(JsonObject root)

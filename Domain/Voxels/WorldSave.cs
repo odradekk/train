@@ -1176,6 +1176,7 @@ public static class WorldSaveRestorer
                 catalog,
                 out var rails,
                 out var assemblies,
+                out var commands,
                 out status))
             return false;
         restore = new WorldSaveRestore(
@@ -1186,7 +1187,7 @@ public static class WorldSaveRestorer
             rails,
             assemblies,
             document.SimulationStep,
-            document.ScheduledCommands,
+            commands,
             document.ScheduledSequence);
         status = WorldSaveStatus.Loaded;
         return true;

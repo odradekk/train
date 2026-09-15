@@ -1074,7 +1074,14 @@ public partial class VoxelDeveloperScene : Node3D
             var assemblies = _session.QueryTrainAssemblies();
             var assemblyText = assemblies.Count == 0
                 ? ""
-                : $" 编组 {assemblies[0].Id} 活动车头 {assemblies[0].ActiveLocomotiveId} 车钩 {assemblies[0].Connections[0].FromPartId}->{assemblies[0].Connections[0].ToPartId} 速度 {assemblies[0].Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} 牵引 {(assemblies[0].Running ? "开" : "关")} 步 {_session.SimulationStep}{(_session.SimulationPaused ? " 暂停" : "")}。";
+                : " " + string.Join(" ", assemblies.Select(item =>
+                {
+                    var coupler = item.Connections.Count == 0
+                        ? "无车钩"
+                        : $"车钩 {item.Connections[0].FromPartId}->{item.Connections[0].ToPartId}";
+                    var front = item.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture);
+                    return $"编组 {item.Id} 活动车头 {item.ActiveLocomotiveId?.ToString() ?? "无"} {coupler} 前接触 {front} 速度 {item.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} 牵引 {(item.Running ? "开" : "关")}";
+                })) + $" 图 {_session.AssemblyGraphGeneration} 步 {_session.SimulationStep}{(_session.SimulationPaused ? " 暂停" : "")}。";
             return $"车辆 {vehicles.Count}：{summary}。{assemblyText}显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
         }
 
@@ -4275,15 +4282,11 @@ public partial class VoxelDeveloperScene : Node3D
                 var loaded = _session.Load(saveId);
                 if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
                     throw new InvalidOperationException($"Slice 4 persist smoke could not load {saveId:D}: {loaded.Status}.");
-                var restored = RequireSlice4Assembly();
-                if (_session.SimulationStep != 900 ||
-                    Math.Abs(restored.Vehicles[0].FrontContact.X - 136) > 1e-8 ||
-                    Math.Abs(restored.Speed - 4) > 1e-8 ||
-                    !restored.Running)
-                    throw new InvalidOperationException(
-                        $"Slice 4 resume loaded step={_session.SimulationStep} front={restored.Vehicles[0].FrontContact.X} speed={restored.Speed}.");
+                var restored = RequireSlice4CoastAssemblies(98, 88.875, 4, 3.5, frontRunning: true);
+                if (_session.SimulationStep != 330)
+                    throw new InvalidOperationException($"Slice 4 resume loaded step={_session.SimulationStep}.");
                 GD.Print(
-                    $"VOXEL_SMOKE_SLICE4_RESUME_LOADED id={saveId:D} step={_session.SimulationStep} front={restored.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={restored.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hash={WorldSaveAuthority.Fingerprint(_session)} name={loaded.DisplayName}");
+                    $"VOXEL_SMOKE_SLICE4_RESUME_LOADED id={saveId:D} step={_session.SimulationStep} loco={restored.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={restored.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} loco_speed={restored.Loco.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage_speed={restored.Carriage.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hash={WorldSaveAuthority.Fingerprint(_session)} name={loaded.DisplayName}");
                 _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.AwaitLoad;
                 return;
             }
@@ -4296,7 +4299,15 @@ public partial class VoxelDeveloperScene : Node3D
                 _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.ContinueMotion;
                 return;
             case VoxelSlice4ResumeSmokePhase.ContinueMotion:
-                ContinueSlice4MotionToStop();
+                if (!_session.AdvanceSimulation(30).Succeeded || _session.SimulationStep != 360)
+                    throw new InvalidOperationException("Slice 4 smoke could not continue coasting after resume.");
+                var continued = RequireSlice4CoastAssemblies();
+                if (Math.Abs(continued.Loco.Vehicles[0].FrontContact.X - 100) > 1e-8 ||
+                    Math.Abs(continued.Carriage.Vehicles[0].FrontContact.X - 90.5) > 1e-8)
+                    throw new InvalidOperationException(
+                        $"Slice 4 resumed coast is {continued.Loco.Vehicles[0].FrontContact.X},{continued.Carriage.Vehicles[0].FrontContact.X}.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_COAST_RESUMED loco={continued.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={continued.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
                 _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.AwaitContinueVisual;
                 return;
             case VoxelSlice4ResumeSmokePhase.AwaitContinueVisual:
@@ -4305,6 +4316,20 @@ public partial class VoxelDeveloperScene : Node3D
                 ValidateCompositeVisual();
                 GD.Print(
                     $"VOXEL_SMOKE_SLICE4_RESUME_TRANSFORM_ONLY rebuilt={(_composites.LastSync == CompositeVisualSyncKind.TransformOnly ? 0 : 1)} meshes={_composites.MeshInstanceCount}");
+                ResetSlice4AfterMotion();
+                if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+                    !_session.AdvanceSimulation(900).Succeeded ||
+                    _session.SimulationStep != 900)
+                    throw new InvalidOperationException("Slice 4 smoke could not rebuild and reach step 900 after coast resume.");
+                var step900 = RequireSlice4Assembly();
+                if (Math.Abs(step900.Vehicles[0].FrontContact.X - 136) > 1e-8 ||
+                    Math.Abs(step900.Speed - 4) > 1e-8 ||
+                    !step900.Running)
+                    throw new InvalidOperationException(
+                        $"Slice 4 step 900 is {step900.Vehicles[0].FrontContact.X},{step900.Speed},{step900.Running}.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_STEP900 loco={step900.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step900.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hash={WorldSaveAuthority.Fingerprint(_session)}");
+                ContinueSlice4MotionToStop();
                 RunSlice4EndStopSmoke();
                 _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitResetAfterMotion;
                 _slice4ResumeSmokePhase = VoxelSlice4ResumeSmokePhase.Done;
@@ -4380,19 +4405,10 @@ public partial class VoxelDeveloperScene : Node3D
                 if (!_slice4TrainMeshIds.SequenceEqual(_composites.MeshInstanceIds))
                     throw new InvalidOperationException("Slice 4 motion replaced composite mesh instances.");
                 GD.Print("VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY rebuilt=0");
-                if (!_session.AdvanceSimulation(600).Succeeded || _session.SimulationStep != 900)
-                    throw new InvalidOperationException("Slice 4 smoke could not continue to step 900.");
-                var step900 = RequireSlice4Assembly();
-                if (Math.Abs(step900.Vehicles[0].FrontContact.X - 136) > 1e-8 ||
-                    Math.Abs(step900.Speed - 4) > 1e-8 ||
-                    !step900.Running)
-                    throw new InvalidOperationException(
-                        $"Slice 4 step 900 is {step900.Vehicles[0].FrontContact.X},{step900.Speed},{step900.Running}.");
-                GD.Print(
-                    $"VOXEL_SMOKE_SLICE4_STEP900 loco={step900.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step900.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hash={WorldSaveAuthority.Fingerprint(_session)}");
-                var saved = _session.Save("Slice 4 Step 900");
+                RunSlice4CouplerCoastSmoke();
+                var saved = _session.Save("Slice 4 Step 330");
                 if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
-                    throw new InvalidOperationException($"Slice 4 smoke could not save at step 900: {saved.Status}.");
+                    throw new InvalidOperationException($"Slice 4 smoke could not save at step 330: {saved.Status}.");
                 var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
                 if (!File.Exists(path))
                     throw new InvalidOperationException($"Slice 4 smoke save file was not created at {path}.");
@@ -4577,6 +4593,50 @@ public partial class VoxelDeveloperScene : Node3D
                 $"Slice 4 step 300 is {step300.Vehicles[0].FrontContact.X},{step300.Vehicles[1].FrontContact.X},{step300.Speed}.");
         GD.Print(
             $"VOXEL_SMOKE_SLICE4_STEP300 loco={step300.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={step300.Vehicles[1].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step300.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+    }
+
+    private void RunSlice4CouplerCoastSmoke()
+    {
+        var assembled = RequireSlice4Assembly();
+        var coupler = assembled.Connections[0];
+        var damaged = _session.Damage(assembled.ActiveLocomotiveId!.Value, coupler.FromCell, 100);
+        if (!damaged.Succeeded || damaged.Targets is null || damaged.Targets[0].PartId != coupler.FromPartId)
+            throw new InvalidOperationException($"Slice 4 smoke could not destroy the locomotive rear coupler: {damaged.Status}.");
+        var split = RequireSlice4CoastAssemblies(96, 87, 4, 4, frontRunning: true);
+        GD.Print(
+            $"VOXEL_SMOKE_SLICE4_COAST_SPLIT assemblies={_session.QueryTrainAssemblies().Count} graph={_session.AssemblyGraphGeneration} loco={split.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={split.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+        if (!_session.AdvanceSimulation(30).Succeeded || _session.SimulationStep != 330)
+            throw new InvalidOperationException("Slice 4 smoke could not coast 30 steps after coupler damage.");
+        var coasted = RequireSlice4CoastAssemblies(98, 88.875, 4, 3.5, frontRunning: true);
+        GD.Print(
+            $"VOXEL_SMOKE_SLICE4_COAST_STEP330 loco={coasted.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={coasted.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} loco_speed={coasted.Loco.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage_speed={coasted.Carriage.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+    }
+
+    private (TrainAssemblyQuery Loco, TrainAssemblyQuery Carriage) RequireSlice4CoastAssemblies(
+        double? locoFront = null,
+        double? carriageFront = null,
+        double? locoSpeed = null,
+        double? carriageSpeed = null,
+        bool? frontRunning = null)
+    {
+        var assemblies = _session.QueryTrainAssemblies();
+        if (assemblies.Count != 2)
+            throw new InvalidOperationException($"Slice 4 smoke expected two assemblies, got {assemblies.Count}.");
+        var loco = assemblies.Single(item => item.ActiveLocomotiveId is not null);
+        var carriage = assemblies.Single(item => item.ActiveLocomotiveId is null);
+        if (locoFront is { } expectedLoco && Math.Abs(loco.Vehicles[0].FrontContact.X - expectedLoco) > 1e-8)
+            throw new InvalidOperationException($"Slice 4 loco front is {loco.Vehicles[0].FrontContact.X}.");
+        if (carriageFront is { } expectedCarriage && Math.Abs(carriage.Vehicles[0].FrontContact.X - expectedCarriage) > 1e-8)
+            throw new InvalidOperationException($"Slice 4 carriage front is {carriage.Vehicles[0].FrontContact.X}.");
+        if (locoSpeed is { } expectedLocoSpeed && Math.Abs(loco.Speed - expectedLocoSpeed) > 1e-8)
+            throw new InvalidOperationException($"Slice 4 loco speed is {loco.Speed}.");
+        if (carriageSpeed is { } expectedCarriageSpeed && Math.Abs(carriage.Speed - expectedCarriageSpeed) > 1e-8)
+            throw new InvalidOperationException($"Slice 4 carriage speed is {carriage.Speed}.");
+        if (frontRunning is { } expectedRunning && loco.Running != expectedRunning)
+            throw new InvalidOperationException($"Slice 4 loco running is {loco.Running}.");
+        if (carriage.Running)
+            throw new InvalidOperationException("Slice 4 coasting carriage is still running.");
+        return (loco, carriage);
     }
 
     private void ContinueSlice4MotionToStop()

@@ -12,11 +12,12 @@ param(
 # rail construction / occupancy / local damage (#68), the static
 # locomotive-and-carriage assembly (#69), fixed-step traction /
 # start-stop / cross-segment motion (#70), and formal railway /
-# running-train file save plus a real new-process load (#71).
+# running-train file save plus a real new-process load (#71), and
+# coupler destruction with independent coasting plus a 330-step persist (#72).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
 # Slice 4 uses the same isolated two-process path: process 1 saves the
-# running train at step 900, process 2 loads that file and continues.
+# split coasting trains at step 330, process 2 loads that file and continues.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -145,10 +146,10 @@ $output = ""
 $userData = $null
 try {
     if (-not $IsolationAbort -and $Slice -in 2, 3, 4) {
-        $prefix = if ($Slice -eq 4) { "train-issue71-smoke-" } elseif ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
+        $prefix = if ($Slice -eq 4) { "train-issue72-smoke-" } elseif ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
         $writtenMarker = if ($Slice -eq 4) { "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN" } elseif ($Slice -eq 3) { "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN" } else { "VOXEL_SMOKE_SAVE_WRITTEN" }
         $writeAfter = if ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 700 } else { 240 }
-        $resumeAfter = if ($Slice -eq 4) { 400 } elseif ($Slice -eq 3) { 200 } else { 120 }
+        $resumeAfter = if ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 200 } else { 120 }
         $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($prefix + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Force -Path $userData | Out-Null
         $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
@@ -229,10 +230,13 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_REVERSE_REJECTED",
         "VOXEL_SMOKE_SLICE4_STEP300",
         "VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY",
-        "VOXEL_SMOKE_SLICE4_STEP900",
+        "VOXEL_SMOKE_SLICE4_COAST_SPLIT",
+        "VOXEL_SMOKE_SLICE4_COAST_STEP330",
         "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN",
         "VOXEL_SMOKE_SLICE4_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE4_COAST_RESUMED",
         "VOXEL_SMOKE_SLICE4_RESUME_TRANSFORM_ONLY",
+        "VOXEL_SMOKE_SLICE4_STEP900",
         "VOXEL_SMOKE_SLICE4_CROSS_SEAM",
         "VOXEL_SMOKE_SLICE4_STEP1800",
         "VOXEL_SMOKE_SLICE4_STOPPED",
@@ -394,6 +398,16 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_MENU_REENTERED"
     )
 }
+$logDir = Join-Path $root ".godot/validation/issue-72-review"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+@(
+    "os=$([System.Environment]::OSVersion.VersionString)"
+    "godot=$godot"
+    "slice=$Slice"
+    "pwsh=$($PSVersionTable.PSVersion)"
+) | Set-Content -LiteralPath (Join-Path $logDir "env.txt")
+Set-Content -LiteralPath (Join-Path $logDir "slice$Slice-smoke.log") -Value $output
+
 $missing = @($required | Where-Object { $output -notlike "*$_*" })
 if ($output -match 'NullReferenceException' -or $output -match 'ERROR: System\.') {
     [Console]::Error.WriteLine("Godot voxel smoke failed. Unexpected exception in engine output.")

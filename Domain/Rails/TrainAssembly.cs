@@ -70,7 +70,7 @@ public sealed record TrainVehiclePoseQuery(
 
 public sealed record TrainAssemblyQuery(
     EntityId Id,
-    EntityId ActiveLocomotiveId,
+    EntityId? ActiveLocomotiveId,
     RailPosition Reference,
     IReadOnlyList<EntityId> VehicleIds,
     IReadOnlyList<CouplerConnectionQuery> Connections,
@@ -142,7 +142,7 @@ public sealed record TrainAuthoritySnapshot(
 public sealed class TrainAssembly
 {
     public EntityId Id { get; }
-    public EntityId ActiveLocomotiveId { get; }
+    public EntityId? ActiveLocomotiveId { get; }
     public RailPosition Reference { get; }
     public IReadOnlyList<EntityId> VehicleIds { get; }
     public IReadOnlyList<CouplerConnectionQuery> Connections { get; }
@@ -151,7 +151,7 @@ public sealed class TrainAssembly
 
     public TrainAssembly(
         EntityId id,
-        EntityId activeLocomotiveId,
+        EntityId? activeLocomotiveId,
         RailPosition reference,
         IReadOnlyList<EntityId> vehicleIds,
         IReadOnlyList<CouplerConnectionQuery> connections,

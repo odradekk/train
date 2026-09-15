@@ -1,3 +1,5 @@
+using Train.Domain.Composites;
+
 namespace Train.Domain.Rails;
 
 public enum TrainMotionStatus
@@ -17,10 +19,15 @@ public enum TrainMotionStatus
     VehicleConstraint = 12,
     StepOverflow = 13,
     TransactionExhausted = 14,
-    PastStep = 15
+    PastStep = 15,
+    UnknownAssembly = 16
 }
 
-public sealed record ScheduledTrainCommandQuery(ulong AtStep, bool Start, ulong Sequence);
+public sealed record ScheduledTrainCommandQuery(
+    ulong AtStep,
+    bool Start,
+    ulong Sequence,
+    EntityId? AssemblyId = null);
 
 public sealed record TrainMotionResult(
     TrainMotionStatus Status,

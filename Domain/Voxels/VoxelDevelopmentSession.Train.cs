@@ -15,7 +15,11 @@ public sealed partial class VoxelDevelopmentSession
 
     public ulong ScheduledCommandSequence => _scheduledSequence;
 
-    private readonly record struct ScheduledTrainCommand(ulong AtStep, bool Start, ulong Sequence);
+    private readonly record struct ScheduledTrainCommand(
+        ulong AtStep,
+        bool Start,
+        ulong Sequence,
+        EntityId AssemblyId);
 
     public TrainAssemblyResult AssembleStaticTrain()
     {
@@ -72,6 +76,7 @@ public sealed partial class VoxelDevelopmentSession
             new[] { connection }));
         NextEntityId = next;
         CommitTransaction();
+        NoteAssemblyGraphCommit();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new TrainAssemblyResult(TrainAssemblyStatus.Formed, assemblyId);
@@ -115,6 +120,7 @@ public sealed partial class VoxelDevelopmentSession
             new[] { posedLoco.Id, posedCarriage.Id },
             new[] { connection }));
         CommitTransaction();
+        NoteAssemblyGraphCommit();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new TrainAssemblyResult(TrainAssemblyStatus.Formed, assemblyId);
@@ -135,30 +141,30 @@ public sealed partial class VoxelDevelopmentSession
     public IReadOnlyList<ScheduledTrainCommandQuery> QueryScheduledTrainCommands() =>
         _scheduled
             .OrderBy(item => item.Sequence)
-            .Select(item => new ScheduledTrainCommandQuery(item.AtStep, item.Start, item.Sequence))
+            .Select(item => new ScheduledTrainCommandQuery(item.AtStep, item.Start, item.Sequence, item.AssemblyId))
             .ToArray();
 
     public ulong CollectHostSteps(double displayDelta) =>
         _hostScheduler.CollectSteps(displayDelta, SimulationPaused);
 
-    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null)
+    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null, EntityId? assemblyId = null)
     {
         if (heading == RailHeading.AgainstAlignment)
             return RejectMotion(TrainMotionStatus.ReverseUnsupported);
         if (!HasRailway)
             return RejectMotion(TrainMotionStatus.NoRailway);
-        if (_assemblies.Count == 0)
-            return RejectMotion(TrainMotionStatus.NoAssembly);
+        if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
+            return RejectMotion(status);
 
-        return AcceptTrainCommand(atStep ?? SimulationStep, start: true);
+        return AcceptTrainCommand(atStep ?? SimulationStep, start: true, target.Id);
     }
 
-    public TrainMotionResult StopTrain(ulong? atStep = null)
+    public TrainMotionResult StopTrain(ulong? atStep = null, EntityId? assemblyId = null)
     {
-        if (_assemblies.Count == 0)
-            return RejectMotion(TrainMotionStatus.NoAssembly);
+        if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
+            return RejectMotion(status);
 
-        return AcceptTrainCommand(atStep ?? SimulationStep, start: false);
+        return AcceptTrainCommand(atStep ?? SimulationStep, start: false, target.Id);
     }
 
     public TrainMotionResult PauseSimulation()
@@ -191,7 +197,7 @@ public sealed partial class VoxelDevelopmentSession
                 return RejectMotion(scheduledStatus);
             }
 
-            if (_assemblies.Count > 0 && !TryAdvanceOneAssembly(out var status))
+            if (!TryAdvanceAllAssemblies(out var status))
             {
                 RestoreMotionSnapshot(snapshot);
                 return RejectMotion(status);
@@ -210,26 +216,331 @@ public sealed partial class VoxelDevelopmentSession
         return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, steps);
     }
 
-    private void DissolveBrokenAssemblies()
+    private bool TryResolveCommandTarget(EntityId? assemblyId, out TrainAssembly target, out TrainMotionStatus status)
     {
-        _assemblies.RemoveAll(assembly =>
-            assembly.Connections.Any(connection =>
-                !HasLivePart(connection.FromVehicleId, connection.FromPartId) ||
-                !HasLivePart(connection.ToVehicleId, connection.ToPartId)) ||
-            assembly.VehicleIds.Any(id => !HasRequiredContacts(id)));
+        target = null!;
+        status = TrainMotionStatus.Started;
+        if (_assemblies.Count == 0)
+        {
+            status = TrainMotionStatus.NoAssembly;
+            return false;
+        }
+
+        if (assemblyId is { } id)
+        {
+            var found = _assemblies.FirstOrDefault(item => item.Id == id);
+            if (found is null)
+            {
+                status = TrainMotionStatus.UnknownAssembly;
+                return false;
+            }
+
+            target = found;
+            return true;
+        }
+
+        if (_assemblies.Count > 1)
+        {
+            status = TrainMotionStatus.UnknownAssembly;
+            return false;
+        }
+
+        target = _assemblies[0];
+        return true;
+    }
+
+    private IReadOnlyList<CompositeInstance> ProjectDamagedVehicles(
+        IReadOnlyList<VehicleDamagePlan> plans,
+        ref ulong next,
+        ulong transactionCount)
+    {
+        var replacements = _vehicles.ToDictionary(item => item.Id);
+        foreach (var plan in plans.OrderBy(item => item.Vehicle.Id.Value))
+        {
+            replacements.Remove(plan.Vehicle.Id);
+            foreach (var successor in MaterializeDamageReplacements(plan, ref next, transactionCount))
+                replacements[successor.Id] = successor;
+        }
+
+        return replacements.Values.OrderBy(item => item.Id.Value).ToArray();
+    }
+
+    private List<CompositeInstance> MaterializeDamageReplacements(
+        VehicleDamagePlan plan,
+        ref ulong next,
+        ulong transactionCount)
+    {
+        var replacements = new List<CompositeInstance>();
+        var survivors = plan.Survivors;
+        if (survivors.Count == 1)
+        {
+            replacements.Add(Successor(plan.Vehicle, plan.Vehicle.Id, survivors[0].Parts));
+        }
+        else if (survivors.Count > 1)
+        {
+            var maxValue = survivors.Max(item => item.Value);
+            var primaryCandidate = SplitMix64.SelectPrimaryCandidate(
+                Identity.Seed,
+                transactionCount,
+                survivors.Where(item => item.Value == maxValue).Select(item => item.Candidate).ToArray());
+            var primary = survivors.First(item => item.Value == maxValue && item.Candidate == primaryCandidate);
+            replacements.Add(Successor(plan.Vehicle, plan.Vehicle.Id, primary.Parts));
+            foreach (var secondary in survivors.Where(item => item.Candidate != primary.Candidate).OrderBy(item => item.Candidate))
+                replacements.Add(Successor(plan.Vehicle, new EntityId(next++), secondary.Parts));
+        }
+
+        return replacements;
+    }
+
+    private bool TryPlanAssemblyRebuild(
+        IReadOnlyList<CompositeInstance> vehicles,
+        ref ulong next,
+        out IReadOnlyList<TrainAssembly> planned)
+    {
+        planned = Array.Empty<TrainAssembly>();
+        var origins = vehicles.ToDictionary(item => item.Id, item => OriginVehicleId(item, _vehicles));
+        var scoped = AssemblyRebuildCandidates(vehicles, origins);
+        var partOwner = new Dictionary<EntityId, EntityId>();
+        foreach (var vehicle in scoped)
+        {
+            foreach (var part in vehicle.Parts)
+                partOwner[part.Id] = vehicle.Id;
+        }
+
+        var connections = new List<CouplerConnectionQuery>();
+        foreach (var connection in _assemblies.SelectMany(item => item.Connections))
+        {
+            if (!partOwner.TryGetValue(connection.FromPartId, out var fromId) ||
+                !partOwner.TryGetValue(connection.ToPartId, out var toId) ||
+                fromId == toId)
+                continue;
+            connections.Add(connection with { FromVehicleId = fromId, ToVehicleId = toId });
+        }
+
+        var link = scoped.ToDictionary(item => item.Id, item => item.Id);
+        EntityId Find(EntityId id)
+        {
+            while (link[id] != id)
+                id = link[id] = link[link[id]];
+            return id;
+        }
+
+        void Union(EntityId left, EntityId right)
+        {
+            var a = Find(left);
+            var b = Find(right);
+            if (a.Value <= b.Value)
+                link[b] = a;
+            else
+                link[a] = b;
+        }
+
+        foreach (var connection in connections)
+            Union(connection.FromVehicleId, connection.ToVehicleId);
+
+        var originAssembly = _vehicles.ToDictionary(
+            item => item.Id,
+            item => _assemblies.FirstOrDefault(assembly => assembly.VehicleIds.Contains(item.Id)));
+        var groups = new List<RebuiltGroup>();
+        foreach (var cluster in scoped.GroupBy(item => Find(item.Id)).OrderBy(group => group.Key.Value))
+        {
+            var members = cluster.OrderBy(item => item.Id.Value).ToArray();
+            if (members.Any(member => !IsRailEligible(member)))
+                continue;
+            var memberIds = members.Select(item => item.Id).ToArray();
+            var liveConnections = connections
+                .Where(item => memberIds.Contains(item.FromVehicleId) && memberIds.Contains(item.ToVehicleId))
+                .OrderBy(item => item.FromVehicleId.Value)
+                .ThenBy(item => item.ToVehicleId.Value)
+                .ToArray();
+            if (members.Length == 2 && liveConnections.Length != 1)
+                continue;
+            if (members.Length > 2 && liveConnections.Length != members.Length - 1)
+                continue;
+            if (!TryAssemblyContacts(members, out var contacts) ||
+                !StraightTrainSolver.TryToWorldContact(members[0], 0, out var front) ||
+                !StraightTrainSolver.TryResolveReference(
+                    _rails,
+                    World,
+                    (front.X, front.Y, front.Z),
+                    RailHeading.AlongAlignment,
+                    out var reference))
+                continue;
+            if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, reference))
+                continue;
+
+            var parent = members
+                .Select(member => originAssembly.GetValueOrDefault(origins[member.Id]))
+                .OfType<TrainAssembly>()
+                .Distinct()
+                .OrderBy(item => item.Id.Value)
+                .FirstOrDefault();
+            if (parent is null)
+                continue;
+            groups.Add(new RebuiltGroup(members, liveConnections, reference, parent));
+        }
+
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before rebuilding assemblies.");
+        var items = new List<TrainAssembly>();
+        var remaining = groups.ToList();
+        foreach (var parent in _assemblies.OrderBy(item => item.Id.Value))
+        {
+            var children = remaining.Where(item => item.Parent.Id == parent.Id).ToArray();
+            if (children.Length == 0)
+                continue;
+            var inheritor = ChooseInheritedGroup(parent, children, origins);
+            foreach (var child in children)
+            {
+                EntityId assemblyId;
+                if (child.Members[0].Id == inheritor.Members[0].Id)
+                {
+                    assemblyId = parent.Id;
+                }
+                else
+                {
+                    if (next == 0 || next == ulong.MaxValue)
+                        return false;
+                    assemblyId = new EntityId(next++);
+                }
+
+                items.Add(MaterializeRebuiltAssembly(assemblyId, child, parent, origins, voxels));
+                remaining.Remove(child);
+            }
+        }
+
+        planned = items.OrderBy(item => item.Id.Value).ToArray();
+        return true;
+    }
+
+    private IReadOnlyList<CompositeInstance> AssemblyRebuildCandidates(
+        IReadOnlyList<CompositeInstance> vehicles,
+        IReadOnlyDictionary<EntityId, EntityId> origins)
+    {
+        var scoped = new HashSet<EntityId>();
+        foreach (var assembly in _assemblies)
+        {
+            foreach (var id in assembly.VehicleIds)
+            {
+                scoped.Add(id);
+                foreach (var vehicle in vehicles)
+                {
+                    if (vehicle.Id == id || origins[vehicle.Id] == id)
+                        scoped.Add(vehicle.Id);
+                }
+            }
+        }
+
+        return vehicles.Where(item => scoped.Contains(item.Id)).OrderBy(item => item.Id.Value).ToArray();
+    }
+
+    private static RebuiltGroup ChooseInheritedGroup(
+        TrainAssembly parent,
+        IReadOnlyList<RebuiltGroup> children,
+        IReadOnlyDictionary<EntityId, EntityId> origins)
+    {
+        if (children.Count == 1)
+            return children[0];
+        if (parent.ActiveLocomotiveId is { } locoId)
+        {
+            var powered = children.FirstOrDefault(item =>
+                item.Members.Any(member => member.Id == locoId || origins[member.Id] == locoId));
+            if (powered.Members is { Length: > 0 })
+                return powered;
+        }
+
+        foreach (var vehicleId in parent.VehicleIds)
+        {
+            var successor = children.FirstOrDefault(item =>
+                item.Members.Any(member => member.Id == vehicleId || origins[member.Id] == vehicleId));
+            if (successor.Members is { Length: > 0 })
+                return successor;
+        }
+
+        return children[0];
+    }
+
+    private static TrainAssembly MaterializeRebuiltAssembly(
+        EntityId assemblyId,
+        RebuiltGroup group,
+        TrainAssembly parent,
+        IReadOnlyDictionary<EntityId, EntityId> origins,
+        VoxelCatalogSnapshot voxels)
+    {
+        var memberIds = group.Members.Select(item => item.Id).ToArray();
+        EntityId? activeLoco = null;
+        var running = false;
+        if (parent.ActiveLocomotiveId is { } sourceLoco)
+        {
+            var locomotive = group.Members.FirstOrDefault(item =>
+                item.Id == sourceLoco || origins[item.Id] == sourceLoco);
+            if (locomotive is not null &&
+                StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out _, out _))
+            {
+                activeLoco = locomotive.Id;
+                running = parent.Running;
+            }
+        }
+
+        var inheritedOrder = parent.VehicleIds
+            .Select(id => group.Members.FirstOrDefault(member => member.Id == id || origins[member.Id] == id)?.Id)
+            .OfType<EntityId>()
+            .ToArray();
+        var orderedIds = inheritedOrder.Concat(memberIds.Where(id => !inheritedOrder.Contains(id))).ToArray();
+        return new TrainAssembly(
+            assemblyId,
+            activeLoco,
+            group.Reference,
+            orderedIds,
+            group.Connections,
+            parent.Speed,
+            running);
+    }
+
+    private readonly record struct RebuiltGroup(
+        CompositeInstance[] Members,
+        CouplerConnectionQuery[] Connections,
+        RailPosition Reference,
+        TrainAssembly Parent);
+
+    private static EntityId OriginVehicleId(CompositeInstance vehicle, IReadOnlyList<CompositeInstance> previous)
+    {
+        if (previous.Any(item => item.Id == vehicle.Id))
+            return vehicle.Id;
+        return previous
+            .Where(item => item.Parts.Any(part => vehicle.Parts.Any(candidate => candidate.Id == part.Id)))
+            .Select(item => item.Id)
+            .DefaultIfEmpty(vehicle.Id)
+            .First();
+    }
+
+    private bool IsRailEligible(CompositeInstance vehicle) =>
+        StraightTrainSolver.TryCollectLiveContacts(vehicle, out _, out _, out _);
+
+    private void ApplyPlannedAssemblies(IReadOnlyList<TrainAssembly> planned, ulong next)
+    {
+        ReconcileScheduledCommands(planned);
+        _assemblies.Clear();
+        _assemblies.AddRange(planned);
+        NextEntityId = next;
+        NoteAssemblyGraphCommit();
+    }
+
+    private void ReconcileScheduledCommands(IReadOnlyList<TrainAssembly> planned)
+    {
+        var live = planned.Select(item => item.Id).ToHashSet();
+        _scheduled.RemoveAll(command => !live.Contains(command.AssemblyId));
+    }
+
+    private void NoteAssemblyGraphCommit()
+    {
+        if (AssemblyGraphGeneration < ulong.MaxValue)
+            AssemblyGraphGeneration++;
     }
 
     private bool HasLivePart(EntityId vehicleId, EntityId partId)
     {
         var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
         return vehicle?.PartById(partId) is not null;
-    }
-
-    private bool HasRequiredContacts(EntityId vehicleId)
-    {
-        var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
-        return vehicle is not null &&
-               vehicle.Contacts.Count(contact => vehicle.PartAt(contact.BoundCell) is not null) >= 2;
     }
 
     private bool TryLoadPublished(
@@ -332,18 +643,18 @@ public sealed partial class VoxelDevelopmentSession
         _hostScheduler.Reset();
     }
 
-    private TrainMotionResult AcceptTrainCommand(ulong atStep, bool start)
+    private TrainMotionResult AcceptTrainCommand(ulong atStep, bool start, EntityId assemblyId)
     {
         if (atStep < SimulationStep)
             return RejectMotion(TrainMotionStatus.PastStep, atStep);
-        if (start && !CanStartNow(out var status))
+        if (start && !CanStartNow(assemblyId, out var status))
             return RejectMotion(status, atStep);
         if (!CanCommitTransaction() || _scheduledSequence == ulong.MaxValue)
             return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
 
         var snapshot = CaptureMotionSnapshot();
         CommitTransaction();
-        _scheduled.Add(new ScheduledTrainCommand(atStep, start, _scheduledSequence++));
+        _scheduled.Add(new ScheduledTrainCommand(atStep, start, _scheduledSequence++, assemblyId));
         if (atStep == SimulationStep && !TryApplyScheduledCommands(SimulationStep, out var applyStatus))
         {
             RestoreMotionSnapshot(snapshot);
@@ -364,31 +675,35 @@ public sealed partial class VoxelDevelopmentSession
         foreach (var command in due)
         {
             _scheduled.Remove(command);
-            if (_assemblies.Count == 0)
-                continue;
+            var index = _assemblies.FindIndex(item => item.Id == command.AssemblyId);
+            if (index < 0)
+            {
+                status = TrainMotionStatus.UnknownAssembly;
+                return false;
+            }
             if (command.Start)
             {
-                if (!CanStartNow(out status) && !_assemblies[0].Running)
+                if (!CanStartNow(command.AssemblyId, out status) && !_assemblies[index].Running)
                     return false;
-                ApplyStartCore();
+                ApplyStartCore(index);
             }
             else
-                ApplyStopCore();
+                ApplyStopCore(index);
         }
 
         return true;
     }
 
-    private void ApplyStartCore()
+    private void ApplyStartCore(int index)
     {
-        var assembly = _assemblies[0];
-        _assemblies[0] = assembly.WithMotion(assembly.Speed, running: true);
+        var assembly = _assemblies[index];
+        _assemblies[index] = assembly.WithMotion(assembly.Speed, running: true);
     }
 
-    private void ApplyStopCore() =>
-        _assemblies[0] = _assemblies[0].WithMotion(0, running: false);
+    private void ApplyStopCore(int index) =>
+        _assemblies[index] = _assemblies[index].WithMotion(0, running: false);
 
-    private bool CanStartNow(out TrainMotionStatus status)
+    private bool CanStartNow(EntityId assemblyId, out TrainMotionStatus status)
     {
         status = TrainMotionStatus.Started;
         if (!HasRailway)
@@ -397,43 +712,34 @@ public sealed partial class VoxelDevelopmentSession
             return false;
         }
 
-        if (_assemblies.Count == 0)
+        var assembly = _assemblies.FirstOrDefault(item => item.Id == assemblyId);
+        if (assembly is null)
         {
-            status = TrainMotionStatus.NoAssembly;
+            status = TrainMotionStatus.UnknownAssembly;
+            return false;
+        }
+
+        if (assembly.ActiveLocomotiveId is not { } locoId)
+        {
+            status = StartRefusalForUnpowered(assembly);
             return false;
         }
 
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before starting a train.");
-        var assembly = _assemblies[0];
-        var locomotive = _vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
-        var carriage = _vehicles.FirstOrDefault(item => item.Id == assembly.VehicleIds.FirstOrDefault(id => id != assembly.ActiveLocomotiveId));
-        if (locomotive is null || carriage is null)
+        var locomotive = _vehicles.FirstOrDefault(item => item.Id == locoId);
+        if (locomotive is null)
         {
             status = TrainMotionStatus.NoAssembly;
             return false;
         }
 
-        var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
-        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Propulsion))
+        if (!StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out _, out var locomotiveStatus))
         {
-            status = TrainMotionStatus.MissingPropulsion;
+            status = locomotiveStatus;
             return false;
         }
 
-        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Control))
-        {
-            status = TrainMotionStatus.MissingControl;
-            return false;
-        }
-
-        if (!StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
-        {
-            status = TrainMotionStatus.MissingPropulsion;
-            return false;
-        }
-
-        if (assembly.Connections.Count == 0 ||
-            assembly.Connections.Any(connection =>
+        if (assembly.Connections.Any(connection =>
                 !HasLivePart(connection.FromVehicleId, connection.FromPartId) ||
                 !HasLivePart(connection.ToVehicleId, connection.ToPartId)))
         {
@@ -441,7 +747,12 @@ public sealed partial class VoxelDevelopmentSession
             return false;
         }
 
-        if (!TryAssemblyContacts(locomotive, carriage, out var contacts))
+        var members = assembly.VehicleIds
+            .Select(id => _vehicles.FirstOrDefault(item => item.Id == id))
+            .OfType<CompositeInstance>()
+            .ToArray();
+        if (members.Length != assembly.VehicleIds.Count ||
+            !TryAssemblyContacts(members, out var contacts))
         {
             status = TrainMotionStatus.VehicleConstraint;
             return false;
@@ -456,35 +767,56 @@ public sealed partial class VoxelDevelopmentSession
         return true;
     }
 
-    private bool TryAdvanceOneAssembly(out TrainMotionStatus status)
+    private TrainMotionStatus StartRefusalForUnpowered(TrainAssembly assembly)
+    {
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before starting a train.");
+        foreach (var vehicleId in assembly.VehicleIds)
+        {
+            var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
+            if (vehicle is null)
+                continue;
+            var capabilities = TrainAssemblyRules.LiveCapabilities(vehicle, voxels);
+            if (TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Propulsion) &&
+                !TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Control))
+                return TrainMotionStatus.MissingControl;
+        }
+
+        return TrainMotionStatus.MissingPropulsion;
+    }
+
+    private bool TryAdvanceAllAssemblies(out TrainMotionStatus status)
     {
         status = TrainMotionStatus.Advanced;
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before advancing simulation.");
-        var assembly = _assemblies[0];
-        var locomotive = _vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
-        var carriage = _vehicles.FirstOrDefault(item => item.Id == assembly.VehicleIds.FirstOrDefault(id => id != assembly.ActiveLocomotiveId));
-        if (locomotive is null || carriage is null)
+        foreach (var assembly in _assemblies.OrderBy(item => item.Id.Value).ToArray())
         {
-            status = TrainMotionStatus.NoAssembly;
-            return false;
+            var members = assembly.VehicleIds
+                .Select(id => _vehicles.FirstOrDefault(item => item.Id == id))
+                .OfType<CompositeInstance>()
+                .ToArray();
+            if (members.Length != assembly.VehicleIds.Count)
+            {
+                status = TrainMotionStatus.NoAssembly;
+                return false;
+            }
+
+            if (!StraightTrainMotion.TryAdvanceAssembly(
+                    assembly,
+                    members,
+                    _rails,
+                    World,
+                    voxels,
+                    out var updated,
+                    out var moved,
+                    out status))
+                return false;
+
+            for (var index = 0; index < moved.Count; index++)
+                ReplaceVehicle(moved[index]);
+            var assemblyIndex = _assemblies.FindIndex(item => item.Id == assembly.Id);
+            _assemblies[assemblyIndex] = updated;
         }
 
-        if (!StraightTrainMotion.TryAdvanceAssembly(
-                assembly,
-                locomotive,
-                carriage,
-                _rails,
-                World,
-                voxels,
-                out var updated,
-                out var newLoco,
-                out var newCarriage,
-                out status))
-            return false;
-
-        ReplaceVehicle(newLoco);
-        ReplaceVehicle(newCarriage);
-        _assemblies[0] = updated;
         return true;
     }
 
@@ -518,12 +850,25 @@ public sealed partial class VoxelDevelopmentSession
         for (var index = 0; index < _assemblies.Count; index++)
         {
             var assembly = _assemblies[index];
-            var locomotive = _vehicles.FirstOrDefault(item => item.Id == assembly.ActiveLocomotiveId);
-            if (locomotive is null || !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out var propulsion))
+            var members = assembly.VehicleIds
+                .Select(id => _vehicles.FirstOrDefault(item => item.Id == id))
+                .OfType<CompositeInstance>()
+                .ToArray();
+            if (assembly.Running &&
+                assembly.ActiveLocomotiveId is { } locoId)
+            {
+                var locomotive = members.FirstOrDefault(item => item.Id == locoId);
+                if (locomotive is null ||
+                    !StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out var propulsion, out _))
+                    continue;
+                var speed = Math.Min(assembly.Speed, propulsion.TargetSpeed);
+                if (speed != assembly.Speed)
+                    _assemblies[index] = assembly.WithMotion(speed, assembly.Running);
                 continue;
-            var speed = Math.Min(assembly.Speed, propulsion.TargetSpeed);
-            if (speed != assembly.Speed)
-                _assemblies[index] = assembly.WithMotion(speed, assembly.Running);
+            }
+
+            if (assembly.Speed > 0 && !StraightTrainMotion.TryResolveTrackContact(members, voxels, out _))
+                continue;
         }
     }
 
@@ -531,24 +876,23 @@ public sealed partial class VoxelDevelopmentSession
         new(status, SimulationStep, AtStep: atStep ?? SimulationStep);
 
     private static bool TryAssemblyContacts(
-        CompositeInstance locomotive,
-        CompositeInstance carriage,
+        IReadOnlyList<CompositeInstance> members,
         out (double X, double Y, double Z)[] contacts)
     {
-        contacts = Array.Empty<(double X, double Y, double Z)>();
-        if (!StraightTrainSolver.TryToWorldContact(locomotive, 0, out var locoFront) ||
-            !StraightTrainSolver.TryToWorldContact(locomotive, 1, out var locoRear) ||
-            !StraightTrainSolver.TryToWorldContact(carriage, 0, out var carriageFront) ||
-            !StraightTrainSolver.TryToWorldContact(carriage, 1, out var carriageRear))
-            return false;
-        contacts =
-        [
-            (locoFront.X, locoFront.Y, locoFront.Z),
-            (locoRear.X, locoRear.Y, locoRear.Z),
-            (carriageFront.X, carriageFront.Y, carriageFront.Z),
-            (carriageRear.X, carriageRear.Y, carriageRear.Z)
-        ];
-        return true;
+        var collected = new List<(double X, double Y, double Z)>();
+        foreach (var member in members)
+        {
+            if (!StraightTrainSolver.TryCollectLiveContacts(member, out var vehicleContacts, out _, out _))
+            {
+                contacts = Array.Empty<(double X, double Y, double Z)>();
+                return false;
+            }
+
+            collected.AddRange(vehicleContacts);
+        }
+
+        contacts = collected.ToArray();
+        return contacts.Length > 0;
     }
 
     private sealed record MotionSnapshot(

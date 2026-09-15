@@ -11,6 +11,30 @@ public static class StraightTrainSolver
     public static (double X, double Y, double Z) WorldContact(CompositeTransform transform, CompositeContactAnchor contact) =>
         WorldPoint(transform, contact.X, contact.Y, contact.Z);
 
+    public static bool TryCollectLiveContacts(
+        CompositeInstance vehicle,
+        out (double X, double Y, double Z)[] contacts,
+        out WorldContactQuery front,
+        out WorldContactQuery rear)
+    {
+        contacts = Array.Empty<(double X, double Y, double Z)>();
+        front = default!;
+        rear = default!;
+        ArgumentNullException.ThrowIfNull(vehicle);
+        if (!TryToWorldContact(vehicle, 0, out front) || !TryToWorldContact(vehicle, 1, out rear))
+            return false;
+        if (Math.Abs(Distance((front.X, front.Y, front.Z), (rear.X, rear.Y, rear.Z)) - StaticTrainFixture.Wheelbase) >
+            StaticTrainFixture.ConstraintTolerance)
+            return false;
+        if (Math.Abs(front.Y - StraightRailFixture.CenterY) > StaticTrainFixture.ConstraintTolerance ||
+            Math.Abs(rear.Y - StraightRailFixture.CenterY) > StaticTrainFixture.ConstraintTolerance ||
+            Math.Abs(front.Z - StraightRailFixture.CenterZ) > StaticTrainFixture.ConstraintTolerance ||
+            Math.Abs(rear.Z - StraightRailFixture.CenterZ) > StaticTrainFixture.ConstraintTolerance)
+            return false;
+        contacts = [(front.X, front.Y, front.Z), (rear.X, rear.Y, rear.Z)];
+        return true;
+    }
+
     public static bool TryToWorldContact(CompositeInstance vehicle, int index, out WorldContactQuery query)
     {
         query = default!;
