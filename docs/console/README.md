@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行、运行中车钩破坏后的独立滑行，以及正式铁路 / 多编组运行停车与滑行状态的版本化文件存档）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行、运行中车钩破坏后的独立滑行、断轨安全停车与显式恢复，以及正式铁路 / 多编组运行停车与滑行状态的版本化文件存档）。
 
 ## 打开控制台与输入规则
 
@@ -251,11 +251,15 @@ composite query
 voxel damage 110 1 15 100
 rail query intervals
 rail query graph
+rail query assembly
+rail step 2000
+rail query assembly
 rail repair 110 1 15
+rail start
 voxel save After Railway
 ```
 
-空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id>`，以及各编组的 `assembly <id> speed … running … heading …`。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行，也不会移动已提交编组。修复恢复原身份。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，各编组姿态、速度、步号和待执行命令都保持原值。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
+空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id>`，以及各编组的 `assembly <id> speed … running … heading … halt …`。第 300 步后再伤害 `(110,1,15)` 100，第一段缺失 `x=110..111`；继续步进后车头前接触停在 `x=110` 入侧边界、速度 0、`halt forward-gap`，任何必要接触不得进入缺口，派生图在 `rebuild` 前为 stale 且不授权跨越。未修轨时 `rail start` 为 `DisconnectedPath`，零速与 `halt forward-gap` 保持。第 300 步伤害接触之间的 `(93,1,15)` 不立即冻结；由最先到达 `x=93` 的后方接触限位，抵达当步零速。拆分后再 `rail step 30` 伤害 `(88,1,15)` 100，仅后车立即零速并 `halt support-lost`，前车独立继续。修复只恢复可启动条件；有动力须再 `rail start` 从零加速，无动力后车仍是 `MissingPropulsion`。全毁第一段现存占格后，原轨段身份与定位几何保留、通行区间为空、`halt support-lost`；另建平行线不会接替旧引用，修原身份后才可启动。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，缺口停车、支撑失效与全毁引用都保持原权威状态且不自动解除停车。删除被引用轨段几何的坏档整次 `InvalidDelta`，当前会话与旧有效文件保留。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
 
 ### 切片 2 边界复现
 
@@ -408,7 +412,7 @@ composite query
 
 读档错误复现（独立用户数据）：对一个已保存的 UUID 执行 `voxel load` 后，把 `save.json` 的 `save_format_version` 改成 `1` 或 `99` 再加载，应得 `UnknownFormat` 且当前会话车辆数不变；删掉 `save_local_definitions` 或把零件朝向改成 `none`，分别得 `MissingDefinition` / `InvalidDelta`；缺文件得 `NotFound`。失败后仍可 `composite manufacture` 或加载上一份有效文件。
 
-目前没有独立的撤销命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail assemble`](rail-assemble.md) / [`rail start`](rail-start.md) / [`rail stop`](rail-stop.md) / [`rail pause`](rail-pause.md) / [`rail resume`](rail-resume.md) / [`rail step`](rail-step.md) / [`rail query`](rail-query.md) / [`rail repair`](rail-repair.md)，以及正式铁路 / 多编组运行停车与滑行状态的 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md)。完整断轨安全停车、平滑插值/跟随相机和正式设计器仍不在当前切片。
+目前没有独立的撤销命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail assemble`](rail-assemble.md) / [`rail start`](rail-start.md) / [`rail stop`](rail-stop.md) / [`rail pause`](rail-pause.md) / [`rail resume`](rail-resume.md) / [`rail step`](rail-step.md) / [`rail query`](rail-query.md) / [`rail repair`](rail-repair.md)，以及正式铁路 / 多编组运行停车、滑行与断轨安全停车状态的 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md)。平滑插值/跟随相机和正式设计器仍不在当前切片。
 
 ### 切片 3 五类原子改装
 

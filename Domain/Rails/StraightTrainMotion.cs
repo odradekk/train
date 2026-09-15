@@ -243,14 +243,20 @@ public static class StraightTrainMotion
             return false;
         }
 
+        if (!StraightTrainSolver.HasLiveSupport(rails, world, contacts, assembly.Reference))
+        {
+            updated = assembly.WithMotion(0, running: false);
+            return true;
+        }
+
         var intervals = StraightTrainSolver.ConnectedTraversableWorldX(rails, world, assembly.Reference);
         var allowed = StraightTrainSolver.MaxForwardTravel(contacts, intervals);
         var actualDx = Math.Min(Math.Max(0, requestedDx), allowed);
-        var hitLimit = actualDx + StaticTrainFixture.ConstraintTolerance < requestedDx ||
-                       allowed <= StaticTrainFixture.ConstraintTolerance;
+        var hitLimit = allowed <= StaticTrainFixture.ConstraintTolerance ||
+                       actualDx + StaticTrainFixture.ConstraintTolerance >= allowed;
         var newSpeed = hitLimit ? 0 : requestedSpeed;
         var running = assembly.Running && !hitLimit;
-        if (actualDx <= 0 && !hitLimit)
+        if (actualDx <= 0)
         {
             updated = assembly.WithMotion(newSpeed, running);
             return true;
@@ -284,9 +290,9 @@ public static class StraightTrainMotion
             return false;
         }
 
-        if (!StraightTrainSolver.HasContinuousSupport(rails, world, nextContacts, reference))
+        if (!StraightTrainSolver.HasLiveSupport(rails, world, nextContacts, reference))
         {
-            status = TrainMotionStatus.DisconnectedPath;
+            status = TrainMotionStatus.InsufficientSupport;
             return false;
         }
 

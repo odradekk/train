@@ -15,6 +15,14 @@ public readonly record struct RailPosition(EntityId SegmentId, double Distance, 
     public bool IsFinite => double.IsFinite(Distance);
 }
 
+public enum TrainHaltReason
+{
+    None = 0,
+    SupportLost = 1,
+    ForwardGap = 2,
+    EndOfLine = 3
+}
+
 public enum TrainAssemblyStatus
 {
     Formed = 0,
@@ -76,7 +84,8 @@ public sealed record TrainAssemblyQuery(
     IReadOnlyList<CouplerConnectionQuery> Connections,
     IReadOnlyList<TrainVehiclePoseQuery> Vehicles,
     double Speed = 0,
-    bool Running = false)
+    bool Running = false,
+    TrainHaltReason HaltReason = TrainHaltReason.None)
 {
     public bool Equals(TrainAssemblyQuery? other) =>
         other is not null &&
@@ -87,7 +96,8 @@ public sealed record TrainAssemblyQuery(
         Connections.SequenceEqual(other.Connections) &&
         Vehicles.SequenceEqual(other.Vehicles) &&
         Speed == other.Speed &&
-        Running == other.Running;
+        Running == other.Running &&
+        HaltReason == other.HaltReason;
 
     public override int GetHashCode()
     {
@@ -103,6 +113,7 @@ public sealed record TrainAssemblyQuery(
             hash.Add(vehicle);
         hash.Add(Speed);
         hash.Add(Running);
+        hash.Add(HaltReason);
         return hash.ToHashCode();
     }
 }

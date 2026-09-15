@@ -366,7 +366,7 @@ public sealed partial class VoxelDevelopmentSession
                     RailHeading.AlongAlignment,
                     out var reference))
                 continue;
-            if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, reference))
+            if (!StraightTrainSolver.HasLiveSupport(_rails, World, contacts, reference))
                 continue;
 
             var parent = members
@@ -623,6 +623,13 @@ public sealed partial class VoxelDevelopmentSession
             poses.Add(new TrainVehiclePoseQuery(vehicle.Id, vehicle.Transform, front, rear));
         }
 
+        var contacts = poses
+            .SelectMany(item => new[]
+            {
+                (item.FrontContact.X, item.FrontContact.Y, item.FrontContact.Z),
+                (item.RearContact.X, item.RearContact.Y, item.RearContact.Z)
+            })
+            .ToArray();
         return new TrainAssemblyQuery(
             assembly.Id,
             assembly.ActiveLocomotiveId,
@@ -631,7 +638,14 @@ public sealed partial class VoxelDevelopmentSession
             assembly.Connections,
             poses,
             assembly.Speed,
-            assembly.Running);
+            assembly.Running,
+            StraightTrainSolver.QueryHaltReason(
+                _rails,
+                World,
+                assembly.Reference,
+                contacts,
+                assembly.Speed,
+                assembly.Running));
     }
 
     private void ResetMotionState()
@@ -758,9 +772,23 @@ public sealed partial class VoxelDevelopmentSession
             return false;
         }
 
-        if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, assembly.Reference))
+        if (!StraightTrainSolver.HasLiveSupport(_rails, World, contacts, assembly.Reference))
         {
             status = TrainMotionStatus.InsufficientSupport;
+            return false;
+        }
+
+        var intervals = StraightTrainSolver.ConnectedTraversableWorldX(_rails, World, assembly.Reference);
+        if (StraightTrainSolver.MaxForwardTravel(contacts, intervals) <= 0 &&
+            StraightTrainSolver.QueryHaltReason(
+                _rails,
+                World,
+                assembly.Reference,
+                contacts,
+                assembly.Speed,
+                assembly.Running) == TrainHaltReason.ForwardGap)
+        {
+            status = TrainMotionStatus.DisconnectedPath;
             return false;
         }
 
@@ -787,6 +815,7 @@ public sealed partial class VoxelDevelopmentSession
     private bool TryAdvanceAllAssemblies(out TrainMotionStatus status)
     {
         status = TrainMotionStatus.Advanced;
+        var halted = false;
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before advancing simulation.");
         foreach (var assembly in _assemblies.OrderBy(item => item.Id.Value).ToArray())
         {
@@ -800,6 +829,7 @@ public sealed partial class VoxelDevelopmentSession
                 return false;
             }
 
+            var wasMoving = assembly.Running || assembly.Speed > 0;
             if (!StraightTrainMotion.TryAdvanceAssembly(
                     assembly,
                     members,
@@ -815,8 +845,16 @@ public sealed partial class VoxelDevelopmentSession
                 ReplaceVehicle(moved[index]);
             var assemblyIndex = _assemblies.FindIndex(item => item.Id == assembly.Id);
             _assemblies[assemblyIndex] = updated;
+            if (wasMoving && updated.Speed == 0 && !updated.Running)
+            {
+                var halt = ToQuery(updated)?.HaltReason ?? TrainHaltReason.SupportLost;
+                if (halt is TrainHaltReason.SupportLost or TrainHaltReason.ForwardGap or TrainHaltReason.EndOfLine)
+                    halted = true;
+            }
         }
 
+        if (halted)
+            NoteAssemblyGraphCommit();
         return true;
     }
 
@@ -874,6 +912,53 @@ public sealed partial class VoxelDevelopmentSession
 
     private TrainMotionResult RejectMotion(TrainMotionStatus status, ulong? atStep = null) =>
         new(status, SimulationStep, AtStep: atStep ?? SimulationStep);
+
+    private bool FreezeUnsupportedAssemblies()
+    {
+        var changed = false;
+        var lostSupport = false;
+        for (var index = 0; index < _assemblies.Count; index++)
+        {
+            var assembly = _assemblies[index];
+            var members = assembly.VehicleIds
+                .Select(id => _vehicles.FirstOrDefault(item => item.Id == id))
+                .OfType<CompositeInstance>()
+                .ToArray();
+            if (members.Length != assembly.VehicleIds.Count ||
+                !TryAssemblyContacts(members, out var contacts))
+                continue;
+            if (StraightTrainSolver.HasLiveSupport(_rails, World, contacts, assembly.Reference))
+                continue;
+            lostSupport = true;
+            if (assembly.Speed == 0 && !assembly.Running)
+                continue;
+            _assemblies[index] = assembly.WithMotion(0, running: false);
+            changed = true;
+        }
+
+        if (changed || lostSupport)
+            NoteAssemblyGraphCommit();
+        return changed || lostSupport;
+    }
+
+    private IReadOnlyList<TrainHaltReason> CaptureHaltReasons() =>
+        _assemblies.Select(assembly =>
+        {
+            var members = assembly.VehicleIds
+                .Select(id => _vehicles.FirstOrDefault(item => item.Id == id))
+                .OfType<CompositeInstance>()
+                .ToArray();
+            if (members.Length != assembly.VehicleIds.Count ||
+                !TryAssemblyContacts(members, out var contacts))
+                return TrainHaltReason.SupportLost;
+            return StraightTrainSolver.QueryHaltReason(
+                _rails,
+                World,
+                assembly.Reference,
+                contacts,
+                assembly.Speed,
+                assembly.Running);
+        }).ToArray();
 
     private static bool TryAssemblyContacts(
         IReadOnlyList<CompositeInstance> members,

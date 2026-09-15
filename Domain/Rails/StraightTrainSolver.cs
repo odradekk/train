@@ -144,6 +144,48 @@ public static class StraightTrainSolver
         return position.IsFinite;
     }
 
+    public static TrainHaltReason QueryHaltReason(
+        PhysicalRailState rails,
+        VoxelWorld world,
+        RailPosition reference,
+        IReadOnlyList<(double X, double Y, double Z)> contacts,
+        double speed,
+        bool running)
+    {
+        ArgumentNullException.ThrowIfNull(rails);
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(contacts);
+        _ = speed;
+        _ = running;
+        if (!HasLiveSupport(rails, world, contacts, reference))
+            return TrainHaltReason.SupportLost;
+        var intervals = ConnectedTraversableWorldX(rails, world, reference);
+        if (MaxForwardTravel(contacts, intervals) > 0)
+            return TrainHaltReason.None;
+        return HasForwardGap(contacts, intervals) ? TrainHaltReason.ForwardGap : TrainHaltReason.EndOfLine;
+    }
+
+    public static bool HasLiveSupport(
+        PhysicalRailState rails,
+        VoxelWorld world,
+        IReadOnlyList<(double X, double Y, double Z)> contacts,
+        RailPosition reference)
+    {
+        ArgumentNullException.ThrowIfNull(rails);
+        ArgumentNullException.ThrowIfNull(world);
+        ArgumentNullException.ThrowIfNull(contacts);
+        if (contacts.Count == 0)
+            return false;
+        var intervals = ConnectedTraversableWorldX(rails, world, reference);
+        foreach (var contact in contacts)
+        {
+            if (!TryContainingInterval(intervals, contact.X, out _))
+                return false;
+        }
+
+        return true;
+    }
+
     public static bool TrySupportingSegment(
         PhysicalRailState rails,
         VoxelWorld world,
@@ -171,6 +213,18 @@ public static class StraightTrainSolver
         ArgumentNullException.ThrowIfNull(rails);
         ArgumentNullException.ThrowIfNull(world);
         owner = null!;
+        if (preferredSegment is { } preferredId)
+        {
+            var preferred = rails.Segments.FirstOrDefault(segment => segment.Id == preferredId);
+            if (preferred is not null &&
+                MatchesAlignment(preferred.Alignment, contact.Y, contact.Z) &&
+                preferred.Alignment.StartX <= contact.X && contact.X <= preferred.Alignment.EndX)
+            {
+                owner = preferred;
+                return true;
+            }
+        }
+
         var matches = rails.Segments
             .Where(segment =>
                 MatchesAlignment(segment.Alignment, contact.Y, contact.Z) &&
@@ -349,8 +403,7 @@ public static class StraightTrainSolver
         ArgumentNullException.ThrowIfNull(intervals);
         foreach (var candidate in intervals)
         {
-            if (candidate.Start - StaticTrainFixture.ConstraintTolerance <= worldX &&
-                worldX <= candidate.End + StaticTrainFixture.ConstraintTolerance)
+            if (candidate.Start <= worldX && worldX <= candidate.End)
             {
                 interval = candidate;
                 return true;
@@ -377,7 +430,26 @@ public static class StraightTrainSolver
             allowed = Math.Min(allowed, interval.End - contact.X);
         }
 
-        return double.IsFinite(allowed) ? Math.Max(0, allowed) : 0;
+        if (!double.IsFinite(allowed) || allowed <= StaticTrainFixture.ConstraintTolerance)
+            return 0;
+        return allowed;
+    }
+
+    private static bool HasForwardGap(
+        IReadOnlyList<(double X, double Y, double Z)> contacts,
+        IReadOnlyList<RailInterval> intervals)
+    {
+        if (contacts.Count == 0 || intervals.Count == 0)
+            return false;
+        foreach (var contact in contacts)
+        {
+            if (!TryContainingInterval(intervals, contact.X, out var current))
+                return false;
+            if (intervals.Any(interval => interval.Start > current.End))
+                return true;
+        }
+
+        return false;
     }
 
     public static bool TryValidateCouplerConnection(

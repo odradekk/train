@@ -113,6 +113,8 @@ public sealed partial class VoxelDevelopmentSession
         Changed?.Invoke();
     }
 
+    public void DetachSaveIdentity() => SaveId = null;
+
     public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
     {
         var result = Commands.Add(position, definitionId, orientation);
@@ -125,7 +127,12 @@ public sealed partial class VoxelDevelopmentSession
     {
         var result = Commands.Remove(position);
         if (result.Succeeded)
-            NoteChange(position, occupancyChanged: true);
+        {
+            NoteChange(position, occupancyChanged: true, publish: false);
+            FreezeUnsupportedAssemblies();
+            Changed?.Invoke();
+        }
+
         return result;
     }
 
@@ -138,7 +145,9 @@ public sealed partial class VoxelDevelopmentSession
         if (result.Succeeded)
         {
             foreach (var target in result.Targets)
-                NoteChange(target.Position, occupancyChanged: target.Status == WorldCommandStatus.Removed);
+                NoteChange(target.Position, occupancyChanged: target.Status == WorldCommandStatus.Removed, publish: false);
+            FreezeUnsupportedAssemblies();
+            Changed?.Invoke();
         }
 
         return result;
@@ -257,6 +266,7 @@ public sealed partial class VoxelDevelopmentSession
             !_catalog.Current.TryGet(StraightRailFixture.RailDefinitionId, out var entry))
             return new RailRepairResult(RailRepairStatus.Conflict, cells[0]);
 
+        var haltBefore = CaptureHaltReasons();
         CommitTransaction();
         var restored = new List<WorldVoxelCoord>();
         foreach (var cell in cells)
@@ -284,6 +294,8 @@ public sealed partial class VoxelDevelopmentSession
             MarkTrackChunk(cell);
         }
 
+        if (!haltBefore.SequenceEqual(CaptureHaltReasons()))
+            NoteAssemblyGraphCommit();
         Changed?.Invoke();
         return new RailRepairResult(RailRepairStatus.Repaired, cells[0], restored);
     }

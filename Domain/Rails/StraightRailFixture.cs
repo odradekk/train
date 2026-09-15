@@ -39,6 +39,11 @@ public static class StraightRailFixture
     public static readonly WorldVoxelCoord LeftRailSample = new(80, 1, 15);
     public static readonly WorldVoxelCoord RightRailSample = new(80, 1, 16);
     public static readonly WorldVoxelCoord FirstSegmentDamageCell = new(110, 1, 15);
+    public static readonly WorldVoxelCoord BetweenContactGapCell = new(93, 1, 15);
+    public static readonly WorldVoxelCoord ExactBoundaryGapCell = new(90, 1, 15);
+    public static readonly WorldVoxelCoord HighSpeedGapCell = new(84, 1, 15);
+    public static readonly WorldVoxelCoord CrossSegmentGapCell = new(147, 1, 15);
+    public static readonly WorldVoxelCoord SupportLossCell = new(88, 1, 15);
     public static readonly WorldVoxelCoord SharedSeamCell = new(144, 1, 14);
     public static readonly WorldVoxelCoord ChunkSeamCell = new(16, 1, 15);
 
