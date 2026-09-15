@@ -10,11 +10,13 @@ param(
 # manufacture (#58), damage/fracture (#59), atomic refit (#60),
 # existing-vehicle content reload (#61), and slice 4 formal straight
 # rail construction / occupancy / local damage (#68), the static
-# locomotive-and-carriage assembly (#69), and fixed-step traction /
-# start-stop / cross-segment motion (#70).
+# locomotive-and-carriage assembly (#69), fixed-step traction /
+# start-stop / cross-segment motion (#70), and formal railway /
+# running-train file save plus a real new-process load (#71).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
-# Slice 4 is a single process: railway motion persistence is still later.
+# Slice 4 uses the same isolated two-process path: process 1 saves the
+# running train at step 900, process 2 loads that file and continues.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -142,11 +144,11 @@ $godotExitCode = 0
 $output = ""
 $userData = $null
 try {
-    if (-not $IsolationAbort -and $Slice -in 2, 3) {
-        $prefix = if ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
-        $writtenMarker = if ($Slice -eq 3) { "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN" } else { "VOXEL_SMOKE_SAVE_WRITTEN" }
-        $writeAfter = if ($Slice -eq 3) { 700 } else { 240 }
-        $resumeAfter = if ($Slice -eq 3) { 200 } else { 120 }
+    if (-not $IsolationAbort -and $Slice -in 2, 3, 4) {
+        $prefix = if ($Slice -eq 4) { "train-issue71-smoke-" } elseif ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
+        $writtenMarker = if ($Slice -eq 4) { "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN" } elseif ($Slice -eq 3) { "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN" } else { "VOXEL_SMOKE_SAVE_WRITTEN" }
+        $writeAfter = if ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 700 } else { 240 }
+        $resumeAfter = if ($Slice -eq 4) { 400 } elseif ($Slice -eq 3) { 200 } else { 120 }
         $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($prefix + [guid]::NewGuid().ToString("N"))
         New-Item -ItemType Directory -Force -Path $userData | Out-Null
         $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
@@ -180,7 +182,7 @@ try {
         if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode } else { $godotExitCode = $resume.ExitCode }
     }
     else {
-        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 4) { 720 } elseif ($Slice -eq 3) { 520 } else { 90 }
+        $quitAfter = if ($IsolationAbort) { 30 } elseif ($Slice -eq 4) { 500 } elseif ($Slice -eq 3) { 520 } else { 90 }
         $single = Invoke-GodotVoxelSmoke -QuitAfter $quitAfter -Label ("slice $Slice")
         $output = $single.Output
         $godotExitCode = $single.ExitCode
@@ -227,6 +229,10 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_REVERSE_REJECTED",
         "VOXEL_SMOKE_SLICE4_STEP300",
         "VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY",
+        "VOXEL_SMOKE_SLICE4_STEP900",
+        "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN",
+        "VOXEL_SMOKE_SLICE4_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE4_RESUME_TRANSFORM_ONLY",
         "VOXEL_SMOKE_SLICE4_CROSS_SEAM",
         "VOXEL_SMOKE_SLICE4_STEP1800",
         "VOXEL_SMOKE_SLICE4_STOPPED",
@@ -239,7 +245,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_GAP",
         "VOXEL_SMOKE_SLICE4_RENDER_GAP",
         "VOXEL_SMOKE_SLICE4_REPAIRED",
-        "VOXEL_SMOKE_SLICE4_SAVE_REJECTED",
+        "VOXEL_SMOKE_SLICE4_RESUME_SAVED",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"

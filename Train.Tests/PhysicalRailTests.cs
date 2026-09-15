@@ -606,19 +606,23 @@ public sealed class PhysicalRailTests
     }
 
     [TestMethod]
-    public void Railway_save_is_rejected_and_keeps_the_previous_file()
+    public void Railway_save_round_trips_through_a_new_session_file_load()
     {
         using var harness = RailHarness.Create();
         var empty = harness.Session.Save("Slice 4 Empty");
         Assert.AreEqual(WorldSaveStatus.Saved, empty.Status);
-        var path = harness.Store.PathFor(empty.SaveId!.Value);
-        var previous = File.ReadAllText(path);
         Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
-        var rejected = harness.Session.Save("Should Not Write");
-        Assert.AreEqual(WorldSaveStatus.UnsupportedRailway, rejected.Status);
-        Assert.IsFalse(rejected.Succeeded);
-        Assert.AreEqual(previous, File.ReadAllText(path));
-        Assert.AreEqual(empty.SaveId, rejected.SaveId);
+        var before = harness.Session.CaptureRailAuthority();
+        var saved = harness.Session.Save("Slice 4 Railway");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        Assert.AreEqual(empty.SaveId, saved.SaveId);
+        Assert.IsTrue(harness.Session.HasRailway);
+
+        using var reader = RailHarness.Create(harness.UserData);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(before, reader.Session.CaptureRailAuthority());
+        Assert.AreEqual(2, reader.Session.Rails.Segments.Count);
+        Assert.AreEqual(257, reader.Session.QueryRails().SleeperCount);
 
         harness.Session.Reset();
         Assert.IsFalse(harness.Session.HasRailway);
@@ -634,7 +638,7 @@ public sealed class PhysicalRailTests
     }
 
     [TestMethod]
-    public void Console_constructs_queries_repairs_and_rejects_railway_save()
+    public void Console_constructs_queries_repairs_and_saves_railway()
     {
         using var harness = RailHarness.Create();
         var dispatcher = new ConsoleCommandDispatcher(
@@ -668,7 +672,7 @@ public sealed class PhysicalRailTests
         Assert.IsTrue(harness.Session.Query(DamageCell).IsOccupied);
 
         dispatcher.Execute("voxel save After Railway");
-        StringAssert.Contains(Messages(harness, ConsoleCommandDispatcher.VoxelEventId), "UnsupportedRailway");
+        StringAssert.Contains(Messages(harness, ConsoleCommandDispatcher.VoxelEventId), "Saved");
     }
 
     private static void AssertOccupies(RailHarness harness, WorldVoxelCoord cell)
@@ -798,10 +802,10 @@ public sealed class PhysicalRailTests
             _ownsUserData = ownsUserData;
         }
 
-        public static RailHarness Create()
+        public static RailHarness Create(string? existingUserData = null)
         {
             var logger = LoggerSession.Create();
-            var userData = Directory.CreateTempSubdirectory("train-rails-").FullName;
+            var userData = existingUserData ?? Directory.CreateTempSubdirectory("train-rails-").FullName;
             var store = new FileWorldSaveStore(userData);
             var source = RailPackage();
             var reloader = ContentFixtures.Create(source, logger.Logger);
@@ -810,7 +814,7 @@ public sealed class PhysicalRailTests
                 reloader.Catalog,
                 VoxelWorldIdentity.Slice4,
                 store);
-            return new RailHarness(logger, userData, store, session, ownsUserData: true);
+            return new RailHarness(logger, userData, store, session, ownsUserData: existingUserData is null);
         }
 
         public static MemoryContentSource RailPackage()

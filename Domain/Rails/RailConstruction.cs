@@ -181,6 +181,110 @@ public static class RailEditTransaction
         return PhysicalRailState.FromCommitted(segments, connections, occupancy, prepared.SleeperCount);
     }
 
+    public static bool TryValidatePersisted(
+        int sleeperCount,
+        IReadOnlyList<PhysicalRailSegment> segments,
+        IReadOnlyList<RailConnection> connections,
+        IReadOnlyList<RailOccupancyCell> occupancy)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+        ArgumentNullException.ThrowIfNull(connections);
+        ArgumentNullException.ThrowIfNull(occupancy);
+        if (sleeperCount == 0 && segments.Count == 0 && connections.Count == 0 && occupancy.Count == 0)
+            return true;
+
+        var ids = new Dictionary<EntityId, int>();
+        var planned = new PlannedRailSegment[segments.Count];
+        for (var index = 0; index < segments.Count; index++)
+        {
+            var segment = segments[index];
+            if (segment.Id.Value == 0 || !ids.TryAdd(segment.Id, index))
+                return false;
+            if (!segment.Alignment.IsPositiveX)
+                return false;
+            if (segment.RailVolumes.Count == 0 || segment.RailVolumes.Any(volume => !volume.HasPositiveVolume))
+                return false;
+            if (segment.SleeperVolumes.Any(volume => !volume.HasPositiveVolume))
+                return false;
+            planned[index] = new PlannedRailSegment(segment.Alignment, segment.RailVolumes, segment.SleeperVolumes);
+            if (!AlignmentMatchesSolids(planned[index]))
+                return false;
+        }
+
+        var seenConnections = new HashSet<(ulong Left, ulong Right)>();
+        var plannedConnections = new List<PlannedRailConnection>(connections.Count);
+        foreach (var connection in connections)
+        {
+            if (!ids.TryGetValue(connection.FromSegment, out var from) ||
+                !ids.TryGetValue(connection.ToSegment, out var to) ||
+                from == to)
+                return false;
+            var left = Math.Min(connection.FromSegment.Value, connection.ToSegment.Value);
+            var right = Math.Max(connection.FromSegment.Value, connection.ToSegment.Value);
+            if (!seenConnections.Add((left, right)))
+                return false;
+            plannedConnections.Add(new PlannedRailConnection(from, connection.FromEnd, to, connection.ToEnd));
+        }
+
+        var plan = new RailConstructionPlan(planned, plannedConnections);
+        foreach (var connection in plan.Connections)
+        {
+            if (!IsContinuousConnection(plan, connection))
+                return false;
+        }
+
+        var occupancyByCell = new Dictionary<WorldVoxelCoord, List<RailCellSupport>>();
+        for (var index = 0; index < planned.Length; index++)
+            CollectOccupancy(planned[index], new EntityId((ulong)index + 1), occupancyByCell);
+        if (occupancyByCell.Count == 0 || HasIndependentOverlapInPlan(occupancyByCell, plan))
+            return false;
+
+        var uniqueSleepers = segments
+            .SelectMany(segment => segment.SleeperVolumes)
+            .Select(volume => (volume.MinX, volume.MinZ))
+            .Distinct()
+            .Count();
+        if (uniqueSleepers != sleeperCount)
+            return false;
+
+        var expected = occupancyByCell
+            .Select(pair => new RailOccupancyCell(
+                pair.Key,
+                RailSnapshots.Freeze(pair.Value.Select(support =>
+                    support with { SegmentId = segments[(int)support.SegmentId.Value - 1].Id }))))
+            .ToArray();
+        return SameOccupancy(occupancy, expected);
+    }
+
+    private static bool SameOccupancy(
+        IReadOnlyList<RailOccupancyCell> saved,
+        IReadOnlyList<RailOccupancyCell> expected)
+    {
+        if (saved.Count != expected.Count)
+            return false;
+        var byCell = new Dictionary<WorldVoxelCoord, RailOccupancyCell>();
+        foreach (var item in saved)
+        {
+            if (!byCell.TryAdd(item.Cell, item))
+                return false;
+        }
+        foreach (var cell in expected)
+        {
+            if (!byCell.TryGetValue(cell.Cell, out var actual) || actual.Supports.Count != cell.Supports.Count)
+                return false;
+            foreach (var support in cell.Supports)
+            {
+                if (!actual.Supports.Any(item =>
+                        item.SegmentId == support.SegmentId &&
+                        item.WorldX == support.WorldX &&
+                        item.AlongTrack == support.AlongTrack))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
     private static void CollectOccupancy(
         PlannedRailSegment planned,
         EntityId placeholder,

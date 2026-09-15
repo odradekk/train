@@ -46,6 +46,32 @@ public sealed class PhysicalRailState
         return state;
     }
 
+    public void RestoreFrom(
+        IReadOnlyList<PhysicalRailSegment> segments,
+        IReadOnlyList<RailConnection> connections,
+        IReadOnlyList<RailOccupancyCell> occupancy,
+        int sleeperCount,
+        VoxelWorld world)
+    {
+        ArgumentNullException.ThrowIfNull(segments);
+        ArgumentNullException.ThrowIfNull(connections);
+        ArgumentNullException.ThrowIfNull(occupancy);
+        ArgumentNullException.ThrowIfNull(world);
+        Clear();
+        SleeperCount = sleeperCount;
+        _segments.AddRange(segments);
+        _connections.AddRange(connections);
+        foreach (var cell in occupancy)
+            _occupancy[cell.Cell] = new RailOccupancyCell(cell.Cell, RailSnapshots.Freeze(cell.Supports));
+        foreach (var cell in _occupancy.Keys)
+        {
+            if (!world.Query(cell).IsOccupied)
+                _destroyed.Add(cell);
+        }
+
+        RebuildDerivedGraph();
+    }
+
     public void MergeCommitted(PhysicalRailState committed)
     {
         ArgumentNullException.ThrowIfNull(committed);

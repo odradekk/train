@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
@@ -44,6 +45,19 @@ public sealed class WorldSaveVehicle
         Contacts = contacts;
         SaveLocalRevision = saveLocalRevision;
     }
+
+    public WorldSaveVehicle WithTransform(CompositeTransform transform) =>
+        new(
+            Id,
+            DefinitionId,
+            LastUsedRevision,
+            ArchetypeId,
+            LastUsedArchetypeRevision,
+            SizeClass,
+            transform,
+            Parts,
+            Contacts,
+            SaveLocalRevision);
 }
 
 public readonly record struct WorldSavePart(
@@ -80,12 +94,22 @@ public sealed class WorldSaveRestore
     public IReadOnlyList<CompositeInstance> Vehicles { get; }
     public ulong NextEntityId { get; }
     public ulong TransactionCount { get; }
+    public PhysicalRailState? Rails { get; }
+    public IReadOnlyList<TrainAssembly> Assemblies { get; }
+    public ulong SimulationStep { get; }
+    public IReadOnlyList<ScheduledTrainCommandQuery> ScheduledCommands { get; }
+    public ulong ScheduledSequence { get; }
 
     public WorldSaveRestore(
         VoxelWorld world,
         IReadOnlyList<CompositeInstance> vehicles,
         ulong nextEntityId,
-        ulong transactionCount)
+        ulong transactionCount,
+        PhysicalRailState? rails = null,
+        IReadOnlyList<TrainAssembly>? assemblies = null,
+        ulong simulationStep = 0,
+        IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
+        ulong scheduledSequence = 0)
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(vehicles);
@@ -93,10 +117,15 @@ public sealed class WorldSaveRestore
         Vehicles = vehicles;
         NextEntityId = nextEntityId;
         TransactionCount = transactionCount;
+        Rails = rails;
+        Assemblies = assemblies ?? Array.Empty<TrainAssembly>();
+        SimulationStep = simulationStep;
+        ScheduledCommands = scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
+        ScheduledSequence = scheduledSequence;
     }
 }
 
-internal static class WorldSaveVehicleCodec
+internal static partial class WorldSaveVehicleCodec
 {
     public static IReadOnlyList<WorldSaveVehicle> Capture(IReadOnlyList<CompositeInstance> vehicles)
     {
@@ -402,11 +431,19 @@ internal static class WorldSaveVehicleCodec
         IReadOnlyList<CompositeInstance> vehicles,
         ulong nextEntityId,
         ulong transactionCount,
-        out WorldSaveStatus status)
+        out WorldSaveStatus status,
+        IEnumerable<ulong>? extraIds = null)
     {
         status = WorldSaveStatus.InvalidDelta;
         var ids = new HashSet<ulong>();
         ulong maxId = 0;
+        foreach (var extra in extraIds ?? Array.Empty<ulong>())
+        {
+            if (extra == 0 || !ids.Add(extra))
+                return false;
+            maxId = Math.Max(maxId, extra);
+        }
+
         foreach (var vehicle in vehicles)
         {
             if (!ids.Add(vehicle.Id.Value))
@@ -1056,13 +1093,13 @@ internal static class WorldSaveVehicleCodec
         return true;
     }
 
-    private static bool TryReadEntityId(JsonElement element, out ulong id)
+    internal static bool TryReadEntityId(JsonElement element, out ulong id)
     {
         id = 0;
         return element.ValueKind == JsonValueKind.Number && element.TryGetUInt64(out id) && id != 0;
     }
 
-    private static bool TryReadFiniteDouble(JsonElement element, out double value, out WorldSaveStatus status)
+    internal static bool TryReadFiniteDouble(JsonElement element, out double value, out WorldSaveStatus status)
     {
         value = 0;
         status = WorldSaveStatus.InvalidDelta;
@@ -1099,7 +1136,7 @@ internal static class WorldSaveVehicleCodec
         writer.WriteEndObject();
     }
 
-    private static void WriteDouble(Utf8JsonWriter writer, string name, double value)
+    internal static void WriteDouble(Utf8JsonWriter writer, string name, double value)
     {
         writer.WritePropertyName(name);
         writer.WriteRawValue(VoxelDefinition.FormatMass(value));

@@ -13,6 +13,8 @@ public sealed partial class VoxelDevelopmentSession
     private readonly SimulationScheduler _hostScheduler = new();
     private ulong _scheduledSequence;
 
+    public ulong ScheduledCommandSequence => _scheduledSequence;
+
     private readonly record struct ScheduledTrainCommand(ulong AtStep, bool Start, ulong Sequence);
 
     public TrainAssemblyResult AssembleStaticTrain()
@@ -336,7 +338,7 @@ public sealed partial class VoxelDevelopmentSession
             return RejectMotion(TrainMotionStatus.PastStep, atStep);
         if (start && !CanStartNow(out var status))
             return RejectMotion(status, atStep);
-        if (!CanCommitTransaction())
+        if (!CanCommitTransaction() || _scheduledSequence == ulong.MaxValue)
             return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
 
         var snapshot = CaptureMotionSnapshot();

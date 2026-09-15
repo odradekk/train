@@ -506,9 +506,6 @@ public sealed partial class VoxelDevelopmentSession
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
-        if (HasRailway)
-            return new WorldSaveResult(WorldSaveStatus.UnsupportedRailway, SaveId, DisplayName);
-
         var name = displayName ?? DisplayName;
         if (!WorldSaveDocument.TryNormalizeDisplayName(name, out var normalized))
             return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
@@ -523,7 +520,12 @@ public sealed partial class VoxelDevelopmentSession
                 NextEntityId,
                 TransactionCount,
                 out var document,
-                out var captureStatus))
+                out var captureStatus,
+                _rails,
+                _assemblies,
+                SimulationStep,
+                QueryScheduledTrainCommands(),
+                ScheduledCommandSequence))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
         var json = WorldSaveCodec.Serialize(document);
@@ -559,7 +561,7 @@ public sealed partial class VoxelDevelopmentSession
                 out var buildStatus))
             return new WorldSaveResult(buildStatus, SaveId, DisplayName);
 
-        ReplaceSession(restore.World, restore.Vehicles, restore.NextEntityId, restore.TransactionCount);
+        ReplaceSession(restore);
         SaveId = document.Id;
         DisplayName = document.DisplayName;
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);
@@ -680,25 +682,39 @@ public sealed partial class VoxelDevelopmentSession
         return false;
     }
 
-    private void ReplaceSession(
-        VoxelWorld world,
-        IReadOnlyList<CompositeInstance> vehicles,
-        ulong nextEntityId,
-        ulong transactionCount)
+    private void ReplaceSession(WorldSaveRestore restore)
     {
-        World = world;
+        World = restore.World;
         Commands = new VoxelWorldCommands(World, _catalog);
         _vehicles.Clear();
-        _vehicles.AddRange(vehicles);
+        _vehicles.AddRange(restore.Vehicles);
         _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
         _assemblies.Clear();
-        NextEntityId = nextEntityId;
-        TransactionCount = transactionCount;
-        ResetMotionState();
+        _assemblies.AddRange(restore.Assemblies);
+        NextEntityId = restore.NextEntityId;
+        TransactionCount = restore.TransactionCount;
+        SimulationStep = restore.SimulationStep;
+        SimulationPaused = false;
+        _scheduled.Clear();
+        foreach (var command in restore.ScheduledCommands)
+            _scheduled.Add(new ScheduledTrainCommand(command.AtStep, command.Start, command.Sequence));
+        _scheduledSequence = restore.ScheduledSequence;
+        _hostScheduler.Reset();
+        _rails.Clear();
+        if (restore.Rails is not null)
+        {
+            _rails.RestoreFrom(
+                restore.Rails.Segments,
+                restore.Rails.Connections,
+                restore.Rails.OccupancyCells,
+                restore.Rails.SleeperCount,
+                World);
+        }
+
+        AdaptAssembliesToLiveCatalog();
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _pendingTrackChunks.Clear();
-        _rails.Clear();
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;

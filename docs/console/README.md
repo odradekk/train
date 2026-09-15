@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行；铁路与运动存档由后续票接入）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行，以及正式铁路 / 运行停车编组的版本化文件存档）。
 
 ## 打开控制台与输入规则
 
@@ -30,8 +30,8 @@
 | [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
-| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、静置车辆和脱落身份原子写入 `user://saves/<UUID>/save.json` | 同上 |
-| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换会话 | 同上 |
+| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步和待执行命令原子写入 `user://saves/<UUID>/save.json` | 同上 |
+| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换会话；格式 3 写出，仍可读本构建前的格式 2 | 同上 |
 | [composite reset](composite-reset.md) `[hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
 | [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
@@ -121,12 +121,12 @@
 | `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前世界体素总数 |
 | `Unavailable` | 当前会话没有可用的存档 store 或目录；不写文件、不读档 |
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
-| `UnsupportedRailway` | 当前会话已有正式铁路状态，尚不能完整写入存档；不写文件、不报告 `Saved`，上一份有效存档保持不变 |
+| `UnsupportedRailway` | 保留状态，成功路径不再返回；正式铁路、编组与运动状态已写入格式 3 |
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
 | `Started` / `Stopped` / `Advanced` / `Paused` / `Resumed` / `ReverseUnsupported` / `StepOverflow` / `PastStep` / `NoAssembly` / `NoRailway` / `MissingPropulsion` / `MissingControl` / `InsufficientSupport` / `DisconnectedPath` / `VehicleConstraint` / `TransactionExhausted` | `rail start` / `stop` / `step` / `pause` / `resume` 结果。反向启动、过去目标步或步号溢出整次拒绝且原状态不变。可执行目标步是 `[当前步, ulong.MaxValue]`；成功起停一律入队并消费事务。当前步与未来步按同一入队顺序执行，到步新命令不能越过同目标步旧队列。到达 `MaxValue` 后仍执行该步命令，再推进为 `StepOverflow` |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
-| `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。`transaction_count` 为 `ulong.MaxValue`、缩放/剪切轴、以及 save-local 与车辆身份不一致，属于 `InvalidDelta` |
+| `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。`transaction_count` 为 `ulong.MaxValue`、`scheduled_sequence` 大于事务计数、非法铁路几何/占格/轨枕、多个编组、非双车编组或车钩/停车状态不一致、缩放/剪切轴、以及 save-local 与车辆身份不一致，属于 `InvalidDelta` |
 | `TransactionExhausted` | 制造 / 改装 / 车辆伤害 / 编组时再提交会写出不可加载的计数（当前值已为 `MaxValue - 1` 或 `MaxValue`）；不绕回、不部分提交、不覆盖可读存档 |
 | `EntityIdExhausted` | 制造、改装、车辆伤害或编组预检整次提交所需的新实体 ID 后发现不足。拒绝时权威状态、`NextEntityId` 与事务计数都不变。`ulong.MaxValue` 是合法的耗尽游标但绝不分配；已耗尽时仍可执行不需要新 ID 的改装或伤害，并可保存、加载 |
 
@@ -219,7 +219,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，切片 4 可用 `T` 启动、`Y` 停车、`P` 暂停/恢复，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId 随格式 2 一并保存；失败时保留旧会话，不会报告成功却丢车或丢 ID。已有正式铁路、编组或运动状态时 `voxel save` 返回 `UnsupportedRailway`，不覆盖上一份有效文件。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，切片 4 可用 `T` 启动、`Y` 停车、`P` 暂停/恢复，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId，以及切片 4 的正式铁路、编组、运动和待执行命令，都随格式 3 一并保存；本构建仍可读前三切片留下的格式 2 文件。失败时保留旧会话，不会报告成功却丢车、丢轨或丢队列。
 
 ### 切片 4 正式直轨
 
@@ -248,7 +248,7 @@ rail repair 110 1 15
 voxel save After Railway
 ```
 
-空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101`。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行，也不会移动已提交编组。修复恢复原身份。有铁路或运动后再保存得到 `UnsupportedRailway`，上一份空世界文件不变。
+空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101`。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行，也不会移动已提交编组。修复恢复原身份。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，编组姿态、速度、步号和待执行命令都保持原值。开发停车或线路末端停车恢复后为零速，须再执行 `rail start` 才会启动。Host 显示累积余量不写入存档。
 
 ### 切片 2 边界复现
 
@@ -401,7 +401,7 @@ composite query
 
 读档错误复现（独立用户数据）：对一个已保存的 UUID 执行 `voxel load` 后，把 `save.json` 的 `save_format_version` 改成 `1` 或 `99` 再加载，应得 `UnknownFormat` 且当前会话车辆数不变；删掉 `save_local_definitions` 或把零件朝向改成 `none`，分别得 `MissingDefinition` / `InvalidDelta`；缺文件得 `NotFound`。失败后仍可 `composite manufacture` 或加载上一份有效文件。
 
-目前没有独立的撤销命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail assemble`](rail-assemble.md) / [`rail start`](rail-start.md) / [`rail stop`](rail-stop.md) / [`rail pause`](rail-pause.md) / [`rail resume`](rail-resume.md) / [`rail step`](rail-step.md) / [`rail query`](rail-query.md) / [`rail repair`](rail-repair.md)。铁路运动存档、断开滑行、完整断轨恢复、平滑插值/跟随相机和正式设计器仍不在当前切片。
+目前没有独立的撤销命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail assemble`](rail-assemble.md) / [`rail start`](rail-start.md) / [`rail stop`](rail-stop.md) / [`rail pause`](rail-pause.md) / [`rail resume`](rail-resume.md) / [`rail step`](rail-step.md) / [`rail query`](rail-query.md) / [`rail repair`](rail-repair.md)，以及正式铁路 / 运行停车编组的 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md)。断开滑行、完整断轨恢复、平滑插值/跟随相机和正式设计器仍不在当前切片。
 
 ### 切片 3 五类原子改装
 
@@ -433,7 +433,7 @@ composite rotate 1 <locked> nz_py
 
 前三例应整批拒绝且 P 仍为 `nz_py`、耐久 75；非法旋转返回 `DisallowedOrientation`。权威不变后仍可 `composite move 1 <P> 3 1 0`。单项移到对方占用格应 `DuplicateOccupancy`；同批两个 `move` 才能交换。
 
-改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。这些实际布局可随格式 2 保存，恢复时不得按外部 Blueprint 名称重造。
+改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。这些实际布局可随格式 3 保存，本构建仍可读格式 2；恢复时不得按外部 Blueprint 名称重造。
 
 ```text
 composite reset bridge

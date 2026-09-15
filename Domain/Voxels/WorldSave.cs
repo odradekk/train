@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
@@ -48,7 +49,8 @@ public readonly record struct WorldSaveDefinitionRef(
 
 public sealed class WorldSaveDocument
 {
-    public const int CurrentFormatVersion = 2;
+    public const int CurrentFormatVersion = 3;
+    public const int PredecessorFormatVersion = 2;
     public const string DefaultDisplayName = "Development World";
     public const int DisplayNameMinLength = 1;
     public const int DisplayNameMaxLength = 64;
@@ -69,6 +71,11 @@ public sealed class WorldSaveDocument
     public ulong TransactionCount { get; }
     public IReadOnlyList<WorldSaveVehicle> Vehicles { get; }
     public IReadOnlyList<WorldSaveLocalDefinition> SaveLocalDefinitions { get; }
+    public WorldSaveRailway Railway { get; }
+    public IReadOnlyList<TrainAssembly> Assemblies { get; }
+    public ulong SimulationStep { get; }
+    public IReadOnlyList<ScheduledTrainCommandQuery> ScheduledCommands { get; }
+    public ulong ScheduledSequence { get; }
 
     public WorldSaveDocument(
         int formatVersion,
@@ -86,7 +93,12 @@ public sealed class WorldSaveDocument
         ulong nextEntityId,
         ulong transactionCount,
         IReadOnlyList<WorldSaveVehicle> vehicles,
-        IReadOnlyList<WorldSaveLocalDefinition> saveLocalDefinitions)
+        IReadOnlyList<WorldSaveLocalDefinition> saveLocalDefinitions,
+        WorldSaveRailway? railway = null,
+        IReadOnlyList<TrainAssembly>? assemblies = null,
+        ulong simulationStep = 0,
+        IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
+        ulong scheduledSequence = 0)
     {
         ArgumentException.ThrowIfNullOrEmpty(generatorVersion);
         ArgumentException.ThrowIfNullOrEmpty(baseLayout);
@@ -112,7 +124,42 @@ public sealed class WorldSaveDocument
         TransactionCount = transactionCount;
         Vehicles = vehicles;
         SaveLocalDefinitions = saveLocalDefinitions;
+        Railway = railway ?? WorldSaveRailway.Empty;
+        Assemblies = assemblies ?? Array.Empty<TrainAssembly>();
+        SimulationStep = simulationStep;
+        ScheduledCommands = scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
+        ScheduledSequence = scheduledSequence;
     }
+
+    public static bool SupportsFormat(int formatVersion) =>
+        formatVersion is CurrentFormatVersion or PredecessorFormatVersion;
+
+    public WorldSaveDocument With(
+        Guid id,
+        IReadOnlyList<WorldSaveVehicle> vehicles,
+        IReadOnlyList<TrainAssembly> assemblies) =>
+        new(
+            FormatVersion,
+            id,
+            DisplayName,
+            Seed,
+            GeneratorVersion,
+            Bounds,
+            ChunkSize,
+            BaseLayout,
+            ExternalDefinitions,
+            Removed,
+            Added,
+            Changed,
+            NextEntityId,
+            TransactionCount,
+            vehicles,
+            SaveLocalDefinitions,
+            Railway,
+            assemblies,
+            SimulationStep,
+            ScheduledCommands,
+            ScheduledSequence);
 
     public static bool TryNormalizeDisplayName(string? value, out string name)
     {
@@ -246,7 +293,12 @@ public static class WorldSaveCodec
         ulong nextEntityId,
         ulong transactionCount,
         out WorldSaveDocument document,
-        out WorldSaveStatus status)
+        out WorldSaveStatus status,
+        PhysicalRailState? rails = null,
+        IReadOnlyList<TrainAssembly>? assemblies = null,
+        ulong simulationStep = 0,
+        IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
+        ulong scheduledSequence = 0)
     {
         document = null!;
         status = WorldSaveStatus.Saved;
@@ -259,7 +311,15 @@ public static class WorldSaveCodec
             return false;
         }
 
-        if (!WorldSaveVehicleCodec.TryValidateIdentities(world, vehicles, nextEntityId, transactionCount, out status))
+        var extraIds = (rails?.Segments.Select(item => item.Id.Value) ?? Array.Empty<ulong>())
+            .Concat(assemblies?.Select(item => item.Id.Value) ?? Array.Empty<ulong>());
+        if (!WorldSaveVehicleCodec.TryValidateIdentities(
+                world,
+                vehicles,
+                nextEntityId,
+                transactionCount,
+                out status,
+                extraIds))
             return false;
 
         VoxelWorld generated;
@@ -295,7 +355,12 @@ public static class WorldSaveCodec
             nextEntityId,
             transactionCount,
             savedVehicles,
-            savedLocals);
+            savedLocals,
+            rails is null ? WorldSaveRailway.Empty : WorldSaveRailway.Capture(rails),
+            WorldSaveRailwayCodec.CaptureAssemblies(assemblies ?? Array.Empty<TrainAssembly>()),
+            simulationStep,
+            scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>(),
+            scheduledSequence);
         status = WorldSaveStatus.Saved;
         return true;
     }
@@ -328,6 +393,11 @@ public static class WorldSaveCodec
             writer.WriteNumber("transaction_count", document.TransactionCount);
             WorldSaveVehicleCodec.WriteVehicles(writer, document.Vehicles);
             WorldSaveVehicleCodec.WriteLocals(writer, document.SaveLocalDefinitions);
+            WorldSaveRailwayCodec.WriteRailway(writer, document.Railway);
+            WorldSaveRailwayCodec.WriteAssemblies(writer, document.Assemblies);
+            writer.WriteNumber("simulation_step", document.SimulationStep);
+            WorldSaveRailwayCodec.WriteCommands(writer, document.ScheduledCommands);
+            writer.WriteNumber("scheduled_sequence", document.ScheduledSequence);
             writer.WriteEndObject();
             writer.Flush();
         }
@@ -490,8 +560,13 @@ public static class WorldSaveCodec
         IReadOnlyList<WorldSaveInstance>? changed = null;
         IReadOnlyList<WorldSaveVehicle>? vehicles = null;
         IReadOnlyList<WorldSaveLocalDefinition>? locals = null;
+        WorldSaveRailway? railway = null;
+        IReadOnlyList<TrainAssembly>? assemblies = null;
+        IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null;
         ulong nextEntityId = 0;
         ulong transactionCount = 0;
+        ulong simulationStep = 0;
+        ulong scheduledSequence = 0;
         var hasFormat = false;
         var hasId = false;
         var hasSeed = false;
@@ -500,6 +575,8 @@ public static class WorldSaveCodec
         var hasDelta = false;
         var hasNextEntity = false;
         var hasTransaction = false;
+        var hasSimulationStep = false;
+        var hasScheduledSequence = false;
 
         foreach (var property in root.EnumerateObject())
         {
@@ -585,6 +662,30 @@ public static class WorldSaveCodec
                     if (!WorldSaveVehicleCodec.TryReadLocals(property.Value, out locals, out status))
                         return false;
                     break;
+                case "railway":
+                    if (!WorldSaveRailwayCodec.TryReadRailway(property.Value, out railway, out status))
+                        return false;
+                    break;
+                case "assemblies":
+                    if (!WorldSaveRailwayCodec.TryReadAssemblies(property.Value, out assemblies, out status))
+                        return false;
+                    break;
+                case "simulation_step":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetUInt64(out simulationStep))
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
+                    hasSimulationStep = true;
+                    break;
+                case "scheduled_commands":
+                    if (!WorldSaveRailwayCodec.TryReadCommands(property.Value, out scheduledCommands, out status))
+                        return false;
+                    break;
+                case "scheduled_sequence":
+                    if (property.Value.ValueKind != JsonValueKind.Number ||
+                        !property.Value.TryGetUInt64(out scheduledSequence))
+                        return Reject(WorldSaveStatus.UnknownFormat, out status);
+                    hasScheduledSequence = true;
+                    break;
                 default:
                     return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
@@ -594,11 +695,15 @@ public static class WorldSaveCodec
             !hasBounds || !hasChunk || baseLayout is null || references is null || !hasDelta ||
             !hasNextEntity || !hasTransaction || vehicles is null || locals is null)
             return Reject(WorldSaveStatus.Truncated, out status);
-        if (formatVersion != WorldSaveDocument.CurrentFormatVersion)
+        if (!WorldSaveDocument.SupportsFormat(formatVersion))
         {
             status = WorldSaveStatus.UnknownFormat;
             return false;
         }
+
+        if (formatVersion == WorldSaveDocument.CurrentFormatVersion &&
+            (railway is null || assemblies is null || !hasSimulationStep || scheduledCommands is null || !hasScheduledSequence))
+            return Reject(WorldSaveStatus.Truncated, out status);
 
         document = new WorldSaveDocument(
             formatVersion,
@@ -616,7 +721,12 @@ public static class WorldSaveCodec
             nextEntityId,
             transactionCount,
             vehicles,
-            locals);
+            locals,
+            railway,
+            assemblies,
+            simulationStep,
+            scheduledCommands,
+            scheduledSequence);
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -1007,7 +1117,7 @@ public static class WorldSaveRestorer
         ArgumentNullException.ThrowIfNull(composites);
         ArgumentNullException.ThrowIfNull(document);
 
-        if (document.FormatVersion != WorldSaveDocument.CurrentFormatVersion)
+        if (!WorldSaveDocument.SupportsFormat(document.FormatVersion))
         {
             status = WorldSaveStatus.UnknownFormat;
             return false;
@@ -1059,7 +1169,25 @@ public static class WorldSaveRestorer
                 out var vehicles,
                 out status))
             return false;
-        restore = new WorldSaveRestore(generated, vehicles, document.NextEntityId, document.TransactionCount);
+        if (!WorldSaveRailwayCodec.TryRestore(
+                document,
+                generated,
+                vehicles,
+                catalog,
+                out var rails,
+                out var assemblies,
+                out status))
+            return false;
+        restore = new WorldSaveRestore(
+            generated,
+            vehicles,
+            document.NextEntityId,
+            document.TransactionCount,
+            rails,
+            assemblies,
+            document.SimulationStep,
+            document.ScheduledCommands,
+            document.ScheduledSequence);
         status = WorldSaveStatus.Loaded;
         return true;
     }
