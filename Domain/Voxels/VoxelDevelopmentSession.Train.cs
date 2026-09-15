@@ -298,9 +298,10 @@ public sealed partial class VoxelDevelopmentSession
         out IReadOnlyList<TrainAssembly> planned)
     {
         planned = Array.Empty<TrainAssembly>();
-        var vehicleById = vehicles.ToDictionary(item => item.Id);
+        var origins = vehicles.ToDictionary(item => item.Id, item => OriginVehicleId(item, _vehicles));
+        var scoped = AssemblyRebuildCandidates(vehicles, origins);
         var partOwner = new Dictionary<EntityId, EntityId>();
-        foreach (var vehicle in vehicles)
+        foreach (var vehicle in scoped)
         {
             foreach (var part in vehicle.Parts)
                 partOwner[part.Id] = vehicle.Id;
@@ -316,11 +317,11 @@ public sealed partial class VoxelDevelopmentSession
             connections.Add(connection with { FromVehicleId = fromId, ToVehicleId = toId });
         }
 
-        var parent = vehicles.ToDictionary(item => item.Id, item => item.Id);
+        var link = scoped.ToDictionary(item => item.Id, item => item.Id);
         EntityId Find(EntityId id)
         {
-            while (parent[id] != id)
-                id = parent[id] = parent[parent[id]];
+            while (link[id] != id)
+                id = link[id] = link[link[id]];
             return id;
         }
 
@@ -329,25 +330,21 @@ public sealed partial class VoxelDevelopmentSession
             var a = Find(left);
             var b = Find(right);
             if (a.Value <= b.Value)
-                parent[b] = a;
+                link[b] = a;
             else
-                parent[a] = b;
+                link[a] = b;
         }
 
         foreach (var connection in connections)
             Union(connection.FromVehicleId, connection.ToVehicleId);
 
-        var groups = vehicles
-            .GroupBy(item => Find(item.Id))
-            .OrderBy(group => group.Key.Value)
-            .ToArray();
         var originAssembly = _vehicles.ToDictionary(
             item => item.Id,
             item => _assemblies.FirstOrDefault(assembly => assembly.VehicleIds.Contains(item.Id)));
-        var items = new List<TrainAssembly>();
-        foreach (var group in groups)
+        var groups = new List<RebuiltGroup>();
+        foreach (var cluster in scoped.GroupBy(item => Find(item.Id)).OrderBy(group => group.Key.Value))
         {
-            var members = group.OrderBy(item => item.Id.Value).ToArray();
+            var members = cluster.OrderBy(item => item.Id.Value).ToArray();
             if (members.Any(member => !IsRailEligible(member)))
                 continue;
             var memberIds = members.Select(item => item.Id).ToArray();
@@ -372,56 +369,138 @@ public sealed partial class VoxelDevelopmentSession
             if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, reference))
                 continue;
 
-            var parents = members
-                .Select(member => originAssembly.GetValueOrDefault(OriginVehicleId(member, _vehicles)))
+            var parent = members
+                .Select(member => originAssembly.GetValueOrDefault(origins[member.Id]))
                 .OfType<TrainAssembly>()
                 .Distinct()
                 .OrderBy(item => item.Id.Value)
-                .ToArray();
-            var inherited = parents.FirstOrDefault(parentAssembly =>
-                parentAssembly.ActiveLocomotiveId is { } locoId &&
-                memberIds.Contains(locoId));
-            EntityId assemblyId;
-            if (inherited is not null)
-            {
-                assemblyId = inherited.Id;
-            }
-            else
-            {
-                if (next == 0 || next == ulong.MaxValue)
-                    return false;
-                assemblyId = new EntityId(next++);
-            }
+                .FirstOrDefault();
+            if (parent is null)
+                continue;
+            groups.Add(new RebuiltGroup(members, liveConnections, reference, parent));
+        }
 
-            var source = inherited ?? parents.FirstOrDefault();
-            var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before rebuilding assemblies.");
-            EntityId? activeLoco = null;
-            var running = false;
-            if (source?.ActiveLocomotiveId is { } sourceLoco &&
-                memberIds.Contains(sourceLoco) &&
-                vehicleById.TryGetValue(sourceLoco, out var loco) &&
-                StraightTrainMotion.TryResolvePropulsion(loco, voxels, out _))
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before rebuilding assemblies.");
+        var items = new List<TrainAssembly>();
+        var remaining = groups.ToList();
+        foreach (var parent in _assemblies.OrderBy(item => item.Id.Value))
+        {
+            var children = remaining.Where(item => item.Parent.Id == parent.Id).ToArray();
+            if (children.Length == 0)
+                continue;
+            var inheritor = ChooseInheritedGroup(parent, children, origins);
+            foreach (var child in children)
             {
-                activeLoco = sourceLoco;
-                running = source.Running;
-            }
+                EntityId assemblyId;
+                if (child.Members[0].Id == inheritor.Members[0].Id)
+                {
+                    assemblyId = parent.Id;
+                }
+                else
+                {
+                    if (next == 0 || next == ulong.MaxValue)
+                        return false;
+                    assemblyId = new EntityId(next++);
+                }
 
-            var orderedIds = inherited is not null
-                ? inherited.VehicleIds.Where(memberIds.Contains).Concat(memberIds.Where(id => !inherited.VehicleIds.Contains(id))).ToArray()
-                : memberIds;
-            items.Add(new TrainAssembly(
-                assemblyId,
-                activeLoco,
-                reference,
-                orderedIds,
-                liveConnections,
-                source?.Speed ?? 0,
-                running));
+                items.Add(MaterializeRebuiltAssembly(assemblyId, child, parent, origins, voxels));
+                remaining.Remove(child);
+            }
         }
 
         planned = items.OrderBy(item => item.Id.Value).ToArray();
         return true;
     }
+
+    private IReadOnlyList<CompositeInstance> AssemblyRebuildCandidates(
+        IReadOnlyList<CompositeInstance> vehicles,
+        IReadOnlyDictionary<EntityId, EntityId> origins)
+    {
+        var scoped = new HashSet<EntityId>();
+        foreach (var assembly in _assemblies)
+        {
+            foreach (var id in assembly.VehicleIds)
+            {
+                scoped.Add(id);
+                foreach (var vehicle in vehicles)
+                {
+                    if (vehicle.Id == id || origins[vehicle.Id] == id)
+                        scoped.Add(vehicle.Id);
+                }
+            }
+        }
+
+        return vehicles.Where(item => scoped.Contains(item.Id)).OrderBy(item => item.Id.Value).ToArray();
+    }
+
+    private static RebuiltGroup ChooseInheritedGroup(
+        TrainAssembly parent,
+        IReadOnlyList<RebuiltGroup> children,
+        IReadOnlyDictionary<EntityId, EntityId> origins)
+    {
+        if (children.Count == 1)
+            return children[0];
+        if (parent.ActiveLocomotiveId is { } locoId)
+        {
+            var powered = children.FirstOrDefault(item =>
+                item.Members.Any(member => member.Id == locoId || origins[member.Id] == locoId));
+            if (powered.Members is { Length: > 0 })
+                return powered;
+        }
+
+        foreach (var vehicleId in parent.VehicleIds)
+        {
+            var successor = children.FirstOrDefault(item =>
+                item.Members.Any(member => member.Id == vehicleId || origins[member.Id] == vehicleId));
+            if (successor.Members is { Length: > 0 })
+                return successor;
+        }
+
+        return children[0];
+    }
+
+    private static TrainAssembly MaterializeRebuiltAssembly(
+        EntityId assemblyId,
+        RebuiltGroup group,
+        TrainAssembly parent,
+        IReadOnlyDictionary<EntityId, EntityId> origins,
+        VoxelCatalogSnapshot voxels)
+    {
+        var memberIds = group.Members.Select(item => item.Id).ToArray();
+        EntityId? activeLoco = null;
+        var running = false;
+        if (parent.ActiveLocomotiveId is { } sourceLoco)
+        {
+            var locomotive = group.Members.FirstOrDefault(item =>
+                item.Id == sourceLoco || origins[item.Id] == sourceLoco);
+            if (locomotive is not null &&
+                StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out _, out _))
+            {
+                activeLoco = locomotive.Id;
+                running = parent.Running;
+            }
+        }
+
+        var inheritedOrder = parent.VehicleIds
+            .Select(id => group.Members.FirstOrDefault(member => member.Id == id || origins[member.Id] == id)?.Id)
+            .OfType<EntityId>()
+            .ToArray();
+        var orderedIds = inheritedOrder.Concat(memberIds.Where(id => !inheritedOrder.Contains(id))).ToArray();
+        return new TrainAssembly(
+            assemblyId,
+            activeLoco,
+            group.Reference,
+            orderedIds,
+            group.Connections,
+            parent.Speed,
+            running);
+    }
+
+    private readonly record struct RebuiltGroup(
+        CompositeInstance[] Members,
+        CouplerConnectionQuery[] Connections,
+        RailPosition Reference,
+        TrainAssembly Parent);
 
     private static EntityId OriginVehicleId(CompositeInstance vehicle, IReadOnlyList<CompositeInstance> previous)
     {
@@ -439,10 +518,17 @@ public sealed partial class VoxelDevelopmentSession
 
     private void ApplyPlannedAssemblies(IReadOnlyList<TrainAssembly> planned, ulong next)
     {
+        ReconcileScheduledCommands(planned);
         _assemblies.Clear();
         _assemblies.AddRange(planned);
         NextEntityId = next;
         NoteAssemblyGraphCommit();
+    }
+
+    private void ReconcileScheduledCommands(IReadOnlyList<TrainAssembly> planned)
+    {
+        var live = planned.Select(item => item.Id).ToHashSet();
+        _scheduled.RemoveAll(command => !live.Contains(command.AssemblyId));
     }
 
     private void NoteAssemblyGraphCommit()
@@ -591,7 +677,10 @@ public sealed partial class VoxelDevelopmentSession
             _scheduled.Remove(command);
             var index = _assemblies.FindIndex(item => item.Id == command.AssemblyId);
             if (index < 0)
-                continue;
+            {
+                status = TrainMotionStatus.UnknownAssembly;
+                return false;
+            }
             if (command.Start)
             {
                 if (!CanStartNow(command.AssemblyId, out status) && !_assemblies[index].Running)
@@ -632,7 +721,7 @@ public sealed partial class VoxelDevelopmentSession
 
         if (assembly.ActiveLocomotiveId is not { } locoId)
         {
-            status = TrainMotionStatus.MissingPropulsion;
+            status = StartRefusalForUnpowered(assembly);
             return false;
         }
 
@@ -644,22 +733,9 @@ public sealed partial class VoxelDevelopmentSession
             return false;
         }
 
-        var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
-        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Propulsion))
+        if (!StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out _, out var locomotiveStatus))
         {
-            status = TrainMotionStatus.MissingPropulsion;
-            return false;
-        }
-
-        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Control))
-        {
-            status = TrainMotionStatus.MissingControl;
-            return false;
-        }
-
-        if (!StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
-        {
-            status = TrainMotionStatus.MissingPropulsion;
+            status = locomotiveStatus;
             return false;
         }
 
@@ -689,6 +765,23 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         return true;
+    }
+
+    private TrainMotionStatus StartRefusalForUnpowered(TrainAssembly assembly)
+    {
+        var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before starting a train.");
+        foreach (var vehicleId in assembly.VehicleIds)
+        {
+            var vehicle = _vehicles.FirstOrDefault(item => item.Id == vehicleId);
+            if (vehicle is null)
+                continue;
+            var capabilities = TrainAssemblyRules.LiveCapabilities(vehicle, voxels);
+            if (TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Propulsion) &&
+                !TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Control))
+                return TrainMotionStatus.MissingControl;
+        }
+
+        return TrainMotionStatus.MissingPropulsion;
     }
 
     private bool TryAdvanceAllAssemblies(out TrainMotionStatus status)
@@ -765,7 +858,8 @@ public sealed partial class VoxelDevelopmentSession
                 assembly.ActiveLocomotiveId is { } locoId)
             {
                 var locomotive = members.FirstOrDefault(item => item.Id == locoId);
-                if (locomotive is null || !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out var propulsion))
+                if (locomotive is null ||
+                    !StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out var propulsion, out _))
                     continue;
                 var speed = Math.Min(assembly.Speed, propulsion.TargetSpeed);
                 if (speed != assembly.Speed)

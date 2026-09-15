@@ -398,7 +398,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_MENU_REENTERED"
     )
 }
-$logDir = Join-Path $root ".godot/validation/issue-72"
+$logDir = Join-Path $root ".godot/validation/issue-72-review"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 @(
     "os=$([System.Environment]::OSVersion.VersionString)"

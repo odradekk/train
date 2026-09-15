@@ -27,6 +27,30 @@ public static class StraightTrainMotion
         return false;
     }
 
+    public static bool TryResolveLocomotive(
+        CompositeInstance locomotive,
+        VoxelCatalogSnapshot voxels,
+        out PropulsionParameters parameters,
+        out TrainMotionStatus status)
+    {
+        parameters = PropulsionParameters.Default;
+        status = TrainMotionStatus.MissingPropulsion;
+        ArgumentNullException.ThrowIfNull(locomotive);
+        ArgumentNullException.ThrowIfNull(voxels);
+        var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
+        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Propulsion) ||
+            !TryResolvePropulsion(locomotive, voxels, out parameters))
+            return false;
+        if (!TrainAssemblyRules.HasCapability(capabilities, CapabilityTypes.Control))
+        {
+            status = TrainMotionStatus.MissingControl;
+            return false;
+        }
+
+        status = TrainMotionStatus.Advanced;
+        return true;
+    }
+
     public static bool TryResolveTrackContact(
         IEnumerable<CompositeInstance> members,
         VoxelCatalogSnapshot voxels,
@@ -186,11 +210,8 @@ public static class StraightTrainMotion
             }
 
             var locomotive = members.FirstOrDefault(item => item.Id == locoId);
-            if (locomotive is null || !TryResolvePropulsion(locomotive, voxels, out var propulsion))
-            {
-                status = TrainMotionStatus.MissingPropulsion;
+            if (locomotive is null || !TryResolveLocomotive(locomotive, voxels, out var propulsion, out status))
                 return false;
-            }
 
             IntegrateTraction(
                 assembly.Speed,

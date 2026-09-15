@@ -481,7 +481,7 @@ internal static class WorldSaveRailwayCodec
         {
             if (assembly.ActiveLocomotiveId is not { } locoId)
                 return false;
-            return StraightTrainMotion.TryResolvePropulsion(vehicleById[locoId], catalog, out _);
+            return StraightTrainMotion.TryResolveLocomotive(vehicleById[locoId], catalog, out _, out _);
         }
 
         if (assembly.Speed > 0)

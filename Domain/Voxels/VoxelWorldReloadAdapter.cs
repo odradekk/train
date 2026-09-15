@@ -277,9 +277,7 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
                     continue;
                 }
 
-                var capabilities = TrainAssemblyRules.LiveCapabilities(locomotive, voxels);
-                if (!TrainAssemblyRules.HasLocomotiveCapabilities(capabilities) ||
-                    !StraightTrainMotion.TryResolvePropulsion(locomotive, voxels, out _))
+                if (!StraightTrainMotion.TryResolveLocomotive(locomotive, voxels, out _, out _))
                 {
                     diagnostics.Add(new ContentDiagnostic(
                         ContentDiagnosticSeverity.Error,

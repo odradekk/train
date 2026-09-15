@@ -250,6 +250,168 @@ public sealed class TrainCouplerCoastTests
         Assert.AreEqual(after, harness.Session.CaptureTrainAuthority());
     }
 
+    [TestMethod]
+    public void Queued_stop_on_a_coasting_assembly_keeps_identity_and_round_trips()
+    {
+        using var harness = RunningAt300();
+        BreakCoupler(harness.Session);
+        var split = AssertSplit(harness, 96, 87, 4, 4);
+        Assert.AreEqual(TrainMotionStatus.Stopped, harness.Session.StopTrain(310, split.Carriage.Id).Status);
+        var queued = harness.Session.QueryScheduledTrainCommands().Single();
+        Assert.AreEqual(split.Carriage.Id, queued.AssemblyId);
+        Assert.AreEqual(310UL, queued.AtStep);
+        var next = harness.Session.NextEntityId;
+        var transactions = harness.Session.TransactionCount;
+
+        var shell = harness.Session.QueryComposite(split.Loco.ActiveLocomotiveId!.Value)!.Parts.First(part => part.Cell.Y == 2);
+        Assert.AreEqual(CompositeDamageStatus.Damaged, harness.Session.Damage(split.Loco.ActiveLocomotiveId.Value, shell.Cell, 1).Status);
+        var after = AssertSplit(harness, 96, 87, 4, 4);
+        Assert.AreEqual(split.Loco.Id, after.Loco.Id);
+        Assert.AreEqual(split.Carriage.Id, after.Carriage.Id);
+        Assert.AreEqual(next, harness.Session.NextEntityId);
+        Assert.AreEqual(transactions + 1, harness.Session.TransactionCount);
+        var pending = harness.Session.QueryScheduledTrainCommands().Single();
+        Assert.AreEqual(split.Carriage.Id, pending.AssemblyId);
+        Assert.AreEqual(310UL, pending.AtStep);
+
+        AssertRoundTrip(harness, "Queued coast stop");
+        Assert.IsTrue(harness.Session.AdvanceSimulation(11).Succeeded);
+        Assert.AreEqual(311UL, harness.Session.SimulationStep);
+        Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
+        var stopped = AssertSplit(harness, 96 + 11 * (4.0 / 60.0), 87 + CoastTravel(4, 10), 4, 0);
+        Assert.IsFalse(stopped.Carriage.Running);
+        AssertRoundTrip(harness, "Executed coast stop");
+    }
+
+    [TestMethod]
+    public void Dissolving_an_assembly_cancels_its_queued_stop_in_the_same_event()
+    {
+        using var harness = RunningAt300();
+        var assembly = harness.Session.QueryTrainAssemblies().Single();
+        Assert.AreEqual(TrainMotionStatus.Stopped, harness.Session.StopTrain(310, assembly.Id).Status);
+        Assert.AreEqual(1, harness.Session.QueryScheduledTrainCommands().Count);
+        var before = harness.Session.CaptureTrainAuthority();
+
+        Assert.AreEqual(
+            CompositeDamageStatus.Damaged,
+            harness.Session.Damage(assembly.ActiveLocomotiveId!.Value, HollowShellFixture.RearBoundCell, 100).Status);
+        Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
+        Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
+        Assert.AreNotEqual(before, harness.Session.CaptureTrainAuthority());
+        AssertRoundTrip(harness, "Dissolved queued stop");
+        Assert.IsTrue(harness.Session.AdvanceSimulation(11).Succeeded);
+        Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
+        Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
+    }
+
+    [TestMethod]
+    public void Split_keeps_queued_stop_on_the_inheritor_and_does_not_broadcast()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
+        var original = harness.Session.QueryTrainAssemblies().Single();
+        Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.AreEqual(TrainMotionStatus.Stopped, harness.Session.StopTrain(310, original.Id).Status);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
+
+        BreakCoupler(harness.Session);
+        var split = AssertSplit(harness, 96, 87, 4, 4);
+        Assert.AreEqual(original.Id, split.Loco.Id);
+        var pending = harness.Session.QueryScheduledTrainCommands().Single();
+        Assert.AreEqual(split.Loco.Id, pending.AssemblyId);
+        Assert.AreNotEqual(split.Carriage.Id, pending.AssemblyId);
+
+        Assert.IsTrue(harness.Session.AdvanceSimulation(11).Succeeded);
+        var assemblies = harness.Session.QueryTrainAssemblies();
+        var loco = assemblies.Single(item => item.Id == split.Loco.Id);
+        var carriage = assemblies.Single(item => item.Id == split.Carriage.Id);
+        AssertWorldContact(loco.Vehicles[0].FrontContact, 96 + 10 * (4.0 / 60.0), 2, 16);
+        AssertWorldContact(carriage.Vehicles[0].FrontContact, 87 + CoastTravel(4, 11), 2, 16);
+        Assert.AreEqual(0.0, loco.Speed, Tolerance);
+        Assert.AreEqual(4 - 11.0 / 60.0, carriage.Speed, Tolerance);
+        Assert.IsFalse(loco.Running);
+        Assert.IsFalse(carriage.Running);
+        Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
+    }
+
+    [TestMethod]
+    public void Destroying_control_drops_traction_and_coasts_with_round_trip()
+    {
+        using var harness = RunningAt300();
+        var before = harness.Session.QueryTrainAssemblies().Single();
+        var locoId = before.ActiveLocomotiveId!.Value;
+        Assert.AreEqual(CompositeDamageStatus.Damaged, harness.Session.Damage(locoId, new LocalVoxelCoord(3, 0, 1), 100).Status);
+        Assert.AreEqual(OperationalCondition.Disabled, harness.Session.QueryComposite(locoId)!.OperationalCondition);
+        Assert.AreEqual(IdentityRetentionStatus.Retained, harness.Session.QueryComposite(locoId)!.IdentityRetention);
+        var coasting = harness.Session.QueryTrainAssemblies().Single();
+        Assert.AreEqual(before.Id, coasting.Id);
+        Assert.IsNull(coasting.ActiveLocomotiveId);
+        Assert.IsFalse(coasting.Running);
+        Assert.AreEqual(4.0, coasting.Speed, Tolerance);
+        AssertWorldContact(coasting.Vehicles[0].FrontContact, 96, 2, 16);
+        Assert.AreEqual(2, coasting.VehicleIds.Count);
+        Assert.AreEqual(TrainMotionStatus.MissingControl, harness.Session.StartTrain(RailHeading.AlongAlignment, assemblyId: coasting.Id).Status);
+
+        Assert.IsTrue(harness.Session.AdvanceSimulation(30).Succeeded);
+        var after = harness.Session.QueryTrainAssemblies().Single();
+        AssertWorldContact(after.Vehicles[0].FrontContact, 97.875, 2, 16);
+        Assert.AreEqual(3.5, after.Speed, Tolerance);
+        Assert.IsFalse(after.Running);
+        Assert.IsNull(after.ActiveLocomotiveId);
+        AssertRoundTrip(harness, "Missing control coast");
+
+        var saved = harness.Session.Save("Illegal running control");
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var previous = File.ReadAllText(path);
+        File.WriteAllText(path, Mutate(previous, root =>
+        {
+            root["assemblies"]![0]!["running"] = true;
+            root["assemblies"]![0]!["active_locomotive_id"] = locoId.Value;
+        }));
+        Assert.AreEqual(WorldSaveStatus.InvalidDelta, harness.Session.Load(saved.SaveId!.Value).Status);
+        File.WriteAllText(path, previous);
+
+        WriteTrackContact(harness, 2);
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
+        var adapted = harness.Session.QueryTrainAssemblies().Single();
+        Assert.AreEqual(after.Id, adapted.Id);
+        Assert.AreEqual(3.5, adapted.Speed, Tolerance);
+        AssertWorldContact(adapted.Vehicles[0].FrontContact, 97.875, 2, 16);
+    }
+
+    [TestMethod]
+    public void Rebuild_does_not_assemble_unrelated_manufactured_vehicles()
+    {
+        using var harness = StaticTrainHarness.Create();
+        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
+        var original = harness.Session.QueryTrainAssemblies().Single();
+        var manufactured = harness.Session.Manufacture(StaticTrainFixture.CarriageId, StaticTrainFixture.FacingPositiveX(200));
+        Assert.AreEqual(ConstructionStatus.Valid, manufactured.Status);
+        var extraId = manufactured.VehicleId!.Value;
+        Assert.AreEqual(1, harness.Session.QueryTrainAssemblies().Count);
+        var next = harness.Session.NextEntityId;
+        var extraCell = harness.Session.QueryComposite(extraId)!.Parts.First(part => part.Cell.Y == 2).Cell;
+        var locoShell = harness.Session.QueryComposite(original.ActiveLocomotiveId!.Value)!.Parts.First(part => part.Cell.Y == 2).Cell;
+
+        Assert.AreEqual(
+            CompositeDamageStatus.Damaged,
+            harness.Session.Damage(new[]
+            {
+                new CompositeDamageTarget(original.ActiveLocomotiveId.Value, locoShell, 1),
+                new CompositeDamageTarget(extraId, extraCell, 1)
+            }).Status);
+        var assemblies = harness.Session.QueryTrainAssemblies();
+        Assert.AreEqual(1, assemblies.Count);
+        Assert.AreEqual(original.Id, assemblies[0].Id);
+        Assert.AreEqual(original.VehicleIds.Count, assemblies[0].VehicleIds.Count);
+        Assert.IsFalse(assemblies[0].VehicleIds.Contains(extraId));
+        Assert.AreEqual(3, harness.Session.QueryComposites().Count);
+        Assert.AreEqual(next, harness.Session.NextEntityId);
+        Assert.AreEqual(TrainMotionStatus.Started, harness.Session.StartTrain(RailHeading.AlongAlignment).Status);
+    }
+
     private static StaticTrainHarness RunningAt300()
     {
         var harness = StaticTrainHarness.Create();
@@ -293,6 +455,34 @@ public sealed class TrainCouplerCoastTests
         Assert.AreEqual(x, contact.X, Tolerance, "x");
         Assert.AreEqual(y, contact.Y, Tolerance, "y");
         Assert.AreEqual(z, contact.Z, Tolerance, "z");
+    }
+
+    private static void AssertRoundTrip(StaticTrainHarness harness, string name)
+    {
+        var before = harness.Session.CaptureTrainAuthority();
+        var hash = WorldSaveAuthority.Fingerprint(harness.Session);
+        var saved = harness.Session.Save(name);
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        using var reader = StaticTrainHarness.Create(harness.UserData, harness.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(before, reader.Session.CaptureTrainAuthority());
+        Assert.AreEqual(hash, WorldSaveAuthority.Fingerprint(reader.Session));
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(before, harness.Session.CaptureTrainAuthority());
+        Assert.AreEqual(hash, WorldSaveAuthority.Fingerprint(harness.Session));
+    }
+
+    private static double CoastTravel(double speed, int steps)
+    {
+        var remaining = speed;
+        var total = 0.0;
+        for (var step = 0; step < steps; step++)
+        {
+            StraightTrainMotion.IntegrateCoast(remaining, 1, SimulationClock.StepDuration, out remaining, out var dx);
+            total += dx;
+        }
+
+        return total;
     }
 
     private static void SetCursor(VoxelDevelopmentSession session, string name, ulong value) =>
