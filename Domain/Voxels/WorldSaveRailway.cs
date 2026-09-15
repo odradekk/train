@@ -371,6 +371,8 @@ internal static class WorldSaveRailwayCodec
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
+        if (assemblies.Count > 1)
+            return false;
         var assemblyIds = new HashSet<ulong>();
         var claimedVehicles = new HashSet<EntityId>();
         var vehicleById = vehicles.ToDictionary(item => item.Id);

@@ -286,6 +286,8 @@ public sealed class TrainPersistenceTests
             occupancy[1] = occupancy[0]!.DeepClone();
         }), before, fingerprint, sequence);
         AssertLoadKeeps(harness, Mutate(previous, root => root["railway"]!["sleeper_count"] = 0), before, fingerprint, sequence);
+        AssertLoadKeeps(harness, Mutate(previous, AddSecondAssembly), before, fingerprint, sequence);
+        Assert.AreEqual(saved.SaveId, harness.Session.SaveId);
 
         Assert.AreEqual(previous, File.ReadAllText(path));
         Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(saved.SaveId!.Value).Status);
@@ -569,6 +571,41 @@ public sealed class TrainPersistenceTests
         var root = JsonNode.Parse(json)!.AsObject();
         mutate(root);
         return root.ToJsonString();
+    }
+
+    private static void AddSecondAssembly(JsonObject root)
+    {
+        const ulong offset = 1000;
+        ulong Shift(JsonNode node) => node.GetValue<ulong>() + offset;
+        var vehicles = root["vehicles"]!.AsArray();
+        var clones = vehicles.Select(vehicle => vehicle!.DeepClone().AsObject()).ToArray();
+        foreach (var vehicle in clones)
+        {
+            vehicle["id"] = Shift(vehicle["id"]!);
+            vehicle["transform"]!["origin_x"] = vehicle["transform"]!["origin_x"]!.GetValue<double>() + 40.0;
+            foreach (var part in vehicle["parts"]!.AsArray())
+                part!["id"] = Shift(part["id"]!);
+            vehicles.Add(vehicle);
+        }
+
+        var first = root["assemblies"]![0]!.AsObject();
+        var second = first.DeepClone().AsObject();
+        second["id"] = Shift(second["id"]!);
+        second["distance"] = second["distance"]!.GetValue<double>() + 40.0;
+        second["active_locomotive_id"] = Shift(second["active_locomotive_id"]!);
+        var memberIds = second["vehicle_ids"]!.AsArray();
+        for (var index = 0; index < memberIds.Count; index++)
+            memberIds[index] = Shift(memberIds[index]!);
+        foreach (var connection in second["connections"]!.AsArray())
+        {
+            connection!["from_vehicle_id"] = Shift(connection["from_vehicle_id"]!);
+            connection["to_vehicle_id"] = Shift(connection["to_vehicle_id"]!);
+            connection["from_part_id"] = Shift(connection["from_part_id"]!);
+            connection["to_part_id"] = Shift(connection["to_part_id"]!);
+        }
+
+        root["assemblies"]!.AsArray().Add(second);
+        root["next_entity_id"] = 2000;
     }
 
     private static StaticTrainHarness Parked()
