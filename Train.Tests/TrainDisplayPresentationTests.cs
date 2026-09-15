@@ -183,6 +183,85 @@ public sealed class TrainDisplayPresentationTests
     }
 
     [TestMethod]
+    public void Followed_carriage_framing_stays_continuous_when_it_becomes_assembly_lead()
+    {
+        using var harness = RunningAt300();
+        var assembly = harness.Session.QueryTrainAssemblies().Single();
+        var carriageId = assembly.VehicleIds[1];
+        Assert.AreNotEqual(carriageId, assembly.VehicleIds[0]);
+        Assert.IsTrue(harness.Session.TryFollowVehicle(carriageId));
+        var definition = harness.Session.QueryComposite(carriageId)!.DefinitionId;
+        Assert.AreEqual(StaticTrainFixture.CarriageId, definition);
+        var beforeFollow = harness.Session.QueryFollowedCamera(1)!;
+        var before = AlongRailDisplay.FrameFollowCamera(beforeFollow, definition);
+        Assert.AreEqual(4.0, before.LookOffset, Tolerance);
+        Assert.AreEqual(beforeFollow.FocusX + 4.0, before.LookX, Tolerance);
+
+        BreakCoupler(harness.Session);
+        Assert.AreEqual(300UL, harness.Session.SimulationStep);
+        Assert.AreEqual(carriageId, harness.Session.FollowedVehicleId);
+        var split = harness.Session.QueryTrainAssemblies().Single(item => item.VehicleIds.Contains(carriageId));
+        Assert.AreEqual(carriageId, split.VehicleIds[0]);
+        Assert.AreEqual(4.0, split.Speed, Tolerance);
+        Assert.IsFalse(split.Running);
+
+        var afterFollow = harness.Session.QueryFollowedCamera(1)!;
+        var after = AlongRailDisplay.FrameFollowCamera(afterFollow, harness.Session.QueryComposite(carriageId)!.DefinitionId);
+        Assert.AreEqual(carriageId, afterFollow.VehicleId);
+        Assert.AreEqual(4.0, after.LookOffset, Tolerance);
+        Assert.AreEqual(before.LookX, after.LookX, Tolerance);
+        Assert.AreEqual(before.LookY, after.LookY, Tolerance);
+        Assert.AreEqual(before.LookZ, after.LookZ, Tolerance);
+        Assert.AreEqual(before.PositionX, after.PositionX, Tolerance);
+        Assert.AreEqual(before.PositionY, after.PositionY, Tolerance);
+        Assert.AreEqual(before.PositionZ, after.PositionZ, Tolerance);
+        Assert.AreEqual(-5.0, AlongRailDisplay.LookOffsetAlongHeading(StaticTrainFixture.LocomotiveId), Tolerance);
+        Assert.AreNotEqual(before.LookX - 9.0, after.LookX, 1.0);
+    }
+
+    [TestMethod]
+    public void Motion_status_text_distinguishes_running_coast_and_stop()
+    {
+        using var harness = RunningAt300();
+        var running = harness.Session.QueryTrainAssemblies().Single();
+        Assert.AreEqual("运行", AlongRailDisplay.MotionStatusText(running, paused: false));
+        Assert.AreEqual("运行 暂停", AlongRailDisplay.MotionStatusText(running, paused: true));
+
+        var carriageId = running.VehicleIds[1];
+        BreakCoupler(harness.Session);
+        var coasting = harness.Session.QueryTrainAssemblies().Single(item => item.VehicleIds.Contains(carriageId));
+        Assert.IsFalse(coasting.Running);
+        Assert.AreEqual(4.0, coasting.Speed, Tolerance);
+        Assert.AreEqual(TrainHaltReason.None, coasting.HaltReason);
+        Assert.AreEqual("滑行", AlongRailDisplay.MotionStatusText(coasting, paused: false));
+        Assert.AreEqual("滑行 暂停", AlongRailDisplay.MotionStatusText(coasting, paused: true));
+
+        Assert.IsTrue(harness.Session.AdvanceSimulation(240).Succeeded);
+        var stopped = harness.Session.QueryTrainAssemblies().Single(item => item.VehicleIds.Contains(carriageId));
+        Assert.IsFalse(stopped.Running);
+        Assert.AreEqual(0.0, stopped.Speed, Tolerance);
+        Assert.AreEqual("停止", AlongRailDisplay.MotionStatusText(stopped, paused: false));
+        Assert.AreEqual("支撑失效", AlongRailDisplay.MotionStatusText(
+            new TrainAssemblyQuery(
+                stopped.Id,
+                stopped.ActiveLocomotiveId,
+                stopped.Reference,
+                stopped.VehicleIds,
+                stopped.Connections,
+                stopped.Vehicles,
+                0,
+                false,
+                TrainHaltReason.SupportLost),
+            paused: false));
+        Assert.AreEqual("前方缺口", AlongRailDisplay.MotionStatusText(
+            stopped with { HaltReason = TrainHaltReason.ForwardGap },
+            paused: false));
+        Assert.AreEqual("线路末端", AlongRailDisplay.MotionStatusText(
+            stopped with { HaltReason = TrainHaltReason.EndOfLine },
+            paused: false));
+    }
+
+    [TestMethod]
     public void Followed_camera_uses_display_body_heading_and_survives_disconnect()
     {
         using var harness = Parked();

@@ -30,6 +30,16 @@ public sealed record TrainFollowCameraQuery(
     double HeadingY,
     double HeadingZ);
 
+public sealed record TrainFollowCameraFrame(
+    EntityId VehicleId,
+    double LookX,
+    double LookY,
+    double LookZ,
+    double PositionX,
+    double PositionY,
+    double PositionZ,
+    double LookOffset);
+
 public static class AlongRailDisplay
 {
     public static double ClampAlpha(double alpha)
@@ -108,6 +118,78 @@ public static class AlongRailDisplay
             hx,
             hy,
             hz);
+    }
+
+    public static double LookOffsetAlongHeading(CompositeDefinitionId definitionId) =>
+        definitionId == StaticTrainFixture.LocomotiveId ? -5 : 4;
+
+    public static TrainFollowCameraFrame FrameFollowCamera(
+        TrainFollowCameraQuery pose,
+        CompositeDefinitionId definitionId)
+    {
+        ArgumentNullException.ThrowIfNull(pose);
+        var hx = pose.HeadingX;
+        var hy = pose.HeadingY;
+        var hz = pose.HeadingZ;
+        var length = Math.Sqrt(hx * hx + hy * hy + hz * hz);
+        if (length <= 0 || !double.IsFinite(length))
+        {
+            hx = 1;
+            hy = 0;
+            hz = 0;
+        }
+        else
+        {
+            hx /= length;
+            hy /= length;
+            hz /= length;
+        }
+
+        var offset = LookOffsetAlongHeading(definitionId);
+        var lookX = pose.FocusX + hx * offset;
+        var lookY = pose.FocusY + hy * offset;
+        var lookZ = pose.FocusZ + hz * offset;
+        var rightX = hy * 0 - hz * 1;
+        var rightY = hz * 0 - hx * 0;
+        var rightZ = hx * 1 - hy * 0;
+        var rightLength = Math.Sqrt(rightX * rightX + rightY * rightY + rightZ * rightZ);
+        if (rightLength <= 0 || !double.IsFinite(rightLength))
+        {
+            rightX = 0;
+            rightY = 0;
+            rightZ = 1;
+        }
+        else
+        {
+            rightX /= rightLength;
+            rightY /= rightLength;
+            rightZ /= rightLength;
+        }
+
+        return new TrainFollowCameraFrame(
+            pose.VehicleId,
+            lookX,
+            lookY,
+            lookZ,
+            lookX - hx * 7 + rightX * 20,
+            lookY - hy * 7 + 10 + rightY * 20,
+            lookZ - hz * 7 + rightZ * 20,
+            offset);
+    }
+
+    public static string MotionStatusText(TrainAssemblyQuery assembly, bool paused)
+    {
+        ArgumentNullException.ThrowIfNull(assembly);
+        var motion = assembly.HaltReason switch
+        {
+            TrainHaltReason.SupportLost => "支撑失效",
+            TrainHaltReason.ForwardGap => "前方缺口",
+            TrainHaltReason.EndOfLine => "线路末端",
+            _ when assembly.Running => "运行",
+            _ when Math.Abs(assembly.Speed) > 1e-8 => "滑行",
+            _ => "停止"
+        };
+        return paused ? motion + " 暂停" : motion;
     }
 
     public static TrainDisplaySample Sample(

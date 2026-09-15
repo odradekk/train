@@ -36,7 +36,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelSlice4BaselinePhase _slice4BaselinePhase;
     private bool _slice4BaselineRecording;
     private ulong _slice4BaselineMaxStep;
-    private double _slice4EventFrameMs;
+    private double _slice4EventWorkMs;
     private bool _dirty = true;
     private VoxelSmokePhase _smokePhase;
     private VoxelSlice2SmokePhase _slice2SmokePhase;
@@ -509,7 +509,9 @@ public partial class VoxelDeveloperScene : Node3D
         None,
         Running,
         Damage,
-        SaveLoad
+        DamageAwait,
+        SaveLoad,
+        SaveLoadAwait
     }
 
     private enum VoxelResumeObservePhase
@@ -754,6 +756,8 @@ public partial class VoxelDeveloperScene : Node3D
 
     public override void _Process(double delta)
     {
+        if (_slice4Baseline && _baselineEnabled)
+            StampSlice4BaselineFrame();
         StampRefitMetricFrame();
         if (_dirty)
         {
@@ -1219,13 +1223,7 @@ public partial class VoxelDeveloperScene : Node3D
                         ? "无车钩"
                         : $"车钩 {item.Connections[0].FromPartId}->{item.Connections[0].ToPartId}";
                     var front = item.Vehicles[0].FrontContact.X.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
-                    var halt = item.HaltReason switch
-                    {
-                        TrainHaltReason.SupportLost => "支撑失效",
-                        TrainHaltReason.ForwardGap => "前方缺口",
-                        TrainHaltReason.EndOfLine => "线路末端",
-                        _ => item.Running ? "运行" : "静止"
-                    };
+                    var halt = AlongRailDisplay.MotionStatusText(item, paused: false);
                     return $"编组 {item.Id} 车头 {item.ActiveLocomotiveId?.ToString() ?? "无"} {coupler} 前 {front} 速 {item.Speed.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)} {halt}";
                 })) + $"\n图 {_session.AssemblyGraphGeneration} 步 {_session.SimulationStep}{(_session.SimulationPaused ? " 暂停" : "")}";
             return $"车辆 {vehicles.Count}：{summary}。{assemblyText}\n显示批次 {_composites.MeshInstanceCount} 面 {_composites.FaceCount}。世界体素 {_session.World.VoxelCount}。";
@@ -3553,12 +3551,20 @@ public partial class VoxelDeveloperScene : Node3D
                 var followed = _session.QueryTrainAssemblies().Single().VehicleIds[1];
                 if (!_session.TryFollowVehicle(followed))
                     throw new InvalidOperationException("Slice 4 observe could not keep carriage follow before split.");
+                ApplyRailPresentation();
+                var beforeCamera = RequireSlice4CameraFrame();
+                PrintSlice4CameraMarker("VOXEL_OBSERVE_SLICE4_CAMERA_BEFORE_SPLIT", beforeCamera);
                 var coupler = _session.QueryTrainAssemblies().Single().Connections[0];
                 if (!_session.Damage(_session.QueryTrainAssemblies().Single().ActiveLocomotiveId!.Value, coupler.FromCell, 100).Succeeded)
                     throw new InvalidOperationException("Slice 4 observe could not destroy the coupler.");
                 if (_session.FollowedVehicleId != followed)
                     throw new InvalidOperationException("Slice 4 observe follow jumped after disconnect.");
                 ApplyRailPresentation();
+                var afterCamera = RequireSlice4CameraFrame();
+                PrintSlice4CameraMarker("VOXEL_OBSERVE_SLICE4_CAMERA_AFTER_SPLIT", afterCamera);
+                RequireSlice4CameraContinuous(beforeCamera, afterCamera);
+                if (!HaltHud().Contains("滑行", StringComparison.Ordinal))
+                    throw new InvalidOperationException($"Slice 4 observe split HUD is '{HaltHud()}'.");
                 _observeHoldFrames = 8;
                 _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitSplit;
                 return;
@@ -4765,6 +4771,8 @@ public partial class VoxelDeveloperScene : Node3D
                 GD.Print($"VOXEL_SMOKE_SLICE4_SAVE_WRITTEN id={saved.SaveId:D} bytes={new FileInfo(path).Length} path={path} step={_session.SimulationStep}");
                 RunSlice4SupportLossSmoke("VOXEL_SMOKE_SLICE4_SUPPORT_LOSS");
                 ResetSlice4AfterMotion();
+                RunSlice4CoastStopHudSmoke();
+                ResetSlice4AfterMotion();
                 RunSlice4GapStopSmoke("VOXEL_SMOKE_SLICE4_GAP_STOP");
                 ResetSlice4AfterMotion();
                 RunSlice4FullDestroySmoke();
@@ -4943,16 +4951,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (assemblies.Count == 0)
             return "停因 无编组";
         var parts = assemblies.Select(item =>
-        {
-            var halt = item.HaltReason switch
-            {
-                TrainHaltReason.SupportLost => "支撑失效",
-                TrainHaltReason.ForwardGap => "前方缺口",
-                TrainHaltReason.EndOfLine => "线路末端",
-                _ => item.Running ? "运行" : "静止"
-            };
-            return $"编组{item.Id.Value} {halt}";
-        });
+            $"编组{item.Id.Value} {AlongRailDisplay.MotionStatusText(item, _session.SimulationPaused)}");
         return "停因 " + string.Join(" · ", parts);
     }
 
@@ -4964,20 +4963,11 @@ public partial class VoxelDeveloperScene : Node3D
         var camera = GetChildren().OfType<Camera3D>().FirstOrDefault();
         if (camera is null || !IsInsideTree() || !camera.IsInsideTree())
             return;
-        var focus = new Vector3((float)follow.FocusX, (float)follow.FocusY, (float)follow.FocusZ);
-        var heading = new Vector3((float)follow.HeadingX, (float)follow.HeadingY, (float)follow.HeadingZ);
-        if (heading.LengthSquared() < 1e-8f)
-            heading = Vector3.Right;
-        heading = heading.Normalized();
-        var right = heading.Cross(Vector3.Up);
-        if (right.LengthSquared() < 1e-8f)
-            right = Vector3.Forward;
-        right = right.Normalized();
-        var lead = _session.QueryTrainAssemblies()
-            .FirstOrDefault(item => item.VehicleIds.Contains(follow.VehicleId));
-        var towardCoupler = lead is not null && lead.VehicleIds[0] == follow.VehicleId ? -5f : 4f;
-        var look = focus + heading * towardCoupler;
-        camera.Position = look - heading * 7f + Vector3.Up * 10f + right * 20f;
+        var definition = _session.QueryComposite(follow.VehicleId)?.DefinitionId
+                         ?? StaticTrainFixture.CarriageId;
+        var frame = AlongRailDisplay.FrameFollowCamera(follow, definition);
+        var look = new Vector3((float)frame.LookX, (float)frame.LookY, (float)frame.LookZ);
+        camera.Position = new Vector3((float)frame.PositionX, (float)frame.PositionY, (float)frame.PositionZ);
         if ((camera.Position - look).LengthSquared() > 1e-8f)
             camera.LookAt(look, Vector3.Up);
     }
@@ -5014,6 +5004,45 @@ public partial class VoxelDeveloperScene : Node3D
         var meshIds = string.Join(',', _composites.MeshInstanceIds);
         GD.Print(
             $"{marker} step={_session.SimulationStep} alpha={_session.DisplayInterpolationAlpha.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} ended={mid.IntervalEnded.ToString().ToLowerInvariant()} vehicles={mid.Vehicles.Count} follow={_session.FollowedVehicleId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"} from={zero.Vehicles.FirstOrDefault()?.FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} mid={mid.Vehicles.FirstOrDefault()?.FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} to={one.Vehicles.FirstOrDefault()?.FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} heading={follow?.HeadingX.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} meshes={meshIds}");
+    }
+
+    private Camera3D RequireFollowCameraNode()
+    {
+        var camera = GetChildren().OfType<Camera3D>().FirstOrDefault();
+        if (camera is null || !IsInsideTree() || !camera.IsInsideTree())
+            throw new InvalidOperationException("Slice 4 camera node is not in the tree.");
+        return camera;
+    }
+
+    private (Vector3 Position, Vector3 Forward, double Offset) RequireSlice4CameraFrame()
+    {
+        ApplyFollowCamera();
+        var camera = RequireFollowCameraNode();
+        var follow = _session.QueryFollowedCamera()
+                     ?? throw new InvalidOperationException("Slice 4 follow camera query is missing.");
+        var definition = _session.QueryComposite(follow.VehicleId)?.DefinitionId
+                         ?? StaticTrainFixture.CarriageId;
+        var offset = AlongRailDisplay.LookOffsetAlongHeading(definition);
+        return (camera.GlobalPosition, -camera.GlobalTransform.Basis.Z, offset);
+    }
+
+    private void PrintSlice4CameraMarker(string marker, (Vector3 Position, Vector3 Forward, double Offset) frame)
+    {
+        var follow = _session.FollowedVehicleId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none";
+        GD.Print(
+            $"{marker} step={_session.SimulationStep} follow={follow} cam={frame.Position.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)},{frame.Position.Y.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)},{frame.Position.Z.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} forward={frame.Forward.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)},{frame.Forward.Y.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)},{frame.Forward.Z.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} offset={frame.Offset.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+    }
+
+    private static void RequireSlice4CameraContinuous(
+        (Vector3 Position, Vector3 Forward, double Offset) before,
+        (Vector3 Position, Vector3 Forward, double Offset) after)
+    {
+        if (Math.Abs(after.Offset - before.Offset) > 1e-8)
+            throw new InvalidOperationException(
+                $"Slice 4 follow offset jumped from {before.Offset} to {after.Offset}.");
+        if ((after.Position - before.Position).Length() > 1f || (after.Forward - before.Forward).Length() > 0.2f)
+            throw new InvalidOperationException(
+                $"Slice 4 Camera3D jumped from {before.Position}/{before.Forward} to {after.Position}/{after.Forward}.");
     }
 
     private bool IsAutomatedHarness() =>
@@ -5292,6 +5321,12 @@ public partial class VoxelDeveloperScene : Node3D
     private void RunSlice4CouplerCoastSmoke()
     {
         var assembled = RequireSlice4Assembly();
+        var carriageId = assembled.VehicleIds[1];
+        if (!_session.TryFollowVehicle(carriageId))
+            throw new InvalidOperationException("Slice 4 smoke could not follow the carriage before coupler split.");
+        ApplyRailPresentation();
+        var beforeCamera = RequireSlice4CameraFrame();
+        PrintSlice4CameraMarker("VOXEL_SMOKE_SLICE4_CAMERA_BEFORE_SPLIT", beforeCamera);
         var coupler = assembled.Connections[0];
         var damaged = _session.Damage(assembled.ActiveLocomotiveId!.Value, coupler.FromCell, 100);
         if (!damaged.Succeeded || damaged.Targets is null || damaged.Targets[0].PartId != coupler.FromPartId)
@@ -5300,16 +5335,53 @@ public partial class VoxelDeveloperScene : Node3D
         var afterSplit = _session.QueryDisplayPoses(0.5);
         if (!afterSplit.IntervalEnded)
             throw new InvalidOperationException("Slice 4 coupler split kept the old display interval.");
-        if (_session.FollowedVehicleId != assembled.VehicleIds[0])
+        if (_session.FollowedVehicleId != carriageId)
             throw new InvalidOperationException("Slice 4 follow jumped after coupler split.");
+        ApplyRailPresentation();
+        var afterCamera = RequireSlice4CameraFrame();
+        PrintSlice4CameraMarker("VOXEL_SMOKE_SLICE4_CAMERA_AFTER_SPLIT", afterCamera);
+        RequireSlice4CameraContinuous(beforeCamera, afterCamera);
+        var splitHud = HaltHud();
+        if (!splitHud.Contains("滑行", StringComparison.Ordinal) ||
+            !AlongRailDisplay.MotionStatusText(split.Carriage, paused: false).Equals("滑行", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Slice 4 split HUD is '{splitHud}'.");
         GD.Print(
-            $"VOXEL_SMOKE_SLICE4_COAST_SPLIT assemblies={_session.QueryTrainAssemblies().Count} graph={_session.AssemblyGraphGeneration} loco={split.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={split.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+            $"VOXEL_SMOKE_SLICE4_COAST_SPLIT assemblies={_session.QueryTrainAssemblies().Count} graph={_session.AssemblyGraphGeneration} loco={split.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={split.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hud={splitHud}");
         PrintSlice4DisplayMarkers("VOXEL_SMOKE_SLICE4_DISPLAY_ENDED");
         if (!_session.AdvanceSimulation(30).Succeeded || _session.SimulationStep != 330)
             throw new InvalidOperationException("Slice 4 smoke could not coast 30 steps after coupler damage.");
         var coasted = RequireSlice4CoastAssemblies(98, 88.875, 4, 3.5, frontRunning: true);
         GD.Print(
-            $"VOXEL_SMOKE_SLICE4_COAST_STEP330 loco={coasted.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={coasted.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} loco_speed={coasted.Loco.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage_speed={coasted.Carriage.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+            $"VOXEL_SMOKE_SLICE4_COAST_STEP330 loco={coasted.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={coasted.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} loco_speed={coasted.Loco.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage_speed={coasted.Carriage.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hud={HaltHud()}");
+    }
+
+    private void RunSlice4CoastStopHudSmoke()
+    {
+        if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+            !_session.AdvanceSimulation(300).Succeeded)
+            throw new InvalidOperationException("Slice 4 smoke could not rebuild for coast-to-stop HUD.");
+        var carriageId = _session.QueryTrainAssemblies().Single().VehicleIds[1];
+        BreakSlice4Coupler();
+        var coasting = _session.QueryTrainAssemblies().Single(item => item.VehicleIds.Contains(carriageId));
+        if (!AlongRailDisplay.MotionStatusText(coasting, paused: false).Equals("滑行", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Slice 4 coast HUD is {AlongRailDisplay.MotionStatusText(coasting, paused: false)}.");
+        if (!_session.AdvanceSimulation(240).Succeeded)
+            throw new InvalidOperationException("Slice 4 smoke could not coast to zero.");
+        var stopped = _session.QueryTrainAssemblies().Single(item => item.VehicleIds.Contains(carriageId));
+        if (Math.Abs(stopped.Speed) > 1e-8 || stopped.Running)
+            throw new InvalidOperationException($"Slice 4 coast stop is speed {stopped.Speed} running {stopped.Running}.");
+        var stopText = AlongRailDisplay.MotionStatusText(stopped, paused: false);
+        if (!stopText.Equals("停止", StringComparison.Ordinal))
+            throw new InvalidOperationException($"Slice 4 zero-speed HUD is {stopText}.");
+        GD.Print($"VOXEL_SMOKE_SLICE4_COAST_STOP step={_session.SimulationStep} speed={stopped.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} hud={HaltHud()}");
+    }
+
+    private void BreakSlice4Coupler()
+    {
+        var assembled = RequireSlice4Assembly();
+        var coupler = assembled.Connections[0];
+        if (!_session.Damage(assembled.ActiveLocomotiveId!.Value, coupler.FromCell, 100).Succeeded)
+            throw new InvalidOperationException("Slice 4 smoke could not destroy the coupler for HUD coast-stop.");
     }
 
     private (TrainAssemblyQuery Loco, TrainAssemblyQuery Carriage) RequireSlice4CoastAssemblies(
@@ -5543,7 +5615,7 @@ public partial class VoxelDeveloperScene : Node3D
         StartBaselineRun();
     }
 
-    private void AdvanceSlice4Baseline()
+    private void StampSlice4BaselineFrame()
     {
         var now = Time.GetTicksUsec();
         if (_lastFrameTicks != 0)
@@ -5556,6 +5628,10 @@ public partial class VoxelDeveloperScene : Node3D
         }
 
         _lastFrameTicks = now;
+    }
+
+    private void AdvanceSlice4Baseline()
+    {
         switch (_slice4BaselinePhase)
         {
             case VoxelSlice4BaselinePhase.Running:
@@ -5581,6 +5657,9 @@ public partial class VoxelDeveloperScene : Node3D
             }
             case VoxelSlice4BaselinePhase.Damage:
                 MeasureSlice4BaselineDamage();
+                _slice4BaselinePhase = VoxelSlice4BaselinePhase.DamageAwait;
+                return;
+            case VoxelSlice4BaselinePhase.DamageAwait:
                 PrintSlice4BaselineKind("damage");
                 _slice4BaselinePhase = VoxelSlice4BaselinePhase.SaveLoad;
                 _frameMilliseconds.Clear();
@@ -5588,6 +5667,9 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice4BaselinePhase.SaveLoad:
                 MeasureSlice4BaselineSaveLoad();
+                _slice4BaselinePhase = VoxelSlice4BaselinePhase.SaveLoadAwait;
+                return;
+            case VoxelSlice4BaselinePhase.SaveLoadAwait:
                 PrintSlice4BaselineKind("saveload");
                 if (!_slice4BaselineRecording)
                 {
@@ -5636,7 +5718,7 @@ public partial class VoxelDeveloperScene : Node3D
         refresh.Stop();
         _slice4MutationMs = mutation.Elapsed.TotalMilliseconds;
         _slice4RefreshMs = refresh.Elapsed.TotalMilliseconds;
-        _slice4EventFrameMs = _slice4MutationMs + _slice4RefreshMs;
+        _slice4EventWorkMs = _slice4MutationMs + _slice4RefreshMs;
         _slice4Voxels = _session.World.VoxelCount;
     }
 
@@ -5663,7 +5745,7 @@ public partial class VoxelDeveloperScene : Node3D
         eventClock.Stop();
         _slice4SaveMs = saveClock.Elapsed.TotalMilliseconds;
         _slice4LoadMs = loadClock.Elapsed.TotalMilliseconds;
-        _slice4EventFrameMs = eventClock.Elapsed.TotalMilliseconds;
+        _slice4EventWorkMs = eventClock.Elapsed.TotalMilliseconds;
         _slice4Voxels = _session.World.VoxelCount;
     }
 
@@ -5685,11 +5767,11 @@ public partial class VoxelDeveloperScene : Node3D
             }
             case "damage":
                 GD.Print(
-                    $"VOXEL_BASELINE_SLICE4_RUN kind=damage run={run} voxels={_slice4Voxels} mutation_ms={_slice4MutationMs:F3} refresh_ms={_slice4RefreshMs:F3} frame_ms={_slice4EventFrameMs:F3} memory_bytes={memory:F0}");
+                    $"VOXEL_BASELINE_SLICE4_RUN kind=damage run={run} voxels={_slice4Voxels} mutation_ms={_slice4MutationMs:F3} refresh_ms={_slice4RefreshMs:F3} work_ms={_slice4EventWorkMs:F3} frame_interval_ms={(_frameMilliseconds.Count == 0 ? 0 : _frameMilliseconds.Last()):F3} memory_bytes={memory:F0}");
                 return;
             default:
                 GD.Print(
-                    $"VOXEL_BASELINE_SLICE4_RUN kind=saveload run={run} voxels={_slice4Voxels} save_ms={_slice4SaveMs:F3} load_ms={_slice4LoadMs:F3} file_bytes={_slice4Bytes} frame_ms={_slice4EventFrameMs:F3} memory_bytes={memory:F0}");
+                    $"VOXEL_BASELINE_SLICE4_RUN kind=saveload run={run} voxels={_slice4Voxels} save_ms={_slice4SaveMs:F3} load_ms={_slice4LoadMs:F3} file_bytes={_slice4Bytes} work_ms={_slice4EventWorkMs:F3} frame_interval_ms={(_frameMilliseconds.Count == 0 ? 0 : _frameMilliseconds.Last()):F3} memory_bytes={memory:F0}");
                 return;
         }
     }

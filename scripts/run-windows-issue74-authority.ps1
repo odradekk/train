@@ -22,28 +22,39 @@ Set-Location $root
 $sha = (git rev-parse HEAD).Trim()
 $os = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
 $sdk = (& dotnet --version).Trim()
-$runtime = (& dotnet --list-runtimes | Select-String -Pattern "^Microsoft.NETCore.App 10\." | Select-Object -Last 1)
+$runtimeLines = @(& dotnet --list-runtimes | Select-String -Pattern "^Microsoft.NETCore.App 10\." | ForEach-Object { $_.ToString().Trim() })
+$processFx = [System.Runtime.InteropServices.RuntimeInformation]::FrameworkDescription
 $godot = if ($env:GODOT) { $env:GODOT } else { "" }
 $godotVersion = if ($godot -and (Test-Path -LiteralPath $godot)) { (& $godot --version | Out-String).Trim() } else { "unset" }
+$generator = "slice-4-straight-rail-v1"
+$identityFile = Join-Path $root "Domain/Voxels/VoxelWorldIdentity.cs"
+if (Test-Path -LiteralPath $identityFile) {
+    $match = Select-String -LiteralPath $identityFile -Pattern 'Slice4GeneratorVersion = "([^"]+)"'
+    if ($match) { $generator = $match.Matches[0].Groups[1].Value }
+}
 
 $lines = @(
     "# Issue #74 Windows x64 authority",
     "",
-    "- SHA: $sha",
+    "- SHA recorded at execution: $sha",
     "- OS: $os",
     "- dotnet SDK: $sdk",
-    "- runtime: $runtime",
+    "- Microsoft.NETCore.App 10.x runtimes present:",
+    ($runtimeLines | ForEach-Object { "  - $_" }),
+    "- This process FrameworkDescription: $processFx",
+    "- Testhost runtime: not proven by listing 10.x or taking the last line. On Windows, record the testhost ``FrameworkDescription`` from the passing ``dotnet test`` process.",
     "- GODOT: $godot",
     "- Godot version: $godotVersion",
     "- Evidence kind: source checkout ``dotnet test`` / optional Godot smoke. Not the exported ``train.exe``.",
-    "- Content: built-in published catalog from this checkout (``core`` voxels/composites, generator ``slice-4-straight-rail-v1``).",
+    "- Content identity from this checkout: built-in published ``core`` voxels/composites; world generator ``$generator`` (from ``VoxelWorldIdentity.Slice4GeneratorVersion``).",
+    "- This script does not gate on a hard-coded SHA or a single 10.0.x patch. Record the runtime and generator actually used on the Windows host.",
     ""
 )
 
 if (-not [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform([System.Runtime.InteropServices.OSPlatform]::Windows)) {
     $lines += @(
         "BLOCKED: this host is not Windows. Exporting or mounting a build is not a Windows runtime result.",
-        "Required: Windows x64, same SHA $sha, Godot 4.7.2 .NET, Microsoft.NETCore.App 10, PowerShell 7.",
+        "Required on the Windows host: x64, the reviewed task-branch SHA (this checkout was $sha), Godot 4.7.2 .NET, a Microsoft.NETCore.App 10 runtime actually used by testhost, PowerShell 7, and the same published catalog / ``$generator``.",
         "",
         "Commands to run on that machine:",
         "",
@@ -94,6 +105,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "Windows slice 4 smoke failed."
 }
 $lines += "- PASS ``scripts/run-godot-voxel-smoke.ps1 -Slice 4``"
+$lines += "- Testhost FrameworkDescription must be copied from the passing ``dotnet test`` testhost (not from ``--list-runtimes`` last line). This pwsh process was $processFx."
 $lines += "- Result: Windows x64 source-build authority checks passed for SHA $sha."
 
 $absolute = Join-Path $root $OutputPath
