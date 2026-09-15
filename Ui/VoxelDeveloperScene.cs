@@ -15,6 +15,7 @@ public partial class VoxelDeveloperScene : Node3D
     private const string VoxelSmokeResumeEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME";
     private const string VoxelSmokeResumeGapEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME_GAP";
     private const string VoxelSmokeResumeSupportEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME_SUPPORT";
+    private const string VoxelSmokeResumeDestroyEnvironmentVariable = "TRAIN_VOXEL_SMOKE_RESUME_DESTROY";
     private const string VoxelSmokeSaveIdEnvironmentVariable = "TRAIN_VOXEL_SMOKE_SAVE_ID";
     private const string VoxelObserveEnvironmentVariable = "TRAIN_VOXEL_OBSERVE";
     private const string VoxelObserveResumeEnvironmentVariable = "TRAIN_VOXEL_OBSERVE_RESUME";
@@ -44,6 +45,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelSlice4ResumeSmokePhase _slice4ResumeSmokePhase;
     private VoxelSlice4GapResumeSmokePhase _slice4GapResumeSmokePhase;
     private VoxelSlice4SupportResumeSmokePhase _slice4SupportResumeSmokePhase;
+    private VoxelSlice4DestroyResumeSmokePhase _slice4DestroyResumeSmokePhase;
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
     private VoxelSlice3ObservePhase _slice3ObservePhase;
@@ -323,6 +325,14 @@ public partial class VoxelDeveloperScene : Node3D
     }
 
     private enum VoxelSlice4SupportResumeSmokePhase
+    {
+        None,
+        Load,
+        AwaitLoad,
+        Done
+    }
+
+    private enum VoxelSlice4DestroyResumeSmokePhase
     {
         None,
         Load,
@@ -621,6 +631,15 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             }
 
+            if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeDestroyEnvironmentVariable), "1", StringComparison.Ordinal))
+            {
+                if (_session.Identity.Slice != VoxelDevelopmentSlice.Slice4)
+                    throw new InvalidOperationException("Full-destroy resume smoke is only defined for slice 4.");
+                _session.PauseSimulation();
+                _slice4DestroyResumeSmokePhase = VoxelSlice4DestroyResumeSmokePhase.Load;
+                return;
+            }
+
             if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeResumeEnvironmentVariable), "1", StringComparison.Ordinal))
             {
                 if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
@@ -698,6 +717,7 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceSlice4ResumeSmoke();
         AdvanceSlice4GapResumeSmoke();
         AdvanceSlice4SupportResumeSmoke();
+        AdvanceSlice4DestroyResumeSmoke();
         AdvanceHostSimulation(delta);
         AdvanceObserve();
         AdvanceSlice2Observe();
@@ -4478,6 +4498,8 @@ public partial class VoxelDeveloperScene : Node3D
                 RunSlice4SupportLossSmoke("VOXEL_SMOKE_SLICE4_SUPPORT_LOSS");
                 ResetSlice4AfterMotion();
                 RunSlice4GapStopSmoke("VOXEL_SMOKE_SLICE4_GAP_STOP");
+                ResetSlice4AfterMotion();
+                RunSlice4FullDestroySmoke();
                 _slice4SmokePhase = VoxelSlice4SmokePhase.OpenConsole;
                 return;
             case VoxelSlice4SmokePhase.AwaitResetAfterMotion:
@@ -4739,6 +4761,97 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
         }
     }
+
+    private void AdvanceSlice4DestroyResumeSmoke()
+    {
+        switch (_slice4DestroyResumeSmokePhase)
+        {
+            case VoxelSlice4DestroyResumeSmokePhase.Load:
+            {
+                var rawId = System.Environment.GetEnvironmentVariable(VoxelSmokeSaveIdEnvironmentVariable);
+                if (!Guid.TryParse(rawId, out var saveId))
+                    throw new InvalidOperationException("Slice 4 full-destroy resume is missing TRAIN_VOXEL_SMOKE_SAVE_ID.");
+                var loaded = _session.Load(saveId);
+                if (loaded.Status != WorldSaveStatus.Loaded || loaded.SaveId != saveId)
+                    throw new InvalidOperationException($"Slice 4 full-destroy resume could not load {saveId:D}: {loaded.Status}.");
+                var firstId = _session.Rails.Segments[0].Id;
+                var restored = RequireSlice4Assembly();
+                if (restored.Reference.SegmentId != firstId ||
+                    restored.HaltReason != TrainHaltReason.SupportLost ||
+                    restored.Speed != 0 ||
+                    restored.Running ||
+                    Math.Abs(restored.Vehicles[0].FrontContact.X - 80) > 1e-8 ||
+                    _session.Rails.TraversableWorldX(firstId, _session.World).Count != 0)
+                    throw new InvalidOperationException(
+                        $"Slice 4 full-destroy resume is {restored.Reference.SegmentId} halt {restored.HaltReason} front {restored.Vehicles[0].FrontContact.X}.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_FULL_DESTROY_RESUME_LOADED id={saveId:D} segment={firstId.Value} front={restored.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={restored.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} halt={restored.HaltReason} hash={WorldSaveAuthority.Fingerprint(_session)} name={loaded.DisplayName}");
+                _slice4DestroyResumeSmokePhase = VoxelSlice4DestroyResumeSmokePhase.AwaitLoad;
+                return;
+            }
+            case VoxelSlice4DestroyResumeSmokePhase.AwaitLoad:
+            {
+                if (_dirty || _composites.VehicleCount != 2)
+                    return;
+                ValidateGeneratedMesh();
+                ValidateCompositeVisual();
+                var restoredId = _session.Rails.Segments[0].Id;
+                var cells = Slice4RegisteredCells(restoredId);
+                if (!_session.RepairRails(cells).Succeeded)
+                    throw new InvalidOperationException("Slice 4 full-destroy resume could not repair the original segment.");
+                if (_session.QueryTrainAssemblies().Single().HaltReason != TrainHaltReason.None)
+                    throw new InvalidOperationException("Slice 4 full-destroy resume did not become startable after repair.");
+                if (_session.StartTrain(RailHeading.AlongAlignment).Status != TrainMotionStatus.Started)
+                    throw new InvalidOperationException("Slice 4 full-destroy resume could not start after repairing the original identity.");
+                if (!_session.AdvanceSimulation(1).Succeeded)
+                    throw new InvalidOperationException("Slice 4 full-destroy resume could not advance after the explicit start.");
+                var moving = RequireSlice4Assembly();
+                if (!moving.Running || moving.Speed <= 0 || moving.Vehicles[0].FrontContact.X <= 80)
+                    throw new InvalidOperationException("Slice 4 full-destroy resume did not leave the parked pose after start.");
+                GD.Print(
+                    $"VOXEL_SMOKE_SLICE4_FULL_DESTROY_RESUME_STARTED front={moving.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={moving.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+                _slice4DestroyResumeSmokePhase = VoxelSlice4DestroyResumeSmokePhase.Done;
+                GetTree().Quit();
+                return;
+            }
+        }
+    }
+
+    private void RunSlice4FullDestroySmoke()
+    {
+        var parked = RequireSlice4Assembly();
+        var firstId = _session.Rails.Segments[0].Id;
+        if (parked.Reference.SegmentId != firstId || Math.Abs(parked.Vehicles[0].FrontContact.X - 80) > 1e-8)
+            throw new InvalidOperationException("Slice 4 full-destroy smoke must start from the parked original identity.");
+        var cells = Slice4RegisteredCells(firstId)
+            .Where(cell => _session.Query(cell).IsOccupied)
+            .ToArray();
+        if (cells.Length == 0 ||
+            !_session.Damage(cells.Select(cell => new VoxelDamageTarget(cell, 100)).ToArray()).Succeeded)
+            throw new InvalidOperationException("Slice 4 smoke could not fully destroy the referenced first segment.");
+        var destroyed = RequireSlice4Assembly();
+        if (destroyed.Reference.SegmentId != firstId ||
+            destroyed.HaltReason != TrainHaltReason.SupportLost ||
+            destroyed.Speed != 0 ||
+            _session.Rails.TraversableWorldX(firstId, _session.World).Count != 0)
+            throw new InvalidOperationException("Slice 4 full-destroy smoke lost the referenced identity or locating geometry.");
+        var hash = WorldSaveAuthority.Fingerprint(_session);
+        var saveId = SaveSlice4Detached("Slice 4 Full Destroy");
+        var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saveId);
+        if (!File.Exists(path))
+            throw new InvalidOperationException($"Slice 4 full-destroy save was not created at {path}.");
+        GD.Print(
+            $"VOXEL_SMOKE_SLICE4_FULL_DESTROY_SAVE_WRITTEN id={saveId:D} bytes={new FileInfo(path).Length} path={path} segment={firstId.Value} front={destroyed.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} halt={destroyed.HaltReason} hash={hash}");
+    }
+
+    private IReadOnlyList<WorldVoxelCoord> Slice4RegisteredCells(EntityId segmentId) =>
+        _session.QueryRails().Occupancy
+            .Where(item => item.Supports.Any(support => support.SegmentId == segmentId))
+            .Select(item => item.Cell)
+            .OrderBy(item => item.X)
+            .ThenBy(item => item.Y)
+            .ThenBy(item => item.Z)
+            .ToArray();
 
     private Guid SaveSlice4Detached(string displayName)
     {

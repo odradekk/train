@@ -155,10 +155,10 @@ public static class StraightTrainSolver
         ArgumentNullException.ThrowIfNull(rails);
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(contacts);
+        _ = speed;
+        _ = running;
         if (!HasLiveSupport(rails, world, contacts, reference))
             return TrainHaltReason.SupportLost;
-        if (running || speed > 0)
-            return TrainHaltReason.None;
         var intervals = ConnectedTraversableWorldX(rails, world, reference);
         if (MaxForwardTravel(contacts, intervals) > 0)
             return TrainHaltReason.None;
@@ -183,7 +183,7 @@ public static class StraightTrainSolver
                 return false;
         }
 
-        return HasContinuousSupport(rails, world, contacts, reference);
+        return true;
     }
 
     public static bool TrySupportingSegment(
@@ -430,7 +430,9 @@ public static class StraightTrainSolver
             allowed = Math.Min(allowed, interval.End - contact.X);
         }
 
-        return double.IsFinite(allowed) ? Math.Max(0, allowed) : 0;
+        if (!double.IsFinite(allowed) || allowed <= StaticTrainFixture.ConstraintTolerance)
+            return 0;
+        return allowed;
     }
 
     private static bool HasForwardGap(
@@ -439,10 +441,15 @@ public static class StraightTrainSolver
     {
         if (contacts.Count == 0 || intervals.Count == 0)
             return false;
-        var maxX = contacts.Max(contact => contact.X);
-        if (!TryContainingInterval(intervals, maxX, out var current))
-            return false;
-        return intervals.Any(interval => interval.Start > current.End);
+        foreach (var contact in contacts)
+        {
+            if (!TryContainingInterval(intervals, contact.X, out var current))
+                return false;
+            if (intervals.Any(interval => interval.Start > current.End))
+                return true;
+        }
+
+        return false;
     }
 
     public static bool TryValidateCouplerConnection(

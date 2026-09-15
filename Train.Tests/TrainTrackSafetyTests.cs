@@ -110,6 +110,95 @@ public sealed class TrainTrackSafetyTests
     }
 
     [TestMethod]
+    public void Gap_between_contacts_limits_travel_and_round_trips_without_a_support_loss()
+    {
+        using var harness = RunningAt300();
+        var before = harness.Session.QueryTrainAssemblies().Single();
+        AssertMotion(before, 96, 87, 4, running: true);
+        Assert.AreEqual(
+            WorldCommandStatus.Removed,
+            harness.Session.Damage(StraightRailFixture.BetweenContactGapCell, 100).Status);
+        var afterDamage = harness.Session.QueryTrainAssemblies().Single();
+        AssertMotion(afterDamage, 96, 87, 4, running: true);
+        Assert.AreEqual(TrainHaltReason.None, afterDamage.HaltReason);
+        Assert.IsFalse(ContactsEnter(afterDamage, 93, 94));
+        AssertRoundTripUninterrupted(harness, "Between Contact Gap");
+
+        using var live = RunningAt300();
+        Assert.AreEqual(
+            WorldCommandStatus.Removed,
+            live.Session.Damage(StraightRailFixture.BetweenContactGapCell, 100).Status);
+        Assert.IsTrue(live.Session.AdvanceSimulation(200).Succeeded);
+        var stopped = live.Session.QueryTrainAssemblies().Single();
+        Assert.AreEqual(0.0, stopped.Speed, Tolerance);
+        Assert.IsFalse(stopped.Running);
+        Assert.AreEqual(TrainHaltReason.ForwardGap, stopped.HaltReason);
+        Assert.AreEqual(93.0, stopped.Vehicles[0].RearContact.X, Tolerance);
+        Assert.IsTrue(stopped.Vehicles[0].FrontContact.X > 94);
+        Assert.IsFalse(ContactsEnter(stopped, 93, 94));
+        Assert.AreEqual(TrainMotionStatus.DisconnectedPath, live.Session.StartTrain(RailHeading.AlongAlignment).Status);
+        Assert.AreEqual(TrainHaltReason.ForwardGap, live.Session.QueryTrainAssemblies().Single().HaltReason);
+    }
+
+    [TestMethod]
+    public void Exact_gap_boundary_step_zeros_speed_and_restores_the_halt()
+    {
+        using var catalog = HighSpeed();
+        var saveId = TrainPersistenceFixtures.WriteHighSpeed(catalog.Session, catalog.Store, 80);
+        using var loaded = StaticTrainHarness.Create(catalog.UserData, catalog.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, loaded.Session.Load(saveId).Status);
+        Assert.AreEqual(
+            WorldCommandStatus.Removed,
+            loaded.Session.Damage(StraightRailFixture.ExactBoundaryGapCell, 100).Status);
+        Assert.IsTrue(loaded.Session.AdvanceSimulation(1).Succeeded);
+        var stopped = AssertStoppedAtIncomingBoundary(loaded, 90, 91, TrainHaltReason.ForwardGap);
+        Assert.AreEqual(90.0, stopped.Vehicles[0].FrontContact.X, Tolerance);
+        AssertRoundTripUninterrupted(loaded, "Exact Boundary Halt");
+        Assert.AreEqual(TrainMotionStatus.DisconnectedPath, loaded.Session.StartTrain(RailHeading.AlongAlignment).Status);
+        Assert.AreEqual(0.0, loaded.Session.QueryTrainAssemblies().Single().Speed, Tolerance);
+        Assert.AreEqual(TrainHaltReason.ForwardGap, loaded.Session.QueryTrainAssemblies().Single().HaltReason);
+    }
+
+    [TestMethod]
+    public void Exact_end_of_line_step_zeros_speed_and_restores_the_halt()
+    {
+        using var catalog = HighSpeed();
+        var saveId = TrainPersistenceFixtures.WriteHighSpeed(catalog.Session, catalog.Store, 262);
+        using var loaded = StaticTrainHarness.Create(catalog.UserData, catalog.Source);
+        Assert.AreEqual(WorldSaveStatus.Loaded, loaded.Session.Load(saveId).Status);
+        Assert.IsTrue(loaded.Session.AdvanceSimulation(1).Succeeded);
+        var stopped = AssertStoppedAtIncomingBoundary(loaded, 272, 273, TrainHaltReason.EndOfLine);
+        Assert.AreEqual(272.0, stopped.Vehicles[0].FrontContact.X, Tolerance);
+        AssertRoundTripUninterrupted(loaded, "Exact End Halt");
+    }
+
+    [TestMethod]
+    public void Unrepaired_forward_gap_refuses_start_and_keeps_the_halt()
+    {
+        using var harness = Parked();
+        Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
+        Assert.AreEqual(
+            WorldCommandStatus.Removed,
+            harness.Session.Damage(StraightRailFixture.FirstSegmentDamageCell, 100).Status);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(2000).Succeeded);
+        AssertStoppedAtIncomingBoundary(harness, 110, 111, TrainHaltReason.ForwardGap);
+
+        Assert.AreEqual(TrainMotionStatus.DisconnectedPath, harness.Session.StartTrain(RailHeading.AlongAlignment).Status);
+        var blocked = harness.Session.QueryTrainAssemblies().Single();
+        Assert.AreEqual(0.0, blocked.Speed, Tolerance);
+        Assert.IsFalse(blocked.Running);
+        Assert.AreEqual(TrainHaltReason.ForwardGap, blocked.HaltReason);
+        AssertRoundTripUninterrupted(harness, "Unrepaired Gap Halt");
+        Assert.AreEqual(TrainMotionStatus.DisconnectedPath, harness.Session.StartTrain(RailHeading.AlongAlignment).Status);
+        Assert.AreEqual(TrainHaltReason.ForwardGap, harness.Session.QueryTrainAssemblies().Single().HaltReason);
+
+        Assert.IsTrue(harness.Session.RepairRails(new[] { StraightRailFixture.FirstSegmentDamageCell }).Succeeded);
+        Assert.AreEqual(TrainHaltReason.None, harness.Session.QueryTrainAssemblies().Single().HaltReason);
+        Assert.AreEqual(TrainMotionStatus.Started, harness.Session.StartTrain(RailHeading.AlongAlignment).Status);
+    }
+
+    [TestMethod]
     public void Support_loss_freezes_only_the_affected_split_assembly()
     {
         using var harness = RunningAt300();
@@ -315,11 +404,13 @@ public sealed class TrainTrackSafetyTests
         dispatcher.Execute("voxel save Gap Halt");
         Assert.IsTrue(harness.Session.SaveId.HasValue);
         dispatcher.Execute($"voxel load {harness.Session.SaveId.Value:D}");
+        dispatcher.Execute("rail start");
         dispatcher.Execute("rail repair 110 1 15");
         dispatcher.Execute("rail query assembly");
         dispatcher.Execute("rail start");
         var gapLog = RailLog(harness);
         StringAssert.Contains(gapLog, "halt forward-gap");
+        StringAssert.Contains(gapLog, "DisconnectedPath");
         StringAssert.Contains(gapLog, "halt none");
         StringAssert.Contains(gapLog, "Started");
         var voxelLog = VoxelLog(harness);

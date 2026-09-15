@@ -16,12 +16,13 @@ param(
 # coupler destruction with independent coasting plus a 330-step persist (#72).
 # Slice 3 reuses the isolated two-process save/resume path with a
 # different persist fixture and does not load the slice 2 1089-voxel save.
-# Slice 4 uses an isolated four-process path: process 1 saves the
-# split coasting trains at step 330 and executes gap/support-loss stops,
-# process 2 loads that 330 file, repeats support-loss, writes a distinct
-# support-loss save, reloads the 330 file, continues the #72 path, then
-# writes a distinct gap-stop save; process 3 loads the gap-stop file;
-# process 4 loads the support-loss file.
+# Slice 4 uses an isolated five-process path: process 1 saves the
+# split coasting trains at step 330, executes gap/support-loss stops,
+# then writes a distinct full-destroy save; process 2 loads that 330
+# file, repeats support-loss, writes a distinct support-loss save,
+# reloads the 330 file, continues the #72 path, then writes a distinct
+# gap-stop save; process 3 loads the gap-stop file; process 4 loads the
+# support-loss file; process 5 loads the full-destroy file.
 #
 # Command (from the repository root, with Godot 4.7 .NET on PATH or $env:GODOT):
 #   .\scripts\run-godot-voxel-smoke.ps1 -Slice 1
@@ -93,6 +94,7 @@ foreach ($name in @(
     "TRAIN_VOXEL_SMOKE_RESUME",
     "TRAIN_VOXEL_SMOKE_RESUME_GAP",
     "TRAIN_VOXEL_SMOKE_RESUME_SUPPORT",
+    "TRAIN_VOXEL_SMOKE_RESUME_DESTROY",
     "TRAIN_VOXEL_SMOKE_SAVE_ID",
     "TRAIN_MODS_SMOKE_USER_DATA",
     "TRAIN_VOXEL_OBSERVE",
@@ -154,7 +156,7 @@ try {
     if (-not $IsolationAbort -and $Slice -in 2, 3, 4) {
         $prefix = if ($Slice -eq 4) { "train-issue73-smoke-" } elseif ($Slice -eq 3) { "train-issue62-smoke-" } else { "train-issue53-smoke-" }
         $writtenMarker = if ($Slice -eq 4) { "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN" } elseif ($Slice -eq 3) { "VOXEL_SMOKE_SLICE3_SAVE_WRITTEN" } else { "VOXEL_SMOKE_SAVE_WRITTEN" }
-        $writeAfter = if ($Slice -eq 4) { 700 } elseif ($Slice -eq 3) { 700 } else { 240 }
+        $writeAfter = if ($Slice -eq 4) { 800 } elseif ($Slice -eq 3) { 700 } else { 240 }
         $resumeAfter = if ($Slice -eq 4) { 700 } elseif ($Slice -eq 3) { 200 } else { 120 }
         $gapAfter = if ($Slice -eq 4) { 200 } else { 0 }
         $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($prefix + [guid]::NewGuid().ToString("N"))
@@ -215,11 +217,32 @@ try {
             $env:TRAIN_VOXEL_SMOKE_SAVE_ID = $supportSaveId
             $support = Invoke-GodotVoxelSmoke -QuitAfter $gapAfter -Label "slice $Slice support resume"
             Write-Host $support.Output
-            $output = $output + "`n" + $gap.Output + "`n" + $support.Output
+            if ($write.Output -notmatch "VOXEL_SMOKE_SLICE4_FULL_DESTROY_SAVE_WRITTEN id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}).* hash=([0-9A-Fa-f]+)") {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Process 1 did not print a distinct full-destroy save UUID and hash.")
+                exit 1
+            }
+            $destroySaveId = $Matches[1]
+            $destroyHash = $Matches[2]
+            $destroySavePath = Join-Path $userData (Join-Path "saves" (Join-Path $destroySaveId "save.json"))
+            if (-not (Test-Path -LiteralPath $destroySavePath)) {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Full-destroy save file was missing: $destroySavePath")
+                exit 1
+            }
+            Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_SUPPORT" -ErrorAction SilentlyContinue
+            $env:TRAIN_VOXEL_SMOKE_RESUME_DESTROY = "1"
+            $env:TRAIN_VOXEL_SMOKE_SAVE_ID = $destroySaveId
+            $destroy = Invoke-GodotVoxelSmoke -QuitAfter $gapAfter -Label "slice $Slice destroy resume"
+            Write-Host $destroy.Output
+            if ($destroy.Output -notmatch "VOXEL_SMOKE_SLICE4_FULL_DESTROY_RESUME_LOADED id=$destroySaveId .* hash=$destroyHash(\s|$)") {
+                [Console]::Error.WriteLine("Godot voxel smoke failed. Process 5 did not restore the same full-destroy authority hash as process 1.")
+                exit 1
+            }
+            $output = $output + "`n" + $gap.Output + "`n" + $support.Output + "`n" + $destroy.Output
             if ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode }
             elseif ($resume.ExitCode -ne 0) { $godotExitCode = $resume.ExitCode }
             elseif ($gap.ExitCode -ne 0) { $godotExitCode = $gap.ExitCode }
-            else { $godotExitCode = $support.ExitCode }
+            elseif ($support.ExitCode -ne 0) { $godotExitCode = $support.ExitCode }
+            else { $godotExitCode = $destroy.ExitCode }
         }
         elseif ($write.ExitCode -ne 0) { $godotExitCode = $write.ExitCode }
         else { $godotExitCode = $resume.ExitCode }
@@ -236,6 +259,7 @@ finally {
     Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_GAP" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_SUPPORT" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SMOKE_RESUME_DESTROY" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_VOXEL_SMOKE_SAVE_ID" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_MODS_SMOKE_USER_DATA" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_VOXEL_SMOKE" -ErrorAction SilentlyContinue
@@ -279,6 +303,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_SAVE_WRITTEN",
         "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS",
         "VOXEL_SMOKE_SLICE4_GAP_STOP",
+        "VOXEL_SMOKE_SLICE4_FULL_DESTROY_SAVE_WRITTEN",
         "VOXEL_SMOKE_SLICE4_RESUME_LOADED",
         "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUMED",
         "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_SAVE_WRITTEN",
@@ -302,6 +327,8 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_GAP_RESUME_RENDER",
         "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUME_LOADED",
         "VOXEL_SMOKE_SLICE4_SUPPORT_LOSS_RESUME_RENDER",
+        "VOXEL_SMOKE_SLICE4_FULL_DESTROY_RESUME_LOADED",
+        "VOXEL_SMOKE_SLICE4_FULL_DESTROY_RESUME_STARTED",
         "VOXEL_SMOKE_CONSOLE_CLOSED",
         "VOXEL_SMOKE_RETURNED_TO_MENU",
         "VOXEL_SMOKE_MENU_REENTERED"
@@ -450,7 +477,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_MENU_REENTERED"
     )
 }
-$logDir = Join-Path $root ".godot/validation/issue-73"
+$logDir = Join-Path $root ".godot/validation/issue-73-revision"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 @(
     "os=$([System.Environment]::OSVersion.VersionString)"

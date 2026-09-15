@@ -366,7 +366,7 @@ public sealed partial class VoxelDevelopmentSession
                     RailHeading.AlongAlignment,
                     out var reference))
                 continue;
-            if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, reference))
+            if (!StraightTrainSolver.HasLiveSupport(_rails, World, contacts, reference))
                 continue;
 
             var parent = members
@@ -772,9 +772,23 @@ public sealed partial class VoxelDevelopmentSession
             return false;
         }
 
-        if (!StraightTrainSolver.HasContinuousSupport(_rails, World, contacts, assembly.Reference))
+        if (!StraightTrainSolver.HasLiveSupport(_rails, World, contacts, assembly.Reference))
         {
             status = TrainMotionStatus.InsufficientSupport;
+            return false;
+        }
+
+        var intervals = StraightTrainSolver.ConnectedTraversableWorldX(_rails, World, assembly.Reference);
+        if (StraightTrainSolver.MaxForwardTravel(contacts, intervals) <= 0 &&
+            StraightTrainSolver.QueryHaltReason(
+                _rails,
+                World,
+                assembly.Reference,
+                contacts,
+                assembly.Speed,
+                assembly.Running) == TrainHaltReason.ForwardGap)
+        {
+            status = TrainMotionStatus.DisconnectedPath;
             return false;
         }
 

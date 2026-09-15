@@ -351,7 +351,38 @@ internal static class WorldSaveRailwayCodec
             document.Railway.SleeperCount,
             world);
         assemblies = document.Assemblies.ToArray();
+        if (!TryValidateRestoredMotion(rails, world, assemblies, vehicles, out status))
+            return false;
         commands = boundCommands;
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    private static bool TryValidateRestoredMotion(
+        PhysicalRailState rails,
+        VoxelWorld world,
+        IReadOnlyList<TrainAssembly> assemblies,
+        IReadOnlyList<CompositeInstance> vehicles,
+        out WorldSaveStatus status)
+    {
+        status = WorldSaveStatus.InvalidDelta;
+        var byId = vehicles.ToDictionary(item => item.Id);
+        foreach (var assembly in assemblies)
+        {
+            var contacts = new List<(double X, double Y, double Z)>();
+            foreach (var id in assembly.VehicleIds)
+            {
+                if (!byId.TryGetValue(id, out var vehicle) ||
+                    !StraightTrainSolver.TryCollectLiveContacts(vehicle, out var vehicleContacts, out _, out _))
+                    return false;
+                contacts.AddRange(vehicleContacts);
+            }
+
+            if ((assembly.Running || assembly.Speed > 0) &&
+                !StraightTrainSolver.HasLiveSupport(rails, world, contacts, assembly.Reference))
+                return false;
+        }
+
         status = WorldSaveStatus.Loaded;
         return true;
     }
