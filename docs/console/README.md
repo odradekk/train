@@ -21,7 +21,7 @@
 | [help](help.md) | 列出命令名称 | 所有构建 |
 | [clear](clear.md) | 清空控制台日志缓冲区 | 所有构建 |
 | [quit](quit.md) | 退出游戏进程 | 所有构建 |
-| [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例、车辆、碎块和接触绑定 | 仅 Debug 构建 |
+| [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例、车辆、碎块、接触绑定和已提交编组运行条件 | 仅 Debug 构建 |
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) | 重建初始开发世界 | 包含 PR #47，且已进入体素开发场景 |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
@@ -75,7 +75,7 @@
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:ferrous-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
 
-当前内置测试定义 `core:ferrous-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有世界体素和已有车辆零件按当前目录采用 Mass、Value、耐久上限和碰撞规则；`voxel query` / `composite query` 显示当前规格，`voxel collide` 使用当前碰撞。外部蓝图布局更新不覆盖已有实际车辆；新制造使用新模板。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
+当前内置测试定义 `core:ferrous-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有世界体素和已有车辆零件按当前目录采用 Mass、Value、耐久上限和碰撞规则；已提交编组按当前 propulsion / `track_contact` 校验运行与滑行条件，失败整次拒绝。`voxel query` / `composite query` 显示当前规格，`voxel collide` 使用当前碰撞。外部蓝图布局更新不覆盖已有实际车辆；新制造使用新模板。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
 ## 朝向编码
 
@@ -255,7 +255,7 @@ rail repair 110 1 15
 voxel save After Railway
 ```
 
-空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101`。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行，也不会移动已提交编组。修复恢复原身份。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，各编组姿态、速度、步号和待执行命令都保持原值。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
+空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id>`，以及各编组的 `assembly <id> speed … running … heading …`。伤害 `(110,1,15)` 100 后，第一段缺失 `x=110..111`，派生图在 `rebuild` 前为 stale 且不把该区间判为可通行，也不会移动已提交编组。修复恢复原身份。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，各编组姿态、速度、步号和待执行命令都保持原值。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
 
 ### 切片 2 边界复现
 
