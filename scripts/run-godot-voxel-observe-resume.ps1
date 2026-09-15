@@ -7,7 +7,7 @@
 # Requires Godot 4.7 .NET on PATH or $env:GODOT. Does not use --headless.
 # On Godot 4.7.2 .NET, --quit-after is a main-loop frame budget, not seconds.
 param(
-    [ValidateSet(2, 3)]
+    [ValidateSet(2, 3, 4)]
     [int] $Slice = 2,
     [string] $OutputPath = "",
     [string] $CaptureOutputPath = ""
@@ -22,11 +22,11 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
 }
 
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 3) { ".godot/issue62-resume-observe-report.md" } else { ".godot/issue53-resume-observe-report.md" }
+    $OutputPath = if ($Slice -eq 4) { ".godot/validation/issue74/resume-observe-report.md" } elseif ($Slice -eq 3) { ".godot/issue62-resume-observe-report.md" } else { ".godot/issue53-resume-observe-report.md" }
 }
-$recordName = if ($Slice -eq 3) { "issue-62-resume" } else { "issue-53-resume" }
+$recordName = if ($Slice -eq 4) { "issue74" } elseif ($Slice -eq 3) { "issue-62-resume" } else { "issue-53-resume" }
 if (-not $CaptureOutputPath) {
-    $CaptureOutputPath = "docs/validation/$recordName"
+    $CaptureOutputPath = if ($Slice -eq 4) { ".godot/validation/issue74" } else { "docs/validation/$recordName" }
 }
 
 foreach ($name in @(
@@ -58,7 +58,11 @@ $beforeTop = (Get-FileHash -LiteralPath $ironTop -Algorithm SHA256).Hash
 $beforeMarker = (Get-FileHash -LiteralPath $markerJson -Algorithm SHA256).Hash
 $beforeHollow = (Get-FileHash -LiteralPath $hollowJson -Algorithm SHA256).Hash
 
-$captures = if ($Slice -eq 3) {
+$captures = if ($Slice -eq 4) {
+    @(
+        "issue74-resume-running.png"
+    )
+} elseif ($Slice -eq 3) {
     @(
         "issue62-resume-hollow.png",
         "issue62-resume-refit.png",
@@ -74,12 +78,12 @@ $captures = if ($Slice -eq 3) {
         "issue53-resume-continue-damage.png"
     )
 }
-$captureDir = Join-Path $root ".godot"
+$captureDir = if ($Slice -eq 4) { Join-Path $root ".godot/validation/issue74" } else { Join-Path $root ".godot" }
 $recordDir = Join-Path $root $CaptureOutputPath
 New-Item -ItemType Directory -Force -Path $captureDir | Out-Null
 New-Item -ItemType Directory -Force -Path $recordDir | Out-Null
 
-$userPrefix = if ($Slice -eq 3) { "train-issue62-observe-" } else { "train-issue53-observe-" }
+$userPrefix = if ($Slice -eq 4) { "train-issue74-observe-" } elseif ($Slice -eq 3) { "train-issue62-observe-" } else { "train-issue53-observe-" }
 $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($userPrefix + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $userData | Out-Null
 $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
@@ -101,8 +105,8 @@ function Invoke-ResumeObserve {
 
 $combined = ""
 try {
-    $writeAfter = if ($Slice -eq 3) { 120 } else { 90 }
-    $loadAfter = if ($Slice -eq 3) { 200 } else { 180 }
+    $writeAfter = if ($Slice -eq 4) { 180 } elseif ($Slice -eq 3) { 120 } else { 90 }
+    $loadAfter = if ($Slice -eq 4) { 180 } elseif ($Slice -eq 3) { 200 } else { 180 }
     $write = Invoke-ResumeObserve -QuitAfter $writeAfter -Label "write"
     Write-Host $write.Output
     if ($write.Output -notmatch "VOXEL_OBSERVE_RESUME_WRITTEN id=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})") {
@@ -150,8 +154,13 @@ if ($missing.Count -gt 0) {
 
 $hashes = @()
 foreach ($name in $captures) {
-    $source = Join-Path $captureDir $name
-    Copy-Item -LiteralPath $source -Destination (Join-Path $recordDir $name) -Force
+    $source = (Resolve-Path -LiteralPath (Join-Path $captureDir $name)).Path
+    $destination = Join-Path $recordDir $name
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
+    $sameFile = (Test-Path -LiteralPath $destination) -and ((Resolve-Path -LiteralPath $destination).Path -eq $source)
+    if (-not $sameFile) {
+        Copy-Item -LiteralPath $source -Destination $destination -Force
+    }
     $hashes += [pscustomobject]@{
         Name = $name
         Hash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
@@ -163,8 +172,10 @@ $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $captureLines = @($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" -or $_ -like "*VOXEL_OBSERVE_RESUME_*" })
 $written = ($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_RESUME_WRITTEN*" } | Select-Object -Last 1)
 $loaded = ($combined -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_RESUME_LOADED*" } | Select-Object -Last 1)
-$issue = if ($Slice -eq 3) { "#62" } else { "#53" }
-$facts = if ($Slice -eq 3) {
+$issue = if ($Slice -eq 4) { "#74" } elseif ($Slice -eq 3) { "#62" } else { "#53" }
+$facts = if ($Slice -eq 4) {
+    "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` and ``TRAIN_VOXEL_SLICE=4`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, advanced the formal fixture to step 900, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, ``issue74-resume-running.png`` after the restored session loaded, and unchanged worktree built-in hashes. The script does not inspect PNG pixels and is not a human visual confirmation."
+} elseif ($Slice -eq 3) {
     "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` and ``TRAIN_VOXEL_SLICE=3`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the parked-vehicle persist fixtures, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, four ``issue62-resume-*.png`` files generated after the restored session loaded, and unchanged worktree built-in hashes. The script does not inspect PNG pixels and does not reuse ``issue58-*.png``, ``issue60-*.png``, or ``issue61-*.png``."
 } else {
     "Automated facts only: process 1 set ``TRAIN_VOXEL_OBSERVE_RESUME=1`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, wrote the slice 2 fixed sequence, printed a UUID, and exited. Process 2 was a new Godot process with the same user-data and ``TRAIN_VOXEL_OBSERVE_SAVE_ID``. Required ``VOXEL_OBSERVE_RESUME_COMPLETE``, exit 0, five ``issue53-resume-*.png`` files, and unchanged worktree ferrous-ore/ledge hashes. The script does not inspect PNG pixels and does not reuse ``issue50-*.png`` or ``issue52-*.png``."

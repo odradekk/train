@@ -49,6 +49,7 @@ public partial class VoxelDeveloperScene : Node3D
     private VoxelObservePhase _observePhase;
     private VoxelSlice2ObservePhase _slice2ObservePhase;
     private VoxelSlice3ObservePhase _slice3ObservePhase;
+    private VoxelSlice4ObservePhase _slice4ObservePhase;
     private VoxelResumeObservePhase _resumeObservePhase;
     private int _observeHoldFrames;
     private readonly List<double> _frameMilliseconds = new();
@@ -89,6 +90,14 @@ public partial class VoxelDeveloperScene : Node3D
     private long _slice3Bytes;
     private int _slice3Voxels;
     private int _slice3Parts;
+    private double _slice4SimMs;
+    private double _slice4MutationMs;
+    private double _slice4RefreshMs;
+    private double _slice4SaveMs;
+    private double _slice4LoadMs;
+    private long _slice4Bytes;
+    private int _slice4Voxels;
+    private bool _slice4Baseline;
     private static readonly CompositeTransform PersistEqualBridgePose = CompositeTransform.Translation(20, 8, 8);
     private static readonly CompositeTransform PersistDropBridgePose = CompositeTransform.Translation(8, 8, 20);
 
@@ -468,6 +477,28 @@ public partial class VoxelDeveloperScene : Node3D
         Done
     }
 
+    private enum VoxelSlice4ObservePhase
+    {
+        None,
+        Parked,
+        AwaitParked,
+        Interpolate,
+        AwaitInterpolate,
+        Running,
+        AwaitRunning,
+        FollowCarriage,
+        AwaitFollow,
+        CrossSeam,
+        AwaitCrossSeam,
+        Split,
+        AwaitSplit,
+        SupportLoss,
+        AwaitSupportLoss,
+        GapStop,
+        AwaitGapStop,
+        Done
+    }
+
     private enum VoxelResumeObservePhase
     {
         None,
@@ -487,6 +518,7 @@ public partial class VoxelDeveloperScene : Node3D
         CaptureRefit,
         CaptureFracture,
         CaptureDropped,
+        CaptureSlice4Resume,
         Done
     }
 
@@ -670,6 +702,8 @@ public partial class VoxelDeveloperScene : Node3D
         else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveResumeEnvironmentVariable), "1", StringComparison.Ordinal))
         {
             GetTree().DebugCollisionsHint = true;
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+                _session.PauseSimulation();
             var rawId = System.Environment.GetEnvironmentVariable(VoxelObserveSaveIdEnvironmentVariable);
             _resumeObservePhase = Guid.TryParse(rawId, out _)
                 ? VoxelResumeObservePhase.Load
@@ -678,7 +712,9 @@ public partial class VoxelDeveloperScene : Node3D
         else if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal))
         {
             GetTree().DebugCollisionsHint = true;
-            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+                _slice4ObservePhase = VoxelSlice4ObservePhase.Parked;
+            else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
                 _slice3ObservePhase = VoxelSlice3ObservePhase.CaptureEmpty;
             else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice2)
                 _slice2ObservePhase = VoxelSlice2ObservePhase.CaptureInitial;
@@ -688,8 +724,17 @@ public partial class VoxelDeveloperScene : Node3D
         else if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal))
         {
             _baselineEnabled = true;
-            RunMutations(); // One unrecorded warm-up at the identical formal command boundary.
-            StartBaselineRun();
+            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+            {
+                _slice4Baseline = true;
+                MeasureSlice4PresentationBaseline(warmup: true);
+                StartSlice4BaselineRun();
+            }
+            else
+            {
+                RunMutations(); // One unrecorded warm-up at the identical formal command boundary.
+                StartBaselineRun();
+            }
         }
     }
 
@@ -719,9 +764,11 @@ public partial class VoxelDeveloperScene : Node3D
         AdvanceSlice4SupportResumeSmoke();
         AdvanceSlice4DestroyResumeSmoke();
         AdvanceHostSimulation(delta);
+        ApplyRailPresentation();
         AdvanceObserve();
         AdvanceSlice2Observe();
         AdvanceSlice3Observe();
+        AdvanceSlice4Observe();
         AdvanceResumeObserve();
         AdvanceBaseline();
     }
@@ -760,6 +807,11 @@ public partial class VoxelDeveloperScene : Node3D
             _result.Text = stopped.Succeeded
                 ? "最近命令：列车已停车。"
                 : $"最近命令：停车失败 {stopped.Status}。";
+            GetViewport().SetInputAsHandled();
+        }
+        else if (key.Keycode == Key.F && _session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+        {
+            CycleFollowedVehicle();
             GetViewport().SetInputAsHandled();
         }
         else if (key.Keycode == Key.R)
@@ -864,11 +916,12 @@ public partial class VoxelDeveloperScene : Node3D
         _collisionRefreshGeneration++;
         _mesh = _meshes.PrimaryMesh;
         _dirty = false;
+        ApplyRailPresentation();
         var query = _session.Query(_selectedPosition);
         var collide = _session.QueryCollision(_selectedPosition);
         _title.Text = _session.Identity.Slice switch
         {
-            VoxelDevelopmentSlice.Slice4 => "Voxel 开发场景 · 切片 4 · 固定视角 · 320×32×32 · 正式直轨",
+            VoxelDevelopmentSlice.Slice4 => FollowTitle(),
             VoxelDevelopmentSlice.Slice3 => "Voxel 开发场景 · 切片 3 · 固定视角 · 32³ · 静置车辆",
             VoxelDevelopmentSlice.Slice2 => "Voxel 开发场景 · 切片 2 · 固定视角 · 2×2×2 Chunk · 32³",
             _ => "Voxel 开发场景 · 切片 1 · 固定视角 · 单 Chunk 16³"
@@ -3152,7 +3205,9 @@ public partial class VoxelDeveloperScene : Node3D
         switch (_resumeObservePhase)
         {
             case VoxelResumeObservePhase.Write:
-                if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
+                if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+                    WriteSlice4ResumeObserve();
+                else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
                     WriteSlice3ResumeObserve();
                 else
                     WriteSlice2ResumeObserve();
@@ -3168,6 +3223,19 @@ public partial class VoxelDeveloperScene : Node3D
                 _resumeObservePhase = VoxelResumeObservePhase.AwaitLoad;
                 return;
             case VoxelResumeObservePhase.AwaitLoad:
+                if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+                {
+                    if (_dirty || _composites.VehicleCount != 2)
+                        return;
+                    var restored = _session.QueryDisplayPoses(0.5);
+                    if (!restored.IntervalEnded || restored.Vehicles.Count != 2)
+                        throw new InvalidOperationException("Slice 4 resume observe did not snap display to the committed save.");
+                    ApplyRailPresentation();
+                    _observeHoldFrames = 10;
+                    _resumeObservePhase = VoxelResumeObservePhase.CaptureSlice4Resume;
+                    return;
+                }
+
                 if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
                 {
                     if (!AwaitSlice3PersistVisual())
@@ -3276,6 +3344,12 @@ public partial class VoxelDeveloperScene : Node3D
                 _resumeObservePhase = VoxelResumeObservePhase.Done;
                 GetTree().Quit();
                 return;
+            case VoxelResumeObservePhase.CaptureSlice4Resume:
+                CaptureIssue74("issue74-resume-running", "new-process load: display snaps to committed step 900, follow persists");
+                GD.Print("VOXEL_OBSERVE_RESUME_COMPLETE");
+                _resumeObservePhase = VoxelResumeObservePhase.Done;
+                GetTree().Quit();
+                return;
         }
     }
 
@@ -3289,6 +3363,28 @@ public partial class VoxelDeveloperScene : Node3D
         if (!File.Exists(written))
             throw new InvalidOperationException($"Resume observe save file was not created at {written}.");
         GD.Print($"VOXEL_OBSERVE_RESUME_WRITTEN id={saved.SaveId.Value:D} bytes={new FileInfo(written).Length} voxels={_session.World.VoxelCount}");
+        _resumeObservePhase = VoxelResumeObservePhase.Done;
+        GetTree().Quit();
+    }
+
+    private void WriteSlice4ResumeObserve()
+    {
+        _session.Reset();
+        if (!EnterSlice4Fixture())
+            throw new InvalidOperationException("Slice 4 resume observe could not assemble the fixture.");
+        if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+            !_session.AdvanceSimulation(900).Succeeded ||
+            _session.SimulationStep != 900)
+            throw new InvalidOperationException("Slice 4 resume observe could not reach step 900.");
+        var saved = _session.Save("Slice 4 Display 900");
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Slice 4 resume observe could not save: {saved.Status}.");
+        var written = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        if (!File.Exists(written))
+            throw new InvalidOperationException($"Slice 4 resume observe save file was not created at {written}.");
+        if (!_session.PauseSimulation().Succeeded)
+            throw new InvalidOperationException("Slice 4 resume observe could not pause after save.");
+        GD.Print($"VOXEL_OBSERVE_RESUME_WRITTEN id={saved.SaveId.Value:D} bytes={new FileInfo(written).Length} step={_session.SimulationStep}");
         _resumeObservePhase = VoxelResumeObservePhase.Done;
         GetTree().Quit();
     }
@@ -3332,6 +3428,151 @@ public partial class VoxelDeveloperScene : Node3D
         var camera = GetChildren().OfType<Camera3D>().Single();
         camera.Position = position;
         camera.LookAt(target, Vector3.Up);
+    }
+
+    private void CaptureIssue74(string fileName, string note)
+    {
+        ApplyRailPresentation();
+        CaptureObserve(fileName, note, "validation/issue74");
+    }
+
+    private void AdvanceSlice4Observe()
+    {
+        if (_slice4ObservePhase == VoxelSlice4ObservePhase.None)
+            return;
+        if (_observeHoldFrames > 0)
+        {
+            _observeHoldFrames--;
+            return;
+        }
+
+        try
+        {
+            AdvanceSlice4ObserveStep();
+        }
+        catch (Exception exception)
+        {
+            GD.Print($"VOXEL_OBSERVE_ERROR {_slice4ObservePhase}: {exception.GetType().Name}: {exception.Message}");
+            throw;
+        }
+    }
+
+    private void AdvanceSlice4ObserveStep()
+    {
+        switch (_slice4ObservePhase)
+        {
+            case VoxelSlice4ObservePhase.Parked:
+                if (_session.QueryTrainAssemblies().Count == 0 && !EnterSlice4Fixture())
+                    throw new InvalidOperationException("Slice 4 observe could not assemble the fixture.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitParked;
+                return;
+            case VoxelSlice4ObservePhase.AwaitParked:
+                CaptureIssue74("issue74-parked", "assembled locomotive and carriage, rigid coupler, follow loco");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.Interpolate;
+                return;
+            case VoxelSlice4ObservePhase.Interpolate:
+                if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+                    !_session.AdvanceSimulation(1).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not start and step once.");
+                _composites.ApplyDisplayPoses(_session.QueryDisplayPoses(0.5));
+                ApplyFollowCamera();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitInterpolate;
+                return;
+            case VoxelSlice4ObservePhase.AwaitInterpolate:
+                CaptureIssue74("issue74-interpolate", "alpha 0.5 between parked and first completed step");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.Running;
+                return;
+            case VoxelSlice4ObservePhase.Running:
+                if (!_session.AdvanceSimulation(299).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not reach step 300.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitRunning;
+                return;
+            case VoxelSlice4ObservePhase.AwaitRunning:
+                CaptureIssue74("issue74-running-300", "step 300 rigid running poses, follow locomotive");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.FollowCarriage;
+                return;
+            case VoxelSlice4ObservePhase.FollowCarriage:
+                var carriage = _session.QueryTrainAssemblies().Single().VehicleIds[1];
+                if (!_session.TryFollowVehicle(carriage))
+                    throw new InvalidOperationException("Slice 4 observe could not follow the carriage.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitFollow;
+                return;
+            case VoxelSlice4ObservePhase.AwaitFollow:
+                CaptureIssue74("issue74-follow-carriage", "camera heading follows selected surviving carriage");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.CrossSeam;
+                return;
+            case VoxelSlice4ObservePhase.CrossSeam:
+                if (!_session.AdvanceSimulation(721).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not cross the seam.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitCrossSeam;
+                return;
+            case VoxelSlice4ObservePhase.AwaitCrossSeam:
+                CaptureIssue74("issue74-cross-seam", "world-path interpolation across x=144, no mixed segment distances");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.Split;
+                return;
+            case VoxelSlice4ObservePhase.Split:
+                ResetSlice4AfterMotion();
+                if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+                    !_session.AdvanceSimulation(300).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not rebuild for coupler split.");
+                var followed = _session.QueryTrainAssemblies().Single().VehicleIds[1];
+                if (!_session.TryFollowVehicle(followed))
+                    throw new InvalidOperationException("Slice 4 observe could not keep carriage follow before split.");
+                var coupler = _session.QueryTrainAssemblies().Single().Connections[0];
+                if (!_session.Damage(_session.QueryTrainAssemblies().Single().ActiveLocomotiveId!.Value, coupler.FromCell, 100).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not destroy the coupler.");
+                if (_session.FollowedVehicleId != followed)
+                    throw new InvalidOperationException("Slice 4 observe follow jumped after disconnect.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitSplit;
+                return;
+            case VoxelSlice4ObservePhase.AwaitSplit:
+                CaptureIssue74("issue74-split", "coupler split ends interval; follow stays on selected carriage");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.SupportLoss;
+                return;
+            case VoxelSlice4ObservePhase.SupportLoss:
+                if (!_session.AdvanceSimulation(30).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not coast after split.");
+                if (_session.Damage(StraightRailFixture.SupportLossCell, 100).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Slice 4 observe could not remove the support cell.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitSupportLoss;
+                return;
+            case VoxelSlice4ObservePhase.AwaitSupportLoss:
+                CaptureIssue74("issue74-support-loss", "support loss snaps display to committed halt");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.GapStop;
+                return;
+            case VoxelSlice4ObservePhase.GapStop:
+                ResetSlice4AfterMotion();
+                if (!_session.StartTrain(RailHeading.AlongAlignment).Succeeded ||
+                    !_session.AdvanceSimulation(300).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not rebuild for the gap stop.");
+                if (_session.Damage(new WorldVoxelCoord(110, 1, 15), 100).Status != WorldCommandStatus.Removed)
+                    throw new InvalidOperationException("Slice 4 observe could not open the forward gap.");
+                if (!_session.AdvanceSimulation(2000).Succeeded)
+                    throw new InvalidOperationException("Slice 4 observe could not halt at the gap.");
+                ApplyRailPresentation();
+                _observeHoldFrames = 8;
+                _slice4ObservePhase = VoxelSlice4ObservePhase.AwaitGapStop;
+                return;
+            case VoxelSlice4ObservePhase.AwaitGapStop:
+                CaptureIssue74("issue74-gap-stop", "forward-gap halt, no start until repair");
+                GD.Print("VOXEL_OBSERVE_COMPLETE");
+                _slice4ObservePhase = VoxelSlice4ObservePhase.Done;
+                GetTree().Quit();
+                return;
+        }
     }
 
     private void AdvanceObserve()
@@ -3533,11 +3774,12 @@ public partial class VoxelDeveloperScene : Node3D
             throw new InvalidOperationException($"Observe {name} did not match the formal query.");
     }
 
-    private void CaptureObserve(string fileName, string note)
+    private void CaptureObserve(string fileName, string note, string? relativeDirectory = null)
     {
         ValidateGeneratedMesh();
-        var directory = ProjectSettings.GlobalizePath("res://.godot");
-        DirAccess.MakeDirAbsolute(directory);
+        var directory = ProjectSettings.GlobalizePath(
+            string.IsNullOrEmpty(relativeDirectory) ? "res://.godot" : "res://.godot/" + relativeDirectory);
+        DirAccess.MakeDirRecursiveAbsolute(directory);
         var path = Path.Combine(directory, fileName + ".png");
         try
         {
@@ -4651,9 +4893,78 @@ public partial class VoxelDeveloperScene : Node3D
             _session.AdvanceSimulation(steps);
     }
 
+    private void ApplyRailPresentation()
+    {
+        if (_session.Identity.Slice != VoxelDevelopmentSlice.Slice4)
+            return;
+        _composites.ApplyDisplayPoses(_session.QueryDisplayPoses());
+        ApplyFollowCamera();
+        if (_title is not null)
+            _title.Text = FollowTitle();
+    }
+
+    private string FollowTitle()
+    {
+        var followed = _session.FollowedVehicleId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none";
+        return $"Voxel 开发场景 · 切片 4 · 跟随车辆 {followed} · 320×32×32 · 正式直轨";
+    }
+
+    private void ApplyFollowCamera()
+    {
+        var follow = _session.QueryFollowedCamera();
+        if (follow is null)
+            return;
+        var camera = GetChildren().OfType<Camera3D>().FirstOrDefault();
+        if (camera is null)
+            return;
+        var focus = new Vector3((float)follow.FocusX, (float)follow.FocusY, (float)follow.FocusZ);
+        var heading = new Vector3((float)follow.HeadingX, (float)follow.HeadingY, (float)follow.HeadingZ);
+        if (heading.LengthSquared() < 1e-8f)
+            heading = Vector3.Right;
+        heading = heading.Normalized();
+        camera.Position = focus - heading * 18f + Vector3.Up * 8f;
+        if ((camera.Position - focus).LengthSquared() > 1e-8f)
+            camera.LookAt(focus, Vector3.Up);
+    }
+
+    private void CycleFollowedVehicle()
+    {
+        var ids = _session.Vehicles.OrderBy(item => item.Id.Value).Select(item => item.Id).ToArray();
+        if (ids.Length == 0)
+        {
+            _result.Text = "最近命令：没有可跟随的存活车辆。";
+            return;
+        }
+
+        var index = _session.FollowedVehicleId is { } current
+            ? Array.FindIndex(ids, item => item == current)
+            : -1;
+        var next = ids[(index + 1 + ids.Length) % ids.Length];
+        if (!_session.TryFollowVehicle(next))
+        {
+            _result.Text = "最近命令：切换跟随失败。";
+            return;
+        }
+
+        ApplyRailPresentation();
+        _result.Text = $"最近命令：相机跟随车辆 {next.Value}。";
+    }
+
+    private void PrintSlice4DisplayMarkers(string marker)
+    {
+        var zero = _session.QueryDisplayPoses(0);
+        var mid = _session.QueryDisplayPoses(0.5);
+        var one = _session.QueryDisplayPoses(1);
+        var follow = _session.QueryFollowedCamera(0.5);
+        var meshIds = string.Join(',', _composites.MeshInstanceIds);
+        GD.Print(
+            $"{marker} step={_session.SimulationStep} alpha={_session.DisplayInterpolationAlpha.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} ended={mid.IntervalEnded.ToString().ToLowerInvariant()} vehicles={mid.Vehicles.Count} follow={_session.FollowedVehicleId?.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none"} from={zero.Vehicles.FirstOrDefault()?.FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} mid={mid.Vehicles.FirstOrDefault()?.FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} to={one.Vehicles.FirstOrDefault()?.FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} heading={follow?.HeadingX.ToString("G17", System.Globalization.CultureInfo.InvariantCulture) ?? "none"} meshes={meshIds}");
+    }
+
     private bool IsAutomatedHarness() =>
         string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
         string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveEnvironmentVariable), "1", StringComparison.Ordinal) ||
+        string.Equals(System.Environment.GetEnvironmentVariable(VoxelObserveResumeEnvironmentVariable), "1", StringComparison.Ordinal) ||
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_BASELINE"), "1", StringComparison.Ordinal);
 
     private void RunSlice4Step300Smoke()
@@ -4680,6 +4991,18 @@ public partial class VoxelDeveloperScene : Node3D
                 $"Slice 4 step 300 is {step300.Vehicles[0].FrontContact.X},{step300.Vehicles[1].FrontContact.X},{step300.Speed}.");
         GD.Print(
             $"VOXEL_SMOKE_SLICE4_STEP300 loco={step300.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={step300.Vehicles[1].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} speed={step300.Speed.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+        var mid = _session.QueryDisplayPoses(0.5);
+        if (mid.Vehicles.Count != 2 ||
+            Math.Abs(mid.Vehicles[0].FrontContact.X - mid.Vehicles[1].FrontContact.X - 9) > 1e-8 ||
+            mid.IntervalEnded)
+            throw new InvalidOperationException("Slice 4 display interpolation lost rigid coupler spacing.");
+        if (_session.FollowedVehicleId != step300.VehicleIds[0])
+            throw new InvalidOperationException("Slice 4 default follow is not the locomotive.");
+        var camera = _session.QueryFollowedCamera(0.5);
+        if (camera is null || camera.VehicleId != step300.VehicleIds[0] || Math.Abs(camera.HeadingX - 1) > 1e-8)
+            throw new InvalidOperationException("Slice 4 follow camera is not using the displayed heading.");
+        PrintSlice4DisplayMarkers("VOXEL_SMOKE_SLICE4_DISPLAY");
+        GD.Print($"VOXEL_SMOKE_SLICE4_FOLLOW id={_session.FollowedVehicleId!.Value} heading={camera.HeadingX.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
     }
 
     private void AdvanceSlice4GapResumeSmoke()
@@ -4919,8 +5242,14 @@ public partial class VoxelDeveloperScene : Node3D
         if (!damaged.Succeeded || damaged.Targets is null || damaged.Targets[0].PartId != coupler.FromPartId)
             throw new InvalidOperationException($"Slice 4 smoke could not destroy the locomotive rear coupler: {damaged.Status}.");
         var split = RequireSlice4CoastAssemblies(96, 87, 4, 4, frontRunning: true);
+        var afterSplit = _session.QueryDisplayPoses(0.5);
+        if (!afterSplit.IntervalEnded)
+            throw new InvalidOperationException("Slice 4 coupler split kept the old display interval.");
+        if (_session.FollowedVehicleId != assembled.VehicleIds[0])
+            throw new InvalidOperationException("Slice 4 follow jumped after coupler split.");
         GD.Print(
             $"VOXEL_SMOKE_SLICE4_COAST_SPLIT assemblies={_session.QueryTrainAssemblies().Count} graph={_session.AssemblyGraphGeneration} loco={split.Loco.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)} carriage={split.Carriage.Vehicles[0].FrontContact.X.ToString("G17", System.Globalization.CultureInfo.InvariantCulture)}");
+        PrintSlice4DisplayMarkers("VOXEL_SMOKE_SLICE4_DISPLAY_ENDED");
         if (!_session.AdvanceSimulation(30).Succeeded || _session.SimulationStep != 330)
             throw new InvalidOperationException("Slice 4 smoke could not coast 30 steps after coupler damage.");
         var coasted = RequireSlice4CoastAssemblies(98, 88.875, 4, 3.5, frontRunning: true);
@@ -5093,6 +5422,12 @@ public partial class VoxelDeveloperScene : Node3D
         if (!_baselineEnabled || _mutationStopwatch is null)
             return;
 
+        if (_slice4Baseline)
+        {
+            AdvanceSlice4Baseline();
+            return;
+        }
+
         var now = Time.GetTicksUsec();
         _frameMilliseconds.Add((now - _lastFrameTicks) / 1000.0);
         _lastFrameTicks = now;
@@ -5149,6 +5484,90 @@ public partial class VoxelDeveloperScene : Node3D
         }
 
         StartBaselineRun();
+    }
+
+    private void AdvanceSlice4Baseline()
+    {
+        var now = Time.GetTicksUsec();
+        _frameMilliseconds.Add((now - _lastFrameTicks) / 1000.0);
+        _lastFrameTicks = now;
+        _stableSeconds += GetProcessDeltaTime();
+        ApplyRailPresentation();
+        if (_stableSeconds < 10)
+            return;
+
+        var average = _frameMilliseconds.Average();
+        var maximum = _frameMilliseconds.Max();
+        var memory = Performance.GetMonitor(Performance.Monitor.MemoryStatic);
+        GD.Print(
+            $"VOXEL_BASELINE_SLICE4_RUN run={_baselineRun + 1} voxels={_slice4Voxels} sim_ms={_slice4SimMs:F3} mutation_ms={_slice4MutationMs:F3} refresh_ms={_slice4RefreshMs:F3} save_ms={_slice4SaveMs:F3} load_ms={_slice4LoadMs:F3} file_bytes={_slice4Bytes} stable_seconds={_stableSeconds:F3} frame_avg_ms={average:F3} frame_max_ms={maximum:F3} memory_bytes={memory:F0}");
+        _baselineRun++;
+        if (_baselineRun == 3)
+        {
+            GD.Print("VOXEL_BASELINE_COMPLETE");
+            _baselineEnabled = false;
+            GetTree().Quit();
+            return;
+        }
+
+        StartSlice4BaselineRun();
+    }
+
+    private void StartSlice4BaselineRun()
+    {
+        MeasureSlice4PresentationBaseline(warmup: false);
+        _mutationStopwatch = Stopwatch.StartNew();
+        _mutationStopwatch.Stop();
+        _frameMilliseconds.Clear();
+        _stableSeconds = 0;
+        _lastFrameTicks = Time.GetTicksUsec();
+    }
+
+    private void MeasureSlice4PresentationBaseline(bool warmup)
+    {
+        _session.Reset();
+        if (!EnterSlice4Fixture() || !_session.StartTrain(RailHeading.AlongAlignment).Succeeded)
+            throw new InvalidOperationException("Slice 4 baseline could not assemble and start the fixture.");
+        var sim = Stopwatch.StartNew();
+        if (!_session.AdvanceSimulation(1800).Succeeded)
+            throw new InvalidOperationException("Slice 4 baseline could not advance 1800 steps.");
+        sim.Stop();
+        var refresh = Stopwatch.StartNew();
+        Refresh();
+        refresh.Stop();
+        var mutation = Stopwatch.StartNew();
+        if (_session.Damage(new WorldVoxelCoord(110, 1, 15), 100).Status != WorldCommandStatus.Removed)
+            throw new InvalidOperationException("Slice 4 baseline could not apply the single gap damage.");
+        mutation.Stop();
+        var refreshAfterDamage = Stopwatch.StartNew();
+        Refresh();
+        refreshAfterDamage.Stop();
+        var saveClock = Stopwatch.StartNew();
+        var saved = _session.Save(warmup ? "Slice 4 Baseline Warmup" : "Slice 4 Baseline");
+        saveClock.Stop();
+        if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
+            throw new InvalidOperationException($"Slice 4 baseline save failed: {saved.Status}.");
+        var path = CreateSaveStore(GetNode<Main>("/root/Main")).PathFor(saved.SaveId.Value);
+        var bytes = new FileInfo(path).Length;
+        _session.Reset();
+        if (!EnterSlice4Fixture())
+            throw new InvalidOperationException("Slice 4 baseline could not rebuild before load.");
+        var loadClock = Stopwatch.StartNew();
+        var loaded = _session.Load(saved.SaveId.Value);
+        loadClock.Stop();
+        if (loaded.Status != WorldSaveStatus.Loaded)
+            throw new InvalidOperationException($"Slice 4 baseline load failed: {loaded.Status}.");
+        Refresh();
+        if (!warmup)
+        {
+            _slice4SimMs = sim.Elapsed.TotalMilliseconds;
+            _slice4MutationMs = mutation.Elapsed.TotalMilliseconds;
+            _slice4RefreshMs = refresh.Elapsed.TotalMilliseconds + refreshAfterDamage.Elapsed.TotalMilliseconds;
+            _slice4SaveMs = saveClock.Elapsed.TotalMilliseconds;
+            _slice4LoadMs = loadClock.Elapsed.TotalMilliseconds;
+            _slice4Bytes = bytes;
+            _slice4Voxels = _session.World.VoxelCount;
+        }
     }
 
     private void StartSlice3BaselineRun()

@@ -63,14 +63,17 @@ public sealed class RailConsoleCommands
         if (arguments.Count >= 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
             return FormatQuery(arguments.Skip(1).ToArray());
 
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "follow", StringComparison.OrdinalIgnoreCase))
+            return FormatFollow(arguments.Skip(1).ToArray());
+
         return Usage();
     }
 
     private static string Usage() =>
         string.Join('\n',
             "Usage: rail construct | rail assemble | rail start [assembly <id>] [reverse] [step] | rail stop [assembly <id>] [step] | rail pause | rail resume | rail step [n]",
-            "rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion] | rail query <x> <y> <z>",
-            "rail repair <x> <y> <z> [<x> <y> <z> ...].");
+            "rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion|display] | rail query <x> <y> <z>",
+            "rail follow [vehicle <id>] | rail repair <x> <y> <z> [<x> <y> <z> ...].");
 
     private string FormatConstruct(RailEditResult result)
     {
@@ -143,7 +146,10 @@ public sealed class RailConsoleCommands
         if (arguments.Count == 1 && string.Equals(arguments[0], "motion", StringComparison.OrdinalIgnoreCase))
             return FormatMotionQuery();
 
-        return "Usage: rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion] | rail query <x> <y> <z>";
+        if (arguments.Count == 1 && string.Equals(arguments[0], "display", StringComparison.OrdinalIgnoreCase))
+            return FormatDisplayQuery();
+
+        return "Usage: rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion|display] | rail query <x> <y> <z>";
     }
 
     private static string FormatMotion(TrainMotionResult result)
@@ -182,6 +188,50 @@ public sealed class RailConsoleCommands
         }
 
         return string.Join('\n', lines);
+    }
+
+    private string FormatDisplayQuery()
+    {
+        var sample = _session.QueryDisplayPoses();
+        var lines = new List<string>
+        {
+            $"Rail display alpha {FormatNumber(sample.Alpha)} ended {sample.IntervalEnded.ToString().ToLowerInvariant()} follow {_session.FollowedVehicleId?.Value.ToString(CultureInfo.InvariantCulture) ?? "none"}"
+        };
+        foreach (var assembly in sample.Assemblies)
+        {
+            lines.Add(
+                $"assembly {assembly.Id} distance {FormatNumber(assembly.Reference.Distance)} heading {assembly.Reference.Heading}");
+        }
+
+        foreach (var vehicle in sample.Vehicles)
+        {
+            lines.Add(
+                $"vehicle {vehicle.VehicleId} front {FormatNumber(vehicle.FrontContact.X)},{FormatNumber(vehicle.FrontContact.Y)},{FormatNumber(vehicle.FrontContact.Z)} origin {FormatNumber(vehicle.Transform.OriginX)},{FormatNumber(vehicle.Transform.OriginY)},{FormatNumber(vehicle.Transform.OriginZ)}");
+        }
+
+        return string.Join('\n', lines);
+    }
+
+    private string FormatFollow(IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 2 &&
+            string.Equals(arguments[0], "vehicle", StringComparison.OrdinalIgnoreCase) &&
+            TryEntityId(arguments[1], out var vehicleId))
+        {
+            if (!_session.TryFollowVehicle(vehicleId))
+                return $"Rail follow unknown {vehicleId.Value.ToString(CultureInfo.InvariantCulture)}.";
+        }
+        else if (arguments.Count != 0)
+            return Usage();
+
+        var followed = _session.FollowedVehicleId;
+        var camera = _session.QueryFollowedCamera();
+        if (followed is null || camera is null)
+            return "Rail follow none.";
+        return string.Join('\n',
+            $"Rail follow {followed.Value.Value.ToString(CultureInfo.InvariantCulture)}",
+            $"focus {FormatNumber(camera.FocusX)},{FormatNumber(camera.FocusY)},{FormatNumber(camera.FocusZ)}",
+            $"heading {FormatNumber(camera.HeadingX)},{FormatNumber(camera.HeadingY)},{FormatNumber(camera.HeadingZ)}");
     }
 
     private static string FormatAssemble(TrainAssemblyResult result)

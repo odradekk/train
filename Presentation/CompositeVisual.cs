@@ -1,6 +1,7 @@
 using Godot;
 using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train.Presentation;
@@ -230,5 +231,15 @@ public sealed class CompositeVisualPresenter
         }
 
         LastSync = CompositeVisualSyncKind.Rebuilt;
+    }
+
+    public void ApplyDisplayPoses(TrainDisplaySample sample)
+    {
+        ArgumentNullException.ThrowIfNull(sample);
+        foreach (var pose in sample.Vehicles)
+        {
+            if (_visuals.TryGetValue(pose.VehicleId, out var visual))
+                visual.ApplyRigidTransform(pose.Transform);
+        }
     }
 }

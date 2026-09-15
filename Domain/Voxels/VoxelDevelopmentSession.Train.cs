@@ -12,8 +12,15 @@ public sealed partial class VoxelDevelopmentSession
     private readonly List<ScheduledTrainCommand> _scheduled = new();
     private readonly SimulationScheduler _hostScheduler = new();
     private ulong _scheduledSequence;
+    private IReadOnlyList<TrainAssemblyQuery> _displayFrom = Array.Empty<TrainAssemblyQuery>();
+    private IReadOnlyList<TrainAssemblyQuery> _displayTo = Array.Empty<TrainAssemblyQuery>();
+    private ulong _displayFromGraph;
+    private ulong _displayToGraph;
+    private bool _displayIntervalEnded = true;
 
     public ulong ScheduledCommandSequence => _scheduledSequence;
+    public double DisplayInterpolationAlpha => _hostScheduler.DisplayAlpha;
+    public EntityId? FollowedVehicleId { get; private set; }
 
     private readonly record struct ScheduledTrainCommand(
         ulong AtStep,
@@ -77,6 +84,8 @@ public sealed partial class VoxelDevelopmentSession
         NextEntityId = next;
         CommitTransaction();
         NoteAssemblyGraphCommit();
+        FollowFirstSurvivingVehicle();
+        SnapDisplayInterval();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new TrainAssemblyResult(TrainAssemblyStatus.Formed, assemblyId);
@@ -121,6 +130,8 @@ public sealed partial class VoxelDevelopmentSession
             new[] { connection }));
         CommitTransaction();
         NoteAssemblyGraphCommit();
+        FollowFirstSurvivingVehicle();
+        SnapDisplayInterval();
         _rebuildComposites = true;
         Changed?.Invoke();
         return new TrainAssemblyResult(TrainAssemblyStatus.Formed, assemblyId);
@@ -146,6 +157,63 @@ public sealed partial class VoxelDevelopmentSession
 
     public ulong CollectHostSteps(double displayDelta) =>
         _hostScheduler.CollectSteps(displayDelta, SimulationPaused);
+
+    public bool TryFollowVehicle(EntityId vehicleId)
+    {
+        if (_vehicles.All(item => item.Id != vehicleId))
+            return false;
+        FollowedVehicleId = vehicleId;
+        return true;
+    }
+
+    public TrainDisplaySample QueryDisplayPoses(double? alpha = null)
+    {
+        var current = QueryTrainAssemblies();
+        var ended = _displayIntervalEnded ||
+                    AlongRailDisplay.IntervalEnded(
+                        _displayFrom,
+                        current,
+                        _displayFromGraph,
+                        AssemblyGraphGeneration);
+        return AlongRailDisplay.Sample(
+            _displayFrom,
+            current,
+            _vehicles.ToDictionary(item => item.Id),
+            Rails,
+            World,
+            alpha ?? DisplayInterpolationAlpha,
+            ended);
+    }
+
+    public TrainFollowCameraQuery? QueryFollowedCamera(double? alpha = null)
+    {
+        if (FollowedVehicleId is not { } id)
+            return null;
+        var sample = QueryDisplayPoses(alpha);
+        var pose = sample.Vehicles.FirstOrDefault(item => item.VehicleId == id);
+        if (pose is not null)
+            return AlongRailDisplay.FollowCamera(pose);
+
+        var vehicle = _vehicles.FirstOrDefault(item => item.Id == id);
+        if (vehicle is null)
+            return null;
+        if (vehicle.Contacts.Count >= 2 &&
+            StraightTrainSolver.TryToWorldContact(vehicle, 0, out var front) &&
+            StraightTrainSolver.TryToWorldContact(vehicle, 1, out var rear))
+        {
+            return AlongRailDisplay.FollowCamera(
+                new TrainDisplayVehicleQuery(id, null, vehicle.Transform, front, rear));
+        }
+
+        return new TrainFollowCameraQuery(
+            id,
+            vehicle.Transform.OriginX,
+            vehicle.Transform.OriginY,
+            vehicle.Transform.OriginZ,
+            1,
+            0,
+            0);
+    }
 
     public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null, EntityId? assemblyId = null)
     {
@@ -191,23 +259,29 @@ public sealed partial class VoxelDevelopmentSession
         var snapshot = CaptureMotionSnapshot();
         for (ulong i = 0; i < steps; i++)
         {
+            var from = QueryTrainAssemblies();
+            var fromGraph = AssemblyGraphGeneration;
             if (!TryApplyScheduledCommands(SimulationStep, out var scheduledStatus))
             {
                 RestoreMotionSnapshot(snapshot);
+                SnapDisplayInterval();
                 return RejectMotion(scheduledStatus);
             }
 
             if (!TryAdvanceAllAssemblies(out var status))
             {
                 RestoreMotionSnapshot(snapshot);
+                SnapDisplayInterval();
                 return RejectMotion(status);
             }
 
             SimulationStep++;
+            CommitDisplayInterval(from, fromGraph);
             if (SimulationStep == ulong.MaxValue &&
                 !TryApplyScheduledCommands(SimulationStep, out scheduledStatus))
             {
                 RestoreMotionSnapshot(snapshot);
+                SnapDisplayInterval();
                 return RejectMotion(scheduledStatus);
             }
         }
@@ -523,6 +597,7 @@ public sealed partial class VoxelDevelopmentSession
         _assemblies.AddRange(planned);
         NextEntityId = next;
         NoteAssemblyGraphCommit();
+        SnapDisplayInterval();
     }
 
     private void ReconcileScheduledCommands(IReadOnlyList<TrainAssembly> planned)
@@ -655,6 +730,34 @@ public sealed partial class VoxelDevelopmentSession
         _scheduled.Clear();
         _scheduledSequence = 0;
         _hostScheduler.Reset();
+        FollowedVehicleId = null;
+        SnapDisplayInterval();
+    }
+
+    private void FollowFirstSurvivingVehicle()
+    {
+        var assembly = QueryTrainAssemblies().FirstOrDefault();
+        FollowedVehicleId = assembly?.ActiveLocomotiveId ?? assembly?.VehicleIds.FirstOrDefault();
+    }
+
+    private void SnapDisplayInterval()
+    {
+        var current = QueryTrainAssemblies();
+        _displayFrom = current;
+        _displayTo = current;
+        _displayFromGraph = AssemblyGraphGeneration;
+        _displayToGraph = AssemblyGraphGeneration;
+        _displayIntervalEnded = true;
+    }
+
+    private void CommitDisplayInterval(IReadOnlyList<TrainAssemblyQuery> from, ulong fromGraph)
+    {
+        var current = QueryTrainAssemblies();
+        _displayFrom = from;
+        _displayTo = current;
+        _displayFromGraph = fromGraph;
+        _displayToGraph = AssemblyGraphGeneration;
+        _displayIntervalEnded = AlongRailDisplay.IntervalEnded(from, current, fromGraph, AssemblyGraphGeneration);
     }
 
     private TrainMotionResult AcceptTrainCommand(ulong atStep, bool start, EntityId assemblyId)
@@ -937,7 +1040,11 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         if (changed || lostSupport)
+        {
             NoteAssemblyGraphCommit();
+            SnapDisplayInterval();
+        }
+
         return changed || lostSupport;
     }
 

@@ -10,6 +10,11 @@ public sealed class SimulationScheduler
 {
     private double _accumulator;
 
+    public double Remainder => _accumulator;
+
+    public double DisplayAlpha =>
+        Math.Clamp(_accumulator / SimulationClock.StepDuration, 0, 1);
+
     public void Reset() => _accumulator = 0;
 
     public ulong CollectSteps(double displayDelta, bool paused)
