@@ -99,6 +99,22 @@ public sealed class TrainDisplayPresentationTests
         var carriage = support.Session.QueryTrainAssemblies().Single(item => item.ActiveLocomotiveId is null);
         Assert.AreEqual(88.875, afterLoss.Vehicles.Single(item => item.VehicleId == carriage.VehicleIds[0]).FrontContact.X, Tolerance);
         Assert.AreEqual(carriage.Vehicles[0].FrontContact.X, afterLoss.Vehicles.Single(item => item.VehicleId == carriage.VehicleIds[0]).FrontContact.X, Tolerance);
+
+        var loco = support.Session.QueryTrainAssemblies().Single(item => item.ActiveLocomotiveId is not null);
+        var locoBefore = loco.Vehicles[0].FrontContact.X;
+        Assert.IsTrue(loco.Running);
+        Assert.IsTrue(support.Session.AdvanceSimulation(1).Succeeded);
+        var locoAfter = support.Session.QueryTrainAssemblies().Single(item => item.ActiveLocomotiveId is not null);
+        var rebuilt = support.Session.QueryDisplayPoses(0.5);
+        Assert.IsFalse(rebuilt.IntervalEnded);
+        Assert.AreEqual(
+            (locoBefore + locoAfter.Vehicles[0].FrontContact.X) * 0.5,
+            rebuilt.Vehicles.Single(item => item.VehicleId == locoAfter.VehicleIds[0]).FrontContact.X,
+            Tolerance);
+        Assert.AreEqual(
+            carriage.Vehicles[0].FrontContact.X,
+            rebuilt.Vehicles.Single(item => item.VehicleId == carriage.VehicleIds[0]).FrontContact.X,
+            Tolerance);
     }
 
     [TestMethod]

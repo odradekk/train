@@ -107,7 +107,7 @@ dotnet test Train.Tests/Train.Tests.csproj --filter FullyQualifiedName~Formal_sa
 
 1. 沿已完成态路径插值再约束求解；最多落后 1 步；无外推/回写 — `AlongRailDisplay` + `TrainDisplayPresentationTests` + `QueryDisplayPoses`。**Fedora 自动有；人工待确认。**
 2. 跨缝走世界路径；固定轴距/车钩；运动 transform-only — 跨缝测试 + `VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY`。**Fedora 自动有；人工待确认。**
-3. 断开/身份/失支撑结束旧区间 — 拆分/支撑测试 + `DISPLAY_ENDED`。**Fedora 自动有；人工待确认。**
+3. 断开/身份/失支撑结束旧区间，事件后已提交态重建；其后仍运行的车头恢复插值 — 拆分/支撑测试 + `DISPLAY_ENDED`。**Fedora 自动有；人工待确认。**
 4. 相机跟显示姿态与车体朝向；断开保持选择 — `QueryFollowedCamera` / `rail follow` / `F`。**Fedora 自动有；摧毁回退不在范围；人工待确认。**
 5. 30/60/144 与 Pause 同权威；哈希排除显示/相机 — `Host_schedules_and_pause_*` + 既有 `WorldSaveAuthority.Fingerprint`。**Fedora 自动有。**
 6. Windows x64 每 300 步哈希与三类存档分支 — Fedora 已有 `TrainPersistenceTests` / `TrainCouplerCoastTests` / 切片 4 冒烟。**Windows 未跑，阻塞。**

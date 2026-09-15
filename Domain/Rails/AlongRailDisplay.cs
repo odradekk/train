@@ -175,8 +175,8 @@ public static class AlongRailDisplay
         !from.Select(item => item.Id).SequenceEqual(to.Select(item => item.Id)) ||
         from.Zip(to, (left, right) =>
                 !left.VehicleIds.SequenceEqual(right.VehicleIds) ||
-                left.HaltReason == TrainHaltReason.SupportLost ||
-                right.HaltReason == TrainHaltReason.SupportLost)
+                (left.HaltReason == TrainHaltReason.SupportLost) !=
+                (right.HaltReason == TrainHaltReason.SupportLost))
             .Any(ended => ended);
 
     private static bool TryPose(

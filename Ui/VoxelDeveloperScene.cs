@@ -4915,7 +4915,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (follow is null)
             return;
         var camera = GetChildren().OfType<Camera3D>().FirstOrDefault();
-        if (camera is null)
+        if (camera is null || !IsInsideTree() || !camera.IsInsideTree())
             return;
         var focus = new Vector3((float)follow.FocusX, (float)follow.FocusY, (float)follow.FocusZ);
         var heading = new Vector3((float)follow.HeadingX, (float)follow.HeadingY, (float)follow.HeadingZ);
