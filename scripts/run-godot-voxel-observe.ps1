@@ -6,7 +6,7 @@
 # The scene quits itself after VOXEL_OBSERVE_COMPLETE; 300 is only a fail-closed
 # safety timeout for the full hold/capture sequence.
 param(
-    [ValidateSet(1, 2, 3)]
+    [ValidateSet(1, 2, 3, 4)]
     [int] $Slice = 1,
     [string] $OutputPath = ""
 )
@@ -33,7 +33,7 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 3) { ".godot/issue60-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
+    $OutputPath = if ($Slice -eq 4) { ".godot/validation/issue74/observe-report.md" } elseif ($Slice -eq 3) { ".godot/issue60-observe-report.md" } elseif ($Slice -eq 2) { ".godot/issue50-observe-report.md" } else { ".godot/issue45-observe-report.md" }
 }
 $env:TRAIN_VOXEL_OBSERVE = "1"
 $env:TRAIN_VOXEL_SLICE = "$Slice"
@@ -52,9 +52,25 @@ $beforeHashes = @{}
 foreach ($relative in $protected) {
     $beforeHashes[$relative] = (Get-FileHash -LiteralPath (Join-Path $root $relative) -Algorithm SHA256).Hash
 }
-$quitAfter = if ($Slice -eq 3) { 1100 } else { 300 }
-$output = & $env:GODOT --path $root --quit-after $quitAfter 2>&1 | Out-String
-$exitCode = $LASTEXITCODE
+$quitAfter = if ($Slice -eq 4) { 1600 } elseif ($Slice -eq 3) { 1100 } else { 300 }
+$userData = $null
+if ($Slice -eq 4) {
+    $userData = Join-Path ([System.IO.Path]::GetTempPath()) ("train-issue74-observe-" + [guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $userData | Out-Null
+    $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+}
+try {
+    $output = & $env:GODOT --path $root --quit-after $quitAfter 2>&1 | Out-String
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    if ($userData) {
+        Remove-Item "Env:TRAIN_MODS_SMOKE_USER_DATA" -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $userData) {
+            Remove-Item -LiteralPath $userData -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 Write-Host $output
 $rewritten = @($protected | Where-Object {
     $beforeHashes[$_] -ne (Get-FileHash -LiteralPath (Join-Path $root $_) -Algorithm SHA256).Hash
@@ -66,7 +82,18 @@ if ($exitCode -ne 0 -or $output -notlike "*VOXEL_OBSERVE_COMPLETE*") {
     throw "Voxel observe failed: expected VOXEL_OBSERVE_COMPLETE and exit 0."
 }
 
-$captures = if ($Slice -eq 3) {
+$captures = if ($Slice -eq 4) {
+    @(
+        "issue74-parked.png",
+        "issue74-interpolate.png",
+        "issue74-running-300.png",
+        "issue74-follow-carriage.png",
+        "issue74-cross-seam.png",
+        "issue74-split.png",
+        "issue74-support-loss.png",
+        "issue74-gap-stop.png"
+    )
+} elseif ($Slice -eq 3) {
     @(
         "issue58-empty.png",
         "issue58-exterior.png",
@@ -124,7 +151,8 @@ $captures = if ($Slice -eq 3) {
         "issue46-rejected.png"
     )
 }
-$missing = @($captures | Where-Object { -not (Test-Path (Join-Path $root ".godot\$_")) })
+$captureRoot = if ($Slice -eq 4) { Join-Path $root ".godot/validation/issue74" } else { Join-Path $root ".godot" }
+$missing = @($captures | Where-Object { -not (Test-Path (Join-Path $captureRoot $_)) })
 if ($missing.Count -gt 0) {
     throw "Voxel observe failed. Missing captures: $($missing -join ', ')"
 }
@@ -133,7 +161,35 @@ $cpu = Get-HostCpuName
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
 $settle = ($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_MULTI_SETTLE_MS=*" } | Select-Object -Last 1)
 $captureLines = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_OBSERVE_CAPTURE*" })
-$report = if ($Slice -eq 3) {
+$report = if ($Slice -eq 4) {
+    @(
+        "# Issue #74 visual observation record (automated facts)",
+        "",
+        "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 4 ``.",
+        "",
+        "Automated facts only: the script set ``TRAIN_VOXEL_OBSERVE=1`` and ``TRAIN_VOXEL_SLICE=4`` with isolated ``TRAIN_MODS_SMOKE_USER_DATA``, launched the windowed project, required ``VOXEL_OBSERVE_COMPLETE`` plus exit 0, and required eight ``.godot/validation/issue74/issue74-*.png`` files. It does not inspect PNG pixels and is not a human visual confirmation.",
+        "",
+        "## Procedure",
+        "",
+        "1. Start the project and choose **进入切片 4 正式直轨场景**, or run the observe script above.",
+        "2. Confirm one locomotive and one carriage, coupler gap 1, wheelbase 6, follow camera on the locomotive.",
+        "3. ``rail start`` then ``rail step 1``. At mid-interval the display pose must sit between the two completed states without stretching.",
+        "4. ``rail step 299`` to step 300. Rigid spacing and coupler stay; meshes are transform-only.",
+        "5. ``rail follow vehicle <carriage-id>`` or press ``F``. Camera heading follows the selected carriage body.",
+        "6. Continue to the x=144 seam. Display uses world-path interpolation, not mixed segment distances.",
+        "7. Reset, run 300, destroy the coupler. Follow stays on the selected carriage; the old interval ends.",
+        "8. Coast 30 then damage the support cell. Display snaps to the committed halt.",
+        "9. Reset, run 300, open the forward gap, step to halt. Unrepaired gap rejects ``rail start``.",
+        "",
+        "## Result",
+        "",
+        "Automated windowed capture completed with exit 0. Capture log:",
+        "",
+        ($captureLines | ForEach-Object { "- $_" }),
+        "",
+        "Automated capture wrote ``.godot/validation/issue74/issue74-*.png``. This report records script exit, COMPLETE, capture logs, and file presence only; it does not claim a human visually confirmed the PNGs. Headless ``-Slice 4`` smoke is the automated interpolation / follow / authority evidence."
+    )
+} elseif ($Slice -eq 3) {
     @(
         "# Issue #60 visual observation record (automated facts)",
         "",

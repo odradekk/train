@@ -9,8 +9,13 @@
 # not reported as structural settlement.
 # Results are written to docs/validation/issue-62-voxel-baseline.md by default.
 # This script does not overwrite docs/validation/issue-53-voxel-baseline.md.
+# -Slice 4 is a separate 1800-step straight-rail presentation baseline and
+# writes docs/validation/issue-74-rail-presentation.md by default. It does
+# not mix slice 1–3 mutation load into the same recorded numbers.
 param(
-    [string] $OutputPath = "docs/validation/issue-62-voxel-baseline.md"
+    [ValidateSet(0, 4)]
+    [int] $Slice = 0,
+    [string] $OutputPath = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -36,35 +41,72 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 
-$userData = Join-Path ([System.IO.Path]::GetTempPath()) ("train-issue53-baseline-" + [guid]::NewGuid().ToString("N"))
+if (-not $OutputPath) {
+    $OutputPath = if ($Slice -eq 4) { ".godot/validation/issue74/baseline-report.md" } else { "docs/validation/issue-62-voxel-baseline.md" }
+}
+$userPrefix = if ($Slice -eq 4) { "train-issue74-baseline-" } else { "train-issue53-baseline-" }
+$userData = Join-Path ([System.IO.Path]::GetTempPath()) ($userPrefix + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $userData | Out-Null
 $env:TRAIN_VOXEL_BASELINE = "1"
 $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+if ($Slice -eq 4) {
+    $env:TRAIN_VOXEL_SLICE = "4"
+}
 try {
     $output = & $env:GODOT --headless --path $root 2>&1 | Out-String
     $exitCode = $LASTEXITCODE
 }
 finally {
     Remove-Item "Env:TRAIN_VOXEL_BASELINE" -ErrorAction SilentlyContinue
+    Remove-Item "Env:TRAIN_VOXEL_SLICE" -ErrorAction SilentlyContinue
     Remove-Item "Env:TRAIN_MODS_SMOKE_USER_DATA" -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $userData) {
         Remove-Item -LiteralPath $userData -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 Write-Host $output
-$runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_RUN run=*" })
-$slice2Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE2_RUN*" })
-$saveRuns = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SAVE_RUN*" })
-$slice3Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE3_RUN*" })
-if ($exitCode -ne 0 -or $runs.Count -ne 3 -or $slice2Runs.Count -ne 3 -or $saveRuns.Count -ne 3 -or $slice3Runs.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
-    throw "Voxel baseline failed: expected three slice 1 runs, three slice 2 boundary runs, three save/load runs, three slice 3 persist runs, and the completion marker."
+if ($Slice -eq 4) {
+    $slice4Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE4_RUN*" })
+    $running = @($slice4Runs | Where-Object { $_ -like "*kind=running*" })
+    $damage = @($slice4Runs | Where-Object { $_ -like "*kind=damage*" })
+    $saveload = @($slice4Runs | Where-Object { $_ -like "*kind=saveload*" })
+    if ($exitCode -ne 0 -or $running.Count -ne 3 -or $damage.Count -ne 3 -or $saveload.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
+        throw "Voxel baseline failed: expected three recorded running/damage/saveload slice 4 lines each and the completion marker."
+    }
+} else {
+    $runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_RUN run=*" })
+    $slice2Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE2_RUN*" })
+    $saveRuns = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SAVE_RUN*" })
+    $slice3Runs = @($output -split "`r?`n" | Where-Object { $_ -like "*VOXEL_BASELINE_SLICE3_RUN*" })
+    if ($exitCode -ne 0 -or $runs.Count -ne 3 -or $slice2Runs.Count -ne 3 -or $saveRuns.Count -ne 3 -or $slice3Runs.Count -ne 3 -or $output -notlike "*VOXEL_BASELINE_COMPLETE*") {
+        throw "Voxel baseline failed: expected three slice 1 runs, three slice 2 boundary runs, three save/load runs, three slice 3 persist runs, and the completion marker."
+    }
 }
 
 $cpu = Get-HostCpuName
 $memory = Get-HostPhysicalMemoryBytes
 $runtime = (& dotnet --list-runtimes | Select-String -Pattern "^Microsoft.NETCore.App 10\." | Select-Object -Last 1).ToString().Trim()
 $godotVersion = (& $env:GODOT --version | Out-String).Trim()
-$report = @(
+$report = if ($Slice -eq 4) {
+    @(
+        "# Issue #74 straight-rail presentation baseline",
+        "",
+        ("Command: `$env:GODOT = '" + $env:GODOT + "'; .\\scripts\\run-godot-voxel-baseline.ps1 -Slice 4"),
+        "",
+        "- Godot: $godotVersion",
+        "- .NET: $runtime",
+        "- CPU: $cpu",
+        "- Physical memory bytes: $memory",
+        "- Host: Godot --headless. This is not a windowed realtime or GPU frame measurement.",
+        "- Batch: each running _Process advances 30 simulation steps and applies display. Running frame_avg_ms / frame_max_ms are inter-_Process intervals of that 30-step batch, not 60 Hz presentation.",
+        "- Sequence: one unrecorded warm-up cycle, then three recorded cycles. Each cycle uses formal rail construct/assemble/start, then records running frames to 1800 steps, then one gap-damage event and one save/load event. Damage/saveload print work_ms (CPU Stopwatch of the handler) and frame_interval_ms (unified _Process stamp spanning the event-containing frame). Kinds are not mixed. Isolated temporary user-data. Fedora numbers are not Windows x64 evidence.",
+        "",
+        "## Slice 4 recorded runs",
+        "",
+        $slice4Runs
+    )
+} else {
+    @(
     "# Issue #62 voxel baseline",
     "",
     ("Command: `$env:GODOT = '" + $env:GODOT + "'; .\\scripts\\run-godot-voxel-baseline.ps1"),
@@ -90,7 +132,8 @@ $report = @(
     "## Slice 3 persist recorded runs",
     "",
     $slice3Runs
-)
+    )
+}
 $absoluteOutput = Join-Path $root $OutputPath
 $parent = Split-Path -Parent $absoluteOutput
 New-Item -ItemType Directory -Force -Path $parent | Out-Null

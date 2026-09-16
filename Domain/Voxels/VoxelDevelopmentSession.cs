@@ -741,6 +741,12 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         AdaptAssembliesToLiveCatalog();
+        var previousFollow = FollowedVehicleId;
+        SnapDisplayInterval();
+        if (previousFollow is { } followed && _vehicles.Any(item => item.Id == followed))
+            FollowedVehicleId = followed;
+        else
+            FollowFirstSurvivingVehicle();
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _pendingTrackChunks.Clear();
