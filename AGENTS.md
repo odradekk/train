@@ -19,10 +19,9 @@ Current version: `0.0.21`.
 
 ## Local development environment
 
-- Development runs on Fedora. Invoke the local Godot .NET engine with `godot-dotnet --headless` for headless checks.
-- Use PowerShell 7 (`pwsh`) for the validation scripts. From Bash, set `export GODOT="$(command -v godot-dotnet)"` and run them with `pwsh -NoProfile -File`. The scripts expect `GODOT` to be an executable path, without arguments.
-- The local Windows filesystems are mounted under `/mnt`. Windows builds may be exported directly to a dedicated directory on the mounted filesystem.
-- For validation prerequisites, script platform limits, and Windows export commands, read [Local validation and Windows builds](docs/tickets-sop.md#local-validation-and-windows-builds).
+- 当前开发环境为 Windows，验证脚本使用 PowerShell 7（`pwsh`）。在项目目录执行 `dotnet --version`，确认使用 `global.json` 锁定的 SDK。
+- 本机 Godot .NET 位于 `D:\Godot_v4.7.2-stable_mono_win64\`。`GODOT` 环境变量应指向其中的 `Godot_v4.7.2-stable_mono_win64_console.exe`，不包含参数；无界面检查使用 `& $env:GODOT --headless`。
+- 配置新终端、运行验证或导出 Windows 构建前，阅读 [Local validation and Windows builds](docs/tickets-sop.md#local-validation-and-windows-builds)。
 
 ## Agent skills
 

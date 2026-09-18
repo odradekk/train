@@ -156,45 +156,84 @@ Apply one increase per completed task, not per implementation commit, repair rou
 
 ## Local validation and Windows builds
 
-Run commands from the checkout under test. The development host is Fedora; the Windows export target remains `Windows Desktop` in `export_presets.cfg`.
+Run commands from the checkout under test. The current development host is Windows; the export target is `Windows Desktop` in `export_presets.cfg`.
 
-### Fedora validation
+### Windows development and validation
 
-Check the local tools before selecting validation commands:
+Use PowerShell 7 (`pwsh`), not Windows PowerShell 5 (`powershell.exe`). Both projects target `net10.0`; install the exact x64 SDK selected by `global.json`. Because roll-forward is disabled, another .NET 10 SDK, including a preview, does not satisfy the requirement. Existing SDKs can remain installed alongside it. Obtain the versioned installer from Microsoft's [.NET 10 downloads](https://dotnet.microsoft.com/en-us/download/dotnet/10.0).
 
-```bash
-godot-dotnet --headless --version
+Configure Godot for the current PowerShell session and persist the setting for new processes:
+
+```powershell
+$env:GODOT = 'D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe'
+$env:GODOT_EDITOR = 'D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64.exe'
+[Environment]::SetEnvironmentVariable('GODOT', $env:GODOT, 'User')
+[Environment]::SetEnvironmentVariable('GODOT_EDITOR', $env:GODOT_EDITOR, 'User')
+& $env:GODOT --headless --version
 dotnet --list-sdks
 dotnet --version
-pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+$PSVersionTable.PSVersion.ToString()
 ```
 
-`dotnet --version` must resolve the SDK required by `global.json`; having another SDK installed is insufficient when roll-forward is disabled. Both projects target `net10.0`. The `.ps1` scripts use PowerShell 7 (`pwsh`) on Fedora and Windows; Windows PowerShell 5 (`powershell.exe`) is not the validation host. Report missing prerequisites as validation blockers.
+`GODOT` must contain an executable path without arguments. Prefer the console executable for command-line checks. Restart existing terminals and editors after installing the SDK or changing user environment variables. Report missing prerequisites as validation blockers.
 
-For changes that require domain tests, a project build, and real Godot voxel smoke, use the applicable commands below after resolving those prerequisites. Select the slice required by the Issue:
+The checkout may retain ignored settings from a historical acceptance environment. Before returning it to normal development, inspect `NuGet.Config` for an obsolete offline-only source and `override.cfg` for a custom acceptance user-data directory. Back up those local files outside the checkout before disabling them; preserve the associated acceptance evidence and saves. Normal dependency restore needs nuget.org access, and normal game data uses `%APPDATA%\Godot\app_userdata\Train`.
 
-```bash
-export GODOT="$(command -v godot-dotnet)"
+For a fresh checkout or after an SDK change, restore/build, import Godot resources, and run the relevant smoke slice:
+
+```powershell
 dotnet test Train.Tests/Train.Tests.csproj
 dotnet build Train.csproj
-pwsh -NoProfile -File scripts/run-godot-voxel-smoke.ps1 -Slice 1
+& $env:GODOT --headless --path . --editor --import
+pwsh -NoProfile -File scripts/run-godot-voxel-smoke.ps1 -Slice 4
 ```
 
-Smoke scripts can discover `godot-dotnet` on PATH. Set `GODOT` explicitly when running observation/baseline scripts or selecting a particular engine. In an existing PowerShell 7 session, the equivalent setting is `$env:GODOT = (Get-Command godot-dotnet).Source`.
+Select the slice required by the Issue (1–4). Resource import alone does not build the C# project. To open the editor after a successful build/import, run `& $env:GODOT --path . --editor`.
+
+VS Code uses the repository's `build`, `test`, and `export-windows` tasks. With the C# extension installed, the `Train (Godot)` launch configuration builds the solution and starts the game. `GODOT_EDITOR` points to the main Godot executable for debugging; `GODOT` points to its console wrapper for validation output. This follows the [Godot C# editor setup](https://docs.godotengine.org/en/4.7/tutorials/scripting/c_sharp/c_sharp_basics.html#visual-studio-code).
 
 The four `scripts/run-godot-*.tests.ps1` harnesses reuse the current PowerShell 7 host and select fake native programs for the host OS. They verify the scripts' success/failure handling; they do not run the real game. Windows GUI-process capture cases run only on Windows and are explicitly skipped on Fedora. Distinguish these harness results from real Godot checks.
 
 Visual observation requires a graphical session. For fresh evidence, select new report and capture paths so historical validation records remain intact. For example:
 
-```bash
+```powershell
 pwsh -NoProfile -File scripts/run-godot-voxel-observe.ps1 -Slice 3 -OutputPath .godot/validation/observe.md
 pwsh -NoProfile -File scripts/run-godot-voxel-observe-resume.ps1 -Slice 3 -OutputPath .godot/validation/resume.md -CaptureOutputPath .godot/validation/resume
 pwsh -NoProfile -File scripts/run-godot-voxel-baseline.ps1 -OutputPath .godot/validation/baseline.md
 ```
 
-### Export to the mounted Windows filesystem
+### Windows export and runtime validation
 
-The local mounts are `/mnt/windows-c` and `/mnt/windows-d`. Verify the selected mount is available and writable, then choose a dedicated output directory. For example, from Bash:
+Export requires the project's .NET SDK and matching Godot .NET Windows export templates. On this machine, the templates belong under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. Use a dedicated output directory; on Windows the content export smoke can validate both export and the resulting executable:
+
+```powershell
+$windowsBuild = Join-Path (Get-Location).Path 'builds/windows-content-smoke/train.exe'
+pwsh -NoProfile -File scripts/run-godot-content-export-smoke.ps1 -OutputPath $windowsBuild
+$env:TRAIN_MODS_EXPORT_BIN = $windowsBuild
+pwsh -NoProfile -File scripts/run-godot-mods-export-smoke.ps1
+Remove-Item Env:TRAIN_MODS_EXPORT_BIN
+```
+
+Use an absolute executable path for Windows runtime checks: the process launcher may fail to resolve a relative path containing forward slashes even after export succeeds. Passing the output path on the command line keeps machine-specific paths out of `export_presets.cfg`. Keep the complete export directory, including the PCK and .NET output, together when running or copying the build.
+
+The content/mods export smoke scripts' `-OutputPath` selects a fresh export destination; `-ExportOnly` stops after verifying that export completed and the executable exists. For runtime checks against an existing native build for the current host, set `TRAIN_CONTENT_EXPORT_BIN` or `TRAIN_MODS_EXPORT_BIN` to its executable path and invoke the corresponding script without `-ExportOnly`. Windows `.exe` builds require Windows. `-ExportOnly` cannot validate a pre-existing binary supplied through these environment variables; use `-OutputPath` for a new export instead.
+
+Verify Windows-specific behavior in Windows and record the build's tested commit, runtime results, and logs. If Windows execution is unavailable, report that part as unverified even when export succeeds.
+
+### Fedora validation and cross-export
+
+When using a Fedora checkout, install the SDK required by `global.json`, PowerShell 7, and Godot .NET. Check `dotnet --version`, `pwsh --version`, and `godot-dotnet --headless --version`. Set the executable path before running the same validation scripts:
+
+```bash
+export GODOT="$(command -v godot-dotnet)"
+export GODOT_EDITOR="$GODOT"
+dotnet test Train.Tests/Train.Tests.csproj
+dotnet build Train.csproj
+"$GODOT" --headless --path . --editor --import
+pwsh -NoProfile -File scripts/run-godot-voxel-smoke.ps1 -Slice 4
+```
+
+For Windows cross-export, verify a writable Windows mount and choose a dedicated output directory. For example, if `/mnt/windows-d` is mounted:
 
 ```bash
 windows_build_dir='/mnt/windows-d/train-builds/local'
@@ -202,11 +241,7 @@ mkdir -p "$windows_build_dir"
 pwsh -NoProfile -File scripts/run-godot-content-export-smoke.ps1 -ExportOnly -OutputPath "$windows_build_dir/train.exe"
 ```
 
-Export requires the project's .NET SDK and matching Godot .NET Windows export templates. Passing the output path on the command line keeps machine-specific mount paths out of `export_presets.cfg`. Keep the complete export directory, including the PCK and .NET output, together when running or copying the build.
-
-The content/mods export smoke scripts' `-OutputPath` selects a fresh export destination; `-ExportOnly` stops after verifying that export completed and the executable exists. For runtime checks against an existing native build for the current host, set `TRAIN_CONTENT_EXPORT_BIN` or `TRAIN_MODS_EXPORT_BIN` to its executable path and invoke the corresponding script without `-ExportOnly`. Windows `.exe` builds require Windows. `-ExportOnly` cannot validate a pre-existing binary supplied through these environment variables; use `-OutputPath` for a new export instead.
-
-A mounted Windows filesystem provides file access, not a Windows execution environment. Verify Windows-specific behavior in Windows and record the build's tested commit, runtime results, and logs. If Windows execution is unavailable, report that part as unverified even when export succeeds.
+A mounted Windows filesystem provides file access, not a Windows execution environment. `-ExportOnly` verifies export; runtime validation still requires Windows.
 
 Historical records in `docs/validation/`, `docs/research/`, and `archive/mvp/` retain the OS, paths, commands, and results used at the time. New validation records must describe the environment actually used.
 
