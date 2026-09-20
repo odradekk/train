@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Recreate toolchain PATH hooks after orb wake. Do not install packages here.
+set -euo pipefail
+
+PROFILE_SNIPPET_FILE="${HOME}/.config/train-orb/env.sh"
+DOTNET_ROOT="${HOME}/.dotnet"
+GODOT_VERSION="4.7.2"
+GODOT_HOME="${HOME}/.local/share/godot/${GODOT_VERSION}.stable.mono"
+GODOT_BIN="${GODOT_HOME}/Godot_v${GODOT_VERSION}-stable_mono_linux.x86_64"
+
+if [[ ! -f "$PROFILE_SNIPPET_FILE" ]]; then
+  echo "train-orb env snippet missing; run .agents/setup" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+. "$PROFILE_SNIPPET_FILE"
+
+mkdir -p "${HOME}/.local/bin"
+if [[ -x "$GODOT_BIN" ]]; then
+  ln -sfn "$GODOT_BIN" "${HOME}/.local/bin/godot-dotnet"
+  ln -sfn "$GODOT_BIN" "${HOME}/.local/bin/godot"
+fi
+
+command -v dotnet >/dev/null
+command -v pwsh >/dev/null
+command -v godot-dotnet >/dev/null
+test -x "${GODOT:-$GODOT_BIN}"

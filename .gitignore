@@ -6,3 +6,4 @@ obj/
 builds/
 TestResults/
 *.user
+.amp/portals/*
