@@ -20,6 +20,7 @@
 
 - Simulation 拥有独立于 Rendering FPS 的逻辑时钟。Godot 仅提供 Host：Godot SimulationHost → SimulationClock → WorldSimulation。
 - Simulation 不依赖 SceneTree 中是否存在某对象、当前 FPS、Camera 是否看到某区域、窗口是否获得焦点。
+- 遵守 [01](01-voxel-world.md) 的当前已定规则：全图全精度实时模拟（转录 Q5），不因距离或区域不可见而降低模拟精度。Visual Streaming 与表现层 LOD 不改变这一规则。
 - 首版：Pause 与 1×。架构预留 2×、4× 等倍速，但在系统稳定前不开放倍速 Gameplay。
 
 ### 确定性目标
@@ -94,9 +95,11 @@ SimulationClock、Command、Transaction、Evaluate、Resolve、Commit、Structur
 
 ## 明确延后
 
-有状态随机流、定点数体系、未经独立验证的领域向量化；倍速 Gameplay、Offline Progress、Simulation LOD、跨平台 bit-perfect determinism、完整 Event Sourcing。
+有状态随机流、定点数体系、未经独立验证的领域向量化；倍速 Gameplay、Offline Progress、跨平台 bit-perfect determinism、完整 Event Sourcing。
+
+Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续功能；未来引入须先重审全图全精度模拟规则，见下文开放问题。
 
 ## 开放问题
 
-- Simulation LOD 列为未来功能，而转录 Q5 选择了全图全精度模拟；转录 Q5 已选全图全精度模拟，采用时需统一方向。
+- Simulation LOD：若后续性能问题促使考虑分层模拟，须先重审转录 Q5 的全图全精度模拟规则，并同步修订 [01](01-voxel-world.md)、本文与 [07](07-rendering.md)；在作出新决策前继续遵守当前规则。
 - Simulation Tick Rate：未冻结参数（[roadmap](roadmap.md)）。

@@ -9,7 +9,7 @@
 ## 不变量
 
 - Rendering 与 Collider 都是 World State 的派生缓存；World Model 不保存 Godot CollisionShape 作为事实。
-- LOD 永远只改变 Presentation，不改变 Simulation。
+- 本文的表现层 LOD 只改变 Presentation，不改变 Simulation；Simulation LOD 是另需设计决策的模拟策略，不属于渲染优化。
 - Composite 移动时只更新根 Transform，绝不因为移动重建内部 Mesh。
 - Rebase 只移动 Visual Proxy；World Voxel Coordinate、RailPosition、聚居地位置、Save State、Seed、Simulation 永远不变。
 
@@ -59,7 +59,7 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 
 ### Visual Streaming
 
-- World Data 完整常驻内存（转录 Q5 的刻意选择）。"不加载"主要表示不构建或不保留当前区域的视觉表示。
+- 遵守 [01](01-voxel-world.md) 与 [04](04-deterministic-simulation.md) 的当前已定规则：World Data 完整常驻内存，全图全精度实时模拟（转录 Q5）。"不加载"只表示不构建或不保留当前区域的视觉表示，不暂停或降低该区域的模拟精度。
 - 采用 Visual Residency + Frustum Visibility。Resident 区域使用 Load Radius < Unload Radius 形成 hysteresis，避免边界反复 Load/Unload。
 - 根据 Train route + velocity 做 directional prefetch；不根据 Camera 朝向决定主要预取方向。
 
@@ -80,11 +80,13 @@ World Voxel Data → Chunk Collider Builder → Godot Collision。Voxel 被修�
 
 ## 首版范围
 
-Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming（roadmap Phase 2、Phase 6）。
+Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming。能力归类见 [roadmap 的引擎能力分层参考](roadmap.md#引擎能力分层参考)；Phase 表不表示实施顺序，具体实施按 [当前实施顺序](roadmap.md#当前实施顺序前四个端到端切片) 中的切片与后续验收安排推进。
 
 ## 明确延后
 
-Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 Composite 的 Presentation-only Baking、Simulation LOD。
+Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 Composite 的 Presentation-only Baking。
+
+Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续功能；若性能问题促使未来考虑引入，须先重审全图全精度模拟规则，见 [04 的开放问题](04-deterministic-simulation.md#开放问题)。
 
 ## 开放问题
 
