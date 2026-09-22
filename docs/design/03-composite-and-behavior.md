@@ -45,7 +45,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 ### Refit
 
-- 玩家修改已经存在的 Composite 时，Instance #100 从 Definition r17 Refit 到 r18，Instance Identity 保持；只有真正拆除并重新制造才创建新 Instance ID。
+- 玩家修改已经存在的 Composite 时，例如 Instance #100 从 Revision `SHA-256(改装前定义的规范化语义内容)` Refit 到 `SHA-256(改装后定义的规范化语义内容)`，Instance Identity 保持；只有真正拆除并重新制造才创建新 Instance ID。这里以哈希计算表达式示意 Revision，实际 ID 使用 [02](02-definitions-and-content.md) 规定的语义内容哈希，不使用递增序号。
 - Refit 采用 Atomic Transaction，不让施工中间状态暴露给 Simulation。当前测试场景的瞬时 Atomic Refit 是开发验证入口；正式 Gameplay 的 Refit 是消耗 Delta BOM 的耗时 Job，完成时原子提交最终 Layout，期间 Composite 处于 UnderRefit 锁定状态，见 [14](14-construction-refit-and-deconstruction.md)。
 - Refit 必须追踪真实 Voxel Identity：把同一个 Engine 从 old cell 移到 new cell，它仍然是同一个 Engine，Durability、Temperature、Behavior State 不会被重置。
 
