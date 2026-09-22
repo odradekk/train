@@ -76,4 +76,5 @@ Snapshot Save Optimization、正式版本 Save Migration；缺失 Mod 的兼容�
 
 ## 开放问题
 
-- 地图迷雾：存档格式细节与 Snapshot。
+- 近期决策（有票）：生成网络与多列车的新权威状态、版本及恢复失败语义见 [确定性与存档 #97](https://github.com/odradekk/train/issues/97)；Playground 迁移中的旧测试存档保留/兼容边界见 [Playground 与退役条件 #96](https://github.com/odradekk/train/issues/96)。
+- 地图迷雾（不立票）：上述契约之外的后续存档编码细节与 Snapshot 优化；实际切片或性能测量提出具体阻塞时再评估，不重开已定无损恢复要求。

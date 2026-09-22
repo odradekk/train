@@ -98,5 +98,5 @@ Seed、GeneratorVersion、Terrain、Resources、三维 Settlement placement 与�
 
 ## 开放问题
 
-- 未冻结参数：World Size、World Generation Retry Count（[roadmap](roadmap.md)）。
-- 地图迷雾：各阶段的具体算法与 Layout 文件格式。
+- 近期决策（有票）：本阶段不含资源生产的生成输入输出、Layout 所需内容与失败条件见 [生成契约 #95](https://github.com/odradekk/train/issues/95)；World Size 的验收负载见 [性能验收 #98](https://github.com/odradekk/train/issues/98)。
+- 地图迷雾（不立票）：尚未由具体生成验证提出问题的算法选择、Layout 文件编码细节与 World Generation Retry Count 调优（[roadmap](roadmap.md)）；成为近期契约阻塞时再转为明确决策，不提前冻结实现。

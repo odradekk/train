@@ -73,5 +73,5 @@ Primary 3D Window、Bottom Dock（Windows AppBar）、Floating、Display selecti
 
 ## 开放问题
 
-- 地图迷雾：相机焦点目标被摧毁时的回退优先级（转录 Q162）。
-- 未冻结参数：Camera FOV、Zoom Min/Max、Window Default Height、默认渲染帧率上限（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：相机焦点目标被摧毁时的回退优先级（转录 Q162）；待具体相机交互切片需要确定该行为时再评估。
+- 地图迷雾（不立票）：Camera FOV、Zoom Min/Max、Window Default Height、默认渲染帧率上限调优（[roadmap](roadmap.md)）；窗口能力当前不作为 #91 阶段门槛，相关场景选入近期切片后再评估。

@@ -68,4 +68,4 @@
 
 ## 开放问题
 
-- [编写首批切片 spec 并发布](https://github.com/odradekk/train/issues/38)：按 roadmap 的四个已定范围落实可重复的测试场景与通过条件；后续能力切片、规模与性能门槛随测量继续确定。
+- 近期决策（有票）：本阶段能力清单与完成标准见 [能力范围 #92](https://github.com/odradekk/train/issues/92)，端到端切片顺序与可交接规格见 [阶段切片规格 #99](https://github.com/odradekk/train/issues/99)；首批四切片 spec 的历史工作 [#38](https://github.com/odradekk/train/issues/38) 已完成，不再作为开放问题。
