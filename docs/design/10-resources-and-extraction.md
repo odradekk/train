@@ -2,6 +2,8 @@
 
 > 决策出处：资源转录 Q180–Q181、Q187、Q189、Q196–Q210、Q217–Q222、Q367–Q371、Q375、Q406–Q407、Q410、Q414、Q424（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)，其编号与旧转录在 Q180 重叠，引用须带前缀）。本文与 [11](11-goods-and-production-network.md)、[12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md) 共同定义资源与生产系统；它建立在既有体素、Definition、Composite、Behavior、Capability、确定性 Simulation 与存档契约之上。代码与内容迁移由后续实现切片执行，不属于当前四个体素切片（[roadmap](roadmap.md)）。
 
+> 实现验证保留条款：10–14 的资源与生产子系统尚未经实现验证，首个实现切片可依据实际验证结果回写修订这些设计；修改须同步受影响文档并说明理由。本文中的“冻结”表示当前设计基线，不表示禁止基于实现证据重审。
+
 ## 边界
 
 本文定义世界中的自然资源如何表示、开采、耗尽与更新：Resource Source 与 Raw Good 的语义、Extraction 与 Damage 的关系、Yield 计算、Extraction Facility 与 Extraction Job、Resource Renewal。Raw Goods 目录与生产网络见 [11](11-goods-and-production-network.md)；Facility Tag 与 Capability 分层、Work / Power / Labor、OutputBuffer 与 Job 通用规则见 [13](13-production-runtime-and-facilities.md)；聚居地资源种类的派生见 [05](05-world-generation-and-settlements.md)。市场、价格、人口与资源探勘的地图呈现不在本文。
@@ -108,4 +110,4 @@ Timber 同时可由 Forestry 这一 Primary Production 产出，见 [11](11-good
 ## 开放问题
 
 - 未冻结参数：每个 Resource Source 的 MaxDurability、各 Source Yield 的 `N Damage → M Goods`、Source Cluster 大小和分布、Extraction Range / Area、WorkPerDamage、Extraction Equipment base capability、Resource Renewal Event 的触发条件、间隔和规模（[roadmap](roadmap.md)）。
-- 当前没有未解决的结构性设计问题；后续资源探勘系统通过本文的 Source Voxel 与 Cluster 查询接入，不重新打开本文的不变量。
+- Extraction 连续产出如何对应 OutputBuffer 的“一个完成 Batch 剩余”尚未确定：需在首个 Extraction 实现切片明确一次输出提交的边界、同 Tick 多次 Damage 的处理及 Buffer 非空后的停止点，与 [13 的开放问题](13-production-runtime-and-facilities.md#开放问题) 同步；在此之前不将整个 Source 或整个 Job 默认视作一个 Batch。

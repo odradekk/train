@@ -38,7 +38,7 @@
 - 聚居地周边的 Resource Sources、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由 Source Voxel、建筑内设备与 Settlement Inventory 派生，不互相推导：农业聚居地可以没有 Grain Source 却大量生产 Grain（资源转录 Q228，[05](05-world-generation-and-settlements.md)）。
 - Building Composite Definition 保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自真实 Voxel Behavior 的对应 Capability。
 - 例如 Smelter `facility_tags = [metallurgy]`，其中的 Industrial Machinery 提供实际 ProductionCapability；设备全部损坏时 facility tag 仍是 metallurgy，但 ProductionCapability = 0。
-- 首版通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability；Power Equipment → PowerCapability；Control Equipment → 对应的未来控制能力，具体玩法由后续系统定义。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-composite-and-behavior.md)。
+- 首版通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability；Power Equipment → PowerCapability。Control Equipment 移入 [11 的 Future Product Families](11-goods-and-production-network.md#future-product-families)，首版不为其创建商品、配方或控制 Capability，待具体 Gameplay 确定并通过 Gameplay Difference Test 后再设计。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-composite-and-behavior.md)。
 
 ### Environmental Requirements
 
@@ -87,6 +87,7 @@
 
 ### 单 Facility 并行限制
 
+- 此处 Capability 的并行名额按 Facility Composite 内的能力类型计算，不按每个设备 Voxel 分配；同类设备贡献合计执行能力，增加设备只提高产能，不增加 Job 名额。
 - 首版：一个 Production Capability 同时最多 1 个 Production 或 Recovery Batch；一个 Extraction Capability 最多 1 个 Extraction Job；一个 Construction Capability 最多 1 个 Construction / Refit / Deconstruction Job。
 - 同一 Building 同时拥有不同 Capability 时，可以并行运行不同 Capability 的 Job，并共同竞争 Power / Labor。
 - 不允许在同一 Capability 内手工分配 40% Job A、30% Job B、30% Job C 之类的份额。
@@ -98,9 +99,9 @@
 ### Output Buffer
 
 - 每个生产 / 回收 / Extraction Facility 拥有自己的 OutputBuffer；不存在 Settlement-wide Production Buffer。
-- Buffer 不拥有独立 Gameplay Capacity，只保存一个完成 Batch 的剩余输出。Batch 完成时产生完整整数 Outputs，尽量移入 Settlement Inventory，剩余留在 Facility OutputBuffer。Buffer 非空时该 Facility 的 production / extraction 阻塞，其他 Facility 正常运行。
+- Buffer 不拥有独立 Gameplay Capacity；对 Production / Recovery，只保存一个完成 Batch 的剩余输出。Extraction 的输出提交边界仍待与连续 Damage 语义对齐，见下文开放问题。Batch 完成时产生完整整数 Outputs，尽量移入 Settlement Inventory，剩余留在 Facility OutputBuffer。Buffer 非空时该 Facility 的 production / extraction 阻塞，其他 Facility 正常运行。
 - OutputBuffer 中的 Goods 已经是真实完成 Goods，但不占 Settlement Inventory Capacity、不能参与普通 Settlement Inventory 消费、不能作为其他 Facility Input、不能参与未来市场交易，必须先进入 Settlement Inventory。
-- 只要 Settlement Inventory 释放空间，OutputBuffer 自动内部转移到 Settlement Inventory。Facility 即使生产设备暂时失效，只要 Facility Composite 仍存在，Buffer 仍可继续执行这种抽象内部物流。
+- 只有 Settlement Inventory 存在扣除有效 Storage Reservation 后的可用容量，OutputBuffer 才自动内部转入，转入数量不得超过该容量。UsedCapacity ≥ Capacity 时不转入；遵守 [12 的 Overcapacity 规则](12-inventory-and-storage.md#overcapacity)，Buffer 优先级不允许制造或扩大超容。Facility 即使生产设备暂时失效，只要 Facility Composite 仍存在，Buffer 仍可继续执行这种抽象内部物流。
 - Storage Resolver 优先级：已完成 OutputBuffer 的转入优先于新的普通外部入库请求。多个 Buffer 竞争时按 Production Priority → stable Facility identity 排序。
 - 多输出 Batch 只有部分 Output 能立即入库时，使用规范化 VoxelDefinitionId 的 Ordinal 顺序填充空间；这只是确定性 fallback，不表示经济优先级。
 - Facility Composite 真正 destroyed 时 ActiveBatch 丢失、未完成 Inputs 不返还、OutputBuffer 中已完成 Goods 丢失。未来事故 / Salvage 系统可以扩展，但首版不自动实体化散落物，也不强制写入 Overcapacity。
@@ -147,4 +148,4 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 ## 开放问题
 
 - 未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数（[roadmap](roadmap.md)）。
-- 当前没有未解决的结构性设计问题；市场与价格、人口与聚居地经济模拟、Settlement AI 应通过本文的 Inventory、Power Pool、Labor Capacity 与 Production Plan 接口接入，不重新打开本文的不变量。
+- Extraction 连续 Work → 离散 Damage 的输出提交边界尚未定义，不能直接套用 Production / Recovery 的“一个完成 Batch 剩余”；首个 Extraction 实现切片须明确同 Tick 多次 Damage 与 Buffer 阻塞的衔接，并同步 [10 的开放问题](10-resources-and-extraction.md#开放问题)。
