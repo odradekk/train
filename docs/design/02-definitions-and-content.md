@@ -117,7 +117,7 @@
 
 ## 首版范围
 
-VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；手写 JSON 车辆 Blueprint，由测试场景加载、校验与制造，并通过最小改装操作验证修改已有车辆；正式设计器后续开发，详见 [03](03-composite-and-behavior.md)。
+VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；手写 JSON 车辆 Blueprint，由测试场景加载、校验与制造，并完整验证已有车辆体素的添加、移除、移动、旋转、替换及批量原子改装；正式设计器后续开发，详见 [03](03-composite-and-behavior.md)。
 
 ## 明确延后
 
