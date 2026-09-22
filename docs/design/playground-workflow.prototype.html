@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Playground 操作流程原型</title>
+<style>
+:root{font:14px/1.6 "Microsoft YaHei",system-ui,sans-serif;color:#23343d;background:#f2f5f5;--accent:#146c64;--line:#d6dfdf}
+*{box-sizing:border-box}body{margin:0}main{max-width:1440px;margin:auto;padding:22px}h1{font-size:25px;margin:0}h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:12px 0 6px}p{margin:6px 0}.muted,small{color:#52676c}.intro{margin-bottom:16px}.badge{display:inline-block;border:1px solid #b3cbc7;color:var(--accent);padding:1px 8px;border-radius:4px;margin-right:8px;font-size:12px}
+button,input,select{font:inherit}button{background:#fff;border:1px solid #afc2c2;border-radius:5px;padding:6px 10px;color:#23343d;cursor:pointer}button:hover{background:#e8f3f0;border-color:var(--accent)}button.primary,button.active{background:var(--accent);color:white;border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}input,select{border:1px solid #afc2c2;border-radius:4px;padding:5px;background:white;min-width:0}input{width:95px}.row{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.toolbar,.card{background:white;border:1px solid var(--line);border-radius:8px;padding:14px}.toolbar{margin-bottom:12px;display:flex;gap:12px;justify-content:space-between;flex-wrap:wrap}.layout{display:grid;grid-template-columns:210px minmax(360px,1fr) 310px;gap:12px}.object{display:block;width:100%;text-align:left;margin:6px 0}.object small{display:block}.object.active small{color:#e5f3ee}canvas{display:block;width:100%;height:360px;background:#f3f7f6;border-radius:5px;touch-action:none;cursor:grab}.camera{margin-top:9px}.state{display:grid;grid-template-columns:100px 1fr;gap:4px 8px;margin:0}.state dt{color:#62777b}.state dd{margin:0;overflow-wrap:anywhere}#message{background:#eaf3f0;border-left:3px solid var(--accent);padding:9px;margin-top:10px;min-height:45px}.lower{display:grid;grid-template-columns:1.1fr 1fr;gap:12px;margin-top:12px}.log{height:175px;overflow:auto;font:12px/1.7 ui-monospace,Consolas,monospace;white-space:pre-wrap;background:#f6f8f8;padding:10px}.tabs button{margin:0 5px 6px 0}.walk{min-height:120px}.steps{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.note{font-size:12px;color:#63777b}.pending{border-top:1px solid var(--line);margin-top:10px;padding-top:9px}.pending strong{color:#7b551b}dialog{border:1px solid var(--line);border-radius:9px;max-width:460px;padding:22px}dialog::backdrop{background:#243c4566}.time{font-variant-numeric:tabular-nums}#source{max-width:200px}#consoleInput{width:100%;flex:1}#commandForm{display:flex;gap:7px;margin-top:9px}a{color:var(--accent)}
+@media(max-width:1050px){.layout{grid-template-columns:180px 1fr}.inspector{grid-column:1/-1}.lower{grid-template-columns:1fr}canvas{height:330px}}
+@media(max-width:650px){main{padding:12px}.layout{display:block}.card{margin-bottom:10px}.state{grid-template-columns:110px 1fr}}
+</style>
+<main>
+<header class="intro"><span class="badge">可丢弃流程原型 · v1</span><span class="muted">讨论对象选择、镜头、模拟控制和故障复现</span><h1>项目级 Playground</h1>
+<p>Q1–Q3 已确认：面板与控制台共用操作、自由观察与显式聚焦/跟随、进入默认暂停。Q4–Q7 已确认配置分离、复现资料、切换保护和旧档边界；操作体验仍待用户反馈。</p>
+<p class="note">这是独立 HTML 示例，不连接 Godot 或真实存档。地形、车辆移动和故障均为示意，不验证铁路几何、冲突防护或性能；此处镜头仅用于体验操作流程。</p></header>
+<div class="toolbar"><div class="row"><label>入口 <select id="source"><option value="generated">生成地图（示例）</option><option value="fixture">固定配置：会让与断轨</option><option value="saved">恢复本页快照</option></select></label><label>种子 <input id="seed" type="number" min="0" max="999999" value="42"></label><button data-act="load">进入 / 切换</button><button data-act="reset">重置当前配置</button></div><div class="row"><button data-act="save">保存本页快照</button><button data-act="export">导出复现示例</button></div></div>
+<div class="toolbar"><div class="row"><button class="primary" data-act="resume">运行模拟</button><button data-act="pause">暂停</button><button data-act="step" data-value="1">单步</button><button data-act="step" data-value="10">推进 10 步</button></div><div class="row"><strong id="clock" class="time"></strong><span id="saveStatus" class="muted"></span></div></div>
+<div class="layout">
+<aside class="card"><h2>对象</h2><p class="note">选择只更新检查面板。聚焦、跟随由你明确操作。</p><div id="objects"></div><div class="pending"><strong>已确认：配置与步骤分离</strong><p class="note">配置描述初始世界；验证步骤在下方独立运行。四个旧切片的有效用例迁入配置库。</p></div></aside>
+<section class="card"><h2>世界观察 <small id="viewLabel"></small></h2><canvas id="view" aria-label="可旋转与缩放的世界示意图"></canvas><div class="row camera"><button data-act="free">自由视角</button><button data-act="focus">聚焦选中对象</button><button data-act="follow">跟随选中对象</button><button data-act="overview">全图概览</button></div><p class="note">拖动旋转 · Shift＋拖动平移 · 滚轮缩放 · 点击示意对象可选中。相机动作不推进模拟。</p><div id="message" role="status"></div></section>
+<aside class="card inspector"><h2 id="selectedTitle">检查对象</h2><dl id="state" class="state"></dl><h3>对象操作</h3><div class="row"><button data-act="start">启动 / 显式恢复</button><button data-act="stop">停车</button><button data-act="damage">施加伤害</button><button data-act="repair">修复轨道示例</button></div><p class="note">原型只演示代表性动作。错误对象或不满足条件时拒绝操作并显示原因。</p><h3>观察图层</h3><div class="row"><label><input type="checkbox" id="overlay" style="width:auto" checked> 显示对象标签</label></div><div class="pending"><strong>已确认：复现资料</strong><p class="note">起始快照＋按模拟步记录的修改操作＋版本标识＋当前状态。快照仅存在本页内存；导出文件也仅含原型示例数据。</p></div></aside>
+</div>
+<div class="lower"><section class="card"><h2>操作与事件记录</h2><p class="note">面板和此示例控制台调用同一操作。正式命令语法另行设计；下列不是现有游戏命令。</p><div id="log" class="log"></div><form id="commandForm"><input id="consoleInput" placeholder="试试：选择 A / 聚焦 / 跟随 / 暂停 / 单步 / 启动 / 停车" aria-label="原型操作控制台"><button>执行</button></form></section>
+<section class="card"><h2>引导流程</h2><div id="tabs" class="tabs"></div><div id="walk" class="walk"></div><div class="pending"><strong>已确认：切换与历史存档</strong><p class="note">未保存时切换世界，提供保存后切换、放弃和取消。允许停止兼容旧切片开发存档；不支持时明确拒绝。本原型不读取任何旧档。</p></div></section></div>
+</main>
+<dialog id="replaceDialog"><h2>当前会话有未保存变化</h2><p>是否保存本页快照后切换？取消会保留当前世界；不会删除已有外部文件。</p><div class="row"><button id="saveThen" class="primary">保存后切换</button><button id="discardThen">放弃并切换</button><button id="cancelThen">取消</button></div></dialog>
+<script>
+// Throwaway workflow model. No real engine, save store, or railway solver.
+const Demo = (() => {
+ const copy = x => structuredClone(x);
+ const train = (id,name,x,z) => ({id,name,kind:'列车',x,y:2,z,status:'人工停车',intent:false,speed:0,fault:false,plan:'甲站 → 乙站 → 甲站'});
+ function world(source='generated',seed=42){return {source,seed,tick:0,railIntact:true,objects:[train('A','列车 A',-45,-8),train('B','列车 B',38,22),{id:'S',name:'甲站',kind:'站点',x:-50,y:0,z:-28,health:100},{id:'R',name:'轨道检查点',kind:'轨道',x:0,y:0,z:-8,health:100},{id:'H',name:'建筑 1',kind:'建筑',x:42,y:0,z:-30,health:100}]};}
+ function init(){const w=world();return {world:w,base:copy(w),paused:true,selected:'A',camera:{mode:'自由',target:null,focus:{x:0,y:0,z:0}},dirty:false,snapshot:null,commands:[],log:['步 0 · 已载入示例，模拟默认暂停。'],message:'选择对象后，点击聚焦或跟随。相机与模拟分别控制。'};}
+ function apply(state,action){const s=copy(state),w=s.world;const obj=()=>w.objects.find(o=>o.id===s.selected);let message='';let changed=false;
+  switch(action.type){
+   case 'select': if(!w.objects.some(o=>o.id===action.id)){message='对象不存在。';break;}s.selected=action.id;message='已选择 '+obj().name+'；镜头不变。';break;
+   case 'focus': s.camera={mode:'聚焦',target:null,focus:{x:obj().x,y:obj().y,z:obj().z}};message='已聚焦 '+obj().name+'；对象移动时镜头不自动跟随。';break;
+   case 'follow': if(obj().kind!=='列车'){message='此示例仅跟随列车；静态对象可以聚焦。';break;}s.camera={mode:'跟随',target:obj().id,focus:{x:obj().x,y:obj().y,z:obj().z}};message='正在跟随 '+obj().name+'。选择其他对象不会改变跟随目标。';break;
+   case 'free': {const target=w.objects.find(o=>o.id===s.camera.target);s.camera={mode:'自由',target:null,focus:target?{x:target.x,y:target.y,z:target.z}:s.camera.focus};message='已切回自由视角，保持当前观察位置。';break;}
+   case 'overview': s.camera={mode:'自由',target:null,focus:{x:0,y:0,z:0}};message='已回到全图概览。';break;
+   case 'pan': s.camera={mode:'自由',target:null,focus:action.focus};return s;
+   case 'pause': s.paused=true;message='已暂停自动推进，镜头与查询仍可用。';break;
+   case 'resume': s.paused=false;message='已恢复自动推进；人工停车或故障列车不会因此启动。';break;
+   case 'step': case 'pulse': {
+    const n=action.n||1;
+    for(let i=0;i<n;i++){w.tick++;for(const t of w.objects.filter(o=>o.kind==='列车')){if(t.intent&&!t.fault){t.status='运行中';t.speed=2;t.x+=t.id==='A'?1:-1;if(t.x>70)t.x=-70;if(t.x< -70)t.x=70;}}}
+    changed=true;message='已推进到步 '+w.tick+'。';break;
+   }
+   case 'start': if(obj().kind!=='列车'){message='请先选择列车。';break;}if(obj().fault&&!w.railIntact){message='启动被拒绝：轨道仍有缺口。';break;}obj().fault=false;obj().intent=true;obj().status='已启动';changed=true;message='已显式启动 '+obj().name+'；暂停期间不会自动移动。';break;
+   case 'stop': if(obj().kind!=='列车'){message='请先选择列车。';break;}obj().intent=false;obj().speed=0;obj().status=obj().fault?'故障停车':'人工停车';changed=true;message=obj().name+' 已停车；恢复世界推进不会取消人工停车。';break;
+   case 'damage': if(obj().id==='R'){w.railIntact=false;obj().health=0;const a=w.objects.find(o=>o.id==='A');a.fault=true;a.intent=false;a.speed=0;a.status='断轨安全停车';message='示例故障：列车 A 因前方缺口停车。列车 B 的状态不变。';changed=true;}else if(obj().kind==='建筑'||obj().kind==='站点'){obj().health=Math.max(0,obj().health-25);message=obj().name+' 耐久已改变。';changed=true;}else message='此流程仅演示轨道和静态建筑伤害；车辆拆分遵守已定契约，不在本原型模拟。';break;
+   case 'repair': if(obj().id!=='R'){message='请先选择轨道检查点。';break;}w.railIntact=true;obj().health=100;changed=true;message='原轨道已修复。列车 A 仍故障停车，须显式恢复。';break;
+   case 'save': s.snapshot=copy(w);s.dirty=false;message='当前状态已保存在本页内存。关闭或刷新页面会丢失快照。';break;
+   case 'load': {
+    if(action.source==='saved'&&!s.snapshot){message='没有本页快照；加载失败，当前会话保持不变。';break;}
+    const next=action.source==='saved'?copy(action.snapshot||s.snapshot):world(action.source,action.seed);
+    s.world=next;s.base=copy(next);s.commands=[];s.paused=true;s.dirty=false;s.selected=next.objects[0].id;s.camera={mode:'自由',target:null,focus:{x:0,y:0,z:0}};
+    message=action.source==='saved'?'已恢复快照并暂停自动推进，速度、计划与故障状态保持。':'已进入新配置，默认暂停。';break;
+   }
+   default: message='未识别的原型操作。';
+  }
+  if(changed){s.dirty=true;s.commands.push({atStep:state.world.tick,afterStep:w.tick,target:s.selected,action:copy(action)});}
+  s.message=message;
+  if(action.type!=='pulse')s.log.push('步 '+s.world.tick+' · '+message);
+  s.log=s.log.slice(-100);return s;
+ }
+ return {init,apply};
+})();
+let state=Demo.init(),pending=null,walkIndex=0,walkStep=0;
+const $=id=>document.getElementById(id),esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const walks=[
+ {name:'选择与镜头',text:'选择 B 时仍跟随 A；只有明确聚焦或跟随才改变镜头。',steps:[['选择 A',{type:'select',id:'A'}],['跟随 A',{type:'follow'}],['选择 B',{type:'select',id:'B'}],['聚焦 B',{type:'focus'}],['自由视角',{type:'free'}]]},
+ {name:'断轨与显式恢复',text:'世界默认暂停。启动后用单步推进；修好轨道不会让故障列车自动开走。',steps:[['启动 A',{type:'start'}],['推进 10 步',{type:'step',n:10}],['选择轨道',{type:'select',id:'R'}],['破坏轨道',{type:'damage'}],['修复轨道',{type:'repair'}],['选择 A',{type:'select',id:'A'}],['显式恢复',{type:'start'}],['推进 10 步',{type:'step',n:10}]]},
+ {name:'保存与复现',text:'恢复快照默认暂停，但保留故障状态。导出包仅是原型示例，不是正式存档格式。',steps:[['选择轨道',{type:'select',id:'R'}],['破坏轨道',{type:'damage'}],['保存快照',{type:'save'}],['修复轨道',{type:'repair'}],['恢复故障快照',{type:'load',source:'saved'}],['导出示例',{type:'export'}]]},
+ {name:'切换保护',text:'修改后请求换世界，试试取消、保存后切换和放弃。切换失败应保留当前会话。',steps:[['选择建筑',{type:'select',id:'H'}],['伤害建筑',{type:'damage'}],['请求换配置',{type:'load',source:'fixture',seed:42}],['查询当前对象',{type:'query'}]]}
+];
+function dispatch(a){
+ if(a.type==='export'){const data={notice:'PROTOTYPE ONLY — NOT A GAME SAVE',format:'playground-workflow-demo-v1',versions:{build:'example',generator:'example-v1',content:'example'},baseline:state.base,commands:state.commands,current:state.world};const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='playground-repro.prototype.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);state.message='已导出原型复现示例。文件不包含真实游戏数据或截图。';render();return;}
+ if(a.type==='query'){state.message='查询只读取当前对象，没有推进模拟。';render();return;}
+ if(a.type==='load'&&a.source==='saved'&&!state.snapshot){state=Demo.apply(state,a);render();return;}
+ if(a.type==='load'&&a.source==='saved'&&!a.snapshot)a={...a,snapshot:structuredClone(state.snapshot)};
+ if(a.type==='load'&&state.dirty){pending=a;$('replaceDialog').showModal();return;}
+ state=Demo.apply(state,a);render();
+}
+function replacement(save){if(save)state=Demo.apply(state,{type:'save'});const a=pending;pending=null;$('replaceDialog').close();if(a)state=Demo.apply(state,a);render();}
+$('saveThen').onclick=()=>replacement(true);$('discardThen').onclick=()=>replacement(false);$('cancelThen').onclick=()=>{pending=null;$('replaceDialog').close();};$('replaceDialog').addEventListener('cancel',()=>pending=null);
+document.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>{let type=b.dataset.act;if(type==='load')dispatch({type,source:$('source').value,seed:Math.max(0,Math.min(999999,Number($('seed').value)||0))});else if(type==='reset')dispatch({type:'load',source:state.world.source,seed:state.world.seed});else dispatch({type,n:Number(b.dataset.value)||1});});
+const aliases={'聚焦':'focus','跟随':'follow','自由':'free','暂停':'pause','运行':'resume','单步':'step','启动':'start','停车':'stop','伤害':'damage','修复':'repair','查询':'query','保存':'save'};
+$('commandForm').onsubmit=e=>{e.preventDefault();const input=$('consoleInput').value.trim();if(/^选择 [ABSRH]$/i.test(input))dispatch({type:'select',id:input.slice(-1).toUpperCase()});else if(aliases[input])dispatch({type:aliases[input],n:1});else {state.message='原型命令未识别。可输入：选择 A、聚焦、跟随、自由、暂停、运行、单步、启动、停车、伤害、修复、查询、保存。';render();}$('consoleInput').value='';};
+function render(){
+ const w=state.world,o=w.objects.find(x=>x.id===state.selected),target=w.objects.find(x=>x.id===state.camera.target);
+ $('clock').textContent=(state.paused?'已暂停':'自动推进中')+' · 步 '+w.tick;
+ $('saveStatus').textContent=state.dirty?'有未保存变化':state.snapshot?'已有本页快照':'尚无快照';
+ $('objects').innerHTML=w.objects.map(x=>`<button class="object ${x.id===o.id?'active':''}" data-id="${x.id}">${esc(x.name)}<small>${esc(x.kind)} · ${esc(x.status||('耐久 '+x.health))}</small></button>`).join('');
+ $('objects').querySelectorAll('button').forEach(b=>b.onclick=()=>dispatch({type:'select',id:b.dataset.id}));
+ $('selectedTitle').textContent=o.name;
+ const entries=[['入口',w.source==='fixture'?'固定配置':'生成地图'],['种子（示例）',w.seed],['对象身份',o.id+' · '+o.kind],['位置',[o.x,o.y,o.z].join(', ')],['运行 / 耐久',o.status||o.health],['速度（示意）',o.speed??'—'],['运行计划',o.plan||'—'],['待显式恢复',o.fault?'是':'否'],['轨道',w.railIntact?'完整':'有缺口'],['镜头模式',state.camera.mode],['跟随对象',target?target.name:'无'],['修改记录',state.commands.length+' 条']];
+ $('state').innerHTML=entries.map(([a,b])=>`<dt>${a}</dt><dd>${esc(b)}</dd>`).join('');
+ $('viewLabel').textContent=' / '+state.camera.mode+(target?' '+target.name:'');$('message').textContent=state.message;
+ $('log').textContent=state.log.join('\n');$('log').scrollTop=$('log').scrollHeight;
+ $('tabs').innerHTML=walks.map((x,i)=>`<button class="${i===walkIndex?'active':''}" data-walk="${i}">${x.name}</button>`).join('');
+ $('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{walkIndex=Number(b.dataset.walk);walkStep=0;render();});
+ const walk=walks[walkIndex];$('walk').innerHTML=`<p>${walk.text}</p><button id="beginWalk">重置原型并开始此流程</button><div class="steps">${walk.steps.map((x,i)=>`<button data-step="${i}" class="${i===walkStep?'active':''}" ${i!==walkStep?'disabled':''}>${i+1}. ${x[0]}</button>`).join('')}</div>${walkStep===walk.steps.length?'<p>流程完成。也可用上方面板自由尝试。</p>':''}`;
+ $('beginWalk').onclick=()=>{state=Demo.init();walkStep=0;yaw=-.65;pitch=.7;zoom=3;render();};
+ $('walk').querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>{const a=walk.steps[Number(b.dataset.step)][1];walkStep++;dispatch(a);});draw();
+}
+// Minimal projected blocks: only to try selection, orbit, pan, focus, and follow.
+const canvas=$('view'),ctx=canvas.getContext('2d');let yaw=-.65,pitch=.7,zoom=3,hits=[],drag=null;
+function draw(){const width=canvas.clientWidth,height=canvas.clientHeight,dpr=devicePixelRatio||1;canvas.width=width*dpr;canvas.height=height*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);hits=[];
+ const focus=state.world.objects.find(o=>o.id===state.camera.target)||state.camera.focus;
+ const project=(x,y,z)=>{x-=focus.x;y-=focus.y;z-=focus.z;const xx=x*Math.cos(yaw)-z*Math.sin(yaw),zz=x*Math.sin(yaw)+z*Math.cos(yaw);return [width/2+xx*zoom,height/2+(zz*Math.sin(pitch)-y*Math.cos(pitch))*zoom];};
+ function path(points,color,fill=false,thickness=1){ctx.beginPath();points.forEach((p,i)=>{const [x,y]=project(...p);i?ctx.lineTo(x,y):ctx.moveTo(x,y);});ctx.strokeStyle=color;ctx.lineWidth=thickness;if(fill){ctx.closePath();ctx.fillStyle=color;ctx.fill();}else ctx.stroke();}
+ path([[-90,0,-60],[90,0,-60],[90,0,60],[-90,0,60]],'#e2ebe5',true);
+ for(let i=-80;i<=80;i+=10)path([[i,0,-60],[i,0,60]],'#d0dcd5');for(let z=-60;z<=60;z+=10)path([[-90,0,z],[90,0,z]],'#d0dcd5');
+ for(const z of [-8,22])for(const d of [-1.5,1.5]){path([[-82,.5,z+d],[-5,.5,z+d]],'#62777b',false,2);path([[5,.5,z+d],[82,.5,z+d]],'#62777b',false,2);if(state.world.railIntact||z===22)path([[-5,.5,z+d],[5,.5,z+d]],'#62777b',false,2);}
+ function block(o){const train=o.kind==='列车',sx=train?7:8,sz=train?3:6,h=train?5:o.id==='R'?1:12,x=o.x,z=o.z,color=o.id===state.selected?'#146c64':train?'#71968d':'#b4bdb8';
+  path([[x-sx,0,z-sz],[x+sx,0,z-sz],[x+sx,h,z-sz],[x-sx,h,z-sz]],'#77968b',true);path([[x+sx,0,z-sz],[x+sx,0,z+sz],[x+sx,h,z+sz],[x+sx,h,z-sz]],'#8ca99c',true);path([[x-sx,h,z-sz],[x+sx,h,z-sz],[x+sx,h,z+sz],[x-sx,h,z+sz]],color,true);
+  const [px,py]=project(x,h,z);hits.push({id:o.id,x:px,y:py});if($('overlay').checked){ctx.font='12px Microsoft YaHei';ctx.textAlign='center';ctx.fillStyle='#173c38';ctx.fillText(o.name,px,py-12);}
+ }
+ [...state.world.objects].sort((a,b)=>(a.x*Math.sin(yaw)+a.z*Math.cos(yaw))-(b.x*Math.sin(yaw)+b.z*Math.cos(yaw))).forEach(block);
+ ctx.textAlign='left';ctx.font='11px Microsoft YaHei';ctx.fillStyle='#60736d';ctx.fillText('示意世界 · 非正式地图或铁路布局',12,height-12);
+}
+canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};};
+canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(e.shiftKey){const follow=state.world.objects.find(o=>o.id===state.camera.target),f=follow||state.camera.focus;const sx=dx/zoom,sz=dy/(zoom*Math.sin(pitch));state=Demo.apply(state,{type:'pan',focus:{x:f.x-sx*Math.cos(yaw)-sz*Math.sin(yaw),y:f.y,z:f.z+sx*Math.sin(yaw)-sz*Math.cos(yaw)}});}else {yaw+=dx*.007;pitch=Math.max(.2,Math.min(1.35,pitch+dy*.005));}draw();};
+canvas.onpointerup=e=>{if(!drag)return;if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<5){const r=canvas.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;const hit=hits.slice().reverse().find(h=>Math.hypot(h.x-x,h.y-y)<26);if(hit)dispatch({type:'select',id:hit.id});}drag=null;render();};
+canvas.onwheel=e=>{e.preventDefault();zoom=Math.max(.8,Math.min(9,zoom*Math.exp(-e.deltaY*.001)));draw();};canvas.addEventListener('wheel',()=>{}, {passive:false});$('overlay').onchange=draw;window.onresize=draw;
+setInterval(()=>{if(!state.paused&&!$('replaceDialog').open){state=Demo.apply(state,{type:'pulse'});render();}},400);
+render();
+</script>
+</html>
