@@ -108,7 +108,7 @@ Construction Material → Construction Block
 Structural Metal      → Rail
 ```
 
-Functional Equipment：首版六种通用能力设备。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。所有功能设备严格是单 Cell Voxel，能力通过数量叠加或不同 Definition 表达，不存在 3×2×2 之类的大型设备体素（资源转录 Q284，[01](01-voxel-world.md)）。
+Functional Equipment：首版五种通用能力设备。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。所有功能设备严格是单 Cell Voxel，能力通过数量叠加或不同 Definition 表达，不存在 3×2×2 之类的大型设备体素（资源转录 Q284，[01](01-voxel-world.md)）。
 
 ```text
 Structural Metal + Mechanical Components + Electrical Components → Industrial Machinery
@@ -116,12 +116,11 @@ Structural Metal + Mechanical Components                         → Storage Equ
 Structural Metal + Mechanical Components + Electrical Components → Power Equipment
 Structural Metal + Mechanical Components + Electrical Components → Extraction Equipment
 Structural Metal + Mechanical Components + Electrical Components → Construction Equipment
-Electrical Components + Electronic Components + Polymer          → Control Equipment
 ```
 
 ### Future Product Families
 
-Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成后，再创建具体产品 VoxelDefinition 与具体 Production Process。
+Control Equipment、Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process；Control Equipment 尚无已定 Gameplay 功能，不进入首版货物或配方目录。
 
 ### Recovery DAG
 
@@ -143,7 +142,6 @@ Electronic Components  → Electrical Components + Specialty Material + Polymer
 Industrial Machinery   → Mechanical Components + Electrical Components + Structural Metal
 Storage Equipment      → Mechanical Components + Structural Metal
 Power Equipment        → Mechanical Components + Electrical Components + Structural Metal
-Control Equipment      → Electronic Components + Electrical Components + Polymer
 Extraction Equipment   → Mechanical Components + Electrical Components + Structural Metal
 Construction Equipment → Mechanical Components + Electrical Components + Structural Metal
 ```
@@ -157,12 +155,12 @@ Construction Equipment → Mechanical Components + Electrical Components + Struc
 | Components（3） | Mechanical Components、Electrical Components、Electronic Components |
 | Civilian / Consumable Goods（6） | Staple Food、Prepared Food、Clothing、Consumer Goods、Consumer Electronics、Medical Supplies |
 | Construction Goods（3） | Structural Block、Construction Block、Rail |
-| Functional Equipment（6） | Industrial Machinery、Storage Equipment、Power Equipment、Control Equipment、Extraction Equipment、Construction Equipment |
-| Future Product Families | Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment（仅占位） |
+| Functional Equipment（5） | Industrial Machinery、Storage Equipment、Power Equipment、Extraction Equipment、Construction Equipment |
+| Future Product Families | Control Equipment、Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment（仅占位） |
 
 ## 首版范围
 
-上表全部货物、5 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
+上表除 Future Product Families 占位外的货物、5 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
 
 ## 明确延后
 
@@ -171,4 +169,4 @@ Future Product Families 的具体产品与 Process；Window、Door、Armor Block
 ## 开放问题
 
 - 未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量（[roadmap](roadmap.md)）。
-- 当前没有未解决的结构性设计问题；市场与价格、人口与聚居地经济、具体装备系统完成后新增的 Goods / Process 须通过 Gameplay Difference Test。
+- Control Equipment 等 Future Product Families 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。

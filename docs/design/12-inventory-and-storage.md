@@ -19,7 +19,7 @@
 ### 地点库存
 
 - 不存在全局 Player Inventory。资源系统至少区分 Settlement Inventory、Train Inventory、Facility OutputBuffer 与未来其他明确地点的 Inventory。
-- Train Inventory 与 Settlement Inventory 不自动合并，必须有显式 Transfer；生产 Facility 不能直接读取停靠列车货舱。Transfer 自动化规则以后可以设计，但必须仍是真实库存移动。
+- Train Inventory 与 Settlement Inventory 不自动合并，必须有显式 Transfer；生产 Facility 不能直接读取停靠列车货舱。唯一在此声明的例外是 [14 的 Construction / Refit 启动事务](14-construction-refit-and-deconstruction.md#construction-job)：在玩家自己的聚居地，可直接消费当前所在地可访问的玩家 Train Inventory 中的 BOM，并记录来源；它不合并库存、不允许生产或回收 Batch、发电等日常设施逻辑绕过 Transfer。Transfer 自动化规则以后可以设计，但必须仍是真实库存移动。
 - 未来市场出售的货物就是聚居地实际库存中的货物，不另设独立的 Market Supply 数量（资源转录 Q279）；出售策略与市场规则本身延后。
 
 ### Settlement Inventory
@@ -42,6 +42,7 @@
 ### Overcapacity
 
 - 若 Storage Capability 因损伤下降到低于当前 UsedCapacity，允许临时 Overcapacity：已有 Goods 不自动删除；Goods 可以被取出；不允许新的普通入库；修复 Storage 或减少库存后恢复正常。
+- [13](13-production-runtime-and-facilities.md#output-buffer) 的 OutputBuffer 转入同样受容量限制：UsedCapacity ≥ Capacity 时不得转入；只有存在实际可用容量（扣除有效 Storage Reservation）时才能转入，优先级不赋予突破容量的权限。
 - 事故导致货物散落属于未来显式事故 Gameplay，不由 Storage Capacity 通用规则自动触发。
 
 ### Stack 与 ItemInstance
@@ -66,4 +67,4 @@ Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、�
 ## 开放问题
 
 - 未冻结参数：Storage Equipment capacity（[roadmap](roadmap.md)）。
-- 当前没有未解决的结构性设计问题。
+- OutputBuffer 的优先转入不构成 Overcapacity 例外；相关执行规则见 [13](13-production-runtime-and-facilities.md#output-buffer)。
