@@ -12,7 +12,7 @@ button,input,select{font:inherit}button{background:#fff;border:1px solid #afc2c2
 </style>
 <main>
 <header class="intro"><span class="badge">可丢弃流程原型 · v1</span><span class="muted">讨论对象选择、镜头、模拟控制和故障复现</span><h1>项目级 Playground</h1>
-<p>Q1–Q3 已确认：面板与控制台共用操作、自由观察与显式聚焦/跟随、进入默认暂停。Q4–Q7 已确认配置分离、复现资料、切换保护和旧档边界；操作体验仍待用户反馈。</p>
+<p>Q1–Q10 已确认：用户认可操作流程；视觉样式、示例地图及正式引擎运行验收不在确认范围内。诊断与目标销毁规则已写入规格，本页面不模拟这些能力。</p>
 <p class="note">这是独立 HTML 示例，不连接 Godot 或真实存档。地形、车辆移动和故障均为示意，不验证铁路几何、冲突防护或性能；此处镜头仅用于体验操作流程。</p></header>
 <div class="toolbar"><div class="row"><label>入口 <select id="source"><option value="generated">生成地图（示例）</option><option value="fixture">固定配置：会让与断轨</option><option value="saved">恢复本页快照</option></select></label><label>种子 <input id="seed" type="number" min="0" max="999999" value="42"></label><button data-act="load">进入 / 切换</button><button data-act="reset">重置当前配置</button></div><div class="row"><button data-act="save">保存本页快照</button><button data-act="export">导出复现示例</button></div></div>
 <div class="toolbar"><div class="row"><button class="primary" data-act="resume">运行模拟</button><button data-act="pause">暂停</button><button data-act="step" data-value="1">单步</button><button data-act="step" data-value="10">推进 10 步</button></div><div class="row"><strong id="clock" class="time"></strong><span id="saveStatus" class="muted"></span></div></div>
