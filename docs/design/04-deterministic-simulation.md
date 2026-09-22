@@ -101,5 +101,6 @@ Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续�
 
 ## 开放问题
 
-- Simulation LOD：若后续性能问题促使考虑分层模拟，须先重审转录 Q5 的全图全精度模拟规则，并同步修订 [01](01-voxel-world.md)、本文与 [07](07-rendering.md)；在作出新决策前继续遵守当前规则。
-- Simulation Tick Rate：未冻结参数（[roadmap](roadmap.md)）。
+- 近期决策（有票）：生成网络、多列车竞争及其新权威状态的确定性与恢复契约见 [确定性与存档 #97](https://github.com/odradekk/train/issues/97)，沿用既定模拟不变量。
+- 地图迷雾（不立票）：Simulation LOD；若后续性能问题促使考虑分层模拟，须先重审转录 Q5 的全图全精度模拟规则，并同步 [01](01-voxel-world.md)、本文与 [07](07-rendering.md)；新决策前继续遵守当前规则。
+- 地图迷雾（不立票）：Simulation Tick Rate 调优（[roadmap](roadmap.md)）；出现需要改变当前固定步长的近期验证问题时再评估。

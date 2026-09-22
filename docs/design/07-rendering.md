@@ -90,5 +90,5 @@ Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续�
 
 ## 开放问题
 
-- 未冻结参数：Chunk Size、Render Residency Radius、Unload Radius、Directional Prefetch Distance、Meshing Threshold、Custom Mesh LOD Distance、Voxel Geometry LOD Distance（[roadmap](roadmap.md)）。
-- 地图迷雾：Chunk 存储形态与全图常驻的内存预算。
+- 近期决策（有票）：本阶段跨区域观察、修改/重建与长期运行的渲染性能、内存测量及验收方法见 [性能验收 #98](https://github.com/odradekk/train/issues/98)。
+- 地图迷雾（不立票）：Chunk Size、Render Residency Radius、Unload Radius、Directional Prefetch Distance、Meshing Threshold、Custom Mesh LOD Distance、Voxel Geometry LOD Distance 调优及 Chunk 存储实现（[roadmap](roadmap.md)）；实测表明阻塞近期切片时，再提出具体选择问题。

@@ -142,4 +142,5 @@ TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；V
 
 ## 开放问题
 
-- 后续能力切片的具体顺序、压力测试规模与正式性能门槛，随实际交付和测量确定。
+- 近期决策（有票）：本阶段能力边界由 [能力范围 #92](https://github.com/odradekk/train/issues/92) 收敛，压力测试规模与性能门槛的确定方法见 [性能验收 #98](https://github.com/odradekk/train/issues/98)，实施顺序与端到端规格由 [阶段切片规格 #99](https://github.com/odradekk/train/issues/99) 汇总；决策完成后回写上文，不把旧 Phase 表当作排期。
+- 地图迷雾（不立票）：超出 [#91](https://github.com/odradekk/train/issues/91) 已确认阶段范围的后续能力与具体顺序；选入当前或下一切片时再评估。

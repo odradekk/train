@@ -109,5 +109,7 @@ Timber 同时可由 Forestry 这一 Primary Production 产出，见 [11](11-good
 
 ## 开放问题
 
-- 未冻结参数：每个 Resource Source 的 MaxDurability、各 Source Yield 的 `N Damage → M Goods`、Source Cluster 大小和分布、Extraction Range / Area、WorkPerDamage、Extraction Equipment base capability、Resource Renewal Event 的触发条件、间隔和规模（[roadmap](roadmap.md)）。
-- Extraction 连续产出如何对应 OutputBuffer 的“一个完成 Batch 剩余”尚未确定：需在首个 Extraction 实现切片明确一次输出提交的边界、同 Tick 多次 Damage 的处理及 Buffer 非空后的停止点，与 [13 的开放问题](13-production-runtime-and-facilities.md#开放问题) 同步；在此之前不将整个 Source 或整个 Job 默认视作一个 Batch。
+- 地图迷雾（不立票）：未冻结参数：每个 Resource Source 的 MaxDurability、各 Source Yield 的 `N Damage → M Goods`、Source Cluster 大小和分布、Extraction Range / Area、WorkPerDamage、Extraction Equipment base capability、Resource Renewal Event 的触发条件、间隔和规模（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：Extraction 连续产出如何对应 OutputBuffer 的“一个完成 Batch 剩余”尚未确定：需在首个 Extraction 实现切片明确一次输出提交的边界、同 Tick 多次 Damage 的处理及 Buffer 非空后的停止点，与 [13 的开放问题](13-production-runtime-and-facilities.md#开放问题) 同步；在此之前不将整个 Source 或整个 Job 默认视作一个 Batch。
+
+资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。现有 [#78](https://github.com/odradekk/train/issues/78) 仅验证开采伤害与 Yield，明确不含 Facility、Job 和 OutputBuffer，不受此处输出提交边界阻塞。

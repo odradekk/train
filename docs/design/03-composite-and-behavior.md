@@ -118,4 +118,5 @@ CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Constru
 
 ## 开放问题
 
-- 地图迷雾：Behavior、Capability 注册表与 System 的首版最小集合及其在 Godot C# 中的接口（转录 Q22）；各 Archetype 的 Construction 与 IdentityRetention 具体规则（转录 Q43）；车辆编挂操作与运营命令继承。编组运动与断开后的处理已由 [06](06-railway.md) 确定。
+- 近期决策（有票）：本阶段 Behavior / Capability、各 Archetype 的结构与身份能力需要覆盖到什么程度，归入 [能力范围 #92](https://github.com/odradekk/train/issues/92)；本项决定范围与验收，不预先指定新接口。
+- 地图迷雾（不立票）：范围之外的 Behavior、Capability、System 接口扩展及 Archetype 规则（转录 Q22、Q43）、完整编挂操作与运营命令继承；选入近期切片后再评估是否需要决策。编组运动与断开处理已有规则见 [06](06-railway.md)，本阶段多列车最小运行规则见该篇关联决策票。

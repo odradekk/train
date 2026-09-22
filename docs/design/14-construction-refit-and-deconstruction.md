@@ -100,5 +100,7 @@ Construction / Refit / Deconstruction 主动 Cancel / Refund；Construction / Re
 
 ## 开放问题
 
-- 未冻结参数：ConstructionWorkPerVoxel、RefitWorkPerChangedVoxel、DeconstructionWorkPerVoxel、Construction Equipment base capability（[roadmap](roadmap.md)）。
-- Construction / Refit 的主动 Pause / Resume，以及三类 Job 的主动 Cancel / Refund 尚待后续设计；首版仅采用上文已明确的暂停与失败结算规则。
+- 地图迷雾（不立票）：未冻结参数：ConstructionWorkPerVoxel、RefitWorkPerChangedVoxel、DeconstructionWorkPerVoxel、Construction Equipment base capability（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：Construction / Refit 的主动 Pause / Resume，以及三类 Job 的主动 Cancel / Refund 尚待后续设计；首版仅采用上文已明确的暂停与失败结算规则。
+
+资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

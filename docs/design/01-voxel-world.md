@@ -57,4 +57,5 @@ World structural collapse、复杂重力系统、复杂 Damage Types、通用 Ma
 
 ## 开放问题
 
-- Chunk Size、World Size：未冻结参数（[roadmap](roadmap.md)）；Chunk 存储形态与全图常驻的内存预算在地图迷雾中。
+- 近期决策（有票）：代表性 World Size、负载及全图常驻内存的验收方法由 [性能验收 #98](https://github.com/odradekk/train/issues/98) 决定，不把当前小夹具规模当作容量保证。
+- 地图迷雾（不立票）：Chunk Size 的调优与 Chunk 存储实现（[roadmap](roadmap.md)）；待测量暴露影响当前或下一切片的具体瓶颈时再提出决策问题。
