@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>三维铁路机械实验 · 可丢弃原型</title>
+<style>
+:root{font:14px/1.55 system-ui,"Microsoft YaHei",sans-serif;color:#26383e;background:#edf1f0;--accent:#256c70;--border:#cad5d4}*{box-sizing:border-box}body{margin:0}main{max-width:1700px;margin:auto;padding:20px}h1{font-size:25px;margin:0 0 6px}h2{font-size:17px;margin:0 0 10px}h3{font-size:14px;margin:12px 0 6px}p{margin:6px 0 12px}a{color:var(--accent)}.muted{color:#5d7176}.eyebrow{font-size:12px;letter-spacing:1px;color:#597377}.card{background:white;border:1px solid var(--border);border-radius:8px;padding:15px;margin-bottom:12px}.layout{display:grid;grid-template-columns:minmax(0,1fr) 350px;gap:14px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.row label{display:flex;gap:5px;align-items:center}button,input,select{font:inherit}button,select,input[type=number],input[type=text]{border:1px solid #a7bcbd;border-radius:4px;background:#fff;padding:6px 9px;color:inherit}button{cursor:pointer}button:hover{background:#e8f2f1}button.primary,button.active{background:var(--accent);color:white;border-color:var(--accent)}button:disabled{opacity:.5;cursor:default}input[type=number]{width:85px}input[type=range]{accent-color:var(--accent)}.params{display:grid;grid-template-columns:1fr 1fr;gap:7px 12px}.params label{display:flex;justify-content:space-between;gap:5px;align-items:center;font-size:12px}.note{border-left:3px solid #b99348;padding:9px 12px;background:#faf6e9}.good{color:#27664b}.bad{color:#a63830}.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.stat{background:#f0f5f4;border-radius:4px;padding:7px 10px;min-width:0}.stat span{display:block;font-size:11px;color:#5c7479}.stat strong{display:block;font:600 15px/1.5 ui-monospace,monospace;overflow-wrap:anywhere}#viewport{height:520px;position:relative;background:#dde7e8;overflow:hidden;border-radius:5px;margin:10px 0}#gl,#labels{position:absolute;width:100%;height:100%;inset:0;touch-action:none}#labels{pointer-events:none}#viewhelp{position:absolute;bottom:9px;left:12px;color:#48646a;font-size:12px;background:#ffffffce;padding:3px 7px;border-radius:3px;pointer-events:none}#notice{min-height:44px;padding:9px 12px;background:#f2f6f5;border-radius:4px}#timeline{width:100%}table{border-collapse:collapse;width:100%;font-size:12px;font-variant-numeric:tabular-nums}th,td{border-bottom:1px solid #dce3e2;padding:6px;text-align:left;white-space:nowrap}th{color:#5d7478;font-weight:500}td input[type=number]{width:65px;font-size:12px;padding:4px}td select{font-size:12px;padding:4px}.scroll{max-height:260px;overflow:auto}.tabs button{font-size:12px}.steps{display:flex;gap:7px;flex-wrap:wrap;margin:10px 0}.steps button{font-size:12px}details>summary{cursor:pointer;font-weight:600}#reportsummary{padding:7px 0}.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px}.swatch{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:4px}.footer{font-size:12px;color:#607578;margin:16px 0}.checklist{padding-left:20px}.checklist li{margin:4px 0}#booterror{display:none;padding:24px;position:absolute;inset:0;background:#fff5e9;color:#9a342b}#scene{max-width:230px}@media(max-width:1080px){.layout{grid-template-columns:1fr}.sidebar{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stats{grid-template-columns:repeat(4,1fr)}}@media(max-width:650px){main{padding:9px}h1{font-size:21px}.sidebar{display:block}#viewport{height:390px}.stats{grid-template-columns:repeat(2,1fr)}.params{grid-template-columns:1fr 1fr}}
+</style></head>
+<body><main>
+<div class="eyebrow">可丢弃原型 · 决策实验 108 · 离线单文件</div>
+<h1>三维弯坡 × 五档混编</h1>
+<p>这次实验要回答：在两个等效接触点、刚性车体和统一固定长度车钩下，哪些线路与机械参数值得进入正式验证？观察真实三维转向与俯仰，再检查采样误差和失败位置。</p>
+<p class="note">首轮三维运动与停车换端观感已获确认；B 已接受为下一轮实验基准，坡度过渡按水平投影距离配置。<strong>机械范围与误差门槛仍是实验候选</strong>。这里检查折线路径上的离散姿态与盒状车体，不证明连续扫掠安全、实体轨道占格、真实轮轨接触或正式 Godot 效果。不实现多列车调度。</p>
+<div class="layout"><div>
+<section class="card">
+<div class="row"><h2 style="margin-right:auto">当前实验</h2><select id="scene" aria-label="线路案例"></select><button id="apply" class="primary">应用公共参数并重建编组</button></div>
+<div id="stats" class="stats"></div>
+<div id="viewport"><canvas id="gl"></canvas><canvas id="labels"></canvas><div id="viewhelp">左键旋转 · 右键平移 · 滚轮缩放 · 双击聚焦 · 坐标单位：格</div><div id="booterror"></div></div>
+<div class="row"><button id="run" class="primary">运行</button><button id="pause">暂停推进</button><button id="stop">停车</button><button id="step">单步 1/60 秒</button><button id="reverse">停稳换端</button><button id="reset">重置已应用实验</button><label>目标速度 <input id="speed" type="number" value="16" min="1" max="80"> 格/秒</label></div>
+<p class="muted" style="font-size:12px">暂停只冻结实验推进，保留当前速度；必须先“停车”才能换端。这里的速度是姿态采样驱动，不模拟牵引或制动力。</p>
+<input id="timeline" type="range" min="0" max="1000" value="0" aria-label="实验沿程定位"><div class="row muted" style="font-size:12px"><span id="position"></span><span>拖动沿程会停车并保留当前活动端；可检查失败姿态，但失败姿态不可运行。</span></div>
+<div class="row" style="margin:10px 0"><button id="focus">聚焦编组</button><button id="overview">线路全景</button><button id="top">俯视</button><button id="side">侧视</button><label><input type="checkbox" id="follow" checked>跟随活动车头</label><label><input type="checkbox" id="solid" checked>实体包络</label><label><input type="checkbox" id="railframes">局部净空框</label><label><input type="checkbox" id="showcontacts" checked>接触点与车钩</label></div>
+<div id="legend" class="legend"></div><div id="notice" role="status"></div>
+<details style="margin-top:10px"><summary>逐车姿态与约束状态</summary><div class="scroll"><table><thead><tr><th>身份 / 朝向</th><th>前/后接触沿程</th><th>转向 / 俯仰</th><th>轴距 / 前后悬伸</th></tr></thead><tbody id="poses"></tbody></table></div><p id="collisions" class="bad"></p></details>
+</section>
+<section class="card"><h2>本轮已测对照 · 观感已确认，继续探测机械范围</h2>
+<table><thead><tr><th>候选</th><th>线路参数（格 / 度）</th><th>离散采样结果</th></tr></thead><tbody>
+<tr><td>A 历史起点</td><td>R192 / 水平缓和160 / 坡过渡160 / 坡角10°</td><td class="bad">582 / 585 项通过</td></tr>
+<tr><td>B 较宽松线路</td><td>R288 / 水平缓和240 / 坡过渡240 / 坡角10°</td><td class="good">585 / 585 项通过</td></tr>
+</tbody></table>
+<p>每项 65 个沿程姿态，共 38,025 个姿态／组，线路离散间隔 0.5 格。两组使用满尺寸包络、前后悬伸各1、底高0.75、车钩长1、安装高0.5、夹角候选上限30°；A 净空8/12，B 净空9/13。报告不覆盖全部可调机械配置，也不证明连续安全。</p>
+<p>A 的三项失败分别为弯中坡谷的“泰坦＋泰坦”“4节同档泰坦”“8节同档泰坦”。加密到161个姿态时，8节泰坦的最大盒交叠约0.283格；线路间隔减半后仍约0.283格。只增大水平半径或只加长坡度过渡仍有交叠；B同时放宽后这组采样通过。</p>
+<div class="row"><button id="measuredFailure">查看 A 的真实失败</button><button id="measuredRoomier">查看同编组的 B</button></div>
+<p class="muted" style="font-size:12px">完整原始测量随附 rail-mechanics-108.measurements.json；本页可自行重跑并导出。全基线矩阵是配置样本证据，不是整个参数区间的认证。</p></section>
+<section class="card"><h2>第二轮机械范围候选 · 待确认</h2>
+<p>前、后悬伸各自 0.5–2 格，车底高 0.5–1 格；轴距等于声明档位的包络长度减去两端悬伸。五档共用连接长 1 格、安装高 1 格、三维车钩夹角上限 15°。安装高从首轮 0.5 调到 1，使接口不会低于候选范围内的车体底面；这项调整及本轮范围尚待确认。</p>
+<p>四类重点线路覆盖逐车不同边界配置；弯中坡谷另查五档有序双车的全部 8×8 个机械角点组合。每车 8 个角点来自前悬、后悬、底高各取上下界。另对最紧张的已测结果加密，并保留底高为零的侵轨反例。范围内共 2,072 项、69,400 个姿态通过；另两个底高为零的反例失败。已测最大钩角约 7.53°，最小底部余量约 0.424 格。完整记录在随附 JSON 的 rangeExperiments / rangeRefinement；这些实验不证明整个连续范围。</p>
+<div class="row"><button id="rangeCandidate">查看候选边界配置</button><button id="zeroBottom">查看底高为零的反例</button></div></section>
+<section class="card"><h2>引导观察</h2><div id="tabs" class="row tabs"></div><p id="guide" class="muted" style="margin-top:10px"></p><div id="steps" class="steps"></div><p class="muted" style="font-size:12px">切换案例会恢复已知配置。自由调整不受引导顺序限制；红色结果是待解释的失败，不会偷偷拉伸车体或继续穿过。</p></section>
+<section class="card"><h2>可重复采样与导出</h2>
+<div class="row"><label>每条运行采样间隔数 <input id="samples" type="number" min="16" max="640" step="16" value="64"></label><button id="scan">当前编组 / 当前线路</button><button id="pairs">当前线路 / 25 有序双车</button><button id="scenes">当前编组 / 全部线路</button><button id="matrix">完整基线矩阵</button><button id="cancel">停止采样</button></div>
+<p class="muted" style="font-size:12px">完整矩阵 = 每条线路的 25 种有序双车 + 4/8 节各五种同档、大小交替与双头交替；不穷举长编组排列。矩阵使用当前公共参数，逐车自定义只用于“当前编组”采样。数值采样加密不等于连续安全证明。</p>
+<div id="reportsummary">尚未执行采样。</div><div class="row"><button id="worst">定位最近报告的首个失败</button><button id="export">导出参数、状态及报告 JSON</button><button id="csv">导出汇总 CSV</button><button id="clearreports">清空报告</button></div>
+<div class="scroll" style="margin-top:10px"><table><thead><tr><th>线路 / 编组</th><th>采样</th><th>结论</th><th>侧 / 顶 / 底</th><th>钩角</th><th>首个原因</th></tr></thead><tbody id="reports"></tbody></table></div>
+</section>
+</div><aside class="sidebar">
+<section class="card"><h2>线路候选</h2><div class="row"><button id="baseline">历史起点</button><button id="roomier">较宽松线路</button><button id="tight">紧弯反例</button></div><p class="muted" style="font-size:12px">三个按钮是对照实验，不是已批准标准。</p><div class="params" id="trackparams"></div><p class="muted" style="font-size:12px">水平逐弯缓和长度 L=min(L₀,R×|θ|)。本原型用水平投影距离参数化坡度过渡，再换算三维沿程；该长度口径尚待反馈，不冒充旧原型的三维弧长。</p></section>
+<section class="card"><h2>统一机械候选</h2><div class="params" id="mechanicalparams"></div><p class="muted" style="font-size:12px">车长固定为档位上限；轴距=车长−前悬伸−后悬伸。统一车钩安装高度相对接触点基准。轨距目前用于显示及横向可容纳检查，不证明转向架或车轮运动学。</p></section>
+<section class="card"><h2>编组与逐车配置</h2><div class="row"><label>节数 <select id="count"><option>2</option><option>4</option><option selected>8</option></select></label><select id="pattern"><option value="alternating">泰坦 / 小型交替</option><option value="same">全部同档</option><option value="ascending">五档循环</option></select><select id="tier"></select><label><input id="dual" type="checkbox" checked>两端朝外车头</label><button id="fleetapply">生成编组</button></div><p class="muted" style="font-size:12px">下表从线路正向前端到后端排列；换端保留每节车的身份和车体朝向。应用公共参数会覆盖逐车配置；重置恢复最近已应用的实验。</p><div class="scroll"><table><thead><tr><th>车</th><th>档位</th><th>前悬</th><th>后悬</th><th>底高</th></tr></thead><tbody id="fleetrows"></tbody></table></div><button id="customapply" style="margin-top:8px">应用逐车配置</button></section>
+<section class="card"><h2>判断边界</h2><ul class="checklist"><li>运行推进失败：停在最后有效姿态并报告；手动定位可显示不可运行的失败检查姿态。求解失败不等于数学上已证明无解。</li><li>当前误差候选：距离 10⁻⁵ 格，净空/交叠容差 10⁻⁴ 格；不是正式产品阈值。</li><li>车体按完整盒包络检查，轨道与轮组是示意。</li><li>水平道岔仅验证公共端与直向/分支的单条路径；这里不模拟尖轨、信号和联锁。</li><li>原型采样通过后，首轮观感已确认；机械范围仍待确认，并须完成正式领域、连续扫掠、损伤、存档和 Godot 验证。</li></ul><p id="candidate" class="muted"></p></section>
+</aside></div>
+<p class="footer">状态只在内存中。导出是手动保存实验记录，不写游戏存档。原型位置：docs/design/rail-mechanics-108.prototype.html；正式规则见铁路决策与后续实施规格。</p>
+</main>
+<script id="rail-math">
+/* PROTOTYPE ONLY: pure 3D railway geometry for issue 108. No DOM or browser globals. */
+const RailLab = (() => {
+  "use strict";
+
+  const EPS = 1e-10;
+  const add = (a,b) => [a[0]+b[0],a[1]+b[1],a[2]+b[2]];
+  const sub = (a,b) => [a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+  const mul = (a,k) => [a[0]*k,a[1]*k,a[2]*k];
+  const dot = (a,b) => a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+  const cross = (a,b) => [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const len = a => Math.hypot(a[0],a[1],a[2]);
+  const norm = a => { const n=len(a); return n>EPS?mul(a,1/n):[0,0,0]; };
+  const lerp = (a,b,t) => add(a,mul(sub(b,a),t));
+  const clamp = (x,a,b) => Math.max(a,Math.min(b,x));
+  const rad = d => d*Math.PI/180;
+
+  const TIERS = [
+    {id:"scout",name:"小型",length:8,width:5,height:6},
+    {id:"runner",name:"中型",length:12,width:7,height:6},
+    {id:"hauler",name:"大型",length:16,width:9,height:8},
+    {id:"atlas",name:"超大型",length:20,width:11,height:8},
+    {id:"titan",name:"泰坦",length:24,width:13,height:10}
+  ];
+  const DEFAULTS = {radius:192,transition:160,grade:10,verticalTransition:160,clearance:8,roof:12,gauge:1.5,bottom:.75,overhang:1,asymmetry:0,coupler:1,couplerHeight:.5,maxCouplerAngle:30,ds:.5,scene:"bendRise"};
+  const SCENES = [
+    ["straight","直线","水平直线"],["left","左弯","含两端缓和曲线的左弯"],["right","右弯","含两端缓和曲线的右弯"],
+    ["reverse","反向弯","连续左右反向曲线"],["rise","上坡","平滑进入和退出的上坡"],["fall","下坡","平滑进入和退出的下坡"],
+    ["crest","坡顶","上坡转下坡"],["trough","坡谷","下坡转上坡"],["bendRise","弯中上坡","左弯与上坡重叠"],
+    ["bendFall","弯中下坡","右弯与下坡重叠"],["bendCrest","弯中坡顶","左弯内跨越坡顶"],["bendTrough","弯中坡谷","右弯内跨越坡谷"],
+    ["turnoutStraight","道岔直股","共同起点后走直股"],["turnoutLeft","道岔左股","共同起点后平滑分出左股 15°"],["turnoutRight","道岔右股","共同起点后平滑分出右股 15°"]
+  ].map(([id,name,description])=>({id,name,description}));
+
+  function configOf(input={}) {
+    const c={...DEFAULTS,...input};
+    for(const k of Object.keys(DEFAULTS)) if(k!=="scene") c[k]=Number(c[k]);
+    for(const k of ["radius","transition","grade","verticalTransition","clearance","roof","gauge","bottom","overhang","asymmetry","coupler","couplerHeight","maxCouplerAngle","ds"]) if(!Number.isFinite(Number(c[k]))) throw Error(`${k} must be finite`);
+    for(const k of ["radius","transition","verticalTransition","clearance","roof","gauge","coupler","ds"]) if(!(c[k]>0)) throw Error(`${k} must be positive`);
+    for(const k of ["bottom","overhang"]) if(c[k]<0) throw Error(`${k} must be non-negative`);
+    if(c.gauge>Math.min(...TIERS.map(t=>t.width))) throw Error("gauge exceeds the narrowest vehicle width");
+    if(!SCENES.some(s=>s.id===c.scene)) throw Error(`unknown scene: ${c.scene}`);
+    c.grade=Number(c.grade); c.asymmetry=Number(c.asymmetry); c.maxCouplerAngle=Number(c.maxCouplerAngle);
+    if(Math.abs(c.grade)>=89) throw Error("grade angle must be between -89 and 89 degrees");
+    return c;
+  }
+  const smooth = t => .5-.5*Math.cos(Math.PI*clamp(t,0,1));
+
+  function buildPath(input={}) {
+    const c=configOf(input), pad=Math.max(300,Number(c.padding)||0), T=c.transition, V=c.verticalTransition;
+    const turn=rad(c.scene==="reverse"?45:90), L=Math.min(T,c.radius*Math.abs(turn)), arc=c.radius*Math.abs(turn)-L, curveLen=2*L+arc;
+    const isSummit=["crest","trough","bendCrest","bendTrough"].includes(c.scene);
+    const gradeAngle=rad(c.grade), gradeLen=isSummit?4*V:2*V+220;
+    const switchTurn=rad(15), switchL=Math.min(T,c.radius*switchTurn), switchArc=c.radius*switchTurn-switchL, turnoutLen=2*switchL+switchArc;
+    const active=Math.max(c.scene==="reverse"?2*curveLen:curveLen,gradeLen,turnoutLen+180);
+    const total=2*pad+active, curveFootprint=c.scene==="reverse"?2*curveLen:curveLen, a0=pad+(active-curveFootprint)/2, g0=pad+(active-gradeLen)/2, sw0=pad+60;
+    const is=(...ids)=>ids.includes(c.scene);
+    function curvature(u) {
+      if(is("turnoutLeft","turnoutRight")) {
+        const sign=is("turnoutLeft")?1:-1;
+        return sign*curveKernel(u,sw0,turnoutLen,switchL,switchArc)/c.radius;
+      }
+      if(is("turnoutStraight","straight","rise","fall","crest","trough")) return 0;
+      const sign=is("right","bendFall","bendTrough")?-1:1;
+      if(is("reverse")) {
+        const half=curveLen, first=curveKernel(u,a0,half,L,arc);
+        const second=curveKernel(u,a0+half,half,L,arc);
+        return first/c.radius-second/c.radius;
+      }
+      return sign*curveKernel(u,a0,curveLen,L,arc)/c.radius;
+    }
+    function pitchAt(u) {
+      if(is("straight","left","right","reverse","turnoutStraight","turnoutLeft","turnoutRight")) return 0;
+      const x=u-g0,q=x/gradeLen;
+      if(q<0||q>1) return 0;
+      if(is("crest","bendCrest","trough","bendTrough")) {
+        let v;
+        if(x<V) v=gradeAngle*smooth(x/V);
+        else if(x<3*V) v=gradeAngle*Math.cos(Math.PI*(x-V)/(2*V));
+        else v=-gradeAngle*smooth((4*V-x)/V);
+        return is("trough","bendTrough")?-v:v;
+      }
+      const ramp=V/gradeLen;
+      const plateau = q<ramp?smooth(q/ramp):q>1-ramp?smooth((1-q)/ramp):1;
+      if(is("rise","bendRise")) return gradeAngle*plateau;
+      if(is("fall","bendFall")) return -gradeAngle*plateau;
+      return 0;
+    }
+    function curveKernel(u,start,length,tr,body) {
+      const q=u-start;
+      if(q<0||q>length) return 0;
+      if(q<tr) return q/tr;
+      if(q<tr+body) return 1;
+      return (length-q)/tr;
+    }
+    let p=[0,0,0], yaw=0, s=0;
+    const points=[p], stations=[{s:0,u:0,yaw:0,pitch:pitchAt(0)}];
+    const du=c.ds;
+    for(let u=0;u<total-EPS;) {
+      const h=Math.min(du,total-u), um=u+h/2;
+      yaw += curvature(um)*h;
+      const pitch=pitchAt(um), d=[Math.cos(yaw)*h,Math.tan(pitch)*h,Math.sin(yaw)*h];
+      const np=add(p,d); s+=len(d); u+=h; p=np;
+      points.push(p); stations.push({s,u,yaw,pitch});
+    }
+    const start=stationAtU(stations,pad), end=stationAtU(stations,pad+active);
+    return {points,stations,length:s,start,end,segments:[{kind:c.scene,from:start,to:end}],joins:is("turnoutStraight","turnoutLeft","turnoutRight")?{legal:["common<->straight","common<->branch"],illegal:["branch<->straight"]}:null,config:c};
+  }
+  function stationAtU(st,u) {
+    let lo=0,hi=st.length-1; while(lo+1<hi){const m=(lo+hi)>>1;if(st[m].u<u)lo=m;else hi=m;}
+    const a=st[lo],b=st[hi],t=(u-a.u)/(b.u-a.u||1); return a.s+(b.s-a.s)*clamp(t,0,1);
+  }
+  function at(path,s) {
+    s=clamp(s,0,path.length); const st=path.stations;
+    let lo=0,hi=st.length-1; while(lo+1<hi){const m=(lo+hi)>>1;if(st[m].s<s)lo=m;else hi=m;}
+    const a=st[lo],b=st[hi],t=(s-a.s)/(b.s-a.s||1), point=lerp(path.points[lo],path.points[hi],t);
+    return {s,point,tangent:norm(sub(path.points[hi],path.points[lo])),yaw:a.yaw+(b.yaw-a.yaw)*t,pitch:a.pitch+(b.pitch-a.pitch)*t,index:lo};
+  }
+
+  function makeFleet(tierIds,input={},dualHead=true) {
+    const c=configOf(input);
+    if(!Array.isArray(tierIds)||!tierIds.length) throw Error("fleet must contain at least one vehicle");
+    return tierIds.map((entry,i)=>{
+      const override=typeof entry==="object"?entry:{}, id=typeof entry==="string"?entry:entry.id;
+      const tier=TIERS.find(t=>t.id===id); if(!tier) throw Error(`unknown tier: ${id}`);
+      const d={...tier,...override}, overhang=d.overhang??c.overhang, asymmetry=d.asymmetry??c.asymmetry;
+      if(overhang<0) throw Error(`${id}: overhang must be non-negative`);
+      if((d.bottom??c.bottom)<0) throw Error(`${id}: bottom must be non-negative`);
+      if(c.gauge>d.width) throw Error(`${id}: gauge exceeds vehicle width`);
+      const base=d.length-2*overhang, front=overhang+asymmetry, rear=overhang-asymmetry;
+      if(!(base>0)) throw Error(`${id}: contact base must be positive`);
+      if(front<0||rear<0) throw Error(`${id}: asymmetric overhang makes an end negative`);
+      return {id:`${id}-${i+1}`,tier:id,length:d.length,width:d.width,height:d.height,base,front,rear,bottom:d.bottom??c.bottom,facing:(dualHead&&i===tierIds.length-1)?-1:1,engine:i===0||(dualHead&&i===tierIds.length-1)};
+    });
+  }
+
+  function sphereHit(path,anchor,startS,distance,dir) {
+    const target=distance*distance, pts=path.points, st=path.stations;
+    let idx=at(path,startS).index+(dir>0?0:1);
+    for(;dir>0?idx<pts.length-1:idx>0;idx+=dir) {
+      const ia=dir>0?idx:idx-1, ib=ia+1, sa=st[ia].s,sb=st[ib].s;
+      const low=Math.min(sa,sb),high=Math.max(sa,sb);
+      if(dir>0&&high<startS-EPS||dir<0&&low>startS+EPS) continue;
+      const A=pts[ia],D=sub(pts[ib],A), q=sub(A,anchor), qa=dot(D,D), qb=2*dot(q,D), qc=dot(q,q)-target;
+      const disc=qb*qb-4*qa*qc; if(disc<-EPS) continue;
+      const roots=disc<0?[-qb/(2*qa)]:[(-qb-Math.sqrt(disc))/(2*qa),(-qb+Math.sqrt(disc))/(2*qa)];
+      roots.sort((x,y)=>dir>0?x-y:y-x);
+      for(const t0 of roots) { const t=clamp(t0,0,1), ss=sa+(sb-sa)*t; if(t0>=-EPS&&t0<=1+EPS&&((dir>0&&ss>startS+EPS)||(dir<0&&ss<startS-EPS))) return {s:ss,point:lerp(A,pts[ib],t)}; }
+    }
+    return null;
+  }
+  function frameFromX(bodyX) {
+    let side=norm(cross([0,1,0],bodyX)); if(len(side)<EPS) side=[0,0,1];
+    return [bodyX,norm(cross(bodyX,side)),side];
+  }
+  function placeCar(path,leadS,def,dir,cfg=path.config) {
+    const lead=at(path,leadS).point, hit=sphereHit(path,lead,leadS,def.base,-dir); if(!hit) return null;
+    const trail=hit.point, travelX=norm(sub(lead,trail)), physicalX=mul(travelX,def.facing*dir), axes=frameFromX(physicalX);
+    const origin=mul(add(lead,trail),.5), longitudinalCenter=add(origin,mul(physicalX,(def.front-def.rear)/2));
+    const center=add(longitudinalCenter,mul(axes[1],def.bottom+def.height/2));
+    const travelEnd=def.facing*dir>0?def.front:def.rear, backEnd=def.facing*dir>0?def.rear:def.front;
+    const up=axes[1], nose=add(add(lead,mul(travelX,travelEnd)),mul(up,cfg.couplerHeight||0));
+    const tail=add(add(trail,mul(travelX,-backEnd)),mul(up,cfg.couplerHeight||0));
+    return {def,leadS,trailS:hit.s,lead,trail,origin,center,axes,half:[def.length/2,def.height/2,def.width/2],nose,tail};
+  }
+  function rootNext(path,prev,def,cfg,dir) {
+    const maxSpan=def.length+cfg.coupler+20, start=prev.trailS-dir*1e-7, stop=clamp(start-dir*maxSpan,0,path.length);
+    const f=s=>{const car=placeCar(path,s,def,dir,cfg);return car?{v:len(sub(car.nose,prev.tail))-cfg.coupler,car}:null;};
+    let a=start,fa=f(a), step=Math.max(.05,Math.min(path.config.ds/2,.25)); if(!fa) return null;
+    let best=Math.abs(fa.v),bestCar=fa.car;
+    while(dir>0?a>stop+EPS:a<stop-EPS) {
+      const b=dir>0?Math.max(stop,a-step):Math.min(stop,a+step), fb=f(b); if(!fb){a=b;fa=fb;continue;}
+      if(Math.abs(fb.v)<best){best=Math.abs(fb.v);bestCar=fb.car;}
+      if(fa&&fa.v*fb.v<=0) {
+        let l=a,r=b,fl=fa,rootCar=null; for(let k=0;k<55;k++){const m=(l+r)/2,fm=f(m);if(!fm)break;if(Math.abs(fm.v)<1e-10){rootCar=fm.car;break;}if(fl.v*fm.v<=0)r=m;else{l=m;fl=fm;}}
+        rootCar=rootCar||f((l+r)/2).car;
+        const travelX=norm(sub(prev.lead,prev.trail));
+        if(dot(sub(prev.tail,rootCar.nose),travelX)>=-1e-8) return rootCar;
+      }
+      a=b;fa=fb;
+    }
+    return best<1e-7?bestCar:null;
+  }
+  function solve(path,frontS,fleet,input={},dir=1) {
+    const cfg=configOf({...path.config,...input}); if(dir!==1&&dir!==-1)return {ok:false,reason:"dir must be +1 or -1",cars:[]};
+    for(const [i,d] of fleet.entries()) {
+      for(const k of ["length","width","height","base","front","rear","bottom","facing"]) if(!Number.isFinite(Number(d[k]))) return {ok:false,reason:`vehicle ${i+1} has non-finite ${k}`,cars:[]};
+      if(!(d.length>0&&d.width>0&&d.height>0&&d.base>0)||d.front<0||d.rear<0||d.bottom<0||cfg.gauge>d.width||(d.facing!==1&&d.facing!==-1)) return {ok:false,reason:`vehicle ${i+1} has invalid geometry`,cars:[]};
+    }
+    if(frontS<0||frontS>path.length)return {ok:false,reason:"leading contact lies outside path",cars:[]};
+    const cars=[],first=placeCar(path,frontS,fleet[0],dir,cfg); if(!first)return {ok:false,reason:"contact-base intersection search failed; this does not prove no mathematical solution",cars};
+    cars.push(first);
+    for(let i=1;i<fleet.length;i++){const car=rootNext(path,cars[i-1],fleet[i],cfg,dir);if(!car)return {ok:false,reason:`discrete coupling bracket search failed before vehicle ${i+1}; this does not prove no mathematical solution`,cars};cars.push(car);}
+    return {ok:true,reason:null,cars,couplings:cars.slice(1).map((c,i)=>({from:i,to:i+1,a:cars[i].tail,b:c.nose,length:len(sub(c.nose,cars[i].tail))})),dir,rootTolerance:1e-10,searchNote:"coupling roots use discrete bracketing plus bisection; a reported search failure is not proof that no mathematical root exists"};
+  }
+
+  function corners(car) {
+    const out=[]; for(const x of [-1,1])for(const y of [-1,1])for(const z of [-1,1])out.push(add(car.center,add(mul(car.axes[0],x*car.half[0]),add(mul(car.axes[1],y*car.half[1]),mul(car.axes[2],z*car.half[2]))))); return out;
+  }
+  function boxSamples(car) {
+    const out=corners(car), signs=[-1,1];
+    for(let fixed=0;fixed<3;fixed++)for(const a of signs)for(const b of signs){const q=[0,0,0];q[(fixed+1)%3]=a*car.half[(fixed+1)%3];q[(fixed+2)%3]=b*car.half[(fixed+2)%3];out.push(add(car.center,add(mul(car.axes[0],q[0]),add(mul(car.axes[1],q[1]),mul(car.axes[2],q[2])))));}
+    return out;
+  }
+  function overlapOBB(a,b) {
+    const A=a.axes,B=b.axes, ah=a.half,bh=b.half, t=sub(b.center,a.center); let min=Infinity;
+    const axes=[...A,...B]; for(const x of A)for(const y of B){const q=cross(x,y);if(len(q)>1e-8)axes.push(norm(q));}
+    for(const q of axes){const ra=ah[0]*Math.abs(dot(q,A[0]))+ah[1]*Math.abs(dot(q,A[1]))+ah[2]*Math.abs(dot(q,A[2]));const rb=bh[0]*Math.abs(dot(q,B[0]))+bh[1]*Math.abs(dot(q,B[1]))+bh[2]*Math.abs(dot(q,B[2]));const pen=ra+rb-Math.abs(dot(t,q));if(pen<0)return 0;min=Math.min(min,pen);} return min;
+  }
+  function nearestFrame(path,p,s0,s1,margin) {
+    const lo=Math.min(s0,s1)-margin,hi=Math.max(s0,s1)+margin, ia=at(path,clamp(lo,0,path.length)).index, ib=at(path,clamp(hi,0,path.length)).index+1;
+    let best=null;
+    for(let i=Math.max(0,ia);i<Math.min(path.points.length-1,ib);i++){const a=path.points[i],d=sub(path.points[i+1],a),t=clamp(dot(sub(p,a),d)/(dot(d,d)||1),0,1),q=add(a,mul(d,t)),dist=len(sub(p,q));if(!best||dist<best.dist){const tangent=norm(d),side=norm(cross([0,1,0],tangent)),up=norm(cross(tangent,side));best={q,dist,side,up};}} return best;
+  }
+  function angleDeg(a,b){return Math.acos(clamp(dot(norm(a),norm(b)),-1,1))*180/Math.PI;}
+  function metrics(path,solution,input={}) {
+    const cfg=configOf({...path.config,...input}), reasons=[]; if(!solution.ok)return {contactError:Infinity,couplerError:Infinity,maxAngle:Infinity,lateral:Infinity,top:Infinity,bottom:Infinity,overlaps:[],ok:false,reasons:[solution.reason],note:"clearance is discretely sampled and does not prove continuous safety"};
+    let contactError=0,couplerError=0,maxAngle=0,lateral=0,top=-Infinity,bottom=Infinity;
+    const contactChecks=[],couplingChecks=[];
+    for(const car of solution.cars){const actual=len(sub(car.lead,car.trail)),error=Math.abs(actual-car.def.base);contactChecks.push({id:car.def.id,expected:car.def.base,actual,error});contactError=Math.max(contactError,error);const samples=[...boxSamples(car),car.center];for(const p of samples){const f=nearestFrame(path,p,car.leadS,car.trailS,Math.max(car.def.front,car.def.rear)+Math.hypot(car.def.width,car.def.height)+2*cfg.ds),d=sub(p,f.q),vertical=dot(d,f.up);lateral=Math.max(lateral,Math.abs(dot(d,f.side)));top=Math.max(top,vertical);bottom=Math.min(bottom,vertical);}}
+    for(const cp of solution.couplings){const error=Math.abs(cp.length-cfg.coupler),link=sub(cp.b,cp.a),front=solution.cars[cp.from],back=solution.cars[cp.to],frontOut=mul(front.axes[0],-front.def.facing*solution.dir),backOut=mul(back.axes[0],back.def.facing*solution.dir),frontAngle=angleDeg(link,frontOut),backAngle=angleDeg(mul(link,-1),backOut);couplingChecks.push({from:cp.from,to:cp.to,expected:cfg.coupler,actual:cp.length,error,frontAngle,backAngle});couplerError=Math.max(couplerError,error);maxAngle=Math.max(maxAngle,frontAngle,backAngle);}
+    const overlaps=[];for(let i=0;i<solution.cars.length;i++)for(let j=i+1;j<solution.cars.length;j++){const penetration=overlapOBB(solution.cars[i],solution.cars[j]);if(penetration>1e-4)overlaps.push({a:i,b:j,penetration});}
+    if(contactError>1e-5)reasons.push("contact spacing exceeds experimental tolerance");if(couplerError>1e-5)reasons.push("coupler length exceeds experimental tolerance");if(maxAngle>cfg.maxCouplerAngle+1e-4)reasons.push("coupler angle exceeds limit");if(lateral>cfg.clearance+1e-4)reasons.push("lateral clearance envelope exceeded");if(top>cfg.roof+1e-4)reasons.push("roof clearance envelope exceeded");if(bottom< -1e-4)reasons.push("track intrusion below contact datum");if(overlaps.length)reasons.push("vehicle OBB overlap detected");
+    return {contactError,couplerError,maxAngle,lateral,top,bottom,contactChecks,couplingChecks,overlaps,ok:reasons.length===0,reasons,note:"clearance uses discrete box-edge samples projected near each vehicle contact interval; it does not prove continuous safety. 1e-5 length, 1e-4 clearance, and 1e-4 penetration are experimental prototype thresholds."};
+  }
+  function fleetSpan(fleet,cfg){return fleet.reduce((n,c)=>n+c.length,0)+Math.max(0,fleet.length-1)*cfg.coupler;}
+  function scan(path,fleet,input={},steps=80) {
+    const cfg=configOf({...path.config,...input}), span=fleetSpan(fleet,cfg), from=Math.max(0,path.start-5),to=Math.min(path.length,path.end+span+5), peaks={contactError:{value:0,worstS:null},couplerError:{value:0,worstS:null},maxAngle:{value:0,worstS:null},lateral:{value:0,worstS:null},top:{value:-Infinity,worstS:null},bottom:{value:Infinity,worstS:null}}, violations=[];
+    let missing=null,complete=true,firstFailure=null;
+    for(let i=0;i<=steps;i++){const frontS=from+(to-from)*i/steps,sol=solve(path,frontS,fleet,cfg,1);if(!sol.ok){complete=false;const failure={frontS,reasons:[sol.reason]};missing??=failure;firstFailure??=failure;continue;}const m=metrics(path,sol,cfg);for(const k of Object.keys(peaks)){const worse=k==="bottom"?m[k]<peaks[k].value:m[k]>peaks[k].value;if(worse)peaks[k]={value:m[k],worstS:frontS};}if(!m.ok){const failure={frontS,reasons:m.reasons};violations.push(failure);firstFailure??=failure;}}
+    const ok=complete&&!missing&&violations.length===0;
+    return {from,to,steps,samples:steps+1,peaks,missing,violations,complete:complete&&!missing,ok,firstFailure,note:"sampled scan with discrete coupling brackets; absence of a violation or solve failure is not a continuous proof"};
+  }
+  function scanCase(input={},tierIds=["titan","titan","titan","titan","titan","titan","titan","titan"],steps=80){const cfg=configOf(input),path=buildPath(cfg),fleet=makeFleet(tierIds,cfg,true);return {config:cfg,path,fleet,scan:scan(path,fleet,cfg,steps)};}
+
+  return {TIERS,DEFAULTS,SCENES,buildPath,makeFleet,solve,metrics,at,scan,scanCase,corners,math:{add,sub,mul,dot,cross,len,norm,lerp,clamp}};
+})();
+
+</script>
+<script>
+// Thin prototype page; geometry and constraint calculations live in RailLab above.
+const $=id=>document.getElementById(id), fmt=(x,n=3)=>Number.isFinite(x)?x.toFixed(n):'—';
+const COLORS=[[.20,.54,.59],[.72,.52,.25],[.43,.57,.31],[.46,.42,.68],[.70,.34,.29]];
+const trackFields=[['radius','水平半径',192,8,900,.5],['transition','缓和期望长',160,1,600,1],['grade','最大坡角 °',10,0,35,.5],['verticalTransition','坡度过渡长',160,4,600,1],['clearance','单侧净空',8,2,25,.25],['roof','顶部净空',12,4,30,.25],['gauge','轨距',1.5,.5,5,.1],['ds','线路采样间隔',.5,.1,2,.05]];
+const mechFields=[['overhang','平均端部悬伸',1,.1,3,.05],['asymmetry','前后悬伸偏差',0,-2,2,.05],['bottom','车体底高',.75,0,3,.05],['coupler','连接长度',1,.2,5,.1],['couplerHeight','车钩安装高',.5,0,3,.05],['maxCouplerAngle','车钩最大角 °',30,1,80,1]];
+for(const [host,fields] of [['trackparams',trackFields],['mechanicalparams',mechFields]]) for(const [key,label,val,min,max,step] of fields) $(host).insertAdjacentHTML('beforeend',`<label>${label}<input id="p-${key}" type="number" value="${val}" min="${min}" max="${max}" step="${step}"></label>`);
+for(const scene of RailLab.SCENES)$('scene').add(new Option(scene.name,scene.id));$('scene').value='bendCrest';
+for(const tier of RailLab.TIERS)$('tier').add(new Option(tier.name,tier.id));$('tier').value=RailLab.TIERS.at(-1).id;
+$('legend').innerHTML=RailLab.TIERS.map((t,i)=>`<span><i class="swatch" style="background:rgb(${COLORS[i].map(x=>Math.round(x*255)).join(',')})"></i>${t.name} ${t.length}×${t.width}×${t.height}</span>`).join('');
+let config,path,fleet=[],ordered=[],solution=null,measure=null,frontS=0,dir=1,speed=0,playing=false,fault='',custom=false,reports=[],scanToken=0,busy=false,lastApplied=null,batches=[],activeWorker=null,scanResolve=null;
+function describe(text){return String(text||'').replaceAll('coupler angle exceeds limit','车钩夹角超过候选上限').replaceAll('lateral clearance envelope exceeded','侧向包络超过净空').replaceAll('roof clearance envelope exceeded','顶部包络超过净空').replaceAll('track intrusion below contact datum','车体侵入接触基准面以下').replaceAll('vehicle OBB overlap detected','车辆三维盒包络相交').replaceAll('contact spacing exceeds experimental tolerance','接触点间距误差超出候选门槛').replaceAll('coupler length exceeds experimental tolerance','车钩长度误差超出候选门槛').replaceAll('cannot solve coupling before vehicle','未找到车钩约束解，位置在车辆').replaceAll('cannot place first vehicle contact base on path','首车接触点无法放入当前路径').replaceAll('leading contact lies outside path','参考接触点超出路径');}
+function inputs(){for(const [k,label] of [...trackFields,...mechFields]){const el=$('p-'+k);if(!el.checkValidity())throw Error(label+'超出本原型输入范围');}return {...RailLab.DEFAULTS,...Object.fromEntries([...trackFields,...mechFields].map(([k])=>[k,Number($('p-'+k).value)])),scene:$('scene').value};}
+function setInputs(values){for(const [k,v] of Object.entries(values)){const el=$('p-'+k);if(el)el.value=v;}if(values.scene)$('scene').value=values.scene;}
+function selectedIds(){const n=+$('count').value,ids=RailLab.TIERS.map(t=>t.id);return Array.from({length:n},(_,i)=>$('pattern').value==='same'?$('tier').value:$('pattern').value==='ascending'?ids[i%ids.length]:ids[i%2?0:4]);}
+function message(text,bad=false){$('notice').textContent=text;$('notice').className=bad?'bad':'';}
+function setBusy(value){busy=value;$('export').disabled=$('csv').disabled=value;}
+function stopScan(){scanToken++;if(busy&&batches.length)batches.at(-1).cancelled=true;activeWorker?.terminate();activeWorker=null;if(scanResolve){scanResolve(null);scanResolve=null;}setBusy(false);}
+function bounds(){const span=fleet.reduce((a,v)=>a+v.length+config.coupler,0);return {lo:Math.max(span+3,path.start-10),hi:Math.min(path.length-3,path.end+span+10)};}
+function rebuild(keepFleet=false){
+ const previous={config,path,fleet,ordered,solution,measure,frontS,dir,fault,custom};
+ stopScan();playing=false;speed=0;dir=1;fault='';
+ try{config=inputs();path=RailLab.buildPath(config);if(!keepFleet||!fleet.length){fleet=RailLab.makeFleet(selectedIds(),config,$('dual').checked);custom=false;}ordered=fleet.slice();const b=bounds();frontS=b.lo;solution=null;if(!evaluate(frontS,false))throw Error(fault);renderer.setPath(path,config);drawFleetRows();renderState();renderer.focus();lastApplied={config:{...config},fleet:fleet.map(v=>({...v})),custom,count:$('count').value,pattern:$('pattern').value,tier:$('tier').value,dual:$('dual').checked};message(fault?'当前配置或初始姿态出现候选失败：'+fault:'候选配置已重置。先逐步观察，再运行采样；所有通过状态仍是实验结果。',!!fault);}
+ catch(e){({config,path,fleet,ordered,solution,measure,frontS,dir,fault,custom}=previous);playing=false;speed=0;renderState();message('配置未应用，保留上次实验：'+describe(e.message),true);return false;}
+ return true;
+}
+function evaluate(s,enforce=true){
+ const next=RailLab.solve(path,s,ordered,config,dir);
+ if(!next.ok){fault=describe(next.reason)||'未找到编组约束解';playing=false;speed=0;message('求解失败，保留最后有效姿态：'+fault,true);return false;}
+ const m=RailLab.metrics(path,next,config);
+ if(enforce&&!m.ok){fault=describe((m.reasons||[]).join('；'));playing=false;speed=0;message('采样约束失败，保留最后有效姿态：'+fault,true);return false;}
+ solution=next;measure=m;frontS=s;fault=m.ok?'':describe((m.reasons||[]).join('；'));return true;
+}
+function renderState(){
+ if(!path||!solution)return;
+ const m=measure||{},state=fault?'候选失败':playing?'运行中':speed?'暂停推进':'已停车';
+ const cells=[['状态 / 活动车头',state+' / '+ordered[0].id],['接触距最大误差',fmt(m.contactError,8)+' 格'],['车钩距最大误差',fmt(m.couplerError,8)+' 格'],['最大车钩夹角',fmt(m.maxAngle,2)+'°'],['侧向包络 / 限值',fmt(m.lateral)+' / '+config.clearance],['顶部 / 限值',fmt(m.top)+' / '+config.roof],['最低底部',fmt(m.bottom)+' 格'],['盒交叠对数',String((m.overlaps||[]).length)]];
+ $('stats').innerHTML=cells.map(([k,v])=>`<div class="stat"><span>${k}</span><strong>${v}</strong></div>`).join('');
+ $('position').textContent=`参考接触沿程 ${fmt(frontS,2)} / ${fmt(path.length,2)} 格 · ${dir>0?'正向':'反向'} · 速度 ${fmt(speed,1)}`;
+ const b=bounds();$('timeline').value=1000*(frontS-b.lo)/(b.hi-b.lo);
+ $('poses').innerHTML=solution.cars.map(c=>`<tr><td>${c.def.id} ${c.def.engine?'车头':''} ${c.def.facing>0?'正向车体':'反向车体'}</td><td>${fmt(c.leadS,2)} / ${fmt(c.trailS,2)}</td><td>${fmt(Math.atan2(c.axes[0][2],c.axes[0][0])*180/Math.PI,2)}° / ${fmt(Math.asin(Math.max(-1,Math.min(1,c.axes[0][1])))*180/Math.PI,2)}°</td><td>${fmt(c.def.base,2)} / ${fmt(c.def.front,2)}, ${fmt(c.def.rear,2)}</td></tr>`).join('');
+ $('collisions').textContent=(m.overlaps||[]).map(o=>`${solution.cars[o.a].def.id} / ${solution.cars[o.b].def.id}：包络交叠 ${fmt(o.penetration,5)} 格`).join('；')||'未发现盒包络交叠。';
+ $('candidate').textContent=`当前线路离散间隔 ${config.ds} 格；报告必须同时记录这个值。${custom?'当前使用逐车自定义。':''}`;
+}
+function drawFleetRows(){ $('fleetrows').innerHTML=fleet.map((v,i)=>`<tr><td>${v.id}</td><td><select data-car="${i}" data-field="tier">${RailLab.TIERS.map(t=>`<option value="${t.id}" ${t.id===v.tier?'selected':''}>${t.name}</option>`).join('')}</select></td>${['front','rear','bottom'].map(k=>`<td><input type="number" min="0" step="0.05" data-car="${i}" data-field="${k}" value="${v[k]}"></td>`).join('')}</tr>`).join(''); }
+function applyCustom(){
+ const rows=fleet.map(v=>({...v}));for(const input of $('fleetrows').querySelectorAll('[data-car]')){const k=input.dataset.field;rows[+input.dataset.car][k]=k==='tier'?input.value:+input.value;}
+ const oldFleet=fleet,oldCustom=custom;fleet=rows.map(v=>{const t=RailLab.TIERS.find(t=>t.id===v.tier);return {...v,...t,tier:t.id,id:v.id,base:t.length-v.front-v.rear};});custom=true;if(!rebuild(true)){fleet=oldFleet;ordered=dir>0?fleet.slice():fleet.slice().reverse();custom=oldCustom;drawFleetRows();renderState();}
+}
+function reverse(){
+ if(speed!==0){message('不能换端：当前仍有速度。暂停推进不等于停车，请先执行“停车”。',true);return;}
+ if(!solution||fault||!ordered.at(-1).engine){message(fault?'检查姿态不可换端，请定位到有效位置。':'不能换端：另一端没有朝外车头；单车头不能反向牵引。',true);return;}
+ const old={ordered,dir,solution,measure,frontS,fault},last=solution.cars.at(-1);ordered=ordered.slice().reverse();dir=-dir;
+ if(!evaluate(last.trailS,true)){const failure=fault;({ordered,dir,solution,measure,frontS,fault}=old);playing=false;speed=0;renderState();message('换端求解失败，原有效状态保留：'+failure,true);return;}
+ let jump=0,turn=0;for(const c of solution.cars){const before=old.solution.cars.find(o=>o.def.id===c.def.id);jump=Math.max(jump,Math.hypot(...c.center.map((x,i)=>x-before.center[i])));turn=Math.max(turn,Math.hypot(...c.axes[0].map((x,i)=>x-before.axes[0][i])));}
+ message(`停稳换端完成，车辆身份与物理朝向保留。中心位移最大 ${jump.toExponential(3)} 格；朝向向量差 ${turn.toExponential(3)}。`);renderState();
+}
+function resetApplied(){if(!lastApplied)return;setInputs(lastApplied.config);fleet=lastApplied.fleet.map(v=>({...v}));custom=lastApplied.custom;$('count').value=lastApplied.count;$('pattern').value=lastApplied.pattern;$('tier').value=lastApplied.tier;$('dual').checked=lastApplied.dual;rebuild(true);}
+function advance(dt){if(!speed)return;const s=frontS+dir*speed*dt;if(s<=1||s>=path.length-1){speed=0;playing=false;message('到达原型线路边界，停车。');return;}if(evaluate(s,true))message('按固定模拟步推进；画面不拉伸或弯曲车辆。');renderState();}
+function positionAt(p){playing=false;speed=0;const b=bounds();evaluate(b.lo+(b.hi-b.lo)*p,false);renderState();message(measure?.ok?'已重新定位到实验沿程，活动端保持不变。':'当前为不可运行的失败检查姿态：'+fault,!measure?.ok);}
+const renderer=(()=>{
+ const canvas=$('gl'),labelCanvas=$('labels'),ctx=labelCanvas.getContext('2d'),gl=canvas.getContext('webgl',{antialias:true,preserveDrawingBuffer:true});
+ if(!gl){$('booterror').style.display='block';$('booterror').textContent='浏览器未能创建 WebGL。请使用支持 WebGL 的浏览器打开本文件。';throw Error('WebGL unavailable');}
+ const vs=gl.createShader(gl.VERTEX_SHADER);gl.shaderSource(vs,'attribute vec3 p;attribute vec3 c;uniform mat4 m;varying vec3 color;void main(){gl_Position=m*vec4(p,1.);color=c;}');gl.compileShader(vs);
+ const fs=gl.createShader(gl.FRAGMENT_SHADER);gl.shaderSource(fs,'precision mediump float;varying vec3 color;void main(){gl_FragColor=vec4(color,1.);}');gl.compileShader(fs);
+ const program=gl.createProgram();gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);
+ const buffer=gl.createBuffer(),pLoc=gl.getAttribLocation(program,'p'),cLoc=gl.getAttribLocation(program,'c'),mLoc=gl.getUniformLocation(program,'m');gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(pLoc);gl.enableVertexAttribArray(cLoc);gl.vertexAttribPointer(pLoc,3,gl.FLOAT,false,24,0);gl.vertexAttribPointer(cLoc,3,gl.FLOAT,false,24,12);
+ const add=(a,b)=>a.map((x,i)=>x+b[i]),sub=(a,b)=>a.map((x,i)=>x-b[i]),mul=(a,b)=>a.map(x=>x*b),dot=(a,b)=>a.reduce((s,x,i)=>s+x*b[i],0),cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],norm=a=>mul(a,1/(Math.hypot(...a)||1));
+ let yaw=-.8,pitch=.58,distance=155,target=[0,0,0],staticLines=[],drag=null,matrix=[],mode='follow';
+ const vertex=(a,p,c)=>a.push(...p,...c),line=(a,p,q,c)=>{vertex(a,p,c);vertex(a,q,c);};
+ function local(c,x,y,z){return add(c.center,add(mul(c.axes[0],x),add(mul(c.axes[1],y),mul(c.axes[2],z))));}
+ function box(tris,lines,c,col,fill=true){
+  const [x,y,z]=c.half,pts=[[-x,-y,-z],[x,-y,-z],[x,y,-z],[-x,y,-z],[-x,-y,z],[x,-y,z],[x,y,z],[-x,y,z]].map(p=>local(c,...p));
+  const faces=[[0,3,2,1],[4,5,6,7],[0,1,5,4],[3,7,6,2],[0,4,7,3],[1,2,6,5]],light=[.68,.82,.55,1,.7,.9];
+  if(fill)faces.forEach((f,i)=>{for(const n of [f[0],f[1],f[2],f[0],f[2],f[3]])vertex(tris,pts[n],mul(col,light[i]));});
+  for(const [a,b] of [[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]])line(lines,pts[a],pts[b],[.19,.29,.32]);
+ }
+ function marker(tris,lines,p,col,size=.25){box(tris,lines,{center:p,axes:[[1,0,0],[0,1,0],[0,0,1]],half:[size,size,size]},col);}
+ function multiply(a,b){const r=Array(16).fill(0);for(let c=0;c<4;c++)for(let row=0;row<4;row++)for(let k=0;k<4;k++)r[c*4+row]+=a[k*4+row]*b[c*4+k];return r;}
+ function camera(){const cp=Math.cos(pitch),eye=add(target,[Math.cos(yaw)*cp*distance,Math.sin(pitch)*distance,Math.sin(yaw)*cp*distance]),z=norm(sub(eye,target)),x=norm(cross([0,1,0],z)),y=cross(z,x),v=[x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,eye),-dot(y,eye),-dot(z,eye),1],f=1/Math.tan(Math.PI/7),a=canvas.width/canvas.height,n=.15,far=12000,pr=[f/a,0,0,0,0,f,0,0,0,0,(far+n)/(n-far),-1,0,0,2*far*n/(n-far),0];matrix=multiply(pr,v);return {x,y};}
+ function project(p){const q=[0,0,0,0];for(let r=0;r<4;r++)q[r]=matrix[r]*p[0]+matrix[4+r]*p[1]+matrix[8+r]*p[2]+matrix[12+r];return q[3]>.1?[(q[0]/q[3]+1)*labelCanvas.width/2,(1-q[1]/q[3])*labelCanvas.height/2]:null;}
+ function drawArray(a,mode){if(!a.length)return;gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(a),gl.DYNAMIC_DRAW);gl.drawArrays(mode,0,a.length/6);}
+ function setPath(p,cfg){staticLines=[];const pts=p.points;for(let i=1;i<pts.length;i+=Math.max(1,Math.round(1/cfg.ds))){const j=Math.min(i+Math.max(1,Math.round(1/cfg.ds)),pts.length-1),axis=norm(sub(pts[j],pts[i-1])),side=norm(cross(axis,[0,1,0]));for(const k of [-1,1])line(staticLines,add(pts[i-1],mul(side,k*cfg.gauge/2)),add(pts[j],mul(side,k*cfg.gauge/2)),[.28,.37,.39]);}
+  for(let s=0;s<p.length;s+=6){const a=pointAt(p,s),b=pointAt(p,Math.min(p.length,s+.2)),side=norm(cross(sub(b,a),[0,1,0]));line(staticLines,add(a,mul(side,cfg.gauge/2+.5)),add(a,mul(side,-cfg.gauge/2-.5)),[.57,.52,.43]);}
+ }
+ function pointAt(p,s){const a=RailLab.at(p,s);return Array.isArray(a)?a:(a.p||a.point);}
+ function draw(){
+  const r=canvas.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2),w=Math.round(r.width*dpr),h=Math.round(r.height*dpr);if(canvas.width!==w||canvas.height!==h){canvas.width=labelCanvas.width=w;canvas.height=labelCanvas.height=h;}
+  if($('follow').checked&&solution?.cars.length){target=solution.cars[0].center.slice();mode='follow';}
+  camera();gl.viewport(0,0,w,h);gl.clearColor(.867,.906,.910,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.enable(gl.DEPTH_TEST);gl.uniformMatrix4fv(mLoc,false,new Float32Array(matrix));
+  const lines=staticLines.slice(),tris=[];
+  const gx=Math.round(target[0]/20)*20,gz=Math.round(target[2]/20)*20;for(let i=-10;i<=10;i++){line(lines,[gx-200,-1,gz+i*20],[gx+200,-1,gz+i*20],[.77,.83,.83]);line(lines,[gx+i*20,-1,gz-200],[gx+i*20,-1,gz+200],[.77,.83,.83]);}
+  if(solution){
+   solution.cars.forEach((c,i)=>{
+    const ti=RailLab.TIERS.findIndex(t=>t.id===c.def.tier),colliding=(measure?.overlaps||[]).some(o=>o.a===i||o.b===i),col=colliding?[.92,.28,.15]:COLORS[Math.max(0,ti)];box(tris,lines,c,col,$('solid').checked);
+    for(let x=-c.half[0]+1;x<c.half[0];x+=2)line(lines,local(c,x,c.half[1]+.01,-c.half[2]),local(c,x,c.half[1]+.01,c.half[2]),mul(col,.55));
+    if(c.def.engine){const a=local(c,c.half[0]-.2,c.half[1]+.15,0),b=local(c,c.half[0]-2,c.half[1]+.15,-1),d=local(c,c.half[0]-2,c.half[1]+.15,1);for(const p of [a,b,d])vertex(tris,p,i===0?[.96,.79,.25]:[.9,.91,.84]);}
+    if($('showcontacts').checked){marker(tris,lines,c.lead,[.1,.8,.83],.3);marker(tris,lines,c.trail,[.1,.8,.83],.3);line(lines,c.lead,c.trail,[.0,.55,.64]);marker(tris,lines,c.nose,[.97,.7,.12],.2);marker(tris,lines,c.tail,[.97,.7,.12],.2);if(i)line(lines,solution.cars[i-1].tail,c.nose,[.70,.16,.18]);}
+   });
+   if($('railframes').checked){const a=Math.max(0,Math.min(...solution.cars.flatMap(c=>[c.leadS,c.trailS]))-12),b=Math.min(path.length,Math.max(...solution.cars.flatMap(c=>[c.leadS,c.trailS]))+12);for(let s=a;s<=b;s+=10){const p=pointAt(path,s),t=norm(sub(pointAt(path,Math.min(s+.1,path.length)),p)),side=norm(cross(t,[0,1,0])),up=cross(side,t),a1=add(p,mul(side,-config.clearance)),b1=add(p,mul(side,config.clearance)),a2=add(a1,mul(up,config.roof)),b2=add(b1,mul(up,config.roof));for(const [a,b] of [[a1,b1],[a1,a2],[b1,b2],[a2,b2]])line(lines,a,b,[.37,.62,.61]);}}
+  }
+  drawArray(tris,gl.TRIANGLES);drawArray(lines,gl.LINES);ctx.clearRect(0,0,w,h);ctx.font=`${12*dpr}px system-ui`;ctx.textAlign='center';
+  if(solution)solution.cars.forEach((c,i)=>{const p=project(local(c,0,c.half[1]+1.2,0));if(p&&p[0]>0&&p[0]<w&&p[1]>0&&p[1]<h){const text=c.def.id+(i===0?' · 活动端':'');const tw=ctx.measureText(text).width;ctx.fillStyle='#ffffffdc';ctx.fillRect(p[0]-tw/2-5,p[1]-13*dpr,tw+10,17*dpr);ctx.fillStyle='#253e43';ctx.fillText(text,p[0],p[1]);}});
+ }
+ canvas.oncontextmenu=e=>e.preventDefault();canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,button:e.button};canvas.setPointerCapture(e.pointerId);};canvas.onpointerup=()=>drag=null;canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(drag.button===2){$('follow').checked=false;const basis=camera();target=add(target,add(mul(basis.x,-dx*distance/700),mul(basis.y,dy*distance/700)));}else{yaw-=dx*.006;pitch=Math.max(.04,Math.min(1.55,pitch+dy*.005));}};canvas.onwheel=e=>{e.preventDefault();distance=Math.max(12,Math.min(5000,distance*Math.exp(e.deltaY*.001)));};canvas.ondblclick=()=>focus();
+ function focus(){if(!solution)return;const a=solution.cars[0].center,b=solution.cars.at(-1).center;target=mul(add(a,b),.5);distance=Math.max(65,Math.hypot(...sub(a,b))*1.1+40);yaw=-.8;pitch=.58;$('follow').checked=false;mode='focus';}
+ function overview(){if(!path)return;const selected=path.points.filter((_,i)=>i%25===0),min=[0,1,2].map(k=>Math.min(...selected.map(p=>p[k]))),max=[0,1,2].map(k=>Math.max(...selected.map(p=>p[k])));target=mul(add(min,max),.5);distance=Math.max(100,Math.hypot(...sub(max,min))*1.05);pitch=.9;$('follow').checked=false;mode='overview';}
+ return {draw,setPath,focus,overview,top:()=>{pitch=1.54;yaw=-Math.PI/2;},side:()=>{pitch=.08;yaw=-Math.PI/2;},snapshot:()=>({yaw,pitch,distance,target,mode})};
+})();
+const GUIDES=[
+ {name:'三维弯坡',text:'泰坦与小型交替通过弯中坡顶。观察同一时刻的转向和俯仰，车体不扭曲；显示净空框后检查外摆和顶部。',scene:'bendCrest',count:8,pattern:'alternating',actions:[['进入过渡',()=>positionAt(.23)],['观察弯中坡顶',()=>positionAt(.50)],['显示净空',()=>{$('railframes').checked=true;}],['运行',()=>start()]]},
+ {name:'基线真实反例',text:'同样的8节泰坦在弯中坡谷中可能车钩仍满足长度，但上部/内侧包络相交。A已发现失败；B放宽水平和坡度过渡后采样通过。比较姿态和线路占地，再决定接受哪种候选。',scene:'bendTrough',count:8,pattern:'same',actions:[['观察A的交叠',()=>positionAt(.45)],['采样A',()=>runScan('one')],['只放宽水平',()=>{setInputs({radius:288,transition:240});rebuild();positionAt(.45);}],['同时放宽为B',()=>{setInputs({radius:288,transition:240,verticalTransition:240,clearance:9,roof:13});rebuild();positionAt(.45);}],['采样B',()=>runScan('one')]]},
+ {name:'混编与换端',text:'两端车头朝外。运行中或仅暂停时换端应被拒绝；停车后换端，车辆身份和物理朝向保持，再沿原路径回行。',scene:'bendRise',count:4,pattern:'alternating',actions:[['定位弯坡',()=>positionAt(.48)],['运行',()=>start()],['暂停后尝试换端',()=>{playing=false;reverse();}],['停车并换端',()=>{playing=false;speed=0;reverse();}],['反向运行',()=>start()]]},
+ {name:'水平道岔路径',text:'分别查看公共端到直向、左分支或右分支的水平路径。这里只研究通过姿态，不构造分支到直向的非法转接，也不实现调度或尖轨机构。',scene:'turnoutLeft',count:8,pattern:'same',actions:[['分支中段',()=>positionAt(.5)],['线路全景',()=>renderer.overview()],['改为直向',()=>{$('scene').value='turnoutStraight';rebuild();}],['改为右分支',()=>{$('scene').value='turnoutRight';rebuild();}]]},
+ {name:'寻找失败边界',text:'先比较历史起点，再收紧半径与过渡。观察车钩转角、盒交叠、净空或求解失败。失败时不调整门槛掩盖问题；放宽线路后重新测量。',scene:'reverse',count:8,pattern:'alternating',actions:[['历史起点采样',()=>runScan('one')],['收紧到反例',()=>{setInputs({radius:24,transition:12,verticalTransition:24});rebuild();positionAt(.45);}],['反例采样',()=>runScan('one')],['放宽线路',()=>{setInputs({radius:288,transition:240,verticalTransition:240,clearance:9,roof:13});rebuild();}]]}
+];
+function guide(i){const g=GUIDES[i];setInputs({...RailLab.DEFAULTS,scene:g.scene});$('count').value=g.count;$('pattern').value=g.pattern;$('dual').checked=true;rebuild();$('tabs').querySelectorAll('button').forEach((b,j)=>b.classList.toggle('active',i===j));$('guide').textContent=g.text;$('steps').innerHTML='';g.actions.forEach(([label,fn],n)=>{const b=document.createElement('button');b.textContent=`${n+1}. ${label}`;b.onclick=fn;$('steps').append(b);});}
+GUIDES.forEach((g,i)=>{const b=document.createElement('button');b.textContent=g.name;b.onclick=()=>guide(i);$('tabs').append(b);});
+function start(){if(!solution||fault){message('当前姿态或配置未通过候选检查，请调整或重新定位到有效位置。',true);return;}speed=Math.max(1,Math.min(80,+$('speed').value||16));playing=true;renderState();}
+const uiConfig=()=>({config:{...config},fleet:fleet.map(v=>({...v})),orderedIds:ordered.map(v=>v.id),dir,frontS,speed,playing,poseStatus:measure?.ok?'sampled-valid':'inspection-failed',fault,camera:renderer.snapshot()});
+async function runScan(kind){
+ if(busy){message('已有采样任务，请先停止或等它完成。');return;}playing=false;const token=++scanToken;setBusy(true);const steps=Math.max(16,Math.min(640,+$('samples').value||64)),cfg={...config},cases=[],ids=RailLab.TIERS.map(t=>t.id),scenes=kind==='scenes'||kind==='matrix'?RailLab.SCENES:[RailLab.SCENES.find(s=>s.id===cfg.scene)];
+ const add=(scene,vs,label)=>cases.push({config:{...cfg,scene:scene.id},fleet:vs.map(v=>({...v})),label,sceneName:scene.name});
+ for(const scene of scenes){if(kind==='pairs'||kind==='matrix'){for(const a of ids)for(const b of ids)add(scene,RailLab.makeFleet([a,b],cfg,true),`${a} → ${b}`);if(kind==='matrix')for(const n of [4,8]){for(const id of ids)add(scene,RailLab.makeFleet(Array(n).fill(id),cfg,true),`${n} 节 ${id} 同档双头`);const alt=Array.from({length:n},(_,i)=>ids[i%2?0:4]);add(scene,RailLab.makeFleet(alt,cfg,false),`${n} 节大小交替单头`);add(scene,RailLab.makeFleet(alt,cfg,true),`${n} 节大小交替双头`);}}else add(scene,fleet,`${fleet.length} 节当前配置`);}
+ const batch=Date.now(),batchInfo={id:batch,kind,expected:cases.length,completed:0,cancelled:false};batches.push(batchInfo);
+ const workerUrl=URL.createObjectURL(new Blob([document.getElementById('rail-math').textContent+"\nself.onmessage=e=>{const {item,steps}=e.data;try{const p=RailLab.buildPath(item.config);self.postMessage({result:RailLab.scan(p,item.fleet,item.config,steps)});}catch(error){self.postMessage({result:{ok:false,complete:false,reason:error.message}});}};"],{type:'text/javascript'}));
+ const worker=new Worker(workerUrl);activeWorker=worker;let done=0;
+ for(const item of cases){if(token!==scanToken)break;$('reportsummary').textContent=`采样 ${done+1}/${cases.length}：${item.sceneName} · ${item.label}。可停止，已完成报告保留。`;const started=performance.now();
+  const response=await new Promise(resolve=>{scanResolve=resolve;worker.onmessage=e=>{scanResolve=null;resolve(e.data);};worker.onerror=e=>{scanResolve=null;resolve({result:{ok:false,complete:false,reason:e.message}});};worker.postMessage({item,steps});});
+  if(token!==scanToken||!response)break;reports.push({...item,result:response.result,batch,steps,elapsedMs:performance.now()-started});done++;batchInfo.completed=done;drawReports();
+ }
+ worker.terminate();URL.revokeObjectURL(workerUrl);if(activeWorker===worker)activeWorker=null;if(token===scanToken)setBusy(false);
+ if(token===scanToken||!busy)$('reportsummary').textContent=`本批完成 ${done}/${cases.length} 项；共保留 ${reports.length} 项报告，表格显示最近 ${Math.min(reports.length,120)} 项。${done<cases.length?'已停止，未完成项未获验证。':'全部是离散姿态采样，不代表可调范围已获认证。'}`;
+
+}
+function normalizeReport(r){const x=r.result,peak=k=>x.peaks?.[k]?.value,first=Number.isFinite(x.firstFailure?.frontS)?x.firstFailure:null;return {ok:x.ok===true&&x.complete===true,lateral:peak('lateral'),top:peak('top'),bottom:peak('bottom'),angle:peak('maxAngle'),first,reason:describe(x.reason||(first?.reasons||[]).join('；')),samples:x.samples??0};}
+function drawReports(){ $('reports').innerHTML=reports.slice(-120).map((r,i)=>{const m=normalizeReport(r);return `<tr><td>${r.sceneName} / ${r.label}</td><td>${m.samples}</td><td class="${m.ok?'good':'bad'}">${m.ok?'采样通过':'失败 / 不完整'}</td><td>${fmt(m.lateral,2)} / ${fmt(m.top,2)} / ${fmt(m.bottom,2)}</td><td>${fmt(m.angle,2)}°</td><td>${m.reason||'—'}</td></tr>`;}).join(''); }
+function download(name,content,type){const a=document.createElement('a'),url=URL.createObjectURL(new Blob([content],{type}));a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+$('run').onclick=start;$('pause').onclick=()=>{playing=false;renderState();message('已暂停推进，速度保留；换端仍须停车。');};$('stop').onclick=()=>{playing=false;speed=0;renderState();message('已停车，可在另一端有朝外车头时换端。');};$('step').onclick=()=>{playing=false;if(!speed){message('当前速度为零。先运行再暂停，可以逐步检查移动。');return;}advance(1/60);};$('reverse').onclick=reverse;$('reset').onclick=resetApplied;$('apply').onclick=()=>rebuild();$('fleetapply').onclick=()=>rebuild();$('customapply').onclick=applyCustom;$('scene').onchange=()=>rebuild(custom);$('timeline').oninput=()=>positionAt(+$('timeline').value/1000);
+$('focus').onclick=renderer.focus;$('overview').onclick=renderer.overview;$('top').onclick=renderer.top;$('side').onclick=renderer.side;
+$('measuredFailure').onclick=()=>{guide(1);positionAt(.45);renderer.focus();$('viewport').scrollIntoView({block:'center'});};
+$('measuredRoomier').onclick=()=>{guide(1);setInputs({radius:288,transition:240,verticalTransition:240,clearance:9,roof:13});rebuild();positionAt(.45);renderer.focus();$('viewport').scrollIntoView({block:'center'});};
+$('rangeCandidate').onclick=()=>{guide(1);$('tier').value='titan';setInputs({radius:288,transition:240,verticalTransition:240,clearance:9,roof:13,couplerHeight:1,maxCouplerAngle:15,overhang:1.25,asymmetry:.75,bottom:.5});rebuild();positionAt(.45);renderer.focus();$('viewport').scrollIntoView({block:'center'});};
+$('zeroBottom').onclick=()=>{$('rangeCandidate').click();setInputs({overhang:1,asymmetry:0,bottom:0});rebuild();positionAt(.30);renderer.focus();message('底高为零是范围外反例；请采样检查坡度过渡处的侵轨。',true);};
+$('baseline').onclick=()=>{setInputs({...RailLab.DEFAULTS});rebuild();};$('roomier').onclick=()=>{setInputs({radius:288,transition:240,verticalTransition:240,clearance:9,roof:13});rebuild();};$('tight').onclick=()=>{setInputs({radius:24,transition:12,verticalTransition:24,scene:'reverse'});rebuild();};
+$('scan').onclick=()=>runScan('one');$('pairs').onclick=()=>runScan('pairs');$('scenes').onclick=()=>runScan('scenes');$('matrix').onclick=()=>runScan('matrix');$('cancel').onclick=()=>{stopScan();message('已请求停止采样，已完成报告保留。');};$('clearreports').onclick=()=>{stopScan();reports=[];batches=[];drawReports();$('reportsummary').textContent='报告已清空。';};
+$('worst').onclick=()=>{const r=reports.slice().reverse().find(r=>normalizeReport(r).first);if(!r){message('报告中还没有可定位的首失败位置。');return;}const m=normalizeReport(r),s=m.first.frontS;setInputs(r.config);fleet=r.fleet.map(v=>({...v}));custom=true;rebuild(true);evaluate(s,false);renderState();renderer.focus();message('正在检查首个失败采样姿态（不可运行）：'+m.reason,true);};
+$('export').onclick=()=>download('rail-mechanics-108-report.json',JSON.stringify({prototype:'rail-mechanics-108',verdict:'visual-behavior-accepted-range-not-approved',createdAt:new Date().toISOString(),limitations:['discrete polyline and pose samples only','no continuous sweep, occupancy or Godot validation'],current:uiConfig(),metrics:measure,batches,reports},null,2),'application/json');
+$('csv').onclick=()=>{const quote=x=>'"'+String(x??'').replaceAll('"','""')+'"';download('rail-mechanics-108-summary.csv','\ufeff'+[['线路','编组','采样数','采样通过','侧向','顶部','底部','最大钩角','原因','耗时ms','完整求解','首失败沿程','批次完成/总数'],...reports.map(r=>{const m=normalizeReport(r);return [r.sceneName,r.label,m.samples,m.ok,m.lateral,m.top,m.bottom,m.angle,m.reason,r.elapsedMs,r.result.complete,r.result.firstFailure?.frontS,(()=>{const b=batches.find(b=>b.id===r.batch);return b?`${b.completed}/${b.expected}${b.cancelled?' 已停止':''}`:'—';})()];})].map(row=>row.map(quote).join(',')).join('\r\n'),'text/csv;charset=utf-8');};
+window.railPrototype={snapshot:()=>({...uiConfig(),metrics:measure,fault,reports:reports.length}),set:values=>{setInputs(values);rebuild();},seek:positionAt,runScan,reverse,stop:()=>{playing=false;speed=0;},math:RailLab};
+guide(0);let lastTime=performance.now(),accumulator=0;
+function frame(now){const delta=Math.min(.1,(now-lastTime)/1000);lastTime=now;if(playing){accumulator+=delta;let n=0;while(accumulator>=1/60&&playing&&n++<6){advance(1/60);accumulator-=1/60;}}else accumulator=0;renderer.draw();requestAnimationFrame(frame);}requestAnimationFrame(frame);
+</script></body></html>
