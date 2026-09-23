@@ -9,7 +9,7 @@
 <div class="eyebrow">可丢弃原型 · 决策实验 108 · 离线单文件</div>
 <h1>三维弯坡 × 五档混编</h1>
 <p>这次实验要回答：在两个等效接触点、刚性车体和统一固定长度车钩下，哪些线路与机械参数值得进入正式验证？观察真实三维转向与俯仰，再检查采样误差和失败位置。</p>
-<p class="note">首轮三维运动与停车换端观感已获确认；B 已接受为下一轮实验基准，坡度过渡按水平投影距离配置。<strong>机械范围与误差门槛仍是实验候选</strong>。这里检查折线路径上的离散姿态与盒状车体，不证明连续扫掠安全、实体轨道占格、真实轮轨接触或正式 Godot 效果。不实现多列车调度。</p>
+<p class="note">首轮三维运动与停车换端观感已获确认；B 已接受为下一轮实验基准，坡度过渡按水平投影距离配置。<strong>机械范围与统一轨距已成为实施目标，最终线路、净空与误差门槛仍待确认</strong>。这里检查折线路径上的离散姿态与盒状车体，不证明连续扫掠安全、实体轨道占格、真实轮轨接触或正式 Godot 效果。不实现多列车调度。</p>
 <div class="layout"><div>
 <section class="card">
 <div class="row"><h2 style="margin-right:auto">当前实验</h2><select id="scene" aria-label="线路案例"></select><button id="apply" class="primary">应用公共参数并重建编组</button></div>
@@ -30,9 +30,10 @@
 <p>每项 65 个沿程姿态，共 38,025 个姿态／组，线路离散间隔 0.5 格。两组使用满尺寸包络、前后悬伸各1、底高0.75、车钩长1、安装高0.5、夹角候选上限30°；A 净空8/12，B 净空9/13。报告不覆盖全部可调机械配置，也不证明连续安全。</p>
 <p>A 的三项失败分别为弯中坡谷的“泰坦＋泰坦”“4节同档泰坦”“8节同档泰坦”。加密到161个姿态时，8节泰坦的最大盒交叠约0.283格；线路间隔减半后仍约0.283格。只增大水平半径或只加长坡度过渡仍有交叠；B同时放宽后这组采样通过。</p>
 <div class="row"><button id="measuredFailure">查看 A 的真实失败</button><button id="measuredRoomier">查看同编组的 B</button></div>
-<p class="muted" style="font-size:12px">完整原始测量随附 rail-mechanics-108.measurements.json；本页可自行重跑并导出。全基线矩阵是配置样本证据，不是整个参数区间的认证。</p></section>
-<section class="card"><h2>第二轮机械范围候选 · 待确认</h2>
-<p>前、后悬伸各自 0.5–2 格，车底高 0.5–1 格；轴距等于声明档位的包络长度减去两端悬伸。五档共用连接长 1 格、安装高 1 格、三维车钩夹角上限 15°。安装高从首轮 0.5 调到 1，使接口不会低于候选范围内的车体底面；这项调整及本轮范围尚待确认。</p>
+<p class="muted" style="font-size:12px">完整原始测量随附 rail-mechanics-108.measurements.json；历史测量源见归档提交 360ee98；当前页已修正线路积分为步内中点朝向，重跑结果可能略有差异。全基线矩阵是配置样本证据，不是整个参数区间的认证。</p></section>
+<section class="card"><h2>首批机械范围 · 已采纳为实施目标</h2>
+<p class="note">本轮修正线路位置积分为步内中点朝向：复测机械范围并补齐已批准默认机械配置的15类线路矩阵，共2,657项、107,425个范围内姿态采样通过；两个底高为零的范围外反例仍失败。细分前后的几何位置差最多约0.00072格，仍不构成连续误差上界证明。当前报告见 JSON 的 thirdRound；下文2,072项为第二轮历史记录。</p>
+<p>前、后悬伸各自 0.5–2 格，车底高 0.5–1 格；轴距等于声明档位的包络长度减去两端悬伸。五档共用连接长 1 格、安装高 1 格、三维车钩夹角上限 15°。安装高从首轮 0.5 调到 1，使接口不会低于候选范围内的车体底面；这项调整及机械范围已获确认，轨距固定为两条轮轨参考线之间 1.5 格。</p>
 <p>四类重点线路覆盖逐车不同边界配置；弯中坡谷另查五档有序双车的全部 8×8 个机械角点组合。每车 8 个角点来自前悬、后悬、底高各取上下界。另对最紧张的已测结果加密，并保留底高为零的侵轨反例。范围内共 2,072 项、69,400 个姿态通过；另两个底高为零的反例失败。已测最大钩角约 7.53°，最小底部余量约 0.424 格。完整记录在随附 JSON 的 rangeExperiments / rangeRefinement；这些实验不证明整个连续范围。</p>
 <div class="row"><button id="rangeCandidate">查看候选边界配置</button><button id="zeroBottom">查看底高为零的反例</button></div></section>
 <section class="card"><h2>引导观察</h2><div id="tabs" class="row tabs"></div><p id="guide" class="muted" style="margin-top:10px"></p><div id="steps" class="steps"></div><p class="muted" style="font-size:12px">切换案例会恢复已知配置。自由调整不受引导顺序限制；红色结果是待解释的失败，不会偷偷拉伸车体或继续穿过。</p></section>
@@ -46,7 +47,7 @@
 <section class="card"><h2>线路候选</h2><div class="row"><button id="baseline">历史起点</button><button id="roomier">较宽松线路</button><button id="tight">紧弯反例</button></div><p class="muted" style="font-size:12px">三个按钮是对照实验，不是已批准标准。</p><div class="params" id="trackparams"></div><p class="muted" style="font-size:12px">水平逐弯缓和长度 L=min(L₀,R×|θ|)。本原型用水平投影距离参数化坡度过渡，再换算三维沿程；该长度口径尚待反馈，不冒充旧原型的三维弧长。</p></section>
 <section class="card"><h2>统一机械候选</h2><div class="params" id="mechanicalparams"></div><p class="muted" style="font-size:12px">车长固定为档位上限；轴距=车长−前悬伸−后悬伸。统一车钩安装高度相对接触点基准。轨距目前用于显示及横向可容纳检查，不证明转向架或车轮运动学。</p></section>
 <section class="card"><h2>编组与逐车配置</h2><div class="row"><label>节数 <select id="count"><option>2</option><option>4</option><option selected>8</option></select></label><select id="pattern"><option value="alternating">泰坦 / 小型交替</option><option value="same">全部同档</option><option value="ascending">五档循环</option></select><select id="tier"></select><label><input id="dual" type="checkbox" checked>两端朝外车头</label><button id="fleetapply">生成编组</button></div><p class="muted" style="font-size:12px">下表从线路正向前端到后端排列；换端保留每节车的身份和车体朝向。应用公共参数会覆盖逐车配置；重置恢复最近已应用的实验。</p><div class="scroll"><table><thead><tr><th>车</th><th>档位</th><th>前悬</th><th>后悬</th><th>底高</th></tr></thead><tbody id="fleetrows"></tbody></table></div><button id="customapply" style="margin-top:8px">应用逐车配置</button></section>
-<section class="card"><h2>判断边界</h2><ul class="checklist"><li>运行推进失败：停在最后有效姿态并报告；手动定位可显示不可运行的失败检查姿态。求解失败不等于数学上已证明无解。</li><li>当前误差候选：距离 10⁻⁵ 格，净空/交叠容差 10⁻⁴ 格；不是正式产品阈值。</li><li>车体按完整盒包络检查，轨道与轮组是示意。</li><li>水平道岔仅验证公共端与直向/分支的单条路径；这里不模拟尖轨、信号和联锁。</li><li>原型采样通过后，首轮观感已确认；机械范围仍待确认，并须完成正式领域、连续扫掠、损伤、存档和 Godot 验证。</li></ul><p id="candidate" class="muted"></p></section>
+<section class="card"><h2>判断边界</h2><ul class="checklist"><li>运行推进失败：停在最后有效姿态并报告；手动定位可显示不可运行的失败检查姿态。求解失败不等于数学上已证明无解。</li><li>当前误差候选：距离 10⁻⁵ 格，净空/交叠容差 10⁻⁴ 格；不是正式产品阈值。</li><li>车体按完整盒包络检查，轨道与轮组是示意。</li><li>水平道岔仅验证公共端与直向/分支的单条路径；这里不模拟尖轨、信号和联锁。</li><li>原型采样通过后，首轮观感已确认；机械范围已采纳为实施目标，并须完成正式领域、连续扫掠、损伤、存档和 Godot 验证。</li></ul><p id="candidate" class="muted"></p></section>
 </aside></div>
 <p class="footer">状态只在内存中。导出是手动保存实验记录，不写游戏存档。原型位置：docs/design/rail-mechanics-108.prototype.html；正式规则见铁路决策与后续实施规格。</p>
 </main>
@@ -149,8 +150,8 @@ const RailLab = (() => {
     const du=c.ds;
     for(let u=0;u<total-EPS;) {
       const h=Math.min(du,total-u), um=u+h/2;
-      yaw += curvature(um)*h;
-      const pitch=pitchAt(um), d=[Math.cos(yaw)*h,Math.tan(pitch)*h,Math.sin(yaw)*h];
+      const yawMid = yaw + curvature(um)*h/2; yaw += curvature(um)*h;
+      const pitch=pitchAt(um), d=[Math.cos(yawMid)*h,Math.tan(pitch)*h,Math.sin(yawMid)*h];
       const np=add(p,d); s+=len(d); u+=h; p=np;
       points.push(p); stations.push({s,u,yaw,pitch});
     }
@@ -435,7 +436,7 @@ $('zeroBottom').onclick=()=>{$('rangeCandidate').click();setInputs({overhang:1,a
 $('baseline').onclick=()=>{setInputs({...RailLab.DEFAULTS});rebuild();};$('roomier').onclick=()=>{setInputs({radius:288,transition:240,verticalTransition:240,clearance:9,roof:13});rebuild();};$('tight').onclick=()=>{setInputs({radius:24,transition:12,verticalTransition:24,scene:'reverse'});rebuild();};
 $('scan').onclick=()=>runScan('one');$('pairs').onclick=()=>runScan('pairs');$('scenes').onclick=()=>runScan('scenes');$('matrix').onclick=()=>runScan('matrix');$('cancel').onclick=()=>{stopScan();message('已请求停止采样，已完成报告保留。');};$('clearreports').onclick=()=>{stopScan();reports=[];batches=[];drawReports();$('reportsummary').textContent='报告已清空。';};
 $('worst').onclick=()=>{const r=reports.slice().reverse().find(r=>normalizeReport(r).first);if(!r){message('报告中还没有可定位的首失败位置。');return;}const m=normalizeReport(r),s=m.first.frontS;setInputs(r.config);fleet=r.fleet.map(v=>({...v}));custom=true;rebuild(true);evaluate(s,false);renderState();renderer.focus();message('正在检查首个失败采样姿态（不可运行）：'+m.reason,true);};
-$('export').onclick=()=>download('rail-mechanics-108-report.json',JSON.stringify({prototype:'rail-mechanics-108',verdict:'visual-behavior-accepted-range-not-approved',createdAt:new Date().toISOString(),limitations:['discrete polyline and pose samples only','no continuous sweep, occupancy or Godot validation'],current:uiConfig(),metrics:measure,batches,reports},null,2),'application/json');
+$('export').onclick=()=>download('rail-mechanics-108-report.json',JSON.stringify({prototype:'rail-mechanics-108',verdict:'mechanical-target-and-gauge-approved-track-and-tolerances-pending',createdAt:new Date().toISOString(),limitations:['discrete polyline and pose samples only','no continuous sweep, occupancy or Godot validation'],current:uiConfig(),metrics:measure,batches,reports},null,2),'application/json');
 $('csv').onclick=()=>{const quote=x=>'"'+String(x??'').replaceAll('"','""')+'"';download('rail-mechanics-108-summary.csv','\ufeff'+[['线路','编组','采样数','采样通过','侧向','顶部','底部','最大钩角','原因','耗时ms','完整求解','首失败沿程','批次完成/总数'],...reports.map(r=>{const m=normalizeReport(r);return [r.sceneName,r.label,m.samples,m.ok,m.lateral,m.top,m.bottom,m.angle,m.reason,r.elapsedMs,r.result.complete,r.result.firstFailure?.frontS,(()=>{const b=batches.find(b=>b.id===r.batch);return b?`${b.completed}/${b.expected}${b.cancelled?' 已停止':''}`:'—';})()];})].map(row=>row.map(quote).join(',')).join('\r\n'),'text/csv;charset=utf-8');};
 window.railPrototype={snapshot:()=>({...uiConfig(),metrics:measure,fault,reports:reports.length}),set:values=>{setInputs(values);rebuild();},seek:positionAt,runScan,reverse,stop:()=>{playing=false;speed=0;},math:RailLab};
 guide(0);let lastTime=performance.now(),accumulator=0;
