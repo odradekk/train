@@ -21,3 +21,5 @@ Voxel count: 0.
 ```
 
 提交前按最终保留的新件数量预检 ID；单项替换需要一个。失败不分配新 ID；再提交会进入不可加载的事务计数时返回 `TransactionExhausted`，ID 不足时返回 `EntityIdExhausted`，两者均不改权威状态、`NextEntityId` 或事务计数。用法不合法时只给出 Usage。批量替换见 [`composite batch`](composite-batch.md)。
+
+定时执行：末尾追加 `at <step>`，在该步边界执行；新 ID 在执行时才分配。输出与规则见 [`voxel edits`](voxel-edits.md)。

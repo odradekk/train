@@ -69,6 +69,36 @@ Simulation Tick
 - 有效待执行命令引用曾经存在但已销毁的目标，不等于存档损坏；允许随存档恢复，并在原时机检查和拒绝。未知格式、非法编号或损坏的必要世界引用仍按加载失败处理，不能借此宽松解释坏档。
 - 不可恢复的内部异常或不变量破坏另作模拟故障，停在最后完整提交边界并导出诊断，不伪装成普通操作拒绝。
 
+#### 世界修改命令
+
+[#122](https://github.com/odradekk/train/issues/122) 让体素增删与伤害、车辆制造与伤害、五类改装与批量改装统一成为已解析的世界修改命令（`Domain/Commands/`），由 `VoxelDevelopmentSession.SubmitEdit` 这一个校验与事务入口执行。控制台、Playground 面板和自动验证序列只负责把输入解析成命令，不直接改世界。
+
+- 接受时分配递增 `edit_id`，并在当前边界取下一个步内序号；立即命令在该位置执行。带目标步的命令排队，时钟推进到目标步后把边界序号清零，在该步列车命令之前，按 `edit_id` 顺序逐条取新序号执行。执行时的预期拒绝同样占用该位置并出队；过去步、`edit_id` 或序号到达 `ulong.MaxValue`、会话故障时整次拒绝，不消耗编号或序号。
+- 每条命令以单个事务执行。内部异常时恢复执行前的世界体素、车辆、编组、列车命令队列、实体 ID、事务计数、跟随目标与铁路派生状态，记录 `faulted` 并锁定会话，直到重置或读档。
+- 待执行队列（下一个 `edit_id`、当前边界序号、每条命令的接受位置、目标步与规范负载）属于权威状态，进入世界指纹与格式 4 存档的 `world_edits`；执行日志是历史，只保留最近 256 条并维护链式摘要，不进入指纹或存档。
+
+#### 世界修改命令的规范编码
+
+输入格式版本 1。编码是紧凑 UTF-8 JSON，字段名与字符串按 Ordinal 比较，不依赖文化设置：
+
+- 顶层固定先写 `input_format_version`、`kind`，再按类型写固定字段顺序。`kind` 取 `voxel.add` / `voxel.remove` / `voxel.damage` / `vehicle.manufacture` / `vehicle.damage` / `vehicle.refit`。
+- 集合语义的多目标伤害按坐标（车辆伤害先按车辆 ID）与伤害值排序；改装操作列表保持提交顺序。调用方仍按自己的目标顺序拿到逐项结果。
+- 坐标与伤害值为 32 位有符号整数，实体 ID 为非零 64 位无符号整数，朝向写正交编码。`double` 使用与文化无关的 round-trip（`R`）文本，拒绝非有限值。
+- 解码拒绝重复字段、未知字段、未知 `input_format_version`、未知 `kind` 或改装 `op`（`UnknownFormat`），也拒绝越界整数、零实体 ID、非法朝向与非有限数（`Invalid`）。解码不依赖字段顺序，重新编码得到同一规范文本。
+- 摘要是规范 UTF-8 字节的 SHA-256 大写十六进制。执行记录在负载外加 `edit_id`、接受位置、目标步、状态、执行位置与结果状态；日志摘要为 `SHA-256(前一摘要 + "\n" + 记录规范文本)`，初值为 64 个 `0`。
+
+固定向量（`Train.Tests/WorldEditEncodingTests.cs` 逐字校验）：
+
+| 负载 | SHA-256 |
+| --- | --- |
+| `{"input_format_version":1,"kind":"voxel.add","position":{"x":60,"y":3,"z":20},"definition_id":"core:ferrous-ore","orientation":"px_py"}` | `16E0E34100A5B2A6A23344DFB40BA0F855F022012E7E3D38619A3DE0B50EACBC` |
+| `{"input_format_version":1,"kind":"voxel.remove","position":{"x":-1,"y":0,"z":2147483647}}` | `209294DA3F88C1CAA4EEFD667FF5997DF2FE2C9AEA44897410934CC933CB761C` |
+| `{"input_format_version":1,"kind":"voxel.damage","targets":[{"position":{"x":4,"y":4,"z":4},"amount":-2147483648},{"position":{"x":4,"y":4,"z":4},"amount":100},{"position":{"x":6,"y":4,"z":4},"amount":25}]}` | `E02157E135494F6D201224A65BBC5ED177EE4A102BA3ED6164862C2422078C88` |
+| `{"input_format_version":1,"kind":"vehicle.manufacture","definition_id":"core:dev-hollow-shell","transform":{"origin_x":60.5,"origin_y":2,"origin_z":0.1,"right_x":0,"right_y":0,"right_z":1,"up_x":0,"up_y":1,"up_z":0}}` | `ED6A6C9B725520D4E8C459DBDE106C9CD07473C5D6C6C7A10FC16FC844557E7B` |
+| `{"input_format_version":1,"kind":"vehicle.damage","targets":[{"vehicle_id":3,"cell":{"x":2,"y":1,"z":0},"amount":5},{"vehicle_id":12,"cell":{"x":1,"y":0,"z":1},"amount":30},{"vehicle_id":18446744073709551615,"cell":{"x":0,"y":0,"z":0},"amount":1}]}` | `F71CCA2A5C78F15D8A0C57451773D16B6E74B67B34A5C262C348F705E92AC4E4` |
+| `{"input_format_version":1,"kind":"vehicle.refit","vehicle_id":1,"operations":[{"op":"move","part_id":7,"cell":{"x":2,"y":5,"z":1}},{"op":"add","cell":{"x":1,"y":5,"z":1},"definition_id":"core:refit-marker","orientation":"pz_py"},{"op":"remove","part_id":9},{"op":"rotate","part_id":8,"orientation":"nx_py"},{"op":"replace","cell":{"x":0,"y":0,"z":0},"definition_id":"core:refit-replacement","orientation":"px_py"}]}` | `3D69E8CBA654E58E210C095CFCFA2657B97A355ED7C242FE3E2889FEEA2033BD` |
+| 记录 `{"edit_id":1,"accepted_step":0,"accepted_sequence":0,"target_step":0,"state":"executed","executed_step":0,"executed_sequence":0,"status":"Added","edit":<上表第一行>}` | `01F384A6C4982DD98AF20F8A16D9B410A667E4CC6C3526C7EDE88ED043AF9D9E` |
+
 ### Resolver
 
 多个行为竞争共享资源时：Request → Resolver → Commit。例如 Engine A 与 Engine B 同时 RequestFuel，Resolver 采用 Explicit Gameplay Priority → Deterministic Fallback，而不是"谁先执行谁得到"。Facility 对库存 Input、Power、Labor 与 Storage Capacity 的竞争同样经 Resolver，Input 按完整 Batch 授予，Power / Labor 允许部分分配，见 [13](13-production-runtime-and-facilities.md)。生产、开采与施工 Job 严格遵守 Tick Barrier：本 Tick 提交的状态变化下一 Tick 才参与评估。

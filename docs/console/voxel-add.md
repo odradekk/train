@@ -19,3 +19,5 @@ voxel remove 4 4 4
 voxel add 4 4 4 core:ferrous-ore pz_py
 voxel query 4 4 4
 ```
+
+定时执行：在末尾追加 `at <step>`（例如 `voxel add 60 3 20 core:ferrous-ore px_py at 303`），命令进入世界修改队列，在该模拟步边界按接受顺序执行，到期时重新检查占用等前提；输出改为 `Edit <id> voxel.add pending` 与 `accepted <步:序号> target <步>` 两行。不带 `at` 时立即执行，输出同上。位置、拒绝和保存规则见 [`voxel edits`](voxel-edits.md)。
