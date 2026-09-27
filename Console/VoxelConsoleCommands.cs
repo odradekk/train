@@ -1,3 +1,4 @@
+using Train.Domain.Commands;
 using Train.Domain.Voxels;
 
 namespace Train;
@@ -27,6 +28,15 @@ public sealed class VoxelConsoleCommands
             };
             return $"Voxel world reset. {FormatWithCount(_session.Query(sample))}";
         }
+
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "edits", StringComparison.OrdinalIgnoreCase) &&
+            WorldEditConsole.Execute(_session, arguments) is { } editsText)
+            return editsText;
+
+        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
+            atStep is { } step &&
+            TryParseEdit(editArguments, out var edit))
+            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, step));
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var removePosition))
@@ -65,7 +75,28 @@ public sealed class VoxelConsoleCommands
             "Usage: voxel reset | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid>",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel remove <x> <y> <z> | voxel add <x> <y> <z> <namespace:id> <orientation>",
-            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...].");
+            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...].",
+            "add/remove/damage accept a trailing at <step> to queue the edit for that simulation step.",
+            "voxel edits [pending | log [<count>] | fault].");
+    }
+
+    private static bool TryParseEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
+    {
+        edit = null!;
+        if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
+            TryPosition(arguments, 1, out var removePosition))
+            edit = new VoxelRemoveEdit(removePosition);
+        else if (arguments.Count == 6 && string.Equals(arguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
+                 TryPosition(arguments, 1, out var addPosition) &&
+                 TryDefinition(arguments[4], out var definitionId) &&
+                 VoxelOrientation.TryParse(arguments[5], out var orientation))
+            edit = new VoxelAddEdit(addPosition, definitionId, orientation);
+        else if (arguments.Count >= 5 &&
+                 string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
+                 (arguments.Count - 1) % 4 == 0 &&
+                 TryDamageTargets(arguments, out var targets))
+            edit = new VoxelDamageEdit(targets);
+        return edit is not null;
     }
 
     private string FormatResult(WorldCommandResult result) =>
