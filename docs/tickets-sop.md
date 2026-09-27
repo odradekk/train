@@ -2,7 +2,9 @@
 
 Use this procedure for dispatch, implementation delivery, acceptance, revision, closure, and the subsequent version update of a GitHub Issue in `odradekk/train`. GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
 
-The Issue comments are the durable record of implementation and acceptance. The PR contains the code to review. A terminal reply or worktree card is a notification, not a substitute for either.
+Dispatch implementation work through **Paseo**. The coordinator uses the `paseo` skill and the available Paseo MCP tools; the Paseo CLI is an alternative interface to the same workflow. If Paseo is unavailable, report the dispatch blocker instead of silently switching to another agent launcher or worktree manager.
+
+The Issue comments are the durable record of dispatch, implementation, and acceptance. The PR contains the code to review. A Paseo message, completion notification, or workspace title is not a substitute for either.
 
 ## Roles and authority
 
@@ -20,13 +22,18 @@ Before dispatch, verify:
 - The specification and Acceptance criteria are executable without unresolved design choices.
 - The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
 - The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them before promising a PR; report any required user action.
-- The agent command is available, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](#local-validation-and-windows-builds); check the SDK, script runtime, and target-platform requirements before dispatch.
+- The requested Paseo provider is available and authenticated, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](#local-validation-and-windows-builds); check the SDK, script runtime, and target-platform requirements before dispatch.
 
 Use an independent top-level worktree from the repository's default base unless the user selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
 
-For Orca-managed creation, setup, terminals, recovery, status, or cleanup, the coordinator uses the `orca-cli` skill and its version-matched guide. Keep this tooling context out of the implementation brief: the worker needs its absolute path, branch, baseline, and independent-worktree ownership, not Orca instructions.
+Prepare it through Paseo:
 
-**Complete when:** one valid Issue has one independent worktree, a self-contained baseline, successful setup, and one ready agent.
+1. Inspect existing workspaces and agents before creating anything, so a resumed dispatch does not create a second worker for the same Issue.
+2. Read `list_profiles`, including profile notes. Honor the user's provider and model choices and select an applicable profile. If no profile fits, use `list_providers`, `list_models`, and `inspect_provider` to choose supported settings and report the selection. This SOP does not prescribe a particular model. Record the actual provider, model, mode, and thinking settings used.
+3. Use `create_workspace` with `isolation: "worktree"`, `mode: "branch-off"`, the verified project/source checkout, a task branch name, and an explicit `baseBranch` resolving to the repository's default base, normally `origin/<default-branch>`. Copy the returned `workspaceId` and absolute `cwd`; verify the actual branch and baseline SHA in that checkout.
+4. Inspect configured setup scripts with `list_workspace_scripts` and run applicable ones with `start_workspace_script`. Run any remaining repository setup and validation checks in the returned checkout. Wait for setup to succeed before sending implementation work; workspace creation alone does not prove setup passed.
+
+**Complete when:** one valid Issue has one Paseo workspace owning an independent worktree, a self-contained baseline, successful setup, and a verified agent launch configuration.
 
 ## 1. Dispatch the implementation brief — coordinator
 
@@ -34,11 +41,17 @@ The brief must begin exactly with `/implement `: one space after the command, wi
 
 Include the Issue URL, worktree path, task branch, baseline SHA, PR base branch, scope boundaries, repository instructions, required validation, PR delivery, and Issue-comment requirements. Provide verified local tool paths when needed.
 
-Send the brief once to the verified agent terminal. Confirm receipt and that work has started; a transport acknowledgement alone is not enough. Retain the worktree/terminal identity for later revision requests. The coordinator, not the worker, maintains any Orca card metadata.
+For a new worker, call Paseo `create_agent` with the prepared `workspaceId`, a descriptive title, the selected `provider/model`, applicable `settings`, and the complete brief as `initialPrompt`. Set `notifyOnFinish: true`. Supplying the brief here starts the task; do not send it again with `send_agent_prompt`.
 
-After receipt, stop monitoring by default and report the handoff. Resume acceptance when the user requests it or a previously authorized monitoring workflow delivers completion. This SOP defines the lifecycle; it does not itself start continuous polling.
+For an existing worker, first verify its `agentId`, workspace, and current task. Send a new or revision brief once with `send_agent_prompt`, using `background: true` and `notifyOnFinish: true`. Do not inject implementation briefs through a shell terminal when a Paseo agent session is available.
 
-**Complete when:** the exact brief was delivered once, the assigned agent is working, and the user knows the target Issue/worktree.
+Confirm that the agent received the intended brief and actually started task work, using its acknowledgement and task-specific activity from `get_agent_activity`. A successful create/send response or `running` status alone is insufficient. Keep this check bounded; if startup fails or remains unconfirmed, report that state and inspect the existing session rather than sending a duplicate brief.
+
+Record the Issue, `workspaceId`, `agentId`, absolute worktree path, task branch, baseline SHA, PR base, launch settings, and startup evidence in a dispatch comment on the Issue. Report the handoff to the user. These identifiers are needed for revisions and recovery; a terminal ID is supplementary when a setup terminal is involved.
+
+After startup is confirmed, stop monitoring by default. Use Paseo completion/error/permission notifications instead of continuous status polling. A notification does not constitute technical acceptance or user approval; resume acceptance when the user requests it or an already authorized review workflow applies.
+
+**Complete when:** the exact brief was delivered once through Paseo, the assigned agent has started task work, and the Issue and user have the dispatch record.
 
 ## 2. Implement and deliver a PR — implementation agent
 
@@ -97,7 +110,7 @@ Read the Issue completion brief and all subsequent discussion, then inspect the 
 If review fails:
 
 1. Reply in an Issue comment identifying the PR/head SHA and each finding: severity, violated requirement, file/line or reproduction, observed versus expected result, and requested correction.
-2. Notify the same implementation agent with a `/implement ` revision brief linking that comment. The terminal notification supplements, rather than replaces, the Issue record.
+2. Send the same Paseo implementation agent a `/implement ` revision brief linking that comment through `send_agent_prompt`, with `background: true` and `notifyOnFinish: true`. Retain the same workspace, branch, and PR. The agent message supplements, rather than replaces, the Issue record; if the session is unavailable, follow Recovery before creating a replacement.
 3. The agent fixes the same PR, reruns affected checks, and posts a new Issue comment responding to each finding with commit IDs and validation results.
 4. Re-review the new head and affected behavior. Keep the Issue open and retain the worktree throughout this loop.
 
@@ -123,7 +136,7 @@ Proceed only after the user has reviewed the acceptance result and explicitly ap
 
 1. Recheck that the PR head still matches the accepted revision, required checks pass, no unresolved review discussion remains, and the PR can merge. New commits require affected revalidation and renewed user approval. Preserve main-workspace changes.
 2. Merge the PR using the repository's configured policy or the user's selected method. Verify the remote merged state and merge commit; a local branch merge is not a substitute.
-3. Verify that the exact task worktree contains no unpreserved changes or unique commits. Reclaim it through `orca-cli` when managed by Orca, closing its terminals and removing the task branch only when safe. Account for squash/rebase merges when proving that work is retained.
+3. Verify that the exact task worktree contains no unpreserved changes or unique commits. Account for squash/rebase merges when proving that work is retained. Archive the task's Paseo workspace with `archive_workspace` only after confirming it owns no unrelated active work; this archives its agents and terminals and removes a Paseo-owned worktree when its final active workspace reference is gone. Verify the actual workspace and Git worktree state, and remove the task branch only when safe. Do not equate archiving an agent with reclaiming its workspace, or assume a successful archive removed a worktree still referenced by another workspace.
 4. Add an Issue closure comment linking the merged PR, merge commit, and final acceptance comment, and report worktree cleanup. Close the Issue as completed.
 5. Read back PR/Issue state and confirm worktree removal, then continue to step 6.
 
@@ -247,6 +260,8 @@ Historical records in `docs/validation/`, `docs/research/`, and `archive/mvp/` r
 
 ## Recovery
 
-After interruption, read the latest Issue comments, PR head/checks, worktree state, and any recorded version commit before acting. Resume the first incomplete step instead of recreating worktrees, resending accepted briefs, opening duplicate PRs, repeating completed merges, or incrementing a version twice.
+After interruption, read the latest Issue comments, PR head/checks, worktree state, and any recorded version commit before acting. Resolve the recorded Paseo `workspaceId` and `agentId` against `list_workspaces`, `list_agents`, and the relevant agent status/activity. Verify the actual checkout and branch; neither a workspace title nor an old `running` status proves that the intended worker is still active.
+
+Resume the first incomplete step instead of recreating worktrees, resending accepted briefs, opening duplicate PRs, repeating completed merges, or incrementing a version twice. For an ambiguous create/send failure, inspect existing Paseo sessions and activity before retrying. If the worker must be replaced, first confirm the old worker has stopped, preserve its changes, reuse the task workspace and branch where possible, and record the replacement agent ID and handoff in the Issue. Preserve the previous launch settings unless the user requests a change or they are no longer available; report any necessary change.
 
 A newly discovered blocker, scope change, or changed PR head returns the task to the relevant earlier step. Never treat a stale acceptance comment as approval for unreviewed code.
