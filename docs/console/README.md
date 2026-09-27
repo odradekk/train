@@ -57,7 +57,7 @@
 
 ## 使用前提与通用参数
 
-运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。
+运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单的 “Playground · …” 按钮按具名固定配置建立世界（见下文 [Playground](#playground具名固定配置)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
 
 四个切片都是有限测试配置，不是产品尺寸限制。Chunk 只作空间分区，不改变占用、耐久或朝向规则。切片 3 车辆体素不属于世界占用。切片 4 轨道占格是世界体素 `core:rail`；显示由 `TrackRenderer` 生成，不走普通立方体面。
 
@@ -123,6 +123,7 @@
 | `Unavailable` | 当前会话没有可用的存档 store 或目录；不写文件、不读档 |
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
 | `UnsupportedRailway` | 保留状态，成功路径不再返回；正式铁路、编组与运动状态已写入格式 3 |
+| `UnknownSource` | `voxel load` 的存档带有不受支持的 `world_source` 来源类型；当前会话不变 |
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
 | `Started` / `Stopped` / `Advanced` / `Paused` / `Resumed` / `ReverseUnsupported` / `StepOverflow` / `PastStep` / `NoAssembly` / `UnknownAssembly` / `NoRailway` / `MissingPropulsion` / `MissingControl` / `InsufficientSupport` / `DisconnectedPath` / `VehicleConstraint` / `TransactionExhausted` | `rail start` / `stop` / `step` / `pause` / `resume` 结果。反向启动、过去目标步、未知或未指定的多编组目标、或步号溢出整次拒绝且原状态不变。可执行目标步是 `[当前步, ulong.MaxValue]`；成功起停一律入队并消费事务，目标编组写入队列。当前步与未来步按同一入队顺序执行，到步新命令不能越过同目标步旧队列。到达 `MaxValue` 后仍执行该步命令，再推进为 `StepOverflow` |
@@ -263,6 +264,25 @@ voxel save After Railway
 ```
 
 空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id>`，以及各编组的 `assembly <id> speed … running … heading … halt …`。第 300 步后再伤害 `(110,1,15)` 100，第一段缺失 `x=110..111`；继续步进后车头前接触停在 `x=110` 入侧边界、速度 0、`halt forward-gap`，任何必要接触不得进入缺口，派生图在 `rebuild` 前为 stale 且不授权跨越。未修轨时 `rail start` 为 `DisconnectedPath`，零速与 `halt forward-gap` 保持。第 300 步伤害接触之间的 `(93,1,15)` 不立即冻结；由最先到达 `x=93` 的后方接触限位，抵达当步零速。拆分后再 `rail step 30` 伤害 `(88,1,15)` 100，仅后车立即零速并 `halt support-lost`，前车独立继续。修复只恢复可启动条件；有动力须再 `rail start` 从零加速，无动力后车仍是 `MissingPropulsion`。全毁第一段现存占格后，原轨段身份与定位几何保留、通行区间为空、`halt support-lost`；另建平行线不会接替旧引用，修原身份后才可启动。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，缺口停车、支撑失效与全毁引用都保持原权威状态且不自动解除停车。删除被引用轨段几何的坏档整次 `InvalidDelta`，当前会话与旧有效文件保留。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
+
+### Playground（具名固定配置）
+
+主菜单每个 “Playground · …” 按钮对应一份具名固定配置（`Domain/Playground/PlaygroundConfiguration.cs`）：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。HUD 显示配置 ID / 版本 / 来源类型、当前步、暂停状态与编组运动；按钮 “运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存” 与下列命令走同一正式会话操作。Playground 没有 `R` 重置或 `Esc` 返回菜单这类会丢失会话的快捷键；安全切换配置不在当前入口范围内。
+
+```text
+loglevel info
+rail query motion
+rail step
+rail step 299
+rail query assembly
+rail resume
+rail pause
+voxel save Playground Train
+```
+
+建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 3 中写出 `world_source`，新进程加载后恢复来源并保持暂停，见 [voxel load](voxel-load.md)。注意：`voxel reset` 仍是现有命令，会清空 Playground 世界并去掉来源信息。
+
+验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法与拒绝序列，并驱动真实场景按钮完成保存与跨进程恢复。
 
 ### 切片 2 边界复现
 

@@ -22,6 +22,7 @@ voxel save Slice 3 Persist
 - 模拟步、同一步 FIFO 待执行命令及其目标编组与顺序计数。目标必须是当前仍存在的编组；结构事件已取消消失目标，保存与随后加载认可同一合法队列
 - `WorldSeed`、`NextEntityId`、下一事务计数等影响后续提交 / 断裂 / 命令入队的权威状态；数组按稳定顺序写出
 - 文化无关的 JSON 数值，double 按 `G17` 往返
+- 仅 Playground 建立的世界：可选根字段 `world_source`，记录来源类型 `fixed_configuration`、具名配置 ID、配置版本、解析后的有效参数和内容依赖（种类、ID、Semantic Revision）。它只描述初始世界来源，不含验证步骤；普通切片和 `voxel reset` 之后的世界不写该字段。格式号仍为 `3`，本字段加入前的旧构建读到它会按未知字段返回 `UnknownFormat`
 
 不保存网格、Collider、场景树、高亮或 Host 显示累积余量，也不新增有状态 RNG。不从渲染 float、Mesh 或派生图反推 Transform / 轨段。目标速度来自当前动力定义，不写入存档。
 

@@ -14,6 +14,8 @@ voxel load 11111111-2222-4333-8444-555555555555
 
 成功后正式 `query` / `add` / `remove` / `damage` / `collide`、`composite` 制造 / 改装 / 伤害、`rail` 起停与步进、引用校验、`reload`、显示和已支持碰撞都绑定恢复后的会话。图 / 轨道 / 车体显示重建不得改变正式姿态或定位；各编组显示读各自已提交姿态。会话 UUID 与显示名改为存档中的值，之后 [`voxel save`](voxel-save.md) 仍写入同一目录。开发停车、线路末端、前方缺口或支撑失效停车，以及全毁被引用轨段上的已停车车辆，恢复后按当前世界重查阻塞原因并保持零速，不自动解除停车。各接触仍有支撑、仅接触点之间存在缺口的运行/滑行状态可以恢复，并按各接触实际路径继续限位。恰好抵达缺口或末端的当步必须已是零速；缺必需定位几何引用整次 `InvalidDelta`，当前会话与上一份有效文件保留。有动力编组须再执行 [`rail start`](rail-start.md) `[assembly <id>]`。Host 显示累积余量是派生状态，恢复后从 0 重新累积。
 
+存档带 `world_source`（Playground 固定配置来源）时，会话恢复该来源信息，并在恢复后处于暂停状态；速度、运行开关、停车原因和待执行命令都按存档原值保留，用 [`rail step`](rail-step.md) 或 [`rail resume`](rail-resume.md) 继续。来源信息只作记录，加载仍按当前有效定义构造世界。没有 `world_source` 的存档加载后不暂停，与之前一致。来源类型不是 `fixed_configuration` 时返回 `UnknownSource`。
+
 成功按字段分行输出 `Voxel Loaded.`、`id`、`name` 和当前世界体素总数。失败保留当前可编辑会话、当前会话 UUID/显示名和磁盘上的上一份有效存档，并报告：
 
 | 状态 | 含义 |
@@ -27,6 +29,7 @@ voxel load 11111111-2222-4333-8444-555555555555
 | `MissingDefinition` | 当前目录缺少存档用到的定义、Mod 或必要 save-local |
 | `InvalidDelta` / `Occupied` / `OutOfBounds` | Delta 或车辆状态非法、重复占格或越界 |
 | `Unavailable` | 当前会话没有可用的存档 store 或目录 |
+| `UnknownSource` | `world_source` 的来源类型不受支持 |
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持，成功路径不再返回这两项 |
 
 退出进程后再启动、进入同一切片，再用本命令恢复。不要用销毁会话或仅 `voxel reset` 代替进程重启验证。
