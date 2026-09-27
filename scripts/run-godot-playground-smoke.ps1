@@ -1,0 +1,142 @@
+param(
+    [string[]] $Configuration = @("straight-rail-train", "straight-rail-empty"),
+    [string] $OutputDirectory
+)
+
+# Real-Godot automatic entrance for the long-lived Playground (#121).
+# For each named fixed configuration it runs two isolated processes that share
+# one fresh user-data directory:
+#   1. enters through the start-menu Playground button, checks default pause,
+#      world/track/vehicle display, Godot-physics collision on a rail cell,
+#      paused frames not advancing, runs the registered validation sequences on
+#      independent sessions, drives the scene's own step / N-step / run / pause
+#      controls, and writes an ordinary save;
+#   2. loads that save in a new process and checks the source, pause, display,
+#      collision, and one single step.
+# Every run writes to a new timestamped directory; historical reports and user
+# saves are never reused.
+#
+# Command (repository root, $env:GODOT pointing at the Godot .NET console exe):
+#   pwsh -NoProfile -File scripts/run-godot-playground-smoke.ps1
+# Exit 2 if Godot is unavailable; exit 1 for a failed process or missing marker.
+
+$ErrorActionPreference = "Continue"
+$root = Split-Path -Parent $PSScriptRoot
+Set-Location $root
+
+if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
+    [Console]::Error.WriteLine("GODOT must point at the Godot .NET console executable.")
+    exit 2
+}
+
+if (-not $OutputDirectory) {
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
+    $OutputDirectory = Join-Path $root ".godot/validation/issue-121/$stamp"
+}
+if (Test-Path -LiteralPath $OutputDirectory) {
+    [Console]::Error.WriteLine("Output directory already exists: $OutputDirectory")
+    exit 1
+}
+New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
+Write-Host "Using Godot: $env:GODOT"
+Write-Host "Output: $OutputDirectory"
+
+foreach ($name in @(
+    "TRAIN_VOXEL_SMOKE", "TRAIN_VOXEL_SMOKE_REENTER", "TRAIN_VOXEL_SMOKE_RESUME", "TRAIN_VOXEL_SMOKE_SAVE_ID",
+    "TRAIN_VOXEL_OBSERVE", "TRAIN_VOXEL_OBSERVE_RESUME", "TRAIN_VOXEL_BASELINE", "TRAIN_CONTENT_SMOKE",
+    "TRAIN_CONTENT_EXPORT_SMOKE", "TRAIN_MODS_EXPORT_SMOKE", "TRAIN_LOG_SMOKE", "TRAIN_MODS_SMOKE_USER_DATA",
+    "TRAIN_PLAYGROUND_SMOKE", "TRAIN_PLAYGROUND_CONFIG", "TRAIN_PLAYGROUND_SAVE_ID",
+    "TRAIN_PLAYGROUND_CAPTURE", "TRAIN_PLAYGROUND_CAPTURE_STEPS"
+)) {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
+
+function Invoke-Godot([string] $log) {
+    $output = & $env:GODOT --headless --path . --quit-after 3000 2>&1 | ForEach-Object { "$_" }
+    $code = $LASTEXITCODE
+    $output | Set-Content -LiteralPath $log -Encoding utf8
+    return @{ Code = $code; Text = ($output -join "`n") }
+}
+
+function Require-Markers([hashtable] $run, [string[]] $markers, [string] $label) {
+    $ok = $true
+    if ($run.Code -ne 0) {
+        [Console]::Error.WriteLine("$label exited with $($run.Code).")
+        $ok = $false
+    }
+    foreach ($bad in @("PLAYGROUND_SMOKE_FAILED", "PLAYGROUND_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
+        if ($run.Text.Contains($bad)) {
+            [Console]::Error.WriteLine("$label printed $bad.")
+            $ok = $false
+        }
+    }
+    foreach ($marker in $markers) {
+        if (-not $run.Text.Contains($marker)) {
+            [Console]::Error.WriteLine("$label missing marker $marker.")
+            $ok = $false
+        }
+    }
+    return $ok
+}
+
+$failed = $false
+foreach ($config in $Configuration) {
+    $userData = Join-Path $OutputDirectory "user-data-$config"
+    New-Item -ItemType Directory -Path $userData | Out-Null
+    $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+    $env:TRAIN_PLAYGROUND_SMOKE = "1"
+    $env:TRAIN_PLAYGROUND_CONFIG = $config
+    Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID -ErrorAction SilentlyContinue
+
+    $establish = Invoke-Godot (Join-Path $OutputDirectory "$config-establish.log")
+    $ok = Require-Markers $establish @(
+        "PLAYGROUND_SMOKE_MENU_ENTER config=$config",
+        "PLAYGROUND_SMOKE_ESTABLISHED config=$config version=1 kind=fixed_configuration",
+        "paused=true step=0",
+        "PLAYGROUND_SMOKE_DISPLAY",
+        "PLAYGROUND_SMOKE_COLLISION godot_rail_hit=true godot_empty_hit=false",
+        "PLAYGROUND_SMOKE_PAUSE_HELD frames=10 step=0",
+        "PLAYGROUND_SMOKE_SEQUENCES",
+        "PLAYGROUND_SMOKE_MANUAL",
+        "PLAYGROUND_SMOKE_AFTER_STEPS_COLLISION godot_rail_hit=true",
+        "PLAYGROUND_SMOKE_SAVED id=",
+        "PLAYGROUND_SMOKE_RUN advanced=",
+        "PLAYGROUND_SMOKE_PAUSE_AFTER_RUN",
+        "PLAYGROUND_SMOKE_DONE"
+    ) "$config establish"
+    if (-not $ok) { $failed = $true; continue }
+
+    $match = [regex]::Match($establish.Text, "PLAYGROUND_SMOKE_SAVED id=([0-9a-fA-F-]{36}) step=(\d+)")
+    $saveId = $match.Groups[1].Value
+    $savedStep = [int] $match.Groups[2].Value
+    $savePath = Get-ChildItem -LiteralPath (Join-Path $userData "saves") -Recurse -Filter "save.json" | Select-Object -First 1
+    if (-not $savePath -or -not (Get-Content -LiteralPath $savePath.FullName -Raw).Contains('"world_source"')) {
+        [Console]::Error.WriteLine("$config save does not contain world_source.")
+        $failed = $true
+        continue
+    }
+
+    $env:TRAIN_PLAYGROUND_SAVE_ID = $saveId
+    $resume = Invoke-Godot (Join-Path $OutputDirectory "$config-resume.log")
+    $ok = Require-Markers $resume @(
+        "PLAYGROUND_SMOKE_RESTORED config=$config version=1 kind=fixed_configuration",
+        "paused=true step=$savedStep",
+        "PLAYGROUND_SMOKE_RESTORED_DISPLAY",
+        "PLAYGROUND_SMOKE_RESTORED_COLLISION godot_rail_hit=true godot_empty_hit=false",
+        "PLAYGROUND_SMOKE_RESTORED_STEP step=$($savedStep + 1)",
+        "PLAYGROUND_SMOKE_DONE"
+    ) "$config resume"
+    if (-not $ok) { $failed = $true; continue }
+    Write-Host "PLAYGROUND_SMOKE_CONFIG_PASSED $config save=$saveId step=$savedStep"
+}
+
+foreach ($name in @("TRAIN_PLAYGROUND_SMOKE", "TRAIN_PLAYGROUND_CONFIG", "TRAIN_PLAYGROUND_SAVE_ID", "TRAIN_MODS_SMOKE_USER_DATA")) {
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
+
+if ($failed) {
+    Write-Host "PLAYGROUND_SMOKE_FAILED (logs in $OutputDirectory)"
+    exit 1
+}
+Write-Host "PLAYGROUND_SMOKE_PASSED (logs in $OutputDirectory)"
+exit 0
