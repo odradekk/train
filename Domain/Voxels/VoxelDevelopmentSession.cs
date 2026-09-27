@@ -121,8 +121,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         ArgumentNullException.ThrowIfNull(source);
         WorldSource = source;
-        SimulationPaused = true;
-        Changed?.Invoke();
+        PauseSimulation();
     }
 
     public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
@@ -599,7 +598,7 @@ public sealed partial class VoxelDevelopmentSession
         ReplaceSession(restore);
         WorldSource = document.Source;
         if (WorldSource is not null)
-            SimulationPaused = true;
+            PauseSimulation();
         SaveId = document.Id;
         DisplayName = document.DisplayName;
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);

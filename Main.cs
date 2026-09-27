@@ -12,6 +12,7 @@ public partial class Main : Node
 
     public TrainLogger? Logger => _logger;
     public ContentReloader? Reloader => _reloader;
+    public bool ConsoleOpen => _console?.IsOpen == true;
     public string IsolatedUserDataDirectory => _modsSmokeUserData ?? OS.GetUserDataDir();
     public string IsolatedBuiltInResourcesDirectory =>
         _isolatedBuiltIn ?? throw new InvalidOperationException("Isolated built-in content is not active.");

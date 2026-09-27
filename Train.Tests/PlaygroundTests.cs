@@ -218,7 +218,7 @@ public sealed class PlaygroundTests
             PlaygroundSession.TryEstablish(PlaygroundConfigurations.StraightRailEmptyId, content.Catalog, content.Composites, null, out var empty));
         content.Attach(empty!);
         var refused = PlaygroundValidation.Execute(wrong, empty!);
-        Assert.AreEqual(PlaygroundEstablishStatus.UnknownConfiguration, refused.EstablishStatus);
+        Assert.AreEqual(PlaygroundEstablishStatus.ConfigurationMismatch, refused.EstablishStatus);
         Assert.AreEqual(0UL, empty!.SimulationStep);
     }
 

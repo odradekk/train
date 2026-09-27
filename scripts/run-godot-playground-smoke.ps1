@@ -89,13 +89,13 @@ foreach ($config in $Configuration) {
     Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID -ErrorAction SilentlyContinue
 
     $establish = Invoke-Godot (Join-Path $OutputDirectory "$config-establish.log")
-    $ok = Require-Markers $establish @(
+    $markers = @(
         "PLAYGROUND_SMOKE_MENU_ENTER config=$config",
         "PLAYGROUND_SMOKE_ESTABLISHED config=$config version=1 kind=fixed_configuration",
         "paused=true step=0",
         "PLAYGROUND_SMOKE_DISPLAY",
         "PLAYGROUND_SMOKE_COLLISION godot_rail_hit=true godot_empty_hit=false",
-        "PLAYGROUND_SMOKE_PAUSE_HELD frames=10 step=0",
+        "PLAYGROUND_SMOKE_PAUSE_HELD frames=10 step=0 console_opened=true",
         "PLAYGROUND_SMOKE_SEQUENCES",
         "PLAYGROUND_SMOKE_MANUAL",
         "PLAYGROUND_SMOKE_AFTER_STEPS_COLLISION godot_rail_hit=true",
@@ -103,7 +103,13 @@ foreach ($config in $Configuration) {
         "PLAYGROUND_SMOKE_RUN advanced=",
         "PLAYGROUND_SMOKE_PAUSE_AFTER_RUN",
         "PLAYGROUND_SMOKE_DONE"
-    ) "$config establish"
+    )
+    if ($config -eq "straight-rail-train") {
+        $markers += "PLAYGROUND_SMOKE_SEQUENCE_PASSED straight-rail-run-and-halt"
+        $markers += "PLAYGROUND_SMOKE_SEQUENCE_PASSED straight-rail-rejections"
+        $markers += "PLAYGROUND_SMOKE_MANUAL_MATCHES_SEQUENCE straight-rail-run-and-halt"
+    }
+    $ok = Require-Markers $establish $markers "$config establish"
     if (-not $ok) { $failed = $true; continue }
 
     $match = [regex]::Match($establish.Text, "PLAYGROUND_SMOKE_SAVED id=([0-9a-fA-F-]{36}) step=(\d+)")

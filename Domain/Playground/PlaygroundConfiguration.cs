@@ -13,7 +13,8 @@ public enum PlaygroundEstablishStatus
     ContentUnavailable,
     MissingContent,
     UnsupportedDeclaration,
-    InitialStateRejected
+    InitialStateRejected,
+    ConfigurationMismatch
 }
 
 public sealed record PlaygroundStaticTrain(
@@ -95,7 +96,6 @@ public static class PlaygroundConfigurations
         return PlaygroundEstablishStatus.Established;
     }
 
-    /// <summary>Effective parameters depend only on the configuration, so a saved source can be checked against the installed one.</summary>
     public static IReadOnlyList<WorldSourceParameter> EffectiveParameters(PlaygroundConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
@@ -182,5 +182,5 @@ public static class PlaygroundConfigurations
     private static string Origin(CompositeTransform transform) =>
         string.Join(',', new[] { transform.OriginX, transform.OriginY, transform.OriginZ }.Select(Number));
 
-    private static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+    private static string Number(double value) => value.ToString("G17", CultureInfo.InvariantCulture);
 }

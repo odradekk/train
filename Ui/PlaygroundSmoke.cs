@@ -71,24 +71,33 @@ internal sealed class PlaygroundSmoke
                 Next();
                 break;
             case 2:
+                if (_frames == 1)
+                    ToggleConsole();
                 Session.QueryTrainAssemblies();
                 Session.QueryRails();
                 Session.QueryCollision(StraightRailFixture.LeftRailSample);
                 if (_frames < HoldFrames)
                     break;
+                var consoleOpened = Main.ConsoleOpen;
+                ToggleConsole();
+                Require(consoleOpened, "console did not open");
                 Require(Session.SimulationPaused && Session.SimulationStep == _mark, $"paused frames moved step {_mark}->{Session.SimulationStep}");
-                GD.Print($"PLAYGROUND_SMOKE_PAUSE_HELD frames={HoldFrames} step={Session.SimulationStep}");
+                GD.Print($"PLAYGROUND_SMOKE_PAUSE_HELD frames={HoldFrames} step={Session.SimulationStep} console_opened=true");
                 Next();
                 break;
-            case 3:
-                RunIndependentSequences();
+            case 3 when !Main.ConsoleOpen:
+                Require(Session.SimulationPaused && Session.SimulationStep == _mark, "closing the console changed the clock");
                 Next();
                 break;
             case 4:
+                RunIndependentSequences();
+                Next();
+                break;
+            case 5:
                 RunManualControls();
                 Next();
                 break;
-            case 5 when _frames >= SettleFrames:
+            case 6 when _frames >= SettleFrames:
                 CheckDisplayAndCollision("PLAYGROUND_SMOKE_AFTER_STEPS");
                 var saved = _scene.SaveWorld();
                 Require(saved.Status == WorldSaveStatus.Saved, $"save status {saved.Status}");
@@ -97,7 +106,7 @@ internal sealed class PlaygroundSmoke
                 _scene.Press("run");
                 Next();
                 break;
-            case 6 when _frames >= RunFrames:
+            case 7 when _frames >= RunFrames:
                 Require(Session.SimulationStep > _mark, $"run did not advance from {_mark}");
                 var advanced = Session.SimulationStep - _mark;
                 _scene.Press("pause");
@@ -105,12 +114,20 @@ internal sealed class PlaygroundSmoke
                 GD.Print($"PLAYGROUND_SMOKE_RUN advanced={advanced} frames={RunFrames}");
                 Next();
                 break;
-            case 7 when _frames >= HoldFrames:
+            case 8 when _frames >= HoldFrames:
                 Require(Session.SimulationPaused && Session.SimulationStep == _mark, $"pause after run moved step {_mark}->{Session.SimulationStep}");
                 GD.Print($"PLAYGROUND_SMOKE_PAUSE_AFTER_RUN frames={HoldFrames} step={_mark}");
                 Finish();
                 break;
         }
+    }
+
+    private Main Main => _scene.GetNode<Main>("/root/Main");
+
+    private static void ToggleConsole()
+    {
+        Input.ParseInputEvent(new InputEventKey { Keycode = Key.Quoteleft, PhysicalKeycode = Key.Quoteleft, Pressed = true });
+        Input.ParseInputEvent(new InputEventKey { Keycode = Key.Quoteleft, PhysicalKeycode = Key.Quoteleft, Pressed = false });
     }
 
     private void AdvanceResume()
@@ -121,6 +138,7 @@ internal sealed class PlaygroundSmoke
             case 0:
                 var source = Session.WorldSource ?? throw new InvalidOperationException("restored session lost its source");
                 Require(Session.SimulationPaused, "restored Playground session is not paused");
+                Require(source.ConfigurationId == Main.PlaygroundConfigurationId, $"restored source {source.ConfigurationId} is not the requested configuration");
                 GD.Print(
                     $"PLAYGROUND_SMOKE_RESTORED config={source.ConfigurationId} version={source.ConfigurationVersion} kind={source.Kind} " +
                     $"parameters={source.EffectiveParameters.Count} dependencies={source.ContentDependencies.Count} paused=true " +
@@ -141,8 +159,7 @@ internal sealed class PlaygroundSmoke
 
     private void RunIndependentSequences()
     {
-        var main = _scene.GetNode<Main>("/root/Main");
-        var reloader = main.Reloader ?? throw new InvalidOperationException("content unavailable");
+        var reloader = Main.Reloader ?? throw new InvalidOperationException("content unavailable");
         var configurationId = Session.WorldSource!.ConfigurationId;
         var sequences = PlaygroundSequences.All.Where(item => item.ConfigurationId == configurationId).ToArray();
         foreach (var sequence in sequences)
@@ -177,9 +194,25 @@ internal sealed class PlaygroundSmoke
         {
             var front = Session.QueryTrainAssemblies().Single().Vehicles[0].FrontContact.X;
             Require(Math.Abs(front - 96.0) < 1e-8, $"manual front contact {front}");
+            RequireManualMatchesSequence();
         }
 
         GD.Print($"PLAYGROUND_SMOKE_MANUAL step={Session.SimulationStep} paused=true {MotionText()}");
+    }
+
+    private void RequireManualMatchesSequence()
+    {
+        var sequence = PlaygroundSequences.Find(PlaygroundSequences.StraightRailRunAndHaltId)!;
+        var pressed = new[] { PlaygroundOperation.Start(), PlaygroundOperation.Advance(1), PlaygroundOperation.Advance(299) };
+        Require(sequence.Steps.Take(pressed.Length).Select(step => step.Operation).SequenceEqual(pressed), "button operations differ from the registered sequence");
+        var checkpoint = sequence.Steps[pressed.Length - 1].Checkpoint;
+        foreach (var check in checkpoint)
+        {
+            var observed = PlaygroundCheck.Observe(Session, check.Observation);
+            Require(observed == check.Expected, $"manual {check.Observation}={observed}, sequence expects {check.Expected}");
+        }
+
+        GD.Print($"PLAYGROUND_SMOKE_MANUAL_MATCHES_SEQUENCE {sequence.Id} steps={pressed.Length} checks={checkpoint.Count}");
     }
 
     private void CheckDisplayAndCollision(string marker)

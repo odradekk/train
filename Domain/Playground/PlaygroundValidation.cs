@@ -176,7 +176,7 @@ public static class PlaygroundValidation
             return new PlaygroundSequenceReport(
                 sequence.Id,
                 sequence.ConfigurationId,
-                PlaygroundEstablishStatus.UnknownConfiguration,
+                PlaygroundEstablishStatus.ConfigurationMismatch,
                 Array.Empty<PlaygroundStepResult>(),
                 null);
 
