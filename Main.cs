@@ -1,5 +1,6 @@
 using Godot;
 using Train.Content;
+using Train.Domain.Playground;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -11,6 +12,7 @@ public partial class Main : Node
 
     public TrainLogger? Logger => _logger;
     public ContentReloader? Reloader => _reloader;
+    public bool ConsoleOpen => _console?.IsOpen == true;
     public string IsolatedUserDataDirectory => _modsSmokeUserData ?? OS.GetUserDataDir();
     public string IsolatedBuiltInResourcesDirectory =>
         _isolatedBuiltIn ?? throw new InvalidOperationException("Isolated built-in content is not active.");
@@ -56,7 +58,7 @@ public partial class Main : Node
     public override void _Ready()
     {
         var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled() ||
-                           IsVoxelBaselineEnabled()
+                           IsVoxelBaselineEnabled() || IsPlaygroundAutomationEnabled()
             ? ResolveModsSmokeUserData()
             : null;
         if (IsVoxelSmokeEnabled() || IsVoxelObserveEnabled())
@@ -164,6 +166,31 @@ public partial class Main : Node
     private static bool IsVoxelObserveEnabled() =>
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE"), "1", StringComparison.Ordinal) ||
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE_RESUME"), "1", StringComparison.Ordinal);
+
+    public static bool IsPlaygroundAutomationEnabled() =>
+        string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
+        !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(PlaygroundScene.CaptureEnvironmentVariable));
+
+    public static string ReadRequestedPlaygroundConfiguration() =>
+        System.Environment.GetEnvironmentVariable("TRAIN_PLAYGROUND_CONFIG") is { Length: > 0 } id
+            ? id
+            : PlaygroundConfigurations.StraightRailTrainId;
+
+    public string PlaygroundConfigurationId { get; private set; } = PlaygroundConfigurations.StraightRailTrainId;
+
+    public void EnterPlayground(string configurationId)
+    {
+        if (_reloader?.Catalog.Current is null)
+        {
+            _logger?.Error("playground", "playground_unavailable", "Voxel content failed to load.");
+            return;
+        }
+
+        PlaygroundConfigurationId = configurationId;
+        var error = GetTree().ChangeSceneToFile("res://Ui/PlaygroundScene.tscn");
+        if (error != Error.Ok)
+            _logger?.Error("playground", "playground_scene_failed", $"Failed to open Playground scene: {error}.");
+    }
 
     public VoxelWorldIdentity DevelopmentIdentity { get; private set; } = VoxelWorldIdentity.Slice1;
 

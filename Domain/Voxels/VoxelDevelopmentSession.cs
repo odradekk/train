@@ -33,6 +33,7 @@ public sealed partial class VoxelDevelopmentSession
     public ulong TransactionCount { get; private set; }
     public ulong SimulationStep { get; private set; }
     public bool SimulationPaused { get; private set; }
+    public WorldSource? WorldSource { get; private set; }
     public IReadOnlyList<CompositeInstance> Vehicles => _vehicles;
     public PhysicalRailState Rails => _rails;
     public bool HasRailway => _rails.HasRailway;
@@ -101,6 +102,7 @@ public sealed partial class VoxelDevelopmentSession
         _assemblies.Clear();
         NextEntityId = 1;
         TransactionCount = 0;
+        WorldSource = null;
         NoteAssemblyGraphCommit();
         ResetMotionState();
         _pendingChanges.Clear();
@@ -114,6 +116,13 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     public void DetachSaveIdentity() => SaveId = null;
+
+    internal void BindEstablishedSource(WorldSource source)
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        WorldSource = source;
+        PauseSimulation();
+    }
 
     public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
     {
@@ -549,7 +558,8 @@ public sealed partial class VoxelDevelopmentSession
                 _assemblies,
                 SimulationStep,
                 QueryScheduledTrainCommands(),
-                ScheduledCommandSequence))
+                ScheduledCommandSequence,
+                WorldSource))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
         var json = WorldSaveCodec.Serialize(document);
@@ -586,6 +596,9 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldSaveResult(buildStatus, SaveId, DisplayName);
 
         ReplaceSession(restore);
+        WorldSource = document.Source;
+        if (WorldSource is not null)
+            PauseSimulation();
         SaveId = document.Id;
         DisplayName = document.DisplayName;
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);

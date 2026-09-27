@@ -27,7 +27,8 @@ public enum WorldSaveStatus
     Unavailable,
     UnsupportedVehicles,
     UnsupportedIdentities,
-    UnsupportedRailway
+    UnsupportedRailway,
+    UnknownSource
 }
 
 public sealed record WorldSaveResult(WorldSaveStatus Status, Guid? SaveId = null, string? DisplayName = null)
@@ -76,6 +77,7 @@ public sealed class WorldSaveDocument
     public ulong SimulationStep { get; }
     public IReadOnlyList<ScheduledTrainCommandQuery> ScheduledCommands { get; }
     public ulong ScheduledSequence { get; }
+    public WorldSource? Source { get; }
 
     public WorldSaveDocument(
         int formatVersion,
@@ -98,7 +100,8 @@ public sealed class WorldSaveDocument
         IReadOnlyList<TrainAssembly>? assemblies = null,
         ulong simulationStep = 0,
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
-        ulong scheduledSequence = 0)
+        ulong scheduledSequence = 0,
+        WorldSource? source = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(generatorVersion);
         ArgumentException.ThrowIfNullOrEmpty(baseLayout);
@@ -129,6 +132,7 @@ public sealed class WorldSaveDocument
         SimulationStep = simulationStep;
         ScheduledCommands = scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
         ScheduledSequence = scheduledSequence;
+        Source = source;
     }
 
     public static bool SupportsFormat(int formatVersion) =>
@@ -159,7 +163,8 @@ public sealed class WorldSaveDocument
             assemblies,
             SimulationStep,
             ScheduledCommands,
-            ScheduledSequence);
+            ScheduledSequence,
+            Source);
 
     public static bool TryNormalizeDisplayName(string? value, out string name)
     {
@@ -298,7 +303,8 @@ public static class WorldSaveCodec
         IReadOnlyList<TrainAssembly>? assemblies = null,
         ulong simulationStep = 0,
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
-        ulong scheduledSequence = 0)
+        ulong scheduledSequence = 0,
+        WorldSource? source = null)
     {
         document = null!;
         status = WorldSaveStatus.Saved;
@@ -360,7 +366,8 @@ public static class WorldSaveCodec
             WorldSaveRailwayCodec.CaptureAssemblies(assemblies ?? Array.Empty<TrainAssembly>()),
             simulationStep,
             scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>(),
-            scheduledSequence);
+            scheduledSequence,
+            source);
         status = WorldSaveStatus.Saved;
         return true;
     }
@@ -398,6 +405,8 @@ public static class WorldSaveCodec
             writer.WriteNumber("simulation_step", document.SimulationStep);
             WorldSaveRailwayCodec.WriteCommands(writer, document.ScheduledCommands);
             writer.WriteNumber("scheduled_sequence", document.ScheduledSequence);
+            if (document.Source is { } source)
+                WorldSourceCodec.Write(writer, source);
             writer.WriteEndObject();
             writer.Flush();
         }
@@ -563,6 +572,7 @@ public static class WorldSaveCodec
         WorldSaveRailway? railway = null;
         IReadOnlyList<TrainAssembly>? assemblies = null;
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null;
+        WorldSource? source = null;
         ulong nextEntityId = 0;
         ulong transactionCount = 0;
         ulong simulationStep = 0;
@@ -686,6 +696,11 @@ public static class WorldSaveCodec
                         return Reject(WorldSaveStatus.UnknownFormat, out status);
                     hasScheduledSequence = true;
                     break;
+                case "world_source":
+                    if (!WorldSourceCodec.TryRead(property.Value, out var readSource, out status))
+                        return false;
+                    source = readSource;
+                    break;
                 default:
                     return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
@@ -726,7 +741,8 @@ public static class WorldSaveCodec
             assemblies,
             simulationStep,
             scheduledCommands,
-            scheduledSequence);
+            scheduledSequence,
+            source);
         status = WorldSaveStatus.Loaded;
         return true;
     }
