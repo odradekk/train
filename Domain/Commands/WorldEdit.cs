@@ -14,8 +14,8 @@ public enum WorldEditKind
 }
 
 /// <summary>
-/// A parsed and validated world modification. Every entry (panel, console, automatic validation, save restore)
-/// builds the same value, so equal inputs share one canonical encoding.
+/// A parsed and validated world modification. Equality is canonical-encoding equality; construction rejects
+/// values the encoding cannot represent.
 /// </summary>
 public abstract class WorldEdit : IEquatable<WorldEdit>
 {
@@ -171,7 +171,7 @@ public sealed class VehicleDamageEdit : WorldEdit
         var ordered = new CompositeDamageTargetResult[Targets.Count];
         for (var index = 0; index < ordered.Length; index++)
             ordered[SourceOrder[index]] = outcomes[index];
-        return result with { VehicleId = Targets[SourceOrder.ToList().IndexOf(0)].VehicleId, Targets = ordered };
+        return result with { VehicleId = ordered[0].VehicleId, Targets = ordered };
     }
 
     public override WorldEditKind Kind => WorldEditKind.VehicleDamage;

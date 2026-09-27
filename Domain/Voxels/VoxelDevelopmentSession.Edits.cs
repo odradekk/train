@@ -26,8 +26,15 @@ public sealed partial class VoxelDevelopmentSession
     /// <summary>Test seam for internal invariant faults: runs inside the edit transaction after the business change.</summary>
     internal Action<WorldEditRecord>? EditFaultProbe { get; set; }
 
+    // The typed entries below keep their business statuses for payloads a WorldEdit cannot encode (missing ids,
+    // non-orthogonal orientations, non-finite poses); such calls are never accepted, so they take no id or sequence.
+
     public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
     {
+        if (definitionId.Namespace is null)
+            return new WorldCommandResult(WorldCommandStatus.UnknownDefinition, position);
+        if (!orientation.IsOrthogonal)
+            return new WorldCommandResult(WorldCommandStatus.DisallowedOrientation, position);
         var submission = SubmitEdit(new VoxelAddEdit(position, definitionId, orientation));
         return submission.Result as WorldCommandResult ?? new WorldCommandResult(RefusedVoxelStatus(submission), position);
     }
@@ -56,6 +63,9 @@ public sealed partial class VoxelDevelopmentSession
 
     public CompositeDamageResult Damage(IReadOnlyList<CompositeDamageTarget> targets)
     {
+        ArgumentNullException.ThrowIfNull(targets);
+        if (targets.Any(target => target.VehicleId.Value == 0))
+            return new CompositeDamageResult(CompositeDamageStatus.UnknownVehicle, targets.First(target => target.VehicleId.Value == 0).VehicleId);
         var edit = new VehicleDamageEdit(targets);
         var submission = SubmitEdit(edit);
         return submission.Result is CompositeDamageResult result ? edit.ToCallerOrder(result) : new CompositeDamageResult(
@@ -65,7 +75,12 @@ public sealed partial class VoxelDevelopmentSession
 
     public CompositeManufactureResult Manufacture(CompositeDefinitionId definitionId, CompositeTransform? transform = null)
     {
-        var submission = SubmitEdit(new VehicleManufactureEdit(definitionId, transform ?? HollowShellFixture.DefaultTransform));
+        var pose = transform ?? HollowShellFixture.DefaultTransform;
+        if (definitionId.Namespace is null)
+            return new CompositeManufactureResult(ConstructionStatus.UnknownDefinition);
+        if (!pose.IsFinite)
+            return new CompositeManufactureResult(ConstructionStatus.NonFiniteTransform);
+        var submission = SubmitEdit(new VehicleManufactureEdit(definitionId, pose));
         return submission.Result as CompositeManufactureResult ?? new CompositeManufactureResult(RefusedConstructionStatus(submission));
     }
 
@@ -74,6 +89,9 @@ public sealed partial class VoxelDevelopmentSession
 
     public CompositeRefitResult Refit(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations)
     {
+        ArgumentNullException.ThrowIfNull(operations);
+        if (UnencodableRefit(vehicleId, operations) is { } status)
+            return new CompositeRefitResult(status, vehicleId);
         var submission = SubmitEdit(new VehicleRefitEdit(vehicleId, operations));
         return submission.Result as CompositeRefitResult ?? new CompositeRefitResult(RefusedConstructionStatus(submission), vehicleId);
     }
@@ -216,6 +234,24 @@ public sealed partial class VoxelDevelopmentSession
         EditLogCount = 0;
         EditLogDigest = WorldEditCodec.EmptyLogDigest;
         Fault = null;
+    }
+
+    private static ConstructionStatus? UnencodableRefit(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations)
+    {
+        if (vehicleId.Value == 0)
+            return ConstructionStatus.UnknownVehicle;
+        foreach (var operation in operations)
+        {
+            ArgumentNullException.ThrowIfNull(operation, nameof(operations));
+            if (operation.PartId is { Value: 0 })
+                return ConstructionStatus.UnknownPart;
+            if (operation.DefinitionId is { Namespace: null })
+                return ConstructionStatus.UnknownDefinition;
+            if (operation.Orientation is { IsOrthogonal: false })
+                return ConstructionStatus.DisallowedOrientation;
+        }
+
+        return null;
     }
 
     private static WorldCommandStatus RefusedVoxelStatus(WorldEditSubmission submission) =>

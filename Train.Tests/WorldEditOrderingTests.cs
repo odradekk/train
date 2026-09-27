@@ -274,6 +274,55 @@ public sealed class WorldEditOrderingTests
     }
 
     [TestMethod]
+    public void Typed_entries_keep_business_statuses_for_unencodable_payloads_without_taking_input()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        var vehicle = session.QueryComposites()[0].Id;
+        var part = session.QueryComposites()[0].Parts[0].Id;
+        var fingerprint = WorldSaveAuthority.Fingerprint(session);
+
+        Assert.AreEqual(WorldCommandStatus.UnknownDefinition, session.Add(Probe, default, VoxelOrientation.Identity).Status);
+        Assert.AreEqual(WorldCommandStatus.DisallowedOrientation, session.Add(Probe, Ore, default).Status);
+        Assert.AreEqual(ConstructionStatus.UnknownDefinition, session.Manufacture(default, ShellPose).Status);
+        Assert.AreEqual(CompositeDamageStatus.UnknownVehicle, session.Damage(default(EntityId), HollowShellRefit.FirstAdd, 25).Status);
+        Assert.AreEqual(ConstructionStatus.UnknownVehicle, session.Refit(default, CompositeRefitOperation.Remove(part)).Status);
+        Assert.AreEqual(ConstructionStatus.UnknownPart, session.Refit(vehicle, CompositeRefitOperation.Remove(default)).Status);
+        Assert.AreEqual(ConstructionStatus.UnknownDefinition, session.Refit(vehicle, CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, default, VoxelOrientation.Identity)).Status);
+        Assert.AreEqual(ConstructionStatus.DisallowedOrientation, session.Refit(vehicle, CompositeRefitOperation.Rotate(part, default)).Status);
+
+        Assert.AreEqual(new SimulationPosition(0, 0), session.EditBoundary);
+        Assert.AreEqual(1UL, session.NextEditId);
+        Assert.AreEqual(0UL, session.EditLogCount);
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
+    }
+
+    [TestMethod]
+    public void Motion_rejection_after_a_boundary_edit_reports_the_steps_committed_up_to_that_boundary()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        var assembly = session.QueryTrainAssemblies().Single();
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, atStep: 4).Succeeded);
+        var locomotive = session.QueryComposites().Single(vehicle => vehicle.Id == assembly.ActiveLocomotiveId);
+        var propulsion = locomotive.Parts.Single(part => part.DefinitionId == StaticTrainFixture.PropulsionId).Id;
+        Assert.AreEqual("Pending", session.SubmitEdit(new VehicleRefitEdit(locomotive.Id, new[] { CompositeRefitOperation.Remove(propulsion) }), 2).Status);
+        var changes = 0;
+        session.Changed += () => changes++;
+
+        var advanced = session.AdvanceSimulation(10);
+
+        Assert.IsFalse(advanced.Succeeded, advanced.Status.ToString());
+        Assert.AreEqual(2UL, advanced.AdvancedSteps);
+        Assert.AreEqual(2UL, advanced.SimulationStep);
+        Assert.AreEqual(2UL, session.SimulationStep);
+        Assert.AreEqual(new SimulationPosition(2, 1), session.EditBoundary);
+        Assert.AreEqual(new SimulationPosition(2, 0), session.QueryEditLog().Single().ExecutedAt);
+        Assert.AreEqual(0, session.QueryPendingEdits().Count);
+        Assert.IsTrue(changes > 0);
+    }
+
+    [TestMethod]
     public void Queries_camera_and_host_collection_do_not_take_positions()
     {
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);

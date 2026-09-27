@@ -55,6 +55,7 @@ public sealed class WorldSaveDocument
     public const int CurrentFormatVersion = 4;
     public const int PredecessorFormatVersion = 3;
     public const int OldestFormatVersion = 2;
+    public const int FirstRailwayFormatVersion = 3;
     public const int FirstWorldEditsFormatVersion = 4;
     public const string DefaultDisplayName = "Development World";
     public const int DisplayNameMinLength = 1;
@@ -736,7 +737,7 @@ public static class WorldSaveCodec
             return false;
         }
 
-        if (formatVersion >= WorldSaveDocument.PredecessorFormatVersion &&
+        if (formatVersion >= WorldSaveDocument.FirstRailwayFormatVersion &&
             (railway is null || assemblies is null || !hasSimulationStep || scheduledCommands is null || !hasScheduledSequence))
             return Reject(WorldSaveStatus.Truncated, out status);
         if (formatVersion >= WorldSaveDocument.FirstWorldEditsFormatVersion && edits is null)

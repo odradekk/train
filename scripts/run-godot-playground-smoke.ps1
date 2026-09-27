@@ -11,7 +11,7 @@ param(
 #      paused frames not advancing, runs the registered validation sequences on
 #      independent sessions, drives the scene's own step / N-step / run / pause
 #      controls, submits paused world edits through the edit panel and the real
-#      console (#122) at one boundary, queues a structural refit and a removal a
+#      console at one boundary, queues a structural refit and a removal a
 #      few steps ahead, writes an ordinary save, and prints a deterministic
 #      continuation that runs the queued edits;
 #   2. loads that save in a new process and checks the source, pause, display,

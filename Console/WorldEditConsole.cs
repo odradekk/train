@@ -1,3 +1,4 @@
+using System.Globalization;
 using Train.Domain.Commands;
 using Train.Domain.Voxels;
 
@@ -18,7 +19,7 @@ internal static class WorldEditConsole
         step = null;
         if (arguments.Count < 2 || !string.Equals(arguments[^2], "at", StringComparison.OrdinalIgnoreCase))
             return true;
-        if (!ulong.TryParse(arguments[^1], out var parsed))
+        if (!ulong.TryParse(arguments[^1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
             return false;
         rest = arguments.Take(arguments.Count - 2).ToArray();
         step = parsed;
@@ -45,7 +46,7 @@ internal static class WorldEditConsole
         if (arguments.Count is 2 or 3 && string.Equals(arguments[1], "log", StringComparison.OrdinalIgnoreCase))
         {
             var count = DefaultLogCount;
-            if (arguments.Count == 3 && (!int.TryParse(arguments[2], out count) || count < 1))
+            if (arguments.Count == 3 && (!int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out count) || count < 1))
                 return null;
             return FormatLog(session, count);
         }

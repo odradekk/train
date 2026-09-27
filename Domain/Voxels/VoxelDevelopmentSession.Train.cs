@@ -259,23 +259,16 @@ public sealed partial class VoxelDevelopmentSession
             return RejectMotion(TrainMotionStatus.StepOverflow);
 
         var snapshot = CaptureMotionSnapshot();
+        ulong committedSteps = 0;
         for (ulong i = 0; i < steps; i++)
         {
             var from = QueryTrainAssemblies();
             var fromGraph = AssemblyGraphGeneration;
             if (!TryApplyScheduledCommands(SimulationStep, out var scheduledStatus))
-            {
-                RestoreMotionSnapshot(snapshot);
-                SnapDisplayInterval();
-                return RejectMotion(scheduledStatus);
-            }
+                return RewindTo(snapshot, committedSteps, scheduledStatus);
 
             if (!TryAdvanceAllAssemblies(out var status))
-            {
-                RestoreMotionSnapshot(snapshot);
-                SnapDisplayInterval();
-                return RejectMotion(status);
-            }
+                return RewindTo(snapshot, committedSteps, status);
 
             SimulationStep++;
             EditBoundarySequence = 0;
@@ -291,19 +284,25 @@ public sealed partial class VoxelDevelopmentSession
 
                 // Executed edits are committed at this boundary; a later motion rejection rewinds only to here.
                 snapshot = CaptureMotionSnapshot();
+                committedSteps = i + 1;
             }
 
             if (SimulationStep == ulong.MaxValue &&
                 !TryApplyScheduledCommands(SimulationStep, out scheduledStatus))
-            {
-                RestoreMotionSnapshot(snapshot);
-                SnapDisplayInterval();
-                return RejectMotion(scheduledStatus);
-            }
+                return RewindTo(snapshot, committedSteps, scheduledStatus);
         }
 
         Changed?.Invoke();
         return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, steps);
+    }
+
+    private TrainMotionResult RewindTo(MotionSnapshot snapshot, ulong committedSteps, TrainMotionStatus status)
+    {
+        RestoreMotionSnapshot(snapshot);
+        SnapDisplayInterval();
+        if (committedSteps > 0)
+            Changed?.Invoke();
+        return RejectMotion(status) with { AdvancedSteps = committedSteps };
     }
 
     private bool TryResolveCommandTarget(EntityId? assemblyId, out TrainAssembly target, out TrainMotionStatus status)
