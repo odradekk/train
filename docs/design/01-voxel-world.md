@@ -39,13 +39,13 @@
 
 - 首版 World-owned Voxel 不拥有通用结构支撑模拟：挖掉下面的体素，上面的普通 Voxel 可以悬空。
 - 只有明确具有 GravityBehavior、FallingBehavior 的特殊 Voxel 才会下落。
-- Composite 继续使用完整六面连通与 Fragmentation（[03](03-composite-and-behavior.md)）。
+- Composite 新建及正常改装要求六面连通；车辆按连通部分拆分，静态建筑受损时保留单一建筑身份并整体失效，见 [03](03-composite-and-behavior.md#本阶段静态建筑契约)。建筑不做支撑坍塌，无核心碎块原位转为世界体素，仍可悬空。
 
 ### 所有权
 
 任意 Voxel Instance 同一时间只有一个空间所有者：World Grid 或 Composite。规则见 [03](03-composite-and-behavior.md)。
 
-静态 Building Composite 的实际体素占用登记到世界网格查询中；登记是指向 Composite 内体素的引用，不创建 World-owned 副本，不改变所有权。该格不能再放置其他地形或轨道体素；建筑修改与破坏后同步更新占用，见 [05](05-world-generation-and-settlements.md)。
+静态 Building Composite 的实际体素占用登记到世界网格查询中；登记是指向 Composite 内体素的引用，不创建 World-owned 副本，不改变所有权。该格不能再放置其他地形或轨道体素；建筑修改、破坏和修复后同步更新占用，见 [05](05-world-generation-and-settlements.md)。占用查询须能追溯真实所有者及建筑零件；占用登记不额外持有一份实例。原位所有权转移应原子撤销旧登记、建立新归属，不能出现双重占用或可被插入其他体素的空窗。铁路净空按实际存在体素的整格保守检查，普通碰撞仍按定义形状；建筑空格不按包围盒填充。
 
 ## 首版范围
 
@@ -57,5 +57,5 @@ World structural collapse、复杂重力系统、复杂 Damage Types、通用 Ma
 
 ## 开放问题
 
-- 近期决策（有票）：代表性 World Size、负载及全图常驻内存的验收方法由 [性能验收 #98](https://github.com/odradekk/train/issues/98) 决定，不把当前小夹具规模当作容量保证。
-- 地图迷雾（不立票）：Chunk Size 的调优与 Chunk 存储实现（[roadmap](roadmap.md)）；待测量暴露影响当前或下一切片的具体瓶颈时再提出决策问题。
+- 已确认依据：代表性 World Size、负载、Chunk Size 及全图常驻内存的测量与用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)；实验安排见已确认的[分期规格](voxel-engine-stage-spec.md)，不把当前小夹具规模当作容量保证。
+- 地图迷雾（不立票）：Chunk 存储实现的具体优化（[roadmap](roadmap.md)）；待测量暴露影响当前或下一切片的具体瓶颈时再提出决策问题。

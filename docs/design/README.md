@@ -8,7 +8,7 @@
 
 - **近期决策（有票）**：只有需要产出明确决策、且阻塞当前或下一切片的未定项才立票，并在对应开放问题条目链接。尚在收敛阶段切片规格时，阻塞这些规格形成的必要决策也属于此类；条目说明要决定什么，不把整章未来细节打包立票。
 - **地图迷雾（不立票）**：尚未进入当前或下一切片的方向、待实测调优参数、未形成具体决策问题的实现细节，保留简短描述及重新评估条件，不为完整目录提前建票。它们成为近期阻塞时再升级为决策票。
-- 优先复用已有决策票，不重复立票；是否属于某张 wayfinder 地图取决于当前工作，不指定某张地图为唯一入口。当前阶段由 [#91](https://github.com/odradekk/train/issues/91) 收敛规格，相关条目直接链接其决策票；这不表示地图中所有未来疑问都必须立票。
+- 优先复用已有决策票，不重复立票；是否属于某张 wayfinder 地图取决于当前工作，不指定某张地图为唯一入口。本阶段已由[规划地图](https://github.com/odradekk/train/issues/91)完成规格收敛，实施 Issue 及实验关口见[分期规格](voxel-engine-stage-spec.md)；后续疑问仅在阻塞所选切片且能明确提出问题时立票。
 - 决策完成后，由解决该票的会话回写对应规则，移除或改写开放问题；已关闭票可以保留为历史出处，不能继续充当未解决的阻塞。无待决事项可写“无”，已经明确的规则留在规则章节。
 
 ## 文档目标
@@ -45,6 +45,10 @@
 | [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
 | [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | Composite 的建造、改装与拆解 |
 | [roadmap.md](roadmap.md) | 首版范围、明确延后、未冻结参数、实施顺序 |
+| [playground.md](playground.md) | 长期人工调试入口、配置与验证步骤、诊断复现及旧切片退役契约 |
+| [voxel-engine-stage-spec.md](voxel-engine-stage-spec.md) | 本阶段已确认分期规格、验收矩阵、实施 Issue 与实验关口 |
+
+用于讨论和参数取舍的独立 HTML 原型及原始测量统一保留在[设计原型归档](../../archive/prototypes/README.md)，不作为正式游戏实现或最终验收结果。
 
 每份文档的固定小节：边界、不变量、规则、首版范围、明确延后、开放问题。
 
@@ -89,7 +93,7 @@ Render  Audio    Input
 3. Voxel Local Coordinate 永远为整数。
 4. Voxel Orientation 永远为正交方向。
 5. Voxel 同一时间只有一个 Owner。
-6. Composite Voxel 始终形成一个六面连通体。
+6. 新建及正常改装的 Composite 要求六面连通，运行时车辆按连通部分拆分；受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效，按 [03 的建筑契约](03-composite-and-behavior.md#本阶段静态建筑契约)处理。
 7. Definition 是不可变数据。
 8. Runtime State 不写回 Definition。
 9. Semantic Revision 与 Presentation Asset Revision 分离。

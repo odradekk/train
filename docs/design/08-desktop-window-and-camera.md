@@ -46,10 +46,12 @@
 
 ### Camera
 
-- 主 3D View 使用 Perspective Camera。Camera Focus 永远绑定 Locomotive 或某个 Carriage，不支持普通自由飞行。
+- 正式游戏主 3D View 使用 Perspective Camera。Camera Focus 绑定 Locomotive 或某个 Carriage，不支持普通自由飞行；开发 Playground 的观察方式见下文专节。
 - 允许 360° Horizontal Yaw、受限 Vertical Pitch、Distance Zoom。Zoom 只改变 Camera Distance，FOV 基本固定。
 
 ### Camera Follow
+
+下列车辆跟随规则也适用于 Playground 的跟随模式，不限制其独立自由观察模式。
 
 Camera Orientation = Selected Vehicle Displayed Body Heading + Player Orbit Offset。火车转弯时 Camera 平滑跟随；玩家改变的是相对于所选车辆的观察位置。
 
@@ -63,9 +65,22 @@ Camera Orientation = Selected Vehicle Displayed Body Heading + Player Orbit Offs
 
 首版不采用传统第三人称 Spring Arm；Camera 不因为普通建筑或地形持续自动 Zoom In/Out。未来如果遮挡问题明显，可考虑 Obstacle Fade、Camera framing correction。
 
+### Playground 调试观察与模拟控制
+
+[项目级 Playground 的操作流程](https://github.com/odradekk/train/issues/96)已确认 Q1–Q10；操作、诊断、配置、复现、切换和退役契约见 [Playground](playground.md)。用户认可流程原型，不代表正式引擎实现通过验收。
+
+- Playground 提供 3D 自由观察、聚焦选中对象和跟随指定车辆。对象列表/检查面板的选择不自动改变镜头；选中后可直接发起聚焦或跟随。可以切回自由视角检查地形、建筑、线路和远处故障，不要求世界中先有车辆。
+- Playground 的近距离目标切换使用平滑过渡；远距离目标先准备其区域，再短暂淡出/淡入，不沿途加载整段路程。准备期间保留原视图并显示状态，不改变模拟运行/暂停状态；失败保留原视图并报告原因，连续切换以最后一次请求为准。该调试规则是上文普通平滑目标切换的远距离例外，见 [表现验收契约](07-rendering.md#本阶段表现验收契约)。
+- Playground 中对象仍存在就保留选择和跟随，编组拆分不自动换到活动车头；目标彻底销毁时清除失效引用并提示，镜头保持当前位置、转为自由视角，不跳到其他列车。上文正式游戏的目标回退不适用于此调试规则。
+- 常用调试操作提供可视入口，控制台承担精确参数与批量操作；两者调用同一套正式逻辑，保留可追查的操作结果。具体面板布局由流程原型评议，不引入正式玩家建造 UI。
+- 生成地图、加载固定测试配置或恢复存档进入 Playground 后，默认暂停自动推进。恢复时仍保留原速度、运行计划及故障状态；进入暂停不等于对所有列车执行停车。通过显式运行、暂停、单步或指定步数控制模拟。
+- 打开面板、查询、切换镜头均不隐式暂停。修改、伤害和修复可在暂停时执行，也可在运行时提交到明确模拟步；沿用正式修改与故障恢复规则，不因调试入口而绕过验证。
+
 ## 首版范围
 
 Primary 3D Window、Bottom Dock（Windows AppBar）、Floating、Display selection、Focus behavior、Perspective Camera、Orbit、Zoom、target switching、minimized rendering suspension、可配置渲染帧率上限及专门窗口测试场景（roadmap Phase 7）。
+
+以上包含后续桌面产品能力，不是当前体素引擎阶段的完整交付清单。本阶段交付上文 Playground 观察与模拟控制，采用普通窗口进行性能验收；Bottom Dock、AppBar、多显示器及专门窗口验收不阻塞本阶段完成。
 
 ## 明确延后
 
@@ -73,5 +88,5 @@ Primary 3D Window、Bottom Dock（Windows AppBar）、Floating、Display selecti
 
 ## 开放问题
 
-- 地图迷雾（不立票）：相机焦点目标被摧毁时的回退优先级（转录 Q162）；待具体相机交互切片需要确定该行为时再评估。
+- 地图迷雾（不立票）：正式游戏相机焦点目标被摧毁时的回退优先级（转录 Q162）；待对应游戏交互切片再评估。Playground 的目标失效规则已在上文确定。
 - 地图迷雾（不立票）：Camera FOV、Zoom Min/Max、Window Default Height、默认渲染帧率上限调优（[roadmap](roadmap.md)）；窗口能力当前不作为 #91 阶段门槛，相关场景选入近期切片后再评估。
