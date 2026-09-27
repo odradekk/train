@@ -1,5 +1,7 @@
 using System.Globalization;
 using Godot;
+using Train.Domain.Commands;
+using Train.Domain.Composites;
 using Train.Domain.Playground;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
@@ -26,6 +28,11 @@ public partial class PlaygroundScene : Node3D
     private Label _state = null!;
     private Label _result = null!;
     private SpinBox _stepCount = null!;
+    private SpinBox[] _worldCell = null!;
+    private SpinBox[] _localCell = null!;
+    private SpinBox _editAmount = null!;
+    private SpinBox _editDelay = null!;
+    private Label _edits = null!;
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private bool _dirty = true;
     private PlaygroundSmoke? _smoke;
@@ -158,6 +165,7 @@ public partial class PlaygroundScene : Node3D
         _composites.ApplyDisplayPoses(_session.QueryDisplayPoses());
         ApplyFollowCamera();
         _state.Text = StateText();
+        _edits.Text = EditsText();
     }
 
     private void ApplyFollowCamera()
@@ -249,6 +257,97 @@ public partial class PlaygroundScene : Node3D
         AddButton(controls, "start", "启动列车", () => ApplyOperation(PlaygroundOperation.Start()));
         AddButton(controls, "stop", "停车", () => ApplyOperation(PlaygroundOperation.Stop()));
         AddButton(controls, "save", "保存", () => SaveWorld());
+
+        var world = new HBoxContainer();
+        world.AddThemeConstantOverride("separation", 6);
+        box.AddChild(world);
+        world.AddChild(new Label { Text = "世界格" });
+        var probe = PlaygroundSequences.EditProbe;
+        _worldCell = new[] { probe.X, probe.Y, probe.Z }.Select(value => AddSpin(world, -100000, 100000, value)).ToArray();
+        world.AddChild(new Label { Text = "量" });
+        _editAmount = AddSpin(world, 1, 100000, 25);
+        world.AddChild(new Label { Text = "延迟步" });
+        _editDelay = AddSpin(world, 0, 100000, 0);
+        AddButton(world, "edit_add", "放置矿石", () => ApplyEdit("edit_add"));
+        AddButton(world, "edit_remove", "移除体素", () => ApplyEdit("edit_remove"));
+        AddButton(world, "edit_damage", "损伤体素", () => ApplyEdit("edit_damage"));
+        AddButton(world, "edit_manufacture", "在此制造空壳", () => ApplyEdit("edit_manufacture"));
+
+        var vehicle = new HBoxContainer();
+        vehicle.AddThemeConstantOverride("separation", 6);
+        box.AddChild(vehicle);
+        vehicle.AddChild(new Label { Text = "最新车辆局部格" });
+        var local = HollowShellRefit.FirstAdd;
+        _localCell = new[] { local.X, local.Y, local.Z }.Select(value => AddSpin(vehicle, 0, 255, value)).ToArray();
+        AddButton(vehicle, "vehicle_damage", "损伤零件", () => ApplyEdit("vehicle_damage"));
+        AddButton(vehicle, "refit_add", "加装", () => ApplyEdit("refit_add"));
+        AddButton(vehicle, "refit_remove", "拆除", () => ApplyEdit("refit_remove"));
+        AddButton(vehicle, "refit_move", "移到 +X", () => ApplyEdit("refit_move"));
+        AddButton(vehicle, "refit_rotate", "旋转", () => ApplyEdit("refit_rotate"));
+        AddButton(vehicle, "refit_replace", "替换", () => ApplyEdit("refit_replace"));
+        AddButton(vehicle, "refit_batch", "批量加装两格", () => ApplyEdit("refit_batch"));
+        _edits = new Label();
+        box.AddChild(_edits);
+    }
+
+    private static SpinBox AddSpin(Container parent, double min, double max, double value)
+    {
+        var spin = new SpinBox { MinValue = min, MaxValue = max, Value = value, Rounded = true, CustomMinimumSize = new Vector2(72, 0) };
+        parent.AddChild(spin);
+        return spin;
+    }
+
+    private void ApplyEdit(string button) => ApplyOperation(EditOperation(button));
+
+    internal void SetEditInputs(WorldVoxelCoord cell, LocalVoxelCoord local, int amount, ulong delay)
+    {
+        _worldCell[0].Value = cell.X;
+        _worldCell[1].Value = cell.Y;
+        _worldCell[2].Value = cell.Z;
+        _localCell[0].Value = local.X;
+        _localCell[1].Value = local.Y;
+        _localCell[2].Value = local.Z;
+        _editAmount.Value = amount;
+        _editDelay.Value = delay;
+    }
+
+    /// <summary>The formal operation a panel button submits for the current inputs; a non-zero delay queues it.</summary>
+    internal PlaygroundOperation EditOperation(string button)
+    {
+        var cell = new WorldVoxelCoord((int)_worldCell[0].Value, (int)_worldCell[1].Value, (int)_worldCell[2].Value);
+        var local = new LocalVoxelCoord((int)_localCell[0].Value, (int)_localCell[1].Value, (int)_localCell[2].Value);
+        var amount = (int)_editAmount.Value;
+        ulong? at = _editDelay.Value > 0 && _session is not null ? _session.SimulationStep + (ulong)_editDelay.Value : null;
+        var marker = HollowShellRefit.MarkerId;
+        return button switch
+        {
+            "edit_add" => PlaygroundOperation.Submit(new VoxelAddEdit(cell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity), at),
+            "edit_remove" => PlaygroundOperation.Submit(new VoxelRemoveEdit(cell), at),
+            "edit_damage" => PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(cell, amount) }), at),
+            "edit_manufacture" => PlaygroundOperation.Submit(
+                new VehicleManufactureEdit(HollowShellFixture.DefinitionId, CompositeTransform.Translation(cell.X, cell.Y, cell.Z)), at),
+            "vehicle_damage" => PlaygroundOperation.DamageLatest(local, amount, at),
+            "refit_add" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(local, marker), at),
+            "refit_remove" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(local), at),
+            "refit_move" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Move(local, new LocalVoxelCoord(local.X + 1, local.Y, local.Z)), at),
+            "refit_rotate" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Rotate(local, HollowShellRefit.MarkerOrientation), at),
+            "refit_replace" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Replace(local, HollowShellRefit.ReplacementId), at),
+            "refit_batch" => PlaygroundOperation.RefitLatest(new[]
+            {
+                PlaygroundRefit.Add(local, marker),
+                PlaygroundRefit.Add(new LocalVoxelCoord(local.X + 2, local.Y, local.Z), marker)
+            }, at),
+            _ => throw new ArgumentOutOfRangeException(nameof(button), button, null)
+        };
+    }
+
+    private string EditsText()
+    {
+        var session = _session!;
+        var log = session.QueryEditLog();
+        var last = log.Count == 0 ? "无" : PlaygroundCheck.DescribeRecord(log[^1]);
+        var fault = session.Fault is { } value ? $" · 故障 修改{value.EditId}@{value.Position} {value.ExceptionType}" : "";
+        return $"修改 边界 {session.EditBoundary} · 下一个 {session.NextEditId} · 待执行 {session.QueryPendingEdits().Count} · 最近 {last}{fault}";
     }
 
     private void AddButton(Container parent, string id, string text, Action action)

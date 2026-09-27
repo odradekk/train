@@ -10,9 +10,13 @@ param(
 #      world/track/vehicle display, Godot-physics collision on a rail cell,
 #      paused frames not advancing, runs the registered validation sequences on
 #      independent sessions, drives the scene's own step / N-step / run / pause
-#      controls, and writes an ordinary save;
+#      controls, submits paused world edits through the edit panel and the real
+#      console (#122) at one boundary, queues a structural refit and a removal a
+#      few steps ahead, writes an ordinary save, and prints a deterministic
+#      continuation that runs the queued edits;
 #   2. loads that save in a new process and checks the source, pause, display,
-#      collision, and one single step.
+#      collision, the restored edit queue, one single step, and the same
+#      continuation, which must match the first process line for line.
 # Every run writes to a new timestamped directory; historical reports and user
 # saves are never reused.
 #
@@ -31,7 +35,7 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
 
 if (-not $OutputDirectory) {
     $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
-    $OutputDirectory = Join-Path $root ".godot/validation/issue-121/$stamp"
+    $OutputDirectory = Join-Path $root ".godot/validation/issue-122/$stamp"
 }
 if (Test-Path -LiteralPath $OutputDirectory) {
     [Console]::Error.WriteLine("Output directory already exists: $OutputDirectory")
@@ -99,7 +103,12 @@ foreach ($config in $Configuration) {
         "PLAYGROUND_SMOKE_SEQUENCES",
         "PLAYGROUND_SMOKE_MANUAL",
         "PLAYGROUND_SMOKE_AFTER_STEPS_COLLISION godot_rail_hit=true",
+        "PLAYGROUND_SMOKE_EDITS step=",
+        "PLAYGROUND_SMOKE_EDITS_PENDING ",
+        "PLAYGROUND_SMOKE_EDITED_COLLISION godot_probe_hit=true godot_console_cell_hit=true",
         "PLAYGROUND_SMOKE_SAVED id=",
+        "PLAYGROUND_SMOKE_SAVED_QUEUE ",
+        "PLAYGROUND_SMOKE_CONTINUATION ",
         "PLAYGROUND_SMOKE_RUN advanced=",
         "PLAYGROUND_SMOKE_PAUSE_AFTER_RUN",
         "PLAYGROUND_SMOKE_DONE"
@@ -107,6 +116,7 @@ foreach ($config in $Configuration) {
     if ($config -eq "straight-rail-train") {
         $markers += "PLAYGROUND_SMOKE_SEQUENCE_PASSED straight-rail-run-and-halt"
         $markers += "PLAYGROUND_SMOKE_SEQUENCE_PASSED straight-rail-rejections"
+        $markers += "PLAYGROUND_SMOKE_SEQUENCE_PASSED straight-rail-ordered-edits"
         $markers += "PLAYGROUND_SMOKE_MANUAL_MATCHES_SEQUENCE straight-rail-run-and-halt"
     }
     $ok = Require-Markers $establish $markers "$config establish"
@@ -129,10 +139,29 @@ foreach ($config in $Configuration) {
         "paused=true step=$savedStep",
         "PLAYGROUND_SMOKE_RESTORED_DISPLAY",
         "PLAYGROUND_SMOKE_RESTORED_COLLISION godot_rail_hit=true godot_empty_hit=false",
+        "PLAYGROUND_SMOKE_RESTORED_QUEUE ",
+        "PLAYGROUND_SMOKE_RESTORED_EDITED_COLLISION godot_probe_hit=true godot_console_cell_hit=true",
         "PLAYGROUND_SMOKE_RESTORED_STEP step=$($savedStep + 1)",
+        "PLAYGROUND_SMOKE_CONTINUATION ",
         "PLAYGROUND_SMOKE_DONE"
     ) "$config resume"
     if (-not $ok) { $failed = $true; continue }
+
+    $savedQueue = [regex]::Match($establish.Text, "PLAYGROUND_SMOKE_SAVED_QUEUE (.+)").Groups[1].Value.Trim()
+    $restoredQueue = [regex]::Match($resume.Text, "PLAYGROUND_SMOKE_RESTORED_QUEUE (.+)").Groups[1].Value.Trim()
+    $savedContinuation = [regex]::Match($establish.Text, "PLAYGROUND_SMOKE_CONTINUATION (.+)").Groups[1].Value.Trim()
+    $restoredContinuation = [regex]::Match($resume.Text, "PLAYGROUND_SMOKE_CONTINUATION (.+)").Groups[1].Value.Trim()
+    if ($savedQueue -ne $restoredQueue) {
+        [Console]::Error.WriteLine("$config restored queue differs: saved '$savedQueue' restored '$restoredQueue'.")
+        $failed = $true
+        continue
+    }
+    if ($savedContinuation -ne $restoredContinuation) {
+        [Console]::Error.WriteLine("$config continuation differs across processes: '$savedContinuation' vs '$restoredContinuation'.")
+        $failed = $true
+        continue
+    }
+    Write-Host "PLAYGROUND_SMOKE_CROSS_PROCESS_MATCH $config queue='$savedQueue' continuation='$savedContinuation'"
     Write-Host "PLAYGROUND_SMOKE_CONFIG_PASSED $config save=$saveId step=$savedStep"
 }
 
