@@ -74,10 +74,9 @@ public sealed class VoxelConsoleCommands
         return string.Join('\n',
             "Usage: voxel reset | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid>",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
-            "voxel remove <x> <y> <z> | voxel add <x> <y> <z> <namespace:id> <orientation>",
-            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...].",
-            "add/remove/damage accept a trailing at <step> to queue the edit for that simulation step.",
-            "voxel edits [pending | log [<count>] | fault].");
+            "voxel edits [pending | log [<count>] | fault]",
+            "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
+            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>].");
     }
 
     private static bool TryParseEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
