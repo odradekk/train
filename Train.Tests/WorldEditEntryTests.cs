@@ -1,0 +1,133 @@
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Domain.Commands;
+using Train.Domain.Composites;
+using Train.Domain.Playground;
+using Train.Domain.Voxels;
+using Train.Logging;
+
+namespace Train.Tests;
+
+[TestClass]
+public sealed class WorldEditEntryTests
+{
+    [TestMethod]
+    public void Console_panel_and_automatic_sequence_submit_the_same_payloads_at_the_same_positions()
+    {
+        var sequence = PlaygroundSequences.Find(PlaygroundSequences.StraightRailOrderedEditsId)!;
+
+        using var automatic = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        var report = PlaygroundValidation.Execute(sequence, automatic.Session);
+        Assert.IsTrue(report.Passed, string.Join(Environment.NewLine, report.Lines()));
+
+        using var panel = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        foreach (var step in sequence.Steps)
+            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(panel.Session), step.Operation.Describe());
+
+        using var console = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        using var logger = LoggerSession.Create();
+        var session = console.Session;
+        var dispatcher = Dispatcher(logger, session);
+        var identity = VoxelOrientation.Identity;
+        var probe = PlaygroundSequences.EditProbe;
+        var pose = PlaygroundSequences.EditShellPose;
+        var probeText = $"{probe.X} {probe.Y} {probe.Z}";
+        dispatcher.Execute("rail start");
+        dispatcher.Execute($"voxel add {probeText} {PlaygroundSequences.EditVoxelId.Value} {identity}");
+        dispatcher.Execute($"voxel damage {probeText} 25");
+        dispatcher.Execute($"composite manufacture {HollowShellFixture.DefinitionId.Value} pose {pose.OriginX} {pose.OriginY} {pose.OriginZ}");
+        var shell = session.QueryComposites().Max(item => item.Id.Value);
+        string Part(LocalVoxelCoord cell) =>
+            session.QueryComposite(new EntityId(shell))!.Parts.Single(part => part.Cell == cell).Id.ToString();
+        string Cell(LocalVoxelCoord cell) => $"{cell.X} {cell.Y} {cell.Z}";
+        var marker = HollowShellRefit.MarkerId.Value;
+        dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.FirstAdd)} {marker} {identity}");
+        dispatcher.Execute($"composite damage {shell} {Cell(HollowShellRefit.FirstAdd)} 25");
+        dispatcher.Execute($"composite move {shell} {Part(HollowShellRefit.FirstAdd)} {Cell(HollowShellRefit.Moved)}");
+        dispatcher.Execute($"composite rotate {shell} {Part(HollowShellRefit.Moved)} {HollowShellRefit.MarkerOrientation}");
+        dispatcher.Execute($"composite replace {shell} {Cell(HollowShellRefit.Moved)} {HollowShellRefit.ReplacementId.Value} {identity}");
+        dispatcher.Execute($"composite remove {shell} {Part(HollowShellRefit.Moved)}");
+        dispatcher.Execute($"composite batch {shell} add {Cell(HollowShellRefit.FirstAdd)} {marker} {identity} add {Cell(HollowShellRefit.SecondAdd)} {marker} {identity}");
+        dispatcher.Execute($"voxel remove {probeText} at 3");
+        dispatcher.Execute($"voxel add {probeText} {PlaygroundSequences.EditVoxelId.Value} {identity} at 3");
+        dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.OutOfEnvelope)} {marker} {identity} at 3");
+        dispatcher.Execute("voxel edits pending");
+        dispatcher.Execute("rail step 3");
+        dispatcher.Execute($"voxel add {probeText} {PlaygroundSequences.EditVoxelId.Value} {identity}");
+        dispatcher.Execute("rail step");
+        dispatcher.Execute("voxel edits log 3");
+        dispatcher.Execute("voxel edits");
+
+        string[] Records(VoxelDevelopmentSession target) => target.QueryEditLog().Select(WorldEditCodec.EncodeRecord).ToArray();
+        CollectionAssert.AreEqual(Records(automatic.Session), Records(panel.Session));
+        CollectionAssert.AreEqual(Records(automatic.Session), Records(session));
+        Assert.AreEqual(automatic.Session.EditLogDigest, session.EditLogDigest);
+        Assert.AreEqual(report.FinalFingerprint, WorldSaveAuthority.Fingerprint(panel.Session));
+        Assert.AreEqual(report.FinalFingerprint, WorldSaveAuthority.Fingerprint(session));
+
+        var text = Messages(logger);
+        StringAssert.Contains(text, "Edit 11 voxel.remove pending");
+        StringAssert.Contains(text, "accepted 0:10 target 3");
+        StringAssert.Contains(text, "Edits pending 3");
+        StringAssert.Contains(text, "edit 13 vehicle.refit accepted 0:12 target 3");
+        StringAssert.Contains(text, "edit 13 vehicle.refit rejected EnvelopeExceeded at 3:2 accepted 0:12");
+        StringAssert.Contains(text, "edit 14 voxel.add rejected Occupied at 3:3 accepted 3:3");
+        StringAssert.Contains(text, "Edits boundary 4:0 next 15");
+        StringAssert.Contains(text, $"digest {session.EditLogDigest}");
+        StringAssert.Contains(text, "fault none");
+    }
+
+    [TestMethod]
+    public void Console_scheduling_refuses_past_steps_and_reports_faults_without_consuming_positions()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var logger = LoggerSession.Create();
+        var session = playground.Session;
+        var dispatcher = Dispatcher(logger, session);
+        Assert.IsTrue(session.AdvanceSimulation(4).Succeeded);
+        var probe = PlaygroundSequences.EditProbe;
+
+        dispatcher.Execute($"voxel remove {probe.X} {probe.Y} {probe.Z} at 3");
+        dispatcher.Execute($"composite manufacture at 2");
+        dispatcher.Execute($"voxel remove {probe.X} {probe.Y} {probe.Z} at soon");
+        Assert.AreEqual(1UL, session.NextEditId);
+        Assert.AreEqual(new SimulationPosition(4, 0), session.EditBoundary);
+
+        dispatcher.Execute($"voxel remove {probe.X} {probe.Y} {probe.Z} at 4");
+        Assert.AreEqual("Empty", session.QueryEditLog().Single().Status);
+        dispatcher.Execute("composite manufacture pose 60 6 24 at 6");
+        Assert.AreEqual(CompositeTransform.Translation(60, 6, 24), ((VehicleManufactureEdit)session.QueryPendingEdits().Single().Edit).Transform);
+        dispatcher.Execute("voxel edits fault");
+
+        session.EditFaultProbe = _ => throw new InvalidOperationException("injected");
+        dispatcher.Execute("rail step 2");
+        session.EditFaultProbe = null;
+        dispatcher.Execute("voxel edits fault");
+        dispatcher.Execute($"voxel add {probe.X} {probe.Y} {probe.Z} {PlaygroundSequences.EditVoxelId.Value} {VoxelOrientation.Identity} at 9");
+
+        var text = Messages(logger);
+        StringAssert.Contains(text, "Edit PastStep.");
+        StringAssert.Contains(text, "Edit 1 voxel.remove rejected Empty");
+        StringAssert.Contains(text, "accepted 4:0 executed 4:0");
+        StringAssert.Contains(text, "Edit 2 vehicle.manufacture pending");
+        StringAssert.Contains(text, "Edits fault none.");
+        StringAssert.Contains(text, "Edits fault edit 2 vehicle.manufacture at 6:0");
+        StringAssert.Contains(text, "exception InvalidOperationException");
+        StringAssert.Contains(text, "Edit SimulationFaulted.");
+        StringAssert.Contains(text, "Usage: voxel reset");
+        Assert.AreEqual(0, session.QueryComposites().Count);
+    }
+
+    private static ConsoleCommandDispatcher Dispatcher(LoggerSession logger, VoxelDevelopmentSession session) =>
+        new(
+            logger.Logger,
+            static () => { },
+            static () => { },
+            static () => { },
+            allowReload: false,
+            new VoxelConsoleCommands(session),
+            new CompositeConsoleCommands(session),
+            new RailConsoleCommands(session));
+
+    private static string Messages(LoggerSession logger) =>
+        string.Join('\n', logger.Memory.Snapshot().Select(item => item.Message));
+}
