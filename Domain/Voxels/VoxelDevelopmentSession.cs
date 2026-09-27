@@ -1,4 +1,5 @@
 using Train.Content;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
@@ -105,6 +106,7 @@ public sealed partial class VoxelDevelopmentSession
         WorldSource = null;
         NoteAssemblyGraphCommit();
         ResetMotionState();
+        ResetEditState(WorldEditQueueState.Initial);
         _pendingChanges.Clear();
         _pendingCollisionChanges.Clear();
         _pendingTrackChunks.Clear();
@@ -124,7 +126,7 @@ public sealed partial class VoxelDevelopmentSession
         PauseSimulation();
     }
 
-    public WorldCommandResult Add(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
+    private WorldCommandResult AddCore(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
     {
         var result = Commands.Add(position, definitionId, orientation);
         if (result.Succeeded)
@@ -132,7 +134,7 @@ public sealed partial class VoxelDevelopmentSession
         return result;
     }
 
-    public WorldCommandResult Remove(WorldVoxelCoord position)
+    private WorldCommandResult RemoveCore(WorldVoxelCoord position)
     {
         var result = Commands.Remove(position);
         if (result.Succeeded)
@@ -145,10 +147,7 @@ public sealed partial class VoxelDevelopmentSession
         return result;
     }
 
-    public WorldDamageResult Damage(WorldVoxelCoord position, int amount) =>
-        Damage(new[] { new VoxelDamageTarget(position, amount) });
-
-    public WorldDamageResult Damage(IReadOnlyList<VoxelDamageTarget> targets)
+    private WorldDamageResult DamageVoxelsCore(IReadOnlyList<VoxelDamageTarget> targets)
     {
         var result = Commands.Damage(targets);
         if (result.Succeeded)
@@ -162,10 +161,7 @@ public sealed partial class VoxelDevelopmentSession
         return result;
     }
 
-    public CompositeDamageResult Damage(EntityId vehicleId, LocalVoxelCoord cell, int amount) =>
-        Damage(new[] { new CompositeDamageTarget(vehicleId, cell, amount) });
-
-    public CompositeDamageResult Damage(IReadOnlyList<CompositeDamageTarget> targets)
+    private CompositeDamageResult DamageVehiclesCore(IReadOnlyList<CompositeDamageTarget> targets)
     {
         ArgumentNullException.ThrowIfNull(targets);
         if (targets.Count == 0)
@@ -336,7 +332,7 @@ public sealed partial class VoxelDevelopmentSession
 
     public VoxelCollisionQueryResult QueryCollision(VoxelCollisionBox probe) => Commands.QueryCollision(probe);
 
-    public CompositeManufactureResult Manufacture(CompositeDefinitionId definitionId, CompositeTransform? transform = null)
+    private CompositeManufactureResult ManufactureCore(CompositeDefinitionId definitionId, CompositeTransform pose)
     {
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before manufacturing.");
         if (!_composites.Current.TryGet(definitionId, out var compositeEntry))
@@ -346,7 +342,6 @@ public sealed partial class VoxelDevelopmentSession
         if (!_composites.Current.TryGet(definition.ArchetypeId, out var archetypeEntry))
             return new CompositeManufactureResult(ConstructionStatus.UnknownArchetype);
 
-        var pose = transform ?? HollowShellFixture.DefaultTransform;
         var status = ConstructionValidator.Validate(definition, archetypeEntry.Archetype, voxels, pose);
         if (status != ConstructionStatus.Valid)
             return new CompositeManufactureResult(status);
@@ -390,12 +385,8 @@ public sealed partial class VoxelDevelopmentSession
         return new CompositeManufactureResult(ConstructionStatus.Valid, vehicleId, instance.Parts);
     }
 
-    public CompositeRefitResult Refit(EntityId vehicleId, CompositeRefitOperation operation) =>
-        Refit(vehicleId, new[] { operation });
-
-    public CompositeRefitResult Refit(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations)
+    private CompositeRefitResult RefitCore(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations)
     {
-        ArgumentNullException.ThrowIfNull(operations);
         var index = _vehicles.FindIndex(item => item.Id == vehicleId);
         if (index < 0)
             return new CompositeRefitResult(ConstructionStatus.UnknownVehicle, vehicleId);
@@ -538,6 +529,8 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
+        if (Fault is not null)
+            return new WorldSaveResult(WorldSaveStatus.SimulationFaulted, SaveId, DisplayName);
 
         var name = displayName ?? DisplayName;
         if (!WorldSaveDocument.TryNormalizeDisplayName(name, out var normalized))
@@ -559,7 +552,8 @@ public sealed partial class VoxelDevelopmentSession
                 SimulationStep,
                 QueryScheduledTrainCommands(),
                 ScheduledCommandSequence,
-                WorldSource))
+                WorldSource,
+                CaptureEditQueue()))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
         var json = WorldSaveCodec.Serialize(document);
@@ -740,6 +734,7 @@ public sealed partial class VoxelDevelopmentSession
                 command.Sequence,
                 command.AssemblyId ?? throw new InvalidOperationException("Restored train commands must name an assembly.")));
         _scheduledSequence = restore.ScheduledSequence;
+        ResetEditState(restore.Edits);
         _hostScheduler.Reset();
         NoteAssemblyGraphCommit();
         _rails.Clear();

@@ -14,6 +14,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Domain\Behaviors\*.cs" Link="Domain\Behaviors\%(Filename)%(Extension)" />
+    <Compile Include="..\Domain\Commands\*.cs" Link="Domain\Commands\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Settlements\*.cs" Link="Domain\Settlements\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Composites\*.cs" Link="Domain\Composites\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Rails\*.cs" Link="Domain\Rails\%(Filename)%(Extension)" />

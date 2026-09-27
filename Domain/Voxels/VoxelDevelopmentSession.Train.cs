@@ -251,6 +251,8 @@ public sealed partial class VoxelDevelopmentSession
 
     public TrainMotionResult AdvanceSimulation(ulong steps)
     {
+        if (Fault is not null)
+            return RejectMotion(TrainMotionStatus.SimulationFaulted);
         if (steps == 0)
             return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, 0);
         if (steps > ulong.MaxValue - SimulationStep)
@@ -276,7 +278,21 @@ public sealed partial class VoxelDevelopmentSession
             }
 
             SimulationStep++;
+            EditBoundarySequence = 0;
             CommitDisplayInterval(from, fromGraph);
+            if (HasDueEdits())
+            {
+                if (!ExecuteDueEdits())
+                {
+                    SnapDisplayInterval();
+                    Changed?.Invoke();
+                    return new TrainMotionResult(TrainMotionStatus.SimulationFaulted, SimulationStep, i + 1, SimulationStep);
+                }
+
+                // Executed edits are committed at this boundary; a later motion rejection rewinds only to here.
+                snapshot = CaptureMotionSnapshot();
+            }
+
             if (SimulationStep == ulong.MaxValue &&
                 !TryApplyScheduledCommands(SimulationStep, out scheduledStatus))
             {
@@ -762,6 +778,8 @@ public sealed partial class VoxelDevelopmentSession
 
     private TrainMotionResult AcceptTrainCommand(ulong atStep, bool start, EntityId assemblyId)
     {
+        if (Fault is not null)
+            return RejectMotion(TrainMotionStatus.SimulationFaulted, atStep);
         if (atStep < SimulationStep)
             return RejectMotion(TrainMotionStatus.PastStep, atStep);
         if (start && !CanStartNow(assemblyId, out var status))
@@ -964,6 +982,7 @@ public sealed partial class VoxelDevelopmentSession
     private MotionSnapshot CaptureMotionSnapshot() =>
         new(
             SimulationStep,
+            EditBoundarySequence,
             _vehicles.ToArray(),
             _assemblies.ToArray(),
             _scheduled.ToArray(),
@@ -973,6 +992,7 @@ public sealed partial class VoxelDevelopmentSession
     private void RestoreMotionSnapshot(MotionSnapshot snapshot)
     {
         SimulationStep = snapshot.Step;
+        EditBoundarySequence = snapshot.EditBoundarySequence;
         _vehicles.Clear();
         _vehicles.AddRange(snapshot.Vehicles);
         _assemblies.Clear();
@@ -1089,6 +1109,7 @@ public sealed partial class VoxelDevelopmentSession
 
     private sealed record MotionSnapshot(
         ulong Step,
+        ulong EditBoundarySequence,
         IReadOnlyList<CompositeInstance> Vehicles,
         IReadOnlyList<TrainAssembly> Assemblies,
         IReadOnlyList<ScheduledTrainCommand> Scheduled,

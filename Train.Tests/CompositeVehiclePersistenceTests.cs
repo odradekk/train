@@ -22,7 +22,7 @@ public sealed class CompositeVehiclePersistenceTests
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         Assert.IsTrue(saved.SaveId.HasValue);
         var json = File.ReadAllText(writer.Store.PathFor(saved.SaveId!.Value));
-        StringAssert.Contains(json, "\"save_format_version\":3");
+        StringAssert.Contains(json, "\"save_format_version\":4");
         StringAssert.Contains(json, "\"next_entity_id\"");
         StringAssert.Contains(json, "\"transaction_count\"");
         StringAssert.Contains(json, "\"vehicles\"");
@@ -506,9 +506,9 @@ public sealed class CompositeVehiclePersistenceTests
         var first = harness.Session.Save("Keep File");
         var path = harness.Store.PathFor(first.SaveId!.Value);
         var previous = File.ReadAllText(path);
-        StringAssert.Contains(previous, "\"save_format_version\":3");
-        AssertLoadKeepsSession(harness, previous.Replace("\"save_format_version\":3", "\"save_format_version\":1", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat);
-        AssertLoadKeepsSession(harness, previous.Replace("\"save_format_version\":3", "\"save_format_version\":99", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat);
+        StringAssert.Contains(previous, "\"save_format_version\":4");
+        AssertLoadKeepsSession(harness, previous.Replace("\"save_format_version\":4", "\"save_format_version\":1", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat);
+        AssertLoadKeepsSession(harness, previous.Replace("\"save_format_version\":4", "\"save_format_version\":99", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat);
 
         harness.Store.FailNextWrite = true;
         Assert.AreEqual(WorldSaveStatus.WriteFailed, harness.Session.Save("Should Fail").Status);
