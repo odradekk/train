@@ -1,0 +1,186 @@
+using System.Globalization;
+using Train.Content;
+using Train.Domain.Composites;
+using Train.Domain.Rails;
+using Train.Domain.Voxels;
+
+namespace Train.Domain.Playground;
+
+public enum PlaygroundEstablishStatus
+{
+    Established,
+    UnknownConfiguration,
+    ContentUnavailable,
+    MissingContent,
+    UnsupportedDeclaration,
+    InitialStateRejected
+}
+
+public sealed record PlaygroundStaticTrain(
+    CompositeDefinitionId LocomotiveId,
+    CompositeTransform LocomotiveTransform,
+    CompositeDefinitionId CarriageId,
+    CompositeTransform CarriageTransform)
+{
+    public static PlaygroundStaticTrain Formal { get; } = new(
+        StaticTrainFixture.LocomotiveId,
+        StaticTrainFixture.LocomotiveTransform,
+        StaticTrainFixture.CarriageId,
+        StaticTrainFixture.CarriageTransform);
+}
+
+/// <summary>
+/// A named, versioned fixed configuration: it declares only the initial world, not a generator and not verification steps.
+/// </summary>
+public sealed record PlaygroundConfiguration(
+    string Id,
+    int Version,
+    string Title,
+    VoxelWorldIdentity BaseWorld,
+    RailConstructionPlan? Railway,
+    PlaygroundStaticTrain? Train);
+
+public static class PlaygroundConfigurations
+{
+    public const string StraightRailTrainId = "straight-rail-train";
+    public const string StraightRailEmptyId = "straight-rail-empty";
+
+    public static IReadOnlyList<PlaygroundConfiguration> All { get; } = new[]
+    {
+        new PlaygroundConfiguration(
+            StraightRailTrainId,
+            1,
+            "正式直轨 + 一车头一车厢",
+            VoxelWorldIdentity.Slice4,
+            StraightRailFixture.CreateFixturePlan(),
+            PlaygroundStaticTrain.Formal),
+        new PlaygroundConfiguration(
+            StraightRailEmptyId,
+            1,
+            "正式直轨（无车辆）",
+            VoxelWorldIdentity.Slice4,
+            StraightRailFixture.CreateFixturePlan(),
+            null)
+    };
+
+    public static PlaygroundConfiguration? Find(string id) =>
+        All.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.Ordinal));
+
+    public static PlaygroundEstablishStatus TryResolve(
+        string id,
+        VoxelCatalog catalog,
+        CompositeCatalog composites,
+        out WorldSource source)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(composites);
+        source = null!;
+        var configuration = Find(id);
+        if (configuration is null)
+            return PlaygroundEstablishStatus.UnknownConfiguration;
+        if (catalog.Current is not { } voxels)
+            return PlaygroundEstablishStatus.ContentUnavailable;
+        if (configuration.Train is { } train && train != PlaygroundStaticTrain.Formal)
+            return PlaygroundEstablishStatus.UnsupportedDeclaration;
+
+        var status = TryCollectDependencies(configuration, voxels, composites.Current, out var dependencies);
+        if (status != PlaygroundEstablishStatus.Established)
+            return status;
+        source = new WorldSource(
+            WorldSource.FixedConfigurationKind,
+            configuration.Id,
+            configuration.Version,
+            EffectiveParameters(configuration),
+            dependencies);
+        return PlaygroundEstablishStatus.Established;
+    }
+
+    /// <summary>Effective parameters depend only on the configuration, so a saved source can be checked against the installed one.</summary>
+    public static IReadOnlyList<WorldSourceParameter> EffectiveParameters(PlaygroundConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+        var world = configuration.BaseWorld;
+        var parameters = new List<WorldSourceParameter>
+        {
+            new("base.generator_version", world.GeneratorVersion),
+            new("base.seed", world.Seed.ToString(CultureInfo.InvariantCulture)),
+            new("base.bounds", $"{world.Bounds.SizeX},{world.Bounds.SizeY},{world.Bounds.SizeZ}"),
+            new("base.chunk_size", world.ChunkSize.ToString(CultureInfo.InvariantCulture))
+        };
+        if (configuration.Railway is { } railway)
+        {
+            parameters.Add(new("railway.segments", railway.Segments.Count.ToString(CultureInfo.InvariantCulture)));
+            for (var index = 0; index < railway.Segments.Count; index++)
+            {
+                var alignment = railway.Segments[index].Alignment;
+                parameters.Add(new(
+                    $"railway.segment.{index}.alignment",
+                    string.Join(',', new[] { alignment.StartX, alignment.StartY, alignment.StartZ, alignment.EndX, alignment.EndY, alignment.EndZ }.Select(Number))));
+            }
+
+            parameters.Add(new("railway.connections", string.Join(';', railway.Connections.Select(connection =>
+                $"{connection.FromSegment}:{connection.FromEnd}->{connection.ToSegment}:{connection.ToEnd}"))));
+            parameters.Add(new("railway.sleepers", railway.Segments
+                .SelectMany(segment => segment.SleeperVolumes)
+                .Distinct()
+                .Count()
+                .ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (configuration.Train is { } train)
+        {
+            parameters.Add(new("train.locomotive", train.LocomotiveId.Value));
+            parameters.Add(new("train.locomotive_origin", Origin(train.LocomotiveTransform)));
+            parameters.Add(new("train.carriage", train.CarriageId.Value));
+            parameters.Add(new("train.carriage_origin", Origin(train.CarriageTransform)));
+        }
+
+        return parameters;
+    }
+
+    private static PlaygroundEstablishStatus TryCollectDependencies(
+        PlaygroundConfiguration configuration,
+        VoxelCatalogSnapshot voxels,
+        CompositeCatalogSnapshot composites,
+        out IReadOnlyList<WorldSourceDependency> dependencies)
+    {
+        dependencies = Array.Empty<WorldSourceDependency>();
+        var voxelIds = new HashSet<VoxelDefinitionId> { VoxelWorldFactory.DevelopmentDefinitionId };
+        if (configuration.Railway is not null)
+            voxelIds.Add(StraightRailFixture.RailDefinitionId);
+
+        var collected = new List<WorldSourceDependency>();
+        if (configuration.Train is { } train)
+        {
+            foreach (var compositeId in new[] { train.LocomotiveId, train.CarriageId })
+            {
+                if (!composites.TryGet(compositeId, out var composite) ||
+                    !composites.TryGet(composite.Definition.ArchetypeId, out var archetype))
+                    return PlaygroundEstablishStatus.MissingContent;
+                collected.Add(new("composite", compositeId.Value, composite.SemanticRevision));
+                collected.Add(new("archetype", composite.Definition.ArchetypeId.Value, archetype.SemanticRevision));
+                foreach (var voxel in composite.Definition.Voxels)
+                    voxelIds.Add(voxel.DefinitionId);
+            }
+        }
+
+        foreach (var voxelId in voxelIds)
+        {
+            if (!voxels.TryGet(voxelId, out var entry))
+                return PlaygroundEstablishStatus.MissingContent;
+            collected.Add(new("voxel", voxelId.Value, entry.SemanticRevision));
+        }
+
+        dependencies = collected
+            .Distinct()
+            .OrderBy(item => item.Kind, StringComparer.Ordinal)
+            .ThenBy(item => item.Id, StringComparer.Ordinal)
+            .ToArray();
+        return PlaygroundEstablishStatus.Established;
+    }
+
+    private static string Origin(CompositeTransform transform) =>
+        string.Join(',', new[] { transform.OriginX, transform.OriginY, transform.OriginZ }.Select(Number));
+
+    private static string Number(double value) => value.ToString("R", CultureInfo.InvariantCulture);
+}
