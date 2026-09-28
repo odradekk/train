@@ -39,6 +39,7 @@ public sealed partial class VoxelDevelopmentSession
     public PhysicalRailState Rails => _rails;
     public bool HasRailway => _rails.HasRailway;
     internal CompositeCatalogSnapshot CurrentComposites => _composites.Current;
+    internal VoxelCatalogSnapshot? CurrentVoxels => _catalog.Current;
 
     public event Action? Changed;
 

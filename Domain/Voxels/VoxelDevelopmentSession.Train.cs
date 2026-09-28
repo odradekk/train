@@ -240,19 +240,25 @@ public sealed partial class VoxelDevelopmentSession
         {
             var boundary = CaptureMotionSnapshot();
             var fromGraph = AssemblyGraphGeneration;
-            IReadOnlyList<TrainAssemblyQuery> from;
+            IReadOnlyList<TrainAssemblyQuery> from = Array.Empty<TrainAssemblyQuery>();
+            (string Type, string Message)? failure = null;
             try
             {
                 from = QueryTrainAssemblies();
                 if (!TryAdvanceAllAssemblies(out var status))
-                    throw new InvalidOperationException($"Assembly motion broke an invariant: {status}.");
+                    failure = ("MotionInvariant", $"Assembly motion broke an invariant: {status}.");
             }
             catch (Exception exception)
+            {
+                failure = (exception.GetType().Name, exception.Message);
+            }
+
+            if (failure is { } broken)
             {
                 // Business outcomes (gaps, support loss, end of line) halt trains inside motion; a failure here is
                 // corrupt authority, so the session halts at the last complete boundary instead of reporting a rejection.
                 RestoreMotionSnapshot(boundary);
-                Fault = new SimulationFault(null, null, EditBoundary, "MotionInvariant", exception.Message);
+                Fault = new SimulationFault(null, null, EditBoundary, broken.Type, broken.Message);
                 SnapDisplayInterval();
                 Changed?.Invoke();
                 return new TrainMotionResult(TrainMotionStatus.SimulationFaulted, SimulationStep, i, SimulationStep);

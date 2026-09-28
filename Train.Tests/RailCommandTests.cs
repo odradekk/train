@@ -343,6 +343,13 @@ public sealed class RailCommandTests
         Assert.AreEqual("Published", published.Status);
         Assert.AreEqual(150, session.Query(Probe).MaxDurability);
         Assert.AreEqual(new SimulationPosition(3, 2), session.EditBoundary);
+
+        var beforeDisplayChange = playground.Catalog.Current;
+        WriteOre(playground, maxDurability: 150, displayName: "Iron Ore");
+        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        Assert.AreNotSame(beforeDisplayChange, playground.Catalog.Current);
+        Assert.AreSame(published, session.QueryEditLog()[^1]);
+        Assert.AreEqual(new SimulationPosition(3, 2), session.EditBoundary);
         Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(new VoxelRemoveEdit(Probe)).Refusal);
 
         var catalog = playground.Catalog.Current;
@@ -451,7 +458,7 @@ public sealed class RailCommandTests
             .GetField("_vehicles", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(session)!;
 
-    private static void WriteOre(PlaygroundHarness harness, int maxDurability) =>
+    private static void WriteOre(PlaygroundHarness harness, int maxDurability, string displayName = "Ferrous Ore") =>
         harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 250, mass: 2, maxDurability: maxDurability)));
+            ContentFixtures.Good("ferrous-ore", displayName, "说明", value: 250, mass: 2, maxDurability: maxDurability)));
 }
