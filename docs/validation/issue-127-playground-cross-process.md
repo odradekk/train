@@ -2,8 +2,10 @@
 
 此入口消费 `PlaygroundConfigurations.StraightRailTrainId` 与独立的正式序列
 `PlaygroundSequences.CrossProcessComparisonId`。固定配置只建立初始世界；序列负责输入和断言。
-脚本先用四个独立 Godot 进程执行连续、保存退出、恢复继续、观察干扰，再运行失败保护和两种故障注入。
-每次运行创建新的输出目录和四组独立用户数据，不读取旧报告。脚本拒绝已经存在的输出目录。
+脚本先用四个独立 Godot 进程执行连续、保存退出、恢复继续、观察干扰，再运行失败保护、内容适配
+和两种故障注入。每次运行创建新的输出目录和六组独立用户数据，不读取旧报告。保存与恢复两段
+共享一组用户数据；坏档恢复复用失败保护那组。脚本拒绝已经存在的输出目录。
+已完成的一轮分层实测见 [b44069c 报告](issue-127-result-b44069c.md)；报告注明其受测提交与本工作树中的原始日志目录。
 
 ```powershell
 $env:GODOT = 'D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe'
