@@ -124,7 +124,7 @@
 | `Unavailable` | 当前会话没有可用的存档 store 或目录；不写文件、不读档 |
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
 | `UnsupportedRailway` | 保留状态，成功路径不再返回；正式铁路、编组与运动状态已写入格式 4 |
-| `Edit <id> <kind> pending` / `Edit PastStep.` / `Edit InputExhausted.` / `Edit SimulationFaulted.` | 带 `at <step>` 的世界修改命令回报：已排队，或因过去步、命令编号 / 步内序号耗尽、会话故障而拒绝且不消耗编号。不带 `at` 的立即修改在编号或序号耗尽时返回 `InputExhausted`，会话故障时返回 `SimulationFaulted`；见 [voxel edits](voxel-edits.md) |
+| `Edit <id> <kind> pending` / `Edit PastStep.` / `Edit UnallocatedReference.` / `Edit InputExhausted.` / `Edit SimulationFaulted.` | 带 `at <step>` 的世界修改命令回报：已排队，或因过去步、引用从未分配的车辆 / 零件 ID、命令编号 / 步内序号耗尽、会话故障而拒绝且不消耗编号。不带 `at` 的立即修改在编号或序号耗尽时返回 `InputExhausted`，会话故障时返回 `SimulationFaulted`；见 [voxel edits](voxel-edits.md) |
 | `UnknownSource` | `voxel load` 的存档带有不受支持的 `world_source` 来源类型；当前会话不变 |
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |

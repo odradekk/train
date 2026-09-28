@@ -198,6 +198,25 @@ public sealed class WorldEditEncodingTests
     }
 
     [TestMethod]
+    public void Malformed_version_or_kind_fields_are_invalid_while_unsupported_values_are_unknown_formats()
+    {
+        var remove = Golden[1].Canonical;
+        string Version(string text) => remove.Replace("\"input_format_version\":1", $"\"input_format_version\":{text}", StringComparison.Ordinal);
+        AssertDecode(Version("2147483648"), WorldEditDecodeStatus.Invalid);
+        AssertDecode(Version("-2147483649"), WorldEditDecodeStatus.Invalid);
+        AssertDecode(Version("1.5"), WorldEditDecodeStatus.Invalid);
+        AssertDecode(Version("\"1\""), WorldEditDecodeStatus.Invalid);
+        AssertDecode(Version("null"), WorldEditDecodeStatus.Invalid);
+        AssertDecode(remove.Replace("\"kind\":\"voxel.remove\"", "\"kind\":5", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+
+        AssertDecode(Version("2147483647"), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(Version("-1"), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(Version("0"), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(remove.Replace("\"kind\":\"voxel.remove\"", "\"kind\":\"voxel.melt\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(remove.Replace("\"kind\":\"voxel.remove\",", "", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+    }
+
+    [TestMethod]
     public void Decoding_accepts_any_field_order_and_re_encodes_canonically()
     {
         const string reordered =

@@ -60,4 +60,4 @@ composite query
 
 第二桥 `(3,0,1)` 与原桥同事件归零后，两侧各 27 零件、各 1 个接触点；查询到的存档内 Revision 已变，零件格子与定义格子一致，世界体素仍为 0。
 
-定时执行：在全部目标之后追加 `at <step>`，整次伤害在该步边界执行；到期时车辆已被摧毁则记为拒绝 `UnknownVehicle` 并出队，不改指向其他车辆。输出与规则见 [`voxel edits`](voxel-edits.md)。
+定时执行：在全部目标之后追加 `at <step>`，整次伤害在该步边界执行；到期时车辆已被摧毁则记为拒绝 `UnknownVehicle` 并出队，不改指向其他车辆。车辆 ID 从未分配过时不入队，直接返回 `Edit UnallocatedReference.`。输出与规则见 [`voxel edits`](voxel-edits.md)。

@@ -74,6 +74,7 @@ Simulation Tick
 [#122](https://github.com/odradekk/train/issues/122) 让体素增删与伤害、车辆制造与伤害、五类改装与批量改装统一成为已解析的世界修改命令（`Domain/Commands/`），由 `VoxelDevelopmentSession.SubmitEdit` 这一个校验与事务入口执行。控制台、Playground 面板和自动验证序列只负责把输入解析成命令，不直接改世界。
 
 - 接受时分配递增 `edit_id`，并在当前边界取下一个步内序号；立即命令在该位置执行。带目标步的命令排队，时钟推进到目标步后把边界序号清零，在该步列车命令之前，按 `edit_id` 顺序逐条取新序号执行。执行时的预期拒绝同样占用该位置并出队；过去步、`edit_id` 或序号到达 `ulong.MaxValue`、会话故障时整次拒绝，不消耗编号或序号。
+- 排队命令只能引用已分配过的运行时实体 ID（小于当前 `next_entity_id`），否则以 `UnallocatedReference` 整次拒绝。实体 ID 只增不减，所以接受时成立的引用在任何后续保存中仍满足存档恢复的同一条件；从未分配的引用不会成为合法待执行命令，也不会写出无法加载的存档。立即命令不入队，照常执行并按业务状态拒绝。
 - 每条命令以单个事务执行。内部异常时恢复执行前的世界体素、车辆、编组、列车命令队列、实体 ID、事务计数、跟随目标与铁路派生状态，记录 `faulted` 并锁定会话，直到重置或读档。
 - 待执行队列（下一个 `edit_id`、当前边界序号、每条命令的接受位置、目标步与规范负载）属于权威状态，进入世界指纹与格式 4 存档的 `world_edits`；执行日志是历史，只保留最近 256 条并维护链式摘要，不进入指纹或存档。
 
@@ -84,7 +85,7 @@ Simulation Tick
 - 顶层固定先写 `input_format_version`、`kind`，再按类型写固定字段顺序。`kind` 取 `voxel.add` / `voxel.remove` / `voxel.damage` / `vehicle.manufacture` / `vehicle.damage` / `vehicle.refit`。
 - 集合语义的多目标伤害按坐标（车辆伤害先按车辆 ID）与伤害值排序；改装操作列表保持提交顺序。调用方仍按自己的目标顺序拿到逐项结果。
 - 坐标与伤害值为 32 位有符号整数，实体 ID 为非零 64 位无符号整数，朝向写正交编码。`double` 使用与文化无关的 round-trip（`R`）文本，拒绝非有限值。
-- 解码拒绝重复字段、未知字段、未知 `input_format_version`、未知 `kind` 或改装 `op`（`UnknownFormat`），也拒绝越界整数、零实体 ID、非法朝向与非有限数（`Invalid`）。解码不依赖字段顺序，重新编码得到同一规范文本。
+- 解码拒绝重复字段、未知字段、缺失或 32 位范围内但不支持的 `input_format_version`、缺失或未知的 `kind` 或改装 `op`（`UnknownFormat`），也拒绝越界整数（包括超出 32 位有符号范围或非整数的 `input_format_version`）、类型错误的版本或 `kind` 字段、零实体 ID、非法朝向与非有限数（`Invalid`）。解码不依赖字段顺序，重新编码得到同一规范文本。
 - 摘要是规范 UTF-8 字节的 SHA-256 大写十六进制。执行记录在负载外加 `edit_id`、接受位置、目标步、状态、执行位置与结果状态；日志摘要为 `SHA-256(前一摘要 + "\n" + 记录规范文本)`，初值为 64 个 `0`。
 
 固定向量（`Train.Tests/WorldEditEncodingTests.cs` 逐字校验）：

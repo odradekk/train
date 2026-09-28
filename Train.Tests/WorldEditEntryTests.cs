@@ -117,7 +117,7 @@ public sealed class WorldEditEntryTests
         Assert.AreEqual(0, session.QueryComposites().Count);
     }
 
-    private static ConsoleCommandDispatcher Dispatcher(LoggerSession logger, VoxelDevelopmentSession session) =>
+    internal static ConsoleCommandDispatcher Dispatcher(LoggerSession logger, VoxelDevelopmentSession session) =>
         new(
             logger.Logger,
             static () => { },
@@ -128,6 +128,6 @@ public sealed class WorldEditEntryTests
             new CompositeConsoleCommands(session),
             new RailConsoleCommands(session));
 
-    private static string Messages(LoggerSession logger) =>
+    internal static string Messages(LoggerSession logger) =>
         string.Join('\n', logger.Memory.Snapshot().Select(item => item.Message));
 }

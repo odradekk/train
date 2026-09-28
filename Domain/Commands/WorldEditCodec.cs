@@ -168,15 +168,16 @@ public static class WorldEditCodec
         edit = null!;
         if (!Fields.TryOpen(element, out var fields, out status))
             return false;
-        if (!fields.TryTake("input_format_version", JsonValueKind.Number, out var versionElement, out status) ||
-            !versionElement.TryGetInt32(out var version) ||
-            version != InputFormatVersion ||
-            !fields.TryTake("kind", JsonValueKind.String, out var kindElement, out status) ||
-            !TryParseWireKind(kindElement.GetString(), out var kind))
-        {
-            status = WorldEditDecodeStatus.UnknownFormat;
+        if (!fields.Contains("input_format_version") || !fields.Contains("kind"))
+            return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
+        if (!fields.TryInt32("input_format_version", out var version, out status))
             return false;
-        }
+        if (version != InputFormatVersion)
+            return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
+        if (!fields.TryTake("kind", JsonValueKind.String, out var kindElement, out status))
+            return false;
+        if (!TryParseWireKind(kindElement.GetString(), out var kind))
+            return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
 
         var read = kind switch
         {
@@ -561,6 +562,8 @@ public static class WorldEditCodec
             status = WorldEditDecodeStatus.Decoded;
             return true;
         }
+
+        public bool Contains(string name) => _remaining.ContainsKey(name);
 
         public bool TryTake(string name, JsonValueKind kind, out JsonElement value, out WorldEditDecodeStatus status)
         {

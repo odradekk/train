@@ -5,6 +5,7 @@ using Train.Domain.Composites;
 using Train.Domain.Playground;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
+using Train.Logging;
 
 namespace Train.Tests;
 
@@ -104,6 +105,68 @@ public sealed class WorldEditPersistenceTests
     }
 
     [TestMethod]
+    public void Scheduled_edits_naming_never_allocated_ids_are_refused_so_every_saved_queue_loads()
+    {
+        using var writer = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var logger = LoggerSession.Create();
+        var session = writer.Session;
+        var dispatcher = WorldEditEntryTests.Dispatcher(logger, session);
+        var shell = session.Manufacture(HollowShellFixture.DefinitionId, WorldEditOrderingTests.ShellPose).VehicleId!.Value;
+        var part = session.QueryComposite(shell)!.Parts[0].Id;
+        var unallocated = new EntityId(session.NextEntityId);
+        var target = session.SimulationStep + 3;
+        var boundary = session.EditBoundary;
+        var nextEditId = session.NextEditId;
+        var logCount = session.EditLogCount;
+        var fingerprint = WorldSaveAuthority.Fingerprint(session);
+
+        var refusals = new[]
+        {
+            session.SubmitEdit(new VehicleDamageEdit(new[] { new CompositeDamageTarget(unallocated, HollowShellRefit.FirstAdd, 1) }), target),
+            session.SubmitEdit(new VehicleDamageEdit(new[]
+            {
+                new CompositeDamageTarget(shell, HollowShellRefit.FirstAdd, 1),
+                new CompositeDamageTarget(unallocated, HollowShellRefit.FirstAdd, 1)
+            }), target),
+            session.SubmitEdit(new VehicleRefitEdit(unallocated, new[] { CompositeRefitOperation.Remove(part) }), target),
+            session.SubmitEdit(new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Remove(unallocated) }), target),
+            session.SubmitEdit(new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Move(unallocated, new LocalVoxelCoord(2, 5, 1)) }), target)
+        };
+        dispatcher.Execute($"composite damage {unallocated.Value} 0 0 0 1 at {target}");
+        dispatcher.Execute($"composite remove {shell.Value} {unallocated.Value} at {target}");
+
+        foreach (var refusal in refusals)
+        {
+            Assert.AreEqual(WorldEditRefusal.UnallocatedReference, refusal.Refusal);
+            Assert.IsNull(refusal.Record);
+        }
+        var messages = WorldEditEntryTests.Messages(logger).Split('\n');
+        Assert.AreEqual(2, messages.Count(line => line == "Edit UnallocatedReference."));
+        Assert.AreEqual(boundary, session.EditBoundary);
+        Assert.AreEqual(nextEditId, session.NextEditId);
+        Assert.AreEqual(0, session.QueryPendingEdits().Count);
+        Assert.AreEqual(logCount, session.EditLogCount);
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
+
+        var immediate = session.SubmitEdit(new VehicleDamageEdit(new[] { new CompositeDamageTarget(unallocated, HollowShellRefit.FirstAdd, 1) }));
+        Assert.AreEqual(WorldEditState.Rejected, immediate.Record!.State);
+        Assert.AreEqual("UnknownVehicle", immediate.Status);
+        var allocated = new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Remove(part) });
+        Assert.AreEqual("Pending", session.SubmitEdit(allocated, target).Status);
+
+        var saved = session.Save("Unallocated");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        using var restarted = PlaygroundHarness.Content(userData: writer.UserData);
+        var reader = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4, restarted.Store, restarted.Composites);
+        restarted.Attach(reader);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId!.Value).Status);
+        Assert.AreEqual(allocated, reader.QueryPendingEdits().Single().Edit);
+        Assert.AreEqual(session.EditBoundary, reader.EditBoundary);
+        Assert.AreEqual(session.NextEditId, reader.NextEditId);
+        Assert.AreEqual(WorldSaveAuthority.Fingerprint(session), WorldSaveAuthority.Fingerprint(reader));
+    }
+
+    [TestMethod]
     public void Corrupt_or_unknown_edit_queues_reject_the_load_and_keep_the_session()
     {
         using var harness = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
@@ -139,6 +202,9 @@ public sealed class WorldEditPersistenceTests
             ("bad orientation", root => Queue(root)["pending"]![1]!["edit"]!["orientation"] = "sideways", WorldSaveStatus.InvalidDelta),
             ("unknown kind", root => First(root)["edit"]!["kind"] = "vehicle.explode", WorldSaveStatus.UnknownFormat),
             ("unknown input version", root => First(root)["edit"]!["input_format_version"] = 2, WorldSaveStatus.UnknownFormat),
+            ("input version beyond int32", root => First(root)["edit"]!["input_format_version"] = 2147483648L, WorldSaveStatus.InvalidDelta),
+            ("mistyped input version", root => First(root)["edit"]!["input_format_version"] = "1", WorldSaveStatus.InvalidDelta),
+            ("mistyped kind", root => First(root)["edit"]!["kind"] = 5, WorldSaveStatus.InvalidDelta),
             ("unknown queue field", root => Queue(root)["priority"] = 1, WorldSaveStatus.UnknownFormat),
             ("missing queue", root => root.Remove("world_edits"), WorldSaveStatus.Truncated),
             ("queue in predecessor format", root => root["save_format_version"] = WorldSaveDocument.PredecessorFormatVersion, WorldSaveStatus.UnknownFormat)

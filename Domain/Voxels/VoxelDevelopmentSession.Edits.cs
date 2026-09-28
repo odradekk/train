@@ -98,8 +98,8 @@ public sealed partial class VoxelDevelopmentSession
 
     /// <summary>
     /// Accepts one parsed edit at the current boundary. <paramref name="atStep"/> defaults to the current step
-    /// (execute now); a later step queues the edit for that boundary. Past steps, exhausted counters and a faulted
-    /// session are refused without consuming an id or a sequence.
+    /// (execute now); a later step queues the edit for that boundary. Past steps, queued edits naming never-allocated
+    /// runtime ids, exhausted counters and a faulted session are refused without consuming an id or a sequence.
     /// </summary>
     public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null)
     {
@@ -109,6 +109,9 @@ public sealed partial class VoxelDevelopmentSession
         var target = atStep ?? SimulationStep;
         if (target < SimulationStep)
             return new WorldEditSubmission(WorldEditRefusal.PastStep, null, null);
+        // Save restore rejects pending ids that were never allocated, so a queued edit may only name ids issued so far.
+        if (target > SimulationStep && edit.EntityReferences.Any(id => id.Value >= NextEntityId))
+            return new WorldEditSubmission(WorldEditRefusal.UnallocatedReference, null, null);
         if (NextEditId == ulong.MaxValue || EditBoundarySequence == ulong.MaxValue)
             return new WorldEditSubmission(WorldEditRefusal.InputExhausted, null, null);
 
