@@ -1,4 +1,5 @@
 using Train.Content;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 
@@ -30,6 +31,17 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         ArgumentNullException.ThrowIfNull(voxels);
         ArgumentNullException.ThrowIfNull(composites);
         var world = _world() ?? throw new InvalidOperationException("A voxel world is required to prepare a live reload.");
+        if (_session is { CanRecordContentPublication: false })
+        {
+            return ContentWorldReloadPlan.Reject(new[]
+            {
+                new ContentDiagnostic(
+                    ContentDiagnosticSeverity.Error,
+                    ContentDiagnosticCodes.SimulationUnavailable,
+                    "The live session is faulted or out of input ids, so content cannot be published into it.")
+            });
+        }
+
         var diagnostics = new List<ContentDiagnostic>();
         var replacements = new List<(WorldVoxelCoord Position, WorldVoxel Voxel)>();
 
@@ -70,18 +82,15 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         if (diagnostics.Count > 0)
             return ContentWorldReloadPlan.Reject(diagnostics);
 
-        var changedVehicles = _session is not null &&
-                              vehicles is not null &&
-                              VehiclesDiffer(_session.Vehicles, vehicles);
-        if (replacements.Count == 0 && !changedVehicles)
-            return ContentWorldReloadPlan.Accept(null);
-
         if (_session is null)
-            return ContentWorldReloadPlan.Accept(() => world.ReplaceOccupied(replacements));
+            return ContentWorldReloadPlan.Accept(replacements.Count == 0 ? null : () => world.ReplaceOccupied(replacements));
 
-        return ContentWorldReloadPlan.Accept(() => _session.ApplyContentReload(
-            replacements,
-            changedVehicles ? vehicles : null));
+        var session = _session;
+        var changedVehicles = vehicles is not null && VehiclesDiffer(session.Vehicles, vehicles);
+        var publication = ContentPublishEdit.For(voxels, composites);
+        return ContentWorldReloadPlan.Accept(() => session.PublishContent(
+            publication,
+            () => session.ApplyContentReload(replacements, changedVehicles ? vehicles : null)));
     }
 
     public static bool TryAdaptVehicles(

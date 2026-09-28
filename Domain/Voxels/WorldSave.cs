@@ -52,11 +52,13 @@ public readonly record struct WorldSaveDefinitionRef(
 
 public sealed class WorldSaveDocument
 {
-    public const int CurrentFormatVersion = 4;
-    public const int PredecessorFormatVersion = 3;
+    public const int CurrentFormatVersion = 5;
+    public const int PredecessorFormatVersion = 4;
     public const int OldestFormatVersion = 2;
     public const int FirstRailwayFormatVersion = 3;
     public const int FirstWorldEditsFormatVersion = 4;
+    /// <summary>Train start/stop live only in <c>world_edits</c>; the legacy train queue fields are unknown from here on.</summary>
+    public const int FirstUnifiedTrainCommandsFormatVersion = 5;
     public const string DefaultDisplayName = "Development World";
     public const int DisplayNameMinLength = 1;
     public const int DisplayNameMaxLength = 64;
@@ -311,8 +313,6 @@ public static class WorldSaveCodec
         PhysicalRailState? rails = null,
         IReadOnlyList<TrainAssembly>? assemblies = null,
         ulong simulationStep = 0,
-        IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
-        ulong scheduledSequence = 0,
         WorldSource? source = null,
         WorldEditQueueState? edits = null)
     {
@@ -375,10 +375,8 @@ public static class WorldSaveCodec
             rails is null ? WorldSaveRailway.Empty : WorldSaveRailway.Capture(rails),
             WorldSaveRailwayCodec.CaptureAssemblies(assemblies ?? Array.Empty<TrainAssembly>()),
             simulationStep,
-            scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>(),
-            scheduledSequence,
-            source,
-            edits);
+            source: source,
+            edits: edits);
         status = WorldSaveStatus.Saved;
         return true;
     }
@@ -414,8 +412,11 @@ public static class WorldSaveCodec
             WorldSaveRailwayCodec.WriteRailway(writer, document.Railway);
             WorldSaveRailwayCodec.WriteAssemblies(writer, document.Assemblies);
             writer.WriteNumber("simulation_step", document.SimulationStep);
-            WorldSaveRailwayCodec.WriteCommands(writer, document.ScheduledCommands);
-            writer.WriteNumber("scheduled_sequence", document.ScheduledSequence);
+            if (document.FormatVersion < WorldSaveDocument.FirstUnifiedTrainCommandsFormatVersion)
+            {
+                WorldSaveRailwayCodec.WriteCommands(writer, document.ScheduledCommands);
+                writer.WriteNumber("scheduled_sequence", document.ScheduledSequence);
+            }
             if (document.Source is { } source)
                 WorldSourceCodec.Write(writer, source);
             if (document.FormatVersion >= WorldSaveDocument.FirstWorldEditsFormatVersion)
@@ -738,7 +739,13 @@ public static class WorldSaveCodec
         }
 
         if (formatVersion >= WorldSaveDocument.FirstRailwayFormatVersion &&
-            (railway is null || assemblies is null || !hasSimulationStep || scheduledCommands is null || !hasScheduledSequence))
+            (railway is null || assemblies is null || !hasSimulationStep))
+            return Reject(WorldSaveStatus.Truncated, out status);
+        var unifiedTrainCommands = formatVersion >= WorldSaveDocument.FirstUnifiedTrainCommandsFormatVersion;
+        if (unifiedTrainCommands && (scheduledCommands is not null || hasScheduledSequence))
+            return Reject(WorldSaveStatus.UnknownFormat, out status);
+        if (!unifiedTrainCommands && formatVersion >= WorldSaveDocument.FirstRailwayFormatVersion &&
+            (scheduledCommands is null || !hasScheduledSequence))
             return Reject(WorldSaveStatus.Truncated, out status);
         if (formatVersion >= WorldSaveDocument.FirstWorldEditsFormatVersion && edits is null)
             return Reject(WorldSaveStatus.Truncated, out status);
@@ -1218,7 +1225,6 @@ public static class WorldSaveRestorer
                 catalog,
                 out var rails,
                 out var assemblies,
-                out var commands,
                 out status))
             return false;
         if (!TryValidateEdits(document, out status))
@@ -1231,8 +1237,6 @@ public static class WorldSaveRestorer
             rails,
             assemblies,
             document.SimulationStep,
-            commands,
-            document.ScheduledSequence,
             document.Edits);
         status = WorldSaveStatus.Loaded;
         return true;
@@ -1241,7 +1245,8 @@ public static class WorldSaveRestorer
     /// <summary>
     /// Accepted-but-unexecuted edits must sit strictly after the saved boundary, in acceptance order, and may only
     /// name runtime ids that were once allocated. A target destroyed before the save is legal and is rejected when
-    /// the edit executes; an id that was never allocated is a corrupt reference and rejects the whole load.
+    /// the edit executes; an id that was never allocated is a corrupt reference and rejects the whole load. Content
+    /// publications are never pending, and format 4 predates the rail and train kinds.
     /// </summary>
     private static bool TryValidateEdits(WorldSaveDocument document, out WorldSaveStatus status)
     {
@@ -1253,6 +1258,15 @@ public static class WorldSaveRestorer
         WorldEditRecord? previous = null;
         foreach (var pending in edits.Pending)
         {
+            if (document.FormatVersion < WorldSaveDocument.FirstUnifiedTrainCommandsFormatVersion &&
+                pending.Edit.Kind > WorldEditKind.VehicleRefit)
+            {
+                status = WorldSaveStatus.UnknownFormat;
+                return false;
+            }
+
+            if (pending.Edit is ContentPublishEdit)
+                return false;
             if (pending.Id == 0 || pending.Id >= edits.NextEditId)
                 return false;
             if (previous is not null && (pending.Id <= previous.Id || pending.AcceptedAt.CompareTo(previous.AcceptedAt) <= 0))

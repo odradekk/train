@@ -6,7 +6,8 @@ namespace Train.Domain.Playground;
 public static class PlaygroundSession
 {
     /// <summary>
-    /// Builds the declared initial world through the formal session commands and leaves the global clock paused.
+    /// Builds the declared initial world through the formal edit entry, then opens the established session's input
+    /// order at the establish boundary and leaves the global clock paused.
     /// </summary>
     public static PlaygroundEstablishStatus TryEstablish(
         string configurationId,

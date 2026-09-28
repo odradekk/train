@@ -59,10 +59,13 @@ public sealed record WorldEditSubmission(WorldEditRefusal Refusal, WorldEditReco
         : Record.Status ?? Record.State.ToString();
 }
 
-/// <summary>An internal invariant failure: authority was rolled back to the last complete boundary and the session halts.</summary>
+/// <summary>
+/// An internal invariant failure: authority was rolled back to the last complete boundary and the session halts.
+/// Edit id and kind are absent when the fault came from simulation motion rather than an edit.
+/// </summary>
 public sealed record SimulationFault(
-    ulong EditId,
-    WorldEditKind Kind,
+    ulong? EditId,
+    WorldEditKind? Kind,
     SimulationPosition Position,
     string ExceptionType,
     string Message);

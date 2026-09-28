@@ -41,6 +41,7 @@ public static class ContentDiagnosticCodes
     public const string DiagnosticsTruncated = "diagnostics_truncated";
     public const string PackageInvalid = "package_invalid";
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
+    public const string SimulationUnavailable = "simulation_unavailable";
     public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
     public const string IncompatibleVoxelState = "incompatible_voxel_state";
     public const string RawGoodTagRequired = "raw_good_tag_required";

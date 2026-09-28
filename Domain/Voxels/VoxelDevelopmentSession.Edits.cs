@@ -5,7 +5,7 @@ using Train.Domain.Rails;
 namespace Train.Domain.Voxels;
 
 /// <summary>
-/// The single validation and transaction entry for voxel and vehicle modifications. Every accepted edit takes the
+/// The single validation and transaction entry for voxel, vehicle, rail, and train modifications. Every accepted edit takes the
 /// next in-step sequence at the current boundary; immediate edits run there, scheduled edits run when the clock
 /// reaches their target boundary, in acceptance order.
 /// </summary>
@@ -96,6 +96,107 @@ public sealed partial class VoxelDevelopmentSession
         return submission.Result as CompositeRefitResult ?? new CompositeRefitResult(RefusedConstructionStatus(submission), vehicleId);
     }
 
+    public RailEditResult ConstructRails(RailConstructionPlan? plan = null)
+    {
+        plan ??= StraightRailFixture.CreateFixturePlan();
+        if (!RailConstructEdit.IsEncodable(plan))
+            return new RailEditResult(RailEditStatus.InvalidPlan);
+        var submission = SubmitEdit(new RailConstructEdit(plan));
+        return submission.Result as RailEditResult ?? new RailEditResult(
+            submission.Refusal == WorldEditRefusal.InputExhausted ? RailEditStatus.InputExhausted : RailEditStatus.SimulationFaulted);
+    }
+
+    public RailRepairResult RepairRails(IReadOnlyList<WorldVoxelCoord> cells)
+    {
+        ArgumentNullException.ThrowIfNull(cells);
+        var submission = SubmitEdit(new RailRepairEdit(cells));
+        return submission.Result as RailRepairResult ?? new RailRepairResult(
+            submission.Refusal == WorldEditRefusal.InputExhausted ? RailRepairStatus.InputExhausted : RailRepairStatus.SimulationFaulted,
+            cells.Count == 0 ? default : cells[0]);
+    }
+
+    public TrainAssemblyResult AssembleStaticTrain()
+    {
+        var submission = SubmitEdit(TrainAssembleEdit.StaticFixture);
+        return submission.Result as TrainAssemblyResult ?? new TrainAssemblyResult(
+            submission.Refusal == WorldEditRefusal.InputExhausted ? TrainAssemblyStatus.InputExhausted : TrainAssemblyStatus.SimulationFaulted);
+    }
+
+    /// <summary>
+    /// Submits <c>train.start</c> for the resolved assembly. Reverse heading, a session without railway, and an
+    /// unresolvable target (none, or several without an explicit id) cannot be encoded and take no id.
+    /// </summary>
+    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null, EntityId? assemblyId = null)
+    {
+        if (heading == RailHeading.AgainstAlignment)
+            return RejectMotion(TrainMotionStatus.ReverseUnsupported, atStep);
+        if (!HasRailway)
+            return RejectMotion(TrainMotionStatus.NoRailway, atStep);
+        if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
+            return RejectMotion(status, atStep);
+        return SubmitTrainCommand(new TrainStartEdit(target), atStep);
+    }
+
+    public TrainMotionResult StopTrain(ulong? atStep = null, EntityId? assemblyId = null)
+    {
+        if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
+            return RejectMotion(status, atStep);
+        return SubmitTrainCommand(new TrainStopEdit(target), atStep);
+    }
+
+    private TrainMotionResult SubmitTrainCommand(WorldEdit edit, ulong? atStep)
+    {
+        var target = atStep ?? SimulationStep;
+        var submission = SubmitEdit(edit, atStep);
+        if (!submission.Accepted)
+        {
+            return RejectMotion(submission.Refusal switch
+            {
+                WorldEditRefusal.PastStep => TrainMotionStatus.PastStep,
+                WorldEditRefusal.InputExhausted => TrainMotionStatus.InputExhausted,
+                WorldEditRefusal.UnallocatedReference => TrainMotionStatus.UnallocatedReference,
+                _ => TrainMotionStatus.SimulationFaulted
+            }, target);
+        }
+
+        var id = submission.Record!.Id;
+        if (submission.Result is TrainMotionResult result)
+            return result with { EditId = id };
+        return new TrainMotionResult(
+            submission.Record.State == WorldEditState.Pending ? TrainMotionStatus.Pending : TrainMotionStatus.SimulationFaulted,
+            SimulationStep,
+            AtStep: target,
+            EditId: id);
+    }
+
+    /// <summary>False when the session cannot take another input at its current boundary.</summary>
+    internal bool CanRecordContentPublication =>
+        Fault is null && NextEditId != ulong.MaxValue && EditBoundarySequence != ulong.MaxValue;
+
+    /// <summary>
+    /// Records one world-adapting content publication at the current boundary and applies it inside the edit
+    /// transaction. An internal fault restores the boundary, halts the session, and throws so the catalog is not
+    /// published over a world that was never adapted to it.
+    /// </summary>
+    internal void PublishContent(ContentPublishEdit edit, Action apply)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        ArgumentNullException.ThrowIfNull(apply);
+        if (!CanRecordContentPublication)
+            throw new InvalidOperationException("Content publication was prepared for a session that can no longer take input.");
+        var accepted = EditBoundary;
+        var record = new WorldEditRecord(NextEditId, edit, accepted, SimulationStep);
+        NextEditId++;
+        EditBoundarySequence++;
+        var done = Execute(record, accepted, () =>
+        {
+            apply();
+            return (true, "Published", null);
+        });
+        if (done.Record!.State == WorldEditState.Faulted)
+            throw new InvalidOperationException($"Content publication faulted: {Fault!.ExceptionType}: {Fault.Message}");
+    }
+
     /// <summary>
     /// Accepts one parsed edit at the current boundary. <paramref name="atStep"/> defaults to the current step
     /// (execute now); a later step queues the edit for that boundary. Past steps, queued edits naming never-allocated
@@ -104,6 +205,8 @@ public sealed partial class VoxelDevelopmentSession
     public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null)
     {
         ArgumentNullException.ThrowIfNull(edit);
+        if (edit is ContentPublishEdit)
+            throw new ArgumentException("Content publications are recorded by the content reload boundary.", nameof(edit));
         if (Fault is not null)
             return new WorldEditSubmission(WorldEditRefusal.SimulationFaulted, null, null);
         var target = atStep ?? SimulationStep;
@@ -126,7 +229,7 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldEditSubmission(WorldEditRefusal.None, record, null);
         }
 
-        return Execute(record, accepted);
+        return Execute(record, accepted, () => Dispatch(record.Edit));
     }
 
     public IReadOnlyList<WorldEditRecord> QueryPendingEdits() => _pendingEdits.ToArray();
@@ -148,7 +251,7 @@ public sealed partial class VoxelDevelopmentSession
             }
 
             var position = new SimulationPosition(SimulationStep, EditBoundarySequence++);
-            if (Execute(due, position).Record!.State == WorldEditState.Faulted)
+            if (Execute(due, position, () => Dispatch(due.Edit)).Record!.State == WorldEditState.Faulted)
                 return false;
         }
 
@@ -157,12 +260,15 @@ public sealed partial class VoxelDevelopmentSession
 
     private bool HasDueEdits() => _pendingEdits.Any(item => item.TargetStep == SimulationStep);
 
-    private WorldEditSubmission Execute(WorldEditRecord pending, SimulationPosition position)
+    private WorldEditSubmission Execute(
+        WorldEditRecord pending,
+        SimulationPosition position,
+        Func<(bool Succeeded, string Status, object? Result)> dispatch)
     {
         var rollback = CaptureEditRollback();
         try
         {
-            var (succeeded, status, result) = Dispatch(pending.Edit);
+            var (succeeded, status, result) = dispatch();
             EditFaultProbe?.Invoke(pending);
             var done = pending with
             {
@@ -190,7 +296,7 @@ public sealed partial class VoxelDevelopmentSession
         }
     }
 
-    private (bool Succeeded, string Status, object Result) Dispatch(WorldEdit edit)
+    private (bool Succeeded, string Status, object? Result) Dispatch(WorldEdit edit)
     {
         switch (edit)
         {
@@ -212,6 +318,21 @@ public sealed partial class VoxelDevelopmentSession
             case VehicleRefitEdit refit:
                 var refitted = RefitCore(refit.VehicleId, refit.Operations);
                 return (refitted.Succeeded, refitted.Status.ToString(), refitted);
+            case RailConstructEdit construct:
+                var built = ConstructRailsCore(construct.Plan);
+                return (built.Succeeded, built.Status.ToString(), built);
+            case RailRepairEdit repair:
+                var repaired = RepairRailsCore(repair.Cells);
+                return (repaired.Succeeded, repaired.Status.ToString(), repaired);
+            case TrainAssembleEdit assemble:
+                var formed = AssembleCore(assemble);
+                return (formed.Succeeded, formed.Status.ToString(), formed);
+            case TrainStartEdit start:
+                var started = StartCore(start.AssemblyId);
+                return (started.Succeeded, started.Status.ToString(), started);
+            case TrainStopEdit stop:
+                var stopped = StopCore(stop.AssemblyId);
+                return (stopped.Succeeded, stopped.Status.ToString(), stopped);
             default:
                 throw new InvalidOperationException($"Unknown world edit kind {edit.Kind}.");
         }
@@ -268,12 +389,10 @@ public sealed partial class VoxelDevelopmentSession
             World.CaptureVoxels(),
             _vehicles.ToArray(),
             _assemblies.ToArray(),
-            _scheduled.ToArray(),
-            _scheduledSequence,
             NextEntityId,
             TransactionCount,
             FollowedVehicleId,
-            _rails.CaptureWorldEffects());
+            _rails.CaptureState());
 
     private void RestoreEditRollback(EditRollback rollback)
     {
@@ -282,13 +401,10 @@ public sealed partial class VoxelDevelopmentSession
         _vehicles.AddRange(rollback.Vehicles);
         _assemblies.Clear();
         _assemblies.AddRange(rollback.Assemblies);
-        _scheduled.Clear();
-        _scheduled.AddRange(rollback.Scheduled);
-        _scheduledSequence = rollback.ScheduledSequence;
         NextEntityId = rollback.NextEntityId;
         TransactionCount = rollback.TransactionCount;
         FollowedVehicleId = rollback.FollowedVehicleId;
-        _rails.RestoreWorldEffects(rollback.RailEffects);
+        _rails.RestoreState(rollback.Rails);
         NoteAssemblyGraphCommit();
         SnapDisplayInterval();
         _pendingChanges.Clear();
@@ -304,10 +420,8 @@ public sealed partial class VoxelDevelopmentSession
         IReadOnlyList<KeyValuePair<WorldVoxelCoord, WorldVoxel>> Voxels,
         IReadOnlyList<CompositeInstance> Vehicles,
         IReadOnlyList<TrainAssembly> Assemblies,
-        IReadOnlyList<ScheduledTrainCommand> Scheduled,
-        ulong ScheduledSequence,
         ulong NextEntityId,
         ulong TransactionCount,
         EntityId? FollowedVehicleId,
-        (WorldVoxelCoord[] Destroyed, DerivedRailGraph Derived, bool DerivedCurrent) RailEffects);
+        PhysicalRailState.Snapshot Rails);
 }

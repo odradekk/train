@@ -26,7 +26,7 @@ public sealed class WorldSaveTests
         Assert.IsTrue(saved.SaveId.HasValue);
         Assert.AreEqual("Fixture A", saved.DisplayName);
         var json = File.ReadAllText(first.Store.PathFor(saved.SaveId!.Value));
-        StringAssert.Contains(json, "\"save_format_version\":4");
+        StringAssert.Contains(json, "\"save_format_version\":5");
         StringAssert.Contains(json, "\"generator_version\":\"slice-2-integer-fixture-v1\"");
         StringAssert.Contains(json, "\"seed\":2");
         StringAssert.Contains(json, "\"x\":32");
@@ -236,8 +236,8 @@ public sealed class WorldSaveTests
         var goodPath = harness.Store.PathFor(good.SaveId!.Value);
         var goodJson = File.ReadAllText(goodPath);
 
-        AssertLoadKeepsWorld(harness, Mutate(goodJson, "\"save_format_version\":4", "\"save_format_version\":99"), WorldSaveStatus.UnknownFormat);
-        AssertLoadKeepsWorld(harness, Mutate(goodJson, "\"save_format_version\":4", "\"save_format_version\":1"), WorldSaveStatus.UnknownFormat);
+        AssertLoadKeepsWorld(harness, Mutate(goodJson, "\"save_format_version\":5", "\"save_format_version\":99"), WorldSaveStatus.UnknownFormat);
+        AssertLoadKeepsWorld(harness, Mutate(goodJson, "\"save_format_version\":5", "\"save_format_version\":1"), WorldSaveStatus.UnknownFormat);
         AssertLoadKeepsWorld(harness, Mutate(goodJson, "slice-2-integer-fixture-v1", "future-generator-v9"), WorldSaveStatus.UnknownGenerator);
         AssertLoadKeepsWorld(harness, goodJson[..40], WorldSaveStatus.Truncated);
         AssertLoadKeepsWorld(harness, MutateAdded(goodJson, 32, 0, 0, "core:hollow"), WorldSaveStatus.OutOfBounds);

@@ -22,7 +22,9 @@ public enum RailEditStatus
     UnsupportedGeometry = 8,
     AlreadyPresent = 9,
     TransactionExhausted = 10,
-    EntityIdExhausted = 11
+    EntityIdExhausted = 11,
+    InputExhausted = 12,
+    SimulationFaulted = 13
 }
 
 public enum RailRepairStatus
@@ -34,7 +36,9 @@ public enum RailRepairStatus
     Occupied = 4,
     Conflict = 5,
     InvalidRepair = 6,
-    TransactionExhausted = 7
+    TransactionExhausted = 7,
+    InputExhausted = 8,
+    SimulationFaulted = 9
 }
 
 public readonly record struct RailInterval(double Start, double End)

@@ -1,5 +1,6 @@
 using Train.Content;
 using Train.Domain.Behaviors;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
@@ -9,26 +10,17 @@ namespace Train.Domain.Voxels;
 public sealed partial class VoxelDevelopmentSession
 {
     private readonly List<TrainAssembly> _assemblies = new();
-    private readonly List<ScheduledTrainCommand> _scheduled = new();
     private readonly SimulationScheduler _hostScheduler = new();
-    private ulong _scheduledSequence;
     private IReadOnlyList<TrainAssemblyQuery> _displayFrom = Array.Empty<TrainAssemblyQuery>();
     private IReadOnlyList<TrainAssemblyQuery> _displayTo = Array.Empty<TrainAssemblyQuery>();
     private ulong _displayFromGraph;
     private ulong _displayToGraph;
     private bool _displayIntervalEnded = true;
 
-    public ulong ScheduledCommandSequence => _scheduledSequence;
     public double DisplayInterpolationAlpha => _hostScheduler.DisplayAlpha;
     public EntityId? FollowedVehicleId { get; private set; }
 
-    private readonly record struct ScheduledTrainCommand(
-        ulong AtStep,
-        bool Start,
-        ulong Sequence,
-        EntityId AssemblyId);
-
-    public TrainAssemblyResult AssembleStaticTrain()
+    private TrainAssemblyResult AssembleCore(TrainAssembleEdit edit)
     {
         if (!HasRailway)
             return new TrainAssemblyResult(TrainAssemblyStatus.NoRailway);
@@ -36,10 +28,10 @@ public sealed partial class VoxelDevelopmentSession
             return new TrainAssemblyResult(TrainAssemblyStatus.AlreadyAssembled);
 
         var voxels = _catalog.Current ?? throw new InvalidOperationException("Voxel content must be loaded before assembling.");
-        if (!TryLoadPublished(StaticTrainFixture.LocomotiveId, StaticTrainFixture.LocomotiveTransform, voxels, out var preparedLoco, out var locoStatus) ||
+        if (!TryLoadPublished(edit.LocomotiveId, edit.LocomotiveTransform, voxels, out var preparedLoco, out var locoStatus) ||
             preparedLoco is null)
             return new TrainAssemblyResult(MapConstruction(locoStatus));
-        if (!TryLoadPublished(StaticTrainFixture.CarriageId, StaticTrainFixture.CarriageTransform, voxels, out var preparedCarriage, out var carriageStatus) ||
+        if (!TryLoadPublished(edit.CarriageId, edit.CarriageTransform, voxels, out var preparedCarriage, out var carriageStatus) ||
             preparedCarriage is null)
             return new TrainAssemblyResult(MapConstruction(carriageStatus));
 
@@ -57,8 +49,8 @@ public sealed partial class VoxelDevelopmentSession
         var request = new TrainAssemblyRequest(
             locomotive.Id,
             carriage.Id,
-            StaticTrainFixture.LocomotiveRearCouplerCell,
-            StaticTrainFixture.CarriageFrontCouplerCell);
+            edit.LocomotiveCouplerCell,
+            edit.CarriageCouplerCell);
         var status = TrainAssemblyRules.Validate(
             locomotive,
             carriage,
@@ -91,7 +83,8 @@ public sealed partial class VoxelDevelopmentSession
         return new TrainAssemblyResult(TrainAssemblyStatus.Formed, assemblyId);
     }
 
-    public TrainAssemblyResult AssembleTrain(TrainAssemblyRequest request)
+    /// <summary>Test seam that couples already-manufactured vehicles; no production entry may call it.</summary>
+    internal TrainAssemblyResult AssembleTrain(TrainAssemblyRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
         var locomotive = _vehicles.FirstOrDefault(item => item.Id == request.LocomotiveId);
@@ -150,9 +143,14 @@ public sealed partial class VoxelDevelopmentSession
         new(CaptureAuthority(), CaptureRailAuthority(), QueryTrainAssemblies(), SimulationStep, QueryScheduledTrainCommands());
 
     public IReadOnlyList<ScheduledTrainCommandQuery> QueryScheduledTrainCommands() =>
-        _scheduled
-            .OrderBy(item => item.Sequence)
-            .Select(item => new ScheduledTrainCommandQuery(item.AtStep, item.Start, item.Sequence, item.AssemblyId))
+        _pendingEdits
+            .Select(record => record.Edit switch
+            {
+                TrainStartEdit start => new ScheduledTrainCommandQuery(record.TargetStep, true, record.Id, start.AssemblyId),
+                TrainStopEdit stop => new ScheduledTrainCommandQuery(record.TargetStep, false, record.Id, stop.AssemblyId),
+                _ => null
+            })
+            .OfType<ScheduledTrainCommandQuery>()
             .ToArray();
 
     public ulong CollectHostSteps(double displayDelta) =>
@@ -215,26 +213,6 @@ public sealed partial class VoxelDevelopmentSession
             0);
     }
 
-    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null, EntityId? assemblyId = null)
-    {
-        if (heading == RailHeading.AgainstAlignment)
-            return RejectMotion(TrainMotionStatus.ReverseUnsupported);
-        if (!HasRailway)
-            return RejectMotion(TrainMotionStatus.NoRailway);
-        if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
-            return RejectMotion(status);
-
-        return AcceptTrainCommand(atStep ?? SimulationStep, start: true, target.Id);
-    }
-
-    public TrainMotionResult StopTrain(ulong? atStep = null, EntityId? assemblyId = null)
-    {
-        if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
-            return RejectMotion(status);
-
-        return AcceptTrainCommand(atStep ?? SimulationStep, start: false, target.Id);
-    }
-
     public TrainMotionResult PauseSimulation()
     {
         SimulationPaused = true;
@@ -258,74 +236,63 @@ public sealed partial class VoxelDevelopmentSession
         if (steps > ulong.MaxValue - SimulationStep)
             return RejectMotion(TrainMotionStatus.StepOverflow);
 
-        var snapshot = CaptureMotionSnapshot();
-        ulong committedSteps = 0;
         for (ulong i = 0; i < steps; i++)
         {
-            var from = QueryTrainAssemblies();
+            var boundary = CaptureMotionSnapshot();
             var fromGraph = AssemblyGraphGeneration;
-            if (!TryApplyScheduledCommands(SimulationStep, out var scheduledStatus))
-                return RewindTo(snapshot, committedSteps, scheduledStatus);
-
-            if (!TryAdvanceAllAssemblies(out var status))
-                return RewindTo(snapshot, committedSteps, status);
+            IReadOnlyList<TrainAssemblyQuery> from;
+            try
+            {
+                from = QueryTrainAssemblies();
+                if (!TryAdvanceAllAssemblies(out var status))
+                    throw new InvalidOperationException($"Assembly motion broke an invariant: {status}.");
+            }
+            catch (Exception exception)
+            {
+                // Business outcomes (gaps, support loss, end of line) halt trains inside motion; a failure here is
+                // corrupt authority, so the session halts at the last complete boundary instead of reporting a rejection.
+                RestoreMotionSnapshot(boundary);
+                Fault = new SimulationFault(null, null, EditBoundary, "MotionInvariant", exception.Message);
+                SnapDisplayInterval();
+                Changed?.Invoke();
+                return new TrainMotionResult(TrainMotionStatus.SimulationFaulted, SimulationStep, i, SimulationStep);
+            }
 
             SimulationStep++;
             EditBoundarySequence = 0;
             CommitDisplayInterval(from, fromGraph);
-            if (HasDueEdits())
+            if (HasDueEdits() && !ExecuteDueEdits())
             {
-                if (!ExecuteDueEdits())
-                {
-                    SnapDisplayInterval();
-                    Changed?.Invoke();
-                    return new TrainMotionResult(TrainMotionStatus.SimulationFaulted, SimulationStep, i + 1, SimulationStep);
-                }
-
-                // Executed edits are committed at this boundary; a later motion rejection rewinds only to here.
-                snapshot = CaptureMotionSnapshot();
-                committedSteps = i + 1;
+                SnapDisplayInterval();
+                Changed?.Invoke();
+                return new TrainMotionResult(TrainMotionStatus.SimulationFaulted, SimulationStep, i + 1, SimulationStep);
             }
-
-            if (SimulationStep == ulong.MaxValue &&
-                !TryApplyScheduledCommands(SimulationStep, out scheduledStatus))
-                return RewindTo(snapshot, committedSteps, scheduledStatus);
         }
 
         Changed?.Invoke();
         return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, steps);
     }
 
-    private TrainMotionResult RewindTo(MotionSnapshot snapshot, ulong committedSteps, TrainMotionStatus status)
+    private bool TryResolveCommandTarget(EntityId? assemblyId, out EntityId target, out TrainMotionStatus status)
     {
-        RestoreMotionSnapshot(snapshot);
-        SnapDisplayInterval();
-        if (committedSteps > 0)
-            Changed?.Invoke();
-        return RejectMotion(status) with { AdvancedSteps = committedSteps };
-    }
-
-    private bool TryResolveCommandTarget(EntityId? assemblyId, out TrainAssembly target, out TrainMotionStatus status)
-    {
-        target = null!;
+        target = default;
         status = TrainMotionStatus.Started;
-        if (_assemblies.Count == 0)
-        {
-            status = TrainMotionStatus.NoAssembly;
-            return false;
-        }
-
         if (assemblyId is { } id)
         {
-            var found = _assemblies.FirstOrDefault(item => item.Id == id);
-            if (found is null)
+            if (id.Value == 0)
             {
                 status = TrainMotionStatus.UnknownAssembly;
                 return false;
             }
 
-            target = found;
+            target = id;
             return true;
+        }
+
+        if (_assemblies.Count == 0)
+        {
+            status = TrainMotionStatus.NoAssembly;
+            return false;
         }
 
         if (_assemblies.Count > 1)
@@ -334,8 +301,34 @@ public sealed partial class VoxelDevelopmentSession
             return false;
         }
 
-        target = _assemblies[0];
+        target = _assemblies[0].Id;
         return true;
+    }
+
+    private TrainMotionResult StartCore(EntityId assemblyId)
+    {
+        if (!CanStartNow(assemblyId, out var status))
+            return RejectMotion(status);
+        if (!CanCommitTransaction())
+            return RejectMotion(TrainMotionStatus.TransactionExhausted);
+        CommitTransaction();
+        var index = _assemblies.FindIndex(item => item.Id == assemblyId);
+        _assemblies[index] = _assemblies[index].WithMotion(_assemblies[index].Speed, running: true);
+        Changed?.Invoke();
+        return new TrainMotionResult(TrainMotionStatus.Started, SimulationStep, AtStep: SimulationStep);
+    }
+
+    private TrainMotionResult StopCore(EntityId assemblyId)
+    {
+        var index = _assemblies.FindIndex(item => item.Id == assemblyId);
+        if (index < 0)
+            return RejectMotion(TrainMotionStatus.UnknownAssembly);
+        if (!CanCommitTransaction())
+            return RejectMotion(TrainMotionStatus.TransactionExhausted);
+        CommitTransaction();
+        _assemblies[index] = _assemblies[index].WithMotion(0, running: false);
+        Changed?.Invoke();
+        return new TrainMotionResult(TrainMotionStatus.Stopped, SimulationStep, AtStep: SimulationStep);
     }
 
     private IReadOnlyList<CompositeInstance> ProjectDamagedVehicles(
@@ -607,18 +600,11 @@ public sealed partial class VoxelDevelopmentSession
 
     private void ApplyPlannedAssemblies(IReadOnlyList<TrainAssembly> planned, ulong next)
     {
-        ReconcileScheduledCommands(planned);
         _assemblies.Clear();
         _assemblies.AddRange(planned);
         NextEntityId = next;
         NoteAssemblyGraphCommit();
         SnapDisplayInterval();
-    }
-
-    private void ReconcileScheduledCommands(IReadOnlyList<TrainAssembly> planned)
-    {
-        var live = planned.Select(item => item.Id).ToHashSet();
-        _scheduled.RemoveAll(command => !live.Contains(command.AssemblyId));
     }
 
     private void NoteAssemblyGraphCommit()
@@ -742,8 +728,6 @@ public sealed partial class VoxelDevelopmentSession
     {
         SimulationStep = 0;
         SimulationPaused = false;
-        _scheduled.Clear();
-        _scheduledSequence = 0;
         _hostScheduler.Reset();
         FollowedVehicleId = null;
         SnapDisplayInterval();
@@ -774,68 +758,6 @@ public sealed partial class VoxelDevelopmentSession
         _displayToGraph = AssemblyGraphGeneration;
         _displayIntervalEnded = AlongRailDisplay.IntervalEnded(from, current, fromGraph, AssemblyGraphGeneration);
     }
-
-    private TrainMotionResult AcceptTrainCommand(ulong atStep, bool start, EntityId assemblyId)
-    {
-        if (Fault is not null)
-            return RejectMotion(TrainMotionStatus.SimulationFaulted, atStep);
-        if (atStep < SimulationStep)
-            return RejectMotion(TrainMotionStatus.PastStep, atStep);
-        if (start && !CanStartNow(assemblyId, out var status))
-            return RejectMotion(status, atStep);
-        if (!CanCommitTransaction() || _scheduledSequence == ulong.MaxValue)
-            return RejectMotion(TrainMotionStatus.TransactionExhausted, atStep);
-
-        var snapshot = CaptureMotionSnapshot();
-        CommitTransaction();
-        _scheduled.Add(new ScheduledTrainCommand(atStep, start, _scheduledSequence++, assemblyId));
-        if (atStep == SimulationStep && !TryApplyScheduledCommands(SimulationStep, out var applyStatus))
-        {
-            RestoreMotionSnapshot(snapshot);
-            return RejectMotion(applyStatus, atStep);
-        }
-
-        Changed?.Invoke();
-        return new TrainMotionResult(
-            start ? TrainMotionStatus.Started : TrainMotionStatus.Stopped,
-            SimulationStep,
-            AtStep: atStep);
-    }
-
-    private bool TryApplyScheduledCommands(ulong step, out TrainMotionStatus status)
-    {
-        status = TrainMotionStatus.Advanced;
-        var due = _scheduled.Where(item => item.AtStep == step).OrderBy(item => item.Sequence).ToArray();
-        foreach (var command in due)
-        {
-            _scheduled.Remove(command);
-            var index = _assemblies.FindIndex(item => item.Id == command.AssemblyId);
-            if (index < 0)
-            {
-                status = TrainMotionStatus.UnknownAssembly;
-                return false;
-            }
-            if (command.Start)
-            {
-                if (!CanStartNow(command.AssemblyId, out status) && !_assemblies[index].Running)
-                    return false;
-                ApplyStartCore(index);
-            }
-            else
-                ApplyStopCore(index);
-        }
-
-        return true;
-    }
-
-    private void ApplyStartCore(int index)
-    {
-        var assembly = _assemblies[index];
-        _assemblies[index] = assembly.WithMotion(assembly.Speed, running: true);
-    }
-
-    private void ApplyStopCore(int index) =>
-        _assemblies[index] = _assemblies[index].WithMotion(0, running: false);
 
     private bool CanStartNow(EntityId assemblyId, out TrainMotionStatus status)
     {
@@ -984,8 +906,6 @@ public sealed partial class VoxelDevelopmentSession
             EditBoundarySequence,
             _vehicles.ToArray(),
             _assemblies.ToArray(),
-            _scheduled.ToArray(),
-            _scheduledSequence,
             TransactionCount);
 
     private void RestoreMotionSnapshot(MotionSnapshot snapshot)
@@ -996,9 +916,6 @@ public sealed partial class VoxelDevelopmentSession
         _vehicles.AddRange(snapshot.Vehicles);
         _assemblies.Clear();
         _assemblies.AddRange(snapshot.Assemblies);
-        _scheduled.Clear();
-        _scheduled.AddRange(snapshot.Scheduled);
-        _scheduledSequence = snapshot.ScheduledSequence;
         TransactionCount = snapshot.TransactionCount;
     }
 
@@ -1111,8 +1028,6 @@ public sealed partial class VoxelDevelopmentSession
         ulong EditBoundarySequence,
         IReadOnlyList<CompositeInstance> Vehicles,
         IReadOnlyList<TrainAssembly> Assemblies,
-        IReadOnlyList<ScheduledTrainCommand> Scheduled,
-        ulong ScheduledSequence,
         ulong TransactionCount);
 
     private static TrainAssemblyStatus MapConstruction(ConstructionStatus status) => status switch

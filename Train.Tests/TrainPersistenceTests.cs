@@ -22,10 +22,11 @@ public sealed class TrainPersistenceTests
         var saved = writer.Session.Save("Slice 4 Parked");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         var json = File.ReadAllText(writer.Store.PathFor(saved.SaveId!.Value));
-        StringAssert.Contains(json, "\"save_format_version\":4");
+        StringAssert.Contains(json, "\"save_format_version\":5");
         StringAssert.Contains(json, "\"railway\"");
         StringAssert.Contains(json, "\"assemblies\"");
-        StringAssert.Contains(json, "\"scheduled_commands\"");
+        StringAssert.Contains(json, "\"world_edits\"");
+        Assert.IsFalse(json.Contains("\"scheduled_commands\"", StringComparison.Ordinal));
         Assert.IsFalse(json.Contains("MeshInstance", StringComparison.Ordinal));
         Assert.IsFalse(json.Contains("UnsupportedRailway", StringComparison.Ordinal));
 
@@ -266,7 +267,7 @@ public sealed class TrainPersistenceTests
         var previous = File.ReadAllText(path);
         var before = harness.Session.CaptureTrainAuthority();
         var fingerprint = WorldSaveAuthority.Fingerprint(harness.Session);
-        var sequence = harness.Session.ScheduledCommandSequence;
+        var sequence = harness.Session.NextEditId;
         Assert.AreEqual(4.0, harness.Session.QueryTrainAssemblies().Single().Speed, Tolerance);
         Assert.IsTrue(harness.Session.QueryTrainAssemblies().Single().Running);
 
@@ -300,52 +301,42 @@ public sealed class TrainPersistenceTests
     }
 
     [TestMethod]
-    public void Illegal_scheduled_sequence_is_rejected_and_legal_restore_keeps_same_step_fifo()
+    public void Legacy_train_queue_fields_are_refused_and_same_step_train_edits_restore_in_acceptance_order()
     {
         using var harness = Parked();
         Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
+        Assert.AreEqual(TrainMotionStatus.Pending, harness.Session.StartTrain(RailHeading.AlongAlignment, 301).Status);
+        Assert.AreEqual(TrainMotionStatus.Pending, harness.Session.StopTrain(301).Status);
         var saved = harness.Session.Save("Sequence Baseline");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         var path = harness.Store.PathFor(saved.SaveId!.Value);
         var previous = File.ReadAllText(path);
         var before = harness.Session.CaptureTrainAuthority();
         var fingerprint = WorldSaveAuthority.Fingerprint(harness.Session);
-        var sequence = harness.Session.ScheduledCommandSequence;
-        var transactions = harness.Session.TransactionCount;
-        Assert.IsTrue(sequence <= transactions);
+        var nextEdit = harness.Session.NextEditId;
+        var root = JsonNode.Parse(previous)!.AsObject();
+        Assert.IsFalse(root.ContainsKey("scheduled_commands"));
+        Assert.IsFalse(root.ContainsKey("scheduled_sequence"));
+        CollectionAssert.AreEqual(
+            new[] { "train.start", "train.stop" },
+            root["world_edits"]!["pending"]!.AsArray().Select(item => item!["edit"]!["kind"]!.GetValue<string>()).ToArray());
 
-        AssertLoadKeeps(harness, Mutate(previous, root => root["scheduled_sequence"] = ulong.MaxValue), before, fingerprint, sequence);
-        AssertLoadKeeps(
-            harness,
-            Mutate(previous, root => root["scheduled_sequence"] = transactions + 1),
-            before,
-            fingerprint,
-            sequence);
+        AssertLoadKeeps(harness, Mutate(previous, node => node["scheduled_sequence"] = 0), before, fingerprint, nextEdit, WorldSaveStatus.UnknownFormat);
+        AssertLoadKeeps(harness, Mutate(previous, node => node["scheduled_commands"] = new JsonArray()), before, fingerprint, nextEdit, WorldSaveStatus.UnknownFormat);
+        AssertLoadKeeps(harness, Mutate(previous, node =>
+        {
+            var list = node["world_edits"]!["pending"]!.AsArray();
+            var head = list[0]!.DeepClone();
+            list.RemoveAt(0);
+            list.Add(head);
+        }), before, fingerprint, nextEdit);
+        AssertLoadKeeps(harness, Mutate(previous, node =>
+            node["world_edits"]!["pending"]![0]!["edit"]!["assembly_id"] = node["next_entity_id"]!.GetValue<ulong>()), before, fingerprint, nextEdit);
 
-        File.WriteAllText(path, Mutate(previous, root => root["scheduled_sequence"] = transactions));
-        using var boundary = StaticTrainHarness.Create(harness.UserData, harness.Source);
-        Assert.AreEqual(WorldSaveStatus.Loaded, boundary.Session.Load(saved.SaveId!.Value).Status);
-        Assert.AreEqual(transactions, boundary.Session.ScheduledCommandSequence);
-        Assert.AreEqual(0, boundary.Session.QueryScheduledTrainCommands().Count);
-        Assert.AreEqual(300UL, boundary.Session.SimulationStep);
-        Assert.AreEqual(TrainMotionStatus.Started, boundary.Session.StartTrain(RailHeading.AlongAlignment, 301).Status);
-        Assert.AreEqual(TrainMotionStatus.Stopped, boundary.Session.StopTrain(301).Status);
-        var boundaryPending = boundary.Session.QueryScheduledTrainCommands();
-        Assert.AreEqual(2, boundaryPending.Count);
-        Assert.IsTrue(boundaryPending[0].Start);
-        Assert.IsFalse(boundaryPending[1].Start);
-        Assert.AreEqual(transactions, boundaryPending[0].Sequence);
-        Assert.AreEqual(transactions + 1, boundaryPending[1].Sequence);
-        Assert.IsTrue(boundary.Session.AdvanceSimulation(2).Succeeded);
-        Assert.IsFalse(boundary.Session.QueryTrainAssemblies().Single().Running);
-
-        File.WriteAllText(path, previous);
         using var resumed = StaticTrainHarness.Create(harness.UserData, harness.Source);
         Assert.AreEqual(WorldSaveStatus.Loaded, resumed.Session.Load(saved.SaveId!.Value).Status);
-        Assert.AreEqual(sequence, resumed.Session.ScheduledCommandSequence);
-        Assert.AreEqual(TrainMotionStatus.Started, resumed.Session.StartTrain(RailHeading.AlongAlignment, 301).Status);
-        Assert.AreEqual(TrainMotionStatus.Stopped, resumed.Session.StopTrain(301).Status);
+        Assert.AreEqual(nextEdit, resumed.Session.NextEditId);
         var pending = resumed.Session.QueryScheduledTrainCommands();
         Assert.AreEqual(2, pending.Count);
         Assert.IsTrue(pending[0].Start);
@@ -374,8 +365,8 @@ public sealed class TrainPersistenceTests
         var previous = File.ReadAllText(path);
         var before = harness.Session.CaptureTrainAuthority();
 
-        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":4", "\"save_format_version\":1", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
-        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":4", "\"save_format_version\":99", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
+        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":5", "\"save_format_version\":1", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
+        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":5", "\"save_format_version\":99", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
         AssertLoadKeeps(harness, previous.Replace("slice-4-straight-rail-v1", "future-rail-v9", StringComparison.Ordinal), WorldSaveStatus.UnknownGenerator, before);
         AssertLoadKeeps(harness, previous[..80], WorldSaveStatus.Truncated, before);
 
@@ -385,17 +376,25 @@ public sealed class TrainPersistenceTests
             StringComparison.Ordinal);
         AssertLoadKeeps(harness, missingSegment, WorldSaveStatus.InvalidDelta, before);
 
-        var pastCommand = JsonNode.Parse(previous)!.AsObject();
-        pastCommand["scheduled_commands"] = new JsonArray(
-            new JsonObject
-            {
-                ["at_step"] = 0,
-                ["start"] = true,
-                ["sequence"] = 0
-            });
-        pastCommand["simulation_step"] = 10;
-        pastCommand["scheduled_sequence"] = 1;
-        AssertLoadKeeps(harness, pastCommand.ToJsonString(), WorldSaveStatus.InvalidDelta, before);
+        JsonObject Legacy(JsonArray commands, ulong sequence)
+        {
+            var node = JsonNode.Parse(previous)!.AsObject();
+            node["save_format_version"] = WorldSaveDocument.PredecessorFormatVersion;
+            node["scheduled_commands"] = commands;
+            node["scheduled_sequence"] = sequence;
+            return node;
+        }
+
+        var assemblyId = harness.Session.QueryTrainAssemblies().Single().Id.Value;
+        var legacyCommand = new JsonArray(new JsonObject
+        {
+            ["at_step"] = 10,
+            ["start"] = true,
+            ["sequence"] = 0,
+            ["assembly_id"] = assemblyId
+        });
+        AssertLoadKeeps(harness, Legacy(legacyCommand, 1).ToJsonString(), WorldSaveStatus.UnsupportedRailway, before);
+        AssertLoadKeeps(harness, Legacy(new JsonArray(), harness.Session.TransactionCount + 1).ToJsonString(), WorldSaveStatus.InvalidDelta, before);
 
         var slice2Logger = LoggerSession.Create();
         var slice2Reloader = ContentFixtures.Create(ModFixtures.CorePlusCopper(), slice2Logger.Logger);
@@ -410,6 +409,11 @@ public sealed class TrainPersistenceTests
             slice2.Detach();
             slice2Logger.Dispose();
         }
+
+        File.WriteAllText(path, Legacy(new JsonArray(), 0).ToJsonString());
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(good.SaveId!.Value).Status);
+        Assert.AreEqual(before, harness.Session.CaptureTrainAuthority());
+        File.WriteAllText(path, previous);
 
         Assert.AreEqual(previous, File.ReadAllText(path));
         Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(good.SaveId!.Value).Status);
@@ -567,7 +571,7 @@ public sealed class TrainPersistenceTests
         if (fingerprint is not null)
             Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(harness.Session));
         if (sequence is not null)
-            Assert.AreEqual(sequence.Value, harness.Session.ScheduledCommandSequence);
+            Assert.AreEqual(sequence.Value, harness.Session.NextEditId);
         File.WriteAllText(path, previous);
     }
 

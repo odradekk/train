@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train.Domain.Commands;
@@ -40,6 +41,12 @@ public static class WorldEditCodec
         WorldEditKind.VehicleManufacture => "vehicle.manufacture",
         WorldEditKind.VehicleDamage => "vehicle.damage",
         WorldEditKind.VehicleRefit => "vehicle.refit",
+        WorldEditKind.RailConstruct => "rail.construct",
+        WorldEditKind.RailRepair => "rail.repair",
+        WorldEditKind.TrainAssemble => "train.assemble",
+        WorldEditKind.TrainStart => "train.start",
+        WorldEditKind.TrainStop => "train.stop",
+        WorldEditKind.ContentPublish => "content.publish",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 
@@ -187,6 +194,12 @@ public static class WorldEditCodec
             WorldEditKind.VehicleManufacture => TryReadManufacture(fields, out edit, out status),
             WorldEditKind.VehicleDamage => TryReadVehicleDamage(fields, out edit, out status),
             WorldEditKind.VehicleRefit => TryReadRefit(fields, out edit, out status),
+            WorldEditKind.RailConstruct => TryReadRailConstruct(fields, out edit, out status),
+            WorldEditKind.RailRepair => TryReadRailRepair(fields, out edit, out status),
+            WorldEditKind.TrainAssemble => TryReadTrainAssemble(fields, out edit, out status),
+            WorldEditKind.TrainStart => TryReadTrainCommand(fields, start: true, out edit, out status),
+            WorldEditKind.TrainStop => TryReadTrainCommand(fields, start: false, out edit, out status),
+            WorldEditKind.ContentPublish => TryReadContentPublish(fields, out edit, out status),
             _ => Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat)
         };
         return read && fields.TryFinish(out status);
@@ -281,6 +294,35 @@ public static class WorldEditCodec
                     WriteOperation(writer, operation);
                 writer.WriteEndArray();
                 break;
+            case RailConstructEdit construct:
+                WriteRailPlan(writer, construct.Plan);
+                break;
+            case RailRepairEdit repair:
+                writer.WriteStartArray("cells");
+                foreach (var cell in repair.Cells)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteNumber("x", cell.X);
+                    writer.WriteNumber("y", cell.Y);
+                    writer.WriteNumber("z", cell.Z);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+                break;
+            case TrainAssembleEdit assemble:
+                WriteAssemblyMember(writer, "locomotive", assemble.LocomotiveId, assemble.LocomotiveTransform, assemble.LocomotiveCouplerCell);
+                WriteAssemblyMember(writer, "carriage", assemble.CarriageId, assemble.CarriageTransform, assemble.CarriageCouplerCell);
+                break;
+            case TrainStartEdit start:
+                writer.WriteNumber("assembly_id", start.AssemblyId.Value);
+                break;
+            case TrainStopEdit stop:
+                writer.WriteNumber("assembly_id", stop.AssemblyId.Value);
+                break;
+            case ContentPublishEdit publish:
+                writer.WriteString("content_digest", publish.ContentDigest);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(edit), edit.Kind, "Unknown world edit.");
         }
@@ -354,6 +396,80 @@ public static class WorldEditCodec
         writer.WriteEndObject();
     }
 
+    private static void WriteRailPlan(Utf8JsonWriter writer, RailConstructionPlan plan)
+    {
+        writer.WriteStartArray("segments");
+        foreach (var segment in plan.Segments)
+        {
+            writer.WriteStartObject();
+            var alignment = segment.Alignment;
+            writer.WriteStartObject("alignment");
+            WriteDouble(writer, "start_x", alignment.StartX);
+            WriteDouble(writer, "start_y", alignment.StartY);
+            WriteDouble(writer, "start_z", alignment.StartZ);
+            WriteDouble(writer, "end_x", alignment.EndX);
+            WriteDouble(writer, "end_y", alignment.EndY);
+            WriteDouble(writer, "end_z", alignment.EndZ);
+            writer.WriteEndObject();
+            WriteBoxes(writer, "rails", segment.RailVolumes);
+            WriteBoxes(writer, "sleepers", segment.SleeperVolumes);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+        writer.WriteStartArray("connections");
+        foreach (var connection in plan.Connections)
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("from_segment", connection.FromSegment);
+            writer.WriteString("from_end", RailEndWire(connection.FromEnd));
+            writer.WriteNumber("to_segment", connection.ToSegment);
+            writer.WriteString("to_end", RailEndWire(connection.ToEnd));
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static void WriteBoxes(Utf8JsonWriter writer, string name, IReadOnlyList<RailVolumeBox> boxes)
+    {
+        writer.WriteStartArray(name);
+        foreach (var box in boxes)
+        {
+            writer.WriteStartObject();
+            WriteDouble(writer, "min_x", box.MinX);
+            WriteDouble(writer, "min_y", box.MinY);
+            WriteDouble(writer, "min_z", box.MinZ);
+            WriteDouble(writer, "max_x", box.MaxX);
+            WriteDouble(writer, "max_y", box.MaxY);
+            WriteDouble(writer, "max_z", box.MaxZ);
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndArray();
+    }
+
+    private static string RailEndWire(RailEnd end) => end switch
+    {
+        RailEnd.Start => "start",
+        RailEnd.End => "end",
+        _ => throw new ArgumentOutOfRangeException(nameof(end), end, null)
+    };
+
+    private static void WriteAssemblyMember(
+        Utf8JsonWriter writer,
+        string name,
+        CompositeDefinitionId definitionId,
+        CompositeTransform transform,
+        LocalVoxelCoord couplerCell)
+    {
+        writer.WriteStartObject(name);
+        writer.WriteString("definition_id", definitionId.Value);
+        WriteTransform(writer, transform);
+        WriteCoord(writer, "coupler_cell", couplerCell.X, couplerCell.Y, couplerCell.Z);
+        writer.WriteEndObject();
+    }
+
     internal static string FormatDouble(double value)
     {
         if (!double.IsFinite(value))
@@ -410,39 +526,128 @@ public static class WorldEditCodec
     private static bool TryReadManufacture(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
     {
         edit = null!;
-        if (!fields.TryTake("definition_id", JsonValueKind.String, out var idElement, out status))
+        if (!fields.TryCompositeDefinition("definition_id", out var definition, out status) ||
+            !fields.TryTransform("transform", out var pose, out status))
             return false;
-        var text = idElement.GetString()!;
-        CompositeDefinitionId definition;
-        try
-        {
-            definition = CompositeDefinitionId.Parse(text);
-        }
-        catch (ArgumentException)
-        {
-            return Fail(out edit, out status, WorldEditDecodeStatus.Invalid);
-        }
-
-        if (!string.Equals(definition.Value, text, StringComparison.Ordinal))
-            return Fail(out edit, out status, WorldEditDecodeStatus.Invalid);
-        if (!fields.TryTake("transform", JsonValueKind.Object, out var transformElement, out status) ||
-            !Fields.TryOpen(transformElement, out var transform, out status))
-            return false;
-        var values = new double[9];
-        var names = new[] { "origin_x", "origin_y", "origin_z", "right_x", "right_y", "right_z", "up_x", "up_y", "up_z" };
-        for (var index = 0; index < names.Length; index++)
-        {
-            if (!transform.TryDouble(names[index], out values[index], out status))
-                return false;
-        }
-
-        if (!transform.TryFinish(out status))
-            return false;
-        if (!CompositeTransform.TryRestore(
-                values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8],
-                out var pose))
-            return Fail(out edit, out status, WorldEditDecodeStatus.Invalid);
         edit = new VehicleManufactureEdit(definition, pose);
+        return true;
+    }
+
+    private static bool TryReadRailConstruct(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!fields.TryTake("segments", JsonValueKind.Array, out var segmentArray, out status))
+            return false;
+        var segments = new List<PlannedRailSegment>();
+        foreach (var item in segmentArray.EnumerateArray())
+        {
+            if (!Fields.TryOpen(item, out var segment, out status) ||
+                !segment.TryTake("alignment", JsonValueKind.Object, out var alignmentElement, out status) ||
+                !Fields.TryOpen(alignmentElement, out var alignment, out status) ||
+                !alignment.TryDouble("start_x", out var startX, out status) ||
+                !alignment.TryDouble("start_y", out var startY, out status) ||
+                !alignment.TryDouble("start_z", out var startZ, out status) ||
+                !alignment.TryDouble("end_x", out var endX, out status) ||
+                !alignment.TryDouble("end_y", out var endY, out status) ||
+                !alignment.TryDouble("end_z", out var endZ, out status) ||
+                !alignment.TryFinish(out status) ||
+                !segment.TryBoxes("rails", out var rails, out status) ||
+                !segment.TryBoxes("sleepers", out var sleepers, out status) ||
+                !segment.TryFinish(out status))
+                return false;
+            segments.Add(new PlannedRailSegment(new HorizontalStraightAlignment(startX, startY, startZ, endX, endY, endZ), rails, sleepers));
+        }
+
+        if (!fields.TryTake("connections", JsonValueKind.Array, out var connectionArray, out status))
+            return false;
+        var connections = new List<PlannedRailConnection>();
+        foreach (var item in connectionArray.EnumerateArray())
+        {
+            if (!Fields.TryOpen(item, out var connection, out status) ||
+                !connection.TryInt32("from_segment", out var fromSegment, out status) ||
+                !connection.TryRailEnd("from_end", out var fromEnd, out status) ||
+                !connection.TryInt32("to_segment", out var toSegment, out status) ||
+                !connection.TryRailEnd("to_end", out var toEnd, out status) ||
+                !connection.TryFinish(out status))
+                return false;
+            connections.Add(new PlannedRailConnection(fromSegment, fromEnd, toSegment, toEnd));
+        }
+
+        edit = new RailConstructEdit(new RailConstructionPlan(segments, connections));
+        return true;
+    }
+
+    private static bool TryReadRailRepair(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!fields.TryTake("cells", JsonValueKind.Array, out var array, out status))
+            return false;
+        var cells = new List<WorldVoxelCoord>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (!Fields.TryOpen(item, out var cell, out status) ||
+                !cell.TryInt32("x", out var x, out status) ||
+                !cell.TryInt32("y", out var y, out status) ||
+                !cell.TryInt32("z", out var z, out status) ||
+                !cell.TryFinish(out status))
+                return false;
+            cells.Add(new WorldVoxelCoord(x, y, z));
+        }
+
+        edit = new RailRepairEdit(cells);
+        return true;
+    }
+
+    private static bool TryReadTrainAssemble(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!TryReadAssemblyMember(fields, "locomotive", out var locomotive, out var locomotivePose, out var locomotiveCoupler, out status) ||
+            !TryReadAssemblyMember(fields, "carriage", out var carriage, out var carriagePose, out var carriageCoupler, out status))
+            return false;
+        edit = new TrainAssembleEdit(locomotive, locomotivePose, locomotiveCoupler, carriage, carriagePose, carriageCoupler);
+        return true;
+    }
+
+    private static bool TryReadAssemblyMember(
+        Fields fields,
+        string name,
+        out CompositeDefinitionId definition,
+        out CompositeTransform pose,
+        out LocalVoxelCoord coupler,
+        out WorldEditDecodeStatus status)
+    {
+        definition = default;
+        pose = default;
+        coupler = default;
+        if (!fields.TryTake(name, JsonValueKind.Object, out var element, out status) ||
+            !Fields.TryOpen(element, out var member, out status) ||
+            !member.TryCompositeDefinition("definition_id", out definition, out status) ||
+            !member.TryTransform("transform", out pose, out status) ||
+            !member.TryCoord("coupler_cell", out var x, out var y, out var z, out status) ||
+            !member.TryFinish(out status))
+            return false;
+        coupler = new LocalVoxelCoord(x, y, z);
+        return true;
+    }
+
+    private static bool TryReadTrainCommand(Fields fields, bool start, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!fields.TryEntityId("assembly_id", out var assembly, out status))
+            return false;
+        edit = start ? new TrainStartEdit(assembly) : new TrainStopEdit(assembly);
+        return true;
+    }
+
+    private static bool TryReadContentPublish(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!fields.TryTake("content_digest", JsonValueKind.String, out var element, out status))
+            return false;
+        var digest = element.GetString();
+        if (!ContentPublishEdit.IsDigest(digest))
+            return Fail(out edit, out status, WorldEditDecodeStatus.Invalid);
+        edit = new ContentPublishEdit(digest!);
         return true;
     }
 
@@ -662,6 +867,95 @@ public static class WorldEditCodec
                 return true;
             status = WorldEditDecodeStatus.Invalid;
             return false;
+        }
+
+        public bool TryCompositeDefinition(string name, out CompositeDefinitionId id, out WorldEditDecodeStatus status)
+        {
+            id = default;
+            if (!TryTake(name, JsonValueKind.String, out var element, out status))
+                return false;
+            var text = element.GetString()!;
+            try
+            {
+                id = CompositeDefinitionId.Parse(text);
+            }
+            catch (ArgumentException)
+            {
+                status = WorldEditDecodeStatus.Invalid;
+                return false;
+            }
+
+            if (string.Equals(id.Value, text, StringComparison.Ordinal))
+                return true;
+            status = WorldEditDecodeStatus.Invalid;
+            return false;
+        }
+
+        public bool TryTransform(string name, out CompositeTransform pose, out WorldEditDecodeStatus status)
+        {
+            pose = default;
+            if (!TryTake(name, JsonValueKind.Object, out var element, out status) ||
+                !TryOpen(element, out var transform, out status))
+                return false;
+            var values = new double[9];
+            var names = new[] { "origin_x", "origin_y", "origin_z", "right_x", "right_y", "right_z", "up_x", "up_y", "up_z" };
+            for (var index = 0; index < names.Length; index++)
+            {
+                if (!transform.TryDouble(names[index], out values[index], out status))
+                    return false;
+            }
+
+            if (!transform.TryFinish(out status))
+                return false;
+            if (CompositeTransform.TryRestore(
+                    values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7], values[8],
+                    out pose))
+                return true;
+            status = WorldEditDecodeStatus.Invalid;
+            return false;
+        }
+
+        public bool TryBoxes(string name, out IReadOnlyList<RailVolumeBox> boxes, out WorldEditDecodeStatus status)
+        {
+            boxes = Array.Empty<RailVolumeBox>();
+            if (!TryTake(name, JsonValueKind.Array, out var array, out status))
+                return false;
+            var items = new List<RailVolumeBox>();
+            foreach (var item in array.EnumerateArray())
+            {
+                if (!TryOpen(item, out var box, out status) ||
+                    !box.TryDouble("min_x", out var minX, out status) ||
+                    !box.TryDouble("min_y", out var minY, out status) ||
+                    !box.TryDouble("min_z", out var minZ, out status) ||
+                    !box.TryDouble("max_x", out var maxX, out status) ||
+                    !box.TryDouble("max_y", out var maxY, out status) ||
+                    !box.TryDouble("max_z", out var maxZ, out status) ||
+                    !box.TryFinish(out status))
+                    return false;
+                items.Add(new RailVolumeBox(minX, minY, minZ, maxX, maxY, maxZ));
+            }
+
+            boxes = items;
+            return true;
+        }
+
+        public bool TryRailEnd(string name, out RailEnd end, out WorldEditDecodeStatus status)
+        {
+            end = default;
+            if (!TryTake(name, JsonValueKind.String, out var element, out status))
+                return false;
+            switch (element.GetString())
+            {
+                case "start":
+                    end = RailEnd.Start;
+                    return true;
+                case "end":
+                    end = RailEnd.End;
+                    return true;
+                default:
+                    status = WorldEditDecodeStatus.Invalid;
+                    return false;
+            }
         }
 
         public bool TryOrientation(string name, out VoxelOrientation orientation, out WorldEditDecodeStatus status)
