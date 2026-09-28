@@ -36,6 +36,7 @@ internal sealed class PlaygroundSmoke
 
     private VoxelDevelopmentSession Session => _scene.Session!;
     private bool HasTrain => Session.QueryTrainAssemblies().Count > 0;
+    private int QueuedEdits => HasTrain ? 4 : 2;
 
     public void Advance()
     {
@@ -138,6 +139,11 @@ internal sealed class PlaygroundSmoke
             case 10 when _frames >= HoldFrames:
                 Require(Session.SimulationPaused && Session.SimulationStep == _mark, $"pause after run moved step {_mark}->{Session.SimulationStep}");
                 GD.Print($"PLAYGROUND_SMOKE_PAUSE_AFTER_RUN frames={HoldFrames} step={_mark}");
+                Next();
+                break;
+            case 11:
+                if (HasTrain)
+                    RunRailCommands();
                 Finish();
                 break;
         }
@@ -244,7 +250,8 @@ internal sealed class PlaygroundSmoke
 
     /// <summary>
     /// Paused at one boundary: panel and real console edits take consecutive in-step sequences, then one panel and
-    /// one console edit are queued <see cref="EditDelay"/> steps ahead, including a structural refit.
+    /// one console edit are queued <see cref="EditDelay"/> steps ahead, including a structural refit. With a train, a
+    /// panel stop and a console repair of an intact rail cell join the same boundary so the saved queue mixes kinds.
     /// </summary>
     private void RunPausedEdits()
     {
@@ -265,6 +272,12 @@ internal sealed class PlaygroundSmoke
         RunConsole($"composite add {shell} {add.X} {add.Y} {add.Z} {HollowShellRefit.MarkerId.Value} {identity} at {step + EditDelay}");
         _scene.SetEditInputs(probe, add, 25, EditDelay);
         PressEdit("edit_remove");
+        if (HasTrain)
+        {
+            var rail = StraightRailFixture.FirstSegmentDamageCell;
+            PressEdit("stop");
+            RunConsole($"rail repair {rail.X} {rail.Y} {rail.Z} at {step + EditDelay}");
+        }
 
         var executed = Session.QueryEditLog().Where(record => record.AcceptedAt.Step == step).ToArray();
         Require(
@@ -273,13 +286,61 @@ internal sealed class PlaygroundSmoke
         for (var index = 0; index < executed.Length; index++)
             Require(executed[index].ExecutedAt == new SimulationPosition(step, (ulong)index), $"edit {executed[index].Id} ran at {executed[index].ExecutedAt}");
         var pending = Session.QueryPendingEdits();
-        Require(pending.Count == 2 && pending.All(record => record.TargetStep == step + EditDelay), $"pending edits {QueueText()}");
-        Require(Session.EditBoundary == new SimulationPosition(step, 6), $"edit boundary {Session.EditBoundary}");
+        Require(pending.Count == QueuedEdits && pending.All(record => record.TargetStep == step + EditDelay), $"pending edits {QueueText()}");
+        Require(Session.EditBoundary == new SimulationPosition(step, 4 + (ulong)QueuedEdits), $"edit boundary {Session.EditBoundary}");
         Require(Session.SimulationPaused && Session.SimulationStep == step && MotionText() == motion, "paused edits moved the clock or the train");
         GD.Print(
             $"PLAYGROUND_SMOKE_EDITS step={step} boundary={Session.EditBoundary} " +
             $"executed={string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))} {motion}");
         GD.Print($"PLAYGROUND_SMOKE_EDITS_PENDING {QueueText()}");
+    }
+
+    /// <summary>
+    /// Rail removal, repair and an explicit start queued for one boundary through the panel, a console stop behind
+    /// them, then an immediate removal and repair checked against Godot physics on the edited rail cell.
+    /// </summary>
+    private void RunRailCommands()
+    {
+        var step = Session.SimulationStep;
+        var rail = StraightRailFixture.FirstSegmentDamageCell;
+        var boundary = step + EditDelay;
+        _scene.SetEditInputs(rail, HollowShellRefit.FirstAdd, 100, EditDelay);
+        PressEdit("edit_damage");
+        PressEdit("edit_repair");
+        PressEdit("start");
+        RunConsole($"rail stop at {boundary + EditDelay}");
+        Require(Session.QueryPendingEdits().Count == 4 && Session.SimulationStep == step, $"rail commands queue {QueueText()}");
+        _scene.SetStepCount(2 * EditDelay + 1);
+        _scene.Press("step_n");
+
+        var executed = Session.QueryEditLog().Where(record => record.AcceptedAt.Step == step).ToArray();
+        Require(
+            executed.Select(record => record.Status).SequenceEqual(new[] { "Removed", "Repaired", "Started", "Stopped" }),
+            $"rail command statuses {string.Join(',', executed.Select(record => record.Status))}");
+        Require(
+            executed.Select(record => record.ExecutedAt).SequenceEqual(new SimulationPosition?[]
+            {
+                new(boundary, 0), new(boundary, 1), new(boundary, 2), new(boundary + EditDelay, 0)
+            }),
+            $"rail command positions {string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))}");
+        var halted = Session.QueryTrainAssemblies().Single();
+        Require(!halted.Running && halted.Speed == 0 && halted.HaltReason == TrainHaltReason.None, $"rail commands left {MotionText()}");
+        GD.Print($"PLAYGROUND_SMOKE_RAIL_QUEUE step={Session.SimulationStep} executed={string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))} {MotionText()}");
+
+        _scene.SetEditInputs(rail, HollowShellRefit.FirstAdd, 100, 0);
+        PressEdit("edit_damage");
+        _scene.Refresh();
+        var world = _scene.GetWorld3D();
+        var gapHit = _scene.Colliders.QueryPublishedCellInterior(world, rail);
+        var gapRendered = _scene.Tracks.RailSolidCount;
+        PressEdit("edit_repair");
+        _scene.Refresh();
+        var repairedHit = _scene.Colliders.QueryPublishedCellInterior(world, rail);
+        Require(!gapHit && repairedHit, $"Godot physics on the edited rail cell gap={gapHit} repaired={repairedHit}");
+        Require(Session.QueryEditLog()[^1].Status == "Repaired", "immediate repair was not recorded");
+        GD.Print(
+            $"PLAYGROUND_SMOKE_RAIL_COLLISION godot_gap_hit={gapHit.ToString().ToLowerInvariant()} godot_repaired_hit={repairedHit.ToString().ToLowerInvariant()} " +
+            $"rail_solids_gap={gapRendered} rail_solids_repaired={_scene.Tracks.RailSolidCount} last={PlaygroundCheck.DescribeRecord(Session.QueryEditLog()[^1])}");
     }
 
     private void PressEdit(string button)
@@ -324,7 +385,7 @@ internal sealed class PlaygroundSmoke
         var executed = Session.QueryEditLog()
             .Where(record => record.ExecutedAt is { } at && at.CompareTo(_saveBoundary) >= 0)
             .ToArray();
-        Require(executed.Length == 2 && Session.QueryPendingEdits().Count == 0, $"continuation executed {executed.Length} pending {Session.QueryPendingEdits().Count}");
+        Require(executed.Length == QueuedEdits && Session.QueryPendingEdits().Count == 0, $"continuation executed {executed.Length} pending {Session.QueryPendingEdits().Count}");
         GD.Print(
             $"PLAYGROUND_SMOKE_CONTINUATION step={Session.SimulationStep} " +
             $"executed={string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))} " +
