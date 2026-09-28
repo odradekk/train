@@ -117,6 +117,7 @@ try {
                 "OBSERVE_FOLLOW_RUNNING vehicle=",
                 "OBSERVE_FOLLOW_PAUSED frames=10",
                 "camera_constant=true",
+                "OBSERVE_ORBIT_ZOOM vehicle=",
                 "OBSERVE_TRANSITION switch mode=Follow",
                 "OBSERVE_TRANSITION switch-back mode=Follow",
                 "OBSERVE_SPLIT_KEEP assemblies=2",

@@ -112,7 +112,7 @@ public sealed class ObserveConsoleCommands
     private static bool TryId(string text, out EntityId id)
     {
         id = default;
-        if (!ulong.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var value) || value == 0)
+        if (!ulong.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) || value == 0)
             return false;
         id = new EntityId(value);
         return true;

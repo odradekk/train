@@ -23,6 +23,7 @@ internal sealed class PlaygroundObservationSmoke
     private const int TransitionLimitFrames = 600;
     private const float Tolerance = 1e-3f;
     private const int RailClickX = 90;
+    private const float OrbitDragPixels = 60;
 
     private readonly PlaygroundScene _scene;
     private readonly bool _resume;
@@ -128,49 +129,53 @@ internal sealed class PlaygroundObservationSmoke
                     Next();
                 break;
             case 10:
+                if (OrbitAndZoom(Loco))
+                    Next();
+                break;
+            case 11:
                 if (_frames == 1)
                     _scene.Press("run");
                 SelectFromList(ObservedObject.Vehicle(Carriage!.Value));
                 if (Transition("switch", Key.V, PlaygroundCameraMode.Follow, Carriage.Value))
                     Next();
                 break;
-            case 11:
+            case 12:
                 SelectFromList(ObservedObject.Vehicle(Loco));
                 if (Transition("switch-back", Key.None, PlaygroundCameraMode.Follow, Loco))
                     Next();
                 break;
-            case 12:
+            case 13:
                 SplitWhileMoving();
                 Next();
                 break;
-            case 13:
+            case 14:
                 if (_frames == 1)
                     CheckSplitContinuity();
                 if (FollowWhileMoving(Loco, "OBSERVE_FOLLOW_AFTER_SPLIT"))
                     Next();
                 break;
-            case 14:
+            case 15:
                 ChangeActiveLocomotive();
                 Next();
                 break;
-            case 15:
+            case 16:
                 SelectFromList(ObservedObject.Vehicle(Carriage!.Value));
                 if (Transition("follow-carriage", Key.None, PlaygroundCameraMode.Follow, Carriage.Value))
                     Next();
                 break;
-            case 16:
+            case 17:
                 DestroyFollowed();
                 Next();
                 break;
-            case 17 when _frames >= SettleFrames:
+            case 18 when _frames >= SettleFrames:
                 CheckDestroyedInPlace();
                 Next();
                 break;
-            case 18:
+            case 19:
                 if (ClickFragment())
                     Next();
                 break;
-            case 19:
+            case 20:
                 SaveAndFinish();
                 break;
         }
@@ -442,6 +447,46 @@ internal sealed class PlaygroundObservationSmoke
         Require(Session.SimulationPaused && Session.SimulationStep == _mark, "observation moved the paused clock");
         Require(_positions.All(position => position == _positions[0]), "camera moved while paused and following a stopped body");
         GD.Print($"{marker} frames={HoldFrames} step={_mark} camera_constant=true {Observer.Describe()}");
+        return true;
+    }
+
+    /// <summary>
+    /// Right-drag and wheel through real mouse events while following a paused body: the camera orbits and closes in,
+    /// still looking at the same body centre, and the clock does not move.
+    /// </summary>
+    private bool OrbitAndZoom(EntityId vehicleId)
+    {
+        var center = BodyCenter(vehicleId);
+        if (_frames == 1)
+        {
+            _positions.Clear();
+            _positions.Add(_scene.Camera.GlobalPosition);
+            _mark = Session.SimulationStep;
+            var size = _scene.GetViewport().GetVisibleRect().Size;
+            var screen = _scene.GetViewport().GetScreenTransform();
+            var at = screen * (size * 0.5f);
+            var drag = screen.BasisXform(new Vector2(OrbitDragPixels, 0));
+            Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = true, Position = at, GlobalPosition = at });
+            Input.ParseInputEvent(new InputEventMouseMotion { Position = at + drag, GlobalPosition = at + drag, Relative = drag, ButtonMask = MouseButtonMask.Right });
+            Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = false, Position = at + drag, GlobalPosition = at + drag });
+            Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.WheelUp, Pressed = true, Position = at, GlobalPosition = at, Factor = 1 });
+            Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.WheelUp, Pressed = false, Position = at, GlobalPosition = at, Factor = 1 });
+            return false;
+        }
+
+        if (_frames < 3)
+            return false;
+        var camera = _scene.Camera.GlobalPosition;
+        var before = (_positions[0] - center).Length();
+        var after = (camera - center).Length();
+        var turned = new Vector2(_positions[0].X - center.X, _positions[0].Z - center.Z).AngleTo(new Vector2(camera.X - center.X, camera.Z - center.Z));
+        Require((PlaygroundObservationView.To(Observer.Pose.Look) - center).Length() < Tolerance, "orbit moved the look point off the body");
+        Require(Math.Abs(before - after - (float)PlaygroundObservationView.ZoomStep) < 2e-3f, $"wheel changed distance {before} -> {after}");
+        Require(Math.Abs(turned) > 0.01f, "right-drag did not orbit the camera");
+        Require(Session.SimulationPaused && Session.SimulationStep == _mark, "orbit moved the clock");
+        GD.Print(
+            $"OBSERVE_ORBIT_ZOOM vehicle={vehicleId} yaw_turn={turned:0.####} distance={before:0.###}->{after:0.###} " +
+            $"step={Session.SimulationStep} paused=true");
         return true;
     }
 

@@ -10,7 +10,7 @@
 - 输入一条命令后按 `Enter` 执行。下文代码块中的每一行都需分别提交。
 - 命令不带 `/` 前缀。`<参数>` 表示必填，`[参数]` 表示可选；实际输入时去掉尖括号和方括号。
 - 参数按空白分隔；连续空白和首尾空白会被忽略。没有引号转义、多命令分号串联或行内注释语法。
-- 命令名、`voxel` / `composite` / `rail` 子命令、日志等级和朝向编码不区分大小写；定义 ID 必须使用小写。
+- 命令名、`voxel` / `composite` / `rail` / `observe` 子命令、日志等级和朝向编码不区分大小写；定义 ID 必须使用小写。
 - 空行无操作；未知命令报告 `Unknown command: ...`。
 - 命令回显及多数结果使用 `info` 日志。如果看不到结果，先执行 `loglevel info`，再重试查询。
 
@@ -135,6 +135,7 @@
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
 | `Started` / `Stopped` / `Advanced` / `Paused` / `Resumed` / `ReverseUnsupported` / `StepOverflow` / `PastStep` / `NoAssembly` / `UnknownAssembly` / `NoRailway` / `MissingPropulsion` / `MissingControl` / `InsufficientSupport` / `DisconnectedPath` / `VehicleConstraint` / `TransactionExhausted` | `rail start` / `stop` / `step` / `pause` / `resume` 结果。反向启动、过去目标步、未知或未指定的多编组目标、或步号溢出整次拒绝且原状态不变。可执行目标步是 `[当前步, ulong.MaxValue]`；成功起停一律入队并消费事务，目标编组写入队列。当前步与未来步按同一入队顺序执行，到步新命令不能越过同目标步旧队列。到达 `MaxValue` 后仍执行该步命令，再推进为 `StepOverflow` |
+| `Selected` / `Cleared` / `Focused` / `Following` / `Free` / `NoSelection` / `NotVehicle` / `UnknownObject` | `observe` 结果：选中、清除选择、开始聚焦、开始跟随、回到自由观察；没有选择、跟随对象不是车辆、选择对象不存在时拒绝且选择与镜头不变。全部只改观察状态，不改会话；见 [observe](observe.md) |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。`transaction_count` 为 `ulong.MaxValue`、`scheduled_sequence` 大于事务计数、非法铁路几何/占格/轨枕、重复车辆、两车无车钩、停车却带速度且仍声称有活动车头、运行中却缺少当前 control、缩放/剪切轴、悬空命令目标、以及 save-local 与车辆身份不一致，属于 `InvalidDelta`。合法单车、多编组与无动力滑行可以恢复 |
 | `TransactionExhausted` | 制造 / 改装 / 车辆伤害 / 编组时再提交会写出不可加载的计数（当前值已为 `MaxValue - 1` 或 `MaxValue`）；不绕回、不部分提交、不覆盖可读存档 |

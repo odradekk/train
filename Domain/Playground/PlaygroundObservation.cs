@@ -13,15 +13,21 @@ public enum ObservedObjectKind
 }
 
 /// <summary>
-/// A reference to one formal object. A world cell has no entity identity of its own; a detached fragment keeps its
-/// runtime id, so the reference is lost when that id no longer sits in the cell.
+/// A reference to one formal object. An ordinary world voxel has no entity identity, so a cell reference remembers
+/// the definition and any detached-fragment runtime id it was selected with and is lost when either changes; a
+/// same-definition replacement cannot be told apart.
 /// </summary>
-public readonly record struct ObservedObject(ObservedObjectKind Kind, EntityId Id, WorldVoxelCoord Cell, EntityId? RuntimeId)
+public readonly record struct ObservedObject(
+    ObservedObjectKind Kind,
+    EntityId Id,
+    WorldVoxelCoord Cell,
+    EntityId? RuntimeId,
+    VoxelDefinitionId? Definition = null)
 {
     public static ObservedObject Vehicle(EntityId id) => new(ObservedObjectKind.Vehicle, id, default, null);
     public static ObservedObject Segment(EntityId id) => new(ObservedObjectKind.RailSegment, id, default, null);
-    public static ObservedObject WorldCell(WorldVoxelCoord cell, EntityId? runtimeId = null) =>
-        new(ObservedObjectKind.WorldCell, default, cell, runtimeId);
+    public static ObservedObject WorldCell(WorldVoxelCoord cell, EntityId? runtimeId = null, VoxelDefinitionId? definition = null) =>
+        new(ObservedObjectKind.WorldCell, default, cell, runtimeId, definition);
 
     public string Describe() => Kind switch
     {
@@ -147,14 +153,16 @@ public sealed class PlaygroundObserver
     {
         ObservedObjectKind.Vehicle => _session.Vehicles.Any(vehicle => vehicle.Id == item.Id),
         ObservedObjectKind.RailSegment => _session.Rails.Segments.Any(segment => segment.Id == item.Id),
-        _ => _session.Query(item.Cell).Voxel is { } voxel && voxel.RuntimeId == item.RuntimeId
+        _ => _session.Query(item.Cell).Voxel is { } voxel &&
+             voxel.RuntimeId == item.RuntimeId &&
+             (item.Definition is null || voxel.DefinitionId == item.Definition)
     };
 
     /// <summary>Selecting only changes what the panel inspects; the camera does not move.</summary>
     public PlaygroundObservationStatus Select(ObservedObject item)
     {
         if (item.Kind == ObservedObjectKind.WorldCell && _session.Query(item.Cell).Voxel is { } voxel)
-            item = ObservedObject.WorldCell(item.Cell, voxel.RuntimeId);
+            item = ObservedObject.WorldCell(item.Cell, voxel.RuntimeId, voxel.DefinitionId);
         if (!Exists(item))
             return PlaygroundObservationStatus.UnknownObject;
         Selection = item;

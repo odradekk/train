@@ -307,6 +307,24 @@ public sealed class PlaygroundObservationTests
     }
 
     [TestMethod]
+    public void World_cell_selection_is_lost_when_a_different_voxel_replaces_it_between_frames()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var probe = PlaygroundSequences.EditProbe;
+        Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(probe, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)).Status);
+        var observer = new PlaygroundObserver(session, Overview, OverviewLook);
+        observer.Select(ObservedObject.WorldCell(probe));
+
+        session.SubmitEdit(new VoxelRemoveEdit(probe));
+        Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(probe, new VoxelDefinitionId("core", "fixed"), VoxelOrientation.Identity)).Status);
+        observer.Reconcile();
+
+        Assert.IsNull(observer.Selection);
+        Assert.AreEqual(PlaygroundNoticeKind.SelectionLost, observer.LastNotice!.Kind);
+    }
+
+    [TestMethod]
     public void Vehicle_ray_hits_the_displayed_body_and_misses_empty_space()
     {
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);

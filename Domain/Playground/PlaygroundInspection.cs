@@ -140,11 +140,11 @@ public static class PlaygroundInspector
             var index = assembly.VehicleIds.ToList().IndexOf(item.Id);
             var role = assembly.ActiveLocomotiveId == item.Id ? " active-locomotive" : "";
             owner = $"assembly {Number(assembly.Id.Value)} position {index + 1}/{assembly.VehicleIds.Count}{role}";
-            var start = assembly.Running ? "running" : "start " + session.QueryStartEligibility(assembly.Id);
-            eligibility = $"{vehicle.OperationalCondition} · {start} · speed {Number(assembly.Speed)}";
+            var start = assembly.Running ? (TrainMotionStatus?)null : session.QueryStartEligibility(assembly.Id);
+            eligibility = $"{vehicle.OperationalCondition} · {(start is { } status ? "start " + status : "running")} · speed {Number(assembly.Speed)}";
             if (assembly.HaltReason != TrainHaltReason.None)
                 failures.Add("halt " + assembly.HaltReason);
-            if (!assembly.Running && session.QueryStartEligibility(assembly.Id) is var refusal && refusal != TrainMotionStatus.Started)
+            if (start is { } refusal && refusal != TrainMotionStatus.Started)
                 failures.Add("start " + refusal);
             if (assembly.ActiveLocomotiveId is null)
                 failures.Add("assembly has no active locomotive");
