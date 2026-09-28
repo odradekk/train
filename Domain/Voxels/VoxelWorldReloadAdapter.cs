@@ -101,6 +101,7 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         IReadOnlyList<CompositeInstance> vehicles,
         VoxelCatalogSnapshot voxels,
         CompositeCatalogSnapshot composites,
+        List<WorldSaveAdaptation>? adaptations,
         out IReadOnlyList<CompositeInstance> adapted,
         out WorldSaveStatus status)
     {
@@ -108,7 +109,7 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         ArgumentNullException.ThrowIfNull(voxels);
         ArgumentNullException.ThrowIfNull(composites);
         var diagnostics = new List<ContentDiagnostic>();
-        var next = AdaptVehicles(vehicles, voxels, composites, diagnostics);
+        var next = AdaptVehicles(vehicles, voxels, composites, diagnostics, adaptations);
         if (diagnostics.Count == 0)
         {
             adapted = next;
@@ -130,7 +131,8 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         IReadOnlyList<CompositeInstance> vehicles,
         VoxelCatalogSnapshot voxels,
         CompositeCatalogSnapshot composites,
-        List<ContentDiagnostic> diagnostics)
+        List<ContentDiagnostic> diagnostics,
+        List<WorldSaveAdaptation>? adaptations = null)
     {
         var adapted = new List<CompositeInstance>(vehicles.Count);
         foreach (var vehicle in vehicles)
@@ -204,12 +206,21 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
                     continue;
                 }
 
+                var durability = Math.Min(part.CurrentDurability, partEntry.Definition.MaxDurability);
+                if (durability != part.CurrentDurability)
+                {
+                    adaptations?.Add(new WorldSaveAdaptation(
+                        $"part:{part.Id.Value}",
+                        "durability",
+                        $"recorded {part.CurrentDurability} clamped to {durability}"));
+                }
+
                 parts.Add(new CompositePart(
                     part.Id,
                     part.Cell,
                     part.DefinitionId,
                     part.Orientation,
-                    Math.Min(part.CurrentDurability, partEntry.Definition.MaxDurability),
+                    durability,
                     partEntry.SemanticRevision));
             }
 
@@ -236,6 +247,13 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
             else
             {
                 lastUsedRevision = compositeEntry!.SemanticRevision;
+                if (!string.Equals(vehicle.LastUsedRevision, compositeEntry.SemanticRevision, StringComparison.Ordinal))
+                {
+                    adaptations?.Add(new WorldSaveAdaptation(
+                        $"vehicle:{vehicle.Id.Value}",
+                        "layout",
+                        "kept the saved instance layout, identity, and absolute state"));
+                }
             }
             adapted.Add(new CompositeInstance(
                 vehicle.Id,

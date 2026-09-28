@@ -33,6 +33,7 @@ public partial class VoxelDeveloperScene : Node3D
     private Label _halt = null!;
     private Label _cell = null!;
     private Label _result = null!;
+    private UnsavedWorldChangePrompt? _worldChangePrompt;
     private VoxelSlice4BaselinePhase _slice4BaselinePhase;
     private bool _slice4BaselineRecording;
     private ulong _slice4BaselineMaxStep;
@@ -621,6 +622,9 @@ public partial class VoxelDeveloperScene : Node3D
             !string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal) &&
             !EnterSlice4Fixture())
             throw new InvalidOperationException("Slice 4 could not construct the fixture railway and static train.");
+        if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
+            !string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
+            _session.MarkPersistenceClean();
 
         if (string.Equals(System.Environment.GetEnvironmentVariable(VoxelSmokeEnvironmentVariable), "1", StringComparison.Ordinal))
         {
@@ -834,17 +838,7 @@ public partial class VoxelDeveloperScene : Node3D
         }
         else if (key.Keycode == Key.R)
         {
-            _session.Reset();
-            if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
-                !EnterSlice4Fixture())
-                throw new InvalidOperationException("Slice 4 reset could not reconstruct the fixture railway and static train.");
-            _result.Text = _session.Identity.Slice switch
-            {
-                VoxelDevelopmentSlice.Slice4 => "最近命令：已重置并施工正式切片 4 直轨与静态编组。",
-                VoxelDevelopmentSlice.Slice3 => "最近命令：已重置正式切片 3 静置车辆世界。",
-                VoxelDevelopmentSlice.Slice2 => "最近命令：已重置正式切片 2 多 Chunk 世界。",
-                _ => "最近命令：已重置正式 16³ 开发世界。"
-            };
+            PresentSliceReset(_session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, null)));
             GetViewport().SetInputAsHandled();
         }
         else if (key.Keycode == Key.M && _session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
@@ -883,7 +877,7 @@ public partial class VoxelDeveloperScene : Node3D
         _halt = WrapLabel();
         box.AddChild(_title);
         box.AddChild(_halt);
-        box.AddChild(WrapLabel("Delete 移除 · Insert 添加 · M 夹具 · R 重置 · T 启动 · Y 停车 · P 暂停 · F 跟随 · ~ 控制台 · Esc 返回"));
+        box.AddChild(WrapLabel("Delete 移除 · Insert 添加 · M 夹具 · R 重置（未保存时确认） · T 启动 · Y 停车 · P 暂停 · F 跟随 · ~ 控制台 · Esc 直接返回"));
         _cell = WrapLabel();
         _result = WrapLabel("最近命令：场景已进入。");
         box.AddChild(_cell);
@@ -891,7 +885,49 @@ public partial class VoxelDeveloperScene : Node3D
         panel.AddChild(box);
         layer.AddChild(panel);
         AddChild(layer);
+        _worldChangePrompt = new UnsavedWorldChangePrompt();
+        _worldChangePrompt.Chosen += choice =>
+            PresentSliceReset(_session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice)));
+        AddChild(_worldChangePrompt);
     }
+
+    private void PresentSliceReset(WorldChangeResult result)
+    {
+        if (result.Status == WorldChangeStatus.ChoiceRequired)
+        {
+            _worldChangePrompt?.Open("可以保存后重置、放弃当前更改，或取消。");
+            _result.Text = "最近命令：有未保存变化。请选择保存后重置、放弃或取消。";
+            return;
+        }
+
+        _worldChangePrompt?.Close();
+        if (result.Status == WorldChangeStatus.Completed &&
+            _session.Identity.Slice == VoxelDevelopmentSlice.Slice4 &&
+            !EnterSlice4Fixture())
+            throw new InvalidOperationException("Slice 4 reset could not reconstruct the fixture railway and static train.");
+        if (result.Status == WorldChangeStatus.Completed &&
+            _session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
+            _session.MarkPersistenceClean();
+        _result.Text = result.Status switch
+        {
+            WorldChangeStatus.Completed => _session.Identity.Slice switch
+            {
+                VoxelDevelopmentSlice.Slice4 => "最近命令：已重置并施工正式切片 4 直轨与静态编组。",
+                VoxelDevelopmentSlice.Slice3 => "最近命令：已重置正式切片 3 静置车辆世界。",
+                VoxelDevelopmentSlice.Slice2 => "最近命令：已重置正式切片 2 多 Chunk 世界。",
+                _ => "最近命令：已重置正式 16³ 开发世界。"
+            },
+            WorldChangeStatus.Cancelled => "最近命令：已取消重置。",
+            WorldChangeStatus.SaveFailed => $"最近命令：保存失败 {result.SaveStatus}，重置已取消。{DiagnosticText(result.Diagnostic)}",
+            WorldChangeStatus.CandidateFailed => $"最近命令：重置失败 {result.CandidateStatus}。{DiagnosticText(result.Diagnostic)}",
+            _ => $"最近命令：重置 {result.Status}。"
+        };
+    }
+
+    private static string DiagnosticText(WorldSaveDiagnostic? diagnostic) =>
+        diagnostic is null
+            ? ""
+            : $"阶段 {diagnostic.Stage}，对象 {diagnostic.Subject}，关系 {diagnostic.Relationship}。";
 
     private static Label WrapLabel(string text = "")
     {
@@ -909,6 +945,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
+            _session.WorldReplaced -= DismissStaleWorldChange;
             _session.Detach();
         }
 
@@ -923,6 +960,8 @@ public partial class VoxelDeveloperScene : Node3D
     }
 
     private void MarkDirty() => _dirty = true;
+
+    private void DismissStaleWorldChange(WorldReplacement _) => _worldChangePrompt?.Close();
 
     private string CurrentName(WorldVoxelQuery query)
     {
@@ -1279,6 +1318,7 @@ public partial class VoxelDeveloperScene : Node3D
     {
         _session = session;
         _session.Changed += MarkDirty;
+        _session.WorldReplaced += DismissStaleWorldChange;
         GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(_session);
     }
 
@@ -1287,6 +1327,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
+            _session.WorldReplaced -= DismissStaleWorldChange;
             _session.Detach();
         }
 

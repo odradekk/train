@@ -55,7 +55,7 @@ public sealed class CompositeConsoleCommandTests
         Assert.AreEqual(WorldSaveStatus.Unavailable, voxelSession.Save("again").Status);
         Assert.AreEqual(before, voxelSession.CaptureAuthority());
 
-        dispatcher.Execute("composite reset");
+        dispatcher.Execute("composite reset discard");
         Assert.AreEqual(0, voxelSession.QueryComposites().Count);
         Assert.AreEqual(1UL, voxelSession.NextEntityId);
         Assert.AreEqual(0UL, voxelSession.TransactionCount);

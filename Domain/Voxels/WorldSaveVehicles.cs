@@ -322,6 +322,7 @@ internal static partial class WorldSaveVehicleCodec
         VoxelCatalogSnapshot voxels,
         CompositeCatalogSnapshot composites,
         VoxelWorld world,
+        List<WorldSaveAdaptation> adaptations,
         out IReadOnlyList<CompositeInstance> vehicles,
         out WorldSaveStatus status)
     {
@@ -410,7 +411,7 @@ internal static partial class WorldSaveVehicleCodec
                 saveLocal));
         }
 
-        if (!VoxelWorldReloadAdapter.TryAdaptVehicles(reconstructed, voxels, composites, out var adapted, out status))
+        if (!VoxelWorldReloadAdapter.TryAdaptVehicles(reconstructed, voxels, composites, adaptations, out var adapted, out status))
             return false;
         if (!TryValidateIdentities(world, adapted, document.NextEntityId, document.TransactionCount, out status))
             return false;

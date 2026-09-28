@@ -270,7 +270,7 @@ public sealed class VoxelMultiChunkTests
         Assert.AreEqual(75, voxelSession.Query(new WorldVoxelCoord(16, 16, 16)).Voxel!.CurrentDurability);
         Assert.AreEqual(1087, voxelSession.World.VoxelCount);
 
-        dispatcher.Execute("voxel reset");
+        dispatcher.Execute("voxel reset discard");
         Assert.AreEqual(1088, voxelSession.World.VoxelCount);
         Assert.IsTrue(voxelSession.Query(new WorldVoxelCoord(15, 16, 15)).IsOccupied);
 

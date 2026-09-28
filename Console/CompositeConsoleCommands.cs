@@ -22,18 +22,15 @@ public sealed class CompositeConsoleCommands
         ArgumentNullException.ThrowIfNull(arguments);
         if (arguments.Count >= 1 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
         {
-            if (arguments.Count == 1)
-            {
-                _session.Reset();
-                return FormatReset();
-            }
-
-            if (arguments.Count == 2 && TryFixture(arguments[1], out var resetId))
-            {
-                _session.Reset();
-                var manufactured = _session.Manufacture(resetId);
-                return string.Join('\n', FormatReset(), FormatManufacture(manufactured));
-            }
+            if (!TryParseReset(arguments, out var choice, out var resetId))
+                return Usage();
+            var changed = _session.TryChangeWorld(new WorldChangeRequest(
+                WorldChangeKind.Reset,
+                choice,
+                FixtureId: resetId?.Value));
+            if (changed.Status != WorldChangeStatus.Completed)
+                return WorldChangeConsole.Format(_session, changed);
+            return resetId is null ? FormatReset() : string.Join('\n', FormatReset(), FormatManufactured(changed));
         }
 
         if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
@@ -81,8 +78,13 @@ public sealed class CompositeConsoleCommands
         if (TryRefit(arguments, out var refitText))
             return refitText;
 
+        return Usage();
+    }
+
+    private string Usage()
+    {
         return string.Join('\n',
-            "Usage: composite reset [hollow|bridge|bridge-right] | composite manufacture [<namespace:id>] [pose <x> <y> <z>]",
+            "Usage: composite reset [discard|save|cancel] [hollow|bridge|bridge-right] | composite manufacture [<namespace:id>] [pose <x> <y> <z>]",
             "composite damage <id> <x> <y> <z> <amount> [<x> <y> <z> <amount> ...]",
             "composite query [page [<page>] | damaged [<page>] | <id> [parts [<page>]]]",
             "composite add <id> <x> <y> <z> <namespace:id> <orientation>",
@@ -216,6 +218,12 @@ public sealed class CompositeConsoleCommands
             $"construction {query.Construction}",
             $"Voxel count: {_session.World.VoxelCount}.");
     }
+
+    private static string FormatManufactured(WorldChangeResult changed) =>
+        string.Join('\n',
+            $"Composite {changed.FixtureStatus}.",
+            $"vehicle {changed.FixtureVehicleId}",
+            $"parts {changed.FixturePartCount}");
 
     private string FormatReset()
     {
@@ -383,6 +391,35 @@ public sealed class CompositeConsoleCommands
         return arguments.Count == pageArgumentIndex + 1 &&
                int.TryParse(arguments[pageArgumentIndex], out page) &&
                page > 0;
+    }
+
+    private static bool TryParseReset(
+        IReadOnlyList<string> arguments,
+        out WorldChangeChoice? choice,
+        out CompositeDefinitionId? fixture)
+    {
+        choice = null;
+        fixture = null;
+        if (arguments.Count > 3)
+            return false;
+        for (var index = 1; index < arguments.Count; index++)
+        {
+            if (choice is null && WorldChangeConsole.TryParseChoice(arguments[index], out var parsed))
+            {
+                choice = parsed;
+                continue;
+            }
+
+            if (fixture is null && TryFixture(arguments[index], out var definitionId))
+            {
+                fixture = definitionId;
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryFixture(string text, out CompositeDefinitionId definitionId)

@@ -33,7 +33,50 @@ public enum WorldSaveStatus
     SimulationFaulted
 }
 
-public sealed record WorldSaveResult(WorldSaveStatus Status, Guid? SaveId = null, string? DisplayName = null)
+public sealed record WorldSaveDiagnostic(string Stage, string Subject, string Relationship, string Detail)
+{
+    public static WorldSaveDiagnostic For(WorldSaveStatus status) => status switch
+    {
+        WorldSaveStatus.Truncated or WorldSaveStatus.ReadFailed or WorldSaveStatus.UnknownFormat
+            or WorldSaveStatus.NotFound or WorldSaveStatus.MismatchedId or WorldSaveStatus.InvalidName
+            => new("format", "save", status.ToString(), "the save could not be read as a supported document"),
+        WorldSaveStatus.MissingDefinition
+            => new("dependency", "content", "definition", "a required definition is missing"),
+        WorldSaveStatus.UnknownGenerator or WorldSaveStatus.IncompatibleBase or WorldSaveStatus.UnknownSource
+            => new("base", "world", status.ToString(), "the saved base cannot be rebuilt"),
+        WorldSaveStatus.UnsupportedVehicles or WorldSaveStatus.UnsupportedIdentities or WorldSaveStatus.UnsupportedRailway
+            => new("format", "save", status.ToString(), "the save uses an unsupported section"),
+        WorldSaveStatus.InvalidDelta or WorldSaveStatus.Occupied or WorldSaveStatus.OutOfBounds
+            => new("delta", "world", status.ToString(), "the saved changes cannot be applied"),
+        WorldSaveStatus.SimulationFaulted
+            => new("save", "session", "fault", "the session is faulted and was not written"),
+        WorldSaveStatus.WriteFailed
+            => new("save", "file", "write", "the existing save was left unchanged"),
+        WorldSaveStatus.Unavailable
+            => new("save", "store", "unavailable", "no save store is available"),
+        _ => new("save", "session", status.ToString(), "the operation did not complete")
+    };
+}
+
+public sealed record WorldSaveAdaptation(string Subject, string Relationship, string Detail)
+{
+    public bool ChangesPersistentState => Relationship is "durability" or "speed";
+}
+
+public sealed class WorldSaveFailureLog
+{
+    public WorldSaveDiagnostic? First { get; private set; }
+
+    public void Report(string stage, string subject, string relationship, string detail) =>
+        First ??= new WorldSaveDiagnostic(stage, subject, relationship, detail);
+}
+
+public sealed record WorldSaveResult(
+    WorldSaveStatus Status,
+    Guid? SaveId = null,
+    string? DisplayName = null,
+    WorldSaveDiagnostic? Diagnostic = null,
+    IReadOnlyList<WorldSaveAdaptation>? Adaptations = null)
 {
     public bool Succeeded => Status is WorldSaveStatus.Saved or WorldSaveStatus.Loaded;
 }
@@ -1157,6 +1200,8 @@ public static class WorldSaveRestorer
         CompositeCatalogSnapshot composites,
         WorldSaveDocument document,
         VoxelWorldIdentity expectedIdentity,
+        List<WorldSaveAdaptation> adaptations,
+        WorldSaveFailureLog failures,
         out WorldSaveRestore restore,
         out WorldSaveStatus status)
     {
@@ -1165,6 +1210,8 @@ public static class WorldSaveRestorer
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(composites);
         ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(adaptations);
+        ArgumentNullException.ThrowIfNull(failures);
 
         if (!WorldSaveDocument.SupportsFormat(document.FormatVersion))
         {
@@ -1177,6 +1224,7 @@ public static class WorldSaveRestorer
         if (identity != expectedIdentity)
         {
             status = WorldSaveStatus.IncompatibleBase;
+            failures.Report("base", "identity", "seed_bounds", "the saved world identity does not match this session");
             return false;
         }
 
@@ -1190,31 +1238,34 @@ public static class WorldSaveRestorer
             status = exception.Message.Contains("Unknown generator", StringComparison.Ordinal)
                 ? WorldSaveStatus.UnknownGenerator
                 : WorldSaveStatus.MissingDefinition;
+            failures.Report("base", "generator", "generator_version", "the saved world could not be regenerated");
             return false;
         }
 
         if (!string.Equals(WorldSaveLayout.Fingerprint(generated), document.BaseLayout, StringComparison.Ordinal))
         {
             status = WorldSaveStatus.IncompatibleBase;
+            failures.Report("base", "base_layout", "fingerprint", "the regenerated voxel base does not match the saved fingerprint");
             return false;
         }
 
-        if (!TryValidateDefinitionRecords(catalog, generated, document, out status))
+        if (!TryValidateDefinitionRecords(catalog, generated, document, failures, out status))
             return false;
         if (!TryValidateDelta(catalog, generated, document, out status))
             return false;
-        if (!ApplySavedDurability(catalog, generated, document))
+        if (!ApplySavedDurability(catalog, generated, document, adaptations, failures))
         {
             status = WorldSaveStatus.MissingDefinition;
             return false;
         }
 
-        ApplyDelta(catalog, generated, document);
+        ApplyDelta(catalog, generated, document, adaptations);
         if (!WorldSaveVehicleCodec.TryRestoreVehicles(
                 document,
                 catalog,
                 composites,
                 generated,
+                adaptations,
                 out var vehicles,
                 out status))
             return false;
@@ -1227,7 +1278,7 @@ public static class WorldSaveRestorer
                 out var assemblies,
                 out status))
             return false;
-        if (!TryValidateEdits(document, out status))
+        if (!TryValidateEdits(document, failures, out status))
             return false;
         restore = new WorldSaveRestore(
             generated,
@@ -1248,7 +1299,7 @@ public static class WorldSaveRestorer
     /// the edit executes; an id that was never allocated is a corrupt reference and rejects the whole load. Content
     /// publications are never pending, and format 4 predates the rail and train kinds.
     /// </summary>
-    private static bool TryValidateEdits(WorldSaveDocument document, out WorldSaveStatus status)
+    private static bool TryValidateEdits(WorldSaveDocument document, WorldSaveFailureLog failures, out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
         var edits = document.Edits;
@@ -1277,7 +1328,10 @@ public static class WorldSaveRestorer
             if (pending.TargetStep <= document.SimulationStep || pending.TargetStep < pending.AcceptedAt.Step)
                 return false;
             if (pending.Edit.EntityReferences.Any(id => id.Value >= document.NextEntityId))
+            {
+                failures.Report("reference", $"edit:{pending.Id}", "entity_id", "the edit names an entity id that was never allocated");
                 return false;
+            }
             previous = pending;
         }
 
@@ -1324,6 +1378,7 @@ public static class WorldSaveRestorer
         VoxelCatalogSnapshot catalog,
         VoxelWorld generated,
         WorldSaveDocument document,
+        WorldSaveFailureLog failures,
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.MissingDefinition;
@@ -1357,7 +1412,10 @@ public static class WorldSaveRestorer
         foreach (var id in required)
         {
             if (!recorded.Contains(id) || !catalog.TryGet(id, out _))
+            {
+                failures.Report("dependency", id.Value, "definition", "a required voxel definition is missing");
                 return false;
+            }
         }
 
         status = WorldSaveStatus.Loaded;
@@ -1454,7 +1512,9 @@ public static class WorldSaveRestorer
     private static bool ApplySavedDurability(
         VoxelCatalogSnapshot catalog,
         VoxelWorld world,
-        WorldSaveDocument document)
+        WorldSaveDocument document,
+        List<WorldSaveAdaptation> adaptations,
+        WorldSaveFailureLog failures)
     {
         var savedMax = document.ExternalDefinitions.ToDictionary(
             item => item.DefinitionId,
@@ -1462,10 +1522,26 @@ public static class WorldSaveRestorer
         foreach (var (position, voxel) in world.OccupiedVoxels().ToArray())
         {
             if (!catalog.TryGet(voxel.DefinitionId, out var entry))
+            {
+                failures.Report("dependency", voxel.DefinitionId.Value, "definition", "saved durability names a missing definition");
                 return false;
+            }
+
             if (!savedMax.TryGetValue(voxel.DefinitionId, out var recorded))
+            {
+                failures.Report("dependency", voxel.DefinitionId.Value, "definition", "saved durability has no recorded maximum");
                 return false;
+            }
+
             var durability = Math.Min(recorded, entry.Definition.MaxDurability);
+            if (durability != recorded)
+            {
+                adaptations.Add(new WorldSaveAdaptation(
+                    $"voxel:{position.X},{position.Y},{position.Z}",
+                    "durability",
+                    $"recorded {recorded} clamped to {durability}"));
+            }
+
             if (durability != voxel.CurrentDurability)
                 world.TryReplace(position, voxel with { CurrentDurability = durability });
         }
@@ -1476,7 +1552,8 @@ public static class WorldSaveRestorer
     private static void ApplyDelta(
         VoxelCatalogSnapshot catalog,
         VoxelWorld world,
-        WorldSaveDocument document)
+        WorldSaveDocument document,
+        List<WorldSaveAdaptation> adaptations)
     {
         foreach (var position in document.Removed)
             world.TryRemove(position);
@@ -1484,6 +1561,14 @@ public static class WorldSaveRestorer
         {
             var entry = catalog.Entries[instance.DefinitionId];
             var durability = Math.Min(instance.Durability, entry.Definition.MaxDurability);
+            if (durability != instance.Durability)
+            {
+                adaptations.Add(new WorldSaveAdaptation(
+                    $"voxel:{instance.Position.X},{instance.Position.Y},{instance.Position.Z}",
+                    "durability",
+                    $"recorded {instance.Durability} clamped to {durability}"));
+            }
+
             var voxel = new WorldVoxel(instance.DefinitionId, durability, instance.Orientation, instance.RuntimeId);
             if (!world.TryReplace(instance.Position, voxel))
                 world.TryAdd(instance.Position, voxel);

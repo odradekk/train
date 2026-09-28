@@ -21,7 +21,8 @@ param(
 # The empty configuration covers free observation, rail picks and focus without
 # any vehicle, and a focused voxel removed and re-added with the same definition
 # through the console (immediately and as two edits due at one step) that must
-# still count as lost. It then follows vehicle 1 while `composite reset` and,
+# still count as lost. It then follows the manufactured vehicle (id 3: the re-established
+# straight rail already used ids 1 and 2) while `composite reset` and,
 # after a failed load that must keep observing, `voxel load` put a different
 # vehicle under that id; each replacement drops the references in place, and
 # the Playground world is loaded back before saving.
@@ -145,9 +146,9 @@ try {
                 "OBSERVE_SEGMENT_FOLLOW_REFUSED mode=Free",
                 "OBSERVE_REBUILD_LOST immediate target-lost cell",
                 "OBSERVE_REBUILD_LOST scheduled target-lost cell",
-                "OBSERVE_WORLD_REPLACED reset target-lost vehicle 1 mode follow camera free-in-place world-replaced reset camera_moved=false mode free selection none transitioning false same_id_definition=core:dev-hollow-shell->core:dev-bridge",
-                "OBSERVE_FAILED_LOAD_KEEP mode follow target vehicle 1 selection vehicle 1",
-                "OBSERVE_WORLD_REPLACED load target-lost vehicle 1 mode follow camera free-in-place world-replaced load camera_moved=false mode free selection none transitioning false same_id_definition=core:dev-bridge->core:dev-hollow-shell"
+                "OBSERVE_WORLD_REPLACED reset target-lost vehicle 3 mode follow camera free-in-place world-replaced reset camera_moved=false mode free selection none transitioning false same_id_definition=core:dev-hollow-shell->core:dev-bridge",
+                "OBSERVE_FAILED_LOAD_KEEP mode follow target vehicle 3 selection vehicle 3",
+                "OBSERVE_WORLD_REPLACED load target-lost vehicle 3 mode follow camera free-in-place world-replaced load camera_moved=false mode free selection none transitioning false same_id_definition=core:dev-bridge->core:dev-hollow-shell"
             )
         }
         $ok = Require-Markers $establish $markers "$config establish"
