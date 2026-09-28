@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Train.Domain.Commands;
 
 namespace Train.Domain.Playground;
@@ -40,11 +41,11 @@ public static class AuthorityFieldCatalog
     {
         "accepted_sequence", "accepted_step", "active_locomotive_id", "alignment", "along_end", "along_start",
         "archetype_id", "assemblies", "authority_format_version", "bound_x", "bound_y", "bound_z", "boundary_sequence",
-        "bounds", "chunk_size", "connections", "contacts", "definition_id", "description", "destroyed",
+        "bounds", "chunk_size", "connections", "contacts", "definition_id", "destroyed",
         "distance", "durability", "edit", "edit_id", "end_x", "end_y", "end_z", "exception_type",
         "from_end", "from_part_id", "from_segment_id", "from_vehicle_id", "from_x", "from_y", "from_z",
         "generator_version", "halt_reason", "heading", "id", "input_format_version", "kind", "last_used_archetype_revision",
-        "last_used_revision", "max_x", "max_y", "max_z", "message", "min_x", "min_y", "min_z", "name",
+        "last_used_revision", "max_x", "max_y", "max_z", "message", "min_x", "min_y", "min_z",
         "next_edit_id", "next_entity_id", "occupancy", "orientation", "origin_x", "origin_y", "origin_z",
         "parts", "pending", "position", "rail_volumes", "railway", "reference_segment_id", "revision", "right_x",
         "right_y", "right_z", "running", "runtime_id", "save_local_definitions", "save_local_revision",
@@ -58,7 +59,7 @@ public static class AuthorityFieldCatalog
     public static readonly string[] Excluded =
     {
         "assembly_graph_generation", "asset_revision", "camera", "catalog_generation", "derived_graph",
-        "display_name", "edit_log", "interpolation", "paused", "render", "save_id", "window"
+        "description", "display_name", "edit_log", "interpolation", "name", "paused", "render", "save_id", "window"
     };
 }
 
@@ -132,8 +133,6 @@ public sealed record AuthorityLocalVoxel(int X, int Y, int Z, string DefinitionI
 public sealed record AuthorityLocalDefinition(
     string Revision,
     string Id,
-    string Name,
-    string Description,
     string ArchetypeId,
     string SizeClass,
     IReadOnlyList<AuthorityLocalVoxel> Voxels,
@@ -335,9 +334,40 @@ public sealed record AuthorityDifference(
 
 public static class AuthorityEnvironment
 {
+    private static readonly Lazy<(string? Id, string? File)> Build = new(ReadBuild);
+
     public static string OperatingSystem => RuntimeInformation.OSDescription;
 
     public static string Architecture => RuntimeInformation.OSArchitecture.ToString();
 
     public static string Framework => RuntimeInformation.FrameworkDescription;
+
+    /// <summary>SHA-256 of the assembly file that contains this type. Null when that file cannot be read.</summary>
+    public static string? CurrentBuildId => Build.Value.Id;
+
+    public static string? CurrentBuildFile => Build.Value.File;
+
+    private static (string? Id, string? File) ReadBuild()
+    {
+        foreach (var candidate in Candidates())
+        {
+            if (string.IsNullOrEmpty(candidate) || !File.Exists(candidate))
+                continue;
+            var path = Path.GetFullPath(candidate);
+            return (Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))), path);
+        }
+
+        return (null, null);
+    }
+
+    private static IEnumerable<string> Candidates()
+    {
+        var assembly = typeof(AuthorityEnvironment).Assembly;
+        yield return assembly.Location;
+        var name = assembly.GetName().Name;
+        if (string.IsNullOrEmpty(name))
+            yield break;
+        yield return Path.Combine(AppContext.BaseDirectory, name + ".dll");
+        yield return Path.Combine(Directory.GetCurrentDirectory(), ".godot", "mono", "temp", "bin", "Debug", name + ".dll");
+    }
 }

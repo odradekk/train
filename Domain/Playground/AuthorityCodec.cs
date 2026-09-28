@@ -113,7 +113,7 @@ public static class AuthorityCodec
         var source = session.WorldSource;
         return new AuthorityContext(
             AuthorityFieldCatalog.FormatVersion,
-            string.IsNullOrWhiteSpace(buildId) ? null : buildId,
+            string.IsNullOrWhiteSpace(buildId) ? AuthorityEnvironment.CurrentBuildId : buildId,
             ContentPublishEdit.For(voxels, composites).ContentDigest,
             SemanticLines(voxels, composites),
             source?.Kind ?? "unspecified",
@@ -139,6 +139,161 @@ public static class AuthorityCodec
         var document = Document(Capture(session));
         return new AuthorityCheckpoint(index, input, session.EditBoundary, document.Canonical, document.Digest);
     }
+
+    public static string EncodeEvidence(AuthorityContext context, AuthorityCheckpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, WriterOptions))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("evidence_format_version", 1);
+            writer.WriteNumber("format_version", context.FormatVersion);
+            writer.WriteString("build", context.BuildId ?? "");
+            writer.WriteString("content_digest", Required(context.ContentDigest, nameof(context.ContentDigest)));
+            writer.WriteStartArray("content_dependencies");
+            foreach (var line in context.ContentDependencies)
+                writer.WriteStringValue(line);
+            writer.WriteEndArray();
+            writer.WriteString("source_kind", Required(context.SourceKind, nameof(context.SourceKind)));
+            if (context.ConfigurationId is null)
+                writer.WriteNull("configuration_id");
+            else
+                writer.WriteString("configuration_id", context.ConfigurationId);
+            if (context.ConfigurationVersion is { } version)
+                writer.WriteNumber("configuration_version", version);
+            else
+                writer.WriteNull("configuration_version");
+            writer.WriteNumber("seed", context.Seed);
+            writer.WriteString("generator_version", Required(context.GeneratorVersion, nameof(context.GeneratorVersion)));
+            writer.WriteString("operating_system", context.OperatingSystem);
+            writer.WriteString("architecture", context.Architecture);
+            writer.WriteString("framework", context.Framework);
+            writer.WriteString("guarantee", context.Guarantee);
+            if (context.SaveId is null)
+                writer.WriteNull("save_id");
+            else
+                writer.WriteString("save_id", context.SaveId);
+            writer.WriteNumber("index", checkpoint.Index);
+            writer.WriteString("input", checkpoint.Input);
+            writer.WriteNumber("boundary_step", checkpoint.Boundary.Step);
+            writer.WriteNumber("boundary_sequence", checkpoint.Boundary.Sequence);
+            writer.WriteString("canonical", checkpoint.Canonical);
+            writer.WriteString("digest", checkpoint.Digest);
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    public static bool TryReadEvidence(string? json, out AuthorityContext context, out AuthorityCheckpoint checkpoint)
+    {
+        context = null!;
+        checkpoint = null!;
+        if (string.IsNullOrWhiteSpace(json))
+            return false;
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object)
+                return false;
+            var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+            foreach (var property in document.RootElement.EnumerateObject())
+            {
+                if (!fields.TryAdd(property.Name, property.Value))
+                    return false;
+            }
+
+            if (!Take(fields, "evidence_format_version", out var evidenceVersion) ||
+                evidenceVersion.ValueKind != JsonValueKind.Number ||
+                evidenceVersion.GetInt32() != 1)
+                return false;
+            if (!Take(fields, "format_version", out var format) || format.ValueKind != JsonValueKind.Number)
+                return false;
+            if (!Take(fields, "build", out var build) || build.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "content_digest", out var content) || content.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "content_dependencies", out var dependencies) || dependencies.ValueKind != JsonValueKind.Array)
+                return false;
+            var lines = new List<string>();
+            foreach (var line in dependencies.EnumerateArray())
+            {
+                if (line.ValueKind != JsonValueKind.String)
+                    return false;
+                lines.Add(line.GetString()!);
+            }
+
+            if (!Take(fields, "source_kind", out var sourceKind) || sourceKind.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "configuration_id", out var configurationId) ||
+                configurationId.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                return false;
+            if (!Take(fields, "configuration_version", out var configurationVersion) ||
+                configurationVersion.ValueKind is not (JsonValueKind.Number or JsonValueKind.Null))
+                return false;
+            if (!Take(fields, "seed", out var seed) || !seed.TryGetUInt64(out var seedValue))
+                return false;
+            if (!Take(fields, "generator_version", out var generator) || generator.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "operating_system", out var operatingSystem) || operatingSystem.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "architecture", out var architecture) || architecture.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "framework", out var framework) || framework.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "guarantee", out var guarantee) || guarantee.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "save_id", out var saveId) || saveId.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                return false;
+            if (!Take(fields, "index", out var index) || !index.TryGetInt32(out var indexValue))
+                return false;
+            if (!Take(fields, "input", out var input) || input.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "boundary_step", out var boundaryStep) || !boundaryStep.TryGetUInt64(out var step))
+                return false;
+            if (!Take(fields, "boundary_sequence", out var boundarySequence) || !boundarySequence.TryGetUInt64(out var sequence))
+                return false;
+            if (!Take(fields, "canonical", out var canonical) || canonical.ValueKind != JsonValueKind.String)
+                return false;
+            if (!Take(fields, "digest", out var digest) || digest.ValueKind != JsonValueKind.String)
+                return false;
+            if (fields.Count != 0)
+                return false;
+
+            var buildId = build.GetString();
+            context = new AuthorityContext(
+                format.GetInt32(),
+                string.IsNullOrEmpty(buildId) ? null : buildId,
+                content.GetString()!,
+                lines,
+                sourceKind.GetString()!,
+                configurationId.ValueKind == JsonValueKind.Null ? null : configurationId.GetString(),
+                configurationVersion.ValueKind == JsonValueKind.Null ? null : configurationVersion.GetInt32(),
+                seedValue,
+                generator.GetString()!,
+                operatingSystem.GetString()!,
+                architecture.GetString()!,
+                framework.GetString()!,
+                guarantee.GetString()!,
+                saveId.ValueKind == JsonValueKind.Null ? null : saveId.GetString());
+            checkpoint = new AuthorityCheckpoint(
+                indexValue,
+                input.GetString()!,
+                new SimulationPosition(step, sequence),
+                canonical.GetString()!,
+                digest.GetString()!);
+            return true;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool Take(Dictionary<string, JsonElement> fields, string name, out JsonElement value) =>
+        fields.Remove(name, out value);
 
     internal static IReadOnlyList<string> SemanticLines(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites)
     {
@@ -248,8 +403,6 @@ public static class AuthorityCodec
         writer.WriteStartObject();
         writer.WriteString("revision", Required(local.Revision, nameof(local.Revision)));
         writer.WriteString("id", Required(local.Id, nameof(local.Id)));
-        writer.WriteString("name", local.Name ?? "");
-        writer.WriteString("description", local.Description ?? "");
         writer.WriteString("archetype_id", Required(local.ArchetypeId, nameof(local.ArchetypeId)));
         writer.WriteString("size_class", Required(local.SizeClass, nameof(local.SizeClass)));
         writer.WritePropertyName("voxels");
@@ -509,8 +662,6 @@ public static class AuthorityCodec
         new(
             local.Revision,
             local.Definition.Id.Value,
-            local.Definition.Name,
-            local.Definition.Description,
             local.Definition.ArchetypeId.Value,
             VehicleSize.ToWire(local.Definition.SizeClass),
             local.Definition.Voxels.Select(voxel => new AuthorityLocalVoxel(
@@ -735,8 +886,6 @@ public static class AuthorityCodec
             if (!Fields.TryOpen(item, out var fields, out status) ||
                 !fields.TryString("revision", out var revision, out status) ||
                 !fields.TryString("id", out var id, out status) ||
-                !fields.TryString("name", out var name, out status) ||
-                !fields.TryString("description", out var description, out status) ||
                 !fields.TryString("archetype_id", out var archetype, out status) ||
                 !fields.TryString("size_class", out var size, out status) ||
                 !fields.TryArray("voxels", out var voxelsElement, out status) ||
@@ -745,7 +894,7 @@ public static class AuthorityCodec
                 !ReadContacts(contactsElement, out var contacts, out status) ||
                 !fields.TryFinish(out status))
                 return false;
-            list.Add(new AuthorityLocalDefinition(revision, id, name, description, archetype, size, voxels, contacts));
+            list.Add(new AuthorityLocalDefinition(revision, id, archetype, size, voxels, contacts));
         }
 
         locals = list;

@@ -54,13 +54,19 @@ public static class AuthorityComparison
                 actual.FormatVersion.ToString(CultureInfo.InvariantCulture),
                 "编码版本不一致。");
 
-        if (Specified(expected.BuildId) != Specified(actual.BuildId) ||
-            (Specified(expected.BuildId) && !string.Equals(expected.BuildId, actual.BuildId, StringComparison.Ordinal)))
+        if (!Specified(expected.BuildId) || !Specified(actual.BuildId))
             return ContextDifference(
                 AuthorityDifferenceKind.EnvironmentMismatch,
                 "build",
                 expected.BuildId ?? "unspecified",
                 actual.BuildId ?? "unspecified",
+                "构建身份缺失，不能报告已验证一致。");
+        if (!string.Equals(expected.BuildId, actual.BuildId, StringComparison.Ordinal))
+            return ContextDifference(
+                AuthorityDifferenceKind.EnvironmentMismatch,
+                "build",
+                expected.BuildId,
+                actual.BuildId,
                 "构建或运行环境不一致。");
         if (!IsWindows(expected.OperatingSystem) || !IsWindows(actual.OperatingSystem))
             return ContextDifference(
@@ -69,20 +75,21 @@ public static class AuthorityComparison
                 expected.OperatingSystem,
                 actual.OperatingSystem,
                 "构建或运行环境不一致。");
-        if (!string.Equals(expected.Architecture, actual.Architecture, StringComparison.Ordinal))
+        if (!IsX64(expected.Architecture) || !IsX64(actual.Architecture))
             return ContextDifference(
                 AuthorityDifferenceKind.EnvironmentMismatch,
                 "architecture",
                 expected.Architecture,
                 actual.Architecture,
-                "构建或运行环境不一致。");
-        if (!string.Equals(expected.Framework, actual.Framework, StringComparison.Ordinal))
+                "对照范围是 Windows x64，不能把其他架构报告为已验证一致。");
+        if (!Specified(expected.Framework) || !Specified(actual.Framework) ||
+            !string.Equals(expected.Framework, actual.Framework, StringComparison.Ordinal))
             return ContextDifference(
                 AuthorityDifferenceKind.EnvironmentMismatch,
                 "framework",
-                expected.Framework,
-                actual.Framework,
-                "构建或运行环境不一致。");
+                string.IsNullOrWhiteSpace(expected.Framework) ? "unspecified" : expected.Framework,
+                string.IsNullOrWhiteSpace(actual.Framework) ? "unspecified" : actual.Framework,
+                "运行时信息不足以证明同一 .NET。");
 
         if (!string.Equals(expected.SourceKind, actual.SourceKind, StringComparison.Ordinal) ||
             !string.Equals(expected.ConfigurationId, actual.ConfigurationId, StringComparison.Ordinal) ||
@@ -109,6 +116,10 @@ public static class AuthorityComparison
 
     private static AuthorityDifference CompareCheckpoint(AuthorityCheckpoint expected, AuthorityCheckpoint actual)
     {
+        var identity = CompareIdentity(expected, actual);
+        if (!identity.Equal)
+            return identity;
+
         if (string.Equals(expected.Canonical, actual.Canonical, StringComparison.Ordinal))
         {
             if (string.Equals(expected.Digest, actual.Digest, StringComparison.Ordinal))
@@ -148,6 +159,38 @@ public static class AuthorityComparison
                 Show(actual.Canonical),
                 "权威文档不是合法 JSON。" + exception.Message);
         }
+    }
+
+    private static AuthorityDifference CompareIdentity(AuthorityCheckpoint expected, AuthorityCheckpoint actual)
+    {
+        if (expected.Index != actual.Index)
+            return At(
+                expected,
+                AuthorityDifferenceKind.FieldMismatch,
+                null,
+                "index",
+                expected.Index.ToString(CultureInfo.InvariantCulture),
+                actual.Index.ToString(CultureInfo.InvariantCulture),
+                "检查点序号不一致。");
+        if (!string.Equals(expected.Input, actual.Input, StringComparison.Ordinal))
+            return At(
+                expected,
+                AuthorityDifferenceKind.FieldMismatch,
+                null,
+                "input",
+                expected.Input,
+                actual.Input,
+                "语义输入不一致。");
+        if (expected.Boundary != actual.Boundary)
+            return At(
+                expected,
+                AuthorityDifferenceKind.FieldMismatch,
+                null,
+                "boundary",
+                expected.Boundary.ToString(),
+                actual.Boundary.ToString(),
+                "事务边界不一致。");
+        return AuthorityDifference.Match;
     }
 
     private static AuthorityDifference? Walk(
@@ -375,6 +418,9 @@ public static class AuthorityComparison
 
     private static bool IsWindows(string operatingSystem) =>
         operatingSystem.Contains("Windows", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsX64(string architecture) =>
+        string.Equals(architecture, "X64", StringComparison.Ordinal);
 
     private static string Append(string path, string name) => path.Length == 0 ? name : path + "." + name;
 

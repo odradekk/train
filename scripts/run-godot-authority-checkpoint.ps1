@@ -6,8 +6,11 @@ param(
 # Two isolated processes share one fresh user-data directory:
 #   1. enters through the start-menu Playground button, runs
 #      authority-manufacture-fracture on the live session, saves, writes the
-#      canonical authority document, then adds one voxel and writes the continuation;
-#   2. loads that save and repeats the same add.
+#      canonical authority document and the first process's comparison evidence,
+#      then adds one voxel and writes the continuation;
+#   2. loads that save, decodes the first process's evidence, and repeats the same add.
+#   The script then tampers that evidence and expects the restore process to name
+#      the mismatch instead of reporting Equal.
 # The script hashes the written files itself and compares those digests to the
 # digests printed by the game. Historical reports are never reused.
 #
@@ -95,7 +98,6 @@ New-Item -ItemType Directory -Path $userData | Out-Null
 $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
 $env:TRAIN_AUTHORITY_CHECKPOINT = "1"
 $env:TRAIN_AUTHORITY_CHECKPOINT_DIR = $documents
-$env:TRAIN_AUTHORITY_BUILD = "issue-126"
 $env:TRAIN_PLAYGROUND_CONFIG = "straight-rail-train"
 Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID -ErrorAction SilentlyContinue
 
@@ -105,7 +107,7 @@ $ok = Require-Markers $establish @(
     "AUTHORITY_CHECKPOINT_SEQUENCE_PASSED authority-manufacture-fracture",
     "AUTHORITY_CHECKPOINT_SAVED id=",
     "vehicles=5 fault=null",
-    "AUTHORITY_CHECKPOINT_LINE authority format=1 build=issue-126",
+    "AUTHORITY_CHECKPOINT_BUILD id=",
     "source=fixed_configuration straight-rail-train",
     "seed=4",
     "arch=X64",
@@ -117,8 +119,19 @@ if (-not $ok) { exit 1 }
 $savedDigest = Read-Digest $establish.Text "AUTHORITY_CHECKPOINT_SAVED"
 $continuationDigest = Read-Digest $establish.Text "AUTHORITY_CHECKPOINT_CONTINUATION"
 $saveMatch = [regex]::Match($establish.Text, "AUTHORITY_CHECKPOINT_SAVED id=([0-9a-fA-F-]{36})")
-if (-not $savedDigest -or -not $continuationDigest -or -not $saveMatch.Success) {
-    [Console]::Error.WriteLine("establish did not print a save id and both digests.")
+$buildMatch = [regex]::Match($establish.Text, "AUTHORITY_CHECKPOINT_BUILD id=([0-9A-F]{64}) file=(.+)")
+if (-not $savedDigest -or -not $continuationDigest -or -not $saveMatch.Success -or -not $buildMatch.Success) {
+    [Console]::Error.WriteLine("establish did not print a save id, both digests, and a build file.")
+    exit 1
+}
+$buildId = $buildMatch.Groups[1].Value
+$buildFile = $buildMatch.Groups[2].Value.Trim()
+if ((Get-Sha256 $buildFile) -ne $buildId) {
+    [Console]::Error.WriteLine("printed build id does not match the SHA-256 of $buildFile.")
+    exit 1
+}
+if (-not $establish.Text.Contains("build=$buildId")) {
+    [Console]::Error.WriteLine("establish observation did not report the assembly build id.")
     exit 1
 }
 $savedFile = Join-Path $documents "saved-canonical.json"
@@ -140,7 +153,7 @@ $ok = Require-Markers $resume @(
     "vehicles=5 fault=null",
     "AUTHORITY_CHECKPOINT_COMPARE saved difference Equal",
     "AUTHORITY_CHECKPOINT_COMPARE continuation difference Equal",
-    "AUTHORITY_CHECKPOINT_LINE authority format=1 build=issue-126",
+    "AUTHORITY_CHECKPOINT_BUILD id=",
     "source=fixed_configuration straight-rail-train",
     "AUTHORITY_CHECKPOINT_CONTINUATION digest="
 ) "resume"
@@ -167,8 +180,67 @@ if (-not [System.Linq.Enumerable]::SequenceEqual(
     [Console]::Error.WriteLine("cross-process canonical bytes diverged.")
     exit 1
 }
+if (-not $resume.Text.Contains("AUTHORITY_CHECKPOINT_BUILD id=$buildId ") -or -not $resume.Text.Contains("build=$buildId")) {
+    [Console]::Error.WriteLine("resume did not report the same assembly build id.")
+    exit 1
+}
+$savedIndex = [regex]::Match($resume.Text, "AUTHORITY_CHECKPOINT_COMPARE saved checkpoint ([1-9][0-9]*) input (.+) boundary ")
+$continuedIndex = [regex]::Match($resume.Text, "AUTHORITY_CHECKPOINT_COMPARE continuation checkpoint ([1-9][0-9]*) input (.+) boundary ")
+if (-not $savedIndex.Success -or -not $continuedIndex.Success -or
+    [int]$continuedIndex.Groups[1].Value -ne [int]$savedIndex.Groups[1].Value + 1 -or
+    $savedIndex.Groups[2].Value -notlike "damage latest *" -or
+    $continuedIndex.Groups[2].Value -ne "edit voxel.add") {
+    [Console]::Error.WriteLine("resume did not keep the original checkpoint index and semantic input.")
+    exit 1
+}
+
+function Set-EvidenceProperty([string] $docs, [string] $property, [string] $value) {
+    $path = Join-Path $docs "saved-evidence.json"
+    $node = [System.Text.Json.Nodes.JsonNode]::Parse([System.IO.File]::ReadAllText($path))
+    $node[$property] = $value
+    [System.IO.File]::WriteAllText($path, $node.ToJsonString())
+}
+
+function Invoke-NegativeCase([string] $name, [string] $property, [string] $value, [string] $kind, [string] $field) {
+    $caseRoot = Join-Path $OutputDirectory "negative-$name"
+    $caseDocs = Join-Path $caseRoot "documents"
+    New-Item -ItemType Directory -Path $caseDocs | Out-Null
+    Copy-Item -Path (Join-Path $documents "*") -Destination $caseDocs
+    Set-EvidenceProperty $caseDocs $property $value
+    $env:TRAIN_AUTHORITY_CHECKPOINT_DIR = $caseDocs
+    $run = Invoke-Godot (Join-Path $caseRoot "resume.log")
+    $failed = $false
+    if ($run.Code -eq 0) {
+        [Console]::Error.WriteLine("$name exited 0.")
+        $failed = $true
+    }
+    if ($run.Text -notmatch "AUTHORITY_CHECKPOINT_COMPARE saved checkpoint [1-9]") {
+        [Console]::Error.WriteLine("$name did not report the original checkpoint index.")
+        $failed = $true
+    }
+    foreach ($marker in @(
+        "AUTHORITY_CHECKPOINT_FAILED",
+        "AUTHORITY_CHECKPOINT_COMPARE saved difference $kind",
+        "AUTHORITY_CHECKPOINT_COMPARE saved field $field"
+    )) {
+        if (-not $run.Text.Contains($marker)) {
+            [Console]::Error.WriteLine("$name is missing marker: $marker")
+            $failed = $true
+        }
+    }
+    if ($run.Text.Contains("AUTHORITY_CHECKPOINT_COMPARE saved difference Equal")) {
+        [Console]::Error.WriteLine("$name reported Equal.")
+        $failed = $true
+    }
+    return -not $failed
+}
+
+if (-not (Invoke-NegativeCase "build" "build" "other-build" "EnvironmentMismatch" "build")) { exit 1 }
+if (-not (Invoke-NegativeCase "content" "content_digest" ("C" * 64) "ContentAdaptation" "content")) { exit 1 }
+if (-not (Invoke-NegativeCase "source" "configuration_id" "straight-rail-empty" "SourceMismatch" "source")) { exit 1 }
 
 Write-Host "Authority checkpoint matched across processes."
 Write-Host "saved $savedDigest"
 Write-Host "continuation $continuationDigest"
+Write-Host "build $buildId"
 exit 0

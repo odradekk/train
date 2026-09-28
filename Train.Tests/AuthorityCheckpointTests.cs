@@ -15,16 +15,16 @@ namespace Train.Tests;
 [TestClass]
 public sealed class AuthorityCheckpointTests
 {
-    private const string GoldenDigest = "0D07A0C6A5820633DDE28DFC308E2A9FE2C70A9F5073DA694D98A03E09D3D8E9";
+    private const string GoldenDigest = "A613F10786585533805FC8B2CA0EFC9C8CF771EB841212BE5869454CBF4E2073";
 
     private const string Golden =
-        """{"authority_format_version":1,"seed":42,"generator_version":"fixture-v1","bounds":{"x":4,"y":4,"z":4},"chunk_size":16,"next_entity_id":8,"transaction_count":2,"simulation_step":3,"next_edit_id":4,"boundary_sequence":1,"simulation_fault":null,"world":[{"x":1,"y":0,"z":2,"definition_id":"core:a","orientation":"px_py","durability":75,"runtime_id":9},{"x":4,"y":4,"z":4,"definition_id":"core:a","orientation":"nz_py","durability":100}],"save_local_definitions":[{"revision":"local","id":"core:shell","name":"shell","description":"local shell","archetype_id":"core:arch","size_class":"small","voxels":[{"x":0,"y":1,"z":0,"definition_id":"core:part","orientation":"px_py"}],"contacts":[{"x":1.5,"y":-0.75,"z":0,"bound_x":1,"bound_y":0,"bound_z":1}]}],"vehicles":[{"id":1,"definition_id":"core:shell","last_used_revision":"def","archetype_id":"core:arch","last_used_archetype_revision":"arch","size_class":"small","save_local_revision":"local","transform":{"origin_x":0.1,"origin_y":-0,"origin_z":1.7976931348623157E+308,"right_x":1,"right_y":0,"right_z":0,"up_x":0,"up_y":1,"up_z":5E-324},"parts":[{"id":2,"x":0,"y":1,"z":0,"definition_id":"core:part","orientation":"px_py","durability":100,"last_used_revision":"part"},{"id":5,"x":1,"y":0,"z":0,"definition_id":"core:part","orientation":"nz_py","durability":80,"last_used_revision":"part"}],"contacts":[{"x":1.5,"y":-0.75,"z":1.0000000000000002,"bound_x":1,"bound_y":0,"bound_z":1},{"x":0,"y":0,"z":0,"bound_x":7,"bound_y":0,"bound_z":1}]}],"railway":{"sleeper_count":1,"segments":[{"id":1,"alignment":{"start_x":0,"start_y":0,"start_z":0,"end_x":2,"end_y":0,"end_z":0},"rail_volumes":[{"min_x":0,"min_y":0,"min_z":0,"max_x":1,"max_y":1,"max_z":1}],"sleeper_volumes":[]}],"connections":[{"from_segment_id":1,"from_end":"end","to_segment_id":2,"to_end":"start"},{"from_segment_id":2,"from_end":"end","to_segment_id":3,"to_end":"start"}],"occupancy":[{"x":65,"y":2,"z":19,"supports":[{"segment_id":1,"world_x_start":1.5,"world_x_end":2.5,"along_start":0,"along_end":1}]}],"destroyed":[{"x":65,"y":2,"z":19}]},"assemblies":[{"id":7,"active_locomotive_id":1,"vehicle_ids":[1,4],"connections":[{"from_vehicle_id":1,"from_part_id":2,"from_x":0,"from_y":1,"from_z":0,"to_vehicle_id":4,"to_part_id":3,"to_x":1,"to_y":0,"to_z":1}],"reference_segment_id":1,"distance":3.141592653589793,"heading":"along","speed":0,"running":false,"halt_reason":"forward_gap"}],"pending":[{"edit_id":1,"accepted_step":0,"accepted_sequence":0,"target_step":1,"edit":{"input_format_version":1,"kind":"voxel.add","position":{"x":60,"y":3,"z":20},"definition_id":"core:ferrous-ore","orientation":"px_py"}}]}""";
+        """{"authority_format_version":1,"seed":42,"generator_version":"fixture-v1","bounds":{"x":4,"y":4,"z":4},"chunk_size":16,"next_entity_id":8,"transaction_count":2,"simulation_step":3,"next_edit_id":4,"boundary_sequence":1,"simulation_fault":null,"world":[{"x":1,"y":0,"z":2,"definition_id":"core:a","orientation":"px_py","durability":75,"runtime_id":9},{"x":4,"y":4,"z":4,"definition_id":"core:a","orientation":"nz_py","durability":100}],"save_local_definitions":[{"revision":"local","id":"core:shell","archetype_id":"core:arch","size_class":"small","voxels":[{"x":0,"y":1,"z":0,"definition_id":"core:part","orientation":"px_py"}],"contacts":[{"x":1.5,"y":-0.75,"z":0,"bound_x":1,"bound_y":0,"bound_z":1}]}],"vehicles":[{"id":1,"definition_id":"core:shell","last_used_revision":"def","archetype_id":"core:arch","last_used_archetype_revision":"arch","size_class":"small","save_local_revision":"local","transform":{"origin_x":0.1,"origin_y":-0,"origin_z":1.7976931348623157E+308,"right_x":1,"right_y":0,"right_z":0,"up_x":0,"up_y":1,"up_z":5E-324},"parts":[{"id":2,"x":0,"y":1,"z":0,"definition_id":"core:part","orientation":"px_py","durability":100,"last_used_revision":"part"},{"id":5,"x":1,"y":0,"z":0,"definition_id":"core:part","orientation":"nz_py","durability":80,"last_used_revision":"part"}],"contacts":[{"x":1.5,"y":-0.75,"z":1.0000000000000002,"bound_x":1,"bound_y":0,"bound_z":1},{"x":0,"y":0,"z":0,"bound_x":7,"bound_y":0,"bound_z":1}]}],"railway":{"sleeper_count":1,"segments":[{"id":1,"alignment":{"start_x":0,"start_y":0,"start_z":0,"end_x":2,"end_y":0,"end_z":0},"rail_volumes":[{"min_x":0,"min_y":0,"min_z":0,"max_x":1,"max_y":1,"max_z":1}],"sleeper_volumes":[]}],"connections":[{"from_segment_id":1,"from_end":"end","to_segment_id":2,"to_end":"start"},{"from_segment_id":2,"from_end":"end","to_segment_id":3,"to_end":"start"}],"occupancy":[{"x":65,"y":2,"z":19,"supports":[{"segment_id":1,"world_x_start":1.5,"world_x_end":2.5,"along_start":0,"along_end":1}]}],"destroyed":[{"x":65,"y":2,"z":19}]},"assemblies":[{"id":7,"active_locomotive_id":1,"vehicle_ids":[1,4],"connections":[{"from_vehicle_id":1,"from_part_id":2,"from_x":0,"from_y":1,"from_z":0,"to_vehicle_id":4,"to_part_id":3,"to_x":1,"to_y":0,"to_z":1}],"reference_segment_id":1,"distance":3.141592653589793,"heading":"along","speed":0,"running":false,"halt_reason":"forward_gap"}],"pending":[{"edit_id":1,"accepted_step":0,"accepted_sequence":0,"target_step":1,"edit":{"input_format_version":1,"kind":"voxel.add","position":{"x":60,"y":3,"z":20},"definition_id":"core:ferrous-ore","orientation":"px_py"}}]}""";
 
     [TestMethod]
     public void Handwritten_golden_matches_an_independent_digest_and_the_encoder()
     {
         var independent = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Golden)));
-        Assert.AreEqual(2622, Encoding.UTF8.GetByteCount(Golden));
+        Assert.AreEqual(2579, Encoding.UTF8.GetByteCount(Golden));
         Assert.AreEqual(GoldenDigest, independent);
         Assert.AreEqual(GoldenDigest, AuthorityCodec.Digest(Golden));
 
@@ -68,6 +68,7 @@ public sealed class AuthorityCheckpointTests
 
         AssertDecode(Golden.Replace("\"authority_format_version\":1", "\"authority_format_version\":2", StringComparison.Ordinal), AuthorityDecodeStatus.UnknownFormat);
         AssertDecode(Golden.Replace("\"authority_format_version\":1,", "\"authority_format_version\":1,\"camera\":1,", StringComparison.Ordinal), AuthorityDecodeStatus.UnknownFormat);
+        AssertDecode(Golden.Replace("\"id\":\"core:shell\",", "\"id\":\"core:shell\",\"name\":\"shell\",\"description\":\"local shell\",", StringComparison.Ordinal), AuthorityDecodeStatus.UnknownFormat);
         AssertDecode(Golden.Replace("\"seed\":42,", "\"seed\":42,\"seed\":43,", StringComparison.Ordinal), AuthorityDecodeStatus.UnknownFormat);
         AssertDecode(Golden.Replace("\"seed\":42,", "", StringComparison.Ordinal), AuthorityDecodeStatus.Invalid);
         AssertDecode(Golden.Replace("\"origin_x\":0.1", "\"origin_x\":NaN", StringComparison.Ordinal), AuthorityDecodeStatus.Invalid);
@@ -161,6 +162,20 @@ public sealed class AuthorityCheckpointTests
         Assert.IsTrue(AuthorityComparison.Compare(
             observed,
             observed with { Context = observed.Context with { OperatingSystem = "Microsoft Windows 10.0.1", SaveId = "save" } }).Equal);
+        var unspecified = observed with { Context = observed.Context with { BuildId = null } };
+        var missingBuild = AuthorityComparison.Compare(unspecified, unspecified);
+        Assert.AreEqual(AuthorityDifferenceKind.EnvironmentMismatch, missingBuild.Kind);
+        Assert.AreEqual("build", missingBuild.Field);
+        StringAssert.Contains(missingBuild.Detail, "构建身份缺失");
+        var arm = observed with { Context = observed.Context with { Architecture = "Arm64" } };
+        var unsupported = AuthorityComparison.Compare(arm, arm);
+        Assert.AreEqual(AuthorityDifferenceKind.EnvironmentMismatch, unsupported.Kind);
+        Assert.AreEqual("architecture", unsupported.Field);
+        StringAssert.Contains(unsupported.Detail, "Windows x64");
+        var location = typeof(AuthorityEnvironment).Assembly.Location;
+        var independentBuild = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(location)));
+        Assert.AreEqual(independentBuild, AuthorityCodec.Observe(train.Session).Context.BuildId);
+        Assert.AreEqual(64, independentBuild.Length);
         var swappedWorld = Golden.Replace(
             WorldVoxel(1, 0, 2, 75, 9) + "," + WorldVoxel(4, 4, 4, 100, null),
             WorldVoxel(4, 4, 4, 100, null) + "," + WorldVoxel(1, 0, 2, 75, 9),
@@ -169,6 +184,115 @@ public sealed class AuthorityCheckpointTests
         Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, orderOnly.Kind);
         Assert.AreEqual("canonical", orderOnly.Field);
         StringAssert.Contains(string.Join('\n', observed.Lines()), AuthorityFieldCatalog.Guarantee);
+    }
+
+    [TestMethod]
+    public void Evidence_preserves_the_origin_checkpoint_and_classifies_tampered_context()
+    {
+        using var content = PlaygroundHarness.Content();
+        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)!;
+        var first = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store, "process-one");
+        var second = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store, "process-one");
+        Assert.IsTrue(first.Passed, string.Join(Environment.NewLine, first.Lines()));
+        Assert.IsTrue(second.Passed, string.Join(Environment.NewLine, second.Lines()));
+        var origin = first.Observation!.Checkpoints[^1];
+        Assert.AreNotEqual(0, origin.Index);
+        var evidence = AuthorityCodec.EncodeEvidence(first.Observation.Context, origin);
+        Assert.IsTrue(AuthorityCodec.TryReadEvidence(evidence, out var context, out var checkpoint));
+        Assert.AreEqual(origin.Index, checkpoint.Index);
+        Assert.AreEqual(origin.Input, checkpoint.Input);
+        Assert.AreEqual(origin.Boundary, checkpoint.Boundary);
+        var actual = new AuthorityObservation(second.Observation!.Context, new[] { second.Observation.Checkpoints[^1] });
+        Assert.IsTrue(AuthorityComparison.Compare(new AuthorityObservation(context, new[] { checkpoint }), actual).Equal);
+
+        AuthorityDifference Tamper(string json)
+        {
+            Assert.IsTrue(AuthorityCodec.TryReadEvidence(json, out var tamperedContext, out var tamperedCheckpoint));
+            return AuthorityComparison.Compare(
+                new AuthorityObservation(tamperedContext, new[] { tamperedCheckpoint }),
+                actual);
+        }
+
+        var build = Tamper(evidence.Replace("\"build\":\"process-one\"", "\"build\":\"other-build\"", StringComparison.Ordinal));
+        Assert.AreEqual(AuthorityDifferenceKind.EnvironmentMismatch, build.Kind);
+        Assert.AreEqual("build", build.Field);
+        var contentDigest = Tamper(evidence.Replace(
+            $"\"content_digest\":\"{context.ContentDigest}\"",
+            $"\"content_digest\":\"{new string('B', 64)}\"",
+            StringComparison.Ordinal));
+        Assert.AreEqual(AuthorityDifferenceKind.ContentAdaptation, contentDigest.Kind);
+        Assert.AreEqual("content", contentDigest.Field);
+        var source = Tamper(evidence.Replace(
+            "\"configuration_id\":\"straight-rail-train\"",
+            "\"configuration_id\":\"straight-rail-empty\"",
+            StringComparison.Ordinal));
+        Assert.AreEqual(AuthorityDifferenceKind.SourceMismatch, source.Kind);
+        Assert.AreEqual("source", source.Field);
+        var shifted = checkpoint with
+        {
+            Canonical = checkpoint.Canonical.Replace("\"seed\":4", "\"seed\":5", StringComparison.Ordinal)
+        };
+        var field = AuthorityComparison.Compare(
+            new AuthorityObservation(context, new[] { shifted }),
+            actual);
+        Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, field.Kind);
+        Assert.AreEqual("seed", field.Field);
+        Assert.AreEqual(origin.Index, field.CheckpointIndex);
+        Assert.AreEqual(origin.Input, field.Input);
+    }
+
+    [TestMethod]
+    public void Save_local_display_text_is_not_an_authority_difference()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, PlaygroundSequences.AuthorityShellPose)));
+        Assert.AreEqual("Valid", PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
+        var prior = AuthorityCodec.Observe(session, "tested-head", "establish");
+        Assert.IsFalse(prior.Checkpoints[0].Canonical.Contains("\"name\"", StringComparison.Ordinal));
+        Assert.IsFalse(prior.Checkpoints[0].Canonical.Contains("\"description\"", StringComparison.Ordinal));
+        var saved = session.Save("display");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        var original = File.ReadAllText(path);
+        var display = System.Text.Json.Nodes.JsonNode.Parse(original)!;
+        Assert.IsTrue(display["save_local_definitions"]!.AsArray().Count > 0);
+        foreach (var item in display["save_local_definitions"]!.AsArray())
+        {
+            item!["name"] = "仅显示名称";
+            item["description"] = "仅显示描述";
+        }
+
+        File.WriteAllText(path, display.ToJsonString());
+        var loaded = session.Load(saved.SaveId.Value);
+        Assert.AreEqual(WorldSaveStatus.Loaded, loaded.Status);
+        var afterDisplay = AuthorityCodec.Observe(session, "tested-head", "establish");
+        Assert.AreEqual(prior.Context.ContentDigest, afterDisplay.Context.ContentDigest);
+        Assert.IsTrue(AuthorityComparison.Compare(prior, afterDisplay).Equal, AuthorityComparison.Compare(prior, afterDisplay).Detail);
+
+        Assert.IsTrue(AuthorityCodec.TryDecode(prior.Checkpoints[0].Canonical, out var model, out var decoded));
+        Assert.AreEqual(AuthorityDecodeStatus.Decoded, decoded);
+        var definition = model.SaveLocalDefinitions[0];
+        var voxel = definition.Voxels[0];
+        var moved = definition with
+        {
+            Voxels = new[] { voxel with { X = voxel.X + 1 } }.Concat(definition.Voxels.Skip(1)).ToArray()
+        };
+        var altered = AuthorityCodec.Encode(model with
+        {
+            SaveLocalDefinitions = new[] { moved }.Concat(model.SaveLocalDefinitions.Skip(1)).ToArray()
+        });
+        var difference = AuthorityComparison.Compare(
+            prior,
+            prior with
+            {
+                Checkpoints = new[]
+                {
+                    prior.Checkpoints[0] with { Canonical = altered, Digest = AuthorityCodec.Digest(altered) }
+                }
+            });
+        Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, difference.Kind);
+        StringAssert.Contains(difference.Field, "x");
     }
 
     [TestMethod]
@@ -189,6 +313,74 @@ public sealed class AuthorityCheckpointTests
         Assert.AreEqual(AuthorityDifferenceKind.ContentAdaptation, difference.Kind);
         StringAssert.Contains(difference.Detail, "内容适配");
         Assert.AreNotEqual(before.Context.ContentDigest, adapted.Context.ContentDigest);
+    }
+
+    [TestMethod]
+    public void Rejected_command_order_and_checkpoint_identity_are_compared_before_state()
+    {
+        using var content = PlaygroundHarness.Content();
+        var catalog = content.Catalog;
+        var composites = content.Composites;
+        PlaygroundValidationStep Step(int damage) => new(
+            PlaygroundOperation.Damage(new WorldVoxelCoord(-1, 0, 0), damage),
+            "OutOfBounds",
+            Array.Empty<PlaygroundCheck>());
+        var left = AuthorityValidation.Run(
+            new PlaygroundSequence("left", PlaygroundConfigurations.StraightRailTrainId, new[] { Step(1), Step(2) }),
+            catalog,
+            composites,
+            buildId: "tested-head");
+        var right = AuthorityValidation.Run(
+            new PlaygroundSequence("right", PlaygroundConfigurations.StraightRailTrainId, new[] { Step(2), Step(1) }),
+            catalog,
+            composites,
+            buildId: "tested-head");
+        Assert.IsTrue(left.Passed, string.Join(Environment.NewLine, left.Lines()));
+        Assert.IsTrue(right.Passed, string.Join(Environment.NewLine, right.Lines()));
+        var order = AuthorityComparison.Compare(left.Observation!, right.Observation!);
+        Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, order.Kind);
+        Assert.AreEqual("input", order.Field);
+        Assert.AreEqual(1, order.CheckpointIndex);
+        Assert.AreEqual("damage -1,0,0 1", order.Expected);
+        Assert.AreEqual("damage -1,0,0 2", order.Actual);
+        StringAssert.Contains(order.Detail, "语义输入");
+
+        using var harness = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var original = AuthorityCodec.Observe(harness.Session, "tested-head");
+        var changedInput = original with
+        {
+            Checkpoints = new[] { original.Checkpoints[0] with { Input = "different-input" } }
+        };
+        var input = AuthorityComparison.Compare(original, changedInput);
+        Assert.AreEqual("input", input.Field);
+        Assert.AreEqual(original.Checkpoints[0].Input, input.Expected);
+        Assert.AreEqual("different-input", input.Actual);
+
+        var changedBoundary = original with
+        {
+            Checkpoints = new[] { original.Checkpoints[0] with { Boundary = new SimulationPosition(999, 99) } }
+        };
+        var boundary = AuthorityComparison.Compare(original, changedBoundary);
+        Assert.AreEqual("boundary", boundary.Field);
+        Assert.AreEqual(original.Checkpoints[0].Boundary.ToString(), boundary.Expected);
+        Assert.AreEqual(new SimulationPosition(999, 99).ToString(), boundary.Actual);
+
+        var changedIndex = original with
+        {
+            Checkpoints = new[] { original.Checkpoints[0] with { Index = 4 } }
+        };
+        var index = AuthorityComparison.Compare(original, changedIndex);
+        Assert.AreEqual("index", index.Field);
+        Assert.AreEqual("0", index.Expected);
+        Assert.AreEqual("4", index.Actual);
+
+        var saved = harness.Session.Save("identity");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var before = AuthorityCodec.Observe(harness.Session, "tested-head", "establish");
+        Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(saved.SaveId!.Value).Status);
+        var restored = AuthorityCodec.Observe(harness.Session, "tested-head", "establish");
+        Assert.AreEqual(before.Checkpoints[0].Boundary, restored.Checkpoints[0].Boundary);
+        Assert.IsTrue(AuthorityComparison.Compare(before, restored).Equal, AuthorityComparison.Compare(before, restored).Detail);
     }
 
     [TestMethod]
@@ -387,8 +579,6 @@ public sealed class AuthorityCheckpointTests
                 new AuthorityLocalDefinition(
                     "local",
                     "core:shell",
-                    "shell",
-                    "local shell",
                     "core:arch",
                     "small",
                     new[] { new AuthorityLocalVoxel(0, 1, 0, "core:part", "px_py") },
@@ -481,7 +671,7 @@ public sealed class AuthorityCheckpointTests
     {
         var context = new AuthorityContext(
             1,
-            null,
+            "fixture-build",
             new string('A', 64),
             Array.Empty<string>(),
             "fixed_configuration",

@@ -58,75 +58,98 @@ internal sealed class AuthorityCheckpointSmoke
             throw new InvalidOperationException($"sequence {sequence.Id} failed");
         GD.Print($"AUTHORITY_CHECKPOINT_SEQUENCE_PASSED {sequence.Id} steps={report.Sequence.Steps.Count}");
 
-        var saved = AuthorityCodec.Document(AuthorityCodec.Capture(Session));
+        if (report.Observation is not { } observation)
+            throw new InvalidOperationException("authority observation is missing");
+        var savedCheckpoint = observation.Checkpoints[^1];
+        if (savedCheckpoint.Index != sequence.Steps.Count)
+            throw new InvalidOperationException($"saved checkpoint index {savedCheckpoint.Index}");
+        var captured = AuthorityCodec.Document(AuthorityCodec.Capture(Session));
+        if (!string.Equals(savedCheckpoint.Canonical, captured.Canonical, StringComparison.Ordinal))
+            throw new InvalidOperationException("sequence checkpoint does not match the live capture");
         var result = _scene.SaveWorld();
         if (result.Status != WorldSaveStatus.Saved || result.SaveId is not { } saveId)
             throw new InvalidOperationException($"save status {result.Status}");
         var afterSave = AuthorityCodec.Document(AuthorityCodec.Capture(Session));
-        if (!string.Equals(saved.Canonical, afterSave.Canonical, StringComparison.Ordinal))
+        if (!string.Equals(savedCheckpoint.Canonical, afterSave.Canonical, StringComparison.Ordinal))
             throw new InvalidOperationException("saving changed the authority document");
-        Write("saved-canonical.json", saved.Canonical);
-        PrintState("AUTHORITY_CHECKPOINT_SAVED", saveId, saved.Digest);
-        Continue("continuation-canonical.json", "AUTHORITY_CHECKPOINT_CONTINUATION");
+        Write("saved-canonical.json", savedCheckpoint.Canonical);
+        Write("saved-evidence.json", AuthorityCodec.EncodeEvidence(observation.Context, savedCheckpoint));
+        PrintState("AUTHORITY_CHECKPOINT_SAVED", saveId, savedCheckpoint.Digest, savedCheckpoint);
+        var continuation = ContinuationOperation();
+        var status = continuation.Apply(Session);
+        if (!string.Equals(status, "Added", StringComparison.Ordinal))
+            throw new InvalidOperationException($"continuation status {status}");
+        var continued = AuthorityCodec.Checkpoint(Session, savedCheckpoint.Index + 1, continuation.Describe());
+        Write("continuation-canonical.json", continued.Canonical);
+        Write("continuation-evidence.json", AuthorityCodec.EncodeEvidence(AuthorityCodec.Context(Session, BuildId()), continued));
+        GD.Print($"AUTHORITY_CHECKPOINT_CONTINUATION digest={continued.Digest} cell={ContinuationCell.X},{ContinuationCell.Y},{ContinuationCell.Z}");
     }
 
     private void Resume()
     {
-        var restored = AuthorityCodec.Document(AuthorityCodec.Capture(Session));
+        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)
+            ?? throw new InvalidOperationException("authority sequence is not registered");
+        var restored = AuthorityCodec.Checkpoint(Session, sequence.Steps.Count, sequence.Steps[^1].Operation.Describe());
         Write("restored-canonical.json", restored.Canonical);
-        PrintState("AUTHORITY_CHECKPOINT_RESTORED", Session.SaveId, restored.Digest);
-        CompareFile("saved-canonical.json", restored.Canonical, "saved");
-        Continue("restored-continuation-canonical.json", "AUTHORITY_CHECKPOINT_CONTINUATION");
-        var continuation = AuthorityCodec.Encode(AuthorityCodec.Capture(Session));
-        CompareFile("continuation-canonical.json", continuation, "continuation");
+        PrintState("AUTHORITY_CHECKPOINT_RESTORED", Session.SaveId, restored.Digest, restored);
+        CompareEvidence("saved-evidence.json", restored, "saved");
+        var continuation = ContinuationOperation();
+        var status = continuation.Apply(Session);
+        if (!string.Equals(status, "Added", StringComparison.Ordinal))
+            throw new InvalidOperationException($"continuation status {status}");
+        var continued = AuthorityCodec.Checkpoint(Session, sequence.Steps.Count + 1, continuation.Describe());
+        Write("restored-continuation-canonical.json", continued.Canonical);
+        GD.Print($"AUTHORITY_CHECKPOINT_CONTINUATION digest={continued.Digest} cell={ContinuationCell.X},{ContinuationCell.Y},{ContinuationCell.Z}");
+        CompareEvidence("continuation-evidence.json", continued, "continuation");
     }
 
-    private void CompareFile(string fileName, string actual, string label)
+    private void CompareEvidence(string fileName, AuthorityCheckpoint actual, string label)
     {
-        var directory = System.Environment.GetEnvironmentVariable(DirectoryEnvironmentVariable);
-        if (string.IsNullOrWhiteSpace(directory))
-            throw new InvalidOperationException($"{DirectoryEnvironmentVariable} is required");
-        var expectedText = Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(directory, fileName)));
-        var context = AuthorityCodec.Context(Session, BuildId());
-        AuthorityCheckpoint Point(string text, string input) =>
-            new(0, input, Session.EditBoundary, text, AuthorityCodec.Digest(text));
+        var json = Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(EvidenceDirectory(), fileName)));
+        if (!AuthorityCodec.TryReadEvidence(json, out var expectedContext, out var expectedCheckpoint))
+            throw new InvalidOperationException($"{fileName} is not authority evidence");
+        GD.Print(
+            $"AUTHORITY_CHECKPOINT_COMPARE {label} checkpoint {expectedCheckpoint.Index.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+            $"input {expectedCheckpoint.Input} boundary {expectedCheckpoint.Boundary}");
         var difference = AuthorityComparison.Compare(
-            new AuthorityObservation(context, new[] { Point(expectedText, "process-1 " + label) }),
-            new AuthorityObservation(context, new[] { Point(actual, "process-2 " + label) }));
+            new AuthorityObservation(expectedContext, new[] { expectedCheckpoint }),
+            new AuthorityObservation(AuthorityCodec.Context(Session, BuildId()), new[] { actual }));
         foreach (var line in difference.Lines())
             GD.Print($"AUTHORITY_CHECKPOINT_COMPARE {label} " + line);
         if (!difference.Equal)
             throw new InvalidOperationException($"{label} checkpoints differ: {difference.Detail}");
     }
 
-    private void Continue(string fileName, string marker)
-    {
-        var status = PlaygroundOperation.Submit(
-            new VoxelAddEdit(ContinuationCell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)).Apply(Session);
-        if (!string.Equals(status, "Added", StringComparison.Ordinal))
-            throw new InvalidOperationException($"continuation status {status}");
-        var document = AuthorityCodec.Document(AuthorityCodec.Capture(Session));
-        Write(fileName, document.Canonical);
-        GD.Print($"{marker} digest={document.Digest} cell={ContinuationCell.X},{ContinuationCell.Y},{ContinuationCell.Z}");
-    }
+    private static PlaygroundOperation ContinuationOperation() =>
+        PlaygroundOperation.Submit(new VoxelAddEdit(ContinuationCell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity));
 
-    private void PrintState(string marker, Guid? saveId, string digest)
+    private void PrintState(string marker, Guid? saveId, string digest, AuthorityCheckpoint checkpoint)
     {
         var fault = Session.Fault is null ? "null" : Session.Fault.ExceptionType;
+        var buildId = AuthorityEnvironment.CurrentBuildId;
+        var buildFile = AuthorityEnvironment.CurrentBuildFile;
+        if (string.IsNullOrWhiteSpace(buildId) || string.IsNullOrWhiteSpace(buildFile))
+            throw new InvalidOperationException("authority build identity is unavailable");
+        GD.Print($"AUTHORITY_CHECKPOINT_BUILD id={buildId} file={buildFile}");
         GD.Print(
             $"{marker} id={saveId:D} digest={digest} next={Session.NextEntityId} vehicles={Session.QueryComposites().Count} fault={fault}");
-        var observation = AuthorityCodec.Observe(Session, BuildId(), "saved");
+        var observation = new AuthorityObservation(AuthorityCodec.Context(Session, BuildId()), new[] { checkpoint });
         foreach (var line in observation.Lines())
             GD.Print("AUTHORITY_CHECKPOINT_LINE " + line);
     }
 
     private void Write(string fileName, string canonical)
     {
+        System.IO.Directory.CreateDirectory(EvidenceDirectory());
+        File.WriteAllBytes(Path.Combine(EvidenceDirectory(), fileName), Encoding.UTF8.GetBytes(canonical));
+    }
+
+    private static string EvidenceDirectory()
+    {
         var directory = System.Environment.GetEnvironmentVariable(DirectoryEnvironmentVariable);
         if (string.IsNullOrWhiteSpace(directory))
             throw new InvalidOperationException($"{DirectoryEnvironmentVariable} is required");
-        Directory.CreateDirectory(directory);
-        File.WriteAllBytes(Path.Combine(directory, fileName), Encoding.UTF8.GetBytes(canonical));
+        return directory;
     }
 
     private static string? BuildId() => System.Environment.GetEnvironmentVariable(BuildEnvironmentVariable);
