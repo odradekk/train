@@ -195,6 +195,7 @@ public sealed class CompositeVisualPresenter
     public int MeshInstanceCount => _visuals.Values.Sum(visual => visual.MeshInstanceCount);
     public CompositeVisualSyncKind LastSync { get; private set; }
     public IEnumerable<CompositeVisual> Visuals => _visuals.Values;
+    public CompositeVisual? VisualFor(EntityId vehicleId) => _visuals.GetValueOrDefault(vehicleId);
     public IReadOnlyList<ulong> MeshInstanceIds =>
         _visuals.OrderBy(pair => pair.Key.Value).Select(pair => pair.Value.MeshInstanceId).ToArray();
 

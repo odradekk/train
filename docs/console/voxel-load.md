@@ -18,6 +18,8 @@ voxel load 11111111-2222-4333-8444-555555555555
 
 存档带 `world_source`（Playground 固定配置来源）时，会话恢复该来源信息，并在恢复后处于暂停状态；速度、运行开关、停车原因和待执行命令都按存档原值保留，用 [`rail step`](rail-step.md) 或 [`rail resume`](rail-resume.md) 继续。来源信息只作记录，加载仍按当前有效定义构造世界。没有 `world_source` 的存档加载后不暂停，与之前一致。来源类型不是 `fixed_configuration` 时返回 `UnknownSource`。
 
+在 Playground 中加载成功后，观察的旧选择与聚焦/跟随目标一律清除（存档中同 ID 的车辆或同一格也视为新对象），镜头原位转为自由观察，并提示 `world-replaced load`（见 [observe](observe.md)）；加载失败时世界与观察状态都不变。
+
 成功按字段分行输出 `Voxel Loaded.`、`id`、`name` 和当前世界体素总数。失败保留当前可编辑会话、当前会话 UUID/显示名和磁盘上的上一份有效存档，并报告：
 
 | 状态 | 含义 |

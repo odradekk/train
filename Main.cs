@@ -244,6 +244,8 @@ public partial class Main : Node
         _console?.SetVoxelDevelopmentSession(session);
     }
 
+    public void SetPlaygroundObserver(PlaygroundObserver? observer) => _console?.SetPlaygroundObserver(observer);
+
     private void StartLoggingSmoke()
     {
         _smoke = true;

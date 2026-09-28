@@ -41,6 +41,8 @@ public sealed class ConsoleCommandDispatcher
     public const string CompositeUnavailableEventId = "composite_unavailable";
     public const string RailEventId = "rail";
     public const string RailUnavailableEventId = "rail_unavailable";
+    public const string ObserveEventId = "observe";
+    public const string ObserveUnavailableEventId = "observe_unavailable";
 
     private readonly TrainLogger _logger;
     private readonly Action _clear;
@@ -50,6 +52,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly VoxelConsoleCommands? _voxelCommands;
     private readonly CompositeConsoleCommands? _compositeCommands;
     private readonly RailConsoleCommands? _railCommands;
+    private readonly ObserveConsoleCommands? _observeCommands;
 
     public ConsoleCommandDispatcher(
         TrainLogger logger,
@@ -59,7 +62,8 @@ public sealed class ConsoleCommandDispatcher
         bool allowReload,
         VoxelConsoleCommands? voxelCommands = null,
         CompositeConsoleCommands? compositeCommands = null,
-        RailConsoleCommands? railCommands = null)
+        RailConsoleCommands? railCommands = null,
+        ObserveConsoleCommands? observeCommands = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -73,6 +77,7 @@ public sealed class ConsoleCommandDispatcher
         _voxelCommands = voxelCommands;
         _compositeCommands = compositeCommands;
         _railCommands = railCommands;
+        _observeCommands = observeCommands;
     }
 
     public void Execute(string line)
@@ -121,6 +126,12 @@ public sealed class ConsoleCommandDispatcher
                 else
                     WriteResult(RailEventId, _railCommands.Execute(parsed.Arguments));
                 return;
+            case "observe":
+                if (_observeCommands is null)
+                    _logger.Warning(Category, ObserveUnavailableEventId, "Enter the Playground before using observe commands.");
+                else
+                    WriteResult(ObserveEventId, _observeCommands.Execute(parsed.Arguments));
+                return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
                 return;
@@ -163,8 +174,8 @@ public sealed class ConsoleCommandDispatcher
     private string HelpMessage()
     {
         var commands = _allowReload
-            ? "help, clear, quit, reload, loglevel, voxel, composite, rail"
-            : "help, clear, quit, loglevel, voxel, composite, rail";
+            ? "help, clear, quit, reload, loglevel, voxel, composite, rail, observe"
+            : "help, clear, quit, loglevel, voxel, composite, rail, observe";
         return $"Available commands: {commands}.";
     }
 }

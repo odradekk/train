@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行、运行中车钩破坏后的独立滑行、断轨安全停车与显式恢复、沿轨显示插值与选定存活车辆跟随相机，以及正式铁路 / 多编组运行停车与滑行状态的版本化文件存档）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行、运行中车钩破坏后的独立滑行、断轨安全停车与显式恢复、沿轨显示插值与选定存活车辆跟随相机，以及正式铁路 / 多编组运行停车与滑行状态的版本化文件存档），以及 Playground 的 `observe` 子命令（#124 独立选择、检查、自由观察与显式聚焦 / 跟随）。
 
 ## 打开控制台与输入规则
 
@@ -10,7 +10,7 @@
 - 输入一条命令后按 `Enter` 执行。下文代码块中的每一行都需分别提交。
 - 命令不带 `/` 前缀。`<参数>` 表示必填，`[参数]` 表示可选；实际输入时去掉尖括号和方括号。
 - 参数按空白分隔；连续空白和首尾空白会被忽略。没有引号转义、多命令分号串联或行内注释语法。
-- 命令名、`voxel` / `composite` / `rail` 子命令、日志等级和朝向编码不区分大小写；定义 ID 必须使用小写。
+- 命令名、`voxel` / `composite` / `rail` / `observe` 子命令、日志等级和朝向编码不区分大小写；定义 ID 必须使用小写。
 - 空行无操作；未知命令报告 `Unknown command: ...`。
 - 命令回显及多数结果使用 `info` 日志。如果看不到结果，先执行 `loglevel info`，再重试查询。
 
@@ -53,6 +53,12 @@
 | [rail query](rail-query.md) `[occupancy\|intervals\|connections\|graph\|rebuild\|assembly\|motion\|display \| <x> <y> <z>]` | 查询轨段、连接、实际占格、通行区间、编组、运动或显示插值 | 同上 |
 | [rail follow](rail-follow.md) `[vehicle <id>]` | 查询或选择跟随相机的存活车辆 | 同上 |
 | [rail repair](rail-repair.md) `<x> <y> <z> [...] [at <step>]` | 修复原轨段损坏占格并恢复依赖区间 | 同上 |
+| [observe](observe.md) | 查询 Playground 镜头模式、选择、失效提示与选中对象检查 | 已进入 Playground |
+| [observe list](observe-list.md) | 列出可观察的车辆与轨段 | 同上 |
+| [observe select](observe-select.md) `vehicle <id> \| segment <id> \| cell <x> <y> <z> \| none` | 选择或清除检查对象；不移动镜头 | 同上 |
+| [observe focus](observe-focus.md) | 镜头平滑聚焦选中对象 | 同上 |
+| [observe follow](observe-follow.md) | 镜头跟随选中车辆的显示车体 | 同上 |
+| [observe free](observe-free.md) | 结束聚焦/跟随，镜头原位转为自由观察 | 同上 |
 
 兼容性说明：目前 `help`、`clear`、`quit`、`reload` 会忽略额外参数，额外参数不会形成新功能。例如 `quit help` 仍会退出游戏。请按上述无参数语法使用。
 
@@ -129,6 +135,7 @@
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
 | `Started` / `Stopped` / `Pending` / `Advanced` / `Paused` / `Resumed` / `ReverseUnsupported` / `StepOverflow` / `PastStep` / `NoAssembly` / `UnknownAssembly` / `NoRailway` / `MissingPropulsion` / `MissingControl` / `InsufficientSupport` / `DisconnectedPath` / `VehicleConstraint` / `TransactionExhausted` / `InputExhausted` / `UnallocatedReference` / `SimulationFaulted` | `rail start` / `stop` / `step` / `pause` / `resume` 结果。反向启动、过去目标步、无法确定的多编组目标、或步号溢出在提交前拒绝，不分配修改编号、原状态不变。起停是 `train.start` / `train.stop` 世界修改，与其他修改共用编号和边界顺序；接受后输出带 `edit <id>`，未来步为 `Pending`，执行条件到目标步边界才检查，失败只把该条记为拒绝并出队，模拟继续。到达 `MaxValue` 后仍执行该步修改，再推进为 `StepOverflow`；内部故障为 `SimulationFaulted` |
+| `Selected` / `Cleared` / `Focused` / `Following` / `Free` / `NoSelection` / `NotVehicle` / `UnknownObject` | `observe` 结果：选中、清除选择、开始聚焦、开始跟随、回到自由观察；没有选择、跟随对象不是车辆、选择对象不存在时拒绝且选择与镜头不变。全部只改观察状态，不改会话；见 [observe](observe.md) |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。`transaction_count` 为 `ulong.MaxValue`、旧格式 `scheduled_sequence` 大于事务计数、非法铁路几何/占格/轨枕、重复车辆、两车无车钩、停车却带速度且仍声称有活动车头、运行中却缺少当前 control、缩放/剪切轴、待执行修改引用从未分配的身份、以及 save-local 与车辆身份不一致，属于 `InvalidDelta`。格式 5 出现旧列车队列字段属于 `UnknownFormat`。合法单车、多编组与无动力滑行可以恢复 |
 | `TransactionExhausted` | 制造 / 改装 / 车辆伤害 / 编组时再提交会写出不可加载的计数（当前值已为 `MaxValue - 1` 或 `MaxValue`）；不绕回、不部分提交、不覆盖可读存档 |
@@ -298,7 +305,27 @@ voxel save Playground Edits
 
 暂停在第 300 步时，前四条依次得到 `300:0`…`300:3`，时钟与列车不动；后两条排到第 303 步，`voxel edits` 报告 `boundary 300:6`。保存后在新进程加载，队列原样恢复，推进到第 303 步时两条命令按原顺序执行一次。
 
-验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法、拒绝、`straight-rail-ordered-edits` 与 `straight-rail-repair-restart`（断轨停车 → 未修轨启动被拒 → 修复 → 显式启动 → 同步多条定时起停）序列，并驱动真实场景按钮、修改面板与控制台输入完成暂停多操作、待执行结构命令与定时停车 / 修轨混合队列、保存与跨进程继续对照，再在有车配置中经面板排定同一边界的断轨、修复、启动与控制台定时停车，并用 Godot 物理检查立即断轨与修复后的轨格碰撞，无车配置则经面板施工（被既有线路拒绝）与组装列车；未传 `-OutputDirectory` 时输出写入新的 `.godot/validation/issue-122/<时间戳>/`。
+屏幕右侧观察面板与 `observe` 命令共用同一观察状态：对象列表、检查信息（身份、所属、耐久、运行资格、失败原因）、镜头模式与失效提示。选择（列表、画面左键点击或 `observe select`）从不移动镜头；只有“聚焦选中”/`F`/`observe focus` 与“跟随选中”/`V`/`observe follow` 改变镜头，“自由观察”/`C`/`observe free` 让镜头原位回到自由观察。Playground 镜头不再读 `rail follow` 的会话跟随状态。观察状态不写入存档、不占命令编号，打开面板、查询和切换镜头都不暂停或推进。`voxel reset`、`composite reset` 或成功的 `voxel load` 替换整个世界时，旧选择与目标一律清除并原位转为自由观察（新世界复用同一 ID 也不继续跟随），加载失败时观察不变。
+
+```text
+observe
+observe list
+observe select vehicle <loco>
+observe follow
+rail resume
+observe
+composite damage <loco> 7 1 1 100
+observe
+observe select vehicle <carriage>
+observe follow
+composite damage <carriage> 1 0 1 100
+observe
+observe free
+```
+
+建立后镜头为 `mode free selection none`，不需要车辆。选中车头时镜头不动；跟随后运行、暂停都读车体显示姿态。断开后钩仍跟随同一车头。车厢核心被毁后 `observe` 报告 `mode free selection none` 与 `notice target-lost vehicle <carriage> mode follow camera free-in-place`，镜头停在原位，不跳到车头。
+
+验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法、拒绝、`straight-rail-ordered-edits` 与 `straight-rail-repair-restart`（断轨停车 → 未修轨启动被拒 → 修复 → 显式启动 → 同步多条定时起停）序列，并驱动真实场景按钮、修改面板与控制台输入完成暂停多操作、待执行结构命令与定时停车 / 修轨混合队列、保存与跨进程继续对照，再在有车配置中经面板排定同一边界的断轨、修复、启动与控制台定时停车，并用 Godot 物理检查立即断轨与修复后的轨格碰撞，无车配置则经面板施工（被既有线路拒绝）与组装列车；未传 `-OutputDirectory` 时输出写入新的 `.godot/validation/issue-122/<时间戳>/`。观察链路另有 `scripts/run-godot-playground-observation-smoke.ps1`，在真实场景中驱动自由观察、列表与点击选择、聚焦/跟随、暂停与运行中观察、拆分与销毁目标及碰撞查询，并跨进程确认观察状态不进入存档；输出写入 `.godot/validation/issue-124/<时间戳>/`。
 
 ### 切片 2 边界复现
 
@@ -508,4 +535,4 @@ composite query damaged
 
 每个可执行命令各用一个文件，`voxel` 子命令也分别维护。新增、修改或移除命令时，同步更新对应文件和本页索引；共享参数、朝向编码与组合示例统一保留在本页。每份命令文档应覆盖语法、参数、使用方法、结果和限制，尚未交付的命令明确标注。
 
-基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，轨道命令实现为 `Console/RailConsoleCommands.cs`，`at <step>` 与 `voxel edits` 实现为 `Console/WorldEditConsole.cs`，世界修改命令与规范编码位于 `Domain/Commands/`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`，正式直轨位于 `Domain/Rails/`；体素显示、TrackRenderer 与快捷键位于 `Ui/VoxelDeveloperScene.cs`。
+基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，轨道命令实现为 `Console/RailConsoleCommands.cs`，观察命令实现为 `Console/ObserveConsoleCommands.cs`（观察模型位于 `Domain/Playground/PlaygroundObservation.cs` 与 `PlaygroundInspection.cs`），`at <step>` 与 `voxel edits` 实现为 `Console/WorldEditConsole.cs`，世界修改命令与规范编码位于 `Domain/Commands/`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`，正式直轨位于 `Domain/Rails/`；体素显示、TrackRenderer 与快捷键位于 `Ui/VoxelDeveloperScene.cs`。
