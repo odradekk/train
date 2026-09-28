@@ -20,6 +20,12 @@ public sealed class PhysicalRailState
         .ThenBy(item => item.Cell.Z)
         .ToArray();
     public int OccupiedCellCount => _occupancy.Count - _destroyed.Count;
+    public IReadOnlyList<WorldVoxelCoord> DestroyedCells =>
+        _destroyed
+            .OrderBy(cell => cell.X)
+            .ThenBy(cell => cell.Y)
+            .ThenBy(cell => cell.Z)
+            .ToArray();
     public int RegisteredCellCount => _occupancy.Count;
     public int SleeperCount { get; private set; }
     public bool HasRailway => _segments.Count > 0;
