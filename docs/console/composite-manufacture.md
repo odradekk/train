@@ -35,4 +35,4 @@ parts 168
 | `TransactionExhausted` | 再提交会进入不可加载的事务计数（`MaxValue - 1` 或 `MaxValue`）；不制造、不绕回、不改车辆 |
 | `EntityIdExhausted` | 车辆加全部零件所需 ID 不能一次满足；不制造，权威状态、`NextEntityId` 和事务计数不变 |
 
-伤害、断裂与脱落使用 [`composite damage`](composite-damage.md)。已制造车辆的五类原子改装使用 [`composite add`](composite-add.md) / [`remove`](composite-remove.md) / [`move`](composite-move.md) / [`rotate`](composite-rotate.md) / [`replace`](composite-replace.md) 与 [`composite batch`](composite-batch.md)。制造后的实际车辆随 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md) 按格式 4 保存和恢复，不按 Blueprint 名称重造。本构建仍可读格式 2、3。切片 4 编组与沿轨运动状态一并写入同一存档。非法 ID 文本返回用法提示，不执行制造。
+伤害、断裂与脱落使用 [`composite damage`](composite-damage.md)。已制造车辆的五类原子改装使用 [`composite add`](composite-add.md) / [`remove`](composite-remove.md) / [`move`](composite-move.md) / [`rotate`](composite-rotate.md) / [`replace`](composite-replace.md) 与 [`composite batch`](composite-batch.md)。制造后的实际车辆随 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md) 按格式 5 保存和恢复，不按 Blueprint 名称重造。本构建仍可读格式 2–4。切片 4 编组与沿轨运动状态一并写入同一存档。非法 ID 文本返回用法提示，不执行制造。

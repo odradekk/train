@@ -4,7 +4,10 @@
 
 ```text
 rail construct
+rail construct at 330
 ```
+
+本命令提交 `rail.construct` 世界修改，施工计划整体写入修改载荷，与其他修改共用 [`voxel edits`](voxel-edits.md) 的编号、边界顺序、日志与存档。无 `at` 时在当前边界立即执行并输出下文的铁路结果；`at <step>` 排到该步边界，输出 `Edit <id> rail.construct pending` 与接受/目标位置，结果在执行位置按当时世界确定。
 
 参数：无。按切片 4 固定夹具提交一份 `RailConstructionPlan`：中心线 `(16,2,16)→(144,2,16)→(272,2,16)`，轨距 1.5，整线生成后再在 `x=144` 做技术分段，接缝轨枕只生成一次。几何来自正式体积，不是手摆节点。
 

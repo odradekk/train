@@ -80,6 +80,7 @@ Save
 - 已接受但尚未执行的命令及其目标步、顺序须随存档保存，恢复后仅在原定位置执行一次，不为保存提前执行或清空队列。未提交的面板输入不属于世界状态。
 - 暂停修改及同一步边界内的操作按 [04 的输入顺序](04-deterministic-simulation.md#本阶段输入边界与顺序)记录、保存和重放，不能仅凭 Tick 或墙钟日志猜测顺序。
 - 当前实现（[#122](https://github.com/odradekk/train/issues/122)）：存档格式 4 的根字段 `world_edits` 写出 `next_edit_id`、`boundary_sequence` 与 `pending`；每项待执行命令带 `edit_id`、`accepted_step`、`accepted_sequence`、`target_step` 和 [规范负载](04-deterministic-simulation.md#世界修改命令的规范编码)。格式 2、3 仍可读，恢复为空队列；格式 2、3 文件出现 `world_edits` 按未知字段返回 `UnknownFormat`，格式 4 缺少该字段返回 `Truncated`。恢复时编号须落在 `[1, next_edit_id)` 内且严格递增，接受位置严格递增且不晚于存档边界，目标步晚于存档步，引用的实体 ID 必须小于 `next_entity_id`：曾分配后被摧毁的目标合法，到期时拒绝；从未分配的 ID 属于损坏引用，整次 `InvalidDelta`。
+- 当前实现（[#123](https://github.com/odradekk/train/issues/123)）：存档格式 5 取消旧的 `scheduled_commands` / `scheduled_sequence`，铁路施工与修复、编组和列车起停与其他修改同在 `world_edits` 中，混合队列在新进程按原位置执行得到相同结果。起停引用的编组身份同样只要求已分配：执行前消失的编组合法，到期在原位置拒绝。已完全摧毁、仍被引用的轨段保留登记身份与定位几何，排队修复据此定位。格式 5 出现旧字段返回 `UnknownFormat`；格式 3、4 仍须带旧字段（缺失为 `Truncated`），但旧队列必须为空——旧命令没有 `edit_id` 与边界位置，不能放进统一输入全序，非空时整次返回 `UnsupportedRailway`，不猜测顺序；格式 2–4 的 `world_edits` 出现铁路、编组或起停命令返回 `UnknownFormat`；待执行队列出现 `content.publish` 为 `InvalidDelta`。
 
 #### 候选世界恢复与校验
 

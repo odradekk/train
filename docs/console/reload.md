@@ -17,6 +17,7 @@ reload
 - 受损车和存活碎块按当前 Runtime Identity／Operational Condition 适配，不要求重新满足全部 Construction Validity。缺少两个接触点的碎块保持 `Disabled`，不会被自动删除、重造或补回接触点。外部零件更新不递归改变自定义布局自身的 Semantic Revision；新制造使用新模板。
 - 纯显示文字、Cube 资产或绑定变化可以更新已有体素和已有车辆的查询与画面，不因此改变 Semantic Revision，也不改变碰撞命中。无有效变化不递增 Generation。Collision 是语义数据，模型或图片更新不能自行改物理形状。
 - 内置内容错误或候选校验失败时拒绝发布，保留原目录、世界、车辆和已发布碰撞。`local_box` 在局部 double 区间合法、但碰撞适配转换后不再保持正体积时，同样在发布前拒绝，不替换已发布的有效形状。非法 Mod 可以整包排除后继续校验剩余候选，但排除后若运行中实例缺必需定义，整次仍然拒绝。
+- 已进入开发场景且候选内容确有变化时，适配作为一条 `content.publish` 世界修改记在当前边界（载荷为内容版本摘要，状态 `Published`），与其他修改共享编号与顺序，可在 [`voxel edits log`](voxel-edits.md) 查看；它不能从控制台或面板提交，也不写入存档队列。适配中的内部故障回滚本条、把会话记为故障并拒绝发布，目录保持旧版本。会话已故障或已无可用编号时，重载在发布前以 `simulation_unavailable` 拒绝。候选校验拒绝或无有效变化时不产生记录。
 - 已有重载正在进行时，新请求会被拒绝。
 - 非 Debug 构建执行该命令会提示 `reload is only available in debug builds.`。
 
