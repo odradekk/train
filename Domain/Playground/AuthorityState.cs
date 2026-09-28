@@ -254,7 +254,8 @@ public sealed record AuthorityContext(
     string Architecture,
     string Framework,
     string Guarantee,
-    string? SaveId)
+    string? SaveId,
+    string? BaseFingerprint = null)
 {
     public bool Equals(AuthorityContext? other) =>
         other is not null &&
@@ -265,6 +266,7 @@ public sealed record AuthorityContext(
         string.Equals(SourceKind, other.SourceKind, StringComparison.Ordinal) &&
         string.Equals(ConfigurationId, other.ConfigurationId, StringComparison.Ordinal) &&
         ConfigurationVersion == other.ConfigurationVersion &&
+        string.Equals(BaseFingerprint, other.BaseFingerprint, StringComparison.Ordinal) &&
         Seed == other.Seed &&
         string.Equals(GeneratorVersion, other.GeneratorVersion, StringComparison.Ordinal) &&
         string.Equals(OperatingSystem, other.OperatingSystem, StringComparison.Ordinal) &&
@@ -273,7 +275,7 @@ public sealed record AuthorityContext(
         string.Equals(Guarantee, other.Guarantee, StringComparison.Ordinal) &&
         string.Equals(SaveId, other.SaveId, StringComparison.Ordinal);
 
-    public override int GetHashCode() => HashCode.Combine(FormatVersion, BuildId, ContentDigest, SourceKind, Seed);
+    public override int GetHashCode() => HashCode.Combine(FormatVersion, BuildId, ContentDigest, SourceKind, Seed, BaseFingerprint);
 }
 
 public sealed record AuthorityCheckpoint(int Index, string Input, SimulationPosition Boundary, string Canonical, string Digest);
@@ -285,9 +287,11 @@ public sealed record AuthorityObservation(AuthorityContext Context, IReadOnlyLis
         var source = Context.ConfigurationId is null
             ? Context.SourceKind
             : $"{Context.SourceKind} {Context.ConfigurationId} v{Context.ConfigurationVersion}";
+        var fingerprint = string.IsNullOrEmpty(Context.BaseFingerprint) ? "none" : Context.BaseFingerprint;
         yield return
             $"authority format={Context.FormatVersion.ToString(CultureInfo.InvariantCulture)} " +
             $"build={Context.BuildId ?? "unspecified"} content={Context.ContentDigest} source={source} " +
+            $"base_fingerprint={fingerprint} " +
             $"seed={Context.Seed.ToString(CultureInfo.InvariantCulture)} generator={Context.GeneratorVersion} " +
             $"os={Context.OperatingSystem} arch={Context.Architecture} runtime={Context.Framework} " +
             $"save={Context.SaveId ?? "none"}";

@@ -520,6 +520,35 @@ public sealed class AuthorityCheckpointTests
     }
 
     [TestMethod]
+    public void Base_fingerprint_is_compared_as_source_not_as_content_or_canonical_state()
+    {
+        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var fingerprint = train.Session.WorldSource!.BaseFingerprint;
+        Assert.AreEqual(64, fingerprint.Length);
+        var observed = AuthorityCodec.Observe(train.Session, "tested-head");
+        Assert.AreEqual(fingerprint, observed.Context.BaseFingerprint);
+        Assert.IsFalse(observed.Checkpoints[0].Canonical.Contains("base_fingerprint", StringComparison.Ordinal));
+        var evidence = AuthorityCodec.EncodeEvidence(observed.Context, observed.Checkpoints[0]);
+        Assert.IsTrue(AuthorityCodec.TryReadEvidence(evidence, out var context, out _));
+        Assert.AreEqual(fingerprint, context.BaseFingerprint);
+
+        var changed = observed with { Context = observed.Context with { BaseFingerprint = new string('A', 64) } };
+        var difference = AuthorityComparison.Compare(observed, changed);
+        Assert.AreEqual(AuthorityDifferenceKind.SourceMismatch, difference.Kind);
+        Assert.AreEqual("source", difference.Field);
+        StringAssert.Contains(difference.Detail, "来源");
+        StringAssert.Contains(difference.Expected, fingerprint);
+        StringAssert.Contains(difference.Actual, new string('A', 64));
+
+        var missing = observed with { Context = observed.Context with { BaseFingerprint = null } };
+        Assert.AreEqual(AuthorityDifferenceKind.SourceMismatch, AuthorityComparison.Compare(observed, missing).Kind);
+        Assert.IsFalse(AuthorityCodec.TryReadEvidence(
+            evidence.Replace($"\"base_fingerprint\":\"{fingerprint}\"", "\"base_fingerprint\":\"not-a-fingerprint\"", StringComparison.Ordinal),
+            out _,
+            out _));
+    }
+
+    [TestMethod]
     public void Build_identity_rejects_a_file_from_another_module()
     {
         var assembly = typeof(AuthorityEnvironment).Assembly;

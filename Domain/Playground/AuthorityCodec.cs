@@ -125,7 +125,8 @@ public static class AuthorityCodec
             AuthorityEnvironment.Architecture,
             AuthorityEnvironment.Framework,
             AuthorityFieldCatalog.Guarantee,
-            session.SaveId?.ToString("D"));
+            session.SaveId?.ToString("D"),
+            string.IsNullOrEmpty(source?.BaseFingerprint) ? null : source.BaseFingerprint);
     }
 
     public static AuthorityObservation Observe(VoxelDevelopmentSession session, string? buildId = null, string input = "boundary")
@@ -165,6 +166,10 @@ public static class AuthorityCodec
                 writer.WriteNumber("configuration_version", version);
             else
                 writer.WriteNull("configuration_version");
+            if (string.IsNullOrEmpty(context.BaseFingerprint))
+                writer.WriteNull("base_fingerprint");
+            else
+                writer.WriteString("base_fingerprint", context.BaseFingerprint);
             writer.WriteNumber("seed", context.Seed);
             writer.WriteString("generator_version", Required(context.GeneratorVersion, nameof(context.GeneratorVersion)));
             writer.WriteString("operating_system", context.OperatingSystem);
@@ -240,6 +245,12 @@ public static class AuthorityCodec
                     return false;
                 configurationVersionValue = parsedConfigurationVersion;
             }
+            if (!Take(fields, "base_fingerprint", out var baseFingerprint) ||
+                baseFingerprint.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                return false;
+            var baseFingerprintValue = baseFingerprint.ValueKind == JsonValueKind.Null ? null : baseFingerprint.GetString();
+            if (baseFingerprintValue is { Length: > 0 } && !WorldSourceBase.IsSha256(baseFingerprintValue))
+                return false;
             if (!Take(fields, "seed", out var seed) || !seed.TryGetUInt64(out var seedValue))
                 return false;
             if (!Take(fields, "generator_version", out var generator) || generator.ValueKind != JsonValueKind.String)
@@ -284,7 +295,8 @@ public static class AuthorityCodec
                 architecture.GetString()!,
                 framework.GetString()!,
                 guarantee.GetString()!,
-                saveId.ValueKind == JsonValueKind.Null ? null : saveId.GetString());
+                saveId.ValueKind == JsonValueKind.Null ? null : saveId.GetString(),
+                string.IsNullOrEmpty(baseFingerprintValue) ? null : baseFingerprintValue);
             checkpoint = new AuthorityCheckpoint(
                 indexValue,
                 input.GetString()!,

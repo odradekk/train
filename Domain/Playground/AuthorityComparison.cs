@@ -94,6 +94,7 @@ public static class AuthorityComparison
         if (!string.Equals(expected.SourceKind, actual.SourceKind, StringComparison.Ordinal) ||
             !string.Equals(expected.ConfigurationId, actual.ConfigurationId, StringComparison.Ordinal) ||
             expected.ConfigurationVersion != actual.ConfigurationVersion ||
+            !string.Equals(expected.BaseFingerprint, actual.BaseFingerprint, StringComparison.Ordinal) ||
             expected.Seed != actual.Seed ||
             !string.Equals(expected.GeneratorVersion, actual.GeneratorVersion, StringComparison.Ordinal))
             return ContextDifference(
@@ -411,7 +412,8 @@ public static class AuthorityComparison
         var configuration = context.ConfigurationId is null
             ? context.SourceKind
             : $"{context.SourceKind} {context.ConfigurationId} v{context.ConfigurationVersion?.ToString(CultureInfo.InvariantCulture)}";
-        return $"{configuration} seed={context.Seed.ToString(CultureInfo.InvariantCulture)} generator={context.GeneratorVersion}";
+        var fingerprint = string.IsNullOrEmpty(context.BaseFingerprint) ? "none" : context.BaseFingerprint;
+        return $"{configuration} seed={context.Seed.ToString(CultureInfo.InvariantCulture)} generator={context.GeneratorVersion} base_fingerprint={fingerprint}";
     }
 
     private static bool Specified(string? value) => !string.IsNullOrWhiteSpace(value);
