@@ -189,6 +189,51 @@ public sealed class AuthorityCheckpointTests
     }
 
     [TestMethod]
+    public void Cross_process_sequence_resumes_pending_inputs_at_the_same_authority_boundaries()
+    {
+        using var content = PlaygroundHarness.Content();
+        var sequence = PlaygroundSequences.Find(PlaygroundSequences.CrossProcessComparisonId)!;
+        var continuous = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
+        Assert.IsTrue(continuous.Passed, string.Join(Environment.NewLine, continuous.Lines()));
+        Assert.AreEqual(14, continuous.Observation!.Checkpoints.Count);
+        Assert.AreEqual(new SimulationPosition(0, 8), continuous.Observation.Checkpoints[8].Boundary);
+
+        Assert.AreEqual(PlaygroundEstablishStatus.Established,
+            PlaygroundSession.TryEstablish(sequence.ConfigurationId, content.Catalog, content.Composites, content.Store, out var interrupted));
+        try
+        {
+            for (var index = 0; index < 8; index++)
+                Assert.AreEqual(sequence.Steps[index].ExpectedStatus, sequence.Steps[index].Operation.Apply(interrupted!));
+            Assert.AreEqual(4, interrupted!.QueryPendingEdits().Count);
+            var saved = interrupted.Save("Cross process sequence");
+            Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+
+            using var restarted = PlaygroundHarness.Content(userData: content.UserData);
+            var resumed = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4,
+                restarted.Store, restarted.Composites);
+            restarted.Attach(resumed);
+            Assert.AreEqual(WorldSaveStatus.Loaded, resumed.Load(saved.SaveId!.Value).Status);
+            Assert.IsTrue(resumed.SimulationPaused);
+            for (var index = 8; index < sequence.Steps.Count; index++)
+            {
+                var step = sequence.Steps[index];
+                var input = step.Operation.InputIdentity(resumed);
+                Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(resumed));
+                var expected = continuous.Observation.Checkpoints[index + 1];
+                var actual = AuthorityCodec.Checkpoint(resumed, index + 1, input);
+                var difference = AuthorityComparison.Compare(
+                    new AuthorityObservation(continuous.Observation.Context, new[] { expected }),
+                    new AuthorityObservation(AuthorityCodec.Context(resumed, null), new[] { actual }));
+                Assert.IsTrue(difference.Equal, string.Join(Environment.NewLine, difference.Lines()));
+            }
+        }
+        finally
+        {
+            interrupted?.Detach();
+        }
+    }
+
+    [TestMethod]
     public void Evidence_preserves_the_origin_checkpoint_and_classifies_tampered_context()
     {
         using var content = PlaygroundHarness.Content();
