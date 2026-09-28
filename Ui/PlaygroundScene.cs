@@ -273,6 +273,8 @@ public partial class PlaygroundScene : Node3D
         AddButton(world, "edit_damage", "损伤体素", () => ApplyEdit("edit_damage"));
         AddButton(world, "edit_manufacture", "在此制造空壳", () => ApplyEdit("edit_manufacture"));
         AddButton(world, "edit_repair", "修复轨道", () => ApplyEdit("edit_repair"));
+        AddButton(world, "edit_construct", "施工直轨", () => ApplyEdit("edit_construct"));
+        AddButton(world, "edit_assemble", "组装列车", () => ApplyEdit("edit_assemble"));
 
         var vehicle = new HBoxContainer();
         vehicle.AddThemeConstantOverride("separation", 6);
@@ -325,6 +327,8 @@ public partial class PlaygroundScene : Node3D
             "start" => PlaygroundOperation.Start(atStep: at),
             "stop" => PlaygroundOperation.Stop(at),
             "edit_repair" => PlaygroundOperation.Submit(new RailRepairEdit(new[] { cell }), at),
+            "edit_construct" => PlaygroundOperation.Submit(new RailConstructEdit(StraightRailFixture.CreateFixturePlan()), at),
+            "edit_assemble" => PlaygroundOperation.Submit(TrainAssembleEdit.StaticFixture, at),
             "edit_add" => PlaygroundOperation.Submit(new VoxelAddEdit(cell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity), at),
             "edit_remove" => PlaygroundOperation.Submit(new VoxelRemoveEdit(cell), at),
             "edit_damage" => PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(cell, amount) }), at),

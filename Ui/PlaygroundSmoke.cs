@@ -36,7 +36,7 @@ internal sealed class PlaygroundSmoke
 
     private VoxelDevelopmentSession Session => _scene.Session!;
     private bool HasTrain => Session.QueryTrainAssemblies().Count > 0;
-    private int QueuedEdits => HasTrain ? 4 : 2;
+    private int QueuedEdits => HasTrain ? 5 : 2;
 
     public void Advance()
     {
@@ -144,6 +144,8 @@ internal sealed class PlaygroundSmoke
             case 11:
                 if (HasTrain)
                     RunRailCommands();
+                else
+                    RunPanelAssembly();
                 Finish();
                 break;
         }
@@ -251,7 +253,8 @@ internal sealed class PlaygroundSmoke
     /// <summary>
     /// Paused at one boundary: panel and real console edits take consecutive in-step sequences, then one panel and
     /// one console edit are queued <see cref="EditDelay"/> steps ahead, including a structural refit. With a train, a
-    /// panel stop and a console repair of an intact rail cell join the same boundary so the saved queue mixes kinds.
+    /// panel stop, a console repair of an intact rail cell and a console start naming the shell (an allocated id that
+    /// is no assembly) join the same boundary, so the saved queue mixes kinds and carries two due rejections.
     /// </summary>
     private void RunPausedEdits()
     {
@@ -277,6 +280,7 @@ internal sealed class PlaygroundSmoke
             var rail = StraightRailFixture.FirstSegmentDamageCell;
             PressEdit("stop");
             RunConsole($"rail repair {rail.X} {rail.Y} {rail.Z} at {step + EditDelay}");
+            RunConsole($"rail start assembly {shell} at {step + EditDelay}");
         }
 
         var executed = Session.QueryEditLog().Where(record => record.AcceptedAt.Step == step).ToArray();
@@ -341,6 +345,24 @@ internal sealed class PlaygroundSmoke
         GD.Print(
             $"PLAYGROUND_SMOKE_RAIL_COLLISION godot_gap_hit={gapHit.ToString().ToLowerInvariant()} godot_repaired_hit={repairedHit.ToString().ToLowerInvariant()} " +
             $"rail_solids_gap={gapRendered} rail_solids_repaired={_scene.Tracks.RailSolidCount} last={PlaygroundCheck.DescribeRecord(Session.QueryEditLog()[^1])}");
+    }
+
+    /// <summary>
+    /// Without a train: the panel's construct is rejected by the existing line and its assemble forms the fixture
+    /// train through the same edit entry, then the display and Godot collision follow the new vehicles.
+    /// </summary>
+    private void RunPanelAssembly()
+    {
+        _scene.SetEditInputs(PlaygroundSequences.EditProbe, HollowShellRefit.FirstAdd, 25, 0);
+        PressEdit("edit_construct");
+        PressEdit("edit_assemble");
+        var records = Session.QueryEditLog().TakeLast(2).ToArray();
+        Require(
+            records.Select(record => record.Status).SequenceEqual(new[] { "IndependentLineConflict", "Formed" }),
+            $"panel assembly statuses {string.Join(',', records.Select(record => record.Status))}");
+        Require(Session.QueryTrainAssemblies().Count == 1 && Session.SimulationPaused, $"panel assembly left {MotionText()}");
+        CheckDisplayAndCollision("PLAYGROUND_SMOKE_ASSEMBLED");
+        GD.Print($"PLAYGROUND_SMOKE_PANEL_ASSEMBLY executed={string.Join(',', records.Select(PlaygroundCheck.DescribeRecord))} {MotionText()}");
     }
 
     private void PressEdit(string button)

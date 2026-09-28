@@ -16,7 +16,9 @@ param(
 #      ahead, writes an ordinary save, and prints a deterministic continuation
 #      that runs the queued edits; with a train it then queues rail removal,
 #      repair and start through the panel and a console stop, and checks
-#      Godot physics on an immediately removed and repaired rail cell;
+#      Godot physics on an immediately removed and repaired rail cell, while
+#      without a train the panel's construct is rejected and its assemble
+#      forms the fixture train;
 #   2. loads that save in a new process and checks the source, pause, display,
 #      collision, the restored edit queue, one single step, and the same
 #      continuation, which must match the first process line for line.
@@ -124,6 +126,10 @@ foreach ($config in $Configuration) {
         $markers += "PLAYGROUND_SMOKE_MANUAL_MATCHES_SEQUENCE straight-rail-run-and-halt"
         $markers += "PLAYGROUND_SMOKE_RAIL_QUEUE step="
         $markers += "PLAYGROUND_SMOKE_RAIL_COLLISION godot_gap_hit=false godot_repaired_hit=true"
+    }
+    else {
+        $markers += "PLAYGROUND_SMOKE_ASSEMBLED_COLLISION godot_rail_hit=true godot_empty_hit=false"
+        $markers += "PLAYGROUND_SMOKE_PANEL_ASSEMBLY executed="
     }
     $ok = Require-Markers $establish $markers "$config establish"
     if (-not $ok) { $failed = $true; continue }
