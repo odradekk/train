@@ -19,7 +19,9 @@ public sealed class WorldEditOrderingTests
     {
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
         var session = playground.Session;
-        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        var start = session.StartTrain(RailHeading.AlongAlignment);
+        Assert.AreEqual(TrainMotionStatus.Started, start.Status);
+        Assert.AreEqual(1UL, start.EditId);
         var front = session.QueryTrainAssemblies().Single().Vehicles[0].FrontContact.X;
 
         var submissions = new[]
@@ -42,8 +44,8 @@ public sealed class WorldEditOrderingTests
         for (var index = 0; index < submissions.Length; index++)
         {
             var record = submissions[index].Record!;
-            Assert.AreEqual((ulong)index + 1, record.Id);
-            Assert.AreEqual(new SimulationPosition(0, (ulong)index), record.AcceptedAt);
+            Assert.AreEqual((ulong)index + 2, record.Id);
+            Assert.AreEqual(new SimulationPosition(0, (ulong)index + 1), record.AcceptedAt);
             Assert.AreEqual(record.AcceptedAt, record.ExecutedAt);
             Assert.AreEqual(WorldEditState.Executed, record.State);
         }
@@ -51,9 +53,12 @@ public sealed class WorldEditOrderingTests
         Assert.AreEqual(0UL, session.SimulationStep);
         Assert.IsTrue(session.SimulationPaused);
         Assert.AreEqual(front, session.QueryTrainAssemblies().Single().Vehicles[0].FrontContact.X);
-        Assert.AreEqual(new SimulationPosition(0, 6), session.EditBoundary);
-        Assert.AreEqual(7UL, session.NextEditId);
-        CollectionAssert.AreEqual(submissions.Select(item => item.Record).ToArray(), session.QueryEditLog().ToArray());
+        Assert.AreEqual(new SimulationPosition(0, 7), session.EditBoundary);
+        Assert.AreEqual(8UL, session.NextEditId);
+        var log = session.QueryEditLog();
+        Assert.IsInstanceOfType<TrainStartEdit>(log[0].Edit);
+        Assert.AreEqual(new SimulationPosition(0, 0), log[0].ExecutedAt);
+        CollectionAssert.AreEqual(submissions.Select(item => item.Record).ToArray(), log.Skip(1).ToArray());
 
         Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
         Assert.AreEqual(new SimulationPosition(1, 0), session.EditBoundary);
@@ -85,10 +90,11 @@ public sealed class WorldEditOrderingTests
             runs.Add((session.EditLogDigest, WorldSaveAuthority.Fingerprint(session), session.QueryEditLog()));
         }
 
-        var log = runs[0].Log;
-        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, log.Select(item => item.Id).ToArray());
+        Assert.IsInstanceOfType<TrainStartEdit>(runs[0].Log[0].Edit);
+        var log = runs[0].Log.Skip(1).ToArray();
+        CollectionAssert.AreEqual(new ulong[] { 2, 3, 4 }, log.Select(item => item.Id).ToArray());
         CollectionAssert.AreEqual(
-            new[] { new SimulationPosition(0, 0), new SimulationPosition(2, 0), new SimulationPosition(2, 1) },
+            new[] { new SimulationPosition(0, 1), new SimulationPosition(2, 0), new SimulationPosition(2, 1) },
             log.Select(item => item.AcceptedAt).ToArray());
         CollectionAssert.AreEqual(
             new SimulationPosition?[] { new(5, 0), new(5, 1), new(5, 2) },
@@ -131,7 +137,7 @@ public sealed class WorldEditOrderingTests
         }
 
         Assert.IsTrue(session.PauseSimulation().Succeeded);
-        var executed = session.QueryEditLog().Single();
+        var executed = session.QueryEditLog().Single(record => record.Edit is VoxelDamageEdit);
         Assert.AreEqual(new SimulationPosition(300, 0), executed.ExecutedAt);
         Assert.AreEqual("Removed", executed.Status);
         Assert.AreEqual(TrainHaltReason.ForwardGap, session.QueryTrainAssemblies().Single().HaltReason);
@@ -219,11 +225,11 @@ public sealed class WorldEditOrderingTests
         Assert.IsTrue(session.Query(Probe).IsOccupied);
         CollectionAssert.AreEqual(before.WorldVoxels.ToArray(), session.CaptureAuthority().WorldVoxels.ToArray());
         var fault = session.Fault!;
-        Assert.AreEqual(2UL, fault.EditId);
+        Assert.AreEqual(3UL, fault.EditId);
         Assert.AreEqual(new SimulationPosition(3, 0), fault.Position);
         Assert.AreEqual(nameof(InvalidOperationException), fault.ExceptionType);
         Assert.AreEqual(WorldEditState.Faulted, session.QueryEditLog()[^1].State);
-        Assert.AreEqual(2UL, session.QueryPendingEdits().Single().Id);
+        Assert.AreEqual(3UL, session.QueryPendingEdits().Single().Id);
         var faultedFingerprint = WorldSaveAuthority.Fingerprint(session);
 
         Assert.AreEqual(WorldEditRefusal.SimulationFaulted, session.SubmitEdit(new VoxelRemoveEdit(Probe)).Refusal);
@@ -298,28 +304,33 @@ public sealed class WorldEditOrderingTests
     }
 
     [TestMethod]
-    public void Motion_rejection_after_a_boundary_edit_reports_the_steps_committed_up_to_that_boundary()
+    public void Start_whose_condition_failed_at_an_earlier_boundary_is_rejected_in_place_and_the_advance_continues()
     {
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
         var session = playground.Session;
         var assembly = session.QueryTrainAssemblies().Single();
-        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, atStep: 4).Succeeded);
+        var start = session.StartTrain(RailHeading.AlongAlignment, atStep: 4);
+        Assert.AreEqual(TrainMotionStatus.Pending, start.Status);
         var locomotive = session.QueryComposites().Single(vehicle => vehicle.Id == assembly.ActiveLocomotiveId);
         var propulsion = locomotive.Parts.Single(part => part.DefinitionId == StaticTrainFixture.PropulsionId).Id;
         Assert.AreEqual("Pending", session.SubmitEdit(new VehicleRefitEdit(locomotive.Id, new[] { CompositeRefitOperation.Remove(propulsion) }), 2).Status);
-        var changes = 0;
-        session.Changed += () => changes++;
+        var transactions = session.TransactionCount;
 
         var advanced = session.AdvanceSimulation(10);
 
-        Assert.IsFalse(advanced.Succeeded, advanced.Status.ToString());
-        Assert.AreEqual(2UL, advanced.AdvancedSteps);
-        Assert.AreEqual(2UL, advanced.SimulationStep);
-        Assert.AreEqual(2UL, session.SimulationStep);
-        Assert.AreEqual(new SimulationPosition(2, 1), session.EditBoundary);
-        Assert.AreEqual(new SimulationPosition(2, 0), session.QueryEditLog().Single().ExecutedAt);
+        Assert.AreEqual(TrainMotionStatus.Advanced, advanced.Status);
+        Assert.AreEqual(10UL, advanced.AdvancedSteps);
+        Assert.AreEqual(new SimulationPosition(10, 0), session.EditBoundary);
+        Assert.IsNull(session.Fault);
+        var log = session.QueryEditLog();
+        CollectionAssert.AreEqual(new[] { start.EditId!.Value + 1, start.EditId.Value }, log.Select(record => record.Id).ToArray());
+        CollectionAssert.AreEqual(new SimulationPosition?[] { new(2, 0), new(4, 0) }, log.Select(record => record.ExecutedAt).ToArray());
+        Assert.AreEqual(WorldEditState.Executed, log[0].State);
+        Assert.AreEqual(WorldEditState.Rejected, log[1].State);
+        Assert.AreEqual(nameof(TrainMotionStatus.MissingPropulsion), log[1].Status);
+        Assert.AreEqual(transactions + 1, session.TransactionCount);
         Assert.AreEqual(0, session.QueryPendingEdits().Count);
-        Assert.IsTrue(changes > 0);
+        Assert.IsFalse(session.QueryTrainAssemblies().Single().Running);
     }
 
     [TestMethod]

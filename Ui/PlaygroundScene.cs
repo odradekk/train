@@ -254,8 +254,8 @@ public partial class PlaygroundScene : Node3D
         _stepCount = new SpinBox { MinValue = 1, MaxValue = 100000, Value = 60, Rounded = true };
         controls.AddChild(_stepCount);
         AddButton(controls, "step_n", "推进 N 步", () => ApplyOperation(PlaygroundOperation.Advance((ulong)_stepCount.Value)));
-        AddButton(controls, "start", "启动列车", () => ApplyOperation(PlaygroundOperation.Start()));
-        AddButton(controls, "stop", "停车", () => ApplyOperation(PlaygroundOperation.Stop()));
+        AddButton(controls, "start", "启动列车", () => ApplyEdit("start"));
+        AddButton(controls, "stop", "停车", () => ApplyEdit("stop"));
         AddButton(controls, "save", "保存", () => SaveWorld());
 
         var world = new HBoxContainer();
@@ -272,6 +272,9 @@ public partial class PlaygroundScene : Node3D
         AddButton(world, "edit_remove", "移除体素", () => ApplyEdit("edit_remove"));
         AddButton(world, "edit_damage", "损伤体素", () => ApplyEdit("edit_damage"));
         AddButton(world, "edit_manufacture", "在此制造空壳", () => ApplyEdit("edit_manufacture"));
+        AddButton(world, "edit_repair", "修复轨道", () => ApplyEdit("edit_repair"));
+        AddButton(world, "edit_construct", "施工直轨", () => ApplyEdit("edit_construct"));
+        AddButton(world, "edit_assemble", "组装列车", () => ApplyEdit("edit_assemble"));
 
         var vehicle = new HBoxContainer();
         vehicle.AddThemeConstantOverride("separation", 6);
@@ -321,6 +324,11 @@ public partial class PlaygroundScene : Node3D
         var marker = HollowShellRefit.MarkerId;
         return button switch
         {
+            "start" => PlaygroundOperation.Start(atStep: at),
+            "stop" => PlaygroundOperation.Stop(at),
+            "edit_repair" => PlaygroundOperation.Submit(new RailRepairEdit(new[] { cell }), at),
+            "edit_construct" => PlaygroundOperation.Submit(new RailConstructEdit(StraightRailFixture.CreateFixturePlan()), at),
+            "edit_assemble" => PlaygroundOperation.Submit(TrainAssembleEdit.StaticFixture, at),
             "edit_add" => PlaygroundOperation.Submit(new VoxelAddEdit(cell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity), at),
             "edit_remove" => PlaygroundOperation.Submit(new VoxelRemoveEdit(cell), at),
             "edit_damage" => PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(cell, amount) }), at),
@@ -346,7 +354,9 @@ public partial class PlaygroundScene : Node3D
         var session = _session!;
         var log = session.QueryEditLog();
         var last = log.Count == 0 ? "无" : PlaygroundCheck.DescribeRecord(log[^1]);
-        var fault = session.Fault is { } value ? $" · 故障 修改{value.EditId}@{value.Position} {value.ExceptionType}" : "";
+        var fault = session.Fault is { } value
+            ? $" · 故障 {(value.EditId is { } id ? $"修改{id}" : "运动")}@{value.Position} {value.ExceptionType}"
+            : "";
         return $"修改 边界 {session.EditBoundary} · 下一个 {session.NextEditId} · 待执行 {session.QueryPendingEdits().Count} · 最近 {last}{fault}";
     }
 

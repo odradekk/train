@@ -22,8 +22,6 @@ public static class WorldSaveAuthority
             writer.WriteNumber("next_entity_id", session.NextEntityId);
             writer.WriteNumber("transaction_count", session.TransactionCount);
             writer.WriteNumber("simulation_step", session.SimulationStep);
-            writer.WriteNumber("scheduled_sequence", session.ScheduledCommandSequence);
-            WorldSaveRailwayCodec.WriteCommands(writer, session.QueryScheduledTrainCommands());
             writer.WritePropertyName("world");
             writer.WriteStartArray();
             foreach (var (position, voxel) in session.World.OccupiedVoxels()

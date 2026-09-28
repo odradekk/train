@@ -61,7 +61,10 @@ internal static class WorldEditConsole
             $"Edits boundary {session.EditBoundary} next {session.NextEditId}",
             $"pending {session.QueryPendingEdits().Count} log {session.EditLogCount}",
             $"digest {session.EditLogDigest}",
-            session.Fault is null ? "fault none" : $"fault edit {session.Fault.EditId} at {session.Fault.Position}");
+            session.Fault is null ? "fault none" : $"fault {FaultSource(session.Fault)} at {session.Fault.Position}");
+
+    private static string FaultSource(SimulationFault fault) =>
+        fault.EditId is { } id ? $"edit {id}" : "motion";
 
     private static string FormatPending(VoxelDevelopmentSession session)
     {
@@ -85,7 +88,9 @@ internal static class WorldEditConsole
         fault is null
             ? "Edits fault none."
             : string.Join('\n',
-                $"Edits fault edit {fault.EditId} {WorldEditCodec.WireKind(fault.Kind)} at {fault.Position}",
+                fault.Kind is { } kind
+                    ? $"Edits fault edit {fault.EditId} {WorldEditCodec.WireKind(kind)} at {fault.Position}"
+                    : $"Edits fault motion at {fault.Position}",
                 $"exception {fault.ExceptionType}",
                 $"message {fault.Message}");
 }

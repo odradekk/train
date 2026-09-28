@@ -5,7 +5,10 @@
 ```text
 rail repair 110 1 15
 rail repair 110 1 15 144 1 14
+rail repair 110 1 15 at 330
 ```
+
+本命令提交 `rail.repair` 世界修改，与其他修改共用 [`voxel edits`](voxel-edits.md) 的编号、边界顺序、日志与存档；坐标按输入顺序保存。无 `at` 时在当前边界立即执行并输出下文的铁路结果；`at <step>` 排到该步边界，输出 `Edit <id> rail.repair pending` 与接受/目标位置，结果到执行位置才确定并记入日志；`at` 等于当前步时立即执行，按 [`voxel edits`](voxel-edits.md) 的两行格式回报。修改编号或边界序号耗尽输出 `Rail InputExhausted at (<x>, <y>, <z>).`，会话已故障输出 `Rail SimulationFaulted at (<x>, <y>, <z>).`，均不分配编号。已完全摧毁的轨段仍按其登记身份和几何定位，排队的修复在执行时恢复它。
 
 参数：一组或多组世界坐标。只修复已登记的原轨段占格，恢复 `core:rail` 与基础耐久 100，并恢复依赖该格的通行区间。轨段身份、几何和沿程原点不因修复而改变。
 

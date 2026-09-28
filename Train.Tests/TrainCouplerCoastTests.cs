@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
@@ -256,7 +257,7 @@ public sealed class TrainCouplerCoastTests
         using var harness = RunningAt300();
         BreakCoupler(harness.Session);
         var split = AssertSplit(harness, 96, 87, 4, 4);
-        Assert.AreEqual(TrainMotionStatus.Stopped, harness.Session.StopTrain(310, split.Carriage.Id).Status);
+        Assert.AreEqual(TrainMotionStatus.Pending, harness.Session.StopTrain(310, split.Carriage.Id).Status);
         var queued = harness.Session.QueryScheduledTrainCommands().Single();
         Assert.AreEqual(split.Carriage.Id, queued.AssemblyId);
         Assert.AreEqual(310UL, queued.AtStep);
@@ -284,11 +285,12 @@ public sealed class TrainCouplerCoastTests
     }
 
     [TestMethod]
-    public void Dissolving_an_assembly_cancels_its_queued_stop_in_the_same_event()
+    public void Dissolving_an_assembly_keeps_its_queued_stop_until_it_is_rejected_at_its_own_position()
     {
         using var harness = RunningAt300();
         var assembly = harness.Session.QueryTrainAssemblies().Single();
-        Assert.AreEqual(TrainMotionStatus.Stopped, harness.Session.StopTrain(310, assembly.Id).Status);
+        var queued = harness.Session.StopTrain(310, assembly.Id);
+        Assert.AreEqual(TrainMotionStatus.Pending, queued.Status);
         Assert.AreEqual(1, harness.Session.QueryScheduledTrainCommands().Count);
         var before = harness.Session.CaptureTrainAuthority();
 
@@ -296,10 +298,17 @@ public sealed class TrainCouplerCoastTests
             CompositeDamageStatus.Damaged,
             harness.Session.Damage(assembly.ActiveLocomotiveId!.Value, HollowShellFixture.RearBoundCell, 100).Status);
         Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
-        Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
+        Assert.AreEqual(assembly.Id, harness.Session.QueryScheduledTrainCommands().Single().AssemblyId);
         Assert.AreNotEqual(before, harness.Session.CaptureTrainAuthority());
         AssertRoundTrip(harness, "Dissolved queued stop");
-        Assert.IsTrue(harness.Session.AdvanceSimulation(11).Succeeded);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(9).Succeeded);
+        Assert.AreEqual(1, harness.Session.QueryScheduledTrainCommands().Count);
+        Assert.IsTrue(harness.Session.AdvanceSimulation(2).Succeeded);
+        var rejected = harness.Session.QueryEditLog().Single(record => record.Id == queued.EditId);
+        Assert.AreEqual(WorldEditState.Rejected, rejected.State);
+        Assert.AreEqual(nameof(TrainMotionStatus.UnknownAssembly), rejected.Status);
+        Assert.AreEqual(new SimulationPosition(310, 0), rejected.ExecutedAt);
+        Assert.AreEqual(311UL, harness.Session.SimulationStep);
         Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
         Assert.AreEqual(0, harness.Session.QueryScheduledTrainCommands().Count);
     }
@@ -312,7 +321,7 @@ public sealed class TrainCouplerCoastTests
         Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
         var original = harness.Session.QueryTrainAssemblies().Single();
         Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
-        Assert.AreEqual(TrainMotionStatus.Stopped, harness.Session.StopTrain(310, original.Id).Status);
+        Assert.AreEqual(TrainMotionStatus.Pending, harness.Session.StopTrain(310, original.Id).Status);
         Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
 
         BreakCoupler(harness.Session);

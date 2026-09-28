@@ -39,6 +39,7 @@ public sealed partial class VoxelDevelopmentSession
     public PhysicalRailState Rails => _rails;
     public bool HasRailway => _rails.HasRailway;
     internal CompositeCatalogSnapshot CurrentComposites => _composites.Current;
+    internal VoxelCatalogSnapshot? CurrentVoxels => _catalog.Current;
 
     public event Action? Changed;
 
@@ -67,10 +68,16 @@ public sealed partial class VoxelDevelopmentSession
         _composites.Changed -= _onCompositesChanged;
     }
 
+    /// <summary>
+    /// Applies the candidate's world replacements, vehicle list, and assembly adaptation before that catalog is
+    /// published. The later catalog notification only refreshes derived meshes and collision.
+    /// </summary>
     internal void ApplyContentReload(
+        VoxelCatalogSnapshot candidate,
         IReadOnlyList<(WorldVoxelCoord Position, WorldVoxel Voxel)> worldReplacements,
         IReadOnlyList<CompositeInstance>? vehicles)
     {
+        ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(worldReplacements);
         if (worldReplacements.Count > 0)
             World.ReplaceOccupied(worldReplacements);
@@ -81,12 +88,11 @@ public sealed partial class VoxelDevelopmentSession
             _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
         }
 
-        AdaptAssembliesToLiveCatalog();
+        AdaptAssembliesToCatalog(candidate);
     }
 
     private void MarkCatalogDirty()
     {
-        AdaptAssembliesToLiveCatalog();
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;
@@ -119,10 +125,17 @@ public sealed partial class VoxelDevelopmentSession
 
     public void DetachSaveIdentity() => SaveId = null;
 
+    /// <summary>
+    /// The session establish boundary: the declared initial world was built through the edit entry, and the input
+    /// order of the established session starts here at <c>0:0</c> with edit id 1.
+    /// </summary>
     internal void BindEstablishedSource(WorldSource source)
     {
         ArgumentNullException.ThrowIfNull(source);
+        if (Fault is not null || SimulationStep != 0 || _pendingEdits.Count > 0)
+            throw new InvalidOperationException("Only a fresh, unfaulted session with no pending input can be established.");
         WorldSource = source;
+        ResetEditState(WorldEditQueueState.Initial);
         PauseSimulation();
     }
 
@@ -220,9 +233,8 @@ public sealed partial class VoxelDevelopmentSession
         return new CompositeDamageResult(overall, targets[0].VehicleId, outcomes);
     }
 
-    public RailEditResult ConstructRails(RailConstructionPlan? plan = null)
+    private RailEditResult ConstructRailsCore(RailConstructionPlan plan)
     {
-        plan ??= StraightRailFixture.CreateFixturePlan();
         if (_catalog.Current is null)
             return new RailEditResult(RailEditStatus.UnknownDefinition);
 
@@ -251,9 +263,8 @@ public sealed partial class VoxelDevelopmentSession
         return new RailEditResult(RailEditStatus.Committed, _rails.Segments.Select(segment => segment.Id).ToArray());
     }
 
-    public RailRepairResult RepairRails(IReadOnlyList<WorldVoxelCoord> cells)
+    private RailRepairResult RepairRailsCore(IReadOnlyList<WorldVoxelCoord> cells)
     {
-        ArgumentNullException.ThrowIfNull(cells);
         if (cells.Count == 0)
             return new RailRepairResult(RailRepairStatus.InvalidRepair, default);
 
@@ -550,8 +561,6 @@ public sealed partial class VoxelDevelopmentSession
                 _rails,
                 _assemblies,
                 SimulationStep,
-                QueryScheduledTrainCommands(),
-                ScheduledCommandSequence,
                 WorldSource,
                 CaptureEditQueue()))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
@@ -726,14 +735,6 @@ public sealed partial class VoxelDevelopmentSession
         TransactionCount = restore.TransactionCount;
         SimulationStep = restore.SimulationStep;
         SimulationPaused = false;
-        _scheduled.Clear();
-        foreach (var command in restore.ScheduledCommands)
-            _scheduled.Add(new ScheduledTrainCommand(
-                command.AtStep,
-                command.Start,
-                command.Sequence,
-                command.AssemblyId ?? throw new InvalidOperationException("Restored train commands must name an assembly.")));
-        _scheduledSequence = restore.ScheduledSequence;
         ResetEditState(restore.Edits);
         _hostScheduler.Reset();
         NoteAssemblyGraphCommit();
@@ -748,7 +749,7 @@ public sealed partial class VoxelDevelopmentSession
                 World);
         }
 
-        AdaptAssembliesToLiveCatalog();
+        AdaptAssembliesToCatalog(_catalog.Current);
         var previousFollow = FollowedVehicleId;
         SnapDisplayInterval();
         if (previousFollow is { } followed && _vehicles.Any(item => item.Id == followed))

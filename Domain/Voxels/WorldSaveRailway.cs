@@ -306,12 +306,10 @@ internal static class WorldSaveRailwayCodec
         VoxelCatalogSnapshot catalog,
         out PhysicalRailState rails,
         out IReadOnlyList<TrainAssembly> assemblies,
-        out IReadOnlyList<ScheduledTrainCommandQuery> commands,
         out WorldSaveStatus status)
     {
         rails = new PhysicalRailState();
         assemblies = Array.Empty<TrainAssembly>();
-        commands = Array.Empty<ScheduledTrainCommandQuery>();
         status = WorldSaveStatus.InvalidDelta;
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(world);
@@ -322,15 +320,17 @@ internal static class WorldSaveRailwayCodec
             return false;
         if (!TryValidateAssemblies(document.Assemblies, document.Railway, vehicles, catalog, out status))
             return false;
-        if (!TryBindScheduledCommands(
-                document.ScheduledCommands,
-                document.Assemblies,
-                document.SimulationStep,
-                document.ScheduledSequence,
-                document.TransactionCount,
-                out var boundCommands,
-                out status))
+        if (document.ScheduledSequence > document.TransactionCount)
+        {
+            status = WorldSaveStatus.InvalidDelta;
             return false;
+        }
+        // Legacy queues had no edit ids or boundary positions, so they cannot be placed in the input total order.
+        if (document.ScheduledCommands.Count > 0)
+        {
+            status = WorldSaveStatus.UnsupportedRailway;
+            return false;
+        }
 
         var extraIds = document.Railway.CollectIds()
             .Concat(document.Assemblies.Select(item => item.Id.Value))
@@ -353,7 +353,6 @@ internal static class WorldSaveRailwayCodec
         assemblies = document.Assemblies.ToArray();
         if (!TryValidateRestoredMotion(rails, world, assemblies, vehicles, out status))
             return false;
-        commands = boundCommands;
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -544,46 +543,6 @@ internal static class WorldSaveRailwayCodec
         }
 
         return assembly.VehicleIds.Select(Find).Distinct().Count() == 1;
-    }
-
-    private static bool TryBindScheduledCommands(
-        IReadOnlyList<ScheduledTrainCommandQuery> commands,
-        IReadOnlyList<TrainAssembly> assemblies,
-        ulong simulationStep,
-        ulong scheduledSequence,
-        ulong transactionCount,
-        out IReadOnlyList<ScheduledTrainCommandQuery> bound,
-        out WorldSaveStatus status)
-    {
-        bound = Array.Empty<ScheduledTrainCommandQuery>();
-        status = WorldSaveStatus.InvalidDelta;
-        if (scheduledSequence > transactionCount)
-            return false;
-        var sequences = new HashSet<ulong>();
-        var assemblyIds = assemblies.Select(item => item.Id).ToHashSet();
-        var items = new List<ScheduledTrainCommandQuery>(commands.Count);
-        foreach (var command in commands)
-        {
-            if (command.AtStep < simulationStep ||
-                command.Sequence >= scheduledSequence ||
-                !sequences.Add(command.Sequence))
-                return false;
-            if (command.AssemblyId is { } explicitId)
-            {
-                if (!assemblyIds.Contains(explicitId))
-                    return false;
-                items.Add(command);
-                continue;
-            }
-
-            if (assemblies.Count != 1)
-                return false;
-            items.Add(command with { AssemblyId = assemblies[0].Id });
-        }
-
-        bound = items;
-        status = WorldSaveStatus.Loaded;
-        return true;
     }
 
     private static bool TryReadSegments(

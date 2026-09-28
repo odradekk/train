@@ -98,8 +98,6 @@ public sealed class WorldSaveRestore
     public PhysicalRailState? Rails { get; }
     public IReadOnlyList<TrainAssembly> Assemblies { get; }
     public ulong SimulationStep { get; }
-    public IReadOnlyList<ScheduledTrainCommandQuery> ScheduledCommands { get; }
-    public ulong ScheduledSequence { get; }
     public WorldEditQueueState Edits { get; }
 
     public WorldSaveRestore(
@@ -110,8 +108,6 @@ public sealed class WorldSaveRestore
         PhysicalRailState? rails = null,
         IReadOnlyList<TrainAssembly>? assemblies = null,
         ulong simulationStep = 0,
-        IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
-        ulong scheduledSequence = 0,
         WorldEditQueueState? edits = null)
     {
         Edits = edits ?? WorldEditQueueState.Initial;
@@ -124,8 +120,6 @@ public sealed class WorldSaveRestore
         Rails = rails;
         Assemblies = assemblies ?? Array.Empty<TrainAssembly>();
         SimulationStep = simulationStep;
-        ScheduledCommands = scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
-        ScheduledSequence = scheduledSequence;
     }
 }
 

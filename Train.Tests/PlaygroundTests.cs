@@ -166,7 +166,8 @@ public sealed class PlaygroundTests
                  {
                      PlaygroundSequences.StraightRailRunAndHaltId,
                      PlaygroundSequences.StraightRailRejectionsId,
-                     PlaygroundSequences.StraightRailOrderedEditsId
+                     PlaygroundSequences.StraightRailOrderedEditsId,
+                     PlaygroundSequences.StraightRailRepairRestartId
                  })
         {
             var report = PlaygroundValidation.Run(PlaygroundSequences.Find(id)!, content.Catalog, content.Composites);
@@ -240,7 +241,7 @@ public sealed class PlaygroundTests
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         var json = File.ReadAllText(playground.Store.PathFor(saved.SaveId!.Value));
         StringAssert.Contains(json, "\"world_source\"");
-        StringAssert.Contains(json, "\"save_format_version\":4");
+        StringAssert.Contains(json, "\"save_format_version\":5");
 
         using var restarted = PlaygroundHarness.Content(userData: playground.UserData);
         var loaded = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4, restarted.Store, restarted.Composites);

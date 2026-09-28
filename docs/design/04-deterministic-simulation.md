@@ -71,19 +71,19 @@ Simulation Tick
 
 #### 世界修改命令
 
-[#122](https://github.com/odradekk/train/issues/122) 让体素增删与伤害、车辆制造与伤害、五类改装与批量改装统一成为已解析的世界修改命令（`Domain/Commands/`），由 `VoxelDevelopmentSession.SubmitEdit` 这一个校验与事务入口执行。控制台、Playground 面板和自动验证序列只负责把输入解析成命令，不直接改世界。
+[#122](https://github.com/odradekk/train/issues/122) 让体素增删与伤害、车辆制造与伤害、五类改装与批量改装统一成为已解析的世界修改命令（`Domain/Commands/`），由 `VoxelDevelopmentSession.SubmitEdit` 这一个校验与事务入口执行。控制台、Playground 面板和自动验证序列只负责把输入解析成命令，不直接改世界。[#123](https://github.com/odradekk/train/issues/123) 把铁路施工与修复、编组、列车启动与停车也纳入同一种命令（`rail.construct` / `rail.repair` / `train.assemble` / `train.start` / `train.stop`），取消单独的列车命令队列；内容重载改变世界时，由重载边界在当前位置记录一条 `content.publish`，它不经 `SubmitEdit` 提交。
 
-- 接受时分配递增 `edit_id`，并在当前边界取下一个步内序号；立即命令在该位置执行。带目标步的命令排队，时钟推进到目标步后把边界序号清零，在该步列车命令之前，按 `edit_id` 顺序逐条取新序号执行。执行时的预期拒绝同样占用该位置并出队；过去步、`edit_id` 或序号到达 `ulong.MaxValue`、会话故障时整次拒绝，不消耗编号或序号。
+- 接受时分配递增 `edit_id`，并在当前边界取下一个步内序号；立即命令在该位置执行。带目标步的命令排队；每步先积分编组运动，再把时钟加一、边界序号清零，按 `edit_id` 顺序逐条取新序号执行目标为新步的全部命令，不分种类。起停命令的执行条件（铁路、目标编组、动力、控制、支撑、前方进路、事务额度）只在执行位置检查。暂停只停止主机自动推进，不是停车；单步、N 步与主机推进共用同一推进入口，结果与显示帧批量无关。执行时的预期拒绝同样占用该位置并出队；过去步、`edit_id` 或序号到达 `ulong.MaxValue`、会话故障时整次拒绝，不消耗编号或序号。
 - 排队命令只能引用已分配过的运行时实体 ID（小于当前 `next_entity_id`），否则以 `UnallocatedReference` 整次拒绝。实体 ID 只增不减，所以接受时成立的引用在任何后续保存中仍满足存档恢复的同一条件；从未分配的引用不会成为合法待执行命令，也不会写出无法加载的存档。立即命令不入队，照常执行并按业务状态拒绝。
-- 每条命令以单个事务执行。内部异常时恢复执行前的世界体素、车辆、编组、列车命令队列、实体 ID、事务计数、跟随目标与铁路派生状态，记录 `faulted` 并锁定会话，直到重置或读档。
-- 待执行队列（下一个 `edit_id`、当前边界序号、每条命令的接受位置、目标步与规范负载）属于权威状态，进入世界指纹与格式 4 存档的 `world_edits`；执行日志是历史，只保留最近 256 条并维护链式摘要，不进入指纹或存档。
+- 每条命令以单个事务执行。内部异常时恢复执行前的世界体素、车辆、铁路、编组及其牵引开关与速度、实体 ID、事务计数、跟随目标与铁路派生状态，记录 `faulted` 并锁定会话，直到重置或读档。编组积分破坏内部不变量时，恢复该步前的运动快照，把会话停在最后一个完整模拟步边界并记录不带 `edit_id` 的运动故障。
+- 待执行队列（下一个 `edit_id`、当前边界序号、每条命令的接受位置、目标步与规范负载）属于权威状态，进入世界指纹与格式 5 存档的 `world_edits`；`content.publish` 只在执行日志中出现，不进入待执行队列或存档；执行日志是历史，只保留最近 256 条并维护链式摘要，不进入指纹或存档。
 
 #### 世界修改命令的规范编码
 
 输入格式版本 1。编码是紧凑 UTF-8 JSON，字段名与字符串按 Ordinal 比较，不依赖文化设置：
 
-- 顶层固定先写 `input_format_version`、`kind`，再按类型写固定字段顺序。`kind` 取 `voxel.add` / `voxel.remove` / `voxel.damage` / `vehicle.manufacture` / `vehicle.damage` / `vehicle.refit`。
-- 集合语义的多目标伤害按坐标（车辆伤害先按车辆 ID）与伤害值排序；改装操作列表保持提交顺序。调用方仍按自己的目标顺序拿到逐项结果。
+- 顶层固定先写 `input_format_version`、`kind`，再按类型写固定字段顺序。`kind` 取 `voxel.add` / `voxel.remove` / `voxel.damage` / `vehicle.manufacture` / `vehicle.damage` / `vehicle.refit` / `rail.construct` / `rail.repair` / `train.assemble` / `train.start` / `train.stop` / `content.publish`。
+- 集合语义的多目标伤害按坐标（车辆伤害先按车辆 ID）与伤害值排序；改装操作列表、施工计划的轨段 / 体积盒 / 连接以及修复格列表保持提交顺序。`content_digest` 为 64 位大写十六进制，由当前体素、Archetype 与 Composite 定义的语义 Revision 排序拼接后求 SHA-256。调用方仍按自己的目标顺序拿到逐项结果。
 - 坐标与伤害值为 32 位有符号整数，实体 ID 为非零 64 位无符号整数，朝向写正交编码。`double` 使用与文化无关的 round-trip（`R`）文本，拒绝非有限值。
 - 解码拒绝重复字段、未知字段、缺失或 32 位范围内但不支持的 `input_format_version`、缺失或未知的 `kind` 或改装 `op`（`UnknownFormat`），也拒绝越界整数（包括超出 32 位有符号范围或非整数的 `input_format_version`）、类型错误的版本或 `kind` 字段、零实体 ID、非法朝向与非有限数（`Invalid`）。解码不依赖字段顺序，重新编码得到同一规范文本。
 - 摘要是规范 UTF-8 字节的 SHA-256 大写十六进制。执行记录在负载外加 `edit_id`、接受位置、目标步、状态、执行位置与结果状态；日志摘要为 `SHA-256(前一摘要 + "\n" + 记录规范文本)`，初值为 64 个 `0`。
@@ -98,6 +98,12 @@ Simulation Tick
 | `{"input_format_version":1,"kind":"vehicle.manufacture","definition_id":"core:dev-hollow-shell","transform":{"origin_x":60.5,"origin_y":2,"origin_z":0.1,"right_x":0,"right_y":0,"right_z":1,"up_x":0,"up_y":1,"up_z":0}}` | `ED6A6C9B725520D4E8C459DBDE106C9CD07473C5D6C6C7A10FC16FC844557E7B` |
 | `{"input_format_version":1,"kind":"vehicle.damage","targets":[{"vehicle_id":3,"cell":{"x":2,"y":1,"z":0},"amount":5},{"vehicle_id":12,"cell":{"x":1,"y":0,"z":1},"amount":30},{"vehicle_id":18446744073709551615,"cell":{"x":0,"y":0,"z":0},"amount":1}]}` | `F71CCA2A5C78F15D8A0C57451773D16B6E74B67B34A5C262C348F705E92AC4E4` |
 | `{"input_format_version":1,"kind":"vehicle.refit","vehicle_id":1,"operations":[{"op":"move","part_id":7,"cell":{"x":2,"y":5,"z":1}},{"op":"add","cell":{"x":1,"y":5,"z":1},"definition_id":"core:refit-marker","orientation":"pz_py"},{"op":"remove","part_id":9},{"op":"rotate","part_id":8,"orientation":"nx_py"},{"op":"replace","cell":{"x":0,"y":0,"z":0},"definition_id":"core:refit-replacement","orientation":"px_py"}]}` | `3D69E8CBA654E58E210C095CFCFA2657B97A355ED7C242FE3E2889FEEA2033BD` |
+| `{"input_format_version":1,"kind":"rail.construct","segments":[{"alignment":{"start_x":64,"start_y":2.5,"start_z":20,"end_x":65.5,"end_y":2.5,"end_z":20},"rails":[{"min_x":64,"min_y":2,"min_z":19.25,"max_x":65.5,"max_y":2.25,"max_z":19.5}],"sleepers":[{"min_x":64.25,"min_y":1.75,"min_z":19,"max_x":64.75,"max_y":2,"max_z":21}]}],"connections":[{"from_segment":0,"from_end":"end","to_segment":1,"to_end":"start"}]}` | `B8BAAE4323A411A9339CDFC9FAD6154B839A7F8B88A2BF3DA3ED6427A3E17E65` |
+| `{"input_format_version":1,"kind":"rail.repair","cells":[{"x":65,"y":2,"z":19},{"x":-1,"y":0,"z":2147483647},{"x":65,"y":2,"z":19}]}` | `7536DC48F51260FCEC507DF7A8C337569DBB925EFBCDED992E63715F0DEDE945` |
+| `{"input_format_version":1,"kind":"train.assemble","locomotive":{"definition_id":"core:dev-hollow-shell","transform":{"origin_x":60.5,"origin_y":2,"origin_z":0.1,"right_x":0,"right_y":0,"right_z":1,"up_x":0,"up_y":1,"up_z":0},"coupler_cell":{"x":0,"y":1,"z":2}},"carriage":{"definition_id":"core:dev-carriage","transform":{"origin_x":60.5,"origin_y":2,"origin_z":0.1,"right_x":0,"right_y":0,"right_z":1,"up_x":0,"up_y":1,"up_z":0},"coupler_cell":{"x":3,"y":0,"z":-1}}}` | `661B5A340E3EA75E0C90A46B997260F33347417A87CB3C5CB5E88357596170B1` |
+| `{"input_format_version":1,"kind":"train.start","assembly_id":7}` | `FB62CD907B33DECDDDC8CF23053ECFF60ED03C0BDACF0B1454A6CB7BF029A843` |
+| `{"input_format_version":1,"kind":"train.stop","assembly_id":18446744073709551615}` | `0BB581D76A7E804CBFFA7D61635AF230D63E238F6DE01357C1BEC562C8031D53` |
+| `{"input_format_version":1,"kind":"content.publish","content_digest":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"}` | `C0318AACC4275ED027A0C46989447ABBFE44EC53D4B5C1CE5674657B77D01FC4` |
 | 记录 `{"edit_id":1,"accepted_step":0,"accepted_sequence":0,"target_step":0,"state":"executed","executed_step":0,"executed_sequence":0,"status":"Added","edit":<上表第一行>}` | `01F384A6C4982DD98AF20F8A16D9B410A667E4CC6C3526C7EDE88ED043AF9D9E` |
 
 ### Resolver

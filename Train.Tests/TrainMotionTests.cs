@@ -3,6 +3,7 @@ using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Behaviors;
+using Train.Domain.Commands;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
 using Train.Domain.Voxels;
@@ -237,9 +238,15 @@ public sealed class TrainMotionTests
 
         using var exhausted = Parked();
         SetCursor(exhausted.Session, nameof(VoxelDevelopmentSession.TransactionCount), ulong.MaxValue - 1);
-        AssertRejectedMotion(exhausted, TrainMotionStatus.TransactionExhausted, () =>
-            exhausted.Session.StopTrain(50));
-        Assert.AreEqual(0UL, exhausted.Session.SimulationStep);
+        var queuedStop = exhausted.Session.StopTrain(50);
+        Assert.AreEqual(TrainMotionStatus.Pending, queuedStop.Status);
+        Assert.IsTrue(exhausted.Session.AdvanceSimulation(51).Succeeded);
+        var rejected = exhausted.Session.QueryEditLog().Single(record => record.Id == queuedStop.EditId);
+        Assert.AreEqual(WorldEditState.Rejected, rejected.State);
+        Assert.AreEqual(nameof(TrainMotionStatus.TransactionExhausted), rejected.Status);
+        Assert.AreEqual(new SimulationPosition(50, 0), rejected.ExecutedAt);
+        Assert.AreEqual(51UL, exhausted.Session.SimulationStep);
+        Assert.AreEqual(ulong.MaxValue - 1, exhausted.Session.TransactionCount);
         Assert.AreEqual(0, exhausted.Session.QueryScheduledTrainCommands().Count);
     }
 
@@ -407,8 +414,8 @@ public sealed class TrainMotionTests
         StringAssert.Contains(log, "Started");
         StringAssert.Contains(log, "at 0");
         StringAssert.Contains(log, "at 101");
+        StringAssert.Contains(log, "Rail Pending edit");
         StringAssert.Contains(log, "pending stop 101");
-        StringAssert.Contains(log, "Stopped");
         StringAssert.Contains(log, "speed 0");
         StringAssert.Contains(log, "Paused");
         StringAssert.Contains(log, "Resumed");

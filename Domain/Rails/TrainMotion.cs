@@ -21,25 +21,35 @@ public enum TrainMotionStatus
     TransactionExhausted = 14,
     PastStep = 15,
     UnknownAssembly = 16,
-    SimulationFaulted = 17
+    SimulationFaulted = 17,
+    Pending = 18,
+    InputExhausted = 19,
+    UnallocatedReference = 20
 }
 
+/// <summary>A pending <c>train.start</c> or <c>train.stop</c> edit; <see cref="Sequence"/> is its edit id.</summary>
 public sealed record ScheduledTrainCommandQuery(
     ulong AtStep,
     bool Start,
     ulong Sequence,
     EntityId? AssemblyId = null);
 
+/// <summary>
+/// <see cref="EditId"/> names the accepted <c>train.start</c>/<c>train.stop</c> edit; <see cref="TrainMotionStatus.Pending"/>
+/// means it was queued for <see cref="AtStep"/> and its conditions are checked when it executes there.
+/// </summary>
 public sealed record TrainMotionResult(
     TrainMotionStatus Status,
     ulong SimulationStep = 0,
     ulong AdvancedSteps = 0,
-    ulong AtStep = 0)
+    ulong AtStep = 0,
+    ulong? EditId = null)
 {
     public bool Succeeded => Status is
         TrainMotionStatus.Started or
         TrainMotionStatus.Stopped or
         TrainMotionStatus.Advanced or
         TrainMotionStatus.Paused or
-        TrainMotionStatus.Resumed;
+        TrainMotionStatus.Resumed or
+        TrainMotionStatus.Pending;
 }
