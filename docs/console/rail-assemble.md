@@ -7,7 +7,7 @@ rail assemble
 rail assemble at 330
 ```
 
-本命令提交 `train.assemble` 世界修改，与其他修改共用 [`voxel edits`](voxel-edits.md) 的编号、边界顺序、日志与存档。无 `at` 时在当前边界立即执行并输出下文的编组结果；`at <step>` 排到该步边界，输出 `Edit <id> train.assemble pending` 与接受/目标位置，结果在执行位置按当时铁路和内容确定。
+本命令提交 `train.assemble` 世界修改，与其他修改共用 [`voxel edits`](voxel-edits.md) 的编号、边界顺序、日志与存档。无 `at` 时在当前边界立即执行并输出下文的编组结果；`at <step>` 排到该步边界，输出 `Edit <id> train.assemble pending` 与接受/目标位置，结果在执行位置按当时铁路和内容确定；`at` 等于当前步时立即执行，按 [`voxel edits`](voxel-edits.md) 的两行格式回报。修改编号或边界序号耗尽输出 `Rail assemble InputExhausted.`，会话已故障输出 `Rail assemble SimulationFaulted.`，均不分配编号。
 
 参数：无。走与开发场景、测试相同的正式入口 `AssembleStaticTrain()`：从已发布 JSON Blueprint 制造 `core:dev-locomotive` 与 `core:dev-carriage`，按直轨约束求解刚体姿态，并用真实存活车钩零件建立一条明确连接。不按空间邻近自动接续，也不推进列车。
 

@@ -128,7 +128,7 @@
 | `UnknownSource` | `voxel load` 的存档带有不受支持的 `world_source` 来源类型；当前会话不变 |
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
-| `Started` / `Stopped` / `Advanced` / `Paused` / `Resumed` / `ReverseUnsupported` / `StepOverflow` / `PastStep` / `NoAssembly` / `UnknownAssembly` / `NoRailway` / `MissingPropulsion` / `MissingControl` / `InsufficientSupport` / `DisconnectedPath` / `VehicleConstraint` / `TransactionExhausted` | `rail start` / `stop` / `step` / `pause` / `resume` 结果。反向启动、过去目标步、无法确定的多编组目标、或步号溢出在提交前拒绝，不分配修改编号、原状态不变。起停是 `train.start` / `train.stop` 世界修改，与其他修改共用编号和边界顺序；接受后输出带 `edit <id>`，未来步为 `Pending`，执行条件到目标步边界才检查，失败只把该条记为拒绝并出队，模拟继续。到达 `MaxValue` 后仍执行该步修改，再推进为 `StepOverflow`；内部故障为 `SimulationFaulted` |
+| `Started` / `Stopped` / `Pending` / `Advanced` / `Paused` / `Resumed` / `ReverseUnsupported` / `StepOverflow` / `PastStep` / `NoAssembly` / `UnknownAssembly` / `NoRailway` / `MissingPropulsion` / `MissingControl` / `InsufficientSupport` / `DisconnectedPath` / `VehicleConstraint` / `TransactionExhausted` / `InputExhausted` / `UnallocatedReference` / `SimulationFaulted` | `rail start` / `stop` / `step` / `pause` / `resume` 结果。反向启动、过去目标步、无法确定的多编组目标、或步号溢出在提交前拒绝，不分配修改编号、原状态不变。起停是 `train.start` / `train.stop` 世界修改，与其他修改共用编号和边界顺序；接受后输出带 `edit <id>`，未来步为 `Pending`，执行条件到目标步边界才检查，失败只把该条记为拒绝并出队，模拟继续。到达 `MaxValue` 后仍执行该步修改，再推进为 `StepOverflow`；内部故障为 `SimulationFaulted` |
 | `InvalidName` / `NotFound` / `WriteFailed` / `ReadFailed` / `Truncated` | 显示名非法、没有该 UUID 文件、写入/读取失败或 JSON 不完整；世界与上一份有效文件保持不变 |
 | `UnknownFormat` / `UnknownGenerator` / `IncompatibleBase` / `MismatchedId` / `MissingDefinition` / `InvalidDelta` | 版本、未知字段、路径与文档 UUID 不一致、缺少必要定义记录、基底或 Delta 不能安全恢复；不部分加载，也不报告成功。`transaction_count` 为 `ulong.MaxValue`、旧格式 `scheduled_sequence` 大于事务计数、非法铁路几何/占格/轨枕、重复车辆、两车无车钩、停车却带速度且仍声称有活动车头、运行中却缺少当前 control、缩放/剪切轴、待执行修改引用从未分配的身份、以及 save-local 与车辆身份不一致，属于 `InvalidDelta`。格式 5 出现旧列车队列字段属于 `UnknownFormat`。合法单车、多编组与无动力滑行可以恢复 |
 | `TransactionExhausted` | 制造 / 改装 / 车辆伤害 / 编组时再提交会写出不可加载的计数（当前值已为 `MaxValue - 1` 或 `MaxValue`）；不绕回、不部分提交、不覆盖可读存档 |
@@ -284,7 +284,7 @@ voxel save Playground Train
 
 建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 中写出 `world_source`，新进程加载后恢复来源并保持暂停，见 [voxel load](voxel-load.md)。注意：`voxel reset` 仍是现有命令，会清空 Playground 世界并去掉来源信息。
 
-HUD 下方的修改面板把 “世界格 / 量 / 延迟步” 与 “最新车辆局部格” 输入转成世界修改命令：放置矿石、移除体素、损伤体素、在此制造空壳、修复轨道（`rail.repair` 修复世界格所在的原轨段占格），以及对最新制造车辆的损伤零件、加装、拆除、移到 +X、旋转、替换与批量加装两格。上方的 “启动列车 / 停车” 按钮同样读取延迟步，提交 `train.start` / `train.stop`。延迟步为 0 时立即执行，否则排到当前步加延迟的边界；同一边界按点击与控制台输入的先后顺序执行，例如暂停时依次点 “损伤体素”（量 100，打在轨格上）、“修复轨道”、“启动列车”，三者在同一边界取得连续位置。面板按局部格找到零件后提交带真实 ID 的命令，与下列控制台写法产生同一负载和位置；最下一行显示边界位置、下一个编号、待执行数与最近一条记录。
+HUD 下方的修改面板把 “世界格 / 量 / 延迟步” 与 “最新车辆局部格” 输入转成世界修改命令：放置矿石、移除体素、损伤体素、在此制造空壳、修复轨道（`rail.repair` 修复世界格所在的原轨段占格）、施工直轨（与 `rail construct` 同一固定计划）、组装列车（与 `rail assemble` 同一夹具，无车配置中可正式编组），以及对最新制造车辆的损伤零件、加装、拆除、移到 +X、旋转、替换与批量加装两格。上方的 “启动列车 / 停车” 按钮同样读取延迟步，提交 `train.start` / `train.stop`。延迟步为 0 时立即执行，否则排到当前步加延迟的边界；同一边界按点击与控制台输入的先后顺序执行，例如暂停时依次点 “损伤体素”（量 100，打在轨格上）、“修复轨道”、“启动列车”，三者在同一边界取得连续位置。面板按局部格找到零件后提交带真实 ID 的命令，与下列控制台写法产生同一负载和位置；最下一行显示边界位置、下一个编号、待执行数与最近一条记录。
 
 ```text
 voxel add 60 3 20 core:ferrous-ore px_py
@@ -298,7 +298,7 @@ voxel save Playground Edits
 
 暂停在第 300 步时，前四条依次得到 `300:0`…`300:3`，时钟与列车不动；后两条排到第 303 步，`voxel edits` 报告 `boundary 300:6`。保存后在新进程加载，队列原样恢复，推进到第 303 步时两条命令按原顺序执行一次。
 
-验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法、拒绝、`straight-rail-ordered-edits` 与 `straight-rail-repair-restart`（断轨停车 → 未修轨启动被拒 → 修复 → 显式启动 → 同步多条定时起停）序列，并驱动真实场景按钮、修改面板与控制台输入完成暂停多操作、待执行结构命令与定时停车 / 修轨混合队列、保存与跨进程继续对照，再在有车配置中经面板排定同一边界的断轨、修复、启动与控制台定时停车，并用 Godot 物理检查立即断轨与修复后的轨格碰撞；未传 `-OutputDirectory` 时输出写入新的 `.godot/validation/issue-122/<时间戳>/`。
+验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法、拒绝、`straight-rail-ordered-edits` 与 `straight-rail-repair-restart`（断轨停车 → 未修轨启动被拒 → 修复 → 显式启动 → 同步多条定时起停）序列，并驱动真实场景按钮、修改面板与控制台输入完成暂停多操作、待执行结构命令与定时停车 / 修轨混合队列、保存与跨进程继续对照，再在有车配置中经面板排定同一边界的断轨、修复、启动与控制台定时停车，并用 Godot 物理检查立即断轨与修复后的轨格碰撞，无车配置则经面板施工（被既有线路拒绝）与组装列车；未传 `-OutputDirectory` 时输出写入新的 `.godot/validation/issue-122/<时间戳>/`。
 
 ### 切片 2 边界复现
 
