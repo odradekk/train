@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -374,6 +375,74 @@ public sealed class RailCommandTests
     }
 
     [TestMethod]
+    public void Running_train_takes_the_candidate_speed_limit_inside_the_publication_before_it_commits()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(session.AdvanceSimulation(300).Succeeded);
+        Assert.AreEqual(4d, Speed(session));
+
+        var logged = session.QueryEditLog().Count;
+        double? dispatched = null;
+        int? loggedAtDispatch = null;
+        session.EditFaultProbe = record =>
+        {
+            if (record.Edit is not ContentPublishEdit)
+                return;
+            dispatched = Speed(session);
+            loggedAtDispatch = session.QueryEditLog().Count;
+        };
+        WritePropulsion(playground, targetSpeed: 2);
+
+        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        Assert.AreEqual(2d, dispatched);
+        Assert.AreEqual(logged, loggedAtDispatch);
+        Assert.AreEqual(2d, Speed(session));
+        Assert.IsTrue(session.QueryTrainAssemblies().Single().Running);
+        var published = session.QueryEditLog()[^1];
+        Assert.IsInstanceOfType<ContentPublishEdit>(published.Edit);
+        Assert.AreEqual("Published", published.Status);
+        Assert.AreEqual(new SimulationPosition(300, 0), published.ExecutedAt);
+    }
+
+    [TestMethod]
+    public void Publication_fault_after_candidate_adaptation_keeps_the_old_catalog_world_and_speed()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(session.AdvanceSimulation(300).Succeeded);
+        Assert.AreEqual(WorldCommandStatus.Added, session.Add(Probe, Ore, VoxelOrientation.Identity).Status);
+        var catalog = playground.Catalog.Current;
+        var composites = playground.Composites.Current;
+
+        double? adaptedSpeed = null;
+        int? adaptedDurability = null;
+        session.EditFaultProbe = record =>
+        {
+            if (record.Edit is not ContentPublishEdit)
+                return;
+            adaptedSpeed = Speed(session);
+            adaptedDurability = session.Query(Probe).Voxel!.CurrentDurability;
+            throw new InvalidOperationException("injected publication failure");
+        };
+        WritePropulsion(playground, targetSpeed: 2);
+        WriteOre(playground, maxDurability: 60);
+
+        Assert.ThrowsException<InvalidOperationException>(() => playground.Reloader.Reload());
+        Assert.AreEqual(2d, adaptedSpeed);
+        Assert.AreEqual(60, adaptedDurability);
+        Assert.AreSame(catalog, playground.Catalog.Current);
+        Assert.AreSame(composites, playground.Composites.Current);
+        Assert.AreEqual(4d, Speed(session));
+        Assert.IsTrue(session.QueryTrainAssemblies().Single().Running);
+        Assert.AreEqual(100, session.Query(Probe).Voxel!.CurrentDurability);
+        Assert.AreEqual(WorldEditKind.ContentPublish, session.Fault!.Kind);
+        Assert.AreEqual(WorldEditState.Faulted, session.QueryEditLog()[^1].State);
+    }
+
+    [TestMethod]
     public void Content_publication_outside_the_edit_order_is_refused_by_the_generic_entry()
     {
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
@@ -457,6 +526,19 @@ public sealed class RailCommandTests
         (List<CompositeInstance>)typeof(VoxelDevelopmentSession)
             .GetField("_vehicles", BindingFlags.Instance | BindingFlags.NonPublic)!
             .GetValue(session)!;
+
+    private static double Speed(VoxelDevelopmentSession session) =>
+        session.QueryTrainAssemblies().Single().Speed;
+
+    private static void WritePropulsion(PlaygroundHarness harness, double targetSpeed) =>
+        harness.Source.AddVoxelFile("core", "voxels/propulsion.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good(
+                "propulsion",
+                "开发动力件",
+                "切片 4.2 最小动力行为零件。能力由已注册 propulsion 行为推导，不表示燃料或通用资源。",
+                value: 10,
+                tagsJson: "[]",
+                behaviorsJson: $"[{{\"type\":\"propulsion\",\"target_speed\":{targetSpeed.ToString(CultureInfo.InvariantCulture)},\"acceleration\":2}}]")));
 
     private static void WriteOre(PlaygroundHarness harness, int maxDurability, string displayName = "Ferrous Ore") =>
         harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(

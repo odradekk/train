@@ -88,13 +88,13 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         var session = _session;
         var changedVehicles = vehicles is not null && VehiclesDiffer(session.Vehicles, vehicles);
         var publication = ContentPublishEdit.For(voxels, composites);
-        // The session reads definitions live, so only a semantic revision change alters how the world evolves.
+        // Equal semantic digests leave world evolution unchanged, so no content.publish edit is recorded.
         if (replacements.Count == 0 && !changedVehicles && session.CurrentVoxels is { } published &&
             ContentPublishEdit.For(published, session.CurrentComposites).ContentDigest == publication.ContentDigest)
             return ContentWorldReloadPlan.Accept(null);
         return ContentWorldReloadPlan.Accept(() => session.PublishContent(
             publication,
-            () => session.ApplyContentReload(replacements, changedVehicles ? vehicles : null)));
+            () => session.ApplyContentReload(voxels, replacements, changedVehicles ? vehicles : null)));
     }
 
     public static bool TryAdaptVehicles(

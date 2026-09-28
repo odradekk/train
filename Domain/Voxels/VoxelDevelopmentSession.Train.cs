@@ -925,9 +925,8 @@ public sealed partial class VoxelDevelopmentSession
         TransactionCount = snapshot.TransactionCount;
     }
 
-    private void AdaptAssembliesToLiveCatalog()
+    private void AdaptAssembliesToCatalog(VoxelCatalogSnapshot? voxels)
     {
-        var voxels = _catalog.Current;
         if (voxels is null)
             return;
         for (var index = 0; index < _assemblies.Count; index++)

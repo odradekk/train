@@ -68,10 +68,16 @@ public sealed partial class VoxelDevelopmentSession
         _composites.Changed -= _onCompositesChanged;
     }
 
+    /// <summary>
+    /// Applies the candidate's world replacements, vehicle list, and assembly adaptation before that catalog is
+    /// published. The later catalog notification only refreshes derived meshes and collision.
+    /// </summary>
     internal void ApplyContentReload(
+        VoxelCatalogSnapshot candidate,
         IReadOnlyList<(WorldVoxelCoord Position, WorldVoxel Voxel)> worldReplacements,
         IReadOnlyList<CompositeInstance>? vehicles)
     {
+        ArgumentNullException.ThrowIfNull(candidate);
         ArgumentNullException.ThrowIfNull(worldReplacements);
         if (worldReplacements.Count > 0)
             World.ReplaceOccupied(worldReplacements);
@@ -82,12 +88,11 @@ public sealed partial class VoxelDevelopmentSession
             _vehicles.Sort((left, right) => left.Id.Value.CompareTo(right.Id.Value));
         }
 
-        AdaptAssembliesToLiveCatalog();
+        AdaptAssembliesToCatalog(candidate);
     }
 
     private void MarkCatalogDirty()
     {
-        AdaptAssembliesToLiveCatalog();
         _rebuildAll = true;
         _rebuildAllCollision = true;
         _rebuildComposites = true;
@@ -744,7 +749,7 @@ public sealed partial class VoxelDevelopmentSession
                 World);
         }
 
-        AdaptAssembliesToLiveCatalog();
+        AdaptAssembliesToCatalog(_catalog.Current);
         var previousFollow = FollowedVehicleId;
         SnapDisplayInterval();
         if (previousFollow is { } followed && _vehicles.Any(item => item.Id == followed))
