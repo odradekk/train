@@ -155,7 +155,9 @@ public static class PlaygroundInspector
         if (vehicle.IdentityRetention != IdentityRetentionStatus.Retained)
             failures.Insert(0, "identity " + vehicle.IdentityRetention);
         if (session.Fault is { } fault)
-            failures.Add($"simulation fault edit {Number(fault.EditId)}");
+            failures.Add(fault.EditId is { } editId
+                ? $"simulation fault edit {Number(editId)}"
+                : "simulation fault");
         var capabilities = vehicle.Capabilities.Count == 0 ? "none" : string.Join(',', vehicle.Capabilities);
         return new PlaygroundInspection(
             item,

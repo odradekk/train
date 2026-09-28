@@ -39,7 +39,9 @@ public enum TrainAssemblyStatus
     AlreadyAssembled = 11,
     NoRailway = 12,
     TransactionExhausted = 13,
-    EntityIdExhausted = 14
+    EntityIdExhausted = 14,
+    InputExhausted = 15,
+    SimulationFaulted = 16
 }
 
 public sealed record TrainAssemblyRequest(

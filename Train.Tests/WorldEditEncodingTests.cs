@@ -3,6 +3,7 @@ using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train.Tests;
@@ -47,7 +48,45 @@ public sealed class WorldEditEncodingTests
         ("vehicle.refit",
             () => new VehicleRefitEdit(new EntityId(1), RefitOperations()),
             "{\"input_format_version\":1,\"kind\":\"vehicle.refit\",\"vehicle_id\":1,\"operations\":[{\"op\":\"move\",\"part_id\":7,\"cell\":{\"x\":2,\"y\":5,\"z\":1}},{\"op\":\"add\",\"cell\":{\"x\":1,\"y\":5,\"z\":1},\"definition_id\":\"core:refit-marker\",\"orientation\":\"pz_py\"},{\"op\":\"remove\",\"part_id\":9},{\"op\":\"rotate\",\"part_id\":8,\"orientation\":\"nx_py\"},{\"op\":\"replace\",\"cell\":{\"x\":0,\"y\":0,\"z\":0},\"definition_id\":\"core:refit-replacement\",\"orientation\":\"px_py\"}]}",
-            "3D69E8CBA654E58E210C095CFCFA2657B97A355ED7C242FE3E2889FEEA2033BD")
+            "3D69E8CBA654E58E210C095CFCFA2657B97A355ED7C242FE3E2889FEEA2033BD"),
+        ("rail.construct",
+            () => new RailConstructEdit(new RailConstructionPlan(
+                new[]
+                {
+                    new PlannedRailSegment(
+                        new HorizontalStraightAlignment(64, 2.5, 20, 65.5, 2.5, 20),
+                        new[] { new RailVolumeBox(64, 2, 19.25, 65.5, 2.25, 19.5) },
+                        new[] { new RailVolumeBox(64.25, 1.75, 19, 64.75, 2, 21) })
+                },
+                new[] { new PlannedRailConnection(0, RailEnd.End, 1, RailEnd.Start) })),
+            "{\"input_format_version\":1,\"kind\":\"rail.construct\",\"segments\":[{\"alignment\":{\"start_x\":64,\"start_y\":2.5,\"start_z\":20,\"end_x\":65.5,\"end_y\":2.5,\"end_z\":20},\"rails\":[{\"min_x\":64,\"min_y\":2,\"min_z\":19.25,\"max_x\":65.5,\"max_y\":2.25,\"max_z\":19.5}],\"sleepers\":[{\"min_x\":64.25,\"min_y\":1.75,\"min_z\":19,\"max_x\":64.75,\"max_y\":2,\"max_z\":21}]}],\"connections\":[{\"from_segment\":0,\"from_end\":\"end\",\"to_segment\":1,\"to_end\":\"start\"}]}",
+            "B8BAAE4323A411A9339CDFC9FAD6154B839A7F8B88A2BF3DA3ED6427A3E17E65"),
+        ("rail.repair",
+            () => new RailRepairEdit(new[] { new WorldVoxelCoord(65, 2, 19), new WorldVoxelCoord(-1, 0, int.MaxValue), new WorldVoxelCoord(65, 2, 19) }),
+            "{\"input_format_version\":1,\"kind\":\"rail.repair\",\"cells\":[{\"x\":65,\"y\":2,\"z\":19},{\"x\":-1,\"y\":0,\"z\":2147483647},{\"x\":65,\"y\":2,\"z\":19}]}",
+            "7536DC48F51260FCEC507DF7A8C337569DBB925EFBCDED992E63715F0DEDE945"),
+        ("train.assemble",
+            () => new TrainAssembleEdit(
+                HollowShellFixture.DefinitionId,
+                Pose(60.5, 2, 0.1, 0, 0, 1),
+                new LocalVoxelCoord(0, 1, 2),
+                new CompositeDefinitionId("core", "dev-carriage"),
+                Pose(60.5, 2, 0.1, 0, 0, 1),
+                new LocalVoxelCoord(3, 0, -1)),
+            "{\"input_format_version\":1,\"kind\":\"train.assemble\",\"locomotive\":{\"definition_id\":\"core:dev-hollow-shell\",\"transform\":{\"origin_x\":60.5,\"origin_y\":2,\"origin_z\":0.1,\"right_x\":0,\"right_y\":0,\"right_z\":1,\"up_x\":0,\"up_y\":1,\"up_z\":0},\"coupler_cell\":{\"x\":0,\"y\":1,\"z\":2}},\"carriage\":{\"definition_id\":\"core:dev-carriage\",\"transform\":{\"origin_x\":60.5,\"origin_y\":2,\"origin_z\":0.1,\"right_x\":0,\"right_y\":0,\"right_z\":1,\"up_x\":0,\"up_y\":1,\"up_z\":0},\"coupler_cell\":{\"x\":3,\"y\":0,\"z\":-1}}}",
+            "661B5A340E3EA75E0C90A46B997260F33347417A87CB3C5CB5E88357596170B1"),
+        ("train.start",
+            () => new TrainStartEdit(new EntityId(7)),
+            "{\"input_format_version\":1,\"kind\":\"train.start\",\"assembly_id\":7}",
+            "FB62CD907B33DECDDDC8CF23053ECFF60ED03C0BDACF0B1454A6CB7BF029A843"),
+        ("train.stop",
+            () => new TrainStopEdit(new EntityId(ulong.MaxValue)),
+            "{\"input_format_version\":1,\"kind\":\"train.stop\",\"assembly_id\":18446744073709551615}",
+            "0BB581D76A7E804CBFFA7D61635AF230D63E238F6DE01357C1BEC562C8031D53"),
+        ("content.publish",
+            () => new ContentPublishEdit("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"),
+            "{\"input_format_version\":1,\"kind\":\"content.publish\",\"content_digest\":\"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}",
+            "C0318AACC4275ED027A0C46989447ABBFE44EC53D4B5C1CE5674657B77D01FC4")
     };
 
     private const string GoldenRecord =
@@ -214,6 +253,50 @@ public sealed class WorldEditEncodingTests
         AssertDecode(Version("0"), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(remove.Replace("\"kind\":\"voxel.remove\"", "\"kind\":\"voxel.melt\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(remove.Replace("\"kind\":\"voxel.remove\",", "", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+    }
+
+    [TestMethod]
+    public void Rail_and_train_payloads_separate_invalid_values_from_unknown_formats()
+    {
+        var construct = Golden[6].Canonical;
+        AssertDecode(construct.Replace("\"from_end\":\"end\"", "\"from_end\":\"middle\"", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(construct.Replace("\"start_y\":2.5", "\"start_y\":1e400", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(construct.Replace("\"from_segment\":0", "\"from_segment\":2147483648", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(construct.Replace(",\"sleepers\":[{", ",\"sleepers\":[{\"layer\":0,", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(construct.Replace(",\"connections\":", ",\"curvature\":0,\"connections\":", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(construct.Replace("\"kind\":\"rail.construct\"", "\"kind\":\"rail.curve\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+
+        var repair = Golden[7].Canonical;
+        AssertDecode(repair.Replace("\"y\":2", "\"y\":2147483648", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(repair.Replace("\"cells\":[", "\"cells\":[1,", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+
+        var assemble = Golden[8].Canonical;
+        AssertDecode(assemble.Replace("core:dev-carriage", "Core:dev-carriage", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(assemble.Replace("\"coupler_cell\":{\"x\":3", "\"coupler_cell\":{\"x\":3.5", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(assemble.Replace("\"carriage\":{", "\"tender\":{},\"carriage\":{", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+
+        var start = Golden[9].Canonical;
+        AssertDecode(start.Replace("\"assembly_id\":7", "\"assembly_id\":0", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(start.Replace("\"assembly_id\":7", "\"assembly_id\":-7", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(start.Replace("\"assembly_id\":7", "\"assembly_id\":7,\"heading\":\"reverse\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(Golden[10].Canonical.Replace("18446744073709551615", "18446744073709551616", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        Assert.ThrowsException<ArgumentException>(() => new TrainStartEdit(default));
+
+        var publish = Golden[11].Canonical;
+        AssertDecode(publish.Replace("ABCDEF\"", "abcdef\"", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(publish.Replace("ABCDEF\"", "ABCDE\"", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        Assert.ThrowsException<ArgumentException>(() => new ContentPublishEdit("abc"));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => new RailConstructEdit(new RailConstructionPlan(
+            new[] { new PlannedRailSegment(new HorizontalStraightAlignment(double.NaN, 0, 0, 1, 0, 0), Array.Empty<RailVolumeBox>(), Array.Empty<RailVolumeBox>()) },
+            Array.Empty<PlannedRailConnection>())));
+    }
+
+    [TestMethod]
+    public void Rail_repair_cells_keep_their_submitted_order()
+    {
+        var a = new WorldVoxelCoord(1, 2, 3);
+        var b = new WorldVoxelCoord(1, 2, 2);
+        Assert.AreNotEqual(new RailRepairEdit(new[] { a, b }).Canonical, new RailRepairEdit(new[] { b, a }).Canonical);
     }
 
     [TestMethod]

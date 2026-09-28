@@ -1,4 +1,5 @@
 using System.Globalization;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
@@ -18,6 +19,11 @@ public sealed class RailConsoleCommands
     public string Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
+        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var editAt) &&
+            editAt is { } editStep &&
+            TryParseEdit(editArguments, out var edit))
+            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, editStep));
+
         if (arguments.Count == 1 && string.Equals(arguments[0], "construct", StringComparison.OrdinalIgnoreCase))
             return FormatConstruct(_session.ConstructRails());
 
@@ -69,11 +75,26 @@ public sealed class RailConsoleCommands
         return Usage();
     }
 
+    private static bool TryParseEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
+    {
+        edit = null!;
+        if (arguments.Count == 1 && string.Equals(arguments[0], "construct", StringComparison.OrdinalIgnoreCase))
+            edit = new RailConstructEdit(StraightRailFixture.CreateFixturePlan());
+        else if (arguments.Count == 1 && string.Equals(arguments[0], "assemble", StringComparison.OrdinalIgnoreCase))
+            edit = TrainAssembleEdit.StaticFixture;
+        else if (arguments.Count >= 2 &&
+                 string.Equals(arguments[0], "repair", StringComparison.OrdinalIgnoreCase) &&
+                 (arguments.Count - 1) % 3 == 0 &&
+                 TryCells(arguments, 1, out var cells))
+            edit = new RailRepairEdit(cells);
+        return edit is not null;
+    }
+
     private static string Usage() =>
         string.Join('\n',
-            "Usage: rail construct | rail assemble | rail start [assembly <id>] [reverse] [step] | rail stop [assembly <id>] [step] | rail pause | rail resume | rail step [n]",
+            "Usage: rail construct [at <step>] | rail assemble [at <step>] | rail start [assembly <id>] [reverse] [<step>|at <step>] | rail stop [assembly <id>] [<step>|at <step>] | rail pause | rail resume | rail step [n]",
             "rail query [occupancy|intervals|connections|graph|rebuild|assembly|motion|display] | rail query <x> <y> <z>",
-            "rail follow [vehicle <id>] | rail repair <x> <y> <z> [<x> <y> <z> ...].");
+            "rail follow [vehicle <id>] | rail repair <x> <y> <z> [<x> <y> <z> ...] [at <step>].");
 
     private string FormatConstruct(RailEditResult result)
     {
@@ -154,14 +175,15 @@ public sealed class RailConsoleCommands
 
     private static string FormatMotion(TrainMotionResult result)
     {
+        var edit = result.EditId is { } id ? $" edit {id}" : string.Empty;
         if (!result.Succeeded)
             return result.AdvancedSteps == 0
-                ? $"Rail {result.Status}."
+                ? $"Rail {result.Status}{edit}."
                 : $"Rail {result.Status} step {result.SimulationStep} advanced {result.AdvancedSteps}.";
         if (result.Status == TrainMotionStatus.Advanced)
             return $"Rail {result.Status} step {result.SimulationStep} advanced {result.AdvancedSteps}.";
-        if (result.Status is TrainMotionStatus.Started or TrainMotionStatus.Stopped)
-            return $"Rail {result.Status} step {result.SimulationStep} at {result.AtStep}.";
+        if (result.Status is TrainMotionStatus.Started or TrainMotionStatus.Stopped or TrainMotionStatus.Pending)
+            return $"Rail {result.Status}{edit} step {result.SimulationStep} at {result.AtStep}.";
         return $"Rail {result.Status} step {result.SimulationStep}.";
     }
 
@@ -175,7 +197,7 @@ public sealed class RailConsoleCommands
         foreach (var command in _session.QueryScheduledTrainCommands())
         {
             lines.Add(
-                $"pending {(command.Start ? "start" : "stop")} {command.AtStep.ToString(CultureInfo.InvariantCulture)} assembly {(command.AssemblyId?.ToString() ?? "none")}");
+                $"pending {(command.Start ? "start" : "stop")} {command.AtStep.ToString(CultureInfo.InvariantCulture)} assembly {(command.AssemblyId?.ToString() ?? "none")} edit {command.Sequence.ToString(CultureInfo.InvariantCulture)}");
         }
         if (assemblies.Count == 0)
         {
@@ -333,8 +355,9 @@ public sealed class RailConsoleCommands
         out EntityId? assemblyId)
     {
         heading = RailHeading.AlongAlignment;
-        atStep = null;
         assemblyId = null;
+        if (!WorldEditConsole.TrySplitAt(arguments, out arguments, out atStep))
+            return false;
         var index = 1;
         if (index < arguments.Count && string.Equals(arguments[index], "assembly", StringComparison.OrdinalIgnoreCase))
         {
@@ -352,7 +375,7 @@ public sealed class RailConsoleCommands
 
         if (index < arguments.Count)
         {
-            if (!TryStep(arguments[index], out var step))
+            if (atStep is not null || !TryStep(arguments[index], out var step))
                 return false;
             atStep = step;
             index++;
@@ -366,8 +389,9 @@ public sealed class RailConsoleCommands
         out ulong? atStep,
         out EntityId? assemblyId)
     {
-        atStep = null;
         assemblyId = null;
+        if (!WorldEditConsole.TrySplitAt(arguments, out arguments, out atStep))
+            return false;
         var index = 1;
         if (index < arguments.Count && string.Equals(arguments[index], "assembly", StringComparison.OrdinalIgnoreCase))
         {
@@ -379,7 +403,7 @@ public sealed class RailConsoleCommands
 
         if (index < arguments.Count)
         {
-            if (!TryStep(arguments[index], out var step))
+            if (atStep is not null || !TryStep(arguments[index], out var step))
                 return false;
             atStep = step;
             index++;

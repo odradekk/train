@@ -1,4 +1,6 @@
+using Train.Content;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train.Domain.Commands;
@@ -10,7 +12,13 @@ public enum WorldEditKind
     VoxelDamage = 2,
     VehicleManufacture = 3,
     VehicleDamage = 4,
-    VehicleRefit = 5
+    VehicleRefit = 5,
+    RailConstruct = 6,
+    RailRepair = 7,
+    TrainAssemble = 8,
+    TrainStart = 9,
+    TrainStop = 10,
+    ContentPublish = 11
 }
 
 /// <summary>
@@ -208,4 +216,166 @@ public sealed class VehicleRefitEdit : WorldEdit
         new[] { VehicleId }
             .Concat(Operations.Where(operation => operation.PartId is not null).Select(operation => operation.PartId!.Value))
             .Distinct();
+}
+
+/// <summary>One atomic rail construction; segment, volume, and connection order are semantic and preserved.</summary>
+public sealed class RailConstructEdit : WorldEdit
+{
+    public RailConstructionPlan Plan { get; }
+
+    public RailConstructEdit(RailConstructionPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        if (!IsEncodable(plan))
+            throw new ArgumentOutOfRangeException(nameof(plan), "Rail plan values must be finite and rail ends defined.");
+        Plan = new RailConstructionPlan(
+            Array.AsReadOnly(plan.Segments.Select(segment => new PlannedRailSegment(
+                segment.Alignment,
+                Array.AsReadOnly(segment.RailVolumes.ToArray()),
+                Array.AsReadOnly(segment.SleeperVolumes.ToArray()))).ToArray()),
+            Array.AsReadOnly(plan.Connections.ToArray()));
+    }
+
+    public static bool IsEncodable(RailConstructionPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        static bool Finite(RailVolumeBox box) =>
+            double.IsFinite(box.MinX) && double.IsFinite(box.MinY) && double.IsFinite(box.MinZ) &&
+            double.IsFinite(box.MaxX) && double.IsFinite(box.MaxY) && double.IsFinite(box.MaxZ);
+        foreach (var segment in plan.Segments)
+        {
+            if (segment is null || segment.RailVolumes is null || segment.SleeperVolumes is null)
+                return false;
+            var alignment = segment.Alignment;
+            if (!double.IsFinite(alignment.StartX) || !double.IsFinite(alignment.StartY) || !double.IsFinite(alignment.StartZ) ||
+                !double.IsFinite(alignment.EndX) || !double.IsFinite(alignment.EndY) || !double.IsFinite(alignment.EndZ) ||
+                !segment.RailVolumes.All(Finite) || !segment.SleeperVolumes.All(Finite))
+                return false;
+        }
+
+        return plan.Connections.All(connection =>
+            connection is not null && Enum.IsDefined(connection.FromEnd) && Enum.IsDefined(connection.ToEnd));
+    }
+
+    public override WorldEditKind Kind => WorldEditKind.RailConstruct;
+    public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
+}
+
+/// <summary>One atomic in-place repair; the cell list keeps submission order, so the reported first cell is stable.</summary>
+public sealed class RailRepairEdit : WorldEdit
+{
+    public IReadOnlyList<WorldVoxelCoord> Cells { get; }
+
+    public RailRepairEdit(IReadOnlyList<WorldVoxelCoord> cells)
+    {
+        ArgumentNullException.ThrowIfNull(cells);
+        Cells = Array.AsReadOnly(cells.ToArray());
+    }
+
+    public override WorldEditKind Kind => WorldEditKind.RailRepair;
+    public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
+}
+
+/// <summary>Assembles a locomotive and a carriage from published definitions at explicit poses and coupler cells.</summary>
+public sealed class TrainAssembleEdit : WorldEdit
+{
+    public CompositeDefinitionId LocomotiveId { get; }
+    public CompositeTransform LocomotiveTransform { get; }
+    public LocalVoxelCoord LocomotiveCouplerCell { get; }
+    public CompositeDefinitionId CarriageId { get; }
+    public CompositeTransform CarriageTransform { get; }
+    public LocalVoxelCoord CarriageCouplerCell { get; }
+
+    public TrainAssembleEdit(
+        CompositeDefinitionId locomotiveId,
+        CompositeTransform locomotiveTransform,
+        LocalVoxelCoord locomotiveCouplerCell,
+        CompositeDefinitionId carriageId,
+        CompositeTransform carriageTransform,
+        LocalVoxelCoord carriageCouplerCell)
+    {
+        if (locomotiveId.Namespace is null || carriageId.Namespace is null)
+            throw new ArgumentException("Definition ids are required.");
+        if (!locomotiveTransform.IsFinite || !carriageTransform.IsFinite)
+            throw new ArgumentOutOfRangeException(nameof(locomotiveTransform), "Transform components must be finite.");
+        LocomotiveId = locomotiveId;
+        LocomotiveTransform = locomotiveTransform;
+        LocomotiveCouplerCell = locomotiveCouplerCell;
+        CarriageId = carriageId;
+        CarriageTransform = carriageTransform;
+        CarriageCouplerCell = carriageCouplerCell;
+    }
+
+    public static TrainAssembleEdit StaticFixture { get; } = new(
+        StaticTrainFixture.LocomotiveId,
+        StaticTrainFixture.LocomotiveTransform,
+        StaticTrainFixture.LocomotiveRearCouplerCell,
+        StaticTrainFixture.CarriageId,
+        StaticTrainFixture.CarriageTransform,
+        StaticTrainFixture.CarriageFrontCouplerCell);
+
+    public override WorldEditKind Kind => WorldEditKind.TrainAssemble;
+    public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
+}
+
+/// <summary>Starts one assembly along its alignment; start conditions are checked where the edit executes.</summary>
+public sealed class TrainStartEdit : WorldEdit
+{
+    public EntityId AssemblyId { get; }
+
+    public TrainStartEdit(EntityId assemblyId)
+    {
+        AssemblyId = RequireId(assemblyId, nameof(assemblyId));
+    }
+
+    public override WorldEditKind Kind => WorldEditKind.TrainStart;
+    public override IEnumerable<EntityId> EntityReferences => new[] { AssemblyId };
+}
+
+public sealed class TrainStopEdit : WorldEdit
+{
+    public EntityId AssemblyId { get; }
+
+    public TrainStopEdit(EntityId assemblyId)
+    {
+        AssemblyId = RequireId(assemblyId, nameof(assemblyId));
+    }
+
+    public override WorldEditKind Kind => WorldEditKind.TrainStop;
+    public override IEnumerable<EntityId> EntityReferences => new[] { AssemblyId };
+}
+
+/// <summary>
+/// A content publication that adapts the live world. Recorded by the content reload boundary, never submitted or
+/// queued; the digest names the published voxel, archetype, and composite semantic revisions.
+/// </summary>
+public sealed class ContentPublishEdit : WorldEdit
+{
+    public const int DigestLength = 64;
+
+    public string ContentDigest { get; }
+
+    public ContentPublishEdit(string contentDigest)
+    {
+        if (!IsDigest(contentDigest))
+            throw new ArgumentException("Content digest must be 64 upper-case hex characters.", nameof(contentDigest));
+        ContentDigest = contentDigest;
+    }
+
+    public static ContentPublishEdit For(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites)
+    {
+        ArgumentNullException.ThrowIfNull(voxels);
+        ArgumentNullException.ThrowIfNull(composites);
+        var lines = voxels.Entries.Select(pair => $"voxel {pair.Key.Value} {pair.Value.SemanticRevision}")
+            .Concat(composites.Archetypes.Select(pair => $"archetype {pair.Key.Value} {pair.Value.SemanticRevision}"))
+            .Concat(composites.Composites.Select(pair => $"composite {pair.Key.Value} {pair.Value.SemanticRevision}"))
+            .OrderBy(line => line, StringComparer.Ordinal);
+        return new ContentPublishEdit(WorldEditCodec.Digest(string.Join('\n', lines)));
+    }
+
+    internal static bool IsDigest(string? text) =>
+        text is { Length: DigestLength } && text.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F');
+
+    public override WorldEditKind Kind => WorldEditKind.ContentPublish;
+    public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
 }

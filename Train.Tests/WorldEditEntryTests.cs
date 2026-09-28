@@ -65,13 +65,14 @@ public sealed class WorldEditEntryTests
         Assert.AreEqual(report.FinalFingerprint, WorldSaveAuthority.Fingerprint(session));
 
         var text = Messages(logger);
-        StringAssert.Contains(text, "Edit 11 voxel.remove pending");
-        StringAssert.Contains(text, "accepted 0:10 target 3");
+        StringAssert.Contains(text, "Rail Started edit 1");
+        StringAssert.Contains(text, "Edit 12 voxel.remove pending");
+        StringAssert.Contains(text, "accepted 0:11 target 3");
         StringAssert.Contains(text, "Edits pending 3");
-        StringAssert.Contains(text, "edit 13 vehicle.refit accepted 0:12 target 3");
-        StringAssert.Contains(text, "edit 13 vehicle.refit rejected EnvelopeExceeded at 3:2 accepted 0:12");
-        StringAssert.Contains(text, "edit 14 voxel.add rejected Occupied at 3:3 accepted 3:3");
-        StringAssert.Contains(text, "Edits boundary 4:0 next 15");
+        StringAssert.Contains(text, "edit 14 vehicle.refit accepted 0:13 target 3");
+        StringAssert.Contains(text, "edit 14 vehicle.refit rejected EnvelopeExceeded at 3:2 accepted 0:13");
+        StringAssert.Contains(text, "edit 15 voxel.add rejected Occupied at 3:3 accepted 3:3");
+        StringAssert.Contains(text, "Edits boundary 4:0 next 16");
         StringAssert.Contains(text, $"digest {session.EditLogDigest}");
         StringAssert.Contains(text, "fault none");
     }

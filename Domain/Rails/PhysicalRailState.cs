@@ -163,16 +163,40 @@ public sealed class PhysicalRailState
         MarkDerivedStale();
     }
 
-    internal (WorldVoxelCoord[] Destroyed, DerivedRailGraph Derived, bool DerivedCurrent) CaptureWorldEffects() =>
-        (_destroyed.ToArray(), _derived, _derivedCurrent);
+    internal Snapshot CaptureState() =>
+        new(
+            _segments.ToArray(),
+            _connections.ToArray(),
+            _occupancy.Values.ToArray(),
+            _destroyed.ToArray(),
+            SleeperCount,
+            _derived,
+            _derivedCurrent);
 
-    internal void RestoreWorldEffects((WorldVoxelCoord[] Destroyed, DerivedRailGraph Derived, bool DerivedCurrent) effects)
+    internal void RestoreState(Snapshot snapshot)
     {
+        _segments.Clear();
+        _segments.AddRange(snapshot.Segments);
+        _connections.Clear();
+        _connections.AddRange(snapshot.Connections);
+        _occupancy.Clear();
+        foreach (var cell in snapshot.Occupancy)
+            _occupancy[cell.Cell] = cell;
         _destroyed.Clear();
-        _destroyed.UnionWith(effects.Destroyed);
-        _derived = effects.Derived;
-        _derivedCurrent = effects.DerivedCurrent;
+        _destroyed.UnionWith(snapshot.Destroyed);
+        SleeperCount = snapshot.SleeperCount;
+        _derived = snapshot.Derived;
+        _derivedCurrent = snapshot.DerivedCurrent;
     }
+
+    internal sealed record Snapshot(
+        PhysicalRailSegment[] Segments,
+        RailConnection[] Connections,
+        RailOccupancyCell[] Occupancy,
+        WorldVoxelCoord[] Destroyed,
+        int SleeperCount,
+        DerivedRailGraph Derived,
+        bool DerivedCurrent);
 
     public void NoteRestored(WorldVoxelCoord cell)
     {

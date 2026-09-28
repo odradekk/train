@@ -207,8 +207,17 @@ public sealed class WorldEditPersistenceTests
             ("mistyped kind", root => First(root)["edit"]!["kind"] = 5, WorldSaveStatus.InvalidDelta),
             ("unknown queue field", root => Queue(root)["priority"] = 1, WorldSaveStatus.UnknownFormat),
             ("missing queue", root => root.Remove("world_edits"), WorldSaveStatus.Truncated),
-            ("queue in predecessor format", root => root["save_format_version"] = WorldSaveDocument.PredecessorFormatVersion, WorldSaveStatus.UnknownFormat)
+            ("queue before world edits", root => Legacy(root, WorldSaveDocument.FirstWorldEditsFormatVersion - 1), WorldSaveStatus.UnknownFormat),
+            ("legacy train queue in current format", root => root["scheduled_commands"] = new JsonArray(), WorldSaveStatus.UnknownFormat),
+            ("predecessor without legacy train queue", root => root["save_format_version"] = WorldSaveDocument.PredecessorFormatVersion, WorldSaveStatus.Truncated)
         };
+
+        static void Legacy(JsonObject root, int version)
+        {
+            root["save_format_version"] = version;
+            root["scheduled_commands"] = new JsonArray();
+            root["scheduled_sequence"] = 0;
+        }
 
         foreach (var (name, mutate, expected) in cases)
         {
@@ -218,6 +227,12 @@ public sealed class WorldEditPersistenceTests
             Assert.AreEqual(expected, session.Load(saved.SaveId.Value).Status, name);
             Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session), name);
         }
+
+        var predecessor = JsonNode.Parse(json)!.AsObject();
+        Legacy(predecessor, WorldSaveDocument.PredecessorFormatVersion);
+        File.WriteAllText(path, predecessor.ToJsonString());
+        Assert.AreEqual(WorldSaveStatus.Loaded, session.Load(saved.SaveId.Value).Status, "predecessor with empty legacy train queue");
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
 
         File.WriteAllText(path, json);
         Assert.AreEqual(WorldSaveStatus.Loaded, session.Load(saved.SaveId.Value).Status);

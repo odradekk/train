@@ -106,9 +106,9 @@ public sealed record PlaygroundOperation(
     public static PlaygroundOperation Pause() => new(PlaygroundOperationKind.Pause);
     public static PlaygroundOperation Resume() => new(PlaygroundOperationKind.Resume);
     public static PlaygroundOperation Advance(ulong steps) => new(PlaygroundOperationKind.Advance, steps);
-    public static PlaygroundOperation Start(RailHeading heading = RailHeading.AlongAlignment) =>
-        new(PlaygroundOperationKind.StartTrain, Heading: heading);
-    public static PlaygroundOperation Stop() => new(PlaygroundOperationKind.StopTrain);
+    public static PlaygroundOperation Start(RailHeading heading = RailHeading.AlongAlignment, ulong? atStep = null) =>
+        new(PlaygroundOperationKind.StartTrain, Heading: heading, AtStep: atStep);
+    public static PlaygroundOperation Stop(ulong? atStep = null) => new(PlaygroundOperationKind.StopTrain, AtStep: atStep);
     public static PlaygroundOperation Damage(WorldVoxelCoord cell, int amount) =>
         new(PlaygroundOperationKind.DamageVoxel, Cell: cell, Amount: amount);
 
@@ -120,8 +120,8 @@ public sealed record PlaygroundOperation(
             PlaygroundOperationKind.Pause => session.PauseSimulation().Status.ToString(),
             PlaygroundOperationKind.Resume => session.ResumeSimulation().Status.ToString(),
             PlaygroundOperationKind.Advance => session.AdvanceSimulation(Steps).Status.ToString(),
-            PlaygroundOperationKind.StartTrain => session.StartTrain(Heading).Status.ToString(),
-            PlaygroundOperationKind.StopTrain => session.StopTrain().Status.ToString(),
+            PlaygroundOperationKind.StartTrain => session.StartTrain(Heading, AtStep).Status.ToString(),
+            PlaygroundOperationKind.StopTrain => session.StopTrain(AtStep).Status.ToString(),
             PlaygroundOperationKind.DamageVoxel => session.Damage(Cell, Amount).Status.ToString(),
             PlaygroundOperationKind.Edit or PlaygroundOperationKind.RefitLatestVehicle or PlaygroundOperationKind.DamageLatestVehicle =>
                 ResolveEdit(session, out var edit) is { } refused ? refused : session.SubmitEdit(edit!, AtStep).Status,
@@ -166,7 +166,8 @@ public sealed record PlaygroundOperation(
     public string Describe() => Kind switch
     {
         PlaygroundOperationKind.Advance => $"advance {Steps.ToString(CultureInfo.InvariantCulture)}",
-        PlaygroundOperationKind.StartTrain => $"start {Heading}",
+        PlaygroundOperationKind.StartTrain => $"start {Heading}{DescribeAt()}",
+        PlaygroundOperationKind.StopTrain => $"stop{DescribeAt()}",
         PlaygroundOperationKind.DamageVoxel => $"damage {Cell.X},{Cell.Y},{Cell.Z} {Amount.ToString(CultureInfo.InvariantCulture)}",
         PlaygroundOperationKind.Edit => $"edit {WorldEditCodec.WireKind(Edit!.Kind)}{DescribeAt()}",
         PlaygroundOperationKind.RefitLatestVehicle =>
@@ -347,6 +348,7 @@ public static class PlaygroundSequences
     public const string StraightRailRunAndHaltId = "straight-rail-run-and-halt";
     public const string StraightRailRejectionsId = "straight-rail-rejections";
     public const string StraightRailOrderedEditsId = "straight-rail-ordered-edits";
+    public const string StraightRailRepairRestartId = "straight-rail-repair-restart";
 
     public static readonly WorldVoxelCoord EditProbe = new(60, 3, 20);
     public static readonly VoxelDefinitionId EditVoxelId = new("core", "ferrous-ore");
@@ -360,13 +362,15 @@ public static class PlaygroundSequences
             new[]
             {
                 Step(PlaygroundOperation.Start(), "Started",
-                    Check(PlaygroundObservation.Paused, "true")),
+                    Check(PlaygroundObservation.Paused, "true"),
+                    Check(PlaygroundObservation.EditBoundary, "0:1"),
+                    Check(PlaygroundObservation.LastEdit, "1:executed:Started@0:0")),
                 Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity)), "Added",
                     Check(PlaygroundObservation.SimulationStep, "0"),
-                    Check(PlaygroundObservation.EditBoundary, "0:1"),
-                    Check(PlaygroundObservation.NextEditId, "2")),
+                    Check(PlaygroundObservation.EditBoundary, "0:2"),
+                    Check(PlaygroundObservation.NextEditId, "3")),
                 Step(PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(EditProbe, 25) })), "Damaged",
-                    Check(PlaygroundObservation.EditBoundary, "0:2")),
+                    Check(PlaygroundObservation.EditBoundary, "0:3")),
                 Step(PlaygroundOperation.Submit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, EditShellPose)), "Valid",
                     Check(PlaygroundObservation.VehicleCount, "3")),
                 Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)), "Valid"),
@@ -382,28 +386,28 @@ public static class PlaygroundSequences
                     }), "Valid",
                     Check(PlaygroundObservation.SimulationStep, "0"),
                     Check(PlaygroundObservation.LeadFrontContactX, "80"),
-                    Check(PlaygroundObservation.EditBoundary, "0:10"),
-                    Check(PlaygroundObservation.LastEdit, "10:executed:Valid@0:9")),
+                    Check(PlaygroundObservation.EditBoundary, "0:11"),
+                    Check(PlaygroundObservation.LastEdit, "11:executed:Valid@0:10")),
                 Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(HollowShellRefit.Moved)), PlaygroundOperation.NoPartStatus,
-                    Check(PlaygroundObservation.EditBoundary, "0:10"),
-                    Check(PlaygroundObservation.NextEditId, "11")),
+                    Check(PlaygroundObservation.EditBoundary, "0:11"),
+                    Check(PlaygroundObservation.NextEditId, "12")),
                 Step(PlaygroundOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending",
                     Check(PlaygroundObservation.PendingEdits, "1")),
                 Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity), 3), "Pending"),
                 Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.OutOfEnvelope, HollowShellRefit.MarkerId), 3), "Pending",
                     Check(PlaygroundObservation.PendingEdits, "3"),
-                    Check(PlaygroundObservation.EditBoundary, "0:13")),
+                    Check(PlaygroundObservation.EditBoundary, "0:14")),
                 Step(PlaygroundOperation.Advance(3), "Advanced",
                     Check(PlaygroundObservation.SimulationStep, "3"),
                     Check(PlaygroundObservation.PendingEdits, "0"),
                     Check(PlaygroundObservation.EditBoundary, "3:3"),
-                    Check(PlaygroundObservation.LastEdit, "13:rejected:EnvelopeExceeded@3:2")),
+                    Check(PlaygroundObservation.LastEdit, "14:rejected:EnvelopeExceeded@3:2")),
                 Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity)), "Occupied",
                     Check(PlaygroundObservation.EditBoundary, "3:4"),
-                    Check(PlaygroundObservation.LastEdit, "14:rejected:Occupied@3:3")),
+                    Check(PlaygroundObservation.LastEdit, "15:rejected:Occupied@3:3")),
                 Step(PlaygroundOperation.Advance(1), "Advanced",
                     Check(PlaygroundObservation.EditBoundary, "4:0"),
-                    Check(PlaygroundObservation.NextEditId, "15"))
+                    Check(PlaygroundObservation.NextEditId, "16"))
             }),
         new PlaygroundSequence(
             StraightRailRunAndHaltId,
@@ -445,6 +449,49 @@ public static class PlaygroundSequences
                     Check(PlaygroundObservation.HaltReason, "ForwardGap")),
                 Step(PlaygroundOperation.Advance(ulong.MaxValue), "StepOverflow",
                     Check(PlaygroundObservation.SimulationStep, "2000"))
+            }),
+        new PlaygroundSequence(
+            StraightRailRepairRestartId,
+            PlaygroundConfigurations.StraightRailTrainId,
+            new[]
+            {
+                Step(PlaygroundOperation.Start(), "Started"),
+                Step(PlaygroundOperation.Advance(300), "Advanced",
+                    Check(PlaygroundObservation.LeadFrontContactX, "96")),
+                Step(PlaygroundOperation.Damage(StraightRailFixture.FirstSegmentDamageCell, 100), "Removed"),
+                Step(PlaygroundOperation.Advance(2000), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "2300"),
+                    Check(PlaygroundObservation.Running, "false"),
+                    Check(PlaygroundObservation.HaltReason, "ForwardGap")),
+                Step(PlaygroundOperation.Start(), "DisconnectedPath",
+                    Check(PlaygroundObservation.LastEdit, "3:rejected:DisconnectedPath@2300:0")),
+                Step(PlaygroundOperation.Submit(new RailRepairEdit(new[] { StraightRailFixture.FirstSegmentDamageCell })), "Repaired",
+                    Check(PlaygroundObservation.HaltReason, "None"),
+                    Check(PlaygroundObservation.Running, "false"),
+                    Check(PlaygroundObservation.LastEdit, "4:executed:Repaired@2300:1")),
+                Step(PlaygroundOperation.Start(), "Started",
+                    Check(PlaygroundObservation.Speed, "0"),
+                    Check(PlaygroundObservation.Running, "true"),
+                    Check(PlaygroundObservation.LeadFrontContactX, "110"),
+                    Check(PlaygroundObservation.EditBoundary, "2300:3")),
+                Step(PlaygroundOperation.Stop(2400), "Pending"),
+                Step(PlaygroundOperation.Start(atStep: 2400), "Pending"),
+                Step(PlaygroundOperation.Stop(2450), "Pending",
+                    Check(PlaygroundObservation.PendingEdits, "3")),
+                Step(PlaygroundOperation.Advance(101), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "2401"),
+                    Check(PlaygroundObservation.Running, "true"),
+                    Check(PlaygroundObservation.PendingEdits, "1"),
+                    Check(PlaygroundObservation.LastEdit, "7:executed:Started@2400:1")),
+                Step(PlaygroundOperation.Pause(), "Paused",
+                    Check(PlaygroundObservation.Running, "true"),
+                    Check(PlaygroundObservation.PendingEdits, "1")),
+                Step(PlaygroundOperation.Advance(100), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "2501"),
+                    Check(PlaygroundObservation.Running, "false"),
+                    Check(PlaygroundObservation.Speed, "0"),
+                    Check(PlaygroundObservation.PendingEdits, "0"),
+                    Check(PlaygroundObservation.LastEdit, "8:executed:Stopped@2450:0"))
             })
     };
 
