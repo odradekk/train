@@ -38,6 +38,7 @@ internal sealed class PlaygroundObservationSmoke
     private Vector3 _lastCarriageCenter;
     private Vector2 _clickTarget;
     private int _interpolatedFrames;
+    private bool _rebuilt;
     private bool _finished;
 
     public PlaygroundObservationSmoke(PlaygroundScene scene, string? saveId)
@@ -133,49 +134,53 @@ internal sealed class PlaygroundObservationSmoke
                     Next();
                 break;
             case 11:
+                if (IgnoreTruncatedDrags(Loco))
+                    Next();
+                break;
+            case 12:
                 if (_frames == 1)
                     _scene.Press("run");
                 SelectFromList(ObservedObject.Vehicle(Carriage!.Value));
                 if (Transition("switch", Key.V, PlaygroundCameraMode.Follow, Carriage.Value))
                     Next();
                 break;
-            case 12:
+            case 13:
                 SelectFromList(ObservedObject.Vehicle(Loco));
                 if (Transition("switch-back", Key.None, PlaygroundCameraMode.Follow, Loco))
                     Next();
                 break;
-            case 13:
+            case 14:
                 SplitWhileMoving();
                 Next();
                 break;
-            case 14:
+            case 15:
                 if (_frames == 1)
                     CheckSplitContinuity();
                 if (FollowWhileMoving(Loco, "OBSERVE_FOLLOW_AFTER_SPLIT"))
                     Next();
                 break;
-            case 15:
+            case 16:
                 ChangeActiveLocomotive();
                 Next();
                 break;
-            case 16:
+            case 17:
                 SelectFromList(ObservedObject.Vehicle(Carriage!.Value));
                 if (Transition("follow-carriage", Key.None, PlaygroundCameraMode.Follow, Carriage.Value))
                     Next();
                 break;
-            case 17:
+            case 18:
                 DestroyFollowed();
                 Next();
                 break;
-            case 18 when _frames >= SettleFrames:
+            case 19 when _frames >= SettleFrames:
                 CheckDestroyedInPlace();
                 Next();
                 break;
-            case 19:
+            case 20:
                 if (ClickFragment())
                     Next();
                 break;
-            case 20:
+            case 21:
                 SaveAndFinish();
                 break;
         }
@@ -214,6 +219,17 @@ internal sealed class PlaygroundObservationSmoke
                 break;
             case 5 when _frames >= SettleFrames:
                 RequireUnchanged("empty observation");
+                Next();
+                break;
+            case 6:
+                if (RebuildFocusedCell(scheduled: false))
+                    Next();
+                break;
+            case 7:
+                if (RebuildFocusedCell(scheduled: true))
+                    Next();
+                break;
+            case 8:
                 SaveAndFinish();
                 break;
         }
@@ -488,6 +504,175 @@ internal sealed class PlaygroundObservationSmoke
             $"OBSERVE_ORBIT_ZOOM vehicle={vehicleId} yaw_turn={turned:0.####} distance={before:0.###}->{after:0.###} " +
             $"step={Session.SimulationStep} paused=true");
         return true;
+    }
+
+    /// <summary>
+    /// Right-drags whose release the view never sees, while following a paused body: a release made while the console
+    /// is open, a release routed to the observation panel because a left press on it took GUI mouse focus, and a
+    /// window focus-out notification mid-drag. Mouse and key events are real parsed input. None may leave a drag
+    /// behind that turns the camera on a later motion; a fresh right-drag still orbits.
+    /// </summary>
+    private bool IgnoreTruncatedDrags(EntityId vehicleId)
+    {
+        var viewport = _scene.GetViewport();
+        var screen = viewport.GetScreenTransform();
+        var size = viewport.GetVisibleRect().Size;
+        var world = screen * (size * 0.5f);
+        var panel = screen * (View.PanelRect.Position + new Vector2(8, 8));
+        var drag = screen.BasisXform(new Vector2(OrbitDragPixels, 0));
+        switch (_frames)
+        {
+            case 1:
+                Require(Observer.Mode == PlaygroundCameraMode.Follow && Session.SimulationPaused, $"truncated drags need a paused follow: {Observer.Describe()}");
+                RightButton(true, world);
+                break;
+            case 3:
+                TapKey(Key.Quoteleft);
+                break;
+            case 5:
+                Require(Main.ConsoleOpen, "~ did not open the console");
+                RightButton(false, world);
+                break;
+            case 7:
+                TapKey(Key.Quoteleft);
+                break;
+            case 9:
+                Require(!Main.ConsoleOpen, "~ did not close the console");
+                Require(!Input.IsMouseButtonPressed(MouseButton.Right), "right button still down after its release");
+                _pose = Observer.Pose;
+                Motion(world, drag, 0);
+                break;
+            case 11:
+                RequireStill("a motion after a release made in the console");
+                RightButton(true, world);
+                break;
+            case 13:
+                Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = true, Position = panel, GlobalPosition = panel });
+                break;
+            case 15:
+                RightButton(false, world);
+                Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = false, Position = panel, GlobalPosition = panel });
+                break;
+            case 17:
+                Require(!Input.IsMouseButtonPressed(MouseButton.Right), "right button still down after the panel took its release");
+                Motion(world, drag, 0);
+                break;
+            case 19:
+                RequireStill("a motion after the panel took the release");
+                RightButton(true, world);
+                break;
+            case 21:
+                _scene.GetTree().Root.PropagateNotification((int)Node.NotificationWMWindowFocusOut);
+                Motion(world, drag, MouseButtonMask.Right);
+                break;
+            case 23:
+                RequireStill("a held-button motion after the window lost focus");
+                RightButton(false, world);
+                break;
+            case 25:
+                RightButton(true, world);
+                Motion(world, drag, MouseButtonMask.Right);
+                RightButton(false, world + drag);
+                break;
+            case 27:
+                var center = BodyCenter(vehicleId);
+                var before = PlaygroundObservationView.To(_pose.Position);
+                var camera = _scene.Camera.GlobalPosition;
+                var turned = new Vector2(before.X - center.X, before.Z - center.Z).AngleTo(new Vector2(camera.X - center.X, camera.Z - center.Z));
+                Require(Math.Abs(turned) > 0.01f, "right-drag after the truncated drags did not orbit");
+                Require(Session.SimulationPaused && Session.SimulationStep == _mark, "truncated drags moved the clock");
+                GD.Print(
+                    $"OBSERVE_TRUNCATED_DRAGS_IGNORED console_release=still panel_release=still focus_out=still " +
+                    $"fresh_drag_yaw_turn={turned:0.####} step={Session.SimulationStep}");
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Focuses an ordinary world voxel, then removes and re-adds the same definition there through the console before
+    /// the next frame, either immediately or as two edits due at one step. The old reference must be lost with the
+    /// camera free in place, and the rebuilt voxel must not be selected.
+    /// </summary>
+    private bool RebuildFocusedCell(bool scheduled)
+    {
+        var probe = PlaygroundSequences.EditProbe;
+        var cell = $"{probe.X} {probe.Y} {probe.Z}";
+        var add = $"voxel add {cell} {PlaygroundSequences.EditVoxelId.Value} {VoxelOrientation.Identity}";
+        if (_frames == 1)
+        {
+            if (Session.Query(probe).Voxel is null)
+                RunConsole(add);
+            RunConsole($"observe select cell {cell}");
+            RunConsole("observe focus");
+            Require(Observer.Mode == PlaygroundCameraMode.Focus && Observer.Target?.Cell == probe, $"cell focus: {Observer.Describe()}");
+            _rebuilt = false;
+            return false;
+        }
+
+        if (!_rebuilt)
+        {
+            Require(_frames < TransitionLimitFrames, "cell focus transition never finished");
+            if (Observer.Transitioning)
+                return false;
+            _pose = Observer.Pose;
+            _positions.Clear();
+            _positions.Add(_scene.Camera.GlobalPosition);
+            var notices = Observer.Notices.Count;
+            if (scheduled)
+            {
+                var step = Session.SimulationStep + 1;
+                RunConsole($"voxel remove {cell} at {step}");
+                RunConsole($"{add} at {step}");
+                Require(Observer.Selection is not null && Observer.Notices.Count == notices, "queueing the rebuild dropped the selection");
+                RunConsole("rail step 1");
+            }
+            else
+            {
+                RunConsole($"voxel remove {cell}");
+                RunConsole(add);
+            }
+
+            _rebuilt = true;
+            _frames = 1;
+            return false;
+        }
+
+        if (_frames < 3)
+            return false;
+        Require(Session.Query(probe).Voxel?.DefinitionId == PlaygroundSequences.EditVoxelId, "rebuild did not leave the same definition");
+        Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Target is null && Observer.Selection is null,
+            $"rebuilt cell kept {Observer.Describe()}");
+        Require(Observer.LastNotice is { Kind: PlaygroundNoticeKind.TargetLost, Mode: PlaygroundCameraMode.Focus } lost && lost.Object.Cell == probe,
+            $"notice {Observer.LastNotice?.Describe()}");
+        Require(View.NoticeText.Contains("已彻底销毁", StringComparison.Ordinal), $"panel notice: {View.NoticeText}");
+        Require(View.InspectionText == "选中：无", $"panel inspection: {View.InspectionText}");
+        Require(Observer.Pose.Position == _pose.Position && (_scene.Camera.GlobalPosition - _positions[0]).Length() < Tolerance,
+            "camera moved when the rebuilt cell was lost");
+        RunConsole("observe");
+        GD.Print(
+            $"OBSERVE_REBUILD_LOST {(scheduled ? "scheduled" : "immediate")} {Observer.LastNotice!.Describe()} " +
+            $"camera_moved=false {Observer.Describe()} step={Session.SimulationStep}");
+        return true;
+    }
+
+    private void RequireStill(string what)
+    {
+        Require(Observer.Pose == _pose, $"{what} turned the camera: {_pose} -> {Observer.Pose}");
+        GD.Print($"OBSERVE_TRUNCATED_DRAG_STILL after={what}");
+    }
+
+    private static void RightButton(bool pressed, Vector2 window) =>
+        Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.Right, Pressed = pressed, Position = window, GlobalPosition = window });
+
+    private static void Motion(Vector2 window, Vector2 relative, MouseButtonMask mask) =>
+        Input.ParseInputEvent(new InputEventMouseMotion { Position = window + relative, GlobalPosition = window + relative, Relative = relative, ButtonMask = mask });
+
+    private static void TapKey(Key key)
+    {
+        PressKey(key, true);
+        PressKey(key, false);
     }
 
     private void SplitWhileMoving()

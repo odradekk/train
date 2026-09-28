@@ -11,13 +11,17 @@ param(
 #      no selection, W flight while paused, list and click selection that never
 #      move the camera, Godot-physics picks checked against domain collision,
 #      eased focus / follow, follow against the drawn body node while running
-#      and paused, a smooth local target switch, a coupler split while moving
+#      and paused, right-drags whose release is lost to the console, the panel or
+#      a focus loss that must not keep turning the camera, a smooth local target
+#      switch, a coupler split while moving
 #      and an active-locomotive change that keep the target, and a destroyed
 #      follow target that leaves the camera free in place; then saves;
 #   2. loads that save in a new process and checks observation is back to its
 #      default and the authority fingerprint matches the saving process.
 # The empty configuration covers free observation, rail picks and focus without
-# any vehicle. Godot runs with --fixed-fps 45 so display time is reproducible and
+# any vehicle, and a focused voxel removed and re-added with the same definition
+# through the console (immediately and as two edits due at one step) that must
+# still count as lost. Godot runs with --fixed-fps 45 so display time is reproducible and
 # each frame covers 4/3 simulation steps: following while running must then read
 # interpolated display poses that differ from the authoritative step positions.
 # Every run writes to a new timestamped directory.
@@ -118,6 +122,7 @@ try {
                 "OBSERVE_FOLLOW_PAUSED frames=10",
                 "camera_constant=true",
                 "OBSERVE_ORBIT_ZOOM vehicle=",
+                "OBSERVE_TRUNCATED_DRAGS_IGNORED console_release=still panel_release=still focus_out=still",
                 "OBSERVE_TRANSITION switch mode=Follow",
                 "OBSERVE_TRANSITION switch-back mode=Follow",
                 "OBSERVE_SPLIT_KEEP assemblies=2",
@@ -131,7 +136,11 @@ try {
                 "OBSERVE_CLICK_FRAGMENT cell="
             )
         } else {
-            $markers += "OBSERVE_SEGMENT_FOLLOW_REFUSED mode=Free"
+            $markers += @(
+                "OBSERVE_SEGMENT_FOLLOW_REFUSED mode=Free",
+                "OBSERVE_REBUILD_LOST immediate target-lost cell",
+                "OBSERVE_REBUILD_LOST scheduled target-lost cell"
+            )
         }
         $ok = Require-Markers $establish $markers "$config establish"
         if (-not $ok) { $failed = $true; continue }

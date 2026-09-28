@@ -41,6 +41,7 @@ public partial class PlaygroundObservationView : Node3D
     private ItemList _list = null!;
     private IReadOnlyList<PlaygroundListEntry> _entries = Array.Empty<PlaygroundListEntry>();
     private MeshInstance3D _highlight = null!;
+    private PanelContainer _panel = null!;
     private int _shownNotices;
     private bool _dragging;
 
@@ -51,6 +52,7 @@ public partial class PlaygroundObservationView : Node3D
     internal string InspectionText => _inspection.Text;
     internal string NoticeText => _notice.Text;
     internal IReadOnlyList<PlaygroundListEntry> Entries => _entries;
+    internal Rect2 PanelRect => _panel.GetGlobalRect();
 
     public void Initialize(
         VoxelDevelopmentSession session,
@@ -69,10 +71,14 @@ public partial class PlaygroundObservationView : Node3D
         ApplyCamera(Observer.Pose);
     }
 
+    public override void _ExitTree() => Observer?.Dispose();
+
     /// <summary>Advances the camera by one display frame from the same sample the vehicle bodies were just drawn with.</summary>
     public void Present(double delta, TrainDisplaySample sample)
     {
         _sample = sample;
+        if (_consoleOpen() || !Input.IsMouseButtonPressed(MouseButton.Right))
+            _dragging = false;
         if (delta > 0)
             FlyFromKeys(delta);
         ApplyCamera(Observer.Present(delta, sample));
@@ -106,6 +112,17 @@ public partial class PlaygroundObservationView : Node3D
         return LastPick;
     }
 
+    public override void _Notification(int what)
+    {
+        if (what is (int)NotificationWMWindowFocusOut or (int)NotificationApplicationFocusOut)
+            _dragging = false;
+    }
+
+    /// <summary>
+    /// A right-drag turns the camera only while it started in the world and the motion still reports the button:
+    /// the console, a panel holding mouse focus or a focus loss can swallow the release, so each frame drops a drag
+    /// whose button is up or whose input the console took, instead of resuming it later.
+    /// </summary>
     public override void _UnhandledInput(InputEvent @event)
     {
         if (Observer is null || _consoleOpen())
@@ -124,7 +141,7 @@ public partial class PlaygroundObservationView : Node3D
             case InputEventMouseButton { ButtonIndex: MouseButton.WheelDown, Pressed: true }:
                 Observer.Zoom(-ZoomStep);
                 break;
-            case InputEventMouseMotion motion when _dragging:
+            case InputEventMouseMotion motion when _dragging && motion.ButtonMask.HasFlag(MouseButtonMask.Right):
                 Observer.Look(motion.Relative.X * LookSensitivity, -motion.Relative.Y * LookSensitivity);
                 break;
             case InputEventKey { Pressed: true, Echo: false } key when key.Keycode == Key.F:
@@ -171,7 +188,7 @@ public partial class PlaygroundObservationView : Node3D
     {
         var layer = new CanvasLayer();
         AddChild(layer);
-        var panel = new PanelContainer
+        var panel = _panel = new PanelContainer
         {
             AnchorLeft = 1,
             AnchorRight = 1,
