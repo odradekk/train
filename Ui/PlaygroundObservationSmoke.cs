@@ -39,6 +39,9 @@ internal sealed class PlaygroundObservationSmoke
     private Vector2 _clickTarget;
     private int _interpolatedFrames;
     private bool _rebuilt;
+    private Guid _playgroundSave;
+    private Guid _hollowSave;
+    private string _replacedDefinition = "";
     private bool _finished;
 
     public PlaygroundObservationSmoke(PlaygroundScene scene, string? saveId)
@@ -230,6 +233,14 @@ internal sealed class PlaygroundObservationSmoke
                     Next();
                 break;
             case 8:
+                if (ReplaceFollowedWorld(WorldReplacement.Reset))
+                    Next();
+                break;
+            case 9:
+                if (ReplaceFollowedWorld(WorldReplacement.Load))
+                    Next();
+                break;
+            case 10:
                 SaveAndFinish();
                 break;
         }
@@ -655,6 +666,97 @@ internal sealed class PlaygroundObservationSmoke
             $"OBSERVE_REBUILD_LOST {(scheduled ? "scheduled" : "immediate")} {Observer.LastNotice!.Describe()} " +
             $"camera_moved=false {Observer.Describe()} step={Session.SimulationStep}");
         return true;
+    }
+
+    /// <summary>
+    /// Follows vehicle 1, then replaces the whole world through the console so a different vehicle takes the same id:
+    /// <c>composite reset bridge</c> over a followed hollow shell, and after a load of a missing save that must keep
+    /// observing, <c>voxel load</c> of the hollow save over a followed bridge. Either replacement drops the old
+    /// references with the camera in place. The Playground save taken first is loaded back at the end.
+    /// </summary>
+    private bool ReplaceFollowedWorld(WorldReplacement replacement)
+    {
+        if (_frames == 1)
+        {
+            if (replacement == WorldReplacement.Reset)
+            {
+                _playgroundSave = SaveThroughConsole("Before replacement");
+                RunConsole("composite reset hollow");
+                _hollowSave = SaveThroughConsole("Hollow");
+            }
+
+            var vehicle = Session.Vehicles.Single().Id;
+            RunConsole($"observe select vehicle {vehicle.Value}");
+            RunConsole("observe follow");
+            Require(Observer.Mode == PlaygroundCameraMode.Follow && Observer.Target == ObservedObject.Vehicle(vehicle), $"follow: {Observer.Describe()}");
+            _rebuilt = false;
+            return false;
+        }
+
+        if (!_rebuilt)
+        {
+            Require(_frames < TransitionLimitFrames, "follow transition never finished");
+            if (Observer.Transitioning)
+                return false;
+            _pose = Observer.Pose;
+            _positions.Clear();
+            _positions.Add(_scene.Camera.GlobalPosition);
+            var followed = Observer.Target!.Value;
+            _replacedDefinition = Session.QueryComposite(followed.Id)!.DefinitionId.Value;
+            if (replacement == WorldReplacement.Reset)
+            {
+                RunConsole("composite reset bridge");
+            }
+            else
+            {
+                var notices = Observer.Notices.Count;
+                var fingerprint = WorldSaveAuthority.Fingerprint(Session);
+                RunConsole($"voxel load {Guid.NewGuid():D}");
+                Require(WorldSaveAuthority.Fingerprint(Session) == fingerprint, "a failed load changed the session");
+                Require(Observer.Mode == PlaygroundCameraMode.Follow && Observer.Target == followed && Observer.Selection == followed &&
+                        Observer.Notices.Count == notices, $"a failed load changed observation: {Observer.Describe()}");
+                GD.Print($"OBSERVE_FAILED_LOAD_KEEP {Observer.Describe()} notices={Observer.Notices.Count}");
+                RunConsole($"voxel load {_hollowSave:D}");
+            }
+
+            var reused = Session.QueryComposite(followed.Id)?.DefinitionId.Value;
+            Require(reused is not null && reused != _replacedDefinition, $"{followed.Describe()} was not reused by a different vehicle: {reused}");
+            _replacedDefinition += "->" + reused;
+            _rebuilt = true;
+            _frames = 1;
+            return false;
+        }
+
+        if (_frames < 3)
+            return false;
+        Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Target is null && Observer.Selection is null,
+            $"replaced world kept {Observer.Describe()}");
+        Require(Observer.LastNotice is { Kind: PlaygroundNoticeKind.TargetLost, Mode: PlaygroundCameraMode.Follow } lost && lost.Replacement == replacement,
+            $"notice {Observer.LastNotice?.Describe()}");
+        Require(View.NoticeText.StartsWith(replacement == WorldReplacement.Reset ? "世界已重置" : "世界已由读档替换", StringComparison.Ordinal),
+            $"panel notice: {View.NoticeText}");
+        Require(View.InspectionText == "选中：无", $"panel inspection: {View.InspectionText}");
+        Require(Observer.Pose.Position == _pose.Position && (_scene.Camera.GlobalPosition - _positions[0]).Length() < Tolerance,
+            "camera moved when the world was replaced");
+        RunConsole("observe");
+        GD.Print(
+            $"OBSERVE_WORLD_REPLACED {replacement.ToString().ToLowerInvariant()} {Observer.LastNotice!.Describe()} " +
+            $"camera_moved=false {Observer.Describe()} same_id_definition={_replacedDefinition} notice_zh=\"{View.NoticeText}\"");
+        if (replacement == WorldReplacement.Load)
+        {
+            RunConsole($"voxel load {_playgroundSave:D}");
+            Require(Session.WorldSource?.ConfigurationId == PlaygroundConfigurations.StraightRailEmptyId, "the Playground save did not load back");
+        }
+
+        return true;
+    }
+
+    /// <summary>Saves as a new slot: <c>voxel save</c> otherwise overwrites the save the session last used.</summary>
+    private Guid SaveThroughConsole(string name)
+    {
+        Session.DetachSaveIdentity();
+        RunConsole($"voxel save {name}");
+        return Session.SaveId ?? throw new InvalidOperationException($"voxel save {name} did not save");
     }
 
     private void RequireStill(string what)

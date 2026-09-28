@@ -10,6 +10,6 @@ observe follow
 
 输出 `Following mode follow target vehicle <id> ...`。没有选择为 `NoSelection ...`；选中轨段或世界格为 `NotVehicle ...`，模式不变。
 
-编组拆分或活动车头变化时，只要该车仍在会话中就继续跟随同一辆车，不换到前车或活动车头。该车被彻底摧毁时清除选择与跟随引用，镜头停在原位转为自由观察，提示 `target-lost vehicle <id> mode follow camera free-in-place`，不跳到其他车辆。
+编组拆分或活动车头变化时，只要该车仍在会话中就继续跟随同一辆车，不换到前车或活动车头。该车被彻底摧毁时清除选择与跟随引用，镜头停在原位转为自由观察，提示 `target-lost vehicle <id> mode follow camera free-in-place`，不跳到其他车辆。整个世界被重置或成功读档替换时同样清除（即使新世界中同一 ID 的车辆存在），提示末尾追加 `world-replaced reset|load`；加载失败时继续跟随。
 
 Playground 画面快捷键 `V`、右侧面板“跟随选中”按钮与本命令等价。Playground 镜头不读 [`rail follow`](rail-follow.md) 的会话跟随状态；后者仍服务切片 4 场景。本命令不暂停、不推进、不修改会话，也不写入存档。

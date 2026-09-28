@@ -115,6 +115,7 @@ public sealed partial class VoxelDevelopmentSession
         _rebuildComposites = true;
         _rebuildTracks = true;
         Changed?.Invoke();
+        WorldReplaced?.Invoke(WorldReplacement.Reset);
     }
 
     public void DetachSaveIdentity() => SaveId = null;
@@ -595,6 +596,7 @@ public sealed partial class VoxelDevelopmentSession
             PauseSimulation();
         SaveId = document.Id;
         DisplayName = document.DisplayName;
+        WorldReplaced?.Invoke(WorldReplacement.Load);
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);
     }
 

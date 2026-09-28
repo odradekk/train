@@ -15,8 +15,8 @@ public enum ObservedObjectKind
 
 /// <summary>
 /// A reference to one formal object. An ordinary world voxel has no entity identity, so a cell reference remembers
-/// the definition and any detached-fragment runtime id it was selected with and is lost when either changes; a
-/// same-definition replacement cannot be told apart.
+/// the definition and any detached-fragment runtime id it was selected with and is lost when either changes, when an
+/// executed edit empties the cell, or when the whole world is replaced.
 /// </summary>
 public readonly record struct ObservedObject(
     ObservedObjectKind Kind,
@@ -70,15 +70,33 @@ public enum PlaygroundNoticeKind
     TargetLost
 }
 
-public sealed record PlaygroundObservationNotice(PlaygroundNoticeKind Kind, ObservedObject Object, PlaygroundCameraMode Mode)
+public sealed record PlaygroundObservationNotice(
+    PlaygroundNoticeKind Kind,
+    ObservedObject Object,
+    PlaygroundCameraMode Mode,
+    WorldReplacement? Replacement = null)
 {
-    public string Describe() => Kind == PlaygroundNoticeKind.SelectionLost
-        ? $"selection-lost {Object.Describe()}"
-        : $"target-lost {Object.Describe()} mode {Mode.ToString().ToLowerInvariant()} camera free-in-place";
+    public string Describe() =>
+        (Kind == PlaygroundNoticeKind.SelectionLost
+            ? $"selection-lost {Object.Describe()}"
+            : $"target-lost {Object.Describe()} mode {Mode.ToString().ToLowerInvariant()} camera free-in-place") +
+        (Replacement is { } replacement ? " world-replaced " + replacement.ToString().ToLowerInvariant() : "");
 
-    public string DescribeZh() => Kind == PlaygroundNoticeKind.SelectionLost
-        ? $"选中的{Object.DescribeZh()} 已不存在，已清除选择"
-        : $"{(Mode == PlaygroundCameraMode.Follow ? "跟随" : "聚焦")}目标{Object.DescribeZh()} 已彻底销毁：已清除引用，镜头停在原位并转为自由观察";
+    public string DescribeZh()
+    {
+        var target = $"{(Mode == PlaygroundCameraMode.Follow ? "跟随" : "聚焦")}目标{Object.DescribeZh()}";
+        if (Replacement is { } replacement)
+        {
+            var cause = replacement == WorldReplacement.Reset ? "世界已重置" : "世界已由读档替换";
+            return Kind == PlaygroundNoticeKind.SelectionLost
+                ? $"{cause}：选中的{Object.DescribeZh()} 不再指向原对象，已清除选择"
+                : $"{cause}：{target} 不再指向原对象，已清除引用，镜头停在原位并转为自由观察";
+        }
+
+        return Kind == PlaygroundNoticeKind.SelectionLost
+            ? $"选中的{Object.DescribeZh()} 已不存在，已清除选择"
+            : $"{target} 已彻底销毁：已清除引用，镜头停在原位并转为自由观察";
+    }
 }
 
 public readonly record struct ObservationVector(double X, double Y, double Z)
@@ -140,6 +158,7 @@ public sealed class PlaygroundObserver : IDisposable
         SetFreePose(new ObservationCameraPose(position, look));
         Pose = FreePose();
         _session.EditExecuted += OnEditExecuted;
+        _session.WorldReplaced += OnWorldReplaced;
     }
 
     public ObservedObject? Selection { get; private set; }
@@ -151,7 +170,11 @@ public sealed class PlaygroundObserver : IDisposable
     public PlaygroundObservationNotice? LastNotice => _notices.Count == 0 ? null : _notices[^1];
     public double Distance => _distance;
 
-    public void Dispose() => _session.EditExecuted -= OnEditExecuted;
+    public void Dispose()
+    {
+        _session.EditExecuted -= OnEditExecuted;
+        _session.WorldReplaced -= OnWorldReplaced;
+    }
 
     public bool Exists(ObservedObject item) => item.Kind switch
     {
@@ -257,27 +280,33 @@ public sealed class PlaygroundObserver : IDisposable
     /// in free mode; it never jumps to another vehicle. Also runs after every executed edit, so a cell removed and
     /// rebuilt with the same definition before the next frame still counts as lost.
     /// </summary>
-    public IReadOnlyList<PlaygroundObservationNotice> Reconcile()
+    public IReadOnlyList<PlaygroundObservationNotice> Reconcile() => Release(null);
+
+    private void OnEditExecuted(WorldEditRecord record) => Reconcile();
+
+    private void OnWorldReplaced(WorldReplacement replacement) => Release(replacement);
+
+    /// <summary>A replaced world may reuse every id and cell, so after a replacement every reference is lost.</summary>
+    private IReadOnlyList<PlaygroundObservationNotice> Release(WorldReplacement? replacement)
     {
+        bool Lost(ObservedObject item) => replacement is not null || !Exists(item);
         var raised = new List<PlaygroundObservationNotice>();
-        if (Selection is { } selected && !Exists(selected))
+        if (Selection is { } selected && Lost(selected))
         {
             Selection = null;
-            raised.Add(new PlaygroundObservationNotice(PlaygroundNoticeKind.SelectionLost, selected, Mode));
+            raised.Add(new PlaygroundObservationNotice(PlaygroundNoticeKind.SelectionLost, selected, Mode, replacement));
         }
 
-        if (Target is { } target && !Exists(target))
+        if (Target is { } target && Lost(target))
         {
             var mode = Mode;
             EnterFreeInPlace();
-            raised.Add(new PlaygroundObservationNotice(PlaygroundNoticeKind.TargetLost, target, mode));
+            raised.Add(new PlaygroundObservationNotice(PlaygroundNoticeKind.TargetLost, target, mode, replacement));
         }
 
         _notices.AddRange(raised);
         return raised;
     }
-
-    private void OnEditExecuted(WorldEditRecord record) => Reconcile();
 
     /// <summary>Advances the camera by one display frame, reading the same display sample the vehicle bodies use.</summary>
     public ObservationCameraPose Present(double displayDelta, TrainDisplaySample sample)

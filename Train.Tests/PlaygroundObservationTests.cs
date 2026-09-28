@@ -426,6 +426,206 @@ public sealed class PlaygroundObservationTests
         Assert.AreEqual(0, observer.Notices.Count);
     }
 
+    [TestMethod]
+    public void Composite_reset_that_reuses_the_vehicle_id_drops_the_follow_target_in_place()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var composites = new CompositeConsoleCommands(session);
+        composites.Execute(new[] { "reset", "hollow" });
+        var id = session.Vehicles.Single().Id;
+        using var observer = FollowingVehicle(session, id, out var held);
+
+        composites.Execute(new[] { "reset", "hollow" });
+
+        Assert.AreEqual(id, session.Vehicles.Single().Id, "the reset should reuse the id for a new vehicle");
+        AssertReplacementDropped(observer, session, held, ObservedObject.Vehicle(id), PlaygroundCameraMode.Follow, WorldReplacement.Reset);
+    }
+
+    [TestMethod]
+    public void Successful_load_that_reuses_the_vehicle_id_drops_the_follow_target_in_place()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var composites = new CompositeConsoleCommands(session);
+        var voxels = new VoxelConsoleCommands(session);
+        composites.Execute(new[] { "reset", "hollow" });
+        voxels.Execute(new[] { "save", "Hollow" });
+        var saveId = session.SaveId!.Value;
+        composites.Execute(new[] { "reset", "bridge" });
+        var id = session.Vehicles.Single().Id;
+        var before = session.QueryComposite(id)!.DefinitionId;
+        using var observer = FollowingVehicle(session, id, out var held);
+
+        StringAssert.StartsWith(voxels.Execute(new[] { "load", saveId.ToString("D") }), "Voxel Loaded.");
+
+        Assert.AreNotEqual(before, session.QueryComposite(id)!.DefinitionId, "the load should put a different vehicle under the same id");
+        AssertReplacementDropped(observer, session, held, ObservedObject.Vehicle(id), PlaygroundCameraMode.Follow, WorldReplacement.Load);
+    }
+
+    [TestMethod]
+    public void Failed_loads_keep_the_selection_target_and_mode()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var composites = new CompositeConsoleCommands(session);
+        composites.Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Hollow").Status);
+        var saved = session.SaveId!.Value;
+        var json = File.ReadAllText(playground.Store.PathFor(saved));
+        var corrupt = WriteSave(playground, Guid.NewGuid(), _ => "{");
+        var mismatched = WriteSave(playground, Guid.NewGuid(), _ => json);
+        var unbuildable = Guid.NewGuid();
+        WriteSave(playground, unbuildable, id => json
+            .Replace(saved.ToString("D"), id.ToString("D"), StringComparison.Ordinal)
+            .Replace(HollowShellFixture.DefinitionId.Value, "core:dev-missing-shell", StringComparison.Ordinal));
+        var vehicle = session.Vehicles.Single().Id;
+        using var observer = FollowingVehicle(session, vehicle, out _);
+        var fingerprint = WorldSaveAuthority.Fingerprint(session);
+
+        var statuses = new[] { Guid.NewGuid(), corrupt, mismatched, unbuildable }
+            .Select(saveId =>
+            {
+                var status = session.Load(saveId).Status;
+                observer.Present(Frame, session.QueryDisplayPoses());
+                return status;
+            })
+            .ToArray();
+
+        CollectionAssert.AreEqual(
+            new[] { WorldSaveStatus.NotFound, WorldSaveStatus.Truncated, WorldSaveStatus.MismatchedId, WorldSaveStatus.MissingDefinition },
+            statuses);
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
+        Assert.AreEqual(ObservedObject.Vehicle(vehicle), observer.Selection);
+        Assert.AreEqual(ObservedObject.Vehicle(vehicle), observer.Target);
+        Assert.AreEqual(PlaygroundCameraMode.Follow, observer.Mode);
+        Assert.AreEqual(0, observer.Notices.Count);
+    }
+
+    [TestMethod]
+    public void Failed_load_keeps_a_focused_world_cell()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        using var observer = FocusedOnProbe(session, out _);
+        var reference = observer.Target;
+
+        Assert.AreEqual(WorldSaveStatus.NotFound, session.Load(Guid.NewGuid()).Status);
+        observer.Present(Frame, session.QueryDisplayPoses());
+
+        Assert.AreEqual(reference, observer.Selection);
+        Assert.AreEqual(reference, observer.Target);
+        Assert.AreEqual(PlaygroundCameraMode.Focus, observer.Mode);
+        Assert.AreEqual(0, observer.Notices.Count);
+    }
+
+    [TestMethod]
+    public void Voxel_reset_drops_a_selected_rail_segment_without_moving_the_free_camera()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        using var observer = new PlaygroundObserver(session, Overview, OverviewLook);
+        var segment = ObservedObject.Segment(session.Rails.Segments[0].Id);
+        Assert.AreEqual(PlaygroundObservationStatus.Selected, observer.Select(segment));
+        var before = observer.Present(Frame, session.QueryDisplayPoses());
+
+        new VoxelConsoleCommands(session).Execute(new[] { "reset" });
+
+        Assert.IsNull(observer.Selection);
+        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        var lost = observer.Notices.Single();
+        Assert.AreEqual(new PlaygroundObservationNotice(PlaygroundNoticeKind.SelectionLost, segment, PlaygroundCameraMode.Free, WorldReplacement.Reset), lost);
+        Assert.AreEqual($"selection-lost segment {segment.Id.Value} world-replaced reset", lost.Describe());
+        Assert.AreEqual(before, observer.Present(Frame, session.QueryDisplayPoses()));
+    }
+
+    [TestMethod]
+    public void Voxel_reset_drops_a_focused_world_cell()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        using var observer = FocusedOnProbe(session, out var held);
+        var reference = observer.Target!.Value;
+
+        new VoxelConsoleCommands(session).Execute(new[] { "reset" });
+
+        AssertReplacementDropped(observer, session, held, reference, PlaygroundCameraMode.Focus, WorldReplacement.Reset);
+    }
+
+    [TestMethod]
+    public void Loading_a_save_with_the_same_voxel_still_drops_the_focused_world_cell()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        using var observer = FocusedOnProbe(session, out var held);
+        var reference = observer.Target!.Value;
+        Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Probe").Status);
+
+        Assert.AreEqual(WorldSaveStatus.Loaded, session.Load(session.SaveId!.Value).Status);
+
+        Assert.AreEqual(PlaygroundSequences.EditVoxelId, session.Query(PlaygroundSequences.EditProbe).Voxel!.DefinitionId);
+        AssertReplacementDropped(observer, session, held, reference, PlaygroundCameraMode.Focus, WorldReplacement.Load);
+    }
+
+    [TestMethod]
+    public void Disposed_observer_stops_listening_for_world_replacement()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var composites = new CompositeConsoleCommands(session);
+        composites.Execute(new[] { "reset", "hollow" });
+        var id = session.Vehicles.Single().Id;
+        var observer = FollowingVehicle(session, id, out _);
+
+        observer.Dispose();
+        composites.Execute(new[] { "reset", "hollow" });
+
+        Assert.AreEqual(ObservedObject.Vehicle(id), observer.Target);
+        Assert.AreEqual(0, observer.Notices.Count);
+    }
+
+    private static Guid WriteSave(PlaygroundHarness playground, Guid id, Func<Guid, string> contents)
+    {
+        var path = playground.Store.PathFor(id);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, contents(id));
+        return id;
+    }
+
+    private static PlaygroundObserver FollowingVehicle(VoxelDevelopmentSession session, EntityId id, out ObservationCameraPose held)
+    {
+        var observer = new PlaygroundObserver(session, Overview, OverviewLook);
+        Assert.AreEqual(PlaygroundObservationStatus.Selected, observer.Select(ObservedObject.Vehicle(id)));
+        Assert.AreEqual(PlaygroundObservationStatus.Following, observer.FollowSelection());
+        held = PresentFrames(observer, session, 60)[^1];
+        Assert.IsFalse(observer.Transitioning);
+        return observer;
+    }
+
+    private static void AssertReplacementDropped(
+        PlaygroundObserver observer,
+        VoxelDevelopmentSession session,
+        ObservationCameraPose held,
+        ObservedObject reference,
+        PlaygroundCameraMode mode,
+        WorldReplacement replacement)
+    {
+        var after = observer.Present(Frame, session.QueryDisplayPoses());
+
+        Assert.IsNull(observer.Selection);
+        Assert.IsNull(observer.Target);
+        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        CollectionAssert.AreEqual(
+            new[] { PlaygroundNoticeKind.SelectionLost, PlaygroundNoticeKind.TargetLost },
+            observer.Notices.Select(item => item.Kind).ToArray());
+        Assert.IsTrue(observer.Notices.All(item => item.Object == reference && item.Replacement == replacement));
+        var lost = observer.LastNotice!;
+        Assert.AreEqual(mode, lost.Mode);
+        StringAssert.Contains(lost.Describe(), "world-replaced " + replacement.ToString().ToLowerInvariant());
+        AssertClose(held.Position, after.Position);
+        AssertClose(Unit(held.Look - held.Position), Unit(after.Look - after.Position));
+    }
+
     private static PlaygroundObserver FocusedOnProbe(VoxelDevelopmentSession session, out ObservationCameraPose held)
     {
         var probe = PlaygroundSequences.EditProbe;

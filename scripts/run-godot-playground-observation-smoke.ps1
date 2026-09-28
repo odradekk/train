@@ -13,15 +13,19 @@ param(
 #      eased focus / follow, follow against the drawn body node while running
 #      and paused, right-drags whose release is lost to the console, the panel or
 #      a focus loss that must not keep turning the camera, a smooth local target
-#      switch, a coupler split while moving
-#      and an active-locomotive change that keep the target, and a destroyed
-#      follow target that leaves the camera free in place; then saves;
+#      switch, a coupler split while moving and an active-locomotive change that
+#      keep the target, and a destroyed follow target that leaves the camera
+#      free in place; then saves;
 #   2. loads that save in a new process and checks observation is back to its
 #      default and the authority fingerprint matches the saving process.
 # The empty configuration covers free observation, rail picks and focus without
 # any vehicle, and a focused voxel removed and re-added with the same definition
 # through the console (immediately and as two edits due at one step) that must
-# still count as lost. Godot runs with --fixed-fps 45 so display time is reproducible and
+# still count as lost. It then follows vehicle 1 while `composite reset` and,
+# after a failed load that must keep observing, `voxel load` put a different
+# vehicle under that id; each replacement drops the references in place, and
+# the Playground world is loaded back before saving.
+# Godot runs with --fixed-fps 45 so display time is reproducible and
 # each frame covers 4/3 simulation steps: following while running must then read
 # interpolated display poses that differ from the authoritative step positions.
 # Every run writes to a new timestamped directory.
@@ -139,7 +143,10 @@ try {
             $markers += @(
                 "OBSERVE_SEGMENT_FOLLOW_REFUSED mode=Free",
                 "OBSERVE_REBUILD_LOST immediate target-lost cell",
-                "OBSERVE_REBUILD_LOST scheduled target-lost cell"
+                "OBSERVE_REBUILD_LOST scheduled target-lost cell",
+                "OBSERVE_WORLD_REPLACED reset target-lost vehicle 1 mode follow camera free-in-place world-replaced reset camera_moved=false mode free selection none transitioning false same_id_definition=core:dev-hollow-shell->core:dev-bridge",
+                "OBSERVE_FAILED_LOAD_KEEP mode follow target vehicle 1 selection vehicle 1",
+                "OBSERVE_WORLD_REPLACED load target-lost vehicle 1 mode follow camera free-in-place world-replaced load camera_moved=false mode free selection none transitioning false same_id_definition=core:dev-bridge->core:dev-hollow-shell"
             )
         }
         $ok = Require-Markers $establish $markers "$config establish"

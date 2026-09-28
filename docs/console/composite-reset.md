@@ -24,3 +24,5 @@ Voxel count: 0.
 ```
 
 该命令与场景快捷键 `R`、以及测试使用的 `VoxelDevelopmentSession.Reset()` 是同一正式入口。未进入体素开发场景时，顶层 `composite` 会提示先进入场景。
+
+在 Playground 中，重置后 Playground 观察的旧选择与聚焦/跟随目标一律清除；随后夹具制造的车辆即使复用同一 ID 也不会被选中或跟随，镜头原位转为自由观察并提示 `world-replaced reset`（见 [observe](observe.md)）。
