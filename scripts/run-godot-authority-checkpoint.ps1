@@ -186,11 +186,19 @@ if (-not $resume.Text.Contains("AUTHORITY_CHECKPOINT_BUILD id=$buildId ") -or -n
 }
 $savedIndex = [regex]::Match($resume.Text, "AUTHORITY_CHECKPOINT_COMPARE saved checkpoint ([1-9][0-9]*) input (.+) boundary ")
 $continuedIndex = [regex]::Match($resume.Text, "AUTHORITY_CHECKPOINT_COMPARE continuation checkpoint ([1-9][0-9]*) input (.+) boundary ")
+$savedInput = $savedIndex.Groups[2].Value
+$continuedInput = $continuedIndex.Groups[2].Value
 if (-not $savedIndex.Success -or -not $continuedIndex.Success -or
     [int]$continuedIndex.Groups[1].Value -ne [int]$savedIndex.Groups[1].Value + 1 -or
-    $savedIndex.Groups[2].Value -notlike "damage latest *" -or
-    $continuedIndex.Groups[2].Value -ne "edit voxel.add") {
-    [Console]::Error.WriteLine("resume did not keep the original checkpoint index and semantic input.")
+    $savedInput -notlike '*"kind":"damage_latest"*' -or
+    $savedInput -notlike '*"x":3,"y":1,"z":1*' -or
+    $savedInput -notlike '*"amount":100*' -or
+    $savedInput -notlike '*"vehicle_id":*' -or
+    $savedInput -eq "damage latest 3,1,1 100" -or
+    $continuedInput -notlike '*"kind":"voxel.add"*' -or
+    $continuedInput -notlike '*"x":10,"y":10,"z":10*' -or
+    $continuedInput -eq "edit voxel.add") {
+    [Console]::Error.WriteLine("resume did not keep the original checkpoint index and canonical input.")
     exit 1
 }
 

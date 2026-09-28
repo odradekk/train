@@ -76,10 +76,11 @@ internal sealed class AuthorityCheckpointSmoke
         Write("saved-evidence.json", AuthorityCodec.EncodeEvidence(observation.Context, savedCheckpoint));
         PrintState("AUTHORITY_CHECKPOINT_SAVED", saveId, savedCheckpoint.Digest, savedCheckpoint);
         var continuation = ContinuationOperation();
+        var continuationIdentity = continuation.InputIdentity(Session);
         var status = continuation.Apply(Session);
         if (!string.Equals(status, "Added", StringComparison.Ordinal))
             throw new InvalidOperationException($"continuation status {status}");
-        var continued = AuthorityCodec.Checkpoint(Session, savedCheckpoint.Index + 1, continuation.Describe());
+        var continued = AuthorityCodec.Checkpoint(Session, savedCheckpoint.Index + 1, continuationIdentity);
         Write("continuation-canonical.json", continued.Canonical);
         Write("continuation-evidence.json", AuthorityCodec.EncodeEvidence(AuthorityCodec.Context(Session, BuildId()), continued));
         GD.Print($"AUTHORITY_CHECKPOINT_CONTINUATION digest={continued.Digest} cell={ContinuationCell.X},{ContinuationCell.Y},{ContinuationCell.Z}");
@@ -89,15 +90,18 @@ internal sealed class AuthorityCheckpointSmoke
     {
         var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)
             ?? throw new InvalidOperationException("authority sequence is not registered");
-        var restored = AuthorityCodec.Checkpoint(Session, sequence.Steps.Count, sequence.Steps[^1].Operation.Describe());
+        // The loaded save is after the last command, so resolving "latest" again names a different vehicle.
+        // Replay the formal sequence for the identity captured at that command; the save supplies the state.
+        var restored = AuthorityCodec.Checkpoint(Session, sequence.Steps.Count, ReplayLastInput(sequence));
         Write("restored-canonical.json", restored.Canonical);
         PrintState("AUTHORITY_CHECKPOINT_RESTORED", Session.SaveId, restored.Digest, restored);
         CompareEvidence("saved-evidence.json", restored, "saved");
         var continuation = ContinuationOperation();
+        var continuationIdentity = continuation.InputIdentity(Session);
         var status = continuation.Apply(Session);
         if (!string.Equals(status, "Added", StringComparison.Ordinal))
             throw new InvalidOperationException($"continuation status {status}");
-        var continued = AuthorityCodec.Checkpoint(Session, sequence.Steps.Count + 1, continuation.Describe());
+        var continued = AuthorityCodec.Checkpoint(Session, sequence.Steps.Count + 1, continuationIdentity);
         Write("restored-continuation-canonical.json", continued.Canonical);
         GD.Print($"AUTHORITY_CHECKPOINT_CONTINUATION digest={continued.Digest} cell={ContinuationCell.X},{ContinuationCell.Y},{ContinuationCell.Z}");
         CompareEvidence("continuation-evidence.json", continued, "continuation");
@@ -118,6 +122,19 @@ internal sealed class AuthorityCheckpointSmoke
             GD.Print($"AUTHORITY_CHECKPOINT_COMPARE {label} " + line);
         if (!difference.Equal)
             throw new InvalidOperationException($"{label} checkpoints differ: {difference.Detail}");
+    }
+
+    private string ReplayLastInput(PlaygroundSequence sequence)
+    {
+        var reloader = _scene.GetNode<Main>("/root/Main").Reloader
+            ?? throw new InvalidOperationException("content is not loaded");
+        var replay = AuthorityValidation.Run(sequence, reloader.Catalog, reloader.Composites);
+        if (replay.Observation is not { } observation || !replay.Passed)
+            throw new InvalidOperationException(string.Join(System.Environment.NewLine, replay.Lines()));
+        var checkpoint = observation.Checkpoints[^1];
+        if (checkpoint.Index != sequence.Steps.Count)
+            throw new InvalidOperationException($"replayed checkpoint index {checkpoint.Index}");
+        return checkpoint.Input;
     }
 
     private static PlaygroundOperation ContinuationOperation() =>

@@ -500,12 +500,13 @@ public static class AuthorityValidation
         for (var index = 0; index < sequence.Steps.Count; index++)
         {
             var step = sequence.Steps[index];
+            var identity = step.Operation.InputIdentity(session);
             var actual = step.Operation.Apply(session);
             var checks = step.Checkpoint
                 .Select(check => new PlaygroundCheckResult(check.Observation, check.Expected, PlaygroundCheck.Observe(session, check.Observation)))
                 .ToArray();
             results.Add(new PlaygroundStepResult(index, step.Operation.Describe(), step.ExpectedStatus, actual, checks));
-            checkpoints.Add(AuthorityCodec.Checkpoint(session, index + 1, step.Operation.Describe()));
+            checkpoints.Add(AuthorityCodec.Checkpoint(session, index + 1, identity));
         }
 
         return new AuthoritySequenceReport(

@@ -1,4 +1,7 @@
 using System.Globalization;
+using System.Reflection;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Train.Domain.Commands;
@@ -342,22 +345,89 @@ public static class AuthorityEnvironment
 
     public static string Framework => RuntimeInformation.FrameworkDescription;
 
-    /// <summary>SHA-256 of the assembly file that contains this type. Null when that file cannot be read.</summary>
+    /// <summary>
+    /// SHA-256 of a file proven to be the loaded module that contains this type.
+    /// Null when no candidate file has that module's identity.
+    /// </summary>
     public static string? CurrentBuildId => Build.Value.Id;
 
     public static string? CurrentBuildFile => Build.Value.File;
 
-    private static (string? Id, string? File) ReadBuild()
+    private static (string? Id, string? File) ReadBuild() =>
+        TryIdentifyBuild(typeof(AuthorityEnvironment).Assembly, Candidates());
+
+    /// <summary>
+    /// Returns the SHA-256 of the first candidate whose module id matches <paramref name="assembly"/>.
+    /// A same-named file that is a different module is ignored. Unknown when none match.
+    /// </summary>
+    internal static (string? Id, string? File) TryIdentifyBuild(Assembly assembly, IEnumerable<string> candidates)
     {
-        foreach (var candidate in Candidates())
+        ArgumentNullException.ThrowIfNull(assembly);
+        ArgumentNullException.ThrowIfNull(candidates);
+        foreach (var candidate in candidates)
         {
-            if (string.IsNullOrEmpty(candidate) || !File.Exists(candidate))
+            if (string.IsNullOrWhiteSpace(candidate))
                 continue;
-            var path = Path.GetFullPath(candidate);
-            return (Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))), path);
+            string path;
+            try
+            {
+                path = Path.GetFullPath(candidate);
+            }
+            catch (ArgumentException)
+            {
+                continue;
+            }
+            catch (NotSupportedException)
+            {
+                continue;
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+
+            byte[] bytes;
+            try
+            {
+                bytes = File.ReadAllBytes(path);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                continue;
+            }
+
+            if (!ModuleMatches(assembly, bytes))
+                continue;
+            return (Convert.ToHexString(SHA256.HashData(bytes)), path);
         }
 
         return (null, null);
+    }
+
+    private static bool ModuleMatches(Assembly assembly, byte[] bytes)
+    {
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var reader = new PEReader(stream);
+            if (!reader.HasMetadata)
+                return false;
+            var metadata = reader.GetMetadataReader();
+            var module = metadata.GetModuleDefinition();
+            return metadata.GetGuid(module.Mvid) == assembly.ManifestModule.ModuleVersionId;
+        }
+        catch (BadImageFormatException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private static IEnumerable<string> Candidates()

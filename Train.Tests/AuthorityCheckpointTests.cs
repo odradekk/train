@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.Loader;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -341,8 +343,15 @@ public sealed class AuthorityCheckpointTests
         Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, order.Kind);
         Assert.AreEqual("input", order.Field);
         Assert.AreEqual(1, order.CheckpointIndex);
-        Assert.AreEqual("damage -1,0,0 1", order.Expected);
-        Assert.AreEqual("damage -1,0,0 2", order.Actual);
+        Assert.AreEqual("damage -1,0,0 1", left.Sequence.Steps[0].Operation);
+        Assert.AreEqual("damage -1,0,0 2", right.Sequence.Steps[0].Operation);
+        Assert.AreEqual(
+            "{\"kind\":\"damage_voxel\",\"at_step\":null,\"position\":{\"x\":-1,\"y\":0,\"z\":0},\"amount\":1}",
+            order.Expected);
+        Assert.AreEqual(
+            "{\"kind\":\"damage_voxel\",\"at_step\":null,\"position\":{\"x\":-1,\"y\":0,\"z\":0},\"amount\":2}",
+            order.Actual);
+        Assert.AreNotEqual(left.Sequence.Steps[0].Operation, left.Observation!.Checkpoints[1].Input);
         StringAssert.Contains(order.Detail, "语义输入");
 
         using var harness = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
@@ -392,10 +401,12 @@ public sealed class AuthorityCheckpointTests
         Assert.IsTrue(left.Passed, string.Join(Environment.NewLine, left.Lines()));
         Assert.IsTrue(right.Passed, string.Join(Environment.NewLine, right.Lines()));
         var order = AuthorityComparison.Compare(left.Observation!, right.Observation!);
-        Assert.AreEqual(AuthorityDifferenceKind.MissingObject, order.Kind);
+        Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, order.Kind);
+        Assert.AreEqual("input", order.Field);
         Assert.AreEqual(1, order.CheckpointIndex);
-        StringAssert.Contains(order.Input, "voxel.add");
-        StringAssert.Contains(order.Object, "10,10,10");
+        StringAssert.Contains(order.Expected, "\"x\":10");
+        StringAssert.Contains(order.Actual, "\"x\":12");
+        StringAssert.Contains(order.Detail, "语义输入");
 
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
         var clean = AuthorityCodec.Document(AuthorityCodec.Capture(playground.Session));
@@ -404,6 +415,147 @@ public sealed class AuthorityCheckpointTests
         var cursor = CompareText(clean.Canonical, damaged.Canonical);
         Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, cursor.Kind);
         Assert.AreEqual("next_edit_id", cursor.Field);
+    }
+
+    [TestMethod]
+    public void Rejected_edits_with_different_payloads_are_not_the_same_input()
+    {
+        using var content = PlaygroundHarness.Content();
+        var catalog = content.Catalog;
+        var composites = content.Composites;
+        var left = AuthorityValidation.Run(RejectedVoxel(-1), catalog, composites, buildId: "tested-head");
+        var right = AuthorityValidation.Run(RejectedVoxel(-2), catalog, composites, buildId: "tested-head");
+        var again = AuthorityValidation.Run(RejectedVoxel(-1), catalog, composites, buildId: "tested-head");
+        Assert.IsTrue(left.Passed, string.Join(Environment.NewLine, left.Lines()));
+        Assert.IsTrue(right.Passed, string.Join(Environment.NewLine, right.Lines()));
+        Assert.AreEqual("edit voxel.add", left.Sequence.Steps[0].Operation);
+        const string LeftPayload =
+            "{\"kind\":\"edit\",\"at_step\":null,\"edit\":{\"input_format_version\":1,\"kind\":\"voxel.add\",\"position\":{\"x\":-1,\"y\":0,\"z\":0},\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"px_py\"}}";
+        const string RightPayload =
+            "{\"kind\":\"edit\",\"at_step\":null,\"edit\":{\"input_format_version\":1,\"kind\":\"voxel.add\",\"position\":{\"x\":-2,\"y\":0,\"z\":0},\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"px_py\"}}";
+        Assert.AreEqual(LeftPayload, left.Observation!.Checkpoints[1].Input);
+        Assert.AreEqual(RightPayload, right.Observation!.Checkpoints[1].Input);
+        Assert.AreNotEqual(left.Sequence.Steps[0].Operation, left.Observation.Checkpoints[1].Input);
+        Assert.AreEqual(left.Observation.Checkpoints[1].Digest, right.Observation.Checkpoints[1].Digest);
+        var difference = AuthorityComparison.Compare(left.Observation, right.Observation);
+        Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, difference.Kind);
+        Assert.AreEqual("input", difference.Field);
+        Assert.AreEqual(LeftPayload, difference.Expected);
+        Assert.AreEqual(RightPayload, difference.Actual);
+        Assert.IsTrue(AuthorityComparison.Compare(left.Observation, again.Observation!).Equal);
+
+        var refusedLeft = AuthorityValidation.Run(RefusedRefit(1), catalog, composites, buildId: "tested-head");
+        var refusedRight = AuthorityValidation.Run(RefusedRefit(2), catalog, composites, buildId: "tested-head");
+        Assert.IsTrue(refusedLeft.Passed, string.Join(Environment.NewLine, refusedLeft.Lines()));
+        Assert.IsTrue(refusedRight.Passed, string.Join(Environment.NewLine, refusedRight.Lines()));
+        Assert.AreEqual(refusedLeft.Observation!.Checkpoints[1].Digest, refusedRight.Observation!.Checkpoints[1].Digest);
+        var refused = AuthorityComparison.Compare(refusedLeft.Observation, refusedRight.Observation);
+        Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, refused.Kind);
+        Assert.AreEqual("input", refused.Field);
+        StringAssert.Contains(refused.Expected!, "\"resolved\":null");
+        StringAssert.Contains(refused.Expected, "\"x\":1");
+        StringAssert.Contains(refused.Actual!, "\"x\":2");
+        StringAssert.Contains(refusedLeft.Sequence.Steps[0].Operation, "refit latest");
+        Assert.AreNotEqual(refusedLeft.Sequence.Steps[0].Operation, refusedLeft.Observation.Checkpoints[1].Input);
+
+        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var latest = train.Session.QueryComposites().OrderByDescending(item => item.Id.Value).First();
+        var oriented = PlaygroundOperation.RefitLatest(
+            PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, HollowShellRefit.MarkerOrientation));
+        var otherCell = PlaygroundOperation.RefitLatest(
+            PlaygroundRefit.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity));
+        var orientedIdentity = oriented.InputIdentity(train.Session);
+        var otherIdentity = otherCell.InputIdentity(train.Session);
+        Assert.AreNotEqual(orientedIdentity, otherIdentity);
+        StringAssert.Contains(orientedIdentity, $"\"vehicle_id\":{latest.Id.Value.ToString(CultureInfo.InvariantCulture)}");
+        StringAssert.Contains(orientedIdentity, HollowShellRefit.MarkerOrientation.ToString());
+        StringAssert.Contains(otherIdentity, "\"x\":4");
+        var scheduled = PlaygroundOperation.Submit(
+            new VoxelAddEdit(new WorldVoxelCoord(-1, 0, 0), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity),
+            9);
+        var immediate = PlaygroundOperation.Submit(
+            new VoxelAddEdit(new WorldVoxelCoord(-1, 0, 0), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity));
+        Assert.AreNotEqual(immediate.InputIdentity(train.Session), scheduled.InputIdentity(train.Session));
+        StringAssert.Contains(scheduled.InputIdentity(train.Session), "\"at_step\":9");
+        StringAssert.Contains(immediate.InputIdentity(train.Session), "\"at_step\":null");
+    }
+
+    [TestMethod]
+    public void Damage_latest_records_the_vehicle_resolved_before_the_command()
+    {
+        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)!;
+        using var harness = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        foreach (var step in sequence.Steps.Take(sequence.Steps.Count - 1))
+            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(harness.Session), step.Operation.Describe());
+        var last = sequence.Steps[^1];
+        var before = last.Operation.InputIdentity(harness.Session);
+        Assert.AreEqual(last.ExpectedStatus, last.Operation.Apply(harness.Session));
+        Assert.AreNotEqual(before, last.Operation.InputIdentity(harness.Session));
+        StringAssert.Contains(before, "\"kind\":\"damage_latest\"");
+        StringAssert.Contains(before, "\"amount\":100");
+        StringAssert.Contains(before, "\"x\":3,\"y\":1,\"z\":1");
+        StringAssert.Contains(before, "\"vehicle_id\":");
+        Assert.AreNotEqual(last.Operation.Describe(), before);
+
+        var report = AuthorityValidation.Run(sequence, harness.Catalog, harness.Composites, buildId: "tested-head");
+        Assert.IsTrue(report.Passed, string.Join(Environment.NewLine, report.Lines()));
+        Assert.AreEqual(before, report.Observation!.Checkpoints[^1].Input);
+        Assert.AreEqual(last.Operation.Describe(), report.Sequence.Steps[^1].Operation);
+    }
+
+    [TestMethod]
+    public void Evidence_rejects_non_integral_or_out_of_range_versions()
+    {
+        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var observed = AuthorityCodec.Observe(train.Session, "build-a");
+        var evidence = AuthorityCodec.EncodeEvidence(observed.Context, observed.Checkpoints[0]);
+        foreach (var property in new[] { "evidence_format_version", "format_version", "configuration_version" })
+        {
+            foreach (var value in new[] { "1e100", "1.5", "2147483648" })
+            {
+                var bad = ReplaceJsonNumber(evidence, property, value);
+                Assert.IsFalse(AuthorityCodec.TryReadEvidence(bad, out _, out _), $"{property}={value}");
+            }
+        }
+    }
+
+    [TestMethod]
+    public void Build_identity_rejects_a_file_from_another_module()
+    {
+        var assembly = typeof(AuthorityEnvironment).Assembly;
+        var location = assembly.Location;
+        var hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(location)));
+        var foreign = typeof(Assert).Assembly.Location;
+        Assert.AreNotEqual(location, foreign);
+        Assert.IsNull(AuthorityEnvironment.TryIdentifyBuild(assembly, new[] { foreign }).Id);
+        var matched = AuthorityEnvironment.TryIdentifyBuild(assembly, new[] { foreign, location });
+        Assert.AreEqual(hash, matched.Id);
+        Assert.AreEqual(Path.GetFullPath(location), matched.File);
+
+        var junk = Path.Combine(Path.GetTempPath(), "train-authority-not-a-module-" + Guid.NewGuid().ToString("N") + ".dll");
+        File.WriteAllText(junk, "not a pe");
+        try
+        {
+            Assert.IsNull(AuthorityEnvironment.TryIdentifyBuild(assembly, new[] { junk }).Id);
+        }
+        finally
+        {
+            File.Delete(junk);
+        }
+
+        var loadedBytes = File.ReadAllBytes(location);
+        var context = new AssemblyLoadContext("authority-build-" + Guid.NewGuid().ToString("N"), isCollectible: true);
+        try
+        {
+            var loaded = context.LoadFromStream(new MemoryStream(loadedBytes));
+            Assert.AreEqual(string.Empty, loaded.Location);
+            Assert.IsNull(AuthorityEnvironment.TryIdentifyBuild(loaded, new[] { foreign }).Id);
+            Assert.AreEqual(hash, AuthorityEnvironment.TryIdentifyBuild(loaded, new[] { foreign, location }).Id);
+        }
+        finally
+        {
+            context.Unload();
+        }
     }
 
     [TestMethod]
@@ -649,6 +801,45 @@ public sealed class AuthorityCheckpointTests
         var vehicle = model.Vehicles[0];
         var contacts = vehicle.Contacts.Reverse().ToArray();
         return model with { Vehicles = new[] { vehicle with { Contacts = contacts } } };
+    }
+
+    private static PlaygroundSequence RejectedVoxel(int x) =>
+        new(
+            "payload-" + x.ToString(CultureInfo.InvariantCulture),
+            PlaygroundConfigurations.StraightRailTrainId,
+            new[]
+            {
+                new PlaygroundValidationStep(
+                    PlaygroundOperation.Submit(new VoxelAddEdit(
+                        new WorldVoxelCoord(x, 0, 0),
+                        new VoxelDefinitionId("core", "ferrous-ore"),
+                        VoxelOrientation.Identity)),
+                    "OutOfBounds",
+                    Array.Empty<PlaygroundCheck>())
+            });
+
+    private static PlaygroundSequence RefusedRefit(int x) =>
+        new(
+            "refit-" + x.ToString(CultureInfo.InvariantCulture),
+            PlaygroundConfigurations.StraightRailEmptyId,
+            new[]
+            {
+                new PlaygroundValidationStep(
+                    PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(new LocalVoxelCoord(x, 0, 0))),
+                    PlaygroundOperation.NoVehicleStatus,
+                    Array.Empty<PlaygroundCheck>())
+            });
+
+    private static string ReplaceJsonNumber(string json, string property, string value)
+    {
+        var key = $"\"{property}\":";
+        var start = json.IndexOf(key, StringComparison.Ordinal);
+        Assert.IsTrue(start >= 0, property);
+        start += key.Length;
+        var end = start;
+        while (end < json.Length && json[end] != ',' && json[end] != '}')
+            end++;
+        return string.Concat(json.AsSpan(0, start), value, json.AsSpan(end));
     }
 
     private static PlaygroundSequence Adds(WorldVoxelCoord first, WorldVoxelCoord second) =>

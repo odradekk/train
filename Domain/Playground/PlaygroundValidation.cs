@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text;
+using System.Text.Json;
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
@@ -163,6 +165,79 @@ public sealed record PlaygroundOperation(
         return null;
     }
 
+    /// <summary>
+    /// Canonical identity of this command: the full payload, its scheduled step, and, for latest/refit, the target
+    /// resolved before execution. <see cref="Describe"/> is display text and is not this identity.
+    /// </summary>
+    public string InputIdentity(VoxelDevelopmentSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            switch (Kind)
+            {
+                case PlaygroundOperationKind.Pause:
+                    writer.WriteString("kind", "pause");
+                    WriteAtStep(writer);
+                    break;
+                case PlaygroundOperationKind.Resume:
+                    writer.WriteString("kind", "resume");
+                    WriteAtStep(writer);
+                    break;
+                case PlaygroundOperationKind.Advance:
+                    writer.WriteString("kind", "advance");
+                    WriteAtStep(writer);
+                    writer.WriteNumber("steps", Steps);
+                    break;
+                case PlaygroundOperationKind.StartTrain:
+                    writer.WriteString("kind", "start");
+                    WriteAtStep(writer);
+                    writer.WriteString("heading", Heading.ToString());
+                    break;
+                case PlaygroundOperationKind.StopTrain:
+                    writer.WriteString("kind", "stop");
+                    WriteAtStep(writer);
+                    break;
+                case PlaygroundOperationKind.DamageVoxel:
+                    writer.WriteString("kind", "damage_voxel");
+                    WriteAtStep(writer);
+                    WriteCoord(writer, "position", Cell.X, Cell.Y, Cell.Z);
+                    writer.WriteNumber("amount", Amount);
+                    break;
+                case PlaygroundOperationKind.Edit:
+                    writer.WriteString("kind", "edit");
+                    WriteAtStep(writer);
+                    writer.WritePropertyName("edit");
+                    writer.WriteRawValue(Edit?.Canonical ?? throw new InvalidOperationException("Edit operation has no payload."));
+                    break;
+                case PlaygroundOperationKind.RefitLatestVehicle:
+                    writer.WriteString("kind", "refit_latest");
+                    WriteAtStep(writer);
+                    writer.WriteStartArray("request");
+                    foreach (var refit in Refits ?? Array.Empty<PlaygroundRefit>())
+                        WriteRefitRequest(writer, refit);
+                    writer.WriteEndArray();
+                    WriteResolved(writer, session);
+                    break;
+                case PlaygroundOperationKind.DamageLatestVehicle:
+                    writer.WriteString("kind", "damage_latest");
+                    WriteAtStep(writer);
+                    WriteCoord(writer, "cell", VehicleCell.X, VehicleCell.Y, VehicleCell.Z);
+                    writer.WriteNumber("amount", Amount);
+                    WriteResolved(writer, session);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
     public string Describe() => Kind switch
     {
         PlaygroundOperationKind.Advance => $"advance {Steps.ToString(CultureInfo.InvariantCulture)}",
@@ -176,6 +251,62 @@ public sealed record PlaygroundOperation(
             $"damage latest {VehicleCell.X},{VehicleCell.Y},{VehicleCell.Z} {Amount.ToString(CultureInfo.InvariantCulture)}{DescribeAt()}",
         _ => Kind.ToString().ToLowerInvariant()
     };
+
+    private void WriteAtStep(Utf8JsonWriter writer)
+    {
+        if (AtStep is { } step)
+            writer.WriteNumber("at_step", step);
+        else
+            writer.WriteNull("at_step");
+    }
+
+    private static void WriteCoord(Utf8JsonWriter writer, string name, int x, int y, int z)
+    {
+        writer.WriteStartObject(name);
+        writer.WriteNumber("x", x);
+        writer.WriteNumber("y", y);
+        writer.WriteNumber("z", z);
+        writer.WriteEndObject();
+    }
+
+    private static void WriteRefitRequest(Utf8JsonWriter writer, PlaygroundRefit refit)
+    {
+        writer.WriteStartObject();
+        writer.WriteString("op", refit.Kind.ToString().ToLowerInvariant());
+        WriteCoord(writer, "cell", refit.Cell.X, refit.Cell.Y, refit.Cell.Z);
+        switch (refit.Kind)
+        {
+            case PlaygroundRefitKind.Add:
+            case PlaygroundRefitKind.Replace:
+                writer.WriteString("definition_id", refit.DefinitionId.Value);
+                writer.WriteString("orientation", (refit.Orientation ?? VoxelOrientation.Identity).ToString());
+                break;
+            case PlaygroundRefitKind.Remove:
+                break;
+            case PlaygroundRefitKind.Move:
+                WriteCoord(writer, "destination", refit.Destination.X, refit.Destination.Y, refit.Destination.Z);
+                break;
+            case PlaygroundRefitKind.Rotate:
+                if (refit.Orientation is { } orientation)
+                    writer.WriteString("orientation", orientation.ToString());
+                else
+                    writer.WriteNull("orientation");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(refit), refit.Kind, "Unknown refit kind.");
+        }
+
+        writer.WriteEndObject();
+    }
+
+    private void WriteResolved(Utf8JsonWriter writer, VoxelDevelopmentSession session)
+    {
+        writer.WritePropertyName("resolved");
+        if (ResolveEdit(session, out var edit) is null && edit is not null)
+            writer.WriteRawValue(edit.Canonical);
+        else
+            writer.WriteNullValue();
+    }
 
     private string DescribeAt() => AtStep is { } step ? $" at {step.ToString(CultureInfo.InvariantCulture)}" : "";
 }

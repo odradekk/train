@@ -206,10 +206,10 @@ public static class AuthorityCodec
             }
 
             if (!Take(fields, "evidence_format_version", out var evidenceVersion) ||
-                evidenceVersion.ValueKind != JsonValueKind.Number ||
-                evidenceVersion.GetInt32() != 1)
+                !TryReadInt32(evidenceVersion, out var evidenceFormat) ||
+                evidenceFormat != 1)
                 return false;
-            if (!Take(fields, "format_version", out var format) || format.ValueKind != JsonValueKind.Number)
+            if (!Take(fields, "format_version", out var format) || !TryReadInt32(format, out var formatVersion))
                 return false;
             if (!Take(fields, "build", out var build) || build.ValueKind != JsonValueKind.String)
                 return false;
@@ -233,6 +233,13 @@ public static class AuthorityCodec
             if (!Take(fields, "configuration_version", out var configurationVersion) ||
                 configurationVersion.ValueKind is not (JsonValueKind.Number or JsonValueKind.Null))
                 return false;
+            int? configurationVersionValue = null;
+            if (configurationVersion.ValueKind == JsonValueKind.Number)
+            {
+                if (!TryReadInt32(configurationVersion, out var parsedConfigurationVersion))
+                    return false;
+                configurationVersionValue = parsedConfigurationVersion;
+            }
             if (!Take(fields, "seed", out var seed) || !seed.TryGetUInt64(out var seedValue))
                 return false;
             if (!Take(fields, "generator_version", out var generator) || generator.ValueKind != JsonValueKind.String)
@@ -264,13 +271,13 @@ public static class AuthorityCodec
 
             var buildId = build.GetString();
             context = new AuthorityContext(
-                format.GetInt32(),
+                formatVersion,
                 string.IsNullOrEmpty(buildId) ? null : buildId,
                 content.GetString()!,
                 lines,
                 sourceKind.GetString()!,
                 configurationId.ValueKind == JsonValueKind.Null ? null : configurationId.GetString(),
-                configurationVersion.ValueKind == JsonValueKind.Null ? null : configurationVersion.GetInt32(),
+                configurationVersionValue,
                 seedValue,
                 generator.GetString()!,
                 operatingSystem.GetString()!,
@@ -294,6 +301,13 @@ public static class AuthorityCodec
 
     private static bool Take(Dictionary<string, JsonElement> fields, string name, out JsonElement value) =>
         fields.Remove(name, out value);
+
+    /// <summary>True only for an integer inside <see cref="int"/> range. Fractional and overflowing JSON numbers are false.</summary>
+    private static bool TryReadInt32(JsonElement element, out int value)
+    {
+        value = 0;
+        return element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out value);
+    }
 
     internal static IReadOnlyList<string> SemanticLines(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites)
     {
