@@ -70,8 +70,8 @@ public sealed record PlaygroundObservationNotice(PlaygroundNoticeKind Kind, Obse
         : $"target-lost {Object.Describe()} mode {Mode.ToString().ToLowerInvariant()} camera free-in-place";
 
     public string DescribeZh() => Kind == PlaygroundNoticeKind.SelectionLost
-        ? $"选中的{Object.DescribeZh()}已不存在，已清除选择"
-        : $"{(Mode == PlaygroundCameraMode.Follow ? "跟随" : "聚焦")}目标{Object.DescribeZh()}已彻底销毁：已清除引用，镜头停在原位并转为自由观察";
+        ? $"选中的{Object.DescribeZh()} 已不存在，已清除选择"
+        : $"{(Mode == PlaygroundCameraMode.Follow ? "跟随" : "聚焦")}目标{Object.DescribeZh()} 已彻底销毁：已清除引用，镜头停在原位并转为自由观察";
 }
 
 public readonly record struct ObservationVector(double X, double Y, double Z)
