@@ -1,6 +1,7 @@
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
+using Train.Domain.Playground;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
 
@@ -60,6 +61,7 @@ public sealed partial class VoxelDevelopmentSession
         _onCompositesChanged = _ => MarkCatalogDirty();
         _catalog.Changed += _onCatalogChanged;
         _composites.Changed += _onCompositesChanged;
+        MarkPersistenceClean();
     }
 
     public void Detach()
@@ -120,6 +122,7 @@ public sealed partial class VoxelDevelopmentSession
         _rebuildAllCollision = true;
         _rebuildComposites = true;
         _rebuildTracks = true;
+        MarkPersistenceClean();
         Changed?.Invoke();
         WorldReplaced?.Invoke(WorldReplacement.Reset);
     }
@@ -137,7 +140,9 @@ public sealed partial class VoxelDevelopmentSession
             throw new InvalidOperationException("Only a fresh, unfaulted session with no pending input can be established.");
         WorldSource = source;
         ResetEditState(WorldEditQueueState.Initial);
+        WorldSource = source.WithBaseFingerprint(WorldSourceBase.Fingerprint(this));
         PauseSimulation();
+        MarkPersistenceClean();
     }
 
     private WorldCommandResult AddCore(WorldVoxelCoord position, VoxelDefinitionId definitionId, VoxelOrientation orientation)
@@ -572,6 +577,7 @@ public sealed partial class VoxelDevelopmentSession
 
         SaveId = id;
         DisplayName = normalized;
+        MarkPersistenceClean();
         return new WorldSaveResult(WorldSaveStatus.Saved, SaveId, DisplayName);
     }
 
@@ -590,23 +596,35 @@ public sealed partial class VoxelDevelopmentSession
                 DisplayName);
         if (document.Id != saveId)
             return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName);
+        var sourceCheck = FixedSourceVerification.Check(document, _catalog, _composites);
+        if (!sourceCheck.Succeeded)
+            return new WorldSaveResult(sourceCheck.Status, SaveId, DisplayName, sourceCheck.Diagnostic);
+        var adaptations = new List<WorldSaveAdaptation>();
+        var failures = new WorldSaveFailureLog();
         if (!WorldSaveRestorer.TryBuild(
                 _catalog.Current,
                 _composites.Current,
                 document,
                 Identity,
+                adaptations,
+                failures,
                 out var restore,
                 out var buildStatus))
-            return new WorldSaveResult(buildStatus, SaveId, DisplayName);
+            return new WorldSaveResult(buildStatus, SaveId, DisplayName, failures.First ?? WorldSaveDiagnostic.For(buildStatus));
 
-        ReplaceSession(restore);
+        adaptations.AddRange(sourceCheck.Adaptations);
+        adaptations.AddRange(ReplaceSession(restore));
         WorldSource = document.Source;
         if (WorldSource is not null)
             PauseSimulation();
         SaveId = document.Id;
         DisplayName = document.DisplayName;
+        if (adaptations.Any(item => item.ChangesPersistentState))
+            _cleanFingerprint = "";
+        else
+            MarkPersistenceClean();
         WorldReplaced?.Invoke(WorldReplacement.Load);
-        return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName);
+        return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName, Adaptations: adaptations);
     }
 
     public IReadOnlyList<ChunkCoord> TakePendingDirtyChunks()
@@ -724,7 +742,7 @@ public sealed partial class VoxelDevelopmentSession
         return false;
     }
 
-    private void ReplaceSession(WorldSaveRestore restore)
+    private List<WorldSaveAdaptation> ReplaceSession(WorldSaveRestore restore)
     {
         World = restore.World;
         Commands = new VoxelWorldCommands(World, _catalog);
@@ -751,7 +769,7 @@ public sealed partial class VoxelDevelopmentSession
                 World);
         }
 
-        AdaptAssembliesToCatalog(_catalog.Current);
+        var adaptations = AdaptAssembliesToCatalog(_catalog.Current);
         var previousFollow = FollowedVehicleId;
         SnapDisplayInterval();
         if (previousFollow is { } followed && _vehicles.Any(item => item.Id == followed))
@@ -766,6 +784,7 @@ public sealed partial class VoxelDevelopmentSession
         _rebuildComposites = true;
         _rebuildTracks = true;
         Changed?.Invoke();
+        return adaptations;
     }
 
     private sealed record VehicleDamagePlan(

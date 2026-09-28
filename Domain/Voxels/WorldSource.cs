@@ -15,13 +15,15 @@ public sealed class WorldSource : IEquatable<WorldSource>
     public int ConfigurationVersion { get; }
     public IReadOnlyList<WorldSourceParameter> EffectiveParameters { get; }
     public IReadOnlyList<WorldSourceDependency> ContentDependencies { get; }
+    public string BaseFingerprint { get; }
 
     public WorldSource(
         string kind,
         string configurationId,
         int configurationVersion,
         IReadOnlyList<WorldSourceParameter> effectiveParameters,
-        IReadOnlyList<WorldSourceDependency> contentDependencies)
+        IReadOnlyList<WorldSourceDependency> contentDependencies,
+        string baseFingerprint = "")
     {
         ArgumentException.ThrowIfNullOrEmpty(kind);
         ArgumentException.ThrowIfNullOrEmpty(configurationId);
@@ -32,6 +34,20 @@ public sealed class WorldSource : IEquatable<WorldSource>
         ConfigurationVersion = configurationVersion;
         EffectiveParameters = effectiveParameters.ToArray();
         ContentDependencies = contentDependencies.ToArray();
+        BaseFingerprint = NormalizeFingerprint(baseFingerprint);
+    }
+
+    public WorldSource WithBaseFingerprint(string fingerprint) =>
+        new(Kind, ConfigurationId, ConfigurationVersion, EffectiveParameters, ContentDependencies, fingerprint);
+
+    private static string NormalizeFingerprint(string fingerprint)
+    {
+        if (fingerprint.Length == 0)
+            return "";
+        var upper = fingerprint.ToUpperInvariant();
+        if (!WorldSourceBase.IsSha256(upper))
+            throw new ArgumentException("Base fingerprint must be 64 hexadecimal characters.", nameof(fingerprint));
+        return upper;
     }
 
     public string? Parameter(string name) =>
@@ -43,11 +59,12 @@ public sealed class WorldSource : IEquatable<WorldSource>
         string.Equals(ConfigurationId, other.ConfigurationId, StringComparison.Ordinal) &&
         ConfigurationVersion == other.ConfigurationVersion &&
         EffectiveParameters.SequenceEqual(other.EffectiveParameters) &&
-        ContentDependencies.SequenceEqual(other.ContentDependencies);
+        ContentDependencies.SequenceEqual(other.ContentDependencies) &&
+        string.Equals(BaseFingerprint, other.BaseFingerprint, StringComparison.Ordinal);
 
     public override bool Equals(object? obj) => Equals(obj as WorldSource);
 
-    public override int GetHashCode() => HashCode.Combine(Kind, ConfigurationId, ConfigurationVersion);
+    public override int GetHashCode() => HashCode.Combine(Kind, ConfigurationId, ConfigurationVersion, BaseFingerprint);
 }
 
 internal static class WorldSourceCodec
@@ -79,6 +96,8 @@ internal static class WorldSourceCodec
         }
 
         writer.WriteEndArray();
+        if (source.BaseFingerprint.Length > 0)
+            writer.WriteString("base_fingerprint", source.BaseFingerprint);
         writer.WriteEndObject();
     }
 
@@ -95,6 +114,7 @@ internal static class WorldSourceCodec
         int? version = null;
         IReadOnlyList<WorldSourceParameter>? parameters = null;
         IReadOnlyList<WorldSourceDependency>? dependencies = null;
+        var baseFingerprint = "";
         foreach (var property in element.EnumerateObject())
         {
             if (!seen.Add(property.Name))
@@ -129,6 +149,12 @@ internal static class WorldSourceCodec
                     if (!TryReadDependencies(property.Value, out dependencies))
                         return false;
                     break;
+                case "base_fingerprint":
+                    var fingerprint = ReadText(property.Value);
+                    if (fingerprint is null || !WorldSourceBase.IsSha256(fingerprint.ToUpperInvariant()))
+                        return false;
+                    baseFingerprint = fingerprint.ToUpperInvariant();
+                    break;
                 default:
                     return false;
             }
@@ -146,7 +172,7 @@ internal static class WorldSourceCodec
             return false;
         }
 
-        source = new WorldSource(kind, id, version.Value, parameters, dependencies);
+        source = new WorldSource(kind, id, version.Value, parameters, dependencies, baseFingerprint);
         status = WorldSaveStatus.Loaded;
         return true;
     }

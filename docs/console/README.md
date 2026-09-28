@@ -23,7 +23,7 @@
 | [quit](quit.md) | 退出游戏进程 | 所有构建 |
 | [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例、车辆、碎块、接触绑定和已提交编组运行条件 | 仅 Debug 构建 |
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
-| [voxel reset](voxel-reset.md) | 重建初始开发世界 | 包含 PR #47，且已进入体素开发场景 |
+| [voxel reset](voxel-reset.md) `[discard\|save\|cancel]` | 重建初始开发世界；有未保存变化时必须选择保存后重置、放弃或取消 | 包含 PR #47，且已进入体素开发场景 |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
 | [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格完整盒的领域碰撞（`local_box` 格内盒外须用六参数） | 同上 |
 | [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与当前碰撞形状的重叠 | 同上 |
@@ -32,8 +32,9 @@
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
 | [voxel edits](voxel-edits.md) `[pending \| log [<count>] \| fault]` | 查询世界修改命令的边界位置、待执行队列、执行日志与内部故障 | 同上 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步与待执行世界修改（含列车起停）原子写入 `user://saves/<UUID>/save.json` | 同上 |
-| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换会话；格式 5 写出，仍可读格式 2–4（旧列车队列须为空） | 同上 |
-| [composite reset](composite-reset.md) `[hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具 | 包含切片 3，且已进入体素开发场景 |
+| [voxel load](voxel-load.md) `<uuid> [discard\|save\|cancel]` | 按当前有效定义恢复存档并整体替换会话；格式 5 写出，仍可读格式 2–4（旧列车队列须为空）；有未保存变化时先选择 | 同上 |
+| [voxel use](voxel-use.md) `<configuration-id> [discard\|save\|cancel]` | 把 Playground 切换到另一个具名固定配置；候选失败时保留当前世界 | 已进入 Playground |
+| [composite reset](composite-reset.md) `[discard\|save\|cancel] [hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具；有未保存变化时先选择 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>] [pose <x> <y> <z>] [at <step>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
 | [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...] [at <step>]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
 | [composite query](composite-query.md) `[page [<page>] \| damaged [<page>] \| <id> [parts [<page>]]]` | 分页列出车辆摘要、受损零件，或查询单车接触与零件布局 | 同上 |
@@ -73,7 +74,7 @@
 | 1 | 进入切片 1 体素场景 | 一个 16³ Chunk | 各轴 `4..11`，共 512 格 | `0..15` |
 | 2 | 进入切片 2 体素场景 | 边长 16，世界 32³，共 2×2×2 个 Chunk | 地面 `x,z=0..31`、`y=0`，加 `14..17` 三轴交汇 4³ 实心块，共 1,088 格 | `0..31` |
 | 3 | 进入切片 3 静置车辆场景 | 边长 16，世界 32³，Seed=42 | 空世界；可制造 168 格空心壳或 55 格桥接夹具，车辆体素不进入世界网格；失去身份的碎块才转入世界 | `0..31` |
-| 4 | 进入切片 4 正式直轨场景 | 边长 16，世界 320×32×32，Seed=4 | 菜单进入或 `R` 后施工固定直轨并制造一车头一车厢刚性编组，257 根轨枕、1032 个正体积占格；车辆体素不属于世界占用；`voxel reset` 清空轨道与编组 | `0..319` / `0..31` / `0..31` |
+| 4 | 进入切片 4 正式直轨场景 | 边长 16，世界 320×32×32，Seed=4 | 菜单进入或 `R` 后施工固定直轨并制造一车头一车厢刚性编组，257 根轨枕、1032 个正体积占格；车辆体素不属于世界占用；无来源时 `voxel reset` 清空轨道与编组 | `0..319` / `0..31` / `0..31` |
 
 切片 2 基底带有明确的 Seed、`GeneratorVersion=slice-2-integer-fixture-v1` 和尺寸参数；切片 3 使用 Seed=42 与 `GeneratorVersion=slice-3-parked-vehicle-v1`；切片 4 使用 Seed=4 与 `GeneratorVersion=slice-4-straight-rail-v1`。相同输入与有效内容重复生成同一基底。世界生成不消费随机流；切片 3 断裂平局使用 Seed 与事务 ID 的无状态 SplitMix64 键。`voxel reset` / `composite reset` 走同一正式生成入口。切片 4 的 `rail construct` 走 `RailEditTransaction`，不在重置时偷偷写入轨道。
 
@@ -230,7 +231,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，切片 4 可用 `T` 启动、`Y` 停车、`P` 暂停/恢复、`F` 在存活车辆间循环跟随相机，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。切片 4 HUD 按正式运动状态写「运行 / 滑行 / 停止」，并保留支撑失效、前方缺口、线路末端与会话暂停。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId，以及切片 4 的正式铁路、编组、运动和待执行修改（含列车起停），都随格式 5 一并保存；本构建仍可读格式 2–4 文件（格式 3 / 4 的旧列车队列须为空）。失败时保留旧会话，不会报告成功却丢车、丢轨或丢队列。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，切片 4 可用 `T` 启动、`Y` 停车、`P` 暂停/恢复、`F` 在存活车辆间循环跟随相机，`R` 重置当前切片基底（有未保存变化时先选择保存、放弃或取消；切片 3 同时清空车辆；切片 4 重置成功后立即再施工固定直轨并编组），`Esc` 直接返回主菜单，不经过这道保护。切片 4 HUD 按正式运动状态写「运行 / 滑行 / 停止」，并保留支撑失效、前方缺口、线路末端与会话暂停。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId，以及切片 4 的正式铁路、编组、运动和待执行修改（含列车起停），都随格式 5 一并保存；本构建仍可读格式 2–4 文件（格式 3 / 4 的旧列车队列须为空）。失败时保留旧会话，不会报告成功却丢车、丢轨或丢队列。
 
 ### 切片 4 正式直轨
 
@@ -276,7 +277,7 @@ voxel save After Railway
 
 ### Playground（具名固定配置）
 
-主菜单每个 “Playground · …” 按钮对应一份具名固定配置（`Domain/Playground/PlaygroundConfiguration.cs`）：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。HUD 显示配置 ID / 版本 / 来源类型、当前步、暂停状态与编组运动；按钮 “运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存” 与下列命令走同一正式会话操作。Playground 没有 `R` 重置或 `Esc` 返回菜单这类会丢失会话的快捷键；安全切换配置不在当前入口范围内。
+主菜单每个 “Playground · …” 按钮对应一份具名固定配置（`Domain/Playground/PlaygroundConfiguration.cs`）：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。HUD 显示配置 ID / 版本 / 来源类型、基底指纹前缀、当前步、暂停状态、是否对齐保存点，以及编组运动。按钮 “运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存 / 重置 / 切换到另一配置 / 读取存档” 与 [`voxel reset`](voxel-reset.md)、[`voxel use`](voxel-use.md)、[`voxel load`](voxel-load.md) 走同一正式会话。有未保存变化时，重置、切换和读取会先要求保存后继续、放弃或取消。`Esc` 与 `quit` 不是切换。
 
 ```text
 loglevel info
@@ -289,7 +290,7 @@ rail pause
 voxel save Playground Train
 ```
 
-建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 中写出 `world_source`，新进程加载后恢复来源并保持暂停，见 [voxel load](voxel-load.md)。注意：`voxel reset` 仍是现有命令，会清空 Playground 世界并去掉来源信息。
+建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 的 `world_source` 中写出来源，并带可选的 `base_fingerprint`。新进程加载后恢复来源、核对重建基底并保持暂停，见 [voxel load](voxel-load.md)。[`voxel reset`](voxel-reset.md) 重新建立当前配置并保留来源；[`voxel use`](voxel-use.md) 切换到另一配置并清空存档 UUID。
 
 HUD 下方的修改面板把 “世界格 / 量 / 延迟步” 与 “最新车辆局部格” 输入转成世界修改命令：放置矿石、移除体素、损伤体素、在此制造空壳、修复轨道（`rail.repair` 修复世界格所在的原轨段占格）、施工直轨（与 `rail construct` 同一固定计划）、组装列车（与 `rail assemble` 同一夹具，无车配置中可正式编组），以及对最新制造车辆的损伤零件、加装、拆除、移到 +X、旋转、替换与批量加装两格。上方的 “启动列车 / 停车” 按钮同样读取延迟步，提交 `train.start` / `train.stop`。延迟步为 0 时立即执行，否则排到当前步加延迟的边界；同一边界按点击与控制台输入的先后顺序执行，例如暂停时依次点 “损伤体素”（量 100，打在轨格上）、“修复轨道”、“启动列车”，三者在同一边界取得连续位置。面板按局部格找到零件后提交带真实 ID 的命令，与下列控制台写法产生同一负载和位置；最下一行显示边界位置、下一个编号、待执行数与最近一条记录。
 
@@ -305,7 +306,7 @@ voxel save Playground Edits
 
 暂停在第 300 步时，前四条依次得到 `300:0`…`300:3`，时钟与列车不动；后两条排到第 303 步，`voxel edits` 报告 `boundary 300:6`。保存后在新进程加载，队列原样恢复，推进到第 303 步时两条命令按原顺序执行一次。
 
-屏幕右侧观察面板与 `observe` 命令共用同一观察状态：对象列表、检查信息（身份、所属、耐久、运行资格、失败原因）、镜头模式与失效提示。选择（列表、画面左键点击或 `observe select`）从不移动镜头；只有“聚焦选中”/`F`/`observe focus` 与“跟随选中”/`V`/`observe follow` 改变镜头，“自由观察”/`C`/`observe free` 让镜头原位回到自由观察。Playground 镜头不再读 `rail follow` 的会话跟随状态。观察状态不写入存档、不占命令编号，打开面板、查询和切换镜头都不暂停或推进。`voxel reset`、`composite reset` 或成功的 `voxel load` 替换整个世界时，旧选择与目标一律清除并原位转为自由观察（新世界复用同一 ID 也不继续跟随），加载失败时观察不变。
+屏幕右侧观察面板与 `observe` 命令共用同一观察状态：对象列表、检查信息（身份、所属、耐久、运行资格、失败原因）、镜头模式与失效提示。选择（列表、画面左键点击或 `observe select`）从不移动镜头；只有“聚焦选中”/`F`/`observe focus` 与“跟随选中”/`V`/`observe follow` 改变镜头，“自由观察”/`C`/`observe free` 让镜头原位回到自由观察。Playground 镜头不再读 `rail follow` 的会话跟随状态。观察状态不写入存档、不占命令编号，打开面板、查询和切换镜头都不暂停或推进。`voxel reset`、`composite reset`、`voxel use` 或成功的 `voxel load` 替换整个世界时，旧选择与目标一律清除并原位转为自由观察（新世界复用同一 ID 也不继续跟随）。取消、保存失败或候选失败时观察不变。打开面板、查询和切换镜头也不把世界标成未保存。
 
 ```text
 observe
