@@ -283,7 +283,7 @@ public sealed class PlaygroundObservationTests
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
         var session = playground.Session;
         var probe = PlaygroundSequences.EditProbe;
-        Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(probe, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)).Status);
+        Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
         var observer = new PlaygroundObserver(session, Overview, OverviewLook);
         Assert.AreEqual(PlaygroundObservationStatus.Selected, observer.Select(ObservedObject.WorldCell(probe)));
         observer.FocusSelection();
@@ -312,7 +312,7 @@ public sealed class PlaygroundObservationTests
         using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
         var session = playground.Session;
         var probe = PlaygroundSequences.EditProbe;
-        Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(probe, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)).Status);
+        Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
         var observer = new PlaygroundObserver(session, Overview, OverviewLook);
         observer.Select(ObservedObject.WorldCell(probe));
 
@@ -322,6 +322,142 @@ public sealed class PlaygroundObservationTests
 
         Assert.IsNull(observer.Selection);
         Assert.AreEqual(PlaygroundNoticeKind.SelectionLost, observer.LastNotice!.Kind);
+    }
+
+    [TestMethod]
+    public void Same_definition_rebuild_between_frames_drops_the_cell_selection_and_focus_in_place()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var probe = PlaygroundSequences.EditProbe;
+        using var observer = FocusedOnProbe(session, out var held);
+
+        Assert.AreEqual("Removed", session.SubmitEdit(new VoxelRemoveEdit(probe)).Status);
+        Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
+
+        AssertRebuildDroppedReferences(observer, session, held);
+    }
+
+    [TestMethod]
+    public void Same_definition_rebuild_scheduled_for_one_step_drops_the_cell_selection_and_focus_in_place()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var probe = PlaygroundSequences.EditProbe;
+        using var observer = FocusedOnProbe(session, out var held);
+        var step = session.SimulationStep + 1;
+
+        Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(new VoxelRemoveEdit(probe), step).Refusal);
+        Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(AddProbe(), step).Refusal);
+        Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
+        CollectionAssert.AreEqual(
+            new[] { "Removed", "Added" },
+            session.QueryEditLog().TakeLast(2).Select(record => record.Status).ToArray());
+
+        AssertRebuildDroppedReferences(observer, session, held);
+    }
+
+    [TestMethod]
+    public void Faulted_removal_rolls_back_and_keeps_the_cell_selection_and_focus()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var probe = PlaygroundSequences.EditProbe;
+        using var observer = FocusedOnProbe(session, out _);
+        var selected = observer.Selection;
+        session.EditFaultProbe = record =>
+        {
+            if (record.Edit is VoxelRemoveEdit)
+                throw new InvalidOperationException("injected invariant failure");
+        };
+
+        Assert.AreEqual(WorldEditState.Faulted, session.SubmitEdit(new VoxelRemoveEdit(probe)).Record!.State);
+        observer.Present(Frame, session.QueryDisplayPoses());
+
+        Assert.AreEqual(selected, observer.Selection);
+        Assert.AreEqual(selected, observer.Target);
+        Assert.AreEqual(PlaygroundCameraMode.Focus, observer.Mode);
+        Assert.AreEqual(0, observer.Notices.Count);
+    }
+
+    [TestMethod]
+    public void Removal_executed_before_a_faulted_add_in_the_same_step_still_drops_the_cell_focus()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var probe = PlaygroundSequences.EditProbe;
+        using var observer = FocusedOnProbe(session, out var held);
+        var step = session.SimulationStep + 1;
+        session.SubmitEdit(new VoxelRemoveEdit(probe), step);
+        session.SubmitEdit(AddProbe(), step);
+        session.EditFaultProbe = record =>
+        {
+            if (record.Edit is VoxelAddEdit)
+                throw new InvalidOperationException("injected invariant failure");
+        };
+
+        Assert.IsFalse(session.AdvanceSimulation(1).Succeeded);
+        CollectionAssert.AreEqual(
+            new[] { WorldEditState.Executed, WorldEditState.Faulted },
+            session.QueryEditLog().TakeLast(2).Select(record => record.State).ToArray());
+        Assert.IsNull(session.Query(probe).Voxel);
+        var after = observer.Present(Frame, session.QueryDisplayPoses());
+
+        Assert.IsNull(observer.Selection);
+        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        Assert.AreEqual(PlaygroundNoticeKind.TargetLost, observer.LastNotice!.Kind);
+        AssertClose(held.Position, after.Position);
+    }
+
+    [TestMethod]
+    public void Disposed_observer_stops_listening_for_executed_edits()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        var session = playground.Session;
+        var probe = PlaygroundSequences.EditProbe;
+        var observer = FocusedOnProbe(session, out _);
+        var selected = observer.Selection;
+
+        observer.Dispose();
+        session.SubmitEdit(new VoxelRemoveEdit(probe));
+        session.SubmitEdit(AddProbe());
+
+        Assert.AreEqual(selected, observer.Selection);
+        Assert.AreEqual(0, observer.Notices.Count);
+    }
+
+    private static PlaygroundObserver FocusedOnProbe(VoxelDevelopmentSession session, out ObservationCameraPose held)
+    {
+        var probe = PlaygroundSequences.EditProbe;
+        Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
+        var observer = new PlaygroundObserver(session, Overview, OverviewLook);
+        Assert.AreEqual(PlaygroundObservationStatus.Selected, observer.Select(ObservedObject.WorldCell(probe)));
+        Assert.AreEqual(PlaygroundObservationStatus.Focused, observer.FocusSelection());
+        held = PresentFrames(observer, session, 60)[^1];
+        Assert.IsFalse(observer.Transitioning);
+        return observer;
+    }
+
+    private static VoxelAddEdit AddProbe() =>
+        new(PlaygroundSequences.EditProbe, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity);
+
+    private static void AssertRebuildDroppedReferences(PlaygroundObserver observer, VoxelDevelopmentSession session, ObservationCameraPose held)
+    {
+        var probe = PlaygroundSequences.EditProbe;
+        Assert.AreEqual(PlaygroundSequences.EditVoxelId, session.Query(probe).Voxel!.DefinitionId);
+
+        var after = observer.Present(Frame, session.QueryDisplayPoses());
+
+        Assert.IsNull(observer.Selection);
+        Assert.IsNull(observer.Target);
+        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        var lost = observer.Notices.Single(item => item.Kind == PlaygroundNoticeKind.TargetLost);
+        Assert.AreEqual(ObservedObjectKind.WorldCell, lost.Object.Kind);
+        Assert.AreEqual(probe, lost.Object.Cell);
+        Assert.AreEqual(PlaygroundCameraMode.Focus, lost.Mode);
+        Assert.IsTrue(observer.Notices.Any(item => item.Kind == PlaygroundNoticeKind.SelectionLost));
+        AssertClose(held.Position, after.Position);
+        AssertClose(Unit(held.Look - held.Position), Unit(after.Look - after.Position));
     }
 
     [TestMethod]

@@ -26,6 +26,13 @@ public sealed partial class VoxelDevelopmentSession
     /// <summary>Test seam for internal invariant faults: runs inside the edit transaction after the business change.</summary>
     internal Action<WorldEditRecord>? EditFaultProbe { get; set; }
 
+    /// <summary>
+    /// Raised once per executed edit after its transaction is logged, so each edit of a same-step batch is observable
+    /// on its own; never for a rejected edit or a faulted one, whose changes were rolled back. It runs mid-boundary,
+    /// outside the transaction: subscribers only read the session and must not throw.
+    /// </summary>
+    internal event Action<WorldEditRecord>? EditExecuted;
+
     // The typed entries below keep their business statuses for payloads a WorldEdit cannot encode (missing ids,
     // non-orthogonal orientations, non-finite poses); such calls are never accepted, so they take no id or sequence.
 
@@ -160,11 +167,13 @@ public sealed partial class VoxelDevelopmentSession
     private WorldEditSubmission Execute(WorldEditRecord pending, SimulationPosition position)
     {
         var rollback = CaptureEditRollback();
+        WorldEditRecord done;
+        object result;
         try
         {
-            var (succeeded, status, result) = Dispatch(pending.Edit);
+            (var succeeded, var status, result) = Dispatch(pending.Edit);
             EditFaultProbe?.Invoke(pending);
-            var done = pending with
+            done = pending with
             {
                 State = succeeded ? WorldEditState.Executed : WorldEditState.Rejected,
                 ExecutedAt = position,
@@ -172,7 +181,6 @@ public sealed partial class VoxelDevelopmentSession
             };
             _pendingEdits.Remove(pending);
             AppendLog(done);
-            return new WorldEditSubmission(WorldEditRefusal.None, done, result);
         }
         catch (Exception exception)
         {
@@ -188,6 +196,10 @@ public sealed partial class VoxelDevelopmentSession
             Changed?.Invoke();
             return new WorldEditSubmission(WorldEditRefusal.None, faulted, null);
         }
+
+        if (done.State == WorldEditState.Executed)
+            EditExecuted?.Invoke(done);
+        return new WorldEditSubmission(WorldEditRefusal.None, done, result);
     }
 
     private (bool Succeeded, string Status, object Result) Dispatch(WorldEdit edit)

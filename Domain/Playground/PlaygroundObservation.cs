@@ -1,4 +1,5 @@
 using System.Globalization;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
@@ -114,7 +115,7 @@ public sealed record ObservedVehicleFrame(
 /// Playground-only observation: selection, free / focus / follow camera and target-loss handling. It reads the
 /// session but never changes it, is not saved, and takes no edit id, sequence or simulation step.
 /// </summary>
-public sealed class PlaygroundObserver
+public sealed class PlaygroundObserver : IDisposable
 {
     public const double TransitionSeconds = 0.6;
     public const double MinDistance = 4;
@@ -138,6 +139,7 @@ public sealed class PlaygroundObserver
         _session = session;
         SetFreePose(new ObservationCameraPose(position, look));
         Pose = FreePose();
+        _session.EditExecuted += OnEditExecuted;
     }
 
     public ObservedObject? Selection { get; private set; }
@@ -148,6 +150,8 @@ public sealed class PlaygroundObserver
     public IReadOnlyList<PlaygroundObservationNotice> Notices => _notices;
     public PlaygroundObservationNotice? LastNotice => _notices.Count == 0 ? null : _notices[^1];
     public double Distance => _distance;
+
+    public void Dispose() => _session.EditExecuted -= OnEditExecuted;
 
     public bool Exists(ObservedObject item) => item.Kind switch
     {
@@ -250,7 +254,8 @@ public sealed class PlaygroundObserver
 
     /// <summary>
     /// Drops references to objects that no longer exist. A lost focus/follow target leaves the camera where it is,
-    /// in free mode; it never jumps to another vehicle.
+    /// in free mode; it never jumps to another vehicle. Also runs after every executed edit, so a cell removed and
+    /// rebuilt with the same definition before the next frame still counts as lost.
     /// </summary>
     public IReadOnlyList<PlaygroundObservationNotice> Reconcile()
     {
@@ -271,6 +276,8 @@ public sealed class PlaygroundObserver
         _notices.AddRange(raised);
         return raised;
     }
+
+    private void OnEditExecuted(WorldEditRecord record) => Reconcile();
 
     /// <summary>Advances the camera by one display frame, reading the same display sample the vehicle bodies use.</summary>
     public ObservationCameraPose Present(double displayDelta, TrainDisplaySample sample)
