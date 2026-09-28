@@ -174,7 +174,10 @@ public partial class PlaygroundScene : Node3D
         if (configuration is null)
             return PlaygroundEstablishStatus.UnknownConfiguration;
         var loaded = new VoxelDevelopmentSession(reloader.Catalog, configuration.BaseWorld, store, reloader.Composites);
+        loaded.MarkPlaygroundHost();
         var result = loaded.Load(saveId);
+        if (result.Succeeded && !loaded.SimulationPaused)
+            loaded.PauseSimulation();
         if (!result.Succeeded)
         {
             loaded.Detach();

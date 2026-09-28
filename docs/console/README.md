@@ -290,7 +290,7 @@ rail pause
 voxel save Playground Train
 ```
 
-建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 的 `world_source` 中写出来源和 `base_fingerprint`。新进程加载后恢复来源、核对重建基底并保持暂停，见 [voxel load](voxel-load.md)。没有该指纹的固定来源档会失败并保留当前世界。[`voxel reset`](voxel-reset.md) 重新建立当前配置并保留来源；[`voxel use`](voxel-use.md) 切换到另一配置并清空存档 UUID。
+建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 的 `world_source` 中写出来源和 `base_fingerprint`。新进程加载后恢复来源、核对重建基底并保持暂停，见 [voxel load](voxel-load.md)。没有该指纹的固定来源档会失败并保留当前世界。Playground 读入没有来源的存档后仍保持暂停，并可 [`voxel use`](voxel-use.md) 到能建立的配置；此时 [`voxel reset`](voxel-reset.md) 因没有当前配置而保留世界。已有配置时 `voxel reset` 重新建立该配置并保留来源；`voxel use` 切换到另一配置并清空存档 UUID。
 
 HUD 下方的修改面板把 “世界格 / 量 / 延迟步” 与 “最新车辆局部格” 输入转成世界修改命令：放置矿石、移除体素、损伤体素、在此制造空壳、修复轨道（`rail.repair` 修复世界格所在的原轨段占格）、施工直轨（与 `rail construct` 同一固定计划）、组装列车（与 `rail assemble` 同一夹具，无车配置中可正式编组），以及对最新制造车辆的损伤零件、加装、拆除、移到 +X、旋转、替换与批量加装两格。上方的 “启动列车 / 停车” 按钮同样读取延迟步，提交 `train.start` / `train.stop`。延迟步为 0 时立即执行，否则排到当前步加延迟的边界；同一边界按点击与控制台输入的先后顺序执行，例如暂停时依次点 “损伤体素”（量 100，打在轨格上）、“修复轨道”、“启动列车”，三者在同一边界取得连续位置。面板按局部格找到零件后提交带真实 ID 的命令，与下列控制台写法产生同一负载和位置；最下一行显示边界位置、下一个编号、待执行数与最近一条记录。
 

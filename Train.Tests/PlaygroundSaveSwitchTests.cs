@@ -349,17 +349,39 @@ public sealed class PlaygroundSaveSwitchTests
         var session = playground.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(3).Succeeded);
+        Assert.AreEqual("Pending", session.SubmitEdit(new VoxelRemoveEdit(new WorldVoxelCoord(1, 2, 1)), session.SimulationStep + 1).Status);
         var saved = session.Save("Running");
+        var speed = session.QueryTrainAssemblies().Single().Speed;
+        var halt = session.QueryTrainAssemblies().Single().HaltReason;
         var path = playground.Store.PathFor(saved.SaveId!.Value);
         File.WriteAllText(path, Mutate(File.ReadAllText(path), root => root.Remove("world_source")));
 
-        var loaded = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId));
+        var commands = new VoxelConsoleCommands(session);
+        var saveId = saved.SaveId!.Value.ToString();
+        StringAssert.StartsWith(commands.Execute(new[] { "load", saveId, "discard" }), "Voxel Loaded.");
+        AssertRestoredRunningSave(session, speed, halt);
 
-        Assert.AreEqual(WorldChangeStatus.Completed, loaded.Status);
+        StringAssert.StartsWith(commands.Execute(new[] { "load", saveId, "discard" }), "Voxel Loaded.");
+        AssertRestoredRunningSave(session, speed, halt);
+        var world = session.World;
+
+        var reset = commands.Execute(new[] { "reset", "discard" });
+        StringAssert.Contains(reset, "relationship configuration");
+        Assert.AreSame(world, session.World);
+        AssertRestoredRunningSave(session, speed, halt);
+
+        var fixture = new CompositeConsoleCommands(session).Execute(new[] { "reset", "discard", "bridge" });
+        StringAssert.Contains(fixture, "relationship configuration");
+        Assert.AreSame(world, session.World);
+        AssertRestoredRunningSave(session, speed, halt);
+
+        StringAssert.StartsWith(
+            commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId, "discard" }),
+            "Voxel configuration straight-rail-empty.");
         Assert.IsTrue(session.SimulationPaused);
-        Assert.IsTrue(session.QueryTrainAssemblies().Single().Running);
-        Assert.AreEqual(3UL, session.SimulationStep);
-        Assert.IsNull(session.WorldSource);
+        Assert.AreEqual(PlaygroundConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
+        Assert.IsNull(session.SaveId);
+        Assert.AreEqual(0, session.QueryTrainAssemblies().Count);
     }
 
     [TestMethod]
@@ -469,6 +491,33 @@ public sealed class PlaygroundSaveSwitchTests
         Assert.IsFalse(session.SimulationPaused);
         Assert.IsTrue(session.Query(new WorldVoxelCoord(4, 4, 4)).IsOccupied);
         Assert.IsFalse(session.HasUnsavedChanges);
+
+        var saved = session.Save("Slice");
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var commands = new VoxelConsoleCommands(session);
+        StringAssert.StartsWith(commands.Execute(new[] { "load", saved.SaveId!.Value.ToString(), "discard" }), "Voxel Loaded.");
+        Assert.IsFalse(session.SimulationPaused);
+        Assert.IsNull(session.WorldSource);
+        var again = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId));
+        Assert.AreEqual(WorldChangeStatus.Completed, again.Status);
+        Assert.IsFalse(session.SimulationPaused);
+        var blocked = commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId, "discard" });
+        StringAssert.Contains(blocked, "relationship world_source");
+        Assert.IsNull(session.WorldSource);
+        Assert.IsFalse(session.SimulationPaused);
+        Assert.IsTrue(session.Query(new WorldVoxelCoord(4, 4, 4)).IsOccupied);
+    }
+
+    private static void AssertRestoredRunningSave(VoxelDevelopmentSession session, double speed, TrainHaltReason halt)
+    {
+        var assembly = session.QueryTrainAssemblies().Single();
+        Assert.IsTrue(session.SimulationPaused);
+        Assert.IsTrue(assembly.Running);
+        Assert.AreEqual(halt, assembly.HaltReason);
+        Assert.AreEqual(speed, assembly.Speed, 1e-8);
+        Assert.AreEqual(3UL, session.SimulationStep);
+        Assert.AreEqual(1, session.QueryPendingEdits().Count);
+        Assert.IsNull(session.WorldSource);
     }
 
     private static void RenameBridge(PlaygroundHarness playground)

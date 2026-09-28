@@ -6,12 +6,19 @@ namespace Train.Domain.Voxels;
 public sealed partial class VoxelDevelopmentSession
 {
     private string _cleanFingerprint = "";
+    private bool _playgroundHost;
 
     public bool HasUnsavedChanges =>
         Fault is not null ||
         !string.Equals(_cleanFingerprint, WorldSaveAuthority.Fingerprint(this), StringComparison.Ordinal);
 
     public void MarkPersistenceClean() => _cleanFingerprint = WorldSaveAuthority.Fingerprint(this);
+
+    /// <summary>
+    /// Marks this session as the Playground host. The duty stays with the session object and is not cleared when a
+    /// save replaces <see cref="WorldSource"/>.
+    /// </summary>
+    internal void MarkPlaygroundHost() => _playgroundHost = true;
 
     public WorldChangeResult TryChangeWorld(WorldChangeRequest request)
     {
@@ -52,13 +59,16 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (!string.IsNullOrWhiteSpace(fixtureId))
             return ResetWithFixture(fixtureId);
-        if (WorldSource is null)
+        if (_playgroundHost)
         {
-            Reset();
-            return Change(WorldChangeStatus.Completed);
+            if (WorldSource is null)
+                return PlaygroundResetNeedsConfiguration();
+
+            return AdoptConfiguration(WorldSource.ConfigurationId, keepSaveIdentity: true);
         }
 
-        return AdoptConfiguration(WorldSource.ConfigurationId, keepSaveIdentity: true);
+        Reset();
+        return Change(WorldChangeStatus.Completed);
     }
 
     private WorldChangeResult ResetWithFixture(string fixtureId)
@@ -80,6 +90,9 @@ public sealed partial class VoxelDevelopmentSession
         var adopted = false;
         try
         {
+            if (_playgroundHost && WorldSource is null)
+                return PlaygroundResetNeedsConfiguration();
+
             if (WorldSource is { } source)
             {
                 var status = PlaygroundSession.TryEstablish(source.ConfigurationId, _catalog, _composites, _store, out candidate);
@@ -105,8 +118,7 @@ public sealed partial class VoxelDevelopmentSession
                         "the reset fixture was not manufactured"));
             }
 
-            var pause = WorldSource is not null;
-            Adopt(candidate, keepSaveIdentity: true, pause);
+            Adopt(candidate, keepSaveIdentity: true, pause: _playgroundHost);
             adopted = true;
             return Change(
                 WorldChangeStatus.Completed,
@@ -123,7 +135,7 @@ public sealed partial class VoxelDevelopmentSession
 
     private WorldChangeResult SwitchThroughChange(string? configurationId)
     {
-        if (WorldSource is null)
+        if (!_playgroundHost && WorldSource is null)
         {
             return Change(
                 WorldChangeStatus.CandidateFailed,
@@ -152,7 +164,6 @@ public sealed partial class VoxelDevelopmentSession
                 diagnostic: new WorldSaveDiagnostic("format", "save", "id", "a save id is required"));
         }
 
-        var playground = WorldSource is not null;
         var loaded = Load(id);
         if (!loaded.Succeeded)
         {
@@ -163,7 +174,7 @@ public sealed partial class VoxelDevelopmentSession
                 adaptations: loaded.Adaptations);
         }
 
-        if (playground)
+        if (_playgroundHost)
             PauseSimulation();
         return Change(WorldChangeStatus.Completed, adaptations: loaded.Adaptations);
     }
@@ -256,4 +267,10 @@ public sealed partial class VoxelDevelopmentSession
             : "base";
         return new WorldSaveDiagnostic(stage, configurationId, relationship, "the configuration could not be established");
     }
+
+    private WorldChangeResult PlaygroundResetNeedsConfiguration() =>
+        Change(
+            WorldChangeStatus.CandidateFailed,
+            candidateStatus: WorldSaveStatus.IncompatibleBase,
+            diagnostic: new WorldSaveDiagnostic("base", "session", "configuration", "playground reset needs the current configuration"));
 }

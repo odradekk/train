@@ -138,6 +138,7 @@ public sealed partial class VoxelDevelopmentSession
         ArgumentNullException.ThrowIfNull(source);
         if (Fault is not null || SimulationStep != 0 || _pendingEdits.Count > 0)
             throw new InvalidOperationException("Only a fresh, unfaulted session with no pending input can be established.");
+        MarkPlaygroundHost();
         WorldSource = source;
         ResetEditState(WorldEditQueueState.Initial);
         WorldSource = source.WithBaseFingerprint(WorldSourceBase.Fingerprint(this));
