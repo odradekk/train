@@ -27,7 +27,8 @@ public sealed record WorldChangeRequest(
     WorldChangeKind Kind,
     WorldChangeChoice? Choice,
     string? ConfigurationId = null,
-    Guid? SaveId = null);
+    Guid? SaveId = null,
+    string? FixtureId = null);
 
 public sealed record WorldChangeResult(
     WorldChangeStatus Status,
@@ -35,4 +36,7 @@ public sealed record WorldChangeResult(
     WorldSaveStatus? CandidateStatus = null,
     WorldSaveDiagnostic? Diagnostic = null,
     IReadOnlyList<WorldSaveAdaptation>? Adaptations = null,
-    bool UnsavedChanges = false);
+    bool UnsavedChanges = false,
+    string? FixtureStatus = null,
+    ulong? FixtureVehicleId = null,
+    int? FixturePartCount = null);

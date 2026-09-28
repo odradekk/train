@@ -1,3 +1,4 @@
+using Train.Domain.Composites;
 using Train.Domain.Playground;
 
 namespace Train.Domain.Voxels;
@@ -37,7 +38,7 @@ public sealed partial class VoxelDevelopmentSession
 
         var result = request.Kind switch
         {
-            WorldChangeKind.Reset => ResetThroughChange(),
+            WorldChangeKind.Reset => ResetThroughChange(request.FixtureId),
             WorldChangeKind.SwitchConfiguration => SwitchThroughChange(request.ConfigurationId),
             WorldChangeKind.Load => LoadThroughChange(request.SaveId),
             _ => Change(
@@ -47,8 +48,10 @@ public sealed partial class VoxelDevelopmentSession
         return savedStatus is null ? result : result with { SaveStatus = savedStatus };
     }
 
-    private WorldChangeResult ResetThroughChange()
+    private WorldChangeResult ResetThroughChange(string? fixtureId)
     {
+        if (!string.IsNullOrWhiteSpace(fixtureId))
+            return ResetWithFixture(fixtureId);
         if (WorldSource is null)
         {
             Reset();
@@ -56,6 +59,66 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         return AdoptConfiguration(WorldSource.ConfigurationId, keepSaveIdentity: true);
+    }
+
+    private WorldChangeResult ResetWithFixture(string fixtureId)
+    {
+        CompositeDefinitionId definition;
+        try
+        {
+            definition = CompositeDefinitionId.Parse(fixtureId);
+        }
+        catch (ArgumentException)
+        {
+            return Change(
+                WorldChangeStatus.CandidateFailed,
+                candidateStatus: WorldSaveStatus.IncompatibleBase,
+                diagnostic: new WorldSaveDiagnostic("candidate", fixtureId, "fixture", "the reset fixture id is not a definition id"));
+        }
+
+        VoxelDevelopmentSession? candidate = null;
+        var adopted = false;
+        try
+        {
+            if (WorldSource is { } source)
+            {
+                var status = PlaygroundSession.TryEstablish(source.ConfigurationId, _catalog, _composites, _store, out candidate);
+                if (status != PlaygroundEstablishStatus.Established || candidate is null)
+                    return Change(WorldChangeStatus.CandidateFailed, candidateStatus: MapEstablish(status), diagnostic: DiagnoseEstablish(source.ConfigurationId, status));
+            }
+            else
+            {
+                candidate = new VoxelDevelopmentSession(_catalog, Identity, _store, _composites);
+            }
+
+            var manufactured = candidate.Manufacture(definition);
+            if (!manufactured.Succeeded || manufactured.VehicleId is not { } vehicleId)
+            {
+                var missing = manufactured.Status == ConstructionStatus.UnknownDefinition;
+                return Change(
+                    WorldChangeStatus.CandidateFailed,
+                    candidateStatus: missing ? WorldSaveStatus.MissingDefinition : WorldSaveStatus.IncompatibleBase,
+                    diagnostic: new WorldSaveDiagnostic(
+                        missing ? "dependency" : "candidate",
+                        definition.Value,
+                        "fixture",
+                        "the reset fixture was not manufactured"));
+            }
+
+            var pause = WorldSource is not null;
+            Adopt(candidate, keepSaveIdentity: true, pause);
+            adopted = true;
+            return Change(
+                WorldChangeStatus.Completed,
+                fixtureStatus: manufactured.Status.ToString(),
+                fixtureVehicleId: vehicleId.Value,
+                fixturePartCount: manufactured.Parts?.Count ?? 0);
+        }
+        finally
+        {
+            if (!adopted)
+                candidate?.Detach();
+        }
     }
 
     private WorldChangeResult SwitchThroughChange(string? configurationId)
@@ -89,6 +152,7 @@ public sealed partial class VoxelDevelopmentSession
                 diagnostic: new WorldSaveDiagnostic("format", "save", "id", "a save id is required"));
         }
 
+        var playground = WorldSource is not null;
         var loaded = Load(id);
         if (!loaded.Succeeded)
         {
@@ -99,6 +163,8 @@ public sealed partial class VoxelDevelopmentSession
                 adaptations: loaded.Adaptations);
         }
 
+        if (playground)
+            PauseSimulation();
         return Change(WorldChangeStatus.Completed, adaptations: loaded.Adaptations);
     }
 
@@ -112,7 +178,7 @@ public sealed partial class VoxelDevelopmentSession
             if (status != PlaygroundEstablishStatus.Established || candidate is null)
                 return Change(WorldChangeStatus.CandidateFailed, candidateStatus: MapEstablish(status), diagnostic: DiagnoseEstablish(configurationId, status));
 
-            Adopt(candidate, keepSaveIdentity);
+            Adopt(candidate, keepSaveIdentity, pause: true);
             adopted = true;
             return Change(WorldChangeStatus.Completed);
         }
@@ -123,7 +189,7 @@ public sealed partial class VoxelDevelopmentSession
         }
     }
 
-    private void Adopt(VoxelDevelopmentSession candidate, bool keepSaveIdentity)
+    private void Adopt(VoxelDevelopmentSession candidate, bool keepSaveIdentity, bool pause)
     {
         var saveId = SaveId;
         var displayName = DisplayName;
@@ -148,7 +214,8 @@ public sealed partial class VoxelDevelopmentSession
             DisplayName = WorldSaveDocument.DefaultDisplayName;
         }
 
-        PauseSimulation();
+        if (pause)
+            PauseSimulation();
         MarkPersistenceClean();
         WorldReplaced?.Invoke(WorldReplacement.Reset);
         candidate.Detach();
@@ -159,8 +226,11 @@ public sealed partial class VoxelDevelopmentSession
         WorldSaveStatus? saveStatus = null,
         WorldSaveStatus? candidateStatus = null,
         WorldSaveDiagnostic? diagnostic = null,
-        IReadOnlyList<WorldSaveAdaptation>? adaptations = null) =>
-        new(status, saveStatus, candidateStatus, diagnostic, adaptations, HasUnsavedChanges);
+        IReadOnlyList<WorldSaveAdaptation>? adaptations = null,
+        string? fixtureStatus = null,
+        ulong? fixtureVehicleId = null,
+        int? fixturePartCount = null) =>
+        new(status, saveStatus, candidateStatus, diagnostic, adaptations, HasUnsavedChanges, fixtureStatus, fixtureVehicleId, fixturePartCount);
 
     private static WorldSaveStatus MapEstablish(PlaygroundEstablishStatus status) => status switch
     {

@@ -945,6 +945,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
+            _session.WorldReplaced -= DismissStaleWorldChange;
             _session.Detach();
         }
 
@@ -959,6 +960,8 @@ public partial class VoxelDeveloperScene : Node3D
     }
 
     private void MarkDirty() => _dirty = true;
+
+    private void DismissStaleWorldChange(WorldReplacement _) => _worldChangePrompt?.Close();
 
     private string CurrentName(WorldVoxelQuery query)
     {
@@ -1315,6 +1318,7 @@ public partial class VoxelDeveloperScene : Node3D
     {
         _session = session;
         _session.Changed += MarkDirty;
+        _session.WorldReplaced += DismissStaleWorldChange;
         GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(_session);
     }
 
@@ -1323,6 +1327,7 @@ public partial class VoxelDeveloperScene : Node3D
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
+            _session.WorldReplaced -= DismissStaleWorldChange;
             _session.Detach();
         }
 

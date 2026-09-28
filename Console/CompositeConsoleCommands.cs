@@ -24,15 +24,13 @@ public sealed class CompositeConsoleCommands
         {
             if (!TryParseReset(arguments, out var choice, out var resetId))
                 return Usage();
-            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice));
+            var changed = _session.TryChangeWorld(new WorldChangeRequest(
+                WorldChangeKind.Reset,
+                choice,
+                FixtureId: resetId?.Value));
             if (changed.Status != WorldChangeStatus.Completed)
                 return WorldChangeConsole.Format(_session, changed);
-            if (resetId is not { } fixture)
-                return FormatReset();
-            var manufactured = _session.Manufacture(fixture);
-            if (manufactured.Succeeded)
-                _session.MarkPersistenceClean();
-            return string.Join('\n', FormatReset(), FormatManufacture(manufactured));
+            return resetId is null ? FormatReset() : string.Join('\n', FormatReset(), FormatManufactured(changed));
         }
 
         if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
@@ -220,6 +218,12 @@ public sealed class CompositeConsoleCommands
             $"construction {query.Construction}",
             $"Voxel count: {_session.World.VoxelCount}.");
     }
+
+    private static string FormatManufactured(WorldChangeResult changed) =>
+        string.Join('\n',
+            $"Composite {changed.FixtureStatus}.",
+            $"vehicle {changed.FixtureVehicleId}",
+            $"parts {changed.FixturePartCount}");
 
     private string FormatReset()
     {

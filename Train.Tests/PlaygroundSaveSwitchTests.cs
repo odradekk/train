@@ -320,11 +320,77 @@ public sealed class PlaygroundSaveSwitchTests
         Assert.IsFalse(adaptations.Any(item => item.ChangesPersistentState));
         Assert.IsFalse(session.HasUnsavedChanges);
 
+        var beforeFingerprint = session.WorldSource!.BaseFingerprint;
+        var beforeWorld = session.World;
         File.WriteAllText(path, Mutate(original, root => root["world_source"]!.AsObject().Remove("base_fingerprint")));
         var legacy = session.Load(saved.SaveId.Value);
-        Assert.AreEqual(WorldSaveStatus.Loaded, legacy.Status);
-        Assert.AreEqual("", session.WorldSource!.BaseFingerprint);
+        Assert.AreEqual(WorldSaveStatus.IncompatibleBase, legacy.Status);
+        Assert.AreEqual("base_fingerprint", legacy.Diagnostic!.Relationship);
+        Assert.AreSame(beforeWorld, session.World);
+        Assert.AreEqual(beforeFingerprint, session.WorldSource!.BaseFingerprint);
+
+        File.WriteAllText(path, Mutate(original, root => root["world_source"]!["configuration_version"] = 999));
+        var wrongVersion = session.Load(saved.SaveId.Value);
+        Assert.AreEqual(WorldSaveStatus.IncompatibleBase, wrongVersion.Status);
+        Assert.AreEqual("configuration_version", wrongVersion.Diagnostic!.Relationship);
+        Assert.AreSame(beforeWorld, session.World);
+
+        File.WriteAllText(path, Mutate(original, root => root["world_source"]!["content_dependencies"] = new JsonArray()));
+        var missingDependencies = session.Load(saved.SaveId.Value);
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, missingDependencies.Status);
+        Assert.AreEqual("content_dependency", missingDependencies.Diagnostic!.Relationship);
+        Assert.AreSame(beforeWorld, session.World);
+    }
+
+    [TestMethod]
+    public void Playground_load_of_a_source_free_save_pauses_without_stopping_the_train()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(session.AdvanceSimulation(3).Succeeded);
+        var saved = session.Save("Running");
+        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        File.WriteAllText(path, Mutate(File.ReadAllText(path), root => root.Remove("world_source")));
+
+        var loaded = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId));
+
+        Assert.AreEqual(WorldChangeStatus.Completed, loaded.Status);
         Assert.IsTrue(session.SimulationPaused);
+        Assert.IsTrue(session.QueryTrainAssemblies().Single().Running);
+        Assert.AreEqual(3UL, session.SimulationStep);
+        Assert.IsNull(session.WorldSource);
+    }
+
+    [TestMethod]
+    public void Failed_reset_fixture_keeps_the_world_and_a_successful_save_point()
+    {
+        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        var session = playground.Session;
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(session.AdvanceSimulation(3).Succeeded);
+        var probe = new WorldVoxelCoord(1, 2, 1);
+        Assert.AreEqual(WorldCommandStatus.Added, session.Add(probe, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
+        RenameBridge(playground);
+        var world = session.World;
+        var commands = new CompositeConsoleCommands(session);
+
+        var discarded = commands.Execute(new[] { "reset", "discard", "bridge" });
+        StringAssert.Contains(discarded, "Voxel MissingDefinition.");
+        StringAssert.Contains(discarded, "relationship fixture");
+        Assert.IsFalse(discarded.Contains("Composite world reset.", StringComparison.Ordinal));
+        Assert.AreSame(world, session.World);
+        Assert.AreEqual(3UL, session.SimulationStep);
+        Assert.IsTrue(session.Query(probe).IsOccupied);
+        Assert.IsTrue(session.HasUnsavedChanges);
+
+        var saved = commands.Execute(new[] { "reset", "save", "bridge" });
+        StringAssert.Contains(saved, "Voxel MissingDefinition.");
+        Assert.AreSame(world, session.World);
+        Assert.AreEqual(3UL, session.SimulationStep);
+        Assert.IsTrue(session.Query(probe).IsOccupied);
+        Assert.IsFalse(session.HasUnsavedChanges);
+        Assert.IsNotNull(session.SaveId);
     }
 
     [TestMethod]
@@ -403,6 +469,17 @@ public sealed class PlaygroundSaveSwitchTests
         Assert.IsFalse(session.SimulationPaused);
         Assert.IsTrue(session.Query(new WorldVoxelCoord(4, 4, 4)).IsOccupied);
         Assert.IsFalse(session.HasUnsavedChanges);
+    }
+
+    private static void RenameBridge(PlaygroundHarness playground)
+    {
+        var package = playground.Source.ListPackages().Single(item => item.Namespace == "core");
+        var bridge = playground.Source.ReadFile(package, "composites/dev-bridge.composites.json", ContentLimits.JsonFileMaxBytes);
+        var doc = JsonNode.Parse(System.Text.Encoding.UTF8.GetString(bridge.Bytes!))!;
+        foreach (var composite in doc["composites"]!.AsArray())
+            composite!["id"] = "reviewer-" + composite["id"]!.GetValue<string>();
+        playground.Source.AddCompositeFile("core", "composites/dev-bridge.composites.json", doc.ToJsonString());
+        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
     }
 
     private static string Mutate(string json, Action<JsonObject> mutate)

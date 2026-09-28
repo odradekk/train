@@ -76,9 +76,12 @@ internal sealed class PlaygroundSwitchSmoke
                 _phase++;
                 break;
             case 1:
-                _scene.Press("reset_world");
-                _scene.PressPrompt("discard");
-                Require(Session.WorldSource?.ConfigurationId == _source, "discard reset keeps the configuration");
+                _scene.Press("switch_world");
+                Require(_scene.PromptVisible, "dirty switch asks before the console replaces the world");
+                Submit("voxel reset discard");
+                Require(!_scene.PromptVisible, "a completed console reset closes the stale prompt");
+                _scene.PressPrompt("save_then_switch");
+                Require(Session.WorldSource?.ConfigurationId == _source, "a stale confirmation does not switch the reset world");
                 Require(Session.SimulationPaused && Session.SimulationStep == 0, "discard reset pauses at the establish boundary");
                 Require(!Session.HasUnsavedChanges, "discard reset is the new baseline");
                 Require(Observer.Selection is null, "reset drops the old selection");

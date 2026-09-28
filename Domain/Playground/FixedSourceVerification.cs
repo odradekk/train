@@ -20,7 +20,7 @@ internal readonly record struct FixedSourceCheck(
 
 /// <summary>
 /// Rebuilds a saved fixed configuration and compares it with <see cref="WorldSource.BaseFingerprint"/>.
-/// Saves that predate the field still load through the voxel <c>base_layout</c> check.
+/// A fixed source without that fingerprint is an unsupported document and does not load.
 /// </summary>
 internal static class FixedSourceVerification
 {
@@ -32,8 +32,18 @@ internal static class FixedSourceVerification
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(composites);
-        if (document.Source is not { } source || source.BaseFingerprint.Length == 0)
+        if (document.Source is not { } source)
             return FixedSourceCheck.Pass();
+        if (source.BaseFingerprint.Length == 0)
+        {
+            return FixedSourceCheck.Fail(
+                WorldSaveStatus.IncompatibleBase,
+                new WorldSaveDiagnostic(
+                    "base",
+                    source.ConfigurationId,
+                    "base_fingerprint",
+                    "a fixed-configuration save without a base fingerprint is not supported"));
+        }
 
         var resolved = PlaygroundConfigurations.TryResolve(source.ConfigurationId, catalog, composites, out var live);
         if (resolved != PlaygroundEstablishStatus.Established || live is null)
@@ -83,6 +93,22 @@ internal static class FixedSourceVerification
                     "semantic_revision",
                     "the current revision differs and the rebuilt base still matches"));
             }
+        }
+
+        foreach (var required in live.ContentDependencies)
+        {
+            var listed = source.ContentDependencies.Any(item =>
+                string.Equals(item.Kind, required.Kind, StringComparison.Ordinal) &&
+                string.Equals(item.Id, required.Id, StringComparison.Ordinal));
+            if (listed)
+                continue;
+            return FixedSourceCheck.Fail(
+                WorldSaveStatus.MissingDefinition,
+                new WorldSaveDiagnostic(
+                    "dependency",
+                    required.Id,
+                    "content_dependency",
+                    "the saved source omits a dependency of the configuration"));
         }
 
         VoxelDevelopmentSession? scratch = null;

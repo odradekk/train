@@ -73,6 +73,7 @@ public partial class PlaygroundScene : Node3D
 
         _session = session;
         _session.Changed += MarkDirty;
+        _session.WorldReplaced += DismissStaleWorldChange;
         main.SetVoxelDevelopmentSession(_session);
         _meshes.Rebuild(this, _session.Identity);
         _colliders.Rebuild(this, _session.Identity);
@@ -114,6 +115,7 @@ public partial class PlaygroundScene : Node3D
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
+            _session.WorldReplaced -= DismissStaleWorldChange;
             _session.Detach();
         }
 
@@ -185,6 +187,12 @@ public partial class PlaygroundScene : Node3D
     }
 
     private void MarkDirty() => _dirty = true;
+
+    private void DismissStaleWorldChange(WorldReplacement _)
+    {
+        _pendingWorldChange = null;
+        _worldChangePrompt?.Close();
+    }
 
     private void ApplyMotionPresentation(double delta = 0)
     {
