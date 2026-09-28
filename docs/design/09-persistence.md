@@ -79,6 +79,7 @@ Save
 - 运行时保存请求在完整提交边界捕获，不为保存额外推进模拟；暂停时可直接保存最近完整事务后的状态。
 - 已接受但尚未执行的命令及其目标步、顺序须随存档保存，恢复后仅在原定位置执行一次，不为保存提前执行或清空队列。未提交的面板输入不属于世界状态。
 - 暂停修改及同一步边界内的操作按 [04 的输入顺序](04-deterministic-simulation.md#本阶段输入边界与顺序)记录、保存和重放，不能仅凭 Tick 或墙钟日志猜测顺序。
+- 当前实现（[#122](https://github.com/odradekk/train/issues/122)）：存档格式 4 的根字段 `world_edits` 写出 `next_edit_id`、`boundary_sequence` 与 `pending`；每项待执行命令带 `edit_id`、`accepted_step`、`accepted_sequence`、`target_step` 和 [规范负载](04-deterministic-simulation.md#世界修改命令的规范编码)。格式 2、3 仍可读，恢复为空队列；格式 2、3 文件出现 `world_edits` 按未知字段返回 `UnknownFormat`，格式 4 缺少该字段返回 `Truncated`。恢复时编号须落在 `[1, next_edit_id)` 内且严格递增，接受位置严格递增且不晚于存档边界，目标步晚于存档步，引用的实体 ID 必须小于 `next_entity_id`：曾分配后被摧毁的目标合法，到期时拒绝；从未分配的 ID 属于损坏引用，整次 `InvalidDelta`。
 
 #### 候选世界恢复与校验
 

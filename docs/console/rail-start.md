@@ -23,4 +23,4 @@ rail start assembly 12 reverse 330
 
 失败状态：`NoRailway`、`NoAssembly`、`UnknownAssembly`、`MissingPropulsion`、`MissingControl`、`InsufficientSupport`、`DisconnectedPath`、`VehicleConstraint`、`TransactionExhausted`、`PastStep`。
 
-用 [`rail query assembly`](rail-query.md) 或 [`rail query motion`](rail-query.md) 查看速度、牵引开关、步号和待执行命令。停车见 [`rail stop`](rail-stop.md)。正式铁路、编组、运动和待执行命令随 [`voxel save`](voxel-save.md) 写入格式 3；[`voxel load`](voxel-load.md) 从文件恢复后须再执行本命令才会从开发停车重新启动；前方缺口仍阻塞时本命令继续拒绝。
+用 [`rail query assembly`](rail-query.md) 或 [`rail query motion`](rail-query.md) 查看速度、牵引开关、步号和待执行命令。停车见 [`rail stop`](rail-stop.md)。正式铁路、编组、运动和待执行命令随 [`voxel save`](voxel-save.md) 写入格式 4；[`voxel load`](voxel-load.md) 从文件恢复后须再执行本命令才会从开发停车重新启动；前方缺口仍阻塞时本命令继续拒绝。

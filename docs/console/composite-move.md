@@ -21,3 +21,5 @@ Voxel count: 0.
 ```
 
 失败（占用、不连通、越包络、未知零件、事务计数耗尽）整笔拒绝，布局、RuntimeId、耐久、引用、`NextEntityId` 和事务保持。非法移动不会变成脱落。用法不合法时只给出 Usage。
+
+定时执行：末尾追加 `at <step>`，在该步边界按接受顺序执行，失败整笔回滚并出队。输出与规则见 [`voxel edits`](voxel-edits.md)。

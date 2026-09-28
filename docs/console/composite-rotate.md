@@ -23,3 +23,5 @@ Voxel count: 0.
 ```
 
 失败只返回 `Composite <Status> <id>.`，不改朝向、耐久或事务。常见状态：`UnknownVehicle`、`UnknownPart`、`DisallowedOrientation`、`TransactionExhausted`。`core:fixed` 对 `nz_py` 为 `DisallowedOrientation`。用法不合法时只给出 Usage。同批旋转再添加见 [`composite batch`](composite-batch.md)。
+
+定时执行：末尾追加 `at <step>`，在该步边界执行。输出与规则见 [`voxel edits`](voxel-edits.md)。

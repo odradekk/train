@@ -1,3 +1,4 @@
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -35,10 +36,13 @@ public sealed class CompositeConsoleCommands
             }
         }
 
-        if (arguments.Count is 1 or 2 &&
-            string.Equals(arguments[0], "manufacture", StringComparison.OrdinalIgnoreCase) &&
-            TryDefinition(arguments.Count == 1 ? HollowShellFixture.DefinitionId.Value : arguments[1], out var definitionId))
-            return FormatManufacture(_session.Manufacture(definitionId));
+        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
+            atStep is { } step &&
+            TryParseEdit(editArguments, out var edit))
+            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, step));
+
+        if (TryManufacture(arguments, out var definitionId, out var pose))
+            return FormatManufacture(_session.Manufacture(definitionId, pose));
 
         if (arguments.Count >= 6 &&
             string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
@@ -78,7 +82,7 @@ public sealed class CompositeConsoleCommands
             return refitText;
 
         return string.Join('\n',
-            "Usage: composite reset [hollow|bridge|bridge-right] | composite manufacture [<namespace:id>]",
+            "Usage: composite reset [hollow|bridge|bridge-right] | composite manufacture [<namespace:id>] [pose <x> <y> <z>]",
             "composite damage <id> <x> <y> <z> <amount> [<x> <y> <z> <amount> ...]",
             "composite query [page [<page>] | damaged [<page>] | <id> [parts [<page>]]]",
             "composite add <id> <x> <y> <z> <namespace:id> <orientation>",
@@ -89,15 +93,73 @@ public sealed class CompositeConsoleCommands
             "Default manufacture id is core:dev-hollow-shell. reset hollow/bridge rebuilds that fixture after clearing the session.",
             $"Vehicle pages are {VehiclePageSize} entries, sorted by runtime id. Part pages are {PartPageSize} entries, sorted by local cell.",
             "Damage uses local cells on one vehicle, one event. Page numbers start at 1.",
-            "Refit is one atomic transaction. Batch occupancy swaps are legal; a failed batch leaves authority unchanged.");
+            "Refit is one atomic transaction. Batch occupancy swaps are legal; a failed batch leaves authority unchanged.",
+            "manufacture/damage/add/remove/move/rotate/replace/batch accept a trailing at <step> to queue the edit.");
     }
 
     private bool TryRefit(IReadOnlyList<string> arguments, out string text)
     {
         text = "";
+        if (!TryRefitOperations(arguments, out var vehicleId, out var operations))
+            return false;
+        text = FormatRefit(_session.Refit(vehicleId, operations));
+        return true;
+    }
+
+    private static bool TryParseEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
+    {
+        edit = null!;
+        if (TryManufacture(arguments, out var definitionId, out var pose))
+            edit = new VehicleManufactureEdit(definitionId, pose);
+        else if (arguments.Count >= 6 &&
+                 string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
+                 (arguments.Count - 2) % 4 == 0 &&
+                 TryEntityId(arguments[1], out var damageId) &&
+                 TryDamageTargets(damageId, arguments, out var targets))
+            edit = new VehicleDamageEdit(targets);
+        else if (TryRefitOperations(arguments, out var vehicleId, out var operations))
+            edit = new VehicleRefitEdit(vehicleId, operations);
+        return edit is not null;
+    }
+
+    /// <summary><c>manufacture [&lt;namespace:id&gt;] [pose &lt;x&gt; &lt;y&gt; &lt;z&gt;]</c>; the pose is a world translation.</summary>
+    private static bool TryManufacture(IReadOnlyList<string> arguments, out CompositeDefinitionId definitionId, out CompositeTransform pose)
+    {
+        definitionId = HollowShellFixture.DefinitionId;
+        pose = HollowShellFixture.DefaultTransform;
+        if (arguments.Count == 0 || !string.Equals(arguments[0], "manufacture", StringComparison.OrdinalIgnoreCase))
+            return false;
+        var count = arguments.Count;
+        if (count >= 5 && string.Equals(arguments[count - 4], "pose", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!TryFinite(arguments[count - 3], out var x) || !TryFinite(arguments[count - 2], out var y) || !TryFinite(arguments[count - 1], out var z))
+                return false;
+            pose = CompositeTransform.Translation(x, y, z);
+            count -= 4;
+        }
+
+        return count switch
+        {
+            1 => true,
+            2 => TryDefinition(arguments[1], out definitionId),
+            _ => false
+        };
+    }
+
+    private static bool TryFinite(string text, out double value) =>
+        double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value) &&
+        double.IsFinite(value);
+
+    private static bool TryRefitOperations(
+        IReadOnlyList<string> arguments,
+        out EntityId vehicleId,
+        out IReadOnlyList<CompositeRefitOperation> parsed)
+    {
+        parsed = Array.Empty<CompositeRefitOperation>();
+        vehicleId = default;
         if (arguments.Count < 2)
             return false;
-        if (!TryEntityId(arguments[1], out var vehicleId))
+        if (!TryEntityId(arguments[1], out vehicleId))
             return false;
 
         IReadOnlyList<CompositeRefitOperation>? operations = null;
@@ -133,7 +195,7 @@ public sealed class CompositeConsoleCommands
 
         if (operations is null)
             return false;
-        text = FormatRefit(_session.Refit(vehicleId, operations));
+        parsed = operations;
         return true;
     }
 

@@ -20,7 +20,8 @@ public enum TrainMotionStatus
     StepOverflow = 13,
     TransactionExhausted = 14,
     PastStep = 15,
-    UnknownAssembly = 16
+    UnknownAssembly = 16,
+    SimulationFaulted = 17
 }
 
 public sealed record ScheduledTrainCommandQuery(

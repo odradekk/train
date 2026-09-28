@@ -27,21 +27,22 @@
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
 | [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格完整盒的领域碰撞（`local_box` 格内盒外须用六参数） | 同上 |
 | [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与当前碰撞形状的重叠 | 同上 |
-| [voxel remove](voxel-remove.md) `<x> <y> <z>` | 移除一个体素 | 同上 |
-| [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation>` | 在空格中添加指定体素 | 同上 |
-| [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
-| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步和待执行命令原子写入 `user://saves/<UUID>/save.json` | 同上 |
-| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换会话；格式 3 写出，仍可读本构建前的格式 2 | 同上 |
+| [voxel remove](voxel-remove.md) `<x> <y> <z> [at <step>]` | 移除一个体素 | 同上 |
+| [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation> [at <step>]` | 在空格中添加指定体素 | 同上 |
+| [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
+| [voxel edits](voxel-edits.md) `[pending \| log [<count>] \| fault]` | 查询世界修改命令的边界位置、待执行队列、执行日志与内部故障 | 同上 |
+| [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步、待执行列车命令与世界修改命令原子写入 `user://saves/<UUID>/save.json` | 同上 |
+| [voxel load](voxel-load.md) `<uuid>` | 按当前有效定义恢复存档并整体替换会话；格式 4 写出，仍可读格式 2、3 | 同上 |
 | [composite reset](composite-reset.md) `[hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具 | 包含切片 3，且已进入体素开发场景 |
-| [composite manufacture](composite-manufacture.md) `[<namespace:id>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
-| [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
+| [composite manufacture](composite-manufacture.md) `[<namespace:id>] [pose <x> <y> <z>] [at <step>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
+| [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...] [at <step>]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
 | [composite query](composite-query.md) `[page [<page>] \| damaged [<page>] \| <id> [parts [<page>]]]` | 分页列出车辆摘要、受损零件，或查询单车接触与零件布局 | 同上 |
-| [composite add](composite-add.md) `<id> <x> <y> <z> <namespace:id> <orientation>` | 向已有车辆添加零件，成功才分配新身份 | 同上 |
-| [composite remove](composite-remove.md) `<id> <partId>` | 按真实 RuntimeId 拆除零件 | 同上 |
-| [composite move](composite-move.md) `<id> <partId> <x> <y> <z>` | 移动已有零件并保留身份与状态 | 同上 |
-| [composite rotate](composite-rotate.md) `<id> <partId> <orientation>` | 旋转已有零件并保留身份与状态 | 同上 |
-| [composite replace](composite-replace.md) `<id> <x> <y> <z> <namespace:id> <orientation>` | 拆除旧件并初始化新件 | 同上 |
-| [composite batch](composite-batch.md) `<id> <op> ...` | 原子批量改装；占格交换合法，失败整批拒绝 | 同上 |
+| [composite add](composite-add.md) `<id> <x> <y> <z> <namespace:id> <orientation> [at <step>]` | 向已有车辆添加零件，成功才分配新身份 | 同上 |
+| [composite remove](composite-remove.md) `<id> <partId> [at <step>]` | 按真实 RuntimeId 拆除零件 | 同上 |
+| [composite move](composite-move.md) `<id> <partId> <x> <y> <z> [at <step>]` | 移动已有零件并保留身份与状态 | 同上 |
+| [composite rotate](composite-rotate.md) `<id> <partId> <orientation> [at <step>]` | 旋转已有零件并保留身份与状态 | 同上 |
+| [composite replace](composite-replace.md) `<id> <x> <y> <z> <namespace:id> <orientation> [at <step>]` | 拆除旧件并初始化新件 | 同上 |
+| [composite batch](composite-batch.md) `<id> <op> ... [at <step>]` | 原子批量改装；占格交换合法，失败整批拒绝 | 同上 |
 | [rail construct](rail-construct.md) | 提交切片 4 固定直轨施工计划 | 包含切片 4，且已进入体素开发场景 |
 | [rail assemble](rail-assemble.md) | 制造并定位一车头一车厢的刚性编组 | 同上 |
 | [rail start](rail-start.md) `[assembly <id>] [reverse] [step]` | 按当前或指定模拟步启动指定编组；无参且多编组时拒绝广播，`reverse` 明确拒绝 | 同上 |
@@ -122,7 +123,8 @@
 | `Saved` / `Loaded` | 保存或恢复成功，后附 `id`、显示名和当前世界体素总数 |
 | `Unavailable` | 当前会话没有可用的存档 store 或目录；不写文件、不读档 |
 | `UnsupportedVehicles` / `UnsupportedIdentities` | 保留给尚未纳入持久化契约的范围；当前静置车辆与脱落 RuntimeId 已支持 |
-| `UnsupportedRailway` | 保留状态，成功路径不再返回；正式铁路、编组与运动状态已写入格式 3 |
+| `UnsupportedRailway` | 保留状态，成功路径不再返回；正式铁路、编组与运动状态已写入格式 4 |
+| `Edit <id> <kind> pending` / `Edit PastStep.` / `Edit UnallocatedReference.` / `Edit InputExhausted.` / `Edit SimulationFaulted.` | 带 `at <step>` 的世界修改命令回报：已排队，或因过去步、引用从未分配的车辆 / 零件 ID、命令编号 / 步内序号耗尽、会话故障而拒绝且不消耗编号。不带 `at` 的立即修改在编号或序号耗尽时返回 `InputExhausted`，会话故障时返回 `SimulationFaulted`；见 [voxel edits](voxel-edits.md) |
 | `UnknownSource` | `voxel load` 的存档带有不受支持的 `world_source` 来源类型；当前会话不变 |
 | `Committed` / `Repaired` / `Intact` / `UnknownCell` / `Conflict` / `IndependentLineConflict` / `ClearanceConflict` / `WorldObstacle` | `rail` 施工或修复结果。成功才分配轨段身份或恢复占格；失败整份计划拒绝 |
 | `Formed` / `NoRailway` / `AlreadyAssembled` / `UnknownVehicle` / `MissingPropulsion` / `MissingControl` / `MissingContact` / `MissingConnection` / `InsufficientSupport` / `DisconnectedPath` / `InvalidConnection` / `MultipleActiveLocomotives` / `VehicleConstraint` | `rail assemble` 结果。成功才制造车辆并形成编组；失败不改世界、车辆与计数 |
@@ -221,7 +223,7 @@ voxel query 4 4 4
 
 ## 相关快捷键与当前边界
 
-体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，切片 4 可用 `T` 启动、`Y` 停车、`P` 暂停/恢复、`F` 在存活车辆间循环跟随相机，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。切片 4 HUD 按正式运动状态写「运行 / 滑行 / 停止」，并保留支撑失效、前方缺口、线路末端与会话暂停。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId，以及切片 4 的正式铁路、编组、运动和待执行命令，都随格式 3 一并保存；本构建仍可读前三切片留下的格式 2 文件。失败时保留旧会话，不会报告成功却丢车、丢轨或丢队列。
+体素场景中关闭控制台后，可用 `Delete` 移除当前 HUD 目标格（切片 1 为 `(4,4,4)`，切片 2 为 `(15,16,15)`，切片 4 为 `(80,1,15)`），`Insert` 在该格添加默认朝向的 `core:ferrous-ore`，切片 3 可用 `M` 制造正式空心壳，切片 4 可用 `T` 启动、`Y` 停车、`P` 暂停/恢复、`F` 在存活车辆间循环跟随相机，`R` 重置当前切片基底（切片 3 同时清空车辆；切片 4 重置后立即再施工固定直轨并编组），`Esc` 返回主菜单。切片 4 HUD 按正式运动状态写「运行 / 滑行 / 停止」，并保留支撑失效、前方缺口、线路末端与会话暂停。它们是场景快捷键，不是控制台命令；`quit` 则退出整个游戏。`R` / `voxel reset` / `composite reset` 不清空已分配的存档 UUID。退出场景后再次进入会创建新的开发世界，但磁盘上的 `user://saves/<UUID>/save.json` 仍在；要用 [`voxel load`](voxel-load.md) 才能恢复。切片 3 的实际车辆、save-local 布局和脱落 RuntimeId，以及切片 4 的正式铁路、编组、运动和待执行命令，都随格式 4 一并保存；本构建仍可读格式 2、3 文件。失败时保留旧会话，不会报告成功却丢车、丢轨或丢队列。
 
 ### 切片 4 正式直轨
 
@@ -263,7 +265,7 @@ rail start
 voxel save After Railway
 ```
 
-空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id>`，以及各编组的 `assembly <id> speed … running … heading … halt …`。第 300 步后再伤害 `(110,1,15)` 100，第一段缺失 `x=110..111`；继续步进后车头前接触停在 `x=110` 入侧边界、速度 0、`halt forward-gap`，任何必要接触不得进入缺口，派生图在 `rebuild` 前为 stale 且不授权跨越。未修轨时 `rail start` 为 `DisconnectedPath`，零速与 `halt forward-gap` 保持。第 300 步伤害接触之间的 `(93,1,15)` 不立即冻结；由最先到达 `x=93` 的后方接触限位，抵达当步零速。拆分后再 `rail step 30` 伤害 `(88,1,15)` 100，仅后车立即零速并 `halt support-lost`，前车独立继续。修复只恢复可启动条件；有动力须再 `rail start` 从零加速，无动力后车仍是 `MissingPropulsion`。全毁第一段现存占格后，原轨段身份与定位几何保留、通行区间为空、`halt support-lost`；另建平行线不会接替旧引用，修原身份后才可启动。`voxel save After Railway` 应返回 `Saved` 并写出格式 3；退出进程后再 `voxel load` 同一 UUID，缺口停车、支撑失效与全毁引用都保持原权威状态且不自动解除停车。删除被引用轨段几何的坏档整次 `InvalidDelta`，当前会话与旧有效文件保留。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
+空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id>`，以及各编组的 `assembly <id> speed … running … heading … halt …`。第 300 步后再伤害 `(110,1,15)` 100，第一段缺失 `x=110..111`；继续步进后车头前接触停在 `x=110` 入侧边界、速度 0、`halt forward-gap`，任何必要接触不得进入缺口，派生图在 `rebuild` 前为 stale 且不授权跨越。未修轨时 `rail start` 为 `DisconnectedPath`，零速与 `halt forward-gap` 保持。第 300 步伤害接触之间的 `(93,1,15)` 不立即冻结；由最先到达 `x=93` 的后方接触限位，抵达当步零速。拆分后再 `rail step 30` 伤害 `(88,1,15)` 100，仅后车立即零速并 `halt support-lost`，前车独立继续。修复只恢复可启动条件；有动力须再 `rail start` 从零加速，无动力后车仍是 `MissingPropulsion`。全毁第一段现存占格后，原轨段身份与定位几何保留、通行区间为空、`halt support-lost`；另建平行线不会接替旧引用，修原身份后才可启动。`voxel save After Railway` 应返回 `Saved` 并写出格式 4；退出进程后再 `voxel load` 同一 UUID，缺口停车、支撑失效与全毁引用都保持原权威状态且不自动解除停车。删除被引用轨段几何的坏档整次 `InvalidDelta`，当前会话与旧有效文件保留。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
 
 ### Playground（具名固定配置）
 
@@ -280,9 +282,23 @@ rail pause
 voxel save Playground Train
 ```
 
-建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 3 中写出 `world_source`，新进程加载后恢复来源并保持暂停，见 [voxel load](voxel-load.md)。注意：`voxel reset` 仍是现有命令，会清空 Playground 世界并去掉来源信息。
+建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 4 中写出 `world_source`，新进程加载后恢复来源并保持暂停，见 [voxel load](voxel-load.md)。注意：`voxel reset` 仍是现有命令，会清空 Playground 世界并去掉来源信息。
 
-验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法与拒绝序列，并驱动真实场景按钮完成保存与跨进程恢复。
+HUD 下方的修改面板把 “世界格 / 量 / 延迟步” 与 “最新车辆局部格” 输入转成世界修改命令：放置矿石、移除体素、损伤体素、在此制造空壳，以及对最新制造车辆的损伤零件、加装、拆除、移到 +X、旋转、替换与批量加装两格。延迟步为 0 时立即执行，否则排到当前步加延迟的边界。面板按局部格找到零件后提交带真实 ID 的命令，与下列控制台写法产生同一负载和位置；最下一行显示边界位置、下一个编号、待执行数与最近一条记录。
+
+```text
+voxel add 60 3 20 core:ferrous-ore px_py
+voxel damage 60 3 20 25
+composite manufacture core:dev-hollow-shell pose 60 6 24
+composite add <shell> 2 1 0 core:refit-marker px_py at 303
+voxel remove 60 3 20 at 303
+voxel edits
+voxel save Playground Edits
+```
+
+暂停在第 300 步时，前四条依次得到 `300:0`…`300:3`，时钟与列车不动；后两条排到第 303 步，`voxel edits` 报告 `boundary 300:6`。保存后在新进程加载，队列原样恢复，推进到第 303 步时两条命令按原顺序执行一次。
+
+验证步骤与配置分开登记（`PlaygroundSequences`），自动入口 `scripts/run-godot-playground-smoke.ps1` 在独立会话上运行合法、拒绝与 `straight-rail-ordered-edits` 序列，并驱动真实场景按钮、修改面板与控制台输入完成暂停多操作、待执行结构命令、保存与跨进程继续对照；输出写入新的 `.godot/validation/issue-122/<时间戳>/`。
 
 ### 切片 2 边界复现
 
@@ -467,7 +483,7 @@ composite rotate 1 <locked> nz_py
 
 前三例应整批拒绝且 P 仍为 `nz_py`、耐久 75；非法旋转返回 `DisallowedOrientation`。权威不变后仍可 `composite move 1 <P> 3 1 0`。单项移到对方占用格应 `DuplicateOccupancy`；同批两个 `move` 才能交换。
 
-改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。这些实际布局可随格式 3 保存，本构建仍可读格式 2；恢复时不得按外部 Blueprint 名称重造。
+改装后的断裂必须读实际布局。在桥上再加第二桥后，同一事件切断两桥，应得到两辆各 27 零件的后继，各自的存档内定义/Revision 与真实零件和接触点一致，且不再沿用断裂前的 56 零件定义。未改装过的车断裂后仍不发明存档内定义。这些实际布局可随格式 4 保存，本构建仍可读格式 2、3；恢复时不得按外部 Blueprint 名称重造。
 
 ```text
 composite reset bridge
@@ -492,4 +508,4 @@ composite query damaged
 
 每个可执行命令各用一个文件，`voxel` 子命令也分别维护。新增、修改或移除命令时，同步更新对应文件和本页索引；共享参数、朝向编码与组合示例统一保留在本页。每份命令文档应覆盖语法、参数、使用方法、结果和限制，尚未交付的命令明确标注。
 
-基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，轨道命令实现为 `Console/RailConsoleCommands.cs`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`，正式直轨位于 `Domain/Rails/`；体素显示、TrackRenderer 与快捷键位于 `Ui/VoxelDeveloperScene.cs`。
+基础命令与输入行为见 [ConsoleCommands.cs](../../Console/ConsoleCommands.cs)、[GameConsole.cs](../../Ui/GameConsole.cs)。体素命令实现为 `Console/VoxelConsoleCommands.cs`，车辆命令实现为 `Console/CompositeConsoleCommands.cs`，轨道命令实现为 `Console/RailConsoleCommands.cs`，`at <step>` 与 `voxel edits` 实现为 `Console/WorldEditConsole.cs`，世界修改命令与规范编码位于 `Domain/Commands/`，坐标、ID、朝向与伤害契约位于 `Domain/Voxels/`，车辆身份与校验位于 `Domain/Composites/`，正式直轨位于 `Domain/Rails/`；体素显示、TrackRenderer 与快捷键位于 `Ui/VoxelDeveloperScene.cs`。

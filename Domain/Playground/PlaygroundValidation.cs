@@ -1,5 +1,7 @@
 using System.Globalization;
 using Train.Content;
+using Train.Domain.Commands;
+using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
@@ -12,7 +14,68 @@ public enum PlaygroundOperationKind
     Advance,
     StartTrain,
     StopTrain,
-    DamageVoxel
+    DamageVoxel,
+    Edit,
+    RefitLatestVehicle,
+    DamageLatestVehicle
+}
+
+public enum PlaygroundRefitKind
+{
+    Add,
+    Remove,
+    Move,
+    Rotate,
+    Replace
+}
+
+/// <summary>
+/// One refit step addressed by local cell on the most recently created vehicle, the way the panel picks it. It is
+/// resolved into concrete part ids before submission, so the executed payload is an ordinary refit edit.
+/// </summary>
+public sealed record PlaygroundRefit(
+    PlaygroundRefitKind Kind,
+    LocalVoxelCoord Cell,
+    LocalVoxelCoord Destination = default,
+    VoxelDefinitionId DefinitionId = default,
+    VoxelOrientation? Orientation = null)
+{
+    public static PlaygroundRefit Add(LocalVoxelCoord cell, VoxelDefinitionId definitionId, VoxelOrientation? orientation = null) =>
+        new(PlaygroundRefitKind.Add, cell, DefinitionId: definitionId, Orientation: orientation);
+    public static PlaygroundRefit Remove(LocalVoxelCoord cell) => new(PlaygroundRefitKind.Remove, cell);
+    public static PlaygroundRefit Move(LocalVoxelCoord cell, LocalVoxelCoord destination) =>
+        new(PlaygroundRefitKind.Move, cell, destination);
+    public static PlaygroundRefit Rotate(LocalVoxelCoord cell, VoxelOrientation orientation) =>
+        new(PlaygroundRefitKind.Rotate, cell, Orientation: orientation);
+    public static PlaygroundRefit Replace(LocalVoxelCoord cell, VoxelDefinitionId definitionId, VoxelOrientation? orientation = null) =>
+        new(PlaygroundRefitKind.Replace, cell, DefinitionId: definitionId, Orientation: orientation);
+
+    public CompositeRefitOperation? Resolve(CompositeQuery vehicle)
+    {
+        ArgumentNullException.ThrowIfNull(vehicle);
+        var orientation = Orientation ?? VoxelOrientation.Identity;
+        if (Kind == PlaygroundRefitKind.Add)
+            return CompositeRefitOperation.Add(Cell, DefinitionId, orientation);
+        if (Kind == PlaygroundRefitKind.Replace)
+            return CompositeRefitOperation.Replace(Cell, DefinitionId, orientation);
+        var part = vehicle.Parts.FirstOrDefault(item => item.Cell == Cell);
+        if (part is null)
+            return null;
+        return Kind switch
+        {
+            PlaygroundRefitKind.Remove => CompositeRefitOperation.Remove(part.Id),
+            PlaygroundRefitKind.Move => CompositeRefitOperation.Move(part.Id, Destination),
+            PlaygroundRefitKind.Rotate => CompositeRefitOperation.Rotate(part.Id, orientation),
+            _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null)
+        };
+    }
+
+    public string Describe() => Kind switch
+    {
+        PlaygroundRefitKind.Move => $"move {Cell.X},{Cell.Y},{Cell.Z}->{Destination.X},{Destination.Y},{Destination.Z}",
+        PlaygroundRefitKind.Add or PlaygroundRefitKind.Replace => $"{Kind.ToString().ToLowerInvariant()} {Cell.X},{Cell.Y},{Cell.Z} {DefinitionId.Value}",
+        _ => $"{Kind.ToString().ToLowerInvariant()} {Cell.X},{Cell.Y},{Cell.Z}"
+    };
 }
 
 /// <summary>A formal session operation shared by the manual Playground controls and the automatic validation runner.</summary>
@@ -21,8 +84,25 @@ public sealed record PlaygroundOperation(
     ulong Steps = 0,
     RailHeading Heading = RailHeading.AlongAlignment,
     WorldVoxelCoord Cell = default,
-    int Amount = 0)
+    int Amount = 0,
+    WorldEdit? Edit = null,
+    ulong? AtStep = null,
+    IReadOnlyList<PlaygroundRefit>? Refits = null,
+    LocalVoxelCoord VehicleCell = default)
 {
+    public const string NoVehicleStatus = "NoVehicle";
+    public const string NoPartStatus = "NoPart";
+
+    /// <summary>Submits a parsed edit; <paramref name="atStep"/> queues it for that step instead of the current boundary.</summary>
+    public static PlaygroundOperation Submit(WorldEdit edit, ulong? atStep = null) =>
+        new(PlaygroundOperationKind.Edit, Edit: edit ?? throw new ArgumentNullException(nameof(edit)), AtStep: atStep);
+    public static PlaygroundOperation RefitLatest(IReadOnlyList<PlaygroundRefit> refits, ulong? atStep = null) =>
+        new(PlaygroundOperationKind.RefitLatestVehicle, Refits: refits, AtStep: atStep);
+    public static PlaygroundOperation RefitLatest(PlaygroundRefit refit, ulong? atStep = null) =>
+        RefitLatest(new[] { refit }, atStep);
+    public static PlaygroundOperation DamageLatest(LocalVoxelCoord cell, int amount, ulong? atStep = null) =>
+        new(PlaygroundOperationKind.DamageLatestVehicle, Amount: amount, AtStep: atStep, VehicleCell: cell);
+
     public static PlaygroundOperation Pause() => new(PlaygroundOperationKind.Pause);
     public static PlaygroundOperation Resume() => new(PlaygroundOperationKind.Resume);
     public static PlaygroundOperation Advance(ulong steps) => new(PlaygroundOperationKind.Advance, steps);
@@ -43,8 +123,44 @@ public sealed record PlaygroundOperation(
             PlaygroundOperationKind.StartTrain => session.StartTrain(Heading).Status.ToString(),
             PlaygroundOperationKind.StopTrain => session.StopTrain().Status.ToString(),
             PlaygroundOperationKind.DamageVoxel => session.Damage(Cell, Amount).Status.ToString(),
+            PlaygroundOperationKind.Edit or PlaygroundOperationKind.RefitLatestVehicle or PlaygroundOperationKind.DamageLatestVehicle =>
+                ResolveEdit(session, out var edit) is { } refused ? refused : session.SubmitEdit(edit!, AtStep).Status,
             _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null)
         };
+    }
+
+    /// <summary>
+    /// Turns an edit operation into the parsed payload it submits. Returns a refusal status, without touching the
+    /// session, when the latest vehicle or an addressed part does not exist.
+    /// </summary>
+    public string? ResolveEdit(VoxelDevelopmentSession session, out WorldEdit? edit)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        edit = Edit;
+        if (Kind == PlaygroundOperationKind.Edit)
+            return edit is null ? throw new InvalidOperationException("Edit operation has no payload.") : null;
+        if (Kind is not (PlaygroundOperationKind.RefitLatestVehicle or PlaygroundOperationKind.DamageLatestVehicle))
+            throw new InvalidOperationException($"{Kind} is not an edit operation.");
+
+        var vehicle = session.QueryComposites().OrderByDescending(item => item.Id.Value).FirstOrDefault();
+        if (vehicle is null)
+            return NoVehicleStatus;
+        if (Kind == PlaygroundOperationKind.DamageLatestVehicle)
+        {
+            edit = new VehicleDamageEdit(new[] { new CompositeDamageTarget(vehicle.Id, VehicleCell, Amount) });
+            return null;
+        }
+
+        var operations = new List<CompositeRefitOperation>();
+        foreach (var refit in Refits ?? Array.Empty<PlaygroundRefit>())
+        {
+            if (refit.Resolve(vehicle) is not { } operation)
+                return NoPartStatus;
+            operations.Add(operation);
+        }
+
+        edit = new VehicleRefitEdit(vehicle.Id, operations);
+        return null;
     }
 
     public string Describe() => Kind switch
@@ -52,8 +168,15 @@ public sealed record PlaygroundOperation(
         PlaygroundOperationKind.Advance => $"advance {Steps.ToString(CultureInfo.InvariantCulture)}",
         PlaygroundOperationKind.StartTrain => $"start {Heading}",
         PlaygroundOperationKind.DamageVoxel => $"damage {Cell.X},{Cell.Y},{Cell.Z} {Amount.ToString(CultureInfo.InvariantCulture)}",
+        PlaygroundOperationKind.Edit => $"edit {WorldEditCodec.WireKind(Edit!.Kind)}{DescribeAt()}",
+        PlaygroundOperationKind.RefitLatestVehicle =>
+            $"refit latest {string.Join("; ", (Refits ?? Array.Empty<PlaygroundRefit>()).Select(refit => refit.Describe()))}{DescribeAt()}",
+        PlaygroundOperationKind.DamageLatestVehicle =>
+            $"damage latest {VehicleCell.X},{VehicleCell.Y},{VehicleCell.Z} {Amount.ToString(CultureInfo.InvariantCulture)}{DescribeAt()}",
         _ => Kind.ToString().ToLowerInvariant()
     };
+
+    private string DescribeAt() => AtStep is { } step ? $" at {step.ToString(CultureInfo.InvariantCulture)}" : "";
 }
 
 public enum PlaygroundObservation
@@ -64,7 +187,13 @@ public enum PlaygroundObservation
     LeadFrontContactX,
     Speed,
     Running,
-    HaltReason
+    HaltReason,
+    EditBoundary,
+    NextEditId,
+    PendingEdits,
+    LastEdit,
+    VehicleCount,
+    VoxelCount
 }
 
 public sealed record PlaygroundCheck(PlaygroundObservation Observation, string Expected)
@@ -82,8 +211,21 @@ public sealed record PlaygroundCheck(PlaygroundObservation Observation, string E
             PlaygroundObservation.Speed => assembly is null ? "none" : Number(assembly.Speed),
             PlaygroundObservation.Running => assembly is null ? "none" : assembly.Running ? "true" : "false",
             PlaygroundObservation.HaltReason => assembly is null ? "none" : assembly.HaltReason.ToString(),
+            PlaygroundObservation.EditBoundary => session.EditBoundary.ToString(),
+            PlaygroundObservation.NextEditId => session.NextEditId.ToString(CultureInfo.InvariantCulture),
+            PlaygroundObservation.PendingEdits => session.QueryPendingEdits().Count.ToString(CultureInfo.InvariantCulture),
+            PlaygroundObservation.LastEdit => session.QueryEditLog() is { Count: > 0 } log ? DescribeRecord(log[^1]) : "none",
+            PlaygroundObservation.VehicleCount => session.QueryComposites().Count.ToString(CultureInfo.InvariantCulture),
+            PlaygroundObservation.VoxelCount => session.World.VoxelCount.ToString(CultureInfo.InvariantCulture),
             _ => throw new ArgumentOutOfRangeException(nameof(observation), observation, null)
         };
+    }
+
+    /// <summary>Compact record text: <c>id:state:status@step:sequence</c>.</summary>
+    public static string DescribeRecord(WorldEditRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+        return $"{record.Id.ToString(CultureInfo.InvariantCulture)}:{WorldEditCodec.WireState(record.State)}:{record.Status}@{record.ExecutedAt}";
     }
 
     private static string Number(double value) =>
@@ -204,9 +346,65 @@ public static class PlaygroundSequences
 {
     public const string StraightRailRunAndHaltId = "straight-rail-run-and-halt";
     public const string StraightRailRejectionsId = "straight-rail-rejections";
+    public const string StraightRailOrderedEditsId = "straight-rail-ordered-edits";
+
+    public static readonly WorldVoxelCoord EditProbe = new(60, 3, 20);
+    public static readonly VoxelDefinitionId EditVoxelId = new("core", "ferrous-ore");
+    public static readonly CompositeTransform EditShellPose = CompositeTransform.Translation(60, 6, 24);
 
     public static IReadOnlyList<PlaygroundSequence> All { get; } = new[]
     {
+        new PlaygroundSequence(
+            StraightRailOrderedEditsId,
+            PlaygroundConfigurations.StraightRailTrainId,
+            new[]
+            {
+                Step(PlaygroundOperation.Start(), "Started",
+                    Check(PlaygroundObservation.Paused, "true")),
+                Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity)), "Added",
+                    Check(PlaygroundObservation.SimulationStep, "0"),
+                    Check(PlaygroundObservation.EditBoundary, "0:1"),
+                    Check(PlaygroundObservation.NextEditId, "2")),
+                Step(PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(EditProbe, 25) })), "Damaged",
+                    Check(PlaygroundObservation.EditBoundary, "0:2")),
+                Step(PlaygroundOperation.Submit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, EditShellPose)), "Valid",
+                    Check(PlaygroundObservation.VehicleCount, "3")),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)), "Valid"),
+                Step(PlaygroundOperation.DamageLatest(HollowShellRefit.FirstAdd, 25), "Damaged"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Move(HollowShellRefit.FirstAdd, HollowShellRefit.Moved)), "Valid"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Rotate(HollowShellRefit.Moved, HollowShellRefit.MarkerOrientation)), "Valid"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Replace(HollowShellRefit.Moved, HollowShellRefit.ReplacementId)), "Valid"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(HollowShellRefit.Moved)), "Valid"),
+                Step(PlaygroundOperation.RefitLatest(new[]
+                    {
+                        PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId),
+                        PlaygroundRefit.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId)
+                    }), "Valid",
+                    Check(PlaygroundObservation.SimulationStep, "0"),
+                    Check(PlaygroundObservation.LeadFrontContactX, "80"),
+                    Check(PlaygroundObservation.EditBoundary, "0:10"),
+                    Check(PlaygroundObservation.LastEdit, "10:executed:Valid@0:9")),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(HollowShellRefit.Moved)), PlaygroundOperation.NoPartStatus,
+                    Check(PlaygroundObservation.EditBoundary, "0:10"),
+                    Check(PlaygroundObservation.NextEditId, "11")),
+                Step(PlaygroundOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending",
+                    Check(PlaygroundObservation.PendingEdits, "1")),
+                Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity), 3), "Pending"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.OutOfEnvelope, HollowShellRefit.MarkerId), 3), "Pending",
+                    Check(PlaygroundObservation.PendingEdits, "3"),
+                    Check(PlaygroundObservation.EditBoundary, "0:13")),
+                Step(PlaygroundOperation.Advance(3), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "3"),
+                    Check(PlaygroundObservation.PendingEdits, "0"),
+                    Check(PlaygroundObservation.EditBoundary, "3:3"),
+                    Check(PlaygroundObservation.LastEdit, "13:rejected:EnvelopeExceeded@3:2")),
+                Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity)), "Occupied",
+                    Check(PlaygroundObservation.EditBoundary, "3:4"),
+                    Check(PlaygroundObservation.LastEdit, "14:rejected:Occupied@3:3")),
+                Step(PlaygroundOperation.Advance(1), "Advanced",
+                    Check(PlaygroundObservation.EditBoundary, "4:0"),
+                    Check(PlaygroundObservation.NextEditId, "15"))
+            }),
         new PlaygroundSequence(
             StraightRailRunAndHaltId,
             PlaygroundConfigurations.StraightRailTrainId,

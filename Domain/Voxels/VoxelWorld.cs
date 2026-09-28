@@ -275,7 +275,9 @@ public enum WorldCommandStatus
     Empty,
     UnknownDefinition,
     DisallowedOrientation,
-    InvalidDamage
+    InvalidDamage,
+    InputExhausted,
+    SimulationFaulted
 }
 
 public sealed record WorldCommandResult(WorldCommandStatus Status, WorldVoxelCoord Position)
@@ -350,6 +352,16 @@ public sealed class VoxelWorld
         ArgumentNullException.ThrowIfNull(replacements);
         foreach (var (position, voxel) in replacements)
             _voxels[position] = voxel;
+    }
+
+    internal KeyValuePair<WorldVoxelCoord, WorldVoxel>[] CaptureVoxels() => _voxels.ToArray();
+
+    internal void RestoreVoxels(IReadOnlyList<KeyValuePair<WorldVoxelCoord, WorldVoxel>> voxels)
+    {
+        ArgumentNullException.ThrowIfNull(voxels);
+        _voxels.Clear();
+        foreach (var (position, voxel) in voxels)
+            _voxels.Add(position, voxel);
     }
 }
 

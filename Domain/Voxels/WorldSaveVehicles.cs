@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Train.Content;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 
@@ -99,6 +100,7 @@ public sealed class WorldSaveRestore
     public ulong SimulationStep { get; }
     public IReadOnlyList<ScheduledTrainCommandQuery> ScheduledCommands { get; }
     public ulong ScheduledSequence { get; }
+    public WorldEditQueueState Edits { get; }
 
     public WorldSaveRestore(
         VoxelWorld world,
@@ -109,8 +111,10 @@ public sealed class WorldSaveRestore
         IReadOnlyList<TrainAssembly>? assemblies = null,
         ulong simulationStep = 0,
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
-        ulong scheduledSequence = 0)
+        ulong scheduledSequence = 0,
+        WorldEditQueueState? edits = null)
     {
+        Edits = edits ?? WorldEditQueueState.Initial;
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(vehicles);
         World = world;

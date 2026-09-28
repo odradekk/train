@@ -162,7 +162,12 @@ public sealed class PlaygroundTests
     public void Registered_legal_and_rejection_sequences_pass_on_fresh_sessions()
     {
         using var content = PlaygroundHarness.Content();
-        foreach (var id in new[] { PlaygroundSequences.StraightRailRunAndHaltId, PlaygroundSequences.StraightRailRejectionsId })
+        foreach (var id in new[]
+                 {
+                     PlaygroundSequences.StraightRailRunAndHaltId,
+                     PlaygroundSequences.StraightRailRejectionsId,
+                     PlaygroundSequences.StraightRailOrderedEditsId
+                 })
         {
             var report = PlaygroundValidation.Run(PlaygroundSequences.Find(id)!, content.Catalog, content.Composites);
             Assert.IsTrue(report.Passed, string.Join(Environment.NewLine, report.Lines()));
@@ -235,7 +240,7 @@ public sealed class PlaygroundTests
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         var json = File.ReadAllText(playground.Store.PathFor(saved.SaveId!.Value));
         StringAssert.Contains(json, "\"world_source\"");
-        StringAssert.Contains(json, "\"save_format_version\":3");
+        StringAssert.Contains(json, "\"save_format_version\":4");
 
         using var restarted = PlaygroundHarness.Content(userData: playground.UserData);
         var loaded = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4, restarted.Store, restarted.Composites);

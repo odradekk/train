@@ -22,7 +22,7 @@ public sealed class TrainPersistenceTests
         var saved = writer.Session.Save("Slice 4 Parked");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         var json = File.ReadAllText(writer.Store.PathFor(saved.SaveId!.Value));
-        StringAssert.Contains(json, "\"save_format_version\":3");
+        StringAssert.Contains(json, "\"save_format_version\":4");
         StringAssert.Contains(json, "\"railway\"");
         StringAssert.Contains(json, "\"assemblies\"");
         StringAssert.Contains(json, "\"scheduled_commands\"");
@@ -374,8 +374,8 @@ public sealed class TrainPersistenceTests
         var previous = File.ReadAllText(path);
         var before = harness.Session.CaptureTrainAuthority();
 
-        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":3", "\"save_format_version\":1", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
-        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":3", "\"save_format_version\":99", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
+        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":4", "\"save_format_version\":1", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
+        AssertLoadKeeps(harness, previous.Replace("\"save_format_version\":4", "\"save_format_version\":99", StringComparison.Ordinal), WorldSaveStatus.UnknownFormat, before);
         AssertLoadKeeps(harness, previous.Replace("slice-4-straight-rail-v1", "future-rail-v9", StringComparison.Ordinal), WorldSaveStatus.UnknownGenerator, before);
         AssertLoadKeeps(harness, previous[..80], WorldSaveStatus.Truncated, before);
 
@@ -428,6 +428,7 @@ public sealed class TrainPersistenceTests
         root.Remove("scheduled_commands");
         root.Remove("scheduled_sequence");
         root.Remove("simulation_step");
+        root.Remove("world_edits");
         File.WriteAllText(path, root.ToJsonString());
 
         using var reader = StaticTrainHarness.Create(writer.UserData, writer.Source);

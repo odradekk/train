@@ -152,6 +152,13 @@ public partial class GameConsole : CanvasLayer
             _input.Text = text[..^1];
     }
 
+    /// <summary>Automation entry that types one line and submits it through the console's own input field.</summary>
+    internal void SubmitLine(string text)
+    {
+        _input.Text = text;
+        _input.EmitSignal(LineEdit.SignalName.TextSubmitted, text);
+    }
+
     private void OnSubmit(string text)
     {
         _input.Clear();

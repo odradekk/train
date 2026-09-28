@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Train.Content;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 
@@ -28,7 +29,8 @@ public enum WorldSaveStatus
     UnsupportedVehicles,
     UnsupportedIdentities,
     UnsupportedRailway,
-    UnknownSource
+    UnknownSource,
+    SimulationFaulted
 }
 
 public sealed record WorldSaveResult(WorldSaveStatus Status, Guid? SaveId = null, string? DisplayName = null)
@@ -50,8 +52,11 @@ public readonly record struct WorldSaveDefinitionRef(
 
 public sealed class WorldSaveDocument
 {
-    public const int CurrentFormatVersion = 3;
-    public const int PredecessorFormatVersion = 2;
+    public const int CurrentFormatVersion = 4;
+    public const int PredecessorFormatVersion = 3;
+    public const int OldestFormatVersion = 2;
+    public const int FirstRailwayFormatVersion = 3;
+    public const int FirstWorldEditsFormatVersion = 4;
     public const string DefaultDisplayName = "Development World";
     public const int DisplayNameMinLength = 1;
     public const int DisplayNameMaxLength = 64;
@@ -78,6 +83,7 @@ public sealed class WorldSaveDocument
     public IReadOnlyList<ScheduledTrainCommandQuery> ScheduledCommands { get; }
     public ulong ScheduledSequence { get; }
     public WorldSource? Source { get; }
+    public WorldEditQueueState Edits { get; }
 
     public WorldSaveDocument(
         int formatVersion,
@@ -101,7 +107,8 @@ public sealed class WorldSaveDocument
         ulong simulationStep = 0,
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
         ulong scheduledSequence = 0,
-        WorldSource? source = null)
+        WorldSource? source = null,
+        WorldEditQueueState? edits = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(generatorVersion);
         ArgumentException.ThrowIfNullOrEmpty(baseLayout);
@@ -133,10 +140,11 @@ public sealed class WorldSaveDocument
         ScheduledCommands = scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>();
         ScheduledSequence = scheduledSequence;
         Source = source;
+        Edits = edits ?? WorldEditQueueState.Initial;
     }
 
     public static bool SupportsFormat(int formatVersion) =>
-        formatVersion is CurrentFormatVersion or PredecessorFormatVersion;
+        formatVersion is >= OldestFormatVersion and <= CurrentFormatVersion;
 
     public WorldSaveDocument With(
         Guid id,
@@ -164,7 +172,8 @@ public sealed class WorldSaveDocument
             SimulationStep,
             ScheduledCommands,
             ScheduledSequence,
-            Source);
+            Source,
+            Edits);
 
     public static bool TryNormalizeDisplayName(string? value, out string name)
     {
@@ -304,7 +313,8 @@ public static class WorldSaveCodec
         ulong simulationStep = 0,
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null,
         ulong scheduledSequence = 0,
-        WorldSource? source = null)
+        WorldSource? source = null,
+        WorldEditQueueState? edits = null)
     {
         document = null!;
         status = WorldSaveStatus.Saved;
@@ -367,7 +377,8 @@ public static class WorldSaveCodec
             simulationStep,
             scheduledCommands ?? Array.Empty<ScheduledTrainCommandQuery>(),
             scheduledSequence,
-            source);
+            source,
+            edits);
         status = WorldSaveStatus.Saved;
         return true;
     }
@@ -407,6 +418,8 @@ public static class WorldSaveCodec
             writer.WriteNumber("scheduled_sequence", document.ScheduledSequence);
             if (document.Source is { } source)
                 WorldSourceCodec.Write(writer, source);
+            if (document.FormatVersion >= WorldSaveDocument.FirstWorldEditsFormatVersion)
+                WorldEditCodec.WriteQueue(writer, document.Edits);
             writer.WriteEndObject();
             writer.Flush();
         }
@@ -573,6 +586,7 @@ public static class WorldSaveCodec
         IReadOnlyList<TrainAssembly>? assemblies = null;
         IReadOnlyList<ScheduledTrainCommandQuery>? scheduledCommands = null;
         WorldSource? source = null;
+        WorldEditQueueState? edits = null;
         ulong nextEntityId = 0;
         ulong transactionCount = 0;
         ulong simulationStep = 0;
@@ -701,6 +715,13 @@ public static class WorldSaveCodec
                         return false;
                     source = readSource;
                     break;
+                case "world_edits":
+                    if (!WorldEditCodec.TryReadQueue(property.Value, out var readEdits, out var editStatus))
+                        return Reject(
+                            editStatus == WorldEditDecodeStatus.UnknownFormat ? WorldSaveStatus.UnknownFormat : WorldSaveStatus.InvalidDelta,
+                            out status);
+                    edits = readEdits;
+                    break;
                 default:
                     return Reject(WorldSaveStatus.UnknownFormat, out status);
             }
@@ -716,9 +737,13 @@ public static class WorldSaveCodec
             return false;
         }
 
-        if (formatVersion == WorldSaveDocument.CurrentFormatVersion &&
+        if (formatVersion >= WorldSaveDocument.FirstRailwayFormatVersion &&
             (railway is null || assemblies is null || !hasSimulationStep || scheduledCommands is null || !hasScheduledSequence))
             return Reject(WorldSaveStatus.Truncated, out status);
+        if (formatVersion >= WorldSaveDocument.FirstWorldEditsFormatVersion && edits is null)
+            return Reject(WorldSaveStatus.Truncated, out status);
+        if (formatVersion < WorldSaveDocument.FirstWorldEditsFormatVersion && edits is not null)
+            return Reject(WorldSaveStatus.UnknownFormat, out status);
 
         document = new WorldSaveDocument(
             formatVersion,
@@ -742,7 +767,8 @@ public static class WorldSaveCodec
             simulationStep,
             scheduledCommands,
             scheduledSequence,
-            source);
+            source,
+            edits);
         status = WorldSaveStatus.Loaded;
         return true;
     }
@@ -1195,6 +1221,8 @@ public static class WorldSaveRestorer
                 out var commands,
                 out status))
             return false;
+        if (!TryValidateEdits(document, out status))
+            return false;
         restore = new WorldSaveRestore(
             generated,
             vehicles,
@@ -1204,7 +1232,41 @@ public static class WorldSaveRestorer
             assemblies,
             document.SimulationStep,
             commands,
-            document.ScheduledSequence);
+            document.ScheduledSequence,
+            document.Edits);
+        status = WorldSaveStatus.Loaded;
+        return true;
+    }
+
+    /// <summary>
+    /// Accepted-but-unexecuted edits must sit strictly after the saved boundary, in acceptance order, and may only
+    /// name runtime ids that were once allocated. A target destroyed before the save is legal and is rejected when
+    /// the edit executes; an id that was never allocated is a corrupt reference and rejects the whole load.
+    /// </summary>
+    private static bool TryValidateEdits(WorldSaveDocument document, out WorldSaveStatus status)
+    {
+        status = WorldSaveStatus.InvalidDelta;
+        var edits = document.Edits;
+        if (edits.NextEditId == 0)
+            return false;
+
+        WorldEditRecord? previous = null;
+        foreach (var pending in edits.Pending)
+        {
+            if (pending.Id == 0 || pending.Id >= edits.NextEditId)
+                return false;
+            if (previous is not null && (pending.Id <= previous.Id || pending.AcceptedAt.CompareTo(previous.AcceptedAt) <= 0))
+                return false;
+            if (pending.AcceptedAt.Step > document.SimulationStep ||
+                pending.AcceptedAt.Step == document.SimulationStep && pending.AcceptedAt.Sequence >= edits.BoundarySequence)
+                return false;
+            if (pending.TargetStep <= document.SimulationStep || pending.TargetStep < pending.AcceptedAt.Step)
+                return false;
+            if (pending.Edit.EntityReferences.Any(id => id.Value >= document.NextEntityId))
+                return false;
+            previous = pending;
+        }
+
         status = WorldSaveStatus.Loaded;
         return true;
     }

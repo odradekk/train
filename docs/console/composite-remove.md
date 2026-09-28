@@ -21,3 +21,5 @@ Voxel count: 0.
 ```
 
 未知车辆或未知零件返回 `UnknownVehicle` / `UnknownPart`；再提交会进入不可加载的事务计数返回 `TransactionExhausted`。权威不变。用法不合法时只给出 Usage。批量拆除见 [`composite batch`](composite-batch.md)。
+
+定时执行：末尾追加 `at <step>`；到期时零件已不在车上则记为拒绝并出队；车辆或零件 ID 从未分配过时不入队，直接返回 `Edit UnallocatedReference.`。输出与规则见 [`voxel edits`](voxel-edits.md)。

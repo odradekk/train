@@ -12,4 +12,4 @@ rail assemble
 
 成功输出 `Rail assemble Formed assembly <id>.`。失败输出 `Rail assemble <Status>.`，例如没有铁路为 `NoRailway`，已有编组为 `AlreadyAssembled`。
 
-编组后用 [`rail query assembly`](rail-query.md) 查看活动车头、前接触点、运营资格和车钩身份；用 [`rail start`](rail-start.md) 启动牵引。用 [`composite query`](composite-query.md) 查看两车定义、能力和零件。正式铁路与编组随 [`voxel save`](voxel-save.md) 写入格式 3；失败时保留旧会话和上一份有效文件。
+编组后用 [`rail query assembly`](rail-query.md) 查看活动车头、前接触点、运营资格和车钩身份；用 [`rail start`](rail-start.md) 启动牵引。用 [`composite query`](composite-query.md) 查看两车定义、能力和零件。正式铁路与编组随 [`voxel save`](voxel-save.md) 写入格式 4；失败时保留旧会话和上一份有效文件。

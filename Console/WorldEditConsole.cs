@@ -1,0 +1,91 @@
+using System.Globalization;
+using Train.Domain.Commands;
+using Train.Domain.Voxels;
+
+namespace Train;
+
+/// <summary>
+/// Console surface for the ordered world-edit entry: the optional trailing <c>at &lt;step&gt;</c> on modification
+/// commands and the <c>voxel edits</c> queries. Parsed payloads go to <see cref="VoxelDevelopmentSession.SubmitEdit"/>.
+/// </summary>
+internal static class WorldEditConsole
+{
+    public const int DefaultLogCount = 8;
+
+    /// <summary>Splits a trailing <c>at &lt;step&gt;</c>; <paramref name="step"/> is null when absent.</summary>
+    public static bool TrySplitAt(IReadOnlyList<string> arguments, out IReadOnlyList<string> rest, out ulong? step)
+    {
+        rest = arguments;
+        step = null;
+        if (arguments.Count < 2 || !string.Equals(arguments[^2], "at", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (!ulong.TryParse(arguments[^1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            return false;
+        rest = arguments.Take(arguments.Count - 2).ToArray();
+        step = parsed;
+        return true;
+    }
+
+    public static string FormatSubmission(WorldEditSubmission submission)
+    {
+        if (!submission.Accepted)
+            return $"Edit {submission.Refusal}.";
+        var record = submission.Record!;
+        var head = $"Edit {record.Id} {WorldEditCodec.WireKind(record.Edit.Kind)}";
+        return record.State == WorldEditState.Pending
+            ? string.Join('\n', $"{head} pending", $"accepted {record.AcceptedAt} target {record.TargetStep}")
+            : string.Join('\n', $"{head} {WorldEditCodec.WireState(record.State)} {record.Status}", $"accepted {record.AcceptedAt} executed {record.ExecutedAt}");
+    }
+
+    public static string? Execute(VoxelDevelopmentSession session, IReadOnlyList<string> arguments)
+    {
+        if (arguments.Count == 1)
+            return FormatSummary(session);
+        if (arguments.Count == 2 && string.Equals(arguments[1], "pending", StringComparison.OrdinalIgnoreCase))
+            return FormatPending(session);
+        if (arguments.Count is 2 or 3 && string.Equals(arguments[1], "log", StringComparison.OrdinalIgnoreCase))
+        {
+            var count = DefaultLogCount;
+            if (arguments.Count == 3 && (!int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out count) || count < 1))
+                return null;
+            return FormatLog(session, count);
+        }
+
+        if (arguments.Count == 2 && string.Equals(arguments[1], "fault", StringComparison.OrdinalIgnoreCase))
+            return FormatFault(session.Fault);
+        return null;
+    }
+
+    private static string FormatSummary(VoxelDevelopmentSession session) =>
+        string.Join('\n',
+            $"Edits boundary {session.EditBoundary} next {session.NextEditId}",
+            $"pending {session.QueryPendingEdits().Count} log {session.EditLogCount}",
+            $"digest {session.EditLogDigest}",
+            session.Fault is null ? "fault none" : $"fault edit {session.Fault.EditId} at {session.Fault.Position}");
+
+    private static string FormatPending(VoxelDevelopmentSession session)
+    {
+        var pending = session.QueryPendingEdits();
+        var lines = new List<string> { $"Edits pending {pending.Count}" };
+        lines.AddRange(pending.Select(record =>
+            $"edit {record.Id} {WorldEditCodec.WireKind(record.Edit.Kind)} accepted {record.AcceptedAt} target {record.TargetStep}"));
+        return string.Join('\n', lines);
+    }
+
+    private static string FormatLog(VoxelDevelopmentSession session, int count)
+    {
+        var log = session.QueryEditLog();
+        var lines = new List<string> { $"Edits log {session.EditLogCount} shown {Math.Min(count, log.Count)}" };
+        lines.AddRange(log.Skip(Math.Max(0, log.Count - count)).Select(record =>
+            $"edit {record.Id} {WorldEditCodec.WireKind(record.Edit.Kind)} {WorldEditCodec.WireState(record.State)} {record.Status} at {record.ExecutedAt} accepted {record.AcceptedAt}"));
+        return string.Join('\n', lines);
+    }
+
+    private static string FormatFault(SimulationFault? fault) =>
+        fault is null
+            ? "Edits fault none."
+            : string.Join('\n',
+                $"Edits fault edit {fault.EditId} {WorldEditCodec.WireKind(fault.Kind)} at {fault.Position}",
+                $"exception {fault.ExceptionType}",
+                $"message {fault.Message}");
+}

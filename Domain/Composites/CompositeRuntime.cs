@@ -23,7 +23,9 @@ public enum ConstructionStatus
     UnknownVehicle = 15,
     UnknownPart = 16,
     TransactionExhausted = 17,
-    EntityIdExhausted = 18
+    EntityIdExhausted = 18,
+    InputExhausted = 19,
+    SimulationFaulted = 20
 }
 
 public enum IdentityRetentionStatus

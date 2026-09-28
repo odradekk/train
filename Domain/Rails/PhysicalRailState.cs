@@ -163,6 +163,17 @@ public sealed class PhysicalRailState
         MarkDerivedStale();
     }
 
+    internal (WorldVoxelCoord[] Destroyed, DerivedRailGraph Derived, bool DerivedCurrent) CaptureWorldEffects() =>
+        (_destroyed.ToArray(), _derived, _derivedCurrent);
+
+    internal void RestoreWorldEffects((WorldVoxelCoord[] Destroyed, DerivedRailGraph Derived, bool DerivedCurrent) effects)
+    {
+        _destroyed.Clear();
+        _destroyed.UnionWith(effects.Destroyed);
+        _derived = effects.Derived;
+        _derivedCurrent = effects.DerivedCurrent;
+    }
+
     public void NoteRestored(WorldVoxelCoord cell)
     {
         _destroyed.Remove(cell);

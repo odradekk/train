@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 
@@ -59,6 +60,7 @@ public static class WorldSaveAuthority
                     query.Speed,
                     query.Running))
                 .ToArray());
+            WorldEditCodec.WriteQueue(writer, session.CaptureEditQueue());
             writer.WriteEndObject();
             writer.Flush();
         }

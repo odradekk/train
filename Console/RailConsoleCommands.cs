@@ -155,7 +155,9 @@ public sealed class RailConsoleCommands
     private static string FormatMotion(TrainMotionResult result)
     {
         if (!result.Succeeded)
-            return $"Rail {result.Status}.";
+            return result.AdvancedSteps == 0
+                ? $"Rail {result.Status}."
+                : $"Rail {result.Status} step {result.SimulationStep} advanced {result.AdvancedSteps}.";
         if (result.Status == TrainMotionStatus.Advanced)
             return $"Rail {result.Status} step {result.SimulationStep} advanced {result.AdvancedSteps}.";
         if (result.Status is TrainMotionStatus.Started or TrainMotionStatus.Stopped)
