@@ -33,7 +33,7 @@ internal sealed class PlaygroundCrossProcessSmoke
             ?? throw new InvalidOperationException("cross-process sequence is not registered");
         _leg = System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
         _evidence = System.Environment.GetEnvironmentVariable(EvidenceEnvironmentVariable) ?? "";
-        if (_leg is not ("continuous" or "save" or "resume" or "observe" or "failure") ||
+        if (_leg is not ("continuous" or "save" or "resume" or "observe" or "failure" or "adaptation") ||
             string.IsNullOrWhiteSpace(_evidence))
             throw new InvalidOperationException("cross-process leg and evidence directory are required");
         _index = _leg == "resume" ? SaveAfter : 0;
@@ -51,6 +51,12 @@ internal sealed class PlaygroundCrossProcessSmoke
             if (_leg == "failure")
             {
                 VerifyFailures();
+                Finish();
+                return;
+            }
+            if (_leg == "adaptation")
+            {
+                VerifyAdaptation();
                 Finish();
                 return;
             }
@@ -97,7 +103,7 @@ internal sealed class PlaygroundCrossProcessSmoke
                     $"step {_index + 1} {check.Observation} differs from {check.Expected}");
             _index++;
             _pending = true;
-            _waitFrames = _leg == "observe" ? _index % 3 + 1 : 0;
+            _waitFrames = _leg == "observe" ? _index % 3 + 3 : 2;
             GD.Print($"CROSS_STEP leg={_leg} index={_index} boundary={Session.EditBoundary} status={actual} input={_input}");
             if (_index == 9)
             {
@@ -164,10 +170,16 @@ internal sealed class PlaygroundCrossProcessSmoke
             $"Godot collision differs: world={Session.World.VoxelCount} collider_world={_scene.Colliders.LastWorldVoxelCount} shapes={_scene.Colliders.ShapeCount}");
         Require(_scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), StraightRailFixture.LeftRailSample),
             "Godot published collision missed the rail sample");
+        var probeExists = Session.Query(PlaygroundSequences.EditProbe).Voxel is not null;
+        var publishedProbe = _scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), PlaygroundSequences.EditProbe);
+        Require(probeExists == (_index is >= 4 and <= 9) && publishedProbe == probeExists,
+            $"edited probe collision lifecycle differs: index={_index} domain={probeExists} published={publishedProbe}");
+        Require((_scene.Meshes.FaceCount > 0) == probeExists,
+            $"edited probe display lifecycle differs: index={_index} faces={_scene.Meshes.FaceCount}");
         foreach (var vehicle in Session.Vehicles)
             Require(_scene.Composites.VisualFor(vehicle.Id) is not null, $"Godot visual missing vehicle {vehicle.Id}");
         GD.Print($"CROSS_GODOT leg={_leg} index={_index} voxels={Session.World.VoxelCount} " +
-                 $"faces={_scene.Meshes.FaceCount} rails={_scene.Tracks.RailSolidCount} shapes={_scene.Colliders.ShapeCount} vehicles={Session.Vehicles.Count} rail_hit=true");
+                 $"faces={_scene.Meshes.FaceCount} rails={_scene.Tracks.RailSolidCount} shapes={_scene.Colliders.ShapeCount} vehicles={Session.Vehicles.Count} rail_hit=true probe_hit={publishedProbe.ToString().ToLowerInvariant()}");
     }
 
     private void DisturbObservation(int index)
@@ -181,7 +193,7 @@ internal sealed class PlaygroundCrossProcessSmoke
             Require(Observer.Select(ObservedObject.Vehicle(bridge.Id)) == PlaygroundObservationStatus.Selected, "select bridge");
             Require(Observer.FocusSelection() == PlaygroundObservationStatus.Focused, "focus bridge");
         }
-        else if (index == 3 || index == 10)
+        else if (index == 3 || index == 11)
         {
             var locomotive = Session.QueryTrainAssemblies()[0].Vehicles[0].VehicleId;
             Require(Observer.Select(ObservedObject.Vehicle(locomotive)) == PlaygroundObservationStatus.Selected, "select locomotive");
@@ -206,7 +218,7 @@ internal sealed class PlaygroundCrossProcessSmoke
             Observer.Free();
         _scene.Observation.Present(0.016, Session.QueryDisplayPoses());
         GD.Print($"CROSS_OBSERVE index={index} mode={Observer.Mode} panel={_scene.Observation.InspectionText.Length} " +
-                 $"frame_batch={index % 3 + 2}");
+                 $"frame_batch={index % 3 + 4}");
     }
 
     private void SaveAndFinish()
@@ -269,6 +281,29 @@ internal sealed class PlaygroundCrossProcessSmoke
         GD.Print($"CROSS_RECOVERY_FAILED stage={bad.Diagnostic!.Stage} subject={bad.Diagnostic.Subject} " +
                  $"relationship={bad.Diagnostic.Relationship} status={bad.CandidateStatus} kept=true save={saved.SaveId:D}");
         GD.Print($"CROSS_PROTECTION bad_save={bad.CandidateStatus} kept=true");
+    }
+
+    private void VerifyAdaptation()
+    {
+        Require(Session.SimulationPaused, "adaptation entry is not paused");
+        var saved = _scene.SaveWorld();
+        Require(saved.Status == WorldSaveStatus.Saved && saved.SaveId is not null, "adaptation setup save failed");
+        var main = _scene.GetNode<Main>("/root/Main");
+        var path = new FileWorldSaveStore(main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
+        var root = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8))
+            ?? throw new InvalidOperationException("adaptation save is invalid JSON");
+        var dependency = root["world_source"]!["content_dependencies"]![0]!;
+        var previous = dependency["semantic_revision"]!.GetValue<string>();
+        dependency["semantic_revision"] = previous[..^1] + (previous[^1] == '0' ? "1" : "0");
+        File.WriteAllText(path, root.ToJsonString(), Encoding.UTF8);
+        var result = Session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load,
+            WorldChangeChoice.Discard, SaveId: saved.SaveId));
+        Require(result.Status == WorldChangeStatus.Completed && Session.SimulationPaused &&
+                result.Adaptations is { Count: > 0 } &&
+                result.Adaptations.Any(item => item.Relationship == "semantic_revision"),
+            $"ordinary content adaptation did not report the changed dependency: {result.Status}");
+        GD.Print($"CROSS_ADAPTATION status={result.Status} relationship=semantic_revision paused=true " +
+                 $"save={saved.SaveId:D} count={result.Adaptations!.Count} domain_comparison=separate");
     }
 
     private string Capture() => AuthorityCodec.Document(AuthorityCodec.Capture(Session)).Canonical;

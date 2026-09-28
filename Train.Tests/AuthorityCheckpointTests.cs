@@ -195,7 +195,7 @@ public sealed class AuthorityCheckpointTests
         var sequence = PlaygroundSequences.Find(PlaygroundSequences.CrossProcessComparisonId)!;
         var continuous = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
         Assert.IsTrue(continuous.Passed, string.Join(Environment.NewLine, continuous.Lines()));
-        Assert.AreEqual(13, continuous.Observation!.Checkpoints.Count);
+        Assert.AreEqual(14, continuous.Observation!.Checkpoints.Count);
         Assert.AreEqual(new SimulationPosition(0, 8), continuous.Observation.Checkpoints[8].Boundary);
 
         Assert.AreEqual(PlaygroundEstablishStatus.Established,

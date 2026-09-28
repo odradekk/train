@@ -646,6 +646,7 @@ public static class PlaygroundSequences
                 Step(PlaygroundOperation.Advance(3), "Advanced",
                     Check(PlaygroundObservation.SimulationStep, "3"),
                     Check(PlaygroundObservation.PendingEdits, "0")),
+                Step(PlaygroundOperation.Damage(EditProbe, 100), "Removed"),
                 Step(PlaygroundOperation.Advance(297), "Advanced",
                     Check(PlaygroundObservation.SimulationStep, "300"),
                     Check(PlaygroundObservation.Speed, "4"),
