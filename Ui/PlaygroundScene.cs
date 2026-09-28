@@ -15,6 +15,7 @@ public partial class PlaygroundScene : Node3D
     public const string SaveIdEnvironmentVariable = "TRAIN_PLAYGROUND_SAVE_ID";
     public const string CaptureEnvironmentVariable = "TRAIN_PLAYGROUND_CAPTURE";
     public const string CaptureStepsEnvironmentVariable = "TRAIN_PLAYGROUND_CAPTURE_STEPS";
+    public const string AuthorityEnvironmentVariable = "TRAIN_AUTHORITY_CHECKPOINT";
 
     internal static readonly WorldVoxelCoord EmptyProbe = new(100, 10, 15);
     internal static readonly ObservationCameraPose OverviewPose = new(new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
@@ -39,6 +40,7 @@ public partial class PlaygroundScene : Node3D
     private PlaygroundSmoke? _smoke;
     private PlaygroundObservationSmoke? _observationSmoke;
     private PlaygroundCapture? _capture;
+    private AuthorityCheckpointSmoke? _authority;
     private PlaygroundObservationView? _observation;
 
     internal VoxelDevelopmentSession? Session => _session;
@@ -62,7 +64,7 @@ public partial class PlaygroundScene : Node3D
         {
             _source.Text = $"Playground 无法建立：{main.PlaygroundConfigurationId} · {status}";
             GD.PrintErr($"PLAYGROUND_ESTABLISH_FAILED config={main.PlaygroundConfigurationId} status={status}");
-            if (IsSmoke())
+            if (IsSmoke() || IsAuthority())
                 GetTree().Quit(1);
             return;
         }
@@ -84,6 +86,8 @@ public partial class PlaygroundScene : Node3D
             _smoke = new PlaygroundSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
         else if (System.Environment.GetEnvironmentVariable(CaptureEnvironmentVariable) is { Length: > 0 } capturePath)
             _capture = new PlaygroundCapture(this, capturePath, System.Environment.GetEnvironmentVariable(CaptureStepsEnvironmentVariable));
+        else if (IsAuthority())
+            _authority = new AuthorityCheckpointSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
     }
 
     public override void _Process(double delta)
@@ -100,6 +104,7 @@ public partial class PlaygroundScene : Node3D
         _smoke?.Advance();
         _observationSmoke?.Advance();
         _capture?.Advance();
+        _authority?.Advance();
     }
 
     public override void _ExitTree()
@@ -148,7 +153,7 @@ public partial class PlaygroundScene : Node3D
         var reloader = main.Reloader ?? throw new InvalidOperationException("Content reloader is unavailable.");
         var store = new FileWorldSaveStore(main.IsolatedUserDataDirectory);
         var rawSaveId = System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable);
-        if (!IsSmoke() || !Guid.TryParse(rawSaveId, out var saveId))
+        if (!(IsSmoke() || IsAuthority()) || !Guid.TryParse(rawSaveId, out var saveId))
             return PlaygroundSession.TryEstablish(main.PlaygroundConfigurationId, reloader.Catalog, reloader.Composites, store, out session);
 
         var configuration = PlaygroundConfigurations.Find(main.PlaygroundConfigurationId);
@@ -371,4 +376,7 @@ public partial class PlaygroundScene : Node3D
 
     private static bool IsSmoke() =>
         string.Equals(System.Environment.GetEnvironmentVariable(SmokeEnvironmentVariable), "1", StringComparison.Ordinal);
+
+    private static bool IsAuthority() =>
+        string.Equals(System.Environment.GetEnvironmentVariable(AuthorityEnvironmentVariable), "1", StringComparison.Ordinal);
 }

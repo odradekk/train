@@ -349,10 +349,13 @@ public static class PlaygroundSequences
     public const string StraightRailRejectionsId = "straight-rail-rejections";
     public const string StraightRailOrderedEditsId = "straight-rail-ordered-edits";
     public const string StraightRailRepairRestartId = "straight-rail-repair-restart";
+    public const string AuthorityManufactureFractureId = "authority-manufacture-fracture";
 
     public static readonly WorldVoxelCoord EditProbe = new(60, 3, 20);
     public static readonly VoxelDefinitionId EditVoxelId = new("core", "ferrous-ore");
     public static readonly CompositeTransform EditShellPose = CompositeTransform.Translation(60, 6, 24);
+    public static readonly CompositeTransform AuthorityShellPose = CompositeTransform.Translation(40, 8, 8);
+    public static readonly CompositeTransform AuthorityBridgePose = CompositeTransform.Translation(200, 8, 8);
 
     public static IReadOnlyList<PlaygroundSequence> All { get; } = new[]
     {
@@ -492,6 +495,26 @@ public static class PlaygroundSequences
                     Check(PlaygroundObservation.Speed, "0"),
                     Check(PlaygroundObservation.PendingEdits, "0"),
                     Check(PlaygroundObservation.LastEdit, "8:executed:Stopped@2450:0"))
+            }),
+        new PlaygroundSequence(
+            AuthorityManufactureFractureId,
+            PlaygroundConfigurations.StraightRailTrainId,
+            new[]
+            {
+                Step(PlaygroundOperation.Submit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, AuthorityShellPose)), "Valid",
+                    Check(PlaygroundObservation.VehicleCount, "3"),
+                    Check(PlaygroundObservation.Paused, "true")),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)), "Valid"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.OutOfEnvelope, HollowShellRefit.MarkerId)), "EnvelopeExceeded"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(HollowShellRefit.FirstAdd)), "Valid"),
+                Step(PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)), "Valid"),
+                Step(PlaygroundOperation.Submit(new VehicleManufactureEdit(BridgeFixture.DefinitionId, AuthorityBridgePose)), "Valid",
+                    Check(PlaygroundObservation.VehicleCount, "4"),
+                    Check(PlaygroundObservation.Paused, "true")),
+                Step(PlaygroundOperation.DamageLatest(BridgeFixture.BridgeCell, 0), "InvalidDamage"),
+                Step(PlaygroundOperation.DamageLatest(BridgeFixture.BridgeCell, 100), "Damaged",
+                    Check(PlaygroundObservation.VehicleCount, "5"),
+                    Check(PlaygroundObservation.Paused, "true"))
             })
     };
 

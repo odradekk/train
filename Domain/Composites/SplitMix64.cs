@@ -1,5 +1,12 @@
 namespace Train.Domain.Composites;
 
+/// <summary>
+/// Stateless SplitMix64 mixer. Version 1 has one purpose: fracture tie-breaks.
+/// The key is three unsigned 64-bit fields and no strings: seed, then transaction id, then the
+/// candidate's existing minimum part id. <see cref="FracturePurpose"/> is the ASCII bytes of
+/// "FRACTURE" as a big-endian ulong. Mix is the public-domain SplitMix64 finalizer under unchecked
+/// ulong arithmetic. Failed candidates do not enter the key and do not allocate entity ids.
+/// </summary>
 public static class SplitMix64
 {
     public const ulong AlgorithmVersion = 1;
