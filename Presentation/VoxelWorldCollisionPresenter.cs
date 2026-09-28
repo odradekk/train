@@ -82,6 +82,19 @@ public sealed class VoxelWorldCollisionPresenter
         return hits.OrderBy(cell => cell.X).ThenBy(cell => cell.Y).ThenBy(cell => cell.Z).ToArray();
     }
 
+    /// <summary>The first published world-voxel collider a segment hits, with the cell that shape was built for.</summary>
+    public (WorldVoxelCoord Cell, Vector3 Position)? QueryPublishedRay(World3D world, Vector3 from, Vector3 to)
+    {
+        ArgumentNullException.ThrowIfNull(world);
+        var query = PhysicsRayQueryParameters3D.Create(from, to, VoxelCollisionLayer);
+        query.CollideWithBodies = true;
+        query.CollideWithAreas = false;
+        var result = world.DirectSpaceState.IntersectRay(query);
+        if (result.Count == 0 || !TryReadCell(result, out var cell))
+            return null;
+        return (cell, result["position"].AsVector3());
+    }
+
     public bool QueryPublishedCellInterior(World3D world, WorldVoxelCoord cell) =>
         QueryPublishedHits(world, CellInterior(cell)).Contains(cell);
 

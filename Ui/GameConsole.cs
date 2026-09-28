@@ -1,5 +1,6 @@
 using Godot;
 using Train.Content;
+using Train.Domain.Playground;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -12,6 +13,7 @@ public partial class GameConsole : CanvasLayer
     private TrainLogger _logger = null!;
     private ContentReloader? _reloader;
     private VoxelDevelopmentSession? _voxelSession;
+    private PlaygroundObserver? _observer;
     private PanelContainer _panel = null!;
     private RichTextLabel _output = null!;
     private LineEdit _input = null!;
@@ -35,6 +37,14 @@ public partial class GameConsole : CanvasLayer
     public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)
     {
         _voxelSession = session;
+        if (session is null)
+            _observer = null;
+        ConfigureDispatcher();
+    }
+
+    public void SetPlaygroundObserver(PlaygroundObserver? observer)
+    {
+        _observer = observer;
         ConfigureDispatcher();
     }
 
@@ -48,7 +58,8 @@ public partial class GameConsole : CanvasLayer
             OS.IsDebugBuild(),
             _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession),
             _voxelSession is null ? null : new CompositeConsoleCommands(_voxelSession),
-            _voxelSession is null ? null : new RailConsoleCommands(_voxelSession));
+            _voxelSession is null ? null : new RailConsoleCommands(_voxelSession),
+            _voxelSession is null || _observer is null ? null : new ObserveConsoleCommands(_voxelSession, _observer));
     }
 
     public override void _Ready()

@@ -17,6 +17,7 @@ public partial class PlaygroundScene : Node3D
     public const string CaptureStepsEnvironmentVariable = "TRAIN_PLAYGROUND_CAPTURE_STEPS";
 
     internal static readonly WorldVoxelCoord EmptyProbe = new(100, 10, 15);
+    internal static readonly ObservationCameraPose OverviewPose = new(new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
 
     private readonly VoxelWorldMeshPresenter _meshes = new();
     private readonly VoxelWorldCollisionPresenter _colliders = new();
@@ -36,9 +37,13 @@ public partial class PlaygroundScene : Node3D
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private bool _dirty = true;
     private PlaygroundSmoke? _smoke;
+    private PlaygroundObservationSmoke? _observationSmoke;
     private PlaygroundCapture? _capture;
+    private PlaygroundObservationView? _observation;
 
     internal VoxelDevelopmentSession? Session => _session;
+    internal PlaygroundObservationView? Observation => _observation;
+    internal Camera3D Camera => _camera;
     internal VoxelWorldCollisionPresenter Colliders => _colliders;
     internal VoxelWorldMeshPresenter Meshes => _meshes;
     internal CompositeVisualPresenter Composites => _composites;
@@ -67,10 +72,15 @@ public partial class PlaygroundScene : Node3D
         main.SetVoxelDevelopmentSession(_session);
         _meshes.Rebuild(this, _session.Identity);
         _colliders.Rebuild(this, _session.Identity);
-        PlaceOverviewCamera();
+        _observation = new PlaygroundObservationView();
+        AddChild(_observation);
+        _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, OverviewPose);
+        main.SetPlaygroundObserver(_observation.Observer);
         Refresh();
 
-        if (IsSmoke())
+        if (IsSmoke() && PlaygroundObservationSmoke.Requested())
+            _observationSmoke = new PlaygroundObservationSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
+        else if (IsSmoke())
             _smoke = new PlaygroundSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
         else if (System.Environment.GetEnvironmentVariable(CaptureEnvironmentVariable) is { Length: > 0 } capturePath)
             _capture = new PlaygroundCapture(this, capturePath, System.Environment.GetEnvironmentVariable(CaptureStepsEnvironmentVariable));
@@ -86,8 +96,9 @@ public partial class PlaygroundScene : Node3D
         if (steps > 0)
             _session.AdvanceSimulation(steps);
 
-        ApplyMotionPresentation();
+        ApplyMotionPresentation(delta);
         _smoke?.Advance();
+        _observationSmoke?.Advance();
         _capture?.Advance();
     }
 
@@ -158,33 +169,15 @@ public partial class PlaygroundScene : Node3D
 
     private void MarkDirty() => _dirty = true;
 
-    private void ApplyMotionPresentation()
+    private void ApplyMotionPresentation(double delta = 0)
     {
         if (_session is null)
             return;
-        _composites.ApplyDisplayPoses(_session.QueryDisplayPoses());
-        ApplyFollowCamera();
+        var sample = _session.QueryDisplayPoses();
+        _composites.ApplyDisplayPoses(sample);
+        _observation?.Present(delta, sample);
         _state.Text = StateText();
         _edits.Text = EditsText();
-    }
-
-    private void ApplyFollowCamera()
-    {
-        var follow = _session!.QueryFollowedCamera();
-        if (follow is null || !_camera.IsInsideTree())
-            return;
-        var definition = _session.QueryComposite(follow.VehicleId)?.DefinitionId ?? StaticTrainFixture.CarriageId;
-        var frame = AlongRailDisplay.FrameFollowCamera(follow, definition);
-        var look = new Vector3((float)frame.LookX, (float)frame.LookY, (float)frame.LookZ);
-        _camera.Position = new Vector3((float)frame.PositionX, (float)frame.PositionY, (float)frame.PositionZ);
-        if ((_camera.Position - look).LengthSquared() > 1e-8f)
-            _camera.LookAt(look, Vector3.Up);
-    }
-
-    private void PlaceOverviewCamera()
-    {
-        _camera.Position = new Vector3(76, 16, -8);
-        _camera.LookAt(new Vector3(76, 2, 16), Vector3.Up);
     }
 
     private string StateText()
