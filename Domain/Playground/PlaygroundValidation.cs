@@ -481,6 +481,7 @@ public static class PlaygroundSequences
     public const string StraightRailOrderedEditsId = "straight-rail-ordered-edits";
     public const string StraightRailRepairRestartId = "straight-rail-repair-restart";
     public const string AuthorityManufactureFractureId = "authority-manufacture-fracture";
+    public const string CrossProcessComparisonId = "cross-process-comparison";
 
     public static readonly WorldVoxelCoord EditProbe = new(60, 3, 20);
     public static readonly VoxelDefinitionId EditVoxelId = new("core", "ferrous-ore");
@@ -626,6 +627,34 @@ public static class PlaygroundSequences
                     Check(PlaygroundObservation.Speed, "0"),
                     Check(PlaygroundObservation.PendingEdits, "0"),
                     Check(PlaygroundObservation.LastEdit, "8:executed:Stopped@2450:0"))
+            }),
+        new PlaygroundSequence(
+            CrossProcessComparisonId,
+            PlaygroundConfigurations.StraightRailTrainId,
+            new[]
+            {
+                Step(PlaygroundOperation.Submit(new VehicleManufactureEdit(BridgeFixture.DefinitionId, AuthorityBridgePose)), "Valid"),
+                Step(PlaygroundOperation.DamageLatest(BridgeFixture.BridgeCell, 100), "Damaged",
+                    Check(PlaygroundObservation.VehicleCount, "4")),
+                Step(PlaygroundOperation.Start(), "Started", Check(PlaygroundObservation.Paused, "true")),
+                Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity)), "Added"),
+                Step(PlaygroundOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending"),
+                Step(PlaygroundOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending"),
+                Step(PlaygroundOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity), 3), "Pending"),
+                Step(PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(EditProbe, 25) }), 3), "Pending",
+                    Check(PlaygroundObservation.PendingEdits, "4")),
+                Step(PlaygroundOperation.Advance(3), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "3"),
+                    Check(PlaygroundObservation.PendingEdits, "0")),
+                Step(PlaygroundOperation.Advance(297), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "300"),
+                    Check(PlaygroundObservation.Speed, "4"),
+                    Check(PlaygroundObservation.Running, "true")),
+                Step(PlaygroundOperation.Damage(StraightRailFixture.FirstSegmentDamageCell, 100), "Removed"),
+                Step(PlaygroundOperation.Advance(2000), "Advanced",
+                    Check(PlaygroundObservation.SimulationStep, "2300"),
+                    Check(PlaygroundObservation.HaltReason, "ForwardGap"),
+                    Check(PlaygroundObservation.Running, "false"))
             }),
         new PlaygroundSequence(
             AuthorityManufactureFractureId,
