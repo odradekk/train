@@ -16,9 +16,19 @@ public sealed class VoxelConsoleCommands
     public string Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        if (arguments.Count == 1 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
+        if (arguments.Count is >= 1 and <= 2 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
         {
-            _session.Reset();
+            WorldChangeChoice? choice = null;
+            if (arguments.Count == 2)
+            {
+                if (!WorldChangeConsole.TryParseChoice(arguments[1], out var parsed))
+                    return Usage();
+                choice = parsed;
+            }
+
+            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice));
+            if (changed.Status != WorldChangeStatus.Completed)
+                return WorldChangeConsole.Format(_session, changed);
             var sample = _session.Identity.Slice switch
             {
                 VoxelDevelopmentSlice.Slice2 => new WorldVoxelCoord(15, 16, 15),
@@ -27,6 +37,28 @@ public sealed class VoxelConsoleCommands
                 _ => new WorldVoxelCoord(4, 4, 4)
             };
             return $"Voxel world reset. {FormatWithCount(_session.Query(sample))}";
+        }
+
+        if (arguments.Count is 2 or 3 && string.Equals(arguments[0], "use", StringComparison.OrdinalIgnoreCase))
+        {
+            WorldChangeChoice? choice = null;
+            if (arguments.Count == 3)
+            {
+                if (!WorldChangeConsole.TryParseChoice(arguments[2], out var parsed))
+                    return Usage();
+                choice = parsed;
+            }
+
+            var changed = _session.TryChangeWorld(new WorldChangeRequest(
+                WorldChangeKind.SwitchConfiguration,
+                choice,
+                arguments[1]));
+            if (changed.Status != WorldChangeStatus.Completed)
+                return WorldChangeConsole.Format(_session, changed);
+            return string.Join("\n",
+                $"Voxel configuration {_session.WorldSource?.ConfigurationId}.",
+                $"paused {_session.SimulationPaused.ToString().ToLowerInvariant()}",
+                $"Voxel count: {_session.World.VoxelCount}.");
         }
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "edits", StringComparison.OrdinalIgnoreCase) &&
@@ -66,13 +98,48 @@ public sealed class VoxelConsoleCommands
         if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
             return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
 
-        if (arguments.Count == 2 &&
+        if (arguments.Count is 2 or 3 &&
             string.Equals(arguments[0], "load", StringComparison.OrdinalIgnoreCase) &&
             Guid.TryParse(arguments[1], out var saveId))
-            return FormatSave(_session.Load(saveId));
+        {
+            WorldChangeChoice? choice = null;
+            if (arguments.Count == 3)
+            {
+                if (!WorldChangeConsole.TryParseChoice(arguments[2], out var parsed))
+                    return Usage();
+                choice = parsed;
+            }
 
+            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, choice, SaveId: saveId));
+            if (changed.Status == WorldChangeStatus.Completed)
+            {
+                return FormatSave(new WorldSaveResult(
+                    WorldSaveStatus.Loaded,
+                    _session.SaveId,
+                    _session.DisplayName,
+                    Adaptations: changed.Adaptations));
+            }
+
+            if (changed.Status == WorldChangeStatus.CandidateFailed && changed.CandidateStatus is { } candidateStatus)
+            {
+                return FormatSave(new WorldSaveResult(
+                    candidateStatus,
+                    _session.SaveId,
+                    _session.DisplayName,
+                    changed.Diagnostic ?? WorldSaveDiagnostic.For(candidateStatus)));
+            }
+
+            return WorldChangeConsole.Format(_session, changed);
+        }
+
+        return Usage();
+    }
+
+    private string Usage()
+    {
         return string.Join('\n',
-            "Usage: voxel reset | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid>",
+            "Usage: voxel reset [discard|save|cancel] | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid> [discard|save|cancel]",
+            "voxel use <configuration-id> [discard|save|cancel]",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
             "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
@@ -123,12 +190,23 @@ public sealed class VoxelConsoleCommands
     private string FormatSave(WorldSaveResult result)
     {
         if (!result.Succeeded)
-            return string.Join("\n", $"Voxel {result.Status}.", $"Voxel count: {_session.World.VoxelCount}.");
-        return string.Join("\n",
+        {
+            var failed = new List<string> { $"Voxel {result.Status}.", $"Voxel count: {_session.World.VoxelCount}." };
+            if (result.Diagnostic is { } diagnostic)
+                failed.Insert(1, $"stage {diagnostic.Stage} subject {diagnostic.Subject} relationship {diagnostic.Relationship}");
+            return string.Join("\n", failed);
+        }
+
+        var lines = new List<string>
+        {
             $"Voxel {result.Status}.",
             $"id {result.SaveId:D}",
             $"name {result.DisplayName}",
-            $"Voxel count: {_session.World.VoxelCount}.");
+            $"Voxel count: {_session.World.VoxelCount}."
+        };
+        foreach (var adaptation in result.Adaptations ?? Array.Empty<WorldSaveAdaptation>())
+            lines.Add($"adapted {adaptation.Subject} {adaptation.Relationship}");
+        return string.Join("\n", lines);
     }
 
     private string FormatWithCount(WorldVoxelQuery query) =>

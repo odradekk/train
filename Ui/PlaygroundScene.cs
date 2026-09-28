@@ -38,6 +38,10 @@ public partial class PlaygroundScene : Node3D
     private bool _dirty = true;
     private PlaygroundSmoke? _smoke;
     private PlaygroundObservationSmoke? _observationSmoke;
+    private PlaygroundSwitchSmoke? _switchSmoke;
+    private UnsavedWorldChangePrompt? _worldChangePrompt;
+    private WorldChangeRequest? _pendingWorldChange;
+    private LineEdit? _loadId;
     private PlaygroundCapture? _capture;
     private PlaygroundObservationView? _observation;
 
@@ -69,6 +73,7 @@ public partial class PlaygroundScene : Node3D
 
         _session = session;
         _session.Changed += MarkDirty;
+        _session.WorldReplaced += DismissStaleWorldChange;
         main.SetVoxelDevelopmentSession(_session);
         _meshes.Rebuild(this, _session.Identity);
         _colliders.Rebuild(this, _session.Identity);
@@ -78,7 +83,9 @@ public partial class PlaygroundScene : Node3D
         main.SetPlaygroundObserver(_observation.Observer);
         Refresh();
 
-        if (IsSmoke() && PlaygroundObservationSmoke.Requested())
+        if (IsSmoke() && PlaygroundSwitchSmoke.Requested())
+            _switchSmoke = new PlaygroundSwitchSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
+        else if (IsSmoke() && PlaygroundObservationSmoke.Requested())
             _observationSmoke = new PlaygroundObservationSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
         else if (IsSmoke())
             _smoke = new PlaygroundSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
@@ -99,6 +106,7 @@ public partial class PlaygroundScene : Node3D
         ApplyMotionPresentation(delta);
         _smoke?.Advance();
         _observationSmoke?.Advance();
+        _switchSmoke?.Advance();
         _capture?.Advance();
     }
 
@@ -107,6 +115,7 @@ public partial class PlaygroundScene : Node3D
         if (_session is not null)
         {
             _session.Changed -= MarkDirty;
+            _session.WorldReplaced -= DismissStaleWorldChange;
             _session.Detach();
         }
 
@@ -125,6 +134,16 @@ public partial class PlaygroundScene : Node3D
     }
 
     internal void Press(string button) => _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
+
+    internal bool PromptVisible => _worldChangePrompt?.Visible == true;
+
+    internal void PressPrompt(string name) => _worldChangePrompt!.Press(name);
+
+    internal void SetLoadId(string id)
+    {
+        if (_loadId is not null)
+            _loadId.Text = id;
+    }
 
     internal void SetStepCount(ulong steps) => _stepCount.Value = steps;
 
@@ -155,7 +174,10 @@ public partial class PlaygroundScene : Node3D
         if (configuration is null)
             return PlaygroundEstablishStatus.UnknownConfiguration;
         var loaded = new VoxelDevelopmentSession(reloader.Catalog, configuration.BaseWorld, store, reloader.Composites);
+        loaded.MarkPlaygroundHost();
         var result = loaded.Load(saveId);
+        if (result.Succeeded && !loaded.SimulationPaused)
+            loaded.PauseSimulation();
         if (!result.Succeeded)
         {
             loaded.Detach();
@@ -168,6 +190,12 @@ public partial class PlaygroundScene : Node3D
     }
 
     private void MarkDirty() => _dirty = true;
+
+    private void DismissStaleWorldChange(WorldReplacement _)
+    {
+        _pendingWorldChange = null;
+        _worldChangePrompt?.Close();
+    }
 
     private void ApplyMotionPresentation(double delta = 0)
     {
@@ -191,14 +219,16 @@ public partial class PlaygroundScene : Node3D
                 $"速 {item.Speed.ToString("0.###", CultureInfo.InvariantCulture)} {AlongRailDisplay.MotionStatusText(item, session.SimulationPaused)}"));
         var rails = session.QueryRails();
         var collision = session.QueryCollision(StraightRailFixture.LeftRailSample).Status;
-        return $"步 {session.SimulationStep} · {(session.SimulationPaused ? "已暂停" : "运行中")} · 车辆 {session.QueryComposites().Count} · {motion}\n" +
+        var boundary = session.HasUnsavedChanges ? "未保存" : "已对齐保存点";
+        return $"步 {session.SimulationStep} · {(session.SimulationPaused ? "已暂停" : "运行中")} · {boundary} · 车辆 {session.QueryComposites().Count} · {motion}\n" +
                $"线路段 {rails.Segments.Count} 枕木 {rails.SleeperCount} · 世界体素 {session.World.VoxelCount} · 轨道采样碰撞 {collision}";
     }
 
     private static string SourceText(WorldSource? source) =>
         source is null
             ? "Playground · 当前世界没有固定配置来源"
-            : $"Playground · {source.ConfigurationId} v{source.ConfigurationVersion} · {source.Kind} · 参数 {source.EffectiveParameters.Count} · 内容依赖 {source.ContentDependencies.Count}";
+            : $"Playground · {source.ConfigurationId} v{source.ConfigurationVersion} · {source.Kind} · 参数 {source.EffectiveParameters.Count} · 内容依赖 {source.ContentDependencies.Count}" +
+              (source.BaseFingerprint.Length == 0 ? "" : $" · 基底 {source.BaseFingerprint[..8]}");
 
     private void AddEnvironment()
     {
@@ -250,6 +280,17 @@ public partial class PlaygroundScene : Node3D
         AddButton(controls, "start", "启动列车", () => ApplyEdit("start"));
         AddButton(controls, "stop", "停车", () => ApplyEdit("stop"));
         AddButton(controls, "save", "保存", () => SaveWorld());
+        AddButton(controls, "reset_world", "重置", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.Reset, null)));
+        AddButton(controls, "switch_world", "切换到另一配置", () => BeginWorldChange(new WorldChangeRequest(
+            WorldChangeKind.SwitchConfiguration,
+            null,
+            OtherConfigurationId())));
+        _loadId = new LineEdit { PlaceholderText = "存档 UUID", CustomMinimumSize = new Vector2(280, 0) };
+        controls.AddChild(_loadId);
+        AddButton(controls, "load_world", "读取存档", LoadFromField);
+        _worldChangePrompt = new UnsavedWorldChangePrompt();
+        _worldChangePrompt.Chosen += ConfirmWorldChange;
+        AddChild(_worldChangePrompt);
 
         var world = new HBoxContainer();
         world.AddThemeConstantOverride("separation", 6);
@@ -368,6 +409,82 @@ public partial class PlaygroundScene : Node3D
         _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}";
         return result;
     }
+
+    private string OtherConfigurationId() =>
+        _session?.WorldSource?.ConfigurationId == PlaygroundConfigurations.StraightRailEmptyId
+            ? PlaygroundConfigurations.StraightRailTrainId
+            : PlaygroundConfigurations.StraightRailEmptyId;
+
+    private void LoadFromField()
+    {
+        if (_loadId is null || !Guid.TryParse(_loadId.Text.Trim(), out var saveId))
+        {
+            _result.Text = "最近操作：读取需要有效的存档 UUID。";
+            return;
+        }
+
+        BeginWorldChange(new WorldChangeRequest(WorldChangeKind.Load, null, SaveId: saveId));
+    }
+
+    private void BeginWorldChange(WorldChangeRequest request)
+    {
+        if (_session is null)
+            return;
+        PresentWorldChange(_session.TryChangeWorld(request), request);
+    }
+
+    private void ConfirmWorldChange(WorldChangeChoice choice)
+    {
+        if (_session is null || _pendingWorldChange is not { } pending)
+            return;
+        _worldChangePrompt?.Close();
+        _pendingWorldChange = null;
+        PresentWorldChange(_session.TryChangeWorld(pending with { Choice = choice }), null);
+    }
+
+    private void PresentWorldChange(WorldChangeResult result, WorldChangeRequest? request)
+    {
+        if (result.Status == WorldChangeStatus.ChoiceRequired && request is not null)
+        {
+            _pendingWorldChange = request;
+            _worldChangePrompt?.Open(request.Kind switch
+            {
+                WorldChangeKind.SwitchConfiguration => "可以保存后切换、放弃当前更改，或取消。",
+                WorldChangeKind.Load => "可以保存后读取、放弃当前更改，或取消。",
+                _ => "可以保存后重置、放弃当前更改，或取消。"
+            });
+            _result.Text = "最近操作：有未保存变化，请选择保存后继续、放弃或取消。";
+            return;
+        }
+
+        _worldChangePrompt?.Close();
+        _pendingWorldChange = null;
+        _result.Text = result.Status switch
+        {
+            WorldChangeStatus.Completed => CompletedText(result),
+            WorldChangeStatus.Cancelled => "最近操作：已取消，当前世界未改变。",
+            WorldChangeStatus.SaveFailed => $"最近操作：保存失败 {result.SaveStatus}，切换已取消。{DiagnosticText(result.Diagnostic)}",
+            WorldChangeStatus.CandidateFailed => $"最近操作：未能替换世界 {result.CandidateStatus}。{DiagnosticText(result.Diagnostic)}",
+            _ => $"最近操作：{result.Status}。"
+        };
+        _dirty = true;
+    }
+
+    private string CompletedText(WorldChangeResult result)
+    {
+        var source = _session?.WorldSource?.ConfigurationId ?? "无来源";
+        return $"最近操作：世界已替换为 {source}，暂停。{AdaptationText(result.Adaptations)}";
+    }
+
+    private static string DiagnosticText(WorldSaveDiagnostic? diagnostic) =>
+        diagnostic is null
+            ? ""
+            : $"阶段 {diagnostic.Stage}，对象 {diagnostic.Subject}，关系 {diagnostic.Relationship}。";
+
+    private static string AdaptationText(IReadOnlyList<WorldSaveAdaptation>? adaptations) =>
+        adaptations is not { Count: > 0 }
+            ? "无适配。"
+            : "适配 " + string.Join("；", adaptations.Select(item => $"{item.Subject}/{item.Relationship}")) + "。";
 
     private static bool IsSmoke() =>
         string.Equals(System.Environment.GetEnvironmentVariable(SmokeEnvironmentVariable), "1", StringComparison.Ordinal);

@@ -547,7 +547,7 @@ public sealed class PlaygroundObservationTests
         using var observer = FocusedOnProbe(session, out var held);
         var reference = observer.Target!.Value;
 
-        new VoxelConsoleCommands(session).Execute(new[] { "reset" });
+        new VoxelConsoleCommands(session).Execute(new[] { "reset", "discard" });
 
         AssertReplacementDropped(observer, session, held, reference, PlaygroundCameraMode.Focus, WorldReplacement.Reset);
     }

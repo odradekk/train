@@ -76,7 +76,7 @@ public sealed class VoxelConsoleCommandTests
         Assert.AreEqual(512, voxelSession.World.VoxelCount);
         AssertDamageDisplay(session, beforePartial, "Damaged", "25", "durability 75", "Voxel count: 512");
 
-        dispatcher.Execute("voxel reset");
+        dispatcher.Execute("voxel reset discard");
         var beforeMulti = session.Memory.Snapshot().Count;
         dispatcher.Execute("voxel damage 4 4 4 100 5 4 4 100 6 4 4 25");
         Assert.AreEqual(510, voxelSession.World.VoxelCount);

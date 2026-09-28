@@ -669,7 +669,7 @@ internal sealed class PlaygroundObservationSmoke
     }
 
     /// <summary>
-    /// Follows vehicle 1, then replaces the whole world through the console so a different vehicle takes the same id:
+    /// Follows the manufactured vehicle, then replaces the whole world through the console so a different vehicle takes the same id:
     /// <c>composite reset bridge</c> over a followed hollow shell, and after a load of a missing save that must keep
     /// observing, <c>voxel load</c> of the hollow save over a followed bridge. Either replacement drops the old
     /// references with the camera in place. The Playground save taken first is loaded back at the end.

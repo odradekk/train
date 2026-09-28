@@ -925,10 +925,11 @@ public sealed partial class VoxelDevelopmentSession
         TransactionCount = snapshot.TransactionCount;
     }
 
-    private void AdaptAssembliesToCatalog(VoxelCatalogSnapshot? voxels)
+    private List<WorldSaveAdaptation> AdaptAssembliesToCatalog(VoxelCatalogSnapshot? voxels)
     {
+        var adaptations = new List<WorldSaveAdaptation>();
         if (voxels is null)
-            return;
+            return adaptations;
         for (var index = 0; index < _assemblies.Count; index++)
         {
             var assembly = _assemblies[index];
@@ -945,13 +946,22 @@ public sealed partial class VoxelDevelopmentSession
                     continue;
                 var speed = Math.Min(assembly.Speed, propulsion.TargetSpeed);
                 if (speed != assembly.Speed)
+                {
+                    adaptations.Add(new WorldSaveAdaptation(
+                        $"assembly:{assembly.Id.Value}",
+                        "speed",
+                        $"saved {VoxelDefinition.FormatMass(assembly.Speed)} clamped to {VoxelDefinition.FormatMass(speed)}"));
                     _assemblies[index] = assembly.WithMotion(speed, assembly.Running);
+                }
+
                 continue;
             }
 
             if (assembly.Speed > 0 && !StraightTrainMotion.TryResolveTrackContact(members, voxels, out _))
                 continue;
         }
+
+        return adaptations;
     }
 
     private TrainMotionResult RejectMotion(TrainMotionStatus status, ulong? atStep = null) =>

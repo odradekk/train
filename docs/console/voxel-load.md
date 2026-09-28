@@ -4,9 +4,12 @@
 
 ```text
 voxel load 11111111-2222-4333-8444-555555555555
+voxel load 11111111-2222-4333-8444-555555555555 discard
+voxel load 11111111-2222-4333-8444-555555555555 save
+voxel load 11111111-2222-4333-8444-555555555555 cancel
 ```
 
-参数：一个必填 UUID，必须能被 `Guid` 解析（推荐 `D` 格式）。非法 UUID 文本返回用法提示，不读取文件，也不改会话。
+参数：一个必填 UUID，必须能被 `Guid` 解析（推荐 `D` 格式）。非法 UUID 文本返回用法提示，不读取文件，也不改会话。可选 `discard` / `save` / `cancel` 与 [`voxel reset`](voxel-reset.md) 相同：有未保存变化时必须做出选择，`cancel` 和失败的保存都不读取。
 
 加载使用**当前**已发布目录，而不是存档里记住的整份定义。请求路径中的 UUID 必须与文件根字段 `id` 一致，否则在替换世界或会话身份之前返回 `MismatchedId`。先按当前 Seed / 生成器 / 边界完整构造并校验候选世界、车辆、铁路、编组和命令队列，再整体替换会话。写出格式为 `5`；读取接受 `2`–`5`。格式 `2` 缺铁路字段视为空铁路，以保留本构建前三切片存档；格式 `2` / `3` 没有世界修改命令队列，恢复为空队列。格式 `3` / `4` 必须带旧列车队列字段 `scheduled_commands` / `scheduled_sequence`（缺失为 `Truncated`），但只接受空的旧队列：旧命令没有修改编号与边界位置，无法放进统一的输入全序，非空时整次返回 `UnsupportedRailway`，不猜测顺序也不部分加载；旧 `scheduled_sequence` 大于 `transaction_count` 仍是 `InvalidDelta`。格式 `5` 出现这两个旧字段返回 `UnknownFormat`；格式 `2`–`4` 的 `world_edits` 中出现铁路、编组或起停修改同样返回 `UnknownFormat`。格式 `1` 或未知版本返回 `UnknownFormat`，没有开发期旧档迁移。不从 Blueprint 重造编组，不从 Mesh 或派生图反推轨段，也不在 Load 后改内存冒充恢复。
 
@@ -16,7 +19,9 @@ voxel load 11111111-2222-4333-8444-555555555555
 
 格式 4 / 5 的 `world_edits` 恢复下一个命令编号、边界步内序号和待执行世界修改命令（格式 5 含铁路施工 / 修复、编组与列车起停）；它们在原目标步、按原顺序执行一次，新进程得到与原进程相同的结果。保存前已被摧毁的目标（含已消失的编组、全毁轨段）不是坏档，到期时按业务规则执行或拒绝。引用从未分配的实体 ID（含编组身份）、队列中出现 `content.publish`、目标步不晚于存档步、编号越出 `[1, next_edit_id)`、编号或接受位置不递增、接受位置晚于存档边界，返回 `InvalidDelta`；未知命令类型、改装操作或输入格式版本返回 `UnknownFormat`；格式 4 / 5 缺该字段返回 `Truncated`，格式 2 / 3 出现该字段返回 `UnknownFormat`。读档后执行日志从空开始。详见 [`voxel edits`](voxel-edits.md)。
 
-存档带 `world_source`（Playground 固定配置来源）时，会话恢复该来源信息，并在恢复后处于暂停状态；速度、运行开关、停车原因和待执行命令都按存档原值保留，用 [`rail step`](rail-step.md) 或 [`rail resume`](rail-resume.md) 继续。来源信息只作记录，加载仍按当前有效定义构造世界。没有 `world_source` 的存档加载后不暂停，与之前一致。来源类型不是 `fixed_configuration` 时返回 `UnknownSource`。
+存档带 `world_source`（Playground 固定配置来源）时，会话恢复该来源信息，并在恢复后处于暂停状态；速度、运行开关、停车原因和待执行命令都按存档原值保留，用 [`rail step`](rail-step.md) 或 [`rail resume`](rail-resume.md) 继续。来源信息只作记录，加载仍按当前有效定义构造世界。带 `world_source` 时必须有 `base_fingerprint`。先按当前有效内容重新建立该固定配置并比对指纹：没有指纹、配置不存在、版本或有效参数对不上、文档 Seed / 生成器版本与来源参数不一致、依赖没有列全，或重建结果与指纹不一致，都返回失败并给出阶段、对象和关系（例如 `base` / 配置 ID / `base_fingerprint`，或 `dependency` / 依赖 ID / `content_dependency`），当前会话保持不变。必要依赖缺失返回 `MissingDefinition`。依赖的 Semantic Revision 变了但重建指纹仍一致时，加载成功并报告适配，不把外部 Blueprint 的新布局套到已有实例上。带固定来源却没有 `base_fingerprint` 的旧档明确不支持，不会退回只校验体素 `base_layout`。没有 `world_source` 的切片会话读档仍不因此暂停。是否暂停由会话是不是 Playground 宿主决定，不由当前来源是否为空推断。同一 Playground 会话里，每次成功的本命令都暂停，包括第一次读入没有来源的存档之后再读一次；速度、运行开关、停车原因和待执行命令按存档保留。直接调用会话 `Load()` 的切片入口不套用这道暂停。来源类型不是 `fixed_configuration` 时返回 `UnknownSource`。
+
+失败结果在 `Voxel <状态>.` 之后可以带一行 `stage` / `subject` / `relationship`。耐久或速度被当前内容夹紧时，成功结果另起一行 `adapted`，并且该会话视为未保存，因为内存中的持久值已经和文件不同。只报告修订或布局保留时不因此变成未保存。合法停车不是 `SimulationFaulted`，也不会被自动修复或吸附。引用从未分配的实体仍是 `InvalidDelta`，关系为 `entity_id`，当前会话不变。
 
 在 Playground 中加载成功后，观察的旧选择与聚焦/跟随目标一律清除（存档中同 ID 的车辆或同一格也视为新对象），镜头原位转为自由观察，并提示 `world-replaced load`（见 [observe](observe.md)）；加载失败时世界与观察状态都不变。
 
