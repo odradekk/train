@@ -125,6 +125,7 @@ WorldSeed
 - 手工 Layout 首版允许 0°、90°、180°、270°；不默认允许 Mirror、Arbitrary Rotation、Scale（转录 Q94）。
 - Layout 拥有 Site Constraints：footprint、最大高度差、biome 或 tag 要求、forbidden terrain。
 - 生成器允许有限、确定性的 Site Preparation：清理装饰、小范围填土、小范围挖平；超过约束则拒绝 Candidate。
+- 世界编辑器中的 Layout 编排、从实际对象提取及手工原子放置遵守 [02 的内容创作流程](02-definitions-and-content.md#蓝图与-layout-创作)。生成配置显式选择候选 Layout；发布新模板不自动改变候选集或已有世界，模板合法也不代替标准铁路地图的联合验证。
 
 ### 静态建筑占格与净空
 

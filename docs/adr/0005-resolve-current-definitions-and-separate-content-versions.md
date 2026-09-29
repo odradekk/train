@@ -6,4 +6,14 @@ Definitions remain immutable snapshots. A successful content publication replace
 
 Semantic Revision is SHA-256 over canonical, validated gameplay data, including the definition kind, ID and encoding version. References include target IDs, not target revisions: changing an engine's power does not change a saved vehicle layout's own revision. Display text, presentation configuration and asset files are excluded. Asset Revision is SHA-256 over one asset file's bytes. Catalog Generation is a runtime publication counter that advances only when effective content changes, including display metadata and asset bindings; it is not a persistent identity.
 
-Saves embed player-defined content and its required save-local definitions, while external references store IDs and last-used revisions for change detection, not external definition copies. Saves reside at `user://saves/<save-uuid>/save.json`; Blueprint files use `user://blueprints/<blueprint-uuid>.composites.json`. Display names live in the files, so renaming does not change identity. See [02](../design/02-definitions-and-content.md) for hash inputs and [09](../design/09-persistence.md) for loading rules. Deterministic save/resume equivalence assumes the same effective semantic content; installing changed mod values intentionally changes simulation inputs.
+Saves embed player-defined content and its required save-local definitions, while external references store IDs and last-used revisions for change detection, not external definition copies. Saves reside at `user://saves/<save-uuid>/save.json`; the original Blueprint files used `user://blueprints/<blueprint-uuid>.composites.json`, superseded as the authoring target by the revision below. Display names live in the files, so renaming does not change identity. See [02](../design/02-definitions-and-content.md) for hash inputs and [09](../design/09-persistence.md) for loading rules. Deterministic save/resume equivalence assumes the same effective semantic content; installing changed mod values intentionally changes simulation inputs.
+
+## 世界编辑器内容创作修订
+
+2026-09-30，[内容创作决策](https://github.com/odradekk/train/issues/141)确认以 `user://content-library/` 容纳已发布的蓝图、Layout 和体素定义，以 `user://authoring-drafts/` 单独保存未发布草稿；旧蓝图库的读取／迁移保留原文件与身份，具体安排须进入实施票。存档内三类已发布内容及必要依赖继续内嵌普通存档，草稿不混入有效内容。
+
+显式复制内容时分配新身份，必要的存档内依赖整批复制并改写副本引用；来源及其既有引用保持不变。用户主动制作的副本不等于普通保存或恢复自动嵌入旧外部定义：未复制的内置、Mod 及用户库依赖仍按原 ID 解析当前内容，缺失仍失败，不建立旧定义兜底。
+
+内容身份与存档文件身份分离。普通世界存档另存为／导入保持内嵌定义标识及引用，按各存档隔离解析，不因新存档 UUID 而重编内容或将另一副本的定义发布到当前世界；新建或独立复制内容的身份分配规则见 ADR-0001。
+
+不可变快照、语义／资产版本分离、当前外部定义适配、保留实例身份与实际状态等原则不变。模板更新不重建已有布局或建筑修复目标；发布须展示影响并在完整边界重新校验。存档内发布标记世界未保存；用户库持久写入和当前会话必要适配按一次发布处理，正常失败保留原内容与世界。此修订描述目标行为，不宣称当前保存格式及加载器已经支持全部创作能力。

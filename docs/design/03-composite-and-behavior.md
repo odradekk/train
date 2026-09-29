@@ -40,7 +40,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 - 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局。建筑与车辆复用制造事务入口及通用占用、连通校验，各自采用 Archetype 专属合法性规则。聚居地层面主要放置预置建筑；正式成本派生见 [14](14-construction-refit-and-deconstruction.md)，本阶段不实现建筑材料成本。
 - 设计器允许保存非法 Draft：Draft → validate → Valid Definition → Instantiate。只有合法 Definition 可以制造。
-- 首版用手写 JSON 提供车辆 Blueprint，由测试场景加载、校验并生成车辆，验证正式的设计与制造流程；正式设计器留到后续版本。
+- 早期切片使用手写 JSON 与测试场景验证 Blueprint 的加载、校验和制造。本轮由世界编辑器提供独立的车辆／建筑蓝图创作视图，草稿保存、来源复制、发布与实例提取按 [02 的内容创作流程](02-definitions-and-content.md#世界编辑器内容创作流程)分片交付；不把编辑器设计工具继续视为范围外。
 - 每个车头或车厢声明 [06](06-railway.md) 的五档尺寸之一；可以不填满固定包络，但所有实体体素与附加模块均不得越界，也不能自动升档。制造与改装同时检查机械约束，尺寸合法不等于可任意布置接触点。尺寸为可进入的内部空间留出余量，角色通行与正式内部设计玩法尚未验证。
 
 ### Refit
@@ -156,11 +156,11 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 
 ## 首版范围
 
-CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础；手写 JSON Blueprint 的加载、校验与制造，以及上述完整改装测试操作（roadmap Phase 3）。
+CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础；Blueprint 的加载、校验与制造，以及上述完整改装操作。世界编辑器的车辆／建筑蓝图创作纳入本轮规划，交付次序和保存发布边界见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)。
 
 ## 明确延后
 
-正式车辆设计器、事故碰撞等伤害玩法触发源、Faction 的设计与实现；复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。
+正式游戏受玩法约束的车辆设计流程、事故碰撞等伤害玩法触发源、Faction 的设计与实现；复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。世界编辑器内的蓝图创作不在此延后范围。
 
 ## 开放问题
 
