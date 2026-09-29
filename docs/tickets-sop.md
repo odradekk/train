@@ -4,6 +4,8 @@ Use this procedure for dispatch, implementation delivery, acceptance, revision, 
 
 Dispatch implementation work through **Paseo**. The coordinator uses the `paseo` skill and the available Paseo MCP tools; the Paseo CLI is an alternative interface to the same workflow. If Paseo is unavailable, report the dispatch blocker instead of silently switching to another agent launcher or worktree manager.
 
+For Godot scene, resource, editor, or runtime work, use the project's **Godot MCP** for supported interactive operations under [Godot MCP validation](#godot-mcp-validation). Use the maintained `odradekk/godot-mcp` fork; configuration and version updates follow [godot-mcp.md](godot-mcp.md).
+
 The Issue comments are the durable record of dispatch, implementation, and acceptance. The PR contains the code to review. A Paseo message, completion notification, or workspace title is not a substitute for either.
 
 ## Roles and authority
@@ -12,7 +14,7 @@ The Issue comments are the durable record of dispatch, implementation, and accep
 - **Implementation agent**: works in its assigned independent worktree, validates and commits its changes, pushes its task branch, opens or updates the PR, and reports in the Issue comments.
 - **User**: gives final approval for the specific reviewed PR revision and proposed version change. Only then may the coordinator merge the PR, reclaim the worktree, close the Issue, and update the version.
 
-A dispatch under this SOP authorizes the implementation agent's task-branch push, PR creation/update, and Issue completion/revision comments. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
+A dispatch under this SOP authorizes the implementation agent's task-branch push, PR creation/update, and Issue completion/revision comments. It also authorizes reporting Godot MCP bugs and required features in `odradekk/godot-mcp` as described under [Godot MCP validation](#godot-mcp-validation), without a separate confirmation. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
 
 ## 0. Prepare an independent worktree — coordinator
 
@@ -32,6 +34,7 @@ Prepare it through Paseo:
 2. Read `list_profiles`, including profile notes. Honor the user's provider and model choices and select an applicable profile. If no profile fits, use `list_providers`, `list_models`, and `inspect_provider` to choose supported settings and report the selection. This SOP does not prescribe a particular model. Record the actual provider, model, mode, and thinking settings used.
 3. Use `create_workspace` with `isolation: "worktree"`, `mode: "branch-off"`, the verified project/source checkout, a task branch name, and an explicit `baseBranch` resolving to the repository's default base, normally `origin/<default-branch>`. Copy the returned `workspaceId` and absolute `cwd`; verify the actual branch and baseline SHA in that checkout.
 4. Inspect configured setup scripts with `list_workspace_scripts` and run applicable ones with `start_workspace_script`. Run any remaining repository setup and validation checks in the returned checkout. Wait for setup to succeed before sending implementation work; workspace creation alone does not prove setup passed.
+5. For Godot work, verify that the selected baseline includes the selected client's project MCP configuration and that its pinned fork revision and `GODOT_PATH` match [godot-mcp.md](godot-mcp.md). Check Node.js, npm, Git, and the Godot executable in the worktree environment. Include the worker's MCP connection check and any known setup gap in the brief; the coordinator's own connection does not prove that a newly launched worker can access it.
 
 **Complete when:** one valid Issue has one Paseo workspace owning an independent worktree, a self-contained baseline, successful setup, and a verified agent launch configuration.
 
@@ -47,6 +50,8 @@ For an existing worker, first verify its `agentId`, workspace, and current task.
 
 Confirm that the agent received the intended brief and actually started task work, using its acknowledgement and task-specific activity from `get_agent_activity`. A successful create/send response or `running` status alone is insufficient. Keep this check bounded; if startup fails or remains unconfirmed, report that state and inspect the existing session rather than sending a duplicate brief.
 
+For Godot work, the worker checks MCP access in its own session before the first Godot operation. Record the result, or the explicit CLI fallback and reason, with the startup evidence under [Godot MCP validation](#godot-mcp-validation).
+
 Record the Issue, `workspaceId`, `agentId`, absolute worktree path, task branch, baseline SHA, PR base, launch settings, and startup evidence in a dispatch comment on the Issue. Report the handoff to the user. These identifiers are needed for revisions and recovery; a terminal ID is supplementary when a setup terminal is involved.
 
 After startup is confirmed, stop monitoring by default. Use Paseo completion/error/permission notifications instead of continuous status polling. A notification does not constitute technical acceptance or user approval; resume acceptance when the user requests it or an already authorized review workflow applies.
@@ -56,7 +61,7 @@ After startup is confirmed, stop monitoring by default. Use Paseo completion/err
 ## 2. Implement and deliver a PR — implementation agent
 
 1. Read the Issue body and comments, `AGENTS.md`, and relevant domain docs/ADRs.
-2. Implement only the assigned scope, add observable regression coverage, run required tests/build/integration checks, and review the diff.
+2. Implement only the assigned scope, add observable regression coverage, run required tests/build/integration checks, and review the diff. For Godot changes, follow [Godot MCP validation](#godot-mcp-validation) and include its applicable evidence in the completion brief.
 3. Commit intended changes with Conventional Commit messages. Push the task branch to the agreed repository and open a PR against the agreed base. For a revision, add commits to the same branch and update the same PR.
 4. Reference the Issue with a normal link or `Refs #<issue>`. Avoid closing keywords in PR descriptions and commits so the coordinator can close the Issue after worktree cleanup.
 5. Add an Issue comment with the completion brief below. The PR head SHA must identify the exact code tested.
@@ -79,6 +84,10 @@ Work only in this worktree; preserve unrelated changes and keep archive/mvp read
 Read the full Issue body/comments, AGENTS.md, and relevant domain docs/ADRs.
 Implement only #<issue>; exclude <adjacent-scope>.
 Required validation: <tests, build, real integration checks, verified tool paths>.
+Godot MCP: <applicable work and pinned fork revision, or not applicable>.
+For Godot work, read docs/godot-mcp.md and follow the Godot MCP validation
+section of docs/tickets-sop.md. Verify access in your own session and use your
+assigned worktree's absolute projectPath. Record any CLI fallback and reason.
 Review the diff and commit intended changes with Conventional Commit messages.
 
 You are authorized to push this task branch, create/update its PR against the
@@ -100,12 +109,15 @@ cleanup, and Issue closure to the coordinator after explicit user approval.
 - PR URL, base branch, and tested head SHA.
 - What changed and which Acceptance criteria it covers.
 - Exact validation commands, host OS and tool versions where relevant, results, and anything not run. For Windows builds, include the export path and report export and Windows runtime validation separately.
+- For Godot MCP validation: fork commit, actual project/worktree path, tool calls and relevant arguments, observed results, retained log/artifact paths, and any fallback or unverified coverage. Tie the evidence to the tested game head SHA; list manual visual checks separately.
 - Reproduction steps or example content needed to verify the behavior.
 - Remaining risks/blockers, or an explicit statement that none are known.
 
 ## 3. Review and return findings — coordinator / reviewer
 
 Read the Issue completion brief and all subsequent discussion, then inspect the PR's actual base/head and full relevant diff. Use `code-review` for Standards and Spec review; verify agent claims against code and independently run risk-appropriate checks. Reuse prior evidence only when it still applies to the reviewed revision.
+
+For MCP-assisted changes, inspect the saved scene/resource diff and runtime evidence, not just tool success messages. Apply the same required test, real Godot, cross-process, export, and user visual-acceptance gates as the Issue specifies; an MCP launch or log capture only proves the behavior it actually exercised.
 
 If review fails:
 
@@ -142,6 +154,8 @@ Proceed only after the user has reviewed the acceptance result and explicitly ap
 
 If merge fails, retain the worktree and Issue. If cleanup fails after merge, report that state and keep the Issue open until cleanup is resolved; do not rerun the merge or discard unpreserved work.
 
+Before archiving a worktree, retain required MCP logs and generated validation artifacts outside it, including evidence under ignored `.godot/validation/`, and record the retained location. Close only the task-owned Godot processes and editor windows; preserve unrelated sessions.
+
 **Complete when:** the approved PR is remotely merged, the worktree is reclaimed without losing work, and the Issue is confirmed closed with its acceptance record intact.
 
 ## 6. Update the version — coordinator
@@ -170,6 +184,19 @@ Apply one increase per completed task, not per implementation commit, repair rou
 ## Local validation and Windows builds
 
 Run commands from the checkout under test. The current development host is Windows; the export target is `Windows Desktop` in `export_presets.cfg`.
+
+### Godot MCP validation
+
+Apply this sequence to Godot scene/resource edits, editor checks, and runtime diagnosis. Documentation-only or pure domain tasks do not need an MCP run unless their Acceptance criteria require Godot behavior.
+
+1. **Check the worker's connection.** Follow [godot-mcp.md](godot-mcp.md) for the client's project configuration, pinned fork, prerequisites, trust/approval, and known limitations. In the actual agent session, call `get_godot_version`, then `get_project_info` with the assigned worktree's absolute `projectPath`; verify the returned engine and path. Record the configured Git commit rather than relying on the server's reported package version. Restart the MCP session after changing its configuration. Keep registration project-scoped.
+2. **Prepare the project.** Build C# code and import resources through the existing CLI workflow before runtime checks. Import newly added assets/scripts before UID operations. MCP does not build the .NET project or replace the repository's required test and smoke scripts.
+3. **Use the relevant tools.** Use project/UID queries for inspection; use scene creation, node/property edits, texture loading, scene saving, or mesh export only within the task's authorized scope. Inspect the resulting files and reload affected resources to verify the requested values. Use an isolated disposable project for testing the MCP itself. For runtime checks, call `run_project`, then `get_debug_output`; confirm the expected application-ready/behavior markers, errors, and running or exit status. A start acknowledgement alone is not a pass. Use `launch_editor` when editor interaction is needed and record what was actually observed.
+4. **Preserve evidence and stop owned processes.** Save the relevant tool inputs, output/error logs, exit status, and artifact checks in the task's validation directory before starting another run or ending the session. A server instance tracks one current run; starting another can replace it. Keep concurrent tasks on separate instances, and do not start/stop through an instance controlling another task. Use `stop_project` for a task-owned game and verify termination. Editor windows opened by `launch_editor` require separate closure; identify them by the task project before closing. MCP output is not evidence of visual quality or user acceptance.
+5. **Handle unavailable or insufficient tools.** Report connection, approval, platform, or tool failures and use the existing Godot CLI/scripts for checks they can equivalently perform. Record the fallback and actual results; keep uncovered Acceptance criteria unverified and report the remaining blocker. Do not replace the configured fork with another package or add a global registration to work around a failure. Reuse valid evidence and rerun only affected checks unless new failures justify broader validation.
+6. **Report MCP bugs and required features.** When use reveals a Godot MCP defect or a missing capability needed for the task, file an Issue directly in [odradekk/godot-mcp](https://github.com/odradekk/godot-mcp/issues). Search existing Issues first; add new evidence to a matching Issue instead of duplicating it. Bug reports include the fork commit, client/OS/Godot versions, minimal tool calls and inputs, expected versus actual behavior, and relevant redacted logs. Feature requests explain the concrete task, current limitation or workaround, and desired behavior. Link the MCP Issue in the current Train task's comments and completion brief, stating its impact and any fallback. If posting fails, retain the report and state the publishing blocker; do not claim it was filed. Filing an Issue does not itself authorize implementing changes in the MCP repository.
+
+**Complete when:** the applicable behavior has verified artifact/runtime evidence bound to the worktree and game head, required repository checks are accounted for, logs are retained, and task-owned processes are closed. Any remaining manual or unsupported check is explicitly pending.
 
 ### Windows development and validation
 
