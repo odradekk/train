@@ -12,7 +12,7 @@
 
 ## 使用
 
-当前配置针对仓库的 Windows 开发环境，需要 PATH 中有 Node.js 18+、npm 和 Git。`cmd.exe /d /c` 用来运行 Windows 的 `npx` 启动器。`GODOT_PATH` 显式指向本机 Godot 4.7.2 .NET 的 console 可执行文件，与 [本地验证约定](tickets-sop.md#local-validation-and-windows-builds) 一致。更换 Godot 安装位置时，同步修改三个配置的 `GODOT_PATH`。
+当前配置针对仓库的 Windows 开发环境，需要 PATH 中有 Node.js 18+、npm 和 Git。`cmd.exe /d /c` 用来运行 Windows 的 `npx` 启动器。`GODOT_PATH` 显式指向本机 Godot 4.7.2 .NET 的 console 可执行文件，与 [本地验证约定](implement-sop.md#local-validation-and-windows-builds) 一致。更换 Godot 安装位置时，同步修改三个配置的 `GODOT_PATH`。
 
 1. 在该仓库或包含这些配置的工作树中打开客户端，重新启动会话以加载配置。
 2. Codex 需要信任项目才加载 `.codex/config.toml`；Claude Code 交互模式首次使用会要求批准项目 MCP；Cursor 如提示批准或启用 `godot`，按客户端提示操作。这些配置不自动放开工具权限。

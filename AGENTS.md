@@ -21,7 +21,7 @@ Current version: `0.0.34`.
 
 - 当前开发环境为 Windows，验证脚本使用 PowerShell 7（`pwsh`）。在项目目录执行 `dotnet --version`，确认使用 `global.json` 锁定的 SDK。
 - 本机 Godot .NET 位于 `D:\Godot_v4.7.2-stable_mono_win64\`。`GODOT` 环境变量应指向其中的 `Godot_v4.7.2-stable_mono_win64_console.exe`，不包含参数；无界面检查使用 `& $env:GODOT --headless`。
-- 配置新终端、运行验证或导出 Windows 构建前，阅读 [Local validation and Windows builds](docs/tickets-sop.md#local-validation-and-windows-builds)。
+- 配置新终端、运行验证或导出 Windows 构建前，阅读 [Local validation and Windows builds](docs/implement-sop.md#local-validation-and-windows-builds)。
 
 ## Agent skills
 
@@ -39,7 +39,8 @@ Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository 
 
 ### Issue task workflow
 
-For Issue dispatch, PR delivery, review and revision, Acceptance-criteria verification, or user-approved merge, cleanup, closure, and version updates, follow `docs/tickets-sop.md`.
+- For task dispatch, coordinator review, Acceptance-criteria verification, or user-approved merge, cleanup, closure and version updates, follow [Dispatch SOP](docs/dispatch-sop.md).
+- For task implementation, test authoring/execution, PR delivery and review revisions, follow [Implementation SOP](docs/implement-sop.md). Testing policy lives there; the dispatcher references it when selecting required validation.
 
 ### Console command documentation
 
