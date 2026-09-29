@@ -9,6 +9,7 @@
 | [Three.js 三维铁路](rail-3d.prototype.html) | 早期简单体素三维观感 | `b7a8391`；[铁路几何决策](https://github.com/odradekk/train/issues/32) |
 | [Playground 流程](playground-workflow.prototype.html) | 选择、聚焦/跟随、暂停、故障与保存切换的交互讨论 | `9876889`；[流程决议](https://github.com/odradekk/train/issues/96#issuecomment-5778442326) |
 | [三维铁路机械](rail-mechanics-108.prototype.html)及[测量数据](rail-mechanics-108.measurements.json) | 连续弯坡、混编与首批机械参数的有界实验 | `2f0698a`；[参数决议](https://github.com/odradekk/train/issues/108#issuecomment-5793791612) |
+| [世界编辑器交互](world-editor-interaction.prototype.html) | 分层选择、操作预览、原子拒绝、有限撤销和铁路/运行计划流程；三轮流程获用户确认 | 随本轮规格原样归档；[交互决议](https://github.com/odradekk/train/issues/140#issuecomment-5894620802) |
 
 原型分支的原始提交历史已合入主分支；旧提交地址仍可用于核对当时资料。早期参数、示例地图、模拟故障、离散采样及原型操作认可，不得代替现行契约要求的正式连续安全、真实体素占格、保存恢复、Godot 集成及目标实机验收。
 
