@@ -1135,6 +1135,9 @@ function Publish-Run {
         Add-Map $Environment "overrideCfgPresent" ([bool] $overrideCfg.Present) | Out-Null
         Add-Map $Environment "overrideCfgSha256" ([string] $overrideCfg.Sha256) | Out-Null
     }
+    if (-not $Environment.ContainsKey("engineIsolation")) {
+        Add-Map $Environment "engineIsolation" "per-check-appdata" | Out-Null
+    }
     if ($null -eq $Selection) { $Selection = New-RequestedSelection $Parsed }
     if ($null -eq $Checks) { $Checks = New-List }
     if ($null -eq $Groups) { $Groups = New-List }
