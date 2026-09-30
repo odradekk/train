@@ -188,7 +188,7 @@
 
 自动化和 Godot MCP 是正式能力的使用者，不另建世界修改路径。日常验证沿用统一测试入口；MCP 用于项目／引擎检查、启动、日志获取及必要交互观察，具体操作经过任务所需的正式命令或调试接口，不能直接改节点位置或内存来冒充领域操作。截图、日志及启动成功分别只证明实际观察范围。
 
-工具不足时按 [Godot MCP 验证 SOP](../implement-sop.md#godot-mcp-validation)使用可等效的脚本，未覆盖项保持未验证。MCP 缺陷或必要功能请求按同一 SOP 提交到自维护的 [odradekk/godot-mcp](https://github.com/odradekk/godot-mcp/issues)，不在本设计中维护平行工具流程。
+工具不足时按 [Godot MCP 验证 SOP](../implement-sop.md#godot-mcp-validation)使用可等效的脚本，未覆盖项保持未验证。
 
 #### 性能概况与详细采样
 

@@ -6,7 +6,7 @@ Dispatch implementation work through **Paseo**. Use the `paseo` skill and availa
 
 Issue comments are the durable record of dispatch, implementation and acceptance; the PR contains the code to review. Agent notifications and workspace titles do not replace either.
 
-When the coordinator performs Godot scene, resource, editor or runtime work, including independent review checks, follow [Godot MCP validation](implement-sop.md#godot-mcp-validation). Its MCP use, fallback, evidence, process-ownership and bug-reporting rules apply to the coordinator as well as the implementation agent.
+When the coordinator performs Godot scene, resource, editor or runtime work, including independent review checks, follow [Godot MCP validation](implement-sop.md#godot-mcp-validation). Its MCP use, fallback, evidence and process-ownership rules apply to the coordinator as well as the implementation agent.
 
 ## Roles and authority
 
@@ -14,7 +14,7 @@ When the coordinator performs Godot scene, resource, editor or runtime work, inc
 - **Implementation agent**: works in its assigned independent worktree, validates and commits its changes, pushes its task branch, opens or updates the PR, and reports in the Issue comments.
 - **User**: gives final approval for the specific reviewed PR revision and proposed version change. Only then may the coordinator merge the PR, reclaim the worktree, close the Issue, and update the version.
 
-A dispatch under this SOP authorizes the implementation agent's task-branch push, PR creation/update, and Issue completion/revision comments. It also authorizes reporting Godot MCP bugs and required features in `odradekk/godot-mcp` as described under [Godot MCP validation](implement-sop.md#godot-mcp-validation), without a separate confirmation. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
+A dispatch under this SOP authorizes the implementation agent's task-branch push, PR creation/update, and Issue completion/revision comments. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
 
 ## 0. Prepare an independent worktree — coordinator
 
@@ -34,7 +34,7 @@ Prepare it through Paseo:
 2. Read `list_profiles`, including profile notes. Honor the user's provider and model choices and select an applicable profile. If no profile fits, use `list_providers`, `list_models`, and `inspect_provider` to choose supported settings and report the selection. This SOP does not prescribe a particular model. Record the actual provider, model, mode, and thinking settings used.
 3. Use `create_workspace` with `isolation: "worktree"`, `mode: "branch-off"`, the verified project/source checkout, a task branch name, and an explicit `baseBranch` resolving to the repository's default base, normally `origin/<default-branch>`. Copy the returned `workspaceId` and absolute `cwd`; verify the actual branch and baseline SHA in that checkout.
 4. Inspect configured setup scripts with `list_workspace_scripts` and run applicable ones with `start_workspace_script`. Run any remaining repository setup and validation checks in the returned checkout. Wait for setup to succeed before sending implementation work; workspace creation alone does not prove setup passed.
-5. For Godot work, verify that the selected baseline includes the selected client's project MCP configuration and that its pinned fork revision and `GODOT_PATH` match [godot-mcp.md](godot-mcp.md). Check Node.js, npm, Git, and the Godot executable in the worktree environment. Include the worker's MCP connection check and any known setup gap in the brief; the coordinator's own connection does not prove that a newly launched worker can access it.
+5. For Godot work, verify that the selected baseline contains `addons/godot_mcp/`, enables the plugin in `project.godot`, and has the selected client's project MCP configuration as described in [godot-mcp.md](godot-mcp.md). Check the Godot executable in the worktree environment. The MCP port is fixed, so only one worktree can use it at a time: confirm no other task's editor holds it, then start the worktree's MCP editor before launching the worker, because the worker's client connects at session start. This editor is task-owned. Include the worker's MCP connection check and any known setup gap in the brief; the coordinator's own connection does not prove that a newly launched worker can access it.
 
 **Complete when:** one valid Issue has one Paseo workspace owning an independent worktree, a self-contained baseline, successful setup, and a verified agent launch configuration.
 
@@ -72,10 +72,10 @@ and relevant domain docs/ADRs.
 Implement only #<issue>; exclude <adjacent-scope>.
 Required validation: <risk-based selection of tests/build/integration checks,
 Acceptance-criteria coverage, verified tool paths; see Testing standard>.
-Godot MCP: <applicable work and pinned fork revision, or not applicable>.
+Godot MCP: <applicable work and whether the worktree's MCP editor is running, or not applicable>.
 For Godot work, read docs/godot-mcp.md and follow the Godot MCP validation
-section of docs/implement-sop.md. Verify access in your own session and use your
-assigned worktree's absolute projectPath. Record any CLI fallback and reason.
+section of docs/implement-sop.md. Verify access in your own session and check
+that get_project_info returns your assigned worktree. Record any CLI fallback and reason.
 Review the diff and commit intended changes with Conventional Commit messages.
 
 You are authorized to push this task branch, create/update its PR against the
