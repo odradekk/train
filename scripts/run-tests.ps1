@@ -19,7 +19,7 @@ $OutputEncoding = $script:Utf8
 
 $script:RawArgs = @($args)
 $script:Root = Split-Path -Parent $PSScriptRoot
-$script:ReaderPath = Join-Path $PSScriptRoot "TestMetadataReader.cs"
+$script:ReaderPath = Join-Path $PSScriptRoot "metadata-reader/TestMetadataReader.cs"
 $script:CancelRequested = $false
 $script:TestHostPath = ""
 $script:OwnedPid = 0
@@ -33,9 +33,8 @@ $script:RepoCatalog = $null
 $script:ExternalCatalog = $null
 $script:RunnerCatalogMode = "none"
 $script:MigrationFeedback = ""
-$script:EngineUserDataOverride = ""
-$script:EngineUserDataName = ""
-$script:EngineUserDataPath = ""
+$script:RunChecks = $null
+$script:CleanupFailed = $false
 
 function Protect-StandardHandles {
     if (-not $IsWindows) { return }
@@ -136,6 +135,15 @@ function Get-HelpText {
   pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
   pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.authority-checkpoint
       显式选择后执行。同维度多个取值取并集，类别与范围取交集，同一用例只保留一次。
+      -Correctness 包含已登记的 Godot 检查，因此需要 GODOT，并会构建 Train.csproj 再导入。
+
+  -RunnerCatalog <路径|none>
+      默认读取 scripts/runner-catalog.json。none 只跑 MSTest。
+      路径替换本次可运行的外部检查。清单仍来自仓库里的目录文件。
+
+  -PrepTimeoutSeconds <秒>
+      游戏构建和 Godot 导入的卡住上限，默认 300。
+      检查超时仍由 -TimeoutSeconds 或目录中的值决定。
 
 标记
   用例从已构建程序集的 TestCategory 读取：family:unit、family:headless、scope:<稳定功能范围>、
@@ -157,6 +165,7 @@ function Get-HelpText {
   gap: CI is not registered (#160).
   pending: benchmark, long, manual, and platform are not empty groups that pass.
   manual: inventoried manual entries are not automated passes.
+  isolation: each Godot process gets its own APPDATA inside this run directory. The entry does not write override.cfg. Killing the run leaves no user-data redirect. An existing project override.cfg is left untouched.
 
 结果
   每次执行写入新的 TestResults/run-tests/<id>/summary.json、report.md，并保留原始 TRX、Godot 日志与检查点。
@@ -181,6 +190,7 @@ function Parse-RunArgs {
         Project = "Train.Tests/Train.Tests.csproj"
         Configuration = "Debug"
         TimeoutSeconds = 0
+        PrepTimeoutSeconds = 0
         ResultsRoot = ""
         TestHostPath = ""
         DotnetPath = "dotnet"
@@ -197,6 +207,7 @@ function Parse-RunArgs {
         "-Project" = "Project"
         "-Configuration" = "Configuration"
         "-TimeoutSeconds" = "TimeoutSeconds"
+        "-PrepTimeoutSeconds" = "PrepTimeoutSeconds"
         "-ResultsRoot" = "ResultsRoot"
         "-TestHostPath" = "TestHostPath"
         "-DotnetPath" = "DotnetPath"
@@ -241,7 +252,7 @@ function Parse-RunArgs {
                 continue
             }
             $value = [string] $Raw[++$i]
-            if ([string]::IsNullOrWhiteSpace($value) -or ($token -ne "-TimeoutSeconds" -and $value.StartsWith("-"))) {
+            if ([string]::IsNullOrWhiteSpace($value) -or (($token -ne "-TimeoutSeconds" -and $token -ne "-PrepTimeoutSeconds") -and $value.StartsWith("-"))) {
                 $parsed.Error = "error: invalid-argument $token missing value"
                 continue
             }
@@ -253,6 +264,14 @@ function Parse-RunArgs {
                     continue
                 }
                 $parsed.TimeoutSeconds = $number
+            }
+            elseif ($token -eq "-PrepTimeoutSeconds") {
+                $number = 0
+                if (-not [int]::TryParse($value, [ref] $number) -or $number -le 0) {
+                    $parsed.Error = "error: invalid-argument -PrepTimeoutSeconds $value"
+                    continue
+                }
+                $parsed.PrepTimeoutSeconds = $number
             }
             else {
                 $parsed[$single[$token]] = $value
@@ -596,7 +615,8 @@ function Initialize-ChildProcess {
         [string[]] $Arguments,
         [string] $WorkingDirectory,
         [string] $TempDirectory,
-        [switch] $StripTrainSwitches
+        [switch] $StripTrainSwitches,
+        [string] $AppDataDirectory = ""
     )
     $info = [System.Diagnostics.ProcessStartInfo]::new()
     $info.FileName = $FileName
@@ -620,6 +640,10 @@ function Initialize-ChildProcess {
     $info.Environment["MSBUILDDISABLENODEREUSE"] = "1"
     $info.Environment["DOTNET_CLI_DO_NOT_USE_MSBUILD_SERVER"] = "1"
     $info.Environment["UseSharedCompilation"] = "false"
+    if ($AppDataDirectory) {
+        $info.Environment["APPDATA"] = $AppDataDirectory
+        $info.Environment["LOCALAPPDATA"] = $AppDataDirectory
+    }
     return $info
 }
 
@@ -653,6 +677,13 @@ function Get-OutcomeRank([string] $Outcome) {
     }
 }
 
+function Get-ProcessDisposition($Run) {
+    if ($Run.CleanupFailed) { return [pscustomobject]@{ Kind = "cleanup" } }
+    if ($Run.TimedOut) { return [pscustomobject]@{ Kind = "timeout" } }
+    if ($Run.Cancelled -or (Test-CancelRequested)) { return [pscustomobject]@{ Kind = "cancel" } }
+    return [pscustomobject]@{ Kind = "exit" }
+}
+
 function Merge-ResultEntry($Previous, $Incoming) {
     $duration = [int] $Previous.DurationMs + [int] $Incoming.DurationMs
     if ((Get-OutcomeRank ([string] $Incoming.Outcome)) -gt (Get-OutcomeRank ([string] $Previous.Outcome))) {
@@ -670,9 +701,10 @@ function Invoke-OwnedProcess {
         [int] $TimeoutSeconds,
         [string] $CancelFile,
         [string] $LogPath,
-        [switch] $StripTrainSwitches
+        [switch] $StripTrainSwitches,
+        [string] $AppDataDirectory = ""
     )
-    $info = Initialize-ChildProcess -FileName $FileName -Arguments $Arguments -WorkingDirectory $WorkingDirectory -TempDirectory $TempDirectory -StripTrainSwitches:$StripTrainSwitches
+    $info = Initialize-ChildProcess -FileName $FileName -Arguments $Arguments -WorkingDirectory $WorkingDirectory -TempDirectory $TempDirectory -StripTrainSwitches:$StripTrainSwitches -AppDataDirectory $AppDataDirectory
     if (Test-CancelRequested) {
         return [pscustomobject]@{
             ExitCode = -1
@@ -704,7 +736,7 @@ function Invoke-OwnedProcess {
     }
     $cleanupFailed = $false
     if ($timedOut -or $cancelled) {
-        $pretend = $env:TRAIN_RUN_TESTS_FAULT -eq "cleanup-kill"
+        $pretend = [bool] $script:TestHostPath -and $env:TRAIN_RUN_TESTS_FAULT -eq "cleanup-kill"
         $killed = Stop-OwnedProcessTree -ProcessId $process.Id -PretendFailure:$pretend
         if (-not $killed) { $cleanupFailed = $true }
         if (-not $process.HasExited) { [void] $process.WaitForExit(5000) }
@@ -806,6 +838,25 @@ function Write-RunReports {
     return $summaryPath
 }
 
+function Get-RegisteredRunnerNames {
+    $names = New-List
+    $names.Add("mstest")
+    $godot = $false
+    $process = $false
+    $catalog = $script:ExternalCatalog
+    if ($script:RunnerCatalogMode -ne "none" -and $null -ne $catalog -and $null -ne $catalog.checks) {
+        foreach ($item in @($catalog.checks)) {
+            foreach ($requirement in @($item.requirements)) {
+                if ([string] $requirement -eq "godot") { $godot = $true }
+                if ([string] $requirement -eq "process") { $process = $true }
+            }
+        }
+    }
+    if ($godot) { $names.Add("godot") }
+    if ($process) { $names.Add("cross-process") }
+    return ,$names
+}
+
 function New-Summary {
     param($Parsed, $Git, $Ending, $Environment, $Selection, $Checks, $Groups, $Preparation, [int] $ExitCode, [string] $Directory)
     $counts = @{ passed = 0; failed = 0; blocked = 0; cancelled = 0; "not-executed" = 0 }
@@ -840,8 +891,7 @@ function New-Summary {
     $gaps = New-List
     foreach ($gap in @("ci", "benchmark", "long", "platform", "unconnected-legacy-runners")) { $gaps.Add($gap) }
     Add-Map $summary "migrationGaps" $gaps | Out-Null
-    $runners = New-List
-    foreach ($runnerName in @("mstest", "godot", "cross-process")) { $runners.Add($runnerName) }
+    $runners = Get-RegisteredRunnerNames
     Add-Map $summary "registeredRunners" $runners | Out-Null
     Add-Map $summary "runnerCatalog" $script:RunnerCatalogMode | Out-Null
     Add-Map $summary "scheduling" "serial" | Out-Null
@@ -894,8 +944,15 @@ function New-Markdown {
     }
     $lines.Add("")
     $lines.Add($Summary["sourceLinkBoundary"])
-    $lines.Add("已登记 MSTest、代表性 Godot 检查、新进程权威对照和旧入口清单。这仍不是全仓验证。未登记：CI。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
+    $registeredNames = @($Summary["registeredRunners"] | ForEach-Object { [string] $_ })
+    $registeredParts = [System.Collections.Generic.List[string]]::new()
+    if ($registeredNames -contains "mstest") { $registeredParts.Add("MSTest") }
+    if ($registeredNames -contains "godot") { $registeredParts.Add("Godot 检查") }
+    if ($registeredNames -contains "cross-process") { $registeredParts.Add("新进程检查") }
+    $registeredText = if ($registeredParts.Count -gt 0) { $registeredParts -join "、" } else { "没有外部目录里的可运行检查" }
+    $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。未登记：CI。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
     $lines.Add("引擎观察、新进程恢复、领域对照和人工观感分开记录。日志和检查点是原始文件。启动或截图成功不代替这些检查。")
+    $lines.Add("需要引擎或共享资源的检查串行执行。每个 Godot 进程使用本次运行目录里单独的 APPDATA，入口不写项目根目录的 override.cfg。强制结束进程也不会留下用户目录重定向。")
     $lines.Add("")
     $selection = $Summary["selection"]
     if ($selection) {
@@ -924,7 +981,7 @@ function New-Markdown {
         if ($environment.ContainsKey("gameAssemblySha256") -and $environment["gameAssemblySha256"]) { $lines.Add("- gameAssembly $($environment["gameAssemblySha256"])") }
         if ($environment.ContainsKey("testAssemblySha256") -and $environment["testAssemblySha256"]) { $lines.Add("- testAssembly $($environment["testAssemblySha256"])") }
         if ($environment.ContainsKey("gameUserDataUnchanged")) { $lines.Add("- gameUserDataUnchanged $($environment["gameUserDataUnchanged"])") }
-        if ($environment.ContainsKey("engineUserData") -and $environment["engineUserData"]) { $lines.Add("- engineUserData $($environment["engineUserData"])") }
+        if ($environment.ContainsKey("engineIsolation") -and $environment["engineIsolation"]) { $lines.Add("- engineIsolation $($environment["engineIsolation"])") }
         $lines.Add("")
     }
     $lines.Add("## 结果")
@@ -1282,16 +1339,58 @@ function New-InventoryMaps {
     return ,$list
 }
 
+function New-EngineAppData {
+    param([string] $RunDirectory, [string] $Name)
+    $safe = ($Name -replace '[^A-Za-z0-9._-]', '_')
+    $root = Join-Path $RunDirectory (Join-Path "engine" $safe)
+    if (Test-Path -LiteralPath $root) {
+        return [pscustomobject]@{ Ok = $false; Reason = "environment:isolation-exists"; AppData = "" }
+    }
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+    $appData = Join-Path $root "appdata"
+    New-Item -ItemType Directory -Force -Path $appData | Out-Null
+    $marker = Join-Path $root "owner.lock"
+    try {
+        $stream = [System.IO.File]::Open($marker, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $bytes = $script:Utf8.GetBytes([string] $PID)
+        $stream.Write($bytes, 0, $bytes.Length)
+        $stream.Dispose()
+    }
+    catch {
+        return [pscustomobject]@{ Ok = $false; Reason = "environment:isolation-exists"; AppData = "" }
+    }
+    return [pscustomobject]@{ Ok = $true; Reason = ""; AppData = $appData }
+}
+
+function Add-UsedFiles {
+    param($Artifacts, [string] $Root)
+    if (-not $Artifacts -or -not $Root -or -not (Test-Path -LiteralPath $Root)) { return }
+    $files = @(Get-ChildItem -LiteralPath $Root -Recurse -File -Force -ErrorAction SilentlyContinue)
+    if ($files.Count -eq 0) { return }
+    if (-not $Artifacts.Contains($Root)) { $Artifacts.Add($Root) }
+    foreach ($file in @($files | Select-Object -First 40)) {
+        if (-not $Artifacts.Contains($file.FullName)) { $Artifacts.Add($file.FullName) }
+    }
+}
+
+function Close-ProcessIsolation {
+    if ($script:TestHostPath -and $env:TRAIN_RUN_TESTS_FAULT -eq "isolation-cleanup") {
+        throw "isolation cleanup failed"
+    }
+}
+
 function Invoke-ExternalCheck {
     param($Case, [string] $RunDirectory, [string] $CancelFile, [int] $TimeoutSeconds)
     $safe = ($Case.Id -replace '[^A-Za-z0-9._-]', '_')
     $groupDir = Join-Path $RunDirectory (Join-Path "groups" $Case.Group)
     $caseDir = Join-Path $groupDir $safe
     New-Item -ItemType Directory -Force -Path $caseDir | Out-Null
-    $userData = Join-Path $RunDirectory (Join-Path "user-data" $safe)
-    $contentDir = Join-Path $RunDirectory (Join-Path "content" $safe)
-    New-Item -ItemType Directory -Force -Path $userData | Out-Null
-    New-Item -ItemType Directory -Force -Path $contentDir | Out-Null
+    $needsUserData = $false
+    foreach ($argument in @($Case.Arguments)) {
+        if ([string] $argument -like "*{userData}*") { $needsUserData = $true }
+    }
+    $userData = Join-Path $caseDir "user-data"
+    if ($needsUserData) { New-Item -ItemType Directory -Force -Path $userData | Out-Null }
     $output = Join-Path $caseDir "output"
     $logPath = Join-Path $caseDir "stdout.log"
     $arguments = [System.Collections.Generic.List[string]]::new()
@@ -1300,78 +1399,58 @@ function Invoke-ExternalCheck {
         $text = $text.Replace("{userData}", $userData).Replace("{output}", $output)
         $arguments.Add($text)
     }
+    $empty = [pscustomobject]@{
+        Missing = $false
+        IsolationBlocked = $false
+        IsolationReason = ""
+        Run = $null
+        DurationMs = 0
+        Artifacts = (New-List)
+        Command = (New-List)
+        LogPath = $logPath
+        AppData = ""
+    }
     if (-not (Test-Path -LiteralPath $Case.Script)) {
-        return [pscustomobject]@{
-            Missing = $true
-            Run = $null
-            DurationMs = 0
-            Artifacts = (New-List)
-            Command = (New-List)
-            LogPath = $logPath
+        $empty.Missing = $true
+        return $empty
+    }
+    $appData = ""
+    $needsGodot = $false
+    foreach ($requirement in @($Case.Requirements)) {
+        if ([string] $requirement -eq "godot") { $needsGodot = $true }
+    }
+    if ($needsGodot) {
+        $isolation = New-EngineAppData -RunDirectory $RunDirectory -Name $Case.Id
+        if (-not $isolation.Ok) {
+            $empty.IsolationBlocked = $true
+            $empty.IsolationReason = [string] $isolation.Reason
+            return $empty
         }
+        $appData = [string] $isolation.AppData
     }
     $pwsh = (Get-Process -Id $PID).Path
     $argumentList = @("-NoProfile", "-File", $Case.Script) + @($arguments)
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
-    $ran = Invoke-OwnedProcess -FileName $pwsh -Arguments $argumentList -WorkingDirectory $script:Root -TempDirectory (Join-Path $RunDirectory "tmp") -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $logPath -StripTrainSwitches
+    $ran = Invoke-OwnedProcess -FileName $pwsh -Arguments $argumentList -WorkingDirectory $script:Root -TempDirectory (Join-Path $RunDirectory "tmp") -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $logPath -StripTrainSwitches -AppDataDirectory $appData
     $watch.Stop()
     $artifacts = New-List
-    $artifacts.Add($logPath)
-    $artifacts.Add($userData)
-    $artifacts.Add($contentDir)
-    if (Test-Path -LiteralPath $output) {
-        $artifacts.Add($output)
-        foreach ($file in @(Get-ChildItem -LiteralPath $output -Recurse -File | Select-Object -First 40)) {
-            $artifacts.Add($file.FullName)
-        }
-    }
+    if (Test-Path -LiteralPath $logPath) { $artifacts.Add($logPath) }
+    if ($needsUserData) { Add-UsedFiles -Artifacts $artifacts -Root $userData }
+    Add-UsedFiles -Artifacts $artifacts -Root $output
+    if ($appData) { Add-UsedFiles -Artifacts $artifacts -Root $appData }
     $command = New-List
     $command.Add($pwsh)
     foreach ($argument in $argumentList) { $command.Add($argument) }
     return [pscustomobject]@{
         Missing = $false
+        IsolationBlocked = $false
+        IsolationReason = ""
         Run = $ran
         DurationMs = [int] $watch.ElapsedMilliseconds
         Artifacts = $artifacts
         Command = $command
         LogPath = $logPath
-    }
-}
-
-function Ensure-EngineUserDataOverride {
-    param([string] $RunDirectory)
-    if ($script:EngineUserDataOverride) { return $true }
-    $path = Join-Path $script:Root "override.cfg"
-    if (Test-Path -LiteralPath $path) { return $false }
-    $leaf = [regex]::Replace((Split-Path -Leaf $RunDirectory), "[^A-Za-z0-9]", "")
-    if ($leaf.Length -gt 32) { $leaf = $leaf.Substring(0, 32) }
-    if (-not $leaf) { $leaf = [guid]::NewGuid().ToString("N").Substring(0, 12) }
-    $name = "train-run-$leaf"
-    $text = "config_version=5`n`n[application]`n`nconfig/use_custom_user_dir=true`nconfig/custom_user_dir_name=`"$name`"`n"
-    [System.IO.File]::WriteAllText($path, $text)
-    $script:EngineUserDataOverride = $path
-    $script:EngineUserDataName = $name
-    return $true
-}
-
-function Remove-EngineUserDataOverride {
-    param([string] $RunDirectory)
-    if (-not $script:EngineUserDataOverride) { return }
-    $path = $script:EngineUserDataOverride
-    $name = $script:EngineUserDataName
-    $script:EngineUserDataOverride = ""
-    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
-    if (-not $name -or -not $RunDirectory) { return }
-    $candidates = @(
-        (Join-Path $env:APPDATA $name),
-        (Join-Path (Join-Path $env:APPDATA "Godot\app_userdata") $name)
-    )
-    $destination = Join-Path $RunDirectory "engine-user-data"
-    foreach ($candidate in $candidates) {
-        if (-not (Test-Path -LiteralPath $candidate)) { continue }
-        Move-Item -LiteralPath $candidate -Destination $destination
-        $script:EngineUserDataPath = $destination
-        return
+        AppData = $appData
     }
 }
 
@@ -1412,7 +1491,6 @@ function Invoke-Main {
     if ($script:RepoCatalog -and $script:RepoCatalog.feedback) {
         $script:MigrationFeedback = [string] $script:RepoCatalog.feedback
     }
-    $defaultProject = Resolve-ExistingPath "Train.Tests/Train.Tests.csproj"
     if ($parsed.RunnerCatalog -eq "none") {
         $script:RunnerCatalogMode = "none"
         $script:ExternalCatalog = $null
@@ -1426,7 +1504,7 @@ function Invoke-Main {
         $script:ExternalCatalog = Get-Content -LiteralPath $catalogPath -Raw -Encoding utf8 | ConvertFrom-Json
         $script:RunnerCatalogMode = "override"
     }
-    elseif ([string]::Equals($projectPath, $defaultProject, [System.StringComparison]::OrdinalIgnoreCase)) {
+    elseif ($script:RepoCatalog) {
         $script:ExternalCatalog = $script:RepoCatalog
         $script:RunnerCatalogMode = "repository"
     }
@@ -1450,8 +1528,6 @@ function Invoke-Main {
         $runDirectory = Join-Path $resultsRoot $runId
         New-Item -ItemType Directory -Force -Path $runDirectory | Out-Null
         New-Item -ItemType Directory -Force -Path (Join-Path $runDirectory "tmp") | Out-Null
-        New-Item -ItemType Directory -Force -Path (Join-Path $runDirectory "user-data") | Out-Null
-        New-Item -ItemType Directory -Force -Path (Join-Path $runDirectory "content") | Out-Null
         [Console]::Out.WriteLine("RUN_DIRECTORY=$runDirectory")
         [Console]::Out.Flush()
     }
@@ -1463,6 +1539,8 @@ function Invoke-Main {
     # Warm Train.Tests build beside the 105-case railway run was 1978ms.
     # 300 seconds stops a hung build without treating that compile as a timeout.
     $buildTimeout = 300
+    $prepTimeout = 300
+    if ([int] $parsed.PrepTimeoutSeconds -gt 0) { $prepTimeout = [int] $parsed.PrepTimeoutSeconds }
     $tempForBuild = if ($runDirectory) { Join-Path $runDirectory "tmp" } else { [System.IO.Path]::GetTempPath() }
     $buildLog = if ($runDirectory) { Join-Path $runDirectory "prepare.log" } else { [System.IO.Path]::GetTempFileName() }
     $buildWatch = [System.Diagnostics.Stopwatch]::StartNew()
@@ -1487,19 +1565,21 @@ function Invoke-Main {
     Add-Map $preparation "command" $buildCommand | Out-Null
     $buildOutcome = "passed"
     $buildReason = "reused-for-groups"
-    if ($build.CleanupFailed) { $buildOutcome = "blocked"; $buildReason = "cleanup" }
-    elseif ($build.TimedOut -or $build.Cancelled) { $buildOutcome = "cancelled"; $buildReason = $(if ($build.TimedOut) { "timeout" } else { "cancel" }) }
+    $buildKind = (Get-ProcessDisposition $build).Kind
+    if ($buildKind -eq "cleanup") { $buildOutcome = "blocked"; $buildReason = "cleanup" }
+    elseif ($buildKind -eq "timeout") { $buildOutcome = "cancelled"; $buildReason = "timeout" }
+    elseif ($buildKind -eq "cancel") { $buildOutcome = "cancelled"; $buildReason = "cancel" }
     elseif ($build.ExitCode -ne 0) { $buildOutcome = "blocked"; $buildReason = "build" }
     Add-Map $preparation "outcome" $buildOutcome | Out-Null
     Add-Map $preparation "reason" $buildReason | Out-Null
     Add-PrepStep -Preparation $preparation -Name "build" -Outcome $buildOutcome -Reason $buildReason -DurationMs ([int] $buildWatch.ElapsedMilliseconds) -Command $buildCommand
 
-    if ($build.CleanupFailed) {
+    if ($buildKind -eq "cleanup") {
         [Console]::Error.WriteLine("error: blocked cleanup")
         if ($runDirectory) { Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 2 -Directory $runDirectory }
         return 2
     }
-    if ($build.TimedOut -or $build.Cancelled) {
+    if ($buildKind -eq "timeout" -or $buildKind -eq "cancel") {
         [Console]::Error.WriteLine("error: cancelled build")
         if ($runDirectory) { Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 3 -Directory $runDirectory }
         return 3
@@ -1592,102 +1672,70 @@ function Invoke-Main {
     $userDataBefore = if ($runDirectory) { Get-GameUserDataStamp } else { "" }
     $userDataAfter = $userDataBefore
 
+    $script:RunChecks = $checks
     $needsGame = @($selected | Where-Object { $_.NeedsGameBuild })
     if ($needsGame.Count -gt 0 -and -not $stopDispatch) {
-        if ($env:TRAIN_RUN_TESTS_FAULT -eq "game-build-timeout") {
-            $stopDispatch = $true
-            $stopReason = "timeout"
-            $prepTimedOut = $true
-            $faultCommand = New-List
-            $faultCommand.Add("game-build")
-            $faultCommand.Add("timeout")
-            Add-PrepStep -Preparation $preparation -Name "game-build" -Outcome "cancelled" -Reason "timeout" -DurationMs 0 -Command $faultCommand
-        }
-        elseif ($env:TRAIN_RUN_TESTS_FAULT -eq "game-build-fail") {
-            $gameBlocked = $true
-            $gameBlockReason = "build"
-            $faultCommand = New-List
-            $faultCommand.Add("game-build")
-            $faultCommand.Add("fault")
-            Add-PrepStep -Preparation $preparation -Name "game-build" -Outcome "blocked" -Reason "build" -DurationMs 0 -Command $faultCommand
-        }
-        else {
-            $gameProject = Resolve-ExistingPath "Train.csproj"
-            $gameArgs = @("build", $gameProject, "-c", $parsed.Configuration, "--nologo", "-p:UseSharedCompilation=false")
-            $gameCommand = New-List
-            $gameCommand.Add($dotnet)
-            foreach ($arg in $gameArgs) { $gameCommand.Add($arg) }
-            $gameWatch = [System.Diagnostics.Stopwatch]::StartNew()
-            $gameLog = Join-Path $runDirectory "game-build.log"
-            $game = Invoke-OwnedProcess -FileName $dotnet -Arguments $gameArgs -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds $buildTimeout -CancelFile $cancelFile -LogPath $gameLog -StripTrainSwitches
-            $gameWatch.Stop()
-            $gameOutcome = "passed"
-            $gameReason = "reused-for-groups"
-            if ($game.CleanupFailed) { $gameOutcome = "blocked"; $gameReason = "cleanup"; $cleanupFailed = $true; $stopDispatch = $true; $stopReason = "cleanup"; $gameBlocked = $true; $gameBlockReason = "cleanup" }
-            elseif ($game.Cancelled -or (Test-CancelRequested)) { $gameOutcome = "cancelled"; $gameReason = "cancel"; $userCancel = $true; $stopDispatch = $true; $stopReason = "cancel"; $gameBlocked = $true; $gameBlockReason = "cancel" }
-            elseif ($game.TimedOut) { $gameOutcome = "cancelled"; $gameReason = "timeout"; $stopDispatch = $true; $stopReason = "timeout"; $prepTimedOut = $true }
-            elseif ($game.ExitCode -ne 0) { $gameOutcome = "blocked"; $gameReason = "build"; $gameBlocked = $true; $gameBlockReason = "build" }
-            Add-PrepStep -Preparation $preparation -Name "game-build" -Outcome $gameOutcome -Reason $gameReason -DurationMs ([int] $gameWatch.ElapsedMilliseconds) -Command $gameCommand
-            if (-not $gameBlocked) {
-                $gameAssembly = Get-ProjectAssemblyPath -ProjectPath $gameProject -Configuration $parsed.Configuration
-            }
+        $gameProject = Resolve-ExistingPath "Train.csproj"
+        $gameArgs = @("build", $gameProject, "-c", $parsed.Configuration, "--nologo", "-p:UseSharedCompilation=false")
+        $gameCommand = New-List
+        $gameCommand.Add($dotnet)
+        foreach ($arg in $gameArgs) { $gameCommand.Add($arg) }
+        $gameWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $gameLog = Join-Path $runDirectory "game-build.log"
+        $game = Invoke-OwnedProcess -FileName $dotnet -Arguments $gameArgs -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds $prepTimeout -CancelFile $cancelFile -LogPath $gameLog -StripTrainSwitches
+        $gameWatch.Stop()
+        $gameOutcome = "passed"
+        $gameReason = "reused-for-groups"
+        $gameKind = (Get-ProcessDisposition $game).Kind
+        if ($gameKind -eq "cleanup") { $gameOutcome = "blocked"; $gameReason = "cleanup"; $cleanupFailed = $true; $stopDispatch = $true; $stopReason = "cleanup"; $gameBlocked = $true; $gameBlockReason = "cleanup" }
+        elseif ($gameKind -eq "timeout") { $gameOutcome = "cancelled"; $gameReason = "timeout"; $stopDispatch = $true; $stopReason = "timeout"; $prepTimedOut = $true }
+        elseif ($gameKind -eq "cancel") { $gameOutcome = "cancelled"; $gameReason = "cancel"; $userCancel = $true; $stopDispatch = $true; $stopReason = "cancel"; $gameBlocked = $true; $gameBlockReason = "cancel" }
+        elseif ($game.ExitCode -ne 0) { $gameOutcome = "blocked"; $gameReason = "build"; $gameBlocked = $true; $gameBlockReason = "build" }
+        Add-PrepStep -Preparation $preparation -Name "game-build" -Outcome $gameOutcome -Reason $gameReason -DurationMs ([int] $gameWatch.ElapsedMilliseconds) -Command $gameCommand
+        if (-not $gameBlocked -and -not $prepTimedOut) {
+            $gameAssembly = Get-ProjectAssemblyPath -ProjectPath $gameProject -Configuration $parsed.Configuration
         }
     }
 
     try {
     $needsImport = @($selected | Where-Object { $_.NeedsImport -and -not ($gameBlocked -and $_.NeedsGameBuild) })
     if ($needsImport.Count -gt 0 -and -not $stopDispatch -and $godotState -eq $env:GODOT) {
-        if ($env:TRAIN_RUN_TESTS_FAULT -eq "import-timeout") {
-            $stopDispatch = $true
-            $stopReason = "timeout"
-            $prepTimedOut = $true
-            $faultCommand = New-List
-            $faultCommand.Add("import")
-            $faultCommand.Add("timeout")
-            Add-PrepStep -Preparation $preparation -Name "import" -Outcome "cancelled" -Reason "timeout" -DurationMs 0 -Command $faultCommand
-        }
-        elseif ($env:TRAIN_RUN_TESTS_FAULT -eq "import-fail") {
+        $importIsolation = New-EngineAppData -RunDirectory $runDirectory -Name "import"
+        if (-not $importIsolation.Ok) {
             $importBlocked = $true
-            $importBlockReason = "import"
+            $importBlockReason = [string] $importIsolation.Reason
             $faultCommand = New-List
             $faultCommand.Add("import")
-            $faultCommand.Add("fault")
-            Add-PrepStep -Preparation $preparation -Name "import" -Outcome "blocked" -Reason "import" -DurationMs 0 -Command $faultCommand
+            $faultCommand.Add($importBlockReason)
+            Add-PrepStep -Preparation $preparation -Name "import" -Outcome "blocked" -Reason $importBlockReason -DurationMs 0 -Command $faultCommand
         }
         else {
-            if (-not (Ensure-EngineUserDataOverride $runDirectory)) {
-                $importBlocked = $true
-                $importBlockReason = "environment:override.cfg"
-                $faultCommand = New-List
-                $faultCommand.Add("import")
-                $faultCommand.Add("override.cfg")
-                Add-PrepStep -Preparation $preparation -Name "import" -Outcome "blocked" -Reason "environment:override.cfg" -DurationMs 0 -Command $faultCommand
-            }
-            else {
-            # Recovery mode still imports resources and skips editor plugins that write the player user-data folder.
             $importArgs = @("--headless", "--path", $script:Root, "--recovery-mode", "--editor", "--import")
             $importCommand = New-List
             $importCommand.Add($env:GODOT)
             foreach ($arg in $importArgs) { $importCommand.Add($arg) }
             $importWatch = [System.Diagnostics.Stopwatch]::StartNew()
-            $import = Invoke-OwnedProcess -FileName $env:GODOT -Arguments $importArgs -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds $buildTimeout -CancelFile $cancelFile -LogPath (Join-Path $runDirectory "import.log") -StripTrainSwitches
+            $import = Invoke-OwnedProcess -FileName $env:GODOT -Arguments $importArgs -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds $prepTimeout -CancelFile $cancelFile -LogPath (Join-Path $runDirectory "import.log") -StripTrainSwitches -AppDataDirectory $importIsolation.AppData
             $importWatch.Stop()
             $importOutcome = "passed"
             $importReason = "reused-for-groups"
-            if ($import.CleanupFailed) { $importOutcome = "blocked"; $importReason = "cleanup"; $cleanupFailed = $true; $stopDispatch = $true; $stopReason = "cleanup"; $importBlocked = $true; $importBlockReason = "cleanup" }
-            elseif ($import.Cancelled -or (Test-CancelRequested)) { $importOutcome = "cancelled"; $importReason = "cancel"; $userCancel = $true; $stopDispatch = $true; $stopReason = "cancel"; $importBlocked = $true; $importBlockReason = "cancel" }
-            elseif ($import.TimedOut) { $importOutcome = "cancelled"; $importReason = "timeout"; $stopDispatch = $true; $stopReason = "timeout"; $prepTimedOut = $true }
+            $importKind = (Get-ProcessDisposition $import).Kind
+            if ($importKind -eq "cleanup") { $importOutcome = "blocked"; $importReason = "cleanup"; $cleanupFailed = $true; $stopDispatch = $true; $stopReason = "cleanup"; $importBlocked = $true; $importBlockReason = "cleanup" }
+            elseif ($importKind -eq "timeout") { $importOutcome = "cancelled"; $importReason = "timeout"; $stopDispatch = $true; $stopReason = "timeout"; $prepTimedOut = $true }
+            elseif ($importKind -eq "cancel") { $importOutcome = "cancelled"; $importReason = "cancel"; $userCancel = $true; $stopDispatch = $true; $stopReason = "cancel"; $importBlocked = $true; $importBlockReason = "cancel" }
             elseif ($import.ExitCode -ne 0) { $importOutcome = "blocked"; $importReason = "import"; $importBlocked = $true; $importBlockReason = "import" }
             Add-PrepStep -Preparation $preparation -Name "import" -Outcome $importOutcome -Reason $importReason -DurationMs ([int] $importWatch.ElapsedMilliseconds) -Command $importCommand
             $godotDll = Join-Path $script:Root (Join-Path ".godot/mono/temp/bin" (Join-Path $parsed.Configuration "Train.dll"))
             if (Test-Path -LiteralPath $godotDll) { $gameAssembly = $godotDll }
-            }
         }
     }
     if ($godotCases.Count -gt 0 -and $godotState -eq $env:GODOT -and -not $stopDispatch) {
-        $version = Invoke-OwnedProcess -FileName $env:GODOT -Arguments @("--version") -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds 30 -CancelFile $cancelFile -LogPath (Join-Path $runDirectory "godot-version.log") -StripTrainSwitches
-        if ($version.ExitCode -eq 0) {
-            $godotVersion = (($version.Output -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)).Trim()
+        $versionIsolation = New-EngineAppData -RunDirectory $runDirectory -Name "godot-version"
+        if ($versionIsolation.Ok) {
+            $version = Invoke-OwnedProcess -FileName $env:GODOT -Arguments @("--version") -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds 30 -CancelFile $cancelFile -LogPath (Join-Path $runDirectory "godot-version.log") -StripTrainSwitches -AppDataDirectory $versionIsolation.AppData
+            if ($version.ExitCode -eq 0) {
+                $godotVersion = (($version.Output -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)).Trim()
+            }
         }
     }
         foreach ($groupName in @($byGroup.Keys | Sort-Object)) {
@@ -1834,12 +1882,13 @@ function Invoke-Main {
                         $checks.Add((New-Check -Case $extraCase -Outcome "failed" -Reason "selection-expanded" -DurationMs 0 -Group $groupName))
                     }
                 }
-                if ($ran.CleanupFailed) {
+                $batchKind = (Get-ProcessDisposition $ran).Kind
+                if ($batchKind -eq "cleanup") {
                     $cleanupFailed = $true
                     $stopDispatch = $true
                     $stopReason = "cleanup"
                 }
-                elseif ($ran.Cancelled -or (Test-CancelRequested)) {
+                elseif ($batchKind -eq "cancel") {
                     $userCancel = $true
                     $stopDispatch = $true
                     $stopReason = "cancel"
@@ -1854,31 +1903,32 @@ function Invoke-Main {
                 $caseTimeout = Get-GroupTimeoutSeconds -CaseCount 1 -Override $parsed.TimeoutSeconds
                 if ([int] $parsed.TimeoutSeconds -le 0 -and [int] $case.TimeoutSeconds -gt 0) { $caseTimeout = [int] $case.TimeoutSeconds }
                 [Console]::Out.WriteLine("EXTERNAL id=$($case.Id) timeoutSeconds=$caseTimeout")
-                if ((@($case.Requirements) -contains "godot") -and -not (Ensure-EngineUserDataOverride $runDirectory)) {
-                    $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason "environment:override.cfg" -DurationMs 0 -Group $groupName))
-                    continue
-                }
                 $external = Invoke-ExternalCheck -Case $case -RunDirectory $runDirectory -CancelFile $cancelFile -TimeoutSeconds $caseTimeout
                 if ($external.Command) { $commands.Add($external.Command) }
                 if ($external.Missing) {
                     $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason "runner-missing" -DurationMs 0 -Group $groupName -Artifacts $external.Artifacts))
                     continue
                 }
+                if ($external.IsolationBlocked) {
+                    $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason $external.IsolationReason -DurationMs 0 -Group $groupName -Artifacts $external.Artifacts))
+                    continue
+                }
                 $externalRun = $external.Run
-                if ($externalRun.CleanupFailed) {
+                $externalKind = (Get-ProcessDisposition $externalRun).Kind
+                if ($externalKind -eq "cleanup") {
                     $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason "cleanup" -DurationMs $external.DurationMs -Group $groupName -Artifacts $external.Artifacts))
                     $cleanupFailed = $true
                     $stopDispatch = $true
                     $stopReason = "cleanup"
                 }
-                elseif ($externalRun.TimedOut -or $externalRun.Cancelled -or (Test-CancelRequested)) {
-                    $reason = if ($externalRun.TimedOut) { "timeout" } else { "cancel" }
-                    $checks.Add((New-Check -Case $case -Outcome "cancelled" -Reason $reason -DurationMs $external.DurationMs -Group $groupName -Artifacts $external.Artifacts))
-                    if (-not $externalRun.TimedOut) {
-                        $userCancel = $true
-                        $stopDispatch = $true
-                        $stopReason = "cancel"
-                    }
+                elseif ($externalKind -eq "timeout") {
+                    $checks.Add((New-Check -Case $case -Outcome "cancelled" -Reason "timeout" -DurationMs $external.DurationMs -Group $groupName -Artifacts $external.Artifacts))
+                }
+                elseif ($externalKind -eq "cancel") {
+                    $checks.Add((New-Check -Case $case -Outcome "cancelled" -Reason "cancel" -DurationMs $external.DurationMs -Group $groupName -Artifacts $external.Artifacts))
+                    $userCancel = $true
+                    $stopDispatch = $true
+                    $stopReason = "cancel"
                 }
                 elseif ($externalRun.ExitCode -eq 0) {
                     $checks.Add((New-Check -Case $case -Outcome "passed" -Reason "exit:0" -DurationMs $external.DurationMs -Group $groupName -Artifacts $external.Artifacts))
@@ -1903,27 +1953,28 @@ function Invoke-Main {
         }
     }
     finally {
-        Remove-EngineUserDataOverride $runDirectory
+        try { Close-ProcessIsolation }
+        catch {
+            $cleanupFailed = $true
+            $script:CleanupFailed = $true
+            if (-not $stopReason) { $stopReason = "cleanup" }
+        }
         if ($script:HandlerAdded) {
             Unregister-CancelSignal
             $script:HandlerAdded = $false
         }
     }
 
-    if ($script:EngineUserDataPath -and (Test-Path -LiteralPath $script:EngineUserDataPath)) {
-        $engineFiles = @(Get-ChildItem -LiteralPath $script:EngineUserDataPath -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 40)
-        foreach ($check in @($checks)) {
-            $usesGodot = $false
-            foreach ($requirement in @($check["requirements"])) {
-                if ([string] $requirement -eq "godot") { $usesGodot = $true }
+    if ($cleanupFailed) {
+        $script:CleanupFailed = $true
+        $cleanupStep = $false
+        if ($preparation.ContainsKey("steps")) {
+            foreach ($step in @($preparation["steps"])) {
+                if ([string] $step["name"] -eq "isolation-cleanup") { $cleanupStep = $true }
             }
-            if (-not $usesGodot) { continue }
-            $artifacts = $check["artifacts"]
-            if ($null -eq $artifacts -or $artifacts -isnot [System.Collections.IList]) { continue }
-            if (-not $artifacts.Contains($script:EngineUserDataPath)) { $artifacts.Add($script:EngineUserDataPath) }
-            foreach ($file in $engineFiles) {
-                if (-not $artifacts.Contains($file.FullName)) { $artifacts.Add($file.FullName) }
-            }
+        }
+        if (-not $cleanupStep) {
+            Add-PrepStep -Preparation $preparation -Name "isolation-cleanup" -Outcome "blocked" -Reason "cleanup" -DurationMs 0 -Command $null
         }
     }
     $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:$cleanupFailed -UserCancel:$userCancel
@@ -1947,11 +1998,7 @@ function Invoke-Main {
     Add-Map $environment "gameUserDataBefore" $userDataBefore | Out-Null
     Add-Map $environment "gameUserDataAfter" $userDataAfter | Out-Null
     Add-Map $environment "gameUserDataUnchanged" $userDataUnchanged | Out-Null
-    Add-Map $environment "engineUserData" $script:EngineUserDataPath | Out-Null
-    if ($runDirectory) {
-        Add-Map $environment "isolationUserData" (Join-Path $runDirectory "user-data") | Out-Null
-        Add-Map $environment "isolationContent" (Join-Path $runDirectory "content") | Out-Null
-    }
+    Add-Map $environment "engineIsolation" "per-process-appdata" | Out-Null
     $selection = New-RequestedSelection $parsed
     $caseIds = New-List
     foreach ($case in $selected) { $caseIds.Add($case.Id) }
@@ -1984,12 +2031,18 @@ catch {
             if ($cancelled) {
                 Add-Map $preparation "outcome" "cancelled" | Out-Null
                 Add-Map $preparation "reason" "cancel" | Out-Null
-                Publish-Run -Parsed $script:Parsed -Preparation $preparation -ExitCode 3 -Directory $script:RunDirectory
+                Publish-Run -Parsed $script:Parsed -Preparation $preparation -Checks $script:RunChecks -ExitCode 3 -Directory $script:RunDirectory
+            }
+            elseif ($script:CleanupFailed -or $_.Exception.Message -eq "isolation cleanup failed") {
+                Add-Map $preparation "outcome" "blocked" | Out-Null
+                Add-Map $preparation "reason" "cleanup" | Out-Null
+                Publish-Run -Parsed $script:Parsed -Preparation $preparation -Checks $script:RunChecks -ExitCode 2 -Directory $script:RunDirectory
+                exit 2
             }
             else {
                 Add-Map $preparation "outcome" "blocked" | Out-Null
                 Add-Map $preparation "reason" "runner-error" | Out-Null
-                Publish-Run -Parsed $script:Parsed -Preparation $preparation -ExitCode 1 -Directory $script:RunDirectory
+                Publish-Run -Parsed $script:Parsed -Preparation $preparation -Checks $script:RunChecks -ExitCode 1 -Directory $script:RunDirectory
             }
         }
         catch { }

@@ -12,8 +12,8 @@
       "claim": "engine-observation",
       "needsImport": true,
       "needsGameBuild": true,
-      "timeoutSeconds": 180,
-      "timeoutReason": "Host budget for a hung child. The script --quit-after 15 is a Godot frame cap, not this timeout and not a pass condition."
+      "timeoutSeconds": 60,
+      "timeoutReason": "This check measured 2069ms on the issue #159 host, mostly engine startup plus --quit-after 15. 60s is that measurement with margin for a cold engine and is only the host hang cap."
     },
     {
       "id": "godot.authority-checkpoint",
@@ -26,8 +26,8 @@
       "claim": "save-restore+authority-comparison",
       "needsImport": true,
       "needsGameBuild": true,
-      "timeoutSeconds": 900,
-      "timeoutReason": "Host budget for a hung child. The script runs several Godot processes whose --quit-after 3000 is a frame cap, not this timeout and not a pass condition."
+      "timeoutSeconds": 120,
+      "timeoutReason": "This check measured 14078ms on the issue #159 host and about 18s in review, across several Godot processes. 120s is that measurement with margin. Each script --quit-after 3000 is a frame cap, not this timeout and not a pass condition."
     }
   ],
   "inventory": [
@@ -35,7 +35,7 @@
       "id": "godot.logging-smoke",
       "entry": "pwsh -NoProfile -File scripts/run-godot-logging-smoke.ps1",
       "contract": "真实无头 Godot 必须打印 application_ready、smoke_worker_event、SMOKE_PROCESS_DRAINED 和 SMOKE_LOGGER_DISPOSED。缺 Godot 退出 2，标记缺失或进程失败退出 1。这是引擎日志观察，不是人工观感。",
-      "boundary": "需要 Godot .NET。这个版本没有 --user-data-dir。统一入口在进程启动前写入临时 override.cfg，把 user:// 指到运行目录外的临时文件夹，结束后删掉配置并移走该文件夹。%APPDATA%\\Godot\\app_userdata\\Train 保持不变。单独运行原脚本仍使用默认用户目录。",
+      "boundary": "需要 Godot .NET。这个版本没有 --user-data-dir。统一入口给该检查的进程单独设置 APPDATA，引擎 user:// 落在本次运行目录里，不写项目根目录的 override.cfg。%APPDATA%\\Godot\\app_userdata\\Train 保持不变。单独运行原脚本仍使用调用方自己的用户目录。",
       "destination": "headless/logging，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
@@ -48,7 +48,7 @@
       "id": "godot.authority-checkpoint",
       "entry": "pwsh -NoProfile -File scripts/run-godot-authority-checkpoint.ps1",
       "contract": "两个 Godot 进程对照权威检查点，再篡改证据并要求恢复进程指出差异。缺 GODOT 退出 2，摘要或进程失败退出 1。这是新进程保存恢复和领域对照，不是启动成功。",
-      "boundary": "需要 Godot .NET 和多个子进程。输出目录及其中的 user-data 由调用方指定且必须是新目录。脚本会清掉无关 TRAIN_ 开关。统一入口另用临时 override.cfg 让引擎 user:// 离开玩家的 Train 目录。",
+      "boundary": "需要 Godot .NET 和多个子进程。保存目录由 -OutputDirectory 指定且必须是新目录，脚本用 TRAIN_MODS_SMOKE_USER_DATA 把存档放在那里。统一入口再给这一次检查单独的 APPDATA，引擎 user:// 不进入玩家的 Train 目录，也不写 override.cfg。",
       "destination": "headless/authority，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
@@ -87,7 +87,7 @@
       "id": "godot.mods-export-smoke",
       "entry": "pwsh -NoProfile -File scripts/run-godot-mods-export-smoke.ps1",
       "contract": "导出并检查模组包在独立用户数据目录中的加载。缺导出可执行文件或 Godot 时不能算通过。",
-      "boundary": "需要 Godot、Windows 运行时和独立 --user-data-dir。不属于默认正确性。",
+      "boundary": "需要 Godot 和 Windows 导出模板。运行时隔离靠游戏读取的 TRAIN_MODS_SMOKE_USER_DATA（Main.cs），不是 --user-data-dir；这个 Godot 构建会忽略该参数。不属于默认正确性。",
       "destination": "显式平台检查，与内容导出烟测的声明保持分开。",
       "status": "inventoried",
       "durationStatus": "unmeasured",

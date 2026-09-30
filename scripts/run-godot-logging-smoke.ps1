@@ -12,8 +12,9 @@
 #
 # Exit 2 if Godot is unavailable; do not treat that as a passing smoke.
 # Exit 1 if Godot is nonzero or a required marker is missing.
-# This Godot build has no --user-data-dir flag. The unified entry keeps the Train
-# user-data folder unchanged by installing a temporary project override.cfg.
+# This Godot build has no --user-data-dir flag. The unified entry sets APPDATA on
+# this process so the engine user:// stays inside that run. Direct invocation uses
+# the caller's own user directory.
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot

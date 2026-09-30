@@ -17,8 +17,9 @@ param(
 # Command (repository root, $env:GODOT pointing at the Godot .NET console exe):
 #   pwsh -NoProfile -File scripts/run-godot-authority-checkpoint.ps1
 # Exit 2 if Godot is unavailable; exit 1 for a failed process, mismatched digest, or missing marker.
-# Saves stay in the output directory. This Godot build has no --user-data-dir flag;
-# the unified entry redirects user:// with a temporary override.cfg.
+# Saves stay in the output directory via TRAIN_MODS_SMOKE_USER_DATA. This Godot
+# build has no --user-data-dir flag. The unified entry sets APPDATA for this process
+# so the engine user:// stays inside that run.
 
 $ErrorActionPreference = "Continue"
 $root = Split-Path -Parent $PSScriptRoot

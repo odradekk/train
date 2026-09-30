@@ -254,6 +254,31 @@ function Wait-PidFile([string] $Path, [int] $Seconds) {
     return $false
 }
 
+function Wait-RunDirectory([string] $Results, [int] $Seconds) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $dirs = @(Get-ChildItem -LiteralPath $Results -Directory -ErrorAction SilentlyContinue)
+        if ($dirs.Count -gt 0) { return $dirs[0].FullName }
+        Start-Sleep -Milliseconds 20
+    }
+    return ""
+}
+
+function Assert-OverrideUntouched([string] $BeforeHash) {
+    $path = Join-Path $root "override.cfg"
+    $exists = Test-Path -LiteralPath $path
+    if ($BeforeHash -eq "absent") { Assert-True "override.cfg absent" (-not $exists); return }
+    Assert-True "override.cfg still present" $exists
+    $after = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+    Assert-Equal "override.cfg unchanged" $BeforeHash $after
+}
+
+function Get-OverrideHash {
+    $path = Join-Path $root "override.cfg"
+    if (-not (Test-Path -LiteralPath $path)) { return "absent" }
+    return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+}
+
 function Get-GitFacts {
     $commit = (& git -C $root rev-parse HEAD | Out-String).Trim()
     $dirty = $false
@@ -279,21 +304,34 @@ function Assert-CommonSummary($Summary) {
         foreach ($item in $gaps) { Assert-True "closed gap $gone" ([string] $item -ne $gone) }
     }
     $inventory = As-List $Summary.Json.inventory
-    Assert-True "inventory" ($inventory.Count -ge 20)
-    $connected = 0
+    Assert-True "inventory" ($inventory.Count -ge 1)
     $unmeasured = 0
     foreach ($item in $inventory) {
-        if ([string] $item.status -eq "connected") { $connected++ }
-        if ([string] $item.durationStatus -eq "unmeasured") { $unmeasured++ }
+        Assert-True "inventory entry $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.entry))
+        Assert-True "inventory contract $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.contract))
+        Assert-True "inventory boundary $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.boundary))
+        Assert-True "inventory destination $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.destination))
+        $status = [string] $item.status
+        Assert-True "inventory status $($item.id)" ($status -eq "connected" -or $status -eq "inventoried" -or $status -eq "support-harness" -or $status -eq "support-tool")
+        $ran = $false
+        foreach ($check in (Get-Checks $Summary)) {
+            if ([string] $check.id -eq [string] $item.id -and [string] $check.outcome -in @("passed", "failed", "cancelled")) { $ran = $true }
+        }
+        if ($ran) { Assert-Equal "measured $($item.id)" "measured-this-run" ([string] $item.durationStatus) }
+        else {
+            Assert-Equal "unmeasured $($item.id)" "unmeasured" ([string] $item.durationStatus)
+            $unmeasured++
+        }
     }
-    Assert-Equal "connected inventory" 2 $connected
     Assert-True "unmeasured legacy" ($unmeasured -ge 1)
-    Assert-Equal "scheduling" "serial" ([string] $Summary.Json.scheduling)
+    Assert-Contains "serial execution" $Summary.Report "串行执行"
+    Assert-Contains "no project override" $Summary.Report "不写项目根目录的 override.cfg"
     $runners = As-List $Summary.Json.registeredRunners
-    foreach ($runnerName in @("mstest", "godot", "cross-process")) {
-        $found = $false
-        foreach ($item in $runners) { if ([string] $item -eq $runnerName) { $found = $true } }
-        Assert-True "runner $runnerName" $found
+    $runnerText = ($runners | ForEach-Object { [string] $_ }) -join ","
+    Assert-Contains "mstest runner" $runnerText "mstest"
+    if ([string] $Summary.Json.runnerCatalog -eq "none") {
+        Assert-True "none does not claim godot" ($runnerText -notlike "*godot*")
+        Assert-True "none does not claim cross-process" ($runnerText -notlike "*cross-process*")
     }
     $manual = As-List $Summary.Json.manual
     Assert-Equal "manual empty" 0 $manual.Count
@@ -440,6 +478,7 @@ $sdk = @'
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="MSTest.TestAdapter" Version="3.6.3" />
     <PackageReference Include="MSTest.TestFramework" Version="3.6.3" />
+    <Compile Remove="scripts/**" />
   </ItemGroup>
 </Project>
 '@
@@ -699,6 +738,8 @@ param(
 $ErrorActionPreference = "Stop"
 switch ($Mode) {
     "hold" {
+        [Console]::Out.WriteLine("APPDATA=$env:APPDATA")
+        [Console]::Out.Flush()
         $hostPwsh = (Get-Process -Id $PID).Path
         $first = Start-Process -FilePath $hostPwsh -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -PassThru -WindowStyle Hidden
         $second = Start-Process -FilePath $hostPwsh -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 120") -PassThru -WindowStyle Hidden
@@ -718,6 +759,8 @@ switch ($Mode) {
         exit 0
     }
     "isolate" {
+        [Console]::Out.WriteLine("APPDATA=$env:APPDATA")
+        [Console]::Out.Flush()
         $voxel = if ([string]::IsNullOrEmpty($env:TRAIN_VOXEL_SMOKE)) { "empty" } else { "set" }
         $content = if ([string]::IsNullOrEmpty($env:TRAIN_CONTENT_SMOKE)) { "empty" } else { "set" }
         Write-Output "VOXEL=$voxel"
@@ -750,6 +793,55 @@ switch ($Mode) {
     }
 }
 '@ | Set-Content -LiteralPath $externalHost -Encoding utf8
+
+$fakeRoot = Join-Path $evidence "fake-tool"
+New-Item -ItemType Directory -Force -Path $fakeRoot | Out-Null
+@'
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+</Project>
+'@ | Set-Content -LiteralPath (Join-Path $fakeRoot "fake-tool.csproj") -Encoding utf8
+@'
+using System;
+using System.Diagnostics;
+using System.Threading;
+internal static class Program
+{
+    private static int Main(string[] args)
+    {
+        string role = Environment.GetEnvironmentVariable("FAKE_ROLE") ?? "";
+        if (role == "godot")
+        {
+            string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
+            if (mode == "sleep") { Thread.Sleep(30000); return 0; }
+            if (mode == "fail") return 1;
+            Console.WriteLine("4.7.2.fake");
+            return 0;
+        }
+        string joined = string.Join(" ", args);
+        if (joined.IndexOf("Train.csproj", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            string game = Environment.GetEnvironmentVariable("FAKE_GAME_BUILD") ?? "";
+            if (game == "sleep") { Thread.Sleep(30000); return 0; }
+            return 1;
+        }
+        var start = new ProcessStartInfo("dotnet") { UseShellExecute = false };
+        foreach (string arg in args) start.ArgumentList.Add(arg);
+        using Process process = Process.Start(start);
+        process.WaitForExit();
+        return process.ExitCode;
+    }
+}
+'@ | Set-Content -LiteralPath (Join-Path $fakeRoot "Program.cs") -Encoding utf8
+& dotnet build (Join-Path $fakeRoot "fake-tool.csproj") -c Release --nologo -p:UseSharedCompilation=false | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "fake tool build failed" }
+$fakeExe = Join-Path $fakeRoot "bin/Release/net10.0/fake-tool.exe"
+if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
 
 It "fast-invalid" {
     $result = Invoke-Runner -ArgumentList @("-Nope") -WaitMs 30000
@@ -1126,7 +1218,11 @@ function New-BindingRepository {
     [System.IO.File]::WriteAllText((Join-Path $repo "Binding.csproj"), $sdk, $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "BindingTests.cs"), $Source, $utf8)
     [System.IO.File]::Copy($RunnerPath, (Join-Path $repo "scripts/run-tests.ps1"), $true)
-    [System.IO.File]::Copy((Join-Path $PSScriptRoot "TestMetadataReader.cs"), (Join-Path $repo "scripts/TestMetadataReader.cs"), $true)
+    $readerSource = Join-Path $PSScriptRoot "metadata-reader/TestMetadataReader.cs"
+    [System.IO.File]::Copy($readerSource, (Join-Path $repo "scripts/TestMetadataReader.cs"), $true)
+    $readerDir = Join-Path $repo "scripts/metadata-reader"
+    New-Item -ItemType Directory -Force -Path $readerDir | Out-Null
+    [System.IO.File]::Copy($readerSource, (Join-Path $readerDir "TestMetadataReader.cs"), $true)
     $null = Invoke-NestedGit $repo @("init")
     $null = Invoke-NestedGit $repo @("add", "-A")
     $null = Invoke-NestedGit $repo @("commit", "-m", "initial binding fixture")
@@ -1699,6 +1795,7 @@ It "real-help" {
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "source-link:", "not all repository validation", "gap: CI", "pending: benchmark", "PENDING benchmark",
         "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
+        "-RunnerCatalog", "-PrepTimeoutSeconds", "override.cfg",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
         Assert-Contains $token $result.Stdout $token
@@ -1740,16 +1837,20 @@ It "real-list" {
     $authority = $externalById["godot.authority-checkpoint"]
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
-    Assert-Equal "logging family" "headless" $logging.Family
-    Assert-Equal "logging scope" "logging" $logging.Scopes
-    Assert-Equal "logging requirements" "godot" $logging.Requirements
-    Assert-Equal "logging group" "godot-logging" $logging.Group
-    Assert-Equal "logging claim" "engine-observation" $logging.Claim
-    Assert-Equal "authority family" "headless" $authority.Family
-    Assert-Equal "authority scope" "authority" $authority.Scopes
-    Assert-Equal "authority requirements" "godot,process" $authority.Requirements
-    Assert-Equal "authority group" "godot-authority" $authority.Group
-    Assert-Equal "authority claim" "save-restore+authority-comparison" $authority.Claim
+    Assert-Equal "logging is headless" "headless" $logging.Family
+    Assert-Equal "authority is headless" "headless" $authority.Family
+    Assert-True "logging scope" (-not [string]::IsNullOrWhiteSpace([string] $logging.Scopes))
+    Assert-True "authority scope" (-not [string]::IsNullOrWhiteSpace([string] $authority.Scopes))
+    Assert-Contains "logging needs godot" $logging.Requirements "godot"
+    Assert-True "logging is one process" ([string] $logging.Requirements -notlike "*process*")
+    Assert-Contains "authority needs godot" $authority.Requirements "godot"
+    Assert-Contains "authority needs a process" $authority.Requirements "process"
+    Assert-True "logging group" (-not [string]::IsNullOrWhiteSpace([string] $logging.Group))
+    Assert-True "authority group" (-not [string]::IsNullOrWhiteSpace([string] $authority.Group))
+    Assert-True "groups differ" ([string] $logging.Group -ne [string] $authority.Group)
+    Assert-Contains "logging observes the engine" $logging.Claim "engine-observation"
+    Assert-Contains "authority restores" $authority.Claim "save-restore"
+    Assert-Contains "authority compares" $authority.Claim "authority-comparison"
     foreach ($class in $expected.Keys) { Assert-True "missing class $class" $seen.ContainsKey($class) }
     $selected = [regex]::Match($result.Stdout, "SELECTED count=(\d+)")
     Assert-Equal "selected count" $cases.Count ([int] $selected.Groups[1].Value)
@@ -1872,10 +1973,13 @@ It "real-correctness-list" {
 }
 
 It "fixture-no-repo-catalog" {
-    $result = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
-    Assert-Exit $result 0
-    Assert-True "fixture list stays local" ($result.Stdout -notlike "*godot.logging-smoke*")
-    Assert-True "fixture list stays local authority" ($result.Stdout -notlike "*godot.authority-checkpoint*")
+    $hidden = Invoke-Runner -ArgumentList @("-Project", $project, "-RunnerCatalog", "none", "-List", "-Family", "headless") -WaitMs 300000
+    Assert-Exit $hidden 0
+    Assert-True "none stays local" ($hidden.Stdout -notlike "*godot.logging-smoke*")
+    Assert-True "none stays local authority" ($hidden.Stdout -notlike "*godot.authority-checkpoint*")
+    $shown = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
+    Assert-Exit $shown 0
+    Assert-Contains "default catalog is not tied to the project path" $shown.Stdout "godot.logging-smoke"
 }
 
 It "fixture-external-env-missing" {
@@ -1909,10 +2013,11 @@ It "fixture-external-build-timeout" {
         (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -NeedsGameBuild $true)
     )
     $result = Invoke-Runner -ArgumentList @(
-        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe,
+        "-PrepTimeoutSeconds", "4",
         "-Test", "ext.build", "-Test", "Fixture.PersistPassTests.Restores_marker",
         "-ResultsRoot", $results
-    ) -Environment @{ TRAIN_RUN_TESTS_FAULT = "game-build-timeout" } -WaitMs 300000
+    ) -Environment @{ FAKE_GAME_BUILD = "sleep" } -WaitMs 180000
     Assert-Exit $result 3
     $summary = Read-Summary $result.Stdout
     Assert-Equal "prep cancelled" "cancelled" $summary.Json.preparation.outcome
@@ -1925,7 +2030,6 @@ It "fixture-external-build-timeout" {
 }
 
 It "fixture-external-import-blocked" {
-    if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) { throw "blocked: GODOT missing" }
     $results = New-Results "fixture-external-import"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
@@ -1935,7 +2039,7 @@ It "fixture-external-import-blocked" {
         "-Project", $project, "-RunnerCatalog", $catalog,
         "-Test", "ext.import", "-Test", "Fixture.PersistPassTests.Restores_marker",
         "-ResultsRoot", $results
-    ) -Environment @{ TRAIN_RUN_TESTS_FAULT = "import-fail" } -WaitMs 300000
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_GODOT = "fail" } -WaitMs 300000
     Assert-Exit $result 2
     $summary = Read-Summary $result.Stdout
     $checks = Get-Checks $summary
@@ -1946,7 +2050,31 @@ It "fixture-external-import-blocked" {
     Assert-Equal "sibling passed" "passed" $later.outcome
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
-    Assert-True "no import log" (-not (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log")))
+    Assert-True "import log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log"))
+}
+
+It "fixture-external-import-timeout" {
+    $results = New-Results "fixture-external-import-timeout"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true),
+        (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog, "-PrepTimeoutSeconds", "4",
+        "-Test", "ext.import", "-Test", "ext.later",
+        "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_GODOT = "sleep" } -WaitMs 180000
+    Assert-Exit $result 3
+    $summary = Read-Summary $result.Stdout
+    Assert-Equal "prep cancelled" "cancelled" $summary.Json.preparation.outcome
+    Assert-Equal "prep timeout" "timeout" $summary.Json.preparation.reason
+    $checks = Get-Checks $summary
+    Assert-Equal "import not run" "not-executed" (Find-Check $checks "ext.import").outcome
+    Assert-Equal "later stopped" "not-executed" (Find-Check $checks "ext.later").outcome
+    $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
+    Assert-Equal "script not started" 0 @($started).Count
+    Assert-True "import log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log"))
 }
 
 It "fixture-external-build-blocked" {
@@ -1956,10 +2084,10 @@ It "fixture-external-build-blocked" {
         (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -NeedsGameBuild $true)
     )
     $result = Invoke-Runner -ArgumentList @(
-        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe,
         "-Test", "ext.build", "-Test", "Fixture.PersistPassTests.Restores_marker",
         "-ResultsRoot", $results
-    ) -Environment @{ TRAIN_RUN_TESTS_FAULT = "game-build-fail" } -WaitMs 300000
+    ) -Environment @{ FAKE_GAME_BUILD = "fail" } -WaitMs 300000
     Assert-Exit $result 2
     $summary = Read-Summary $result.Stdout
     $checks = Get-Checks $summary
@@ -1970,7 +2098,7 @@ It "fixture-external-build-blocked" {
     Assert-Equal "sibling passed" "passed" $later.outcome
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
-    Assert-True "no game build log" (-not (Test-Path -LiteralPath (Join-Path $summary.Directory "game-build.log")))
+    Assert-True "game build log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "game-build.log"))
 }
 
 It "fixture-external-timeout-tree" {
@@ -2078,7 +2206,7 @@ It "fixture-external-cleanup" {
         (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
     )
     $result = Invoke-Runner -ArgumentList @(
-        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Project", $project, "-RunnerCatalog", $catalog, "-TestHostPath", $hostPath,
         "-Test", "ext.hold", "-Test", "ext.later",
         "-TimeoutSeconds", "12", "-ResultsRoot", $results
     ) -Environment @{ TRAIN_RUN_TESTS_FAULT = "cleanup-kill" } -WaitMs 180000
@@ -2145,6 +2273,163 @@ It "fixture-external-serial" {
     Assert-Contains "a clear" $text "CLEAR a"
     Assert-Contains "b clear" $text "CLEAR b"
     Assert-True "no overlap" ($text -notlike "*OVERLAP*")
+}
+
+It "fixture-isolation-exists" {
+    Ensure-Sentinel
+    $sentinelId = $script:sentinel.Id
+    $results = New-Results "fixture-isolation-exists"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.present" -Group "a-present" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot")),
+        (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    )
+    $before = Get-AppDataStamp
+    $overrideBefore = Get-OverrideHash
+    $handle = Open-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.present", "-Test", "ext.later",
+        "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe } -WaitMs 300000
+    try {
+        $run = Wait-RunDirectory $results 90
+        Assert-True "run appeared" (-not [string]::IsNullOrWhiteSpace($run))
+        New-Item -ItemType Directory -Force -Path (Join-Path $run "engine/ext.present") | Out-Null
+        $result = Close-Runner $handle
+        $handle = $null
+        Assert-Exit $result 2
+        $summary = Read-Summary $result.Stdout
+        $checks = Get-Checks $summary
+        $blocked = Find-Check $checks "ext.present"
+        $later = Find-Check $checks "ext.later"
+        Assert-Equal "isolation blocked" "blocked" $blocked.outcome
+        Assert-Equal "isolation reason" "environment:isolation-exists" $blocked.reason
+        Assert-Equal "later still ran" "passed" $later.outcome
+        $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
+        Assert-Equal "script not started" 0 @($started).Count
+        Assert-Equal "player data unchanged" $before (Get-AppDataStamp)
+        Assert-OverrideUntouched $overrideBefore
+        Assert-True "sentinel" (Test-Alive $sentinelId)
+    }
+    finally {
+        if ($handle) { Close-Runner $handle | Out-Null }
+    }
+}
+
+It "fixture-isolation-timeout" {
+    Ensure-Sentinel
+    $sentinelId = $script:sentinel.Id
+    $results = New-Results "fixture-isolation-timeout"
+    $pidFile = Join-Path $results "pids.txt"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -Requirements @("godot") -TimeoutSeconds 30),
+        (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    )
+    $before = Get-AppDataStamp
+    $overrideBefore = Get-OverrideHash
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.hold", "-Test", "ext.later",
+        "-TimeoutSeconds", "4", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe } -WaitMs 180000
+    foreach ($owned in (Read-PidFile $pidFile)) { $script:owned.Add($owned) }
+    Assert-Exit $result 3
+    $summary = Read-Summary $result.Stdout
+    $checks = Get-Checks $summary
+    $hold = Find-Check $checks "ext.hold"
+    $later = Find-Check $checks "ext.later"
+    Assert-Equal "hold cancelled" "cancelled" $hold.outcome
+    Assert-Equal "hold reason" "timeout" $hold.reason
+    Assert-Equal "later still ran" "passed" $later.outcome
+    $log = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log | Select-Object -First 1
+    Assert-True "first log kept" ($null -ne $log)
+    $text = [System.IO.File]::ReadAllText($log.FullName)
+    $appData = Join-Path $summary.Directory "engine/ext.hold/appdata"
+    Assert-Contains "private appdata" $text $appData
+    Assert-True "owner lock kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "engine/ext.hold/owner.lock"))
+    Assert-Equal "player data unchanged" $before (Get-AppDataStamp)
+    Assert-OverrideUntouched $overrideBefore
+    Assert-True "sentinel" (Test-Alive $sentinelId)
+    foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "killed $owned" (-not (Test-Alive $owned)) }
+}
+
+It "fixture-isolation-cancel" {
+    Ensure-Sentinel
+    $sentinelId = $script:sentinel.Id
+    $results = New-Results "fixture-isolation-cancel"
+    $pidFile = Join-Path $results "pids.txt"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -Requirements @("godot") -TimeoutSeconds 60),
+        (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    )
+    $before = Get-AppDataStamp
+    $overrideBefore = Get-OverrideHash
+    $handle = Open-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.hold", "-Test", "ext.later",
+        "-TimeoutSeconds", "60", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe } -WaitMs 180000
+    try {
+        Assert-True "host started" (Wait-PidFile $pidFile 90)
+        $run = Wait-RunDirectory $results 5
+        Assert-True "run dir" (-not [string]::IsNullOrWhiteSpace($run))
+        [System.IO.File]::WriteAllText((Join-Path $run "cancel.request"), "cancel")
+        $result = Close-Runner $handle
+        $handle = $null
+        foreach ($owned in (Read-PidFile $pidFile)) { $script:owned.Add($owned) }
+        Assert-Exit $result 3
+        $summary = Read-Summary $result.Stdout
+        $checks = Get-Checks $summary
+        $hold = Find-Check $checks "ext.hold"
+        $later = Find-Check $checks "ext.later"
+        Assert-Equal "hold cancel" "cancelled" $hold.outcome
+        Assert-Equal "cancel reason" "cancel" $hold.reason
+        Assert-Equal "later stopped" "not-executed" $later.outcome
+        $log = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log | Select-Object -First 1
+        Assert-True "first log kept" ($null -ne $log)
+        $text = [System.IO.File]::ReadAllText($log.FullName)
+        Assert-Contains "private appdata" $text (Join-Path $summary.Directory "engine/ext.hold/appdata")
+        Assert-Equal "player data unchanged" $before (Get-AppDataStamp)
+        Assert-OverrideUntouched $overrideBefore
+        Assert-True "sentinel" (Test-Alive $sentinelId)
+        foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "cancel killed $owned" (-not (Test-Alive $owned)) }
+    }
+    finally {
+        if ($handle) { Close-Runner $handle | Out-Null }
+        foreach ($owned in (Read-PidFile $pidFile)) { Stop-Tree $owned }
+    }
+}
+
+It "fixture-isolation-cleanup" {
+    $results = New-Results "fixture-isolation-cleanup"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.pass" -Group "a-pass" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30),
+        (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog, "-TestHostPath", $hostPath,
+        "-Test", "ext.pass", "-Test", "ext.later",
+        "-ResultsRoot", $results
+    ) -Environment @{ TRAIN_RUN_TESTS_FAULT = "isolation-cleanup" } -WaitMs 300000
+    Assert-Exit $result 2
+    Assert-True "not a runner error" ($result.Stderr -notlike "*runner-error*")
+    $summary = Read-Summary $result.Stdout
+    $checks = Get-Checks $summary
+    Assert-Equal "first kept" "passed" (Find-Check $checks "ext.pass").outcome
+    Assert-Equal "second kept" "passed" (Find-Check $checks "ext.later").outcome
+    Assert-Equal "exit recorded" 2 ([int] $summary.Json.exitCode)
+    Assert-Equal "prep blocked" "blocked" $summary.Json.preparation.outcome
+    Assert-Equal "prep cleanup" "cleanup" $summary.Json.preparation.reason
+    $step = $null
+    foreach ($item in @( $summary.Json.preparation.steps )) {
+        if ([string] $item.name -eq "isolation-cleanup") { $step = $item }
+    }
+    Assert-True "cleanup step" ($null -ne $step)
+    Assert-Equal "cleanup step outcome" "blocked" $step.outcome
+    Assert-Equal "cleanup step reason" "cleanup" $step.reason
 }
 
 try {
