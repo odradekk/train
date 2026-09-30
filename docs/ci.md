@@ -37,7 +37,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 
-两种选择分别生成 `Windows routine`、`Windows correctness` 检查。其他标签只生成名为 `Windows unrelated-label` 的跳过检查，不使用常规或正确性检查的名称。
+两种执行选择分别生成 `Windows routine`、`Windows correctness` 检查。其他标签的 run 名为 `Windows unrelated-label`，job 在分配 runner 前跳过；GitHub 的 Checks API 会保留该 job 名的未求值表达式，与已执行的常规或正确性检查不同名。
 
 ## 环境与证据
 
