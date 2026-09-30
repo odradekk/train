@@ -73,7 +73,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $archive = Join-Path $env:RUNNER_TEMP 'godot.zip'
           Invoke-WebRequest 'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_win64.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '0000000000000000000000000000000000000000000000000000000000000000') { throw 'Godot archive SHA256 mismatch' }
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'a2a48473a7414c5f19fab690518caebb738c09ef9601f6bd2388676a7f53b3c0') { throw 'Godot archive SHA256 mismatch' }
           Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/godot"
           $godot = "$env:RUNNER_TEMP/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
           "GODOT=$godot" | Add-Content $env:GITHUB_ENV
