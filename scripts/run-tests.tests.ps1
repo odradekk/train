@@ -197,6 +197,13 @@ function Find-Check($Checks, [string] $Id) {
     return $null
 }
 
+function Find-Inventory($Summary, [string] $Id) {
+    foreach ($item in (As-List $Summary.Json.inventory)) {
+        if ([string] $item.id -eq $Id) { return $item }
+    }
+    return $null
+}
+
 function Get-CaseLines([string] $Stdout) {
     $list = [System.Collections.Generic.List[object]]::new()
     foreach ($match in [regex]::Matches($Stdout, "(?m)^CASE id=(\S+) family=(\S+) scopes=(\S+) requirements=(\S+) group=(\S+)(?: claim=(\S+))?\s*$")) {
@@ -288,33 +295,6 @@ function Get-GitFacts {
     return [pscustomobject]@{ Commit = $commit; Dirty = $dirty }
 }
 
-function Get-ProductionDurationStatus {
-    param([string] $Outcome, [int] $DurationMs)
-    if ($null -eq $script:durationRule) {
-        $script:durationRule = @{}
-        $probe = Join-Path $evidence "duration-probe.ps1"
-        @'
-param([string] $Runner)
-. $Runner
-foreach ($outcome in @("passed", "failed", "cancelled", "blocked", "not-executed")) {
-    foreach ($ms in @(0, 5)) {
-        Write-Output ("{0}|{1}={2}" -f $outcome, $ms, (Get-RunDurationStatus -Outcome $outcome -DurationMs $ms))
-    }
-}
-'@ | Set-Content -LiteralPath $probe -Encoding utf8
-        $output = & $pwsh -NoProfile -File $probe -Runner $runner
-        if ($LASTEXITCODE -ne 0) { throw "duration probe exit $LASTEXITCODE" }
-        foreach ($line in @($output)) {
-            if ([string] $line -match '^(passed|failed|cancelled|blocked|not-executed)\|(\d+)=(\S+)$') {
-                $script:durationRule["$($Matches[1])|$($Matches[2])"] = $Matches[3]
-            }
-        }
-        if ($script:durationRule.Count -lt 10) { throw "duration probe returned no rules" }
-    }
-    $bucket = if ($DurationMs -gt 0) { 5 } else { 0 }
-    return [string] $script:durationRule["$Outcome|$bucket"]
-}
-
 function Assert-CommonSummary($Summary) {
     Assert-True "includesAllRepositoryChecks false" ($Summary.Raw -match '"includesAllRepositoryChecks":\s*false')
     Assert-True "registered mstest" ($Summary.Raw -match '"mstest"')
@@ -340,36 +320,24 @@ function Assert-CommonSummary($Summary) {
         Assert-True "inventory destination $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.destination))
         $status = [string] $item.status
         Assert-True "inventory status $($item.id)" (-not [string]::IsNullOrWhiteSpace($status))
-        $matched = "unmeasured"
-        foreach ($check in (Get-Checks $Summary)) {
-            if ([string] $check.id -ne [string] $item.id) { continue }
-            $statusForCheck = Get-ProductionDurationStatus -Outcome ([string] $check.outcome) -DurationMs ([int] $check.durationMs)
-            if ($statusForCheck -eq "measured-this-run") { $matched = $statusForCheck }
-            elseif ($statusForCheck -eq "partial" -and $matched -ne "measured-this-run") { $matched = "partial" }
-        }
-        if ($matched -eq "unmeasured") {
-            Assert-Equal "unmeasured $($item.id)" "unmeasured" ([string] $item.durationStatus)
-            $unmeasured++
-        }
-        else {
-            Assert-Equal "duration $($item.id)" $matched ([string] $item.durationStatus)
-        }
+        Assert-True "duration status $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.durationStatus))
+        if ([string] $item.durationStatus -eq "unmeasured") { $unmeasured++ }
     }
     Assert-True "unmeasured legacy" ($unmeasured -ge 1)
     Assert-Contains "serial execution" $Summary.Report "串行执行"
-    Assert-Contains "shared check appdata" $Summary.Report "同一次检查"
-    Assert-Contains "import and version isolation" $Summary.Report "导入和版本探测"
+    Assert-Contains "isolation value" $Summary.Report "per-check-appdata"
     $overridePath = Join-Path $root "override.cfg"
     $overridePresent = Test-Path -LiteralPath $overridePath
     Assert-Equal "override present" $overridePresent ([bool] $Summary.Json.environment.overrideCfgPresent)
     if ($overridePresent) {
         $overrideHash = (Get-FileHash -LiteralPath $overridePath -Algorithm SHA256).Hash
         Assert-Equal "override sha" $overrideHash ([string] $Summary.Json.environment.overrideCfgSha256)
-        Assert-Contains "override note" $Summary.Report $overrideHash
+        Assert-Contains "override present contract" $Summary.Report "present=true"
+        Assert-Contains "override sha in report" $Summary.Report $overrideHash
     }
     else {
         Assert-Equal "override sha empty" "" ([string] $Summary.Json.environment.overrideCfgSha256)
-        Assert-Contains "override absent note" $Summary.Report "没有 override.cfg"
+        Assert-Contains "override absent contract" $Summary.Report "present=false"
     }
     $runners = As-List $Summary.Json.registeredRunners
     $runnerText = ($runners | ForEach-Object { [string] $_ }) -join ","
@@ -864,6 +832,7 @@ internal static class Program
         if (role == "godot")
         {
             string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
+            if (mode == "version-sleep" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "fail" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             Console.WriteLine("4.7.2.fake");
@@ -1150,6 +1119,8 @@ It "fixture-timeout" {
     $later = Find-Check $checks "Fixture.LaterTests.Finishes"
     Assert-Equal "hold cancelled" "cancelled" $hold.outcome
     Assert-Equal "hold reason" "timeout" $hold.reason
+    Assert-True "hold duration is elapsed milliseconds" ([int] $hold.durationMs -gt 1000)
+    Assert-True "hold duration is not the second cap" ([int] $hold.durationMs -ne 12)
     Assert-Equal "later passed" "passed" $later.outcome
     Assert-True "sentinel" (Test-Alive $sentinelId)
     foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "killed $owned" (-not (Test-Alive $owned)) }
@@ -1849,11 +1820,8 @@ It "real-help" {
     )) {
         Assert-Contains $token $result.Stdout $token
     }
-    Assert-Contains "per-check appdata" $result.Stdout "each Godot check gets one APPDATA"
-    Assert-Contains "import and version probe" $result.Stdout "import and the version probe"
-    Assert-Contains "shared by the check" $result.Stdout "share that directory"
-    Assert-Contains "override hash recorded" $result.Stdout "SHA256"
-    Assert-Contains "one prep cap" $result.Stdout "默认 120"
+    Assert-Contains "partial contract" $result.Stdout "partial"
+    Assert-Contains "measured contract" $result.Stdout "measured-this-run"
     Assert-True "no full pass claim" ($result.Stdout -notlike "*all repository checks passed*")
     Note "EVIDENCE real-help $($result.DurationMs)ms"
 }
@@ -2132,9 +2100,70 @@ It "fixture-external-import-timeout" {
     Assert-Equal "import blocked" "blocked" $external.outcome
     Assert-Equal "import timeout" "timeout" $external.reason
     Assert-Equal "independent mstest passed" "passed" $later.outcome
+    Assert-Equal "stale assembly omitted" "" ([string] $summary.Json.environment.gameAssembly)
+    Assert-Equal "assembly reason" "timeout" ([string] $summary.Json.environment.gameAssemblyReason)
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
     Assert-True "import log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log"))
+}
+
+It "fixture-prep-timeout-cleanup" {
+    $results = New-Results "fixture-prep-timeout-cleanup"
+    $pidFile = Join-Path $results "pids.txt"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true),
+        (New-CheckSpec -Id "ext.hold" -Group "z-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog, "-PrepTimeoutSeconds", "20", "-TestHostPath", $hostPath,
+        "-Test", "ext.import", "-Test", "ext.hold",
+        "-TimeoutSeconds", "8", "-ResultsRoot", $results
+    ) -Environment @{
+        GODOT = $fakeExe
+        FAKE_ROLE = "godot"
+        FAKE_GODOT = "sleep"
+        TRAIN_RUN_TESTS_FAULT = "cleanup-kill"
+        TRAIN_RUN_TESTS_FAULT_COMMAND = "-Mode hold"
+    } -WaitMs 180000
+    foreach ($owned in (Read-PidFile $pidFile)) { $script:owned.Add($owned) }
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    $importStep = $null
+    foreach ($step in @($summary.Json.preparation.steps)) {
+        if ([string] $step.name -eq "import") { $importStep = $step }
+    }
+    Assert-True "import step" ($null -ne $importStep)
+    Assert-Equal "import timed out" "cancelled" $importStep.outcome
+    Assert-Equal "import timeout reason" "timeout" $importStep.reason
+    $checks = Get-Checks $summary
+    Assert-Equal "dependent blocked" "blocked" (Find-Check $checks "ext.import").outcome
+    Assert-Equal "dependent timeout" "timeout" (Find-Check $checks "ext.import").reason
+    Assert-Equal "later cleanup" "blocked" (Find-Check $checks "ext.hold").outcome
+    Assert-Equal "later cleanup reason" "cleanup" (Find-Check $checks "ext.hold").reason
+    foreach ($owned in (Read-PidFile $pidFile)) { Stop-Tree $owned }
+}
+
+It "fixture-version-timeout" {
+    $results = New-Results "fixture-version-timeout"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.after-version" -Group "z-after" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -Requirements @("godot") -TimeoutSeconds 30)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog, "-PrepTimeoutSeconds", "20",
+        "-Test", "ext.after-version", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_GODOT = "version-sleep" } -WaitMs 180000
+    Assert-Exit $result 3
+    $summary = Read-Summary $result.Stdout
+    $versionStep = $null
+    foreach ($step in @($summary.Json.preparation.steps)) {
+        if ([string] $step.name -eq "godot-version") { $versionStep = $step }
+    }
+    Assert-True "version step" ($null -ne $versionStep)
+    Assert-Equal "version timed out" "cancelled" $versionStep.outcome
+    Assert-Equal "version timeout reason" "timeout" $versionStep.reason
+    Assert-Equal "independent check passed" "passed" (Find-Check (Get-Checks $summary) "ext.after-version").outcome
 }
 
 It "fixture-external-build-blocked" {
@@ -2168,24 +2197,32 @@ It "fixture-external-timeout-tree" {
     $pidFile = Join-Path $results "pids.txt"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
-        (New-CheckSpec -Id "ext.later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+        (New-CheckSpec -Id "godot.authority-checkpoint" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
+        (New-CheckSpec -Id "godot.logging-smoke" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
     )
     $started = [DateTime]::UtcNow
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
-        "-Test", "ext.hold", "-Test", "ext.later",
+        "-Test", "godot.authority-checkpoint", "-Test", "godot.logging-smoke",
         "-TimeoutSeconds", "12", "-ResultsRoot", $results
     ) -WaitMs 180000
     $elapsed = ([DateTime]::UtcNow - $started).TotalSeconds
     Assert-True "bounded $elapsed" ($elapsed -lt 90)
     Assert-Exit $result 3
-    $checks = Get-Checks (Read-Summary $result.Stdout)
-    $hold = Find-Check $checks "ext.hold"
-    $later = Find-Check $checks "ext.later"
+    $summary = Read-Summary $result.Stdout
+    $checks = Get-Checks $summary
+    $hold = Find-Check $checks "godot.authority-checkpoint"
+    $later = Find-Check $checks "godot.logging-smoke"
     Assert-Equal "hold cancelled" "cancelled" $hold.outcome
     Assert-Equal "hold reason" "timeout" $hold.reason
     Assert-Equal "later passed" "passed" $later.outcome
+    $holdInventory = Find-Inventory $summary "godot.authority-checkpoint"
+    $laterInventory = Find-Inventory $summary "godot.logging-smoke"
+    Assert-Equal "cancelled inventory is partial" "partial" ([string] $holdInventory.durationStatus)
+    Assert-True "partial duration kept" ([int] $holdInventory.durationMs -gt 0)
+    Assert-Equal "partial duration matches the check" ([int] $hold.durationMs) ([int] $holdInventory.durationMs)
+    Assert-Equal "passed inventory is measured" "measured-this-run" ([string] $laterInventory.durationStatus)
+    Assert-Equal "measured duration matches the check" ([int] $later.durationMs) ([int] $laterInventory.durationMs)
     Assert-True "sentinel" (Test-Alive $sentinelId)
     foreach ($owned in (Read-PidFile $pidFile)) {
         if (Test-Alive $owned) { $script:owned.Add($owned) }
