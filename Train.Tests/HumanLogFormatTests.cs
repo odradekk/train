@@ -12,7 +12,7 @@ public sealed class HumanLogFormatTests
     [TestMethod]
     public void Display_names_are_fixed_width_and_independent_of_jsonl_names()
     {
-        Assert.AreEqual("intentional-ci160-failure", LogLevelText.ToSerialized(LogLevel.Debug));
+        Assert.AreEqual("debug", LogLevelText.ToSerialized(LogLevel.Debug));
         Assert.AreEqual("info", LogLevelText.ToSerialized(LogLevel.Info));
         Assert.AreEqual("warning", LogLevelText.ToSerialized(LogLevel.Warning));
         Assert.AreEqual("error", LogLevelText.ToSerialized(LogLevel.Error));
