@@ -325,7 +325,12 @@ function Assert-CommonSummary($Summary) {
     }
     Assert-True "unmeasured legacy" ($unmeasured -ge 1)
     Assert-Contains "serial execution" $Summary.Report "串行执行"
-    Assert-Contains "isolation value" $Summary.Report "per-check-appdata"
+    Assert-Contains "isolation policy" $Summary.Report "隔离策略是 per-check-appdata"
+    $isolation = ""
+    if ($Summary.Json.environment -and $Summary.Json.environment.PSObject.Properties.Name -contains "engineIsolation") {
+        $isolation = [string] $Summary.Json.environment.engineIsolation
+    }
+    Assert-True "isolation records a godot start" ($isolation -eq "" -or $isolation -eq "not-started")
     $overridePath = Join-Path $root "override.cfg"
     $overridePresent = Test-Path -LiteralPath $overridePath
     Assert-Equal "override present" $overridePresent ([bool] $Summary.Json.environment.overrideCfgPresent)
@@ -593,6 +598,9 @@ public sealed class HoldTests
 {
     [TestMethod]
     public void Holds_the_runner() => Assert.AreEqual(1, 1);
+
+    [TestMethod]
+    public void Zzz_not_started() => Assert.AreEqual(1, 1);
 }
 
 [TestClass]
@@ -833,6 +841,7 @@ internal static class Program
         {
             string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
             if (mode == "version-sleep" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
+            if (mode == "version-fail" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "fail" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             Console.WriteLine("4.7.2.fake");
@@ -1127,6 +1136,33 @@ It "fixture-timeout" {
     Note "EVIDENCE fixture-timeout $($result.DurationMs)ms"
 }
 
+It "fixture-unstarted-batch" {
+    Ensure-Sentinel
+    $sentinelId = $script:sentinel.Id
+    $results = New-Results "fixture-unstarted-batch"
+    $pidFile = Join-Path $results "pids.txt"
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-Scope", "hold",
+        "-TimeoutSeconds", "8", "-ResultsRoot", $results, "-TestHostPath", $hostPath
+    ) -Environment @{
+        TRAIN_HARNESS_MODE = "sleep"
+        TRAIN_HARNESS_LOG = (Join-Path $results "host.log")
+        TRAIN_HARNESS_PID_FILE = $pidFile
+        TRAIN_RUN_TESTS_FILTER_LIMIT = "20"
+    } -WaitMs 120000
+    Assert-Exit $result 3
+    $checks = Get-Checks (Read-Summary $result.Stdout)
+    $hold = Find-Check $checks "Fixture.HoldTests.Holds_the_runner"
+    $later = Find-Check $checks "Fixture.HoldTests.Zzz_not_started"
+    Assert-Equal "started batch cancelled" "cancelled" $hold.outcome
+    Assert-True "started batch keeps elapsed ms" ([int] $hold.durationMs -gt 1000)
+    Assert-Equal "unstarted batch" "not-executed" $later.outcome
+    Assert-Equal "unstarted reason" "timeout" $later.reason
+    Assert-Equal "unstarted duration" 0 ([int] $later.durationMs)
+    Assert-True "sentinel" (Test-Alive $sentinelId)
+    foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "killed $owned" (-not (Test-Alive $owned)) }
+}
+
 It "fixture-timeout-keeps-failure" {
     Ensure-Sentinel
     $sentinelId = $script:sentinel.Id
@@ -1177,6 +1213,7 @@ It "fixture-cancel" {
         $later = Find-Check $checks "Fixture.LaterTests.Finishes"
         Assert-Equal "hold cancel" "cancelled" $hold.outcome
         Assert-Equal "cancel reason" "cancel" $hold.reason
+        Assert-True "cancel keeps elapsed ms" ([int] $hold.durationMs -gt 0)
         Assert-Equal "later stopped" "not-executed" $later.outcome
         Assert-Equal "later reason" "cancel" $later.reason
         Assert-True "sentinel" (Test-Alive $sentinelId)
@@ -1792,6 +1829,7 @@ It "fixture-cleanup" {
         $later = Find-Check $checks "Fixture.LaterTests.Finishes"
         Assert-Equal "cleanup blocked" "blocked" $hold.outcome
         Assert-Equal "cleanup reason" "cleanup" $hold.reason
+        Assert-True "cleanup keeps elapsed ms" ([int] $hold.durationMs -gt 0)
         Assert-Equal "later not run" "not-executed" $later.outcome
         Assert-Equal "later cleanup" "cleanup" $later.reason
         Assert-True "sentinel" (Test-Alive $sentinelId)
@@ -2101,7 +2139,8 @@ It "fixture-external-import-timeout" {
     Assert-Equal "import timeout" "timeout" $external.reason
     Assert-Equal "independent mstest passed" "passed" $later.outcome
     Assert-Equal "stale assembly omitted" "" ([string] $summary.Json.environment.gameAssembly)
-    Assert-Equal "assembly reason" "timeout" ([string] $summary.Json.environment.gameAssemblyReason)
+    Assert-Equal "assembly reason" "not-requested" ([string] $summary.Json.environment.gameAssemblyReason)
+    Assert-Equal "import started godot" "per-check-appdata" ([string] $summary.Json.environment.engineIsolation)
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
     Assert-True "import log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log"))
@@ -2164,6 +2203,55 @@ It "fixture-version-timeout" {
     Assert-Equal "version timed out" "cancelled" $versionStep.outcome
     Assert-Equal "version timeout reason" "timeout" $versionStep.reason
     Assert-Equal "independent check passed" "passed" (Find-Check (Get-Checks $summary) "ext.after-version").outcome
+    Assert-Equal "version probe used appdata" "per-check-appdata" ([string] $summary.Json.environment.engineIsolation)
+}
+
+It "fixture-version-nonzero" {
+    $results = New-Results "fixture-version-nonzero"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.after-version" -Group "z-after" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -Requirements @("godot") -TimeoutSeconds 30)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.after-version", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_GODOT = "version-fail" } -WaitMs 180000
+    Assert-Exit $result 0
+    $summary = Read-Summary $result.Stdout
+    $versionStep = $null
+    foreach ($step in @($summary.Json.preparation.steps)) {
+        if ([string] $step.name -eq "godot-version") { $versionStep = $step }
+    }
+    Assert-True "version step" ($null -ne $versionStep)
+    Assert-Equal "version unknown" "unknown" $versionStep.outcome
+    Assert-Equal "version nonzero" "nonzero" $versionStep.reason
+    Assert-True "prep not blocked" ([string] $summary.Json.preparation.outcome -ne "blocked")
+    Assert-Equal "version text" "unknown" ([string] $summary.Json.environment.godotVersion)
+    Assert-Equal "check still passed" "passed" (Find-Check (Get-Checks $summary) "ext.after-version").outcome
+}
+
+It "fixture-assembly-built-this-run" {
+    $results = New-Results "fixture-assembly-built"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.game" -Group "a-game" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsGameBuild $true -NeedsImport $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.game", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_GODOT = "fail" } -WaitMs 300000
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    $expected = Join-Path $root ".godot/mono/temp/bin/Debug/Train.dll"
+    Assert-Equal "built path" $expected ([string] $summary.Json.environment.gameAssembly)
+    Assert-Equal "built reason" "built-this-run" ([string] $summary.Json.environment.gameAssemblyReason)
+    Assert-True "built file exists" (Test-Path -LiteralPath $expected)
+    $versionStep = $null
+    foreach ($step in @($summary.Json.preparation.steps)) {
+        if ([string] $step.name -eq "godot-version") { $versionStep = $step }
+    }
+    Assert-Equal "version probed" "probed" ([string] $versionStep.reason)
+    Assert-Equal "import still blocks the check" "blocked" (Find-Check (Get-Checks $summary) "ext.game").outcome
 }
 
 It "fixture-external-build-blocked" {

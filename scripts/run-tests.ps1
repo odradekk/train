@@ -34,8 +34,8 @@ $script:ExternalCatalog = $null
 $script:RunnerCatalogMode = "none"
 $script:MigrationFeedback = ""
 $script:RunChecks = $null
-$script:CleanupFailed = $false
 $script:OverrideCfg = $null
+$script:PerCheckAppDataUsed = $false
 
 function Protect-StandardHandles {
     if (-not $IsWindows) { return }
@@ -144,8 +144,8 @@ function Get-HelpText {
 
   -PrepTimeoutSeconds <秒>
       测试构建、游戏构建、Godot 导入和版本探测共用的卡住上限，默认 120。
-      2026-09-30 用空的包缓存实测：Train.Tests 还原 10471ms、构建 8315ms；Train.csproj 还原 5834ms、构建 8608ms。导入 14.7–31.6 秒。
-      120 秒约为其中最慢一次的四倍。它是卡住上限，不是通过条件。
+      2026-09-30 用空的包缓存实测：Train.Tests 还原 10471ms、构建 8315ms；Train.csproj 还原 5834ms、构建 8608ms。
+      同一天的混合运行里导入用了 37726ms。120 秒仍约为这次导入的三倍，余量够用，所以上限保持 120。它是卡住上限，不是通过条件。
       检查超时仍由 -TimeoutSeconds 或目录中的值决定。
 
 标记
@@ -324,6 +324,12 @@ function Get-ProjectAssemblyPath {
     if (-not $tfm) { throw "error: discovery project has no TargetFramework: $ProjectPath" }
     $dir = Split-Path -Parent $ProjectPath
     return Join-Path $dir (Join-Path "bin" (Join-Path $Configuration (Join-Path $tfm ($assembly + ".dll"))))
+}
+
+function Get-GodotGameAssemblyPath {
+    param([string] $Configuration)
+    # Godot.NET.Sdk writes the game assembly here. bin/<cfg>/<tfm>/Train.dll is not produced.
+    return Join-Path $script:Root ".godot/mono/temp/bin/$Configuration/Train.dll"
 }
 
 function Ensure-MetadataReader {
@@ -673,6 +679,7 @@ function Stop-OwnedProcessTree {
 function Get-OutcomeRank([string] $Outcome) {
     switch ($Outcome) {
         "passed" { return 0 }
+        "unknown" { return 0 }
         "not-executed" { return 1 }
         "cancelled" { return 2 }
         "blocked" { return 3 }
@@ -757,6 +764,7 @@ function Invoke-OwnedProcess {
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $info
     [void] $process.Start()
+    if ($AppDataDirectory -and $FileName -eq $env:GODOT) { $script:PerCheckAppDataUsed = $true }
     $stdoutTask = $process.StandardOutput.ReadToEndAsync()
     $stderrTask = $process.StandardError.ReadToEndAsync()
     $script:OwnedPid = $process.Id
@@ -996,7 +1004,7 @@ function New-Markdown {
     $registeredText = if ($registeredParts.Count -gt 0) { $registeredParts -join "、" } else { "没有外部目录里的可运行检查" }
     $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。未登记：CI。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
     $lines.Add("引擎观察、新进程恢复、领域对照和人工观感分开记录。日志和检查点是原始文件。启动或截图成功不代替这些检查。")
-    $lines.Add("需要引擎或共享资源的检查串行执行。每个 Godot 检查在本次运行目录里有一份 APPDATA，导入和版本探测另外各有一份。同一次检查里的多个 Godot 进程共用这一份。入口不写项目根目录的 override.cfg。强制结束进程也不会留下用户目录重定向。")
+    $lines.Add("需要引擎或共享资源的检查串行执行。隔离策略是 per-check-appdata：每个 Godot 检查在本次运行目录里有一份 APPDATA，导入和版本探测另外各有一份。同一次检查里的多个 Godot 进程共用这一份。入口不写项目根目录的 override.cfg。强制结束进程也不会留下用户目录重定向。environment 只在本次确实启动了使用该目录的 Godot 进程时写成 per-check-appdata，否则写成 not-started。")
     $lines.Add("")
     $selection = $Summary["selection"]
     if ($selection) {
@@ -1134,9 +1142,6 @@ function Publish-Run {
         $overrideCfg = Get-CachedOverrideCfg
         Add-Map $Environment "overrideCfgPresent" ([bool] $overrideCfg.Present) | Out-Null
         Add-Map $Environment "overrideCfgSha256" ([string] $overrideCfg.Sha256) | Out-Null
-    }
-    if (-not $Environment.ContainsKey("engineIsolation")) {
-        Add-Map $Environment "engineIsolation" "per-check-appdata" | Out-Null
     }
     if ($null -eq $Selection) { $Selection = New-RequestedSelection $Parsed }
     if ($null -eq $Checks) { $Checks = New-List }
@@ -1598,7 +1603,7 @@ function Invoke-Main {
     # Cold measurement on 2026-09-30 with empty NUGET_PACKAGES and NUGET_HTTP_CACHE_PATH:
     # Train.Tests restore 10471ms and build --no-restore 8315ms;
     # Train.csproj restore 5834ms and build --no-restore 8608ms.
-    # Import on this host was 14.7–31.6s. 120 seconds is about four times the slowest of those.
+    # The mixed run on 2026-09-30 imported in 37726ms. 120 seconds is still about three times that import, so the cap stays.
     # It is a hang cap, not a pass condition.
     $prepTimeout = 120
     if ([int] $parsed.PrepTimeoutSeconds -gt 0) { $prepTimeout = [int] $parsed.PrepTimeoutSeconds }
@@ -1763,7 +1768,7 @@ function Invoke-Main {
         }
         Add-PrepStep -Preparation $preparation -Name "game-build" -Outcome $gameOutcome -Reason $gameReason -DurationMs ([int] $gameWatch.ElapsedMilliseconds) -Command $gameCommand
         if (-not $gameBlocked) {
-            $builtAssembly = Get-ProjectAssemblyPath -ProjectPath $gameProject -Configuration $parsed.Configuration
+            $builtAssembly = Get-GodotGameAssemblyPath -Configuration $parsed.Configuration
             if (Test-Path -LiteralPath $builtAssembly) {
                 $gameAssembly = $builtAssembly
                 $gameAssemblyReason = "built-this-run"
@@ -1805,20 +1810,6 @@ function Invoke-Main {
             Apply-ProcessDisposition $importDisposition $dispatch -PrepStep
         }
         Add-PrepStep -Preparation $preparation -Name "import" -Outcome $importOutcome -Reason $importReason -DurationMs ([int] $importWatch.ElapsedMilliseconds) -Command $importCommand
-        if ($importDisposition.Kind -eq "exit" -and $import.ExitCode -eq 0) {
-            $godotDll = Join-Path $script:Root (Join-Path ".godot/mono/temp/bin" (Join-Path $parsed.Configuration "Train.dll"))
-            if (Test-Path -LiteralPath $godotDll) {
-                $gameAssembly = $godotDll
-                $gameAssemblyReason = "imported-this-run"
-            }
-            elseif (-not $gameAssembly) {
-                $gameAssemblyReason = "missing-after-import"
-            }
-        }
-        elseif (-not $gameAssembly) {
-            $gameAssembly = ""
-            $gameAssemblyReason = $importReason
-        }
     }
     if ($godotCases.Count -gt 0 -and $godotState -eq $env:GODOT -and -not $dispatch.StopDispatch) {
         $versionAppData = New-EngineAppData -RunDirectory $runDirectory -Name "godot-version"
@@ -1830,15 +1821,16 @@ function Invoke-Main {
         $version = Invoke-OwnedProcess -FileName $env:GODOT -Arguments $versionArgs -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds $prepTimeout -CancelFile $cancelFile -LogPath (Join-Path $runDirectory "godot-version.log") -StripTrainSwitches -AppDataDirectory $versionAppData
         $versionWatch.Stop()
         $versionOutcome = "passed"
-        $versionReason = "reused-for-groups"
+        $versionReason = "probed"
         $versionDisposition = Get-ProcessDisposition $version
         if ($versionDisposition.Kind -eq "exit") {
             if ($version.ExitCode -eq 0) {
                 $godotVersion = (($version.Output -split "\r?\n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1)).Trim()
             }
             else {
-                $versionOutcome = "blocked"
-                $versionReason = "version"
+                $versionOutcome = "unknown"
+                $versionReason = "nonzero"
+                $godotVersion = "unknown"
             }
         }
         else {
@@ -1935,9 +1927,8 @@ function Invoke-Main {
                 $elapsedSeconds = [int] [Math]::Floor($groupWatch.Elapsed.TotalSeconds)
                 $remaining = $timeout - $elapsedSeconds
                 if ($remaining -lt 1) {
-                    $exhaustedMs = [int] $groupWatch.ElapsedMilliseconds
                     foreach ($case in $batchCases) {
-                        $checks.Add((New-Check -Case $case -Outcome "cancelled" -Reason "timeout" -DurationMs $exhaustedMs -Group $groupName))
+                        $checks.Add((New-Check -Case $case -Outcome "not-executed" -Reason "timeout" -DurationMs 0 -Group $groupName))
                     }
                     $batchIndex++
                     continue
@@ -1957,7 +1948,7 @@ function Invoke-Main {
                 $batchDisposition = Get-ProcessDisposition $ran
                 foreach ($case in $batchCases) {
                     if ($batchDisposition.Kind -ne "exit") {
-                        $duration = if ($batchDisposition.Kind -eq "timeout") { $batchMs } else { 0 }
+                        $duration = $batchMs
                         if (($batchDisposition.Kind -eq "timeout" -or $batchDisposition.Kind -eq "cancel") -and $merged.ContainsKey($case.Id) -and [string] $merged[$case.Id].Outcome -eq "failed") {
                             $native = $merged[$case.Id]
                             $checks.Add((New-Check -Case $case -Outcome "failed" -Reason $native.Native -DurationMs $native.DurationMs -Group $groupName))
@@ -2044,7 +2035,6 @@ function Invoke-Main {
         }
     }
 
-    if ($dispatch.CleanupFailed) { $script:CleanupFailed = $true }
     $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:($dispatch.CleanupFailed) -UserCancel:($dispatch.UserCancel) -PrepTimedOut:($dispatch.PrepTimedOut)
     if ($runDirectory) { $userDataAfter = Get-GameUserDataStamp }
     $userDataUnchanged = ($userDataBefore -eq $userDataAfter) -and ($userDataBefore -ne "unreadable")
@@ -2066,7 +2056,8 @@ function Invoke-Main {
     Add-Map $environment "gameUserDataBefore" $userDataBefore | Out-Null
     Add-Map $environment "gameUserDataAfter" $userDataAfter | Out-Null
     Add-Map $environment "gameUserDataUnchanged" $userDataUnchanged | Out-Null
-    Add-Map $environment "engineIsolation" "per-check-appdata" | Out-Null
+    $engineIsolation = if ($script:PerCheckAppDataUsed) { "per-check-appdata" } else { "not-started" }
+    Add-Map $environment "engineIsolation" $engineIsolation | Out-Null
     $overrideCfg = Get-CachedOverrideCfg
     Add-Map $environment "overrideCfgPresent" ([bool] $overrideCfg.Present) | Out-Null
     Add-Map $environment "overrideCfgSha256" ([string] $overrideCfg.Sha256) | Out-Null
