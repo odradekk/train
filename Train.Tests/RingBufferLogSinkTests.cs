@@ -4,6 +4,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:logging")]
 public sealed class RingBufferLogSinkTests
 {
     [TestMethod]

@@ -8,6 +8,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:persistence")]
 public sealed class CompositeVehiclePersistenceTests
 {
     [TestMethod]

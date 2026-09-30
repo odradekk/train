@@ -9,6 +9,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:railway")]
 public sealed class TrainDisplayPresentationTests
 {
     private const double Tolerance = 1e-8;

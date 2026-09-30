@@ -8,6 +8,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:world-edit")]
 public sealed class WorldEditOrderingTests
 {
     internal static readonly WorldVoxelCoord Probe = new(60, 3, 20);

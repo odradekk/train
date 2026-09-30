@@ -9,6 +9,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:persistence")]
 public sealed class WorldSaveTests
 {
     private static readonly VoxelDefinitionId Iron = VoxelWorldFactory.DevelopmentDefinitionId;

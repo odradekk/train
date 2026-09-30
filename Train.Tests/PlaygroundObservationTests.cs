@@ -8,6 +8,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:playground")]
 public sealed class PlaygroundObservationTests
 {
     private const double Frame = 1.0 / 60.0;

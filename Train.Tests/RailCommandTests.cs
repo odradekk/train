@@ -12,6 +12,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:railway")]
 public sealed class RailCommandTests
 {
     private const double Tolerance = 1e-9;

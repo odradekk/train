@@ -6,6 +6,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:playground")]
 public sealed class ObserveConsoleCommandTests
 {
     [TestMethod]

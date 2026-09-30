@@ -7,6 +7,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:logging")]
 public sealed class StructuredLoggingTests
 {
     [TestMethod]
@@ -367,6 +369,8 @@ public sealed class StructuredLoggingTests
 }
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:logging")]
 public sealed class StructuredLoggingConcurrencyTests
 {
     [TestMethod]

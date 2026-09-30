@@ -4,6 +4,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:voxels")]
 public sealed class VoxelCubeUvTests
 {
     [TestMethod]

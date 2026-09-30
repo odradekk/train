@@ -4,6 +4,8 @@ using Train.Domain.Composites;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:composites")]
 public sealed class SplitMix64Tests
 {
     [TestMethod]

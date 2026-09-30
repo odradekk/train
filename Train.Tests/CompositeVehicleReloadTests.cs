@@ -6,6 +6,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:composites")]
 public sealed class CompositeVehicleReloadTests
 {
     [TestMethod]
