@@ -19,6 +19,7 @@ config/features=PackedStringArray("4.7", "C#")
 [autoload]
 
 Main="*res://Main.cs"
+MCPRuntimeProbe="*res://addons/godot_mcp/runtime/mcp_runtime_probe.gd"
 
 [display]
 
@@ -30,6 +31,10 @@ window/stretch/aspect="expand"
 [dotnet]
 
 project/assembly_name="Train"
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/godot_mcp/plugin.cfg")
 
 [input]
 

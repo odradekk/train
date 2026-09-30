@@ -1,12 +1,8 @@
 {
   "mcpServers": {
     "godot": {
-      "type": "stdio",
-      "command": "cmd.exe",
-      "args": ["/d", "/c", "npx", "--yes", "--package=git+https://github.com/odradekk/godot-mcp.git#cf7d6e6af4fbc7a6b2d2c7adccd1ca8263fcfb44", "godot-mcp"],
-      "env": {
-        "GODOT_PATH": "D:\\Godot_v4.7.2-stable_mono_win64\\Godot_v4.7.2-stable_mono_win64_console.exe"
-      }
+      "type": "http",
+      "url": "http://127.0.0.1:9080/mcp"
     }
   }
 }
