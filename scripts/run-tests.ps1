@@ -142,6 +142,10 @@ function Get-HelpText {
       默认读取 scripts/runner-catalog.json。none 只跑 MSTest。
       路径替换本次可运行的外部检查。清单仍来自仓库里的目录文件。
 
+  -BuildGame
+      即使所选检查不依赖游戏程序集，也复用准备步骤构建 Train.csproj；不需要 GODOT。
+      构建失败会保留 game-build.log 并使整次运行非成功，独立检查仍可执行。
+
   -PrepTimeoutSeconds <秒>
       测试构建、游戏构建、Godot 导入和版本探测共用的卡住上限，默认 120。
       2026-09-30 用空的包缓存实测：Train.Tests 还原 10471ms、构建 8315ms；Train.csproj 还原 5834ms、构建 8608ms。
@@ -165,7 +169,7 @@ function Get-HelpText {
   coverage: registered MSTest, Godot, and cross-process checks are not all repository validation.
   registered: godot.logging-smoke is a real headless engine observation. godot.authority-checkpoint is a real new-process authority comparison.
   gap: unconnected legacy runners stay on their own scripts and are listed in the inventory.
-  ci: Windows CI calls this entry; routine selection is -Family unit -Scope logging. See docs/ci.md for explicit heavier runs.
+  ci: Windows CI calls this entry. See docs/ci.md.
   pending: benchmark, long, manual, and platform are not empty groups that pass.
   manual: inventoried manual entries are not automated passes.
   isolation: each Godot check gets one APPDATA directory inside this run, and the import and the version probe each get one more. Processes started by one check share that directory. The entry does not write override.cfg. Killing the run leaves no user-data redirect. An existing project override.cfg is left untouched; its presence and SHA256 are recorded once, before Godot starts.
@@ -190,6 +194,7 @@ function Parse-RunArgs {
         Scopes = [System.Collections.Generic.List[string]]::new()
         Tests = [System.Collections.Generic.List[string]]::new()
         Correctness = $false
+        BuildGame = $false
         List = $false
         Project = "Train.Tests/Train.Tests.csproj"
         Configuration = "Debug"
@@ -221,6 +226,11 @@ function Parse-RunArgs {
     for ($i = 0; $i -lt $Raw.Count; $i++) {
         if ($parsed.Error) { break }
         $token = [string] $Raw[$i]
+        if ($token -eq "-BuildGame") {
+            if ($parsed.BuildGame) { $parsed.Error = "error: invalid-argument duplicate -BuildGame" }
+            else { $parsed.BuildGame = $true }
+            continue
+        }
         if ($token -eq "-Correctness") {
             if ($parsed.Correctness) { $parsed.Error = "error: invalid-argument duplicate -Correctness" }
             else { $parsed.Correctness = $true }
@@ -391,7 +401,6 @@ function Get-GroupSummary {
     $lines.Add("PENDING long")
     $lines.Add("PENDING manual")
     $lines.Add("PENDING platform")
-    $lines.Add("CI windows routine=-Family unit -Scope logging; explicit invocation: docs/ci.md")
     return ($lines -join [Environment]::NewLine)
 }
 
@@ -1002,7 +1011,7 @@ function New-Markdown {
     if ($registeredNames -contains "godot") { $registeredParts.Add("Godot 检查") }
     if ($registeredNames -contains "cross-process") { $registeredParts.Add("新进程检查") }
     $registeredText = if ($registeredParts.Count -gt 0) { $registeredParts -join "、" } else { "没有外部目录里的可运行检查" }
-    $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。Windows CI 复用本入口，常规选择 -Family unit -Scope logging；显式较重运行见 docs/ci.md。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
+    $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。Windows CI 说明见 docs/ci.md。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
     $lines.Add("引擎观察、新进程恢复、领域对照和人工观感分开记录。日志和检查点是原始文件。启动或截图成功不代替这些检查。")
     $lines.Add("需要引擎或共享资源的检查串行执行。隔离策略是 per-check-appdata：每个 Godot 检查在本次运行目录里有一份 APPDATA，导入和版本探测另外各有一份。同一次检查里的多个 Godot 进程共用这一份。入口不写项目根目录的 override.cfg。强制结束进程也不会留下用户目录重定向。environment 只在本次确实启动了使用该目录的 Godot 进程时写成 per-check-appdata，否则写成 not-started。")
     $lines.Add("")
@@ -1121,9 +1130,11 @@ function New-RequestedSelection {
         foreach ($scope in @($Parsed.Scopes)) { $scopes.Add($scope) }
         foreach ($test in @($Parsed.Tests)) { $tests.Add($test) }
         Add-Map $selection "correctness" ([bool] $Parsed.Correctness) | Out-Null
+        Add-Map $selection "buildGame" ([bool] $Parsed.BuildGame) | Out-Null
     }
     else {
         Add-Map $selection "correctness" $false | Out-Null
+        Add-Map $selection "buildGame" $false | Out-Null
     }
     Add-Map $selection "families" $families | Out-Null
     Add-Map $selection "scopes" $scopes | Out-Null
@@ -1154,7 +1165,7 @@ function Publish-Run {
 }
 
 function Get-ExitCode {
-    param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut)
+    param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked)
     $failed = $false
     $blocked = $false
     $cancelled = $false
@@ -1170,7 +1181,7 @@ function Get-ExitCode {
     if ($failed) { return 1 }
     if ($CleanupFailed) { return 2 }
     if ($UserCancel -or $cancelled -or $PrepTimedOut) { return 3 }
-    if ($blocked -or $notExecuted) { return 2 }
+    if ($blocked -or $notExecuted -or $RequiredBuildBlocked) { return 2 }
     return 0
 }
 
@@ -1743,7 +1754,7 @@ function Invoke-Main {
 
     $script:RunChecks = $checks
     $needsGame = @($selected | Where-Object { $_.NeedsGameBuild })
-    if ($needsGame.Count -gt 0 -and -not $dispatch.StopDispatch) {
+    if (($parsed.BuildGame -or $needsGame.Count -gt 0) -and -not $dispatch.StopDispatch) {
         $gameProject = Resolve-ExistingPath "Train.csproj"
         $gameArgs = @("build", $gameProject, "-c", $parsed.Configuration, "--nologo", "-p:UseSharedCompilation=false")
         $gameCommand = New-List
@@ -2035,7 +2046,7 @@ function Invoke-Main {
         }
     }
 
-    $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:($dispatch.CleanupFailed) -UserCancel:($dispatch.UserCancel) -PrepTimedOut:($dispatch.PrepTimedOut)
+    $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:($dispatch.CleanupFailed) -UserCancel:($dispatch.UserCancel) -PrepTimedOut:($dispatch.PrepTimedOut) -RequiredBuildBlocked:($parsed.BuildGame -and $gameBlocked)
     if ($runDirectory) { $userDataAfter = Get-GameUserDataStamp }
     $userDataUnchanged = ($userDataBefore -eq $userDataAfter) -and ($userDataBefore -ne "unreadable")
     $environment = New-Map

@@ -295,7 +295,7 @@ function Get-GitFacts {
     return [pscustomobject]@{ Commit = $commit; Dirty = $dirty }
 }
 
-function Assert-CommonSummary($Summary) {
+function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
     Assert-True "includesAllRepositoryChecks false" ($Summary.Raw -match '"includesAllRepositoryChecks":\s*false')
     Assert-True "registered mstest" ($Summary.Raw -match '"mstest"')
     Assert-Contains "source link" $Summary.Json.sourceLinkBoundary "does not prove the deployed Godot assembly"
@@ -362,7 +362,7 @@ function Assert-CommonSummary($Summary) {
     Assert-Equal "identity known" $true ([bool] $Summary.Json.identityKnown)
     Assert-Equal "end identity known" $true ([bool] $Summary.Json.gitAtEnd.identityKnown)
     Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $Summary.Json.cleanCommitProven)
-    Assert-Equal "prep count" 1 ([int] $Summary.Json.preparation.commandCount)
+    Assert-Equal "prep count" $PrepCount ([int] $Summary.Json.preparation.commandCount)
 }
 
 function New-CheckSpec {
@@ -851,6 +851,7 @@ internal static class Program
         {
             string game = Environment.GetEnvironmentVariable("FAKE_GAME_BUILD") ?? "";
             if (game == "sleep") { Thread.Sleep(60000); return 0; }
+            Console.Error.WriteLine("fixture: game compilation failed");
             return 1;
         }
         var start = new ProcessStartInfo("dotnet") { UseShellExecute = false };
@@ -886,6 +887,9 @@ It "fast-explicit" {
     $result = Invoke-Runner -ArgumentList @("-Configuration", "Debug") -WaitMs 30000
     Assert-Exit $result 4
     Assert-Contains "selection" $result.Stderr "explicit selection is required"
+    $result = Invoke-Runner -ArgumentList @("-BuildGame") -WaitMs 30000
+    Assert-Exit $result 4
+    Assert-Contains "build is not a selection" $result.Stderr "explicit selection is required"
 }
 
 It "fast-timeout-value" {
@@ -903,6 +907,9 @@ It "fast-duplicate" {
     $result = Invoke-Runner -ArgumentList @("-Project", "a", "-Project", "b", "-Family", "unit") -WaitMs 30000
     Assert-Exit $result 4
     Assert-Contains "dup project" $result.Stderr "duplicate -Project"
+    $result = Invoke-Runner -ArgumentList @("-BuildGame", "-BuildGame", "-Family", "unit") -WaitMs 30000
+    Assert-Exit $result 4
+    Assert-Contains "dup build" $result.Stderr "duplicate -BuildGame"
 }
 
 It "fast-missing" {
@@ -1853,7 +1860,7 @@ It "real-help" {
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
         "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
-        "-RunnerCatalog", "-PrepTimeoutSeconds",
+        "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
         Assert-Contains $token $result.Stdout $token
@@ -1861,6 +1868,8 @@ It "real-help" {
     Assert-Contains "partial contract" $result.Stdout "partial"
     Assert-Contains "measured contract" $result.Stdout "measured-this-run"
     Assert-True "no full pass claim" ($result.Stdout -notlike "*all repository checks passed*")
+    Assert-True "group output has no CI selector" ($result.Stdout -notmatch "(?m)^CI ")
+    Assert-True "help has no workflow selection" ($result.Stdout -notlike "*routine selection*")
     Note "EVIDENCE real-help $($result.DurationMs)ms"
 }
 
@@ -2276,6 +2285,40 @@ It "fixture-external-build-blocked" {
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
     Assert-True "game build log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "game-build.log"))
+}
+
+It "fixture-game-build-required" {
+    $results = New-Results "fixture-game-build-required"
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", "none", "-BuildGame",
+        "-Test", "Fixture.PersistPassTests.Restores_marker", "-ResultsRoot", $results
+    ) -Unset @("GODOT") -WaitMs 300000
+    Assert-Exit $result 0
+    $summary = Read-Summary $result.Stdout
+    Assert-CommonSummary $summary -PrepCount 2
+    Assert-Equal "requested game build recorded" $true $summary.Json.selection.buildGame
+    Assert-True "report does not invent a CI selection" ($summary.Report -notlike "*常规选择*")
+    $game = @($summary.Json.preparation.steps | Where-Object name -eq "game-build")
+    Assert-Equal "one shared game build" 1 $game.Count
+    Assert-Equal "game build passed without Godot" "passed" $game[0].outcome
+    Assert-True "compiles game project" ($game[0].command -contains (Join-Path $root "Train.csproj"))
+    Assert-Equal "unit passed" "passed" (Find-Check (Get-Checks $summary) "Fixture.PersistPassTests.Restores_marker").outcome
+    Assert-Equal "no engine needed" "not-required" $summary.Json.environment.godot
+    Assert-True "build log retained" (Test-Path -LiteralPath (Join-Path $summary.Directory "game-build.log"))
+}
+
+It "fixture-game-build-blocked" {
+    $results = New-Results "fixture-game-build-blocked"
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", "none", "-DotnetPath", $fakeExe, "-BuildGame",
+        "-Test", "Fixture.PersistPassTests.Restores_marker", "-ResultsRoot", $results
+    ) -Environment @{ FAKE_GAME_BUILD = "fail" } -Unset @("GODOT") -WaitMs 300000
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    Assert-Equal "required preparation blocked" "blocked" $summary.Json.preparation.outcome
+    Assert-Equal "failed build remains non-success" 2 $summary.Json.exitCode
+    Assert-Equal "independent unit still passed" "passed" (Find-Check (Get-Checks $summary) "Fixture.PersistPassTests.Restores_marker").outcome
+    Assert-Contains "build failure retained" (Get-Content (Join-Path $summary.Directory "game-build.log") -Raw) "fixture: game compilation failed"
 }
 
 It "fixture-external-timeout-tree" {
