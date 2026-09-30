@@ -4,7 +4,7 @@ run-name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && '
 on:
   pull_request:
     branches: [master]
-    types: [labeled]
+    types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       selection:
@@ -65,6 +65,20 @@ jobs:
           "powershell=$($PSVersionTable.PSVersion)" | Add-Content TestResults/ci/environment.txt
           "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
 
+      - name: Prepare Godot 4.7.2 .NET
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION != 'routine' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'godot.zip'
+          Invoke-WebRequest 'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_win64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'a2a48473a7414c5f19fab690518caebb738c09ef9601f6bd2388676a7f53b3c0') { throw 'Godot archive SHA256 mismatch' }
+          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/godot"
+          $godot = "$env:RUNNER_TEMP/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
+          "GODOT=$godot" | Add-Content $env:GITHUB_ENV
+          "godot=$(& $godot --headless --version)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       # Only forward explicit selections. The entry owns discovery, preparation,
       # assertions, evidence and exit status, including missing prerequisites.
       - name: Routine logging unit checks
@@ -85,7 +99,7 @@ jobs:
         if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'correctness' }}
         shell: pwsh
         run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke -Test godot.authority-checkpoint
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Correctness
           exit $LASTEXITCODE
 
       - name: Publish available reports
