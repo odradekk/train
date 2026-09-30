@@ -1,7 +1,7 @@
 # Thin PowerShell 7 entry for discovering, selecting, and running MSTest plus the
 # registered Godot and cross-process checks in scripts/runner-catalog.json.
 # MSTest classification is read from TestCategory metadata. Other runners contribute
-# only the invocation fields in that catalog. CI is not registered.
+# only the invocation fields in that catalog. Windows CI calls this same entry.
 #
 # Exit codes:
 #   0 selected required checks passed
@@ -165,7 +165,7 @@ function Get-HelpText {
   coverage: registered MSTest, Godot, and cross-process checks are not all repository validation.
   registered: godot.logging-smoke is a real headless engine observation. godot.authority-checkpoint is a real new-process authority comparison.
   gap: unconnected legacy runners stay on their own scripts and are listed in the inventory.
-  gap: CI is not registered (#160).
+  ci: Windows CI calls this entry; routine selection is -Family unit -Scope logging. See docs/ci.md for explicit heavier runs.
   pending: benchmark, long, manual, and platform are not empty groups that pass.
   manual: inventoried manual entries are not automated passes.
   isolation: each Godot check gets one APPDATA directory inside this run, and the import and the version probe each get one more. Processes started by one check share that directory. The entry does not write override.cfg. Killing the run leaves no user-data redirect. An existing project override.cfg is left untouched; its presence and SHA256 are recorded once, before Godot starts.
@@ -391,7 +391,7 @@ function Get-GroupSummary {
     $lines.Add("PENDING long")
     $lines.Add("PENDING manual")
     $lines.Add("PENDING platform")
-    $lines.Add("GAP ci")
+    $lines.Add("CI windows routine=-Family unit -Scope logging; explicit invocation: docs/ci.md")
     return ($lines -join [Environment]::NewLine)
 }
 
@@ -941,7 +941,7 @@ function New-Summary {
     Add-Map $summary "gitAtEnd" $endingMap | Out-Null
     Add-Map $summary "sourceLinkBoundary" "Train.Tests links production source files and does not prove the deployed Godot assembly or scene wiring." | Out-Null
     $gaps = New-List
-    foreach ($gap in @("ci", "benchmark", "long", "platform", "unconnected-legacy-runners")) { $gaps.Add($gap) }
+    foreach ($gap in @("benchmark", "long", "platform", "unconnected-legacy-runners")) { $gaps.Add($gap) }
     Add-Map $summary "migrationGaps" $gaps | Out-Null
     $runners = Get-RegisteredRunnerNames
     Add-Map $summary "registeredRunners" $runners | Out-Null
@@ -1002,7 +1002,7 @@ function New-Markdown {
     if ($registeredNames -contains "godot") { $registeredParts.Add("Godot 检查") }
     if ($registeredNames -contains "cross-process") { $registeredParts.Add("新进程检查") }
     $registeredText = if ($registeredParts.Count -gt 0) { $registeredParts -join "、" } else { "没有外部目录里的可运行检查" }
-    $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。未登记：CI。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
+    $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。Windows CI 复用本入口，常规选择 -Family unit -Scope logging；显式较重运行见 docs/ci.md。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
     $lines.Add("引擎观察、新进程恢复、领域对照和人工观感分开记录。日志和检查点是原始文件。启动或截图成功不代替这些检查。")
     $lines.Add("需要引擎或共享资源的检查串行执行。隔离策略是 per-check-appdata：每个 Godot 检查在本次运行目录里有一份 APPDATA，导入和版本探测另外各有一份。同一次检查里的多个 Godot 进程共用这一份。入口不写项目根目录的 override.cfg。强制结束进程也不会留下用户目录重定向。environment 只在本次确实启动了使用该目录的 Godot 进程时写成 per-check-appdata，否则写成 not-started。")
     $lines.Add("")

@@ -302,12 +302,12 @@ function Assert-CommonSummary($Summary) {
     Assert-Contains "report source" $Summary.Report "does not prove the deployed Godot assembly"
     Assert-Contains "manual section" $Summary.Report "人工观察"
     $gaps = As-List $Summary.Json.migrationGaps
-    foreach ($gap in @("ci", "benchmark", "long", "platform", "unconnected-legacy-runners")) {
+    foreach ($gap in @("benchmark", "long", "platform", "unconnected-legacy-runners")) {
         $found = $false
         foreach ($item in $gaps) { if ([string] $item -eq $gap) { $found = $true } }
         Assert-True "gap $gap" $found
     }
-    foreach ($gone in @("godot", "cross-process", "legacy-runner-inventory")) {
+    foreach ($gone in @("ci", "godot", "cross-process", "legacy-runner-inventory")) {
         foreach ($item in $gaps) { Assert-True "closed gap $gone" ([string] $item -ne $gone) }
     }
     $inventory = As-List $Summary.Json.inventory
@@ -1851,7 +1851,7 @@ It "real-help" {
     Assert-Exit $result 0
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
-        "source-link:", "not all repository validation", "gap: CI", "pending: benchmark", "PENDING benchmark",
+        "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
         "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
         "-RunnerCatalog", "-PrepTimeoutSeconds",
         "构建开始前", "不能证明结束时的干净提交已通过"

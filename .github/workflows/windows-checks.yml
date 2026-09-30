@@ -1,0 +1,120 @@
+name: Windows checks
+run-name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && 'correctness') || 'routine' }} · ${{ github.event.pull_request.head.sha || github.sha }}
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      selection:
+        description: Unified entry selection (Benchmark/platform/manual excluded)
+        type: choice
+        options: [routine, godot, correctness]
+        default: routine
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    # A label is a one-shot request; leaving it on a PR does not make pushes heavy.
+    if: github.event.action != 'labeled' || github.event.label.name == 'ci:correctness'
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      CI_SELECTION: ${{ inputs.selection || (github.event.action == 'labeled' && 'correctness') || 'routine' }}
+    steps:
+      - name: Checkout tested head
+        id: checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Prepare PowerShell 7.6.6
+        id: powershell
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path TestResults/ci -Force | Out-Null
+          @"
+          run=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          attempt=$env:GITHUB_RUN_ATTEMPT
+          event=$env:GITHUB_EVENT_NAME
+          selection=$env:CI_SELECTION
+          head=$(git rev-parse HEAD)
+          runner=$env:RUNNER_OS/$env:RUNNER_ARCH
+          image=$env:ImageOS/$env:ImageVersion
+          "@ | Set-Content TestResults/ci/environment.txt
+          $archive = Join-Path $env:RUNNER_TEMP 'powershell.zip'
+          Invoke-WebRequest 'https://github.com/PowerShell/PowerShell/releases/download/v7.6.6/PowerShell-7.6.6-win-x64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne '02fe458be20493fbdf43f61ea20610b811ee6c738ab1676c61b9cfcd1a33c860') { throw 'PowerShell archive SHA256 mismatch' }
+          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/pwsh"
+          "$env:RUNNER_TEMP/pwsh" | Add-Content $env:GITHUB_PATH
+
+      - name: Prepare locked .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Record tool versions
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' }}
+        shell: pwsh
+        run: |
+          "powershell=$($PSVersionTable.PSVersion)" | Add-Content TestResults/ci/environment.txt
+          "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
+
+      - name: Prepare Godot 4.7.2 .NET
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION != 'routine' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'godot.zip'
+          Invoke-WebRequest 'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_win64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'a2a48473a7414c5f19fab690518caebb738c09ef9601f6bd2388676a7f53b3c0') { throw 'Godot archive SHA256 mismatch' }
+          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/godot"
+          $godot = "$env:RUNNER_TEMP/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
+          "GODOT=$godot" | Add-Content $env:GITHUB_ENV
+          "godot=$(& $godot --headless --version)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      # Only forward explicit selections. The entry owns discovery, preparation,
+      # assertions, evidence and exit status, including missing prerequisites.
+      - name: Routine logging unit checks
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Family unit -Scope logging
+          exit $LASTEXITCODE
+
+      - name: Explicit Godot checks
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'godot' }}
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke -Test godot.authority-checkpoint
+          exit $LASTEXITCODE
+
+      - name: Explicit correctness regression
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'correctness' }}
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Correctness
+          exit $LASTEXITCODE
+
+      - name: Publish available reports
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults/run-tests -Filter report.md -Recurse -ErrorAction SilentlyContinue |
+            ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | Add-Content $env:GITHUB_STEP_SUMMARY }
+
+      - name: Upload available evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-${{ env.CI_SELECTION }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: TestResults/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
