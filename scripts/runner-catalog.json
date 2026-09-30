@@ -35,7 +35,7 @@
       "id": "godot.logging-smoke",
       "entry": "pwsh -NoProfile -File scripts/run-godot-logging-smoke.ps1",
       "contract": "真实无头 Godot 必须打印 application_ready、smoke_worker_event、SMOKE_PROCESS_DRAINED 和 SMOKE_LOGGER_DISPOSED。缺 Godot 退出 2，标记缺失或进程失败退出 1。这是引擎日志观察，不是人工观感。",
-      "boundary": "需要 Godot .NET。这个版本没有 --user-data-dir。统一入口给该检查的进程单独设置 APPDATA，引擎 user:// 落在本次运行目录里，不写项目根目录的 override.cfg。%APPDATA%\\Godot\\app_userdata\\Train 保持不变。单独运行原脚本仍使用调用方自己的用户目录。",
+      "boundary": "需要 Godot .NET。这个版本没有 --user-data-dir。统一入口给这一次检查一份 APPDATA，该检查里的进程共用它，引擎 user:// 落在本次运行目录里，不写项目根目录的 override.cfg。%APPDATA%\\Godot\\app_userdata\\Train 保持不变。单独运行原脚本仍使用调用方自己的用户目录。",
       "destination": "headless/logging，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
