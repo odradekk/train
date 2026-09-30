@@ -46,13 +46,15 @@
 
 ## 明确延后的 Feature
 
-正式游戏场景、经济与自动贸易玩法、正式车辆设计 UI、事故碰撞等伤害玩法触发源、专门遮挡检测后续开发。Faction 的设计与实现整体延后，首版不保留占位字段；当前测试场景复用正式世界模型、模拟、渲染与存档代码，并提供开发测试所需操作。
+正式游戏场景、经济与自动贸易玩法、正式游戏中受玩法约束的车辆设计 UI、事故碰撞等伤害玩法触发源、专门遮挡检测后续开发。Faction 的设计与实现整体延后，首版不保留占位字段；当前测试场景复用正式世界模型、模拟、渲染与存档代码，并提供开发测试所需操作。
 
-TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 属于当前体素定义，继续保留。资源与生产系统（[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)）的设计已定，其实现与相关 Runtime State 的存档接入不在当前四个切片，随后续切片安排；[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`，[#78](https://github.com/odradekk/train/issues/78) 仍待实现 `resource_source` 与 ResourceSourceBehavior。
+TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；Value 属于当前体素定义，继续保留。资源与生产系统（[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)）的设计已定，其实现与相关 Runtime State 的存档接入不属于当前体素引擎与世界编辑器阶段，选入后续阶段时再安排；[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`，[#78](https://github.com/odradekk/train/issues/78) 仍待实现 `resource_source` 与 ResourceSourceBehavior。
 
 首版不实现有状态随机流或定点数体系；领域层暂不使用硬件宽度可变的向量计算，后续优化须经性能与确定性验证（#34）。
 
-以下系统不是当前欠缺，而是刻意延后：Code Mod API、Offline Progress、Simulation LOD、Greedy Meshing、Voxel Geometry LOD、通用 Material System、复杂 Damage Types、World structural collapse、复杂重力系统、玩家铁路施工 UI、AI 铁路施工、复杂桥梁生成、复杂隧道生成、完整信号与联锁系统、复杂道岔控制、复杂车辆交通调度、Snapshot Save Optimization、正式版本 Save Migration。
+世界编辑器的车辆／建筑蓝图创作和线路预览／施工／改线界面属于本阶段；以下延期的玩家 UI 仅指正式游戏受玩法约束的流程。
+
+以下系统不是当前欠缺，而是刻意延后：Code Mod API、Offline Progress、Simulation LOD、Greedy Meshing、Voxel Geometry LOD、通用 Material System、复杂 Damage Types、World structural collapse、复杂重力系统、正式游戏中受玩法约束的玩家铁路施工 UI、AI 铁路施工、复杂桥梁生成、复杂隧道生成、完整信号与联锁系统、复杂道岔控制、复杂车辆交通调度、Snapshot Save Optimization、正式版本 Save Migration。
 
 本阶段已将水平基本道岔及多列车最小共线防护纳入，几何边界与验证矩阵见 [06 的本阶段契约](06-railway.md#本阶段几何与车辆验证契约)，站点顺序运行计划、三端道岔、到下一整列等待位置的完整授权、区段独占、车尾释放、确定性排队及拆分保护已由[网络运行规则](https://github.com/odradekk/train/issues/94)确认，见 [06 的网络运行契约](06-railway.md#本阶段网络运行契约)。这些最小占用与预留机制不在延期范围内；约定网络和负载须持续通行，不能仅以停车避碰通过验收。复杂交叉、坡上或弯道内道岔、超高/侧倾、三个以上独立接触约束和铰接车体继续延后；独立线路不能共占一格的规则不因纳入基本道岔而自动取消。
 
@@ -109,7 +111,7 @@ TradeMetadata 的字段与实现、Mod 跨包覆盖与 patch 延后（#31）；V
 
 硬件选型证据（2026-09-27 查阅）：[Steam 官方调查](https://store.steampowered.com/hwsurvey/)当前显示 2026 年 8 月全平台汇总，16 GB 内存占 41.20%，1080p 占 50.52%，GTX 1650 占 2.37%，6 核与 8 核分别占 27.43% 和 28.04%。调查没有给出可据此认定的平均 CPU 型号或整机组合，不能将分项占比相乘或视为联合覆盖证据。具体型号由用户在 Q10 选定；[AMD 的 Ryzen 5 3600 资料](https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-3000-series/amd-ryzen-5-3600.html)及 [NVIDIA 的 GTX 1650 资料](https://www.nvidia.com/en-ph/geforce/graphics-cards/gtx-1650/)用于核对产品规格，桌面 GDDR5 版本不与移动版或 GDDR6 版本混用。
 
-旧切片报告只作原环境与负载下的历史观测，不外推为生成网络或长时稳定保证。正式测量须记录实际 GPU、驱动、显示与供电条件，并满足届时版本锁定的 SDK/Godot 环境；当前规划工作树要求的 .NET SDK 10.0.111 在本机缺失，须在运行正式验证前解决，本轮不修改环境或运行压力测试。
+旧切片报告只作原环境与负载下的历史观测，不外推为生成网络或长时稳定保证。正式测量须记录实际 GPU、驱动、显示与供电条件，并满足届时版本锁定的 SDK/Godot 环境；正式验证前须按届时的 global.json 与 dotnet --version 核对 SDK，并检查 Godot 路径和版本，不把历史机器环境当作当前结论；本轮不修改环境或运行压力测试。
 
 ### 世界编辑器 Benchmark 工作流
 
@@ -139,13 +141,13 @@ Benchmark 分为可独立选择的操作基准、真实窗口体验和长期稳�
 
 旧性能脚本先登记再迁移，保留有价值的负载、原始数据及历史说明，逐步迁到统一入口与正式编辑器能力。代表测量、结果校验及报告贯通后再退役旧调用；新基线不能仅靠包装旧脚本宣称完成，也不以引入特定框架或重写全部采样代码为前置。旧切片的无头小负载及采集完成标记不等于正式性能验收，历史结果与新基线明确分开；旧场景删除仍受独立退役门槛约束。
 
-Benchmark 按三个关口收尾：先交付可实际执行的代表基准与统一报告，再用实测提交编辑规模、操作频率、诊断组合、撤销／录制／片段容量及相应阈值供用户冻结，最后在冻结负载上完成正式窗口及长期验收。实现与集中测量可安排在阶段后段，早期仍按复杂度、内存或规模风险做定向测量。目标实机未取得时，可以分别报告工具与开发机工作完成，但整个阶段的目标性能仍待验证；规划、空入口或旧报告不算交付。整体实施票的拆分、依赖和验收改写由后续分期重组统一落实。
+Benchmark 按三个关口收尾：先交付可实际执行的代表基准与统一报告，再用实测提交编辑规模、操作频率、诊断组合、撤销／录制／片段容量及相应阈值供用户冻结，最后在冻结负载上完成正式窗口及长期验收。实现与集中测量可安排在阶段后段，早期仍按复杂度、内存或规模风险做定向测量。目标实机未取得时，可以分别报告工具与开发机工作完成，但整个阶段的目标性能仍待验证；规划、空入口或旧报告不算交付。整体交付票及依赖已由[分期规格](voxel-engine-stage-spec.md)确定，复杂票在派发前按需拆成纵向实施子票。
 
 ## 本阶段分期规格
 
 [体素引擎与世界编辑器分期规格](voxel-engine-stage-spec.md)已按[分期重组决策](https://github.com/odradekk/train/issues/145)定稿，并经用户确认完整规格。已确认起步顺序为统一测试执行 → 单一存档工作区 → 基础世界工具；建筑之后分内容创作与铁路两条线，诊断及三个旧用例迁移组从基础工具后展开。Layout 手工闭环与跨区表现汇合到地形／聚居地生成，再联合生成铁路；完整复现默认在两片生成之间，可按真实依赖提前，最终负载冻结前必须完整覆盖并默认开启。
 
-旧入口在三个迁移组证据齐备后集中退役，不依赖生成或目标硬件；可执行 Benchmark、用户参数冻结和最终联合验收分别交付。新增权威状态的恢复与确定性随功能片闭合，目标实机缺失仍保留性能关口。原 S1–S9 单链及旧标签不再作为派发依据；完整票据对照、硬依赖和退出条件见上述规格，实际 GitHub 重整留给下一张规划落地任务。本轮不启动实施。
+旧入口在三个迁移组证据齐备后集中退役，不依赖生成或目标硬件；可执行 Benchmark、用户参数冻结和最终联合验收分别交付。新增权威状态的恢复与确定性随功能片闭合，目标实机缺失仍保留性能关口。原 S1–S9 单链及旧标签不再作为派发依据；完整票据对照、硬依赖和退出条件见上述规格，实际 GitHub 票据、原生依赖与标签已按[规划落地任务](https://github.com/odradekk/train/issues/146)重整。本轮不启动实施。
 
 ## 当前实施顺序：前四个端到端切片
 
