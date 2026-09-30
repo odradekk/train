@@ -282,6 +282,8 @@ function Assert-CommonSummary($Summary) {
     Assert-Equal "end commit" $git.Commit ([string] $Summary.Json.gitAtEnd.commit)
     Assert-Equal "end dirty" $git.Dirty ([bool] $Summary.Json.gitAtEnd.dirty)
     Assert-Equal "identity stable" $false ([bool] $Summary.Json.testedIdentityChanged)
+    Assert-Equal "identity known" $true ([bool] $Summary.Json.identityKnown)
+    Assert-Equal "end identity known" $true ([bool] $Summary.Json.gitAtEnd.identityKnown)
     Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $Summary.Json.cleanCommitProven)
     Assert-Equal "prep count" 1 ([int] $Summary.Json.preparation.commandCount)
 }
@@ -974,13 +976,14 @@ function Invoke-NestedGit {
 }
 
 function New-BindingRepository {
-    param([string] $Name, [string] $Source)
+    param([string] $Name, [string] $Source, [string] $RunnerPath)
+    if (-not $RunnerPath) { $RunnerPath = $runner }
     $repo = Join-Path $evidence "git-binding/$Name"
     New-Item -ItemType Directory -Force -Path (Join-Path $repo "scripts") | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $repo ".gitignore"), "bin/`nobj/`nTestResults/`n", $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "Binding.csproj"), $sdk, $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "BindingTests.cs"), $Source, $utf8)
-    [System.IO.File]::Copy($runner, (Join-Path $repo "scripts/run-tests.ps1"), $true)
+    [System.IO.File]::Copy($RunnerPath, (Join-Path $repo "scripts/run-tests.ps1"), $true)
     [System.IO.File]::Copy((Join-Path $PSScriptRoot "TestMetadataReader.cs"), (Join-Path $repo "scripts/TestMetadataReader.cs"), $true)
     $null = Invoke-NestedGit $repo @("init")
     $null = Invoke-NestedGit $repo @("add", "-A")
@@ -1152,6 +1155,131 @@ It "fixture-git-binding-paths" {
     Assert-Contains "end extra" $endPaths "Extra.txt"
     Assert-Contains "paths boundary" $pathsSummary.Report "不是本次已验证的代码"
     Note "EVIDENCE fixture-git-binding-paths $($pathsSummary.Directory)"
+}
+
+function Invoke-CopiedBindingRunner {
+    param([string] $Repo, [string] $ResultsName)
+    $results = New-Results $ResultsName
+    return Invoke-Runner -RunnerPath (Join-Path $Repo "scripts/run-tests.ps1") -WorkingDirectory $Repo -Unset $script:GitIsolation -ArgumentList @(
+        "-Project", (Join-Path $Repo "Binding.csproj"), "-Correctness", "-ResultsRoot", $results
+    ) -WaitMs 180000
+}
+
+function Break-NestedIndex {
+    param([string] $Repo)
+    $index = [System.IO.Path]::GetFullPath((Join-Path $Repo ".git/index"))
+    $allowed = [System.IO.Path]::GetFullPath($evidence)
+    if (-not $allowed.EndsWith([System.IO.Path]::DirectorySeparatorChar)) { $allowed += [System.IO.Path]::DirectorySeparatorChar }
+    if (-not $index.StartsWith($allowed, [System.StringComparison]::OrdinalIgnoreCase)) { throw "refusing to rewrite $index" }
+    [System.IO.File]::WriteAllBytes($index, [byte[]](98, 97, 100))
+    [System.IO.File]::WriteAllText((Join-Path $Repo "Untracked.txt"), "not in the index", $utf8)
+}
+
+It "fixture-git-status-clean" {
+    $repo = New-BindingRepository "status-clean" $bindingSource
+    $run = Invoke-CopiedBindingRunner $repo.Repo "git-status-clean"
+    Assert-Exit $run 0
+    $summary = Read-Summary $run.Stdout
+    $head = Invoke-NestedGit $repo.Repo @("rev-parse", "HEAD")
+    Assert-BindingIdentity $summary $repo.Head $false $head $false $false $true
+    Assert-Equal "identity known" $true ([bool] $summary.Json.identityKnown)
+    Assert-Equal "end identity known" $true ([bool] $summary.Json.gitAtEnd.identityKnown)
+    Assert-Equal "identity reason" "" ([string] $summary.Json.identityReason)
+    Assert-Contains "clean sentence" $summary.Report "工作区干净"
+    $help = Invoke-Runner -RunnerPath (Join-Path $repo.Repo "scripts/run-tests.ps1") -WorkingDirectory $repo.Repo -Unset $script:GitIsolation -ArgumentList @("-Nope") -WaitMs 30000
+    Assert-Exit $help 4
+    Assert-Contains "unverified help" $help.Stdout "身份未验证"
+    Note "EVIDENCE fixture-git-status-clean $($summary.Directory)"
+}
+
+It "fixture-git-status-failure" {
+    $repo = New-BindingRepository "status-failure" $bindingSource
+    Break-NestedIndex $repo.Repo
+    $run = Invoke-CopiedBindingRunner $repo.Repo "git-status-failure"
+    Assert-Exit $run 0
+    $summary = Read-Summary $run.Stdout
+    $passed = Find-Check (Get-Checks $summary) "BindingFixture.BindingTests.Runs_built_sources"
+    Assert-Equal "status failure still passed" "passed" $passed.outcome
+    Assert-Equal "identity unknown" $false ([bool] $summary.Json.identityKnown)
+    Assert-Equal "end identity unknown" $false ([bool] $summary.Json.gitAtEnd.identityKnown)
+    Assert-Equal "not a recorded change" $false ([bool] $summary.Json.testedIdentityChanged)
+    Assert-Equal "not proven" $false ([bool] $summary.Json.cleanCommitProven)
+    Assert-Contains "status reason" ([string] $summary.Json.identityReason) "git status exit 128"
+    Assert-Contains "unverified report" $summary.Report "Git 身份未验证"
+    Assert-Contains "reason in report" $summary.Report "git status exit 128"
+    Assert-True "not reported clean" ($summary.Report -notlike "*工作区干净*")
+    Assert-True "not reported dirty" ($summary.Report -notlike "*有未提交修改*")
+    Note "EVIDENCE fixture-git-status-failure $($summary.Directory)"
+}
+
+It "fixture-git-missing-start" {
+    $directory = Join-Path $evidence "missing-start"
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    $probe = Join-Path $evidence "missing-start-probe.ps1"
+    @'
+param([string] $Runner, [string] $Directory)
+$ErrorActionPreference = "Stop"
+. $Runner
+$script:TestedGit = $null
+$selection = New-Map
+Add-Map $selection "families" (New-List) | Out-Null
+Add-Map $selection "scopes" (New-List) | Out-Null
+Add-Map $selection "tests" (New-List) | Out-Null
+Add-Map $selection "correctness" $false | Out-Null
+Add-Map $selection "caseIds" (New-List) | Out-Null
+$preparation = New-Map
+Add-Map $preparation "durationMs" 0 | Out-Null
+Add-Map $preparation "commandCount" 0 | Out-Null
+Add-Map $preparation "outcome" "passed" | Out-Null
+Add-Map $preparation "reason" "none" | Out-Null
+Publish-Run -Preparation $preparation -Selection $selection -ExitCode 0 -Directory $Directory
+'@ | Set-Content -LiteralPath $probe -Encoding utf8NoBOM
+    & $pwsh -NoProfile -File $probe -Runner $runner -Directory $directory
+    if ($LASTEXITCODE -ne 0) { throw "missing-start probe exit $LASTEXITCODE" }
+    $summaryPath = Join-Path $directory "summary.json"
+    $report = [System.IO.File]::ReadAllText((Join-Path $directory "report.md"))
+    $json = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+    $head = (& git -C $root rev-parse HEAD | Out-String).Trim()
+    Assert-Equal "start not the end commit" "unknown" ([string] $json.commit)
+    Assert-Equal "end is live" $head ([string] $json.gitAtEnd.commit)
+    Assert-Equal "start unknown" $false ([bool] $json.identityKnown)
+    Assert-Equal "end known" $true ([bool] $json.gitAtEnd.identityKnown)
+    Assert-Equal "missing reason" "构建前没有记录 Git 身份" ([string] $json.identityReason)
+    Assert-Equal "not proven" $false ([bool] $json.cleanCommitProven)
+    Assert-Contains "unverified report" $report "Git 身份未验证"
+    Assert-Contains "missing reason report" $report "构建前没有记录 Git 身份"
+    Note "EVIDENCE fixture-git-missing-start $directory"
+}
+
+It "fixture-git-status-before" {
+    $oldDir = Join-Path $evidence "git-status"
+    New-Item -ItemType Directory -Force -Path $oldDir | Out-Null
+    $oldRunner = Join-Path $oldDir "run-tests-6ab7e87.ps1"
+    $show = [System.Diagnostics.ProcessStartInfo]::new()
+    $show.FileName = (Get-Command git).Source
+    $show.UseShellExecute = $false
+    $show.RedirectStandardOutput = $true
+    $show.RedirectStandardError = $true
+    $show.StandardOutputEncoding = $utf8
+    foreach ($argument in @("-C", $root, "show", "6ab7e87:scripts/run-tests.ps1")) { [void] $show.ArgumentList.Add($argument) }
+    $showProcess = [System.Diagnostics.Process]::new()
+    $showProcess.StartInfo = $show
+    [void] $showProcess.Start()
+    $oldText = $showProcess.StandardOutput.ReadToEnd()
+    $showError = $showProcess.StandardError.ReadToEnd()
+    [void] $showProcess.WaitForExit()
+    if ($showProcess.ExitCode -ne 0 -or -not $oldText) { throw "git show 6ab7e87 failed $showError" }
+    [System.IO.File]::WriteAllText($oldRunner, $oldText, $utf8)
+    $repo = New-BindingRepository "status-before" $bindingSource $oldRunner
+    Break-NestedIndex $repo.Repo
+    $run = Invoke-CopiedBindingRunner $repo.Repo "git-status-before"
+    Assert-Exit $run 0
+    $summary = Read-Summary $run.Stdout
+    $passed = Find-Check (Get-Checks $summary) "BindingFixture.BindingTests.Runs_built_sources"
+    Assert-Equal "old runner still passed" "passed" $passed.outcome
+    Assert-Equal "old dirty false" $false ([bool] $summary.Json.dirty)
+    Assert-Equal "old proven" $true ([bool] $summary.Json.cleanCommitProven)
+    Note "EVIDENCE fixture-git-status-before $($summary.Directory)"
 }
 
 It "fixture-ctrl-c" {
@@ -1546,6 +1674,8 @@ It "real-headless" {
     Assert-Equal "end commit" $git.Commit ([string] $summary.Json.gitAtEnd.commit)
     Assert-Equal "end dirty" $git.Dirty ([bool] $summary.Json.gitAtEnd.dirty)
     Assert-Equal "identity stable" $false ([bool] $summary.Json.testedIdentityChanged)
+    Assert-Equal "identity known" $true ([bool] $summary.Json.identityKnown)
+    Assert-Equal "end identity known" $true ([bool] $summary.Json.gitAtEnd.identityKnown)
     Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $summary.Json.cleanCommitProven)
     Note "EVIDENCE real-headless $($summary.Directory) $($result.DurationMs)ms"
 }

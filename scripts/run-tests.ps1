@@ -152,6 +152,7 @@ function Get-HelpText {
   每次执行写入新的 TestResults/run-tests/<id>/summary.json、report.md，并保留原始 TRX 与日志。
   记录的提交和脏状态取自构建开始前。运行结束时的 Git 状态单独记录。
   运行期间如果提交或工作区变了，结果不能证明结束时的干净提交已通过。
+  读不到提交或工作区状态时，身份未验证，不能把该次运行当成干净提交已通过。
   不覆盖历史结果。脏工作区的结果不能证明干净提交已通过。
   取消：执行过程中创建该次目录下的 cancel.request，或按 Ctrl+C。只结束本次启动的进程树。
 
@@ -450,27 +451,69 @@ function Select-Cases {
     return [pscustomobject]@{ Error = ""; ExitCode = 0; Cases = $selected.ToArray() }
 }
 
+function New-MissingGitState {
+    param([string] $Reason)
+    return [pscustomobject]@{
+        Commit = "unknown"
+        Dirty = $true
+        Paths = (New-List)
+        IdentityKnown = $false
+        IdentityReason = $Reason
+    }
+}
+
 function Get-GitState {
     $commit = "unknown"
     $dirty = $true
     $paths = New-List
+    $known = $false
+    $reason = "无法读取 Git 状态"
     try {
-        $commit = (& git -C $script:Root rev-parse HEAD 2>$null | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0 -or -not $commit) { $commit = "unknown" }
-        $porcelain = & git -C $script:Root status --porcelain
-        $text = @($porcelain | ForEach-Object { [string] $_ }) -join [Environment]::NewLine
-        $dirty = -not [string]::IsNullOrWhiteSpace($text)
-        if ($dirty) {
-            foreach ($line in @($porcelain)) {
-                if (-not [string]::IsNullOrWhiteSpace([string] $line)) { $paths.Add(([string] $line).Trim()) }
+        $commitText = (& git -C $script:Root rev-parse HEAD 2>$null | Out-String).Trim()
+        $revCode = $LASTEXITCODE
+        $revOk = ($revCode -eq 0 -and $commitText)
+        if ($revOk) { $commit = $commitText }
+        else { $reason = "git rev-parse exit $revCode" }
+        $statusLines = @(& git -C $script:Root status --porcelain 2>&1)
+        $statusCode = $LASTEXITCODE
+        if ($statusCode -ne 0) {
+            $detail = ((@($statusLines) | ForEach-Object { [string] $_ }) -join " ").Trim()
+            if ($detail.Length -gt 240) { $detail = $detail.Substring(0, 240) }
+            $statusReason = "git status exit $statusCode"
+            if ($detail) { $statusReason = "$statusReason $detail" }
+            if (-not $revOk) { $reason = "$reason; $statusReason" }
+            else { $reason = $statusReason }
+        }
+        elseif (-not $revOk) {
+            $dirty = $true
+        }
+        else {
+            $known = $true
+            $reason = ""
+            $text = ((@($statusLines) | ForEach-Object { [string] $_ }) -join [Environment]::NewLine)
+            $dirty = -not [string]::IsNullOrWhiteSpace($text)
+            if ($dirty) {
+                foreach ($line in @($statusLines)) {
+                    if (-not [string]::IsNullOrWhiteSpace([string] $line)) { $paths.Add(([string] $line).Trim()) }
+                }
             }
         }
     }
     catch {
         $commit = "unknown"
         $dirty = $true
+        $known = $false
+        $reason = [string] $_.Exception.Message
     }
-    return [pscustomobject]@{ Commit = $commit; Dirty = [bool] $dirty; Paths = $paths }
+    # An unreadable snapshot is not a known-clean tree. Dirty stays true so it cannot be
+    # reported as clean; IdentityKnown says this was not an observation of edits.
+    return [pscustomobject]@{
+        Commit = $commit
+        Dirty = [bool] $dirty
+        Paths = $paths
+        IdentityKnown = [bool] $known
+        IdentityReason = $reason
+    }
 }
 
 function Test-GitChanged($Start, $End) {
@@ -740,14 +783,12 @@ function New-Summary {
         $outcome = [string] $check["outcome"]
         if ($counts.ContainsKey($outcome)) { $counts[$outcome]++ }
     }
-    if ($null -eq $Ending) {
-        $Ending = [pscustomobject]@{ Commit = "unknown"; Dirty = $true; Paths = (New-List) }
-        $changed = $true
-    }
-    else {
-        $changed = Test-GitChanged $Git $Ending
-    }
-    $proven = (-not [bool] $Git.Dirty) -and (-not [bool] $Ending.Dirty) -and (-not $changed) -and ([string] $Git.Commit -ne "unknown")
+    if ($null -eq $Ending) { $Ending = New-MissingGitState "运行结束时没有记录 Git 身份" }
+    $startKnown = [bool] $Git.IdentityKnown
+    $endKnown = [bool] $Ending.IdentityKnown
+    if (-not $startKnown -or -not $endKnown) { $changed = $false }
+    else { $changed = Test-GitChanged $Git $Ending }
+    $proven = $startKnown -and $endKnown -and (-not [bool] $Git.Dirty) -and (-not [bool] $Ending.Dirty) -and (-not $changed) -and ([string] $Git.Commit -ne "unknown")
     $summary = New-Map
     Add-Map $summary "schemaVersion" 1 | Out-Null
     Add-Map $summary "includesAllRepositoryChecks" $false | Out-Null
@@ -755,11 +796,15 @@ function New-Summary {
     Add-Map $summary "commit" $Git.Commit | Out-Null
     Add-Map $summary "dirty" ([bool] $Git.Dirty) | Out-Null
     Add-Map $summary "dirtyPaths" $Git.Paths | Out-Null
+    Add-Map $summary "identityKnown" $startKnown | Out-Null
+    Add-Map $summary "identityReason" ([string] $Git.IdentityReason) | Out-Null
     Add-Map $summary "testedIdentityChanged" $changed | Out-Null
     $endingMap = New-Map
     Add-Map $endingMap "commit" $Ending.Commit | Out-Null
     Add-Map $endingMap "dirty" ([bool] $Ending.Dirty) | Out-Null
     Add-Map $endingMap "dirtyPaths" $Ending.Paths | Out-Null
+    Add-Map $endingMap "identityKnown" $endKnown | Out-Null
+    Add-Map $endingMap "identityReason" ([string] $Ending.IdentityReason) | Out-Null
     Add-Map $summary "gitAtEnd" $endingMap | Out-Null
     Add-Map $summary "sourceLinkBoundary" "Train.Tests links production source files and does not prove the deployed Godot assembly or scene wiring." | Out-Null
     $gaps = New-List
@@ -796,8 +841,13 @@ function New-Markdown {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("# 测试运行")
     $lines.Add("")
-    if ($Summary["testedIdentityChanged"]) {
-        $ending = $Summary["gitAtEnd"]
+    $ending = $Summary["gitAtEnd"]
+    if (-not $Summary["identityKnown"] -or -not $ending["identityKnown"]) {
+        $startReason = if ($Summary["identityKnown"]) { "已记录提交 $($Summary["commit"])" } else { [string] $Summary["identityReason"] }
+        $endReason = if ($ending["identityKnown"]) { "已记录提交 $($ending["commit"])" } else { [string] $ending["identityReason"] }
+        $lines.Add("Git 身份未验证。构建前：$startReason。运行结束时：$endReason。该结果不能证明干净提交已通过。")
+    }
+    elseif ($Summary["testedIdentityChanged"]) {
         $startText = if ($Summary["dirty"]) { "有未提交修改" } else { "干净" }
         $endText = if ($ending["dirty"]) { "有未提交修改" } else { "干净" }
         $lines.Add("构建前是提交 $($Summary["commit"])，工作区$startText。运行结束时是提交 $($ending["commit"])，工作区$endText。结束时的提交和工作区不是本次已验证的代码。")
@@ -908,8 +958,9 @@ function Publish-Run {
     if ($null -eq $Selection) { $Selection = New-RequestedSelection $Parsed }
     if ($null -eq $Checks) { $Checks = New-List }
     if ($null -eq $Groups) { $Groups = New-List }
-    if ($null -eq $script:TestedGit) { $script:TestedGit = Get-GitState }
-    $summary = New-Summary -Parsed $Parsed -Git $script:TestedGit -Ending (Get-GitState) -Environment $Environment -Selection $Selection -Checks $Checks -Groups $Groups -Preparation $Preparation -ExitCode $ExitCode -Directory $Directory
+    $tested = $script:TestedGit
+    if ($null -eq $tested) { $tested = New-MissingGitState "构建前没有记录 Git 身份" }
+    $summary = New-Summary -Parsed $Parsed -Git $tested -Ending (Get-GitState) -Environment $Environment -Selection $Selection -Checks $Checks -Groups $Groups -Preparation $Preparation -ExitCode $ExitCode -Directory $Directory
     $markdown = New-Markdown -Summary $summary
     Write-RunReports -State ([pscustomobject]@{ Directory = $Directory; Summary = $summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
 }
@@ -1371,6 +1422,7 @@ function Invoke-Main {
     return $exitCode
 }
 
+if ($MyInvocation.InvocationName -ne '.') {
 try {
     $exitCode = Invoke-Main
     if ($exitCode -isnot [int] -and $exitCode -isnot [long]) {
@@ -1410,4 +1462,5 @@ finally {
     if ($script:HandlerAdded) {
         Unregister-CancelSignal
     }
+}
 }
