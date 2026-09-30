@@ -41,12 +41,12 @@ public static class TestMetadataReader
             foreach (var methodHandle in type.GetMethods())
             {
                 var method = reader.GetMethodDefinition(methodHandle);
-                if (!HasAttribute(reader, method.GetCustomAttributes(), "TestMethodAttribute"))
+                if (!IsExecutableTest(reader, method.GetCustomAttributes()))
                     continue;
 
                 var id = TypeId(reader, type) + "." + reader.GetString(method.Name);
                 if (!isTestClass)
-                    catalog.Errors.Add(id + " has TestMethod without TestClass");
+                    catalog.Errors.Add(id + " has a test method without TestClass");
 
                 var categories = new List<string>(typeCategories);
                 categories.AddRange(Categories(reader, method.GetCustomAttributes(), catalog));
@@ -121,6 +121,20 @@ public static class TestMetadataReader
 
         var ns = reader.GetString(type.Namespace);
         return ns.Length == 0 ? name : ns + "." + name;
+    }
+
+    static bool IsExecutableTest(MetadataReader reader, CustomAttributeHandleCollection handles)
+    {
+        foreach (var handle in handles)
+        {
+            var name = AttributeTypeName(reader, handle);
+            // DataTestMethodAttribute derives from TestMethodAttribute. The metadata
+            // records the derived name, so an exact TestMethodAttribute match drops it.
+            if (name == "TestMethodAttribute" || name == "DataTestMethodAttribute")
+                return true;
+        }
+
+        return false;
     }
 
     static bool HasAttribute(MetadataReader reader, CustomAttributeHandleCollection handles, string typeName)

@@ -10,7 +10,8 @@ $root = Split-Path -Parent $PSScriptRoot
 $runner = Join-Path $PSScriptRoot "run-tests.ps1"
 $pwsh = (Get-Process -Id $PID).Path
 $utf8 = [System.Text.UTF8Encoding]::new($false)
-$evidence = Join-Path $root "TestResults/issue-158"
+$runStamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
+$evidence = Join-Path $root "TestResults/issue-158/harness/$runStamp"
 $fixtureRoot = Join-Path $evidence "fixture"
 $project = Join-Path $fixtureRoot "Fixture.csproj"
 $bareProject = Join-Path $evidence "bare/Bare.csproj"
@@ -28,6 +29,8 @@ function Note([string] $Text) {
     Write-Host $Text
     Add-Content -LiteralPath $logPath -Value $Text -Encoding utf8
 }
+
+Note "HARNESS_ROOT=$evidence"
 
 function It {
     param([string] $Name, [scriptblock] $Body)
@@ -75,7 +78,6 @@ function As-List($Value) {
 
 function New-Results([string] $Name) {
     $path = Join-Path $evidence "runs/$Name"
-    if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Recurse -Force }
     New-Item -ItemType Directory -Force -Path $path | Out-Null
     return $path
 }
@@ -424,6 +426,16 @@ public sealed class GraphicalNeedTests
 }
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:rows")]
+public sealed class DataMethodTests
+{
+    [DataTestMethod]
+    [DataRow(1)]
+    public void DataTestMethod_is_listed(int value) => Assert.Fail("data test failure");
+}
+
+[TestClass]
 [TestCategory("family:headless")]
 [TestCategory("scope:hold")]
 public sealed class HoldTests
@@ -534,6 +546,21 @@ if (($mode -eq "sleep" -or $mode -eq "fail-sleep") -and $filter -match "Holds_th
     $child = Start-Process -FilePath $hostPwsh -ArgumentList @("-NoProfile", "-Command", "Start-Sleep -Seconds 300") -PassThru -WindowStyle Hidden
     if ($pidFile) { Set-Content -LiteralPath $pidFile -Value "$PID,$($child.Id)" -Encoding ascii }
     Start-Sleep -Seconds 300
+    exit 0
+}
+if ($mode -eq "fail-then-pass" -or $mode -eq "pass-then-fail") {
+    if ($results -and $ids.Count -gt 0) {
+        New-Item -ItemType Directory -Force -Path $results | Out-Null
+        $id = $ids[0]
+        $dot = $id.LastIndexOf(".")
+        $class = $id.Substring(0, $dot)
+        $name = $id.Substring($dot + 1)
+        $first = "Failed"
+        $second = "Passed"
+        if ($mode -eq "pass-then-fail") { $first = "Passed"; $second = "Failed" }
+        $xml = "<?xml version=`"1.0`" encoding=`"utf-8`"?><TestRun xmlns=`"http://microsoft.com/schemas/VisualStudio/TeamTest/2010`"><TestDefinitions><UnitTest name=`"$name`" id=`"1`"><TestMethod className=`"$class`" name=`"$name`" /></UnitTest></TestDefinitions><Results><UnitTestResult testId=`"1`" testName=`"$name`" outcome=`"$first`" duration=`"00:00:00.1000000`" /><UnitTestResult testId=`"1`" testName=`"$name`" outcome=`"$second`" duration=`"00:00:00.0500000`" /></Results></TestRun>"
+        [System.IO.File]::WriteAllText((Join-Path $results $trxName), $xml)
+    }
     exit 0
 }
 if ($mode -eq "extra") { $ids.Add("Fixture.NotSelected.ExtraMethod") }
@@ -888,6 +915,119 @@ It "fixture-cancel" {
     finally {
         if ($handle) { Stop-Tree $handle.Process.Id }
     }
+}
+
+It "fixture-trx-row-order" {
+    $id = "Fixture.VoxelRuleTests.Adds_two_integers"
+    foreach ($mode in @("fail-then-pass", "pass-then-fail")) {
+        $results = New-Results "trx-$mode"
+        $result = Invoke-Runner -ArgumentList @(
+            "-Project", $project, "-Test", $id,
+            "-ResultsRoot", $results, "-TestHostPath", $hostPath
+        ) -Environment @{ TRAIN_HARNESS_MODE = $mode } -WaitMs 180000
+        Assert-Exit $result 1
+        $check = Find-Check (Get-Checks (Read-Summary $result.Stdout)) $id
+        Assert-Equal "$mode outcome" "failed" $check.outcome
+        Assert-Equal "$mode reason" "Failed" $check.reason
+        Assert-Equal "$mode duration" 150 ([int] $check.durationMs)
+    }
+}
+
+It "fixture-ctrl-c" {
+    Ensure-Sentinel
+    $sentinelId = $script:sentinel.Id
+    $python = (Get-Command python -ErrorAction SilentlyContinue).Source
+    if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
+    Assert-True "python for ctrl-c probe" ([bool] $python)
+    $probeDir = Join-Path $evidence "ctrl-c-probe"
+    $outDir = Join-Path $probeDir "out"
+    New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+    $enable = @'
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class ConsoleControlProbe {
+ [DllImport("kernel32.dll",SetLastError=true)] public static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
+}
+"@
+[Console]::Out.WriteLine("ENABLE_CTRL_C="+[ConsoleControlProbe]::SetConsoleCtrlHandler([IntPtr]::Zero,$false))
+& '__RUNNER__' @args
+exit $LASTEXITCODE
+'@
+    $enablePath = Join-Path $probeDir "enable-control-c.ps1"
+    Set-Content -LiteralPath $enablePath -Value $enable.Replace("__RUNNER__", $runner) -Encoding utf8
+    $probe = @'
+import os,sys,time,subprocess,pathlib,json
+out_dir=pathlib.Path(sys.argv[1]); out_dir.mkdir(parents=True, exist_ok=False)
+enable,project,host,root=sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5]
+si=subprocess.STARTUPINFO(); si.dwFlags|=subprocess.STARTF_USESHOWWINDOW; si.wShowWindow=0
+env=os.environ.copy(); env["TRAIN_HARNESS_MODE"]="sleep"; env["TRAIN_HARNESS_PID_FILE"]=str(out_dir/"pids.txt")
+args=["pwsh","-NoProfile","-File",enable,"-Project",project,"-Scope","hold","-Scope","later","-TestHostPath",host,"-TimeoutSeconds","60","-ResultsRoot",str(out_dir/"runs")]
+out=(out_dir/"stdout.log").open("w",encoding="utf-8"); err=(out_dir/"stderr.log").open("w",encoding="utf-8")
+p=subprocess.Popen(args,stdout=out,stderr=err,env=env,cwd=root,startupinfo=si,creationflags=subprocess.CREATE_NEW_CONSOLE)
+owned=[]; record={"runnerPid":p.pid}
+try:
+ deadline=time.monotonic()+40
+ while not (out_dir/"pids.txt").exists() and p.poll() is None and time.monotonic()<deadline: time.sleep(0.1)
+ if not (out_dir/"pids.txt").exists(): raise RuntimeError("host readiness missing")
+ owned=[int(v) for v in (out_dir/"pids.txt").read_text().strip().split(",") if v]; record["hostChildPids"]=owned
+ injector=out_dir/"inject.py"
+ injector.write_text("import ctypes,time,sys\nk=ctypes.WinDLL('kernel32',use_last_error=True)\nk.FreeConsole()\nassert k.AttachConsole(int(sys.argv[1])),ctypes.get_last_error()\nassert k.SetConsoleCtrlHandler(None,True)\nassert k.GenerateConsoleCtrlEvent(0,0),ctypes.get_last_error()\ntime.sleep(0.5)\nk.FreeConsole()\n",encoding="utf-8")
+ injection=subprocess.run([sys.executable,str(injector),str(p.pid)],capture_output=True,text=True,timeout=5)
+ record["injectExit"]=injection.returncode; record["injectError"]=injection.stderr
+ try: record["exit"]=p.wait(timeout=20)
+ except subprocess.TimeoutExpired: record["exit"]="still running after 20s"
+ record["summaries"]=[str(x) for x in out_dir.rglob("summary.json")]
+finally:
+ import ctypes
+ k=ctypes.WinDLL("kernel32",use_last_error=True); alive=[]
+ for pid in owned:
+  h=k.OpenProcess(0x1000,False,pid)
+  if h:
+   code=ctypes.c_ulong(); k.GetExitCodeProcess(h,ctypes.byref(code)); k.CloseHandle(h)
+   if code.value==259: alive.append(pid)
+ record["ownedAliveAfterSignal"]=alive
+ for pid in ([p.pid] if p.poll() is None else [])+alive:
+  subprocess.run(["taskkill","/PID",str(pid),"/T","/F"],capture_output=True)
+ out.close(); err.close()
+ (out_dir/"result.json").write_text(json.dumps(record,indent=2),encoding="utf-8")
+'@
+    $probePath = Join-Path $probeDir "ctrl-c-enabled-probe.py"
+    Set-Content -LiteralPath $probePath -Value $probe -Encoding utf8
+    $probeRun = & $python $probePath $outDir $enablePath $project $hostPath $root
+    if ($LASTEXITCODE -ne 0) { throw "ctrl-c probe exit $LASTEXITCODE $probeRun" }
+    $record = Get-Content -Raw -LiteralPath (Join-Path $outDir "result.json") | ConvertFrom-Json
+    Assert-Equal "ctrl-c inject" 0 ([int] $record.injectExit)
+    Assert-Equal "ctrl-c exit" 3 ([int] $record.exit)
+    Assert-True "ctrl-c summary" (@($record.summaries).Count -ge 1)
+    Assert-Equal "ctrl-c children" 0 @($record.ownedAliveAfterSignal).Count
+    $stderr = [System.IO.File]::ReadAllText((Join-Path $outDir "stderr.log"))
+    Assert-True "no runspace crash" ($stderr -notlike "*PSInvalidOperationException*")
+    $summaryPath = [string] @($record.summaries)[0]
+    $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
+    Assert-Equal "ctrl-c summary exit" 3 ([int] $summary.exitCode)
+    $hold = $null
+    foreach ($check in @($summary.checks)) { if ([string] $check.id -eq "Fixture.HoldTests.Holds_the_runner") { $hold = $check } }
+    Assert-Equal "ctrl-c hold" "cancelled" ([string] $hold.outcome)
+    $later = $null
+    foreach ($check in @($summary.checks)) { if ([string] $check.id -eq "Fixture.LaterTests.Finishes") { $later = $check } }
+    Assert-Equal "ctrl-c later" "not-executed" ([string] $later.outcome)
+    Assert-True "ctrl-c sentinel" (Test-Alive $sentinelId)
+    Note "EVIDENCE fixture-ctrl-c $outDir"
+}
+
+It "fixture-datatestmethod" {
+    $id = "Fixture.DataMethodTests.DataTestMethod_is_listed"
+    $listed = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Scope", "rows") -WaitMs 180000
+    Assert-Exit $listed 0
+    Assert-Contains "unified lists data method" $listed.Stdout "CASE id=$id "
+    $native = & dotnet test $project --no-build --nologo --list-tests
+    if ($LASTEXITCODE -ne 0) { throw "native list exit $LASTEXITCODE" }
+    Assert-Contains "native lists data method" ($native -join "`n") "DataTestMethod_is_listed"
+    $ran = Invoke-Runner -ArgumentList @("-Project", $project, "-Test", $id, "-ResultsRoot", (New-Results "datatestmethod")) -WaitMs 180000
+    Assert-Exit $ran 1
+    $check = Find-Check (Get-Checks (Read-Summary $ran.Stdout)) $id
+    Assert-Equal "data method failed" "failed" $check.outcome
 }
 
 It "fixture-cleanup" {

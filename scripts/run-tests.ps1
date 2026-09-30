@@ -50,6 +50,54 @@ public static class NativeHandleGuard {
     [NativeHandleGuard]::ClearInherit()
 }
 
+function Register-CancelSignal {
+    if (-not ("ConsoleCancelSignal" -as [type])) {
+        Add-Type -TypeDefinition @"
+using System;
+using System.Threading;
+public static class ConsoleCancelSignal {
+    public static volatile int Requested;
+    static int registered;
+    static void Handle(object sender, ConsoleCancelEventArgs args) {
+        args.Cancel = true;
+        Requested = 1;
+    }
+    public static void Register() {
+        if (Interlocked.Exchange(ref registered, 1) == 1) return;
+        Requested = 0;
+        Console.CancelKeyPress += Handle;
+    }
+    public static void Unregister() {
+        if (Interlocked.Exchange(ref registered, 0) == 0) return;
+        Console.CancelKeyPress -= Handle;
+    }
+}
+"@
+    }
+    [ConsoleCancelSignal]::Requested = 0
+    $script:CancelRequested = $false
+    try {
+        [ConsoleCancelSignal]::Register()
+        $script:HandlerAdded = $true
+    }
+    catch {
+        $script:HandlerAdded = $false
+    }
+}
+
+function Unregister-CancelSignal {
+    if (-not $script:HandlerAdded) { return }
+    try { [ConsoleCancelSignal]::Unregister() } catch { }
+    $script:HandlerAdded = $false
+}
+
+function Test-CancelRequested {
+    if (("ConsoleCancelSignal" -as [type]) -and [ConsoleCancelSignal]::Requested -ne 0) {
+        $script:CancelRequested = $true
+    }
+    return [bool] $script:CancelRequested
+}
+
 function New-Map {
     return ,[System.Collections.Generic.Dictionary[string, object]]::new([System.StringComparer]::Ordinal)
 }
@@ -441,10 +489,11 @@ function Test-RequirementAvailable {
 function Get-GroupTimeoutSeconds {
     param([int] $CaseCount, [int] $Override)
     if ($Override -gt 0) { return $Override }
-    # Samples recorded for #158 on this workstation: a warm 4-case unit voxel group and a
-    # one-case headless console method each finished in about 2 seconds, mostly process
-    # startup. The 90-second floor stays above those samples. The 900-second cap still
-    # ends a hung group instead of waiting forever.
+    # Samples on this workstation: a warm 4-case unit voxel group and a one-case
+    # headless console method each finished in about 2 seconds, mostly process
+    # startup, so the 90-second floor stays above those small runs. The same
+    # formula capped at 900 seconds for headless/railway (105 cases); that group
+    # finished in 482 seconds with no timeout. The cap still ends a hung group.
     $seconds = 45 + (20 * $CaseCount)
     return [Math]::Min(900, [Math]::Max(90, $seconds))
 }
@@ -498,6 +547,25 @@ function Stop-OwnedProcessTree {
     return -not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
+function Get-OutcomeRank([string] $Outcome) {
+    switch ($Outcome) {
+        "passed" { return 0 }
+        "not-executed" { return 1 }
+        "cancelled" { return 2 }
+        "blocked" { return 3 }
+        "failed" { return 4 }
+        default { return 4 }
+    }
+}
+
+function Merge-ResultEntry($Previous, $Incoming) {
+    $duration = [int] $Previous.DurationMs + [int] $Incoming.DurationMs
+    if ((Get-OutcomeRank ([string] $Incoming.Outcome)) -gt (Get-OutcomeRank ([string] $Previous.Outcome))) {
+        return [pscustomobject]@{ Outcome = [string] $Incoming.Outcome; DurationMs = $duration; Native = [string] $Incoming.Native }
+    }
+    return [pscustomobject]@{ Outcome = [string] $Previous.Outcome; DurationMs = $duration; Native = [string] $Previous.Native }
+}
+
 function Invoke-OwnedProcess {
     param(
         [string] $FileName,
@@ -509,6 +577,15 @@ function Invoke-OwnedProcess {
         [string] $LogPath
     )
     $info = Initialize-ChildProcess -FileName $FileName -Arguments $Arguments -WorkingDirectory $WorkingDirectory -TempDirectory $TempDirectory
+    if (Test-CancelRequested) {
+        return [pscustomobject]@{
+            ExitCode = -1
+            TimedOut = $false
+            Cancelled = $true
+            CleanupFailed = $false
+            Output = ""
+        }
+    }
     $process = [System.Diagnostics.Process]::new()
     $process.StartInfo = $info
     [void] $process.Start()
@@ -519,7 +596,7 @@ function Invoke-OwnedProcess {
     $cancelled = $false
     $started = [DateTime]::UtcNow
     while (-not $process.HasExited) {
-        if ($script:CancelRequested -or ($CancelFile -and (Test-Path -LiteralPath $CancelFile))) {
+        if ((Test-CancelRequested) -or ($CancelFile -and (Test-Path -LiteralPath $CancelFile))) {
             $cancelled = $true
             break
         }
@@ -596,7 +673,9 @@ function Read-TrxResults {
         if ([TimeSpan]::TryParse((Get-XmlAttr $result "duration"), [ref] $parsed)) {
             $durationMs = [int] [Math]::Round($parsed.TotalMilliseconds)
         }
-        $results[$id] = [pscustomobject]@{ Outcome = $mapped; DurationMs = $durationMs; Native = $outcome }
+        $entry = [pscustomobject]@{ Outcome = $mapped; DurationMs = $durationMs; Native = $outcome }
+        if ($results.ContainsKey($id)) { $results[$id] = Merge-ResultEntry $results[$id] $entry }
+        else { $results[$id] = $entry }
     }
     return ,$results
 }
@@ -781,7 +860,7 @@ function Publish-Run {
     param($Parsed, $Preparation, $Environment, $Selection, $Checks, $Groups, [int] $ExitCode, [string] $Directory)
     if (-not $Directory) { return }
     if ($null -eq $Environment) { $Environment = New-Map }
-    if (-not $Environment.ContainsKey("os")) { Add-Map $Environment "os" [System.Environment]::OSVersion.VersionString | Out-Null }
+    if (-not $Environment.ContainsKey("os")) { Add-Map $Environment "os" ([System.Environment]::OSVersion.VersionString) | Out-Null }
     if (-not $Environment.ContainsKey("powershell")) { Add-Map $Environment "powershell" $PSVersionTable.PSVersion.ToString() | Out-Null }
     if ($null -eq $Selection) { $Selection = New-RequestedSelection $Parsed }
     if ($null -eq $Checks) { $Checks = New-List }
@@ -896,14 +975,11 @@ function Get-CaseBatches {
 
 function Merge-TrxResult {
     param($Merged, [string] $Id, $Entry)
-    $rank = @{ "passed" = 0; "not-executed" = 1; "cancelled" = 2; "blocked" = 3; "failed" = 4 }
     if (-not $Merged.ContainsKey($Id)) {
         $Merged[$Id] = $Entry
         return
     }
-    $previous = [string] $Merged[$Id].Outcome
-    $incoming = [string] $Entry.Outcome
-    if ($rank[$incoming] -gt $rank[$previous]) { $Merged[$Id] = $Entry }
+    $Merged[$Id] = Merge-ResultEntry $Merged[$Id] $Entry
 }
 
 function Invoke-Main {
@@ -959,23 +1035,12 @@ function Invoke-Main {
         [Console]::Out.Flush()
     }
     $script:RunDirectory = $runDirectory
-    $script:CancelRequested = $false
-    $script:OnCancel = [ConsoleCancelEventHandler] {
-        param($sender, $event)
-        $event.Cancel = $true
-        $script:CancelRequested = $true
-    }
-    $script:HandlerAdded = $false
-    try {
-        [Console]::add_CancelKeyPress($script:OnCancel)
-        $script:HandlerAdded = $true
-    }
-    catch {
-        $script:HandlerAdded = $false
-    }
+    Register-CancelSignal
     $cancelFile = ""
     if ($runDirectory) { $cancelFile = Join-Path $runDirectory "cancel.request" }
 
+    # Warm Train.Tests build beside the 105-case railway run was 1978ms.
+    # 300 seconds stops a hung build without treating that compile as a timeout.
     $buildTimeout = 300
     $tempForBuild = if ($runDirectory) { Join-Path $runDirectory "tmp" } else { [System.IO.Path]::GetTempPath() }
     $buildLog = if ($runDirectory) { Join-Path $runDirectory "prepare.log" } else { [System.IO.Path]::GetTempFileName() }
@@ -1062,7 +1127,6 @@ function Invoke-Main {
         return 0
     }
 
-    $git = Get-GitState
     $sdk = Get-DotnetVersion -DotnetPath $dotnet
     [Console]::Out.WriteLine("SELECTED count=$($selected.Count)")
     foreach ($case in $selected) { [Console]::Out.WriteLine((Format-CaseLine -Case $case)) }
@@ -1084,6 +1148,11 @@ function Invoke-Main {
     $cleanupFailed = $false
     try {
         foreach ($groupName in @($byGroup.Keys | Sort-Object)) {
+            if ((Test-CancelRequested) -and -not $stopDispatch) {
+                $userCancel = $true
+                $stopDispatch = $true
+                $stopReason = "cancel"
+            }
             $groupCases = @($byGroup[$groupName])
             if ($stopDispatch) {
                 foreach ($case in $groupCases) {
@@ -1170,7 +1239,7 @@ function Invoke-Main {
                     if ($ran.CleanupFailed) {
                         $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason "cleanup" -DurationMs 0 -Group $groupName))
                     }
-                    elseif ($ran.TimedOut -or $ran.Cancelled -or $script:CancelRequested) {
+                    elseif ($ran.TimedOut -or $ran.Cancelled -or (Test-CancelRequested)) {
                         $reason = if ($ran.TimedOut) { "timeout" } else { "cancel" }
                         $duration = if ($ran.TimedOut) { $timeout } else { 0 }
                         if ($merged.ContainsKey($case.Id) -and [string] $merged[$case.Id].Outcome -eq "failed") {
@@ -1212,7 +1281,7 @@ function Invoke-Main {
                     $stopDispatch = $true
                     $stopReason = "cleanup"
                 }
-                elseif ($ran.Cancelled -or $script:CancelRequested) {
+                elseif ($ran.Cancelled -or (Test-CancelRequested)) {
                     $userCancel = $true
                     $stopDispatch = $true
                     $stopReason = "cancel"
@@ -1224,17 +1293,16 @@ function Invoke-Main {
             foreach ($check in @($checks)) {
                 if ([string] $check["group"] -eq $groupName) { $groupOutcomes.Add([string] $check["outcome"]) }
             }
-            $rank = @{ "passed" = 0; "not-executed" = 1; "cancelled" = 2; "blocked" = 3; "failed" = 4 }
             $groupOutcome = "passed"
             foreach ($outcome in @($groupOutcomes)) {
-                if ($rank[$outcome] -gt $rank[$groupOutcome]) { $groupOutcome = $outcome }
+                if ((Get-OutcomeRank $outcome) -gt (Get-OutcomeRank $groupOutcome)) { $groupOutcome = $outcome }
             }
             $groupReports.Add((New-GroupReport -Name $groupName -Outcome $groupOutcome -DurationMs ([int] $groupWatch.ElapsedMilliseconds) -Filters $filters -Commands $commands -TrxPaths $trxPaths))
         }
     }
     finally {
         if ($script:HandlerAdded) {
-            try { [Console]::remove_CancelKeyPress($script:OnCancel) } catch { }
+            Unregister-CancelSignal
             $script:HandlerAdded = $false
         }
     }
@@ -1242,32 +1310,17 @@ function Invoke-Main {
     $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:$cleanupFailed -UserCancel:$userCancel
     $environment = New-Map
     Add-Map $environment "dotnetSdk" $sdk | Out-Null
-    Add-Map $environment "os" [System.Environment]::OSVersion.VersionString | Out-Null
+    Add-Map $environment "os" ([System.Environment]::OSVersion.VersionString) | Out-Null
     Add-Map $environment "powershell" $PSVersionTable.PSVersion.ToString() | Out-Null
     Add-Map $environment "configuration" $parsed.Configuration | Out-Null
     Add-Map $environment "project" $projectPath | Out-Null
     Add-Map $environment "assembly" $assemblyPath | Out-Null
     Add-Map $environment "godot" $godotState | Out-Null
-    $selection = New-Map
-    $familyList = New-List
-    foreach ($family in @($parsed.Families)) { $familyList.Add($family) }
-    $scopeList = New-List
-    foreach ($scope in @($parsed.Scopes)) { $scopeList.Add($scope) }
-    $testList = New-List
-    foreach ($test in @($parsed.Tests)) { $testList.Add($test) }
+    $selection = New-RequestedSelection $parsed
     $caseIds = New-List
     foreach ($case in $selected) { $caseIds.Add($case.Id) }
-    Add-Map $selection "families" $familyList | Out-Null
-    Add-Map $selection "scopes" $scopeList | Out-Null
-    Add-Map $selection "tests" $testList | Out-Null
-    Add-Map $selection "correctness" ([bool] $parsed.Correctness) | Out-Null
-    Add-Map $selection "caseIds" $caseIds | Out-Null
-    $summary = New-Summary -Parsed $parsed -Git $git -Environment $environment -Selection $selection -Checks $checks -Groups $groupReports -Preparation $preparation -ExitCode $exitCode -Directory $runDirectory
-    $markdown = New-Markdown -Summary $summary
-    $options = [System.Text.Json.JsonSerializerOptions]::new()
-    $options.WriteIndented = $true
-    $options.Encoder = [System.Text.Encodings.Web.JavaScriptEncoder]::UnsafeRelaxedJsonEscaping
-    Write-RunReports -State ([pscustomobject]@{ Directory = $runDirectory; Summary = $summary; Markdown = $markdown; JsonOptions = $options }) | Out-Null
+    $selection["caseIds"] = $caseIds
+    Publish-Run -Parsed $parsed -Preparation $preparation -Environment $environment -Selection $selection -Checks $checks -Groups $groupReports -ExitCode $exitCode -Directory $runDirectory
     [Console]::Out.WriteLine("REPORT=$runDirectory")
     return $exitCode
 }
@@ -1281,6 +1334,7 @@ try {
     exit [int] $exitCode
 }
 catch {
+    $cancelled = Test-CancelRequested
     [Console]::Error.WriteLine("error: $($_.Exception.Message)")
     if ($_.InvocationInfo.PositionMessage) { [Console]::Error.WriteLine($_.InvocationInfo.PositionMessage) }
     if ($_.ScriptStackTrace) { [Console]::Error.WriteLine($_.ScriptStackTrace) }
@@ -1290,16 +1344,24 @@ catch {
             $preparation = New-Map
             Add-Map $preparation "durationMs" 0 | Out-Null
             Add-Map $preparation "commandCount" 0 | Out-Null
-            Add-Map $preparation "outcome" "blocked" | Out-Null
-            Add-Map $preparation "reason" "runner-error" | Out-Null
-            Publish-Run -Parsed $script:Parsed -Preparation $preparation -ExitCode 1 -Directory $script:RunDirectory
+            if ($cancelled) {
+                Add-Map $preparation "outcome" "cancelled" | Out-Null
+                Add-Map $preparation "reason" "cancel" | Out-Null
+                Publish-Run -Parsed $script:Parsed -Preparation $preparation -ExitCode 3 -Directory $script:RunDirectory
+            }
+            else {
+                Add-Map $preparation "outcome" "blocked" | Out-Null
+                Add-Map $preparation "reason" "runner-error" | Out-Null
+                Publish-Run -Parsed $script:Parsed -Preparation $preparation -ExitCode 1 -Directory $script:RunDirectory
+            }
         }
         catch { }
     }
+    if ($cancelled) { exit 3 }
     exit 1
 }
 finally {
-    if ($script:HandlerAdded -and $script:OnCancel) {
-        try { [Console]::remove_CancelKeyPress($script:OnCancel) } catch { }
+    if ($script:HandlerAdded) {
+        Unregister-CancelSignal
     }
 }
