@@ -5,6 +5,8 @@ using Train;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:console")]
 public sealed class ConsoleCommandParseTests
 {
     [TestMethod]
@@ -29,6 +31,8 @@ public sealed class ConsoleCommandParseTests
 }
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:console")]
 public sealed class ConsoleCommandDispatchTests
 {
     [TestMethod]

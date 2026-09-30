@@ -7,6 +7,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:playground")]
 public sealed class PlaygroundTests
 {
     private const double Tolerance = 1e-8;

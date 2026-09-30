@@ -6,6 +6,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:voxels")]
 public sealed class VoxelCollisionTests
 {
     private static readonly VoxelDefinitionId Iron = new("core", "ferrous-ore");

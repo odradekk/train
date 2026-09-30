@@ -15,6 +15,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:authority")]
 public sealed class AuthorityCheckpointTests
 {
     private const string GoldenDigest = "A613F10786585533805FC8B2CA0EFC9C8CF771EB841212BE5869454CBF4E2073";

@@ -8,6 +8,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:content")]
 public sealed class ContentReloaderTests
 {
     [TestMethod]

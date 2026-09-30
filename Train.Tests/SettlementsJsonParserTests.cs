@@ -7,6 +7,8 @@ using Train.Domain.Settlements;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:settlements")]
 public sealed class SettlementsJsonParserTests
 {
     [TestMethod]

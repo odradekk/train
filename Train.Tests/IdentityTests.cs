@@ -5,6 +5,8 @@ using Train.Domain.Settlements;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:identity")]
 public sealed class IdentityTests
 {
     [TestMethod]

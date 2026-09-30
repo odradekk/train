@@ -5,6 +5,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:composites")]
 public sealed class FragmentGridSnapTests
 {
     [TestMethod]

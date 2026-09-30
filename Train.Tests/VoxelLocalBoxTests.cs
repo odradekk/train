@@ -7,6 +7,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:voxels")]
 public sealed class VoxelLocalBoxTests
 {
     private static readonly VoxelDefinitionId Iron = new("core", "ferrous-ore");

@@ -9,6 +9,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:railway")]
 public sealed class PhysicalRailTests
 {
     private static readonly WorldVoxelCoord DamageCell = StraightRailFixture.FirstSegmentDamageCell;

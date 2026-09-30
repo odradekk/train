@@ -8,6 +8,8 @@ using Train.Logging;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:headless")]
+[TestCategory("scope:world-edit")]
 public sealed class WorldEditEntryTests
 {
     [TestMethod]

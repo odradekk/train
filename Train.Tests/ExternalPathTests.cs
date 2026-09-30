@@ -5,6 +5,8 @@ using Train.Content;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:content")]
 public sealed class ExternalPathTests
 {
     [TestMethod]

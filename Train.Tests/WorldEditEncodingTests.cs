@@ -9,6 +9,8 @@ using Train.Domain.Voxels;
 namespace Train.Tests;
 
 [TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:world-edit")]
 public sealed class WorldEditEncodingTests
 {
     // Input format version 1 golden vectors. Digests were computed independently from the literal text
