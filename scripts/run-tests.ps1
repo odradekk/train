@@ -27,6 +27,7 @@ $script:RunDirectory = ""
 $script:HandlerAdded = $false
 $script:OnCancel = $null
 $script:Parsed = $null
+$script:TestedGit = $null
 
 function Protect-StandardHandles {
     if (-not $IsWindows) { return }
@@ -149,6 +150,8 @@ function Get-HelpText {
 
 结果
   每次执行写入新的 TestResults/run-tests/<id>/summary.json、report.md，并保留原始 TRX 与日志。
+  记录的提交和脏状态取自构建开始前。运行结束时的 Git 状态单独记录。
+  运行期间如果提交或工作区变了，结果不能证明结束时的干净提交已通过。
   不覆盖历史结果。脏工作区的结果不能证明干净提交已通过。
   取消：执行过程中创建该次目录下的 cancel.request，或按 Ctrl+C。只结束本次启动的进程树。
 
@@ -470,6 +473,26 @@ function Get-GitState {
     return [pscustomobject]@{ Commit = $commit; Dirty = [bool] $dirty; Paths = $paths }
 }
 
+function Test-GitChanged($Start, $End) {
+    if ([string] $Start.Commit -ne [string] $End.Commit) { return $true }
+    if ([bool] $Start.Dirty -ne [bool] $End.Dirty) { return $true }
+    $left = [System.Collections.Generic.List[string]]::new()
+    $right = [System.Collections.Generic.List[string]]::new()
+    foreach ($item in @($Start.Paths)) {
+        if (-not [string]::IsNullOrWhiteSpace([string] $item)) { $left.Add(([string] $item).Trim()) }
+    }
+    foreach ($item in @($End.Paths)) {
+        if (-not [string]::IsNullOrWhiteSpace([string] $item)) { $right.Add(([string] $item).Trim()) }
+    }
+    $left.Sort([System.StringComparer]::Ordinal)
+    $right.Sort([System.StringComparer]::Ordinal)
+    if ($left.Count -ne $right.Count) { return $true }
+    for ($i = 0; $i -lt $left.Count; $i++) {
+        if ($left[$i] -ne $right[$i]) { return $true }
+    }
+    return $false
+}
+
 function Get-DotnetVersion {
     param([string] $DotnetPath)
     $version = (& $DotnetPath --version 2>&1 | Out-String).Trim()
@@ -711,19 +734,33 @@ function Write-RunReports {
 }
 
 function New-Summary {
-    param($Parsed, $Git, $Environment, $Selection, $Checks, $Groups, $Preparation, [int] $ExitCode, [string] $Directory)
+    param($Parsed, $Git, $Ending, $Environment, $Selection, $Checks, $Groups, $Preparation, [int] $ExitCode, [string] $Directory)
     $counts = @{ passed = 0; failed = 0; blocked = 0; cancelled = 0; "not-executed" = 0 }
     foreach ($check in @($Checks)) {
         $outcome = [string] $check["outcome"]
         if ($counts.ContainsKey($outcome)) { $counts[$outcome]++ }
     }
+    if ($null -eq $Ending) {
+        $Ending = [pscustomobject]@{ Commit = "unknown"; Dirty = $true; Paths = (New-List) }
+        $changed = $true
+    }
+    else {
+        $changed = Test-GitChanged $Git $Ending
+    }
+    $proven = (-not [bool] $Git.Dirty) -and (-not [bool] $Ending.Dirty) -and (-not $changed) -and ([string] $Git.Commit -ne "unknown")
     $summary = New-Map
     Add-Map $summary "schemaVersion" 1 | Out-Null
     Add-Map $summary "includesAllRepositoryChecks" $false | Out-Null
-    Add-Map $summary "cleanCommitProven" ([bool] (-not $Git.Dirty)) | Out-Null
+    Add-Map $summary "cleanCommitProven" $proven | Out-Null
     Add-Map $summary "commit" $Git.Commit | Out-Null
     Add-Map $summary "dirty" ([bool] $Git.Dirty) | Out-Null
     Add-Map $summary "dirtyPaths" $Git.Paths | Out-Null
+    Add-Map $summary "testedIdentityChanged" $changed | Out-Null
+    $endingMap = New-Map
+    Add-Map $endingMap "commit" $Ending.Commit | Out-Null
+    Add-Map $endingMap "dirty" ([bool] $Ending.Dirty) | Out-Null
+    Add-Map $endingMap "dirtyPaths" $Ending.Paths | Out-Null
+    Add-Map $summary "gitAtEnd" $endingMap | Out-Null
     Add-Map $summary "sourceLinkBoundary" "Train.Tests links production source files and does not prove the deployed Godot assembly or scene wiring." | Out-Null
     $gaps = New-List
     foreach ($gap in @("godot", "cross-process", "legacy-runner-inventory", "ci", "benchmark", "long", "platform")) { $gaps.Add($gap) }
@@ -759,7 +796,13 @@ function New-Markdown {
     $lines = [System.Collections.Generic.List[string]]::new()
     $lines.Add("# 测试运行")
     $lines.Add("")
-    if ($Summary["dirty"]) {
+    if ($Summary["testedIdentityChanged"]) {
+        $ending = $Summary["gitAtEnd"]
+        $startText = if ($Summary["dirty"]) { "有未提交修改" } else { "干净" }
+        $endText = if ($ending["dirty"]) { "有未提交修改" } else { "干净" }
+        $lines.Add("构建前是提交 $($Summary["commit"])，工作区$startText。运行结束时是提交 $($ending["commit"])，工作区$endText。结束时的提交和工作区不是本次已验证的代码。")
+    }
+    elseif ($Summary["dirty"]) {
         $lines.Add("工作区有未提交修改。该结果不能证明提交 $($Summary["commit"]) 的干净树已通过。")
     }
     else {
@@ -865,7 +908,8 @@ function Publish-Run {
     if ($null -eq $Selection) { $Selection = New-RequestedSelection $Parsed }
     if ($null -eq $Checks) { $Checks = New-List }
     if ($null -eq $Groups) { $Groups = New-List }
-    $summary = New-Summary -Parsed $Parsed -Git (Get-GitState) -Environment $Environment -Selection $Selection -Checks $Checks -Groups $Groups -Preparation $Preparation -ExitCode $ExitCode -Directory $Directory
+    if ($null -eq $script:TestedGit) { $script:TestedGit = Get-GitState }
+    $summary = New-Summary -Parsed $Parsed -Git $script:TestedGit -Ending (Get-GitState) -Environment $Environment -Selection $Selection -Checks $Checks -Groups $Groups -Preparation $Preparation -ExitCode $ExitCode -Directory $Directory
     $markdown = New-Markdown -Summary $summary
     Write-RunReports -State ([pscustomobject]@{ Directory = $Directory; Summary = $summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
 }
@@ -1051,6 +1095,8 @@ function Invoke-Main {
         "--nologo",
         "-p:UseSharedCompilation=false"
     )
+    # The tested identity is the tree about to be built. A later commit must not replace it.
+    $script:TestedGit = Get-GitState
     $build = Invoke-OwnedProcess -FileName $dotnet -Arguments $buildArgs -WorkingDirectory $script:Root -TempDirectory $tempForBuild -TimeoutSeconds $buildTimeout -CancelFile $cancelFile -LogPath $buildLog
     $buildWatch.Stop()
     if (-not $runDirectory -and (Test-Path -LiteralPath $buildLog)) { Remove-Item -LiteralPath $buildLog -Force -ErrorAction SilentlyContinue }

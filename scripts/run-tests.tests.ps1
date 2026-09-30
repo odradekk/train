@@ -1,5 +1,7 @@
 # Black-box checks for scripts/run-tests.ps1.
 # Literal expectations are the oracle. Fake hosts never replace the real MSTest cases.
+# The Ctrl+C probe uses this PowerShell host and Win32 console events. It is Windows-only.
+# On any other host that probe is blocked and unverified, and the harness does not succeed.
 
 param([string] $Only = "")
 
@@ -19,6 +21,7 @@ $brokenProject = Join-Path $evidence "broken/Broken.csproj"
 $hostPath = Join-Path $evidence "fake-host.ps1"
 $logPath = Join-Path $evidence "harness.log"
 $script:failed = 0
+$script:blocked = 0
 $script:sentinel = $null
 $script:owned = [System.Collections.Generic.List[int]]::new()
 
@@ -44,8 +47,15 @@ function It {
     }
     catch {
         $watch.Stop()
-        Note "FAIL $Name $($watch.ElapsedMilliseconds)ms : $($_.Exception.Message)"
-        $script:failed++
+        $message = [string] $_.Exception.Message
+        if ($message -like "blocked:*") {
+            Note "BLOCKED $Name $($watch.ElapsedMilliseconds)ms : $message"
+            $script:blocked++
+        }
+        else {
+            Note "FAIL $Name $($watch.ElapsedMilliseconds)ms : $message"
+            $script:failed++
+        }
     }
 }
 
@@ -87,11 +97,15 @@ function Open-Runner {
         [string[]] $ArgumentList,
         [hashtable] $Environment,
         [string[]] $Unset,
-        [int] $WaitMs = 180000
+        [int] $WaitMs = 180000,
+        [string] $RunnerPath,
+        [string] $WorkingDirectory
     )
+    if (-not $RunnerPath) { $RunnerPath = $runner }
+    if (-not $WorkingDirectory) { $WorkingDirectory = $root }
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
     $psi.FileName = $pwsh
-    $psi.WorkingDirectory = $root
+    $psi.WorkingDirectory = $WorkingDirectory
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -101,7 +115,7 @@ function Open-Runner {
     $arguments = [System.Collections.Generic.List[string]]::new()
     [void] $arguments.Add("-NoProfile")
     [void] $arguments.Add("-File")
-    [void] $arguments.Add($runner)
+    [void] $arguments.Add($RunnerPath)
     foreach ($argument in @( $ArgumentList )) {
         if ($null -ne $argument -and $argument -ne "") { [void] $arguments.Add([string] $argument) }
     }
@@ -151,9 +165,11 @@ function Invoke-Runner {
         [string[]] $ArgumentList,
         [hashtable] $Environment,
         [string[]] $Unset,
-        [int] $WaitMs = 180000
+        [int] $WaitMs = 180000,
+        [string] $RunnerPath,
+        [string] $WorkingDirectory
     )
-    $handle = Open-Runner -ArgumentList $ArgumentList -Environment $Environment -Unset $Unset -WaitMs $WaitMs
+    $handle = Open-Runner -ArgumentList $ArgumentList -Environment $Environment -Unset $Unset -WaitMs $WaitMs -RunnerPath $RunnerPath -WorkingDirectory $WorkingDirectory
     return Close-Runner $handle
 }
 
@@ -261,8 +277,11 @@ function Assert-CommonSummary($Summary) {
     $manual = As-List $Summary.Json.manual
     Assert-Equal "manual empty" 0 $manual.Count
     $git = Get-GitFacts
-    Assert-Equal "commit" $git.Commit $Summary.Json.commit
+    Assert-Equal "commit" $git.Commit ([string] $Summary.Json.commit)
     Assert-Equal "dirty" $git.Dirty ([bool] $Summary.Json.dirty)
+    Assert-Equal "end commit" $git.Commit ([string] $Summary.Json.gitAtEnd.commit)
+    Assert-Equal "end dirty" $git.Dirty ([bool] $Summary.Json.gitAtEnd.dirty)
+    Assert-Equal "identity stable" $false ([bool] $Summary.Json.testedIdentityChanged)
     Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $Summary.Json.cleanCommitProven)
     Assert-Equal "prep count" 1 ([int] $Summary.Json.preparation.commandCount)
 }
@@ -933,15 +952,215 @@ It "fixture-trx-row-order" {
     }
 }
 
+function Invoke-NestedGit {
+    param([string] $Repo, [string[]] $GitArgs)
+    $previous = $PSNativeCommandUseErrorActionPreference
+    $previousGitDir = $env:GIT_DIR
+    $previousWorkTree = $env:GIT_WORK_TREE
+    $previousIndex = $env:GIT_INDEX_FILE
+    $PSNativeCommandUseErrorActionPreference = $false
+    Remove-Item Env:GIT_DIR, Env:GIT_WORK_TREE, Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue
+    try {
+        $output = & git -C $Repo -c commit.gpgsign=false @GitArgs | Out-String
+        if ($LASTEXITCODE -ne 0) { throw "git $($GitArgs -join ' ') exit $LASTEXITCODE" }
+        return $output.Trim()
+    }
+    finally {
+        $PSNativeCommandUseErrorActionPreference = $previous
+        if ($null -eq $previousGitDir) { Remove-Item Env:GIT_DIR -ErrorAction SilentlyContinue } else { $env:GIT_DIR = $previousGitDir }
+        if ($null -eq $previousWorkTree) { Remove-Item Env:GIT_WORK_TREE -ErrorAction SilentlyContinue } else { $env:GIT_WORK_TREE = $previousWorkTree }
+        if ($null -eq $previousIndex) { Remove-Item Env:GIT_INDEX_FILE -ErrorAction SilentlyContinue } else { $env:GIT_INDEX_FILE = $previousIndex }
+    }
+}
+
+function New-BindingRepository {
+    param([string] $Name, [string] $Source)
+    $repo = Join-Path $evidence "git-binding/$Name"
+    New-Item -ItemType Directory -Force -Path (Join-Path $repo "scripts") | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $repo ".gitignore"), "bin/`nobj/`nTestResults/`n", $utf8)
+    [System.IO.File]::WriteAllText((Join-Path $repo "Binding.csproj"), $sdk, $utf8)
+    [System.IO.File]::WriteAllText((Join-Path $repo "BindingTests.cs"), $Source, $utf8)
+    [System.IO.File]::Copy($runner, (Join-Path $repo "scripts/run-tests.ps1"), $true)
+    [System.IO.File]::Copy((Join-Path $PSScriptRoot "TestMetadataReader.cs"), (Join-Path $repo "scripts/TestMetadataReader.cs"), $true)
+    $null = Invoke-NestedGit $repo @("init")
+    $null = Invoke-NestedGit $repo @("add", "-A")
+    $null = Invoke-NestedGit $repo @("commit", "-m", "initial binding fixture")
+    $head = Invoke-NestedGit $repo @("rev-parse", "HEAD")
+    if ($LASTEXITCODE -ne 0 -or -not $head) { throw "binding repo has no commit" }
+    return [pscustomobject]@{ Repo = $repo; Head = $head }
+}
+
+$bindingSource = @'
+using System;
+using System.IO;
+using System.Threading;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BindingFixture;
+
+[TestClass]
+[TestCategory("family:unit")]
+[TestCategory("scope:binding")]
+public sealed class BindingTests
+{
+    [TestMethod]
+    public void Runs_built_sources()
+    {
+        string ready = Environment.GetEnvironmentVariable("BINDING_READY");
+        string release = Environment.GetEnvironmentVariable("BINDING_RELEASE");
+        if (!string.IsNullOrEmpty(ready))
+        {
+            File.WriteAllText(ready, "ready");
+        }
+        if (!string.IsNullOrEmpty(release))
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(45);
+            while (!File.Exists(release))
+            {
+                if (DateTime.UtcNow >= deadline)
+                {
+                    Assert.Fail("release was not signaled");
+                }
+                Thread.Sleep(50);
+            }
+        }
+        Assert.AreEqual("BINDING_VALUE", VersionValue);
+    }
+
+    private const string VersionValue = "BINDING_VALUE";
+}
+'@
+
+function Wait-BindingReady($Handle, [string] $Path, [int] $Seconds) {
+    $deadline = [DateTime]::UtcNow.AddSeconds($Seconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (Test-Path -LiteralPath $Path) { return }
+        if ($Handle.Process.HasExited) { throw "binding runner exited before ready" }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "binding ready missing after ${Seconds}s"
+}
+
+function Assert-BindingIdentity {
+    param($Summary, [string] $StartCommit, [bool] $StartDirty, [string] $EndCommit, [bool] $EndDirty, [bool] $Changed, [bool] $Proven)
+    Assert-Equal "tested commit" $StartCommit ([string] $Summary.Json.commit)
+    Assert-Equal "tested dirty" $StartDirty ([bool] $Summary.Json.dirty)
+    Assert-Equal "end commit" $EndCommit ([string] $Summary.Json.gitAtEnd.commit)
+    Assert-Equal "end dirty" $EndDirty ([bool] $Summary.Json.gitAtEnd.dirty)
+    Assert-Equal "identity changed" $Changed ([bool] $Summary.Json.testedIdentityChanged)
+    Assert-Equal "clean proven" $Proven ([bool] $Summary.Json.cleanCommitProven)
+    $passed = Find-Check (Get-Checks $Summary) "BindingFixture.BindingTests.Runs_built_sources"
+    Assert-Equal "binding passed" "passed" $passed.outcome
+}
+
+$script:GitIsolation = @("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
+
+function Invoke-BindingHandshake {
+    param([string] $Repo, [string] $ResultsName, [scriptblock] $DuringReady)
+    $ready = Join-Path $evidence "git-binding/$ResultsName-ready.txt"
+    $release = Join-Path $evidence "git-binding/$ResultsName-release.txt"
+    $results = New-Results $ResultsName
+    $handle = Open-Runner -RunnerPath (Join-Path $Repo "scripts/run-tests.ps1") -WorkingDirectory $Repo -ArgumentList @(
+        "-Project", (Join-Path $Repo "Binding.csproj"), "-Correctness", "-ResultsRoot", $results
+    ) -Environment @{ BINDING_READY = $ready; BINDING_RELEASE = $release } -Unset $script:GitIsolation -WaitMs 180000
+    $closed = $false
+    try {
+        Wait-BindingReady $handle $ready 90
+        & $DuringReady
+        [System.IO.File]::WriteAllText($release, "release", $utf8)
+        $result = Close-Runner $handle
+        $closed = $true
+        return $result
+    }
+    finally {
+        if (-not $closed -and $handle) { Stop-Tree $handle.Process.Id }
+    }
+}
+
+It "fixture-git-binding-stable" {
+    $stable = New-BindingRepository "stable" $bindingSource
+    $stableResults = New-Results "git-binding-stable"
+    $stableRun = Invoke-Runner -RunnerPath (Join-Path $stable.Repo "scripts/run-tests.ps1") -WorkingDirectory $stable.Repo -Unset $script:GitIsolation -ArgumentList @(
+        "-Project", (Join-Path $stable.Repo "Binding.csproj"), "-Correctness", "-ResultsRoot", $stableResults
+    ) -WaitMs 180000
+    Assert-Exit $stableRun 0
+    $stableSummary = Read-Summary $stableRun.Stdout
+    $stableHead = Invoke-NestedGit $stable.Repo @("rev-parse", "HEAD")
+    Assert-BindingIdentity $stableSummary $stable.Head $false $stableHead $false $false $true
+    Assert-Contains "stable clean" $stableSummary.Report "工作区干净"
+    Assert-True "stable not rewritten" ($stableSummary.Report -notlike "*不是本次已验证的代码*")
+    Note "EVIDENCE fixture-git-binding-stable $($stableSummary.Directory)"
+}
+
+It "fixture-git-binding-dirty-commit" {
+    $dirtyRepo = New-BindingRepository "dirty-commit" $bindingSource
+    [System.IO.File]::WriteAllText((Join-Path $dirtyRepo.Repo "Notes.txt"), "uncommitted", $utf8)
+    $mutate = {
+        $null = Invoke-NestedGit $dirtyRepo.Repo @("add", "--", "Notes.txt")
+        $null = Invoke-NestedGit $dirtyRepo.Repo @("commit", "-m", "commit note during run")
+    }.GetNewClosure()
+    $dirtyRun = Invoke-BindingHandshake $dirtyRepo.Repo "git-binding-dirty-commit" $mutate
+    Assert-Exit $dirtyRun 0
+    $dirtySummary = Read-Summary $dirtyRun.Stdout
+    $dirtyEnd = Invoke-NestedGit $dirtyRepo.Repo @("rev-parse", "HEAD")
+    Assert-True "dirty commit moved" ($dirtyEnd -ne $dirtyRepo.Head)
+    Assert-BindingIdentity $dirtySummary $dirtyRepo.Head $true $dirtyEnd $false $true $false
+    Assert-Contains "dirty boundary" $dirtySummary.Report "不是本次已验证的代码"
+    Note "EVIDENCE fixture-git-binding-dirty $($dirtySummary.Directory)"
+}
+
+It "fixture-git-binding-commit-during" {
+    $during = New-BindingRepository "commit-during" $bindingSource
+    $mutate = {
+        $sourcePath = Join-Path $during.Repo "BindingTests.cs"
+        $sourceText = [System.IO.File]::ReadAllText($sourcePath)
+        $rewritten = $sourceText.Replace('private const string VersionValue = "BINDING_VALUE";', 'private const string VersionValue = "BINDING_VALUE_NEXT";')
+        if ($rewritten -eq $sourceText) { throw "binding constant was not found" }
+        [System.IO.File]::WriteAllText($sourcePath, $rewritten, $utf8)
+        $null = Invoke-NestedGit $during.Repo @("add", "--", "BindingTests.cs")
+        $null = Invoke-NestedGit $during.Repo @("commit", "-m", "change constant during run")
+    }.GetNewClosure()
+    $duringRun = Invoke-BindingHandshake $during.Repo "git-binding-commit-during" $mutate
+    Assert-Exit $duringRun 0
+    $duringSummary = Read-Summary $duringRun.Stdout
+    $duringEnd = Invoke-NestedGit $during.Repo @("rev-parse", "HEAD")
+    Assert-True "during commit moved" ($duringEnd -ne $during.Head)
+    Assert-Contains "source moved" ([System.IO.File]::ReadAllText((Join-Path $during.Repo "BindingTests.cs"))) "BINDING_VALUE_NEXT"
+    Assert-BindingIdentity $duringSummary $during.Head $false $duringEnd $false $true $false
+    Assert-Contains "during boundary" $duringSummary.Report "不是本次已验证的代码"
+    Assert-Contains "during start" $duringSummary.Report $during.Head
+    Note "EVIDENCE fixture-git-binding-during $($duringSummary.Directory)"
+}
+
+It "fixture-git-binding-paths" {
+    $pathsRepo = New-BindingRepository "paths" $bindingSource
+    [System.IO.File]::WriteAllText((Join-Path $pathsRepo.Repo "Notes.txt"), "uncommitted", $utf8)
+    $mutate = {
+        [System.IO.File]::WriteAllText((Join-Path $pathsRepo.Repo "Extra.txt"), "also uncommitted", $utf8)
+    }.GetNewClosure()
+    $pathsRun = Invoke-BindingHandshake $pathsRepo.Repo "git-binding-paths" $mutate
+    Assert-Exit $pathsRun 0
+    $pathsSummary = Read-Summary $pathsRun.Stdout
+    $pathsEnd = Invoke-NestedGit $pathsRepo.Repo @("rev-parse", "HEAD")
+    Assert-Equal "paths commit stays" $pathsRepo.Head $pathsEnd
+    Assert-BindingIdentity $pathsSummary $pathsRepo.Head $true $pathsEnd $true $true $false
+    $startPaths = (@($pathsSummary.Json.dirtyPaths) | ForEach-Object { [string] $_ }) -join "`n"
+    $endPaths = (@($pathsSummary.Json.gitAtEnd.dirtyPaths) | ForEach-Object { [string] $_ }) -join "`n"
+    Assert-Contains "start notes" $startPaths "Notes.txt"
+    Assert-True "start without extra" ($startPaths -notlike "*Extra.txt*")
+    Assert-Contains "end notes" $endPaths "Notes.txt"
+    Assert-Contains "end extra" $endPaths "Extra.txt"
+    Assert-Contains "paths boundary" $pathsSummary.Report "不是本次已验证的代码"
+    Note "EVIDENCE fixture-git-binding-paths $($pathsSummary.Directory)"
+}
+
 It "fixture-ctrl-c" {
+    if (-not $IsWindows) { throw "blocked: Windows console Ctrl+C is unverified on this host" }
     Ensure-Sentinel
     $sentinelId = $script:sentinel.Id
-    $python = (Get-Command python -ErrorAction SilentlyContinue).Source
-    if (-not $python) { $python = (Get-Command py -ErrorAction SilentlyContinue).Source }
-    Assert-True "python for ctrl-c probe" ([bool] $python)
     $probeDir = Join-Path $evidence "ctrl-c-probe"
-    $outDir = Join-Path $probeDir "out"
     New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+    $enablePath = Join-Path $probeDir "enable-control-c.ps1"
     $enable = @'
 Add-Type @"
 using System;
@@ -950,70 +1169,203 @@ public static class ConsoleControlProbe {
  [DllImport("kernel32.dll",SetLastError=true)] public static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
 }
 "@
-[Console]::Out.WriteLine("ENABLE_CTRL_C="+[ConsoleControlProbe]::SetConsoleCtrlHandler([IntPtr]::Zero,$false))
+$enabled = [ConsoleControlProbe]::SetConsoleCtrlHandler([IntPtr]::Zero, $false)
+Set-Content -LiteralPath "__MARKER__" -Value "ENABLE_CTRL_C=$enabled" -Encoding ascii
 & '__RUNNER__' @args
-exit $LASTEXITCODE
+$code = $LASTEXITCODE
+Add-Content -LiteralPath "__MARKER__" -Value "EXIT=$code" -Encoding ascii
+exit $code
 '@
-    $enablePath = Join-Path $probeDir "enable-control-c.ps1"
-    Set-Content -LiteralPath $enablePath -Value $enable.Replace("__RUNNER__", $runner) -Encoding utf8
-    $probe = @'
-import os,sys,time,subprocess,pathlib,json
-out_dir=pathlib.Path(sys.argv[1]); out_dir.mkdir(parents=True, exist_ok=False)
-enable,project,host,root=sys.argv[2],sys.argv[3],sys.argv[4],sys.argv[5]
-si=subprocess.STARTUPINFO(); si.dwFlags|=subprocess.STARTF_USESHOWWINDOW; si.wShowWindow=0
-env=os.environ.copy(); env["TRAIN_HARNESS_MODE"]="sleep"; env["TRAIN_HARNESS_PID_FILE"]=str(out_dir/"pids.txt")
-args=["pwsh","-NoProfile","-File",enable,"-Project",project,"-Scope","hold","-Scope","later","-TestHostPath",host,"-TimeoutSeconds","60","-ResultsRoot",str(out_dir/"runs")]
-out=(out_dir/"stdout.log").open("w",encoding="utf-8"); err=(out_dir/"stderr.log").open("w",encoding="utf-8")
-p=subprocess.Popen(args,stdout=out,stderr=err,env=env,cwd=root,startupinfo=si,creationflags=subprocess.CREATE_NEW_CONSOLE)
-owned=[]; record={"runnerPid":p.pid}
-try:
- deadline=time.monotonic()+40
- while not (out_dir/"pids.txt").exists() and p.poll() is None and time.monotonic()<deadline: time.sleep(0.1)
- if not (out_dir/"pids.txt").exists(): raise RuntimeError("host readiness missing")
- owned=[int(v) for v in (out_dir/"pids.txt").read_text().strip().split(",") if v]; record["hostChildPids"]=owned
- injector=out_dir/"inject.py"
- injector.write_text("import ctypes,time,sys\nk=ctypes.WinDLL('kernel32',use_last_error=True)\nk.FreeConsole()\nassert k.AttachConsole(int(sys.argv[1])),ctypes.get_last_error()\nassert k.SetConsoleCtrlHandler(None,True)\nassert k.GenerateConsoleCtrlEvent(0,0),ctypes.get_last_error()\ntime.sleep(0.5)\nk.FreeConsole()\n",encoding="utf-8")
- injection=subprocess.run([sys.executable,str(injector),str(p.pid)],capture_output=True,text=True,timeout=5)
- record["injectExit"]=injection.returncode; record["injectError"]=injection.stderr
- try: record["exit"]=p.wait(timeout=20)
- except subprocess.TimeoutExpired: record["exit"]="still running after 20s"
- record["summaries"]=[str(x) for x in out_dir.rglob("summary.json")]
-finally:
- import ctypes
- k=ctypes.WinDLL("kernel32",use_last_error=True); alive=[]
- for pid in owned:
-  h=k.OpenProcess(0x1000,False,pid)
-  if h:
-   code=ctypes.c_ulong(); k.GetExitCodeProcess(h,ctypes.byref(code)); k.CloseHandle(h)
-   if code.value==259: alive.append(pid)
- record["ownedAliveAfterSignal"]=alive
- for pid in ([p.pid] if p.poll() is None else [])+alive:
-  subprocess.run(["taskkill","/PID",str(pid),"/T","/F"],capture_output=True)
- out.close(); err.close()
- (out_dir/"result.json").write_text(json.dumps(record,indent=2),encoding="utf-8")
-'@
-    $probePath = Join-Path $probeDir "ctrl-c-enabled-probe.py"
-    Set-Content -LiteralPath $probePath -Value $probe -Encoding utf8
-    $probeRun = & $python $probePath $outDir $enablePath $project $hostPath $root
-    if ($LASTEXITCODE -ne 0) { throw "ctrl-c probe exit $LASTEXITCODE $probeRun" }
-    $record = Get-Content -Raw -LiteralPath (Join-Path $outDir "result.json") | ConvertFrom-Json
-    Assert-Equal "ctrl-c inject" 0 ([int] $record.injectExit)
-    Assert-Equal "ctrl-c exit" 3 ([int] $record.exit)
-    Assert-True "ctrl-c summary" (@($record.summaries).Count -ge 1)
-    Assert-Equal "ctrl-c children" 0 @($record.ownedAliveAfterSignal).Count
-    $stderr = [System.IO.File]::ReadAllText((Join-Path $outDir "stderr.log"))
-    Assert-True "no runspace crash" ($stderr -notlike "*PSInvalidOperationException*")
-    $summaryPath = [string] @($record.summaries)[0]
-    $summary = Get-Content -Raw -LiteralPath $summaryPath | ConvertFrom-Json
-    Assert-Equal "ctrl-c summary exit" 3 ([int] $summary.exitCode)
-    $hold = $null
-    foreach ($check in @($summary.checks)) { if ([string] $check.id -eq "Fixture.HoldTests.Holds_the_runner") { $hold = $check } }
-    Assert-Equal "ctrl-c hold" "cancelled" ([string] $hold.outcome)
-    $later = $null
-    foreach ($check in @($summary.checks)) { if ([string] $check.id -eq "Fixture.LaterTests.Finishes") { $later = $check } }
-    Assert-Equal "ctrl-c later" "not-executed" ([string] $later.outcome)
+    $runnerLiteral = $runner.Replace("'", "''")
+    Set-Content -LiteralPath $enablePath -Value ($enable.Replace("__RUNNER__", $runnerLiteral).Replace("__MARKER__", ($probeDir.Replace("'", "''") + "\enable.log"))) -Encoding utf8
+    $injectPath = Join-Path $probeDir "inject-ctrl-c.ps1"
+    @'
+param([int] $TargetPid, [string] $ResultPath)
+$ErrorActionPreference = "Stop"
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class Issue158CtrlInjector {
+ [DllImport("kernel32.dll", SetLastError = true)] public static extern bool FreeConsole();
+ [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AttachConsole(uint processId);
+ [DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
+ [DllImport("kernel32.dll", SetLastError = true)] public static extern bool GenerateConsoleCtrlEvent(uint ctrlEvent, uint processGroupId);
+}
+"@
+function Write-InjectResult([int] $Code, [string] $Message) {
+    Set-Content -LiteralPath $ResultPath -Value "code=$Code message=$Message" -Encoding ascii
+    exit $Code
+}
+[Issue158CtrlInjector]::FreeConsole() | Out-Null
+if (-not [Issue158CtrlInjector]::AttachConsole([uint32] $TargetPid)) {
+    Write-InjectResult 2 ("AttachConsole " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+}
+if (-not [Issue158CtrlInjector]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)) {
+    Write-InjectResult 1 ("SetConsoleCtrlHandler " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+}
+if (-not [Issue158CtrlInjector]::GenerateConsoleCtrlEvent(0, 0)) {
+    Write-InjectResult 1 ("GenerateConsoleCtrlEvent " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
+}
+# Stay attached until the target console observes the event.
+Start-Sleep -Milliseconds 500
+[Issue158CtrlInjector]::FreeConsole() | Out-Null
+Write-InjectResult 0 "ok"
+'@ | Set-Content -LiteralPath $injectPath -Encoding utf8
+    if (-not ("Issue158HiddenConsole" -as [type])) {
+        Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class Issue158HiddenConsole {
+    const uint CREATE_NEW_CONSOLE = 0x00000010;
+    const int STARTF_USESHOWWINDOW = 0x00000001;
+    const short SW_HIDE = 0;
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    public struct STARTUPINFO {
+        public int cb;
+        public string lpReserved;
+        public string lpDesktop;
+        public string lpTitle;
+        public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+        public short wShowWindow;
+        public short cbReserved2;
+        public IntPtr lpReserved2, hStdInput, hStdOutput, hStdError;
+    }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PROCESS_INFORMATION {
+        public IntPtr hProcess;
+        public IntPtr hThread;
+        public int dwProcessId;
+        public int dwThreadId;
+    }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool CreateProcessW(string application, string commandLine, IntPtr processAttributes, IntPtr threadAttributes, bool inheritHandles, uint flags, IntPtr environment, string directory, ref STARTUPINFO startup, out PROCESS_INFORMATION process);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, int processId);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+    static IntPtr startedProcess;
+    public static int QueryExit(int processId) {
+        IntPtr handle = startedProcess;
+        if (handle == IntPtr.Zero) {
+            handle = OpenProcess(0x1000, false, processId);
+            if (handle == IntPtr.Zero) {
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            }
+        }
+        try {
+            uint code;
+            if (!GetExitCodeProcess(handle, out code)) {
+                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+            }
+            return unchecked((int)code);
+        }
+        finally {
+            if (startedProcess == IntPtr.Zero) { CloseHandle(handle); }
+        }
+    }
+    public static int Start(string application, string commandLine, string directory) {
+        if (startedProcess != IntPtr.Zero) {
+            CloseHandle(startedProcess);
+            startedProcess = IntPtr.Zero;
+        }
+        STARTUPINFO startup = new STARTUPINFO();
+        startup.cb = Marshal.SizeOf<STARTUPINFO>();
+        startup.dwFlags = STARTF_USESHOWWINDOW;
+        startup.wShowWindow = SW_HIDE;
+        PROCESS_INFORMATION process;
+        if (!CreateProcessW(application, commandLine, IntPtr.Zero, IntPtr.Zero, false, CREATE_NEW_CONSOLE, IntPtr.Zero, directory, ref startup, out process)) {
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+        CloseHandle(process.hThread);
+        startedProcess = process.hProcess;
+        return process.dwProcessId;
+    }
+}
+"@
+    }
+    function Format-ProcessArgument([string] $Value) {
+        if ($Value -match '\s') { return '"' + $Value + '"' }
+        return $Value
+    }
+    function Start-CtrlTarget {
+        param([string] $Method, [string] $ResultsRoot, [string] $PidFile)
+        $arguments = @(
+            "-NoProfile", "-File", $enablePath,
+            "-Project", $project, "-Scope", "hold", "-Scope", "later",
+            "-TestHostPath", $hostPath, "-TimeoutSeconds", "60", "-ResultsRoot", $ResultsRoot
+        )
+        $previousMode = $env:TRAIN_HARNESS_MODE
+        $previousPidFile = $env:TRAIN_HARNESS_PID_FILE
+        $env:TRAIN_HARNESS_MODE = "sleep"
+        $env:TRAIN_HARNESS_PID_FILE = $PidFile
+        try {
+            if ($Method -eq "shell") {
+                return Start-Process -FilePath $pwsh -WorkingDirectory $root -WindowStyle Hidden -PassThru -ArgumentList $arguments
+            }
+            $command = @(Format-ProcessArgument $pwsh) + @($arguments | ForEach-Object { Format-ProcessArgument $_ })
+            $created = [Issue158HiddenConsole]::Start($pwsh, ($command -join " "), $root)
+            return Get-Process -Id $created
+        }
+        finally {
+            if ($null -eq $previousMode) { Remove-Item Env:TRAIN_HARNESS_MODE -ErrorAction SilentlyContinue }
+            else { $env:TRAIN_HARNESS_MODE = $previousMode }
+            if ($null -eq $previousPidFile) { Remove-Item Env:TRAIN_HARNESS_PID_FILE -ErrorAction SilentlyContinue }
+            else { $env:TRAIN_HARNESS_PID_FILE = $previousPidFile }
+        }
+    }
+    $launched = $false
+    $usedMethod = ""
+    foreach ($method in @("shell", "new-console")) {
+        $outDir = Join-Path $probeDir $method
+        $results = Join-Path $outDir "runs"
+        $pidFile = Join-Path $outDir "pids.txt"
+        New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+        $target = $null
+        $targetId = 0
+        try {
+            $target = Start-CtrlTarget -Method $(if ($method -eq "shell") { "shell" } else { "new-console" }) -ResultsRoot $results -PidFile $pidFile
+            $targetId = $target.Id
+            if (-not (Wait-PidFile $pidFile 90)) { throw "host readiness missing for $method" }
+            $injectResult = Join-Path $outDir "inject.txt"
+            $inject = & $pwsh -NoProfile -File $injectPath -TargetPid $targetId -ResultPath $injectResult
+            if ($LASTEXITCODE -eq 2) { throw "attach failed for $method $inject" }
+            if ($LASTEXITCODE -ne 0) { throw "inject failed for $method $inject" }
+            if ($target.HasExited) { throw "ctrl-c target $targetId exited before it could be observed" }
+            if (-not $target.WaitForExit(20000)) { throw "ctrl-c target still running after 20s" }
+            $nativeExit = if ($method -eq "shell") { [int] $target.ExitCode } else { [Issue158HiddenConsole]::QueryExit($targetId) }
+            Assert-Equal "ctrl-c exit" 3 $nativeExit
+            $enableLog = [System.IO.File]::ReadAllText((Join-Path $probeDir "enable.log"))
+            Assert-Contains "wrapper exit" $enableLog "EXIT=3"
+            $summaryFile = Get-ChildItem -LiteralPath $results -Recurse -Filter summary.json | Select-Object -First 1
+            Assert-True "ctrl-c summary" ($null -ne $summaryFile)
+            $summary = Get-Content -Raw -LiteralPath $summaryFile.FullName | ConvertFrom-Json
+            Assert-Equal "ctrl-c summary exit" 3 ([int] $summary.exitCode)
+            $hold = $null
+            foreach ($check in @($summary.checks)) { if ([string] $check.id -eq "Fixture.HoldTests.Holds_the_runner") { $hold = $check } }
+            Assert-Equal "ctrl-c hold" "cancelled" ([string] $hold.outcome)
+            $later = $null
+            foreach ($check in @($summary.checks)) { if ([string] $check.id -eq "Fixture.LaterTests.Finishes") { $later = $check } }
+            Assert-Equal "ctrl-c later" "not-executed" ([string] $later.outcome)
+            foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "ctrl-c killed $owned" (-not (Test-Alive $owned)) }
+            $launched = $true
+            $usedMethod = $method
+            Note "EVIDENCE fixture-ctrl-c $outDir method=$method"
+            break
+        }
+        catch {
+            $failure = $_.Exception.Message
+            if ($targetId -gt 0) { Stop-Tree $targetId }
+            foreach ($owned in (Read-PidFile $pidFile)) { Stop-Tree $owned }
+            $retryable = $failure -like "attach failed*" -or $failure -like "host readiness missing*"
+            if (-not $retryable -or $method -eq "new-console") { throw }
+            Note "ctrl-c $method did not attach: $failure"
+        }
+    }
+    Assert-True "ctrl-c launched" $launched
     Assert-True "ctrl-c sentinel" (Test-Alive $sentinelId)
-    Note "EVIDENCE fixture-ctrl-c $outDir"
+    Note "EVIDENCE fixture-ctrl-c method=$usedMethod"
 }
 
 It "fixture-datatestmethod" {
@@ -1075,7 +1427,8 @@ It "real-help" {
     Assert-Exit $result 0
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
-        "source-link:", "not all repository validation", "gap: godot", "pending: benchmark", "PENDING benchmark"
+        "source-link:", "not all repository validation", "gap: godot", "pending: benchmark", "PENDING benchmark",
+        "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
         Assert-Contains $token $result.Stdout $token
     }
@@ -1187,6 +1540,13 @@ It "real-headless" {
     Assert-Equal "id" $id $checks[0].id
     Assert-Equal "passed" "passed" $checks[0].outcome
     Assert-Equal "family" "headless" $checks[0].family
+    $git = Get-GitFacts
+    Assert-Equal "commit" $git.Commit ([string] $summary.Json.commit)
+    Assert-Equal "dirty" $git.Dirty ([bool] $summary.Json.dirty)
+    Assert-Equal "end commit" $git.Commit ([string] $summary.Json.gitAtEnd.commit)
+    Assert-Equal "end dirty" $git.Dirty ([bool] $summary.Json.gitAtEnd.dirty)
+    Assert-Equal "identity stable" $false ([bool] $summary.Json.testedIdentityChanged)
+    Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $summary.Json.cleanCommitProven)
     Note "EVIDENCE real-headless $($summary.Directory) $($result.DurationMs)ms"
 }
 
@@ -1212,12 +1572,12 @@ It "real-correctness-list" {
 }
 
 try {
-    Note "done failed=$script:failed"
+    Note "done failed=$script:failed blocked=$script:blocked"
 }
 finally {
     foreach ($owned in @($script:owned)) { Stop-Tree $owned }
     if ($script:sentinel) { Stop-Tree $script:sentinel.Id }
 }
 
-if ($script:failed -gt 0) { exit 1 }
+if ($script:failed -gt 0 -or $script:blocked -gt 0) { exit 1 }
 exit 0
