@@ -3,16 +3,16 @@ param(
     [string] $OutputDirectory
 )
 
-# Real-Godot entrance for Playground save/switch protection (#125).
+# Real-Godot entrance for world editor save/switch protection (#125).
 # One isolated user-data directory, two processes:
-#   1. enters through the start-menu Playground button, exercises cancel,
+#   1. enters through the start-menu world editor button, exercises cancel,
 #      discard, a failing save, a rejected candidate, and save-then-switch,
 #      then saves the switched world;
 #   2. loads that save and continues one step.
 # Screenshots and a headless exit are not visual acceptance.
 #
 # Command (repository root, $env:GODOT pointing at the Godot .NET console exe):
-#   pwsh -NoProfile -File scripts/run-godot-playground-switch-smoke.ps1
+#   pwsh -NoProfile -File scripts/run-godot-world-editor-switch-smoke.ps1
 # Exit 2 if Godot is unavailable; exit 1 for a failed process or missing marker.
 
 $ErrorActionPreference = "Continue"
@@ -36,12 +36,12 @@ New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 Write-Host "Using Godot: $env:GODOT"
 Write-Host "Output: $OutputDirectory"
 
-$owned = @("TRAIN_PLAYGROUND_SMOKE", "TRAIN_PLAYGROUND_SMOKE_MODE", "TRAIN_PLAYGROUND_CONFIG", "TRAIN_PLAYGROUND_SAVE_ID", "TRAIN_MODS_SMOKE_USER_DATA")
+$owned = @("TRAIN_WORLD_EDITOR_SMOKE", "TRAIN_WORLD_EDITOR_SMOKE_MODE", "TRAIN_WORLD_EDITOR_CONFIG", "TRAIN_WORLD_EDITOR_SAVE_ID", "TRAIN_MODS_SMOKE_USER_DATA")
 foreach ($name in @(
     "TRAIN_VOXEL_SMOKE", "TRAIN_VOXEL_SMOKE_REENTER", "TRAIN_VOXEL_SMOKE_RESUME", "TRAIN_VOXEL_SMOKE_SAVE_ID",
     "TRAIN_VOXEL_OBSERVE", "TRAIN_VOXEL_OBSERVE_RESUME", "TRAIN_VOXEL_BASELINE", "TRAIN_CONTENT_SMOKE",
     "TRAIN_CONTENT_EXPORT_SMOKE", "TRAIN_MODS_EXPORT_SMOKE", "TRAIN_LOG_SMOKE",
-    "TRAIN_PLAYGROUND_CAPTURE", "TRAIN_PLAYGROUND_CAPTURE_STEPS"
+    "TRAIN_WORLD_EDITOR_CAPTURE", "TRAIN_WORLD_EDITOR_CAPTURE_STEPS"
 ) + $owned) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -59,7 +59,7 @@ function Require-Markers([hashtable] $run, [string[]] $markers, [string] $label)
         [Console]::Error.WriteLine("$label exited with $($run.Code).")
         $ok = $false
     }
-    foreach ($bad in @("SWITCH_SMOKE_FAILED", "PLAYGROUND_SMOKE_FAILED", "PLAYGROUND_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
+    foreach ($bad in @("SWITCH_SMOKE_FAILED", "WORLD_EDITOR_SMOKE_FAILED", "WORLD_EDITOR_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
         if ($run.Text.Contains($bad)) {
             [Console]::Error.WriteLine("$label printed $bad.")
             $ok = $false
@@ -79,14 +79,14 @@ try {
     $userData = Join-Path $OutputDirectory "user-data"
     New-Item -ItemType Directory -Path $userData | Out-Null
     $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
-    $env:TRAIN_PLAYGROUND_SMOKE = "1"
-    $env:TRAIN_PLAYGROUND_SMOKE_MODE = "switch"
-    $env:TRAIN_PLAYGROUND_CONFIG = $Configuration
-    Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID -ErrorAction SilentlyContinue
+    $env:TRAIN_WORLD_EDITOR_SMOKE = "1"
+    $env:TRAIN_WORLD_EDITOR_SMOKE_MODE = "switch"
+    $env:TRAIN_WORLD_EDITOR_CONFIG = $Configuration
+    Remove-Item Env:TRAIN_WORLD_EDITOR_SAVE_ID -ErrorAction SilentlyContinue
 
     $establish = Invoke-Godot (Join-Path $OutputDirectory "establish.log")
     $ok = Require-Markers $establish @(
-        "PLAYGROUND_SMOKE_MENU_ENTER config=$Configuration",
+        "WORLD_EDITOR_SMOKE_MENU_ENTER config=$Configuration",
         "SWITCH_CANCEL ",
         "SWITCH_DISCARD ",
         "SWITCH_SAVE_FAILED",
@@ -102,7 +102,7 @@ try {
             [Console]::Error.WriteLine("establish did not print a restorable save.")
             $failed = $true
         } else {
-            $env:TRAIN_PLAYGROUND_SAVE_ID = $saved.Groups[1].Value
+            $env:TRAIN_WORLD_EDITOR_SAVE_ID = $saved.Groups[1].Value
             $resume = Invoke-Godot (Join-Path $OutputDirectory "resume.log")
             $ok = Require-Markers $resume @(
                 "SWITCH_RESTORED step=$($saved.Groups[2].Value) source=$($saved.Groups[3].Value) paused=true fingerprint=$($saved.Groups[4].Value)",

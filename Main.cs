@@ -1,6 +1,6 @@
 using Godot;
 using Train.Content;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -58,7 +58,7 @@ public partial class Main : Node
     public override void _Ready()
     {
         var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled() ||
-                           IsVoxelBaselineEnabled() || IsPlaygroundAutomationEnabled()
+                           IsVoxelBaselineEnabled() || IsWorldEditorAutomationEnabled()
             ? ResolveModsSmokeUserData()
             : null;
         if (IsVoxelSmokeEnabled() || IsVoxelObserveEnabled())
@@ -167,32 +167,32 @@ public partial class Main : Node
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE"), "1", StringComparison.Ordinal) ||
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE_RESUME"), "1", StringComparison.Ordinal);
 
-    public static bool IsPlaygroundAutomationEnabled() =>
-        string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
+    public static bool IsWorldEditorAutomationEnabled() =>
+        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
+        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
+        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
         BlankWorldSmoke.Requested() ||
-        !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(PlaygroundScene.CaptureEnvironmentVariable));
+        !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(WorldEditorScene.CaptureEnvironmentVariable));
 
-    public static string ReadRequestedPlaygroundConfiguration() =>
-        System.Environment.GetEnvironmentVariable("TRAIN_PLAYGROUND_CONFIG") is { Length: > 0 } id
+    public static string ReadRequestedWorldEditorConfiguration() =>
+        System.Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_CONFIG") is { Length: > 0 } id
             ? id
-            : PlaygroundConfigurations.StraightRailTrainId;
+            : WorldEditorConfigurations.StraightRailTrainId;
 
-    public string PlaygroundConfigurationId { get; private set; } = PlaygroundConfigurations.StraightRailTrainId;
+    public string WorldEditorConfigurationId { get; private set; } = WorldEditorConfigurations.StraightRailTrainId;
 
-    public void EnterPlayground(string configurationId)
+    public void EnterWorldEditor(string configurationId)
     {
         if (_reloader?.Catalog.Current is null)
         {
-            _logger?.Error("playground", "playground_unavailable", "Voxel content failed to load.");
+            _logger?.Error("world-editor", "world_editor_unavailable", "Voxel content failed to load.");
             return;
         }
 
-        PlaygroundConfigurationId = configurationId;
-        var error = GetTree().ChangeSceneToFile("res://Ui/PlaygroundScene.tscn");
+        WorldEditorConfigurationId = configurationId;
+        var error = GetTree().ChangeSceneToFile("res://Ui/WorldEditorScene.tscn");
         if (error != Error.Ok)
-            _logger?.Error("playground", "playground_scene_failed", $"Failed to open Playground scene: {error}.");
+            _logger?.Error("world-editor", "world_editor_scene_failed", $"无法打开世界编辑器场景：{error}。");
     }
 
     public VoxelWorldIdentity DevelopmentIdentity { get; private set; } = VoxelWorldIdentity.Slice1;
@@ -247,7 +247,7 @@ public partial class Main : Node
         _console?.SetVoxelDevelopmentSession(session);
     }
 
-    public void SetPlaygroundObserver(PlaygroundObserver? observer) => _console?.SetPlaygroundObserver(observer);
+    public void SetWorldEditorObserver(WorldEditorObserver? observer) => _console?.SetWorldEditorObserver(observer);
 
     private void StartLoggingSmoke()
     {

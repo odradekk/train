@@ -5,7 +5,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
@@ -23,8 +23,8 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Paused_rail_removal_repair_and_explicit_start_take_consecutive_positions_at_one_boundary()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var cells = FirstSegmentCells(session);
         var front = session.QueryTrainAssemblies().Single().Vehicles[0].FrontContact.X;
 
@@ -66,7 +66,7 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Paused_structure_and_train_edits_queued_for_a_boundary_match_the_same_edits_submitted_there()
     {
-        using var queued = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var queued = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var cells = FirstSegmentCells(queued.Session);
         Assert.AreEqual("Pending", queued.Session.SubmitEdit(DestroyAll(cells), 3).Status);
         Assert.AreEqual(TrainMotionStatus.Pending, queued.Session.StartTrain(RailHeading.AlongAlignment, 3).Status);
@@ -76,7 +76,7 @@ public sealed class RailCommandTests
         Assert.AreEqual(2, queued.Session.QueryScheduledTrainCommands().Count);
         Assert.IsTrue(queued.Session.AdvanceSimulation(3).Succeeded);
 
-        using var immediate = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var immediate = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         Assert.IsTrue(immediate.Session.AdvanceSimulation(3).Succeeded);
         immediate.Session.SubmitEdit(DestroyAll(cells));
         Assert.AreEqual(TrainMotionStatus.InsufficientSupport, immediate.Session.StartTrain(RailHeading.AlongAlignment).Status);
@@ -109,8 +109,8 @@ public sealed class RailCommandTests
         var runs = new List<(string Digest, string Fingerprint, TrainAuthoritySnapshot Train, IReadOnlyList<WorldEditRecord> Log)>();
         foreach (var split in splits)
         {
-            using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-            var session = playground.Session;
+            using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+            var session = worldEditor.Session;
             Assert.AreEqual(TrainMotionStatus.Started, session.StartTrain(RailHeading.AlongAlignment).Status);
             Assert.AreEqual(TrainMotionStatus.Pending, session.StopTrain(50).Status);
             Assert.AreEqual("Pending", session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(StraightRailFixture.FirstSegmentDamageCell, 100) }), 50).Status);
@@ -144,8 +144,8 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Pause_only_stops_automatic_advance_while_stop_changes_the_train()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(120).Succeeded);
         Assert.AreEqual(TrainMotionStatus.Pending, session.StopTrain(400).Status);
@@ -164,7 +164,7 @@ public sealed class RailCommandTests
         Assert.IsTrue(running.Running);
         Assert.IsTrue(running.Speed > 0);
 
-        using var stepped = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var stepped = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         Assert.IsTrue(stepped.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(Enumerable.Range(0, 120).All(_ => stepped.Session.AdvanceSimulation(1).Succeeded));
         Assert.AreEqual(TrainMotionStatus.Pending, stepped.Session.StopTrain(400).Status);
@@ -186,8 +186,8 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Motion_invariant_failure_halts_at_the_last_complete_boundary_without_an_edit_id()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         var carriage = session.QueryTrainAssemblies().Single().VehicleIds[1];
         Assert.AreEqual("Pending", session.SubmitEdit(new VoxelAddEdit(Probe, Ore, VoxelOrientation.Identity), 5).Status);
@@ -220,16 +220,16 @@ public sealed class RailCommandTests
         Assert.AreEqual(RailEditStatus.SimulationFaulted, session.ConstructRails().Status);
         Assert.AreEqual(TrainAssemblyStatus.SimulationFaulted, session.AssembleStaticTrain().Status);
         Assert.AreEqual(WorldSaveStatus.SimulationFaulted, session.Save("Motion fault").Status);
-        WriteOre(playground, maxDurability: 150);
-        Assert.AreEqual(ContentReloadStatus.Rejected, playground.Reloader.Reload().Status);
+        WriteOre(worldEditor, maxDurability: 150);
+        Assert.AreEqual(ContentReloadStatus.Rejected, worldEditor.Reloader.Reload().Status);
         Assert.AreEqual(5UL, session.SimulationStep);
     }
 
     [TestMethod]
     public void Faulted_train_command_rolls_back_its_transaction_and_motion_flags()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var before = session.CaptureTrainAuthority();
         var transactions = session.TransactionCount;
         session.EditFaultProbe = record =>
@@ -257,7 +257,7 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Mixed_rail_and_train_queue_restores_in_a_new_host_with_a_fully_destroyed_referenced_segment()
     {
-        using var live = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var live = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var session = live.Session;
         var cells = FirstSegmentCells(session);
         var firstSegment = session.Rails.Segments[0].Id;
@@ -286,7 +286,7 @@ public sealed class RailCommandTests
             new[] { "rail.repair", "train.start", "voxel.add", "train.stop" },
             JsonNode.Parse(json)!["world_edits"]!["pending"]!.AsArray().Select(item => item!["edit"]!["kind"]!.GetValue<string>()).ToArray());
 
-        using var host = PlaygroundHarness.Content(userData: live.UserData);
+        using var host = WorldEditorHarness.Content(userData: live.UserData);
         var restored = new VoxelDevelopmentSession(host.Catalog, VoxelWorldIdentity.Slice4, host.Store, host.Composites);
         host.Attach(restored);
         var mutated = JsonNode.Parse(json)!.AsObject();
@@ -326,20 +326,20 @@ public sealed class RailCommandTests
     [TestMethod]
     public void World_changing_content_publication_is_recorded_at_its_boundary_and_refused_on_a_faulted_session()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(3).Succeeded);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(Probe, Ore, VoxelOrientation.Identity).Status);
 
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
         Assert.AreEqual(2, session.QueryEditLog().Count);
 
-        WriteOre(playground, maxDurability: 150);
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        WriteOre(worldEditor, maxDurability: 150);
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
         var published = session.QueryEditLog()[^1];
         Assert.IsInstanceOfType<ContentPublishEdit>(published.Edit);
-        Assert.AreEqual(ContentPublishEdit.For(playground.Catalog.Current!, playground.Composites.Current), published.Edit);
+        Assert.AreEqual(ContentPublishEdit.For(worldEditor.Catalog.Current!, worldEditor.Composites.Current), published.Edit);
         Assert.AreEqual(new SimulationPosition(3, 1), published.AcceptedAt);
         Assert.AreEqual(published.AcceptedAt, published.ExecutedAt);
         Assert.AreEqual(WorldEditState.Executed, published.State);
@@ -347,40 +347,40 @@ public sealed class RailCommandTests
         Assert.AreEqual(150, session.Query(Probe).MaxDurability);
         Assert.AreEqual(new SimulationPosition(3, 2), session.EditBoundary);
 
-        var beforeDisplayChange = playground.Catalog.Current;
-        WriteOre(playground, maxDurability: 150, displayName: "Iron Ore");
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
-        Assert.AreNotSame(beforeDisplayChange, playground.Catalog.Current);
+        var beforeDisplayChange = worldEditor.Catalog.Current;
+        WriteOre(worldEditor, maxDurability: 150, displayName: "Iron Ore");
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
+        Assert.AreNotSame(beforeDisplayChange, worldEditor.Catalog.Current);
         Assert.AreSame(published, session.QueryEditLog()[^1]);
         Assert.AreEqual(new SimulationPosition(3, 2), session.EditBoundary);
         Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(new VoxelRemoveEdit(Probe)).Refusal);
 
-        var catalog = playground.Catalog.Current;
+        var catalog = worldEditor.Catalog.Current;
         session.EditFaultProbe = record =>
         {
             if (record.Edit is ContentPublishEdit)
                 throw new InvalidOperationException("injected publication failure");
         };
-        WriteOre(playground, maxDurability: 60);
-        Assert.ThrowsException<InvalidOperationException>(() => playground.Reloader.Reload());
-        Assert.AreSame(catalog, playground.Catalog.Current);
+        WriteOre(worldEditor, maxDurability: 60);
+        Assert.ThrowsException<InvalidOperationException>(() => worldEditor.Reloader.Reload());
+        Assert.AreSame(catalog, worldEditor.Catalog.Current);
         Assert.AreEqual(WorldEditKind.ContentPublish, session.Fault!.Kind);
         Assert.AreEqual(WorldEditState.Faulted, session.QueryEditLog()[^1].State);
         Assert.AreEqual(new SimulationPosition(3, 3), session.QueryEditLog()[^1].ExecutedAt);
         Assert.IsFalse(session.Query(Probe).IsOccupied);
 
         session.EditFaultProbe = null;
-        var rejected = playground.Reloader.Reload();
+        var rejected = worldEditor.Reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
         Assert.IsTrue(rejected.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.SimulationUnavailable));
-        Assert.AreSame(catalog, playground.Catalog.Current);
+        Assert.AreSame(catalog, worldEditor.Catalog.Current);
     }
 
     [TestMethod]
     public void Running_train_takes_the_candidate_speed_limit_inside_the_publication_before_it_commits()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(300).Succeeded);
         Assert.AreEqual(4d, Speed(session));
@@ -395,9 +395,9 @@ public sealed class RailCommandTests
             dispatched = Speed(session);
             loggedAtDispatch = session.QueryEditLog().Count;
         };
-        WritePropulsion(playground, targetSpeed: 2);
+        WritePropulsion(worldEditor, targetSpeed: 2);
 
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
         Assert.AreEqual(2d, dispatched);
         Assert.AreEqual(logged, loggedAtDispatch);
         Assert.AreEqual(2d, Speed(session));
@@ -411,13 +411,13 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Publication_fault_after_candidate_adaptation_keeps_the_old_catalog_world_and_speed()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(300).Succeeded);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(Probe, Ore, VoxelOrientation.Identity).Status);
-        var catalog = playground.Catalog.Current;
-        var composites = playground.Composites.Current;
+        var catalog = worldEditor.Catalog.Current;
+        var composites = worldEditor.Composites.Current;
 
         double? adaptedSpeed = null;
         int? adaptedDurability = null;
@@ -429,14 +429,14 @@ public sealed class RailCommandTests
             adaptedDurability = session.Query(Probe).Voxel!.CurrentDurability;
             throw new InvalidOperationException("injected publication failure");
         };
-        WritePropulsion(playground, targetSpeed: 2);
-        WriteOre(playground, maxDurability: 60);
+        WritePropulsion(worldEditor, targetSpeed: 2);
+        WriteOre(worldEditor, maxDurability: 60);
 
-        Assert.ThrowsException<InvalidOperationException>(() => playground.Reloader.Reload());
+        Assert.ThrowsException<InvalidOperationException>(() => worldEditor.Reloader.Reload());
         Assert.AreEqual(2d, adaptedSpeed);
         Assert.AreEqual(60, adaptedDurability);
-        Assert.AreSame(catalog, playground.Catalog.Current);
-        Assert.AreSame(composites, playground.Composites.Current);
+        Assert.AreSame(catalog, worldEditor.Catalog.Current);
+        Assert.AreSame(composites, worldEditor.Composites.Current);
         Assert.AreEqual(4d, Speed(session));
         Assert.IsTrue(session.QueryTrainAssemblies().Single().Running);
         Assert.AreEqual(100, session.Query(Probe).Voxel!.CurrentDurability);
@@ -447,18 +447,18 @@ public sealed class RailCommandTests
     [TestMethod]
     public void Content_publication_outside_the_edit_order_is_refused_by_the_generic_entry()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
-        var edit = ContentPublishEdit.For(playground.Catalog.Current!, playground.Composites.Current);
-        Assert.ThrowsException<ArgumentException>(() => playground.Session.SubmitEdit(edit));
-        Assert.AreEqual(1UL, playground.Session.NextEditId);
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var edit = ContentPublishEdit.For(worldEditor.Catalog.Current!, worldEditor.Composites.Current);
+        Assert.ThrowsException<ArgumentException>(() => worldEditor.Session.SubmitEdit(edit));
+        Assert.AreEqual(1UL, worldEditor.Session.NextEditId);
     }
 
     [TestMethod]
     public void Console_schedules_rail_edits_and_reports_train_edit_ids()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         using var logger = LoggerSession.Create();
-        var session = playground.Session;
+        var session = worldEditor.Session;
         var dispatcher = WorldEditEntryTests.Dispatcher(logger, session);
         var cell = StraightRailFixture.FirstSegmentDamageCell;
         var text = $"{cell.X} {cell.Y} {cell.Z}";
@@ -532,7 +532,7 @@ public sealed class RailCommandTests
     private static double Speed(VoxelDevelopmentSession session) =>
         session.QueryTrainAssemblies().Single().Speed;
 
-    private static void WritePropulsion(PlaygroundHarness harness, double targetSpeed) =>
+    private static void WritePropulsion(WorldEditorHarness harness, double targetSpeed) =>
         harness.Source.AddVoxelFile("core", "voxels/propulsion.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good(
                 "propulsion",
@@ -542,7 +542,7 @@ public sealed class RailCommandTests
                 tagsJson: "[]",
                 behaviorsJson: $"[{{\"type\":\"propulsion\",\"target_speed\":{targetSpeed.ToString(CultureInfo.InvariantCulture)},\"acceleration\":2}}]")));
 
-    private static void WriteOre(PlaygroundHarness harness, int maxDurability, string displayName = "Ferrous Ore") =>
+    private static void WriteOre(WorldEditorHarness harness, int maxDurability, string displayName = "Ferrous Ore") =>
         harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", displayName, "说明", value: 250, mass: 2, maxDurability: maxDurability)));
 }

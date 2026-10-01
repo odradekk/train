@@ -3,7 +3,7 @@ using System.Text.Json;
 using Train.Content;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
 public static class AuthorityComparison
 {
@@ -442,7 +442,7 @@ public static class AuthorityComparison
         item.TryGetProperty(name, out var value) ? value.GetRawText() : null;
 }
 
-public sealed record AuthoritySequenceReport(PlaygroundSequenceReport Sequence, AuthorityObservation? Observation)
+public sealed record AuthoritySequenceReport(WorldEditorSequenceReport Sequence, AuthorityObservation? Observation)
 {
     public bool Passed => Sequence.Passed && Observation is not null;
 
@@ -460,17 +460,17 @@ public sealed record AuthoritySequenceReport(PlaygroundSequenceReport Sequence, 
 public static class AuthorityValidation
 {
     public static AuthoritySequenceReport Run(
-        PlaygroundSequence sequence,
+        WorldEditorSequence sequence,
         VoxelCatalog catalog,
         CompositeCatalog composites,
         IWorldSaveStore? store = null,
         string? buildId = null)
     {
         ArgumentNullException.ThrowIfNull(sequence);
-        var status = PlaygroundSession.TryEstablish(sequence.ConfigurationId, catalog, composites, store, out var session);
-        if (status != PlaygroundEstablishStatus.Established)
+        var status = WorldEditorSession.TryEstablish(sequence.ConfigurationId, catalog, composites, store, out var session);
+        if (status != WorldEditorEstablishStatus.Established)
             return new AuthoritySequenceReport(
-                new PlaygroundSequenceReport(sequence.Id, sequence.ConfigurationId, status, Array.Empty<PlaygroundStepResult>(), null),
+                new WorldEditorSequenceReport(sequence.Id, sequence.ConfigurationId, status, Array.Empty<WorldEditorStepResult>(), null),
                 null);
 
         try
@@ -483,39 +483,39 @@ public static class AuthorityValidation
         }
     }
 
-    public static AuthoritySequenceReport Execute(PlaygroundSequence sequence, VoxelDevelopmentSession session, string? buildId = null)
+    public static AuthoritySequenceReport Execute(WorldEditorSequence sequence, VoxelDevelopmentSession session, string? buildId = null)
     {
         ArgumentNullException.ThrowIfNull(sequence);
         ArgumentNullException.ThrowIfNull(session);
         if (!string.Equals(session.WorldSource?.ConfigurationId, sequence.ConfigurationId, StringComparison.Ordinal))
             return new AuthoritySequenceReport(
-                new PlaygroundSequenceReport(
+                new WorldEditorSequenceReport(
                     sequence.Id,
                     sequence.ConfigurationId,
-                    PlaygroundEstablishStatus.ConfigurationMismatch,
-                    Array.Empty<PlaygroundStepResult>(),
+                    WorldEditorEstablishStatus.ConfigurationMismatch,
+                    Array.Empty<WorldEditorStepResult>(),
                     null),
                 null);
 
         var checkpoints = new List<AuthorityCheckpoint> { AuthorityCodec.Checkpoint(session, 0, "establish") };
-        var results = new List<PlaygroundStepResult>();
+        var results = new List<WorldEditorStepResult>();
         for (var index = 0; index < sequence.Steps.Count; index++)
         {
             var step = sequence.Steps[index];
             var identity = step.Operation.InputIdentity(session);
             var actual = step.Operation.Apply(session);
             var checks = step.Checkpoint
-                .Select(check => new PlaygroundCheckResult(check.Observation, check.Expected, PlaygroundCheck.Observe(session, check.Observation)))
+                .Select(check => new WorldEditorCheckResult(check.Observation, check.Expected, WorldEditorCheck.Observe(session, check.Observation)))
                 .ToArray();
-            results.Add(new PlaygroundStepResult(index, step.Operation.Describe(), step.ExpectedStatus, actual, checks));
+            results.Add(new WorldEditorStepResult(index, step.Operation.Describe(), step.ExpectedStatus, actual, checks));
             checkpoints.Add(AuthorityCodec.Checkpoint(session, index + 1, identity));
         }
 
         return new AuthoritySequenceReport(
-            new PlaygroundSequenceReport(
+            new WorldEditorSequenceReport(
                 sequence.Id,
                 sequence.ConfigurationId,
-                PlaygroundEstablishStatus.Established,
+                WorldEditorEstablishStatus.Established,
                 results,
                 WorldSaveAuthority.Fingerprint(session)),
             new AuthorityObservation(AuthorityCodec.Context(session, buildId), checkpoints));

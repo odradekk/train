@@ -4,7 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
@@ -12,13 +12,13 @@ namespace Train.Tests;
 
 [TestClass]
 [TestCategory("family:headless")]
-[TestCategory("scope:playground")]
-public sealed class PlaygroundSaveSwitchTests
+[TestCategory("scope:world-editor")]
+public sealed class WorldEditorSaveSwitchTests
 {
     [TestMethod]
     public void Established_base_fingerprint_is_stable_across_culture_and_is_not_a_generator_claim()
     {
-        using var first = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var first = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var fingerprint = first.Session.WorldSource!.BaseFingerprint;
         Assert.AreEqual(64, fingerprint.Length);
         Assert.IsFalse(first.Session.HasUnsavedChanges);
@@ -30,7 +30,7 @@ public sealed class PlaygroundSaveSwitchTests
             var french = CultureInfo.GetCultureInfo("fr-FR");
             CultureInfo.CurrentCulture = french;
             CultureInfo.CurrentUICulture = french;
-            using var second = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+            using var second = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
             Assert.AreEqual(fingerprint, second.Session.WorldSource!.BaseFingerprint);
         }
         finally
@@ -50,15 +50,15 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Unsaved_changes_cover_edits_steps_and_pending_input_but_not_observation()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsFalse(session.HasUnsavedChanges);
         session.ResumeSimulation();
         session.PauseSimulation();
         Assert.IsFalse(session.HasUnsavedChanges);
-        using (var observer = new PlaygroundObserver(session, new ObservationVector(10, 20, 30), new ObservationVector(0, 1, 0)))
+        using (var observer = new WorldEditorObserver(session, new ObservationVector(10, 20, 30), new ObservationVector(0, 1, 0)))
         {
-            Assert.AreEqual(PlaygroundObservationStatus.Selected, observer.Select(ObservedObject.Segment(session.Rails.Segments[0].Id)));
+            Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.Segment(session.Rails.Segments[0].Id)));
             Assert.IsFalse(session.HasUnsavedChanges);
         }
 
@@ -76,7 +76,7 @@ public sealed class PlaygroundSaveSwitchTests
         Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
         Assert.IsTrue(session.HasUnsavedChanges);
 
-        var reader = new VoxelDevelopmentSession(playground.Catalog, session.Identity, playground.Store, playground.Composites);
+        var reader = new VoxelDevelopmentSession(worldEditor.Catalog, session.Identity, worldEditor.Store, worldEditor.Composites);
         try
         {
             Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId!.Value).Status);
@@ -97,8 +97,8 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Protected_reset_keeps_the_configuration_and_requires_a_choice_while_dirty()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var saved = session.Save("Keep");
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(new WorldVoxelCoord(1, 2, 1), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         var fingerprint = WorldSaveAuthority.Fingerprint(session);
@@ -115,7 +115,7 @@ public sealed class PlaygroundSaveSwitchTests
 
         var discarded = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, WorldChangeChoice.Discard));
         Assert.AreEqual(WorldChangeStatus.Completed, discarded.Status);
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
         Assert.AreEqual(64, session.WorldSource.BaseFingerprint.Length);
         Assert.IsTrue(session.SimulationPaused);
         Assert.AreEqual(0UL, session.SimulationStep);
@@ -127,8 +127,8 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Switch_clears_save_identity_and_candidate_failure_keeps_the_session()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         session.Save("Train");
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(new WorldVoxelCoord(1, 2, 1), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         var fingerprint = WorldSaveAuthority.Fingerprint(session);
@@ -141,7 +141,7 @@ public sealed class PlaygroundSaveSwitchTests
         Assert.AreEqual(WorldSaveStatus.IncompatibleBase, failed.CandidateStatus);
         Assert.AreEqual("unknown_configuration", failed.Diagnostic!.Relationship);
         Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
         Assert.IsTrue(session.HasUnsavedChanges);
 
         var savedThenFailed = session.TryChangeWorld(new WorldChangeRequest(
@@ -156,9 +156,9 @@ public sealed class PlaygroundSaveSwitchTests
         var switched = session.TryChangeWorld(new WorldChangeRequest(
             WorldChangeKind.SwitchConfiguration,
             null,
-            PlaygroundConfigurations.StraightRailEmptyId));
+            WorldEditorConfigurations.StraightRailEmptyId));
         Assert.AreEqual(WorldChangeStatus.Completed, switched.Status);
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
         Assert.IsTrue(session.SimulationPaused);
         Assert.AreEqual(0, session.QueryTrainAssemblies().Count);
         Assert.IsNull(session.SaveId);
@@ -168,13 +168,13 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Save_failure_cancels_the_switch_and_leaves_the_previous_file()
     {
-        using var playground = PlaygroundHarness.Content();
-        var files = new FileWorldSaveStore(playground.UserData);
+        using var worldEditor = WorldEditorHarness.Content();
+        var files = new FileWorldSaveStore(worldEditor.UserData);
         var store = new FailStore(files);
         Assert.AreEqual(
-            PlaygroundEstablishStatus.Established,
-            PlaygroundSession.TryEstablish(PlaygroundConfigurations.StraightRailTrainId, playground.Catalog, playground.Composites, store, out var session));
-        playground.Attach(session!);
+            WorldEditorEstablishStatus.Established,
+            WorldEditorSession.TryEstablish(WorldEditorConfigurations.StraightRailTrainId, worldEditor.Catalog, worldEditor.Composites, store, out var session));
+        worldEditor.Attach(session!);
         var saved = session!.Save("Held");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
         var path = files.PathFor(saved.SaveId!.Value);
@@ -185,13 +185,13 @@ public sealed class PlaygroundSaveSwitchTests
         var result = session.TryChangeWorld(new WorldChangeRequest(
             WorldChangeKind.SwitchConfiguration,
             WorldChangeChoice.SaveThenSwitch,
-            PlaygroundConfigurations.StraightRailEmptyId));
+            WorldEditorConfigurations.StraightRailEmptyId));
 
         Assert.AreEqual(WorldChangeStatus.SaveFailed, result.Status);
         Assert.AreEqual(WorldSaveStatus.WriteFailed, result.SaveStatus);
         Assert.AreEqual("write", result.Diagnostic!.Relationship);
         CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
         Assert.IsTrue(session.HasUnsavedChanges);
         Assert.IsTrue(session.Query(new WorldVoxelCoord(1, 2, 1)).IsOccupied);
     }
@@ -199,8 +199,8 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Faulted_save_then_switch_does_not_repair_or_replace_the_session()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         var probe = new WorldVoxelCoord(1, 2, 1);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(probe, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
@@ -217,21 +217,21 @@ public sealed class PlaygroundSaveSwitchTests
         var saved = session.TryChangeWorld(new WorldChangeRequest(
             WorldChangeKind.SwitchConfiguration,
             WorldChangeChoice.SaveThenSwitch,
-            PlaygroundConfigurations.StraightRailEmptyId));
+            WorldEditorConfigurations.StraightRailEmptyId));
         Assert.AreEqual(WorldChangeStatus.SaveFailed, saved.Status);
         Assert.AreEqual(WorldSaveStatus.SimulationFaulted, saved.SaveStatus);
         Assert.AreEqual("fault", saved.Diagnostic!.Relationship);
         Assert.IsNotNull(session.Fault);
         Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
 
         var discarded = session.TryChangeWorld(new WorldChangeRequest(
             WorldChangeKind.SwitchConfiguration,
             WorldChangeChoice.Discard,
-            PlaygroundConfigurations.StraightRailEmptyId));
+            WorldEditorConfigurations.StraightRailEmptyId));
         Assert.AreEqual(WorldChangeStatus.Completed, discarded.Status);
         Assert.IsNull(session.Fault);
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
         Assert.IsTrue(session.SimulationPaused);
         Assert.IsFalse(session.HasUnsavedChanges);
     }
@@ -239,8 +239,8 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Load_reports_base_dependency_and_reference_failures_without_replacing_the_session()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var assembly = session.QueryTrainAssemblies().Single();
         var coupler = assembly.Connections[0];
         Assert.AreEqual(
@@ -249,7 +249,7 @@ public sealed class PlaygroundSaveSwitchTests
                 new VehicleDamageEdit(new[] { new CompositeDamageTarget(coupler.FromVehicleId, coupler.FromCell, 1) }),
                 1).Status);
         var saved = session.Save("Diagnose");
-        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        var path = worldEditor.Store.PathFor(saved.SaveId!.Value);
         var original = File.ReadAllText(path);
         var before = WorldSaveAuthority.Fingerprint(session);
 
@@ -291,10 +291,10 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Parameter_order_and_revision_text_adapt_without_rejecting_a_matching_base()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var saved = session.Save("Order");
-        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        var path = worldEditor.Store.PathFor(saved.SaveId!.Value);
         var original = File.ReadAllText(path);
 
         File.WriteAllText(path, Mutate(original, root =>
@@ -308,7 +308,7 @@ public sealed class PlaygroundSaveSwitchTests
         var reordered = session.Load(saved.SaveId!.Value);
         Assert.AreEqual(WorldSaveStatus.Loaded, reordered.Status);
         Assert.IsFalse(session.HasUnsavedChanges);
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
 
         File.WriteAllText(path, Mutate(original, root =>
         {
@@ -345,17 +345,17 @@ public sealed class PlaygroundSaveSwitchTests
     }
 
     [TestMethod]
-    public void Playground_load_of_a_source_free_save_pauses_without_stopping_the_train()
+    public void WorldEditor_load_of_a_source_free_save_pauses_without_stopping_the_train()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(3).Succeeded);
         Assert.AreEqual("Pending", session.SubmitEdit(new VoxelRemoveEdit(new WorldVoxelCoord(1, 2, 1)), session.SimulationStep + 1).Status);
         var saved = session.Save("Running");
         var speed = session.QueryTrainAssemblies().Single().Speed;
         var halt = session.QueryTrainAssemblies().Single().HaltReason;
-        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        var path = worldEditor.Store.PathFor(saved.SaveId!.Value);
         File.WriteAllText(path, Mutate(File.ReadAllText(path), root => root.Remove("world_source")));
 
         var commands = new VoxelConsoleCommands(session);
@@ -378,10 +378,10 @@ public sealed class PlaygroundSaveSwitchTests
         AssertRestoredRunningSave(session, speed, halt);
 
         StringAssert.StartsWith(
-            commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId, "discard" }),
+            commands.Execute(new[] { "use", WorldEditorConfigurations.StraightRailEmptyId, "discard" }),
             "Voxel configuration straight-rail-empty.");
         Assert.IsTrue(session.SimulationPaused);
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
         Assert.IsNull(session.SaveId);
         Assert.AreEqual(0, session.QueryTrainAssemblies().Count);
     }
@@ -389,13 +389,13 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Failed_reset_fixture_keeps_the_world_and_a_successful_save_point()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(3).Succeeded);
         var probe = new WorldVoxelCoord(1, 2, 1);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(probe, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
-        RenameBridge(playground);
+        RenameBridge(worldEditor);
         var world = session.World;
         var commands = new CompositeConsoleCommands(session);
 
@@ -420,13 +420,13 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Current_propulsion_clamps_saved_speed_and_leaves_the_world_unsaved()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(300).Succeeded);
         var contact = session.QueryTrainAssemblies().Single().Vehicles[0].FrontContact.X;
         var saved = session.Save("Speed");
-        playground.Source.AddVoxelFile("core", "voxels/propulsion.voxels.json", ContentFixtures.GoodsFile(
+        worldEditor.Source.AddVoxelFile("core", "voxels/propulsion.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good(
                 "propulsion",
                 "开发动力件",
@@ -434,9 +434,9 @@ public sealed class PlaygroundSaveSwitchTests
                 value: 10,
                 tagsJson: "[]",
                 behaviorsJson: "[{ \"type\":\"propulsion\",\"target_speed\":2,\"acceleration\":2 }]")));
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
 
-        var reader = new VoxelDevelopmentSession(playground.Catalog, session.Identity, playground.Store, playground.Composites);
+        var reader = new VoxelDevelopmentSession(worldEditor.Catalog, session.Identity, worldEditor.Store, worldEditor.Composites);
         try
         {
             var loaded = reader.Load(saved.SaveId!.Value);
@@ -459,8 +459,8 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Console_reset_and_use_share_the_unsaved_choice()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var commands = new VoxelConsoleCommands(session);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(new WorldVoxelCoord(1, 2, 1), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
 
@@ -469,10 +469,10 @@ public sealed class PlaygroundSaveSwitchTests
         StringAssert.Contains(commands.Execute(new[] { "reset", "cancel" }), "Cancelled");
         Assert.IsTrue(session.HasUnsavedChanges);
         StringAssert.StartsWith(commands.Execute(new[] { "reset", "discard" }), "Voxel world reset.");
-        Assert.AreEqual(PlaygroundConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
+        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
         Assert.IsFalse(session.HasUnsavedChanges);
 
-        StringAssert.Contains(commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId }), "straight-rail-empty");
+        StringAssert.Contains(commands.Execute(new[] { "use", WorldEditorConfigurations.StraightRailEmptyId }), "straight-rail-empty");
         Assert.IsTrue(session.SimulationPaused);
         Assert.AreEqual(0, session.QueryTrainAssemblies().Count);
     }
@@ -480,9 +480,9 @@ public sealed class PlaygroundSaveSwitchTests
     [TestMethod]
     public void Slice_reset_without_a_source_still_discards_immediately_once_chosen()
     {
-        using var playground = PlaygroundHarness.Content();
-        var session = new VoxelDevelopmentSession(playground.Catalog, VoxelWorldIdentity.Slice1, playground.Store, playground.Composites);
-        playground.Attach(session);
+        using var worldEditor = WorldEditorHarness.Content();
+        var session = new VoxelDevelopmentSession(worldEditor.Catalog, VoxelWorldIdentity.Slice1, worldEditor.Store, worldEditor.Composites);
+        worldEditor.Attach(session);
         Assert.IsFalse(session.HasUnsavedChanges);
         Assert.AreEqual(WorldCommandStatus.Removed, session.Remove(new WorldVoxelCoord(4, 4, 4)).Status);
         var clean = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, null));
@@ -503,7 +503,7 @@ public sealed class PlaygroundSaveSwitchTests
         var again = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId));
         Assert.AreEqual(WorldChangeStatus.Completed, again.Status);
         Assert.IsFalse(session.SimulationPaused);
-        var switched = commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId, "discard" });
+        var switched = commands.Execute(new[] { "use", WorldEditorConfigurations.StraightRailEmptyId, "discard" });
         StringAssert.StartsWith(switched, "Voxel IncompatibleBase.");
         StringAssert.Contains(switched, "stage base subject session relationship world_editor");
         Assert.IsNull(session.WorldSource);
@@ -523,15 +523,15 @@ public sealed class PlaygroundSaveSwitchTests
         Assert.IsNull(session.WorldSource);
     }
 
-    private static void RenameBridge(PlaygroundHarness playground)
+    private static void RenameBridge(WorldEditorHarness worldEditor)
     {
-        var package = playground.Source.ListPackages().Single(item => item.Namespace == "core");
-        var bridge = playground.Source.ReadFile(package, "composites/dev-bridge.composites.json", ContentLimits.JsonFileMaxBytes);
+        var package = worldEditor.Source.ListPackages().Single(item => item.Namespace == "core");
+        var bridge = worldEditor.Source.ReadFile(package, "composites/dev-bridge.composites.json", ContentLimits.JsonFileMaxBytes);
         var doc = JsonNode.Parse(System.Text.Encoding.UTF8.GetString(bridge.Bytes!))!;
         foreach (var composite in doc["composites"]!.AsArray())
             composite!["id"] = "reviewer-" + composite["id"]!.GetValue<string>();
-        playground.Source.AddCompositeFile("core", "composites/dev-bridge.composites.json", doc.ToJsonString());
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
+        worldEditor.Source.AddCompositeFile("core", "composites/dev-bridge.composites.json", doc.ToJsonString());
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
     }
 
     private static string Mutate(string json, Action<JsonObject> mutate)

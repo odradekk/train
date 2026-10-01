@@ -1,12 +1,12 @@
-# `observe`：查询 Playground 观察状态与选中对象
+# `observe`：查询世界编辑器观察状态与选中对象
 
-[返回命令索引](README.md) · [Playground](README.md#playground具名固定配置) · [结果与错误处理](README.md#结果与错误处理)
+[返回命令索引](README.md) · [世界编辑器](README.md#世界编辑器具名固定配置) · [结果与错误处理](README.md#结果与错误处理)
 
 ```text
 observe
 ```
 
-参数：无。只在 Playground 中可用；其他场景输出 `Enter the Playground before using observe commands.`（`warning`）。
+参数：无。只在世界编辑器中可用；其他场景输出 `请先进入世界编辑器再使用 observe 命令。`（`warning`）。
 
 输出按行分为：
 

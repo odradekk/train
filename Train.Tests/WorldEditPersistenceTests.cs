@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 using Train.Logging;
@@ -21,7 +21,7 @@ public sealed class WorldEditPersistenceTests
     [TestMethod]
     public void Paused_edits_and_pending_structural_edits_survive_save_and_continue_identically_after_restore()
     {
-        using var writer = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var writer = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var session = writer.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(20).Succeeded);
@@ -42,7 +42,7 @@ public sealed class WorldEditPersistenceTests
         Assert.AreEqual(3, json["world_edits"]!["pending"]!.AsArray().Count);
         Assert.AreEqual(boundary.Sequence, json["world_edits"]!["boundary_sequence"]!.GetValue<ulong>());
 
-        using var restarted = PlaygroundHarness.Content(userData: writer.UserData);
+        using var restarted = WorldEditorHarness.Content(userData: writer.UserData);
         var reader = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4, restarted.Store, restarted.Composites);
         restarted.Attach(reader);
         Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId.Value).Status);
@@ -72,7 +72,7 @@ public sealed class WorldEditPersistenceTests
     [TestMethod]
     public void Pending_edit_whose_target_was_destroyed_before_save_is_restored_and_rejected_on_time()
     {
-        using var writer = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var writer = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = writer.Session;
         var bridge = session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
         var refit = new VehicleRefitEdit(bridge, new[]
@@ -90,7 +90,7 @@ public sealed class WorldEditPersistenceTests
         var saved = session.Save("Destroyed Target");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
 
-        using var restarted = PlaygroundHarness.Content(userData: writer.UserData);
+        using var restarted = WorldEditorHarness.Content(userData: writer.UserData);
         var reader = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4, restarted.Store, restarted.Composites);
         restarted.Attach(reader);
         Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId!.Value).Status);
@@ -109,7 +109,7 @@ public sealed class WorldEditPersistenceTests
     [TestMethod]
     public void Scheduled_edits_naming_never_allocated_ids_are_refused_so_every_saved_queue_loads()
     {
-        using var writer = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var writer = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         using var logger = LoggerSession.Create();
         var session = writer.Session;
         var dispatcher = WorldEditEntryTests.Dispatcher(logger, session);
@@ -158,7 +158,7 @@ public sealed class WorldEditPersistenceTests
 
         var saved = session.Save("Unallocated");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
-        using var restarted = PlaygroundHarness.Content(userData: writer.UserData);
+        using var restarted = WorldEditorHarness.Content(userData: writer.UserData);
         var reader = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4, restarted.Store, restarted.Composites);
         restarted.Attach(reader);
         Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId!.Value).Status);
@@ -171,7 +171,7 @@ public sealed class WorldEditPersistenceTests
     [TestMethod]
     public void Corrupt_or_unknown_edit_queues_reject_the_load_and_keep_the_session()
     {
-        using var harness = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = harness.Session;
         var shell = session.Manufacture(HollowShellFixture.DefinitionId, WorldEditOrderingTests.ShellPose).VehicleId!.Value;
         Assert.IsTrue(session.AdvanceSimulation(2).Succeeded);
@@ -244,7 +244,7 @@ public sealed class WorldEditPersistenceTests
     [TestMethod]
     public void Exhausted_input_and_transaction_counters_are_refused_explicitly()
     {
-        using var harness = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = harness.Session;
         var saved = session.Save("Counters");
         var path = harness.Store.PathFor(saved.SaveId!.Value);

@@ -1,7 +1,7 @@
 using System.Text;
 using Godot;
 using Train.Domain.Commands;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 
 namespace Train;
@@ -15,11 +15,11 @@ internal sealed class AuthorityCheckpointSmoke
     public const string BuildEnvironmentVariable = "TRAIN_AUTHORITY_BUILD";
     private static readonly WorldVoxelCoord ContinuationCell = new(10, 10, 10);
 
-    private readonly PlaygroundScene _scene;
+    private readonly WorldEditorScene _scene;
     private readonly bool _resume;
     private bool _finished;
 
-    public AuthorityCheckpointSmoke(PlaygroundScene scene, string? saveId)
+    public AuthorityCheckpointSmoke(WorldEditorScene scene, string? saveId)
     {
         _scene = scene;
         _resume = Guid.TryParse(saveId, out _);
@@ -49,7 +49,7 @@ internal sealed class AuthorityCheckpointSmoke
 
     private void Establish()
     {
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.AuthorityManufactureFractureId)
             ?? throw new InvalidOperationException("authority sequence is not registered");
         var report = AuthorityValidation.Execute(sequence, Session, BuildId());
         foreach (var line in report.Lines())
@@ -88,7 +88,7 @@ internal sealed class AuthorityCheckpointSmoke
 
     private void Resume()
     {
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.AuthorityManufactureFractureId)
             ?? throw new InvalidOperationException("authority sequence is not registered");
         // The loaded save is after the last command, so resolving "latest" again names a different vehicle.
         // Replay the formal sequence for the identity captured at that command; the save supplies the state.
@@ -124,7 +124,7 @@ internal sealed class AuthorityCheckpointSmoke
             throw new InvalidOperationException($"{label} checkpoints differ: {difference.Detail}");
     }
 
-    private string ReplayLastInput(PlaygroundSequence sequence)
+    private string ReplayLastInput(WorldEditorSequence sequence)
     {
         var reloader = _scene.GetNode<Main>("/root/Main").Reloader
             ?? throw new InvalidOperationException("content is not loaded");
@@ -137,8 +137,8 @@ internal sealed class AuthorityCheckpointSmoke
         return checkpoint.Input;
     }
 
-    private static PlaygroundOperation ContinuationOperation() =>
-        PlaygroundOperation.Submit(new VoxelAddEdit(ContinuationCell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity));
+    private static WorldEditorOperation ContinuationOperation() =>
+        WorldEditorOperation.Submit(new VoxelAddEdit(ContinuationCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity));
 
     private void PrintState(string marker, Guid? saveId, string digest, AuthorityCheckpoint checkpoint)
     {

@@ -1,12 +1,12 @@
 using Godot;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 
 namespace Train;
 
 public partial class StartMenu : Control
 {
-    private readonly Dictionary<string, Button> _playgroundButtons = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, Button> _worldEditorButtons = new(StringComparer.Ordinal);
 
     public override void _Ready()
     {
@@ -15,7 +15,7 @@ public partial class StartMenu : Control
         GetNode<Button>("%StartSlice3").Pressed += OnSlice3Pressed;
         GetNode<Button>("%StartSlice4").Pressed += OnSlice4Pressed;
         GetNode<Button>("%QuitGame").Pressed += OnQuitPressed;
-        AddPlaygroundButtons();
+        AddWorldEditorButtons();
         if (string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE"), "1", StringComparison.Ordinal) &&
             string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_SMOKE_REENTER"), "1", StringComparison.Ordinal))
         {
@@ -29,37 +29,37 @@ public partial class StartMenu : Control
             };
             start.EmitSignal(BaseButton.SignalName.Pressed);
         }
-        else if (Main.IsPlaygroundAutomationEnabled())
+        else if (Main.IsWorldEditorAutomationEnabled())
         {
-            var id = Main.ReadRequestedPlaygroundConfiguration();
-            GD.Print($"PLAYGROUND_SMOKE_MENU_ENTER config={id}");
+            var id = Main.ReadRequestedWorldEditorConfiguration();
+            GD.Print($"WORLD_EDITOR_SMOKE_MENU_ENTER config={id}");
             Callable.From(() =>
             {
-                if (_playgroundButtons.TryGetValue(id, out var button))
+                if (_worldEditorButtons.TryGetValue(id, out var button))
                     button.EmitSignal(BaseButton.SignalName.Pressed);
                 else
-                    GetNode<Main>("/root/Main").EnterPlayground(id);
+                    GetNode<Main>("/root/Main").EnterWorldEditor(id);
             }).CallDeferred();
         }
     }
 
-    private void AddPlaygroundButtons()
+    private void AddWorldEditorButtons()
     {
         var quit = GetNode<Button>("%QuitGame");
         var buttons = quit.GetParent();
-        foreach (var configuration in PlaygroundConfigurations.All)
+        foreach (var configuration in WorldEditorConfigurations.All)
         {
             var id = configuration.Id;
             var button = new Button
             {
-                Name = "Playground_" + id.Replace('-', '_'),
-                Text = $"Playground · {configuration.Title}",
+                Name = "WorldEditor_" + id.Replace('-', '_'),
+                Text = $"世界编辑器 · {configuration.Title}",
                 CustomMinimumSize = new Vector2(280, 48)
             };
-            button.Pressed += () => GetNode<Main>("/root/Main").EnterPlayground(id);
+            button.Pressed += () => GetNode<Main>("/root/Main").EnterWorldEditor(id);
             buttons.AddChild(button);
             buttons.MoveChild(button, quit.GetIndex());
-            _playgroundButtons[id] = button;
+            _worldEditorButtons[id] = button;
         }
     }
 

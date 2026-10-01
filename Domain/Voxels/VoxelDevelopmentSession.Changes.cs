@@ -1,12 +1,12 @@
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 
 namespace Train.Domain.Voxels;
 
 public sealed partial class VoxelDevelopmentSession
 {
     private string _cleanFingerprint = "";
-    private bool _playgroundHost;
+    private bool _worldEditorHost;
 
     public bool HasUnsavedChanges =>
         Fault is not null ||
@@ -17,15 +17,15 @@ public sealed partial class VoxelDevelopmentSession
     internal void MarkNewWorldUnsaved() => _cleanFingerprint = "";
 
     /// <summary>
-    /// Marks this session as the Playground host. The duty stays with the session object and is not cleared when a
+    /// Marks this session as the world editor host. The duty stays with the session object and is not cleared when a
     /// save replaces <see cref="WorldSource"/>.
     /// </summary>
-    internal void MarkPlaygroundHost() => _playgroundHost = true;
+    internal void MarkWorldEditorHost() => _worldEditorHost = true;
 
     public WorldChangeResult TryChangeWorld(WorldChangeRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!_playgroundHost && request.Kind is WorldChangeKind.NewBlank or WorldChangeKind.SwitchConfiguration)
+        if (!_worldEditorHost && request.Kind is WorldChangeKind.NewBlank or WorldChangeKind.SwitchConfiguration)
             return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
                 diagnostic: new WorldSaveDiagnostic("base", "session", "world_editor", "new worlds and configuration switches require the world editor host"));
         if (request.Choice == WorldChangeChoice.Cancel)
@@ -71,10 +71,10 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (!string.IsNullOrWhiteSpace(fixtureId))
             return ResetWithFixture(fixtureId);
-        if (_playgroundHost)
+        if (_worldEditorHost)
         {
             if (WorldSource is null)
-                return PlaygroundResetNeedsConfiguration();
+                return WorldEditorResetNeedsConfiguration();
 
             if (WorldSource.Kind == WorldSource.BlankKind)
                 return AdoptBlank(Identity, keepSaveIdentity: true);
@@ -105,8 +105,8 @@ public sealed partial class VoxelDevelopmentSession
         var adopted = false;
         try
         {
-            if (_playgroundHost && WorldSource is null)
-                return PlaygroundResetNeedsConfiguration();
+            if (_worldEditorHost && WorldSource is null)
+                return WorldEditorResetNeedsConfiguration();
 
             if (WorldSource is { } source)
             {
@@ -114,8 +114,8 @@ public sealed partial class VoxelDevelopmentSession
                     candidate = BlankWorldSource.Establish(Identity, _catalog, _composites, _store);
                 else
                 {
-                    var status = PlaygroundSession.TryEstablish(source.ConfigurationId, _catalog, _composites, _store, out candidate);
-                    if (status != PlaygroundEstablishStatus.Established || candidate is null)
+                    var status = WorldEditorSession.TryEstablish(source.ConfigurationId, _catalog, _composites, _store, out candidate);
+                    if (status != WorldEditorEstablishStatus.Established || candidate is null)
                         return Change(WorldChangeStatus.CandidateFailed, candidateStatus: MapEstablish(status), diagnostic: DiagnoseEstablish(source.ConfigurationId, status));
                 }
             }
@@ -138,7 +138,7 @@ public sealed partial class VoxelDevelopmentSession
                         "the reset fixture was not manufactured"));
             }
 
-            Adopt(candidate, keepSaveIdentity: true, pause: _playgroundHost);
+            Adopt(candidate, keepSaveIdentity: true, pause: _worldEditorHost);
             adopted = true;
             return Change(
                 WorldChangeStatus.Completed,
@@ -186,7 +186,7 @@ public sealed partial class VoxelDevelopmentSession
                 adaptations: loaded.Adaptations);
         }
 
-        if (_playgroundHost)
+        if (_worldEditorHost)
             PauseSimulation();
         return Change(WorldChangeStatus.Completed, adaptations: loaded.Adaptations);
     }
@@ -197,8 +197,8 @@ public sealed partial class VoxelDevelopmentSession
         var adopted = false;
         try
         {
-            var status = PlaygroundSession.TryEstablish(configurationId, _catalog, _composites, _store, out candidate);
-            if (status != PlaygroundEstablishStatus.Established || candidate is null)
+            var status = WorldEditorSession.TryEstablish(configurationId, _catalog, _composites, _store, out candidate);
+            if (status != WorldEditorEstablishStatus.Established || candidate is null)
                 return Change(WorldChangeStatus.CandidateFailed, candidateStatus: MapEstablish(status), diagnostic: DiagnoseEstablish(configurationId, status));
 
             Adopt(candidate, keepSaveIdentity, pause: true);
@@ -233,7 +233,7 @@ public sealed partial class VoxelDevelopmentSession
             candidate.SimulationStep,
             candidate.CaptureEditQueue()));
         WorldSource = candidate.WorldSource;
-        _playgroundHost |= candidate._playgroundHost;
+        _worldEditorHost |= candidate._worldEditorHost;
         if (keepSaveIdentity)
         {
             SaveId = saveId;
@@ -266,34 +266,34 @@ public sealed partial class VoxelDevelopmentSession
         int? fixturePartCount = null) =>
         new(status, saveStatus, candidateStatus, diagnostic, adaptations, HasUnsavedChanges, fixtureStatus, fixtureVehicleId, fixturePartCount);
 
-    private static WorldSaveStatus MapEstablish(PlaygroundEstablishStatus status) => status switch
+    private static WorldSaveStatus MapEstablish(WorldEditorEstablishStatus status) => status switch
     {
-        PlaygroundEstablishStatus.MissingContent or PlaygroundEstablishStatus.ContentUnavailable
+        WorldEditorEstablishStatus.MissingContent or WorldEditorEstablishStatus.ContentUnavailable
             => WorldSaveStatus.MissingDefinition,
         _ => WorldSaveStatus.IncompatibleBase
     };
 
-    private static WorldSaveDiagnostic DiagnoseEstablish(string configurationId, PlaygroundEstablishStatus status)
+    private static WorldSaveDiagnostic DiagnoseEstablish(string configurationId, WorldEditorEstablishStatus status)
     {
         var relationship = status switch
         {
-            PlaygroundEstablishStatus.UnknownConfiguration => "unknown_configuration",
-            PlaygroundEstablishStatus.UnsupportedDeclaration => "declaration",
-            PlaygroundEstablishStatus.InitialStateRejected => "initial_state",
-            PlaygroundEstablishStatus.ConfigurationMismatch => "configuration",
-            PlaygroundEstablishStatus.MissingContent => "content_dependency",
-            PlaygroundEstablishStatus.ContentUnavailable => "content_unavailable",
+            WorldEditorEstablishStatus.UnknownConfiguration => "unknown_configuration",
+            WorldEditorEstablishStatus.UnsupportedDeclaration => "declaration",
+            WorldEditorEstablishStatus.InitialStateRejected => "initial_state",
+            WorldEditorEstablishStatus.ConfigurationMismatch => "configuration",
+            WorldEditorEstablishStatus.MissingContent => "content_dependency",
+            WorldEditorEstablishStatus.ContentUnavailable => "content_unavailable",
             _ => "configuration"
         };
-        var stage = status is PlaygroundEstablishStatus.MissingContent or PlaygroundEstablishStatus.ContentUnavailable
+        var stage = status is WorldEditorEstablishStatus.MissingContent or WorldEditorEstablishStatus.ContentUnavailable
             ? "dependency"
             : "base";
         return new WorldSaveDiagnostic(stage, configurationId, relationship, "the configuration could not be established");
     }
 
-    private WorldChangeResult PlaygroundResetNeedsConfiguration() =>
+    private WorldChangeResult WorldEditorResetNeedsConfiguration() =>
         Change(
             WorldChangeStatus.CandidateFailed,
             candidateStatus: WorldSaveStatus.IncompatibleBase,
-            diagnostic: new WorldSaveDiagnostic("base", "session", "configuration", "playground reset needs the current configuration"));
+            diagnostic: new WorldSaveDiagnostic("base", "session", "configuration", "world editor reset needs the current configuration"));
 }

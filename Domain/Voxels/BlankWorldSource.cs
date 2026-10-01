@@ -1,6 +1,6 @@
 using System.Globalization;
 using Train.Content;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 
 namespace Train.Domain.Voxels;
 

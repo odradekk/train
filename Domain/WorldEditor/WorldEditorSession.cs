@@ -1,15 +1,15 @@
 using Train.Content;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
-public static class PlaygroundSession
+public static class WorldEditorSession
 {
     /// <summary>
     /// Builds the declared initial world through the formal edit entry, then opens the established session's input
     /// order at the establish boundary and leaves the global clock paused.
     /// </summary>
-    public static PlaygroundEstablishStatus TryEstablish(
+    public static WorldEditorEstablishStatus TryEstablish(
         string configurationId,
         VoxelCatalog catalog,
         CompositeCatalog composites,
@@ -17,21 +17,21 @@ public static class PlaygroundSession
         out VoxelDevelopmentSession? session)
     {
         session = null;
-        var status = PlaygroundConfigurations.TryResolve(configurationId, catalog, composites, out var source);
-        if (status != PlaygroundEstablishStatus.Established)
+        var status = WorldEditorConfigurations.TryResolve(configurationId, catalog, composites, out var source);
+        if (status != WorldEditorEstablishStatus.Established)
             return status;
 
-        var configuration = PlaygroundConfigurations.Find(configurationId)!;
+        var configuration = WorldEditorConfigurations.Find(configurationId)!;
         var candidate = new VoxelDevelopmentSession(catalog, configuration.BaseWorld, store, composites);
         if ((configuration.Railway is { } railway && !candidate.ConstructRails(railway).Succeeded) ||
             (configuration.Train is not null && !candidate.AssembleStaticTrain().Succeeded))
         {
             candidate.Detach();
-            return PlaygroundEstablishStatus.InitialStateRejected;
+            return WorldEditorEstablishStatus.InitialStateRejected;
         }
 
         candidate.BindEstablishedSource(source);
         session = candidate;
-        return PlaygroundEstablishStatus.Established;
+        return WorldEditorEstablishStatus.Established;
     }
 }

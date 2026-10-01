@@ -3,10 +3,10 @@ param(
     [string] $OutputDirectory
 )
 
-# Real-Godot observation entrance for the Playground (#124).
+# Real-Godot observation entrance for the world editor (#124).
 # For each named fixed configuration it runs two isolated processes that share
 # one fresh user-data directory:
-#   1. enters through the start-menu Playground button in observation mode and
+#   1. enters through the start-menu world editor button in observation mode and
 #      drives the real camera, panel, keys, clicks and console: free camera with
 #      no selection, W flight while paused, list and click selection that never
 #      move the camera, Godot-physics picks checked against domain collision,
@@ -25,14 +25,14 @@ param(
 # straight rail already used ids 1 and 2) while `composite reset` and,
 # after a failed load that must keep observing, `voxel load` put a different
 # vehicle under that id; each replacement drops the references in place, and
-# the Playground world is loaded back before saving.
+# the world editor world is loaded back before saving.
 # Godot runs with --fixed-fps 45 so display time is reproducible and
 # each frame covers 4/3 simulation steps: following while running must then read
 # interpolated display poses that differ from the authoritative step positions.
 # Every run writes to a new timestamped directory.
 #
 # Command (repository root, $env:GODOT pointing at the Godot .NET console exe):
-#   pwsh -NoProfile -File scripts/run-godot-playground-observation-smoke.ps1
+#   pwsh -NoProfile -File scripts/run-godot-world-editor-observation-smoke.ps1
 # Exit 2 if Godot is unavailable; exit 1 for a failed process or missing marker.
 
 $ErrorActionPreference = "Continue"
@@ -57,12 +57,12 @@ New-Item -ItemType Directory -Path $OutputDirectory | Out-Null
 Write-Host "Using Godot: $env:GODOT"
 Write-Host "Output: $OutputDirectory"
 
-$owned = @("TRAIN_PLAYGROUND_SMOKE", "TRAIN_PLAYGROUND_SMOKE_MODE", "TRAIN_PLAYGROUND_CONFIG", "TRAIN_PLAYGROUND_SAVE_ID", "TRAIN_MODS_SMOKE_USER_DATA")
+$owned = @("TRAIN_WORLD_EDITOR_SMOKE", "TRAIN_WORLD_EDITOR_SMOKE_MODE", "TRAIN_WORLD_EDITOR_CONFIG", "TRAIN_WORLD_EDITOR_SAVE_ID", "TRAIN_MODS_SMOKE_USER_DATA")
 foreach ($name in @(
     "TRAIN_VOXEL_SMOKE", "TRAIN_VOXEL_SMOKE_REENTER", "TRAIN_VOXEL_SMOKE_RESUME", "TRAIN_VOXEL_SMOKE_SAVE_ID",
     "TRAIN_VOXEL_OBSERVE", "TRAIN_VOXEL_OBSERVE_RESUME", "TRAIN_VOXEL_BASELINE", "TRAIN_CONTENT_SMOKE",
     "TRAIN_CONTENT_EXPORT_SMOKE", "TRAIN_MODS_EXPORT_SMOKE", "TRAIN_LOG_SMOKE",
-    "TRAIN_PLAYGROUND_CAPTURE", "TRAIN_PLAYGROUND_CAPTURE_STEPS",
+    "TRAIN_WORLD_EDITOR_CAPTURE", "TRAIN_WORLD_EDITOR_CAPTURE_STEPS",
     "TRAIN_AUTHORITY_CHECKPOINT", "TRAIN_AUTHORITY_CHECKPOINT_DIR", "TRAIN_AUTHORITY_BUILD"
 ) + $owned) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
@@ -81,7 +81,7 @@ function Require-Markers([hashtable] $run, [string[]] $markers, [string] $label)
         [Console]::Error.WriteLine("$label exited with $($run.Code).")
         $ok = $false
     }
-    foreach ($bad in @("OBSERVE_SMOKE_FAILED", "PLAYGROUND_SMOKE_FAILED", "PLAYGROUND_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
+    foreach ($bad in @("OBSERVE_SMOKE_FAILED", "WORLD_EDITOR_SMOKE_FAILED", "WORLD_EDITOR_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
         if ($run.Text.Contains($bad)) {
             [Console]::Error.WriteLine("$label printed $bad.")
             $ok = $false
@@ -102,14 +102,14 @@ try {
         $userData = Join-Path $OutputDirectory "user-data-$config"
         New-Item -ItemType Directory -Path $userData | Out-Null
         $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
-        $env:TRAIN_PLAYGROUND_SMOKE = "1"
-        $env:TRAIN_PLAYGROUND_SMOKE_MODE = "observation"
-        $env:TRAIN_PLAYGROUND_CONFIG = $config
-        Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID -ErrorAction SilentlyContinue
+        $env:TRAIN_WORLD_EDITOR_SMOKE = "1"
+        $env:TRAIN_WORLD_EDITOR_SMOKE_MODE = "observation"
+        $env:TRAIN_WORLD_EDITOR_CONFIG = $config
+        Remove-Item Env:TRAIN_WORLD_EDITOR_SAVE_ID -ErrorAction SilentlyContinue
 
         $establish = Invoke-Godot (Join-Path $OutputDirectory "$config-establish.log")
         $markers = @(
-            "PLAYGROUND_SMOKE_MENU_ENTER config=$config",
+            "WORLD_EDITOR_SMOKE_MENU_ENTER config=$config",
             "OBSERVE_FREE ",
             "mode free selection none",
             "OBSERVE_FREE_FLY moved=",
@@ -164,7 +164,7 @@ try {
         $savedStep = $saved.Groups[2].Value
         $savedFingerprint = $saved.Groups[3].Value
 
-        $env:TRAIN_PLAYGROUND_SAVE_ID = $saveId
+        $env:TRAIN_WORLD_EDITOR_SAVE_ID = $saveId
         $resume = Invoke-Godot (Join-Path $OutputDirectory "$config-resume.log")
         $ok = Require-Markers $resume @(
             "OBSERVE_RESTORED step=$savedStep paused=true mode free selection none",

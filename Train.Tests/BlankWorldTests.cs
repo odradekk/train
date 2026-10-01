@@ -3,21 +3,21 @@ using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Commands;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 
 namespace Train.Tests;
 
 [TestClass]
 [TestCategory("family:headless")]
-[TestCategory("scope:playground")]
+[TestCategory("scope:world-editor")]
 [TestCategory("scope:persistence")]
 public sealed class BlankWorldTests
 {
     [TestMethod]
     public void New_blank_world_is_empty_paused_unsaved_and_gets_identity_only_after_saving()
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-train");
+        using var harness = WorldEditorHarness.Establish("straight-rail-train");
         var session = harness.Session;
         var commands = new VoxelConsoleCommands(session);
         StringAssert.StartsWith(commands.Execute(new[] { "new", "33", "17", "19", "42", "discard" }), "Voxel blank world.");
@@ -42,7 +42,7 @@ public sealed class BlankWorldTests
     [TestMethod]
     public void Blank_source_round_trips_without_resource_definitions_and_fingerprint_covers_inputs()
     {
-        using var harness = PlaygroundHarness.Content();
+        using var harness = WorldEditorHarness.Content();
         var empty = new VoxelCatalog();
         empty.Publish(new VoxelCatalogSnapshot(1, new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>()));
         Assert.IsTrue(BlankWorldSource.TryIdentity(1, 1, 1, ulong.MaxValue, out var identity));
@@ -86,7 +86,7 @@ public sealed class BlankWorldTests
     [TestMethod]
     public void Blank_edits_steps_and_pending_input_mark_unsaved_and_resume_at_the_saved_boundary()
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-train");
+        using var harness = WorldEditorHarness.Establish("straight-rail-train");
         var session = harness.Session;
         NewBlank(session);
         var saved = session.Save("Blank edits");
@@ -125,7 +125,7 @@ public sealed class BlankWorldTests
     [TestMethod]
     public void Non_editor_session_rejects_blank_creation_and_configuration_switch_without_saving()
     {
-        using var harness = PlaygroundHarness.Content();
+        using var harness = WorldEditorHarness.Content();
         var session = new VoxelDevelopmentSession(harness.Catalog, VoxelWorldIdentity.Slice3, harness.Store, harness.Composites);
         harness.Attach(session);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(
@@ -154,7 +154,7 @@ public sealed class BlankWorldTests
     [TestMethod]
     public void Invalid_blank_parameters_keep_world_identity_observation_and_unsaved_state_without_saving()
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-train");
+        using var harness = WorldEditorHarness.Establish("straight-rail-train");
         var session = harness.Session;
         using var observer = ObserveVehicle(session);
         Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
@@ -188,7 +188,7 @@ public sealed class BlankWorldTests
     [TestMethod]
     public void Altered_legacy_slice_identity_is_rejected_before_world_replacement()
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-empty");
+        using var harness = WorldEditorHarness.Establish("straight-rail-empty");
         var legacy = new VoxelDevelopmentSession(harness.Catalog, VoxelWorldIdentity.Slice3, harness.Store, harness.Composites);
         WorldSaveResult saved;
         try { saved = legacy.Save("Canonical slice"); }
@@ -232,7 +232,7 @@ public sealed class BlankWorldTests
     [TestMethod]
     public void Unsupported_or_inconsistent_blank_source_keeps_the_current_world_and_observation()
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-train");
+        using var harness = WorldEditorHarness.Establish("straight-rail-train");
         var session = harness.Session;
         var fixedSave = session.Save("Fixed");
         NewBlank(session);
@@ -283,14 +283,14 @@ public sealed class BlankWorldTests
         Assert.AreEqual(WorldSaveStatus.Loaded, session.Load(saved.SaveId.Value).Status);
         Assert.IsNull(observer.Selection);
         Assert.IsNull(observer.Target);
-        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        Assert.AreEqual(WorldEditorCameraMode.Free, observer.Mode);
         Assert.AreEqual(pose, observer.Pose);
     }
 
     [TestMethod]
     public void Failed_first_write_keeps_blank_world_without_uuid_and_unsaved()
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-train");
+        using var harness = WorldEditorHarness.Establish("straight-rail-train");
         NewBlank(harness.Session);
         var world = harness.Session.World;
         File.WriteAllText(Path.Combine(harness.UserData, "saves"), "block the save directory");
@@ -307,7 +307,7 @@ public sealed class BlankWorldTests
     [DataRow(4)]
     public void Blank_fixed_and_legacy_saves_switch_both_ways_without_rewriting_files(int slice)
     {
-        using var harness = PlaygroundHarness.Establish("straight-rail-train");
+        using var harness = WorldEditorHarness.Establish("straight-rail-train");
         var session = harness.Session;
         var fixedSave = session.Save("Fixed");
         var fixedIdentity = session.Identity;
@@ -345,11 +345,11 @@ public sealed class BlankWorldTests
         Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.NewBlank, WorldChangeChoice.Discard, BlankIdentity: identity)).Status);
     }
 
-    private static PlaygroundObserver ObserveVehicle(VoxelDevelopmentSession session)
+    private static WorldEditorObserver ObserveVehicle(VoxelDevelopmentSession session)
     {
-        var observer = new PlaygroundObserver(session, new ObservationVector(10, 20, 30), new ObservationVector(0, 1, 0));
-        Assert.AreEqual(PlaygroundObservationStatus.Selected, observer.Select(ObservedObject.Vehicle(session.Vehicles[0].Id)));
-        Assert.AreEqual(PlaygroundObservationStatus.Following, observer.FollowSelection());
+        var observer = new WorldEditorObserver(session, new ObservationVector(10, 20, 30), new ObservationVector(0, 1, 0));
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.Vehicle(session.Vehicles[0].Id)));
+        Assert.AreEqual(WorldEditorObservationStatus.Following, observer.FollowSelection());
         return observer;
     }
 }

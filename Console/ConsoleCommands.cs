@@ -128,7 +128,7 @@ public sealed class ConsoleCommandDispatcher
                 return;
             case "observe":
                 if (_observeCommands is null)
-                    _logger.Warning(Category, ObserveUnavailableEventId, "Enter the Playground before using observe commands.");
+                    _logger.Warning(Category, ObserveUnavailableEventId, "请先进入世界编辑器再使用 observe 命令。");
                 else
                     WriteResult(ObserveEventId, _observeCommands.Execute(parsed.Arguments));
                 return;

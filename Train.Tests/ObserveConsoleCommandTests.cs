@@ -1,5 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -7,11 +7,11 @@ namespace Train.Tests;
 
 [TestClass]
 [TestCategory("family:headless")]
-[TestCategory("scope:playground")]
+[TestCategory("scope:world-editor")]
 public sealed class ObserveConsoleCommandTests
 {
     [TestMethod]
-    public void Observe_is_unavailable_outside_the_playground_and_listed_in_help()
+    public void Observe_is_unavailable_outside_the_world_editor_and_listed_in_help()
     {
         using var logs = LoggerSession.Create();
         var dispatcher = new ConsoleCommandDispatcher(logs.Logger, static () => { }, static () => { }, static () => { }, allowReload: false);
@@ -21,16 +21,16 @@ public sealed class ObserveConsoleCommandTests
         dispatcher.Execute("observe");
         var warning = logs.Memory.Snapshot().Single(item => item.EventId == ConsoleCommandDispatcher.ObserveUnavailableEventId);
         Assert.AreEqual(LogLevel.Warning, warning.Level);
-        StringAssert.Contains(warning.Message, "Playground");
+        StringAssert.Contains(warning.Message, "世界编辑器");
     }
 
     [TestMethod]
     public void Observe_commands_select_focus_follow_and_free_without_touching_the_session()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         using var logs = LoggerSession.Create();
-        var session = playground.Session;
-        var observer = new PlaygroundObserver(session, new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
+        var session = worldEditor.Session;
+        var observer = new WorldEditorObserver(session, new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
         var dispatcher = Dispatcher(logs, session, observer);
         var assembly = session.QueryTrainAssemblies().Single();
         var loco = assembly.VehicleIds[0];
@@ -54,7 +54,7 @@ public sealed class ObserveConsoleCommandTests
         StringAssert.Contains(Recent(logs), $"Selected segment {segment}");
         dispatcher.Execute("observe follow");
         StringAssert.Contains(Recent(logs), "NotVehicle");
-        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        Assert.AreEqual(WorldEditorCameraMode.Free, observer.Mode);
 
         dispatcher.Execute($"observe select vehicle {loco}");
         var selected = Recent(logs);
@@ -62,13 +62,13 @@ public sealed class ObserveConsoleCommandTests
         StringAssert.Contains(selected, $"owner assembly {assembly.Id} position 1/2 active-locomotive");
         StringAssert.Contains(selected, "durability parts");
         StringAssert.Contains(selected, "eligibility");
-        Assert.AreEqual(PlaygroundCameraMode.Free, observer.Mode);
+        Assert.AreEqual(WorldEditorCameraMode.Free, observer.Mode);
 
         dispatcher.Execute("observe focus");
         StringAssert.Contains(Recent(logs), $"Focused mode focus target vehicle {loco}");
         dispatcher.Execute("observe follow");
         StringAssert.Contains(Recent(logs), $"Following mode follow target vehicle {loco}");
-        Assert.AreEqual(PlaygroundCameraMode.Follow, observer.Mode);
+        Assert.AreEqual(WorldEditorCameraMode.Follow, observer.Mode);
         dispatcher.Execute("observe free");
         StringAssert.Contains(Recent(logs), "Free mode free selection vehicle");
         Assert.IsNull(observer.Target);
@@ -92,10 +92,10 @@ public sealed class ObserveConsoleCommandTests
     [TestMethod]
     public void Observe_reports_a_destroyed_follow_target_and_the_camera_stays_free_in_place()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         using var logs = LoggerSession.Create();
-        var session = playground.Session;
-        var observer = new PlaygroundObserver(session, new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
+        var session = worldEditor.Session;
+        var observer = new WorldEditorObserver(session, new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
         var dispatcher = Dispatcher(logs, session, observer);
         var carriage = session.QueryTrainAssemblies().Single().VehicleIds[1];
         dispatcher.Execute($"observe select vehicle {carriage}");
@@ -112,7 +112,7 @@ public sealed class ObserveConsoleCommandTests
         Assert.AreEqual(pose, observer.Pose);
     }
 
-    private static ConsoleCommandDispatcher Dispatcher(LoggerSession logs, VoxelDevelopmentSession session, PlaygroundObserver observer) =>
+    private static ConsoleCommandDispatcher Dispatcher(LoggerSession logs, VoxelDevelopmentSession session, WorldEditorObserver observer) =>
         new(
             logs.Logger,
             static () => { },

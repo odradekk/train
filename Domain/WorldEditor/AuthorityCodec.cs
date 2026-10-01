@@ -9,7 +9,7 @@ using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
 public static class AuthorityCodec
 {

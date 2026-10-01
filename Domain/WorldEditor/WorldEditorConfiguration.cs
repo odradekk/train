@@ -4,9 +4,9 @@ using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
-public enum PlaygroundEstablishStatus
+public enum WorldEditorEstablishStatus
 {
     Established,
     UnknownConfiguration,
@@ -17,13 +17,13 @@ public enum PlaygroundEstablishStatus
     ConfigurationMismatch
 }
 
-public sealed record PlaygroundStaticTrain(
+public sealed record WorldEditorStaticTrain(
     CompositeDefinitionId LocomotiveId,
     CompositeTransform LocomotiveTransform,
     CompositeDefinitionId CarriageId,
     CompositeTransform CarriageTransform)
 {
-    public static PlaygroundStaticTrain Formal { get; } = new(
+    public static WorldEditorStaticTrain Formal { get; } = new(
         StaticTrainFixture.LocomotiveId,
         StaticTrainFixture.LocomotiveTransform,
         StaticTrainFixture.CarriageId,
@@ -33,29 +33,29 @@ public sealed record PlaygroundStaticTrain(
 /// <summary>
 /// A named, versioned fixed configuration: it declares only the initial world, not a generator and not verification steps.
 /// </summary>
-public sealed record PlaygroundConfiguration(
+public sealed record WorldEditorConfiguration(
     string Id,
     int Version,
     string Title,
     VoxelWorldIdentity BaseWorld,
     RailConstructionPlan? Railway,
-    PlaygroundStaticTrain? Train);
+    WorldEditorStaticTrain? Train);
 
-public static class PlaygroundConfigurations
+public static class WorldEditorConfigurations
 {
     public const string StraightRailTrainId = "straight-rail-train";
     public const string StraightRailEmptyId = "straight-rail-empty";
 
-    public static IReadOnlyList<PlaygroundConfiguration> All { get; } = new[]
+    public static IReadOnlyList<WorldEditorConfiguration> All { get; } = new[]
     {
-        new PlaygroundConfiguration(
+        new WorldEditorConfiguration(
             StraightRailTrainId,
             1,
             "正式直轨 + 一车头一车厢",
             VoxelWorldIdentity.Slice4,
             StraightRailFixture.CreateFixturePlan(),
-            PlaygroundStaticTrain.Formal),
-        new PlaygroundConfiguration(
+            WorldEditorStaticTrain.Formal),
+        new WorldEditorConfiguration(
             StraightRailEmptyId,
             1,
             "正式直轨（无车辆）",
@@ -64,10 +64,10 @@ public static class PlaygroundConfigurations
             null)
     };
 
-    public static PlaygroundConfiguration? Find(string id) =>
+    public static WorldEditorConfiguration? Find(string id) =>
         All.FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.Ordinal));
 
-    public static PlaygroundEstablishStatus TryResolve(
+    public static WorldEditorEstablishStatus TryResolve(
         string id,
         VoxelCatalog catalog,
         CompositeCatalog composites,
@@ -78,14 +78,14 @@ public static class PlaygroundConfigurations
         source = null!;
         var configuration = Find(id);
         if (configuration is null)
-            return PlaygroundEstablishStatus.UnknownConfiguration;
+            return WorldEditorEstablishStatus.UnknownConfiguration;
         if (catalog.Current is not { } voxels)
-            return PlaygroundEstablishStatus.ContentUnavailable;
-        if (configuration.Train is { } train && train != PlaygroundStaticTrain.Formal)
-            return PlaygroundEstablishStatus.UnsupportedDeclaration;
+            return WorldEditorEstablishStatus.ContentUnavailable;
+        if (configuration.Train is { } train && train != WorldEditorStaticTrain.Formal)
+            return WorldEditorEstablishStatus.UnsupportedDeclaration;
 
         var status = TryCollectDependencies(configuration, voxels, composites.Current, out var dependencies);
-        if (status != PlaygroundEstablishStatus.Established)
+        if (status != WorldEditorEstablishStatus.Established)
             return status;
         source = new WorldSource(
             WorldSource.FixedConfigurationKind,
@@ -93,10 +93,10 @@ public static class PlaygroundConfigurations
             configuration.Version,
             EffectiveParameters(configuration),
             dependencies);
-        return PlaygroundEstablishStatus.Established;
+        return WorldEditorEstablishStatus.Established;
     }
 
-    public static IReadOnlyList<WorldSourceParameter> EffectiveParameters(PlaygroundConfiguration configuration)
+    public static IReadOnlyList<WorldSourceParameter> EffectiveParameters(WorldEditorConfiguration configuration)
     {
         ArgumentNullException.ThrowIfNull(configuration);
         var world = configuration.BaseWorld;
@@ -138,8 +138,8 @@ public static class PlaygroundConfigurations
         return parameters;
     }
 
-    private static PlaygroundEstablishStatus TryCollectDependencies(
-        PlaygroundConfiguration configuration,
+    private static WorldEditorEstablishStatus TryCollectDependencies(
+        WorldEditorConfiguration configuration,
         VoxelCatalogSnapshot voxels,
         CompositeCatalogSnapshot composites,
         out IReadOnlyList<WorldSourceDependency> dependencies)
@@ -156,7 +156,7 @@ public static class PlaygroundConfigurations
             {
                 if (!composites.TryGet(compositeId, out var composite) ||
                     !composites.TryGet(composite.Definition.ArchetypeId, out var archetype))
-                    return PlaygroundEstablishStatus.MissingContent;
+                    return WorldEditorEstablishStatus.MissingContent;
                 collected.Add(new("composite", compositeId.Value, composite.SemanticRevision));
                 collected.Add(new("archetype", composite.Definition.ArchetypeId.Value, archetype.SemanticRevision));
                 foreach (var voxel in composite.Definition.Voxels)
@@ -167,7 +167,7 @@ public static class PlaygroundConfigurations
         foreach (var voxelId in voxelIds)
         {
             if (!voxels.TryGet(voxelId, out var entry))
-                return PlaygroundEstablishStatus.MissingContent;
+                return WorldEditorEstablishStatus.MissingContent;
             collected.Add(new("voxel", voxelId.Value, entry.SemanticRevision));
         }
 
@@ -176,7 +176,7 @@ public static class PlaygroundConfigurations
             .OrderBy(item => item.Kind, StringComparer.Ordinal)
             .ThenBy(item => item.Id, StringComparer.Ordinal)
             .ToArray();
-        return PlaygroundEstablishStatus.Established;
+        return WorldEditorEstablishStatus.Established;
     }
 
     private static string Origin(CompositeTransform transform) =>

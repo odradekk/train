@@ -2,21 +2,21 @@ using System.Globalization;
 using Godot;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 using Train.Presentation;
 
 namespace Train;
 
-public partial class PlaygroundScene : Node3D
+public partial class WorldEditorScene : Node3D
 {
-    public const string SmokeEnvironmentVariable = "TRAIN_PLAYGROUND_SMOKE";
-    public const string SaveIdEnvironmentVariable = "TRAIN_PLAYGROUND_SAVE_ID";
-    public const string CaptureEnvironmentVariable = "TRAIN_PLAYGROUND_CAPTURE";
-    public const string CaptureStepsEnvironmentVariable = "TRAIN_PLAYGROUND_CAPTURE_STEPS";
+    public const string SmokeEnvironmentVariable = "TRAIN_WORLD_EDITOR_SMOKE";
+    public const string SaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_SAVE_ID";
+    public const string CaptureEnvironmentVariable = "TRAIN_WORLD_EDITOR_CAPTURE";
+    public const string CaptureStepsEnvironmentVariable = "TRAIN_WORLD_EDITOR_CAPTURE_STEPS";
     public const string AuthorityEnvironmentVariable = "TRAIN_AUTHORITY_CHECKPOINT";
-    public const string CrossProcessEnvironmentVariable = "TRAIN_PLAYGROUND_CROSS_PROCESS";
+    public const string CrossProcessEnvironmentVariable = "TRAIN_WORLD_EDITOR_CROSS_PROCESS";
 
     internal static readonly WorldVoxelCoord EmptyProbe = new(100, 10, 15);
     internal static readonly ObservationCameraPose OverviewPose = new(new ObservationVector(76, 16, -8), new ObservationVector(76, 2, 16));
@@ -38,20 +38,20 @@ public partial class PlaygroundScene : Node3D
     private Label _edits = null!;
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private bool _dirty = true;
-    private PlaygroundSmoke? _smoke;
-    private PlaygroundObservationSmoke? _observationSmoke;
-    private PlaygroundSwitchSmoke? _switchSmoke;
+    private WorldEditorSmoke? _smoke;
+    private WorldEditorObservationSmoke? _observationSmoke;
+    private WorldEditorSwitchSmoke? _switchSmoke;
     private UnsavedWorldChangePrompt? _worldChangePrompt;
     private WorldChangeRequest? _pendingWorldChange;
     private LineEdit? _loadId;
-    private PlaygroundCapture? _capture;
+    private WorldEditorCapture? _capture;
     private AuthorityCheckpointSmoke? _authority;
-    private PlaygroundCrossProcessSmoke? _crossProcess;
+    private WorldEditorCrossProcessSmoke? _crossProcess;
     private BlankWorldSmoke? _blankWorld;
-    private PlaygroundObservationView? _observation;
+    private WorldEditorObservationView? _observation;
 
     internal VoxelDevelopmentSession? Session => _session;
-    internal PlaygroundObservationView? Observation => _observation;
+    internal WorldEditorObservationView? Observation => _observation;
     internal Camera3D Camera => _camera;
     internal VoxelWorldCollisionPresenter Colliders => _colliders;
     internal VoxelWorldMeshPresenter Meshes => _meshes;
@@ -69,8 +69,8 @@ public partial class PlaygroundScene : Node3D
         var status = EstablishOrResume(main, out var session);
         if (session is null)
         {
-            _source.Text = $"Playground 无法建立：{main.PlaygroundConfigurationId} · {status}";
-            GD.PrintErr($"PLAYGROUND_ESTABLISH_FAILED config={main.PlaygroundConfigurationId} status={status}");
+            _source.Text = $"世界编辑器无法建立：{main.WorldEditorConfigurationId} · {status}";
+            GD.PrintErr($"WORLD_EDITOR_ESTABLISH_FAILED config={main.WorldEditorConfigurationId} status={status}");
             if (IsSmoke() || IsAuthority() || IsCrossProcess() || BlankWorldSmoke.Requested())
                 CallDeferred(nameof(QuitFailedEstablish));
             return;
@@ -82,24 +82,24 @@ public partial class PlaygroundScene : Node3D
         main.SetVoxelDevelopmentSession(_session);
         _meshes.Rebuild(this, _session.Identity);
         _colliders.Rebuild(this, _session.Identity);
-        _observation = new PlaygroundObservationView();
+        _observation = new WorldEditorObservationView();
         AddChild(_observation);
         _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, OverviewPose);
-        main.SetPlaygroundObserver(_observation.Observer);
+        main.SetWorldEditorObserver(_observation.Observer);
         Refresh();
 
         if (BlankWorldSmoke.Requested())
             _blankWorld = new BlankWorldSmoke(this);
-        else if (IsSmoke() && PlaygroundSwitchSmoke.Requested())
-            _switchSmoke = new PlaygroundSwitchSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
-        else if (IsSmoke() && PlaygroundObservationSmoke.Requested())
-            _observationSmoke = new PlaygroundObservationSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
+        else if (IsSmoke() && WorldEditorSwitchSmoke.Requested())
+            _switchSmoke = new WorldEditorSwitchSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
+        else if (IsSmoke() && WorldEditorObservationSmoke.Requested())
+            _observationSmoke = new WorldEditorObservationSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
         else if (IsSmoke())
-            _smoke = new PlaygroundSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
+            _smoke = new WorldEditorSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
         else if (System.Environment.GetEnvironmentVariable(CaptureEnvironmentVariable) is { Length: > 0 } capturePath)
-            _capture = new PlaygroundCapture(this, capturePath, System.Environment.GetEnvironmentVariable(CaptureStepsEnvironmentVariable));
+            _capture = new WorldEditorCapture(this, capturePath, System.Environment.GetEnvironmentVariable(CaptureStepsEnvironmentVariable));
         else if (IsCrossProcess())
-            _crossProcess = new PlaygroundCrossProcessSmoke(this);
+            _crossProcess = new WorldEditorCrossProcessSmoke(this);
         else if (IsAuthority())
             _authority = new AuthorityCheckpointSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
     }
@@ -137,7 +137,7 @@ public partial class PlaygroundScene : Node3D
             main.SetVoxelDevelopmentSession(null);
     }
 
-    internal string ApplyOperation(PlaygroundOperation operation)
+    internal string ApplyOperation(WorldEditorOperation operation)
     {
         if (_session is null)
             return "NoSession";
@@ -175,33 +175,33 @@ public partial class PlaygroundScene : Node3D
         _source.Text = SourceText(_session.WorldSource);
     }
 
-    private PlaygroundEstablishStatus EstablishOrResume(Main main, out VoxelDevelopmentSession? session)
+    private WorldEditorEstablishStatus EstablishOrResume(Main main, out VoxelDevelopmentSession? session)
     {
         session = null;
         var reloader = main.Reloader ?? throw new InvalidOperationException("Content reloader is unavailable.");
         var store = new FileWorldSaveStore(main.IsolatedUserDataDirectory);
         var rawSaveId = System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable);
         if (!(IsSmoke() || IsAuthority() || IsCrossProcess()) || !Guid.TryParse(rawSaveId, out var saveId))
-            return PlaygroundSession.TryEstablish(main.PlaygroundConfigurationId, reloader.Catalog, reloader.Composites, store, out session);
+            return WorldEditorSession.TryEstablish(main.WorldEditorConfigurationId, reloader.Catalog, reloader.Composites, store, out session);
 
-        var configuration = PlaygroundConfigurations.Find(main.PlaygroundConfigurationId);
+        var configuration = WorldEditorConfigurations.Find(main.WorldEditorConfigurationId);
         if (configuration is null)
-            return PlaygroundEstablishStatus.UnknownConfiguration;
+            return WorldEditorEstablishStatus.UnknownConfiguration;
         var loaded = new VoxelDevelopmentSession(reloader.Catalog, configuration.BaseWorld, store, reloader.Composites);
-        loaded.MarkPlaygroundHost();
+        loaded.MarkWorldEditorHost();
         var result = loaded.Load(saveId);
         if (result.Succeeded && !loaded.SimulationPaused)
             loaded.PauseSimulation();
         if (!result.Succeeded)
         {
             loaded.Detach();
-            GD.PrintErr($"PLAYGROUND_SMOKE_FAILED load status={result.Status} stage={result.Diagnostic?.Stage ?? "none"} " +
+            GD.PrintErr($"WORLD_EDITOR_SMOKE_FAILED load status={result.Status} stage={result.Diagnostic?.Stage ?? "none"} " +
                         $"subject={result.Diagnostic?.Subject ?? "none"} relationship={result.Diagnostic?.Relationship ?? "none"}");
-            return PlaygroundEstablishStatus.InitialStateRejected;
+            return WorldEditorEstablishStatus.InitialStateRejected;
         }
 
         session = loaded;
-        return PlaygroundEstablishStatus.Established;
+        return WorldEditorEstablishStatus.Established;
     }
 
     private void MarkDirty() => _dirty = true;
@@ -243,10 +243,10 @@ public partial class PlaygroundScene : Node3D
 
     private static string SourceText(WorldSource? source) =>
         source is null
-            ? "Playground · 当前世界没有固定配置来源"
+            ? "世界编辑器 · 当前世界没有固定配置来源"
             : source.Kind == WorldSource.BlankKind
             ? $"空白世界 v{source.ConfigurationVersion} · 范围 {source.Parameter("base.bounds")} · 种子 {source.Parameter("base.seed")} · 基底 {source.BaseFingerprint[..8]}"
-            : $"Playground · {source.ConfigurationId} v{source.ConfigurationVersion} · {source.Kind} · 参数 {source.EffectiveParameters.Count} · 内容依赖 {source.ContentDependencies.Count}" +
+            : $"世界编辑器 · {source.ConfigurationId} v{source.ConfigurationVersion} · {source.Kind} · 参数 {source.EffectiveParameters.Count} · 内容依赖 {source.ContentDependencies.Count}" +
               (source.BaseFingerprint.Length == 0 ? "" : $" · 基底 {source.BaseFingerprint[..8]}");
 
     private void AddEnvironment()
@@ -290,12 +290,12 @@ public partial class PlaygroundScene : Node3D
         var controls = new HBoxContainer();
         controls.AddThemeConstantOverride("separation", 6);
         box.AddChild(controls);
-        AddButton(controls, "run", "运行", () => ApplyOperation(PlaygroundOperation.Resume()));
-        AddButton(controls, "pause", "暂停", () => ApplyOperation(PlaygroundOperation.Pause()));
-        AddButton(controls, "step", "单步", () => ApplyOperation(PlaygroundOperation.Advance(1)));
+        AddButton(controls, "run", "运行", () => ApplyOperation(WorldEditorOperation.Resume()));
+        AddButton(controls, "pause", "暂停", () => ApplyOperation(WorldEditorOperation.Pause()));
+        AddButton(controls, "step", "单步", () => ApplyOperation(WorldEditorOperation.Advance(1)));
         _stepCount = new SpinBox { MinValue = 1, MaxValue = 100000, Value = 60, Rounded = true };
         controls.AddChild(_stepCount);
-        AddButton(controls, "step_n", "推进 N 步", () => ApplyOperation(PlaygroundOperation.Advance((ulong)_stepCount.Value)));
+        AddButton(controls, "step_n", "推进 N 步", () => ApplyOperation(WorldEditorOperation.Advance((ulong)_stepCount.Value)));
         AddButton(controls, "start", "启动列车", () => ApplyEdit("start"));
         AddButton(controls, "stop", "停车", () => ApplyEdit("stop"));
         AddButton(controls, "save", "保存", () => SaveWorld());
@@ -315,7 +315,7 @@ public partial class PlaygroundScene : Node3D
         world.AddThemeConstantOverride("separation", 6);
         box.AddChild(world);
         world.AddChild(new Label { Text = "世界格" });
-        var probe = PlaygroundSequences.EditProbe;
+        var probe = WorldEditorSequences.EditProbe;
         _worldCell = new[] { probe.X, probe.Y, probe.Z }.Select(value => AddSpin(world, -100000, 100000, value)).ToArray();
         world.AddChild(new Label { Text = "量" });
         _editAmount = AddSpin(world, 1, 100000, 25);
@@ -368,7 +368,7 @@ public partial class PlaygroundScene : Node3D
     }
 
     /// <summary>The formal operation a panel button submits for the current inputs; a non-zero delay queues it.</summary>
-    internal PlaygroundOperation EditOperation(string button)
+    internal WorldEditorOperation EditOperation(string button)
     {
         var cell = new WorldVoxelCoord((int)_worldCell[0].Value, (int)_worldCell[1].Value, (int)_worldCell[2].Value);
         var local = new LocalVoxelCoord((int)_localCell[0].Value, (int)_localCell[1].Value, (int)_localCell[2].Value);
@@ -377,26 +377,26 @@ public partial class PlaygroundScene : Node3D
         var marker = HollowShellRefit.MarkerId;
         return button switch
         {
-            "start" => PlaygroundOperation.Start(atStep: at),
-            "stop" => PlaygroundOperation.Stop(at),
-            "edit_repair" => PlaygroundOperation.Submit(new RailRepairEdit(new[] { cell }), at),
-            "edit_construct" => PlaygroundOperation.Submit(new RailConstructEdit(StraightRailFixture.CreateFixturePlan()), at),
-            "edit_assemble" => PlaygroundOperation.Submit(TrainAssembleEdit.StaticFixture, at),
-            "edit_add" => PlaygroundOperation.Submit(new VoxelAddEdit(cell, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity), at),
-            "edit_remove" => PlaygroundOperation.Submit(new VoxelRemoveEdit(cell), at),
-            "edit_damage" => PlaygroundOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(cell, amount) }), at),
-            "edit_manufacture" => PlaygroundOperation.Submit(
+            "start" => WorldEditorOperation.Start(atStep: at),
+            "stop" => WorldEditorOperation.Stop(at),
+            "edit_repair" => WorldEditorOperation.Submit(new RailRepairEdit(new[] { cell }), at),
+            "edit_construct" => WorldEditorOperation.Submit(new RailConstructEdit(StraightRailFixture.CreateFixturePlan()), at),
+            "edit_assemble" => WorldEditorOperation.Submit(TrainAssembleEdit.StaticFixture, at),
+            "edit_add" => WorldEditorOperation.Submit(new VoxelAddEdit(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity), at),
+            "edit_remove" => WorldEditorOperation.Submit(new VoxelRemoveEdit(cell), at),
+            "edit_damage" => WorldEditorOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(cell, amount) }), at),
+            "edit_manufacture" => WorldEditorOperation.Submit(
                 new VehicleManufactureEdit(HollowShellFixture.DefinitionId, CompositeTransform.Translation(cell.X, cell.Y, cell.Z)), at),
-            "vehicle_damage" => PlaygroundOperation.DamageLatest(local, amount, at),
-            "refit_add" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(local, marker), at),
-            "refit_remove" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(local), at),
-            "refit_move" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Move(local, new LocalVoxelCoord(local.X + 1, local.Y, local.Z)), at),
-            "refit_rotate" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Rotate(local, HollowShellRefit.MarkerOrientation), at),
-            "refit_replace" => PlaygroundOperation.RefitLatest(PlaygroundRefit.Replace(local, HollowShellRefit.ReplacementId), at),
-            "refit_batch" => PlaygroundOperation.RefitLatest(new[]
+            "vehicle_damage" => WorldEditorOperation.DamageLatest(local, amount, at),
+            "refit_add" => WorldEditorOperation.RefitLatest(WorldEditorRefit.Add(local, marker), at),
+            "refit_remove" => WorldEditorOperation.RefitLatest(WorldEditorRefit.Remove(local), at),
+            "refit_move" => WorldEditorOperation.RefitLatest(WorldEditorRefit.Move(local, new LocalVoxelCoord(local.X + 1, local.Y, local.Z)), at),
+            "refit_rotate" => WorldEditorOperation.RefitLatest(WorldEditorRefit.Rotate(local, HollowShellRefit.MarkerOrientation), at),
+            "refit_replace" => WorldEditorOperation.RefitLatest(WorldEditorRefit.Replace(local, HollowShellRefit.ReplacementId), at),
+            "refit_batch" => WorldEditorOperation.RefitLatest(new[]
             {
-                PlaygroundRefit.Add(local, marker),
-                PlaygroundRefit.Add(new LocalVoxelCoord(local.X + 2, local.Y, local.Z), marker)
+                WorldEditorRefit.Add(local, marker),
+                WorldEditorRefit.Add(new LocalVoxelCoord(local.X + 2, local.Y, local.Z), marker)
             }, at),
             _ => throw new ArgumentOutOfRangeException(nameof(button), button, null)
         };
@@ -406,7 +406,7 @@ public partial class PlaygroundScene : Node3D
     {
         var session = _session!;
         var log = session.QueryEditLog();
-        var last = log.Count == 0 ? "无" : PlaygroundCheck.DescribeRecord(log[^1]);
+        var last = log.Count == 0 ? "无" : WorldEditorCheck.DescribeRecord(log[^1]);
         var fault = session.Fault is { } value
             ? $" · 故障 {(value.EditId is { } id ? $"修改{id}" : "运动")}@{value.Position} {value.ExceptionType}"
             : "";
@@ -423,16 +423,16 @@ public partial class PlaygroundScene : Node3D
 
     internal WorldSaveResult SaveWorld()
     {
-        var result = _session?.Save("Playground " + (_session.WorldSource?.ConfigurationId ?? "world"))
+        var result = _session?.Save("世界编辑器 " + (_session.WorldSource?.ConfigurationId ?? "world"))
                      ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
         _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}";
         return result;
     }
 
     private string OtherConfigurationId() =>
-        _session?.WorldSource?.ConfigurationId == PlaygroundConfigurations.StraightRailEmptyId
-            ? PlaygroundConfigurations.StraightRailTrainId
-            : PlaygroundConfigurations.StraightRailEmptyId;
+        _session?.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailEmptyId
+            ? WorldEditorConfigurations.StraightRailTrainId
+            : WorldEditorConfigurations.StraightRailEmptyId;
 
     private void LoadFromField()
     {

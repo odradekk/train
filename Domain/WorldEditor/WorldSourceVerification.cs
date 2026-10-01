@@ -3,7 +3,7 @@ using Train.Content;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
 internal readonly record struct WorldSourceCheck(
     bool Succeeded,
@@ -50,8 +50,8 @@ internal static class WorldSourceVerification
                     "a fixed-configuration save without a base fingerprint is not supported"));
         }
 
-        var resolved = PlaygroundConfigurations.TryResolve(source.ConfigurationId, catalog, composites, out var live);
-        if (resolved != PlaygroundEstablishStatus.Established || live is null)
+        var resolved = WorldEditorConfigurations.TryResolve(source.ConfigurationId, catalog, composites, out var live);
+        if (resolved != WorldEditorEstablishStatus.Established || live is null)
             return WorldSourceCheck.Fail(Map(resolved), DiagnoseResolve(source.ConfigurationId, resolved));
         if (live.ConfigurationVersion != source.ConfigurationVersion)
         {
@@ -81,7 +81,7 @@ internal static class WorldSourceVerification
                 new WorldSaveDiagnostic("base", source.ConfigurationId, "generator_version", "the document generator version does not match the saved configuration substrate"));
         }
 
-        var declared = PlaygroundConfigurations.Find(source.ConfigurationId)!.BaseWorld;
+        var declared = WorldEditorConfigurations.Find(source.ConfigurationId)!.BaseWorld;
         if (document.Bounds != declared.Bounds || document.ChunkSize != declared.ChunkSize)
         {
             return WorldSourceCheck.Fail(
@@ -127,8 +127,8 @@ internal static class WorldSourceVerification
         VoxelDevelopmentSession? scratch = null;
         try
         {
-            var established = PlaygroundSession.TryEstablish(source.ConfigurationId, catalog, composites, store: null, out scratch);
-            if (established != PlaygroundEstablishStatus.Established || scratch?.WorldSource is null)
+            var established = WorldEditorSession.TryEstablish(source.ConfigurationId, catalog, composites, store: null, out scratch);
+            if (established != WorldEditorEstablishStatus.Established || scratch?.WorldSource is null)
                 return WorldSourceCheck.Fail(Map(established), DiagnoseResolve(source.ConfigurationId, established));
             if (!string.Equals(scratch.WorldSource.BaseFingerprint, source.BaseFingerprint, StringComparison.Ordinal))
             {
@@ -215,23 +215,23 @@ internal static class WorldSourceVerification
         return false;
     }
 
-    private static WorldSaveStatus Map(PlaygroundEstablishStatus status) => status switch
+    private static WorldSaveStatus Map(WorldEditorEstablishStatus status) => status switch
     {
-        PlaygroundEstablishStatus.MissingContent or PlaygroundEstablishStatus.ContentUnavailable
+        WorldEditorEstablishStatus.MissingContent or WorldEditorEstablishStatus.ContentUnavailable
             => WorldSaveStatus.MissingDefinition,
         _ => WorldSaveStatus.IncompatibleBase
     };
 
-    private static WorldSaveDiagnostic DiagnoseResolve(string configurationId, PlaygroundEstablishStatus status)
+    private static WorldSaveDiagnostic DiagnoseResolve(string configurationId, WorldEditorEstablishStatus status)
     {
         var (stage, relationship) = status switch
         {
-            PlaygroundEstablishStatus.UnknownConfiguration => ("base", "unknown_configuration"),
-            PlaygroundEstablishStatus.UnsupportedDeclaration => ("base", "declaration"),
-            PlaygroundEstablishStatus.InitialStateRejected => ("base", "initial_state"),
-            PlaygroundEstablishStatus.ConfigurationMismatch => ("base", "configuration"),
-            PlaygroundEstablishStatus.MissingContent => ("dependency", "content_dependency"),
-            PlaygroundEstablishStatus.ContentUnavailable => ("dependency", "content_unavailable"),
+            WorldEditorEstablishStatus.UnknownConfiguration => ("base", "unknown_configuration"),
+            WorldEditorEstablishStatus.UnsupportedDeclaration => ("base", "declaration"),
+            WorldEditorEstablishStatus.InitialStateRejected => ("base", "initial_state"),
+            WorldEditorEstablishStatus.ConfigurationMismatch => ("base", "configuration"),
+            WorldEditorEstablishStatus.MissingContent => ("dependency", "content_dependency"),
+            WorldEditorEstablishStatus.ContentUnavailable => ("dependency", "content_unavailable"),
             _ => ("base", "configuration")
         };
         return new WorldSaveDiagnostic(stage, configurationId, relationship, "the saved configuration could not be rebuilt");
