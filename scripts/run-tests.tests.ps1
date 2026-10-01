@@ -470,6 +470,7 @@ $expected = @{
     RailCommandTests = "headless/railway/railway"
     PhysicalRailTests = "headless/railway/railway"
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
@@ -932,7 +933,7 @@ It "fast-dotnet-missing" {
 It "fixture-failure-preserved" {
     $results = New-Results "fixture-failure"
     $result = Invoke-Runner -ArgumentList @(
-        "-Project", $project, "-Scope", "content", "-Scope", "persistence", "-ResultsRoot", $results
+        "-Project", $project, "-RunnerCatalog", "none", "-Scope", "content", "-Scope", "persistence", "-ResultsRoot", $results
     ) -WaitMs 600000
     Assert-Exit $result 1
     $summary = Read-Summary $result.Stdout
@@ -1861,7 +1862,7 @@ It "real-help" {
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
-        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
+        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
@@ -1905,9 +1906,16 @@ It "real-list" {
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 2 $external.Count
+    Assert-Equal "external count" 3 $external.Count
     $logging = $externalById["godot.logging-smoke"]
     $authority = $externalById["godot.authority-checkpoint"]
+    $workspace = $externalById["godot.world-editor-workspace"]
+    Assert-True "workspace listed" ($null -ne $workspace)
+    Assert-Equal "workspace is headless" "headless" $workspace.Family
+    Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
+    Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
+    Assert-Equal "workspace group" "godot-workspace" $workspace.Group
+    Assert-Equal "workspace claim" "save-restore+workspace-navigation" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family
@@ -2043,7 +2051,7 @@ It "real-correctness-list" {
     $correctCount = [regex]::Match($correctness.Stdout, "SELECTED count=(\d+)").Groups[1].Value
     Assert-Equal "correctness lists every discovered case" $allCount $correctCount
     Assert-Contains "boundary" $correctness.Stdout "not all repository validation"
-    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint")) {
+    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace")) {
         Assert-Contains "all $id" $all.Stdout "CASE id=$id"
         Assert-Contains "correctness $id" $correctness.Stdout "CASE id=$id"
     }
@@ -2055,9 +2063,11 @@ It "fixture-no-repo-catalog" {
     Assert-Exit $hidden 0
     Assert-True "none stays local" ($hidden.Stdout -notlike "*godot.logging-smoke*")
     Assert-True "none stays local authority" ($hidden.Stdout -notlike "*godot.authority-checkpoint*")
+    Assert-True "none stays local workspace" ($hidden.Stdout -notlike "*godot.world-editor-workspace*")
     $shown = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $shown 0
     Assert-Contains "default catalog is not tied to the project path" $shown.Stdout "godot.logging-smoke"
+    Assert-Contains "default catalog includes workspace" $shown.Stdout "godot.world-editor-workspace"
 }
 
 It "fixture-external-env-missing" {

@@ -5,7 +5,8 @@ public enum WorldChangeKind
     Reset,
     SwitchConfiguration,
     Load,
-    NewBlank
+    NewBlank,
+    ReturnToWorkspace
 }
 
 public enum WorldChangeChoice
@@ -30,7 +31,8 @@ public sealed record WorldChangeRequest(
     string? ConfigurationId = null,
     Guid? SaveId = null,
     string? FixtureId = null,
-    VoxelWorldIdentity? BlankIdentity = null);
+    VoxelWorldIdentity? BlankIdentity = null,
+    string? SaveDisplayName = null);
 
 public sealed record WorldChangeResult(
     WorldChangeStatus Status,

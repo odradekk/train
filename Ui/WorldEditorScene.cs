@@ -49,6 +49,8 @@ public partial class WorldEditorScene : Node3D
     private WorldEditorCrossProcessSmoke? _crossProcess;
     private BlankWorldSmoke? _blankWorld;
     private WorldEditorObservationView? _observation;
+    private LineEdit _saveName = null!;
+    private WorldEditorWorkspaceSmoke? _workspaceSmoke;
 
     internal VoxelDevelopmentSession? Session => _session;
     internal WorldEditorObservationView? Observation => _observation;
@@ -80,6 +82,7 @@ public partial class WorldEditorScene : Node3D
         _session.Changed += MarkDirty;
         _session.WorldReplaced += DismissStaleWorldChange;
         main.SetVoxelDevelopmentSession(_session);
+        _saveName.PlaceholderText = _session.SaveId is null ? "新世界" : _session.DisplayName;
         _meshes.Rebuild(this, _session.Identity);
         _colliders.Rebuild(this, _session.Identity);
         _observation = new WorldEditorObservationView();
@@ -88,7 +91,9 @@ public partial class WorldEditorScene : Node3D
         main.SetWorldEditorObserver(_observation.Observer);
         Refresh();
 
-        if (BlankWorldSmoke.Requested())
+        if (WorldEditorWorkspaceSmoke.Requested())
+            _workspaceSmoke = new WorldEditorWorkspaceSmoke(this);
+        else if (BlankWorldSmoke.Requested())
             _blankWorld = new BlankWorldSmoke(this);
         else if (IsSmoke() && WorldEditorSwitchSmoke.Requested())
             _switchSmoke = new WorldEditorSwitchSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
@@ -122,6 +127,7 @@ public partial class WorldEditorScene : Node3D
         _authority?.Advance();
         _crossProcess?.Advance();
         _blankWorld?.Advance();
+        _workspaceSmoke?.Advance();
     }
 
     public override void _ExitTree()
@@ -134,7 +140,10 @@ public partial class WorldEditorScene : Node3D
         }
 
         if (GetNodeOrNull<Main>("/root/Main") is { } main)
+        {
             main.SetVoxelDevelopmentSession(null);
+            main.SetWorldEditorObserver(null);
+        }
     }
 
     internal string ApplyOperation(WorldEditorOperation operation)
@@ -148,6 +157,8 @@ public partial class WorldEditorScene : Node3D
     }
 
     internal void Press(string button) => _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
+
+    internal void SetSaveName(string name) => _saveName.Text = name;
 
     internal bool PromptVisible => _worldChangePrompt?.Visible == true;
 
@@ -177,7 +188,9 @@ public partial class WorldEditorScene : Node3D
 
     private WorldEditorEstablishStatus EstablishOrResume(Main main, out VoxelDevelopmentSession? session)
     {
-        session = null;
+        session = main.TakeWorldEditorCandidate();
+        if (session is not null)
+            return WorldEditorEstablishStatus.Established;
         var reloader = main.Reloader ?? throw new InvalidOperationException("Content reloader is unavailable.");
         var store = new FileWorldSaveStore(main.IsolatedUserDataDirectory);
         var rawSaveId = System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable);
@@ -237,7 +250,8 @@ public partial class WorldEditorScene : Node3D
         var rails = session.QueryRails();
         var collision = session.QueryCollision(StraightRailFixture.LeftRailSample).Status;
         var boundary = session.HasUnsavedChanges ? "未保存" : "已对齐保存点";
-        return $"步 {session.SimulationStep} · {(session.SimulationPaused ? "已暂停" : "运行中")} · {boundary} · 车辆 {session.QueryComposites().Count} · {motion}\n" +
+        var title = session.SaveId is null ? "未保存的新世界" : session.DisplayName;
+        return $"{title} · 步 {session.SimulationStep} · {(session.SimulationPaused ? "已暂停" : "运行中")} · {boundary} · 车辆 {session.QueryComposites().Count} · {motion}\n" +
                $"线路段 {rails.Segments.Count} 枕木 {rails.SleeperCount} · 世界体素 {session.World.VoxelCount} · 轨道采样碰撞 {collision}";
     }
 
@@ -298,15 +312,24 @@ public partial class WorldEditorScene : Node3D
         AddButton(controls, "step_n", "推进 N 步", () => ApplyOperation(WorldEditorOperation.Advance((ulong)_stepCount.Value)));
         AddButton(controls, "start", "启动列车", () => ApplyEdit("start"));
         AddButton(controls, "stop", "停车", () => ApplyEdit("stop"));
-        AddButton(controls, "save", "保存", () => SaveWorld());
-        AddButton(controls, "reset_world", "重置", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.Reset, null)));
-        AddButton(controls, "switch_world", "切换到另一配置", () => BeginWorldChange(new WorldChangeRequest(
-            WorldChangeKind.SwitchConfiguration,
-            null,
-            OtherConfigurationId())));
-        _loadId = new LineEdit { PlaceholderText = "存档 UUID", CustomMinimumSize = new Vector2(280, 0) };
-        controls.AddChild(_loadId);
-        AddButton(controls, "load_world", "读取存档", LoadFromField);
+        var persistence = new HBoxContainer();
+        persistence.AddThemeConstantOverride("separation", 6);
+        box.AddChild(persistence);
+        _saveName = new LineEdit { PlaceholderText = "存档名称", MaxLength = WorldSaveDocument.DisplayNameMaxLength, CustomMinimumSize = new Vector2(150, 0) };
+        persistence.AddChild(_saveName);
+        AddButton(persistence, "save", "保存", () => SaveWorld());
+        AddButton(persistence, "workspace", "返回存档工作区", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.ReturnToWorkspace, null)));
+        if (Main.IsWorldEditorAutomationEnabled() && !WorldEditorWorkspaceSmoke.Requested())
+        {
+            AddButton(persistence, "reset_world", "重置", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.Reset, null)));
+            AddButton(persistence, "switch_world", "切换到另一配置", () => BeginWorldChange(new WorldChangeRequest(
+                WorldChangeKind.SwitchConfiguration,
+                null,
+                OtherConfigurationId())));
+            _loadId = new LineEdit { PlaceholderText = "存档 UUID", CustomMinimumSize = new Vector2(280, 0) };
+            persistence.AddChild(_loadId);
+            AddButton(persistence, "load_world", "读取存档", LoadFromField);
+        }
         _worldChangePrompt = new UnsavedWorldChangePrompt();
         _worldChangePrompt.Chosen += ConfirmWorldChange;
         AddChild(_worldChangePrompt);
@@ -423,11 +446,14 @@ public partial class WorldEditorScene : Node3D
 
     internal WorldSaveResult SaveWorld()
     {
-        var result = _session?.Save("世界编辑器 " + (_session.WorldSource?.ConfigurationId ?? "world"))
+        var result = _session?.Save(RequestedSaveName())
                      ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
         _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}";
         return result;
     }
+
+    private string? RequestedSaveName() =>
+        _saveName.Text.Length > 0 ? _saveName.Text : _session?.SaveId is null ? "新世界" : null;
 
     private string OtherConfigurationId() =>
         _session?.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailEmptyId
@@ -449,6 +475,8 @@ public partial class WorldEditorScene : Node3D
     {
         if (_session is null)
             return;
+        if (request.Kind == WorldChangeKind.ReturnToWorkspace)
+            request = request with { SaveDisplayName = RequestedSaveName() };
         PresentWorldChange(_session.TryChangeWorld(request), request);
     }
 
@@ -458,7 +486,7 @@ public partial class WorldEditorScene : Node3D
             return;
         _worldChangePrompt?.Close();
         _pendingWorldChange = null;
-        PresentWorldChange(_session.TryChangeWorld(pending with { Choice = choice }), null);
+        PresentWorldChange(_session.TryChangeWorld(pending with { Choice = choice }), pending);
     }
 
     private void PresentWorldChange(WorldChangeResult result, WorldChangeRequest? request)
@@ -470,6 +498,7 @@ public partial class WorldEditorScene : Node3D
             {
                 WorldChangeKind.SwitchConfiguration => "可以保存后切换、放弃当前更改，或取消。",
                 WorldChangeKind.Load => "可以保存后读取、放弃当前更改，或取消。",
+                WorldChangeKind.ReturnToWorkspace => "可以保存后返回存档工作区、放弃当前更改，或取消。",
                 _ => "可以保存后重置、放弃当前更改，或取消。"
             });
             _result.Text = "最近操作：有未保存变化，请选择保存后继续、放弃或取消。";
@@ -478,6 +507,11 @@ public partial class WorldEditorScene : Node3D
 
         _worldChangePrompt?.Close();
         _pendingWorldChange = null;
+        if (result.Status == WorldChangeStatus.Completed && request?.Kind == WorldChangeKind.ReturnToWorkspace)
+        {
+            GetNode<Main>("/root/Main").EnterWorldEditorWorkspace();
+            return;
+        }
         _result.Text = result.Status switch
         {
             WorldChangeStatus.Completed => CompletedText(result),
