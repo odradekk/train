@@ -11,6 +11,8 @@ voxel load 11111111-2222-4333-8444-555555555555 cancel
 
 参数：一个必填 UUID，必须能被 `Guid` 解析（推荐 `D` 格式）。非法 UUID 文本返回用法提示，不读取文件，也不改会话。可选 `discard` / `save` / `cancel` 与 [`voxel reset`](voxel-reset.md) 相同：有未保存变化时必须做出选择，`cancel` 和失败的保存都不读取。
 
+旧切片控制台有未保存变化时，不带选择只提示补充 `save`、`discard` 或 `cancel`，不会保留这个 UUID 的待处理加载请求，也不会暂停模拟或禁止编辑。要继续加载，须再次输入带 UUID 和选择的完整命令。
+
 在真实世界编辑器中，确认、保存和候选读取分帧完成。期间模拟推进和新的世界修改暂挂；取消、保存失败或读取失败后恢复原来的运行或暂停状态，不补算等待时间。切换已经开始时，另一条世界切换命令不会更换目标。要重新读取当前世界开始操作时绑定的存档身份，使用 [`voxel reload`](voxel-reload.md)。
 
 加载使用**当前**已发布目录，而不是存档里记住的整份定义。请求路径中的 UUID 必须与文件根字段 `id` 一致，否则在替换世界或会话身份之前返回 `MismatchedId`。先按存档自身的来源、Seed / 生成器 / 边界完整构造并校验候选世界、车辆、铁路、编组和命令队列，再整体替换会话及其世界身份；世界编辑器中允许范围、种子或来源与当前世界不同。旧切片体素开发场景仍要求身份与当前会话相同，否则返回 `IncompatibleBase` 和 `stage base subject identity relationship seed_bounds`，保留当前世界。旧切片存档的种子、范围和 Chunk 尺寸还必须匹配对应的标准切片身份，否则同样拒绝。写出格式为 `5`；读取接受 `2`–`5`。格式 `2` 缺铁路字段视为空铁路，以保留本构建前三切片存档；格式 `2` / `3` 没有世界修改命令队列，恢复为空队列。格式 `3` / `4` 必须带旧列车队列字段 `scheduled_commands` / `scheduled_sequence`（缺失为 `Truncated`），但只接受空的旧队列：旧命令没有修改编号与边界位置，无法放进统一的输入全序，非空时整次返回 `UnsupportedRailway`，不猜测顺序也不部分加载；旧 `scheduled_sequence` 大于 `transaction_count` 仍是 `InvalidDelta`。格式 `5` 出现这两个旧字段返回 `UnknownFormat`；格式 `2`–`4` 的 `world_edits` 中出现铁路、编组或起停修改同样返回 `UnknownFormat`。格式 `1` 或未知版本返回 `UnknownFormat`，没有开发期旧档迁移。不从 Blueprint 重造编组，不从 Mesh 或派生图反推轨段，也不在 Load 后改内存冒充恢复。

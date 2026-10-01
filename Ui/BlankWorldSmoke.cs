@@ -252,19 +252,7 @@ internal sealed class BlankWorldSmoke
     private void SubmitAndFinish(string line)
     {
         Submit(line);
-        FinishChange();
-    }
-
-    private void FinishChange()
-    {
-        while (Session.IsChangingWorld)
-        {
-            var result = Session.AdvanceWorldChange();
-            if (result.Status == WorldChangeStatus.ChoiceRequired)
-                throw new InvalidOperationException("world change still requires a choice");
-            if (result.Status == WorldChangeStatus.Switching)
-                Thread.Yield();
-        }
+        WorldChangeSmoke.Finish(Session);
     }
 
     private void Finish()

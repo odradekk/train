@@ -218,10 +218,33 @@ public sealed class WorldEditorLeaveProtectionTests
     }
 
     [TestMethod]
+    public void Console_reload_save_alias_preserves_the_original_and_saves_changes_as_a_copy()
+    {
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = harness.Session;
+        var original = session.Save("Original").SaveId!.Value;
+        Assert.IsTrue(session.SubmitEdit(new VoxelAddEdit(FirstEdit,
+            WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Accepted);
+        new VoxelConsoleCommands(session).Execute(["reload", "save"]);
+
+        Assert.AreEqual(original, session.SaveId);
+        Assert.IsFalse(session.Query(FirstEdit).IsOccupied);
+        Assert.IsFalse(session.IsChangingWorld);
+        Assert.IsTrue(session.SimulationPaused);
+        var copies = new WorldEditorWorkspace(harness.Catalog, harness.Composites, harness.Store)
+            .ListSaves().Where(entry => entry.Id != original).ToArray();
+        Assert.AreEqual(1, copies.Length);
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: copies[0].Id)).Status);
+        Assert.IsTrue(session.Query(FirstEdit).IsOccupied);
+    }
+
+    [TestMethod]
     public void Reload_failure_after_save_as_keeps_the_current_world_and_both_files()
     {
         using var harness = WorldEditorHarness.Content();
-        var store = new ReadFailingStore(harness.Store);
+        var failingStore = new ReadFailingStore(harness.Store);
+        using var store = new BlockingReadStore(failingStore);
         Assert.AreEqual(WorldEditorEstablishStatus.Established,
             WorldEditorSession.TryEstablish(WorldEditorConfigurations.StraightRailTrainId,
                 harness.Catalog, harness.Composites, store, out var session));
@@ -236,8 +259,12 @@ public sealed class WorldEditorLeaveProtectionTests
             session.ChooseWorldChange(WorldChangeChoice.SaveAsThenReload).Status);
         Assert.AreEqual(WorldChangeStatus.Switching, session.AdvanceWorldChange().Status);
         var copy = session.SaveId!.Value;
-        store.FailingRead = original;
-        store.BeforeRead = () => AssertWorldChangeLocked(session);
+        failingStore.FailingRead = original;
+        store.BlockedId = original;
+        Assert.AreEqual(WorldChangeStatus.Switching, session.AdvanceWorldChange().Status);
+        Assert.IsTrue(store.ReadStarted.Wait(TimeSpan.FromSeconds(5)), "The candidate read did not start.");
+        AssertWorldChangeLocked(session);
+        store.ReleaseRead.Set();
 
         Assert.AreEqual(WorldChangeStatus.CandidateFailed, AdvanceUntilSettled(session).Status);
         Assert.AreSame(world, session.World);
@@ -412,11 +439,9 @@ public sealed class WorldEditorLeaveProtectionTests
         return new WorldChangeRequest(WorldChangeKind.NewBlank, null, BlankIdentity: identity);
     }
 
-    private static WorldChangeResult AdvanceUntilSettled(
-        VoxelDevelopmentSession session,
-        WorldChangeRequest? request = null)
+    private static WorldChangeResult AdvanceUntilSettled(VoxelDevelopmentSession session)
     {
-        var result = request is null ? session.AdvanceWorldChange() : session.BeginWorldChange(request);
+        var result = session.AdvanceWorldChange();
         var timeout = System.Diagnostics.Stopwatch.StartNew();
         while (result.Status == WorldChangeStatus.Switching && timeout.Elapsed < TimeSpan.FromSeconds(5))
         {
@@ -430,11 +455,9 @@ public sealed class WorldEditorLeaveProtectionTests
     private sealed class ReadFailingStore(FileWorldSaveStore files) : IWorldSaveStore
     {
         public Guid? FailingRead { get; set; }
-        public Action? BeforeRead { get; set; }
 
         public bool TryRead(Guid id, out string json, out WorldSaveStatus status)
         {
-            BeforeRead?.Invoke();
             if (id == FailingRead)
             {
                 json = "";
@@ -460,7 +483,7 @@ public sealed class WorldEditorLeaveProtectionTests
         }
     }
 
-    private sealed class BlockingReadStore(FileWorldSaveStore files) : IWorldSaveStore, IDisposable
+    private sealed class BlockingReadStore(IWorldSaveStore files) : IWorldSaveStore, IDisposable
     {
         private int _readCount;
         public Guid? BlockedId { get; set; }

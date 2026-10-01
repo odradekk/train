@@ -26,7 +26,7 @@ public sealed class VoxelConsoleCommands
             {
                 if (string.Equals(arguments[1], "save-as", StringComparison.OrdinalIgnoreCase))
                     choice = WorldChangeChoice.SaveAsThenReload;
-                else if (WorldChangeConsole.TryParseChoice(arguments[1], out var parsed) && parsed != WorldChangeChoice.SaveThenSwitch)
+                else if (WorldChangeConsole.TryParseChoice(arguments[1], out var parsed))
                     choice = parsed;
                 else
                     return Usage();
@@ -178,7 +178,7 @@ public sealed class VoxelConsoleCommands
         return string.Join('\n',
             "Usage: voxel reset [discard|save|cancel] | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid> [discard|save|cancel]",
             "voxel use <configuration-id> [discard|save|cancel]",
-            "voxel reload [save-as|discard|cancel]",
+            "voxel reload [save-as|save|discard|cancel]",
             $"voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] ({BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",

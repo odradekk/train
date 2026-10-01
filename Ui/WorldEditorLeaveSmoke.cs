@@ -146,12 +146,44 @@ internal sealed class WorldEditorLeaveSmoke(WorldEditorScene scene)
                 Require(session.SaveId is null && session.HasUnsavedChanges && session.SimulationPaused &&
                         session.Identity == BlankIdentity && session.World.VoxelCount == 0,
                     "leave smoke did not restore the workspace smoke blank-world precondition");
+                CheckFaultedConfirmation(session);
+                scene.RequestWorldChange(new WorldChangeRequest(WorldChangeKind.NewBlank, null, BlankIdentity: BlankIdentity));
+                Require(scene.PromptVisible && session.IsChangingWorld, "faulted replacement omitted confirmation");
+                scene.PressPrompt("discard");
+                _phase = 9;
+                return;
+
+            case 9:
+                if (session.IsChangingWorld)
+                    return;
+                Require(session.Fault is null && session.SaveId is null && session.HasUnsavedChanges &&
+                        session.SimulationPaused && session.World.VoxelCount == 0 && session.Identity == BlankIdentity,
+                    "discarding the faulted world did not restore the workspace smoke precondition");
                 DeleteOwnedSave(_copyId);
                 DeleteOwnedSave(_originalId);
                 GD.Print("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
                 _finished = true;
                 return;
         }
+    }
+
+    private void CheckFaultedConfirmation(VoxelDevelopmentSession session)
+    {
+        session.EditFaultProbe = _ => throw new InvalidOperationException("injected leave-smoke failure");
+        session.SubmitEdit(new VoxelAddEdit(DirtyCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity));
+        session.EditFaultProbe = null;
+        var fault = session.Fault;
+        Require(fault is not null && session.HasUnsavedChanges, "could not create a faulted unsaved world");
+        var before = Capture(session);
+        scene.Press("menu");
+        Require(scene.PromptVisible && session.IsChangingWorld, "faulted leave omitted confirmation");
+        scene.PressPrompt("save_then_switch");
+        Require(scene.PromptVisible && session.IsChangingWorld && ReferenceEquals(session.Fault, fault),
+            "faulted confirmation accepted an unavailable save");
+        scene.PressPrompt("cancel");
+        Require(!scene.PromptVisible && !session.IsChangingWorld && ReferenceEquals(session.Fault, fault),
+            "faulted cancellation did not preserve the fault and release confirmation");
+        AssertPreserved(session, before, "faulted cancellation");
     }
 
     private void ConfigureCancelRoutes()

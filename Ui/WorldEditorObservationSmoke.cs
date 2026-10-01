@@ -922,14 +922,7 @@ internal sealed class WorldEditorObservationSmoke
     private void RunConsoleAndFinishChange(string line)
     {
         RunConsole(line);
-        while (Session.IsChangingWorld)
-        {
-            var result = Session.AdvanceWorldChange();
-            if (result.Status == WorldChangeStatus.ChoiceRequired)
-                throw new InvalidOperationException("world change still requires a choice");
-            if (result.Status == WorldChangeStatus.Switching)
-                Thread.Yield();
-        }
+        WorldChangeSmoke.Finish(Session);
     }
 
     private static void PressKey(Key key, bool pressed) =>

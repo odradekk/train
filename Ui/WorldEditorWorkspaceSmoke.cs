@@ -22,6 +22,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static readonly WorldVoxelCoord SaveContinueCell = new(8, 2, 2);
     private static string Leg => System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
     private static int _workspaceVisits;
+    private static int _menuVisits;
     private static int _editorVisits;
     private static Guid _oldId;
     private static Guid _newId;
@@ -35,8 +36,26 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
         Require(menu.GetTree().CurrentScene == menu, "menu was replaced before choosing world editor");
+        if (Leg == "save" && ++_menuVisits == 1)
+        {
+            menu.GetNode<Main>("/root/Main").EnterWorldEditor("missing-smoke-configuration");
+            return;
+        }
+        if (Leg == "save" && _menuVisits == 2)
+            GD.Print("WORKSPACE_NO_WORLD_LEAVE completed=true");
         menu.WorldEditorButton.EmitSignal(BaseButton.SignalName.Pressed);
         GD.Print("WORKSPACE_MENU ready=true");
+    });
+
+    public static void FromFailedEditor(WorldEditorScene editor, WorldEditorEstablishStatus status) => Guard(editor, () =>
+    {
+        Require(Leg == "save" && _menuVisits == 1 && status == WorldEditorEstablishStatus.UnknownConfiguration &&
+                editor.Session is null,
+            "editor failed to establish outside the deliberately unavailable configuration");
+        Require(editor.RequestWorldChange(new WorldChangeRequest(WorldChangeKind.Reset, null)).Status ==
+                WorldChangeStatus.CandidateFailed && editor.GetTree().CurrentScene == editor,
+            "world replacement succeeded without an established world");
+        editor.Press("menu");
     });
 
     public static void FromWorkspace(WorldEditorWorkspaceScene workspace) => Guard(workspace, () =>
@@ -187,7 +206,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         {
             scene.Press("workspace");
             scene.PressPrompt("save_then_switch");
-            FinishChange(session);
+            WorldChangeSmoke.Finish(session);
             Require(ReferenceEquals(session.World, world) && session.HasUnsavedChanges &&
                     scene.GetTree().CurrentScene == scene, "failed save left the current editor");
         }
@@ -216,7 +235,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         scene.Press("workspace");
         Require(scene.PromptVisible, "post-save-as unsaved return omitted prompt");
         scene.PressPrompt("discard");
-        FinishChange(session);
+        WorldChangeSmoke.Finish(session);
         GD.Print("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
         _finished = true;
     }
@@ -230,7 +249,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     session.Query(CopiedCell).Voxel is null && session.QueryPendingEdits().Count == 0,
                 "original save contains copy-only state or lost its continued state");
             scene.Press("workspace");
-            FinishChange(session);
+            WorldChangeSmoke.Finish(session);
             _finished = true;
             return;
         }
@@ -256,7 +275,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         scene.Press("workspace");
         Require(scene.PromptVisible, "save-and-return edit omitted the unsaved prompt");
         scene.PressPrompt("save_then_switch");
-        FinishChange(session);
+        WorldChangeSmoke.Finish(session);
         Require(session.SaveId == _newId && !session.HasUnsavedChanges && session.World.VoxelCount == 3,
             "save-and-return did not save the edited copy to its current identity");
         GD.Print($"WORKSPACE_SAVE_CONTINUE id={_newId:D} voxels=3");
@@ -269,15 +288,6 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         if (!Guid.TryParse(value, out var id))
             throw new InvalidOperationException($"{variable} is missing or invalid.");
         return id;
-    }
-
-    private static void FinishChange(VoxelDevelopmentSession session)
-    {
-        while (session.IsChangingWorld)
-        {
-            var result = session.AdvanceWorldChange();
-            Require(result.Status != WorldChangeStatus.ChoiceRequired, "leave choice was not provided");
-        }
     }
 
     private static Guid ExpectedId(string variable, Guid inProcessId) =>

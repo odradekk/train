@@ -5,13 +5,14 @@
 ```text
 voxel reload
 voxel reload save-as
+voxel reload save
 voxel reload discard
 voxel reload cancel
 ```
 
-语法：`voxel reload [save-as|discard|cancel]`。仅世界编辑器会话可用，并且当前世界必须已经成功保存过一次。尚无存档 UUID 时返回 `NotFound`，保留当前世界。
+语法：`voxel reload [save-as|save|discard|cancel]`。仅世界编辑器会话可用，并且当前世界必须已经成功保存过一次。尚无存档 UUID 时返回 `NotFound`，保留当前世界。
 
-命令开始时记录当前存档 UUID，后续始终重新加载这个目标。有未保存变化时，不带选择只要求选择：`save-as` 把当前修改另存为新存档，再重新加载开始时记录的原存档；`discard` 放弃修改并重新加载原存档；`cancel` 保留当前世界。另存成功后，即使当前会话的存档 UUID 已变为副本，也不会改变本次重新加载的目标。
+命令开始时记录当前存档 UUID，后续始终重新加载这个目标。有未保存变化时，不带选择只要求选择：`save-as` 或其同义参数 `save` 把当前修改另存为新存档，再重新加载开始时记录的原存档；`discard` 放弃修改并重新加载原存档；`cancel` 保留当前世界。另存成功后，即使当前会话的存档 UUID 已变为副本，也不会改变本次重新加载的目标。
 
 确认、另存和候选读取分帧完成。期间模拟推进和新的世界修改暂挂；取消、另存失败或读取失败后恢复原来的运行或暂停状态，不补算等待时间。切换已经开始时，另一条世界切换命令不会更换目标。
 

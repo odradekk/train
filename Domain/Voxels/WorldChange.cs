@@ -39,7 +39,11 @@ public sealed record WorldChangeRequest(
     Guid? SaveId = null,
     string? FixtureId = null,
     VoxelWorldIdentity? BlankIdentity = null,
-    string? SaveDisplayName = null);
+    string? SaveDisplayName = null)
+{
+    public bool LeavesScene => Kind is WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu
+        or WorldChangeKind.Quit or WorldChangeKind.LeaveForScene;
+}
 
 public sealed record WorldChangeResult(
     WorldChangeStatus Status,

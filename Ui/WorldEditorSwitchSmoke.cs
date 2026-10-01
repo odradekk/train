@@ -108,7 +108,7 @@ internal sealed class WorldEditorSwitchSmoke
                     _scene.Press("switch_world");
                     Require(_scene.PromptVisible, "dirty switch asks for a choice");
                     _scene.PressPrompt("save_then_switch");
-                    FinishChange();
+                    WorldChangeSmoke.Finish(Session);
                     Require(Session.WorldSource?.ConfigurationId == _source, "save failure keeps the configuration");
                     Require(Session.HasUnsavedChanges, "save failure keeps the unsaved mark");
                     Require(Session.SimulationStep == 1, "save failure does not switch");
@@ -135,7 +135,7 @@ internal sealed class WorldEditorSwitchSmoke
                 _scene.Press("switch_world");
                 Require(_scene.PromptVisible, "the failed save left the world dirty");
                 _scene.PressPrompt("save_then_switch");
-                FinishChange();
+                WorldChangeSmoke.Finish(Session);
                 var other = _source == WorldEditorConfigurations.StraightRailEmptyId
                     ? WorldEditorConfigurations.StraightRailTrainId
                     : WorldEditorConfigurations.StraightRailEmptyId;
@@ -198,19 +198,7 @@ internal sealed class WorldEditorSwitchSmoke
     private void SubmitAndFinish(string line)
     {
         Submit(line);
-        FinishChange();
-    }
-
-    private void FinishChange()
-    {
-        while (Session.IsChangingWorld)
-        {
-            var result = Session.AdvanceWorldChange();
-            if (result.Status == WorldChangeStatus.ChoiceRequired)
-                throw new InvalidOperationException("world change still requires a choice");
-            if (result.Status == WorldChangeStatus.Switching)
-                Thread.Yield();
-        }
+        WorldChangeSmoke.Finish(Session);
     }
 
     private static void Require(bool condition, string message)

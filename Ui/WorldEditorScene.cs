@@ -74,6 +74,8 @@ public partial class WorldEditorScene : Node3D
         {
             _source.Text = $"世界编辑器无法建立：{main.WorldEditorConfigurationId} · {status}";
             GD.PrintErr($"WORLD_EDITOR_ESTABLISH_FAILED config={main.WorldEditorConfigurationId} status={status}");
+            if (WorldEditorWorkspaceSmoke.Requested())
+                Callable.From(() => WorldEditorWorkspaceSmoke.FromFailedEditor(this, status)).CallDeferred();
             if (IsSmoke() || IsAuthority() || IsCrossProcess() || BlankWorldSmoke.Requested())
                 CallDeferred(nameof(QuitFailedEstablish));
             return;
@@ -513,7 +515,12 @@ public partial class WorldEditorScene : Node3D
     internal WorldChangeResult RequestWorldChange(WorldChangeRequest request)
     {
         if (_session is null)
-            return new WorldChangeResult(WorldChangeStatus.CandidateFailed);
+        {
+            if (!request.LeavesScene)
+                return new WorldChangeResult(WorldChangeStatus.CandidateFailed);
+            var error = GetNode<Main>("/root/Main").CompleteWorldDeparture(request.Kind);
+            return new WorldChangeResult(error == Error.Ok ? WorldChangeStatus.Completed : WorldChangeStatus.CandidateFailed);
+        }
         request = request with { SaveDisplayName = request.SaveDisplayName ?? RequestedSaveName() };
         _saveAsPrompt.Hide();
         var result = _session.BeginWorldChange(request);
@@ -531,8 +538,10 @@ public partial class WorldEditorScene : Node3D
     {
         if (result.Status == WorldChangeStatus.ChoiceRequired)
         {
-            _worldChangePrompt?.Open(request.Kind);
-            _result.Text = "最近操作：有未保存变化，请选择保存后继续、放弃或取消。";
+            var canSave = _session?.Fault is null;
+            _worldChangePrompt?.Open(request.Kind, canSave);
+            _result.Text = canSave ? "最近操作：有未保存变化，请选择保存后继续、放弃或取消。"
+                : "最近操作：模拟发生故障，无法保存当前世界。可以放弃更改或取消。";
             _state.Text = StateText();
             return;
         }
@@ -543,7 +552,7 @@ public partial class WorldEditorScene : Node3D
             return;
         }
         _worldChangePrompt?.Close();
-        if (result.Status == WorldChangeStatus.Completed && request.Kind is WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.Quit or WorldChangeKind.LeaveForScene)
+        if (result.Status == WorldChangeStatus.Completed && request.LeavesScene)
         {
             var error = GetNode<Main>("/root/Main").CompleteWorldDeparture(request.Kind);
             if (error != Error.Ok)

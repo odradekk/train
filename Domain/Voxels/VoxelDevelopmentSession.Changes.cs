@@ -153,7 +153,7 @@ public sealed partial class VoxelDevelopmentSession
             return ReportChange(WorldChangeStatus.Switching);
         }
 
-        if (request.Kind is WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.Quit or WorldChangeKind.LeaveForScene)
+        if (request.LeavesScene)
             return FinishChange(Change(WorldChangeStatus.Completed));
 
         if (_preparedCandidate is { } prepared)
@@ -227,8 +227,7 @@ public sealed partial class VoxelDevelopmentSession
 
     private void AdoptPreparedCandidate(VoxelDevelopmentSession candidate, WorldChangeKind kind)
     {
-        ReplaceSession(new WorldSaveRestore(candidate.World, candidate.Vehicles.ToArray(), candidate.NextEntityId,
-            candidate.TransactionCount, candidate.Rails, candidate._assemblies.ToArray(), candidate.SimulationStep, candidate.CaptureEditQueue()));
+        ReplaceFrom(candidate);
         WorldSource = candidate.WorldSource;
         SaveId = candidate.SaveId;
         DisplayName = candidate.DisplayName;
@@ -431,15 +430,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         var saveId = SaveId;
         var displayName = DisplayName;
-        ReplaceSession(new WorldSaveRestore(
-            candidate.World,
-            candidate.Vehicles.ToArray(),
-            candidate.NextEntityId,
-            candidate.TransactionCount,
-            candidate.Rails,
-            candidate._assemblies.ToArray(),
-            candidate.SimulationStep,
-            candidate.CaptureEditQueue()));
+        ReplaceFrom(candidate);
         WorldSource = candidate.WorldSource;
         _worldEditorHost |= candidate._worldEditorHost;
         if (keepSaveIdentity)
@@ -462,6 +453,17 @@ public sealed partial class VoxelDevelopmentSession
         WorldReplaced?.Invoke(WorldReplacement.Reset);
         candidate.Detach();
     }
+
+    private void ReplaceFrom(VoxelDevelopmentSession candidate) =>
+        ReplaceSession(new WorldSaveRestore(
+            candidate.World,
+            candidate.Vehicles.ToArray(),
+            candidate.NextEntityId,
+            candidate.TransactionCount,
+            candidate.Rails,
+            candidate._assemblies.ToArray(),
+            candidate.SimulationStep,
+            candidate.CaptureEditQueue()));
 
     private WorldChangeResult Change(
         WorldChangeStatus status,

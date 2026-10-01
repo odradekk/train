@@ -900,7 +900,7 @@ public partial class VoxelDeveloperScene : Node3D
     {
         if (result.Status == WorldChangeStatus.ChoiceRequired)
         {
-            _worldChangePrompt?.Open(WorldChangeKind.Reset);
+            _worldChangePrompt?.Open(WorldChangeKind.Reset, _session.Fault is null);
             _result.Text = "最近命令：有未保存变化。请选择保存后重置、放弃或取消。";
             return;
         }
@@ -970,11 +970,11 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void PresentDeparture(WorldChangeRequest request, WorldChangeResult result)
     {
-        if (request.Kind is not (WorldChangeKind.Quit or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.ReturnToWorkspace or WorldChangeKind.LeaveForScene))
+        if (!request.LeavesScene)
             return;
         _departurePending = result.Status is WorldChangeStatus.ChoiceRequired or WorldChangeStatus.Switching;
         if (result.Status == WorldChangeStatus.ChoiceRequired)
-            _worldChangePrompt?.Open(request.Kind);
+            _worldChangePrompt?.Open(request.Kind, _session.Fault is null);
         else if (result.Status == WorldChangeStatus.Switching)
             _worldChangePrompt?.ShowProgress("正在离开，模拟与修改已暂挂。");
         else

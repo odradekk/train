@@ -867,6 +867,10 @@ internal static class Program
                 if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
                 if (leg == "save")
                 {
+                    Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=fixture status=UnknownConfiguration");
+                    Console.WriteLine("WORKSPACE_NO_WORLD_LEAVE completed=true");
+                    if (mode == "workspace-establish-fail")
+                        Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=unexpected status=InitialStateRejected");
                     Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
                     Console.WriteLine("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
                     Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
@@ -909,7 +913,7 @@ if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
 It "fixture-workspace-script" {
     # Fake programs test script orchestration only. The registered runner separately executes the real game.
     $scriptPath = Join-Path $root 'scripts/run-godot-world-editor-cross-process.ps1'
-    foreach ($mode in @('pass', 'missing', 'fail', 'hold')) {
+    foreach ($mode in @('pass', 'missing', 'fail', 'hold', 'establish-fail')) {
         $directory = Join-Path $evidence "workspace-script-$mode"
         $argumentsLog = Join-Path $evidence "workspace-$mode.arguments.log"
         $pidFile = Join-Path $evidence "workspace-$mode.pids.log"
@@ -1982,7 +1986,7 @@ It "real-list" {
     Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace group" "godot-workspace" $workspace.Group
-    Assert-Equal "workspace claim" "save-as-isolation+cross-process-restore+workspace-navigation" $workspace.Claim
+    Assert-Equal "workspace claim" "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family

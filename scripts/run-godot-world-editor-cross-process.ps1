@@ -44,10 +44,14 @@ function Invoke-EntryLeg([string] $leg, [string] $prefix) {
     if ($timedOut) { $process.Kill($true) }
     $process.WaitForExit()
     $text = [IO.File]::ReadAllText($out) + "`n" + [IO.File]::ReadAllText($err)
+    $establishFailures = @($text -split '\r?\n' | Where-Object { $_.Contains('WORLD_EDITOR_ESTABLISH_FAILED') })
+    # The save leg first exercises escape from one deliberately unavailable configuration.
+    $expectedEstablishFailure = $Workspace -and $leg -eq 'save' -and $establishFailures.Count -eq 1 -and
+        $text.Contains('WORKSPACE_NO_WORLD_LEAVE completed=true')
     "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) timed_out=$timedOut user_data=$userData" |
         Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
     if ($timedOut -or $process.ExitCode -ne 0 -or -not $text.Contains("${prefix}_DONE leg=$leg") -or
-        $text.Contains("${prefix}_FAILED") -or $text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
+        $text.Contains("${prefix}_FAILED") -or ($establishFailures.Count -gt 0 -and -not $expectedEstablishFailure) -or
         $text.Contains('ERROR:') -or $text.Contains('Unhandled exception')) {
         throw "$prefix $leg failed (exit $($process.ExitCode), timeout=$timedOut); inspect $out and $err."
     }
@@ -75,6 +79,7 @@ if ($Workspace) {
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'save'
         $save = Invoke-EntryLeg 'save' 'WORKSPACE'
         foreach ($marker in @('WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored',
+            'WORKSPACE_NO_WORLD_LEAVE completed=true',
             'WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
             'WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace', 'WORKSPACE_OPEN_FAILED fault=corrupt',
             'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3', 'row_disabled=true', 'WORKSPACE_SAVED old=')) {

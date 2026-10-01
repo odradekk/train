@@ -9,11 +9,11 @@
       "group": "godot-workspace",
       "script": "scripts/run-godot-world-editor-cross-process.ps1",
       "arguments": ["-Workspace", "-OutputDirectory", "{output}"],
-      "claim": "save-as-isolation+cross-process-restore+workspace-navigation",
+      "claim": "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload",
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 300,
-      "timeoutReason": "The four-process workspace check measured 9353ms on the implementation host and 9324ms in coordinator review for issue #167. 300s allows four children bounded at 60s each (240s total), plus 60s for cold-start host overhead and evidence writing. This is a hang cap; frame budgets and elapsed time do not establish success."
+      "timeoutReason": "The issue #168 four-process workspace check measured 9190ms after review fixes, 9726ms before review, and 10190ms in coordinator review, including leave and reload coverage. 300s allows four children bounded at 60s each (240s total), plus 60s for cold-start host overhead and evidence writing. This margin keeps the timeout a hang cap; frame budgets and elapsed time do not establish success."
     },
     {
       "id": "godot.logging-smoke",
@@ -53,7 +53,7 @@
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
-      "claim": "save-as-isolation+cross-process-restore+workspace-navigation",
+      "claim": "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload",
       "requirements": "godot,process",
       "fourScene": false,
       "followUp": ""
