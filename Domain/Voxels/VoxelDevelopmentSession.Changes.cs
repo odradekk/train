@@ -36,9 +36,10 @@ public sealed partial class VoxelDevelopmentSession
     /// </summary>
     internal void MarkWorldEditorHost() => _worldEditorHost = true;
 
+    /// <summary>Completes an explicit choice synchronously. ChoiceRequired leaves no pending transition.</summary>
     public WorldChangeResult TryChangeWorld(WorldChangeRequest request)
     {
-        var result = BeginWorldChange(request);
+        var result = BeginWorldChange(request, retainPendingChoice: false);
         while (result.Status == WorldChangeStatus.Switching)
         {
             try { (_candidateTask ?? _abandonedCandidateTask)?.GetAwaiter().GetResult(); }
@@ -49,7 +50,10 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     /// <summary>Captures the destination and suspends input until cancellation, failure or replacement.</summary>
-    public WorldChangeResult BeginWorldChange(WorldChangeRequest request)
+    public WorldChangeResult BeginWorldChange(WorldChangeRequest request) =>
+        BeginWorldChange(request, retainPendingChoice: true);
+
+    private WorldChangeResult BeginWorldChange(WorldChangeRequest request, bool retainPendingChoice)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (_advancingWorldChange)
@@ -86,11 +90,14 @@ public sealed partial class VoxelDevelopmentSession
              blank != supported))
             return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
                 diagnostic: new WorldSaveDiagnostic("base", "blank", "parameters", $"blank extent requires {BlankWorldSource.ExtentDescription} and the supported source version"));
+        var needsChoice = HasUnsavedChanges && request.Choice is null;
+        if (needsChoice && !retainPendingChoice)
+            return Change(WorldChangeStatus.ChoiceRequired);
         _worldChange = request;
         _preparedCandidate = null;
         _changeSaveStatus = null;
         _hostScheduler.Reset();
-        _changeNeedsChoice = HasUnsavedChanges && request.Choice is null;
+        _changeNeedsChoice = needsChoice;
         _changeNeedsSave = request.Choice is WorldChangeChoice.SaveThenSwitch or WorldChangeChoice.SaveAsThenReload;
         return ReportChange(_changeNeedsChoice ? WorldChangeStatus.ChoiceRequired : WorldChangeStatus.Switching);
     }

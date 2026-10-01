@@ -15,6 +15,40 @@ public sealed class WorldEditorLeaveProtectionTests
     private static readonly WorldVoxelCoord LaterEdit = new(2, 2, 1);
 
     [DataTestMethod]
+    [DataRow(WorldChangeKind.Reset)]
+    [DataRow(WorldChangeKind.Load)]
+    public void Old_slice_synchronous_choice_does_not_leave_an_invisible_transition(WorldChangeKind kind)
+    {
+        using var harness = WorldEditorHarness.Content();
+        var session = new VoxelDevelopmentSession(harness.Catalog, VoxelWorldIdentity.Slice1,
+            harness.Store, harness.Composites);
+        harness.Attach(session);
+        var saved = session.Save("Original").SaveId!.Value;
+        var cell = new WorldVoxelCoord(4, 4, 4);
+        Assert.IsTrue(session.SubmitEdit(new VoxelRemoveEdit(cell)).Accepted);
+        Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
+        var world = session.World;
+        var step = session.SimulationStep;
+
+        var result = session.TryChangeWorld(new WorldChangeRequest(kind, null, SaveId: kind == WorldChangeKind.Load ? saved : null));
+
+        Assert.AreEqual(WorldChangeStatus.ChoiceRequired, result.Status);
+        Assert.IsFalse(session.IsChangingWorld);
+        Assert.AreSame(world, session.World);
+        Assert.IsTrue(session.HasUnsavedChanges);
+        Assert.IsFalse(session.SimulationPaused);
+        Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
+        Assert.AreEqual(step + 1, session.SimulationStep);
+        Assert.IsTrue(session.SubmitEdit(new VoxelAddEdit(cell,
+            WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Accepted);
+        Assert.AreEqual(WorldChangeStatus.ChoiceRequired,
+            session.BeginWorldChange(new WorldChangeRequest(WorldChangeKind.Quit, null)).Status);
+        Assert.AreEqual(WorldChangeStatus.Cancelled,
+            session.ChooseWorldChange(WorldChangeChoice.Cancel).Status);
+        Assert.IsFalse(session.IsChangingWorld);
+    }
+
+    [DataTestMethod]
     [DataRow(WorldChangeKind.NewBlank)]
     [DataRow(WorldChangeKind.Load)]
     [DataRow(WorldChangeKind.Reset)]
