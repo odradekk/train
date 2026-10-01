@@ -24,7 +24,7 @@ Before dispatch, verify:
 - The specification and Acceptance criteria are executable without unresolved design choices.
 - The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
 - The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them before promising a PR; report any required user action.
-- The requested Paseo provider is available and authenticated, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](implement-sop.md#local-validation-and-windows-builds); check the SDK, script runtime, and target-platform requirements before dispatch.
+- The requested Paseo provider is available and authenticated, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](local-environment.md); check the SDK, script runtime, and target-platform requirements before dispatch.
 
 Use an independent top-level worktree from the repository's default base unless the user selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
 

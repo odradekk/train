@@ -21,7 +21,7 @@ Current version: `0.0.37`.
 
 - 当前开发环境为 Windows，验证脚本使用 PowerShell 7（`pwsh`）。在项目目录执行 `dotnet --version`，确认使用 `global.json` 锁定的 SDK。
 - 本机 Godot .NET 位于 `D:\Godot_v4.7.2-stable_mono_win64\`。`GODOT` 环境变量应指向其中的 `Godot_v4.7.2-stable_mono_win64_console.exe`，不包含参数；无界面检查使用 `& $env:GODOT --headless`。
-- 配置新终端、运行验证或导出 Windows 构建前，阅读 [Local validation and Windows builds](docs/implement-sop.md#local-validation-and-windows-builds)。
+- 配置新终端、运行验证或导出 Windows 构建前，阅读 [Local validation and Windows builds](docs/local-environment.md)。
 
 ## Agent skills
 
@@ -39,8 +39,10 @@ Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository 
 
 ### Issue task workflow
 
-- For task dispatch, coordinator review, Acceptance-criteria verification, or user-approved merge, cleanup, closure and version updates, follow [Dispatch SOP](docs/dispatch-sop.md).
-- For task implementation, test authoring/execution, PR delivery and review revisions, follow [Implementation SOP](docs/implement-sop.md). Testing policy lives there; the dispatcher references it when selecting required validation.
+The two SOPs define the standard workflow; an individual task's scope and Acceptance criteria live in its Issue.
+
+- **Executing a task** (implementation, testing, PR delivery and review revisions): read [Implementation SOP](docs/implement-sop.md). It also holds the Testing standard.
+- **Coordinating a task** (dispatch, review, Acceptance-criteria verification, and user-approved merge, cleanup, closure and version updates): read [Dispatch SOP](docs/dispatch-sop.md).
 
 ### Console command documentation
 

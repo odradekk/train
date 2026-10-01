@@ -22,7 +22,7 @@ GODOT=D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.e
 GODOT_EDITOR=D:\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64.exe
 ```
 
-已有终端、IDE 和代理宿主需重新启动以继承这些变量。日常命令见 [Windows 开发与验证](../implement-sop.md#windows-development-and-validation)。VS Code 启动配置已改为运行 Godot，任务提供构建、测试和 Windows 导出；断点调试需要安装 C# 扩展。
+已有终端、IDE 和代理宿主需重新启动以继承这些变量。日常命令见 [Windows 开发与验证](../local-environment.md#windows-development-and-validation)。VS Code 启动配置已改为运行 Godot，任务提供构建、测试和 Windows 导出；断点调试需要安装 C# 扩展。
 
 ## 旧验收环境处理
 
