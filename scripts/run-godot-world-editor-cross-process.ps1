@@ -74,7 +74,7 @@ if ($Workspace) {
     try {
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'save'
         $save = Invoke-EntryLeg 'save' 'WORKSPACE'
-        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
             'WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace', 'WORKSPACE_OPEN_FAILED fault=corrupt',
             'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3 returned=true', 'row_disabled=true', 'WORKSPACE_SAVED old=',
             'isolated=true')) {

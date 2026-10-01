@@ -53,7 +53,7 @@
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
-      "claim": "save-restore+workspace-navigation",
+      "claim": "save-as-isolation+cross-process-restore+workspace-navigation",
       "requirements": "godot,process",
       "fourScene": false,
       "followUp": ""
