@@ -43,4 +43,4 @@ voxel use straight-rail-empty discard
 voxel load <uuid> discard
 ```
 
-恢复后应暂停在第 1 步，耐久为 75，原移除命令仍待执行；推进两步后它执行一次。随后可继续编辑、运行，并在空白、固定配置和旧切片存档之间切换。自动验证为 `scripts/run-godot-playground-cross-process.ps1 -BlankWorld`，使用隔离用户数据和两个真实 Godot 进程。
+恢复后应暂停在第 1 步，耐久为 75，原移除命令仍待执行；推进两步后它执行一次。随后可继续编辑、运行，并在空白、固定配置和旧切片存档之间切换。自动验证为 `scripts/run-godot-world-editor-cross-process.ps1 -BlankWorld`，使用隔离用户数据和两个真实 Godot 进程。

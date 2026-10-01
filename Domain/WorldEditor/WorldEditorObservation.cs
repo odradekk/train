@@ -4,7 +4,7 @@ using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
 public enum ObservedObjectKind
 {
@@ -45,14 +45,14 @@ public readonly record struct ObservedObject(
     };
 }
 
-public enum PlaygroundCameraMode
+public enum WorldEditorCameraMode
 {
     Free,
     Focus,
     Follow
 }
 
-public enum PlaygroundObservationStatus
+public enum WorldEditorObservationStatus
 {
     Selected,
     Cleared,
@@ -64,36 +64,36 @@ public enum PlaygroundObservationStatus
     UnknownObject
 }
 
-public enum PlaygroundNoticeKind
+public enum WorldEditorNoticeKind
 {
     SelectionLost,
     TargetLost
 }
 
-public sealed record PlaygroundObservationNotice(
-    PlaygroundNoticeKind Kind,
+public sealed record WorldEditorObservationNotice(
+    WorldEditorNoticeKind Kind,
     ObservedObject Object,
-    PlaygroundCameraMode Mode,
+    WorldEditorCameraMode Mode,
     WorldReplacement? Replacement = null)
 {
     public string Describe() =>
-        (Kind == PlaygroundNoticeKind.SelectionLost
+        (Kind == WorldEditorNoticeKind.SelectionLost
             ? $"selection-lost {Object.Describe()}"
             : $"target-lost {Object.Describe()} mode {Mode.ToString().ToLowerInvariant()} camera free-in-place") +
         (Replacement is { } replacement ? " world-replaced " + replacement.ToString().ToLowerInvariant() : "");
 
     public string DescribeZh()
     {
-        var target = $"{(Mode == PlaygroundCameraMode.Follow ? "跟随" : "聚焦")}目标{Object.DescribeZh()}";
+        var target = $"{(Mode == WorldEditorCameraMode.Follow ? "跟随" : "聚焦")}目标{Object.DescribeZh()}";
         if (Replacement is { } replacement)
         {
             var cause = replacement == WorldReplacement.Reset ? "世界已重置" : "世界已由读档替换";
-            return Kind == PlaygroundNoticeKind.SelectionLost
+            return Kind == WorldEditorNoticeKind.SelectionLost
                 ? $"{cause}：选中的{Object.DescribeZh()} 不再指向原对象，已清除选择"
                 : $"{cause}：{target} 不再指向原对象，已清除引用，镜头停在原位并转为自由观察";
         }
 
-        return Kind == PlaygroundNoticeKind.SelectionLost
+        return Kind == WorldEditorNoticeKind.SelectionLost
             ? $"选中的{Object.DescribeZh()} 已不存在，已清除选择"
             : $"{target} 已彻底销毁：已清除引用，镜头停在原位并转为自由观察";
     }
@@ -130,10 +130,10 @@ public sealed record ObservedVehicleFrame(
 }
 
 /// <summary>
-/// Playground-only observation: selection, free / focus / follow camera and target-loss handling. It reads the
+/// WorldEditor-only observation: selection, free / focus / follow camera and target-loss handling. It reads the
 /// session but never changes it, is not saved, and takes no edit id, sequence or simulation step.
 /// </summary>
-public sealed class PlaygroundObserver : IDisposable
+public sealed class WorldEditorObserver : IDisposable
 {
     public const double TransitionSeconds = 0.6;
     public const double MinDistance = 4;
@@ -141,7 +141,7 @@ public sealed class PlaygroundObserver : IDisposable
     public const double MaxPitch = 85 * Math.PI / 180;
 
     private readonly VoxelDevelopmentSession _session;
-    private readonly List<PlaygroundObservationNotice> _notices = new();
+    private readonly List<WorldEditorObservationNotice> _notices = new();
     private ObservationVector _position;
     private double _yaw;
     private double _pitch;
@@ -151,7 +151,7 @@ public sealed class PlaygroundObserver : IDisposable
     private ObservationCameraPose _transitionFrom;
     private double _transitionElapsed;
 
-    public PlaygroundObserver(VoxelDevelopmentSession session, ObservationVector position, ObservationVector look)
+    public WorldEditorObserver(VoxelDevelopmentSession session, ObservationVector position, ObservationVector look)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
@@ -162,12 +162,12 @@ public sealed class PlaygroundObserver : IDisposable
     }
 
     public ObservedObject? Selection { get; private set; }
-    public PlaygroundCameraMode Mode { get; private set; } = PlaygroundCameraMode.Free;
+    public WorldEditorCameraMode Mode { get; private set; } = WorldEditorCameraMode.Free;
     public ObservedObject? Target { get; private set; }
     public bool Transitioning { get; private set; }
     public ObservationCameraPose Pose { get; private set; }
-    public IReadOnlyList<PlaygroundObservationNotice> Notices => _notices;
-    public PlaygroundObservationNotice? LastNotice => _notices.Count == 0 ? null : _notices[^1];
+    public IReadOnlyList<WorldEditorObservationNotice> Notices => _notices;
+    public WorldEditorObservationNotice? LastNotice => _notices.Count == 0 ? null : _notices[^1];
     public double Distance => _distance;
 
     public void Dispose()
@@ -186,59 +186,59 @@ public sealed class PlaygroundObserver : IDisposable
     };
 
     /// <summary>Selecting only changes what the panel inspects; the camera does not move.</summary>
-    public PlaygroundObservationStatus Select(ObservedObject item)
+    public WorldEditorObservationStatus Select(ObservedObject item)
     {
         if (item.Kind == ObservedObjectKind.WorldCell && _session.Query(item.Cell).Voxel is { } voxel)
             item = ObservedObject.WorldCell(item.Cell, voxel.RuntimeId, voxel.DefinitionId);
         if (!Exists(item))
-            return PlaygroundObservationStatus.UnknownObject;
+            return WorldEditorObservationStatus.UnknownObject;
         Selection = item;
-        return PlaygroundObservationStatus.Selected;
+        return WorldEditorObservationStatus.Selected;
     }
 
-    public PlaygroundObservationStatus ClearSelection()
+    public WorldEditorObservationStatus ClearSelection()
     {
         Selection = null;
-        return PlaygroundObservationStatus.Cleared;
+        return WorldEditorObservationStatus.Cleared;
     }
 
     /// <summary>Frames the selection once from the current view direction; the pivot does not track later motion.</summary>
-    public PlaygroundObservationStatus FocusSelection(TrainDisplaySample? sample = null)
+    public WorldEditorObservationStatus FocusSelection(TrainDisplaySample? sample = null)
     {
         Reconcile();
         if (Selection is not { } selected)
-            return PlaygroundObservationStatus.NoSelection;
+            return WorldEditorObservationStatus.NoSelection;
         var center = Center(selected, sample ?? _session.QueryDisplayPoses());
         BeginTransition();
-        Mode = PlaygroundCameraMode.Focus;
+        Mode = WorldEditorCameraMode.Focus;
         Target = selected;
         _pivot = center;
         DeriveOrbit(center, out _yaw, out _pitch, out _distance);
-        return PlaygroundObservationStatus.Focused;
+        return WorldEditorObservationStatus.Focused;
     }
 
     /// <summary>Follows the selected vehicle, keeping the current view offset relative to its displayed heading.</summary>
-    public PlaygroundObservationStatus FollowSelection(TrainDisplaySample? sample = null)
+    public WorldEditorObservationStatus FollowSelection(TrainDisplaySample? sample = null)
     {
         Reconcile();
         if (Selection is not { } selected)
-            return PlaygroundObservationStatus.NoSelection;
+            return WorldEditorObservationStatus.NoSelection;
         if (selected.Kind != ObservedObjectKind.Vehicle)
-            return PlaygroundObservationStatus.NotVehicle;
+            return WorldEditorObservationStatus.NotVehicle;
         var frame = VehicleFrame(_session, sample ?? _session.QueryDisplayPoses(), selected.Id)!;
         BeginTransition();
-        Mode = PlaygroundCameraMode.Follow;
+        Mode = WorldEditorCameraMode.Follow;
         Target = selected;
         DeriveOrbit(frame.Center, out var yaw, out _pitch, out _distance);
         _yawOffset = yaw - frame.HeadingYaw;
-        return PlaygroundObservationStatus.Following;
+        return WorldEditorObservationStatus.Following;
     }
 
     /// <summary>Returns to free observation exactly where the camera currently is.</summary>
-    public PlaygroundObservationStatus Free()
+    public WorldEditorObservationStatus Free()
     {
         EnterFreeInPlace();
-        return PlaygroundObservationStatus.Free;
+        return WorldEditorObservationStatus.Free;
     }
 
     /// <summary>Free mode turns the view; focus and follow orbit around their target.</summary>
@@ -246,7 +246,7 @@ public sealed class PlaygroundObserver : IDisposable
     {
         if (!double.IsFinite(deltaYaw) || !double.IsFinite(deltaPitch))
             return;
-        if (Mode == PlaygroundCameraMode.Follow)
+        if (Mode == WorldEditorCameraMode.Follow)
             _yawOffset += deltaYaw;
         else
             _yaw += deltaYaw;
@@ -258,7 +258,7 @@ public sealed class PlaygroundObserver : IDisposable
     {
         if (!double.IsFinite(amount))
             return;
-        if (Mode == PlaygroundCameraMode.Free)
+        if (Mode == WorldEditorCameraMode.Free)
             _position += Forward(_yaw, _pitch) * amount;
         else
             _distance = Math.Clamp(_distance - amount, MinDistance, MaxDistance);
@@ -267,7 +267,7 @@ public sealed class PlaygroundObserver : IDisposable
     /// <summary>Moves the free camera in its own right / up / forward axes. Ignored while focusing or following.</summary>
     public bool Fly(double right, double up, double forward)
     {
-        if (Mode != PlaygroundCameraMode.Free || !double.IsFinite(right) || !double.IsFinite(up) || !double.IsFinite(forward))
+        if (Mode != WorldEditorCameraMode.Free || !double.IsFinite(right) || !double.IsFinite(up) || !double.IsFinite(forward))
             return false;
         var horizontal = new ObservationVector(Math.Cos(_yaw), 0, Math.Sin(_yaw));
         var side = new ObservationVector(-Math.Sin(_yaw), 0, Math.Cos(_yaw));
@@ -280,28 +280,28 @@ public sealed class PlaygroundObserver : IDisposable
     /// in free mode; it never jumps to another vehicle. Also runs after every executed edit, so a cell removed and
     /// rebuilt with the same definition before the next frame still counts as lost.
     /// </summary>
-    public IReadOnlyList<PlaygroundObservationNotice> Reconcile() => Release(null);
+    public IReadOnlyList<WorldEditorObservationNotice> Reconcile() => Release(null);
 
     private void OnEditExecuted(WorldEditRecord record) => Reconcile();
 
     private void OnWorldReplaced(WorldReplacement replacement) => Release(replacement);
 
     /// <summary>A replaced world may reuse every id and cell, so after a replacement every reference is lost.</summary>
-    private IReadOnlyList<PlaygroundObservationNotice> Release(WorldReplacement? replacement)
+    private IReadOnlyList<WorldEditorObservationNotice> Release(WorldReplacement? replacement)
     {
         bool Lost(ObservedObject item) => replacement is not null || !Exists(item);
-        var raised = new List<PlaygroundObservationNotice>();
+        var raised = new List<WorldEditorObservationNotice>();
         if (Selection is { } selected && Lost(selected))
         {
             Selection = null;
-            raised.Add(new PlaygroundObservationNotice(PlaygroundNoticeKind.SelectionLost, selected, Mode, replacement));
+            raised.Add(new WorldEditorObservationNotice(WorldEditorNoticeKind.SelectionLost, selected, Mode, replacement));
         }
 
         if (Target is { } target && Lost(target))
         {
             var mode = Mode;
             EnterFreeInPlace();
-            raised.Add(new PlaygroundObservationNotice(PlaygroundNoticeKind.TargetLost, target, mode, replacement));
+            raised.Add(new WorldEditorObservationNotice(WorldEditorNoticeKind.TargetLost, target, mode, replacement));
         }
 
         _notices.AddRange(raised);
@@ -409,9 +409,9 @@ public sealed class PlaygroundObserver : IDisposable
     {
         switch (Mode)
         {
-            case PlaygroundCameraMode.Focus:
+            case WorldEditorCameraMode.Focus:
                 return Orbit(_pivot, _yaw, _pitch, _distance);
-            case PlaygroundCameraMode.Follow:
+            case WorldEditorCameraMode.Follow:
                 var frame = VehicleFrame(_session, sample, Target!.Value.Id)!;
                 return Orbit(frame.Center, frame.HeadingYaw + _yawOffset, _pitch, _distance);
             default:
@@ -434,7 +434,7 @@ public sealed class PlaygroundObserver : IDisposable
     private void EnterFreeInPlace()
     {
         SetFreePose(Pose);
-        Mode = PlaygroundCameraMode.Free;
+        Mode = WorldEditorCameraMode.Free;
         Target = null;
         Transitioning = false;
     }

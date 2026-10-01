@@ -1,7 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using Godot;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 
 namespace Train;
@@ -15,7 +15,7 @@ internal sealed class BlankWorldSmoke
     private static readonly WorldVoxelCoord EditedCell = new(17, 1, 1);
     private static readonly WorldVoxelCoord ContinuedCell = new(18, 1, 1);
 
-    private readonly PlaygroundScene _scene;
+    private readonly WorldEditorScene _scene;
     private readonly string _leg;
     private readonly Guid? _savedBlank;
     private int _phase;
@@ -24,7 +24,7 @@ internal sealed class BlankWorldSmoke
     private bool _finished;
     private Guid _legacySave;
 
-    public BlankWorldSmoke(PlaygroundScene scene)
+    public BlankWorldSmoke(WorldEditorScene scene)
     {
         _scene = scene;
         _leg = System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
@@ -39,7 +39,7 @@ internal sealed class BlankWorldSmoke
         System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) is "save" or "resume";
 
     private VoxelDevelopmentSession Session => _scene.Session!;
-    private PlaygroundObserver Observer => _scene.Observation!.Observer;
+    private WorldEditorObserver Observer => _scene.Observation!.Observer;
     private Main Main => _scene.GetNode<Main>("/root/Main");
 
     public void Advance()
@@ -66,11 +66,11 @@ internal sealed class BlankWorldSmoke
             case 0:
                 Require(Session.WorldSource?.Kind == WorldSource.FixedConfigurationKind, "save leg did not start from a fixed source");
                 Require(Session.Rails.Segments.Count > 0, "fixed train has no segment to select");
-                Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == PlaygroundObservationStatus.Selected,
+                Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == WorldEditorObservationStatus.Selected,
                     "fixed segment selection failed");
                 Submit("voxel new 33 17 19 42 discard");
                 AssertBlankBoundary();
-                Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == PlaygroundCameraMode.Free,
+                Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == WorldEditorCameraMode.Free,
                     "new blank world kept an observation reference");
                 GD.Print("BLANK_WORLD_CREATED bounds=33,17,19 seed=42 source=blank paused=true");
                 _phase++;
@@ -116,11 +116,11 @@ internal sealed class BlankWorldSmoke
             case 0:
                 Require(Session.WorldSource?.Kind == WorldSource.FixedConfigurationKind, "resume leg did not first establish fixed source");
                 Require(Session.Rails.Segments.Count > 0, "fixed source has no segment");
-                Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == PlaygroundObservationStatus.Selected,
+                Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == WorldEditorObservationStatus.Selected,
                     "fixed segment selection failed");
                 Submit($"voxel load {_savedBlank:D} discard");
                 AssertRestoredBlank();
-                Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == PlaygroundCameraMode.Free,
+                Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == WorldEditorCameraMode.Free,
                     "cross-source load kept the fixed-world observation reference");
                 GD.Print($"BLANK_WORLD_RESTORED id={_savedBlank:D} step=1 durability=75 pending=1 from=fixed");
                 _scene.Refresh();
@@ -177,7 +177,7 @@ internal sealed class BlankWorldSmoke
                 break;
             case 3:
                 Submit("voxel add 18 1 1 core:ferrous-ore px_py");
-                Require(Observer.Select(ObservedObject.WorldCell(ContinuedCell)) == PlaygroundObservationStatus.Selected,
+                Require(Observer.Select(ObservedObject.WorldCell(ContinuedCell)) == WorldEditorObservationStatus.Selected,
                     "bad-load preservation selection failed");
                 Submit("rail resume");
                 Require(!Session.SimulationPaused, "blank world did not resume");

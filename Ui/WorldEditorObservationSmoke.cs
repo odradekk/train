@@ -1,19 +1,19 @@
 using System.Globalization;
 using Godot;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train;
 
 /// <summary>
-/// Headless observation entrance: drives the real Playground camera, panel, keys, clicks and console, and checks
+/// Headless observation entrance: drives the real world editor camera, panel, keys, clicks and console, and checks
 /// that observation reads the displayed bodies while never pausing, advancing or editing the session.
 /// </summary>
-internal sealed class PlaygroundObservationSmoke
+internal sealed class WorldEditorObservationSmoke
 {
-    public const string ModeEnvironmentVariable = "TRAIN_PLAYGROUND_SMOKE_MODE";
+    public const string ModeEnvironmentVariable = "TRAIN_WORLD_EDITOR_SMOKE_MODE";
     public const string ModeValue = "observation";
 
     private const int SettleFrames = 4;
@@ -25,7 +25,7 @@ internal sealed class PlaygroundObservationSmoke
     private const int RailClickX = 90;
     private const float OrbitDragPixels = 60;
 
-    private readonly PlaygroundScene _scene;
+    private readonly WorldEditorScene _scene;
     private readonly bool _resume;
     private readonly List<Vector3> _looks = new();
     private readonly List<Vector3> _positions = new();
@@ -39,12 +39,12 @@ internal sealed class PlaygroundObservationSmoke
     private Vector2 _clickTarget;
     private int _interpolatedFrames;
     private bool _rebuilt;
-    private Guid _playgroundSave;
+    private Guid _worldEditorSave;
     private Guid _hollowSave;
     private string _replacedDefinition = "";
     private bool _finished;
 
-    public PlaygroundObservationSmoke(PlaygroundScene scene, string? saveId)
+    public WorldEditorObservationSmoke(WorldEditorScene scene, string? saveId)
     {
         _scene = scene;
         _resume = Guid.TryParse(saveId, out _);
@@ -54,8 +54,8 @@ internal sealed class PlaygroundObservationSmoke
         string.Equals(System.Environment.GetEnvironmentVariable(ModeEnvironmentVariable), ModeValue, StringComparison.Ordinal);
 
     private VoxelDevelopmentSession Session => _scene.Session!;
-    private PlaygroundObservationView View => _scene.Observation!;
-    private PlaygroundObserver Observer => View.Observer;
+    private WorldEditorObservationView View => _scene.Observation!;
+    private WorldEditorObserver Observer => View.Observer;
     private Main Main => _scene.GetNode<Main>("/root/Main");
     private bool HasTrain => Session.QueryTrainAssemblies().Count > 0;
     private EntityId Loco => Session.Vehicles.First(vehicle => vehicle.DefinitionId == StaticTrainFixture.LocomotiveId).Id;
@@ -82,7 +82,7 @@ internal sealed class PlaygroundObservationSmoke
     }
 
     private bool HasTrainConfiguration() =>
-        Session.WorldSource?.ConfigurationId == PlaygroundConfigurations.StraightRailTrainId;
+        Session.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailTrainId;
 
     private void AdvanceTrain()
     {
@@ -110,7 +110,7 @@ internal sealed class PlaygroundObservationSmoke
                 break;
             case 5:
                 SelectFromList(ObservedObject.Vehicle(Loco));
-                if (Transition("focus", Key.F, PlaygroundCameraMode.Focus, Loco))
+                if (Transition("focus", Key.F, WorldEditorCameraMode.Focus, Loco))
                     Next();
                 break;
             case 6:
@@ -121,7 +121,7 @@ internal sealed class PlaygroundObservationSmoke
                 Next();
                 break;
             case 7:
-                if (Transition("follow", Key.None, PlaygroundCameraMode.Follow, Loco))
+                if (Transition("follow", Key.None, WorldEditorCameraMode.Follow, Loco))
                     Next();
                 break;
             case 8:
@@ -144,12 +144,12 @@ internal sealed class PlaygroundObservationSmoke
                 if (_frames == 1)
                     _scene.Press("run");
                 SelectFromList(ObservedObject.Vehicle(Carriage!.Value));
-                if (Transition("switch", Key.V, PlaygroundCameraMode.Follow, Carriage.Value))
+                if (Transition("switch", Key.V, WorldEditorCameraMode.Follow, Carriage.Value))
                     Next();
                 break;
             case 13:
                 SelectFromList(ObservedObject.Vehicle(Loco));
-                if (Transition("switch-back", Key.None, PlaygroundCameraMode.Follow, Loco))
+                if (Transition("switch-back", Key.None, WorldEditorCameraMode.Follow, Loco))
                     Next();
                 break;
             case 14:
@@ -168,7 +168,7 @@ internal sealed class PlaygroundObservationSmoke
                 break;
             case 17:
                 SelectFromList(ObservedObject.Vehicle(Carriage!.Value));
-                if (Transition("follow-carriage", Key.None, PlaygroundCameraMode.Follow, Carriage.Value))
+                if (Transition("follow-carriage", Key.None, WorldEditorCameraMode.Follow, Carriage.Value))
                     Next();
                 break;
             case 18:
@@ -209,14 +209,14 @@ internal sealed class PlaygroundObservationSmoke
                 break;
             case 3:
                 SelectFromList(View.Entries[0].Object);
-                if (Transition("focus", Key.F, PlaygroundCameraMode.Focus, null))
+                if (Transition("focus", Key.F, WorldEditorCameraMode.Focus, null))
                     Next();
                 break;
             case 4:
                 View.Press("follow");
-                Require(Observer.Mode == PlaygroundCameraMode.Focus, "follow on a segment changed the mode");
+                Require(Observer.Mode == WorldEditorCameraMode.Focus, "follow on a segment changed the mode");
                 View.Press("free");
-                Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Target is null, "free did not release the target");
+                Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Target is null, "free did not release the target");
                 GD.Print($"OBSERVE_SEGMENT_FOLLOW_REFUSED mode={Observer.Mode} selection={Observer.Selection?.Describe()}");
                 Next();
                 break;
@@ -252,9 +252,9 @@ internal sealed class PlaygroundObservationSmoke
         {
             case 0 when _frames >= SettleFrames:
                 Require(Session.SimulationPaused, "restored session is not paused");
-                Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Selection is null && Observer.Target is null,
+                Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Selection is null && Observer.Target is null,
                     $"restored observation is not the default: {Observer.Describe()}");
-                RequireCameraAt(PlaygroundScene.OverviewPose, "restored camera");
+                RequireCameraAt(WorldEditorScene.OverviewPose, "restored camera");
                 GD.Print(
                     $"OBSERVE_RESTORED step={Session.SimulationStep} paused=true {Observer.Describe()} " +
                     $"fingerprint={WorldSaveAuthority.Fingerprint(Session)}");
@@ -265,9 +265,9 @@ internal sealed class PlaygroundObservationSmoke
 
     private void CheckFreeStart()
     {
-        Require(Session.SimulationPaused && Session.SimulationStep == 0, "Playground did not start paused at step 0");
-        Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Selection is null, $"start observation {Observer.Describe()}");
-        RequireCameraAt(PlaygroundScene.OverviewPose, "start camera");
+        Require(Session.SimulationPaused && Session.SimulationStep == 0, "world editor did not start paused at step 0");
+        Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Selection is null, $"start observation {Observer.Describe()}");
+        RequireCameraAt(WorldEditorScene.OverviewPose, "start camera");
         _mark = Session.SimulationStep;
         _fingerprint = WorldSaveAuthority.Fingerprint(Session);
         GD.Print(
@@ -290,7 +290,7 @@ internal sealed class PlaygroundObservationSmoke
             return false;
         PressKey(Key.W, false);
         var moved = _scene.Camera.GlobalPosition - _positions[0];
-        var view = (PlaygroundObservationView.To(PlaygroundScene.OverviewPose.Look) - PlaygroundObservationView.To(PlaygroundScene.OverviewPose.Position)).Normalized();
+        var view = (WorldEditorObservationView.To(WorldEditorScene.OverviewPose.Look) - WorldEditorObservationView.To(WorldEditorScene.OverviewPose.Position)).Normalized();
         var horizontal = new Vector3(view.X, 0, view.Z).Normalized();
         Require(moved.Length() > 0.01f, "W did not move the free camera");
         Require(moved.Normalized().Dot(horizontal) > 0.999f, $"free flight direction {moved}");
@@ -369,7 +369,7 @@ internal sealed class PlaygroundObservationSmoke
     /// Starts focus / follow through a key or panel button and samples every frame until it settles: the camera must
     /// ease from where it was, without a first-frame jump, and end on the target.
     /// </summary>
-    private bool Transition(string name, Key key, PlaygroundCameraMode mode, EntityId? vehicleId)
+    private bool Transition(string name, Key key, WorldEditorCameraMode mode, EntityId? vehicleId)
     {
         if (_frames == 1)
             return false;
@@ -377,9 +377,9 @@ internal sealed class PlaygroundObservationSmoke
         {
             _pose = Observer.Pose;
             _looks.Clear();
-            _looks.Add(PlaygroundObservationView.To(_pose.Look));
+            _looks.Add(WorldEditorObservationView.To(_pose.Look));
             if (key == Key.None)
-                View.Press(mode == PlaygroundCameraMode.Focus ? "focus" : "follow");
+                View.Press(mode == WorldEditorCameraMode.Focus ? "focus" : "follow");
             else
             {
                 PressKey(key, true);
@@ -389,7 +389,7 @@ internal sealed class PlaygroundObservationSmoke
             return false;
         }
 
-        _looks.Add(PlaygroundObservationView.To(Observer.Pose.Look));
+        _looks.Add(WorldEditorObservationView.To(Observer.Pose.Look));
         if (_frames > TransitionLimitFrames)
             throw new InvalidOperationException($"{name} transition did not settle");
         if (Observer.Mode != mode || Observer.Transitioning)
@@ -401,7 +401,7 @@ internal sealed class PlaygroundObservationSmoke
         var steps = _looks.Zip(_looks.Skip(1), (a, b) => (b - a).Length()).SkipWhile(step => step == 0).ToArray();
         var first = steps.Length == 0 ? 0 : steps[0];
         var largest = steps.Length == 0 ? 0 : steps.Max();
-        var target = vehicleId is { } id ? BodyCenter(id) : PlaygroundObservationView.To(Observer.Center(Observer.Target!.Value, Session.QueryDisplayPoses()));
+        var target = vehicleId is { } id ? BodyCenter(id) : WorldEditorObservationView.To(Observer.Center(Observer.Target!.Value, Session.QueryDisplayPoses()));
         Require((end - target).Length() < Tolerance, $"{name} settled on {end}, target {target}");
         Require(steps.Length >= 3, $"{name} completed in {steps.Length} frames; not a transition");
         Require(travel < 1e-3f || first <= 0.2f * travel + 0.5f, $"{name} first frame jumped {first} of {travel}");
@@ -421,7 +421,7 @@ internal sealed class PlaygroundObservationSmoke
         var visual = _scene.Composites.VisualFor(vehicleId) ?? throw new InvalidOperationException($"no visual for {vehicleId}");
         var body = visual.GlobalTransform;
         var center = BodyCenter(vehicleId);
-        var look = PlaygroundObservationView.To(Observer.Pose.Look);
+        var look = WorldEditorObservationView.To(Observer.Pose.Look);
         var camera = _scene.Camera.GlobalPosition;
         Require((look - center).Length() < Tolerance, $"{marker} look {look} is not the drawn body centre {center}");
         var offset = body.Basis.Transposed() * (camera - center);
@@ -438,7 +438,7 @@ internal sealed class PlaygroundObservationSmoke
         Require((offset - _bodyOffset).Length() < 2e-3f, $"{marker} body-frame offset drifted {offset} vs {_bodyOffset}");
         _positions.Add(camera);
         var authority = Session.Vehicles.Single(vehicle => vehicle.Id == vehicleId).Transform;
-        var local = PlaygroundObserver.LocalCenter(Session.Vehicles.Single(vehicle => vehicle.Id == vehicleId));
+        var local = WorldEditorObserver.LocalCenter(Session.Vehicles.Single(vehicle => vehicle.Id == vehicleId));
         var step = authority.TransformPoint(local.X, local.Y, local.Z);
         if ((new Vector3((float)step.X, (float)step.Y, (float)step.Z) - center).Length() > 1e-4f)
             _interpolatedFrames++;
@@ -507,8 +507,8 @@ internal sealed class PlaygroundObservationSmoke
         var before = (_positions[0] - center).Length();
         var after = (camera - center).Length();
         var turned = new Vector2(_positions[0].X - center.X, _positions[0].Z - center.Z).AngleTo(new Vector2(camera.X - center.X, camera.Z - center.Z));
-        Require((PlaygroundObservationView.To(Observer.Pose.Look) - center).Length() < Tolerance, "orbit moved the look point off the body");
-        Require(Math.Abs(before - after - (float)PlaygroundObservationView.ZoomStep) < 2e-3f, $"wheel changed distance {before} -> {after}");
+        Require((WorldEditorObservationView.To(Observer.Pose.Look) - center).Length() < Tolerance, "orbit moved the look point off the body");
+        Require(Math.Abs(before - after - (float)WorldEditorObservationView.ZoomStep) < 2e-3f, $"wheel changed distance {before} -> {after}");
         Require(Math.Abs(turned) > 0.01f, "right-drag did not orbit the camera");
         Require(Session.SimulationPaused && Session.SimulationStep == _mark, "orbit moved the clock");
         GD.Print(
@@ -534,7 +534,7 @@ internal sealed class PlaygroundObservationSmoke
         switch (_frames)
         {
             case 1:
-                Require(Observer.Mode == PlaygroundCameraMode.Follow && Session.SimulationPaused, $"truncated drags need a paused follow: {Observer.Describe()}");
+                Require(Observer.Mode == WorldEditorCameraMode.Follow && Session.SimulationPaused, $"truncated drags need a paused follow: {Observer.Describe()}");
                 RightButton(true, world);
                 break;
             case 3:
@@ -587,7 +587,7 @@ internal sealed class PlaygroundObservationSmoke
                 break;
             case 27:
                 var center = BodyCenter(vehicleId);
-                var before = PlaygroundObservationView.To(_pose.Position);
+                var before = WorldEditorObservationView.To(_pose.Position);
                 var camera = _scene.Camera.GlobalPosition;
                 var turned = new Vector2(before.X - center.X, before.Z - center.Z).AngleTo(new Vector2(camera.X - center.X, camera.Z - center.Z));
                 Require(Math.Abs(turned) > 0.01f, "right-drag after the truncated drags did not orbit");
@@ -608,16 +608,16 @@ internal sealed class PlaygroundObservationSmoke
     /// </summary>
     private bool RebuildFocusedCell(bool scheduled)
     {
-        var probe = PlaygroundSequences.EditProbe;
+        var probe = WorldEditorSequences.EditProbe;
         var cell = $"{probe.X} {probe.Y} {probe.Z}";
-        var add = $"voxel add {cell} {PlaygroundSequences.EditVoxelId.Value} {VoxelOrientation.Identity}";
+        var add = $"voxel add {cell} {WorldEditorSequences.EditVoxelId.Value} {VoxelOrientation.Identity}";
         if (_frames == 1)
         {
             if (Session.Query(probe).Voxel is null)
                 RunConsole(add);
             RunConsole($"observe select cell {cell}");
             RunConsole("observe focus");
-            Require(Observer.Mode == PlaygroundCameraMode.Focus && Observer.Target?.Cell == probe, $"cell focus: {Observer.Describe()}");
+            Require(Observer.Mode == WorldEditorCameraMode.Focus && Observer.Target?.Cell == probe, $"cell focus: {Observer.Describe()}");
             _rebuilt = false;
             return false;
         }
@@ -652,10 +652,10 @@ internal sealed class PlaygroundObservationSmoke
 
         if (_frames < 3)
             return false;
-        Require(Session.Query(probe).Voxel?.DefinitionId == PlaygroundSequences.EditVoxelId, "rebuild did not leave the same definition");
-        Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Target is null && Observer.Selection is null,
+        Require(Session.Query(probe).Voxel?.DefinitionId == WorldEditorSequences.EditVoxelId, "rebuild did not leave the same definition");
+        Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Target is null && Observer.Selection is null,
             $"rebuilt cell kept {Observer.Describe()}");
-        Require(Observer.LastNotice is { Kind: PlaygroundNoticeKind.TargetLost, Mode: PlaygroundCameraMode.Focus } lost && lost.Object.Cell == probe,
+        Require(Observer.LastNotice is { Kind: WorldEditorNoticeKind.TargetLost, Mode: WorldEditorCameraMode.Focus } lost && lost.Object.Cell == probe,
             $"notice {Observer.LastNotice?.Describe()}");
         Require(View.NoticeText.Contains("已彻底销毁", StringComparison.Ordinal), $"panel notice: {View.NoticeText}");
         Require(View.InspectionText == "选中：无", $"panel inspection: {View.InspectionText}");
@@ -672,7 +672,7 @@ internal sealed class PlaygroundObservationSmoke
     /// Follows the manufactured vehicle, then replaces the whole world through the console so a different vehicle takes the same id:
     /// <c>composite reset bridge</c> over a followed hollow shell, and after a load of a missing save that must keep
     /// observing, <c>voxel load</c> of the hollow save over a followed bridge. Either replacement drops the old
-    /// references with the camera in place. The Playground save taken first is loaded back at the end.
+    /// references with the camera in place. The world editor save taken first is loaded back at the end.
     /// </summary>
     private bool ReplaceFollowedWorld(WorldReplacement replacement)
     {
@@ -680,7 +680,7 @@ internal sealed class PlaygroundObservationSmoke
         {
             if (replacement == WorldReplacement.Reset)
             {
-                _playgroundSave = SaveThroughConsole("Before replacement");
+                _worldEditorSave = SaveThroughConsole("Before replacement");
                 RunConsole("composite reset hollow");
                 _hollowSave = SaveThroughConsole("Hollow");
             }
@@ -688,7 +688,7 @@ internal sealed class PlaygroundObservationSmoke
             var vehicle = Session.Vehicles.Single().Id;
             RunConsole($"observe select vehicle {vehicle.Value}");
             RunConsole("observe follow");
-            Require(Observer.Mode == PlaygroundCameraMode.Follow && Observer.Target == ObservedObject.Vehicle(vehicle), $"follow: {Observer.Describe()}");
+            Require(Observer.Mode == WorldEditorCameraMode.Follow && Observer.Target == ObservedObject.Vehicle(vehicle), $"follow: {Observer.Describe()}");
             _rebuilt = false;
             return false;
         }
@@ -713,7 +713,7 @@ internal sealed class PlaygroundObservationSmoke
                 var fingerprint = WorldSaveAuthority.Fingerprint(Session);
                 RunConsole($"voxel load {Guid.NewGuid():D}");
                 Require(WorldSaveAuthority.Fingerprint(Session) == fingerprint, "a failed load changed the session");
-                Require(Observer.Mode == PlaygroundCameraMode.Follow && Observer.Target == followed && Observer.Selection == followed &&
+                Require(Observer.Mode == WorldEditorCameraMode.Follow && Observer.Target == followed && Observer.Selection == followed &&
                         Observer.Notices.Count == notices, $"a failed load changed observation: {Observer.Describe()}");
                 GD.Print($"OBSERVE_FAILED_LOAD_KEEP {Observer.Describe()} notices={Observer.Notices.Count}");
                 RunConsole($"voxel load {_hollowSave:D}");
@@ -729,9 +729,9 @@ internal sealed class PlaygroundObservationSmoke
 
         if (_frames < 3)
             return false;
-        Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Target is null && Observer.Selection is null,
+        Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Target is null && Observer.Selection is null,
             $"replaced world kept {Observer.Describe()}");
-        Require(Observer.LastNotice is { Kind: PlaygroundNoticeKind.TargetLost, Mode: PlaygroundCameraMode.Follow } lost && lost.Replacement == replacement,
+        Require(Observer.LastNotice is { Kind: WorldEditorNoticeKind.TargetLost, Mode: WorldEditorCameraMode.Follow } lost && lost.Replacement == replacement,
             $"notice {Observer.LastNotice?.Describe()}");
         Require(View.NoticeText.StartsWith(replacement == WorldReplacement.Reset ? "世界已重置" : "世界已由读档替换", StringComparison.Ordinal),
             $"panel notice: {View.NoticeText}");
@@ -744,8 +744,8 @@ internal sealed class PlaygroundObservationSmoke
             $"camera_moved=false {Observer.Describe()} same_id_definition={_replacedDefinition} notice_zh=\"{View.NoticeText}\"");
         if (replacement == WorldReplacement.Load)
         {
-            RunConsole($"voxel load {_playgroundSave:D}");
-            Require(Session.WorldSource?.ConfigurationId == PlaygroundConfigurations.StraightRailEmptyId, "the Playground save did not load back");
+            RunConsole($"voxel load {_worldEditorSave:D}");
+            Require(Session.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailEmptyId, "the world editor save did not load back");
         }
 
         return true;
@@ -787,7 +787,7 @@ internal sealed class PlaygroundObservationSmoke
         var assemblies = Session.QueryTrainAssemblies();
         Require(assemblies.Count == 2, $"coupler damage left {assemblies.Count} assemblies");
         Observer.Reconcile();
-        Require(Observer.Target == ObservedObject.Vehicle(loco) && Observer.Mode == PlaygroundCameraMode.Follow, $"split changed the target: {Observer.Describe()}");
+        Require(Observer.Target == ObservedObject.Vehicle(loco) && Observer.Mode == WorldEditorCameraMode.Follow, $"split changed the target: {Observer.Describe()}");
         GD.Print($"OBSERVE_SPLIT_KEEP assemblies={assemblies.Count} step={Session.SimulationStep} {Observer.Describe()} notices={Observer.Notices.Count}");
     }
 
@@ -829,13 +829,13 @@ internal sealed class PlaygroundObservationSmoke
     private void CheckDestroyedInPlace()
     {
         var camera = _scene.Camera.GlobalPosition;
-        Require(Observer.Mode == PlaygroundCameraMode.Free && Observer.Target is null && Observer.Selection is null,
+        Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Target is null && Observer.Selection is null,
             $"destroyed target left {Observer.Describe()}");
-        Require(Observer.LastNotice is { Kind: PlaygroundNoticeKind.TargetLost }, "no target-lost notice");
+        Require(Observer.LastNotice is { Kind: WorldEditorNoticeKind.TargetLost }, "no target-lost notice");
         Require(View.NoticeText.Contains("已彻底销毁", StringComparison.Ordinal), $"panel notice: {View.NoticeText}");
         Require((camera - _positions[0]).Length() < Tolerance, $"camera jumped from {_positions[0]} to {camera}");
         Require(Observer.Pose.Position == _pose.Position, "observer position changed on target loss");
-        var before = (PlaygroundObservationView.To(_pose.Look) - PlaygroundObservationView.To(_pose.Position)).Normalized();
+        var before = (WorldEditorObservationView.To(_pose.Look) - WorldEditorObservationView.To(_pose.Position)).Normalized();
         var facing = -_scene.Camera.GlobalBasis.Z;
         Require(facing.Dot(before) > 0.9999f, $"camera turned on target loss: {facing} vs {before}");
         Require(Session.SimulationStep == _mark, "target loss moved the clock");
@@ -895,24 +895,24 @@ internal sealed class PlaygroundObservationSmoke
     private void RequireCameraAt(ObservationCameraPose pose, string what)
     {
         var camera = _scene.Camera;
-        var position = PlaygroundObservationView.To(pose.Position);
-        var direction = (PlaygroundObservationView.To(pose.Look) - position).Normalized();
+        var position = WorldEditorObservationView.To(pose.Position);
+        var direction = (WorldEditorObservationView.To(pose.Look) - position).Normalized();
         Require((camera.GlobalPosition - position).Length() < Tolerance, $"{what} at {camera.GlobalPosition}");
         Require((-camera.GlobalBasis.Z).Dot(direction) > 0.9999f, $"{what} looks along {-camera.GlobalBasis.Z}");
     }
 
     private (Vector3 Position, Vector3 Look) CameraPose() =>
-        (_scene.Camera.GlobalPosition, PlaygroundObservationView.To(Observer.Pose.Look));
+        (_scene.Camera.GlobalPosition, WorldEditorObservationView.To(Observer.Pose.Look));
 
     private Vector3 BodyCenter(EntityId vehicleId)
     {
         var visual = _scene.Composites.VisualFor(vehicleId) ?? throw new InvalidOperationException($"no visual for {vehicleId}");
-        var local = PlaygroundObserver.LocalCenter(Session.Vehicles.Single(vehicle => vehicle.Id == vehicleId));
-        return visual.GlobalTransform * PlaygroundObservationView.To(local);
+        var local = WorldEditorObserver.LocalCenter(Session.Vehicles.Single(vehicle => vehicle.Id == vehicleId));
+        return visual.GlobalTransform * WorldEditorObservationView.To(local);
     }
 
     private string FrameHeading(EntityId vehicleId) =>
-        PlaygroundObserver.VehicleFrame(Session, Session.QueryDisplayPoses(), vehicleId)?.Heading.ToString() ?? "none";
+        WorldEditorObserver.VehicleFrame(Session, Session.QueryDisplayPoses(), vehicleId)?.Heading.ToString() ?? "none";
 
     private void RunConsole(string line)
     {
@@ -924,7 +924,7 @@ internal sealed class PlaygroundObservationSmoke
         Input.ParseInputEvent(new InputEventKey { Keycode = key, PhysicalKeycode = key, Pressed = pressed });
 
     /// <summary>The pick produced by the last synthesized click, which must have arrived at the aimed viewport point.</summary>
-    private PlaygroundPick ReceivedClick()
+    private WorldEditorPick ReceivedClick()
     {
         var pick = View.LastPick ?? throw new InvalidOperationException("click did not reach the observation view");
         Require((pick.Screen - _clickTarget).Length() < 1f, $"click arrived at {pick.Screen}, aimed at {_clickTarget}");

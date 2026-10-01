@@ -1,7 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
@@ -19,8 +19,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Paused_edits_take_consecutive_in_step_sequences_without_moving_clock_or_train()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var start = session.StartTrain(RailHeading.AlongAlignment);
         Assert.AreEqual(TrainMotionStatus.Started, start.Status);
         Assert.AreEqual(1UL, start.EditId);
@@ -77,8 +77,8 @@ public sealed class WorldEditOrderingTests
                      session => session.AdvanceSimulation(3).Succeeded && session.AdvanceSimulation(2).Succeeded && session.AdvanceSimulation(5).Succeeded
                  })
         {
-            using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-            var session = playground.Session;
+            using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+            var session = worldEditor.Session;
             Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
             Assert.AreEqual("Pending", session.SubmitEdit(new VoxelAddEdit(Probe, Ore, VoxelOrientation.Identity), 5).Status);
             Assert.IsTrue(session.AdvanceSimulation(2).Succeeded);
@@ -115,15 +115,15 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Running_modification_at_an_explicit_boundary_matches_the_same_edit_submitted_there_while_paused()
     {
-        using var content = PlaygroundHarness.Content();
-        var reference = PlaygroundValidation.Run(
-            PlaygroundSequences.Find(PlaygroundSequences.StraightRailRunAndHaltId)!,
+        using var content = WorldEditorHarness.Content();
+        var reference = WorldEditorValidation.Run(
+            WorldEditorSequences.Find(WorldEditorSequences.StraightRailRunAndHaltId)!,
             content.Catalog,
             content.Composites);
         Assert.IsTrue(reference.Passed, string.Join(Environment.NewLine, reference.Lines()));
 
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         var scheduled = session.SubmitEdit(
             new VoxelDamageEdit(new[] { new VoxelDamageTarget(StraightRailFixture.FirstSegmentDamageCell, 100) }),
@@ -149,8 +149,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Expected_rejections_dequeue_in_place_later_edits_continue_and_nothing_is_retried()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
         var bridge = session.Manufacture(BridgeFixture.DefinitionId).VehicleId!.Value;
         var shell = session.Manufacture(HollowShellFixture.DefinitionId, ShellPose).VehicleId!.Value;
         var shellBefore = session.QueryComposite(shell);
@@ -207,8 +207,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Internal_fault_restores_the_last_complete_boundary_and_halts_the_session()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(Probe, Ore, VoxelOrientation.Identity).Status);
         session.EditFaultProbe = record =>
@@ -251,8 +251,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Immediate_fault_rolls_back_a_composite_transaction_including_ids_and_transactions()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
         var before = session.CaptureAuthority();
         session.EditFaultProbe = _ => throw new ArgumentException("injected");
 
@@ -268,8 +268,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Past_steps_are_refused_without_consuming_ids_or_sequences()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
         Assert.IsTrue(session.AdvanceSimulation(5).Succeeded);
 
         var refused = session.SubmitEdit(new VoxelRemoveEdit(Probe), 4);
@@ -284,8 +284,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Typed_entries_keep_business_statuses_for_unencodable_payloads_without_taking_input()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var vehicle = session.QueryComposites()[0].Id;
         var part = session.QueryComposites()[0].Parts[0].Id;
         var fingerprint = WorldSaveAuthority.Fingerprint(session);
@@ -308,8 +308,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Start_whose_condition_failed_at_an_earlier_boundary_is_rejected_in_place_and_the_advance_continues()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var assembly = session.QueryTrainAssemblies().Single();
         var start = session.StartTrain(RailHeading.AlongAlignment, atStep: 4);
         Assert.AreEqual(TrainMotionStatus.Pending, start.Status);
@@ -338,8 +338,8 @@ public sealed class WorldEditOrderingTests
     [TestMethod]
     public void Queries_camera_and_host_collection_do_not_take_positions()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(Probe, Ore, VoxelOrientation.Identity).Status);
         var fingerprint = WorldSaveAuthority.Fingerprint(session);
         var boundary = session.EditBoundary;

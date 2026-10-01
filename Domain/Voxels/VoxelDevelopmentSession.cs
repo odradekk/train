@@ -1,7 +1,7 @@
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
 
@@ -138,7 +138,7 @@ public sealed partial class VoxelDevelopmentSession
         ArgumentNullException.ThrowIfNull(source);
         if (Fault is not null || SimulationStep != 0 || _pendingEdits.Count > 0)
             throw new InvalidOperationException("Only a fresh, unfaulted session with no pending input can be established.");
-        MarkPlaygroundHost();
+        MarkWorldEditorHost();
         WorldSource = source;
         ResetEditState(WorldEditQueueState.Initial);
         WorldSource = source.WithBaseFingerprint(WorldSourceBase.Fingerprint(this));
@@ -607,7 +607,7 @@ public sealed partial class VoxelDevelopmentSession
                 _catalog.Current,
                 _composites.Current,
                 document,
-                _playgroundHost ? null : Identity,
+                _worldEditorHost ? null : Identity,
                 adaptations,
                 failures,
                 out var restore,

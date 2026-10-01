@@ -3,13 +3,13 @@ using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
 /// <summary>
 /// Read-only facts about one formal object: identity, ownership, durability, operating eligibility and any
 /// failure reason the formal state already carries.
 /// </summary>
-public sealed record PlaygroundInspection(
+public sealed record WorldEditorInspection(
     ObservedObject Object,
     string Identity,
     string Owner,
@@ -36,29 +36,29 @@ public sealed record PlaygroundInspection(
     }
 }
 
-public sealed record PlaygroundListEntry(ObservedObject Object, string Label);
+public sealed record WorldEditorListEntry(ObservedObject Object, string Label);
 
-public sealed record PlaygroundVehicleHit(EntityId VehicleId, LocalVoxelCoord Cell, double Distance);
+public sealed record WorldEditorVehicleHit(EntityId VehicleId, LocalVoxelCoord Cell, double Distance);
 
-public static class PlaygroundInspector
+public static class WorldEditorInspector
 {
-    public static IReadOnlyList<PlaygroundListEntry> List(VoxelDevelopmentSession session)
+    public static IReadOnlyList<WorldEditorListEntry> List(VoxelDevelopmentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
         var assemblies = session.QueryTrainAssemblies();
-        var entries = new List<PlaygroundListEntry>();
+        var entries = new List<WorldEditorListEntry>();
         foreach (var vehicle in session.QueryComposites())
         {
             var assembly = assemblies.FirstOrDefault(item => item.VehicleIds.Contains(vehicle.Id));
             var owner = assembly is null ? "无编组" : "编组 " + Number(assembly.Id.Value);
-            entries.Add(new PlaygroundListEntry(
+            entries.Add(new WorldEditorListEntry(
                 ObservedObject.Vehicle(vehicle.Id),
                 $"车辆 {Number(vehicle.Id.Value)} {vehicle.DefinitionId.Value} · {owner} · {vehicle.OperationalCondition}"));
         }
 
         foreach (var segment in session.Rails.Segments.OrderBy(item => item.Id.Value))
         {
-            entries.Add(new PlaygroundListEntry(
+            entries.Add(new WorldEditorListEntry(
                 ObservedObject.Segment(segment.Id),
                 $"轨段 {Number(segment.Id.Value)} x {Number(segment.Alignment.StartX)}..{Number(segment.Alignment.EndX)}"));
         }
@@ -66,7 +66,7 @@ public static class PlaygroundInspector
         return entries;
     }
 
-    public static PlaygroundInspection? Inspect(VoxelDevelopmentSession session, ObservedObject item)
+    public static WorldEditorInspection? Inspect(VoxelDevelopmentSession session, ObservedObject item)
     {
         ArgumentNullException.ThrowIfNull(session);
         return item.Kind switch
@@ -81,7 +81,7 @@ public static class PlaygroundInspector
     /// Nearest vehicle part hit by a ray, tested against each part cell in the transform the body is displayed with.
     /// Vehicles are not world occupancy, so they have no voxel collision shapes to query.
     /// </summary>
-    public static PlaygroundVehicleHit? RaycastVehicles(
+    public static WorldEditorVehicleHit? RaycastVehicles(
         VoxelDevelopmentSession session,
         TrainDisplaySample sample,
         ObservationVector origin,
@@ -94,10 +94,10 @@ public static class PlaygroundInspector
         if (length <= 0 || !double.IsFinite(length) || !double.IsFinite(maxDistance))
             return null;
         var unit = direction * (1 / length);
-        PlaygroundVehicleHit? best = null;
+        WorldEditorVehicleHit? best = null;
         foreach (var vehicle in session.Vehicles.OrderBy(item => item.Id.Value))
         {
-            var transform = PlaygroundObserver.VehicleFrame(session, sample, vehicle.Id)!.Transform;
+            var transform = WorldEditorObserver.VehicleFrame(session, sample, vehicle.Id)!.Transform;
             var right = transform.Right;
             var up = transform.Up;
             var forward = transform.Forward;
@@ -110,14 +110,14 @@ public static class PlaygroundInspector
                     distance > maxDistance ||
                     (best is not null && distance >= best.Distance))
                     continue;
-                best = new PlaygroundVehicleHit(vehicle.Id, part.Cell, distance);
+                best = new WorldEditorVehicleHit(vehicle.Id, part.Cell, distance);
             }
         }
 
         return best;
     }
 
-    private static PlaygroundInspection? InspectVehicle(VoxelDevelopmentSession session, ObservedObject item)
+    private static WorldEditorInspection? InspectVehicle(VoxelDevelopmentSession session, ObservedObject item)
     {
         var vehicle = session.QueryComposite(item.Id);
         if (vehicle is null)
@@ -159,7 +159,7 @@ public static class PlaygroundInspector
                 ? $"simulation fault edit {Number(editId)}"
                 : "simulation fault");
         var capabilities = vehicle.Capabilities.Count == 0 ? "none" : string.Join(',', vehicle.Capabilities);
-        return new PlaygroundInspection(
+        return new WorldEditorInspection(
             item,
             $"vehicle {Number(vehicle.Id.Value)} {vehicle.DefinitionId.Value} {vehicle.SizeClass} capabilities {capabilities}",
             owner,
@@ -168,7 +168,7 @@ public static class PlaygroundInspector
             failures);
     }
 
-    private static PlaygroundInspection? InspectSegment(VoxelDevelopmentSession session, ObservedObject item)
+    private static WorldEditorInspection? InspectSegment(VoxelDevelopmentSession session, ObservedObject item)
     {
         var segment = session.Rails.Segments.FirstOrDefault(value => value.Id == item.Id);
         if (segment is null)
@@ -195,7 +195,7 @@ public static class PlaygroundInspector
         if (!traversable.Any(interval => interval.HasPositiveLength))
             failures.Add("no traversable interval");
         var alignment = segment.Alignment;
-        return new PlaygroundInspection(
+        return new WorldEditorInspection(
             item,
             $"segment {Number(segment.Id.Value)} x {Number(alignment.StartX)}..{Number(alignment.EndX)} y {Number(alignment.StartY)} z {Number(alignment.StartZ)}",
             connections.Length == 0 ? "railway, no connections" : "railway connections " + string.Join(',', connections),
@@ -206,7 +206,7 @@ public static class PlaygroundInspector
             failures);
     }
 
-    private static PlaygroundInspection? InspectCell(VoxelDevelopmentSession session, ObservedObject item)
+    private static WorldEditorInspection? InspectCell(VoxelDevelopmentSession session, ObservedObject item)
     {
         var query = session.Query(item.Cell);
         if (query.Voxel is not { } voxel || voxel.RuntimeId != item.RuntimeId)
@@ -218,7 +218,7 @@ public static class PlaygroundInspector
             owners.Add("detached part runtime " + Number(runtime.Value));
         var collision = session.QueryCollision(item.Cell);
         var hit = collision.Hits.FirstOrDefault();
-        return new PlaygroundInspection(
+        return new WorldEditorInspection(
             item,
             $"cell {item.Cell.X},{item.Cell.Y},{item.Cell.Z} {voxel.DefinitionId.Value} {voxel.Orientation}",
             owners.Count == 0 ? "world" : string.Join(" · ", owners),

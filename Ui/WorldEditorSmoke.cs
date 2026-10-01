@@ -2,16 +2,16 @@ using System.Globalization;
 using Godot;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train;
 
 /// <summary>
-/// Headless automatic entrance: drives the real Playground scene through its own controls and Godot physics.
+/// Headless automatic entrance: drives the real world editor scene through its own controls and Godot physics.
 /// </summary>
-internal sealed class PlaygroundSmoke
+internal sealed class WorldEditorSmoke
 {
     private const int SettleFrames = 4;
     private const int HoldFrames = 10;
@@ -20,7 +20,7 @@ internal sealed class PlaygroundSmoke
     private const ulong ContinuationSteps = 5;
     private static readonly WorldVoxelCoord ConsoleCell = new(61, 3, 20);
 
-    private readonly PlaygroundScene _scene;
+    private readonly WorldEditorScene _scene;
     private readonly bool _resume;
     private int _phase;
     private int _frames;
@@ -28,7 +28,7 @@ internal sealed class PlaygroundSmoke
     private SimulationPosition _saveBoundary;
     private bool _finished;
 
-    public PlaygroundSmoke(PlaygroundScene scene, string? saveId)
+    public WorldEditorSmoke(WorldEditorScene scene, string? saveId)
     {
         _scene = scene;
         _resume = Guid.TryParse(saveId, out _);
@@ -65,15 +65,15 @@ internal sealed class PlaygroundSmoke
                 Require(Session.SimulationPaused, "established session is not paused");
                 Require(Session.SimulationStep == 0, $"established step is {Session.SimulationStep}");
                 GD.Print(
-                    $"PLAYGROUND_SMOKE_ESTABLISHED config={source.ConfigurationId} version={source.ConfigurationVersion} kind={source.Kind} " +
+                    $"WORLD_EDITOR_SMOKE_ESTABLISHED config={source.ConfigurationId} version={source.ConfigurationVersion} kind={source.Kind} " +
                     $"parameters={source.EffectiveParameters.Count} dependencies={source.ContentDependencies.Count} paused=true step=0 " +
                     $"vehicles={Session.QueryComposites().Count} segments={Session.Rails.Segments.Count} sleepers={Session.QueryRails().SleeperCount}");
                 foreach (var dependency in source.ContentDependencies)
-                    GD.Print($"PLAYGROUND_SMOKE_DEPENDENCY {dependency.Kind} {dependency.Id} {dependency.SemanticRevision}");
+                    GD.Print($"WORLD_EDITOR_SMOKE_DEPENDENCY {dependency.Kind} {dependency.Id} {dependency.SemanticRevision}");
                 Next();
                 break;
             case 1 when _frames >= SettleFrames:
-                CheckDisplayAndCollision("PLAYGROUND_SMOKE");
+                CheckDisplayAndCollision("WORLD_EDITOR_SMOKE");
                 _mark = Session.SimulationStep;
                 Next();
                 break;
@@ -89,7 +89,7 @@ internal sealed class PlaygroundSmoke
                 ToggleConsole();
                 Require(consoleOpened, "console did not open");
                 Require(Session.SimulationPaused && Session.SimulationStep == _mark, $"paused frames moved step {_mark}->{Session.SimulationStep}");
-                GD.Print($"PLAYGROUND_SMOKE_PAUSE_HELD frames={HoldFrames} step={Session.SimulationStep} console_opened=true");
+                GD.Print($"WORLD_EDITOR_SMOKE_PAUSE_HELD frames={HoldFrames} step={Session.SimulationStep} console_opened=true");
                 Next();
                 break;
             case 3 when !Main.ConsoleOpen:
@@ -109,14 +109,14 @@ internal sealed class PlaygroundSmoke
                 Next();
                 break;
             case 7 when _frames >= SettleFrames:
-                CheckDisplayAndCollision("PLAYGROUND_SMOKE_AFTER_STEPS");
-                CheckEditedCells("PLAYGROUND_SMOKE_EDITED");
+                CheckDisplayAndCollision("WORLD_EDITOR_SMOKE_AFTER_STEPS");
+                CheckEditedCells("WORLD_EDITOR_SMOKE_EDITED");
                 var queue = QueueText();
                 var saved = _scene.SaveWorld();
                 Require(saved.Status == WorldSaveStatus.Saved, $"save status {saved.Status}");
                 Require(QueueText() == queue, "saving changed the edit queue");
-                GD.Print($"PLAYGROUND_SMOKE_SAVED id={saved.SaveId} step={Session.SimulationStep} {MotionText()}");
-                GD.Print($"PLAYGROUND_SMOKE_SAVED_QUEUE {queue}");
+                GD.Print($"WORLD_EDITOR_SMOKE_SAVED id={saved.SaveId} step={Session.SimulationStep} {MotionText()}");
+                GD.Print($"WORLD_EDITOR_SMOKE_SAVED_QUEUE {queue}");
                 _saveBoundary = Session.EditBoundary;
                 _scene.SetStepCount(ContinuationSteps);
                 _scene.Press("step_n");
@@ -133,12 +133,12 @@ internal sealed class PlaygroundSmoke
                 var advanced = Session.SimulationStep - _mark;
                 _scene.Press("pause");
                 _mark = Session.SimulationStep;
-                GD.Print($"PLAYGROUND_SMOKE_RUN advanced={advanced} frames={RunFrames}");
+                GD.Print($"WORLD_EDITOR_SMOKE_RUN advanced={advanced} frames={RunFrames}");
                 Next();
                 break;
             case 10 when _frames >= HoldFrames:
                 Require(Session.SimulationPaused && Session.SimulationStep == _mark, $"pause after run moved step {_mark}->{Session.SimulationStep}");
-                GD.Print($"PLAYGROUND_SMOKE_PAUSE_AFTER_RUN frames={HoldFrames} step={_mark}");
+                GD.Print($"WORLD_EDITOR_SMOKE_PAUSE_AFTER_RUN frames={HoldFrames} step={_mark}");
                 Next();
                 break;
             case 11:
@@ -166,24 +166,24 @@ internal sealed class PlaygroundSmoke
         {
             case 0:
                 var source = Session.WorldSource ?? throw new InvalidOperationException("restored session lost its source");
-                Require(Session.SimulationPaused, "restored Playground session is not paused");
-                Require(source.ConfigurationId == Main.PlaygroundConfigurationId, $"restored source {source.ConfigurationId} is not the requested configuration");
+                Require(Session.SimulationPaused, "restored world editor session is not paused");
+                Require(source.ConfigurationId == Main.WorldEditorConfigurationId, $"restored source {source.ConfigurationId} is not the requested configuration");
                 GD.Print(
-                    $"PLAYGROUND_SMOKE_RESTORED config={source.ConfigurationId} version={source.ConfigurationVersion} kind={source.Kind} " +
+                    $"WORLD_EDITOR_SMOKE_RESTORED config={source.ConfigurationId} version={source.ConfigurationVersion} kind={source.Kind} " +
                     $"parameters={source.EffectiveParameters.Count} dependencies={source.ContentDependencies.Count} paused=true " +
                     $"step={Session.SimulationStep} {MotionText()}");
-                GD.Print($"PLAYGROUND_SMOKE_RESTORED_QUEUE {QueueText()}");
+                GD.Print($"WORLD_EDITOR_SMOKE_RESTORED_QUEUE {QueueText()}");
                 _mark = Session.SimulationStep;
                 _saveBoundary = Session.EditBoundary;
                 Next();
                 break;
             case 1 when _frames >= SettleFrames:
                 Require(Session.SimulationStep == _mark, "restored session advanced while paused");
-                CheckDisplayAndCollision("PLAYGROUND_SMOKE_RESTORED");
-                CheckEditedCells("PLAYGROUND_SMOKE_RESTORED_EDITED");
+                CheckDisplayAndCollision("WORLD_EDITOR_SMOKE_RESTORED");
+                CheckEditedCells("WORLD_EDITOR_SMOKE_RESTORED_EDITED");
                 _scene.Press("step");
                 Require(Session.SimulationStep == _mark + 1, $"single step after restore reached {Session.SimulationStep}");
-                GD.Print($"PLAYGROUND_SMOKE_RESTORED_STEP step={Session.SimulationStep} {MotionText()}");
+                GD.Print($"WORLD_EDITOR_SMOKE_RESTORED_STEP step={Session.SimulationStep} {MotionText()}");
                 _scene.SetStepCount(ContinuationSteps - 1);
                 _scene.Press("step_n");
                 PrintContinuation();
@@ -196,18 +196,18 @@ internal sealed class PlaygroundSmoke
     {
         var reloader = Main.Reloader ?? throw new InvalidOperationException("content unavailable");
         var configurationId = Session.WorldSource!.ConfigurationId;
-        var sequences = PlaygroundSequences.All.Where(item => item.ConfigurationId == configurationId).ToArray();
+        var sequences = WorldEditorSequences.All.Where(item => item.ConfigurationId == configurationId).ToArray();
         foreach (var sequence in sequences)
         {
-            var report = PlaygroundValidation.Run(sequence, reloader.Catalog, reloader.Composites);
+            var report = WorldEditorValidation.Run(sequence, reloader.Catalog, reloader.Composites);
             foreach (var line in report.Lines())
-                GD.Print("PLAYGROUND_SEQUENCE " + line);
+                GD.Print("WORLD_EDITOR_SEQUENCE " + line);
             Require(report.Passed, $"sequence {sequence.Id} failed");
-            GD.Print($"PLAYGROUND_SMOKE_SEQUENCE_PASSED {sequence.Id} steps={report.Steps.Count}");
+            GD.Print($"WORLD_EDITOR_SMOKE_SEQUENCE_PASSED {sequence.Id} steps={report.Steps.Count}");
         }
 
         Require(Session.SimulationStep == 0, "independent sequences touched the displayed session");
-        GD.Print($"PLAYGROUND_SMOKE_SEQUENCES count={sequences.Length} displayed_step={Session.SimulationStep}");
+        GD.Print($"WORLD_EDITOR_SMOKE_SEQUENCES count={sequences.Length} displayed_step={Session.SimulationStep}");
     }
 
     private void RunManualControls()
@@ -232,22 +232,22 @@ internal sealed class PlaygroundSmoke
             RequireManualMatchesSequence();
         }
 
-        GD.Print($"PLAYGROUND_SMOKE_MANUAL step={Session.SimulationStep} paused=true {MotionText()}");
+        GD.Print($"WORLD_EDITOR_SMOKE_MANUAL step={Session.SimulationStep} paused=true {MotionText()}");
     }
 
     private void RequireManualMatchesSequence()
     {
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.StraightRailRunAndHaltId)!;
-        var pressed = new[] { PlaygroundOperation.Start(), PlaygroundOperation.Advance(1), PlaygroundOperation.Advance(299) };
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.StraightRailRunAndHaltId)!;
+        var pressed = new[] { WorldEditorOperation.Start(), WorldEditorOperation.Advance(1), WorldEditorOperation.Advance(299) };
         Require(sequence.Steps.Take(pressed.Length).Select(step => step.Operation).SequenceEqual(pressed), "button operations differ from the registered sequence");
         var checkpoint = sequence.Steps[pressed.Length - 1].Checkpoint;
         foreach (var check in checkpoint)
         {
-            var observed = PlaygroundCheck.Observe(Session, check.Observation);
+            var observed = WorldEditorCheck.Observe(Session, check.Observation);
             Require(observed == check.Expected, $"manual {check.Observation}={observed}, sequence expects {check.Expected}");
         }
 
-        GD.Print($"PLAYGROUND_SMOKE_MANUAL_MATCHES_SEQUENCE {sequence.Id} steps={pressed.Length} checks={checkpoint.Count}");
+        GD.Print($"WORLD_EDITOR_SMOKE_MANUAL_MATCHES_SEQUENCE {sequence.Id} steps={pressed.Length} checks={checkpoint.Count}");
     }
 
     /// <summary>
@@ -261,14 +261,14 @@ internal sealed class PlaygroundSmoke
         var step = Session.SimulationStep;
         Require(Session.EditBoundary == new SimulationPosition(step, 0), $"edit boundary {Session.EditBoundary} before paused edits");
         var motion = MotionText();
-        var probe = PlaygroundSequences.EditProbe;
+        var probe = WorldEditorSequences.EditProbe;
         var add = HollowShellRefit.FirstAdd;
         var identity = VoxelOrientation.Identity;
         _scene.SetEditInputs(probe, add, 25, 0);
         PressEdit("edit_add");
         PressEdit("edit_damage");
-        RunConsole($"voxel add {ConsoleCell.X} {ConsoleCell.Y} {ConsoleCell.Z} {PlaygroundSequences.EditVoxelId.Value} {identity}");
-        var pose = PlaygroundSequences.EditShellPose;
+        RunConsole($"voxel add {ConsoleCell.X} {ConsoleCell.Y} {ConsoleCell.Z} {WorldEditorSequences.EditVoxelId.Value} {identity}");
+        var pose = WorldEditorSequences.EditShellPose;
         _scene.SetEditInputs(new WorldVoxelCoord((int)pose.OriginX, (int)pose.OriginY, (int)pose.OriginZ), add, 25, 0);
         PressEdit("edit_manufacture");
         var shell = Session.QueryComposites().Max(item => item.Id.Value);
@@ -294,9 +294,9 @@ internal sealed class PlaygroundSmoke
         Require(Session.EditBoundary == new SimulationPosition(step, 4 + (ulong)QueuedEdits), $"edit boundary {Session.EditBoundary}");
         Require(Session.SimulationPaused && Session.SimulationStep == step && MotionText() == motion, "paused edits moved the clock or the train");
         GD.Print(
-            $"PLAYGROUND_SMOKE_EDITS step={step} boundary={Session.EditBoundary} " +
-            $"executed={string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))} {motion}");
-        GD.Print($"PLAYGROUND_SMOKE_EDITS_PENDING {QueueText()}");
+            $"WORLD_EDITOR_SMOKE_EDITS step={step} boundary={Session.EditBoundary} " +
+            $"executed={string.Join(',', executed.Select(WorldEditorCheck.DescribeRecord))} {motion}");
+        GD.Print($"WORLD_EDITOR_SMOKE_EDITS_PENDING {QueueText()}");
     }
 
     /// <summary>
@@ -326,10 +326,10 @@ internal sealed class PlaygroundSmoke
             {
                 new(boundary, 0), new(boundary, 1), new(boundary, 2), new(boundary + EditDelay, 0)
             }),
-            $"rail command positions {string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))}");
+            $"rail command positions {string.Join(',', executed.Select(WorldEditorCheck.DescribeRecord))}");
         var halted = Session.QueryTrainAssemblies().Single();
         Require(!halted.Running && halted.Speed == 0 && halted.HaltReason == TrainHaltReason.None, $"rail commands left {MotionText()}");
-        GD.Print($"PLAYGROUND_SMOKE_RAIL_QUEUE step={Session.SimulationStep} executed={string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))} {MotionText()}");
+        GD.Print($"WORLD_EDITOR_SMOKE_RAIL_QUEUE step={Session.SimulationStep} executed={string.Join(',', executed.Select(WorldEditorCheck.DescribeRecord))} {MotionText()}");
 
         _scene.SetEditInputs(rail, HollowShellRefit.FirstAdd, 100, 0);
         PressEdit("edit_damage");
@@ -343,8 +343,8 @@ internal sealed class PlaygroundSmoke
         Require(!gapHit && repairedHit, $"Godot physics on the edited rail cell gap={gapHit} repaired={repairedHit}");
         Require(Session.QueryEditLog()[^1].Status == "Repaired", "immediate repair was not recorded");
         GD.Print(
-            $"PLAYGROUND_SMOKE_RAIL_COLLISION godot_gap_hit={gapHit.ToString().ToLowerInvariant()} godot_repaired_hit={repairedHit.ToString().ToLowerInvariant()} " +
-            $"rail_solids_gap={gapRendered} rail_solids_repaired={_scene.Tracks.RailSolidCount} last={PlaygroundCheck.DescribeRecord(Session.QueryEditLog()[^1])}");
+            $"WORLD_EDITOR_SMOKE_RAIL_COLLISION godot_gap_hit={gapHit.ToString().ToLowerInvariant()} godot_repaired_hit={repairedHit.ToString().ToLowerInvariant()} " +
+            $"rail_solids_gap={gapRendered} rail_solids_repaired={_scene.Tracks.RailSolidCount} last={WorldEditorCheck.DescribeRecord(Session.QueryEditLog()[^1])}");
     }
 
     /// <summary>
@@ -353,7 +353,7 @@ internal sealed class PlaygroundSmoke
     /// </summary>
     private void RunPanelAssembly()
     {
-        _scene.SetEditInputs(PlaygroundSequences.EditProbe, HollowShellRefit.FirstAdd, 25, 0);
+        _scene.SetEditInputs(WorldEditorSequences.EditProbe, HollowShellRefit.FirstAdd, 25, 0);
         PressEdit("edit_construct");
         PressEdit("edit_assemble");
         var records = Session.QueryEditLog().TakeLast(2).ToArray();
@@ -361,34 +361,34 @@ internal sealed class PlaygroundSmoke
             records.Select(record => record.Status).SequenceEqual(new[] { "IndependentLineConflict", "Formed" }),
             $"panel assembly statuses {string.Join(',', records.Select(record => record.Status))}");
         Require(Session.QueryTrainAssemblies().Count == 1 && Session.SimulationPaused, $"panel assembly left {MotionText()}");
-        CheckDisplayAndCollision("PLAYGROUND_SMOKE_ASSEMBLED");
-        GD.Print($"PLAYGROUND_SMOKE_PANEL_ASSEMBLY executed={string.Join(',', records.Select(PlaygroundCheck.DescribeRecord))} {MotionText()}");
+        CheckDisplayAndCollision("WORLD_EDITOR_SMOKE_ASSEMBLED");
+        GD.Print($"WORLD_EDITOR_SMOKE_PANEL_ASSEMBLY executed={string.Join(',', records.Select(WorldEditorCheck.DescribeRecord))} {MotionText()}");
     }
 
     private void PressEdit(string button)
     {
         var operation = _scene.EditOperation(button);
         _scene.Press(button);
-        GD.Print($"PLAYGROUND_SMOKE_PANEL {button} {operation.Describe()}");
+        GD.Print($"WORLD_EDITOR_SMOKE_PANEL {button} {operation.Describe()}");
     }
 
     private void RunConsole(string line)
     {
         var console = Main.GetChildren().OfType<GameConsole>().Single();
         console.SubmitLine(line);
-        GD.Print($"PLAYGROUND_SMOKE_CONSOLE {line}");
+        GD.Print($"WORLD_EDITOR_SMOKE_CONSOLE {line}");
     }
 
     private void CheckEditedCells(string marker)
     {
         _scene.Refresh();
         var world = _scene.GetWorld3D();
-        var probeHit = _scene.Colliders.QueryPublishedCellInterior(world, PlaygroundSequences.EditProbe);
+        var probeHit = _scene.Colliders.QueryPublishedCellInterior(world, WorldEditorSequences.EditProbe);
         var consoleHit = _scene.Colliders.QueryPublishedCellInterior(world, ConsoleCell);
-        var probe = Session.Query(PlaygroundSequences.EditProbe).Voxel;
+        var probe = Session.Query(WorldEditorSequences.EditProbe).Voxel;
         Require(probeHit && consoleHit, $"Godot physics missed edited cells probe={probeHit} console={consoleHit}");
-        Require(Session.QueryCollision(PlaygroundSequences.EditProbe).Status == VoxelCollisionQueryStatus.Hit, "domain collision missed the edited probe");
-        Require(probe is not null && probe.CurrentDurability == Session.Query(PlaygroundSequences.EditProbe).MaxDurability - 25, "edited probe durability");
+        Require(Session.QueryCollision(WorldEditorSequences.EditProbe).Status == VoxelCollisionQueryStatus.Hit, "domain collision missed the edited probe");
+        Require(probe is not null && probe.CurrentDurability == Session.Query(WorldEditorSequences.EditProbe).MaxDurability - 25, "edited probe durability");
         GD.Print(
             $"{marker}_COLLISION godot_probe_hit={probeHit.ToString().ToLowerInvariant()} godot_console_cell_hit={consoleHit.ToString().ToLowerInvariant()} " +
             $"probe_durability={probe!.CurrentDurability} vehicles={Session.QueryComposites().Count}");
@@ -409,8 +409,8 @@ internal sealed class PlaygroundSmoke
             .ToArray();
         Require(executed.Length == QueuedEdits && Session.QueryPendingEdits().Count == 0, $"continuation executed {executed.Length} pending {Session.QueryPendingEdits().Count}");
         GD.Print(
-            $"PLAYGROUND_SMOKE_CONTINUATION step={Session.SimulationStep} " +
-            $"executed={string.Join(',', executed.Select(PlaygroundCheck.DescribeRecord))} " +
+            $"WORLD_EDITOR_SMOKE_CONTINUATION step={Session.SimulationStep} " +
+            $"executed={string.Join(',', executed.Select(WorldEditorCheck.DescribeRecord))} " +
             $"payloads={string.Join(',', executed.Select(record => record.Edit.Digest[..16]))} " +
             $"fingerprint={WorldSaveAuthority.Fingerprint(Session)} {MotionText()}");
     }
@@ -420,7 +420,7 @@ internal sealed class PlaygroundSmoke
         _scene.Refresh();
         var world = _scene.GetWorld3D();
         var railHit = _scene.Colliders.QueryPublishedCellInterior(world, StraightRailFixture.LeftRailSample);
-        var emptyHit = _scene.Colliders.QueryPublishedCellInterior(world, PlaygroundScene.EmptyProbe);
+        var emptyHit = _scene.Colliders.QueryPublishedCellInterior(world, WorldEditorScene.EmptyProbe);
         var expectedVehicles = Session.QueryComposites().Count;
         Require(_scene.Tracks.RailSolidCount > 0 && _scene.Tracks.SleeperSolidCount > 0, "track renderer is empty");
         Require(_scene.Composites.VehicleCount == expectedVehicles, $"vehicle visuals {_scene.Composites.VehicleCount} != {expectedVehicles}");
@@ -454,14 +454,14 @@ internal sealed class PlaygroundSmoke
     private void Finish()
     {
         _finished = true;
-        GD.Print("PLAYGROUND_SMOKE_DONE");
+        GD.Print("WORLD_EDITOR_SMOKE_DONE");
         _scene.GetTree().Quit();
     }
 
     private void Fail(string reason)
     {
         _finished = true;
-        GD.PrintErr($"PLAYGROUND_SMOKE_FAILED {reason}");
+        GD.PrintErr($"WORLD_EDITOR_SMOKE_FAILED {reason}");
         _scene.GetTree().Quit(1);
     }
 
@@ -473,17 +473,17 @@ internal sealed class PlaygroundSmoke
 }
 
 /// <summary>Windowed capture for agent-side observation; not a substitute for manual visual acceptance.</summary>
-internal sealed class PlaygroundCapture
+internal sealed class WorldEditorCapture
 {
     private const int SettleFrames = 30;
 
-    private readonly PlaygroundScene _scene;
+    private readonly WorldEditorScene _scene;
     private readonly string _path;
     private readonly ulong _steps;
     private int _frames;
     private bool _finished;
 
-    public PlaygroundCapture(PlaygroundScene scene, string path, string? steps)
+    public WorldEditorCapture(WorldEditorScene scene, string path, string? steps)
     {
         _scene = scene;
         _path = path;
@@ -509,7 +509,7 @@ internal sealed class PlaygroundCapture
         var image = _scene.GetViewport().GetTexture().GetImage();
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         var error = image.SavePng(_path);
-        GD.Print($"PLAYGROUND_CAPTURE path={_path} error={error} step={_scene.Session!.SimulationStep} paused={_scene.Session.SimulationPaused.ToString().ToLowerInvariant()}");
+        GD.Print($"WORLD_EDITOR_CAPTURE path={_path} error={error} step={_scene.Session!.SimulationStep} paused={_scene.Session.SimulationPaused.ToString().ToLowerInvariant()}");
         _scene.GetTree().Quit(error == Error.Ok ? 0 : 1);
     }
 }

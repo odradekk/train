@@ -1,6 +1,6 @@
 using Godot;
 using Train.Content;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -13,7 +13,7 @@ public partial class GameConsole : CanvasLayer
     private TrainLogger _logger = null!;
     private ContentReloader? _reloader;
     private VoxelDevelopmentSession? _voxelSession;
-    private PlaygroundObserver? _observer;
+    private WorldEditorObserver? _observer;
     private PanelContainer _panel = null!;
     private RichTextLabel _output = null!;
     private LineEdit _input = null!;
@@ -42,7 +42,7 @@ public partial class GameConsole : CanvasLayer
         ConfigureDispatcher();
     }
 
-    public void SetPlaygroundObserver(PlaygroundObserver? observer)
+    public void SetWorldEditorObserver(WorldEditorObserver? observer)
     {
         _observer = observer;
         ConfigureDispatcher();

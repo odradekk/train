@@ -1,21 +1,21 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using Godot;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train;
 
-/// <summary>One process leg of the formal Playground comparison; the PowerShell entry starts each leg separately.</summary>
-internal sealed class PlaygroundCrossProcessSmoke
+/// <summary>One process leg of the formal world editor comparison; the PowerShell entry starts each leg separately.</summary>
+internal sealed class WorldEditorCrossProcessSmoke
 {
-    public const string LegEnvironmentVariable = "TRAIN_PLAYGROUND_CROSS_LEG";
-    public const string EvidenceEnvironmentVariable = "TRAIN_PLAYGROUND_CROSS_EVIDENCE";
+    public const string LegEnvironmentVariable = "TRAIN_WORLD_EDITOR_CROSS_LEG";
+    public const string EvidenceEnvironmentVariable = "TRAIN_WORLD_EDITOR_CROSS_EVIDENCE";
     public const int SaveAfter = 8;
 
-    private readonly PlaygroundScene _scene;
-    private readonly PlaygroundSequence _sequence;
+    private readonly WorldEditorScene _scene;
+    private readonly WorldEditorSequence _sequence;
     private readonly string _leg;
     private readonly string _evidence;
     private int _index;
@@ -26,10 +26,10 @@ internal sealed class PlaygroundCrossProcessSmoke
     private string? _input;
     private ObservationCameraPose _targetPoseBeforeEdit;
 
-    public PlaygroundCrossProcessSmoke(PlaygroundScene scene)
+    public WorldEditorCrossProcessSmoke(WorldEditorScene scene)
     {
         _scene = scene;
-        _sequence = PlaygroundSequences.Find(PlaygroundSequences.CrossProcessComparisonId)
+        _sequence = WorldEditorSequences.Find(WorldEditorSequences.CrossProcessComparisonId)
             ?? throw new InvalidOperationException("cross-process sequence is not registered");
         _leg = System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
         _evidence = System.Environment.GetEnvironmentVariable(EvidenceEnvironmentVariable) ?? "";
@@ -40,7 +40,7 @@ internal sealed class PlaygroundCrossProcessSmoke
     }
 
     private VoxelDevelopmentSession Session => _scene.Session!;
-    private PlaygroundObserver Observer => _scene.Observation!.Observer;
+    private WorldEditorObserver Observer => _scene.Observation!.Observer;
 
     public void Advance()
     {
@@ -99,7 +99,7 @@ internal sealed class PlaygroundCrossProcessSmoke
             Require(actual == step.ExpectedStatus,
                 $"step {_index + 1} {step.Operation.Describe()} status {actual}, expected {step.ExpectedStatus}");
             foreach (var check in step.Checkpoint)
-                Require(PlaygroundCheck.Observe(Session, check.Observation) == check.Expected,
+                Require(WorldEditorCheck.Observe(Session, check.Observation) == check.Expected,
                     $"step {_index + 1} {check.Observation} differs from {check.Expected}");
             _index++;
             _pending = true;
@@ -170,8 +170,8 @@ internal sealed class PlaygroundCrossProcessSmoke
             $"Godot collision differs: world={Session.World.VoxelCount} collider_world={_scene.Colliders.LastWorldVoxelCount} shapes={_scene.Colliders.ShapeCount}");
         Require(_scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), StraightRailFixture.LeftRailSample),
             "Godot published collision missed the rail sample");
-        var probeExists = Session.Query(PlaygroundSequences.EditProbe).Voxel is not null;
-        var publishedProbe = _scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), PlaygroundSequences.EditProbe);
+        var probeExists = Session.Query(WorldEditorSequences.EditProbe).Voxel is not null;
+        var publishedProbe = _scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), WorldEditorSequences.EditProbe);
         Require(probeExists == (_index is >= 4 and <= 9) && publishedProbe == probeExists,
             $"edited probe collision lifecycle differs: index={_index} domain={probeExists} published={publishedProbe}");
         Require((_scene.Meshes.FaceCount > 0) == probeExists,
@@ -190,26 +190,26 @@ internal sealed class PlaygroundCrossProcessSmoke
         if (index == 1)
         {
             var bridge = Session.Vehicles.OrderByDescending(item => item.Id.Value).First();
-            Require(Observer.Select(ObservedObject.Vehicle(bridge.Id)) == PlaygroundObservationStatus.Selected, "select bridge");
-            Require(Observer.FocusSelection() == PlaygroundObservationStatus.Focused, "focus bridge");
+            Require(Observer.Select(ObservedObject.Vehicle(bridge.Id)) == WorldEditorObservationStatus.Selected, "select bridge");
+            Require(Observer.FocusSelection() == WorldEditorObservationStatus.Focused, "focus bridge");
         }
         else if (index == 3 || index == 11)
         {
             var locomotive = Session.QueryTrainAssemblies()[0].Vehicles[0].VehicleId;
-            Require(Observer.Select(ObservedObject.Vehicle(locomotive)) == PlaygroundObservationStatus.Selected, "select locomotive");
-            Require(Observer.FollowSelection() == PlaygroundObservationStatus.Following, "follow locomotive");
+            Require(Observer.Select(ObservedObject.Vehicle(locomotive)) == WorldEditorObservationStatus.Selected, "select locomotive");
+            Require(Observer.FollowSelection() == WorldEditorObservationStatus.Following, "follow locomotive");
         }
         else if (index == 4)
         {
-            Require(Observer.Select(ObservedObject.WorldCell(PlaygroundSequences.EditProbe)) == PlaygroundObservationStatus.Selected,
+            Require(Observer.Select(ObservedObject.WorldCell(WorldEditorSequences.EditProbe)) == WorldEditorObservationStatus.Selected,
                 "select edit probe");
-            Require(Observer.FocusSelection() == PlaygroundObservationStatus.Focused, "focus edit probe");
+            Require(Observer.FocusSelection() == WorldEditorObservationStatus.Focused, "focus edit probe");
         }
         else if (index == 9)
         {
-            Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == PlaygroundCameraMode.Free,
+            Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == WorldEditorCameraMode.Free,
                 "removed target left a stale selection or camera target");
-            Require(Observer.LastNotice?.Kind == PlaygroundNoticeKind.TargetLost &&
+            Require(Observer.LastNotice?.Kind == WorldEditorNoticeKind.TargetLost &&
                     Observer.Pose.Position == _targetPoseBeforeEdit.Position,
                 "target loss did not preserve the camera pose");
             GD.Print($"CROSS_TARGET_LOST {Observer.LastNotice?.Describe()}");
@@ -239,7 +239,7 @@ internal sealed class PlaygroundCrossProcessSmoke
         Require(Session.AdvanceSimulation(1).Succeeded, "advance failure setup");
         var initial = AuthorityCodec.Document(AuthorityCodec.Capture(Session)).Canonical;
         var cancel = Session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.SwitchConfiguration, WorldChangeChoice.Cancel,
-            PlaygroundConfigurations.StraightRailEmptyId));
+            WorldEditorConfigurations.StraightRailEmptyId));
         Require(cancel.Status == WorldChangeStatus.Cancelled && Capture() == initial, "cancel replaced the current session");
         GD.Print("CROSS_PROTECTION cancel=kept");
 
@@ -254,7 +254,7 @@ internal sealed class PlaygroundCrossProcessSmoke
         try
         {
             var failedSave = Session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.SwitchConfiguration,
-                WorldChangeChoice.SaveThenSwitch, PlaygroundConfigurations.StraightRailEmptyId));
+                WorldChangeChoice.SaveThenSwitch, WorldEditorConfigurations.StraightRailEmptyId));
             Require(failedSave.Status == WorldChangeStatus.SaveFailed && Capture() == current,
                 $"save failure did not protect the session: {failedSave.Status}");
             GD.Print($"CROSS_PROTECTION save_failure={failedSave.SaveStatus} kept=true");

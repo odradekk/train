@@ -8,7 +8,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
@@ -130,8 +130,8 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Repeated_formal_sequence_matches_and_context_mismatches_are_classified()
     {
-        using var content = PlaygroundHarness.Content();
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)!;
+        using var content = WorldEditorHarness.Content();
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.AuthorityManufactureFractureId)!;
         var first = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
         var second = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
         Assert.IsTrue(first.Passed, string.Join(Environment.NewLine, first.Lines()));
@@ -143,8 +143,8 @@ public sealed class AuthorityCheckpointTests
         Assert.IsFalse(first.Observation.Checkpoints[^1].Canonical.Contains("save_id", StringComparison.Ordinal));
         AssertNames(first.Observation.Checkpoints[^1].Canonical);
 
-        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        using var empty = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var train = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        using var empty = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var source = AuthorityComparison.Compare(AuthorityCodec.Observe(train.Session), AuthorityCodec.Observe(empty.Session));
         Assert.AreEqual(AuthorityDifferenceKind.SourceMismatch, source.Kind);
         StringAssert.Contains(source.Detail, "来源");
@@ -193,15 +193,15 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Cross_process_sequence_resumes_pending_inputs_at_the_same_authority_boundaries()
     {
-        using var content = PlaygroundHarness.Content();
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.CrossProcessComparisonId)!;
+        using var content = WorldEditorHarness.Content();
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.CrossProcessComparisonId)!;
         var continuous = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
         Assert.IsTrue(continuous.Passed, string.Join(Environment.NewLine, continuous.Lines()));
         Assert.AreEqual(14, continuous.Observation!.Checkpoints.Count);
         Assert.AreEqual(new SimulationPosition(0, 8), continuous.Observation.Checkpoints[8].Boundary);
 
-        Assert.AreEqual(PlaygroundEstablishStatus.Established,
-            PlaygroundSession.TryEstablish(sequence.ConfigurationId, content.Catalog, content.Composites, content.Store, out var interrupted));
+        Assert.AreEqual(WorldEditorEstablishStatus.Established,
+            WorldEditorSession.TryEstablish(sequence.ConfigurationId, content.Catalog, content.Composites, content.Store, out var interrupted));
         try
         {
             for (var index = 0; index < 8; index++)
@@ -210,7 +210,7 @@ public sealed class AuthorityCheckpointTests
             var saved = interrupted.Save("Cross process sequence");
             Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
 
-            using var restarted = PlaygroundHarness.Content(userData: content.UserData);
+            using var restarted = WorldEditorHarness.Content(userData: content.UserData);
             var resumed = new VoxelDevelopmentSession(restarted.Catalog, VoxelWorldIdentity.Slice4,
                 restarted.Store, restarted.Composites);
             restarted.Attach(resumed);
@@ -238,8 +238,8 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Evidence_preserves_the_origin_checkpoint_and_classifies_tampered_context()
     {
-        using var content = PlaygroundHarness.Content();
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)!;
+        using var content = WorldEditorHarness.Content();
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.AuthorityManufactureFractureId)!;
         var first = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store, "process-one");
         var second = AuthorityValidation.Run(sequence, content.Catalog, content.Composites, content.Store, "process-one");
         Assert.IsTrue(first.Passed, string.Join(Environment.NewLine, first.Lines()));
@@ -293,16 +293,16 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Save_local_display_text_is_not_an_authority_difference()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
-        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, PlaygroundSequences.AuthorityShellPose)));
-        Assert.AreEqual("Valid", PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
+        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, WorldEditorSequences.AuthorityShellPose)));
+        Assert.AreEqual("Valid", WorldEditorOperation.RefitLatest(WorldEditorRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
         var prior = AuthorityCodec.Observe(session, "tested-head", "establish");
         Assert.IsFalse(prior.Checkpoints[0].Canonical.Contains("\"name\"", StringComparison.Ordinal));
         Assert.IsFalse(prior.Checkpoints[0].Canonical.Contains("\"description\"", StringComparison.Ordinal));
         var saved = session.Save("display");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
-        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        var path = worldEditor.Store.PathFor(saved.SaveId!.Value);
         var original = File.ReadAllText(path);
         var display = System.Text.Json.Nodes.JsonNode.Parse(original)!;
         Assert.IsTrue(display["save_local_definitions"]!.AsArray().Count > 0);
@@ -347,17 +347,17 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Content_adaptation_is_not_reported_as_a_determinism_failure()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var before = AuthorityCodec.Observe(playground.Session);
-        WriteRail(playground, "钢轨显示");
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
-        var display = AuthorityCodec.Observe(playground.Session);
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var before = AuthorityCodec.Observe(worldEditor.Session);
+        WriteRail(worldEditor, "钢轨显示");
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
+        var display = AuthorityCodec.Observe(worldEditor.Session);
         Assert.AreEqual(before.Context.ContentDigest, display.Context.ContentDigest);
         Assert.IsTrue(AuthorityComparison.Compare(before, display).Equal, AuthorityComparison.Compare(before, display).Detail);
 
-        WriteRail(playground, "钢轨", 60);
-        Assert.AreEqual(ContentReloadStatus.Committed, playground.Reloader.Reload().Status);
-        var adapted = AuthorityCodec.Observe(playground.Session);
+        WriteRail(worldEditor, "钢轨", 60);
+        Assert.AreEqual(ContentReloadStatus.Committed, worldEditor.Reloader.Reload().Status);
+        var adapted = AuthorityCodec.Observe(worldEditor.Session);
         var difference = AuthorityComparison.Compare(before, adapted);
         Assert.AreEqual(AuthorityDifferenceKind.ContentAdaptation, difference.Kind);
         StringAssert.Contains(difference.Detail, "内容适配");
@@ -367,20 +367,20 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Rejected_command_order_and_checkpoint_identity_are_compared_before_state()
     {
-        using var content = PlaygroundHarness.Content();
+        using var content = WorldEditorHarness.Content();
         var catalog = content.Catalog;
         var composites = content.Composites;
-        PlaygroundValidationStep Step(int damage) => new(
-            PlaygroundOperation.Damage(new WorldVoxelCoord(-1, 0, 0), damage),
+        WorldEditorValidationStep Step(int damage) => new(
+            WorldEditorOperation.Damage(new WorldVoxelCoord(-1, 0, 0), damage),
             "OutOfBounds",
-            Array.Empty<PlaygroundCheck>());
+            Array.Empty<WorldEditorCheck>());
         var left = AuthorityValidation.Run(
-            new PlaygroundSequence("left", PlaygroundConfigurations.StraightRailTrainId, new[] { Step(1), Step(2) }),
+            new WorldEditorSequence("left", WorldEditorConfigurations.StraightRailTrainId, new[] { Step(1), Step(2) }),
             catalog,
             composites,
             buildId: "tested-head");
         var right = AuthorityValidation.Run(
-            new PlaygroundSequence("right", PlaygroundConfigurations.StraightRailTrainId, new[] { Step(2), Step(1) }),
+            new WorldEditorSequence("right", WorldEditorConfigurations.StraightRailTrainId, new[] { Step(2), Step(1) }),
             catalog,
             composites,
             buildId: "tested-head");
@@ -401,7 +401,7 @@ public sealed class AuthorityCheckpointTests
         Assert.AreNotEqual(left.Sequence.Steps[0].Operation, left.Observation!.Checkpoints[1].Input);
         StringAssert.Contains(order.Detail, "语义输入");
 
-        using var harness = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var original = AuthorityCodec.Observe(harness.Session, "tested-head");
         var changedInput = original with
         {
@@ -442,7 +442,7 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Input_order_and_a_live_field_change_locate_the_earliest_difference()
     {
-        using var content = PlaygroundHarness.Content();
+        using var content = WorldEditorHarness.Content();
         var left = AuthorityValidation.Run(Adds(new WorldVoxelCoord(10, 10, 10), new WorldVoxelCoord(11, 10, 10)), content.Catalog, content.Composites);
         var right = AuthorityValidation.Run(Adds(new WorldVoxelCoord(12, 10, 10), new WorldVoxelCoord(11, 10, 10)), content.Catalog, content.Composites);
         Assert.IsTrue(left.Passed, string.Join(Environment.NewLine, left.Lines()));
@@ -455,10 +455,10 @@ public sealed class AuthorityCheckpointTests
         StringAssert.Contains(order.Actual, "\"x\":12");
         StringAssert.Contains(order.Detail, "语义输入");
 
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
-        var clean = AuthorityCodec.Document(AuthorityCodec.Capture(playground.Session));
-        Assert.AreEqual(WorldCommandStatus.Damaged, playground.Session.Damage(StraightRailFixture.LeftRailSample, 1).Status);
-        var damaged = AuthorityCodec.Document(AuthorityCodec.Capture(playground.Session));
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var clean = AuthorityCodec.Document(AuthorityCodec.Capture(worldEditor.Session));
+        Assert.AreEqual(WorldCommandStatus.Damaged, worldEditor.Session.Damage(StraightRailFixture.LeftRailSample, 1).Status);
+        var damaged = AuthorityCodec.Document(AuthorityCodec.Capture(worldEditor.Session));
         var cursor = CompareText(clean.Canonical, damaged.Canonical);
         Assert.AreEqual(AuthorityDifferenceKind.FieldMismatch, cursor.Kind);
         Assert.AreEqual("next_edit_id", cursor.Field);
@@ -467,7 +467,7 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Rejected_edits_with_different_payloads_are_not_the_same_input()
     {
-        using var content = PlaygroundHarness.Content();
+        using var content = WorldEditorHarness.Content();
         var catalog = content.Catalog;
         var composites = content.Composites;
         var left = AuthorityValidation.Run(RejectedVoxel(-1), catalog, composites, buildId: "tested-head");
@@ -505,22 +505,22 @@ public sealed class AuthorityCheckpointTests
         StringAssert.Contains(refusedLeft.Sequence.Steps[0].Operation, "refit latest");
         Assert.AreNotEqual(refusedLeft.Sequence.Steps[0].Operation, refusedLeft.Observation.Checkpoints[1].Input);
 
-        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var train = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var latest = train.Session.QueryComposites().OrderByDescending(item => item.Id.Value).First();
-        var oriented = PlaygroundOperation.RefitLatest(
-            PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, HollowShellRefit.MarkerOrientation));
-        var otherCell = PlaygroundOperation.RefitLatest(
-            PlaygroundRefit.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity));
+        var oriented = WorldEditorOperation.RefitLatest(
+            WorldEditorRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, HollowShellRefit.MarkerOrientation));
+        var otherCell = WorldEditorOperation.RefitLatest(
+            WorldEditorRefit.Add(HollowShellRefit.SecondAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity));
         var orientedIdentity = oriented.InputIdentity(train.Session);
         var otherIdentity = otherCell.InputIdentity(train.Session);
         Assert.AreNotEqual(orientedIdentity, otherIdentity);
         StringAssert.Contains(orientedIdentity, $"\"vehicle_id\":{latest.Id.Value.ToString(CultureInfo.InvariantCulture)}");
         StringAssert.Contains(orientedIdentity, HollowShellRefit.MarkerOrientation.ToString());
         StringAssert.Contains(otherIdentity, "\"x\":4");
-        var scheduled = PlaygroundOperation.Submit(
+        var scheduled = WorldEditorOperation.Submit(
             new VoxelAddEdit(new WorldVoxelCoord(-1, 0, 0), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity),
             9);
-        var immediate = PlaygroundOperation.Submit(
+        var immediate = WorldEditorOperation.Submit(
             new VoxelAddEdit(new WorldVoxelCoord(-1, 0, 0), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity));
         Assert.AreNotEqual(immediate.InputIdentity(train.Session), scheduled.InputIdentity(train.Session));
         StringAssert.Contains(scheduled.InputIdentity(train.Session), "\"at_step\":9");
@@ -530,8 +530,8 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Damage_latest_records_the_vehicle_resolved_before_the_command()
     {
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.AuthorityManufactureFractureId)!;
-        using var harness = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.AuthorityManufactureFractureId)!;
+        using var harness = WorldEditorHarness.Establish(sequence.ConfigurationId);
         foreach (var step in sequence.Steps.Take(sequence.Steps.Count - 1))
             Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(harness.Session), step.Operation.Describe());
         var last = sequence.Steps[^1];
@@ -553,7 +553,7 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Evidence_rejects_non_integral_or_out_of_range_versions()
     {
-        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var train = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var observed = AuthorityCodec.Observe(train.Session, "build-a");
         var evidence = AuthorityCodec.EncodeEvidence(observed.Context, observed.Checkpoints[0]);
         foreach (var property in new[] { "evidence_format_version", "format_version", "configuration_version" })
@@ -569,7 +569,7 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Base_fingerprint_is_compared_as_source_not_as_content_or_canonical_state()
     {
-        using var train = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var train = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         var fingerprint = train.Session.WorldSource!.BaseFingerprint;
         Assert.AreEqual(64, fingerprint.Length);
         var observed = AuthorityCodec.Observe(train.Session, "tested-head");
@@ -637,8 +637,8 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Manufacture_refit_and_fracture_allocate_ids_only_on_success_and_survive_save()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
         var established = AuthorityCodec.Document(AuthorityCodec.Capture(session));
         Assert.AreEqual("Paused", session.PauseSimulation().Status.ToString());
         Assert.AreEqual("Resumed", session.ResumeSimulation().Status.ToString());
@@ -653,28 +653,28 @@ public sealed class AuthorityCheckpointTests
         Assert.IsFalse(afterSave.Canonical.Contains(saved.SaveId!.Value.ToString("D"), StringComparison.OrdinalIgnoreCase));
 
         var beforeShell = session.NextEntityId;
-        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, PlaygroundSequences.AuthorityShellPose)));
+        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, WorldEditorSequences.AuthorityShellPose)));
         var shell = session.Vehicles.Single(item => item.Id.Value == beforeShell);
         var addedBefore = session.NextEntityId;
-        Assert.AreEqual("Valid", PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
+        Assert.AreEqual("Valid", WorldEditorOperation.RefitLatest(WorldEditorRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
         var removedId = session.Vehicles.Single(item => item.Id == shell.Id).PartAt(HollowShellRefit.FirstAdd)!.Id;
         var beforeRejection = session.NextEntityId;
-        Assert.AreEqual("EnvelopeExceeded", PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.OutOfEnvelope, HollowShellRefit.MarkerId)).Apply(session));
+        Assert.AreEqual("EnvelopeExceeded", WorldEditorOperation.RefitLatest(WorldEditorRefit.Add(HollowShellRefit.OutOfEnvelope, HollowShellRefit.MarkerId)).Apply(session));
         Assert.AreEqual(beforeRejection, session.NextEntityId);
-        Assert.AreEqual("Valid", PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(HollowShellRefit.FirstAdd)).Apply(session));
+        Assert.AreEqual("Valid", WorldEditorOperation.RefitLatest(WorldEditorRefit.Remove(HollowShellRefit.FirstAdd)).Apply(session));
         Assert.IsFalse(session.Vehicles.SelectMany(item => item.Parts).Any(part => part.Id == removedId));
         var beforeReuse = session.NextEntityId;
-        Assert.AreEqual("Valid", PlaygroundOperation.RefitLatest(PlaygroundRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
+        Assert.AreEqual("Valid", WorldEditorOperation.RefitLatest(WorldEditorRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)).Apply(session));
         var reused = session.Vehicles.Single(item => item.Id == shell.Id).PartAt(HollowShellRefit.FirstAdd)!.Id;
         Assert.AreEqual(beforeReuse, reused.Value);
         Assert.AreNotEqual(removedId, reused);
         Assert.IsTrue(reused.Value >= addedBefore);
 
         var beforeBridge = session.NextEntityId;
-        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(BridgeFixture.DefinitionId, PlaygroundSequences.AuthorityBridgePose)));
+        Assert.AreEqual("Valid", Submit(session, new VehicleManufactureEdit(BridgeFixture.DefinitionId, WorldEditorSequences.AuthorityBridgePose)));
         var bridge = session.Vehicles.Single(item => item.Id.Value == beforeBridge);
         var beforeInvalid = session.NextEntityId;
-        Assert.AreEqual("InvalidDamage", PlaygroundOperation.DamageLatest(BridgeFixture.BridgeCell, 0).Apply(session));
+        Assert.AreEqual("InvalidDamage", WorldEditorOperation.DamageLatest(BridgeFixture.BridgeCell, 0).Apply(session));
         Assert.AreEqual(beforeInvalid, session.NextEntityId);
 
         var left = bridge.Parts.Where(part => BridgeFixture.IsLeftCell(part.Cell)).Min(part => part.Id.Value);
@@ -687,7 +687,7 @@ public sealed class AuthorityCheckpointTests
             SplitMix64.FractureScore(seed ^ extra, transaction, left);
         var primary = SplitMix64.SelectPrimaryCandidate(seed, transaction, new[] { right, left });
         var beforeFracture = session.NextEntityId;
-        Assert.AreEqual("Damaged", PlaygroundOperation.DamageLatest(BridgeFixture.BridgeCell, 100).Apply(session));
+        Assert.AreEqual("Damaged", WorldEditorOperation.DamageLatest(BridgeFixture.BridgeCell, 100).Apply(session));
         Assert.AreEqual(transaction, session.TransactionCount);
         Assert.AreEqual(beforeFracture + 1, session.NextEntityId);
         var kept = session.Vehicles.Single(item => item.Id == bridge.Id);
@@ -705,7 +705,7 @@ public sealed class AuthorityCheckpointTests
         var fractureSave = session.Save("Fracture");
         Assert.AreEqual(WorldSaveStatus.Saved, fractureSave.Status);
         Assert.AreEqual(fractured.Digest, AuthorityCodec.Document(AuthorityCodec.Capture(session)).Digest);
-        var loaded = new VoxelDevelopmentSession(playground.Catalog, VoxelWorldIdentity.Slice4, playground.Store, playground.Composites);
+        var loaded = new VoxelDevelopmentSession(worldEditor.Catalog, VoxelWorldIdentity.Slice4, worldEditor.Store, worldEditor.Composites);
         try
         {
             Assert.AreEqual(WorldSaveStatus.Loaded, loaded.Load(fractureSave.SaveId!.Value).Status);
@@ -723,22 +723,22 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Exhausted_entity_cursor_rejects_manufacture_without_consuming_the_cursor()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
-        var session = playground.Session;
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
         var saved = session.Save("Exhausted");
-        var path = playground.Store.PathFor(saved.SaveId!.Value);
+        var path = worldEditor.Store.PathFor(saved.SaveId!.Value);
         var token = $"\"next_entity_id\":{session.NextEntityId.ToString(CultureInfo.InvariantCulture)}";
         var json = File.ReadAllText(path);
         Assert.AreEqual(1, Count(json, token));
         File.WriteAllText(path, json.Replace(token, $"\"next_entity_id\":{ulong.MaxValue.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal));
-        var loaded = new VoxelDevelopmentSession(playground.Catalog, VoxelWorldIdentity.Slice4, playground.Store, playground.Composites);
+        var loaded = new VoxelDevelopmentSession(worldEditor.Catalog, VoxelWorldIdentity.Slice4, worldEditor.Store, worldEditor.Composites);
         try
         {
             Assert.AreEqual(WorldSaveStatus.Loaded, loaded.Load(saved.SaveId!.Value).Status);
             Assert.AreEqual(ulong.MaxValue, loaded.NextEntityId);
             Assert.AreEqual(
                 "EntityIdExhausted",
-                Submit(loaded, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, PlaygroundSequences.AuthorityShellPose)));
+                Submit(loaded, new VehicleManufactureEdit(HollowShellFixture.DefinitionId, WorldEditorSequences.AuthorityShellPose)));
             Assert.AreEqual(ulong.MaxValue, loaded.NextEntityId);
         }
         finally
@@ -750,24 +750,24 @@ public sealed class AuthorityCheckpointTests
     [TestMethod]
     public void Legal_halt_leaves_simulation_fault_empty_and_an_internal_fault_is_a_different_field()
     {
-        using var content = PlaygroundHarness.Content();
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.StraightRailRunAndHaltId)!;
-        var report = PlaygroundValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
+        using var content = WorldEditorHarness.Content();
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.StraightRailRunAndHaltId)!;
+        var report = WorldEditorValidation.Run(sequence, content.Catalog, content.Composites, content.Store);
         Assert.IsTrue(report.Passed, string.Join(Environment.NewLine, report.Lines()));
 
-        using var halted = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
-        Assert.AreEqual("Started", PlaygroundOperation.Start().Apply(halted.Session));
-        Assert.AreEqual("Removed", PlaygroundOperation.Damage(StraightRailFixture.FirstSegmentDamageCell, 100).Apply(halted.Session));
-        Assert.AreEqual("Advanced", PlaygroundOperation.Advance(2000).Apply(halted.Session));
+        using var halted = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        Assert.AreEqual("Started", WorldEditorOperation.Start().Apply(halted.Session));
+        Assert.AreEqual("Removed", WorldEditorOperation.Damage(StraightRailFixture.FirstSegmentDamageCell, 100).Apply(halted.Session));
+        Assert.AreEqual("Advanced", WorldEditorOperation.Advance(2000).Apply(halted.Session));
         Assert.AreEqual(TrainHaltReason.ForwardGap, halted.Session.QueryTrainAssemblies().Single().HaltReason);
         Assert.IsNull(halted.Session.Fault);
         var haltText = AuthorityCodec.Encode(AuthorityCodec.Capture(halted.Session));
         StringAssert.Contains(haltText, "\"halt_reason\":\"forward_gap\"");
         StringAssert.Contains(haltText, "\"simulation_fault\":null");
 
-        using var faulted = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailTrainId);
+        using var faulted = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
         faulted.Session.EditFaultProbe = _ => throw new InvalidOperationException("injected");
-        PlaygroundOperation.Submit(new VoxelAddEdit(new WorldVoxelCoord(10, 10, 10), PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)).Apply(faulted.Session);
+        WorldEditorOperation.Submit(new VoxelAddEdit(new WorldVoxelCoord(10, 10, 10), WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Apply(faulted.Session);
         faulted.Session.EditFaultProbe = null;
         Assert.AreEqual("InvalidOperationException", faulted.Session.Fault!.ExceptionType);
         Assert.AreEqual(TrainHaltReason.None, faulted.Session.QueryTrainAssemblies().Single().HaltReason);
@@ -879,31 +879,31 @@ public sealed class AuthorityCheckpointTests
         return model with { Vehicles = new[] { vehicle with { Contacts = contacts } } };
     }
 
-    private static PlaygroundSequence RejectedVoxel(int x) =>
+    private static WorldEditorSequence RejectedVoxel(int x) =>
         new(
             "payload-" + x.ToString(CultureInfo.InvariantCulture),
-            PlaygroundConfigurations.StraightRailTrainId,
+            WorldEditorConfigurations.StraightRailTrainId,
             new[]
             {
-                new PlaygroundValidationStep(
-                    PlaygroundOperation.Submit(new VoxelAddEdit(
+                new WorldEditorValidationStep(
+                    WorldEditorOperation.Submit(new VoxelAddEdit(
                         new WorldVoxelCoord(x, 0, 0),
                         new VoxelDefinitionId("core", "ferrous-ore"),
                         VoxelOrientation.Identity)),
                     "OutOfBounds",
-                    Array.Empty<PlaygroundCheck>())
+                    Array.Empty<WorldEditorCheck>())
             });
 
-    private static PlaygroundSequence RefusedRefit(int x) =>
+    private static WorldEditorSequence RefusedRefit(int x) =>
         new(
             "refit-" + x.ToString(CultureInfo.InvariantCulture),
-            PlaygroundConfigurations.StraightRailEmptyId,
+            WorldEditorConfigurations.StraightRailEmptyId,
             new[]
             {
-                new PlaygroundValidationStep(
-                    PlaygroundOperation.RefitLatest(PlaygroundRefit.Remove(new LocalVoxelCoord(x, 0, 0))),
-                    PlaygroundOperation.NoVehicleStatus,
-                    Array.Empty<PlaygroundCheck>())
+                new WorldEditorValidationStep(
+                    WorldEditorOperation.RefitLatest(WorldEditorRefit.Remove(new LocalVoxelCoord(x, 0, 0))),
+                    WorldEditorOperation.NoVehicleStatus,
+                    Array.Empty<WorldEditorCheck>())
             });
 
     private static string ReplaceJsonNumber(string json, string property, string value)
@@ -918,20 +918,20 @@ public sealed class AuthorityCheckpointTests
         return string.Concat(json.AsSpan(0, start), value, json.AsSpan(end));
     }
 
-    private static PlaygroundSequence Adds(WorldVoxelCoord first, WorldVoxelCoord second) =>
+    private static WorldEditorSequence Adds(WorldVoxelCoord first, WorldVoxelCoord second) =>
         new(
             "authority-input-order",
-            PlaygroundConfigurations.StraightRailEmptyId,
+            WorldEditorConfigurations.StraightRailEmptyId,
             new[]
             {
-                new PlaygroundValidationStep(
-                    PlaygroundOperation.Submit(new VoxelAddEdit(first, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)),
+                new WorldEditorValidationStep(
+                    WorldEditorOperation.Submit(new VoxelAddEdit(first, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)),
                     "Added",
-                    Array.Empty<PlaygroundCheck>()),
-                new PlaygroundValidationStep(
-                    PlaygroundOperation.Submit(new VoxelAddEdit(second, PlaygroundSequences.EditVoxelId, VoxelOrientation.Identity)),
+                    Array.Empty<WorldEditorCheck>()),
+                new WorldEditorValidationStep(
+                    WorldEditorOperation.Submit(new VoxelAddEdit(second, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)),
                     "Added",
-                    Array.Empty<PlaygroundCheck>())
+                    Array.Empty<WorldEditorCheck>())
             });
 
     private static AuthorityDifference CompareText(string expected, string actual)
@@ -1013,9 +1013,9 @@ public sealed class AuthorityCheckpointTests
     }
 
     private static string Submit(VoxelDevelopmentSession session, WorldEdit edit) =>
-        PlaygroundOperation.Submit(edit).Apply(session);
+        WorldEditorOperation.Submit(edit).Apply(session);
 
-    private static void WriteRail(PlaygroundHarness harness, string name, int maxDurability = 100) =>
+    private static void WriteRail(WorldEditorHarness harness, string name, int maxDurability = 100) =>
         harness.Source.AddVoxelFile(
             "core",
             "voxels/rail.voxels.json",

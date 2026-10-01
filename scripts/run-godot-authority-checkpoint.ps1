@@ -2,9 +2,9 @@ param(
     [string] $OutputDirectory
 )
 
-# Cross-process authority checkpoint for the formal Playground sequence (#126).
+# Cross-process authority checkpoint for the formal world editor sequence (#126).
 # Two isolated processes share one fresh user-data directory:
-#   1. enters through the start-menu Playground button, runs
+#   1. enters through the start-menu world editor button, runs
 #      authority-manufacture-fracture on the live session, saves, writes the
 #      canonical authority document and the first process's comparison evidence,
 #      then adds one voxel and writes the continuation;
@@ -48,8 +48,8 @@ foreach ($name in @(
     "TRAIN_VOXEL_SMOKE", "TRAIN_VOXEL_SMOKE_REENTER", "TRAIN_VOXEL_SMOKE_RESUME", "TRAIN_VOXEL_SMOKE_SAVE_ID",
     "TRAIN_VOXEL_OBSERVE", "TRAIN_VOXEL_OBSERVE_RESUME", "TRAIN_VOXEL_BASELINE", "TRAIN_CONTENT_SMOKE",
     "TRAIN_CONTENT_EXPORT_SMOKE", "TRAIN_MODS_EXPORT_SMOKE", "TRAIN_LOG_SMOKE", "TRAIN_MODS_SMOKE_USER_DATA",
-    "TRAIN_PLAYGROUND_SMOKE", "TRAIN_PLAYGROUND_SMOKE_MODE", "TRAIN_PLAYGROUND_CONFIG", "TRAIN_PLAYGROUND_SAVE_ID",
-    "TRAIN_PLAYGROUND_CAPTURE", "TRAIN_PLAYGROUND_CAPTURE_STEPS",
+    "TRAIN_WORLD_EDITOR_SMOKE", "TRAIN_WORLD_EDITOR_SMOKE_MODE", "TRAIN_WORLD_EDITOR_CONFIG", "TRAIN_WORLD_EDITOR_SAVE_ID",
+    "TRAIN_WORLD_EDITOR_CAPTURE", "TRAIN_WORLD_EDITOR_CAPTURE_STEPS",
     "TRAIN_AUTHORITY_CHECKPOINT", "TRAIN_AUTHORITY_CHECKPOINT_DIR", "TRAIN_AUTHORITY_BUILD"
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
@@ -68,7 +68,7 @@ function Require-Markers([hashtable] $run, [string[]] $markers, [string] $label)
         [Console]::Error.WriteLine("$label exited with $($run.Code).")
         $ok = $false
     }
-    foreach ($bad in @("AUTHORITY_CHECKPOINT_FAILED", "PLAYGROUND_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
+    foreach ($bad in @("AUTHORITY_CHECKPOINT_FAILED", "WORLD_EDITOR_ESTABLISH_FAILED", "Unhandled exception", "System.InvalidOperationException", "ERROR:")) {
         if ($run.Text.Contains($bad)) {
             [Console]::Error.WriteLine("$label printed $bad.")
             $ok = $false
@@ -101,12 +101,12 @@ New-Item -ItemType Directory -Path $userData | Out-Null
 $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
 $env:TRAIN_AUTHORITY_CHECKPOINT = "1"
 $env:TRAIN_AUTHORITY_CHECKPOINT_DIR = $documents
-$env:TRAIN_PLAYGROUND_CONFIG = "straight-rail-train"
-Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID -ErrorAction SilentlyContinue
+$env:TRAIN_WORLD_EDITOR_CONFIG = "straight-rail-train"
+Remove-Item Env:TRAIN_WORLD_EDITOR_SAVE_ID -ErrorAction SilentlyContinue
 
 $establish = Invoke-Godot (Join-Path $OutputDirectory "establish.log")
 $ok = Require-Markers $establish @(
-    "PLAYGROUND_SMOKE_MENU_ENTER config=straight-rail-train",
+    "WORLD_EDITOR_SMOKE_MENU_ENTER config=straight-rail-train",
     "AUTHORITY_CHECKPOINT_SEQUENCE_PASSED authority-manufacture-fracture",
     "AUTHORITY_CHECKPOINT_SAVED id=",
     "vehicles=5 fault=null",
@@ -148,11 +148,11 @@ if ($savedDigest -eq $continuationDigest) {
     exit 1
 }
 
-$env:TRAIN_PLAYGROUND_SAVE_ID = $saveMatch.Groups[1].Value
+$env:TRAIN_WORLD_EDITOR_SAVE_ID = $saveMatch.Groups[1].Value
 $resume = Invoke-Godot (Join-Path $OutputDirectory "resume.log")
 $ok = Require-Markers $resume @(
-    "PLAYGROUND_SMOKE_MENU_ENTER config=straight-rail-train",
-    "AUTHORITY_CHECKPOINT_RESTORED id=$($env:TRAIN_PLAYGROUND_SAVE_ID)",
+    "WORLD_EDITOR_SMOKE_MENU_ENTER config=straight-rail-train",
+    "AUTHORITY_CHECKPOINT_RESTORED id=$($env:TRAIN_WORLD_EDITOR_SAVE_ID)",
     "vehicles=5 fault=null",
     "AUTHORITY_CHECKPOINT_COMPARE saved difference Equal",
     "AUTHORITY_CHECKPOINT_COMPARE continuation difference Equal",

@@ -422,60 +422,62 @@ function Get-AppDataStamp {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
 }
 
+# Expected family / comma-separated scopes / group. The scope set and group are separate contracts.
 $expected = @{
-    WorldEditEncodingTests = "unit/world-edit"
-    VoxelCubeUvTests = "unit/voxels"
-    SplitMix64Tests = "unit/composites"
-    FragmentGridSnapTests = "unit/composites"
-    SettlementsJsonParserTests = "unit/settlements"
-    SettlementTests = "unit/settlements"
-    SettlementRegistryTests = "unit/settlements"
-    ModManifestTests = "unit/content"
-    ModDiscoveryTests = "unit/content"
-    ContentPackageWalkTests = "unit/content"
-    ExternalPathTests = "unit/content"
-    IsolatedBuiltInContentTests = "unit/content"
-    HumanLogFormatTests = "unit/logging"
-    RingBufferLogSinkTests = "unit/logging"
-    StructuredLoggingTests = "unit/logging"
-    StructuredLoggingConcurrencyTests = "unit/logging"
-    ConsoleCommandParseTests = "unit/console"
-    IdentityTests = "unit/identity"
-    WorldSaveTests = "headless/persistence"
-    WorldEditPersistenceTests = "headless/persistence"
-    TrainPersistenceTests = "headless/persistence"
-    CompositeVehiclePersistenceTests = "headless/persistence"
-    CompositeReloadSaveRejectionTests = "headless/persistence"
-    WorldEditOrderingTests = "headless/world-edit"
-    WorldEditEntryTests = "headless/world-edit"
-    VoxelWorldTests = "headless/voxels"
-    VoxelMultiChunkTests = "headless/voxels"
-    VoxelLocalBoxTests = "headless/voxels"
-    VoxelLiveReloadTests = "headless/voxels"
-    VoxelConsoleCommandTests = "headless/voxels"
-    VoxelCollisionTests = "headless/voxels"
-    VehicleEnvelopeTests = "headless/composites"
-    CompositeVehicleReloadTests = "headless/composites"
-    CompositeRefitTests = "headless/composites"
-    CompositeManufactureTests = "headless/composites"
-    CompositeDamageTests = "headless/composites"
-    CompositeContentTests = "headless/composites"
-    CompositeConsoleCommandTests = "headless/composites"
-    TrainTrackSafetyTests = "headless/railway"
-    TrainMotionTests = "headless/railway"
-    TrainDisplayPresentationTests = "headless/railway"
-    TrainCouplerCoastTests = "headless/railway"
-    StaticTrainAssemblyTests = "headless/railway"
-    RailCommandTests = "headless/railway"
-    PhysicalRailTests = "headless/railway"
-    PlaygroundTests = "headless/playground"
-    PlaygroundSaveSwitchTests = "headless/playground"
-    PlaygroundObservationTests = "headless/playground"
-    ObserveConsoleCommandTests = "headless/playground"
-    ModLoadingTests = "headless/content"
-    ContentReloaderTests = "headless/content"
-    ConsoleCommandDispatchTests = "headless/console"
-    AuthorityCheckpointTests = "headless/authority"
+    WorldEditEncodingTests = "unit/world-edit/world-edit"
+    VoxelCubeUvTests = "unit/voxels/voxels"
+    SplitMix64Tests = "unit/composites/composites"
+    FragmentGridSnapTests = "unit/composites/composites"
+    SettlementsJsonParserTests = "unit/settlements/settlements"
+    SettlementTests = "unit/settlements/settlements"
+    SettlementRegistryTests = "unit/settlements/settlements"
+    ModManifestTests = "unit/content/content"
+    ModDiscoveryTests = "unit/content/content"
+    ContentPackageWalkTests = "unit/content/content"
+    ExternalPathTests = "unit/content/content"
+    IsolatedBuiltInContentTests = "unit/content/content"
+    HumanLogFormatTests = "unit/logging/logging"
+    RingBufferLogSinkTests = "unit/logging/logging"
+    StructuredLoggingTests = "unit/logging/logging"
+    StructuredLoggingConcurrencyTests = "unit/logging/logging"
+    ConsoleCommandParseTests = "unit/console/console"
+    IdentityTests = "unit/identity/identity"
+    WorldSaveTests = "headless/persistence/persistence"
+    WorldEditPersistenceTests = "headless/persistence/persistence"
+    TrainPersistenceTests = "headless/persistence/persistence"
+    CompositeVehiclePersistenceTests = "headless/persistence/persistence"
+    CompositeReloadSaveRejectionTests = "headless/persistence/persistence"
+    WorldEditOrderingTests = "headless/world-edit/world-edit"
+    WorldEditEntryTests = "headless/world-edit/world-edit"
+    VoxelWorldTests = "headless/voxels/voxels"
+    VoxelMultiChunkTests = "headless/voxels/voxels"
+    VoxelLocalBoxTests = "headless/voxels/voxels"
+    VoxelLiveReloadTests = "headless/voxels/voxels"
+    VoxelConsoleCommandTests = "headless/voxels/voxels"
+    VoxelCollisionTests = "headless/voxels/voxels"
+    VehicleEnvelopeTests = "headless/composites/composites"
+    CompositeVehicleReloadTests = "headless/composites/composites"
+    CompositeRefitTests = "headless/composites/composites"
+    CompositeManufactureTests = "headless/composites/composites"
+    CompositeDamageTests = "headless/composites/composites"
+    CompositeContentTests = "headless/composites/composites"
+    CompositeConsoleCommandTests = "headless/composites/composites"
+    TrainTrackSafetyTests = "headless/railway/railway"
+    TrainMotionTests = "headless/railway/railway"
+    TrainDisplayPresentationTests = "headless/railway/railway"
+    TrainCouplerCoastTests = "headless/railway/railway"
+    StaticTrainAssemblyTests = "headless/railway/railway"
+    RailCommandTests = "headless/railway/railway"
+    PhysicalRailTests = "headless/railway/railway"
+    BlankWorldTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorTests = "headless/world-editor/world-editor"
+    WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
+    WorldEditorObservationTests = "headless/world-editor/world-editor"
+    ObserveConsoleCommandTests = "headless/world-editor/world-editor"
+    ModLoadingTests = "headless/content/content"
+    ContentReloaderTests = "headless/content/content"
+    ConsoleCommandDispatchTests = "headless/console/console"
+    AuthorityCheckpointTests = "headless/authority/authority"
 }
 
 function Write-Project([string] $Directory, [string] $Name, [string] $Csproj, [string] $Source) {
@@ -1891,10 +1893,12 @@ It "real-list" {
         Assert-True "id shape $($case.Id)" ($parts.Length -ge 3)
         $class = $parts[$parts.Length - 2]
         Assert-True "known class $class" $expected.ContainsKey($class)
-        $pair = $expected[$class].Split("/")
-        Assert-Equal "$class family" $pair[0] $case.Family
-        Assert-Equal "$class scope" $pair[1] $case.Scopes
-        Assert-Equal "$class group" $pair[1] $case.Group
+        $classification = $expected[$class].Split("/")
+        Assert-Equal "$class family" $classification[0] $case.Family
+        $expectedScopes = ($classification[1].Split(",") | Sort-Object) -join ","
+        $actualScopes = ($case.Scopes.Split(",") | Sort-Object) -join ","
+        Assert-Equal "$class scopes" $expectedScopes $actualScopes
+        Assert-Equal "$class group" $classification[2] $case.Group
         Assert-Equal "$class requirements" "none" $case.Requirements
         $seen[$class] = $true
         Assert-True "family $($case.Family)" ($case.Family -eq "unit" -or $case.Family -eq "headless")
@@ -1945,10 +1949,15 @@ It "real-list" {
     Assert-Equal "list-tests exit" 0 $process.ExitCode
     $nativeIds = [System.Collections.Generic.List[string]]::new()
     $nativeNames = [System.Collections.Generic.List[string]]::new()
+    $dataMethods = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($line in ($listText -split "\r?\n")) {
         $trimmed = $line.Trim()
         if ($trimmed -match "^Train\.Tests\.\S+$") { $nativeIds.Add($trimmed) }
         elseif ($trimmed -match "^[A-Za-z_][A-Za-z0-9_]+$") { $nativeNames.Add($trimmed) }
+        elseif ($trimmed -match "^([A-Za-z_][A-Za-z0-9_]+) \(.+\)$") {
+            # MSTest lists each DataRow; the entry discovers the declaring method once.
+            if ($dataMethods.Add($Matches[1])) { $nativeNames.Add($Matches[1]) }
+        }
     }
     if ($nativeIds.Count -gt 0) {
         $ours = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)

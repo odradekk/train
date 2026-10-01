@@ -128,7 +128,7 @@ public sealed class ConsoleCommandDispatcher
                 return;
             case "observe":
                 if (_observeCommands is null)
-                    _logger.Warning(Category, ObserveUnavailableEventId, "Enter the Playground before using observe commands.");
+                    _logger.Warning(Category, ObserveUnavailableEventId, "Enter the world editor before using observe commands.");
                 else
                     WriteResult(ObserveEventId, _observeCommands.Execute(parsed.Arguments));
                 return;

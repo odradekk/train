@@ -1,6 +1,6 @@
 param([string] $OutputDirectory, [switch] $BlankWorld)
 
-# Formal Playground comparison for #127. Each leg is a fresh Godot process.
+# Formal world editor comparison for #127. Each leg is a fresh Godot process.
 # Run after building Train.csproj, with GODOT set to the Godot .NET console executable.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -25,9 +25,9 @@ New-Item -ItemType Directory -Path $evidence | Out-Null
 foreach ($name in @(
     'TRAIN_VOXEL_SMOKE', 'TRAIN_VOXEL_SMOKE_REENTER', 'TRAIN_VOXEL_SMOKE_RESUME', 'TRAIN_VOXEL_OBSERVE',
     'TRAIN_VOXEL_BASELINE', 'TRAIN_CONTENT_SMOKE', 'TRAIN_CONTENT_EXPORT_SMOKE', 'TRAIN_MODS_EXPORT_SMOKE',
-    'TRAIN_LOG_SMOKE', 'TRAIN_PLAYGROUND_SMOKE', 'TRAIN_PLAYGROUND_SMOKE_MODE', 'TRAIN_PLAYGROUND_CAPTURE',
-    'TRAIN_PLAYGROUND_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
-    'TRAIN_AUTHORITY_BUILD', 'TRAIN_PLAYGROUND_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID'
+    'TRAIN_LOG_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE_MODE', 'TRAIN_WORLD_EDITOR_CAPTURE',
+    'TRAIN_WORLD_EDITOR_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
+    'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -43,10 +43,10 @@ if ($BlankWorld) {
         dotnet = (dotnet --version).Trim()
         powershell = $PSVersionTable.PSVersion.ToString()
         operating_system = [Runtime.InteropServices.RuntimeInformation]::OSDescription
-        command = 'pwsh -NoProfile -File scripts/run-godot-playground-cross-process.ps1 -BlankWorld -OutputDirectory <fresh path>'
+        command = 'pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -BlankWorld -OutputDirectory <fresh path>'
     } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'config.json') -Encoding utf8
-    Remove-Item Env:TRAIN_PLAYGROUND_CROSS_PROCESS -ErrorAction SilentlyContinue
-    $env:TRAIN_PLAYGROUND_CONFIG = 'straight-rail-train'
+    Remove-Item Env:TRAIN_WORLD_EDITOR_CROSS_PROCESS -ErrorAction SilentlyContinue
+    $env:TRAIN_WORLD_EDITOR_CONFIG = 'straight-rail-train'
     $userData = Join-Path $OutputDirectory 'user-data'
     $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
     New-Item -ItemType Directory -Path $userData | Out-Null
@@ -67,7 +67,7 @@ if ($BlankWorld) {
         "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) user_data=$userData" |
             Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
         if ($process.ExitCode -ne 0 -or -not $text.Contains("BLANK_WORLD_DONE leg=$leg") -or
-            $text.Contains('BLANK_WORLD_FAILED') -or $text.Contains('PLAYGROUND_ESTABLISH_FAILED') -or
+            $text.Contains('BLANK_WORLD_FAILED') -or $text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
             $text.Contains('Unhandled exception') -or $text.Contains('ERROR:')) {
             throw "Blank-world $leg leg failed; inspect $out and $err (exit $($process.ExitCode))."
         }
@@ -121,9 +121,9 @@ Raw evidence: save.stdout.log, save.stderr.log, resume.stdout.log, resume.stderr
     }
 }
 
-$env:TRAIN_PLAYGROUND_CROSS_PROCESS = '1'
-$env:TRAIN_PLAYGROUND_CONFIG = 'straight-rail-train'
-$env:TRAIN_PLAYGROUND_CROSS_EVIDENCE = $evidence
+$env:TRAIN_WORLD_EDITOR_CROSS_PROCESS = '1'
+$env:TRAIN_WORLD_EDITOR_CONFIG = 'straight-rail-train'
+$env:TRAIN_WORLD_EDITOR_CROSS_EVIDENCE = $evidence
 
 $head = (git rev-parse HEAD).Trim()
 $status = @(git status --porcelain)
@@ -140,13 +140,13 @@ $configuration = [ordered]@{
     powershell = $PSVersionTable.PSVersion.ToString()
     operating_system = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
     architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-    command = 'pwsh -NoProfile -File scripts/run-godot-playground-cross-process.ps1 -OutputDirectory <fresh path>'
+    command = 'pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -OutputDirectory <fresh path>'
 }
 $configuration | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'config.json') -Encoding utf8
 
 function Invoke-Leg([string] $leg, [string] $userDirectory, [string] $documentDirectory, [string] $logName = $leg) {
-    $env:TRAIN_PLAYGROUND_CROSS_LEG = $leg
-    $env:TRAIN_PLAYGROUND_CROSS_EVIDENCE = $documentDirectory
+    $env:TRAIN_WORLD_EDITOR_CROSS_LEG = $leg
+    $env:TRAIN_WORLD_EDITOR_CROSS_EVIDENCE = $documentDirectory
     $env:TRAIN_MODS_SMOKE_USER_DATA = $userDirectory
     New-Item -ItemType Directory -Path $userDirectory -Force | Out-Null
     $out = Join-Path $OutputDirectory "$logName.stdout.log"
@@ -161,7 +161,7 @@ function Invoke-Leg([string] $leg, [string] $userDirectory, [string] $documentDi
 
 function Require-Success([hashtable] $run, [string] $leg, [string[]] $markers) {
     if ($run.Code -ne 0 -or -not $run.Text.Contains("CROSS_DONE leg=$leg") -or
-        $run.Text.Contains('CROSS_FAILED') -or $run.Text.Contains('PLAYGROUND_ESTABLISH_FAILED') -or
+        $run.Text.Contains('CROSS_FAILED') -or $run.Text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
         $run.Text.Contains('Unhandled exception') -or $run.Text.Contains('ERROR:')) {
         throw "$leg failed or printed an error; inspect $OutputDirectory/$leg.*.log (exit $($run.Code))."
     }
@@ -196,11 +196,11 @@ try {
     Check-Count $save.Text 'CROSS_COMPARE leg=save difference Equal' 9
     $saveMatch = [regex]::Match($save.Text, 'CROSS_SAVED id=([0-9a-fA-F-]{36})')
     if (-not $saveMatch.Success) { throw 'Save leg did not provide a save UUID.' }
-    $env:TRAIN_PLAYGROUND_SAVE_ID = $saveMatch.Groups[1].Value
+    $env:TRAIN_WORLD_EDITOR_SAVE_ID = $saveMatch.Groups[1].Value
     $resume = Invoke-Leg 'resume' $savedUserData $evidence
     Require-Success $resume 'resume' @('CROSS_CHECKPOINT leg=resume index=8', 'paused=true', 'CROSS_PENDING_REJECTED_CONTINUED step=3')
     Check-Count $resume.Text 'CROSS_COMPARE leg=resume difference Equal' 6
-    Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID
+    Remove-Item Env:TRAIN_WORLD_EDITOR_SAVE_ID
 
     $observe = Invoke-Leg 'observe' (Join-Path $OutputDirectory 'observation-user-data') $evidence
     Require-Success $observe 'observe' @('CROSS_TARGET_LOST target-lost', 'CROSS_OBSERVE index=11 mode=Follow', 'rail_hit=true')
@@ -211,13 +211,13 @@ try {
         'relationship=configuration_version status=IncompatibleBase kept=true')
     $badSave = [regex]::Match($failure.Text, 'CROSS_RECOVERY_FAILED[^\r\n]*save=([0-9a-fA-F-]{36})')
     if (-not $badSave.Success) { throw 'Failure leg did not provide the bad save UUID.' }
-    $env:TRAIN_PLAYGROUND_SAVE_ID = $badSave.Groups[1].Value
+    $env:TRAIN_WORLD_EDITOR_SAVE_ID = $badSave.Groups[1].Value
     $badRestore = Invoke-Leg 'resume' (Join-Path $OutputDirectory 'failure-user-data') $evidence 'bad-restore'
-    Remove-Item Env:TRAIN_PLAYGROUND_SAVE_ID
+    Remove-Item Env:TRAIN_WORLD_EDITOR_SAVE_ID
     if ($badRestore.Code -eq 0 -or
-        -not $badRestore.Text.Contains('PLAYGROUND_SMOKE_FAILED load status=IncompatibleBase stage=base') -or
+        -not $badRestore.Text.Contains('WORLD_EDITOR_SMOKE_FAILED load status=IncompatibleBase stage=base') -or
         -not $badRestore.Text.Contains('relationship=configuration_version') -or
-        -not $badRestore.Text.Contains('PLAYGROUND_ESTABLISH_FAILED')) {
+        -not $badRestore.Text.Contains('WORLD_EDITOR_ESTABLISH_FAILED')) {
         throw 'Corrupted save unexpectedly established a session or omitted its failure stage.'
     }
     $adaptation = Invoke-Leg 'adaptation' (Join-Path $OutputDirectory 'adaptation-user-data') $evidence
@@ -248,7 +248,7 @@ try {
     $buildId = $context['build'].GetValue[string]()
     $contentDigest = $context['content_digest'].GetValue[string]()
     $report = @"
-# Playground 跨进程对照 — Issue #127
+# 世界编辑器跨进程对照 — Issue #127
 
 受测提交：$head（工作树变更：$($configuration.dirty)）；配置 straight-rail-train v1；正式序列 cross-process-comparison，保存于检查点 8、边界 0:8，待执行输入 4 条。
 
@@ -282,7 +282,7 @@ try {
 | 10 权威摘要与首差异 | #126、#127 | 14 个检查点的构建/内容/输入/边界比较；字段注入定位检查点 9。 |
 | 11 分层报告 | #127 | 本报告四栏，内容适配单列；人工明确待验证。 |
 
-重跑：pwsh -NoProfile -File scripts/run-godot-playground-cross-process.ps1 -OutputDirectory <新的空路径>。人工：运行 dotnet build Train.csproj 与 Godot 图形入口；选择 Playground 的 straight-rail-train，依次检查自由相机、选择、聚焦、车辆跟随、运行/暂停/单步/N 步、目标销毁提示；修改后分别尝试取消切换、保存后切换、保存失败及坏档读取，核对世界、镜头与反馈。使用新存档，勿覆盖本目录的用户数据。
+重跑：pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -OutputDirectory <新的空路径>。人工：运行 dotnet build Train.csproj 与 Godot 图形入口；选择世界编辑器的 straight-rail-train，依次检查自由相机、选择、聚焦、车辆跟随、运行/暂停/单步/N 步、目标销毁提示；修改后分别尝试取消切换、保存后切换、保存失败及坏档读取，核对世界、镜头与反馈。使用新存档，勿覆盖本目录的用户数据。
 
 边界：保留四个旧真实入口；#118 迁移/退役未验收；无有界录制、隔离重放、ZIP 或性能结论。
 "@

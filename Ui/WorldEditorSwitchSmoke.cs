@@ -1,18 +1,18 @@
 using Godot;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 
 namespace Train;
 
 /// <summary>
-/// Headless Playground entrance for unsaved switch protection, candidate failure, and a cross-process restore.
+/// Headless world editor entrance for unsaved switch protection, candidate failure, and a cross-process restore.
 /// </summary>
-internal sealed class PlaygroundSwitchSmoke
+internal sealed class WorldEditorSwitchSmoke
 {
     public const string ModeValue = "switch";
 
-    private readonly PlaygroundScene _scene;
+    private readonly WorldEditorScene _scene;
     private readonly bool _resume;
     private int _phase;
     private bool _finished;
@@ -20,7 +20,7 @@ internal sealed class PlaygroundSwitchSmoke
     private ulong _cancelStep;
     private int _shapes;
 
-    public PlaygroundSwitchSmoke(PlaygroundScene scene, string? saveId)
+    public WorldEditorSwitchSmoke(WorldEditorScene scene, string? saveId)
     {
         _scene = scene;
         _resume = Guid.TryParse(saveId, out _);
@@ -28,12 +28,12 @@ internal sealed class PlaygroundSwitchSmoke
 
     public static bool Requested() =>
         string.Equals(
-            System.Environment.GetEnvironmentVariable(PlaygroundObservationSmoke.ModeEnvironmentVariable),
+            System.Environment.GetEnvironmentVariable(WorldEditorObservationSmoke.ModeEnvironmentVariable),
             ModeValue,
             StringComparison.Ordinal);
 
     private VoxelDevelopmentSession Session => _scene.Session!;
-    private PlaygroundObserver Observer => _scene.Observation!.Observer;
+    private WorldEditorObserver Observer => _scene.Observation!.Observer;
     private Main Main => _scene.GetNode<Main>("/root/Main");
 
     public void Advance()
@@ -61,7 +61,7 @@ internal sealed class PlaygroundSwitchSmoke
                 _source = Session.WorldSource?.ConfigurationId ?? "";
                 Require(Session.SimulationPaused, "establish should pause");
                 Require(!Session.HasUnsavedChanges, "establish should be a clean boundary");
-                Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == PlaygroundObservationStatus.Selected, "segment select");
+                Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == WorldEditorObservationStatus.Selected, "segment select");
                 _scene.Press("step");
                 Require(Session.HasUnsavedChanges, "a step is an unsaved change");
                 _cancelStep = Session.SimulationStep;
@@ -127,9 +127,9 @@ internal sealed class PlaygroundSwitchSmoke
                 _scene.Press("switch_world");
                 Require(_scene.PromptVisible, "the failed save left the world dirty");
                 _scene.PressPrompt("save_then_switch");
-                var other = _source == PlaygroundConfigurations.StraightRailEmptyId
-                    ? PlaygroundConfigurations.StraightRailTrainId
-                    : PlaygroundConfigurations.StraightRailEmptyId;
+                var other = _source == WorldEditorConfigurations.StraightRailEmptyId
+                    ? WorldEditorConfigurations.StraightRailTrainId
+                    : WorldEditorConfigurations.StraightRailEmptyId;
                 Require(Session.WorldSource?.ConfigurationId == other, "save then switch replaces the configuration");
                 Require(Session.SimulationPaused, "switch pauses");
                 Require(!Session.HasUnsavedChanges, "a completed switch is the new baseline");
@@ -163,7 +163,7 @@ internal sealed class PlaygroundSwitchSmoke
                 Require(Session.SimulationPaused, "restored session stays paused");
                 Require(Session.WorldSource is not null, "restored session keeps its source");
                 Require(!Session.HasUnsavedChanges, "a restored session without value adaptation is clean");
-                Require(Observer.Selection is null && Observer.Mode == PlaygroundCameraMode.Free, "observation starts free");
+                Require(Observer.Selection is null && Observer.Mode == WorldEditorCameraMode.Free, "observation starts free");
                 GD.Print($"SWITCH_RESTORED step={Session.SimulationStep} source={Session.WorldSource?.ConfigurationId} paused=true fingerprint={WorldSaveAuthority.Fingerprint(Session)}");
                 _phase++;
                 break;

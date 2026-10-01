@@ -1,6 +1,6 @@
 using Godot;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 using Train.Presentation;
@@ -8,19 +8,19 @@ using Train.Presentation;
 namespace Train;
 
 /// <summary>What one world click resolved to, with both candidate hits so automation can compare them.</summary>
-internal sealed record PlaygroundPick(
+internal sealed record WorldEditorPick(
     Vector2 Screen,
     ObservedObject? Object,
-    PlaygroundObservationStatus? Status,
-    PlaygroundVehicleHit? VehicleHit,
+    WorldEditorObservationStatus? Status,
+    WorldEditorVehicleHit? VehicleHit,
     WorldVoxelCoord? WorldCell,
     double WorldDistance);
 
 /// <summary>
-/// Godot adapter for <see cref="PlaygroundObserver"/>: drives the camera from its pose, draws the selection
+/// Godot adapter for <see cref="WorldEditorObserver"/>: drives the camera from its pose, draws the selection
 /// highlight, and hosts the object list / inspection panel and observation input. It never touches the session.
 /// </summary>
-public partial class PlaygroundObservationView : Node3D
+public partial class WorldEditorObservationView : Node3D
 {
     public const double LookSensitivity = 0.005;
     public const double ZoomStep = 2;
@@ -39,19 +39,19 @@ public partial class PlaygroundObservationView : Node3D
     private Label _inspection = null!;
     private Label _notice = null!;
     private ItemList _list = null!;
-    private IReadOnlyList<PlaygroundListEntry> _entries = Array.Empty<PlaygroundListEntry>();
+    private IReadOnlyList<WorldEditorListEntry> _entries = Array.Empty<WorldEditorListEntry>();
     private MeshInstance3D _highlight = null!;
     private PanelContainer _panel = null!;
     private int _shownNotices;
     private bool _dragging;
 
-    public PlaygroundObserver Observer { get; private set; } = null!;
-    internal PlaygroundPick? LastPick { get; private set; }
+    public WorldEditorObserver Observer { get; private set; } = null!;
+    internal WorldEditorPick? LastPick { get; private set; }
     internal bool HighlightVisible => _highlight.Visible;
     internal string ModeText => _mode.Text;
     internal string InspectionText => _inspection.Text;
     internal string NoticeText => _notice.Text;
-    internal IReadOnlyList<PlaygroundListEntry> Entries => _entries;
+    internal IReadOnlyList<WorldEditorListEntry> Entries => _entries;
     internal Rect2 PanelRect => _panel.GetGlobalRect();
 
     public void Initialize(
@@ -65,7 +65,7 @@ public partial class PlaygroundObservationView : Node3D
         _camera = camera;
         _colliders = colliders;
         _consoleOpen = consoleOpen;
-        Observer = new PlaygroundObserver(session, initial.Position, initial.Look);
+        Observer = new WorldEditorObserver(session, initial.Position, initial.Look);
         CreatePanel();
         CreateHighlight();
         ApplyCamera(Observer.Pose);
@@ -95,18 +95,18 @@ public partial class PlaygroundObservationView : Node3D
     }
 
     /// <summary>Resolves a screen point to the nearest vehicle part or published world-voxel collider and selects it.</summary>
-    internal PlaygroundPick Pick(Vector2 screen)
+    internal WorldEditorPick Pick(Vector2 screen)
     {
         var origin = _camera.ProjectRayOrigin(screen);
         var direction = _camera.ProjectRayNormal(screen);
-        var vehicle = PlaygroundInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
+        var vehicle = WorldEditorInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
         var world = _colliders.QueryPublishedRay(GetWorld3D(), origin, origin + direction * PickDistance);
         var worldDistance = world is { } hit ? origin.DistanceTo(hit.Position) : double.PositiveInfinity;
         ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
             ? ObservedObject.Vehicle(vehicle.VehicleId)
             : world is { } cell ? ObservedObject.WorldCell(cell.Cell) : null;
-        var status = item is { } picked ? Observer.Select(picked) : (PlaygroundObservationStatus?)null;
-        LastPick = new PlaygroundPick(screen, item, status, vehicle, world?.Cell, worldDistance);
+        var status = item is { } picked ? Observer.Select(picked) : (WorldEditorObservationStatus?)null;
+        LastPick = new WorldEditorPick(screen, item, status, vehicle, world?.Cell, worldDistance);
         _action.Text = item is null ? "点选：未命中对象，选择不变" : $"点选：{item.Value.DescribeZh()} → {status}";
         UpdatePanel();
         return LastPick;
@@ -244,7 +244,7 @@ public partial class PlaygroundObservationView : Node3D
         _buttons[id] = button;
     }
 
-    private void Report(string action, PlaygroundObservationStatus status)
+    private void Report(string action, WorldEditorObservationStatus status)
     {
         _action.Text = $"{action} → {status}";
         UpdatePanel();
@@ -254,13 +254,13 @@ public partial class PlaygroundObservationView : Node3D
     {
         var mode = Observer.Mode switch
         {
-            PlaygroundCameraMode.Focus => "聚焦 " + Observer.Target!.Value.DescribeZh(),
-            PlaygroundCameraMode.Follow => "跟随 " + Observer.Target!.Value.DescribeZh(),
+            WorldEditorCameraMode.Focus => "聚焦 " + Observer.Target!.Value.DescribeZh(),
+            WorldEditorCameraMode.Follow => "跟随 " + Observer.Target!.Value.DescribeZh(),
             _ => "自由观察"
         };
         SetText(_mode, $"镜头：{mode}{(Observer.Transitioning ? "（过渡中）" : "")}");
 
-        var entries = PlaygroundInspector.List(_session);
+        var entries = WorldEditorInspector.List(_session);
         if (!entries.Select(entry => entry.Label).SequenceEqual(_entries.Select(entry => entry.Label)))
         {
             _entries = entries;
@@ -281,7 +281,7 @@ public partial class PlaygroundObservationView : Node3D
         else if (!_list.IsSelected(selectedIndex))
             _list.Select(selectedIndex);
 
-        var inspection = Observer.Selection is { } selected && PlaygroundInspector.Inspect(_session, selected) is { } facts
+        var inspection = Observer.Selection is { } selected && WorldEditorInspector.Inspect(_session, selected) is { } facts
             ? "选中：" + selected.DescribeZh() + "\n" + string.Join('\n', facts.LinesZh())
             : "选中：无";
         SetText(_inspection, inspection);
@@ -336,7 +336,7 @@ public partial class PlaygroundObservationView : Node3D
         {
             case ObservedObjectKind.Vehicle:
                 var vehicle = _session.Vehicles.FirstOrDefault(item => item.Id == selected.Id);
-                if (vehicle is null || vehicle.Parts.Count == 0 || PlaygroundObserver.VehicleFrame(_session, sample, selected.Id) is not { } frame)
+                if (vehicle is null || vehicle.Parts.Count == 0 || WorldEditorObserver.VehicleFrame(_session, sample, selected.Id) is not { } frame)
                     return false;
                 var min = new Vector3(vehicle.Parts.Min(part => part.Cell.X), vehicle.Parts.Min(part => part.Cell.Y), vehicle.Parts.Min(part => part.Cell.Z));
                 var max = new Vector3(vehicle.Parts.Max(part => part.Cell.X), vehicle.Parts.Max(part => part.Cell.Y), vehicle.Parts.Max(part => part.Cell.Z)) + Vector3.One;

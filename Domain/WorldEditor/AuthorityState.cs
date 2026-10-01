@@ -6,7 +6,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using Train.Domain.Commands;
 
-namespace Train.Domain.Playground;
+namespace Train.Domain.WorldEditor;
 
 /// <summary>
 /// Fields written into the canonical authority document. Camera, window, render, interpolation,

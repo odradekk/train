@@ -1,7 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -15,26 +15,26 @@ public sealed class WorldEditEntryTests
     [TestMethod]
     public void Console_panel_and_automatic_sequence_submit_the_same_payloads_at_the_same_positions()
     {
-        var sequence = PlaygroundSequences.Find(PlaygroundSequences.StraightRailOrderedEditsId)!;
+        var sequence = WorldEditorSequences.Find(WorldEditorSequences.StraightRailOrderedEditsId)!;
 
-        using var automatic = PlaygroundHarness.Establish(sequence.ConfigurationId);
-        var report = PlaygroundValidation.Execute(sequence, automatic.Session);
+        using var automatic = WorldEditorHarness.Establish(sequence.ConfigurationId);
+        var report = WorldEditorValidation.Execute(sequence, automatic.Session);
         Assert.IsTrue(report.Passed, string.Join(Environment.NewLine, report.Lines()));
 
-        using var panel = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        using var panel = WorldEditorHarness.Establish(sequence.ConfigurationId);
         foreach (var step in sequence.Steps)
             Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(panel.Session), step.Operation.Describe());
 
-        using var console = PlaygroundHarness.Establish(sequence.ConfigurationId);
+        using var console = WorldEditorHarness.Establish(sequence.ConfigurationId);
         using var logger = LoggerSession.Create();
         var session = console.Session;
         var dispatcher = Dispatcher(logger, session);
         var identity = VoxelOrientation.Identity;
-        var probe = PlaygroundSequences.EditProbe;
-        var pose = PlaygroundSequences.EditShellPose;
+        var probe = WorldEditorSequences.EditProbe;
+        var pose = WorldEditorSequences.EditShellPose;
         var probeText = $"{probe.X} {probe.Y} {probe.Z}";
         dispatcher.Execute("rail start");
-        dispatcher.Execute($"voxel add {probeText} {PlaygroundSequences.EditVoxelId.Value} {identity}");
+        dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity}");
         dispatcher.Execute($"voxel damage {probeText} 25");
         dispatcher.Execute($"composite manufacture {HollowShellFixture.DefinitionId.Value} pose {pose.OriginX} {pose.OriginY} {pose.OriginZ}");
         var shell = session.QueryComposites().Max(item => item.Id.Value);
@@ -50,11 +50,11 @@ public sealed class WorldEditEntryTests
         dispatcher.Execute($"composite remove {shell} {Part(HollowShellRefit.Moved)}");
         dispatcher.Execute($"composite batch {shell} add {Cell(HollowShellRefit.FirstAdd)} {marker} {identity} add {Cell(HollowShellRefit.SecondAdd)} {marker} {identity}");
         dispatcher.Execute($"voxel remove {probeText} at 3");
-        dispatcher.Execute($"voxel add {probeText} {PlaygroundSequences.EditVoxelId.Value} {identity} at 3");
+        dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity} at 3");
         dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.OutOfEnvelope)} {marker} {identity} at 3");
         dispatcher.Execute("voxel edits pending");
         dispatcher.Execute("rail step 3");
-        dispatcher.Execute($"voxel add {probeText} {PlaygroundSequences.EditVoxelId.Value} {identity}");
+        dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity}");
         dispatcher.Execute("rail step");
         dispatcher.Execute("voxel edits log 3");
         dispatcher.Execute("voxel edits");
@@ -82,12 +82,12 @@ public sealed class WorldEditEntryTests
     [TestMethod]
     public void Console_scheduling_refuses_past_steps_and_reports_faults_without_consuming_positions()
     {
-        using var playground = PlaygroundHarness.Establish(PlaygroundConfigurations.StraightRailEmptyId);
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         using var logger = LoggerSession.Create();
-        var session = playground.Session;
+        var session = worldEditor.Session;
         var dispatcher = Dispatcher(logger, session);
         Assert.IsTrue(session.AdvanceSimulation(4).Succeeded);
-        var probe = PlaygroundSequences.EditProbe;
+        var probe = WorldEditorSequences.EditProbe;
 
         dispatcher.Execute($"voxel remove {probe.X} {probe.Y} {probe.Z} at 3");
         dispatcher.Execute($"composite manufacture at 2");
@@ -105,7 +105,7 @@ public sealed class WorldEditEntryTests
         dispatcher.Execute("rail step 2");
         session.EditFaultProbe = null;
         dispatcher.Execute("voxel edits fault");
-        dispatcher.Execute($"voxel add {probe.X} {probe.Y} {probe.Z} {PlaygroundSequences.EditVoxelId.Value} {VoxelOrientation.Identity} at 9");
+        dispatcher.Execute($"voxel add {probe.X} {probe.Y} {probe.Z} {WorldEditorSequences.EditVoxelId.Value} {VoxelOrientation.Identity} at 9");
 
         var text = Messages(logger);
         StringAssert.Contains(text, "Edit PastStep.");

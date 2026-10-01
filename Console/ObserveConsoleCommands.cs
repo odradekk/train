@@ -1,17 +1,17 @@
 using System.Globalization;
 using Train.Domain.Composites;
-using Train.Domain.Playground;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 
 namespace Train;
 
-/// <summary>Playground observation commands. They only read the session and never pause, advance or edit it.</summary>
+/// <summary>World editor observation commands. They only read the session and never pause, advance or edit it.</summary>
 public sealed class ObserveConsoleCommands
 {
     private readonly VoxelDevelopmentSession _session;
-    private readonly PlaygroundObserver _observer;
+    private readonly WorldEditorObserver _observer;
 
-    public ObserveConsoleCommands(VoxelDevelopmentSession session, PlaygroundObserver observer)
+    public ObserveConsoleCommands(VoxelDevelopmentSession session, WorldEditorObserver observer)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(observer);
@@ -46,7 +46,7 @@ public sealed class ObserveConsoleCommands
             if (selection is not { } item)
                 return FormatMode(_observer.ClearSelection());
             var status = _observer.Select(item);
-            return status == PlaygroundObservationStatus.Selected
+            return status == WorldEditorObservationStatus.Selected
                 ? Report($"Selected {_observer.Selection!.Value.Describe()}")
                 : $"{status} {item.Describe()}";
         }
@@ -67,16 +67,16 @@ public sealed class ObserveConsoleCommands
         lines.Add("camera " + _observer.Pose.Position + " look " + _observer.Pose.Look);
         if (_observer.LastNotice is { } notice)
             lines.Add("notice " + notice.Describe());
-        if (_observer.Selection is { } selected && PlaygroundInspector.Inspect(_session, selected) is { } inspection)
+        if (_observer.Selection is { } selected && WorldEditorInspector.Inspect(_session, selected) is { } inspection)
             lines.AddRange(inspection.Lines());
         return string.Join('\n', lines);
     }
 
-    private string FormatMode(PlaygroundObservationStatus status) => $"{status} {_observer.Describe()}";
+    private string FormatMode(WorldEditorObservationStatus status) => $"{status} {_observer.Describe()}";
 
     private string FormatList()
     {
-        var entries = PlaygroundInspector.List(_session);
+        var entries = WorldEditorInspector.List(_session);
         if (entries.Count == 0)
             return "objects none";
         return string.Join('\n', entries.Select(entry => entry.Object.Describe() + " · " + entry.Label));

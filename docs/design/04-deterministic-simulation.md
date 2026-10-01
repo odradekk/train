@@ -73,7 +73,7 @@ Simulation Tick
 
 #### 世界修改命令
 
-[#122](https://github.com/odradekk/train/issues/122) 让体素增删与伤害、车辆制造与伤害、五类改装与批量改装统一成为已解析的世界修改命令（`Domain/Commands/`），由 `VoxelDevelopmentSession.SubmitEdit` 这一个校验与事务入口执行。控制台、Playground 面板和自动验证序列只负责把输入解析成命令，不直接改世界。[#123](https://github.com/odradekk/train/issues/123) 把铁路施工与修复、编组、列车启动与停车也纳入同一种命令（`rail.construct` / `rail.repair` / `train.assemble` / `train.start` / `train.stop`），取消单独的列车命令队列；内容重载改变世界时，由重载边界在当前位置记录一条 `content.publish`，它不经 `SubmitEdit` 提交。
+[#122](https://github.com/odradekk/train/issues/122) 让体素增删与伤害、车辆制造与伤害、五类改装与批量改装统一成为已解析的世界修改命令（`Domain/Commands/`），由 `VoxelDevelopmentSession.SubmitEdit` 这一个校验与事务入口执行。控制台、世界编辑器面板和自动验证序列只负责把输入解析成命令，不直接改世界。[#123](https://github.com/odradekk/train/issues/123) 把铁路施工与修复、编组、列车启动与停车也纳入同一种命令（`rail.construct` / `rail.repair` / `train.assemble` / `train.start` / `train.stop`），取消单独的列车命令队列；内容重载改变世界时，由重载边界在当前位置记录一条 `content.publish`，它不经 `SubmitEdit` 提交。
 
 - 接受时分配递增 `edit_id`，并在当前边界取下一个步内序号；立即命令在该位置执行。带目标步的命令排队；每步先积分编组运动，再把时钟加一、边界序号清零，按 `edit_id` 顺序逐条取新序号执行目标为新步的全部命令，不分种类。起停命令的执行条件（铁路、目标编组、动力、控制、支撑、前方进路、事务额度）只在执行位置检查。暂停只停止主机自动推进，不是停车；单步、N 步与主机推进共用同一推进入口，结果与显示帧批量无关。执行时的预期拒绝同样占用该位置并出队；过去步、`edit_id` 或序号到达 `ulong.MaxValue`、会话故障时整次拒绝，不消耗编号或序号。
 - 排队命令只能引用已分配过的运行时实体 ID（小于当前 `next_entity_id`），否则以 `UnallocatedReference` 整次拒绝。实体 ID 只增不减，所以接受时成立的引用在任何后续保存中仍满足存档恢复的同一条件；从未分配的引用不会成为合法待执行命令，也不会写出无法加载的存档。立即命令不入队，照常执行并按业务状态拒绝。
