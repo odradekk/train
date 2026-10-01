@@ -7,7 +7,7 @@ using Train.Domain.Voxels;
 
 namespace Train;
 
-/// <summary>One process leg of the formal WorldEditor comparison; the PowerShell entry starts each leg separately.</summary>
+/// <summary>One process leg of the formal world editor comparison; the PowerShell entry starts each leg separately.</summary>
 internal sealed class WorldEditorCrossProcessSmoke
 {
     public const string LegEnvironmentVariable = "TRAIN_WORLD_EDITOR_CROSS_LEG";

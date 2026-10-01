@@ -9,7 +9,7 @@ using Train.Domain.Voxels;
 namespace Train;
 
 /// <summary>
-/// Headless automatic entrance: drives the real WorldEditor scene through its own controls and Godot physics.
+/// Headless automatic entrance: drives the real world editor scene through its own controls and Godot physics.
 /// </summary>
 internal sealed class WorldEditorSmoke
 {

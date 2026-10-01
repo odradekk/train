@@ -6,7 +6,7 @@ using Train.Domain.Voxels;
 namespace Train;
 
 /// <summary>
-/// Headless WorldEditor entrance for unsaved switch protection, candidate failure, and a cross-process restore.
+/// Headless world editor entrance for unsaved switch protection, candidate failure, and a cross-process restore.
 /// </summary>
 internal sealed class WorldEditorSwitchSmoke
 {

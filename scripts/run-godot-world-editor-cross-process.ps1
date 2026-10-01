@@ -282,7 +282,7 @@ try {
 | 10 权威摘要与首差异 | #126、#127 | 14 个检查点的构建/内容/输入/边界比较；字段注入定位检查点 9。 |
 | 11 分层报告 | #127 | 本报告四栏，内容适配单列；人工明确待验证。 |
 
-重跑：pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -OutputDirectory <新的空路径>。人工：运行 dotnet build Train.csproj 与 Godot 图形入口；选择 WorldEditor 的 straight-rail-train，依次检查自由相机、选择、聚焦、车辆跟随、运行/暂停/单步/N 步、目标销毁提示；修改后分别尝试取消切换、保存后切换、保存失败及坏档读取，核对世界、镜头与反馈。使用新存档，勿覆盖本目录的用户数据。
+重跑：pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -OutputDirectory <新的空路径>。人工：运行 dotnet build Train.csproj 与 Godot 图形入口；选择世界编辑器的 straight-rail-train，依次检查自由相机、选择、聚焦、车辆跟随、运行/暂停/单步/N 步、目标销毁提示；修改后分别尝试取消切换、保存后切换、保存失败及坏档读取，核对世界、镜头与反馈。使用新存档，勿覆盖本目录的用户数据。
 
 边界：保留四个旧真实入口；#118 迁移/退役未验收；无有界录制、隔离重放、ZIP 或性能结论。
 "@

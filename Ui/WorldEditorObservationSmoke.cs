@@ -8,7 +8,7 @@ using Train.Domain.Voxels;
 namespace Train;
 
 /// <summary>
-/// Headless observation entrance: drives the real WorldEditor camera, panel, keys, clicks and console, and checks
+/// Headless observation entrance: drives the real world editor camera, panel, keys, clicks and console, and checks
 /// that observation reads the displayed bodies while never pausing, advancing or editing the session.
 /// </summary>
 internal sealed class WorldEditorObservationSmoke
@@ -265,7 +265,7 @@ internal sealed class WorldEditorObservationSmoke
 
     private void CheckFreeStart()
     {
-        Require(Session.SimulationPaused && Session.SimulationStep == 0, "WorldEditor did not start paused at step 0");
+        Require(Session.SimulationPaused && Session.SimulationStep == 0, "world editor did not start paused at step 0");
         Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Selection is null, $"start observation {Observer.Describe()}");
         RequireCameraAt(WorldEditorScene.OverviewPose, "start camera");
         _mark = Session.SimulationStep;
@@ -672,7 +672,7 @@ internal sealed class WorldEditorObservationSmoke
     /// Follows the manufactured vehicle, then replaces the whole world through the console so a different vehicle takes the same id:
     /// <c>composite reset bridge</c> over a followed hollow shell, and after a load of a missing save that must keep
     /// observing, <c>voxel load</c> of the hollow save over a followed bridge. Either replacement drops the old
-    /// references with the camera in place. The WorldEditor save taken first is loaded back at the end.
+    /// references with the camera in place. The world editor save taken first is loaded back at the end.
     /// </summary>
     private bool ReplaceFollowedWorld(WorldReplacement replacement)
     {
@@ -745,7 +745,7 @@ internal sealed class WorldEditorObservationSmoke
         if (replacement == WorldReplacement.Load)
         {
             RunConsole($"voxel load {_worldEditorSave:D}");
-            Require(Session.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailEmptyId, "the WorldEditor save did not load back");
+            Require(Session.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailEmptyId, "the world editor save did not load back");
         }
 
         return true;

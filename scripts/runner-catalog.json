@@ -1,5 +1,5 @@
 {
-  "feedback": "每个旧 Godot 脚本各自冷启动引擎。切片 4 烟测连续五个进程；世界编辑器 烟测按配置跑两个进程，帧数上限是 3000 或 6000；体素 baseline 含多次 10 秒帧窗。这些等待仍留在原脚本里，不进日常正确性。已接入的检查在同一次调用里只构建一次游戏工程、只导入一次，然后串行执行。脚本自己的 --quit-after 是 Godot 帧数上限，不是本入口的超时，也不是通过条件。",
+  "feedback": "每个旧 Godot 脚本各自冷启动引擎。切片 4 烟测连续五个进程；世界编辑器烟测按配置跑两个进程，帧数上限是 3000 或 6000；体素 baseline 含多次 10 秒帧窗。这些等待仍留在原脚本里，不进日常正确性。已接入的检查在同一次调用里只构建一次游戏工程、只导入一次，然后串行执行。脚本自己的 --quit-after 是 Godot 帧数上限，不是本入口的超时，也不是通过条件。",
   "checks": [
     {
       "id": "godot.logging-smoke",
@@ -166,7 +166,7 @@
       "entry": "pwsh -NoProfile -File scripts/run-godot-world-editor-observation-smoke.ps1",
       "contract": "无头观察模式驱动相机、面板和选择，保存后由新进程核对观察默认值和权威指纹。",
       "boundary": "需要 GODOT。帧数上限 6000，按配置两个进程。不是像素验收。",
-      "destination": "headless/world-editor。观察契约不并进普通 世界编辑器 烟测。",
+      "destination": "headless/world-editor。观察契约不并进普通 世界编辑器烟测。",
       "status": "inventoried",
       "durationStatus": "unmeasured",
       "claim": "save-restore",
