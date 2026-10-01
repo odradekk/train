@@ -30,7 +30,7 @@ foreach ($name in @(
     'TRAIN_LOG_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE_MODE', 'TRAIN_WORLD_EDITOR_CAPTURE',
     'TRAIN_WORLD_EDITOR_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
     'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID',
-    'TRAIN_WORLD_EDITOR_WORKSPACE_LEG'
+    'TRAIN_WORLD_EDITOR_WORKSPACE_LEG', 'TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -72,30 +72,54 @@ if ($Workspace) {
     New-Item -ItemType Directory -Path $userData | Out-Null
     $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
     try {
-        foreach ($leg in @('save', 'resume')) {
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'save'
+        $save = Invoke-EntryLeg 'save' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
+            'WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace', 'WORKSPACE_OPEN_FAILED fault=corrupt',
+            'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3', 'row_disabled=true', 'WORKSPACE_SAVED old=')) {
+            if (-not $save.Contains($marker)) { throw "Workspace save omitted assertion marker: $marker" }
+        }
+        $ids = [regex]::Match($save, 'WORKSPACE_SAVE_AS old=([0-9a-fA-F-]{36}) copy=([0-9a-fA-F-]{36})')
+        if (-not $ids.Success -or $ids.Groups[1].Value -eq $ids.Groups[2].Value) {
+            throw 'Workspace save-as leg did not provide two distinct save UUIDs.'
+        }
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID = $ids.Groups[1].Value
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID = $ids.Groups[2].Value
+
+        foreach ($leg in @('resume-old', 'resume-new')) {
             $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
             $text = Invoke-EntryLeg $leg 'WORKSPACE'
-            $markers = @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=')
-            $markers += if ($leg -eq 'save') {
-                @('WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace',
-                    'WORKSPACE_OPEN_FAILED fault=corrupt', 'row_disabled=true', 'WORKSPACE_SAVED id=', 'save_continue=true')
-            } else { @('WORKSPACE_CONTINUED id=', 'voxels=4 pending=0 paused=true') }
-            foreach ($marker in $markers) {
+            foreach ($marker in @('WORKSPACE_MENU ready=true', "WORKSPACE_LIST_OPEN id=", "WORKSPACE_CONTINUED leg=$leg", 'pending=0 paused=true')) {
                 if (-not $text.Contains($marker)) { throw "Workspace $leg omitted assertion marker: $marker" }
             }
         }
-        [ordered]@{ outcome = 'passed'; durationMs = $started.ElapsedMilliseconds } |
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'verify'
+        $verify = Invoke-EntryLeg 'verify' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=',
+            'WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 cross_edits=false pending=0')) {
+            if (-not $verify.Contains($marker)) { throw "Workspace verify omitted assertion marker: $marker" }
+        }
+        [ordered]@{
+            outcome = 'passed'
+            durationMs = $started.ElapsedMilliseconds
+            originalSaveId = $ids.Groups[1].Value
+            copiedSaveId = $ids.Groups[2].Value
+        } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
         @'
 # World editor workspace cross-process validation
 
-Two fresh Godot processes enter through the menu action and the workspace list. The first creates a truly
-blank paused unsaved world, edits, queues input, saves, checks cancel/save failure/discard and save-and-return.
-A save corrupted after the list loads keeps the workspace with a reason and a refreshed disabled row.
-The second opens the ordinary save from the list, verifies identity, pause, position and pending input, then edits
-and runs through the pending command. Godot mesh and collider counts match the continued world.
+Four fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
+world, saves it, exercises return cancellation and failed ordinary save, then drives the save-as button and confirmation
+signals. Cancelling preserves identity, dirty state and the original bytes; confirming creates a distinct current save
+and keeps the original. It then reopens the copy, edits it and completes a successful save-and-return. A save corrupted
+after the list loads keeps the workspace with a reason and refreshed disabled row.
+The next two processes independently open the original and copy, run the shared pending command, make distinct edits and
+save to their own identities. The final process opens both from the workspace and proves their continued edits did not
+cross while the copy retained the world state captured by save-as. Godot mesh and collider counts match each continued world.
 
-Automated assertions: save.stdout.log, resume.stdout.log; process identities: processes.log; tested head: config.json.
+Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, verify.stdout.log; process identities:
+processes.log; tested head: config.json.
 This headless result does not establish graphical interaction or manual acceptance.
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
         Write-Host "World editor workspace cross-process validation passed. Evidence: $OutputDirectory"
@@ -108,6 +132,8 @@ This headless result does not establish graphical interaction or manual acceptan
     }
     finally {
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
     }
 }

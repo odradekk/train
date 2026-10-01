@@ -680,9 +680,9 @@ internal sealed class WorldEditorObservationSmoke
         {
             if (replacement == WorldReplacement.Reset)
             {
-                _worldEditorSave = SaveThroughConsole("Before replacement");
+                _worldEditorSave = SaveCopy("Before replacement");
                 RunConsole("composite reset hollow");
-                _hollowSave = SaveThroughConsole("Hollow");
+                _hollowSave = SaveCopy("Hollow");
             }
 
             var vehicle = Session.Vehicles.Single().Id;
@@ -751,12 +751,11 @@ internal sealed class WorldEditorObservationSmoke
         return true;
     }
 
-    /// <summary>Saves as a new slot: <c>voxel save</c> otherwise overwrites the save the session last used.</summary>
-    private Guid SaveThroughConsole(string name)
+    private Guid SaveCopy(string name)
     {
-        Session.DetachSaveIdentity();
-        RunConsole($"voxel save {name}");
-        return Session.SaveId ?? throw new InvalidOperationException($"voxel save {name} did not save");
+        var saved = Session.SaveAs(name);
+        Require(saved.Succeeded, $"save copy {name} failed: {saved.Status}");
+        return saved.SaveId ?? throw new InvalidOperationException($"save copy {name} did not save");
     }
 
     private void RequireStill(string what)

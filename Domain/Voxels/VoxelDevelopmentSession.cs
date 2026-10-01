@@ -127,8 +127,6 @@ public sealed partial class VoxelDevelopmentSession
         WorldReplaced?.Invoke(WorldReplacement.Reset);
     }
 
-    public void DetachSaveIdentity() => SaveId = null;
-
     /// <summary>
     /// The session establish boundary: the declared initial world was built through the edit entry, and the input
     /// order of the established session starts here at <c>0:0</c> with edit id 1.
@@ -543,7 +541,12 @@ public sealed partial class VoxelDevelopmentSession
         return dirty;
     }
 
-    public WorldSaveResult Save(string? displayName = null)
+    /// <summary>Writes an independent save and switches the current target only after publication succeeds.</summary>
+    public WorldSaveResult SaveAs(string? displayName = null) => WriteSave(Guid.NewGuid(), displayName);
+
+    public WorldSaveResult Save(string? displayName = null) => WriteSave(SaveId ?? Guid.NewGuid(), displayName);
+
+    private WorldSaveResult WriteSave(Guid id, string? displayName)
     {
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
@@ -554,7 +557,6 @@ public sealed partial class VoxelDevelopmentSession
         if (!WorldSaveDocument.TryNormalizeDisplayName(name, out var normalized))
             return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
 
-        var id = SaveId ?? Guid.NewGuid();
         if (!WorldSaveCodec.TryCapture(
                 World,
                 _catalog.Current,

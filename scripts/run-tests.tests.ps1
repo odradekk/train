@@ -471,6 +471,7 @@ $expected = @{
     PhysicalRailTests = "headless/railway/railway"
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
     WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
@@ -867,9 +868,12 @@ internal static class Program
                 {
                     Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
                     Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
-                    Console.WriteLine("WORKSPACE_SAVED id=fixture save_continue=true");
+                    Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
+                    Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");
+                    Console.WriteLine("WORKSPACE_SAVED old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222");
                 }
-                else Console.WriteLine("WORKSPACE_CONTINUED id=fixture voxels=4 pending=0 paused=true");
+                else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 cross_edits=false pending=0");
+                else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
                 return mode == "workspace-fail" ? 7 : 0;
             }
@@ -917,9 +921,11 @@ It "fixture-workspace-script" {
         Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
         Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
         if ($mode -eq 'pass') {
-            Assert-True 'resume process ran' (Test-Path -LiteralPath (Join-Path $directory 'resume.stdout.log'))
+            foreach ($leg in @('resume-old', 'resume-new', 'verify')) {
+                Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
+            }
         } else {
-            Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume.stdout.log')))
+            Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume-old.stdout.log')))
             Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))
         }
         if ($mode -eq 'hold') {
@@ -1974,7 +1980,7 @@ It "real-list" {
     Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace group" "godot-workspace" $workspace.Group
-    Assert-Equal "workspace claim" "save-restore+workspace-navigation" $workspace.Claim
+    Assert-Equal "workspace claim" "save-as-isolation+cross-process-restore+workspace-navigation" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family

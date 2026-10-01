@@ -51,6 +51,8 @@ public partial class WorldEditorScene : Node3D
     private WorldEditorObservationView? _observation;
     private LineEdit _saveName = null!;
     private WorldEditorWorkspaceSmoke? _workspaceSmoke;
+    private ConfirmationDialog _saveAsPrompt = null!;
+    private LineEdit _saveAsName = null!;
 
     internal VoxelDevelopmentSession? Session => _session;
     internal WorldEditorObservationView? Observation => _observation;
@@ -159,6 +161,11 @@ public partial class WorldEditorScene : Node3D
     internal void Press(string button) => _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
 
     internal void SetSaveName(string name) => _saveName.Text = name;
+
+    internal bool SaveAsPromptVisible => _saveAsPrompt.Visible;
+    internal void SetSaveAsName(string name) => _saveAsName.Text = name;
+    internal void PressSaveAsConfirm() => _saveAsPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
+    internal void PressSaveAsCancel() => _saveAsPrompt.GetCancelButton().EmitSignal(BaseButton.SignalName.Pressed);
 
     internal bool PromptVisible => _worldChangePrompt?.Visible == true;
 
@@ -318,6 +325,7 @@ public partial class WorldEditorScene : Node3D
         _saveName = new LineEdit { PlaceholderText = "存档名称", MaxLength = WorldSaveDocument.DisplayNameMaxLength, CustomMinimumSize = new Vector2(150, 0) };
         persistence.AddChild(_saveName);
         AddButton(persistence, "save", "保存", () => SaveWorld());
+        AddButton(persistence, "save_as", "另存为", BeginSaveAs);
         AddButton(persistence, "workspace", "返回存档工作区", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.ReturnToWorkspace, null)));
         if (Main.IsFixedWorldEditorAutomationEnabled())
         {
@@ -333,6 +341,12 @@ public partial class WorldEditorScene : Node3D
         _worldChangePrompt = new UnsavedWorldChangePrompt();
         _worldChangePrompt.Chosen += ConfirmWorldChange;
         AddChild(_worldChangePrompt);
+        _saveAsPrompt = new ConfirmationDialog { Title = "另存为新存档", OkButtonText = "另存为", CancelButtonText = "取消" };
+        _saveAsName = new LineEdit { MaxLength = WorldSaveDocument.DisplayNameMaxLength, PlaceholderText = "新存档名称（留空沿用当前名称）" };
+        _saveAsPrompt.AddChild(_saveAsName);
+        _saveAsPrompt.Confirmed += CompleteSaveAs;
+        _saveAsPrompt.Canceled += _saveAsPrompt.Hide;
+        AddChild(_saveAsPrompt);
 
         var world = new HBoxContainer();
         world.AddThemeConstantOverride("separation", 6);
@@ -449,7 +463,34 @@ public partial class WorldEditorScene : Node3D
         var result = _session?.Save(RequestedSaveName())
                      ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
         _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}";
+        UpdateSavedName(result);
         return result;
+    }
+
+    private void BeginSaveAs()
+    {
+        _saveAsName.Text = RequestedSaveName() ?? _session!.DisplayName;
+        _saveAsPrompt.PopupCentered(new Vector2I(430, 130));
+        _saveAsName.GrabFocus();
+        _saveAsName.SelectAll();
+    }
+
+    private void CompleteSaveAs()
+    {
+        _saveAsPrompt.Hide();
+        var name = _saveAsName.Text.Length > 0 ? _saveAsName.Text : null;
+        var result = _session?.SaveAs(name) ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
+        _result.Text = $"最近操作：另存为 → {result.Status} {result.SaveId}";
+        UpdateSavedName(result);
+    }
+
+    private void UpdateSavedName(WorldSaveResult result)
+    {
+        if (!result.Succeeded)
+            return;
+        _saveName.Text = "";
+        _saveName.PlaceholderText = _session!.DisplayName;
+        _state.Text = StateText();
     }
 
     private string? RequestedSaveName() =>
