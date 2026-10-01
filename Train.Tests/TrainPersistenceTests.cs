@@ -406,7 +406,7 @@ public sealed class TrainPersistenceTests
         {
             File.WriteAllText(path, previous);
             var oldWorld = slice2.World;
-            Assert.AreEqual(WorldSaveStatus.MissingDefinition, slice2.Load(good.SaveId!.Value).Status);
+            Assert.AreEqual(WorldSaveStatus.IncompatibleBase, slice2.Load(good.SaveId!.Value).Status);
             Assert.AreSame(oldWorld, slice2.World);
             Assert.AreEqual(VoxelWorldIdentity.Slice2, slice2.Identity);
         }

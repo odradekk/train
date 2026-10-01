@@ -607,6 +607,7 @@ public sealed partial class VoxelDevelopmentSession
                 _catalog.Current,
                 _composites.Current,
                 document,
+                _playgroundHost ? null : Identity,
                 adaptations,
                 failures,
                 out var restore,

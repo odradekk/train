@@ -1201,6 +1201,7 @@ public static class WorldSaveRestorer
         VoxelCatalogSnapshot catalog,
         CompositeCatalogSnapshot composites,
         WorldSaveDocument document,
+        VoxelWorldIdentity? expectedIdentity,
         List<WorldSaveAdaptation> adaptations,
         WorldSaveFailureLog failures,
         out WorldSaveRestore restore,
@@ -1221,7 +1222,17 @@ public static class WorldSaveRestorer
         }
 
         if (!TryResolveIdentity(document, out var identity, out status))
+        {
+            failures.Report("base", "identity", status == WorldSaveStatus.UnknownGenerator ? "generator_version" : "seed_bounds",
+                "the saved world identity is not supported");
             return false;
+        }
+        if (expectedIdentity is { } expected && identity != expected)
+        {
+            status = WorldSaveStatus.IncompatibleBase;
+            failures.Report("base", "identity", "seed_bounds", "the saved world identity does not match this session");
+            return false;
+        }
 
         VoxelWorld generated;
         try
@@ -1352,32 +1363,24 @@ public static class WorldSaveRestorer
             status = WorldSaveStatus.Loaded;
             return true;
         }
-        var slice = document.GeneratorVersion switch
+        var canonical = document.GeneratorVersion switch
         {
-            VoxelWorldIdentity.Slice4GeneratorVersion => VoxelDevelopmentSlice.Slice4,
-            VoxelWorldIdentity.Slice3GeneratorVersion => VoxelDevelopmentSlice.Slice3,
-            VoxelWorldIdentity.Slice2GeneratorVersion => VoxelDevelopmentSlice.Slice2,
-            VoxelWorldIdentity.Slice1GeneratorVersion => VoxelDevelopmentSlice.Slice1,
-            _ => (VoxelDevelopmentSlice)(-1)
+            VoxelWorldIdentity.Slice4GeneratorVersion => VoxelWorldIdentity.Slice4,
+            VoxelWorldIdentity.Slice3GeneratorVersion => VoxelWorldIdentity.Slice3,
+            VoxelWorldIdentity.Slice2GeneratorVersion => VoxelWorldIdentity.Slice2,
+            VoxelWorldIdentity.Slice1GeneratorVersion => VoxelWorldIdentity.Slice1,
+            _ => default
         };
-        if ((int)slice < 0)
+        if (canonical == default)
             return false;
-        try
-        {
-            identity = new VoxelWorldIdentity(
-                slice,
-                document.Seed,
-                document.GeneratorVersion,
-                document.Bounds,
-                document.ChunkSize);
-            status = WorldSaveStatus.Loaded;
-            return true;
-        }
-        catch (ArgumentException)
+        if (document.Seed != canonical.Seed || document.Bounds != canonical.Bounds || document.ChunkSize != canonical.ChunkSize)
         {
             status = WorldSaveStatus.IncompatibleBase;
             return false;
         }
+        identity = canonical;
+        status = WorldSaveStatus.Loaded;
+        return true;
     }
 
     private static bool TryValidateDefinitionRecords(

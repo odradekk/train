@@ -25,6 +25,9 @@ public sealed partial class VoxelDevelopmentSession
     public WorldChangeResult TryChangeWorld(WorldChangeRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!_playgroundHost && request.Kind is WorldChangeKind.NewBlank or WorldChangeKind.SwitchConfiguration)
+            return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
+                diagnostic: new WorldSaveDiagnostic("base", "session", "world_editor", "new worlds and configuration switches require the world editor host"));
         if (request.Choice == WorldChangeChoice.Cancel)
             return Change(WorldChangeStatus.Cancelled);
         if (request.Kind == WorldChangeKind.NewBlank &&

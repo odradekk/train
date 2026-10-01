@@ -124,6 +124,35 @@ public sealed class BlankWorldTests
     }
 
     [TestMethod]
+    public void Non_editor_session_rejects_blank_creation_and_configuration_switch_without_saving()
+    {
+        using var harness = PlaygroundHarness.Content();
+        var session = new VoxelDevelopmentSession(harness.Catalog, VoxelWorldIdentity.Slice3, harness.Store, harness.Composites);
+        harness.Attach(session);
+        Assert.AreEqual(WorldCommandStatus.Added, session.Add(
+            new WorldVoxelCoord(1, 1, 1), VoxelDefinitionId.Parse("core:ferrous-ore"), VoxelOrientation.Identity).Status);
+        var world = session.World;
+        var commands = new VoxelConsoleCommands(session);
+        foreach (var command in new[] { "new 8 8 8 1", "use straight-rail-empty" })
+        foreach (var choice in new[] { " discard", " save", "", " cancel" })
+        {
+            var output = commands.Execute((command + choice).Split(' ', StringSplitOptions.RemoveEmptyEntries));
+            StringAssert.StartsWith(output, "Voxel IncompatibleBase.");
+            StringAssert.Contains(output, "stage base subject session relationship world_editor");
+            Assert.AreSame(world, session.World);
+            Assert.AreEqual(VoxelWorldIdentity.Slice3, session.Identity);
+            Assert.IsNull(session.WorldSource);
+            Assert.IsNull(session.SaveId);
+            Assert.IsTrue(session.HasUnsavedChanges);
+            Assert.IsFalse(session.SimulationPaused);
+        }
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(
+            new WorldChangeRequest(WorldChangeKind.Reset, WorldChangeChoice.Discard)).Status);
+        Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Slice after rejected change").Status);
+        Assert.AreEqual(WorldSaveStatus.Loaded, session.Load(session.SaveId!.Value).Status);
+    }
+
+    [TestMethod]
     public void Invalid_blank_parameters_keep_world_identity_observation_and_unsaved_state_without_saving()
     {
         using var harness = PlaygroundHarness.Establish("straight-rail-train");
@@ -155,6 +184,50 @@ public sealed class BlankWorldTests
         Assert.AreSame(world, session.World);
         NewBlank(session, 320, 32, 32, 0);
         Assert.AreEqual(new VoxelWorldBounds(320, 32, 32), session.Identity.Bounds);
+    }
+
+    [TestMethod]
+    public void Altered_legacy_slice_identity_is_rejected_before_world_replacement()
+    {
+        using var harness = PlaygroundHarness.Establish("straight-rail-empty");
+        var legacy = new VoxelDevelopmentSession(harness.Catalog, VoxelWorldIdentity.Slice3, harness.Store, harness.Composites);
+        WorldSaveResult saved;
+        try { saved = legacy.Save("Canonical slice"); }
+        finally { legacy.Detach(); }
+        Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
+        var path = harness.Store.PathFor(saved.SaveId!.Value);
+        var original = File.ReadAllText(path);
+        var session = harness.Session;
+        var world = session.World;
+        var identity = session.Identity;
+        var source = session.WorldSource;
+        foreach (var mutation in new Action<JsonObject>[]
+        {
+            root => root["bounds"]!["x"] = 33,
+            root => root["chunk_size"] = 8,
+            root => root["seed"] = 43
+        })
+        {
+            var root = JsonNode.Parse(original)!.AsObject();
+            mutation(root);
+            var invalid = root.ToJsonString();
+            File.WriteAllText(path, invalid);
+            var rejected = session.Load(saved.SaveId.Value);
+            Assert.AreEqual(WorldSaveStatus.IncompatibleBase, rejected.Status);
+            Assert.AreEqual("base", rejected.Diagnostic!.Stage);
+            Assert.AreEqual("identity", rejected.Diagnostic.Subject);
+            Assert.AreEqual("seed_bounds", rejected.Diagnostic.Relationship);
+            Assert.AreSame(world, session.World);
+            Assert.AreEqual(identity, session.Identity);
+            Assert.AreEqual(source, session.WorldSource);
+            Assert.IsNull(session.SaveId);
+            Assert.IsTrue(session.SimulationPaused);
+            Assert.AreEqual(invalid, File.ReadAllText(path));
+        }
+        File.WriteAllText(path, original);
+        Assert.AreEqual(WorldSaveStatus.Loaded, session.Load(saved.SaveId.Value).Status);
+        Assert.AreEqual(VoxelWorldIdentity.Slice3, session.Identity);
+        Assert.IsNull(session.WorldSource);
     }
 
     [TestMethod]

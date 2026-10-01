@@ -216,18 +216,24 @@ public sealed class WorldSaveTests
     }
 
     [TestMethod]
-    public void Other_slice_save_replaces_identity_and_keeps_the_restored_world_editable()
+    public void Other_slice_identity_is_base_incompatible_and_keeps_that_world_editable()
     {
         using var writer = SaveHarness.Create();
         WorldSaveFixture.ApplyFixedSequence(writer.Session);
         var saved = writer.Session.Save();
         using var slice1 = SaveHarness.Create(writer.UserData, identity: VoxelWorldIdentity.Slice1);
         Assert.AreEqual(512, slice1.Session.World.VoxelCount);
-        Assert.AreEqual(WorldSaveStatus.Loaded, slice1.Session.Load(saved.SaveId!.Value).Status);
-        Assert.AreEqual(writer.Session.Identity, slice1.Session.Identity);
-        AssertRestoredSequence(slice1.Session);
+        var world = slice1.Session.World;
+        var rejected = slice1.Session.Load(saved.SaveId!.Value);
+        Assert.AreEqual(WorldSaveStatus.IncompatibleBase, rejected.Status);
+        Assert.AreEqual("base", rejected.Diagnostic!.Stage);
+        Assert.AreEqual("identity", rejected.Diagnostic.Subject);
+        Assert.AreEqual("seed_bounds", rejected.Diagnostic.Relationship);
+        Assert.AreSame(world, slice1.Session.World);
+        Assert.AreEqual(VoxelWorldIdentity.Slice1, slice1.Session.Identity);
+        Assert.AreEqual(512, slice1.Session.World.VoxelCount);
         Assert.AreEqual(WorldCommandStatus.Added, slice1.Session.Add(
-            new WorldVoxelCoord(0, 2, 0), Iron, VoxelOrientation.Identity).Status);
+            new WorldVoxelCoord(0, 0, 0), Iron, VoxelOrientation.Identity).Status);
     }
 
     [TestMethod]
