@@ -2,6 +2,7 @@ namespace Train.Domain.Voxels;
 
 public enum VoxelDevelopmentSlice
 {
+    Blank = 0,
     Slice1 = 1,
     Slice2 = 2,
     Slice3 = 3,

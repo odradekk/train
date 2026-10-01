@@ -503,11 +503,12 @@ public sealed class PlaygroundSaveSwitchTests
         var again = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId));
         Assert.AreEqual(WorldChangeStatus.Completed, again.Status);
         Assert.IsFalse(session.SimulationPaused);
-        var blocked = commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId, "discard" });
-        StringAssert.Contains(blocked, "relationship world_source");
+        var switched = commands.Execute(new[] { "use", PlaygroundConfigurations.StraightRailEmptyId, "discard" });
+        StringAssert.StartsWith(switched, "Voxel IncompatibleBase.");
+        StringAssert.Contains(switched, "stage base subject session relationship world_editor");
         Assert.IsNull(session.WorldSource);
         Assert.IsFalse(session.SimulationPaused);
-        Assert.IsTrue(session.Query(new WorldVoxelCoord(4, 4, 4)).IsOccupied);
+        Assert.AreEqual(saved.SaveId, session.SaveId);
     }
 
     private static void AssertRestoredRunningSave(VoxelDevelopmentSession session, double speed, TrainHaltReason halt)

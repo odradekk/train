@@ -4,7 +4,8 @@ public enum WorldChangeKind
 {
     Reset,
     SwitchConfiguration,
-    Load
+    Load,
+    NewBlank
 }
 
 public enum WorldChangeChoice
@@ -28,7 +29,8 @@ public sealed record WorldChangeRequest(
     WorldChangeChoice? Choice,
     string? ConfigurationId = null,
     Guid? SaveId = null,
-    string? FixtureId = null);
+    string? FixtureId = null,
+    VoxelWorldIdentity? BlankIdentity = null);
 
 public sealed record WorldChangeResult(
     WorldChangeStatus Status,

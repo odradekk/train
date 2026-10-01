@@ -223,7 +223,14 @@ public sealed class WorldSaveTests
         var saved = writer.Session.Save();
         using var slice1 = SaveHarness.Create(writer.UserData, identity: VoxelWorldIdentity.Slice1);
         Assert.AreEqual(512, slice1.Session.World.VoxelCount);
-        Assert.AreEqual(WorldSaveStatus.IncompatibleBase, slice1.Session.Load(saved.SaveId!.Value).Status);
+        var world = slice1.Session.World;
+        var rejected = slice1.Session.Load(saved.SaveId!.Value);
+        Assert.AreEqual(WorldSaveStatus.IncompatibleBase, rejected.Status);
+        Assert.AreEqual("base", rejected.Diagnostic!.Stage);
+        Assert.AreEqual("identity", rejected.Diagnostic.Subject);
+        Assert.AreEqual("seed_bounds", rejected.Diagnostic.Relationship);
+        Assert.AreSame(world, slice1.Session.World);
+        Assert.AreEqual(VoxelWorldIdentity.Slice1, slice1.Session.Identity);
         Assert.AreEqual(512, slice1.Session.World.VoxelCount);
         Assert.AreEqual(WorldCommandStatus.Added, slice1.Session.Add(
             new WorldVoxelCoord(0, 0, 0), Iron, VoxelOrientation.Identity).Status);

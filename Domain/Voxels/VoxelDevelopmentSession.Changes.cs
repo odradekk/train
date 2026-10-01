@@ -14,6 +14,8 @@ public sealed partial class VoxelDevelopmentSession
 
     public void MarkPersistenceClean() => _cleanFingerprint = WorldSaveAuthority.Fingerprint(this);
 
+    internal void MarkNewWorldUnsaved() => _cleanFingerprint = "";
+
     /// <summary>
     /// Marks this session as the Playground host. The duty stays with the session object and is not cleared when a
     /// save replaces <see cref="WorldSource"/>.
@@ -23,8 +25,17 @@ public sealed partial class VoxelDevelopmentSession
     public WorldChangeResult TryChangeWorld(WorldChangeRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!_playgroundHost && request.Kind is WorldChangeKind.NewBlank or WorldChangeKind.SwitchConfiguration)
+            return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
+                diagnostic: new WorldSaveDiagnostic("base", "session", "world_editor", "new worlds and configuration switches require the world editor host"));
         if (request.Choice == WorldChangeChoice.Cancel)
             return Change(WorldChangeStatus.Cancelled);
+        if (request.Kind == WorldChangeKind.NewBlank &&
+            (request.BlankIdentity is not { } blank ||
+             !BlankWorldSource.TryIdentity(blank.Bounds.SizeX, blank.Bounds.SizeY, blank.Bounds.SizeZ, blank.Seed, out var supported) ||
+             blank != supported))
+            return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
+                diagnostic: new WorldSaveDiagnostic("base", "blank", "parameters", $"blank extent requires {BlankWorldSource.ExtentDescription} and the supported source version"));
         if (HasUnsavedChanges && request.Choice is null)
             return Change(WorldChangeStatus.ChoiceRequired);
 
@@ -48,6 +59,7 @@ public sealed partial class VoxelDevelopmentSession
             WorldChangeKind.Reset => ResetThroughChange(request.FixtureId),
             WorldChangeKind.SwitchConfiguration => SwitchThroughChange(request.ConfigurationId),
             WorldChangeKind.Load => LoadThroughChange(request.SaveId),
+            WorldChangeKind.NewBlank => AdoptBlank(request.BlankIdentity!.Value, keepSaveIdentity: false),
             _ => Change(
                 WorldChangeStatus.CandidateFailed,
                 diagnostic: new WorldSaveDiagnostic("base", "session", "change", "the requested world change is not supported"))
@@ -63,6 +75,9 @@ public sealed partial class VoxelDevelopmentSession
         {
             if (WorldSource is null)
                 return PlaygroundResetNeedsConfiguration();
+
+            if (WorldSource.Kind == WorldSource.BlankKind)
+                return AdoptBlank(Identity, keepSaveIdentity: true);
 
             return AdoptConfiguration(WorldSource.ConfigurationId, keepSaveIdentity: true);
         }
@@ -95,9 +110,14 @@ public sealed partial class VoxelDevelopmentSession
 
             if (WorldSource is { } source)
             {
-                var status = PlaygroundSession.TryEstablish(source.ConfigurationId, _catalog, _composites, _store, out candidate);
-                if (status != PlaygroundEstablishStatus.Established || candidate is null)
-                    return Change(WorldChangeStatus.CandidateFailed, candidateStatus: MapEstablish(status), diagnostic: DiagnoseEstablish(source.ConfigurationId, status));
+                if (source.Kind == WorldSource.BlankKind)
+                    candidate = BlankWorldSource.Establish(Identity, _catalog, _composites, _store);
+                else
+                {
+                    var status = PlaygroundSession.TryEstablish(source.ConfigurationId, _catalog, _composites, _store, out candidate);
+                    if (status != PlaygroundEstablishStatus.Established || candidate is null)
+                        return Change(WorldChangeStatus.CandidateFailed, candidateStatus: MapEstablish(status), diagnostic: DiagnoseEstablish(source.ConfigurationId, status));
+                }
             }
             else
             {
@@ -135,14 +155,6 @@ public sealed partial class VoxelDevelopmentSession
 
     private WorldChangeResult SwitchThroughChange(string? configurationId)
     {
-        if (!_playgroundHost && WorldSource is null)
-        {
-            return Change(
-                WorldChangeStatus.CandidateFailed,
-                candidateStatus: WorldSaveStatus.IncompatibleBase,
-                diagnostic: new WorldSaveDiagnostic("base", "session", "world_source", "the current session has no fixed configuration to switch"));
-        }
-
         if (string.IsNullOrWhiteSpace(configurationId))
         {
             return Change(
@@ -200,6 +212,13 @@ public sealed partial class VoxelDevelopmentSession
         }
     }
 
+    private WorldChangeResult AdoptBlank(VoxelWorldIdentity identity, bool keepSaveIdentity)
+    {
+        var candidate = BlankWorldSource.Establish(identity, _catalog, _composites, _store);
+        Adopt(candidate, keepSaveIdentity, pause: true);
+        return Change(WorldChangeStatus.Completed);
+    }
+
     private void Adopt(VoxelDevelopmentSession candidate, bool keepSaveIdentity, bool pause)
     {
         var saveId = SaveId;
@@ -214,6 +233,7 @@ public sealed partial class VoxelDevelopmentSession
             candidate.SimulationStep,
             candidate.CaptureEditQueue()));
         WorldSource = candidate.WorldSource;
+        _playgroundHost |= candidate._playgroundHost;
         if (keepSaveIdentity)
         {
             SaveId = saveId;
@@ -228,6 +248,9 @@ public sealed partial class VoxelDevelopmentSession
         if (pause)
             PauseSimulation();
         MarkPersistenceClean();
+        if (candidate.WorldSource?.Kind == WorldSource.BlankKind)
+            MarkNewWorldUnsaved();
+        Changed?.Invoke();
         WorldReplaced?.Invoke(WorldReplacement.Reset);
         candidate.Detach();
     }

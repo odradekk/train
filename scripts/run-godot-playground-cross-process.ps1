@@ -1,4 +1,4 @@
-param([string] $OutputDirectory)
+param([string] $OutputDirectory, [switch] $BlankWorld)
 
 # Formal Playground comparison for #127. Each leg is a fresh Godot process.
 # Run after building Train.csproj, with GODOT set to the Godot .NET console executable.
@@ -10,7 +10,8 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     exit 2
 }
 if (-not $OutputDirectory) {
-    $OutputDirectory = Join-Path $root ('.godot/validation/issue-127/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
+    $validationIssue = if ($BlankWorld) { 'issue-165' } else { 'issue-127' }
+    $OutputDirectory = Join-Path $root ('.godot/validation/' + $validationIssue + '/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $OutputDirectory) {
@@ -26,10 +27,100 @@ foreach ($name in @(
     'TRAIN_VOXEL_BASELINE', 'TRAIN_CONTENT_SMOKE', 'TRAIN_CONTENT_EXPORT_SMOKE', 'TRAIN_MODS_EXPORT_SMOKE',
     'TRAIN_LOG_SMOKE', 'TRAIN_PLAYGROUND_SMOKE', 'TRAIN_PLAYGROUND_SMOKE_MODE', 'TRAIN_PLAYGROUND_CAPTURE',
     'TRAIN_PLAYGROUND_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
-    'TRAIN_AUTHORITY_BUILD', 'TRAIN_PLAYGROUND_SAVE_ID'
+    'TRAIN_AUTHORITY_BUILD', 'TRAIN_PLAYGROUND_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
+
+if ($BlankWorld) {
+    $started = [Diagnostics.Stopwatch]::StartNew()
+    [ordered]@{
+        mode = 'blank-world'
+        commit = (git rev-parse HEAD).Trim()
+        dirty = (@(git status --porcelain).Count -gt 0)
+        godot = $env:GODOT
+        godot_version = (& $env:GODOT --headless --version | Select-Object -First 1)
+        dotnet = (dotnet --version).Trim()
+        powershell = $PSVersionTable.PSVersion.ToString()
+        operating_system = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+        command = 'pwsh -NoProfile -File scripts/run-godot-playground-cross-process.ps1 -BlankWorld -OutputDirectory <fresh path>'
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'config.json') -Encoding utf8
+    Remove-Item Env:TRAIN_PLAYGROUND_CROSS_PROCESS -ErrorAction SilentlyContinue
+    $env:TRAIN_PLAYGROUND_CONFIG = 'straight-rail-train'
+    $userData = Join-Path $OutputDirectory 'user-data'
+    $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+    New-Item -ItemType Directory -Path $userData | Out-Null
+
+    function Invoke-BlankLeg([string] $leg) {
+        $env:TRAIN_BLANK_WORLD_LEG = $leg
+        $out = Join-Path $OutputDirectory "$leg.stdout.log"
+        $err = Join-Path $OutputDirectory "$leg.stderr.log"
+        $process = Start-Process -FilePath $env:GODOT -ArgumentList @('--headless', '--path', '.', '--quit-after', '3000') `
+            -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+        if (-not $process.WaitForExit(60000)) {
+            $process.Kill($true)
+            $process.WaitForExit()
+            throw "Blank-world $leg exceeded the 60-second process cap; inspect $out and $err."
+        }
+        $process.WaitForExit()
+        $text = [System.IO.File]::ReadAllText($out) + "`n" + [System.IO.File]::ReadAllText($err)
+        "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) user_data=$userData" |
+            Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
+        if ($process.ExitCode -ne 0 -or -not $text.Contains("BLANK_WORLD_DONE leg=$leg") -or
+            $text.Contains('BLANK_WORLD_FAILED') -or $text.Contains('PLAYGROUND_ESTABLISH_FAILED') -or
+            $text.Contains('Unhandled exception') -or $text.Contains('ERROR:')) {
+            throw "Blank-world $leg leg failed; inspect $out and $err (exit $($process.ExitCode))."
+        }
+        return $text
+    }
+
+    try {
+        $save = Invoke-BlankLeg 'save'
+        foreach ($marker in @('BLANK_WORLD_CREATED bounds=33,17,19 seed=42', 'BLANK_WORLD_INVALID_NEW_KEPT count=4',
+            'BLANK_WORLD_SAVED id=', 'step=1 durability=75 pending=1')) {
+            if (-not $save.Contains($marker)) { throw "Blank-world save leg omitted marker: $marker" }
+        }
+        $match = [regex]::Match($save, 'BLANK_WORLD_SAVED id=([0-9a-fA-F-]{36})')
+        if (-not $match.Success) { throw 'Blank-world save leg did not print its UUID.' }
+        $env:TRAIN_BLANK_WORLD_SAVE_ID = $match.Groups[1].Value
+        $resume = Invoke-BlankLeg 'resume'
+        foreach ($marker in @('BLANK_WORLD_RESTORED id=', 'from=fixed', 'BLANK_WORLD_CONTINUED step=3 pending=0',
+            'BLANK_WORLD_TRANSITION blank-fixed-blank=true', 'BLANK_WORLD_TRANSITION blank-legacy-blank=true',
+            'BLANK_WORLD_BAD_LOAD_KEPT', 'running=true observation=true')) {
+            if (-not $resume.Contains($marker)) { throw "Blank-world resume leg omitted marker: $marker" }
+        }
+
+        $report = @"
+# Blank world cross-process validation
+
+Two fresh Godot processes shared only the isolated user-data directory. The first established the fixed train source,
+created a 33 x 17 x 19 blank world with seed 42 through the console, edited and damaged a voxel, queued an edit for
+step 3, advanced to step 1, and saved. The second established the fixed source before loading that UUID through the
+formal console command, checked identity/source/pause/queue/durability and Godot presentation, continued through the
+pending edit, and exercised blank -> fixed -> blank -> slice 2 predecessor -> blank transitions. Invalid voxel-new
+requests and a corrupted save kept the current authority, running state, and observation selection.
+
+Save UUID: $($match.Groups[1].Value)
+
+Raw evidence: save.stdout.log, save.stderr.log, resume.stdout.log, resume.stderr.log, processes.log.
+"@
+        $report | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
+        [ordered]@{ outcome = 'passed'; durationMs = $started.ElapsedMilliseconds; saveId = $match.Groups[1].Value } |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+        Write-Host "Blank-world cross-process validation passed. Evidence: $OutputDirectory"
+        exit 0
+    }
+    catch {
+        [Console]::Error.WriteLine($_)
+        exit 1
+    }
+    finally {
+        Remove-Item Env:TRAIN_BLANK_WORLD_LEG -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_BLANK_WORLD_SAVE_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
+    }
+}
+
 $env:TRAIN_PLAYGROUND_CROSS_PROCESS = '1'
 $env:TRAIN_PLAYGROUND_CONFIG = 'straight-rail-train'
 $env:TRAIN_PLAYGROUND_CROSS_EVIDENCE = $evidence

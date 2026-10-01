@@ -404,7 +404,11 @@ public sealed class TrainPersistenceTests
         var slice2 = new VoxelDevelopmentSession(slice2Reloader.Catalog, VoxelWorldIdentity.Slice2, harness.Store);
         try
         {
+            File.WriteAllText(path, previous);
+            var oldWorld = slice2.World;
             Assert.AreEqual(WorldSaveStatus.IncompatibleBase, slice2.Load(good.SaveId!.Value).Status);
+            Assert.AreSame(oldWorld, slice2.World);
+            Assert.AreEqual(VoxelWorldIdentity.Slice2, slice2.Identity);
         }
         finally
         {

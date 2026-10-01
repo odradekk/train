@@ -42,7 +42,9 @@ public sealed record WorldSaveDiagnostic(string Stage, string Subject, string Re
             => new("format", "save", status.ToString(), "the save could not be read as a supported document"),
         WorldSaveStatus.MissingDefinition
             => new("dependency", "content", "definition", "a required definition is missing"),
-        WorldSaveStatus.UnknownGenerator or WorldSaveStatus.IncompatibleBase or WorldSaveStatus.UnknownSource
+        WorldSaveStatus.UnknownSource
+            => new("base", "world_source", "kind", "the saved source kind is not supported"),
+        WorldSaveStatus.UnknownGenerator or WorldSaveStatus.IncompatibleBase
             => new("base", "world", status.ToString(), "the saved base cannot be rebuilt"),
         WorldSaveStatus.UnsupportedVehicles or WorldSaveStatus.UnsupportedIdentities or WorldSaveStatus.UnsupportedRailway
             => new("format", "save", status.ToString(), "the save uses an unsupported section"),
@@ -1199,7 +1201,7 @@ public static class WorldSaveRestorer
         VoxelCatalogSnapshot catalog,
         CompositeCatalogSnapshot composites,
         WorldSaveDocument document,
-        VoxelWorldIdentity expectedIdentity,
+        VoxelWorldIdentity? expectedIdentity,
         List<WorldSaveAdaptation> adaptations,
         WorldSaveFailureLog failures,
         out WorldSaveRestore restore,
@@ -1220,8 +1222,12 @@ public static class WorldSaveRestorer
         }
 
         if (!TryResolveIdentity(document, out var identity, out status))
+        {
+            failures.Report("base", "identity", status == WorldSaveStatus.UnknownGenerator ? "generator_version" : "seed_bounds",
+                "the saved world identity is not supported");
             return false;
-        if (identity != expectedIdentity)
+        }
+        if (expectedIdentity is { } expected && identity != expected)
         {
             status = WorldSaveStatus.IncompatibleBase;
             failures.Report("base", "identity", "seed_bounds", "the saved world identity does not match this session");
@@ -1346,32 +1352,35 @@ public static class WorldSaveRestorer
     {
         identity = default;
         status = WorldSaveStatus.UnknownGenerator;
-        var slice = document.GeneratorVersion switch
+        if (document.GeneratorVersion == BlankWorldSource.GeneratorVersion)
         {
-            VoxelWorldIdentity.Slice4GeneratorVersion => VoxelDevelopmentSlice.Slice4,
-            VoxelWorldIdentity.Slice3GeneratorVersion => VoxelDevelopmentSlice.Slice3,
-            VoxelWorldIdentity.Slice2GeneratorVersion => VoxelDevelopmentSlice.Slice2,
-            VoxelWorldIdentity.Slice1GeneratorVersion => VoxelDevelopmentSlice.Slice1,
-            _ => (VoxelDevelopmentSlice)(-1)
-        };
-        if ((int)slice < 0)
-            return false;
-        try
-        {
-            identity = new VoxelWorldIdentity(
-                slice,
-                document.Seed,
-                document.GeneratorVersion,
-                document.Bounds,
-                document.ChunkSize);
+            if (document.Source?.Kind != WorldSource.BlankKind || document.ChunkSize != BlankWorldSource.ChunkSize ||
+                !BlankWorldSource.TryIdentity(document.Bounds.SizeX, document.Bounds.SizeY, document.Bounds.SizeZ, document.Seed, out identity))
+            {
+                status = WorldSaveStatus.IncompatibleBase;
+                return false;
+            }
             status = WorldSaveStatus.Loaded;
             return true;
         }
-        catch (ArgumentException)
+        var canonical = document.GeneratorVersion switch
+        {
+            VoxelWorldIdentity.Slice4GeneratorVersion => VoxelWorldIdentity.Slice4,
+            VoxelWorldIdentity.Slice3GeneratorVersion => VoxelWorldIdentity.Slice3,
+            VoxelWorldIdentity.Slice2GeneratorVersion => VoxelWorldIdentity.Slice2,
+            VoxelWorldIdentity.Slice1GeneratorVersion => VoxelWorldIdentity.Slice1,
+            _ => default
+        };
+        if (canonical == default)
+            return false;
+        if (document.Seed != canonical.Seed || document.Bounds != canonical.Bounds || document.ChunkSize != canonical.ChunkSize)
         {
             status = WorldSaveStatus.IncompatibleBase;
             return false;
         }
+        identity = canonical;
+        status = WorldSaveStatus.Loaded;
+        return true;
     }
 
     private static bool TryValidateDefinitionRecords(

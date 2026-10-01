@@ -9,6 +9,7 @@ public readonly record struct WorldSourceDependency(string Kind, string Id, stri
 public sealed class WorldSource : IEquatable<WorldSource>
 {
     public const string FixedConfigurationKind = "fixed_configuration";
+    public const string BlankKind = "blank";
 
     public string Kind { get; }
     public string ConfigurationId { get; }
@@ -73,8 +74,13 @@ internal static class WorldSourceCodec
     {
         writer.WriteStartObject("world_source");
         writer.WriteString("kind", source.Kind);
-        writer.WriteString("configuration_id", source.ConfigurationId);
-        writer.WriteNumber("configuration_version", source.ConfigurationVersion);
+        if (source.Kind == WorldSource.BlankKind)
+            writer.WriteNumber("source_version", source.ConfigurationVersion);
+        else
+        {
+            writer.WriteString("configuration_id", source.ConfigurationId);
+            writer.WriteNumber("configuration_version", source.ConfigurationVersion);
+        }
         writer.WriteStartArray("effective_parameters");
         foreach (var parameter in source.EffectiveParameters)
         {
@@ -112,6 +118,7 @@ internal static class WorldSourceCodec
         string? kind = null;
         string? id = null;
         int? version = null;
+        int? sourceVersion = null;
         IReadOnlyList<WorldSourceParameter>? parameters = null;
         IReadOnlyList<WorldSourceDependency>? dependencies = null;
         var baseFingerprint = "";
@@ -138,6 +145,11 @@ internal static class WorldSourceCodec
                         return false;
                     version = parsed;
                     break;
+                case "source_version":
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var parsedSourceVersion) || parsedSourceVersion <= 0)
+                        return false;
+                    sourceVersion = parsedSourceVersion;
+                    break;
                 case "effective_parameters":
                     if (!TryReadPairs(property.Value, "name", "value", out var pairs))
                         return false;
@@ -160,15 +172,23 @@ internal static class WorldSourceCodec
             }
         }
 
+        if (kind is not null && kind != WorldSource.FixedConfigurationKind && kind != WorldSource.BlankKind)
+        {
+            status = WorldSaveStatus.UnknownSource;
+            return false;
+        }
+        if (kind == WorldSource.BlankKind)
+        {
+            if (id is not null || version is not null)
+                return false;
+            id = WorldSource.BlankKind;
+            version = sourceVersion;
+        }
+        else if (sourceVersion is not null)
+            return false;
         if (kind is null || id is null || version is null || parameters is null || dependencies is null)
         {
             status = WorldSaveStatus.Truncated;
-            return false;
-        }
-
-        if (!string.Equals(kind, WorldSource.FixedConfigurationKind, StringComparison.Ordinal))
-        {
-            status = WorldSaveStatus.UnknownSource;
             return false;
         }
 

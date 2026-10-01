@@ -47,6 +47,7 @@ public partial class PlaygroundScene : Node3D
     private PlaygroundCapture? _capture;
     private AuthorityCheckpointSmoke? _authority;
     private PlaygroundCrossProcessSmoke? _crossProcess;
+    private BlankWorldSmoke? _blankWorld;
     private PlaygroundObservationView? _observation;
 
     internal VoxelDevelopmentSession? Session => _session;
@@ -70,7 +71,7 @@ public partial class PlaygroundScene : Node3D
         {
             _source.Text = $"Playground 无法建立：{main.PlaygroundConfigurationId} · {status}";
             GD.PrintErr($"PLAYGROUND_ESTABLISH_FAILED config={main.PlaygroundConfigurationId} status={status}");
-            if (IsSmoke() || IsAuthority() || IsCrossProcess())
+            if (IsSmoke() || IsAuthority() || IsCrossProcess() || BlankWorldSmoke.Requested())
                 CallDeferred(nameof(QuitFailedEstablish));
             return;
         }
@@ -87,7 +88,9 @@ public partial class PlaygroundScene : Node3D
         main.SetPlaygroundObserver(_observation.Observer);
         Refresh();
 
-        if (IsSmoke() && PlaygroundSwitchSmoke.Requested())
+        if (BlankWorldSmoke.Requested())
+            _blankWorld = new BlankWorldSmoke(this);
+        else if (IsSmoke() && PlaygroundSwitchSmoke.Requested())
             _switchSmoke = new PlaygroundSwitchSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
         else if (IsSmoke() && PlaygroundObservationSmoke.Requested())
             _observationSmoke = new PlaygroundObservationSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
@@ -118,6 +121,7 @@ public partial class PlaygroundScene : Node3D
         _capture?.Advance();
         _authority?.Advance();
         _crossProcess?.Advance();
+        _blankWorld?.Advance();
     }
 
     public override void _ExitTree()
@@ -240,6 +244,8 @@ public partial class PlaygroundScene : Node3D
     private static string SourceText(WorldSource? source) =>
         source is null
             ? "Playground · 当前世界没有固定配置来源"
+            : source.Kind == WorldSource.BlankKind
+            ? $"空白世界 v{source.ConfigurationVersion} · 范围 {source.Parameter("base.bounds")} · 种子 {source.Parameter("base.seed")} · 基底 {source.BaseFingerprint[..8]}"
             : $"Playground · {source.ConfigurationId} v{source.ConfigurationVersion} · {source.Kind} · 参数 {source.EffectiveParameters.Count} · 内容依赖 {source.ContentDependencies.Count}" +
               (source.BaseFingerprint.Length == 0 ? "" : $" · 基底 {source.BaseFingerprint[..8]}");
 

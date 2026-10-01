@@ -5,26 +5,26 @@ using Train.Domain.Voxels;
 
 namespace Train.Domain.Playground;
 
-internal readonly record struct FixedSourceCheck(
+internal readonly record struct WorldSourceCheck(
     bool Succeeded,
     WorldSaveStatus Status,
     WorldSaveDiagnostic? Diagnostic,
     IReadOnlyList<WorldSaveAdaptation> Adaptations)
 {
-    public static FixedSourceCheck Pass(IReadOnlyList<WorldSaveAdaptation>? adaptations = null) =>
+    public static WorldSourceCheck Pass(IReadOnlyList<WorldSaveAdaptation>? adaptations = null) =>
         new(true, WorldSaveStatus.Loaded, null, adaptations ?? Array.Empty<WorldSaveAdaptation>());
 
-    public static FixedSourceCheck Fail(WorldSaveStatus status, WorldSaveDiagnostic diagnostic) =>
+    public static WorldSourceCheck Fail(WorldSaveStatus status, WorldSaveDiagnostic diagnostic) =>
         new(false, status, diagnostic, Array.Empty<WorldSaveAdaptation>());
 }
 
 /// <summary>
-/// Rebuilds a saved fixed configuration and compares it with <see cref="WorldSource.BaseFingerprint"/>.
-/// A fixed source without that fingerprint is an unsupported document and does not load.
+/// Rebuilds a saved source and compares it with <see cref="WorldSource.BaseFingerprint"/>.
+/// A declared source without that fingerprint is an unsupported document and does not load.
 /// </summary>
-internal static class FixedSourceVerification
+internal static class WorldSourceVerification
 {
-    public static FixedSourceCheck Check(
+    public static WorldSourceCheck Check(
         WorldSaveDocument document,
         VoxelCatalog catalog,
         CompositeCatalog composites)
@@ -33,10 +33,15 @@ internal static class FixedSourceVerification
         ArgumentNullException.ThrowIfNull(catalog);
         ArgumentNullException.ThrowIfNull(composites);
         if (document.Source is not { } source)
-            return FixedSourceCheck.Pass();
+            return WorldSourceCheck.Pass();
+        if (source.Kind == WorldSource.BlankKind)
+            return BlankWorldSource.Check(document, catalog, composites);
+        if (source.Kind != WorldSource.FixedConfigurationKind)
+            return WorldSourceCheck.Fail(WorldSaveStatus.UnknownSource,
+                new WorldSaveDiagnostic("base", source.Kind, "kind", "the world source kind is not supported"));
         if (source.BaseFingerprint.Length == 0)
         {
-            return FixedSourceCheck.Fail(
+            return WorldSourceCheck.Fail(
                 WorldSaveStatus.IncompatibleBase,
                 new WorldSaveDiagnostic(
                     "base",
@@ -47,33 +52,41 @@ internal static class FixedSourceVerification
 
         var resolved = PlaygroundConfigurations.TryResolve(source.ConfigurationId, catalog, composites, out var live);
         if (resolved != PlaygroundEstablishStatus.Established || live is null)
-            return FixedSourceCheck.Fail(Map(resolved), DiagnoseResolve(source.ConfigurationId, resolved));
+            return WorldSourceCheck.Fail(Map(resolved), DiagnoseResolve(source.ConfigurationId, resolved));
         if (live.ConfigurationVersion != source.ConfigurationVersion)
         {
-            return FixedSourceCheck.Fail(
+            return WorldSourceCheck.Fail(
                 WorldSaveStatus.IncompatibleBase,
                 new WorldSaveDiagnostic("base", source.ConfigurationId, "configuration_version", "the saved configuration version is not the version this build declares"));
         }
 
         if (!SameParameters(source.EffectiveParameters, live.EffectiveParameters))
         {
-            return FixedSourceCheck.Fail(
+            return WorldSourceCheck.Fail(
                 WorldSaveStatus.IncompatibleBase,
                 new WorldSaveDiagnostic("base", source.ConfigurationId, "effective_parameters", "the saved effective parameters do not match the current configuration"));
         }
 
         if (!string.Equals(source.Parameter("base.seed"), document.Seed.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal))
         {
-            return FixedSourceCheck.Fail(
+            return WorldSourceCheck.Fail(
                 WorldSaveStatus.IncompatibleBase,
                 new WorldSaveDiagnostic("base", source.ConfigurationId, "seed", "the document seed does not match the saved configuration"));
         }
 
         if (!string.Equals(source.Parameter("base.generator_version"), document.GeneratorVersion, StringComparison.Ordinal))
         {
-            return FixedSourceCheck.Fail(
+            return WorldSourceCheck.Fail(
                 WorldSaveStatus.IncompatibleBase,
                 new WorldSaveDiagnostic("base", source.ConfigurationId, "generator_version", "the document generator version does not match the saved configuration substrate"));
+        }
+
+        var declared = PlaygroundConfigurations.Find(source.ConfigurationId)!.BaseWorld;
+        if (document.Bounds != declared.Bounds || document.ChunkSize != declared.ChunkSize)
+        {
+            return WorldSourceCheck.Fail(
+                WorldSaveStatus.IncompatibleBase,
+                new WorldSaveDiagnostic("base", source.ConfigurationId, "bounds_chunk_size", "the document extent does not match the declared configuration"));
         }
 
         var adaptations = new List<WorldSaveAdaptation>();
@@ -81,7 +94,7 @@ internal static class FixedSourceVerification
         {
             if (!TryCurrentRevision(dependency, live, catalog, composites, out var current))
             {
-                return FixedSourceCheck.Fail(
+                return WorldSourceCheck.Fail(
                     WorldSaveStatus.MissingDefinition,
                     new WorldSaveDiagnostic("dependency", dependency.Id, "content_dependency", "a saved content dependency no longer resolves"));
             }
@@ -102,7 +115,7 @@ internal static class FixedSourceVerification
                 string.Equals(item.Id, required.Id, StringComparison.Ordinal));
             if (listed)
                 continue;
-            return FixedSourceCheck.Fail(
+            return WorldSourceCheck.Fail(
                 WorldSaveStatus.MissingDefinition,
                 new WorldSaveDiagnostic(
                     "dependency",
@@ -116,15 +129,15 @@ internal static class FixedSourceVerification
         {
             var established = PlaygroundSession.TryEstablish(source.ConfigurationId, catalog, composites, store: null, out scratch);
             if (established != PlaygroundEstablishStatus.Established || scratch?.WorldSource is null)
-                return FixedSourceCheck.Fail(Map(established), DiagnoseResolve(source.ConfigurationId, established));
+                return WorldSourceCheck.Fail(Map(established), DiagnoseResolve(source.ConfigurationId, established));
             if (!string.Equals(scratch.WorldSource.BaseFingerprint, source.BaseFingerprint, StringComparison.Ordinal))
             {
-                return FixedSourceCheck.Fail(
+                return WorldSourceCheck.Fail(
                     WorldSaveStatus.IncompatibleBase,
                     new WorldSaveDiagnostic("base", source.ConfigurationId, "base_fingerprint", "the rebuilt configuration base does not match the saved fingerprint"));
             }
 
-            return FixedSourceCheck.Pass(adaptations);
+            return WorldSourceCheck.Pass(adaptations);
         }
         finally
         {

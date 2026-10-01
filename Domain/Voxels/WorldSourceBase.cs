@@ -7,7 +7,7 @@ using Train.Domain.Rails;
 namespace Train.Domain.Voxels;
 
 /// <summary>
-/// Canonical fingerprint of a fixed configuration's established base. It is not the voxel occupancy hash and it is
+/// Canonical fingerprint of a source's established base. It is not the voxel occupancy hash and it is
 /// not <see cref="WorldSaveAuthority"/>'s live authority fingerprint.
 /// </summary>
 internal static class WorldSourceBase
@@ -49,8 +49,16 @@ internal static class WorldSourceBase
         var source = session.WorldSource!;
         var identity = session.Identity;
         writer.WriteStartObject();
-        writer.WriteString("configuration_id", source.ConfigurationId);
-        writer.WriteNumber("configuration_version", source.ConfigurationVersion);
+        if (source.Kind == WorldSource.BlankKind)
+        {
+            writer.WriteString("source_kind", source.Kind);
+            writer.WriteNumber("source_version", source.ConfigurationVersion);
+        }
+        else
+        {
+            writer.WriteString("configuration_id", source.ConfigurationId);
+            writer.WriteNumber("configuration_version", source.ConfigurationVersion);
+        }
         writer.WriteNumber("seed", identity.Seed);
         writer.WriteString("generator_version", identity.GeneratorVersion);
         writer.WriteNumber("bounds_x", identity.Bounds.SizeX);

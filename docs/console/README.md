@@ -2,7 +2,7 @@
 
 本手册面向游戏内开发控制台，不是 PowerShell、Godot 命令行或归档 MVP 的命令说明。
 
-适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行、运行中车钩破坏后的独立滑行、断轨安全停车与显式恢复、沿轨显示插值与选定存活车辆跟随相机，以及正式铁路 / 多编组运行停车与滑行状态的版本化文件存档），以及 Playground 的 `observe` 子命令（#124 独立选择、检查、自由观察与显式聚焦 / 跟随）。
+适用范围：当前主分支的游戏内开发控制台，包括 `help`、`clear`、`quit`、`reload`、`loglevel`，以及 `voxel` 子命令（增删查询见 PR #47，伤害见 PR #48，已有世界热重载见切片 1，多 Chunk 边界见切片 2 / #50，基础碰撞查询见 #51，局部旋转碰撞盒见 #52，世界存档与进程重启恢复见 #53，静置车辆存档与跨进程恢复见 #62）、`composite` 子命令（切片 3 静置车辆制造 / 查询 / 重置 / 伤害与脱落、五类原子改装、实体 ID 耗尽处理，以及已有车辆的当前内容热重载）和 `rail` 子命令（切片 4 正式直轨施工、占格查询、原轨段修复、一车头一车厢刚性编组、固定步长起停与跨段运行、运行中车钩破坏后的独立滑行、断轨安全停车与显式恢复、沿轨显示插值与选定存活车辆跟随相机，以及正式铁路 / 多编组运行停车与滑行状态的版本化文件存档），以及世界编辑器的 `observe` 子命令（#124 独立选择、检查、自由观察与显式聚焦 / 跟随）。
 
 ## 打开控制台与输入规则
 
@@ -24,7 +24,8 @@
 | [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例、车辆、碎块、接触绑定和已提交编组运行条件 | 仅 Debug 构建 |
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) `[discard\|save\|cancel]` | 重建初始开发世界；有未保存变化时必须选择保存后重置、放弃或取消 | 包含 PR #47，且已进入体素开发场景 |
-| [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
+| [voxel new](voxel-new.md) `<size-x> <size-y> <size-z> <seed> [discard\|save\|cancel]` | 新建真正空白、暂停且未保存的世界；X 1–320，Y/Z 1–32，非法参数保留当前世界 | 仅世界编辑器会话 |
+| [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 已进入体素开发场景或世界编辑器 |
 | [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格完整盒的领域碰撞（`local_box` 格内盒外须用六参数） | 同上 |
 | [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与当前碰撞形状的重叠 | 同上 |
 | [voxel remove](voxel-remove.md) `<x> <y> <z> [at <step>]` | 移除一个体素 | 同上 |
@@ -33,7 +34,7 @@
 | [voxel edits](voxel-edits.md) `[pending \| log [<count>] \| fault]` | 查询世界修改命令的边界位置、待执行队列、执行日志与内部故障 | 同上 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步与待执行世界修改（含列车起停）原子写入 `user://saves/<UUID>/save.json` | 同上 |
 | [voxel load](voxel-load.md) `<uuid> [discard\|save\|cancel]` | 按当前有效定义恢复存档并整体替换会话；格式 5 写出，仍可读格式 2–4（旧列车队列须为空）；有未保存变化时先选择 | 同上 |
-| [voxel use](voxel-use.md) `<configuration-id> [discard\|save\|cancel]` | 把 Playground 切换到另一个具名固定配置；候选失败时保留当前世界 | 已进入 Playground |
+| [voxel use](voxel-use.md) `<configuration-id> [discard\|save\|cancel]` | 从当前世界切换到具名固定配置；候选失败时保留当前世界 | 仅世界编辑器会话 |
 | [composite reset](composite-reset.md) `[discard\|save\|cancel] [hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具；有未保存变化时先选择 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>] [pose <x> <y> <z>] [at <step>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
 | [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...] [at <step>]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |
@@ -54,7 +55,7 @@
 | [rail query](rail-query.md) `[occupancy\|intervals\|connections\|graph\|rebuild\|assembly\|motion\|display \| <x> <y> <z>]` | 查询轨段、连接、实际占格、通行区间、编组、运动或显示插值 | 同上 |
 | [rail follow](rail-follow.md) `[vehicle <id>]` | 查询或选择跟随相机的存活车辆 | 同上 |
 | [rail repair](rail-repair.md) `<x> <y> <z> [...] [at <step>]` | 修复原轨段损坏占格并恢复依赖区间 | 同上 |
-| [observe](observe.md) | 查询 Playground 镜头模式、选择、失效提示与选中对象检查 | 已进入 Playground |
+| [observe](observe.md) | 查询世界编辑器镜头模式、选择、失效提示与选中对象检查 | 已进入世界编辑器 |
 | [observe list](observe-list.md) | 列出可观察的车辆与轨段 | 同上 |
 | [observe select](observe-select.md) `vehicle <id> \| segment <id> \| cell <x> <y> <z> \| none` | 选择或清除检查对象；不移动镜头 | 同上 |
 | [observe focus](observe-focus.md) | 镜头平滑聚焦选中对象 | 同上 |
@@ -65,7 +66,7 @@
 
 ## 使用前提与通用参数
 
-运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单的 “Playground · …” 按钮按具名固定配置建立世界（见下文 [Playground](#playground具名固定配置)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
+运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单的固定配置按钮按具名固定配置建立世界编辑器会话（见下文 [世界编辑器](#世界编辑器具名固定配置)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
 
 四个切片都是有限测试配置，不是产品尺寸限制。Chunk 只作空间分区，不改变占用、耐久或朝向规则。切片 3 车辆体素不属于世界占用。切片 4 轨道占格是世界体素 `core:rail`；显示由 `TrackRenderer` 生成，不走普通立方体面。
 
@@ -275,9 +276,11 @@ voxel save After Railway
 
 空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id> edit <n>`，以及各编组的 `assembly <id> speed … running … heading … halt …`。第 300 步后再伤害 `(110,1,15)` 100，第一段缺失 `x=110..111`；继续步进后车头前接触停在 `x=110` 入侧边界、速度 0、`halt forward-gap`，任何必要接触不得进入缺口，派生图在 `rebuild` 前为 stale 且不授权跨越。未修轨时 `rail start` 为 `DisconnectedPath`，零速与 `halt forward-gap` 保持。第 300 步伤害接触之间的 `(93,1,15)` 不立即冻结；由最先到达 `x=93` 的后方接触限位，抵达当步零速。拆分后再 `rail step 30` 伤害 `(88,1,15)` 100，仅后车立即零速并 `halt support-lost`，前车独立继续。修复只恢复可启动条件；有动力须再 `rail start` 从零加速，无动力后车仍是 `MissingPropulsion`。全毁第一段现存占格后，原轨段身份与定位几何保留、通行区间为空、`halt support-lost`；另建平行线不会接替旧引用，修原身份后才可启动。`voxel save After Railway` 应返回 `Saved` 并写出格式 5；退出进程后再 `voxel load` 同一 UUID，缺口停车、支撑失效与全毁引用都保持原权威状态且不自动解除停车。删除被引用轨段几何的坏档整次 `InvalidDelta`，当前会话与旧有效文件保留。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
 
-### Playground（具名固定配置）
+<a name="playground具名固定配置"></a>
 
-主菜单每个 “Playground · …” 按钮对应一份具名固定配置（`Domain/Playground/PlaygroundConfiguration.cs`）：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。HUD 显示配置 ID / 版本 / 来源类型、基底指纹前缀、当前步、暂停状态、是否对齐保存点，以及编组运动。按钮 “运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存 / 重置 / 切换到另一配置 / 读取存档” 与 [`voxel reset`](voxel-reset.md)、[`voxel use`](voxel-use.md)、[`voxel load`](voxel-load.md) 走同一正式会话。有未保存变化时，重置、切换和读取会先要求保存后继续、放弃或取消。`Esc` 与 `quit` 不是切换。
+### 世界编辑器（具名固定配置）
+
+主菜单每个固定配置按钮对应一份具名固定配置（`Domain/Playground/PlaygroundConfiguration.cs`）：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。HUD 显示配置 ID / 版本 / 来源类型、基底指纹前缀、当前步、暂停状态、是否对齐保存点，以及编组运动。按钮 “运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存 / 重置 / 切换到另一配置 / 读取存档” 与 [`voxel reset`](voxel-reset.md)、[`voxel use`](voxel-use.md)、[`voxel load`](voxel-load.md) 走同一正式会话。有未保存变化时，重置、切换和读取会先要求保存后继续、放弃或取消。`Esc` 与 `quit` 不是切换。
 
 ```text
 loglevel info
@@ -287,10 +290,10 @@ rail step 299
 rail query assembly
 rail resume
 rail pause
-voxel save Playground Train
+voxel save 世界编辑器 Train
 ```
 
-建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 的 `world_source` 中写出来源和 `base_fingerprint`。新进程加载后恢复来源、核对重建基底并保持暂停，见 [voxel load](voxel-load.md)。没有该指纹的固定来源档会失败并保留当前世界。Playground 读入没有来源的存档后仍保持暂停，并可 [`voxel use`](voxel-use.md) 到能建立的配置；此时 [`voxel reset`](voxel-reset.md) 因没有当前配置而保留世界。已有配置时 `voxel reset` 重新建立该配置并保留来源；`voxel use` 切换到另一配置并清空存档 UUID。
+建立后 `rail query motion` 报告 `paused true`、第 0 步；打开控制台、查询或空等帧都不推进。先点 “启动列车” 或执行 `rail start`，`rail step` 与 `rail step 299` 后恰为第 300 步，前接触 96、速度 4，仍处于暂停；`rail resume` 后才由 Host 按 60 步/秒推进。无车配置同样可建立并推进全局步。`voxel save` 在格式 5 的 `world_source` 中写出来源和 `base_fingerprint`。新进程加载后恢复来源、核对重建基底并保持暂停，见 [voxel load](voxel-load.md)。没有该指纹的固定来源档会失败并保留当前世界。世界编辑器读入没有来源的存档后仍保持暂停，并可 [`voxel use`](voxel-use.md) 到能建立的配置；此时 [`voxel reset`](voxel-reset.md) 因没有当前配置而保留世界。已有配置时 `voxel reset` 重新建立该配置并保留来源；`voxel use` 切换到另一配置并清空存档 UUID。
 
 HUD 下方的修改面板把 “世界格 / 量 / 延迟步” 与 “最新车辆局部格” 输入转成世界修改命令：放置矿石、移除体素、损伤体素、在此制造空壳、修复轨道（`rail.repair` 修复世界格所在的原轨段占格）、施工直轨（与 `rail construct` 同一固定计划）、组装列车（与 `rail assemble` 同一夹具，无车配置中可正式编组），以及对最新制造车辆的损伤零件、加装、拆除、移到 +X、旋转、替换与批量加装两格。上方的 “启动列车 / 停车” 按钮同样读取延迟步，提交 `train.start` / `train.stop`。延迟步为 0 时立即执行，否则排到当前步加延迟的边界；同一边界按点击与控制台输入的先后顺序执行，例如暂停时依次点 “损伤体素”（量 100，打在轨格上）、“修复轨道”、“启动列车”，三者在同一边界取得连续位置。面板按局部格找到零件后提交带真实 ID 的命令，与下列控制台写法产生同一负载和位置；最下一行显示边界位置、下一个编号、待执行数与最近一条记录。
 
@@ -301,12 +304,12 @@ composite manufacture core:dev-hollow-shell pose 60 6 24
 composite add <shell> 2 1 0 core:refit-marker px_py at 303
 voxel remove 60 3 20 at 303
 voxel edits
-voxel save Playground Edits
+voxel save 世界编辑器 Edits
 ```
 
 暂停在第 300 步时，前四条依次得到 `300:0`…`300:3`，时钟与列车不动；后两条排到第 303 步，`voxel edits` 报告 `boundary 300:6`。保存后在新进程加载，队列原样恢复，推进到第 303 步时两条命令按原顺序执行一次。
 
-屏幕右侧观察面板与 `observe` 命令共用同一观察状态：对象列表、检查信息（身份、所属、耐久、运行资格、失败原因）、镜头模式与失效提示。选择（列表、画面左键点击或 `observe select`）从不移动镜头；只有“聚焦选中”/`F`/`observe focus` 与“跟随选中”/`V`/`observe follow` 改变镜头，“自由观察”/`C`/`observe free` 让镜头原位回到自由观察。Playground 镜头不再读 `rail follow` 的会话跟随状态。观察状态不写入存档、不占命令编号，打开面板、查询和切换镜头都不暂停或推进。`voxel reset`、`composite reset`、`voxel use` 或成功的 `voxel load` 替换整个世界时，旧选择与目标一律清除并原位转为自由观察（新世界复用同一 ID 也不继续跟随）。取消、保存失败或候选失败时观察不变。打开面板、查询和切换镜头也不把世界标成未保存。
+屏幕右侧观察面板与 `observe` 命令共用同一观察状态：对象列表、检查信息（身份、所属、耐久、运行资格、失败原因）、镜头模式与失效提示。选择（列表、画面左键点击或 `observe select`）从不移动镜头；只有“聚焦选中”/`F`/`observe focus` 与“跟随选中”/`V`/`observe follow` 改变镜头，“自由观察”/`C`/`observe free` 让镜头原位回到自由观察。世界编辑器镜头不再读 `rail follow` 的会话跟随状态。观察状态不写入存档、不占命令编号，打开面板、查询和切换镜头都不暂停或推进。`voxel reset`、`composite reset`、`voxel use` 或成功的 `voxel load` 替换整个世界时，旧选择与目标一律清除并原位转为自由观察（新世界复用同一 ID 也不继续跟随）。取消、保存失败或候选失败时观察不变。打开面板、查询和切换镜头也不把世界标成未保存。
 
 ```text
 observe
