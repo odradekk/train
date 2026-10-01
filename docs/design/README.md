@@ -8,7 +8,7 @@
 
 - **近期决策（有票）**：只有需要产出明确决策、且阻塞当前或下一切片的未定项才立票，并在对应开放问题条目链接。尚在收敛阶段切片规格时，阻塞这些规格形成的必要决策也属于此类；条目说明要决定什么，不把整章未来细节打包立票。
 - **地图迷雾（不立票）**：尚未进入当前或下一切片的方向、待实测调优参数、未形成具体决策问题的实现细节，保留简短描述及重新评估条件，不为完整目录提前建票。它们成为近期阻塞时再升级为决策票。
-- 优先复用已有决策票，不重复立票；是否属于某张 wayfinder 地图取决于当前工作，不指定某张地图为唯一入口。本阶段规格已由[规划地图](https://github.com/odradekk/train/issues/91)确定，实施安排见各实施 Issue；后续疑问仅在阻塞所选切片且能明确提出问题时立票。
+- 优先复用已有决策票，不重复立票；是否属于某张 wayfinder 地图取决于当前工作，不指定某张地图为唯一入口。本阶段规格以[世界编辑器规划地图](https://github.com/odradekk/train/issues/135)及其[分期决策](https://github.com/odradekk/train/issues/145)为准，实施安排见各实施 Issue；后续疑问仅在阻塞所选切片且能明确提出问题时立票。
 - 决策完成后，由解决该票的会话回写对应规则，移除或改写开放问题；已关闭票可以保留为历史出处，不能继续充当未解决的阻塞。无待决事项可写“无”，已经明确的规则留在规则章节。
 
 ## 文档目标
@@ -17,7 +17,7 @@
 
 1. 优先明确稳定的系统边界和不变量。
 2. 具体数值尽量通过实现、Benchmark、Profiling 和 Playtest 确定。
-3. 当前首版只实现通过专门测试场景验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法后续接入。
+3. 当前首版只实现通过世界编辑器、普通示例存档和独立自动测试验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法后续接入。
 4. 对明确会在未来加入的重要功能，架构上避免封死扩展空间，但不提前实现。
 5. 组合优于继承。
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
@@ -44,12 +44,13 @@
 | [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
 | [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
 | [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | Composite 的建造、改装与拆解 |
+| [15-world-editor.md](15-world-editor.md) | 世界编辑器的工作区、创作工具交互与运行诊断 |
 
 用于讨论和参数取舍的独立 HTML 原型及原始测量统一保留在[设计原型归档](../../archive/prototypes/README.md)，不作为正式游戏实现或最终验收结果。
 
 每份文档的固定小节：边界、不变量、规则、首版范围、明确延后、开放问题。
 
-术语以仓库根目录 `CONTEXT.md` 为准：体素定义、体素定义标识、物理轨道状态、物理轨段、沿轨位置、列车编组、活动车头、车辆尺寸档位、聚居地、站点、货物、货物标识、基本货币价值、贸易环线、交易停靠站、贸易方案、运行圈、运行报告、策略迭代。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；RailPosition、Train Assembly 分别对应沿轨位置、列车编组。Voxel、Composite、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack、ItemInstance 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；RailPosition、Train Assembly 分别对应沿轨位置、列车编组。Voxel、Composite、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack、ItemInstance 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
 ## 总体架构
 

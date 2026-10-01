@@ -1,6 +1,6 @@
 # 02 Definition、Revision、Instance 与内容来源
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。代码迁移由后续切片执行。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。
 
 ## 边界
 
@@ -92,19 +92,19 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 ### VoxelDefinition
 
-- 所有可实体化对象共享统一的 VoxelDefinition。现有独立的货物定义并入这一体系，Cargo、Market、Trade 后续统一引用 VoxelDefinitionId（转录 Q176）。TradeMetadata 的字段与实现整体延后到贸易接入时，首版不预留空对象。
-- 首版核心字段：DefinitionId、Value、MaxDurability、Mass、Tags、Behaviors、Presentation、Collision。
-- **Value** 即术语表的基本货币价值：当前定义中的固定基础价值，不随世界经济变化，但可随内容更新改变。用于基础经济计算、Composite 断裂后的身份继承、其他稳定估值。例如 Iron Ore 的 Value = 100。
-- **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Iron Ore = 70，Capital 的 Iron Ore = 135。
+- 所有可实体化对象共享统一的 VoxelDefinition。原独立的货物定义已并入这一体系，不再另设货物定义；Cargo、Market、Trade 统一引用 VoxelDefinitionId（转录 Q176）。TradeMetadata 的字段与实现整体延后到贸易接入时，首版不预留空对象。
+- 首版核心字段：DefinitionId、Name、Description、Value、MaxDurability、Mass、Tags、Behaviors、AllowedOrientations、Presentation、Collision。
+- **Value** 即术语表的基本货币价值：当前定义中的固定基础价值，不随世界经济变化，但可随内容更新改变。用于基础经济计算、Composite 断裂后的身份继承、其他稳定估值。例如 Ferrous Ore 的 Value = 100。
+- **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
 - **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
 - **Material**：首版没有通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
-- **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-generation-and-settlements.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；[#78](https://github.com/odradekk/train/issues/78) 仍待实现 ResourceSourceBehavior 与 `resource_source`。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
+- **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-generation-and-settlements.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；ResourceSourceBehavior 与 `resource_source` 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
 
 ### Good 迁移边界
 
-- 在首个需要体素定义的切片中，一次性迁移根目录项目的 GoodDefinition、GoodId、GoodCatalog、内容文件及其消费者和引用，改用体素定义与 VoxelDefinitionId；不保留旧 goods schema 的兼容层或临时双轨目录。
-- 新 schema 从版本 1 开始，不作为 goods schema v2。切片 1 曾将自然资源类别转为 `natural_resource` 标签；[#77](https://github.com/odradekk/train/issues/77) 已把这些可交易货物改为 `raw_good`。对应的世界资源源体素仍待以 `resource_source` 与 ResourceSourceBehavior 定义，见 [#78](https://github.com/odradekk/train/issues/78)。基本货币价值保留为 Value；Value 已用于断裂后的身份继承，不随 TradeMetadata 一起延后。
-- `archive/mvp/` 保持原样。本票只确定方案，不执行生产代码或内容文件迁移。Catalog 版本、Revision 哈希与存档绑定按下文执行。
+- [#43](https://github.com/odradekk/train/issues/43) 已一次性迁移根目录项目的 GoodDefinition、GoodId、GoodCatalog、内容文件及其消费者和引用，改用体素定义与 VoxelDefinitionId；不保留旧 goods schema 的兼容层或临时双轨目录。
+- 新 schema 从版本 1 开始，不作为 goods schema v2。迁移时曾将自然资源类别转为 `natural_resource` 标签；[#77](https://github.com/odradekk/train/issues/77) 已把这些可交易货物改为 `raw_good`。对应的世界资源源体素及 ResourceSourceBehavior 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。基本货币价值保留为 Value；Value 已用于断裂后的身份继承，不随 TradeMetadata 一起延后。
+- `archive/mvp/` 保持原样，不参与迁移。Catalog 版本、Revision 哈希与存档绑定按下文执行。
 
 ### Inventory 与实体化
 
@@ -133,7 +133,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 | 参与语义哈希 | 不参与语义哈希 |
 | --- | --- |
 | 定义类型、DefinitionId、哈希编码版本 | 名称、说明等显示文本 |
-| Value、MaxDurability、Mass、Tags | 图片、模型、材质、声音的内容与路径 |
+| Value、MaxDurability、Mass、Tags、AllowedOrientations | 图片、模型、材质、声音的内容与路径 |
 | Behavior 类型与参数 | 纯视觉配置及资产绑定 |
 | Collision 的规则、形状与尺寸 | 编辑器排版等辅助信息 |
 | Composite 体素布局、构造与身份保留规则引用 | 引用目标的 Revision |
@@ -162,19 +162,21 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 | 独立草稿（非有效来源） | `user://authoring-drafts/`，带版本的创作文档，不参与有效内容扫描 |
 
 - 新定义文件使用明确的 `schema_version`，从 1 开始；按类型使用 `.voxels.json`、`.composites.json`、`.layouts.json`。目录用于组织文件，不决定定义身份。
+- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由 [05](05-world-generation-and-settlements.md) 的 SettlementArchetype 与 Layout 取代，不作为长期内容类型。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；本轮将创作视图纳入世界编辑器，按上述顺序分片交付，不再以“正式设计器延后”排除编辑器能力。
 
 ### ID 与命名空间
 
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
-- 不同领域保持强类型 ID：VoxelDefinitionId、CompositeDefinitionId、CompositeArchetypeId、BehaviorTypeId 等。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
+- 不同领域保持强类型 ID：VoxelDefinitionId、CompositeDefinitionId、CompositeArchetypeId 等。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
+- Behavior 目前只能由代码注册，内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
 - ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。
 - 用户内容的新身份由系统基于 UUID 分配，命名空间不由显示名或当前存档文件 UUID 推导；内容更新、独立复制与整个存档复制的区别见[内容身份与跨范围依赖](#内容身份与跨范围依赖)。存档内解析须隔离，不能让另一存档的同标识内容覆盖当前定义。
 
 ### Mod 与热加载
 
-- **第一阶段 Data Mod**：支持新增 VoxelDefinition、Composite Definition、Layout，修改自有定义的数值、引用资产、组合已有 Behavior。首版不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增 VoxelDefinition、Composite Definition、Layout（Layout 实现前沿用上文的过渡聚居地内容），修改自有定义的数值、引用资产、组合已有 Behavior。首版不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
 - **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 更新 Asset Revision 和表现。布局定义更新不覆盖已存在车辆保存的实际布局。
 

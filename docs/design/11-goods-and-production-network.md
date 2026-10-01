@@ -120,7 +120,7 @@ Structural Metal + Mechanical Components + Electrical Components → Constructio
 
 ### Future Product Families
 
-Control Equipment、Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process；Control Equipment 尚无已定 Gameplay 功能，不进入首版货物或配方目录。
+Control Equipment、Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process；Control Equipment 尚无已定 Gameplay 功能，不进入首版货物或配方目录（[#85](https://github.com/odradekk/train/issues/85) 据此修订资源转录 Q288 的首版目录）。
 
 ### Recovery DAG
 
@@ -171,4 +171,4 @@ Future Product Families 的具体产品与 Process；Window、Door、Armor Block
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
 - 地图迷雾（不立票）：Control Equipment 等 Future Product Families 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
-资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。
+按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

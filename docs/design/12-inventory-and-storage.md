@@ -68,4 +68,4 @@ Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、�
 
 - 地图迷雾（不立票）：未冻结参数：Storage Equipment capacity。
 
-资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。
+按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

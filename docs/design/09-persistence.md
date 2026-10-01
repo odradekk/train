@@ -131,13 +131,13 @@ Save
 
 #### 复现录制范围与内容切换
 
-- Playground 建立或恢复会话后默认录制，以可恢复起点及其后有序输入组成有容量上限的复现窗口，并显示实际可复现的起止位置；不承诺无限历史。
+- 世界编辑器建立或恢复会话后默认录制，以可恢复起点及其后有序输入组成有容量上限的复现窗口，并显示实际可复现的起止位置；不承诺无限历史。
 - 周期性在完整提交边界建立新起点，确认可用后才按配置容量裁剪旧记录，不能只删日志而留下不可重放的片段。故障资料保留窗口内故障前的起点与触发输入；起点本身仍须携带当前依赖及尚未执行的输入。
-- 记录容量和起点间隔由[性能验收](https://github.com/odradekk/train/issues/98)通过实测冻结。预算不足或新起点建立失败时明确标记录制不完整并提示，保留已有完整资料；不把不完整包标为完整复现，也不因录制失败回滚游戏世界。
+- 记录容量和起点间隔通过实测冻结，见下文开放问题。预算不足或新起点建立失败时明确标记录制不完整并提示，保留已有完整资料；不把不完整包标为完整复现，也不因录制失败回滚游戏世界。
 - 内容发布尝试作为有序外部输入，记录执行位置、此前生效内容、候选内容及接受/拒绝结果。成功发布记录新内容版本及实际状态适配；失败保留原世界与内容，并保留重现拒绝所需资料。纯表现资产切换也记录显示复现所需前后依赖。
 - 内容切换仍在保留窗口内时，不能仅留下更新后的起点而丢失引发故障的切换过程。跨版本内容计入复现容量；随窗口正常裁剪时，剩余起点与输入仍须完整可用。
 - 生成或加载成功切换世界后开始新会话记录；切换失败仍附着原会话，保留失败输入及诊断。
-- 内部模拟故障或用户显式保留时，固定当时可用资料为保留故障片段，完整性如实标注。其数量与空间有上限，不静默挤掉未处理片段；说明标记本身不阻止滚动裁剪。离开处理见上文[离开保护](#离开保护临时草稿与执行期间状态)，首批不承诺崩溃后恢复。
+- 内部模拟故障或用户显式保留时，固定当时可用资料为保留故障片段，完整性如实标注；说明标记本身不阻止滚动裁剪。留存上限见下文[故障片段与隔离重放](#故障片段与隔离重放)，离开处理见上文[离开保护](#离开保护临时草稿与执行期间状态)，首批不承诺崩溃后恢复。
 
 #### 复现包格式与完整性
 
@@ -146,7 +146,17 @@ Save
 - 导入前核验文件完整性、必要依赖及适用版本，不能静默跳过无法理解的领域输入。文件字节校验检查包的完整性，语义及权威状态校验检查输入与模拟一致性，二者不互相替代。
 - 导出先完整写入并校验临时结果，再发布目标文件；失败明确报告并保留已有文件，不留下貌似成功的半包。不因此增加完整历史回放或自动安装运行环境。
 
-人工选择范围、导出期间固定资料、隔离重放的停止与对照结果，以及从有效边界建立普通编辑副本，具体流程见[默认录制与隔离故障复现](https://github.com/odradekk/train/issues/116)。不完整资料可明确标注后用于诊断，但不能当作完整重放包验收；重现已记录的内部故障报告为“故障已复现”，不等于产品验证通过。
+#### 故障片段与隔离重放
+
+> 决策来源：[运行调试、诊断观察与故障复现工作流](https://github.com/odradekk/train/issues/142)。诊断界面与交互见 [15](15-world-editor.md)。
+
+- 保留故障片段只固定当时实际可用的起点、输入与依赖，不补造已丢失的记录。片段的数量与空间有上限，不静默挤掉未处理片段；无法继续留存时明确提示，保留已有片段，由用户处理容量。
+- 导出默认包含当前完整录制窗口，也可将选中事件或完整边界作为终点，自动带入此前可用的恢复起点及到终点所需的全部输入、内容与依赖，并预览实际范围；不能从任意日志行开始拼成完整复现。开始导出后固定本次资料，当前世界可以继续运行，后续变化不混入包。记录不全时只能作为不完整诊断资料导出，可明确标注后用于诊断，但不能当作完整重放包验收。
+- 复现包在同一编辑器的隔离重放模式中打开：先经过离开保护，包完整性、版本和依赖校验通过后才切换，失败保留原工作。重放使用包内规定的内容，不覆盖已安装 Mod 或用户内容库。
+- 重放默认暂停，允许观察、暂停和步进，但不接受新的世界修改或内容发布，避免改变原输入。显式运行后，在记录末尾、首次不一致或记录中的内部故障处停止，并与已记录检查点比较；无法理解输入、缺失依赖或出现首次差异时保留位置和诊断，不跳过后继续宣称成功。暂停和步进不改变记录的输入顺序。
+- 重现包内记录的内部故障时报告“故障已复现”，不等于产品验证通过；顺利播放结束也须说明是否做过检查点对照。
+- 修改案例须显式创建未保存的普通编辑副本：在完整有效边界提取实际世界与待执行命令，按本机当前内容、来源支持及基底重新校验；成功后进入默认暂停的编辑会话，原包不变，新操作开始独立录制。不自动安装包内旧外部内容，也不把它作为普通存档的兼容兜底；不兼容则拒绝并保留重放会话。合法损伤保留，内部故障冻结状态不能借复制解除。副本结果不再作为原包严格复现的证据。
+- [条件暂停](15-world-editor.md#有限条件暂停)的设置只属于本次调试会话，不进入普通存档，切换世界时清除。
 
 #### 保存边界与待执行输入
 
@@ -154,8 +164,16 @@ Save
 - 运行时保存请求在完整提交边界捕获，不为保存额外推进模拟；暂停时可直接保存最近完整事务后的状态。
 - 已接受但尚未执行的命令及其目标步、顺序须随存档保存，恢复后仅在原定位置执行一次，不为保存提前执行或清空队列。未提交的面板输入不属于世界状态。
 - 暂停修改及同一步边界内的操作按 [04 的输入顺序](04-deterministic-simulation.md#本阶段输入边界与顺序)记录、保存和重放，不能仅凭 Tick 或墙钟日志猜测顺序。
-- 当前实现（[#122](https://github.com/odradekk/train/issues/122)）：存档格式 4 的根字段 `world_edits` 写出 `next_edit_id`、`boundary_sequence` 与 `pending`；每项待执行命令带 `edit_id`、`accepted_step`、`accepted_sequence`、`target_step` 和 [规范负载](04-deterministic-simulation.md#世界修改命令的规范编码)。格式 2、3 仍可读，恢复为空队列；格式 2、3 文件出现 `world_edits` 按未知字段返回 `UnknownFormat`，格式 4 缺少该字段返回 `Truncated`。恢复时编号须落在 `[1, next_edit_id)` 内且严格递增，接受位置严格递增且不晚于存档边界，目标步晚于存档步，引用的实体 ID 必须小于 `next_entity_id`：曾分配后被摧毁的目标合法，到期时拒绝；从未分配的 ID 属于损坏引用，整次 `InvalidDelta`。
-- 当前实现（[#123](https://github.com/odradekk/train/issues/123)）：存档格式 5 取消旧的 `scheduled_commands` / `scheduled_sequence`，铁路施工与修复、编组和列车起停与其他修改同在 `world_edits` 中，混合队列在新进程按原位置执行得到相同结果。起停引用的编组身份同样只要求已分配：执行前消失的编组合法，到期在原位置拒绝。已完全摧毁、仍被引用的轨段保留登记身份与定位几何，排队修复据此定位。格式 5 出现旧字段返回 `UnknownFormat`；格式 3、4 仍须带旧字段（缺失为 `Truncated`），但旧队列必须为空——旧命令没有 `edit_id` 与边界位置，不能放进统一输入全序，非空时整次返回 `UnsupportedRailway`，不猜测顺序；格式 2–4 的 `world_edits` 出现铁路、编组或起停命令返回 `UnknownFormat`；待执行队列出现 `content.publish` 为 `InvalidDelta`。
+- 当前实现为存档格式 5（[#122](https://github.com/odradekk/train/issues/122)、[#123](https://github.com/odradekk/train/issues/123)）：根字段 `world_edits` 写出 `next_edit_id`、`boundary_sequence` 与 `pending`；每项待执行命令带 `edit_id`、`accepted_step`、`accepted_sequence`、`target_step` 和 [规范负载](04-deterministic-simulation.md#世界修改命令的规范编码)。体素、车辆、铁路施工与修复、编组和列车起停同在这一队列，混合队列在新进程按原位置执行得到相同结果。恢复时编号须落在 `[1, next_edit_id)` 内且严格递增，接受位置严格递增且不晚于存档边界，目标步晚于存档步；引用的实体 ID（包括起停引用的编组）必须小于 `next_entity_id`：曾分配后被摧毁的目标合法，到期在原位置拒绝；从未分配的 ID 属于损坏引用，整次 `InvalidDelta`。待执行队列出现 `content.publish` 同样为 `InvalidDelta`。已完全摧毁、仍被引用的轨段保留登记身份与定位几何，排队修复据此定位。
+
+旧格式仍可读取。格式 3、4 的旧列车队列没有 `edit_id` 与边界位置，不能放进统一输入全序，因此必须为空，不猜测顺序：
+
+| 格式 | `world_edits` | 旧字段 `scheduled_commands` / `scheduled_sequence` |
+| --- | --- | --- |
+| 2 | 不得出现（出现为 `UnknownFormat`），恢复为空队列 | 无 |
+| 3 | 不得出现（出现为 `UnknownFormat`），恢复为空队列 | 必须存在（缺失为 `Truncated`）；队列非空时整次返回 `UnsupportedRailway` |
+| 4 | 必须存在（缺失为 `Truncated`），只能含体素与车辆命令，出现铁路、编组或起停命令为 `UnknownFormat` | 同格式 3 |
+| 5 | 必须存在（缺失为 `Truncated`） | 不得出现（出现为 `UnknownFormat`） |
 
 #### 候选世界恢复与校验
 
@@ -167,7 +185,7 @@ Save
 4. 恢复实际布局、唯一身份、所有权、物理轨道及领域姿态。
 5. 重建占用等查询，交叉校验授权、锁及必要引用，完成一致性检查。
 
-全部通过后才整体替换当前世界；进入 Playground 默认暂停自动推进，保留速度、计划和故障状态。合法受损、暂时没有可用路径或等待修复不直接判为坏档；必要事实无法解释、非法占用或冲突授权则明确失败。诊断须给出失败阶段、对象及具体关系，不通过删除或偷偷修补事实使其通过。
+全部通过后才整体替换当前世界；进入世界编辑器默认暂停自动推进，保留速度、计划和故障状态。合法受损、暂时没有可用路径或等待修复不直接判为坏档；必要事实无法解释、非法占用或冲突授权则明确失败。诊断须给出失败阶段、对象及具体关系，不通过删除或偷偷修补事实使其通过。
 
 严格复现核对原输入及状态；普通读档发生合法内容适配时记录变化，不以旧状态哈希要求适配后结果完全相同。有效待执行命令的目标在执行前被销毁，不与必要世界引用损坏混为一谈：允许恢复该输入，在原定执行位置重新检查、记录拒绝并出队，后续独立命令继续；具体语义见 [04 的命令失效规则](04-deterministic-simulation.md#命令失效与内部故障)。
 
@@ -222,7 +240,7 @@ Save
 
 ### 资源与生产状态恢复
 
-资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含 FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、ExtractionJob、RecoveryJob、ConstructionJob、RefitJob、DeconstructionJob、Spatial Reservations、Storage Reservations、Power Equipment 的 CurrentFuelEnergyRemaining、库存中的 ItemInstance 及 Job 选定的 ItemInstances / identity mapping、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含 FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、ExtractionJob、RecoveryJob、ConstructionJob、RefitJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderDeconstruction 锁定、Spatial Reservations、Storage Reservations、Power Equipment 的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量与 ItemInstance 及 Job 选定的 ItemInstances / identity mapping、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
 
 ### 文件位置
 
@@ -242,9 +260,9 @@ Save-local Definition、Runtime Delta、完整世界来源、稳定身份与输�
 
 ## 明确延后
 
-Snapshot Save Optimization、正式版本 Save Migration；缺失 Mod 的兼容与回退（转录 Q42、Q88）。
+Snapshot Save Optimization、正式版本 Save Migration（转录 Q42）；缺失 Mod 的兼容与回退。
 
 ## 开放问题
 
-- 权威状态、来源/版本、失败语义及复现包已由[确定性与存档契约](https://github.com/odradekk/train/issues/97)确认；录制容量、起点间隔及性能负载由[性能验收](https://github.com/odradekk/train/issues/98)承接，字段编码、检查点和交付顺序由[阶段规格](https://github.com/odradekk/train/issues/99)承接。旧切片开发档可明确停止兼容，不支持时保留当前会话及历史证据，见上文[来源、示例维护与模式兼容](#来源示例维护与模式兼容)。
+- 近期决策（有票）：录制容量、起点间隔及录制开销，在[可执行 Benchmark](https://github.com/odradekk/train/issues/157) 以代表负载实测后提交用户确认并冻结，见[实测与参数冻结](https://github.com/odradekk/train/issues/119)。
 - 地图迷雾（不立票）：上述契约之外的后续存档编码细节与 Snapshot 优化；实际切片或性能测量提出具体阻塞时再评估，不重开已定无损恢复要求。

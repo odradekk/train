@@ -1,6 +1,6 @@
 # 14 Composite 建造、改装与拆解
 
-> 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
+> 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）；首版只为 Deconstruction 提供主动 Pause / Resume、Construction / Refit 主动暂停延后，依据 [#85](https://github.com/odradekk/train/issues/85)。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
 ## 边界
 
@@ -58,7 +58,7 @@
 
 ### Refit Job
 
-- 现有开发测试场景可以继续拥有瞬时 Atomic Refit 入口，用于验证结构修改；它不代表正式 Gameplay 零耗时。正式 Gameplay：Refit Planning → validate final layout → derive delta BOM → consume added / replacement Goods → Refit Job → atomic final commit。[03](03-composite-and-behavior.md) 的原子事务原则继续有效：中间非法结构不暴露给 Simulation，最终结构修改原子提交，Voxel Identity 保留。
+- 世界编辑器与控制台 `composite` 改装命令提供瞬时 Atomic Refit，用于创建和验证结构修改；它不代表正式 Gameplay 零耗时。正式 Gameplay：Refit Planning → validate final layout → derive delta BOM → consume added / replacement Goods → Refit Job → atomic final commit。[03](03-composite-and-behavior.md) 的原子事务原则继续有效：中间非法结构不暴露给 Simulation，最终结构修改原子提交，Voxel Identity 保留。
 - Delta BOM 的库存可访问范围、来源记录及默认消费顺序沿用上文 Construction 启动事务的限定例外。Delta BOM 只消费新增或替换进去的 Goods。例如从 100 Structural Block + 2 Engine 改为 105 Structural Block + 2 同款 Engine + 1 Storage Equipment，需要 Structural Block ×5 与 Storage Equipment ×1。移动、旋转已有 Voxel 不消费新 Goods。
 - Move / Rotate 保留原 Voxel identity 与 Runtime State。Replace 表示旧 Voxel 移除、新 Good 实体化；旧件按 Stackability 进入 Stack 或 ItemInstance（[12](12-inventory-and-storage.md)）。
 - 首版 `RefitWork = ChangedVoxelCount × BaseRefitWorkPerChangedVoxel`；Add、Remove、Move、Rotate、Replace 各算一个修改单位，不进一步为不同操作设置权重。
@@ -92,7 +92,7 @@ ConstructionJob、RefitJob、DeconstructionJob、Spatial Reservations、Storage 
 
 ## 首版范围
 
-从 Layout 派生 BOM、精确 DefinitionId、Goods 实体化、耗时 Construction Job 与 Spatial Reservation、耗时 Refit Job 与 Delta BOM、Deconstruction Job 与 Storage Reservation、UnderRefit / UnderDeconstruction 锁定、Snapshot 与失败语义、Deconstruction 主动 Pause / Resume（保留进度、预留与锁定）。范围归属见 [10](10-resources-and-extraction.md)；当前体素切片中的瞬时 Atomic Refit 测试入口继续保留（[03](03-composite-and-behavior.md)）。
+从 Layout 派生 BOM、精确 DefinitionId、Goods 实体化、耗时 Construction Job 与 Spatial Reservation、耗时 Refit Job 与 Delta BOM、Deconstruction Job 与 Storage Reservation、UnderRefit / UnderDeconstruction 锁定、Snapshot 与失败语义、Deconstruction 主动 Pause / Resume（保留进度、预留与锁定）。范围归属见 [10](10-resources-and-extraction.md)；世界编辑器与控制台 `composite` 改装命令的瞬时 Atomic Refit 继续保留（[03](03-composite-and-behavior.md)）。
 
 ## 明确延后
 
@@ -103,4 +103,4 @@ Construction / Refit / Deconstruction 主动 Cancel / Refund；Construction / Re
 - 地图迷雾（不立票）：未冻结参数：ConstructionWorkPerVoxel、RefitWorkPerChangedVoxel、DeconstructionWorkPerVoxel、Construction Equipment base capability。
 - 地图迷雾（不立票）：Construction / Refit 的主动 Pause / Resume，以及三类 Job 的主动 Cancel / Refund 尚待后续设计；首版仅采用上文已明确的暂停与失败结算规则。
 
-资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。
+按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。
