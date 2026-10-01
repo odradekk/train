@@ -964,6 +964,32 @@ public partial class VoxelDeveloperScene : Node3D
         GetNode<Main>("/root/Main").ReturnToMainMenu();
     }
 
+    private void LeaveSmokeScene()
+    {
+        var dirty = _session.HasUnsavedChanges;
+        var world = _session.World;
+        var paused = _session.SimulationPaused;
+        var step = _session.SimulationStep;
+        LeaveDevelopmentScene();
+        if (!dirty)
+            return;
+        RequireSmokeDepartureChoice();
+        _worldChangePrompt!.Press("cancel");
+        if (_session.IsChangingWorld || _worldChangePrompt.Visible || !ReferenceEquals(_session.World, world) ||
+            _session.SimulationPaused != paused || _session.SimulationStep != step || !_session.HasUnsavedChanges)
+            throw new InvalidOperationException("Legacy smoke departure cancellation changed the current world or run state.");
+        LeaveDevelopmentScene();
+        RequireSmokeDepartureChoice();
+        _worldChangePrompt.Press("discard");
+    }
+
+    private void RequireSmokeDepartureChoice()
+    {
+        if (!_session.IsChangingWorld || _worldChangePrompt?.Visible != true ||
+            _session.AdvanceSimulation(1).Status != TrainMotionStatus.WorldChanging)
+            throw new InvalidOperationException("Legacy smoke departure did not expose a choice and suspend simulation.");
+    }
+
     private bool _departurePending;
 
     internal void RequestDeparture(WorldChangeRequest request) => _session.BeginWorldChange(request);
@@ -1786,7 +1812,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSmokePhase.LeaveScene:
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
-                LeaveDevelopmentScene();
+                LeaveSmokeScene();
                 _smokePhase = VoxelSmokePhase.Done;
                 return;
         }
@@ -4984,7 +5010,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice4SmokePhase.LeaveScene:
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
-                LeaveDevelopmentScene();
+                LeaveSmokeScene();
                 _slice4SmokePhase = VoxelSlice4SmokePhase.Done;
                 return;
         }
