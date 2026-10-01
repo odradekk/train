@@ -52,13 +52,18 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
         }
     }
 
-    public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+    public bool TryWrite(Guid id, string json, out WorldSaveStatus status) => TryWriteCore(id, json, true, out status);
+
+    /// <summary>Publishes an independent local save without replacing any existing file.</summary>
+    public bool TryWriteNew(Guid id, string json, out WorldSaveStatus status) => TryWriteCore(id, json, false, out status);
+
+    private bool TryWriteCore(Guid id, string json, bool overwrite, out WorldSaveStatus status)
     {
         ArgumentNullException.ThrowIfNull(json);
         status = WorldSaveStatus.Saved;
         var directory = DirectoryFor(id);
         var target = PathFor(id);
-        var candidate = Path.Combine(directory, CandidateFileName);
+        var candidate = Path.Combine(directory, overwrite ? CandidateFileName : $"save.json.{Guid.NewGuid():N}.candidate");
         if (!ExternalPath.IsSafeUnderRoot(Root, target) || !ExternalPath.IsSafeUnderRoot(Root, candidate))
         {
             status = WorldSaveStatus.WriteFailed;
@@ -76,7 +81,7 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
                 stream.Flush(true);
             }
 
-            File.Move(candidate, target, overwrite: true);
+            File.Move(candidate, target, overwrite);
             return true;
         }
         catch

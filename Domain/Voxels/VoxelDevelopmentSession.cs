@@ -550,8 +550,28 @@ public sealed partial class VoxelDevelopmentSession
 
     private WorldSaveResult WriteSave(Guid id, string? displayName)
     {
-        if (_store is null || _catalog.Current is null)
+        if (_store is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
+        var captured = CaptureSave(id, displayName, out var document);
+        if (!captured.Succeeded)
+            return captured;
+        var json = WorldSaveCodec.Serialize(document);
+        var capturedFingerprint = WorldSaveAuthority.Fingerprint(this);
+        if (!_store.TryWrite(id, json, out var writeStatus))
+            return new WorldSaveResult(writeStatus, SaveId, DisplayName);
+
+        SaveId = id;
+        DisplayName = document.DisplayName;
+        _cleanFingerprint = capturedFingerprint;
+        return new WorldSaveResult(WorldSaveStatus.Saved, SaveId, DisplayName);
+    }
+
+    // Save and export share the same synchronous transaction-boundary capture.
+    internal WorldSaveResult CaptureSave(Guid id, string? displayName, out WorldSaveDocument document)
+    {
+        document = null!;
+        if (_catalog.Current is null)
+            return new WorldSaveResult(WorldSaveStatus.Unavailable, SaveId, DisplayName);
         if (Fault is not null)
             return new WorldSaveResult(WorldSaveStatus.SimulationFaulted, SaveId, DisplayName);
 
@@ -567,7 +587,7 @@ public sealed partial class VoxelDevelopmentSession
                 _vehicles,
                 NextEntityId,
                 TransactionCount,
-                out var document,
+                out document,
                 out var captureStatus,
                 _rails,
                 _assemblies,
@@ -576,15 +596,7 @@ public sealed partial class VoxelDevelopmentSession
                 CaptureEditQueue()))
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
-        var json = WorldSaveCodec.Serialize(document);
-        var capturedFingerprint = WorldSaveAuthority.Fingerprint(this);
-        if (!_store.TryWrite(id, json, out var writeStatus))
-            return new WorldSaveResult(writeStatus, SaveId, DisplayName);
-
-        SaveId = id;
-        DisplayName = normalized;
-        _cleanFingerprint = capturedFingerprint;
-        return new WorldSaveResult(WorldSaveStatus.Saved, SaveId, DisplayName);
+        return new WorldSaveResult(WorldSaveStatus.Saved, id, normalized);
     }
 
     public WorldSaveResult Load(Guid saveId)
@@ -606,6 +618,13 @@ public sealed partial class VoxelDevelopmentSession
                 WorldSaveDiagnostic.For(parseStatus is WorldSaveStatus.Loaded ? WorldSaveStatus.UnknownFormat : parseStatus));
         if (document.Id != saveId)
             return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName, WorldSaveDiagnostic.For(WorldSaveStatus.MismatchedId));
+        return LoadDocument(document);
+    }
+
+    internal WorldSaveResult LoadDocument(WorldSaveDocument document)
+    {
+        if (_catalog.Current is null)
+            return new WorldSaveResult(WorldSaveStatus.Unavailable, Diagnostic: WorldSaveDiagnostic.For(WorldSaveStatus.Unavailable));
         var sourceCheck = WorldSourceVerification.Check(document, _catalog, _composites);
         if (!sourceCheck.Succeeded)
             return new WorldSaveResult(sourceCheck.Status, SaveId, DisplayName, sourceCheck.Diagnostic);

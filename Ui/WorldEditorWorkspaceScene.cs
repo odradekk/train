@@ -12,6 +12,7 @@ public partial class WorldEditorWorkspaceScene : Control
     private Label _result = null!;
     private SpinBox[] _bounds = null!;
     private LineEdit _seed = null!;
+    private FileDialog _importFile = null!;
     internal IReadOnlyList<WorldEditorSaveEntry> Entries { get; private set; } = Array.Empty<WorldEditorSaveEntry>();
     internal string Result => _result.Text;
 
@@ -41,7 +42,15 @@ public partial class WorldEditorWorkspaceScene : Control
         var actions = new HBoxContainer();
         box.AddChild(actions);
         AddButton(actions, "刷新存档", RefreshSaves);
+        AddButton(actions, "导入 JSON 存档", () => _importFile.PopupCentered(new Vector2I(820, 560)));
         AddButton(actions, "返回主菜单", () => main.ReturnToMainMenu());
+        _importFile = new FileDialog
+        {
+            FileMode = FileDialog.FileModeEnum.OpenFile, Access = FileDialog.AccessEnum.Filesystem,
+            Filters = new[] { "*.json ; JSON 存档" }, ModeOverridesTitle = false, Title = "导入单个 JSON 存档"
+        };
+        _importFile.FileSelected += path => ImportSave(path);
+        AddChild(_importFile);
         _result = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         box.AddChild(_result);
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
@@ -84,6 +93,18 @@ public partial class WorldEditorWorkspaceScene : Control
         }
         else
             Enter(candidate);
+        return result;
+    }
+
+    internal WorldSaveResult ImportSave(string path)
+    {
+        var result = _workspace.Import(path);
+        RefreshSaves();
+        _result.Text = result.Succeeded
+            ? $"已导入本地副本：{result.DisplayName} · {result.SaveId:D}。选择列表中的副本打开。"
+            : $"无法导入：{Describe(result)}";
+        if (result.Adaptations is { Count: > 0 } adaptations)
+            _result.Text += "\n适配提示：" + string.Join("；", adaptations.Select(item => $"{item.Subject}/{item.Relationship}"));
         return result;
     }
 

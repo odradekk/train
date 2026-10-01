@@ -52,6 +52,7 @@ public partial class WorldEditorScene : Node3D
     private WorldEditorWorkspaceSmoke? _workspaceSmoke;
     private ConfirmationDialog _saveAsPrompt = null!;
     private LineEdit _saveAsName = null!;
+    private FileDialog _exportFile = null!;
 
     internal VoxelDevelopmentSession? Session => _session;
     internal WorldEditorObservationView? Observation => _observation;
@@ -322,6 +323,7 @@ public partial class WorldEditorScene : Node3D
         persistence.AddChild(_saveName);
         AddButton(persistence, "save", "保存", () => SaveWorld());
         AddButton(persistence, "save_as", "另存为", BeginSaveAs);
+        AddButton(persistence, "export", "导出 JSON", BeginExport);
         AddButton(persistence, "reload_saved", "重新加载已保存版本", () => RequestWorldChange(new WorldChangeRequest(WorldChangeKind.ReloadSaved, null)));
         AddButton(persistence, "workspace", "返回存档工作区", () => GetNode<Main>("/root/Main").EnterWorldEditorWorkspace());
         AddButton(persistence, "menu", "返回主菜单", () => GetNode<Main>("/root/Main").ReturnToMainMenu());
@@ -345,6 +347,15 @@ public partial class WorldEditorScene : Node3D
         _saveAsPrompt.Confirmed += CompleteSaveAs;
         _saveAsPrompt.Canceled += _saveAsPrompt.Hide;
         AddChild(_saveAsPrompt);
+        _exportFile = new FileDialog
+        {
+            FileMode = FileDialog.FileModeEnum.SaveFile, Access = FileDialog.AccessEnum.Filesystem,
+            Filters = new[] { "*.json ; JSON 存档" }, ModeOverridesTitle = false,
+            Title = "导出已提交世界（不包含临时草稿）"
+        };
+        // SaveFile emits the selected path only after its built-in overwrite warning is confirmed.
+        _exportFile.FileSelected += path => ExportWorld(path, overwrite: true);
+        AddChild(_exportFile);
 
         var world = new HBoxContainer();
         world.AddThemeConstantOverride("separation", 6);
@@ -473,6 +484,26 @@ public partial class WorldEditorScene : Node3D
         _saveAsPrompt.PopupCentered(new Vector2I(430, 130));
         _saveAsName.GrabFocus();
         _saveAsName.SelectAll();
+    }
+
+    private void BeginExport()
+    {
+        if (_session is null || _session.IsChangingWorld)
+            return;
+        _exportFile.CurrentFile = _session.DisplayName + ".json";
+        _exportFile.PopupCentered(new Vector2I(820, 560));
+    }
+
+    internal WorldSaveResult ExportWorld(string path, bool overwrite = false)
+    {
+        var main = GetNode<Main>("/root/Main");
+        var reloader = main.Reloader!;
+        var workspace = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites,
+            new FileWorldSaveStore(main.IsolatedUserDataDirectory));
+        var result = _session is null ? new WorldSaveResult(WorldSaveStatus.Unavailable) : workspace.Export(_session, path, overwrite);
+        _result.Text = result.Succeeded ? $"已导出已提交世界：{path}（不包含临时草稿）。"
+            : $"无法导出：{result.Status}" + (result.Diagnostic is { } reason ? $" · {reason.Stage}/{reason.Subject}/{reason.Relationship} · {reason.Detail}" : "");
+        return result;
     }
 
     private void CompleteSaveAs()

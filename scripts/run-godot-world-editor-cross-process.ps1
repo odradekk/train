@@ -12,7 +12,7 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     exit 2
 }
 if (-not $OutputDirectory) {
-    $validationIssue = if ($Workspace) { 'issue-166' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
+    $validationIssue = if ($Workspace) { 'issue-169' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
     $OutputDirectory = Join-Path $root ('.godot/validation/' + $validationIssue + '/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
@@ -30,7 +30,8 @@ foreach ($name in @(
     'TRAIN_LOG_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE_MODE', 'TRAIN_WORLD_EDITOR_CAPTURE',
     'TRAIN_WORLD_EDITOR_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
     'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID',
-    'TRAIN_WORLD_EDITOR_WORKSPACE_LEG', 'TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID'
+    'TRAIN_WORLD_EDITOR_WORKSPACE_LEG', 'TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID',
+    'TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -75,12 +76,14 @@ if ($Workspace) {
     $userData = Join-Path $OutputDirectory 'user-data'
     New-Item -ItemType Directory -Path $userData | Out-Null
     $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+    $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH = Join-Path $evidence 'exported-world.json'
     try {
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'save'
         $save = Invoke-EntryLeg 'save' 'WORKSPACE'
         foreach ($marker in @('WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored',
             'WORKSPACE_NO_WORLD_LEAVE completed=true',
             'WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
+            'WORKSPACE_EXPORTED path=', 'status=Saved overwrite_refused=true overwrite_confirmed=true',
             'WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace', 'WORKSPACE_OPEN_FAILED fault=corrupt',
             'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3', 'row_disabled=true', 'WORKSPACE_SAVED old=')) {
             if (-not $save.Contains($marker)) { throw "Workspace save omitted assertion marker: $marker" }
@@ -92,17 +95,28 @@ if ($Workspace) {
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID = $ids.Groups[1].Value
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID = $ids.Groups[2].Value
 
-        foreach ($leg in @('resume-old', 'resume-new')) {
+        foreach ($leg in @('resume-old', 'resume-new', 'import-new')) {
             $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
             $text = Invoke-EntryLeg $leg 'WORKSPACE'
-            foreach ($marker in @('WORKSPACE_MENU ready=true', "WORKSPACE_LIST_OPEN id=", "WORKSPACE_CONTINUED leg=$leg", 'pending=0 paused=true')) {
+            $markers = @('WORKSPACE_MENU ready=true', "WORKSPACE_CONTINUED leg=$leg", 'pending=0 paused=true')
+            if ($leg -eq 'import-new') { $markers += @('WORKSPACE_IMPORTED id=', 'refreshed=true opened=true') }
+            else { $markers += 'WORKSPACE_LIST_OPEN id=' }
+            foreach ($marker in $markers) {
                 if (-not $text.Contains($marker)) { throw "Workspace $leg omitted assertion marker: $marker" }
+            }
+            if ($leg -eq 'import-new') {
+                $imported = [regex]::Match($text, 'WORKSPACE_IMPORTED id=([0-9a-fA-F-]{36}) source=([0-9a-fA-F-]{36})')
+                if (-not $imported.Success -or $imported.Groups[1].Value -in @($ids.Groups[1].Value, $ids.Groups[2].Value) -or
+                    $imported.Groups[2].Value -ne $ids.Groups[2].Value) {
+                    throw 'Workspace import leg did not provide a distinct UUID derived from the exported copy.'
+                }
+                $env:TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID = $imported.Groups[1].Value
             }
         }
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'verify'
         $verify = Invoke-EntryLeg 'verify' 'WORKSPACE'
         foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=',
-            'WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 cross_edits=false pending=0')) {
+            'WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0')) {
             if (-not $verify.Contains($marker)) { throw "Workspace verify omitted assertion marker: $marker" }
         }
         [ordered]@{
@@ -110,21 +124,26 @@ if ($Workspace) {
             durationMs = $started.ElapsedMilliseconds
             originalSaveId = $ids.Groups[1].Value
             copiedSaveId = $ids.Groups[2].Value
+            importedSaveId = $imported.Groups[1].Value
+            exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
         @'
 # World editor workspace cross-process validation
 
-Four fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
+Five fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
 world, saves it, exercises return cancellation and failed ordinary save, then drives the save-as button and confirmation
 signals. Cancelling preserves identity, dirty state and the original bytes; confirming creates a distinct current save
-and keeps the original. It then reopens the copy, edits it and completes a successful save-and-return. A save corrupted
+and keeps the original. It exports that current world, rejects an unconfirmed overwrite without changing the file, and
+completes a confirmed overwrite. It then reopens the copy, edits it and completes a successful save-and-return. A save corrupted
 after the list loads keeps the workspace with a reason and refreshed disabled row.
-The next two processes independently open the original and copy, run the shared pending command, make distinct edits and
-save to their own identities. The final process opens both from the workspace and proves their continued edits did not
-cross while the copy retained the world state captured by save-as. Godot mesh and collider counts match each continued world.
+The next two processes independently open and continue the original and save-as copy. A fourth process imports the exported
+file through the workspace, refreshes the list, opens the new local UUID, runs the shared pending command, makes a distinct
+edit and saves it. The final
+process opens the original, save-as copy and imported save and proves their edits did not cross. Godot mesh and collider
+counts match each continued world.
 
-Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, verify.stdout.log; process identities:
+Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log; process identities:
 processes.log; tested head: config.json.
 This headless result does not establish graphical interaction or manual acceptance.
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
@@ -140,6 +159,8 @@ This headless result does not establish graphical interaction or manual acceptan
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
     }
 }

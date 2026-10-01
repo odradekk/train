@@ -11,6 +11,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     public const string LegEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_LEG";
     public const string OldIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID";
     public const string NewIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID";
+    public const string ImportedIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID";
+    public const string ExportPathEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH";
     private const string OldName = "工作区验证原存档";
     private const string NewName = "工作区验证副本";
     private static readonly WorldVoxelCoord InitialCell = new(2, 2, 2);
@@ -20,18 +22,20 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static readonly WorldVoxelCoord NewOnlyCell = new(6, 2, 2);
     private static readonly WorldVoxelCoord DiscardedCell = new(7, 2, 2);
     private static readonly WorldVoxelCoord SaveContinueCell = new(8, 2, 2);
+    private static readonly WorldVoxelCoord ImportedOnlyCell = new(9, 2, 2);
     private static string Leg => System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
     private static int _workspaceVisits;
     private static int _menuVisits;
     private static int _editorVisits;
     private static Guid _oldId;
     private static Guid _newId;
+    private static Guid _importedId;
     private int _phase;
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
     private WorldEditorLeaveSmoke? _leaveSmoke;
 
-    public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "verify";
+    public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify";
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
@@ -72,12 +76,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         }
 
         var entries = workspace.Entries;
-        Require(entries.Count == 2, "workspace did not retain the original and save-as copy");
-        var oldEntry = entries.Single(item => item.Name == OldName);
-        var newEntry = entries.Single(item => item.Name == NewName);
-        Require(oldEntry.Id == ExpectedId(OldIdEnvironmentVariable, _oldId) &&
-                newEntry.Id == ExpectedId(NewIdEnvironmentVariable, _newId),
-            "workspace save identities differ from the creating process");
+        var oldEntry = entries.Single(item => item.Id == ExpectedId(OldIdEnvironmentVariable, _oldId));
+        var newEntry = entries.Single(item => item.Id == ExpectedId(NewIdEnvironmentVariable, _newId));
+        Require(entries.Count == (Leg == "verify" ? 3 : 2) && oldEntry.Name == OldName && newEntry.Name == NewName,
+            "workspace did not retain the original and save-as copy with their identities");
         Require(oldEntry.Recovery.Succeeded && newEntry.Recovery.Succeeded &&
                 oldEntry.LastSavedUtc is not null && newEntry.LastSavedUtc is not null &&
                 oldEntry.FormatVersion is not null && newEntry.FormatVersion is not null,
@@ -100,12 +102,31 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             return;
         }
 
+        if (Leg == "import-new")
+        {
+            var imported = workspace.ImportSave(RequiredPath(ExportPathEnvironmentVariable));
+            Require(imported.Status == WorldSaveStatus.Saved && imported.SaveId.HasValue,
+                "workspace import did not create a local save identity");
+            var importedId = imported.SaveId.GetValueOrDefault();
+            _importedId = importedId;
+            Require(importedId != oldEntry.Id && importedId != newEntry.Id,
+                "workspace import did not create a distinct local save identity");
+            workspace.RefreshSaves();
+            Require(workspace.Entries.Count == 3 &&
+                    workspace.Entries.Single(item => item.Id == importedId).Recovery.Succeeded,
+                "workspace refresh did not expose the imported save as usable");
+            Require(workspace.OpenSave(importedId).Succeeded, "imported save could not be opened from the refreshed workspace");
+            GD.Print($"WORKSPACE_IMPORTED id={importedId:D} source={newEntry.Id:D} refreshed=true opened=true");
+            return;
+        }
+
         var entry = Leg switch
         {
             "resume-old" => oldEntry,
             "resume-new" => newEntry,
             "verify" when _workspaceVisits == 1 => oldEntry,
-            "verify" => newEntry,
+            "verify" when _workspaceVisits == 2 => newEntry,
+            "verify" => entries.Single(item => item.Id == RequiredId(ImportedIdEnvironmentVariable)),
             _ => throw new InvalidOperationException($"Unknown workspace leg {Leg}.")
         };
         Require(workspace.OpenSave(entry.Id).Succeeded, "list selection failed to open ordinary save");
@@ -147,12 +168,13 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     return;
                 }
 
-                var expectedId = RequiredId(Leg == "resume-old" ? OldIdEnvironmentVariable : NewIdEnvironmentVariable);
-                var expectedVoxels = Leg == "resume-old" ? 1 : 3;
+                var expectedId = Leg == "import-new" ? _importedId :
+                    RequiredId(Leg == "resume-old" ? OldIdEnvironmentVariable : NewIdEnvironmentVariable);
+                var expectedVoxels = Leg switch { "resume-old" => 1, "resume-new" => 3, _ => 2 };
                 Require(session.SaveId == expectedId && session.SimulationStep == 1 && session.QueryPendingEdits().Count == 1 &&
                         session.World.VoxelCount == expectedVoxels,
                     "ordinary open lost identity, simulation position, copied state or pending input");
-                Add(Leg == "resume-old" ? OldOnlyCell : NewOnlyCell);
+                Add(Leg switch { "resume-old" => OldOnlyCell, "resume-new" => NewOnlyCell, _ => ImportedOnlyCell });
                 scene.Press("run");
                 _phase = 1;
                 return;
@@ -161,7 +183,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 return;
             scene.Press("pause");
             scene.Refresh();
-            var expected = Leg == "resume-old" ? 3 : 5;
+            var expected = Leg switch { "resume-old" => 3, "resume-new" => 5, _ => 4 };
             Require(session.SimulationPaused && session.QueryPendingEdits().Count == 0 && session.World.VoxelCount == expected &&
                     session.Query(PendingCell).Voxel is not null && session.HasUnsavedChanges,
                 "new process did not continue editing and run queued commands");
@@ -231,6 +253,19 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         var newId = session.SaveId.GetValueOrDefault();
         _newId = newId;
         GD.Print($"WORKSPACE_SAVE_AS old={oldId:D} copy={newId:D} cancel=kept dirty=true original=kept");
+        var exportPath = RequiredPath(ExportPathEnvironmentVariable);
+        var exported = scene.ExportWorld(exportPath);
+        Require(exported.Status == WorldSaveStatus.Saved && File.Exists(exportPath),
+            "current save-as world was not exported to the requested path");
+        var exportedBytes = File.ReadAllBytes(exportPath);
+        var refused = scene.ExportWorld(exportPath);
+        Require(refused.Status == WorldSaveStatus.OverwriteConfirmationRequired &&
+                File.ReadAllBytes(exportPath).SequenceEqual(exportedBytes),
+            "export without overwrite permission changed the existing file");
+        var overwritten = scene.ExportWorld(exportPath, overwrite: true);
+        Require(overwritten.Status == WorldSaveStatus.Saved && File.Exists(exportPath),
+            "confirmed export did not replace the file with the current world");
+        GD.Print($"WORKSPACE_EXPORTED path={exportPath} status=Saved overwrite_refused=true overwrite_confirmed=true");
         Add(DiscardedCell);
         scene.Press("workspace");
         Require(scene.PromptVisible, "post-save-as unsaved return omitted prompt");
@@ -246,19 +281,35 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         {
             Require(session.SaveId == RequiredId(OldIdEnvironmentVariable) && session.World.VoxelCount == 3 &&
                     session.Query(OldOnlyCell).Voxel is not null && session.Query(NewOnlyCell).Voxel is null &&
-                    session.Query(CopiedCell).Voxel is null && session.QueryPendingEdits().Count == 0,
+                    session.Query(ImportedOnlyCell).Voxel is null &&
+                    session.Query(CopiedCell).Voxel is null && session.Query(SaveContinueCell).Voxel is null &&
+                    session.Query(PendingCell).Voxel is not null && session.QueryPendingEdits().Count == 0,
                 "original save contains copy-only state or lost its continued state");
             scene.Press("workspace");
             WorldChangeSmoke.Finish(session);
             _finished = true;
             return;
         }
-        Require(session.SaveId == RequiredId(NewIdEnvironmentVariable) && session.World.VoxelCount == 5 &&
-                session.Query(NewOnlyCell).Voxel is not null && session.Query(OldOnlyCell).Voxel is null &&
-                session.Query(CopiedCell).Voxel is not null && session.Query(SaveContinueCell).Voxel is not null &&
-                session.QueryPendingEdits().Count == 0,
-            "save-as copy contains original-only state or lost its copied state");
-        GD.Print("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 cross_edits=false pending=0");
+        if (_visit == 2)
+        {
+            Require(session.SaveId == RequiredId(NewIdEnvironmentVariable) && session.World.VoxelCount == 5 &&
+                    session.Query(NewOnlyCell).Voxel is not null && session.Query(ImportedOnlyCell).Voxel is null &&
+                    session.Query(OldOnlyCell).Voxel is null &&
+                    session.Query(CopiedCell).Voxel is not null && session.Query(SaveContinueCell).Voxel is not null &&
+                    session.Query(PendingCell).Voxel is not null && session.QueryPendingEdits().Count == 0,
+                "save-as copy contains another branch's edit or lost its saved state");
+            scene.Press("workspace");
+            WorldChangeSmoke.Finish(session);
+            _finished = true;
+            return;
+        }
+        Require(session.SaveId == RequiredId(ImportedIdEnvironmentVariable) && session.World.VoxelCount == 4 &&
+                session.Query(ImportedOnlyCell).Voxel is not null && session.Query(NewOnlyCell).Voxel is null &&
+                session.Query(OldOnlyCell).Voxel is null &&
+                session.Query(CopiedCell).Voxel is not null && session.Query(SaveContinueCell).Voxel is null &&
+                session.Query(PendingCell).Voxel is not null && session.QueryPendingEdits().Count == 0,
+            "imported save contains another branch's edit or lost its continued state");
+        GD.Print("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0");
         _finished = true;
         Done(scene);
     }
@@ -288,6 +339,14 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         if (!Guid.TryParse(value, out var id))
             throw new InvalidOperationException($"{variable} is missing or invalid.");
         return id;
+    }
+
+    private static string RequiredPath(string variable)
+    {
+        var value = System.Environment.GetEnvironmentVariable(variable);
+        if (string.IsNullOrWhiteSpace(value) || !Path.IsPathFullyQualified(value))
+            throw new InvalidOperationException($"{variable} is missing or is not an absolute path.");
+        return value;
     }
 
     private static Guid ExpectedId(string variable, Guid inProcessId) =>

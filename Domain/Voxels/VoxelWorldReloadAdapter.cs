@@ -103,7 +103,8 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         CompositeCatalogSnapshot composites,
         List<WorldSaveAdaptation>? adaptations,
         out IReadOnlyList<CompositeInstance> adapted,
-        out WorldSaveStatus status)
+        out WorldSaveStatus status,
+        WorldSaveFailureLog? failures = null)
     {
         ArgumentNullException.ThrowIfNull(vehicles);
         ArgumentNullException.ThrowIfNull(voxels);
@@ -124,6 +125,8 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
                 or ContentDiagnosticCodes.UnresolvedArchetypeReference)
             ? WorldSaveStatus.MissingDefinition
             : WorldSaveStatus.InvalidDelta;
+        var reason = diagnostics[0];
+        failures?.Report("dependency", reason.JsonPath ?? "vehicle", reason.Code, reason.Message);
         return false;
     }
 

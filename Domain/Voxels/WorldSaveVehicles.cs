@@ -324,7 +324,8 @@ internal static partial class WorldSaveVehicleCodec
         VoxelWorld world,
         List<WorldSaveAdaptation> adaptations,
         out IReadOnlyList<CompositeInstance> vehicles,
-        out WorldSaveStatus status)
+        out WorldSaveStatus status,
+        WorldSaveFailureLog? failures = null)
     {
         vehicles = Array.Empty<CompositeInstance>();
         status = WorldSaveStatus.InvalidDelta;
@@ -338,6 +339,7 @@ internal static partial class WorldSaveVehicleCodec
                 if (!locals.TryGetValue(saved.SaveLocalRevision, out var local))
                 {
                     status = WorldSaveStatus.MissingDefinition;
+                    failures?.Report("dependency", saved.DefinitionId.Value, "save_local_revision", "the embedded definition revision is missing");
                     return false;
                 }
 
@@ -411,7 +413,7 @@ internal static partial class WorldSaveVehicleCodec
                 saveLocal));
         }
 
-        if (!VoxelWorldReloadAdapter.TryAdaptVehicles(reconstructed, voxels, composites, adaptations, out var adapted, out status))
+        if (!VoxelWorldReloadAdapter.TryAdaptVehicles(reconstructed, voxels, composites, adaptations, out var adapted, out status, failures))
             return false;
         if (!TryValidateIdentities(world, adapted, document.NextEntityId, document.TransactionCount, out status))
             return false;

@@ -31,7 +31,8 @@ public enum WorldSaveStatus
     UnsupportedRailway,
     UnknownSource,
     SimulationFaulted,
-    WorldChanging
+    WorldChanging,
+    OverwriteConfirmationRequired
 }
 
 public sealed record WorldSaveDiagnostic(string Stage, string Subject, string Relationship, string Detail)
@@ -1274,7 +1275,8 @@ public static class WorldSaveRestorer
                 generated,
                 adaptations,
                 out var vehicles,
-                out status))
+                out status,
+                failures))
             return false;
         if (!WorldSaveRailwayCodec.TryRestore(
                 document,
