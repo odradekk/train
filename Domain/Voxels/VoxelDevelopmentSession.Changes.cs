@@ -226,7 +226,7 @@ public sealed partial class VoxelDevelopmentSession
         SaveId = candidate.SaveId;
         DisplayName = candidate.DisplayName;
         _cleanFingerprint = candidate._cleanFingerprint;
-        SimulationPaused = true;
+        SimulationPaused = candidate.SimulationPaused;
         Changed?.Invoke();
         WorldReplaced?.Invoke(kind is WorldChangeKind.Load or WorldChangeKind.ReloadSaved ? WorldReplacement.Load : WorldReplacement.Reset);
         candidate.Detach();

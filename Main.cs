@@ -316,14 +316,23 @@ public partial class Main : Node
             return;
         }
 
-        var status = WorldEditorSession.TryEstablish(configurationId, _reloader.Catalog, _reloader.Composites,
-            new FileWorldSaveStore(IsolatedUserDataDirectory), out var candidate);
-        if (status != WorldEditorEstablishStatus.Established || candidate is null)
+        Error error;
+        if (GetTree().CurrentScene is VoxelDeveloperScene)
         {
-            _logger?.Error("world-editor", "world_editor_establish_failed", $"Failed to establish world editor configuration: {status}.");
-            return;
+            var status = WorldEditorSession.TryEstablish(configurationId, _reloader.Catalog, _reloader.Composites,
+                new FileWorldSaveStore(IsolatedUserDataDirectory), out var candidate);
+            if (status != WorldEditorEstablishStatus.Established || candidate is null)
+            {
+                _logger?.Error("world-editor", "world_editor_establish_failed", $"Failed to establish world editor configuration: {status}.");
+                return;
+            }
+            error = EnterWorldEditor(candidate);
         }
-        var error = EnterWorldEditor(candidate);
+        else
+        {
+            WorldEditorConfigurationId = configurationId;
+            error = GetTree().ChangeSceneToFile("res://Ui/WorldEditorScene.tscn");
+        }
         if (error != Error.Ok)
             _logger?.Error("world-editor", "world_editor_scene_failed", $"Failed to open world editor scene: {error}.");
     }
