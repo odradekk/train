@@ -1,6 +1,6 @@
 # 00 产品形态与核心循环
 
-> 决策出处：转录 Q2、Q8、Q109；`CONTEXT.md` 与 `docs/specs/mvp.md` 描述的 MVP 已验证循环；2026-09-05 围绕 [#29](https://github.com/odradekk/train/issues/29) 的产品方向确认。当前首版以专门测试场景验收体素基础，正式游戏场景与贸易玩法后续接入。
+> 决策出处：转录 Q2、Q8、Q109；`CONTEXT.md` 与历史 [MVP 规格](https://github.com/odradekk/train/blob/eb6a502329a1830a51c5da62e2c24545f34c9a46/docs/specs/mvp.md) 描述的 MVP 已验证循环；2026-09-05 围绕 [#29](https://github.com/odradekk/train/issues/29) 的产品方向确认。当前首版以专门测试场景验收体素基础，正式游戏场景与贸易玩法后续接入。
 
 ## 边界
 
