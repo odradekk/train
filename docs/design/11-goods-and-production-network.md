@@ -168,7 +168,7 @@ Future Product Families 的具体产品与 Process；Window、Door、Armor Block
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
 - 地图迷雾（不立票）：Control Equipment 等 Future Product Families 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
 资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

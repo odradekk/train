@@ -358,6 +358,6 @@ RailConstructionPlan（连续几何、连接与占格方案）→ Validate → R
 
 ## 开放问题
 
-- 已确认依据：本阶段验证矩阵与机械模型已由[铁路几何验证](https://github.com/odradekk/train/issues/93)确定，首批可实施参数范围及用户观感确认见[三维弯坡与混编车辆参数原型](https://github.com/odradekk/train/issues/108)。分支道岔、选路与多列车最小冲突防护已由[网络运行规则](https://github.com/odradekk/train/issues/94)确认，见上文网络运行契约；具体交付与端到端验收安排见已确认的[分期规格](voxel-engine-stage-spec.md)。
-- 地图迷雾（不立票）：已确认轨距、净空和首批机械/精度标准之外的后续调优，以及有动力加速曲线与加减速度、目标速度及最终制动体验、无动力滑行减速度等最终调优值；首批机械参数与数值精度已按本节决定，未成为近期决策的后续调优数值不另立票（[roadmap](roadmap.md)）。当前恒加速度、立即停车与 60 Hz 仍是切片实现，见 [04](04-deterministic-simulation.md)。
+- 已确认依据：本阶段验证矩阵与机械模型已由[铁路几何验证](https://github.com/odradekk/train/issues/93)确定，首批可实施参数范围及用户观感确认见[三维弯坡与混编车辆参数原型](https://github.com/odradekk/train/issues/108)。分支道岔、选路与多列车最小冲突防护已由[网络运行规则](https://github.com/odradekk/train/issues/94)确认，见上文网络运行契约。
+- 地图迷雾（不立票）：已确认轨距、净空和首批机械/精度标准之外的后续调优，以及有动力加速曲线与加减速度、目标速度及最终制动体验、无动力滑行减速度等最终调优值；首批机械参数与数值精度已按本节决定，未成为近期决策的后续调优数值不另立票。当前恒加速度、立即停车与 60 Hz 仍是切片实现，见 [04](04-deterministic-simulation.md)。
 - 地图迷雾（不立票）：完整编挂操作及超出已定运行计划继承规则的多列车运营；进入近期切片再评估，不重开连接编组统一运动及断开后独立处理原则。

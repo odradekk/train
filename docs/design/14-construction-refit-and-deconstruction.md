@@ -92,7 +92,7 @@ ConstructionJob、RefitJob、DeconstructionJob、Spatial Reservations、Storage 
 
 ## 首版范围
 
-从 Layout 派生 BOM、精确 DefinitionId、Goods 实体化、耗时 Construction Job 与 Spatial Reservation、耗时 Refit Job 与 Delta BOM、Deconstruction Job 与 Storage Reservation、UnderRefit / UnderDeconstruction 锁定、Snapshot 与失败语义、Deconstruction 主动 Pause / Resume（保留进度、预留与锁定）。范围归属见 [10](10-resources-and-extraction.md)；当前体素切片中的瞬时 Atomic Refit 测试入口继续保留（[03](03-composite-and-behavior.md)、[roadmap](roadmap.md)）。
+从 Layout 派生 BOM、精确 DefinitionId、Goods 实体化、耗时 Construction Job 与 Spatial Reservation、耗时 Refit Job 与 Delta BOM、Deconstruction Job 与 Storage Reservation、UnderRefit / UnderDeconstruction 锁定、Snapshot 与失败语义、Deconstruction 主动 Pause / Resume（保留进度、预留与锁定）。范围归属见 [10](10-resources-and-extraction.md)；当前体素切片中的瞬时 Atomic Refit 测试入口继续保留（[03](03-composite-and-behavior.md)）。
 
 ## 明确延后
 
@@ -100,7 +100,7 @@ Construction / Refit / Deconstruction 主动 Cancel / Refund；Construction / Re
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：ConstructionWorkPerVoxel、RefitWorkPerChangedVoxel、DeconstructionWorkPerVoxel、Construction Equipment base capability（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：未冻结参数：ConstructionWorkPerVoxel、RefitWorkPerChangedVoxel、DeconstructionWorkPerVoxel、Construction Equipment base capability。
 - 地图迷雾（不立票）：Construction / Refit 的主动 Pause / Resume，以及三类 Job 的主动 Cancel / Refund 尚待后续设计；首版仅采用上文已明确的暂停与失败结算规则。
 
 资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

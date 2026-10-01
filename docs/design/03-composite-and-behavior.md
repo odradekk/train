@@ -166,3 +166,4 @@ CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Constru
 
 - 本阶段能力范围已由[体素能力决策](https://github.com/odradekk/train/issues/92)确认，静态建筑的结构、身份、完整修复与内容边界已由[建筑契约](https://github.com/odradekk/train/issues/106)确认，见上文；数据结构和文件拆分随实施选择，不重开已定产品语义。
 - 地图迷雾（不立票）：范围之外的 Behavior、Capability、System 接口扩展及 Archetype 规则（转录 Q22、Q43）、完整编挂操作与运营命令继承；选入近期切片后再评估是否需要决策。编组运动与断开处理已有规则见 [06](06-railway.md)，本阶段多列车最小运行规则见该篇关联决策票。
+- 未冻结参数：非车辆 Blueprint 尺寸限制，通过实际开发确定。

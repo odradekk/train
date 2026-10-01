@@ -147,7 +147,7 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数。
 - 地图迷雾（不立票）：Extraction 连续 Work → 离散 Damage 的输出提交边界尚未定义，不能直接套用 Production / Recovery 的“一个完成 Batch 剩余”；首个 Extraction 实现切片须明确同 Tick 多次 Damage 与 Buffer 阻塞的衔接，并同步 [10 的开放问题](10-resources-and-extraction.md#开放问题)。
 
 资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。现有 [#78](https://github.com/odradekk/train/issues/78) 仅验证开采伤害与 Yield，明确不含 Facility、Job 和 OutputBuffer，不受此处输出提交边界阻塞。

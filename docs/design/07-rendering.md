@@ -36,7 +36,7 @@
 
 #### 可重复验收矩阵
 
-验收配置与操作步骤进入 [Playground](playground.md) 的固定配置及独立步骤体系，不再新增永久专用场景入口。下表规定可观察结果，具体夹具规模、阈值及执行步骤由相应实施规格落定。
+验收配置与操作步骤使用自动测试配置和普通示例存档（见 [09](09-persistence.md#来源示例维护与模式兼容)），不再新增永久专用场景入口。下表规定可观察结果，具体夹具规模、阈值及执行步骤由相应实施规格落定。
 
 | 场景 | 必须观察到的结果 |
 | --- | --- |
@@ -126,7 +126,7 @@ Rebase 时已有 Godot 碰撞表示、射线/命中查询与可见对象使用�
 
 ## 首版范围
 
-Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming。能力归类见 [roadmap 的引擎能力分层参考](roadmap.md#引擎能力分层参考)；Phase 表不表示实施顺序。前四切片保留为历史交付，本阶段按[分期规格](voxel-engine-stage-spec.md)安排基础表现、铁路表现、跨区观察及联合验收。
+Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming。
 
 ## 明确延后
 
@@ -136,6 +136,6 @@ Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续�
 
 ## 开放问题
 
-- 已确认依据：本阶段跨区域观察、修改/重建与长期运行的渲染性能、内存测量及用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)，实验安排见已确认的[分期规格](voxel-engine-stage-spec.md)。
-- 本阶段表现规则已由上文验收契约确定；Chunk Size、驻留/卸载半径、路径预取距离、Rebase 触发条件和重建预算等数值须实测后提交用户确认，不能把方法决议当作数值已经冻结或实现已经通过。
+- 已确认依据：本阶段跨区域观察、修改/重建与长期运行的渲染性能、内存测量及用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)。
+- 本阶段表现规则已由上文验收契约确定；Chunk Size、驻留/卸载半径、路径预取距离、Rebase 触发条件、重建预算和 Meshing Threshold 等数值须实测后提交用户确认，不能把方法决议当作数值已经冻结或实现已经通过。
 - 地图迷雾（不立票）：本阶段之外的 Custom Mesh LOD Distance、Voxel Geometry LOD Distance、额外批处理或存储优化；实测表明需要选入后再评估，不预先承诺。

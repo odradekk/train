@@ -66,6 +66,6 @@ Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、�
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：Storage Equipment capacity（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：未冻结参数：Storage Equipment capacity。
 
 资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

@@ -1,6 +1,6 @@
 # 10 资源源与开采
 
-> 决策出处：资源转录 Q180–Q181、Q187、Q189、Q196–Q210、Q217–Q222、Q367–Q371、Q375、Q406–Q407、Q410、Q414、Q424（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)，其编号与旧转录在 Q180 重叠，引用须带前缀）。本文与 [11](11-goods-and-production-network.md)、[12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md) 共同定义资源与生产系统；它建立在既有体素、Definition、Composite、Behavior、Capability、确定性 Simulation 与存档契约之上。代码与内容迁移由后续实现切片执行，不属于当前四个体素切片（[roadmap](roadmap.md)）。
+> 决策出处：资源转录 Q180–Q181、Q187、Q189、Q196–Q210、Q217–Q222、Q367–Q371、Q375、Q406–Q407、Q410、Q414、Q424（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)，其编号与旧转录在 Q180 重叠，引用须带前缀）。本文与 [11](11-goods-and-production-network.md)、[12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md) 共同定义资源与生产系统；它建立在既有体素、Definition、Composite、Behavior、Capability、确定性 Simulation 与存档契约之上。代码与内容迁移由后续实现切片执行，不属于本阶段。
 
 > 实现验证保留条款：10–14 的资源与生产子系统尚未经实现验证，首个实现切片可依据实际验证结果回写修订这些设计；修改须同步受影响文档并说明理由。本文中的“冻结”表示当前设计基线，不表示禁止基于实现证据重审。
 
@@ -101,7 +101,7 @@ Timber 同时可由 Forestry 这一 Primary Production 产出，见 [11](11-good
 
 ## 首版范围
 
-资源与生产系统首版：`resource_source` 与 `raw_good` 语义、ResourceSourceBehavior、Durability-based deterministic Extraction、8 类基础 Resource Source、通用 Extraction Equipment 与 Extraction Capability、Extraction Job、Facility-local OutputBuffer 复用、Resource Renewal Event 的架构方向。本文冻结的是结构、语义与不变量，不是平衡数值。该系统不属于当前以专门测试场景验收的体素基础首版及其前四个切片，实现顺序随后续切片确定（[roadmap](roadmap.md)）。
+资源与生产系统首版：`resource_source` 与 `raw_good` 语义、ResourceSourceBehavior、Durability-based deterministic Extraction、8 类基础 Resource Source、通用 Extraction Equipment 与 Extraction Capability、Extraction Job、Facility-local OutputBuffer 复用、Resource Renewal Event 的架构方向。本文冻结的是结构、语义与不变量，不是平衡数值。该系统不属于本阶段，实现顺序随后续切片确定。
 
 ## 明确延后
 
@@ -109,7 +109,7 @@ Timber 同时可由 Forestry 这一 Primary Production 产出，见 [11](11-good
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：每个 Resource Source 的 MaxDurability、各 Source Yield 的 `N Damage → M Goods`、Source Cluster 大小和分布、Extraction Range / Area、WorkPerDamage、Extraction Equipment base capability、Resource Renewal Event 的触发条件、间隔和规模（[roadmap](roadmap.md)）。
+- 地图迷雾（不立票）：未冻结参数：每个 Resource Source 的 MaxDurability、各 Source Yield 的 `N Damage → M Goods`、Source Cluster 大小和分布、Extraction Range / Area、WorkPerDamage、Extraction Equipment base capability、Resource Renewal Event 的触发条件、间隔和规模。
 - 地图迷雾（不立票）：Extraction 连续产出如何对应 OutputBuffer 的“一个完成 Batch 剩余”尚未确定：需在首个 Extraction 实现切片明确一次输出提交的边界、同 Tick 多次 Damage 的处理及 Buffer 非空后的停止点，与 [13 的开放问题](13-production-runtime-and-facilities.md#开放问题) 同步；在此之前不将整个 Source 或整个 Job 默认视作一个 Batch。
 
 资源生产尚未纳入 [#91](https://github.com/odradekk/train/issues/91) 的当前阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。现有 [#78](https://github.com/odradekk/train/issues/78) 仅验证开采伤害与 Yield，明确不含 Facility、Job 和 OutputBuffer，不受此处输出提交边界阻塞。

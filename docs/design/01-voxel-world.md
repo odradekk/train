@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文定义世界空间、Voxel 逻辑单位、网格不变量、Voxel 的耐久与世界体素的结构规则。VoxelDefinition 的字段见 [02](02-definitions-and-content.md)；Composite 的内部网格、所有权与断裂见 [03](03-composite-and-behavior.md)；Chunk Mesh 与渲染见 [07](07-rendering.md)。世界尺寸与 Chunk 尺寸是未冻结参数（[roadmap](roadmap.md)）。
+本文定义世界空间、Voxel 逻辑单位、网格不变量、Voxel 的耐久与世界体素的结构规则。VoxelDefinition 的字段见 [02](02-definitions-and-content.md)；Composite 的内部网格、所有权与断裂见 [03](03-composite-and-behavior.md)；Chunk Mesh 与渲染见 [07](07-rendering.md)。世界尺寸与 Chunk 尺寸是未冻结参数。
 
 ## 不变量
 
@@ -57,5 +57,5 @@ World structural collapse、复杂重力系统、复杂 Damage Types、通用 Ma
 
 ## 开放问题
 
-- 已确认依据：代表性 World Size、负载、Chunk Size 及全图常驻内存的测量与用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)；实验安排见已确认的[分期规格](voxel-engine-stage-spec.md)，不把当前小夹具规模当作容量保证。
-- 地图迷雾（不立票）：Chunk 存储实现的具体优化（[roadmap](roadmap.md)）；待测量暴露影响当前或下一切片的具体瓶颈时再提出决策问题。
+- 已确认依据：代表性 World Size、负载、Chunk Size 及全图常驻内存的测量与用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)，不把当前小夹具规模当作容量保证。
+- 地图迷雾（不立票）：Chunk 存储实现的具体优化；待测量暴露影响当前或下一切片的具体瓶颈时再提出决策问题。
