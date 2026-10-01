@@ -53,14 +53,18 @@ public partial class GameConsole : CanvasLayer
         _dispatcher = new ConsoleCommandDispatcher(
             _logger,
             _buffer.Clear,
-            () => GetTree().Quit(),
+            () => GetNode<Main>("/root/Main").RequestQuit(),
             () => _reloader?.Reload(),
             OS.IsDebugBuild(),
-            _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession),
-            _voxelSession is null ? null : new CompositeConsoleCommands(_voxelSession),
+            _voxelSession is null ? null : new VoxelConsoleCommands(_voxelSession, ChangeWorld),
+            _voxelSession is null ? null : new CompositeConsoleCommands(_voxelSession, ChangeWorld),
             _voxelSession is null ? null : new RailConsoleCommands(_voxelSession),
             _voxelSession is null || _observer is null ? null : new ObserveConsoleCommands(_voxelSession, _observer));
     }
+
+    private WorldChangeResult ChangeWorld(WorldChangeRequest request) =>
+        GetTree().CurrentScene is WorldEditorScene editor
+            ? editor.RequestWorldChange(request) : _voxelSession!.TryChangeWorld(request);
 
     public override void _Ready()
     {

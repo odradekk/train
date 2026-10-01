@@ -76,6 +76,7 @@ public sealed partial class VoxelDevelopmentSession
         var edit = new VehicleDamageEdit(targets);
         var submission = SubmitEdit(edit);
         return submission.Result is CompositeDamageResult result ? edit.ToCallerOrder(result) : new CompositeDamageResult(
+            submission.Refusal == WorldEditRefusal.WorldChanging ? CompositeDamageStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? CompositeDamageStatus.InputExhausted : CompositeDamageStatus.SimulationFaulted,
             targets.Count == 0 ? null : targets[0].VehicleId);
     }
@@ -110,6 +111,7 @@ public sealed partial class VoxelDevelopmentSession
             return new RailEditResult(RailEditStatus.InvalidPlan);
         var submission = SubmitEdit(new RailConstructEdit(plan));
         return submission.Result as RailEditResult ?? new RailEditResult(
+            submission.Refusal == WorldEditRefusal.WorldChanging ? RailEditStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? RailEditStatus.InputExhausted : RailEditStatus.SimulationFaulted);
     }
 
@@ -118,6 +120,7 @@ public sealed partial class VoxelDevelopmentSession
         ArgumentNullException.ThrowIfNull(cells);
         var submission = SubmitEdit(new RailRepairEdit(cells));
         return submission.Result as RailRepairResult ?? new RailRepairResult(
+            submission.Refusal == WorldEditRefusal.WorldChanging ? RailRepairStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? RailRepairStatus.InputExhausted : RailRepairStatus.SimulationFaulted,
             cells.Count == 0 ? default : cells[0]);
     }
@@ -126,6 +129,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         var submission = SubmitEdit(TrainAssembleEdit.StaticFixture);
         return submission.Result as TrainAssemblyResult ?? new TrainAssemblyResult(
+            submission.Refusal == WorldEditRefusal.WorldChanging ? TrainAssemblyStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? TrainAssemblyStatus.InputExhausted : TrainAssemblyStatus.SimulationFaulted);
     }
 
@@ -159,6 +163,7 @@ public sealed partial class VoxelDevelopmentSession
         {
             return RejectMotion(submission.Refusal switch
             {
+                WorldEditRefusal.WorldChanging => TrainMotionStatus.WorldChanging,
                 WorldEditRefusal.PastStep => TrainMotionStatus.PastStep,
                 WorldEditRefusal.InputExhausted => TrainMotionStatus.InputExhausted,
                 WorldEditRefusal.UnallocatedReference => TrainMotionStatus.UnallocatedReference,
@@ -178,7 +183,7 @@ public sealed partial class VoxelDevelopmentSession
 
     /// <summary>False when the session cannot take another input at its current boundary.</summary>
     internal bool CanRecordContentPublication =>
-        Fault is null && NextEditId != ulong.MaxValue && EditBoundarySequence != ulong.MaxValue;
+        !IsChangingWorld && Fault is null && NextEditId != ulong.MaxValue && EditBoundarySequence != ulong.MaxValue;
 
     /// <summary>
     /// Records one world-adapting content publication at the current boundary and applies it inside the edit
@@ -214,6 +219,8 @@ public sealed partial class VoxelDevelopmentSession
         ArgumentNullException.ThrowIfNull(edit);
         if (edit is ContentPublishEdit)
             throw new ArgumentException("Content publications are recorded by the content reload boundary.", nameof(edit));
+        if (IsChangingWorld)
+            return new WorldEditSubmission(WorldEditRefusal.WorldChanging, null, null);
         if (Fault is not null)
             return new WorldEditSubmission(WorldEditRefusal.SimulationFaulted, null, null);
         var target = atStep ?? SimulationStep;
@@ -393,10 +400,12 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     private static WorldCommandStatus RefusedVoxelStatus(WorldEditSubmission submission) =>
-        submission.Refusal == WorldEditRefusal.InputExhausted ? WorldCommandStatus.InputExhausted : WorldCommandStatus.SimulationFaulted;
+        submission.Refusal == WorldEditRefusal.WorldChanging ? WorldCommandStatus.WorldChanging :
+            submission.Refusal == WorldEditRefusal.InputExhausted ? WorldCommandStatus.InputExhausted : WorldCommandStatus.SimulationFaulted;
 
     private static ConstructionStatus RefusedConstructionStatus(WorldEditSubmission submission) =>
-        submission.Refusal == WorldEditRefusal.InputExhausted ? ConstructionStatus.InputExhausted : ConstructionStatus.SimulationFaulted;
+        submission.Refusal == WorldEditRefusal.WorldChanging ? ConstructionStatus.WorldChanging :
+            submission.Refusal == WorldEditRefusal.InputExhausted ? ConstructionStatus.InputExhausted : ConstructionStatus.SimulationFaulted;
 
     private EditRollback CaptureEditRollback() =>
         new(

@@ -681,7 +681,7 @@ internal sealed class WorldEditorObservationSmoke
             if (replacement == WorldReplacement.Reset)
             {
                 _worldEditorSave = SaveCopy("Before replacement");
-                RunConsole("composite reset hollow");
+                RunConsoleAndFinishChange("composite reset hollow");
                 _hollowSave = SaveCopy("Hollow");
             }
 
@@ -705,18 +705,18 @@ internal sealed class WorldEditorObservationSmoke
             _replacedDefinition = Session.QueryComposite(followed.Id)!.DefinitionId.Value;
             if (replacement == WorldReplacement.Reset)
             {
-                RunConsole("composite reset bridge");
+                RunConsoleAndFinishChange("composite reset bridge");
             }
             else
             {
                 var notices = Observer.Notices.Count;
                 var fingerprint = WorldSaveAuthority.Fingerprint(Session);
-                RunConsole($"voxel load {Guid.NewGuid():D}");
+                RunConsoleAndFinishChange($"voxel load {Guid.NewGuid():D}");
                 Require(WorldSaveAuthority.Fingerprint(Session) == fingerprint, "a failed load changed the session");
                 Require(Observer.Mode == WorldEditorCameraMode.Follow && Observer.Target == followed && Observer.Selection == followed &&
                         Observer.Notices.Count == notices, $"a failed load changed observation: {Observer.Describe()}");
                 GD.Print($"OBSERVE_FAILED_LOAD_KEEP {Observer.Describe()} notices={Observer.Notices.Count}");
-                RunConsole($"voxel load {_hollowSave:D}");
+                RunConsoleAndFinishChange($"voxel load {_hollowSave:D}");
             }
 
             var reused = Session.QueryComposite(followed.Id)?.DefinitionId.Value;
@@ -744,7 +744,7 @@ internal sealed class WorldEditorObservationSmoke
             $"camera_moved=false {Observer.Describe()} same_id_definition={_replacedDefinition} notice_zh=\"{View.NoticeText}\"");
         if (replacement == WorldReplacement.Load)
         {
-            RunConsole($"voxel load {_worldEditorSave:D}");
+            RunConsoleAndFinishChange($"voxel load {_worldEditorSave:D}");
             Require(Session.WorldSource?.ConfigurationId == WorldEditorConfigurations.StraightRailEmptyId, "the world editor save did not load back");
         }
 
@@ -917,6 +917,12 @@ internal sealed class WorldEditorObservationSmoke
     {
         Main.GetChildren().OfType<GameConsole>().Single().SubmitLine(line);
         GD.Print($"OBSERVE_CONSOLE {line}");
+    }
+
+    private void RunConsoleAndFinishChange(string line)
+    {
+        RunConsole(line);
+        WorldChangeSmoke.Finish(Session);
     }
 
     private static void PressKey(Key key, bool pressed) =>

@@ -76,12 +76,19 @@ internal sealed class WorldEditorSwitchSmoke
                 _phase++;
                 break;
             case 1:
+                var pendingWorld = Session.World;
+                var pendingFingerprint = WorldSaveAuthority.Fingerprint(Session);
                 _scene.Press("switch_world");
-                Require(_scene.PromptVisible, "dirty switch asks before the console replaces the world");
+                Require(_scene.PromptVisible && Session.IsChangingWorld, "dirty switch asks before the console replaces the world");
                 Submit("voxel reset discard");
-                Require(!_scene.PromptVisible, "a completed console reset closes the stale prompt");
-                _scene.PressPrompt("save_then_switch");
-                Require(Session.WorldSource?.ConfigurationId == _source, "a stale confirmation does not switch the reset world");
+                Require(_scene.PromptVisible && Session.IsChangingWorld && ReferenceEquals(Session.World, pendingWorld) &&
+                        WorldSaveAuthority.Fingerprint(Session) == pendingFingerprint &&
+                        Session.WorldSource?.ConfigurationId == _source,
+                    "console reset replaced or retargeted a pending switch");
+                _scene.PressPrompt("cancel");
+                Require(!_scene.PromptVisible && !Session.IsChangingWorld && ReferenceEquals(Session.World, pendingWorld),
+                    "cancelling the pending switch did not preserve the world");
+                SubmitAndFinish("voxel reset discard");
                 Require(Session.SimulationPaused && Session.SimulationStep == 0, "discard reset pauses at the establish boundary");
                 Require(!Session.HasUnsavedChanges, "discard reset is the new baseline");
                 Require(Observer.Selection is null, "reset drops the old selection");
@@ -101,6 +108,7 @@ internal sealed class WorldEditorSwitchSmoke
                     _scene.Press("switch_world");
                     Require(_scene.PromptVisible, "dirty switch asks for a choice");
                     _scene.PressPrompt("save_then_switch");
+                    WorldChangeSmoke.Finish(Session);
                     Require(Session.WorldSource?.ConfigurationId == _source, "save failure keeps the configuration");
                     Require(Session.HasUnsavedChanges, "save failure keeps the unsaved mark");
                     Require(Session.SimulationStep == 1, "save failure does not switch");
@@ -115,10 +123,10 @@ internal sealed class WorldEditorSwitchSmoke
                 break;
             case 3:
                 var before = WorldSaveAuthority.Fingerprint(Session);
-                Submit("voxel use not-a-config discard");
+                SubmitAndFinish("voxel use not-a-config discard");
                 Require(WorldSaveAuthority.Fingerprint(Session) == before, "unknown configuration keeps the session");
                 Require(Session.WorldSource?.ConfigurationId == _source, "unknown configuration keeps the source");
-                Submit($"voxel load {Guid.NewGuid():D} discard");
+                SubmitAndFinish($"voxel load {Guid.NewGuid():D} discard");
                 Require(WorldSaveAuthority.Fingerprint(Session) == before, "missing save keeps the session");
                 GD.Print("SWITCH_CANDIDATE_FAILED");
                 _phase++;
@@ -127,6 +135,7 @@ internal sealed class WorldEditorSwitchSmoke
                 _scene.Press("switch_world");
                 Require(_scene.PromptVisible, "the failed save left the world dirty");
                 _scene.PressPrompt("save_then_switch");
+                WorldChangeSmoke.Finish(Session);
                 var other = _source == WorldEditorConfigurations.StraightRailEmptyId
                     ? WorldEditorConfigurations.StraightRailTrainId
                     : WorldEditorConfigurations.StraightRailEmptyId;
@@ -184,6 +193,12 @@ internal sealed class WorldEditorSwitchSmoke
     {
         Main.GetChildren().OfType<GameConsole>().Single().SubmitLine(line);
         GD.Print($"SWITCH_CONSOLE {line}");
+    }
+
+    private void SubmitAndFinish(string line)
+    {
+        Submit(line);
+        WorldChangeSmoke.Finish(Session);
     }
 
     private static void Require(bool condition, string message)

@@ -472,6 +472,7 @@ $expected = @{
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
     WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
     WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
@@ -866,7 +867,12 @@ internal static class Program
                 if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
                 if (leg == "save")
                 {
+                    Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=fixture status=UnknownConfiguration");
+                    Console.WriteLine("WORKSPACE_NO_WORLD_LEAVE completed=true");
+                    if (mode == "workspace-establish-fail")
+                        Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=unexpected status=InitialStateRejected");
                     Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
+                    Console.WriteLine("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
                     Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
                     Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
                     Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");
@@ -907,7 +913,7 @@ if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
 It "fixture-workspace-script" {
     # Fake programs test script orchestration only. The registered runner separately executes the real game.
     $scriptPath = Join-Path $root 'scripts/run-godot-world-editor-cross-process.ps1'
-    foreach ($mode in @('pass', 'missing', 'fail', 'hold')) {
+    foreach ($mode in @('pass', 'missing', 'fail', 'hold', 'establish-fail')) {
         $directory = Join-Path $evidence "workspace-script-$mode"
         $argumentsLog = Join-Path $evidence "workspace-$mode.arguments.log"
         $pidFile = Join-Path $evidence "workspace-$mode.pids.log"
@@ -1980,7 +1986,7 @@ It "real-list" {
     Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace group" "godot-workspace" $workspace.Group
-    Assert-Equal "workspace claim" "save-as-isolation+cross-process-restore+workspace-navigation" $workspace.Claim
+    Assert-Equal "workspace claim" "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family

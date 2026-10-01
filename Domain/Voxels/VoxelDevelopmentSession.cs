@@ -542,9 +542,11 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     /// <summary>Writes an independent save and switches the current target only after publication succeeds.</summary>
-    public WorldSaveResult SaveAs(string? displayName = null) => WriteSave(Guid.NewGuid(), displayName);
+    public WorldSaveResult SaveAs(string? displayName = null) => IsChangingWorld
+        ? new WorldSaveResult(WorldSaveStatus.WorldChanging) : WriteSave(Guid.NewGuid(), displayName);
 
-    public WorldSaveResult Save(string? displayName = null) => WriteSave(SaveId ?? Guid.NewGuid(), displayName);
+    public WorldSaveResult Save(string? displayName = null) => IsChangingWorld
+        ? new WorldSaveResult(WorldSaveStatus.WorldChanging) : WriteSave(SaveId ?? Guid.NewGuid(), displayName);
 
     private WorldSaveResult WriteSave(Guid id, string? displayName)
     {
@@ -575,16 +577,20 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
 
         var json = WorldSaveCodec.Serialize(document);
+        var capturedFingerprint = WorldSaveAuthority.Fingerprint(this);
         if (!_store.TryWrite(id, json, out var writeStatus))
             return new WorldSaveResult(writeStatus, SaveId, DisplayName);
 
         SaveId = id;
         DisplayName = normalized;
-        MarkPersistenceClean();
+        _cleanFingerprint = capturedFingerprint;
         return new WorldSaveResult(WorldSaveStatus.Saved, SaveId, DisplayName);
     }
 
     public WorldSaveResult Load(Guid saveId)
+        => IsChangingWorld ? new WorldSaveResult(WorldSaveStatus.WorldChanging) : LoadCore(saveId);
+
+    private WorldSaveResult LoadCore(Guid saveId)
     {
         if (_store is null || _catalog.Current is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
@@ -619,8 +625,8 @@ public sealed partial class VoxelDevelopmentSession
         adaptations.AddRange(sourceCheck.Adaptations);
         adaptations.AddRange(ReplaceSession(restore));
         WorldSource = document.Source;
-        if (WorldSource is not null)
-            PauseSimulation();
+        if (WorldSource is not null || _worldEditorHost)
+            SimulationPaused = true;
         SaveId = document.Id;
         DisplayName = document.DisplayName;
         if (adaptations.Any(item => item.ChangesPersistentState))

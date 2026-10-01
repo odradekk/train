@@ -41,7 +41,8 @@ public enum TrainAssemblyStatus
     TransactionExhausted = 13,
     EntityIdExhausted = 14,
     InputExhausted = 15,
-    SimulationFaulted = 16
+    SimulationFaulted = 16,
+    WorldChanging = 17
 }
 
 public sealed record TrainAssemblyRequest(

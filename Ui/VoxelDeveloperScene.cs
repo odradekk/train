@@ -877,7 +877,7 @@ public partial class VoxelDeveloperScene : Node3D
         _halt = WrapLabel();
         box.AddChild(_title);
         box.AddChild(_halt);
-        box.AddChild(WrapLabel("Delete 移除 · Insert 添加 · M 夹具 · R 重置（未保存时确认） · T 启动 · Y 停车 · P 暂停 · F 跟随 · ~ 控制台 · Esc 直接返回"));
+        box.AddChild(WrapLabel("Delete 移除 · Insert 添加 · M 夹具 · R 重新建立（未保存时确认） · T 启动 · Y 停车 · P 暂停 · F 跟随 · ~ 控制台 · Esc 返回（未保存时确认）"));
         _cell = WrapLabel();
         _result = WrapLabel("最近命令：场景已进入。");
         box.AddChild(_cell);
@@ -887,7 +887,12 @@ public partial class VoxelDeveloperScene : Node3D
         AddChild(layer);
         _worldChangePrompt = new UnsavedWorldChangePrompt();
         _worldChangePrompt.Chosen += choice =>
-            PresentSliceReset(_session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice)));
+        {
+            if (_departurePending)
+                _session.ChooseWorldChange(choice);
+            else
+                PresentSliceReset(_session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice)));
+        };
         AddChild(_worldChangePrompt);
     }
 
@@ -895,7 +900,7 @@ public partial class VoxelDeveloperScene : Node3D
     {
         if (result.Status == WorldChangeStatus.ChoiceRequired)
         {
-            _worldChangePrompt?.Open("可以保存后重置、放弃当前更改，或取消。");
+            _worldChangePrompt?.Open(WorldChangeKind.Reset, _session.Fault is null);
             _result.Text = "最近命令：有未保存变化。请选择保存后重置、放弃或取消。";
             return;
         }
@@ -946,6 +951,7 @@ public partial class VoxelDeveloperScene : Node3D
         {
             _session.Changed -= MarkDirty;
             _session.WorldReplaced -= DismissStaleWorldChange;
+            _session.WorldChangeChanged -= PresentDeparture;
             _session.Detach();
         }
 
@@ -955,8 +961,59 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void LeaveDevelopmentScene()
     {
-        GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(null);
-        GetTree().ChangeSceneToFile("res://Ui/StartMenu.tscn");
+        GetNode<Main>("/root/Main").ReturnToMainMenu();
+    }
+
+    private void LeaveSmokeScene()
+    {
+        var dirty = _session.HasUnsavedChanges;
+        var world = _session.World;
+        var paused = _session.SimulationPaused;
+        var step = _session.SimulationStep;
+        LeaveDevelopmentScene();
+        if (!dirty)
+            return;
+        RequireSmokeDepartureChoice();
+        _worldChangePrompt!.Press("cancel");
+        if (_session.IsChangingWorld || _worldChangePrompt.Visible || !ReferenceEquals(_session.World, world) ||
+            _session.SimulationPaused != paused || _session.SimulationStep != step || !_session.HasUnsavedChanges)
+            throw new InvalidOperationException("Legacy smoke departure cancellation changed the current world or run state.");
+        LeaveDevelopmentScene();
+        RequireSmokeDepartureChoice();
+        _worldChangePrompt.Press("discard");
+    }
+
+    private void RequireSmokeDepartureChoice()
+    {
+        if (!_session.IsChangingWorld || _worldChangePrompt?.Visible != true ||
+            _session.AdvanceSimulation(1).Status != TrainMotionStatus.WorldChanging)
+            throw new InvalidOperationException("Legacy smoke departure did not expose a choice and suspend simulation.");
+    }
+
+    private bool _departurePending;
+
+    internal void RequestDeparture(WorldChangeRequest request) => _session.BeginWorldChange(request);
+
+    private void PresentDeparture(WorldChangeRequest request, WorldChangeResult result)
+    {
+        if (!request.LeavesScene)
+            return;
+        _departurePending = result.Status is WorldChangeStatus.ChoiceRequired or WorldChangeStatus.Switching;
+        if (result.Status == WorldChangeStatus.ChoiceRequired)
+            _worldChangePrompt?.Open(request.Kind, _session.Fault is null);
+        else if (result.Status == WorldChangeStatus.Switching)
+            _worldChangePrompt?.ShowProgress("正在离开，模拟与修改已暂挂。");
+        else
+        {
+            _worldChangePrompt?.Close();
+            if (result.Status == WorldChangeStatus.Completed)
+                GetNode<Main>("/root/Main").CompleteWorldDeparture(request.Kind);
+            else
+            {
+                GetNode<Main>("/root/Main").CancelSceneDeparture();
+                _result.Text = $"最近操作：离开 {result.Status} {result.SaveStatus}，当前世界保留。";
+            }
+        }
     }
 
     private void MarkDirty() => _dirty = true;
@@ -1317,6 +1374,7 @@ public partial class VoxelDeveloperScene : Node3D
     private void AttachSession(VoxelDevelopmentSession session)
     {
         _session = session;
+        _session.WorldChangeChanged += PresentDeparture;
         _session.Changed += MarkDirty;
         _session.WorldReplaced += DismissStaleWorldChange;
         GetNode<Main>("/root/Main").SetVoxelDevelopmentSession(_session);
@@ -1328,6 +1386,7 @@ public partial class VoxelDeveloperScene : Node3D
         {
             _session.Changed -= MarkDirty;
             _session.WorldReplaced -= DismissStaleWorldChange;
+            _session.WorldChangeChanged -= PresentDeparture;
             _session.Detach();
         }
 
@@ -1753,7 +1812,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSmokePhase.LeaveScene:
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
-                LeaveDevelopmentScene();
+                LeaveSmokeScene();
                 _smokePhase = VoxelSmokePhase.Done;
                 return;
         }
@@ -4951,7 +5010,7 @@ public partial class VoxelDeveloperScene : Node3D
                 return;
             case VoxelSlice4SmokePhase.LeaveScene:
                 System.Environment.SetEnvironmentVariable(VoxelSmokeReenterEnvironmentVariable, "1");
-                LeaveDevelopmentScene();
+                LeaveSmokeScene();
                 _slice4SmokePhase = VoxelSlice4SmokePhase.Done;
                 return;
         }

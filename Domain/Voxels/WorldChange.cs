@@ -6,14 +6,19 @@ public enum WorldChangeKind
     SwitchConfiguration,
     Load,
     NewBlank,
-    ReturnToWorkspace
+    ReturnToWorkspace,
+    ReturnToMainMenu,
+    Quit,
+    ReloadSaved,
+    LeaveForScene
 }
 
 public enum WorldChangeChoice
 {
     SaveThenSwitch,
     Discard,
-    Cancel
+    Cancel,
+    SaveAsThenReload
 }
 
 public enum WorldChangeStatus
@@ -22,7 +27,9 @@ public enum WorldChangeStatus
     Cancelled,
     ChoiceRequired,
     SaveFailed,
-    CandidateFailed
+    CandidateFailed,
+    Switching,
+    Busy
 }
 
 public sealed record WorldChangeRequest(
@@ -32,7 +39,11 @@ public sealed record WorldChangeRequest(
     Guid? SaveId = null,
     string? FixtureId = null,
     VoxelWorldIdentity? BlankIdentity = null,
-    string? SaveDisplayName = null);
+    string? SaveDisplayName = null)
+{
+    public bool LeavesScene => Kind is WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu
+        or WorldChangeKind.Quit or WorldChangeKind.LeaveForScene;
+}
 
 public sealed record WorldChangeResult(
     WorldChangeStatus Status,

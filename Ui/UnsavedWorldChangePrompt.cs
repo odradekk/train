@@ -12,7 +12,8 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
 
     public UnsavedWorldChangePrompt()
     {
-        Layer = 20;
+        // Keep confirmation above GameConsole (layer 128), including when quit is entered there.
+        Layer = 140;
         var panel = new PanelContainer { Position = new Vector2(12, 280) };
         AddChild(panel);
         var box = new VBoxContainer();
@@ -29,9 +30,25 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
         Visible = false;
     }
 
-    public void Open(string action)
+    public void Open(WorldChangeKind kind, bool canSave)
     {
-        _text.Text = $"当前世界有未保存的变化。{action}";
+        var reload = kind == WorldChangeKind.ReloadSaved;
+        _text.Text = reload ? "当前世界有未保存的变化。重新加载请求时的已保存版本？" : "当前世界有未保存的变化。是否继续离开当前世界？";
+        if (!canSave)
+            _text.Text += "\n模拟发生故障，无法保存当前世界。可以放弃更改或取消。";
+        _buttons["save_then_switch"].Disabled = !canSave;
+        _buttons["save_then_switch"].Text = reload ? "另存当前修改后重新加载" : "保存后继续";
+        _buttons["discard"].Text = reload ? "放弃修改并重新加载" : "放弃更改";
+        _buttons["save_then_switch"].Visible = true;
+        _buttons["discard"].Visible = true;
+        Visible = true;
+    }
+
+    public void ShowProgress(string text)
+    {
+        _text.Text = text;
+        _buttons["save_then_switch"].Visible = false;
+        _buttons["discard"].Visible = false;
         Visible = true;
     }
 
@@ -44,7 +61,7 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
         var button = new Button { Name = name, Text = text, FocusMode = Control.FocusModeEnum.None };
         button.Pressed += () =>
         {
-            if (Visible)
+            if (Visible && button.Visible && !button.Disabled)
                 Chosen?.Invoke(choice);
         };
         parent.AddChild(button);
