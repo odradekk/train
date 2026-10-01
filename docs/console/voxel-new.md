@@ -9,7 +9,7 @@ voxel new 16 16 16 18446744073709551615 save
 voxel new 16 16 16 42 cancel
 ```
 
-语法：`voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel]`。已进入任一体素开发场景或 Playground 后可用。
+语法：`voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel]`。已进入任一体素开发场景或世界编辑器后可用。
 
 尺寸使用三个十进制整数，表示从原点开始的有限三维空间：X 为 **1–320**，Y/Z 各为 **1–32**，有效坐标分别为 `0..size-1`。这些是当前开发版本的保守支持边界，不是最终世界容量承诺；Chunk 边长固定为 16，不要求尺寸整除 16。种子使用无符号十进制整数，范围 **0–18446744073709551615**；不接受负数、小数、溢出、缺参数或额外参数。非法输入明确报告 `IncompatibleBase` 和 `stage base subject blank relationship parameters`，不保存或替换当前世界。
 
@@ -30,7 +30,7 @@ rail step
 voxel save Blank World
 ```
 
-记下输出的 UUID，执行 `quit` 退出进程。重新启动，进入任一 Playground，再执行：
+记下输出的 UUID，执行 `quit` 退出进程。重新启动，进入世界编辑器，再执行：
 
 ```text
 voxel load <uuid> discard
