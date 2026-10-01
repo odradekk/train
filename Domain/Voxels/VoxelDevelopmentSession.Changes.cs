@@ -35,7 +35,7 @@ public sealed partial class VoxelDevelopmentSession
              !BlankWorldSource.TryIdentity(blank.Bounds.SizeX, blank.Bounds.SizeY, blank.Bounds.SizeZ, blank.Seed, out var supported) ||
              blank != supported))
             return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
-                diagnostic: new WorldSaveDiagnostic("base", "blank", "parameters", "blank extent requires X 1..320, Y/Z 1..32 and the supported source version"));
+                diagnostic: new WorldSaveDiagnostic("base", "blank", "parameters", $"blank extent requires {BlankWorldSource.ExtentDescription} and the supported source version"));
         if (HasUnsavedChanges && request.Choice is null)
             return Change(WorldChangeStatus.ChoiceRequired);
 

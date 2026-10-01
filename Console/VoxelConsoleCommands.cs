@@ -162,7 +162,7 @@ public sealed class VoxelConsoleCommands
         return string.Join('\n',
             "Usage: voxel reset [discard|save|cancel] | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid> [discard|save|cancel]",
             "voxel use <configuration-id> [discard|save|cancel]",
-            "voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] (X 1..320, Y/Z 1..32; seed 0..18446744073709551615)",
+            $"voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] ({BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
             "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
@@ -170,7 +170,7 @@ public sealed class VoxelConsoleCommands
     }
 
     private static string BlankParametersRejected() =>
-        "Voxel IncompatibleBase.\nstage base subject blank relationship parameters\nUse voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel]; X 1..320, Y/Z 1..32; seed 0..18446744073709551615.";
+        $"Voxel IncompatibleBase.\nstage base subject blank relationship parameters\nUse voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel]; {BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615.";
 
     private static bool TryParseEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
     {

@@ -9,15 +9,18 @@ public static class BlankWorldSource
 {
     public const int Version = 1;
     public const string GeneratorVersion = "blank-world-v1";
+    public const int MinSize = 1;
     public const int MaxSizeX = 320;
     public const int MaxSizeY = 32;
     public const int MaxSizeZ = 32;
     public const int ChunkSize = 16;
 
+    public static string ExtentDescription => $"X {MinSize}..{MaxSizeX}, Y {MinSize}..{MaxSizeY}, Z {MinSize}..{MaxSizeZ}";
+
     public static bool TryIdentity(int sizeX, int sizeY, int sizeZ, ulong seed, out VoxelWorldIdentity identity)
     {
         identity = default;
-        if (sizeX is < 1 or > MaxSizeX || sizeY is < 1 or > MaxSizeY || sizeZ is < 1 or > MaxSizeZ)
+        if (sizeX is < MinSize or > MaxSizeX || sizeY is < MinSize or > MaxSizeY || sizeZ is < MinSize or > MaxSizeZ)
             return false;
         identity = new VoxelWorldIdentity(VoxelDevelopmentSlice.Blank, seed, GeneratorVersion,
             new VoxelWorldBounds(sizeX, sizeY, sizeZ), ChunkSize);
@@ -51,7 +54,7 @@ public static class BlankWorldSource
         if (source.ConfigurationVersion != Version)
             return Reject("source_version", "the blank source version is not supported");
         if (!TryIdentity(document.Bounds.SizeX, document.Bounds.SizeY, document.Bounds.SizeZ, document.Seed, out var identity))
-            return Reject("bounds", "blank extent requires X 1..320, Y/Z 1..32");
+            return Reject("bounds", $"blank extent requires {ExtentDescription}");
         if (document.GeneratorVersion != GeneratorVersion || document.ChunkSize != ChunkSize)
             return Reject("identity", "the blank source substrate or chunk size does not match");
         var expected = Describe(identity);

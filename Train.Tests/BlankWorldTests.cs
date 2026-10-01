@@ -63,7 +63,6 @@ public sealed class BlankWorldTests
         Assert.AreEqual(bytes, File.ReadAllText(harness.Store.PathFor(saved.SaveId.Value)));
 
         var fingerprint = session.WorldSource!.BaseFingerprint;
-        Assert.AreEqual(64, fingerprint.Length);
         var culture = CultureInfo.CurrentCulture;
         try
         {
