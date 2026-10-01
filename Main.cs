@@ -124,6 +124,8 @@ public partial class Main : Node
 
     public override void _ExitTree()
     {
+        _editorCandidate?.Detach();
+        _editorCandidate = null;
         TryDeleteSmokeVoxels();
         if (_ownsModsSmokeUserData && _modsSmokeUserData is not null)
         {
@@ -168,11 +170,15 @@ public partial class Main : Node
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE_RESUME"), "1", StringComparison.Ordinal);
 
     public static bool IsWorldEditorAutomationEnabled() =>
-        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        BlankWorldSmoke.Requested() ||
-        !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(WorldEditorScene.CaptureEnvironmentVariable));
+        WorldEditorWorkspaceSmoke.Requested() || IsFixedWorldEditorAutomationEnabled();
+
+    internal static bool IsFixedWorldEditorAutomationEnabled() =>
+        !WorldEditorWorkspaceSmoke.Requested() && (
+            string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            BlankWorldSmoke.Requested() ||
+            !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(WorldEditorScene.CaptureEnvironmentVariable)));
 
     public static string ReadRequestedWorldEditorConfiguration() =>
         System.Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_CONFIG") is { Length: > 0 } id
@@ -180,6 +186,34 @@ public partial class Main : Node
             : WorldEditorConfigurations.StraightRailTrainId;
 
     public string WorldEditorConfigurationId { get; private set; } = WorldEditorConfigurations.StraightRailTrainId;
+
+    private VoxelDevelopmentSession? _editorCandidate;
+
+    public void EnterWorldEditorWorkspace() => GetTree().ChangeSceneToFile("res://Ui/WorldEditorWorkspaceScene.tscn");
+
+    public Error EnterWorldEditor(VoxelDevelopmentSession candidate)
+    {
+        if (_editorCandidate is not null)
+        {
+            candidate.Detach();
+            return Error.Busy;
+        }
+        _editorCandidate = candidate;
+        var error = GetTree().ChangeSceneToFile("res://Ui/WorldEditorScene.tscn");
+        if (error != Error.Ok)
+        {
+            _editorCandidate = null;
+            candidate.Detach();
+        }
+        return error;
+    }
+
+    internal VoxelDevelopmentSession? TakeWorldEditorCandidate()
+    {
+        var candidate = _editorCandidate;
+        _editorCandidate = null;
+        return candidate;
+    }
 
     public void EnterWorldEditor(string configurationId)
     {

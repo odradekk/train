@@ -470,6 +470,7 @@ $expected = @{
     RailCommandTests = "headless/railway/railway"
     PhysicalRailTests = "headless/railway/railway"
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
@@ -832,6 +833,7 @@ New-Item -ItemType Directory -Force -Path $fakeRoot | Out-Null
 @'
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 internal static class Program
 {
@@ -842,6 +844,35 @@ internal static class Program
         if (role == "godot")
         {
             string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
+            if (mode.StartsWith("workspace-", StringComparison.Ordinal) && !joined.Contains("--version"))
+            {
+                string log = Environment.GetEnvironmentVariable("FAKE_WORKSPACE_LOG");
+                if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, joined + Environment.NewLine);
+                if (mode == "workspace-hold")
+                {
+                    if (joined.Contains("--held-child")) { Thread.Sleep(60000); return 0; }
+                    var startChild = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false, CreateNoWindow = true };
+                    startChild.ArgumentList.Add("--held-child");
+                    using Process child = Process.Start(startChild);
+                    File.WriteAllText(Environment.GetEnvironmentVariable("FAKE_WORKSPACE_PIDS"), Environment.ProcessId + "," + child.Id);
+                    Console.WriteLine("held process started");
+                    Console.Out.Flush();
+                    Thread.Sleep(60000);
+                    return 0;
+                }
+                string leg = Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_LEG");
+                Console.WriteLine("WORKSPACE_MENU ready=true");
+                if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
+                if (leg == "save")
+                {
+                    Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
+                    Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
+                    Console.WriteLine("WORKSPACE_SAVED id=fixture save_continue=true");
+                }
+                else Console.WriteLine("WORKSPACE_CONTINUED id=fixture voxels=4 pending=0 paused=true");
+                Console.WriteLine("WORKSPACE_DONE leg=" + leg);
+                return mode == "workspace-fail" ? 7 : 0;
+            }
             if (mode == "version-sleep" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "version-fail" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
@@ -868,6 +899,35 @@ internal static class Program
 if ($LASTEXITCODE -ne 0) { throw "fake tool build failed" }
 $fakeExe = Join-Path $fakeRoot "bin/Release/net10.0/fake-tool.exe"
 if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
+
+It "fixture-workspace-script" {
+    # Fake programs test script orchestration only. The registered runner separately executes the real game.
+    $scriptPath = Join-Path $root 'scripts/run-godot-world-editor-cross-process.ps1'
+    foreach ($mode in @('pass', 'missing', 'fail', 'hold')) {
+        $directory = Join-Path $evidence "workspace-script-$mode"
+        $argumentsLog = Join-Path $evidence "workspace-$mode.arguments.log"
+        $pidFile = Join-Path $evidence "workspace-$mode.pids.log"
+        $result = Invoke-Runner -RunnerPath $scriptPath -ArgumentList @(
+            '-Workspace', '-OutputDirectory', $directory, '-LegTimeoutSeconds', '2'
+        ) -Environment @{
+            GODOT = $fakeExe; FAKE_ROLE = 'godot'; FAKE_GODOT = "workspace-$mode"
+            FAKE_WORKSPACE_LOG = $argumentsLog; FAKE_WORKSPACE_PIDS = $pidFile
+        } -WaitMs 30000
+        Assert-Exit $result $(if ($mode -eq 'pass') { 0 } else { 1 })
+        Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
+        Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
+        if ($mode -eq 'pass') {
+            Assert-True 'resume process ran' (Test-Path -LiteralPath (Join-Path $directory 'resume.stdout.log'))
+        } else {
+            Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume.stdout.log')))
+            Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))
+        }
+        if ($mode -eq 'hold') {
+            foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "timeout killed $owned" (-not (Test-Alive $owned)) }
+            Assert-Contains 'timeout recorded' (Get-Content -LiteralPath (Join-Path $directory 'processes.log') -Raw) 'timed_out=True'
+        }
+    }
+}
 
 It "fast-invalid" {
     $result = Invoke-Runner -ArgumentList @("-Nope") -WaitMs 30000
@@ -932,7 +992,7 @@ It "fast-dotnet-missing" {
 It "fixture-failure-preserved" {
     $results = New-Results "fixture-failure"
     $result = Invoke-Runner -ArgumentList @(
-        "-Project", $project, "-Scope", "content", "-Scope", "persistence", "-ResultsRoot", $results
+        "-Project", $project, "-RunnerCatalog", "none", "-Scope", "content", "-Scope", "persistence", "-ResultsRoot", $results
     ) -WaitMs 600000
     Assert-Exit $result 1
     $summary = Read-Summary $result.Stdout
@@ -1861,7 +1921,7 @@ It "real-help" {
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
-        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
+        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
@@ -1905,9 +1965,16 @@ It "real-list" {
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 2 $external.Count
+    Assert-Equal "external count" 3 $external.Count
     $logging = $externalById["godot.logging-smoke"]
     $authority = $externalById["godot.authority-checkpoint"]
+    $workspace = $externalById["godot.world-editor-workspace"]
+    Assert-True "workspace listed" ($null -ne $workspace)
+    Assert-Equal "workspace is headless" "headless" $workspace.Family
+    Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
+    Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
+    Assert-Equal "workspace group" "godot-workspace" $workspace.Group
+    Assert-Equal "workspace claim" "save-restore+workspace-navigation" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family
@@ -2043,7 +2110,7 @@ It "real-correctness-list" {
     $correctCount = [regex]::Match($correctness.Stdout, "SELECTED count=(\d+)").Groups[1].Value
     Assert-Equal "correctness lists every discovered case" $allCount $correctCount
     Assert-Contains "boundary" $correctness.Stdout "not all repository validation"
-    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint")) {
+    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace")) {
         Assert-Contains "all $id" $all.Stdout "CASE id=$id"
         Assert-Contains "correctness $id" $correctness.Stdout "CASE id=$id"
     }
@@ -2055,9 +2122,11 @@ It "fixture-no-repo-catalog" {
     Assert-Exit $hidden 0
     Assert-True "none stays local" ($hidden.Stdout -notlike "*godot.logging-smoke*")
     Assert-True "none stays local authority" ($hidden.Stdout -notlike "*godot.authority-checkpoint*")
+    Assert-True "none stays local workspace" ($hidden.Stdout -notlike "*godot.world-editor-workspace*")
     $shown = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $shown 0
     Assert-Contains "default catalog is not tied to the project path" $shown.Stdout "godot.logging-smoke"
+    Assert-Contains "default catalog includes workspace" $shown.Stdout "godot.world-editor-workspace"
 }
 
 It "fixture-external-env-missing" {

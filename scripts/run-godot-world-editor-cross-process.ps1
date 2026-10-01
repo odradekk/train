@@ -1,8 +1,10 @@
-param([string] $OutputDirectory, [switch] $BlankWorld)
+param([string] $OutputDirectory, [switch] $BlankWorld, [switch] $Workspace,
+    [ValidateRange(1, 60)][int] $LegTimeoutSeconds = 60)
 
 # Formal world editor comparison for #127. Each leg is a fresh Godot process.
 # Run after building Train.csproj, with GODOT set to the Godot .NET console executable.
 $ErrorActionPreference = 'Stop'
+if ($BlankWorld -and $Workspace) { throw 'Select either -BlankWorld or -Workspace.' }
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
@@ -10,7 +12,7 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     exit 2
 }
 if (-not $OutputDirectory) {
-    $validationIssue = if ($BlankWorld) { 'issue-165' } else { 'issue-127' }
+    $validationIssue = if ($Workspace) { 'issue-166' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
     $OutputDirectory = Join-Path $root ('.godot/validation/' + $validationIssue + '/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
@@ -27,9 +29,87 @@ foreach ($name in @(
     'TRAIN_VOXEL_BASELINE', 'TRAIN_CONTENT_SMOKE', 'TRAIN_CONTENT_EXPORT_SMOKE', 'TRAIN_MODS_EXPORT_SMOKE',
     'TRAIN_LOG_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE', 'TRAIN_WORLD_EDITOR_SMOKE_MODE', 'TRAIN_WORLD_EDITOR_CAPTURE',
     'TRAIN_WORLD_EDITOR_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
-    'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID'
+    'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID',
+    'TRAIN_WORLD_EDITOR_WORKSPACE_LEG'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+}
+
+function Invoke-EntryLeg([string] $leg, [string] $prefix) {
+    $out = Join-Path $OutputDirectory "$leg.stdout.log"
+    $err = Join-Path $OutputDirectory "$leg.stderr.log"
+    $process = Start-Process -FilePath $env:GODOT -ArgumentList @('--headless', '--path', '.', '--quit-after', '3000') `
+        -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    $timedOut = -not $process.WaitForExit($LegTimeoutSeconds * 1000)
+    if ($timedOut) { $process.Kill($true) }
+    $process.WaitForExit()
+    $text = [IO.File]::ReadAllText($out) + "`n" + [IO.File]::ReadAllText($err)
+    "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) timed_out=$timedOut user_data=$userData" |
+        Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
+    if ($timedOut -or $process.ExitCode -ne 0 -or -not $text.Contains("${prefix}_DONE leg=$leg") -or
+        $text.Contains("${prefix}_FAILED") -or $text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
+        $text.Contains('ERROR:') -or $text.Contains('Unhandled exception')) {
+        throw "$prefix $leg failed (exit $($process.ExitCode), timeout=$timedOut); inspect $out and $err."
+    }
+    return $text
+}
+
+if ($Workspace) {
+    $started = [Diagnostics.Stopwatch]::StartNew()
+    [ordered]@{
+        mode = 'world-editor-workspace'
+        commit = (git rev-parse HEAD).Trim()
+        dirty = (@(git status --porcelain).Count -gt 0)
+        godot = $env:GODOT
+        godot_version = (& $env:GODOT --headless --version | Select-Object -First 1)
+        dotnet = (dotnet --version).Trim()
+        powershell = $PSVersionTable.PSVersion.ToString()
+        operating_system = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+        command = 'pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -Workspace -OutputDirectory <fresh path>'
+    } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'config.json') -Encoding utf8
+    Remove-Item Env:TRAIN_WORLD_EDITOR_CROSS_PROCESS -ErrorAction SilentlyContinue
+    $userData = Join-Path $OutputDirectory 'user-data'
+    New-Item -ItemType Directory -Path $userData | Out-Null
+    $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+    try {
+        foreach ($leg in @('save', 'resume')) {
+            $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
+            $text = Invoke-EntryLeg $leg 'WORKSPACE'
+            $markers = @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=')
+            $markers += if ($leg -eq 'save') {
+                @('WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace',
+                    'WORKSPACE_OPEN_FAILED fault=corrupt', 'row_disabled=true', 'WORKSPACE_SAVED id=', 'save_continue=true')
+            } else { @('WORKSPACE_CONTINUED id=', 'voxels=4 pending=0 paused=true') }
+            foreach ($marker in $markers) {
+                if (-not $text.Contains($marker)) { throw "Workspace $leg omitted assertion marker: $marker" }
+            }
+        }
+        [ordered]@{ outcome = 'passed'; durationMs = $started.ElapsedMilliseconds } |
+            ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
+        @'
+# World editor workspace cross-process validation
+
+Two fresh Godot processes enter through the menu action and the workspace list. The first creates a truly
+blank paused unsaved world, edits, queues input, saves, checks cancel/save failure/discard and save-and-return.
+A save corrupted after the list loads keeps the workspace with a reason and a refreshed disabled row.
+The second opens the ordinary save from the list, verifies identity, pause, position and pending input, then edits
+and runs through the pending command. Godot mesh and collider counts match the continued world.
+
+Automated assertions: save.stdout.log, resume.stdout.log; process identities: processes.log; tested head: config.json.
+This headless result does not establish graphical interaction or manual acceptance.
+'@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
+        Write-Host "World editor workspace cross-process validation passed. Evidence: $OutputDirectory"
+        exit 0
+    }
+    catch {
+        $_ | Out-String | Set-Content -LiteralPath (Join-Path $OutputDirectory 'failure.txt') -Encoding utf8
+        [Console]::Error.WriteLine($_)
+        exit 1
+    }
+    finally {
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
+    }
 }
 
 if ($BlankWorld) {
@@ -53,25 +133,7 @@ if ($BlankWorld) {
 
     function Invoke-BlankLeg([string] $leg) {
         $env:TRAIN_BLANK_WORLD_LEG = $leg
-        $out = Join-Path $OutputDirectory "$leg.stdout.log"
-        $err = Join-Path $OutputDirectory "$leg.stderr.log"
-        $process = Start-Process -FilePath $env:GODOT -ArgumentList @('--headless', '--path', '.', '--quit-after', '3000') `
-            -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-        if (-not $process.WaitForExit(60000)) {
-            $process.Kill($true)
-            $process.WaitForExit()
-            throw "Blank-world $leg exceeded the 60-second process cap; inspect $out and $err."
-        }
-        $process.WaitForExit()
-        $text = [System.IO.File]::ReadAllText($out) + "`n" + [System.IO.File]::ReadAllText($err)
-        "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) user_data=$userData" |
-            Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
-        if ($process.ExitCode -ne 0 -or -not $text.Contains("BLANK_WORLD_DONE leg=$leg") -or
-            $text.Contains('BLANK_WORLD_FAILED') -or $text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
-            $text.Contains('Unhandled exception') -or $text.Contains('ERROR:')) {
-            throw "Blank-world $leg leg failed; inspect $out and $err (exit $($process.ExitCode))."
-        }
-        return $text
+        return Invoke-EntryLeg $leg 'BLANK_WORLD'
     }
 
     try {

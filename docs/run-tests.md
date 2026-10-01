@@ -9,7 +9,12 @@ MSTest cases and classification come from test metadata. Other runners are regis
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.authority-checkpoint
+pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.world-editor-workspace
 ```
+
+`godot.world-editor-workspace` runs the existing cross-process script with `-Workspace`: real menu/workspace navigation,
+blank creation, ordinary save list opening, return protection and editing/running in a fresh process. Graphical workspace
+and return-flow acceptance remains a separate manual check.
 
 `--quit-after` in those scripts is a Godot frame budget, not the entry timeout and not a pass condition. `-Correctness` selects these Godot checks together with MSTest, so it needs `GODOT` and a `Train.csproj` build plus import. Each Godot check gets its own `APPDATA` directory under the run, shared by the processes it starts; the import and the version probe get one each. The entry does not write `override.cfg`, so killing it leaves no user-data redirect; an existing `override.cfg` is left in place, and the summary records whether it exists and its SHA256.
 

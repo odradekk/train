@@ -42,7 +42,7 @@ public sealed partial class VoxelDevelopmentSession
         WorldSaveStatus? savedStatus = null;
         if (request.Choice == WorldChangeChoice.SaveThenSwitch)
         {
-            var saved = Save();
+            var saved = Save(request.SaveDisplayName);
             if (!saved.Succeeded)
             {
                 return Change(
@@ -60,6 +60,7 @@ public sealed partial class VoxelDevelopmentSession
             WorldChangeKind.SwitchConfiguration => SwitchThroughChange(request.ConfigurationId),
             WorldChangeKind.Load => LoadThroughChange(request.SaveId),
             WorldChangeKind.NewBlank => AdoptBlank(request.BlankIdentity!.Value, keepSaveIdentity: false),
+            WorldChangeKind.ReturnToWorkspace => Change(WorldChangeStatus.Completed),
             _ => Change(
                 WorldChangeStatus.CandidateFailed,
                 diagnostic: new WorldSaveDiagnostic("base", "session", "change", "the requested world change is not supported"))
