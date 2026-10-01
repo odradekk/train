@@ -15,7 +15,9 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.world-editor-workspace
 `godot.world-editor-workspace` runs the existing cross-process script with `-Workspace`: real menu/workspace navigation,
 blank creation, return cancellation, failed save, discard and successful save-and-return protection, save-as cancellation
 and success through button signals, and preservation of the original save. Fresh processes independently open, edit, run and save the original and copy; a final process opens both again and
-checks that their distinct edits stayed isolated. Graphical workspace and return-flow acceptance remains a separate manual check.
+checks that their distinct edits stayed isolated. Only the final process reports isolation; the save process verifies its
+current save identity, clean state and voxel count after save-and-return, and its next workspace visit verifies the return.
+Graphical workspace and return-flow acceptance remains a separate manual check.
 
 `--quit-after` in those scripts is a Godot frame budget, not the entry timeout and not a pass condition. `-Correctness` selects these Godot checks together with MSTest, so it needs `GODOT` and a `Train.csproj` build plus import. Each Godot check gets its own `APPDATA` directory under the run, shared by the processes it starts; the import and the version probe get one each. The entry does not write `override.cfg`, so killing it leaves no user-data redirect; an existing `override.cfg` is left in place, and the summary records whether it exists and its SHA256.
 

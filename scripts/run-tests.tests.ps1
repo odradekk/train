@@ -869,8 +869,8 @@ internal static class Program
                     Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
                     Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
                     Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
-                    Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3 returned=true");
-                    Console.WriteLine("WORKSPACE_SAVED old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 isolated=true");
+                    Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");
+                    Console.WriteLine("WORKSPACE_SAVED old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222");
                 }
                 else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 cross_edits=false pending=0");
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");

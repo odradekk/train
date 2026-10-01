@@ -11,7 +11,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     public const string LegEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_LEG";
     public const string OldIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID";
     public const string NewIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID";
-    private const string OldName = "工作区验证原档";
+    private const string OldName = "工作区验证原存档";
     private const string NewName = "工作区验证副本";
     private static readonly WorldVoxelCoord InitialCell = new(2, 2, 2);
     private static readonly WorldVoxelCoord PendingCell = new(3, 2, 2);
@@ -71,11 +71,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             {
                 Require(workspace.OpenSave(newEntry.Id).Succeeded,
                     "save-as copy could not be reopened for save-and-return");
-                GD.Print($"WORKSPACE_LIST_OPEN id={newEntry.Id:D} leg={Leg} save_continue=true");
+                GD.Print($"WORKSPACE_LIST_OPEN id={newEntry.Id:D} leg={Leg}");
                 return;
             }
             VerifyOpenFailure(workspace, main, oldEntry.Id);
-            GD.Print($"WORKSPACE_SAVED old={oldEntry.Id:D} copy={newEntry.Id:D} cancel=true save_failure=true isolated=true");
+            GD.Print($"WORKSPACE_SAVED old={oldEntry.Id:D} copy={newEntry.Id:D} cancel=true save_failure=true");
             Done(workspace);
             return;
         }
@@ -244,7 +244,9 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         scene.Press("workspace");
         Require(scene.PromptVisible, "save-and-return edit omitted the unsaved prompt");
         scene.PressPrompt("save_then_switch");
-        GD.Print($"WORKSPACE_SAVE_CONTINUE id={_newId:D} voxels=3 returned=true");
+        Require(session.SaveId == _newId && !session.HasUnsavedChanges && session.World.VoxelCount == 3,
+            "save-and-return did not save the edited copy to its current identity");
+        GD.Print($"WORKSPACE_SAVE_CONTINUE id={_newId:D} voxels=3");
         _finished = true;
     }
 

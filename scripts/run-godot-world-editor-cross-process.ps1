@@ -76,8 +76,7 @@ if ($Workspace) {
         $save = Invoke-EntryLeg 'save' 'WORKSPACE'
         foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
             'WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace', 'WORKSPACE_OPEN_FAILED fault=corrupt',
-            'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3 returned=true', 'row_disabled=true', 'WORKSPACE_SAVED old=',
-            'isolated=true')) {
+            'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3', 'row_disabled=true', 'WORKSPACE_SAVED old=')) {
             if (-not $save.Contains($marker)) { throw "Workspace save omitted assertion marker: $marker" }
         }
         $ids = [regex]::Match($save, 'WORKSPACE_SAVE_AS old=([0-9a-fA-F-]{36}) copy=([0-9a-fA-F-]{36})')
