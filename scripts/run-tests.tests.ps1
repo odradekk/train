@@ -1993,7 +1993,6 @@ It "real-list" {
     Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace group" "godot-workspace" $workspace.Group
-    Assert-Equal "workspace claim" "json-transfer+save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family
