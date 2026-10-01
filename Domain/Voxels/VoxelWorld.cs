@@ -277,7 +277,8 @@ public enum WorldCommandStatus
     DisallowedOrientation,
     InvalidDamage,
     InputExhausted,
-    SimulationFaulted
+    SimulationFaulted,
+    WorldChanging
 }
 
 public sealed record WorldCommandResult(WorldCommandStatus Status, WorldVoxelCoord Position)

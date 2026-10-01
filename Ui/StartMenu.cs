@@ -67,5 +67,5 @@ public partial class StartMenu : Control
     private void OnSlice4Pressed() =>
         GetNode<Main>("/root/Main").EnterVoxelDevelopmentScene(VoxelDevelopmentSlice.Slice4);
 
-    private void OnQuitPressed() => GetTree().Quit();
+    private void OnQuitPressed() => GetNode<Main>("/root/Main").RequestQuit();
 }

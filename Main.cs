@@ -57,6 +57,7 @@ public partial class Main : Node
 
     public override void _Ready()
     {
+        GetTree().AutoAcceptQuit = false;
         var modsUserData = IsModsExportSmokeEnabled() || IsVoxelSmokeEnabled() || IsVoxelObserveEnabled() ||
                            IsVoxelBaselineEnabled() || IsWorldEditorAutomationEnabled()
             ? ResolveModsSmokeUserData()
@@ -86,6 +87,43 @@ public partial class Main : Node
             ReportModsExportSmoke(loaded);
         if (IsVoxelSmokeEnabled() || IsVoxelBaselineEnabled() || IsVoxelObserveEnabled())
             CallDeferred(nameof(EnterVoxelDevelopmentScene));
+    }
+
+    public override void _Notification(int what)
+    {
+        if (what == NotificationWMCloseRequest)
+            RequestQuit();
+    }
+
+    public void RequestQuit()
+    {
+        if (GetTree().CurrentScene is WorldEditorScene editor)
+            editor.RequestWorldChange(new WorldChangeRequest(WorldChangeKind.Quit, null));
+        else if (GetTree().CurrentScene is VoxelDeveloperScene development)
+            development.RequestDeparture(new WorldChangeRequest(WorldChangeKind.Quit, null));
+        else
+            GetTree().Quit();
+    }
+
+    public void ReturnToMainMenu()
+    {
+        if (GetTree().CurrentScene is WorldEditorScene editor)
+            editor.RequestWorldChange(new WorldChangeRequest(WorldChangeKind.ReturnToMainMenu, null));
+        else if (GetTree().CurrentScene is VoxelDeveloperScene development)
+            development.RequestDeparture(new WorldChangeRequest(WorldChangeKind.ReturnToMainMenu, null));
+        else
+            GetTree().ChangeSceneToFile("res://Ui/StartMenu.tscn");
+    }
+
+    internal Error CompleteWorldDeparture(WorldChangeKind kind)
+    {
+        if (kind == WorldChangeKind.Quit)
+        {
+            GetTree().Quit();
+            return Error.Ok;
+        }
+        return GetTree().ChangeSceneToFile(kind == WorldChangeKind.ReturnToWorkspace
+            ? "res://Ui/WorldEditorWorkspaceScene.tscn" : "res://Ui/StartMenu.tscn");
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -189,11 +227,19 @@ public partial class Main : Node
 
     private VoxelDevelopmentSession? _editorCandidate;
 
-    public void EnterWorldEditorWorkspace() => GetTree().ChangeSceneToFile("res://Ui/WorldEditorWorkspaceScene.tscn");
+    public void EnterWorldEditorWorkspace()
+    {
+        if (GetTree().CurrentScene is WorldEditorScene editor)
+            editor.RequestWorldChange(new WorldChangeRequest(WorldChangeKind.ReturnToWorkspace, null));
+        else if (GetTree().CurrentScene is VoxelDeveloperScene development)
+            development.RequestDeparture(new WorldChangeRequest(WorldChangeKind.ReturnToWorkspace, null));
+        else
+            GetTree().ChangeSceneToFile("res://Ui/WorldEditorWorkspaceScene.tscn");
+    }
 
     public Error EnterWorldEditor(VoxelDevelopmentSession candidate)
     {
-        if (_editorCandidate is not null)
+        if (_editorCandidate is not null || GetTree().CurrentScene is WorldEditorScene)
         {
             candidate.Detach();
             return Error.Busy;
@@ -217,6 +263,11 @@ public partial class Main : Node
 
     public void EnterWorldEditor(string configurationId)
     {
+        if (GetTree().CurrentScene is WorldEditorScene editor)
+        {
+            editor.RequestWorldChange(new WorldChangeRequest(WorldChangeKind.SwitchConfiguration, null, configurationId));
+            return;
+        }
         if (_reloader?.Catalog.Current is null)
         {
             _logger?.Error("world-editor", "world_editor_unavailable", "Voxel content failed to load.");

@@ -6,14 +6,18 @@ public enum WorldChangeKind
     SwitchConfiguration,
     Load,
     NewBlank,
-    ReturnToWorkspace
+    ReturnToWorkspace,
+    ReturnToMainMenu,
+    Quit,
+    ReloadSaved
 }
 
 public enum WorldChangeChoice
 {
     SaveThenSwitch,
     Discard,
-    Cancel
+    Cancel,
+    SaveAsThenReload
 }
 
 public enum WorldChangeStatus
@@ -22,7 +26,9 @@ public enum WorldChangeStatus
     Cancelled,
     ChoiceRequired,
     SaveFailed,
-    CandidateFailed
+    CandidateFailed,
+    Switching,
+    Busy
 }
 
 public sealed record WorldChangeRequest(

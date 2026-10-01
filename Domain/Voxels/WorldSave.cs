@@ -30,7 +30,8 @@ public enum WorldSaveStatus
     UnsupportedIdentities,
     UnsupportedRailway,
     UnknownSource,
-    SimulationFaulted
+    SimulationFaulted,
+    WorldChanging
 }
 
 public sealed record WorldSaveDiagnostic(string Stage, string Subject, string Relationship, string Detail)

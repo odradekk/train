@@ -38,6 +38,8 @@ internal static class WorldChangeConsole
         {
             WorldChangeStatus.Cancelled => $"Cancelled. The current world was kept.\n{count}",
             WorldChangeStatus.ChoiceRequired => $"Unsaved changes. Choose save, discard, or cancel.\n{count}",
+            WorldChangeStatus.Switching => $"Switching. Simulation and world edits are suspended; cancel is available in the confirmation.\n{count}",
+            WorldChangeStatus.Busy => $"A world change is already pending. Finish or cancel it first.\n{count}",
             WorldChangeStatus.SaveFailed => $"Voxel {result.SaveStatus}.\n{diagnostic}\n{count}",
             WorldChangeStatus.CandidateFailed => $"Voxel {result.CandidateStatus}.\n{diagnostic}\n{count}",
             _ => $"Voxel {result.Status}.\n{count}"

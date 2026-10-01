@@ -12,7 +12,7 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
 
     public UnsavedWorldChangePrompt()
     {
-        Layer = 20;
+        Layer = 140;
         var panel = new PanelContainer { Position = new Vector2(12, 280) };
         AddChild(panel);
         var box = new VBoxContainer();
@@ -29,9 +29,22 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
         Visible = false;
     }
 
-    public void Open(string action)
+    public void Open(WorldChangeKind kind)
     {
-        _text.Text = $"当前世界有未保存的变化。{action}";
+        var reload = kind == WorldChangeKind.ReloadSaved;
+        _text.Text = reload ? "当前世界有未保存的变化。重新加载请求时的已保存版本？" : "当前世界有未保存的变化。是否继续离开当前世界？";
+        _buttons["save_then_switch"].Text = reload ? "另存当前修改后重新加载" : "保存后继续";
+        _buttons["discard"].Text = reload ? "放弃修改并重新加载" : "放弃更改";
+        _buttons["save_then_switch"].Visible = true;
+        _buttons["discard"].Visible = true;
+        Visible = true;
+    }
+
+    public void ShowProgress(string text)
+    {
+        _text.Text = text;
+        _buttons["save_then_switch"].Visible = false;
+        _buttons["discard"].Visible = false;
         Visible = true;
     }
 

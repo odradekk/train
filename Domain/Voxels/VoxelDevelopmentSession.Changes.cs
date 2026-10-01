@@ -7,6 +7,15 @@ public sealed partial class VoxelDevelopmentSession
 {
     private string _cleanFingerprint = "";
     private bool _worldEditorHost;
+    private WorldChangeRequest? _worldChange;
+    private bool _changeNeedsChoice;
+    private bool _changeNeedsSave;
+    private WorldSaveStatus? _changeSaveStatus;
+    private bool _discardHostDelta;
+
+    public bool IsChangingWorld => _worldChange is not null;
+    public bool CanReloadSaved => SaveId is not null;
+    public event Action<WorldChangeRequest, WorldChangeResult>? WorldChangeChanged;
 
     public bool HasUnsavedChanges =>
         Fault is not null ||
@@ -24,34 +33,94 @@ public sealed partial class VoxelDevelopmentSession
 
     public WorldChangeResult TryChangeWorld(WorldChangeRequest request)
     {
+        var result = BeginWorldChange(request);
+        while (result.Status == WorldChangeStatus.Switching)
+            result = AdvanceWorldChange();
+        return result;
+    }
+
+    /// <summary>Captures the destination and suspends input until cancellation, failure or replacement.</summary>
+    public WorldChangeResult BeginWorldChange(WorldChangeRequest request)
+    {
         ArgumentNullException.ThrowIfNull(request);
-        if (!_worldEditorHost && request.Kind is WorldChangeKind.NewBlank or WorldChangeKind.SwitchConfiguration)
+        if (_worldChange is { } pending)
+        {
+            if (request.Kind == WorldChangeKind.ReloadSaved)
+                request = request with { SaveId = pending.SaveId };
+            if (request.Choice == WorldChangeChoice.Cancel)
+                return ChooseWorldChange(WorldChangeChoice.Cancel);
+            if (request.Choice is { } choice &&
+                (pending with { Choice = null }) == (request with { Choice = null }))
+                return ChooseWorldChange(choice);
+            return Change(WorldChangeStatus.Busy);
+        }
+        if (!_worldEditorHost && request.Kind is WorldChangeKind.NewBlank or WorldChangeKind.SwitchConfiguration or WorldChangeKind.ReloadSaved)
             return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
                 diagnostic: new WorldSaveDiagnostic("base", "session", "world_editor", "new worlds and configuration switches require the world editor host"));
         if (request.Choice == WorldChangeChoice.Cancel)
             return Change(WorldChangeStatus.Cancelled);
+        if (request.Choice == WorldChangeChoice.SaveAsThenReload && request.Kind != WorldChangeKind.ReloadSaved)
+            return Change(WorldChangeStatus.CandidateFailed);
+        if (request.Kind == WorldChangeKind.ReloadSaved)
+        {
+            if (SaveId is null)
+                return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.NotFound);
+            request = request with { SaveId = SaveId };
+            if (request.Choice == WorldChangeChoice.SaveThenSwitch)
+                request = request with { Choice = WorldChangeChoice.SaveAsThenReload };
+        }
         if (request.Kind == WorldChangeKind.NewBlank &&
             (request.BlankIdentity is not { } blank ||
              !BlankWorldSource.TryIdentity(blank.Bounds.SizeX, blank.Bounds.SizeY, blank.Bounds.SizeZ, blank.Seed, out var supported) ||
              blank != supported))
             return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
                 diagnostic: new WorldSaveDiagnostic("base", "blank", "parameters", $"blank extent requires {BlankWorldSource.ExtentDescription} and the supported source version"));
-        if (HasUnsavedChanges && request.Choice is null)
-            return Change(WorldChangeStatus.ChoiceRequired);
+        _worldChange = request;
+        _changeSaveStatus = null;
+        _hostScheduler.Reset();
+        _changeNeedsChoice = HasUnsavedChanges && request.Choice is null;
+        _changeNeedsSave = request.Choice is WorldChangeChoice.SaveThenSwitch or WorldChangeChoice.SaveAsThenReload;
+        return ReportChange(_changeNeedsChoice ? WorldChangeStatus.ChoiceRequired : WorldChangeStatus.Switching);
+    }
 
-        WorldSaveStatus? savedStatus = null;
-        if (request.Choice == WorldChangeChoice.SaveThenSwitch)
+    public WorldChangeResult ChooseWorldChange(WorldChangeChoice choice)
+    {
+        if (_worldChange is null)
+            return Change(WorldChangeStatus.Cancelled);
+        if (choice == WorldChangeChoice.Cancel)
+            return FinishChange(Change(WorldChangeStatus.Cancelled));
+        if (!_changeNeedsChoice)
+            return Change(WorldChangeStatus.Busy);
+        if (_worldChange.Kind == WorldChangeKind.ReloadSaved && choice == WorldChangeChoice.SaveThenSwitch)
+            choice = WorldChangeChoice.SaveAsThenReload;
+        if (choice == WorldChangeChoice.SaveAsThenReload && _worldChange.Kind != WorldChangeKind.ReloadSaved)
+            return Change(WorldChangeStatus.Busy);
+        _worldChange = _worldChange with { Choice = choice };
+        _changeNeedsChoice = false;
+        _changeNeedsSave = choice is WorldChangeChoice.SaveThenSwitch or WorldChangeChoice.SaveAsThenReload;
+        return ReportChange(WorldChangeStatus.Switching);
+    }
+
+    /// <summary>Performs one synchronous boundary. Hosts yield a frame between save and candidate work.</summary>
+    public WorldChangeResult AdvanceWorldChange()
+    {
+        if (_worldChange is not { } request)
+            return Change(WorldChangeStatus.Cancelled);
+        if (_changeNeedsChoice)
+            return Change(WorldChangeStatus.ChoiceRequired);
+        if (_changeNeedsSave)
         {
-            var saved = Save(request.SaveDisplayName);
+            var saved = WriteSave(request.Choice == WorldChangeChoice.SaveAsThenReload ? Guid.NewGuid() : SaveId ?? Guid.NewGuid(), request.SaveDisplayName);
             if (!saved.Succeeded)
             {
-                return Change(
+                return FinishChange(Change(
                     WorldChangeStatus.SaveFailed,
                     saveStatus: saved.Status,
-                    diagnostic: saved.Diagnostic ?? WorldSaveDiagnostic.For(saved.Status));
+                    diagnostic: saved.Diagnostic ?? WorldSaveDiagnostic.For(saved.Status)));
             }
-
-            savedStatus = saved.Status;
+            _changeSaveStatus = saved.Status;
+            _changeNeedsSave = false;
+            return ReportChange(WorldChangeStatus.Switching);
         }
 
         var result = request.Kind switch
@@ -59,13 +128,34 @@ public sealed partial class VoxelDevelopmentSession
             WorldChangeKind.Reset => ResetThroughChange(request.FixtureId),
             WorldChangeKind.SwitchConfiguration => SwitchThroughChange(request.ConfigurationId),
             WorldChangeKind.Load => LoadThroughChange(request.SaveId),
+            WorldChangeKind.ReloadSaved => LoadThroughChange(request.SaveId),
             WorldChangeKind.NewBlank => AdoptBlank(request.BlankIdentity!.Value, keepSaveIdentity: false),
-            WorldChangeKind.ReturnToWorkspace => Change(WorldChangeStatus.Completed),
+            WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.Quit => Change(WorldChangeStatus.Completed),
             _ => Change(
                 WorldChangeStatus.CandidateFailed,
                 diagnostic: new WorldSaveDiagnostic("base", "session", "change", "the requested world change is not supported"))
         };
-        return savedStatus is null ? result : result with { SaveStatus = savedStatus };
+        return FinishChange(result);
+    }
+
+    private WorldChangeResult ReportChange(WorldChangeStatus status)
+    {
+        var result = Change(status, saveStatus: _changeSaveStatus);
+        Changed?.Invoke();
+        WorldChangeChanged?.Invoke(_worldChange!, result);
+        return result;
+    }
+
+    private WorldChangeResult FinishChange(WorldChangeResult result)
+    {
+        var request = _worldChange!;
+        result = result with { SaveStatus = result.SaveStatus ?? _changeSaveStatus };
+        _worldChange = null;
+        _hostScheduler.Reset();
+        _discardHostDelta = true;
+        Changed?.Invoke();
+        WorldChangeChanged?.Invoke(request, result);
+        return result;
     }
 
     private WorldChangeResult ResetThroughChange(string? fixtureId)
@@ -177,7 +267,7 @@ public sealed partial class VoxelDevelopmentSession
                 diagnostic: new WorldSaveDiagnostic("format", "save", "id", "a save id is required"));
         }
 
-        var loaded = Load(id);
+        var loaded = LoadCore(id);
         if (!loaded.Succeeded)
         {
             return Change(
@@ -188,7 +278,7 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         if (_worldEditorHost)
-            PauseSimulation();
+            SimulationPaused = true;
         return Change(WorldChangeStatus.Completed, adaptations: loaded.Adaptations);
     }
 
@@ -247,7 +337,7 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         if (pause)
-            PauseSimulation();
+            SimulationPaused = true;
         MarkPersistenceClean();
         if (candidate.WorldSource?.Kind == WorldSource.BlankKind)
             MarkNewWorldUnsaved();

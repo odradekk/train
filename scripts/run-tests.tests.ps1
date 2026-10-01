@@ -867,6 +867,7 @@ internal static class Program
                 if (leg == "save")
                 {
                     Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
+                    Console.WriteLine("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
                     Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
                     Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
                     Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");

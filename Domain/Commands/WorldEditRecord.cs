@@ -29,7 +29,8 @@ public enum WorldEditRefusal
     PastStep = 1,
     InputExhausted = 2,
     SimulationFaulted = 3,
-    UnallocatedReference = 4
+    UnallocatedReference = 4,
+    WorldChanging = 5
 }
 
 /// <summary>

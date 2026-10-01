@@ -28,6 +28,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private int _phase;
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
+    private WorldEditorLeaveSmoke? _leaveSmoke;
 
     public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "verify";
 
@@ -101,6 +102,12 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             var session = scene.Session!;
             if (_phase == 0)
             {
+                if (Leg == "save" && _visit == 1)
+                {
+                    _leaveSmoke ??= new WorldEditorLeaveSmoke(scene);
+                    if (!_leaveSmoke.Advance())
+                        return;
+                }
                 Require(session.SimulationPaused && session.WorldSource?.Kind == WorldSource.BlankKind,
                     "workspace did not enter the same paused blank editor");
                 Require(session.Identity.Bounds == new VoxelWorldBounds(33, 17, 19) && session.Identity.Seed == 42,
@@ -108,7 +115,9 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 if (Leg == "save")
                 {
                     if (_visit == 1)
+                    {
                         CreateSaveAsPair(session);
+                    }
                     else
                         SaveThenReturn(session);
                     return;
@@ -178,6 +187,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         {
             scene.Press("workspace");
             scene.PressPrompt("save_then_switch");
+            FinishChange(session);
             Require(ReferenceEquals(session.World, world) && session.HasUnsavedChanges &&
                     scene.GetTree().CurrentScene == scene, "failed save left the current editor");
         }
@@ -206,6 +216,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         scene.Press("workspace");
         Require(scene.PromptVisible, "post-save-as unsaved return omitted prompt");
         scene.PressPrompt("discard");
+        FinishChange(session);
         GD.Print("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
         _finished = true;
     }
@@ -219,6 +230,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     session.Query(CopiedCell).Voxel is null && session.QueryPendingEdits().Count == 0,
                 "original save contains copy-only state or lost its continued state");
             scene.Press("workspace");
+            FinishChange(session);
             _finished = true;
             return;
         }
@@ -244,6 +256,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         scene.Press("workspace");
         Require(scene.PromptVisible, "save-and-return edit omitted the unsaved prompt");
         scene.PressPrompt("save_then_switch");
+        FinishChange(session);
         Require(session.SaveId == _newId && !session.HasUnsavedChanges && session.World.VoxelCount == 3,
             "save-and-return did not save the edited copy to its current identity");
         GD.Print($"WORKSPACE_SAVE_CONTINUE id={_newId:D} voxels=3");
@@ -256,6 +269,15 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         if (!Guid.TryParse(value, out var id))
             throw new InvalidOperationException($"{variable} is missing or invalid.");
         return id;
+    }
+
+    private static void FinishChange(VoxelDevelopmentSession session)
+    {
+        while (session.IsChangingWorld)
+        {
+            var result = session.AdvanceWorldChange();
+            Require(result.Status != WorldChangeStatus.ChoiceRequired, "leave choice was not provided");
+        }
     }
 
     private static Guid ExpectedId(string variable, Guid inProcessId) =>

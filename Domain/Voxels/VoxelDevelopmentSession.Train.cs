@@ -153,8 +153,16 @@ public sealed partial class VoxelDevelopmentSession
             .OfType<ScheduledTrainCommandQuery>()
             .ToArray();
 
-    public ulong CollectHostSteps(double displayDelta) =>
-        _hostScheduler.CollectSteps(displayDelta, SimulationPaused);
+    public ulong CollectHostSteps(double displayDelta)
+    {
+        // A cancel input can arrive before the host processes a frame that spans the entire confirmation wait.
+        if (_discardHostDelta)
+        {
+            _discardHostDelta = false;
+            return 0;
+        }
+        return _hostScheduler.CollectSteps(displayDelta, SimulationPaused || IsChangingWorld || Fault is not null);
+    }
 
     public bool TryFollowVehicle(EntityId vehicleId)
     {
@@ -215,6 +223,8 @@ public sealed partial class VoxelDevelopmentSession
 
     public TrainMotionResult PauseSimulation()
     {
+        if (IsChangingWorld)
+            return RejectMotion(TrainMotionStatus.WorldChanging);
         SimulationPaused = true;
         Changed?.Invoke();
         return new TrainMotionResult(TrainMotionStatus.Paused, SimulationStep);
@@ -222,6 +232,8 @@ public sealed partial class VoxelDevelopmentSession
 
     public TrainMotionResult ResumeSimulation()
     {
+        if (IsChangingWorld)
+            return RejectMotion(TrainMotionStatus.WorldChanging);
         SimulationPaused = false;
         Changed?.Invoke();
         return new TrainMotionResult(TrainMotionStatus.Resumed, SimulationStep);
@@ -229,6 +241,8 @@ public sealed partial class VoxelDevelopmentSession
 
     public TrainMotionResult AdvanceSimulation(ulong steps)
     {
+        if (IsChangingWorld)
+            return RejectMotion(TrainMotionStatus.WorldChanging);
         if (Fault is not null)
             return RejectMotion(TrainMotionStatus.SimulationFaulted);
         if (steps == 0)

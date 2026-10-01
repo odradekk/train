@@ -7,16 +7,32 @@ namespace Train;
 public sealed class VoxelConsoleCommands
 {
     private readonly VoxelDevelopmentSession _session;
+    private readonly Func<WorldChangeRequest, WorldChangeResult> _changeWorld;
 
-    public VoxelConsoleCommands(VoxelDevelopmentSession session)
+    public VoxelConsoleCommands(VoxelDevelopmentSession session, Func<WorldChangeRequest, WorldChangeResult>? changeWorld = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        _changeWorld = changeWorld ?? session.TryChangeWorld;
     }
 
     public string Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
+        if (arguments.Count is 1 or 2 && string.Equals(arguments[0], "reload", StringComparison.OrdinalIgnoreCase))
+        {
+            WorldChangeChoice? choice = null;
+            if (arguments.Count == 2)
+            {
+                if (string.Equals(arguments[1], "save-as", StringComparison.OrdinalIgnoreCase))
+                    choice = WorldChangeChoice.SaveAsThenReload;
+                else if (WorldChangeConsole.TryParseChoice(arguments[1], out var parsed) && parsed != WorldChangeChoice.SaveThenSwitch)
+                    choice = parsed;
+                else
+                    return Usage();
+            }
+            return WorldChangeConsole.Format(_session, _changeWorld(new WorldChangeRequest(WorldChangeKind.ReloadSaved, choice)));
+        }
         if (arguments.Count > 0 && string.Equals(arguments[0], "new", StringComparison.OrdinalIgnoreCase))
         {
             if (arguments.Count is not (5 or 6) ||
@@ -33,7 +49,7 @@ public sealed class VoxelConsoleCommands
                     return BlankParametersRejected();
                 choice = parsed;
             }
-            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.NewBlank, choice, BlankIdentity: identity));
+            var changed = _changeWorld(new WorldChangeRequest(WorldChangeKind.NewBlank, choice, BlankIdentity: identity));
             return changed.Status == WorldChangeStatus.Completed
                 ? $"Voxel blank world.\nbounds {sizeX},{sizeY},{sizeZ} seed {seed}\npaused true unsaved true\nVoxel count: 0."
                 : WorldChangeConsole.Format(_session, changed);
@@ -48,7 +64,7 @@ public sealed class VoxelConsoleCommands
                 choice = parsed;
             }
 
-            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice));
+            var changed = _changeWorld(new WorldChangeRequest(WorldChangeKind.Reset, choice));
             if (changed.Status != WorldChangeStatus.Completed)
                 return WorldChangeConsole.Format(_session, changed);
             var sample = _session.Identity.Slice switch
@@ -71,7 +87,7 @@ public sealed class VoxelConsoleCommands
                 choice = parsed;
             }
 
-            var changed = _session.TryChangeWorld(new WorldChangeRequest(
+            var changed = _changeWorld(new WorldChangeRequest(
                 WorldChangeKind.SwitchConfiguration,
                 choice,
                 arguments[1]));
@@ -132,7 +148,7 @@ public sealed class VoxelConsoleCommands
                 choice = parsed;
             }
 
-            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, choice, SaveId: saveId));
+            var changed = _changeWorld(new WorldChangeRequest(WorldChangeKind.Load, choice, SaveId: saveId));
             if (changed.Status == WorldChangeStatus.Completed)
             {
                 return FormatSave(new WorldSaveResult(
@@ -162,6 +178,7 @@ public sealed class VoxelConsoleCommands
         return string.Join('\n',
             "Usage: voxel reset [discard|save|cancel] | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid> [discard|save|cancel]",
             "voxel use <configuration-id> [discard|save|cancel]",
+            "voxel reload [save-as|discard|cancel]",
             $"voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] ({BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",

@@ -41,7 +41,7 @@ public partial class WorldEditorWorkspaceScene : Control
         var actions = new HBoxContainer();
         box.AddChild(actions);
         AddButton(actions, "刷新存档", RefreshSaves);
-        AddButton(actions, "返回主菜单", () => GetTree().ChangeSceneToFile("res://Ui/StartMenu.tscn"));
+        AddButton(actions, "返回主菜单", () => main.ReturnToMainMenu());
         _result = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         box.AddChild(_result);
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };

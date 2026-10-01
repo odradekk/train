@@ -10,11 +10,13 @@ public sealed class CompositeConsoleCommands
     public const int VehiclePageSize = 8;
 
     private readonly VoxelDevelopmentSession _session;
+    private readonly Func<WorldChangeRequest, WorldChangeResult> _changeWorld;
 
-    public CompositeConsoleCommands(VoxelDevelopmentSession session)
+    public CompositeConsoleCommands(VoxelDevelopmentSession session, Func<WorldChangeRequest, WorldChangeResult>? changeWorld = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        _changeWorld = changeWorld ?? session.TryChangeWorld;
     }
 
     public string Execute(IReadOnlyList<string> arguments)
@@ -24,7 +26,7 @@ public sealed class CompositeConsoleCommands
         {
             if (!TryParseReset(arguments, out var choice, out var resetId))
                 return Usage();
-            var changed = _session.TryChangeWorld(new WorldChangeRequest(
+            var changed = _changeWorld(new WorldChangeRequest(
                 WorldChangeKind.Reset,
                 choice,
                 FixtureId: resetId?.Value));
