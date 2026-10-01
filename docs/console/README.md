@@ -66,7 +66,7 @@
 
 ## 使用前提与通用参数
 
-运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单的世界编辑器的固定配置入口 按钮按具名固定配置建立世界（见下文 [世界编辑器](#世界编辑器具名固定配置)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
+运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单的固定配置按钮按具名固定配置建立世界编辑器会话（见下文 [世界编辑器](#世界编辑器具名固定配置)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
 
 四个切片都是有限测试配置，不是产品尺寸限制。Chunk 只作空间分区，不改变占用、耐久或朝向规则。切片 3 车辆体素不属于世界占用。切片 4 轨道占格是世界体素 `core:rail`；显示由 `TrackRenderer` 生成，不走普通立方体面。
 
