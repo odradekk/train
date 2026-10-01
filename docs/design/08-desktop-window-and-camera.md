@@ -18,9 +18,9 @@
 
 - 3D 主窗口是 Primary Window，辅助 UI 为 Secondary Window。
 - 以下情况 Simulation 均继续：主窗口失焦、用户正在使用 IDE、Floating View 被其他窗口遮挡、打开 Management UI、主窗口最小化。主窗口最小化时停止该窗口的渲染，但 Simulation 不停止；仍可见的辅助窗口继续正常渲染。
-- 首版关闭主 3D 窗口视为退出游戏；托盘与后台模式后补（转录 Q154）。
+- Demo 中关闭主 3D 窗口视为退出游戏；托盘与后台模式后补（转录 Q154）。
 
-### 首版渲染策略
+### Demo 渲染策略
 
 - 失焦时正常渲染，保证用户操作其他软件时仍可观察列车。
 - 暂不专门检测遮挡，被遮挡时沿用正常渲染策略。
@@ -30,18 +30,18 @@
 ### Pause
 
 - Pause 时仍然允许 UI、Camera、Window、Design 操作、Rendering。
-- 首版没有 Offline Progress：关闭游戏即 Simulation stops。未来可作为独立 Feature 实现 Offline Progress 或 Bulk Simulation。
+- Demo 没有 Offline Progress：关闭游戏即 Simulation stops。未来可作为独立 Feature 实现 Offline Progress 或 Bulk Simulation。
 
 ### Docked 与 Floating
 
-- **Docked**：首版 Bottom only；占满目标 Monitor Width；Height adjustable；占据 Desktop Work Area。转录 Q18 选择 Windows AppBar 式真正占用工作区，否决 Always-on-top Overlay（留作可选）；转录 Q19 要求不抢焦点；转录 Q20 默认主显示器可选，窗口可拖动。左右竖条不合横向构图，Top Dock 日后易加（转录 Q160）。
+- **Docked**：Demo 只支持 Bottom；占满目标 Monitor Width；Height adjustable；占据 Desktop Work Area。转录 Q18 选择 Windows AppBar 式真正占用工作区，否决 Always-on-top Overlay（留作可选）；转录 Q19 要求不抢焦点；转录 Q20 默认主显示器可选，窗口可拖动。左右竖条不合横向构图，Top Dock 日后易加（转录 Q160）。
 - **Floating**：任意移动；合理范围调整尺寸；不预留 Desktop Work Area；Always-on-top 用户可选，默认关闭 Topmost。
 - 研究 #27 的事实：Godot 没有工作区预留 API，Docked 须自注册 Win32 AppBar 并子类化 Godot 的 HWND 接收位置通知；不抢焦点靠 `Window.Unfocusable` 开箱可用，代价是无键盘输入；失焦、遮挡、最小化时 `_Process` 照常运行，只有最小化会门控渲染，遮挡没有任何检测。
 
-### 首版 Docked 实现与验收
+### Demo 的 Docked 实现与验收
 
 - 采用 Windows AppBar 预留工作区，通过 `SetWindowSubclass` 在 Godot 主窗口的 HWND 上接收系统通知；其他窗口功能使用 Godot API。平台互操作与世界模型隔离。
-- 先用专门窗口测试场景验证，再接入世界编辑器。对应切片必须验收工作区预留与释放、Docked/Floating 来回切换、多显示器与混合 DPI，以及窗口消息处理和 Godot 的共存表现。
+- 必须验收工作区预留与释放、Docked/Floating 来回切换、多显示器与混合 DPI，以及窗口消息处理和 Godot 的共存表现；这些窗口平台行为的验证方式在实现桌面窗口时确定。
 - 上述场景尚未经实际运行验证；选定实现路径不代表兼容性已经得到证明。具体复现步骤和通过标准在对应切片 spec 中明确。
 
 ### Camera
@@ -63,7 +63,7 @@ Camera Orientation = Selected Vehicle Displayed Body Heading + Player Orbit Offs
 
 ### Camera Collision
 
-首版不采用传统第三人称 Spring Arm；Camera 不因为普通建筑或地形持续自动 Zoom In/Out。未来如果遮挡问题明显，可考虑 Obstacle Fade、Camera framing correction。
+Demo 不采用传统第三人称 Spring Arm；Camera 不因为普通建筑或地形持续自动 Zoom In/Out。未来如果遮挡问题明显，可考虑 Obstacle Fade、Camera framing correction。
 
 ### 世界编辑器的观察与模拟控制
 
@@ -77,17 +77,19 @@ Camera Orientation = Selected Vehicle Displayed Body Heading + Player Orbit Offs
 - 打开面板、查询、切换镜头均不隐式暂停。修改、伤害和修复可在暂停时执行，也可在运行时提交到明确模拟步；沿用正式修改与故障恢复规则，不因调试入口而绕过验证。确实只能在暂停时执行的操作明确提示，由用户暂停后再提交，不把所有编辑一律限制为暂停。
 - 运行、暂停和步进作用于当前世界：模拟造成的变化直接保留，暂停不自动还原，保存包含运行结果。试验后回退须明确重新加载之前的存档；隔离复现或测试使用独立会话，不改变当前编辑世界。编辑撤销不回退模拟时间，见 [04](04-deterministic-simulation.md#编辑撤销与重做)。
 
-## 首版范围
+## Demo 范围
 
-Primary 3D Window、Bottom Dock（Windows AppBar）、Floating、Display selection、Focus behavior、Perspective Camera、Orbit、Zoom、target switching、minimized rendering suspension、可配置渲染帧率上限及专门窗口测试场景。
+Primary 3D Window、Bottom Dock（Windows AppBar）、Floating、Display selection、Focus behavior、Perspective Camera、Orbit、Zoom、target switching、minimized rendering suspension、可配置渲染帧率上限。
 
-以上包含后续桌面产品能力，不是当前体素引擎阶段的完整交付清单。本阶段交付上文世界编辑器的观察与模拟控制，采用普通窗口进行性能验收；Bottom Dock、AppBar、多显示器及专门窗口验收不阻塞本阶段完成。
+以上桌面窗口能力属于 Demo。本阶段只要求上文世界编辑器的观察与模拟控制，并用普通窗口做性能验收；Bottom Dock、AppBar、多显示器及其验证不阻塞本阶段完成，见 [00](00-product-and-core-loop.md#本阶段范围)。
 
-## 明确延后
+倍速控制属于 Demo，具体设计待定。
 
-专门遮挡检测；Overlay、Top 与左右 Dock、托盘与后台模式、Offline Progress、倍速 UI（转录 Q18、Q154、Q158、Q160）。
+## Demo 之后
+
+专门遮挡检测；Overlay、Top 与左右 Dock、托盘与后台模式、Offline Progress（转录 Q18、Q154、Q160）。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：正式游戏相机焦点目标被摧毁时的回退优先级（转录 Q162）；待对应游戏交互切片再评估。世界编辑器的目标失效规则已在上文确定。
-- 地图迷雾（不立票）：Camera FOV、Zoom Min/Max、Window Default Height、默认渲染帧率上限调优；窗口能力当前不作为 #91 阶段门槛，相关场景选入近期切片后再评估。
+- 地图迷雾（不立票）：Camera FOV、Zoom Min/Max、Window Default Height、默认渲染帧率上限调优；窗口能力属于 Demo，不阻塞本阶段，实现桌面窗口时再调优。

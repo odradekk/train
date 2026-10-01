@@ -1,6 +1,6 @@
 # 03 Composite、Behavior 与 Capability
 
-> 决策出处：转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认首版测试操作与阵营延期。
+> 决策出处：转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认本阶段改装、伤害操作与阵营延期。
 
 ## 边界
 
@@ -38,7 +38,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 ### Draft 与玩家设计
 
-- 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局。建筑与车辆复用制造事务入口及通用占用、连通校验，各自采用 Archetype 专属合法性规则。聚居地层面主要放置预置建筑；正式成本派生见 [14](14-construction-refit-and-deconstruction.md)，本阶段不实现建筑材料成本。
+- 玩家可以自由设计车头内部、车头外观、车厢、功能设备、Voxel 布局；面向玩家的完整自由设计在 Demo 之后提供，Demo 中玩家基于预置蓝图建造和改装车辆。建筑与车辆复用制造事务入口及通用占用、连通校验，各自采用 Archetype 专属合法性规则。聚居地层面主要放置预置建筑；正式成本派生见 [14](14-construction-refit-and-deconstruction.md)，本阶段不实现建筑材料成本。
 - 设计器允许保存非法 Draft：Draft → validate → Valid Definition → Instantiate。只有合法 Definition 可以制造。
 - 早期切片使用手写 JSON 验证 Blueprint 的加载、校验和制造；车辆制造与其他世界修改一样，由世界编辑器或控制台提交为统一的世界修改命令（[04](04-deterministic-simulation.md)）。本轮由世界编辑器提供独立的车辆／建筑蓝图创作视图，草稿保存、来源复制、发布与实例提取按 [02 的内容创作流程](02-definitions-and-content.md#世界编辑器内容创作流程)分片交付；不把编辑器设计工具继续视为范围外。
 - 每个车头或车厢声明 [06](06-railway.md) 的五档尺寸之一；可以不填满固定包络，但所有实体体素与附加模块均不得越界，也不能自动升档。制造与改装同时检查机械约束，尺寸合法不等于可任意布置接触点。尺寸为可进入的内部空间留出余量，角色通行与正式内部设计玩法尚未验证。
@@ -51,7 +51,7 @@ Composite 使用数据驱动的 CompositeArchetype 描述规则，合法性分�
 
 Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](02-definitions-and-content.md) 采用当前外部规格，同时保留实际布局和实例身份，按新约束适配状态。Refit 表达玩家对车辆结构的显式修改；外部引擎数值更新不改变自定义车辆设计自身的 Revision。
 
-### 首版改装操作
+### 本阶段改装操作
 
 - 世界编辑器和控制台的世界修改命令完整覆盖添加、移除、移动、旋转和替换车辆体素；旋转遵守体素正交方向约束。
 - 支持一次提交多项修改，例如交换两个零件的位置。按最终方案校验并原子提交，施工中间状态不进入 Simulation。
@@ -125,7 +125,7 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 4. 其他 Survivor 获得新的 Runtime InstanceId；
 5. Value 完全相同时，通过 WorldSeed 派生的确定性随机规则打破平局。
 
-所有 surviving fragments 在本次断裂中保留原定义引用、自身 Voxel Runtime State 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition；这不阻止之后按 [02](02-definitions-and-content.md) 采用当前外部定义。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。Faction 的设计与实现整体延后，首版不保留阵营占位字段。
+所有 surviving fragments 在本次断裂中保留原定义引用、自身 Voxel Runtime State 与 provenance 等可继承属性，并重新计算 Capability 与 Operational Condition；这不阻止之后按 [02](02-definitions-and-content.md) 采用当前外部定义。Identity-level 外部引用（Train Assembly membership、UI Selection、AI Order、Route Assignment）默认只由 Primary 继承；Secondary 成为独立对象。Faction 的设计与实现整体延后，Demo 不保留阵营占位字段。
 
 身份继承不能维持已经断开的车辆物理连接。#33 规定结构断裂后依据实际保留的车辆与车钩连接重新确定编组；仍具沿轨运动条件的各部分从事件发生时的状态建立独立运动，不重新摆车，也不继续被旧编组隔空牵引。无动力部分独立滑行减速，见 [06](06-railway.md)。车体身份存活与沿轨运动资格分别检查，不能将半截车壳自动视为完整车厢。
 
@@ -138,7 +138,7 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 
 同一逻辑 Damage Event 内的所有破坏首先统一应用：apply damage → remove hp ≤ 0 → mark topology dirty → connectivity calculation → fragmentation。不能"destroy one voxel → fracture → destroy another → fracture again"，否则结果可能依赖遍历顺序。
 
-首版由世界编辑器和控制台的伤害命令对指定体素施加指定伤害，支持一次事件影响多个体素，覆盖地形、车辆及静态建筑体素。这些命令和测试都必须经过正式的耐久扣减、归零删除与断裂结算流程，不能只用直接删除代替伤害验证。事故碰撞等玩法触发源后续再做。Extraction 是 Damage Transaction 的一种显式 Gameplay 使用方式，只有它产生 Raw Good，见 [10](10-resources-and-extraction.md)。
+本阶段由世界编辑器和控制台的伤害命令对指定体素施加指定伤害，支持一次事件影响多个体素，覆盖地形、车辆及静态建筑体素。这些命令和测试都必须经过正式的耐久扣减、归零删除与断裂结算流程，不能只用直接删除代替伤害验证。事故碰撞等玩法触发源后续再做。Extraction 是 Damage Transaction 的一种显式 Gameplay 使用方式，只有它产生 Raw Good，见 [10](10-resources-and-extraction.md)。
 
 ### Tag、Behavior、Capability
 
@@ -146,7 +146,7 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 
 - **Tag** 用于被动分类：metal、structural、organic 等。
 - **Behavior** 描述真正的逻辑机制：EngineBehavior、WeaponBehavior、StorageBehavior、HeatBehavior 等。
-- **Capability** 是 Behavior 对外提供的能力：Propulsion、Traction、Cargo、Weapon、Power 等。Capability 不允许在 Mod JSON 中任意伪造，它由实际注册的 Behavior 推导。Facility 的 Production、Extraction、Construction、Storage、Power Capability 同样只来自建筑内真实设备 Voxel 的 Behavior，Facility Tag 只表达兼容性，见 [13](13-production-runtime-and-facilities.md)。
+- **Capability** 是 Behavior 对外提供的能力：Propulsion、Traction、Storage、Weapon、Power 等。Capability 不允许在 Mod JSON 中任意伪造，它由实际注册的 Behavior 推导。Facility 的 Production、Extraction、Construction、Storage、Power Capability 同样只来自建筑内真实设备 Voxel 的 Behavior，Facility Tag 只表达兼容性，见 [13](13-production-runtime-and-facilities.md)。
 
 ### Behavior 架构
 
@@ -154,13 +154,13 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 - Behavior 是组件语义，System 是执行语义：EngineSystem、HeatSystem、WeaponSystem、StorageSystem 负责批量运行对应 Runtime State。不为每一个 Voxel 创建 Node 或独立 Tick。
 - Behavior 按 Owner Context 生效（转录 Q69）。
 
-## 首版范围
+## Demo 范围
 
-CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础；Blueprint 的加载、校验与制造，以及上述完整改装操作。世界编辑器的车辆／建筑蓝图创作纳入本轮规划，交付次序和保存发布边界见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)。
+CompositeDefinition、CompositeInstance、Local Voxel Grid、Archetype、Construction Validation、Ownership、CompositeVisual、基础 Damage 与 Fragmentation、Behavior 与 Capability 基础；Blueprint 的加载、校验与制造，以及上述完整改装操作。玩家基于预置蓝图建造和改装车辆，正式 Gameplay 的施工与改装 Job 见 [14](14-construction-refit-and-deconstruction.md)。世界编辑器的车辆／建筑蓝图创作是本阶段的开发工具，不是 Demo 的玩家内容，交付次序和保存发布边界见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)。
 
-## 明确延后
+## Demo 之后
 
-正式游戏受玩法约束的车辆设计流程、事故碰撞等伤害玩法触发源、Faction 的设计与实现；复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。世界编辑器内的蓝图创作不在此延后范围。
+面向玩家的完整自由车辆设计器、事故碰撞等伤害玩法触发源、Faction 的设计与实现、武器相关 Behavior 与 Capability；复杂 Damage Types、结构力学、万能 Composite 递归树、万能状态机、完整 ECS Framework。世界编辑器内的蓝图创作是开发工具，不在此列。
 
 ## 开放问题
 

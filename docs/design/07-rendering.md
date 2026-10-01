@@ -63,12 +63,12 @@
 
 ### Cube Voxel Rendering
 
-- 首版：Chunk → Face Culling → Chunk Surface Mesh，只生成未被视觉完全遮挡的面；是否占格或有碰撞盒不等于完全遮挡，见上文验收契约。不使用 one MeshInstance per voxel。
+- Demo：Chunk → Face Culling → Chunk Surface Mesh，只生成未被视觉完全遮挡的面；是否占格或有碰撞盒不等于完全遮挡，见上文验收契约。不使用 one MeshInstance per voxel。
 - 后期如果性能需要，Greedy Meshing 作为 ChunkMesher 的可替换优化；Greedy Meshing 不改变 World 与 Chunk 语义。
 
 ### Custom Static Mesh
 
-- Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。首版只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
+- Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
 - 普通 Custom Mesh 的视觉主体应基本限制在自己的 Cell 内；需要真正跨 Cell 的视觉结构进入 Specialized Renderer。
 
 ### Specialized Renderer
@@ -83,7 +83,7 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 
 ### Composite Rendering
 
-- Composite-owned Voxel 不进入 World Chunk Mesh。无论 Composite 是否移动，首版统一 CompositeVisual { Cube Batch, Custom Mesh Batch, Specialized Visuals }。
+- Composite-owned Voxel 不进入 World Chunk Mesh。无论 Composite 是否移动，Demo 统一使用 CompositeVisual { Cube Batch, Custom Mesh Batch, Specialized Visuals }。
 - 移动时 update root Transform only。Damage、Refit、Voxel Layout Change 及引用的表现资产变化标记受影响对象的内部 Visual Dirty 并批量更新；单个对象改变不能触发全部组合体重建。
 - 未来可以针对大量静态 Composite 增加 Presentation-only Baking 优化。
 
@@ -99,7 +99,7 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 ### Dirty Rendering
 
 - 世界变化不逐 Voxel 立即重建 Mesh：World changes → mark affected Chunk dirty → coalesce → one rebuild。
-- Chunk 边界修改要同时考虑相邻 Chunk 的暴露面变化。首版可以同步生成 Mesh，出现实际卡顿后再考虑异步 Meshing。
+- Chunk 边界修改要同时考虑相邻 Chunk 的暴露面变化。Demo 可以同步生成 Mesh，出现实际卡顿后再考虑异步 Meshing。
 
 ### Visual Streaming
 
@@ -109,14 +109,14 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 
 ### LOD
 
-- 首版不实现真正的 Voxel Geometry LOD，依靠 Residency、Frustum Culling、Distance Culling、Custom Mesh LOD0。
+- Demo 不实现真正的 Voxel Geometry LOD，依靠 Residency、Frustum Culling、Distance Culling、Custom Mesh LOD0。
 - 后期性能需要时再增加 Greedy Meshing、Custom Mesh LOD、Voxel Geometry LOD。
 
 ### Render Origin
 
 - Domain 使用绝对世界坐标，例如 WorldVoxelCoord = (183421, 42, 91822)。Godot Presentation 使用局部 Render Origin：RenderPosition = AbsolutePosition − RenderOrigin。由上文主观察位置规则触发 Rebase RenderOrigin，不能由各辆远处列车竞争驱动。
 - 全图常驻内存与 RenderOrigin Rebase 并存是刻意选择：转录 Q179 否决了用 Godot 双精度构建承载大世界的方案，Rebase 是在单精度表现层保持精度的手段，不表示世界需要流式加载。
-- 首版逻辑单位 1 Voxel Unit = 1 Godot Unit，但概念上保持解耦。
+- Demo 的逻辑单位 1 Voxel Unit = 1 Godot Unit，但概念上保持解耦。
 
 ### Collision Rendering / Adapter
 
@@ -124,11 +124,11 @@ World Voxel Data → Chunk Collider Builder → Godot Collision。Voxel 被修�
 
 Rebase 时已有 Godot 碰撞表示、射线/命中查询与可见对象使用一致的局部坐标转换，命中结果仍能还原为绝对世界位置及真实 owner/part。没有某区域的视觉或 Godot 代理，不能让领域占用、净空或列车防护查询漏掉该区域对象；这些规则继续读取权威世界。进入区域或读档后从最新权威状态恢复必要缓存，不把过期碰撞当作当前命中结果。
 
-## 首版范围
+## Demo 范围
 
 Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming。
 
-## 明确延后
+## Demo 之后
 
 Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 Composite 的 Presentation-only Baking；本阶段不以半透明玻璃、骨骼动画、模型内部机械动画、任意自定义着色器或正式美术完成度作为验收门槛。
 

@@ -31,7 +31,7 @@
 ### Raw Good
 
 - Raw Good 是通过 Extraction 或 Primary Production 获得、尚未经过有 Gameplay 意义的工业加工的标准货物，使用 `raw_good` Tag。
-- `raw_good` 是内容语义，不表示图论上的根节点、Tier 0 或无 Goods 输入：Animal Products 消耗 Grain，仍属于 Raw Good。首版 Raw Goods 目录与 Primary Production 见 [11](11-goods-and-production-network.md)。
+- `raw_good` 是内容语义，不表示图论上的根节点、Tier 0 或无 Goods 输入：Animal Products 消耗 Grain，仍属于 Raw Good。Demo 的 Raw Goods 目录与 Primary Production 见 [11](11-goods-and-production-network.md)。
 
 ### Durability 即剩余可采量
 
@@ -62,7 +62,7 @@ Ordinary Damage → Damage Transaction → Durability decreases → no Raw Good 
 ### Extraction Facility
 
 - Extraction 必须由真实 Facility 提供，不允许 Settlement 拥有凭空的 `MiningCapacity`：Extraction Facility Composite → Extraction Equipment → ExtractionBehavior / ExtractionCapability → Extraction Job。
-- 首版使用一个通用 Extraction Equipment，不提前拆分 Mining Drill、Logging Machine、Oil Pump。资源类型差异通过 Facility Tag 与 Source 要求表达：Mining Facility `facility_tags = [mining]`、Forestry Facility `[forestry]`、Oil Extraction Facility `[oil_extraction]`；通用 Extraction Equipment 只提供实际 Extraction Capability。Facility Tag 与 Capability 的分层见 [13](13-production-runtime-and-facilities.md)。
+- Demo 使用一个通用 Extraction Equipment，不提前拆分 Mining Drill、Logging Machine、Oil Pump。资源类型差异通过 Facility Tag 与 Source 要求表达：Mining Facility `facility_tags = [mining]`、Forestry Facility `[forestry]`、Oil Extraction Facility `[oil_extraction]`；通用 Extraction Equipment 只提供实际 Extraction Capability。Facility Tag 与 Capability 的分层见 [13](13-production-runtime-and-facilities.md)。
 - 每个 Extraction Facility 只能选择其明确 Extraction Area / Range 内、类型兼容的 Source Voxel；范围形状与数值不冻结。
 - `ExtractionJob.Target` 是精确的 WorldVoxelCoord，一次明确指向一个 Source Voxel。“自动开采整片区域”属于更高层 Player / AI Extraction Plan，不由底层 Extraction Runtime 自动承担。
 - 一个 Extraction Capability 同时最多运行 1 个 Extraction Job；同一 Building 内不同 Capability 的 Job 可以并行并共同竞争 Power / Labor，见 [13](13-production-runtime-and-facilities.md)。
@@ -99,11 +99,11 @@ Ordinary Damage → Damage Transaction → Durability decreases → no Raw Good 
 
 Timber 同时可由 Forestry 这一 Primary Production 产出，见 [11](11-goods-and-production-network.md)。
 
-## 首版范围
+## Demo 范围
 
-资源与生产系统首版：`resource_source` 与 `raw_good` 语义、ResourceSourceBehavior、Durability-based deterministic Extraction、8 类基础 Resource Source、通用 Extraction Equipment 与 Extraction Capability、Extraction Job、Facility-local OutputBuffer 复用、Resource Renewal Event 的架构方向。本文冻结的是结构、语义与不变量，不是平衡数值。该系统不属于本阶段，实现顺序随后续切片确定。
+资源与生产系统的 Demo 范围：`resource_source` 与 `raw_good` 语义、ResourceSourceBehavior、Durability-based deterministic Extraction、8 类基础 Resource Source、通用 Extraction Equipment 与 Extraction Capability、Extraction Job、Facility-local OutputBuffer 复用、Resource Renewal Event 的架构方向。本文冻结的是结构、语义与不变量，不是平衡数值。该系统不属于本阶段，实现顺序随后续切片确定。
 
-## 明确延后
+## Demo 之后
 
 耗尽后留下专门地形；自动开采整片区域的 Player / AI Extraction Plan；Mining Drill、Logging Machine、Oil Pump 等专用开采设备；逐实例 Richness / Reserve；资源探勘与地图信息呈现。
 

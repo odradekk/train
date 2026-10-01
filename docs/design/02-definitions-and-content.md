@@ -92,12 +92,12 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 ### VoxelDefinition
 
-- 所有可实体化对象共享统一的 VoxelDefinition。原独立的货物定义已并入这一体系，不再另设货物定义；Cargo、Market、Trade 统一引用 VoxelDefinitionId（转录 Q176）。TradeMetadata 的字段与实现整体延后到贸易接入时，首版不预留空对象。
-- 首版核心字段：DefinitionId、Name、Description、Value、MaxDurability、Mass、Tags、Behaviors、AllowedOrientations、Presentation、Collision。
+- 所有可实体化对象共享统一的 VoxelDefinition。原独立的货物定义已并入这一体系，不再另设货物定义；Cargo、Market、Trade 统一引用 VoxelDefinitionId（转录 Q176）。TradeMetadata 的字段与实现整体延后到贸易接入时，本阶段不预留空对象。
+- 本阶段核心字段：DefinitionId、Name、Description、Value、MaxDurability、Mass、Tags、Behaviors、AllowedOrientations、Presentation、Collision。
 - **Value** 即术语表的基本货币价值：当前定义中的固定基础价值，不随世界经济变化，但可随内容更新改变。用于基础经济计算、Composite 断裂后的身份继承、其他稳定估值。例如 Ferrous Ore 的 Value = 100。
 - **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
 - **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
-- **Material**：首版没有通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
+- **Material**：Demo 不建立通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
 - **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-generation-and-settlements.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；ResourceSourceBehavior 与 `resource_source` 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
 
 ### Good 迁移边界
@@ -176,7 +176,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 ### Mod 与热加载
 
-- **第一阶段 Data Mod**：支持新增 VoxelDefinition、Composite Definition、Layout（Layout 实现前沿用上文的过渡聚居地内容），修改自有定义的数值、引用资产、组合已有 Behavior。首版不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增 VoxelDefinition、Composite Definition、Layout（Layout 实现前沿用上文的过渡聚居地内容），修改自有定义的数值、引用资产、组合已有 Behavior。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
 - **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 更新 Asset Revision 和表现。布局定义更新不覆盖已存在车辆保存的实际布局。
 
@@ -192,7 +192,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 - 新加载的定义必须引用有效内容，非法 Mod 整包排除；内置内容出错则拒绝发布。排除后的候选内容仍必须自洽，不能留下未解析引用。
 - 必须基于候选当前定义校验全部受影响的运行中引用与状态适配。缺失必需定义或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和世界状态；不能发布部分更新或留下部分修正后的实例。
-- 读档遇到相同问题时明确报告并失败。首版不自动替换零件、删除状态或回退到存档中的旧 Mod 定义。
+- 读档遇到相同问题时明确报告并失败。Demo 不自动替换零件、删除状态或回退到存档中的旧 Mod 定义。
 - 全部校验与状态适配成功后再原子发布内容及相关实例更新。这替代 #31 曾确定的“保留旧 Revision 即可接受目录删除”规则。
 
 ### 本阶段表现资产校验
@@ -201,13 +201,13 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 模型、材质等必需资产缺失、损坏或不支持，以及专用渲染绑定不存在或不适用，均须明确诊断。首次加载沿用上文内容包校验与候选自洽规则；热重载失败保留旧 Catalog、世界及有效表现，不部分发布，也不以静默替换 Cube 或隐藏对象冒充成功。合法纯表现变化采用 Asset Revision/表现绑定及 Catalog 发布机制，更新受影响视觉，不改变 Semantic Revision、碰撞、身份、铁路连接或模拟结果。区域未驻留不妨碍内容有效性校验，再次显示时使用当前有效内容。
 
-## 首版范围
+## Demo 范围
 
-VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；Blueprint 加载、校验、制造及已有车辆的完整改装。本轮增加上文世界编辑器的蓝图、体素定义与 Layout 创作流程，按可用切片交付；原手写 JSON 与独立自动测试仍可用于验证，不代替常用创作界面。Composite 规则见 [03](03-composite-and-behavior.md)。
+VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；Blueprint 加载、校验、制造及已有车辆的完整改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。上文世界编辑器的蓝图、体素定义与 Layout 创作流程是本阶段的开发工具，不是 Demo 的玩家内容，按可用切片交付；原手写 JSON 与独立自动测试仍可用于验证，不代替常用创作界面。Composite 规则见 [03](03-composite-and-behavior.md)。
 
-## 明确延后
+## Demo 之后
 
-TradeMetadata 的字段与实现、Code Mod API、通用 Material System；跨包覆盖与 patch、Mod 依赖、加载顺序覆盖、启用状态管理（ADR-0002）。
+Code Mod API、通用 Material System；跨包覆盖与 patch、Mod 依赖、加载顺序覆盖、启用状态管理（ADR-0002）。
 
 ## 开放问题
 

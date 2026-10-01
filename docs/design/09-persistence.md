@@ -10,14 +10,14 @@
 
 - 基础世界通过 Seed + GeneratorVersion + 完整生效生成配置 + 有效生成语义内容重建，之后应用 Runtime Delta。固定配置使用独立来源身份；生成输入见 [05](05-world-generation-and-settlements.md#复现输入与输出)，基底、版本与封装要求见下文本阶段契约。
 - 所有主要格式从现在开始保留 Version 字段。
-- Next Transaction ID、Next Entity ID、Save-local Definitions 必须进入存档；首版只有无状态随机，不需要保存可推进的 RNG State。后续添加有状态随机流时，其完整状态必须进入存档。
+- Next Transaction ID、Next Entity ID、Save-local Definitions 必须进入存档；本阶段只有无状态随机，不需要保存可推进的 RNG State。后续添加有状态随机流时，其完整状态必须进入存档。
 - 旧 Save 不能因为 Generator 更新而偷偷使用新算法重新解释世界。
 
 ## 规则
 
 ### 世界编辑器存档工作流
 
-> 决策来源：[以存档为中心的新建、打开、生成与保存流程](https://github.com/odradekk/train/issues/139)的 Q1–Q17 已逐项确认，Q18 已确认完整规格定稿。本节描述目标行为，不表示现有 UUID 输入框、固定配置或保存命令已经实现这些流程。编辑器与其他模式共用的校验和提交边界见 [00](00-product-and-core-loop.md#首版范围)，编辑撤销见 [04](04-deterministic-simulation.md#编辑撤销与重做)；撤销历史不进入普通存档。
+> 决策来源：[以存档为中心的新建、打开、生成与保存流程](https://github.com/odradekk/train/issues/139)的 Q1–Q17 已逐项确认，Q18 已确认完整规格定稿。本节描述目标行为，不表示现有 UUID 输入框、固定配置或保存命令已经实现这些流程。编辑器与其他模式共用的校验和提交边界见 [00](00-product-and-core-loop.md#本阶段范围)，编辑撤销见 [04](04-deterministic-simulation.md#编辑撤销与重做)；撤销历史不进入普通存档。
 
 #### 入口与当前世界
 
@@ -87,7 +87,7 @@
 
 本节确定产品流程，具体控件、快捷键、存档字段编码和实现分期未冻结。创作交互、独立内容文档、诊断复现、性能与旧场景退役继续由各专门决策细化；最终统一重整实施票。本轮不实现功能、不改写现有控制台手册来冒充功能已交付。
 
-### 首版存档
+### 存档组成
 
 ```text
 Save
@@ -105,7 +105,7 @@ Save
 
 上图为本阶段逻辑组成，具体字段编码随实现规格冻结。Runtime Delta 须保留本节确定的实际结构、铁路路径与保护、故障、建筑修复目标和残块来源等事实；不能将 Seed 和 GeneratorVersion 视为充分重建输入。普通存档、世界来源与复现包分别按各自格式/规则版本解释，外部 Semantic Revision、Asset Revision 和运行时 Catalog Generation 的职责继续遵守 [02](02-definitions-and-content.md)，不能用目录发布计数代替持久版本身份。
 
-后期如果加载性能出现瓶颈，用 Snapshot + Delta 作为优化。首版不做完整 Event Sourcing。
+后期如果加载性能出现瓶颈，用 Snapshot + Delta 作为优化。Demo 不做完整 Event Sourcing。
 
 连续量以可无损往返的 JSON 数值保存，使用与文化无关的 round-trip 表示，恢复相同的 `double` 值；不截断小数位，不允许非有限值。在有效语义内容相同的前提下，验收须比较中途保存恢复与不中断运行的结果，详见 [04](04-deterministic-simulation.md)。
 
@@ -240,7 +240,7 @@ Save
 
 ### 资源与生产状态恢复
 
-资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含 FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、ExtractionJob、RecoveryJob、ConstructionJob、RefitJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderDeconstruction 锁定、Spatial Reservations、Storage Reservations、Power Equipment 的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量与 ItemInstance 及 Job 选定的 ItemInstances / identity mapping、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans（含为选定 ItemInstance 绑定的一次性 Recovery 计划项）、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、ExtractionJob、ConstructionJob、RefitJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderDeconstruction 锁定、Spatial Reservations、Storage Reservations、Power Equipment 的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量与 ItemInstance 及 Job 选定的 ItemInstances / identity mapping、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
 
 ### 文件位置
 
@@ -254,11 +254,11 @@ Save
 - 开发阶段不保证存档兼容。
 - 进入正式发行阶段后，存档向前迁移成为硬性约束；届时可采用保存旧 Generator、Migration、Snapshot 等方式保证兼容。
 
-## 首版范围
+## Demo 范围
 
-Save-local Definition、Runtime Delta、完整世界来源、稳定身份与输入序号、生成基底核验、铁路/建筑权威状态恢复、double 无损往返；完成 Save → Quit → Load → Continue 及跨进程对照。普通读档与严格复现分开，有界录制、内容切换记录、隔离 ZIP 复现包及原子失败保护纳入本阶段。
+Save-local Definition、Runtime Delta、完整世界来源、稳定身份与输入序号、生成基底核验、铁路/建筑及资源与生产权威状态恢复、double 无损往返；世界编辑器与正式游戏读取同一种普通存档，完成 Save → Quit → Load → Continue 及跨进程对照。普通读档与严格复现分开，有界录制、内容切换记录、隔离 ZIP 复现包及原子失败保护纳入本阶段。
 
-## 明确延后
+## Demo 之后
 
 Snapshot Save Optimization、正式版本 Save Migration（转录 Q42）；缺失 Mod 的兼容与回退。
 

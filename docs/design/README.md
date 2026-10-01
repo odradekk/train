@@ -17,19 +17,19 @@
 
 1. 优先明确稳定的系统边界和不变量。
 2. 具体数值尽量通过实现、Benchmark、Profiling 和 Playtest 确定。
-3. 当前首版只实现通过世界编辑器、普通示例存档和独立自动测试验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法后续接入。
+3. 本阶段只实现通过世界编辑器、普通示例存档和独立自动测试验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法在 Demo 中接入。
 4. 对明确会在未来加入的重要功能，架构上避免封死扩展空间，但不提前实现。
 5. 组合优于继承。
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
 7. Deterministic Simulation 是整个项目的基础架构原则。
 
-资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，实现随后续切片安排；市场与价格、人口经济、AI、自动贸易、列车调度、车辆设计 UI 等系统在后续独立扩充。
+资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，实现随后续切片安排；市场与价格、聚居地市场模拟与人口模拟属于 Demo，具体设计待定；AI、自动贸易、复杂调度和完整车辆设计器在 Demo 之后扩充。
 
 ## 文档地图
 
 | 文件 | 内容 |
 | --- | --- |
-| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态、长期核心循环与当前首版验收目标 |
+| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态、长期核心循环、Demo 范围与本阶段验收目标 |
 | [01-voxel-world.md](01-voxel-world.md) | 体素世界与网格不变量 |
 | [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 |
 | [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability |
@@ -48,7 +48,7 @@
 
 用于讨论和参数取舍的独立 HTML 原型及原始测量统一保留在[设计原型归档](../../archive/prototypes/README.md)，不作为正式游戏实现或最终验收结果。
 
-每份文档的固定小节：边界、不变量、规则、首版范围、明确延后、开放问题。
+每份文档的固定小节：边界、不变量、规则、Demo 范围、Demo 之后、开放问题。Demo 指最终游戏完整可玩的最小集合；本阶段是 Demo 之前的开发里程碑，其范围只在 [00 的本阶段范围](00-product-and-core-loop.md#本阶段范围)中描述，详细分期见各实施 Issue。
 
 术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；RailPosition、Train Assembly 分别对应沿轨位置、列车编组。Voxel、Composite、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack、ItemInstance 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
@@ -104,13 +104,13 @@ Render  Audio    Input
 16. Simulation 与 FPS、Camera、Window Focus 解耦。
 17. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
 18. 所有 Gameplay Random 最终源于 WorldSeed。
-19. 首版全部使用 Stateless Random；有状态随机流在后续确有需求时加入。
+19. 本阶段全部使用 Stateless Random；有状态随机流在后续玩法确有需求时加入。
 20. 后续引入 Stateful RNG 时必须持久化完整状态。
 21. Damage、Refit、Construction 等结构修改按 Transaction 原子结算。
 22. Composite Creation 永远来自显式 Gameplay 行为。
 23. Price 属于 Market Context，不属于 Voxel。
 24. Inventory Quantity 不等于空间 Voxel Instance。
-25. 首版性能优化必须服从 Profiling，而不是提前猜测。
+25. 性能优化必须服从 Profiling，而不是提前猜测。
 26. 所有标准货物都是 VoxelDefinition；Composite 不是普通 Goods。
 27. Resource Source 与 Raw Good 严格分离；Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good。
 28. Capability 必须来自真实 Behavior；Facility Tag 只表达兼容性。

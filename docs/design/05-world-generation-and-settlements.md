@@ -11,7 +11,7 @@
 - 同一 WorldSeed + GeneratorVersion + 完整生效生成配置 + 有效生成语义内容必须产生同样的初始世界；版本、配置或生成内容变化后不要求得到相同地图。
 - 生成使用无状态带键随机，结果只由 WorldSeed、用途、生成阶段、坐标或候选身份及重试序号决定，与调用先后无关；新增阶段或调整调用次序不能改变其他阶段的结果，见 [04 的随机性规则](04-deterministic-simulation.md#随机性)与 [ADR-0003](../adr/0003-use-scalar-doubles-and-stateless-random-for-determinism.md)。
 - Settlement exists ≠ Station exists ≠ Rail connection exists。
-- 聚居地类型（SettlementArchetype）与空间布局（Layout）严格分离；首版 Archetype 只承担生成用途，经济行为延后。
+- 聚居地类型（SettlementArchetype）与空间布局（Layout）严格分离；本阶段 Archetype 只承担生成用途，经济行为延后。
 - 聚居地位置只有一份三维体素锚点；建筑数量与资源种类反映实际世界，不由 Layout 模板另存一份权威清单。
 
 ## 规则
@@ -96,7 +96,7 @@ WorldSeed
 
 ### 聚居地
 
-- 聚居地本身不是 Composite。首版模型记录 SettlementId、Archetype、三维布局锚点、朝向、实际建筑实例引用及可选 Station，保留既有的静态常住人口数据及其正数约束；消费、人口变化与 Faction 的玩法设计和实现延后，首版不保留阵营占位字段。聚居地的生产、库存、Power Pool 与 Labor Pool 接口由 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 定义，能力来自建筑 Composite 内的真实设备 Voxel，聚居地不拥有无来源的抽象产能。
+- 聚居地本身不是 Composite。本阶段模型记录 SettlementId、Archetype、三维布局锚点、朝向、实际建筑实例引用及可选 Station，保留既有的静态常住人口数据及其正数约束；聚居地市场模拟与人口模拟属于 Demo，具体设计待定。Faction 不在 Demo 内，模型不保留阵营占位字段。聚居地的生产、库存、Power Pool 与 Labor Pool 接口由 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 定义，能力来自建筑 Composite 内的真实设备 Voxel，聚居地不拥有无来源的抽象产能。
 - **SettlementArchetype** 与术语表的聚居地类型是同一概念，不维护两套分类；本阶段描述候选 Layout 及选择条件，按配置权重、地形和占地条件选择，资源偏好留到资源生成阶段（[#95](https://github.com/odradekk/train/issues/95) Q3），不产生经济模拟行为。
 - **SettlementLayoutDefinition** 负责空间布局：Building Composite、World Voxel、Decoration、Site Constraints、optional Station/Rail Socket。建筑为 Composite，道路与装饰为世界体素（转录 Q93）。
 
@@ -110,11 +110,11 @@ WorldSeed
 
 ### 聚居地与铁路
 
-- 首版每个聚居地有零个或一个站点，允许没有站点或尚未接入铁路的聚居地；生成配置可显式指定需要接轨的站点，不要求贸易系统参与。
+- Demo 中每个聚居地有零个或一个站点，允许没有站点或尚未接入铁路的聚居地；生成配置可显式指定需要接轨的站点，不要求贸易系统参与。
 - 站点通过一个或多个 RailSocket 描述接轨位置和方向。Layout 可放置站点及其接口；RailSocket 是站点接轨能力的描述，不是聚居地身份的必要条件（转录 Q178 修正 Q102）。
 - RailSocket 不等于物理轨道的 Track Port，也不自动创建铁路连接或压缩图节点。实际连通性由物理轨段的明确连接与当前有效区间决定，不能从轨道格邻接关系猜测；Station 作为重要位置参与派生的 RailControlPoint，见 [06](06-railway.md)。
 - 铁路生成先规划连续几何，再登记钢轨、轨枕实体占格并验证车辆扫掠净空。空间不足时调整线路或拒绝方案，不生成单格急弯或默认 1:1 坡；遵循 [06 的首批标准](06-railway.md#首批铁路几何与机械参数)，未完成正式验证的线路组合不默认开放。五档合规车辆共用正常生成且完整的线路。
-- 允许多个接轨接口不代表首版实现多站台运营或复杂调度。
+- 允许多个接轨接口不代表 Demo 实现多站台运营或复杂调度。
 - 本阶段一个站点对应一个实际建筑，沿用 [03 的建筑失效规则](03-composite-and-behavior.md#本阶段静态建筑契约)：断裂使整个站点失效，停止接受新的停靠。接轨接口绑定实际部件，部件消失时对应接口失效；站点身份、建筑可用状态、接轨接口和轨道连通性分别检查。站点受损不自动删除物理轨道，完整且满足其他运行条件的线路仍可通行。
 - 接口声明在生成时落实到实际部件绑定；更新 Layout/Blueprint 不重写已放置站点的绑定。接口部件被修复后重新校验接轨状态，不凭位置相近创建轨道连接。站点失效或引用撤销不清除列车实际占用与必要通行保护，运行层继续遵守 [06](06-railway.md#本阶段网络运行契约)。
 
@@ -122,7 +122,7 @@ WorldSeed
 
 ### Layout 放置
 
-- 手工 Layout 首版允许 0°、90°、180°、270°；不默认允许 Mirror、Arbitrary Rotation、Scale（转录 Q94）。
+- Demo 中手工 Layout 允许 0°、90°、180°、270°；不默认允许 Mirror、Arbitrary Rotation、Scale（转录 Q94）。
 - Layout 拥有 Site Constraints：footprint、最大高度差、biome 或 tag 要求、forbidden terrain。
 - 生成器允许有限、确定性的 Site Preparation：清理装饰、小范围填土、小范围挖平；超过约束则拒绝 Candidate。
 - 世界编辑器中的 Layout 编排、从实际对象提取及手工原子放置遵守 [02 的内容创作流程](02-definitions-and-content.md#蓝图与-layout-创作)。生成配置显式选择候选 Layout；发布新模板不自动改变候选集或已有世界，模板合法也不代替标准铁路地图的联合验证。
@@ -136,13 +136,17 @@ WorldSeed
 - 建筑整体使用整数锚点和四向水平旋转，不缩放，不套车辆五档尺寸。新建、改装和完整修复均验证实际占格与既有铁路净空；冲突时原子拒绝，没有列车正在经过也不能破坏完整线路的通行条件。建筑空洞按真实空格处理；体素采用 None 或局部碰撞盒不免除整格占用及整格铁路净空检查。
 - 建筑碎块原位转为世界体素，或修复时将符合条件的原位残块收回，均按 [03](03-composite-and-behavior.md#本阶段静态建筑契约)原子变更唯一所有者及其占用登记。修复目标描述期望完整设计，不替代当前实际布局，也不预占已缺失格子。
 
-## 首版范围
+## Demo 范围
 
-本阶段实现上述无资源生成契约：Seed、GeneratorVersion、生效配置与内容指纹、真实三维地形、三维聚居地放置与朝向、生成用途的 Archetype、Layout、实际建筑及其派生统计、可选站点及 RailSocket、静态占用与净空查询、实际物理铁路及派生运行图，以及标准网络和联合运行验收。上文资源生成规则保留为后续设计，不纳入本阶段；首批生成器不自动生成桥梁或隧道。
+Demo 的世界由程序生成，包含真实三维地形、聚居地及至少四站的铁路网络，并为资源与生产最小链条生成实际资源源体素；聚居地的生产、开采、库存与交易见 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)。
 
-## 明确延后
+本阶段先实现上述无资源生成契约：Seed、GeneratorVersion、生效配置与内容指纹、真实三维地形、三维聚居地放置与朝向、生成用途的 Archetype、Layout、实际建筑及其派生统计、可选站点及 RailSocket、静态占用与净空查询、实际物理铁路及派生运行图，以及标准网络和联合运行验收。上文资源生成规则以及生产、开采与库存属于 Demo，但不在本阶段实现；本阶段生成器不自动生成桥梁或隧道。
 
-资源分布及资源偏好筛选、消费、人口变化、市场等经济行为，Faction 的设计与实现，多站台运营与复杂调度；桥梁和隧道自动生成、AI 铁路施工；Mirror、额外的环路密度调节（不影响本阶段必达跨站环路）。生产、开采与库存的设计见 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md)，其实现同样不在本阶段。
+聚居地市场模拟、人口模拟以及桥梁与隧道的生成也属于 Demo，具体设计待定。
+
+## Demo 之后
+
+Faction 的设计与实现，多站台运营与复杂调度；AI 铁路施工；Layout 的 Mirror、额外的环路密度调节（不影响必达跨站环路）。
 
 ## 开放问题
 

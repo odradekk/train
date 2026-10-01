@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文定义哪些东西进入资源与货物体系、货物拆分与多输出的内容设计原则、首版 Raw Goods 与 Primary Production、Forward Production DAG 与 Recovery DAG 的内容骨架、Paint 与货物身份。Resource Source 与 Extraction 见 [10](10-resources-and-extraction.md)；Process Definition 的结构与执行见 [13](13-production-runtime-and-facilities.md)；库存见 [12](12-inventory-and-storage.md)；Composite 使用 Goods 建造见 [14](14-construction-refit-and-deconstruction.md)。市场 Supply / Demand、Price、Treasury、人口消费与具体装备玩法不在本文；未来经济系统以本文与 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 产生和消耗的真实 Goods、Inventory、Production Capability 为事实基础。
+本文定义哪些东西进入资源与货物体系、货物拆分与多输出的内容设计原则、Demo 的 Raw Goods 与 Primary Production、Forward Production DAG 与 Recovery DAG 的内容骨架、Paint 与货物身份。Resource Source 与 Extraction 见 [10](10-resources-and-extraction.md)；Process Definition 的结构与执行见 [13](13-production-runtime-and-facilities.md)；库存见 [12](12-inventory-and-storage.md)；Composite 使用 Goods 建造见 [14](14-construction-refit-and-deconstruction.md)。市场 Supply / Demand、Price、Treasury、人口消费与具体装备玩法不在本文；未来经济系统以本文与 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 产生和消耗的真实 Goods、Inventory、Production Capability 为事实基础。
 
 ## 不变量
 
@@ -20,7 +20,7 @@
 
 ### Gameplay Difference Test
 
-拆分新 Goods 前必须至少能回答：它是否改变玩家的资源地域选择、加工路线、运输、市场需求、最终功能或其他有效决策？答案为否就不拆。因此首版不设计 Apple / Banana、Beef / Pork、Gear / Bearing / Wire、Cotton / Wool、Coke、Industrial Chemicals、Precision Components、Scrap、Waste 与大量 Decoration Goods；树枝、碎料、Biomass 等低价值副产物以及水、空气、土壤默认不进入商品体系（资源转录 Q202、Q216）。Goods 不增加固有 Rarity 字段，稀缺性由资源分布与 Value / Price 表达（资源转录 Q219）。
+拆分新 Goods 前必须至少能回答：它是否改变玩家的资源地域选择、加工路线、运输、市场需求、最终功能或其他有效决策？答案为否就不拆。因此 Demo 不设计 Apple / Banana、Beef / Pork、Gear / Bearing / Wire、Cotton / Wool、Coke、Industrial Chemicals、Precision Components、Scrap、Waste 与大量 Decoration Goods；树枝、碎料、Biomass 等低价值副产物以及水、空气、土壤默认不进入商品体系（资源转录 Q202、Q216）。Goods 不增加固有 Rarity 字段，稀缺性由资源分布与 Value / Price 表达（资源转录 Q219）。
 
 ### 商品阶段与生产路线
 
@@ -36,7 +36,7 @@
 
 ### Raw Goods
 
-首版 Raw Goods 使用克制的功能性抽象。
+Demo 的 Raw Goods 使用克制的功能性抽象。
 
 | 分类 | Raw Good | 含义 |
 | --- | --- | --- |
@@ -100,7 +100,7 @@ Electronic Components + Polymer + Glass           → Consumer Electronics
 Chemical Feedstock + Textile + Polymer            → Medical Supplies
 ```
 
-Construction Goods：首版只冻结三种；不预置 Window、Door、Armor Block、Decoration Goods，实际 Gameplay 需要时再添加。Rail 是正常 Voxel Good，直线、曲线、坡道等仍是实例空间拓扑，不产生不同 Rail 商品（[06](06-railway.md)）。
+Construction Goods：Demo 只冻结三种；不预置 Window、Door、Armor Block、Decoration Goods，实际 Gameplay 需要时再添加。Rail 是正常 Voxel Good，直线、曲线、坡道等仍是实例空间拓扑，不产生不同 Rail 商品（[06](06-railway.md)）。
 
 ```text
 Structural Metal      → Structural Block
@@ -108,7 +108,7 @@ Construction Material → Construction Block
 Structural Metal      → Rail
 ```
 
-Functional Equipment：首版五种通用能力设备。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。所有功能设备严格是单 Cell Voxel，能力通过数量叠加或不同 Definition 表达，不存在 3×2×2 之类的大型设备体素（资源转录 Q284，[01](01-voxel-world.md)）。
+Functional Equipment：Demo 包含七种功能设备。前五种是 Facility 通用能力设备；Propulsion Equipment 与 Control Equipment 为车辆提供动力与控制能力，二者在带 `assembly` Facility Tag 的设施中生产（2026-10-01 设计讨论）。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。所有功能设备严格是单 Cell Voxel，能力通过数量叠加或不同 Definition 表达，不存在 3×2×2 之类的大型设备体素（资源转录 Q284，[01](01-voxel-world.md)）。
 
 ```text
 Structural Metal + Mechanical Components + Electrical Components → Industrial Machinery
@@ -116,18 +116,20 @@ Structural Metal + Mechanical Components                         → Storage Equ
 Structural Metal + Mechanical Components + Electrical Components → Power Equipment
 Structural Metal + Mechanical Components + Electrical Components → Extraction Equipment
 Structural Metal + Mechanical Components + Electrical Components → Construction Equipment
+Structural Metal + Mechanical Components + Electrical Components → Propulsion Equipment
+Electronic Components + Electrical Components                    → Control Equipment
 ```
 
 ### Future Product Families
 
-Control Equipment、Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process；Control Equipment 尚无已定 Gameplay 功能，不进入首版货物或配方目录（[#85](https://github.com/odradekk/train/issues/85) 据此修订资源转录 Q288 的首版目录）。
+Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process。Propulsion Equipment 与 Control Equipment 已移入上文 Functional Equipment：车头制造需要动力与控制能力（[03](03-composite-and-behavior.md)），因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，重新采用资源转录 Q288 将其作为独立成品的结论。
 
 ### Recovery DAG
 
 - Forward Production DAG：Natural / Primary → Materials → Components → Goods / Equipment。Recovery DAG：Durable Goods / Equipment → Components / Materials → Materials。二者分别无环。
 - 只有存在明确 RecoveryProcessDefinition 的 Goods 才可回收；系统不自动推导“所有东西都能拆”，Recovery 也不从 Production Recipe 自动反推。
-- 允许多阶段 Recovery：Equipment → Components → Materials，不要求一步还原到底层资源。Recovery 只输出已经存在于 Forward Goods Catalog 中的 Goods，不为回收单独创建另一棵废品资源树；首版没有 Scrap、Waste、Broken Electronics 等通用回收中间品。若未来废料运输本身成为有价值的物流 Gameplay，再设计具体废料 Good。
-- 首版覆盖 Construction Goods、Components、Functional Equipment。默认不为 Raw Goods、Basic Materials、Food、Fuel、Chemical Feedstock、Clothing、Medical Supplies 与普通民用消费品建立 Recovery，未来按 Gameplay 需要显式增加。
+- 允许多阶段 Recovery：Equipment → Components → Materials，不要求一步还原到底层资源。Recovery 只输出已经存在于 Forward Goods Catalog 中的 Goods，不为回收单独创建另一棵废品资源树；Demo 没有 Scrap、Waste、Broken Electronics 等通用回收中间品。若未来废料运输本身成为有价值的物流 Gameplay，再设计具体废料 Good。
+- Demo 覆盖 Construction Goods、Components、Functional Equipment。默认不为 Raw Goods、Basic Materials、Food、Fuel、Chemical Feedstock、Clothing、Medical Supplies 与普通民用消费品建立 Recovery，未来按 Gameplay 需要显式增加。
 - Recovery 明确不保证还原所有 Production Inputs；具体数量后续平衡。执行语义见 [13](13-production-runtime-and-facilities.md)。
 
 首批 Recovery Skeleton：
@@ -144,9 +146,11 @@ Storage Equipment      → Mechanical Components + Structural Metal
 Power Equipment        → Mechanical Components + Electrical Components + Structural Metal
 Extraction Equipment   → Mechanical Components + Electrical Components + Structural Metal
 Construction Equipment → Mechanical Components + Electrical Components + Structural Metal
+Propulsion Equipment   → Mechanical Components + Electrical Components + Structural Metal
+Control Equipment      → Electronic Components + Electrical Components
 ```
 
-### 首版货物目录
+### Demo 货物目录
 
 | 类别 | Goods |
 | --- | --- |
@@ -155,20 +159,20 @@ Construction Equipment → Mechanical Components + Electrical Components + Struc
 | Components（3） | Mechanical Components、Electrical Components、Electronic Components |
 | Civilian / Consumable Goods（6） | Staple Food、Prepared Food、Clothing、Consumer Goods、Consumer Electronics、Medical Supplies |
 | Construction Goods（3） | Structural Block、Construction Block、Rail |
-| Functional Equipment（5） | Industrial Machinery、Storage Equipment、Power Equipment、Extraction Equipment、Construction Equipment |
-| Future Product Families | Control Equipment、Propulsion Equipment、Train Weapons、Crew Weapons、Train Equipment、Crew Equipment（仅占位） |
+| Functional Equipment（7） | Industrial Machinery、Storage Equipment、Power Equipment、Extraction Equipment、Construction Equipment、Propulsion Equipment、Control Equipment |
+| Future Product Families | Train Weapons、Crew Weapons、Train Equipment、Crew Equipment（仅占位） |
 
-## 首版范围
+## Demo 范围
 
 上表除 Future Product Families 占位外的货物、5 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
 
-## 明确延后
+## Demo 之后
 
-Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；人口消费率；具体 Propulsion、Train Weapon、Crew Weapon、Train Equipment、Crew Equipment 玩法与医疗效果。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
+Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；人口消费率；具体 Train Weapon、Crew Weapon、Train Equipment、Crew Equipment 玩法与医疗效果。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
-- 地图迷雾（不立票）：Control Equipment 等 Future Product Families 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
+- 地图迷雾（不立票）：Train Weapons 等 Future Product Families 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
 按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

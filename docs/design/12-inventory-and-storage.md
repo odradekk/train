@@ -31,7 +31,7 @@
 
 - `UsedCapacity = Σ Stack.Quantity + ItemInstance.Count`；Stack unit 与 ItemInstance 都占 1 点 Storage Capacity。
 - `TotalCargoMass = Σ Definition.Mass × quantity`，独立计算。
-- 首版不增加 Liquid-only capacity、Refrigerated capacity、Hazardous capacity 或 Cargo weight limit；Crude Oil 等仍作为普通标准库存 Goods。
+- Demo 不增加 Liquid-only capacity、Refrigerated capacity、Hazardous capacity 或 Cargo weight limit；Crude Oil 等仍作为普通标准库存 Goods。
 
 ### Storage Capability
 
@@ -56,11 +56,11 @@
 - Construction / Refit 自动满足 BOM 时：Stack Good 可自动消费；ItemInstance 必须由玩家或上层计划显式选定。
 - 若 Stack 不足且没有明确选定 ItemInstance，validation fails。系统不自动决定“最好耐久”“最差耐久”等策略。
 
-## 首版范围
+## Demo 范围
 
 Settlement Inventory、Train Inventory、显式 Train ↔ Settlement Transfer、按 Quantity 计数的 Storage Capacity 与独立 Mass、来自 Storage Equipment 的 Storage Capability、Overcapacity、Stack 与 ItemInstance、BOM 对 ItemInstance 的显式选定。范围归属见 [10](10-resources-and-extraction.md)。
 
-## 明确延后
+## Demo 之后
 
 Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、危险品、重量容量双限制；Transfer 自动化；事故散落 Goods；市场交易。
 
