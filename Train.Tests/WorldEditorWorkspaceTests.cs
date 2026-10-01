@@ -34,8 +34,10 @@ public sealed class WorldEditorWorkspaceTests
         {
             Assert.AreEqual("Same name", entry.Name);
             Assert.AreEqual(WorldSaveDocument.CurrentFormatVersion, entry.FormatVersion);
-            Assert.IsTrue(entry.SourceVersion.Length > 0);
-            Assert.IsTrue(entry.Dependencies.Any(item => item.Contains("core:ferrous-ore", StringComparison.Ordinal)));
+            Assert.IsNotNull(entry.Source);
+            Assert.AreEqual(1, entry.Source.ConfigurationVersion);
+            Assert.AreEqual(1, entry.ExternalDefinitions.Count);
+            Assert.IsTrue(entry.ExternalDefinitions[0].SemanticRevision.Length > 0);
             Assert.AreEqual(WorldSaveStatus.Loaded, entry.Recovery.Status);
         }
         Assert.IsNull(workspace.ListFailure);

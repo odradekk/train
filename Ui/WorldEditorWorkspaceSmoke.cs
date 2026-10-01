@@ -45,7 +45,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         var entry = workspace.Entries.Single(item => item.Name == "工作区验证");
         Require(entry.Recovery.Succeeded && entry.LastSavedUtc is not null && entry.FormatVersion is not null,
             "ordinary save missing from the usable list");
-        Require(entry.Dependencies.Count > 0, "list omitted dependency hints");
+        Require(entry.ExternalDefinitions.Count > 0, "list omitted dependency hints");
         if (Leg == "save" && _workspaceVisits == 3)
         {
             Require(entry.Id == _savedId && workspace.Entries.Count == 1, "return save changed identity or duplicated save");

@@ -833,6 +833,7 @@ New-Item -ItemType Directory -Force -Path $fakeRoot | Out-Null
 @'
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 internal static class Program
 {
@@ -843,6 +844,35 @@ internal static class Program
         if (role == "godot")
         {
             string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
+            if (mode.StartsWith("workspace-", StringComparison.Ordinal) && !joined.Contains("--version"))
+            {
+                string log = Environment.GetEnvironmentVariable("FAKE_WORKSPACE_LOG");
+                if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, joined + Environment.NewLine);
+                if (mode == "workspace-hold")
+                {
+                    if (joined.Contains("--held-child")) { Thread.Sleep(60000); return 0; }
+                    var startChild = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false, CreateNoWindow = true };
+                    startChild.ArgumentList.Add("--held-child");
+                    using Process child = Process.Start(startChild);
+                    File.WriteAllText(Environment.GetEnvironmentVariable("FAKE_WORKSPACE_PIDS"), Environment.ProcessId + "," + child.Id);
+                    Console.WriteLine("held process started");
+                    Console.Out.Flush();
+                    Thread.Sleep(60000);
+                    return 0;
+                }
+                string leg = Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_LEG");
+                Console.WriteLine("WORKSPACE_MENU single_entry=true no_world=true");
+                if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
+                if (leg == "save")
+                {
+                    Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
+                    foreach (string fault in new[] { "corrupt", "dependency", "source" }) Console.WriteLine("WORKSPACE_OPEN_FAILED fault=" + fault);
+                    Console.WriteLine("WORKSPACE_SAVED id=fixture save_continue=true");
+                }
+                else Console.WriteLine("WORKSPACE_CONTINUED id=fixture voxels=4 pending=0 paused=true");
+                Console.WriteLine("WORKSPACE_DONE leg=" + leg);
+                return mode == "workspace-fail" ? 7 : 0;
+            }
             if (mode == "version-sleep" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "version-fail" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
@@ -869,6 +899,35 @@ internal static class Program
 if ($LASTEXITCODE -ne 0) { throw "fake tool build failed" }
 $fakeExe = Join-Path $fakeRoot "bin/Release/net10.0/fake-tool.exe"
 if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
+
+It "fixture-workspace-script" {
+    # Fake programs test script orchestration only. The registered runner separately executes the real game.
+    $scriptPath = Join-Path $root 'scripts/run-godot-world-editor-cross-process.ps1'
+    foreach ($mode in @('pass', 'missing', 'fail', 'hold')) {
+        $directory = Join-Path $evidence "workspace-script-$mode"
+        $argumentsLog = Join-Path $evidence "workspace-$mode.arguments.log"
+        $pidFile = Join-Path $evidence "workspace-$mode.pids.log"
+        $result = Invoke-Runner -RunnerPath $scriptPath -ArgumentList @(
+            '-Workspace', '-OutputDirectory', $directory, '-LegTimeoutSeconds', '2'
+        ) -Environment @{
+            GODOT = $fakeExe; FAKE_ROLE = 'godot'; FAKE_GODOT = "workspace-$mode"
+            FAKE_WORKSPACE_LOG = $argumentsLog; FAKE_WORKSPACE_PIDS = $pidFile
+        } -WaitMs 30000
+        Assert-Exit $result $(if ($mode -eq 'pass') { 0 } else { 1 })
+        Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
+        Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
+        if ($mode -eq 'pass') {
+            Assert-True 'resume process ran' (Test-Path -LiteralPath (Join-Path $directory 'resume.stdout.log'))
+        } else {
+            Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume.stdout.log')))
+            Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))
+        }
+        if ($mode -eq 'hold') {
+            foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "timeout killed $owned" (-not (Test-Alive $owned)) }
+            Assert-Contains 'timeout recorded' (Get-Content -LiteralPath (Join-Path $directory 'processes.log') -Raw) 'timed_out=True'
+        }
+    }
+}
 
 It "fast-invalid" {
     $result = Invoke-Runner -ArgumentList @("-Nope") -WaitMs 30000

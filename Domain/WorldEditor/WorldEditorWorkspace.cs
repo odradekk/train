@@ -6,7 +6,8 @@ namespace Train.Domain.WorldEditor;
 
 public sealed record WorldEditorSaveEntry(
     Guid Id, string Name, DateTime? LastSavedUtc, int? FormatVersion,
-    string SourceVersion, IReadOnlyList<string> Dependencies, WorldSaveResult Recovery);
+    string GeneratorVersion, WorldSource? Source,
+    IReadOnlyList<WorldSaveDefinitionRef> ExternalDefinitions, WorldSaveResult Recovery);
 
 /// <summary>Lists local saves and validates an independent candidate before handing it to the editor.</summary>
 public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog composites, FileWorldSaveStore store)
@@ -35,8 +36,9 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
                 catch (UnauthorizedAccessException) { }
                 var name = FileWorldSaveStore.FormatId(id);
                 int? format = null;
-                var source = "";
-                var dependencies = new List<string>();
+                var generator = "";
+                WorldSource? source = null;
+                IReadOnlyList<WorldSaveDefinitionRef> definitions = Array.Empty<WorldSaveDefinitionRef>();
                 if (store.TryRead(id, out var json, out _))
                 {
                     // Keep useful header information even when a newer format cannot be restored.
@@ -58,17 +60,14 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
                     {
                         name = document.DisplayName;
                         format = document.FormatVersion;
-                        source = document.Source is { } origin
-                            ? $"{origin.Kind}/{origin.ConfigurationId} v{origin.ConfigurationVersion}"
-                            : document.GeneratorVersion;
-                        dependencies.AddRange(document.ExternalDefinitions.Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}"));
-                        if (document.Source is { } declared)
-                            dependencies.AddRange(declared.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}"));
+                        generator = document.GeneratorVersion;
+                        source = document.Source;
+                        definitions = document.ExternalDefinitions;
                     }
                 }
                 var recovery = TryOpen(id, out var candidate);
                 candidate?.Detach();
-                entries.Add(new WorldEditorSaveEntry(id, name, saved, format, source, dependencies.Distinct().ToArray(), recovery));
+                entries.Add(new WorldEditorSaveEntry(id, name, saved, format, generator, source, definitions, recovery));
             }
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)

@@ -13,7 +13,7 @@
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 120,
-      "timeoutReason": "Workspace save/resume measured about 4 seconds on the issue #166 Windows host. 120s allows cold startup; each child is bounded at 60s and frame budgets do not establish success."
+      "timeoutReason": "Workspace save/resume measured 5100ms on the issue #166 Windows host. 120s allows cold startup; each child is bounded at 60s and frame budgets do not establish success."
     },
     {
       "id": "godot.logging-smoke",
@@ -52,7 +52,7 @@
       "boundary": "两个隔离真实 Godot 进程，需先构建和导入；输出目录必须是新的。自动断言不代替人工交互。",
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
-      "durationStatus": "unmeasured",
+      "durationStatus": "measured-on-issue-166-host",
       "claim": "save-restore+workspace-navigation",
       "requirements": "godot,process",
       "fourScene": false,

@@ -107,8 +107,12 @@ public partial class WorldEditorWorkspaceScene : Control
             var row = new HBoxContainer();
             _saves.AddChild(row);
             var saved = entry.LastSavedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知";
-            var dependencies = entry.Dependencies.Count == 0 ? "无外部依赖" : string.Join("，", entry.Dependencies);
-            var text = $"{entry.Name} · 最近保存 {saved} · {entry.Id:D}\n格式 {entry.FormatVersion?.ToString() ?? "未知"} · {entry.SourceVersion}\n依赖：{dependencies}";
+            var hints = entry.ExternalDefinitions.Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}")
+                .Concat(entry.Source?.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}") ?? Array.Empty<string>())
+                .Distinct().ToArray();
+            var dependencies = hints.Length == 0 ? "无外部依赖" : string.Join("，", hints);
+            var source = entry.Source is { } origin ? $"{origin.Kind}/{origin.ConfigurationId} v{origin.ConfigurationVersion}" : entry.GeneratorVersion;
+            var text = $"{entry.Name} · 最近保存 {saved} · {entry.Id:D}\n格式 {entry.FormatVersion?.ToString() ?? "未知"} · {source}\n依赖：{dependencies}";
             if (!entry.Recovery.Succeeded)
                 text += $"\n无法打开：{Describe(entry.Recovery)}";
             else if (entry.Recovery.Adaptations is { Count: > 0 } adaptations)

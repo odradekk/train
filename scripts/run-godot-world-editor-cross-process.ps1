@@ -1,4 +1,5 @@
-param([string] $OutputDirectory, [switch] $BlankWorld, [switch] $Workspace)
+param([string] $OutputDirectory, [switch] $BlankWorld, [switch] $Workspace,
+    [ValidateRange(1, 60)][int] $LegTimeoutSeconds = 60)
 
 # Formal world editor comparison for #127. Each leg is a fresh Godot process.
 # Run after building Train.csproj, with GODOT set to the Godot .NET console executable.
@@ -34,6 +35,25 @@ foreach ($name in @(
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
 
+function Invoke-EntryLeg([string] $leg, [string] $prefix) {
+    $out = Join-Path $OutputDirectory "$leg.stdout.log"
+    $err = Join-Path $OutputDirectory "$leg.stderr.log"
+    $process = Start-Process -FilePath $env:GODOT -ArgumentList @('--headless', '--path', '.', '--quit-after', '3000') `
+        -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
+    $timedOut = -not $process.WaitForExit($LegTimeoutSeconds * 1000)
+    if ($timedOut) { $process.Kill($true) }
+    $process.WaitForExit()
+    $text = [IO.File]::ReadAllText($out) + "`n" + [IO.File]::ReadAllText($err)
+    "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) timed_out=$timedOut user_data=$userData" |
+        Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
+    if ($timedOut -or $process.ExitCode -ne 0 -or -not $text.Contains("${prefix}_DONE leg=$leg") -or
+        $text.Contains("${prefix}_FAILED") -or $text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
+        $text.Contains('ERROR:') -or $text.Contains('Unhandled exception')) {
+        throw "$prefix $leg failed (exit $($process.ExitCode), timeout=$timedOut); inspect $out and $err."
+    }
+    return $text
+}
+
 if ($Workspace) {
     $started = [Diagnostics.Stopwatch]::StartNew()
     [ordered]@{
@@ -54,23 +74,7 @@ if ($Workspace) {
     try {
         foreach ($leg in @('save', 'resume')) {
             $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
-            $out = Join-Path $OutputDirectory "$leg.stdout.log"
-            $err = Join-Path $OutputDirectory "$leg.stderr.log"
-            $process = Start-Process -FilePath $env:GODOT -ArgumentList @('--headless', '--path', '.', '--quit-after', '3000') `
-                -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-            if (-not $process.WaitForExit(60000)) {
-                $process.Kill($true)
-                $process.WaitForExit()
-                throw "Workspace $leg exceeded the process cap; inspect $out and $err."
-            }
-            $process.WaitForExit()
-            $text = [IO.File]::ReadAllText($out) + "`n" + [IO.File]::ReadAllText($err)
-            "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) user_data=$userData" |
-                Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
-            if ($process.ExitCode -ne 0 -or -not $text.Contains("WORKSPACE_DONE leg=$leg") -or
-                $text.Contains('WORKSPACE_FAILED') -or $text.Contains('ERROR:') -or $text.Contains('Unhandled exception')) {
-                throw "Workspace $leg failed (exit $($process.ExitCode)); inspect $out and $err."
-            }
+            $text = Invoke-EntryLeg $leg 'WORKSPACE'
             $markers = @('WORKSPACE_MENU single_entry=true no_world=true', 'WORKSPACE_LIST_OPEN id=')
             $markers += if ($leg -eq 'save') {
                 @('WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace',
@@ -130,25 +134,7 @@ if ($BlankWorld) {
 
     function Invoke-BlankLeg([string] $leg) {
         $env:TRAIN_BLANK_WORLD_LEG = $leg
-        $out = Join-Path $OutputDirectory "$leg.stdout.log"
-        $err = Join-Path $OutputDirectory "$leg.stderr.log"
-        $process = Start-Process -FilePath $env:GODOT -ArgumentList @('--headless', '--path', '.', '--quit-after', '3000') `
-            -WorkingDirectory $root -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError $err
-        if (-not $process.WaitForExit(60000)) {
-            $process.Kill($true)
-            $process.WaitForExit()
-            throw "Blank-world $leg exceeded the 60-second process cap; inspect $out and $err."
-        }
-        $process.WaitForExit()
-        $text = [System.IO.File]::ReadAllText($out) + "`n" + [System.IO.File]::ReadAllText($err)
-        "leg=$leg pid=$($process.Id) exit=$($process.ExitCode) user_data=$userData" |
-            Add-Content -LiteralPath (Join-Path $OutputDirectory 'processes.log') -Encoding utf8
-        if ($process.ExitCode -ne 0 -or -not $text.Contains("BLANK_WORLD_DONE leg=$leg") -or
-            $text.Contains('BLANK_WORLD_FAILED') -or $text.Contains('WORLD_EDITOR_ESTABLISH_FAILED') -or
-            $text.Contains('Unhandled exception') -or $text.Contains('ERROR:')) {
-            throw "Blank-world $leg leg failed; inspect $out and $err (exit $($process.ExitCode))."
-        }
-        return $text
+        return Invoke-EntryLeg $leg 'BLANK_WORLD'
     }
 
     try {
