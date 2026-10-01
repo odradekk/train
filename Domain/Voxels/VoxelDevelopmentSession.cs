@@ -24,7 +24,7 @@ public sealed partial class VoxelDevelopmentSession
     private bool _rebuildComposites = true;
     private bool _rebuildTracks = true;
 
-    public VoxelWorldIdentity Identity { get; }
+    public VoxelWorldIdentity Identity { get; private set; }
     public VoxelWorld World { get; private set; }
     public VoxelWorldCommands Commands { get; private set; }
     public Guid? SaveId { get; private set; }
@@ -588,16 +588,17 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
         if (!_store.TryRead(saveId, out var json, out var readStatus))
-            return new WorldSaveResult(readStatus, SaveId, DisplayName);
+            return new WorldSaveResult(readStatus, SaveId, DisplayName, WorldSaveDiagnostic.For(readStatus));
         if (!WorldSaveCodec.TryDeserialize(json, out var document, out var parseStatus) ||
             (parseStatus is WorldSaveStatus.Loaded && document is null))
             return new WorldSaveResult(
                 parseStatus is WorldSaveStatus.Loaded ? WorldSaveStatus.UnknownFormat : parseStatus,
                 SaveId,
-                DisplayName);
+                DisplayName,
+                WorldSaveDiagnostic.For(parseStatus is WorldSaveStatus.Loaded ? WorldSaveStatus.UnknownFormat : parseStatus));
         if (document.Id != saveId)
-            return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName);
-        var sourceCheck = FixedSourceVerification.Check(document, _catalog, _composites);
+            return new WorldSaveResult(WorldSaveStatus.MismatchedId, SaveId, DisplayName, WorldSaveDiagnostic.For(WorldSaveStatus.MismatchedId));
+        var sourceCheck = WorldSourceVerification.Check(document, _catalog, _composites);
         if (!sourceCheck.Succeeded)
             return new WorldSaveResult(sourceCheck.Status, SaveId, DisplayName, sourceCheck.Diagnostic);
         var adaptations = new List<WorldSaveAdaptation>();
@@ -606,7 +607,6 @@ public sealed partial class VoxelDevelopmentSession
                 _catalog.Current,
                 _composites.Current,
                 document,
-                Identity,
                 adaptations,
                 failures,
                 out var restore,
@@ -624,6 +624,7 @@ public sealed partial class VoxelDevelopmentSession
             _cleanFingerprint = "";
         else
             MarkPersistenceClean();
+        Changed?.Invoke();
         WorldReplaced?.Invoke(WorldReplacement.Load);
         return new WorldSaveResult(WorldSaveStatus.Loaded, SaveId, DisplayName, Adaptations: adaptations);
     }
@@ -745,6 +746,7 @@ public sealed partial class VoxelDevelopmentSession
 
     private List<WorldSaveAdaptation> ReplaceSession(WorldSaveRestore restore)
     {
+        Identity = restore.World.Identity;
         World = restore.World;
         Commands = new VoxelWorldCommands(World, _catalog);
         _vehicles.Clear();
@@ -784,7 +786,6 @@ public sealed partial class VoxelDevelopmentSession
         _rebuildAllCollision = true;
         _rebuildComposites = true;
         _rebuildTracks = true;
-        Changed?.Invoke();
         return adaptations;
     }
 

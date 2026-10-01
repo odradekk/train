@@ -9,6 +9,8 @@ public sealed class VoxelWorldCollisionPresenter
     public const uint VoxelCollisionLayer = 1;
 
     private readonly Dictionary<ChunkCoord, VoxelChunkCollider> _colliders = new();
+    private Node? _parent;
+    private VoxelWorldIdentity _identity;
 
     public IReadOnlyList<ChunkCoord> LastRebuiltChunks { get; private set; } = Array.Empty<ChunkCoord>();
     public int ShapeCount => _colliders.Values.Sum(collider => collider.ShapeCount);
@@ -24,6 +26,8 @@ public sealed class VoxelWorldCollisionPresenter
     public void Rebuild(Node parent, VoxelWorldIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(parent);
+        _parent = parent;
+        _identity = identity;
         foreach (var collider in _colliders.Values)
             collider.QueueFree();
         _colliders.Clear();
@@ -38,6 +42,8 @@ public sealed class VoxelWorldCollisionPresenter
     public void Refresh(VoxelDevelopmentSession session, VoxelCatalogSnapshot? catalog)
     {
         ArgumentNullException.ThrowIfNull(session);
+        if (_identity != session.Identity)
+            Rebuild(_parent ?? throw new InvalidOperationException("The presenter must be attached before refreshing."), session.Identity);
         var dirty = session.TakePendingCollisionDirtyChunks();
         foreach (var chunk in dirty)
             ColliderFor(chunk).Refresh(session.World, chunk, catalog);

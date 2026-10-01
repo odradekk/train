@@ -15,6 +15,8 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.authority-checkpoint
 
 ## Classification and selection
 
+Blank-world save/resume and cross-source checks use `pwsh -NoProfile -File scripts/run-godot-playground-cross-process.ps1 -BlankWorld`. This runner is still inventoried rather than connected to the unified entry; run it separately after a game build/import and report its `config.json`, `result.json`, process logs and runtime assertions. `-Correctness` alone does not run this check.
+
 Classify tests by family (unit, headless automation, Benchmark) and stable functional scope such as voxels, buildings, railway, persistence or content, and record actual requirements such as Godot, separate processes, export or a graphical session. Speed follows measurements, not a blanket assumption that C# tests are unit tests. Use stable case/group names rather than permanent entry points for individual Issues.
 
 Show the selected cases and prerequisites before execution; combine family/scope filters and deduplicate selected cases. Invalid arguments, unknown names and an explicit selection matching no cases are errors. An unavailable required environment is reported as unverified with a non-success result, never by silently shrinking the selection. Full regression includes the registered correctness checks; unimplemented Benchmark, long-run, manual or platform groups are pending requirements, not empty groups that pass. Publish the actual selected coverage so a partial migration or small CI selection cannot be presented as all repository checks, and list manual observation separately from automated passes.

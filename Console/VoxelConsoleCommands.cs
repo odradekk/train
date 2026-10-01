@@ -1,3 +1,4 @@
+using System.Globalization;
 using Train.Domain.Commands;
 using Train.Domain.Voxels;
 
@@ -16,6 +17,27 @@ public sealed class VoxelConsoleCommands
     public string Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
+        if (arguments.Count > 0 && string.Equals(arguments[0], "new", StringComparison.OrdinalIgnoreCase))
+        {
+            if (arguments.Count is not (5 or 6) ||
+                !int.TryParse(arguments[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sizeX) ||
+                !int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sizeY) ||
+                !int.TryParse(arguments[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sizeZ) ||
+                !ulong.TryParse(arguments[4], NumberStyles.None, CultureInfo.InvariantCulture, out var seed) ||
+                !BlankWorldSource.TryIdentity(sizeX, sizeY, sizeZ, seed, out var identity))
+                return BlankParametersRejected();
+            WorldChangeChoice? choice = null;
+            if (arguments.Count == 6)
+            {
+                if (!WorldChangeConsole.TryParseChoice(arguments[5], out var parsed))
+                    return BlankParametersRejected();
+                choice = parsed;
+            }
+            var changed = _session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.NewBlank, choice, BlankIdentity: identity));
+            return changed.Status == WorldChangeStatus.Completed
+                ? $"Voxel blank world.\nbounds {sizeX},{sizeY},{sizeZ} seed {seed}\npaused true unsaved true\nVoxel count: 0."
+                : WorldChangeConsole.Format(_session, changed);
+        }
         if (arguments.Count is >= 1 and <= 2 && string.Equals(arguments[0], "reset", StringComparison.OrdinalIgnoreCase))
         {
             WorldChangeChoice? choice = null;
@@ -140,11 +162,15 @@ public sealed class VoxelConsoleCommands
         return string.Join('\n',
             "Usage: voxel reset [discard|save|cancel] | voxel query <x> <y> <z> | voxel collide <x> <y> <z> | voxel save [<display-name>] | voxel load <uuid> [discard|save|cancel]",
             "voxel use <configuration-id> [discard|save|cancel]",
+            "voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] (X 1..320, Y/Z 1..32; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
             "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
             "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>].");
     }
+
+    private static string BlankParametersRejected() =>
+        "Voxel IncompatibleBase.\nstage base subject blank relationship parameters\nUse voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel]; X 1..320, Y/Z 1..32; seed 0..18446744073709551615.";
 
     private static bool TryParseEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
     {

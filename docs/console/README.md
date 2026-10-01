@@ -24,6 +24,7 @@
 | [reload](reload.md) | 重新加载内容目录，并原子适配已有世界实例、车辆、碎块、接触绑定和已提交编组运行条件 | 仅 Debug 构建 |
 | [loglevel](loglevel.md) `[debug\|info\|warning\|error]` | 查询或设置日志过滤等级 | 所有构建 |
 | [voxel reset](voxel-reset.md) `[discard\|save\|cancel]` | 重建初始开发世界；有未保存变化时必须选择保存后重置、放弃或取消 | 包含 PR #47，且已进入体素开发场景 |
+| [voxel new](voxel-new.md) `<size-x> <size-y> <size-z> <seed> [discard\|save\|cancel]` | 新建真正空白、暂停且未保存的世界；X 1–320，Y/Z 1–32，非法参数保留当前世界 | 已进入体素开发场景或 Playground |
 | [voxel query](voxel-query.md) `<x> <y> <z>` | 查询一个格子的实例状态 | 同上 |
 | [voxel collide](voxel-collide.md) `<x> <y> <z>` | 查询一格完整盒的领域碰撞（`local_box` 格内盒外须用六参数） | 同上 |
 | [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与当前碰撞形状的重叠 | 同上 |
@@ -33,7 +34,7 @@
 | [voxel edits](voxel-edits.md) `[pending \| log [<count>] \| fault]` | 查询世界修改命令的边界位置、待执行队列、执行日志与内部故障 | 同上 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步与待执行世界修改（含列车起停）原子写入 `user://saves/<UUID>/save.json` | 同上 |
 | [voxel load](voxel-load.md) `<uuid> [discard\|save\|cancel]` | 按当前有效定义恢复存档并整体替换会话；格式 5 写出，仍可读格式 2–4（旧列车队列须为空）；有未保存变化时先选择 | 同上 |
-| [voxel use](voxel-use.md) `<configuration-id> [discard\|save\|cancel]` | 把 Playground 切换到另一个具名固定配置；候选失败时保留当前世界 | 已进入 Playground |
+| [voxel use](voxel-use.md) `<configuration-id> [discard\|save\|cancel]` | 从当前世界切换到具名固定配置；候选失败时保留当前世界 | 已进入体素开发场景或 Playground |
 | [composite reset](composite-reset.md) `[discard\|save\|cancel] [hollow\|bridge\|bridge-right]` | 清空已制造车辆并重建当前切片世界，可选立即制造空心壳或桥接夹具；有未保存变化时先选择 | 包含切片 3，且已进入体素开发场景 |
 | [composite manufacture](composite-manufacture.md) `[<namespace:id>] [pose <x> <y> <z>] [at <step>]` | 从已发布 Blueprint 制造一辆静置车辆 | 同上 |
 | [composite damage](composite-damage.md) `<id> <x> <y> <z> <amount> [...] [at <step>]` | 对一辆车的一个或多个局部零件施加同一事件伤害并结算断裂/脱落 | 同上 |

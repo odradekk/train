@@ -7,6 +7,8 @@ namespace Train.Presentation;
 public sealed class VoxelWorldMeshPresenter
 {
     private readonly Dictionary<ChunkCoord, VoxelChunkMesh> _meshes = new();
+    private Node? _parent;
+    private VoxelWorldIdentity _identity;
 
     public IReadOnlyList<ChunkCoord> LastRebuiltChunks { get; private set; } = Array.Empty<ChunkCoord>();
     public int FaceCount => _meshes.Values.Sum(mesh => mesh.FaceCount);
@@ -26,6 +28,8 @@ public sealed class VoxelWorldMeshPresenter
     public void Rebuild(Node parent, VoxelWorldIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(parent);
+        _parent = parent;
+        _identity = identity;
         foreach (var mesh in _meshes.Values)
             mesh.QueueFree();
         _meshes.Clear();
@@ -40,6 +44,8 @@ public sealed class VoxelWorldMeshPresenter
     public void Refresh(VoxelDevelopmentSession session, VoxelCatalogSnapshot? catalog)
     {
         ArgumentNullException.ThrowIfNull(session);
+        if (_identity != session.Identity)
+            Rebuild(_parent ?? throw new InvalidOperationException("The presenter must be attached before refreshing."), session.Identity);
         var dirty = session.TakePendingDirtyChunks();
         foreach (var chunk in dirty)
             MeshFor(chunk).Refresh(session.World, chunk, catalog);

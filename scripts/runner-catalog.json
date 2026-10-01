@@ -190,7 +190,7 @@
     {
       "id": "godot.playground-cross-process",
       "entry": "pwsh -NoProfile -File scripts/run-godot-playground-cross-process.ps1",
-      "contract": "多段新进程对照 Playground 证据。与权威检查点脚本的声明不同，不因同为跨进程就合并。",
+      "contract": "多段新进程对照 Playground 证据；-BlankWorld 另以两个真实进程验证控制台新建空白、保存恢复、继续修改与运行及跨来源成功/失败保护。与权威检查点脚本的声明不同，不因同为跨进程就合并。",
       "boundary": "需要 GODOT。每段进程使用隔离用户数据和证据目录。",
       "destination": "headless/playground。权威检查点已另行接入，本脚本仍独立可用。",
       "status": "inventoried",

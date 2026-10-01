@@ -534,6 +534,13 @@ public static class VoxelWorldFactory
     public static VoxelWorld Create(VoxelCatalogSnapshot catalog, VoxelWorldIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(catalog);
+        if (identity.GeneratorVersion == BlankWorldSource.GeneratorVersion)
+        {
+            if (!BlankWorldSource.TryIdentity(identity.Bounds.SizeX, identity.Bounds.SizeY, identity.Bounds.SizeZ, identity.Seed, out var supported) ||
+                identity != supported)
+                throw new InvalidOperationException("Unsupported blank world identity.");
+            return new VoxelWorld(identity);
+        }
         if (!catalog.TryGet(DevelopmentDefinitionId, out var definition))
             throw new InvalidOperationException("The development world requires core:ferrous-ore.");
 

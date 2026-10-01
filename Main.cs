@@ -171,6 +171,7 @@ public partial class Main : Node
         string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
         string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
         string.Equals(System.Environment.GetEnvironmentVariable(PlaygroundScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
+        BlankWorldSmoke.Requested() ||
         !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(PlaygroundScene.CaptureEnvironmentVariable));
 
     public static string ReadRequestedPlaygroundConfiguration() =>
