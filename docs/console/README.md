@@ -66,7 +66,7 @@
 
 ## 使用前提与通用参数
 
-运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单的固定配置按钮按具名固定配置建立世界编辑器会话（见下文 [世界编辑器](#世界编辑器具名固定配置)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
+运行当前构建，从主菜单选择“进入切片 1 体素场景”、“进入切片 2 体素场景”、“进入切片 3 静置车辆场景”或“进入切片 4 正式直轨场景”。未进入或已经离开体素场景时，所有 `voxel` 命令都会提示 `Enter the voxel development scene before using voxel commands.`，所有 `composite` 命令都会提示 `Enter the voxel development scene before using composite commands.`，所有 `rail` 命令都会提示 `Enter the voxel development scene before using rail commands.`。场景、控制台和测试共用同一世界会话与正式命令，没有单独的演示写入入口。主菜单唯一的“世界编辑器”入口先进入存档工作区，新建空白世界或打开已有存档后才建立世界编辑器会话（见下文 [世界编辑器](#世界编辑器存档工作区与自动测试)）；进入后同样可用全部 `voxel` / `composite` / `rail` 命令。
 
 四个切片都是有限测试配置，不是产品尺寸限制。Chunk 只作空间分区，不改变占用、耐久或朝向规则。切片 3 车辆体素不属于世界占用。切片 4 轨道占格是世界体素 `core:rail`；显示由 `TrackRenderer` 生成，不走普通立方体面。
 
@@ -276,9 +276,13 @@ voxel save After Railway
 
 空世界可以保存。施工成功后应看到 2 个轨段、1 条明确连接、257 根轨枕，以及边缘格与左右钢轨占格。`rail assemble` 后 `rail query assembly` 应看到活动车头、前接触点 80 与 Operational；`composite query` 列出 `core:dev-locomotive` 与 `core:dev-carriage`。`rail start` 后再 `rail step 300`，前接触应为 96 / 87、速度 4。用命令返回的车头身份对后车钩 `(7,1,1)` 施加 100 点伤害后，应看到两个编组，瞬间前接触仍为 96 / 87、速度各 4；再 `rail step 30` 后前车 98 / 4，后车 88.875 / 3.5。无参 `rail start` 此时为 `UnknownAssembly`；对后车 `rail start assembly <id>` 为 `MissingPropulsion`。`rail start 0`、`rail stop 101`、`rail start 101` 再一次性 `rail step 102`，与先 `rail step 101`、到步再 `rail start 101`、然后 `rail step 1` 得到同一状态 102：运行中、前接触 82.833888888888893、速度约 0.0333，事务计数相同。仅 `rail start 0` 与 `rail stop 101` 再 `rail step 102` 时，无论一帧推进 1 步还是 2 步，前接触均为 82.833611111111111、速度 0；`rail query motion` 在到期前列出 `pending stop 101 assembly <id> edit <n>`，以及各编组的 `assembly <id> speed … running … heading … halt …`。第 300 步后再伤害 `(110,1,15)` 100，第一段缺失 `x=110..111`；继续步进后车头前接触停在 `x=110` 入侧边界、速度 0、`halt forward-gap`，任何必要接触不得进入缺口，派生图在 `rebuild` 前为 stale 且不授权跨越。未修轨时 `rail start` 为 `DisconnectedPath`，零速与 `halt forward-gap` 保持。第 300 步伤害接触之间的 `(93,1,15)` 不立即冻结；由最先到达 `x=93` 的后方接触限位，抵达当步零速。拆分后再 `rail step 30` 伤害 `(88,1,15)` 100，仅后车立即零速并 `halt support-lost`，前车独立继续。修复只恢复可启动条件；有动力须再 `rail start` 从零加速，无动力后车仍是 `MissingPropulsion`。全毁第一段现存占格后，原轨段身份与定位几何保留、通行区间为空、`halt support-lost`；另建平行线不会接替旧引用，修原身份后才可启动。`voxel save After Railway` 应返回 `Saved` 并写出格式 5；退出进程后再 `voxel load` 同一 UUID，缺口停车、支撑失效与全毁引用都保持原权威状态且不自动解除停车。删除被引用轨段几何的坏档整次 `InvalidDelta`，当前会话与旧有效文件保留。开发停车、线路末端停车或滑行归零恢复后为零速；有动力编组须再执行 `rail start`。Host 显示累积余量不写入存档。
 
-### 世界编辑器（具名固定配置）
+<a id="世界编辑器具名固定配置"></a>
 
-主菜单每个固定配置按钮对应一份具名固定配置（`Domain/WorldEditor/WorldEditorConfiguration.cs`）：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。HUD 显示配置 ID / 版本 / 来源类型、基底指纹前缀、当前步、暂停状态、是否对齐保存点，以及编组运动。按钮 “运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存 / 重置 / 切换到另一配置 / 读取存档” 与 [`voxel reset`](voxel-reset.md)、[`voxel use`](voxel-use.md)、[`voxel load`](voxel-load.md) 走同一正式会话。有未保存变化时，重置、切换和读取会先要求保存后继续、放弃或取消。`Esc` 与 `quit` 不是切换。
+### 世界编辑器（存档工作区与自动测试）
+
+主菜单唯一的“世界编辑器”入口先显示存档工作区，不自动建立测试世界或恢复上次存档。工作区按名称、最近保存时间、版本与依赖信息列出本地存档；新建空白世界时选择范围与种子，或从列表打开已有存档，两者进入同一个默认暂停的编辑环境。HUD 显示当前存档名称或未保存状态，以及来源、基底指纹前缀、当前步、暂停状态、是否对齐保存点和编组运动。“运行 / 暂停 / 单步 / 推进 N 步 / 启动列车 / 停车 / 保存”使用同一正式会话；“返回存档工作区”在有未保存变化时要求保存后继续、放弃或取消，保存失败或取消保留当前世界。
+
+具名固定配置（`Domain/WorldEditor/WorldEditorConfiguration.cs`）用于自动测试：`straight-rail-train`（切片 4 基底 + 正式直轨 + 一车头一车厢）和 `straight-rail-empty`（同一直轨，无车辆）。配置只声明初始世界，由正式施工与编组命令建立；建立后全局时钟默认暂停，速度、运行开关与待执行命令不被清零。“重置 / 切换到另一配置 / 读取存档”三个按钮仅在固定配置自动测试中显示，分别与 [`voxel reset`](voxel-reset.md)、[`voxel use`](voxel-use.md)、[`voxel load`](voxel-load.md) 走同一正式会话。有未保存变化时，这些命令仍要求保存后继续、放弃或取消。`Esc` 与 `quit` 不是切换。下列控制台示例使用有车固定配置自动测试会话。
 
 ```text
 loglevel info
