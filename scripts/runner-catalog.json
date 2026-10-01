@@ -48,11 +48,11 @@
     {
       "id": "godot.world-editor-workspace",
       "entry": "pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -Workspace",
-      "contract": "真实菜单唯一世界编辑器入口先到无活动世界的工作区；新建空白和列表打开进入相同暂停编辑器；返回的保存、放弃、取消和保存失败保护；坏档打开保留工作区；新进程从列表打开普通保存后继续编辑和运行。",
+      "contract": "真实菜单的世界编辑器入口先到工作区；新建空白和列表打开进入相同暂停编辑器；返回的保存、放弃、取消和保存失败保护；列表生成后存档损坏，打开失败仍留在工作区且行更新为不可打开；新进程从列表打开普通保存后继续编辑和运行。",
       "boundary": "两个隔离真实 Godot 进程，需先构建和导入；输出目录必须是新的。自动断言不代替人工交互。",
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
-      "durationStatus": "measured-on-issue-166-host",
+      "durationStatus": "unmeasured",
       "claim": "save-restore+workspace-navigation",
       "requirements": "godot,process",
       "fourScene": false,

@@ -78,7 +78,10 @@ public partial class WorldEditorWorkspaceScene : Control
     {
         var result = _workspace.TryOpen(id, out var candidate);
         if (candidate is null)
+        {
+            RefreshSaves();
             _result.Text = $"无法打开：{Describe(result)}";
+        }
         else
             Enter(candidate);
         return result;
@@ -91,7 +94,7 @@ public partial class WorldEditorWorkspaceScene : Control
             _result.Text = $"无法进入世界编辑器：{error}。";
     }
 
-    private void RefreshSaves()
+    internal void RefreshSaves()
     {
         foreach (var child in _saves.GetChildren())
         {

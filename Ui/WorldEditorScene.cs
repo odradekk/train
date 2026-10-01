@@ -319,7 +319,7 @@ public partial class WorldEditorScene : Node3D
         persistence.AddChild(_saveName);
         AddButton(persistence, "save", "保存", () => SaveWorld());
         AddButton(persistence, "workspace", "返回存档工作区", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.ReturnToWorkspace, null)));
-        if (Main.IsWorldEditorAutomationEnabled() && !WorldEditorWorkspaceSmoke.Requested())
+        if (Main.IsFixedWorldEditorAutomationEnabled())
         {
             AddButton(persistence, "reset_world", "重置", () => BeginWorldChange(new WorldChangeRequest(WorldChangeKind.Reset, null)));
             AddButton(persistence, "switch_world", "切换到另一配置", () => BeginWorldChange(new WorldChangeRequest(

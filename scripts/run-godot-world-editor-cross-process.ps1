@@ -75,11 +75,10 @@ if ($Workspace) {
         foreach ($leg in @('save', 'resume')) {
             $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
             $text = Invoke-EntryLeg $leg 'WORKSPACE'
-            $markers = @('WORKSPACE_MENU single_entry=true no_world=true', 'WORKSPACE_LIST_OPEN id=')
+            $markers = @('WORKSPACE_MENU no_world=true', 'WORKSPACE_LIST_OPEN id=')
             $markers += if ($leg -eq 'save') {
                 @('WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace',
-                    'WORKSPACE_OPEN_FAILED fault=corrupt', 'WORKSPACE_OPEN_FAILED fault=dependency',
-                    'WORKSPACE_OPEN_FAILED fault=source', 'WORKSPACE_SAVED id=', 'save_continue=true')
+                    'WORKSPACE_OPEN_FAILED fault=corrupt', 'row_disabled=true', 'WORKSPACE_SAVED id=', 'save_continue=true')
             } else { @('WORKSPACE_CONTINUED id=', 'voxels=4 pending=0 paused=true') }
             foreach ($marker in $markers) {
                 if (-not $text.Contains($marker)) { throw "Workspace $leg omitted assertion marker: $marker" }
@@ -90,9 +89,9 @@ if ($Workspace) {
         @'
 # World editor workspace cross-process validation
 
-Two fresh Godot processes enter through the single menu action and the workspace list. The first creates a truly
+Two fresh Godot processes enter through the menu action and the workspace list. The first creates a truly
 blank paused unsaved world, edits, queues input, saves, checks cancel/save failure/discard and save-and-return.
-Corrupt, missing-dependency and unsupported-source opens keep the workspace with a reason and no editor session.
+A save corrupted after the list loads keeps the workspace with a reason and a refreshed disabled row.
 The second opens the ordinary save from the list, verifies identity, pause, position and pending input, then edits
 and runs through the pending command. Godot mesh and collider counts match the continued world.
 

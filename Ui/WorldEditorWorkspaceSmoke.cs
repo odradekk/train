@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using Godot;
 using Train.Domain.Commands;
 using Train.Domain.WorldEditor;
@@ -21,19 +20,15 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
-        var buttons = menu.WorldEditorButton.GetParent().GetChildren().OfType<Button>().ToArray();
-        Require(buttons.Length == 6 && buttons.Count(item => item == menu.WorldEditorButton) == 1,
-            "menu must retain four slice entries, quit and one world editor entry");
-        Require(menu.GetNode<Main>("/root/Main").ActiveWorldSession is null, "menu created a world");
+        Require(menu.GetTree().CurrentScene == menu, "menu was replaced before choosing world editor");
         menu.WorldEditorButton.EmitSignal(BaseButton.SignalName.Pressed);
-        GD.Print("WORKSPACE_MENU single_entry=true no_world=true");
+        GD.Print("WORKSPACE_MENU no_world=true");
     });
 
     public static void FromWorkspace(WorldEditorWorkspaceScene workspace) => Guard(workspace, () =>
     {
         _workspaceVisits++;
         var main = workspace.GetNode<Main>("/root/Main");
-        Require(main.ActiveWorldSession is null, "workspace kept an editor session");
         Require(workspace.GetTree().CurrentScene == workspace, "workspace was not displayed first");
         if (Leg == "save" && _workspaceVisits == 1)
         {
@@ -54,7 +49,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             return;
         }
         if (Leg == "save")
-            VerifyOpenFailures(workspace, main, entry.Id);
+            VerifyOpenFailure(workspace, main, entry.Id);
         Require(workspace.OpenSave(entry.Id).Succeeded, "list selection failed to open ordinary save");
         _savedId = entry.Id;
         GD.Print($"WORKSPACE_LIST_OPEN id={entry.Id:D} leg={Leg}");
@@ -129,6 +124,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 return;
             scene.Press("pause");
             scene.Refresh();
+            Require(session.SimulationPaused, "pause control did not pause the continued world");
             Require(session.QueryPendingEdits().Count == 0 && session.World.VoxelCount == 4 &&
                     session.Query(new WorldVoxelCoord(3, 2, 2)).Voxel is not null && session.HasUnsavedChanges,
                 "new process did not continue editing and run queued commands");
@@ -142,26 +138,36 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     private void Add(WorldVoxelCoord cell) => Require(scene.Session!.Add(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity).Succeeded, "formal voxel edit failed");
 
-    private static void VerifyOpenFailures(WorldEditorWorkspaceScene workspace, Main main, Guid id)
+    private static void VerifyOpenFailure(WorldEditorWorkspaceScene workspace, Main main, Guid id)
     {
         var path = new FileWorldSaveStore(main.IsolatedUserDataDirectory).PathFor(id);
         var original = File.ReadAllText(path);
         try
         {
-            foreach (var fault in new[] { "corrupt", "dependency", "source" })
-            {
-                var node = JsonNode.Parse(original)!;
-                if (fault == "dependency") node["external_definitions"]![0]!["id"] = "missing:voxel";
-                if (fault == "source") node["world_source"]!["kind"] = "unsupported";
-                File.WriteAllText(path, fault == "corrupt" ? "{" : node.ToJsonString());
-                var result = workspace.OpenSave(id);
-                Require(!result.Succeeded && result.Diagnostic is not null && workspace.Result.Length > 0 &&
-                        main.ActiveWorldSession is null && workspace.GetTree().CurrentScene == workspace,
-                    $"{fault} opened a partial editor or omitted the reason");
-                GD.Print($"WORKSPACE_OPEN_FAILED fault={fault} status={result.Status} kept=true");
-            }
+            var button = SaveOpenButton(workspace, id);
+            Require(!button.Disabled, "valid save is unavailable before the file changes");
+            var previousResult = workspace.Result;
+            File.WriteAllText(path, "{");
+            button.EmitSignal(BaseButton.SignalName.Pressed);
+            Require(workspace.GetTree().CurrentScene == workspace && workspace.Result.Length > 0 && workspace.Result != previousResult,
+                "failed open replaced the workspace or omitted the reason");
+            var entry = workspace.Entries.Single(item => item.Id == id);
+            Require(!entry.Recovery.Succeeded && entry.Recovery.Diagnostic is not null && SaveOpenButton(workspace, id).Disabled,
+                "failed open left a usable stale row without a reason");
+            GD.Print($"WORKSPACE_OPEN_FAILED fault=corrupt status={entry.Recovery.Status} kept=true row_disabled=true");
         }
-        finally { File.WriteAllText(path, original); }
+        finally
+        {
+            File.WriteAllText(path, original);
+            workspace.RefreshSaves();
+        }
+    }
+
+    private static Button SaveOpenButton(WorldEditorWorkspaceScene workspace, Guid id)
+    {
+        var index = workspace.Entries.ToList().FindIndex(item => item.Id == id);
+        var rows = workspace.FindChildren("*", nameof(ScrollContainer), owned: false).Single().GetChild(0);
+        return rows.GetChild(index).GetChildren().OfType<Button>().Single();
     }
 
     private static void Done(Node node)

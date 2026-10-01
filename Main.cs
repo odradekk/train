@@ -13,7 +13,6 @@ public partial class Main : Node
     public TrainLogger? Logger => _logger;
     public ContentReloader? Reloader => _reloader;
     public bool ConsoleOpen => _console?.IsOpen == true;
-    internal VoxelDevelopmentSession? ActiveWorldSession { get; private set; }
     public string IsolatedUserDataDirectory => _modsSmokeUserData ?? OS.GetUserDataDir();
     public string IsolatedBuiltInResourcesDirectory =>
         _isolatedBuiltIn ?? throw new InvalidOperationException("Isolated built-in content is not active.");
@@ -171,12 +170,15 @@ public partial class Main : Node
         string.Equals(System.Environment.GetEnvironmentVariable("TRAIN_VOXEL_OBSERVE_RESUME"), "1", StringComparison.Ordinal);
 
     public static bool IsWorldEditorAutomationEnabled() =>
-        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
-        BlankWorldSmoke.Requested() ||
-        WorldEditorWorkspaceSmoke.Requested() ||
-        !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(WorldEditorScene.CaptureEnvironmentVariable));
+        WorldEditorWorkspaceSmoke.Requested() || IsFixedWorldEditorAutomationEnabled();
+
+    internal static bool IsFixedWorldEditorAutomationEnabled() =>
+        !WorldEditorWorkspaceSmoke.Requested() && (
+            string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.SmokeEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.AuthorityEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            string.Equals(System.Environment.GetEnvironmentVariable(WorldEditorScene.CrossProcessEnvironmentVariable), "1", StringComparison.Ordinal) ||
+            BlankWorldSmoke.Requested() ||
+            !string.IsNullOrWhiteSpace(System.Environment.GetEnvironmentVariable(WorldEditorScene.CaptureEnvironmentVariable)));
 
     public static string ReadRequestedWorldEditorConfiguration() =>
         System.Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_CONFIG") is { Length: > 0 } id
@@ -275,7 +277,6 @@ public partial class Main : Node
 
     public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)
     {
-        ActiveWorldSession = session;
         _reloader?.SetWorldReloadAdapter(session is null ? null : VoxelWorldReloadAdapter.For(session));
         _console?.SetVoxelDevelopmentSession(session);
     }

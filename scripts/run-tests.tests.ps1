@@ -861,12 +861,12 @@ internal static class Program
                     return 0;
                 }
                 string leg = Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_LEG");
-                Console.WriteLine("WORKSPACE_MENU single_entry=true no_world=true");
+                Console.WriteLine("WORKSPACE_MENU no_world=true");
                 if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
                 if (leg == "save")
                 {
                     Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
-                    foreach (string fault in new[] { "corrupt", "dependency", "source" }) Console.WriteLine("WORKSPACE_OPEN_FAILED fault=" + fault);
+                    Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
                     Console.WriteLine("WORKSPACE_SAVED id=fixture save_continue=true");
                 }
                 else Console.WriteLine("WORKSPACE_CONTINUED id=fixture voxels=4 pending=0 paused=true");

@@ -30,7 +30,7 @@ public partial class StartMenu : Control
         }
         else if (WorldEditorWorkspaceSmoke.Requested())
             Callable.From(() => WorldEditorWorkspaceSmoke.FromMenu(this)).CallDeferred();
-        else if (Main.IsWorldEditorAutomationEnabled())
+        else if (Main.IsFixedWorldEditorAutomationEnabled())
         {
             var id = Main.ReadRequestedWorldEditorConfiguration();
             GD.Print($"WORLD_EDITOR_SMOKE_MENU_ENTER config={id}");
