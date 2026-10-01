@@ -861,7 +861,7 @@ internal static class Program
                     return 0;
                 }
                 string leg = Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_LEG");
-                Console.WriteLine("WORKSPACE_MENU no_world=true");
+                Console.WriteLine("WORKSPACE_MENU ready=true");
                 if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
                 if (leg == "save")
                 {

@@ -75,7 +75,7 @@ if ($Workspace) {
         foreach ($leg in @('save', 'resume')) {
             $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
             $text = Invoke-EntryLeg $leg 'WORKSPACE'
-            $markers = @('WORKSPACE_MENU no_world=true', 'WORKSPACE_LIST_OPEN id=')
+            $markers = @('WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=')
             $markers += if ($leg -eq 'save') {
                 @('WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace',
                     'WORKSPACE_OPEN_FAILED fault=corrupt', 'row_disabled=true', 'WORKSPACE_SAVED id=', 'save_continue=true')

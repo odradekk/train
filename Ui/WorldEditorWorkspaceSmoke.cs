@@ -22,7 +22,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     {
         Require(menu.GetTree().CurrentScene == menu, "menu was replaced before choosing world editor");
         menu.WorldEditorButton.EmitSignal(BaseButton.SignalName.Pressed);
-        GD.Print("WORKSPACE_MENU no_world=true");
+        GD.Print("WORKSPACE_MENU ready=true");
     });
 
     public static void FromWorkspace(WorldEditorWorkspaceScene workspace) => Guard(workspace, () =>
@@ -165,9 +165,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     private static Button SaveOpenButton(WorldEditorWorkspaceScene workspace, Guid id)
     {
-        var index = workspace.Entries.ToList().FindIndex(item => item.Id == id);
-        var rows = workspace.FindChildren("*", nameof(ScrollContainer), owned: false).Single().GetChild(0);
-        return rows.GetChild(index).GetChildren().OfType<Button>().Single();
+        var label = workspace.FindChildren("*", nameof(Label), owned: false).OfType<Label>()
+            .Single(item => item.Text.Contains(id.ToString("D"), StringComparison.Ordinal));
+        var row = label.GetParent();
+        return row.GetChildren().OfType<Button>().Single();
     }
 
     private static void Done(Node node)
