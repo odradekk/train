@@ -68,7 +68,7 @@ internal sealed class BlankWorldSmoke
                 Require(Session.Rails.Segments.Count > 0, "fixed train has no segment to select");
                 Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == WorldEditorObservationStatus.Selected,
                     "fixed segment selection failed");
-                Submit("voxel new 33 17 19 42 discard");
+                SubmitAndFinish("voxel new 33 17 19 42 discard");
                 AssertBlankBoundary();
                 Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == WorldEditorCameraMode.Free,
                     "new blank world kept an observation reference");
@@ -76,10 +76,10 @@ internal sealed class BlankWorldSmoke
                 _phase++;
                 break;
             case 1:
-                Submit("voxel new 0 17 19 42 discard");
-                Submit("voxel new 321 17 19 42 discard");
-                Submit("voxel new 33 0 19 42 discard");
-                Submit("voxel new 33 17 33 42 discard");
+                SubmitAndFinish("voxel new 0 17 19 42 discard");
+                SubmitAndFinish("voxel new 321 17 19 42 discard");
+                SubmitAndFinish("voxel new 33 0 19 42 discard");
+                SubmitAndFinish("voxel new 33 17 33 42 discard");
                 AssertBlankBoundary();
                 GD.Print("BLANK_WORLD_INVALID_NEW_KEPT count=4");
                 Submit("voxel add 17 1 1 core:ferrous-ore px_py");
@@ -118,7 +118,7 @@ internal sealed class BlankWorldSmoke
                 Require(Session.Rails.Segments.Count > 0, "fixed source has no segment");
                 Require(Observer.Select(ObservedObject.Segment(Session.Rails.Segments[0].Id)) == WorldEditorObservationStatus.Selected,
                     "fixed segment selection failed");
-                Submit($"voxel load {_savedBlank:D} discard");
+                SubmitAndFinish($"voxel load {_savedBlank:D} discard");
                 AssertRestoredBlank();
                 Require(Observer.Selection is null && Observer.Target is null && Observer.Mode == WorldEditorCameraMode.Free,
                     "cross-source load kept the fixed-world observation reference");
@@ -145,9 +145,9 @@ internal sealed class BlankWorldSmoke
                 _phase++;
                 break;
             case 2:
-                Submit("voxel use straight-rail-empty discard");
+                SubmitAndFinish("voxel use straight-rail-empty discard");
                 Require(Session.WorldSource?.Kind == WorldSource.FixedConfigurationKind, "blank to fixed switch failed");
-                Submit("voxel new 33 17 19 42 discard");
+                SubmitAndFinish("voxel new 33 17 19 42 discard");
                 AssertBlankBoundary();
                 GD.Print("BLANK_WORLD_TRANSITION blank-fixed-blank=true");
 
@@ -166,11 +166,11 @@ internal sealed class BlankWorldSmoke
                 {
                     predecessor.Detach();
                 }
-                Submit($"voxel load {_legacySave:D} discard");
+                SubmitAndFinish($"voxel load {_legacySave:D} discard");
                 Require(Session.WorldSource is null && Session.Identity == VoxelWorldIdentity.Slice2,
                     "slice 2 predecessor load acquired a source or changed identity");
-                Submit("voxel new 33 17 19 42 discard");
-                Submit($"voxel load {_savedBlank:D} discard");
+                SubmitAndFinish("voxel new 33 17 19 42 discard");
+                SubmitAndFinish($"voxel load {_savedBlank:D} discard");
                 AssertRestoredBlank();
                 GD.Print($"BLANK_WORLD_TRANSITION blank-legacy-blank=true legacy={_legacySave:D}");
                 _phase++;
@@ -199,7 +199,7 @@ internal sealed class BlankWorldSmoke
                     var root = JsonNode.Parse(original) ?? throw new InvalidOperationException("blank save JSON could not be parsed");
                     root["generator_version"] = "invalid-blank-smoke-generator";
                     File.WriteAllText(path, root.ToJsonString(), Encoding.UTF8);
-                    Submit($"voxel load {_savedBlank:D} discard");
+                    SubmitAndFinish($"voxel load {_savedBlank:D} discard");
                     Require(WorldSaveAuthority.Fingerprint(Session) == before && Session.SimulationStep == step,
                         "bad blank save replaced or advanced the current world");
                     Require(Session.SimulationPaused == paused && Observer.Selection == selected,
@@ -247,6 +247,24 @@ internal sealed class BlankWorldSmoke
     {
         Main.GetChildren().OfType<GameConsole>().Single().SubmitLine(line);
         GD.Print($"BLANK_WORLD_CONSOLE {line}");
+    }
+
+    private void SubmitAndFinish(string line)
+    {
+        Submit(line);
+        FinishChange();
+    }
+
+    private void FinishChange()
+    {
+        while (Session.IsChangingWorld)
+        {
+            var result = Session.AdvanceWorldChange();
+            if (result.Status == WorldChangeStatus.ChoiceRequired)
+                throw new InvalidOperationException("world change still requires a choice");
+            if (result.Status == WorldChangeStatus.Switching)
+                Thread.Yield();
+        }
     }
 
     private void Finish()

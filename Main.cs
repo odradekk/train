@@ -30,6 +30,8 @@ public partial class Main : Node
 
     private TrainLogger? _logger;
     private ContentReloader? _reloader;
+    private VoxelDevelopmentSession? _worldSession;
+    private (Func<Error> Complete, Action? Cancel)? _sceneDeparture;
     private GameConsole? _console;
     private bool _smoke;
     private bool _contentSmoke;
@@ -117,6 +119,11 @@ public partial class Main : Node
 
     internal Error CompleteWorldDeparture(WorldChangeKind kind)
     {
+        if (kind == WorldChangeKind.LeaveForScene && _sceneDeparture is { } departure)
+        {
+            _sceneDeparture = null;
+            return departure.Complete();
+        }
         if (kind == WorldChangeKind.Quit)
         {
             GetTree().Quit();
@@ -124,6 +131,31 @@ public partial class Main : Node
         }
         return GetTree().ChangeSceneToFile(kind == WorldChangeKind.ReturnToWorkspace
             ? "res://Ui/WorldEditorWorkspaceScene.tscn" : "res://Ui/StartMenu.tscn");
+    }
+
+    internal void CancelSceneDeparture()
+    {
+        var departure = _sceneDeparture;
+        _sceneDeparture = null;
+        departure?.Cancel?.Invoke();
+    }
+
+    private bool ProtectSceneDeparture(Func<Error> complete, Action? cancel = null)
+    {
+        if (GetTree().CurrentScene is not (WorldEditorScene or VoxelDeveloperScene))
+            return false;
+        if (_sceneDeparture is not null || _worldSession?.IsChangingWorld == true)
+        {
+            cancel?.Invoke();
+            return true;
+        }
+        _sceneDeparture = (complete, cancel);
+        var request = new WorldChangeRequest(WorldChangeKind.LeaveForScene, null);
+        if (GetTree().CurrentScene is WorldEditorScene editor)
+            editor.RequestWorldChange(request);
+        else
+            ((VoxelDeveloperScene)GetTree().CurrentScene).RequestDeparture(request);
+        return true;
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -139,6 +171,8 @@ public partial class Main : Node
 
     public override void _Process(double delta)
     {
+        if (_worldSession?.IsChangingWorld == true)
+            _worldSession.AdvanceWorldChange();
         var drained = _logger?.DrainGodotQueue() ?? 0;
         if (_smoke && drained > 0)
             _smokeDrainedFromProcess = true;
@@ -162,6 +196,7 @@ public partial class Main : Node
 
     public override void _ExitTree()
     {
+        CancelSceneDeparture();
         _editorCandidate?.Detach();
         _editorCandidate = null;
         TryDeleteSmokeVoxels();
@@ -239,7 +274,14 @@ public partial class Main : Node
 
     public Error EnterWorldEditor(VoxelDevelopmentSession candidate)
     {
-        if (_editorCandidate is not null || GetTree().CurrentScene is WorldEditorScene)
+        if (ProtectSceneDeparture(() => EnterWorldEditorCandidate(candidate), candidate.Detach))
+            return Error.Ok;
+        return EnterWorldEditorCandidate(candidate);
+    }
+
+    private Error EnterWorldEditorCandidate(VoxelDevelopmentSession candidate)
+    {
+        if (_editorCandidate is not null)
         {
             candidate.Detach();
             return Error.Busy;
@@ -274,8 +316,14 @@ public partial class Main : Node
             return;
         }
 
-        WorldEditorConfigurationId = configurationId;
-        var error = GetTree().ChangeSceneToFile("res://Ui/WorldEditorScene.tscn");
+        var status = WorldEditorSession.TryEstablish(configurationId, _reloader.Catalog, _reloader.Composites,
+            new FileWorldSaveStore(IsolatedUserDataDirectory), out var candidate);
+        if (status != WorldEditorEstablishStatus.Established || candidate is null)
+        {
+            _logger?.Error("world-editor", "world_editor_establish_failed", $"Failed to establish world editor configuration: {status}.");
+            return;
+        }
+        var error = EnterWorldEditor(candidate);
         if (error != Error.Ok)
             _logger?.Error("world-editor", "world_editor_scene_failed", $"Failed to open world editor scene: {error}.");
     }
@@ -296,8 +344,14 @@ public partial class Main : Node
             return;
         }
 
-        DevelopmentIdentity = identity;
-        var error = GetTree().ChangeSceneToFile("res://Ui/VoxelDeveloperScene.tscn");
+        Error Enter()
+        {
+            DevelopmentIdentity = identity;
+            return GetTree().ChangeSceneToFile("res://Ui/VoxelDeveloperScene.tscn");
+        }
+        if (ProtectSceneDeparture(Enter))
+            return;
+        var error = Enter();
         if (error != Error.Ok)
             _logger?.Error("voxel", "development_scene_failed", $"Failed to open voxel development scene: {error}.");
     }
@@ -328,6 +382,7 @@ public partial class Main : Node
 
     public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)
     {
+        _worldSession = session;
         _reloader?.SetWorldReloadAdapter(session is null ? null : VoxelWorldReloadAdapter.For(session));
         _console?.SetVoxelDevelopmentSession(session);
     }

@@ -760,8 +760,6 @@ public partial class VoxelDeveloperScene : Node3D
 
     public override void _Process(double delta)
     {
-        if (_session.IsChangingWorld)
-            _session.AdvanceWorldChange();
         if (_slice4Baseline && _baselineEnabled)
             StampSlice4BaselineFrame();
         StampRefitMetricFrame();
@@ -972,7 +970,7 @@ public partial class VoxelDeveloperScene : Node3D
 
     private void PresentDeparture(WorldChangeRequest request, WorldChangeResult result)
     {
-        if (request.Kind is not (WorldChangeKind.Quit or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.ReturnToWorkspace))
+        if (request.Kind is not (WorldChangeKind.Quit or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.ReturnToWorkspace or WorldChangeKind.LeaveForScene))
             return;
         _departurePending = result.Status is WorldChangeStatus.ChoiceRequired or WorldChangeStatus.Switching;
         if (result.Status == WorldChangeStatus.ChoiceRequired)
@@ -985,7 +983,10 @@ public partial class VoxelDeveloperScene : Node3D
             if (result.Status == WorldChangeStatus.Completed)
                 GetNode<Main>("/root/Main").CompleteWorldDeparture(request.Kind);
             else
+            {
+                GetNode<Main>("/root/Main").CancelSceneDeparture();
                 _result.Text = $"最近操作：离开 {result.Status} {result.SaveStatus}，当前世界保留。";
+            }
         }
     }
 
@@ -1359,6 +1360,7 @@ public partial class VoxelDeveloperScene : Node3D
         {
             _session.Changed -= MarkDirty;
             _session.WorldReplaced -= DismissStaleWorldChange;
+            _session.WorldChangeChanged -= PresentDeparture;
             _session.Detach();
         }
 

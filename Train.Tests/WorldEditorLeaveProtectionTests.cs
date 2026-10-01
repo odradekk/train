@@ -22,6 +22,7 @@ public sealed class WorldEditorLeaveProtectionTests
     [DataRow(WorldChangeKind.ReturnToWorkspace)]
     [DataRow(WorldChangeKind.ReturnToMainMenu)]
     [DataRow(WorldChangeKind.Quit)]
+    [DataRow(WorldChangeKind.LeaveForScene)]
     [DataRow(WorldChangeKind.ReloadSaved)]
     public void Every_leave_kind_requires_a_choice_for_unsaved_worlds(WorldChangeKind kind)
     {
@@ -123,7 +124,7 @@ public sealed class WorldEditorLeaveProtectionTests
         Assert.IsNotNull(recoveryId);
         Assert.IsTrue(File.Exists(harness.Store.PathFor(recoveryId.Value)));
 
-        var failed = session.AdvanceWorldChange();
+        var failed = AdvanceUntilSettled(session);
         Assert.AreEqual(WorldChangeStatus.CandidateFailed, failed.Status);
         Assert.AreSame(world, session.World);
         Assert.AreEqual(step, session.SimulationStep);
@@ -176,7 +177,7 @@ public sealed class WorldEditorLeaveProtectionTests
         Assert.IsTrue(File.Exists(harness.Store.PathFor(original)));
         Assert.IsTrue(File.Exists(harness.Store.PathFor(copy.Value)));
 
-        Assert.AreEqual(WorldChangeStatus.Completed, session.AdvanceWorldChange().Status);
+        Assert.AreEqual(WorldChangeStatus.Completed, AdvanceUntilSettled(session).Status);
         Assert.AreEqual(original, session.SaveId);
         Assert.IsFalse(session.Query(FirstEdit).IsOccupied);
         Assert.IsTrue(session.SimulationPaused);
@@ -204,12 +205,101 @@ public sealed class WorldEditorLeaveProtectionTests
         store.FailingRead = original;
         store.BeforeRead = () => AssertWorldChangeLocked(session);
 
-        Assert.AreEqual(WorldChangeStatus.CandidateFailed, session.AdvanceWorldChange().Status);
+        Assert.AreEqual(WorldChangeStatus.CandidateFailed, AdvanceUntilSettled(session).Status);
         Assert.AreSame(world, session.World);
         Assert.AreEqual(copy, session.SaveId);
         Assert.IsTrue(session.Query(FirstEdit).IsOccupied);
         Assert.IsTrue(File.Exists(harness.Store.PathFor(original)));
         Assert.IsTrue(File.Exists(harness.Store.PathFor(copy)));
+    }
+
+    [TestMethod]
+    public void Reload_candidate_can_be_cancelled_while_its_read_is_blocked()
+    {
+        using var harness = WorldEditorHarness.Content();
+        using var store = new BlockingReadStore(harness.Store);
+        Assert.AreEqual(WorldEditorEstablishStatus.Established,
+            WorldEditorSession.TryEstablish(WorldEditorConfigurations.StraightRailTrainId,
+                harness.Catalog, harness.Composites, store, out var session));
+        harness.Attach(session!);
+        var original = session!.Save("Original").SaveId!.Value;
+        Assert.IsTrue(session.SubmitEdit(new VoxelAddEdit(FirstEdit,
+            WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Accepted);
+        var second = session.SaveAs("Second").SaveId!.Value;
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: original)).Status);
+        Assert.IsTrue(session.SubmitEdit(new VoxelAddEdit(LaterEdit,
+            WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Accepted);
+        var world = session.World;
+        var paused = session.SimulationPaused;
+        store.BlockedId = original;
+        var readsBeforeCancellation = store.ReadCount;
+
+        Assert.AreEqual(WorldChangeStatus.Switching,
+            session.BeginWorldChange(new WorldChangeRequest(
+                WorldChangeKind.ReloadSaved, WorldChangeChoice.Discard)).Status);
+        Assert.AreEqual(WorldChangeStatus.Switching, session.AdvanceWorldChange().Status);
+        Assert.IsTrue(store.ReadStarted.Wait(TimeSpan.FromSeconds(5)), "The candidate read did not start.");
+        Assert.AreEqual(readsBeforeCancellation + 1, store.ReadCount);
+
+        Assert.AreEqual(WorldChangeStatus.Cancelled,
+            session.ChooseWorldChange(WorldChangeChoice.Cancel).Status);
+        Assert.IsFalse(session.IsChangingWorld);
+        Assert.AreSame(world, session.World);
+        Assert.AreEqual(paused, session.SimulationPaused);
+        Assert.IsTrue(session.Query(LaterEdit).IsOccupied);
+
+        Assert.AreEqual(WorldChangeStatus.Switching,
+            session.BeginWorldChange(new WorldChangeRequest(
+                WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: second)).Status);
+        for (var attempt = 0; attempt < 8; attempt++)
+            Assert.AreEqual(WorldChangeStatus.Switching, session.AdvanceWorldChange().Status);
+        Assert.AreEqual(readsBeforeCancellation + 1, store.ReadCount,
+            "A second candidate read started before the abandoned read completed.");
+        Assert.AreSame(world, session.World);
+        Assert.IsTrue(session.Query(LaterEdit).IsOccupied);
+
+        store.ReleaseRead.Set();
+        Assert.AreEqual(WorldChangeStatus.Completed,
+            AdvanceUntilSettled(session).Status);
+        Assert.AreEqual(readsBeforeCancellation + 2, store.ReadCount);
+        Assert.IsTrue(session.Query(FirstEdit).IsOccupied);
+        Assert.IsFalse(session.Query(LaterEdit).IsOccupied);
+        Assert.AreEqual(second, session.SaveId);
+    }
+
+    [TestMethod]
+    public void Changed_handler_can_cancel_initial_confirmation_without_publishing_a_stale_request()
+    {
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = harness.Session;
+        Assert.IsTrue(session.SubmitEdit(new VoxelAddEdit(FirstEdit,
+            WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Accepted);
+        var notifications = new List<(WorldChangeRequest? Request, WorldChangeResult Result)>();
+        var cancelled = false;
+        session.WorldChangeChanged += (request, result) => notifications.Add((request, result));
+        session.Changed += CancelOnFirstConfirmation;
+
+        var started = session.BeginWorldChange(
+            new WorldChangeRequest(WorldChangeKind.ReturnToWorkspace, null));
+
+        session.Changed -= CancelOnFirstConfirmation;
+        Assert.AreEqual(WorldChangeStatus.Cancelled, started.Status);
+        Assert.IsFalse(session.IsChangingWorld);
+        Assert.AreEqual(1, notifications.Count);
+        Assert.IsNotNull(notifications[0].Request);
+        Assert.AreEqual(WorldChangeKind.ReturnToWorkspace, notifications[0].Request!.Kind);
+        Assert.AreEqual(WorldChangeStatus.Cancelled, notifications[0].Result.Status);
+        Assert.IsFalse(notifications.Any(item => item.Result.Status == WorldChangeStatus.ChoiceRequired));
+
+        void CancelOnFirstConfirmation()
+        {
+            if (cancelled)
+                return;
+            cancelled = true;
+            Assert.AreEqual(WorldChangeStatus.Cancelled,
+                session.ChooseWorldChange(WorldChangeChoice.Cancel).Status);
+        }
     }
 
     [TestMethod]
@@ -288,6 +378,21 @@ public sealed class WorldEditorLeaveProtectionTests
         return new WorldChangeRequest(WorldChangeKind.NewBlank, null, BlankIdentity: identity);
     }
 
+    private static WorldChangeResult AdvanceUntilSettled(
+        VoxelDevelopmentSession session,
+        WorldChangeRequest? request = null)
+    {
+        var result = request is null ? session.AdvanceWorldChange() : session.BeginWorldChange(request);
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        while (result.Status == WorldChangeStatus.Switching && timeout.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            Thread.Yield();
+            result = session.AdvanceWorldChange();
+        }
+        Assert.AreNotEqual(WorldChangeStatus.Switching, result.Status, "World change did not settle within five seconds.");
+        return result;
+    }
+
     private sealed class ReadFailingStore(FileWorldSaveStore files) : IWorldSaveStore
     {
         public Guid? FailingRead { get; set; }
@@ -318,6 +423,36 @@ public sealed class WorldEditorLeaveProtectionTests
         {
             AfterCapture?.Invoke();
             return files.TryWrite(id, json, out status);
+        }
+    }
+
+    private sealed class BlockingReadStore(FileWorldSaveStore files) : IWorldSaveStore, IDisposable
+    {
+        private int _readCount;
+        public Guid? BlockedId { get; set; }
+        public int ReadCount => Volatile.Read(ref _readCount);
+        public ManualResetEventSlim ReadStarted { get; } = new();
+        public ManualResetEventSlim ReleaseRead { get; } = new();
+
+        public bool TryRead(Guid id, out string json, out WorldSaveStatus status)
+        {
+            Interlocked.Increment(ref _readCount);
+            if (id == BlockedId)
+            {
+                ReadStarted.Set();
+                ReleaseRead.Wait();
+            }
+            return files.TryRead(id, out json, out status);
+        }
+
+        public bool TryWrite(Guid id, string json, out WorldSaveStatus status) =>
+            files.TryWrite(id, json, out status);
+
+        public void Dispose()
+        {
+            ReleaseRead.Set();
+            ReadStarted.Dispose();
+            ReleaseRead.Dispose();
         }
     }
 }

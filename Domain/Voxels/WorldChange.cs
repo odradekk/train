@@ -9,7 +9,8 @@ public enum WorldChangeKind
     ReturnToWorkspace,
     ReturnToMainMenu,
     Quit,
-    ReloadSaved
+    ReloadSaved,
+    LeaveForScene
 }
 
 public enum WorldChangeChoice

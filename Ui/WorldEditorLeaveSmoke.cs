@@ -160,6 +160,8 @@ internal sealed class WorldEditorLeaveSmoke(WorldEditorScene scene)
         _cancelRoutes.Add(("main-menu button", () => scene.Press("menu")));
         _cancelRoutes.Add(("quit request", _main.RequestQuit));
         _cancelRoutes.Add(("window close", () => _main.Notification((int)Node.NotificationWMCloseRequest)));
+        _cancelRoutes.Add(("voxel scene API", () => _main.EnterVoxelDevelopmentScene(VoxelDevelopmentSlice.Slice1)));
+        _cancelRoutes.Add(("candidate editor API", RequestCandidateEditor));
         _cancelRoutes.Add(("console quit", () => _console.SubmitLine("quit")));
         _cancelRoutes.Add(("console new", () => _console.SubmitLine("voxel new 33 17 19 42")));
         _cancelRoutes.Add(("console load", () => _console.SubmitLine($"voxel load {Guid.NewGuid():D}")));
@@ -168,11 +170,17 @@ internal sealed class WorldEditorLeaveSmoke(WorldEditorScene scene)
         _cancelRoutes.Add(("console composite reset", () => _console.SubmitLine("composite reset")));
         _cancelRoutes.Add(("direct reset", () => RequireChoice(scene.RequestWorldChange(
             new WorldChangeRequest(WorldChangeKind.Reset, null)), "direct reset")));
-        _cancelRoutes.Add(("direct configuration switch", () => RequireChoice(scene.RequestWorldChange(
-            new WorldChangeRequest(WorldChangeKind.SwitchConfiguration, null,
-                ConfigurationId: WorldEditorConfigurations.StraightRailEmptyId)), "direct configuration switch")));
+        _cancelRoutes.Add(("configuration editor API", () =>
+            _main.EnterWorldEditor(WorldEditorConfigurations.StraightRailEmptyId)));
         _cancelRoutes.Add(("direct load", () => RequireChoice(scene.RequestWorldChange(
             new WorldChangeRequest(WorldChangeKind.Load, null, SaveId: Guid.NewGuid())), "direct load")));
+    }
+
+    private void RequestCandidateEditor()
+    {
+        var reloader = _main.Reloader ?? throw new InvalidOperationException("content reloader is unavailable");
+        var candidate = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites, Store()).NewBlank(BlankIdentity);
+        _main.EnterWorldEditor(candidate);
     }
 
     private void PrepareRoute(VoxelDevelopmentSession session)

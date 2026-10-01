@@ -121,8 +121,6 @@ public partial class WorldEditorScene : Node3D
             _session.AdvanceSimulation(steps);
 
         ApplyMotionPresentation(delta);
-        if (_session.IsChangingWorld)
-            _session.AdvanceWorldChange();
         _smoke?.Advance();
         _observationSmoke?.Advance();
         _switchSmoke?.Advance();
@@ -545,13 +543,15 @@ public partial class WorldEditorScene : Node3D
             return;
         }
         _worldChangePrompt?.Close();
-        if (result.Status == WorldChangeStatus.Completed && request.Kind is WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.Quit)
+        if (result.Status == WorldChangeStatus.Completed && request.Kind is WorldChangeKind.ReturnToWorkspace or WorldChangeKind.ReturnToMainMenu or WorldChangeKind.Quit or WorldChangeKind.LeaveForScene)
         {
             var error = GetNode<Main>("/root/Main").CompleteWorldDeparture(request.Kind);
             if (error != Error.Ok)
                 _result.Text = $"最近操作：离开失败 {error}，当前世界保留。";
             return;
         }
+        if (request.Kind == WorldChangeKind.LeaveForScene)
+            GetNode<Main>("/root/Main").CancelSceneDeparture();
         _result.Text = result.Status switch
         {
             WorldChangeStatus.Completed => CompletedText(result),
