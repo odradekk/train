@@ -69,31 +69,6 @@ public sealed class WorldEditorSaveAsTests
         finally { reopened?.Detach(); }
     }
 
-    [TestMethod]
-    public void Cancelling_save_as_keeps_the_original_target_and_unsaved_world()
-    {
-        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
-        var session = harness.Session;
-        var original = session.Save("Original").SaveId!.Value;
-        var bytes = File.ReadAllBytes(harness.Store.PathFor(original));
-        Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
-        var fingerprint = WorldSaveAuthority.Fingerprint(session);
-        Assert.AreEqual(WorldChangeStatus.ChoiceRequired,
-            session.TryChangeWorld(new(WorldChangeKind.SaveAs, null)).Status);
-        var cancelled = session.TryChangeWorld(new(WorldChangeKind.SaveAs, WorldChangeChoice.Cancel, SaveDisplayName: "Copy"));
-        Assert.AreEqual(WorldChangeStatus.Cancelled, cancelled.Status);
-        Assert.AreEqual(original, session.SaveId);
-        Assert.AreEqual("Original", session.DisplayName);
-        Assert.IsTrue(session.HasUnsavedChanges);
-        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
-        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(harness.Store.PathFor(original)));
-        var workspace = new WorldEditorWorkspace(harness.Catalog, harness.Composites, harness.Store);
-        Assert.AreEqual(original, workspace.ListSaves().Single().Id);
-        Assert.AreEqual(WorldChangeStatus.Completed,
-            session.TryChangeWorld(new(WorldChangeKind.SaveAs, WorldChangeChoice.SaveThenSwitch, SaveDisplayName: "Copy")).Status);
-        Assert.AreNotEqual(original, session.SaveId);
-    }
-
     [DataTestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -115,15 +90,13 @@ public sealed class WorldEditorSaveAsTests
             target = id;
             Directory.CreateDirectory(harness.Store.PathFor(id)); // A directory blocks atomic publication after candidate writing.
         };
-        var failed = session.TryChangeWorld(new(WorldChangeKind.SaveAs, WorldChangeChoice.SaveThenSwitch, SaveDisplayName: "Copy"));
-        Assert.AreEqual(WorldChangeStatus.SaveFailed, failed.Status);
-        Assert.AreEqual(WorldSaveStatus.WriteFailed, failed.SaveStatus);
+        var failed = session.SaveAs("Copy");
+        Assert.AreEqual(WorldSaveStatus.WriteFailed, failed.Status);
         Assert.AreEqual(original, session.SaveId);
         Assert.AreEqual("Original", session.DisplayName);
         Assert.AreEqual(dirty, session.HasUnsavedChanges);
         Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
         CollectionAssert.AreEqual(bytes, File.ReadAllBytes(harness.Store.PathFor(original)));
-        Assert.IsFalse(File.Exists(harness.Store.PathFor(target)));
         Assert.IsFalse(File.Exists(Path.Combine(harness.Store.DirectoryFor(target), FileWorldSaveStore.CandidateFileName)));
         var workspace = new WorldEditorWorkspace(harness.Catalog, harness.Composites, harness.Store);
         Assert.AreEqual(original, workspace.ListSaves().Single().Id);

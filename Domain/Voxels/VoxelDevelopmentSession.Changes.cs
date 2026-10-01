@@ -30,14 +30,6 @@ public sealed partial class VoxelDevelopmentSession
                 diagnostic: new WorldSaveDiagnostic("base", "session", "world_editor", "new worlds and configuration switches require the world editor host"));
         if (request.Choice == WorldChangeChoice.Cancel)
             return Change(WorldChangeStatus.Cancelled);
-        if (request.Kind == WorldChangeKind.SaveAs)
-        {
-            if (request.Choice != WorldChangeChoice.SaveThenSwitch)
-                return Change(WorldChangeStatus.ChoiceRequired);
-            var copy = SaveAs(request.SaveDisplayName);
-            return Change(copy.Succeeded ? WorldChangeStatus.Completed : WorldChangeStatus.SaveFailed,
-                saveStatus: copy.Status, diagnostic: copy.Diagnostic ?? (copy.Succeeded ? null : WorldSaveDiagnostic.For(copy.Status)));
-        }
         if (request.Kind == WorldChangeKind.NewBlank &&
             (request.BlankIdentity is not { } blank ||
              !BlankWorldSource.TryIdentity(blank.Bounds.SizeX, blank.Bounds.SizeY, blank.Bounds.SizeZ, blank.Seed, out var supported) ||

@@ -6,8 +6,7 @@ public enum WorldChangeKind
     SwitchConfiguration,
     Load,
     NewBlank,
-    ReturnToWorkspace,
-    SaveAs
+    ReturnToWorkspace
 }
 
 public enum WorldChangeChoice

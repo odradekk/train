@@ -344,8 +344,8 @@ public partial class WorldEditorScene : Node3D
         _saveAsPrompt = new ConfirmationDialog { Title = "另存为新存档", OkButtonText = "另存为", CancelButtonText = "取消" };
         _saveAsName = new LineEdit { MaxLength = WorldSaveDocument.DisplayNameMaxLength, PlaceholderText = "新存档名称（留空沿用当前名称）" };
         _saveAsPrompt.AddChild(_saveAsName);
-        _saveAsPrompt.Confirmed += () => CompleteSaveAs(WorldChangeChoice.SaveThenSwitch);
-        _saveAsPrompt.Canceled += () => CompleteSaveAs(WorldChangeChoice.Cancel);
+        _saveAsPrompt.Confirmed += CompleteSaveAs;
+        _saveAsPrompt.Canceled += _saveAsPrompt.Hide;
         AddChild(_saveAsPrompt);
 
         var world = new HBoxContainer();
@@ -463,32 +463,34 @@ public partial class WorldEditorScene : Node3D
         var result = _session?.Save(RequestedSaveName())
                      ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
         _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}";
-        Refresh();
+        UpdateSavedName(result);
         return result;
     }
 
     private void BeginSaveAs()
     {
-        _saveAsName.Text = RequestedSaveName() ?? _session?.DisplayName ?? "新世界";
+        _saveAsName.Text = RequestedSaveName() ?? _session!.DisplayName;
         _saveAsPrompt.PopupCentered(new Vector2I(430, 130));
         _saveAsName.GrabFocus();
         _saveAsName.SelectAll();
     }
 
-    private void CompleteSaveAs(WorldChangeChoice choice)
+    private void CompleteSaveAs()
     {
         _saveAsPrompt.Hide();
         var name = _saveAsName.Text.Length > 0 ? _saveAsName.Text : null;
-        var result = _session?.TryChangeWorld(new(WorldChangeKind.SaveAs, choice, SaveDisplayName: name));
-        _result.Text = choice == WorldChangeChoice.Cancel
-            ? "最近操作：另存为已取消"
-            : $"最近操作：另存为 → {result?.SaveStatus ?? WorldSaveStatus.Unavailable} {_session?.SaveId}";
-        if (result?.Status == WorldChangeStatus.Completed)
-        {
-            _saveName.Text = "";
-            _saveName.PlaceholderText = _session!.DisplayName;
-        }
-        Refresh();
+        var result = _session?.SaveAs(name) ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
+        _result.Text = $"最近操作：另存为 → {result.Status} {result.SaveId}";
+        UpdateSavedName(result);
+    }
+
+    private void UpdateSavedName(WorldSaveResult result)
+    {
+        if (!result.Succeeded)
+            return;
+        _saveName.Text = "";
+        _saveName.PlaceholderText = _session!.DisplayName;
+        _state.Text = StateText();
     }
 
     private string? RequestedSaveName() =>
