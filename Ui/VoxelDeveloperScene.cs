@@ -5303,8 +5303,7 @@ public partial class VoxelDeveloperScene : Node3D
 
     private Guid SaveSlice4Detached(string displayName)
     {
-        _session.DetachSaveIdentity();
-        var saved = _session.Save(displayName);
+        var saved = _session.SaveAs(displayName);
         if (saved.Status != WorldSaveStatus.Saved || !saved.SaveId.HasValue)
             throw new InvalidOperationException($"Slice 4 detached save '{displayName}' failed: {saved.Status}.");
         return saved.SaveId.Value;
