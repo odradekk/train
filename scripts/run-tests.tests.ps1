@@ -472,6 +472,7 @@ $expected = @{
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
     WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
     WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
