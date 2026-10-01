@@ -248,7 +248,7 @@ try {
     $buildId = $context['build'].GetValue[string]()
     $contentDigest = $context['content_digest'].GetValue[string]()
     $report = @"
-# world editor 跨进程对照 — Issue #127
+# 世界编辑器跨进程对照 — Issue #127
 
 受测提交：$head（工作树变更：$($configuration.dirty)）；配置 straight-rail-train v1；正式序列 cross-process-comparison，保存于检查点 8、边界 0:8，待执行输入 4 条。
 

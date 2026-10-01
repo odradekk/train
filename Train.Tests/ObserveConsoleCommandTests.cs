@@ -21,7 +21,7 @@ public sealed class ObserveConsoleCommandTests
         dispatcher.Execute("observe");
         var warning = logs.Memory.Snapshot().Single(item => item.EventId == ConsoleCommandDispatcher.ObserveUnavailableEventId);
         Assert.AreEqual(LogLevel.Warning, warning.Level);
-        StringAssert.Contains(warning.Message, "世界编辑器");
+        StringAssert.Contains(warning.Message, "world editor");
     }
 
     [TestMethod]

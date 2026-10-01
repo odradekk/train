@@ -192,7 +192,7 @@ public partial class Main : Node
         WorldEditorConfigurationId = configurationId;
         var error = GetTree().ChangeSceneToFile("res://Ui/WorldEditorScene.tscn");
         if (error != Error.Ok)
-            _logger?.Error("world-editor", "world_editor_scene_failed", $"无法打开世界编辑器场景：{error}。");
+            _logger?.Error("world-editor", "world_editor_scene_failed", $"Failed to open world editor scene: {error}.");
     }
 
     public VoxelWorldIdentity DevelopmentIdentity { get; private set; } = VoxelWorldIdentity.Slice1;

@@ -6,7 +6,7 @@
 observe
 ```
 
-参数：无。只在世界编辑器中可用；其他场景输出 `请先进入世界编辑器再使用 observe 命令。`（`warning`）。
+参数：无。只在世界编辑器中可用；其他场景输出 `Enter the world editor before using observe commands.`（`warning`）。
 
 输出按行分为：
 

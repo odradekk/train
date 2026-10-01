@@ -25,7 +25,7 @@ param(
 # straight rail already used ids 1 and 2) while `composite reset` and,
 # after a failed load that must keep observing, `voxel load` put a different
 # vehicle under that id; each replacement drops the references in place, and
-# the world editor world is loaded back before saving.
+# the world editor session is restored before saving.
 # Godot runs with --fixed-fps 45 so display time is reproducible and
 # each frame covers 4/3 simulation steps: following while running must then read
 # interpolated display poses that differ from the authoritative step positions.
