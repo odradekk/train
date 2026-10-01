@@ -313,7 +313,7 @@ if ($Slice -eq 2) {
         "",
         "Environment: Godot ``$godotVersion``, CPU $cpu. Command: `` `$env:GODOT = '$env:GODOT'; .\\scripts\\run-godot-voxel-observe.ps1 -Slice 2 ``.",
         "",
-        "This file is written beside the existing ``issue50-observe-report.md`` and does not replace historical ``docs/validation/issue-5x-*.md`` baselines.",
+        "This file is written beside the existing ``issue50-observe-report.md``.",
         "",
         "Required captures: ``issue52-local-identity.png``, ``issue52-local-rotated.png``, ``issue52-local-removed.png``, ``issue52-local-reloaded.png``, ``issue52-local-rejected.png``.",
         "",

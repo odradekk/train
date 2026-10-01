@@ -95,7 +95,7 @@ Run tests through `scripts/run-tests.ps1`; its usage, selection, isolation and r
 
 Reviewers check whether the selected tests cover the changed risks, whether assertions are trustworthy and whether the claimed boundaries are real, treating duplicate and fragile cases as maintenance costs. Independently run key affected checks according to risk rather than repeating the implementer's entire suite. For high-risk regressions, use the original reproduction or a temporary deliberate fault when useful to show that the test detects the defect. Mutation testing is not mandatory for every test.
 
-Tie results to the tested commit, commands and outcomes, with build/content/environment identities and raw logs where relevant. Map Acceptance criteria to sufficient evidence; this does not require a new test for each criterion. One criterion may need several kinds of evidence, and one test may support several criteria.
+Tie results to the tested commit, commands and outcomes, with build/content/environment identities and raw logs where relevant. Map Acceptance criteria to sufficient evidence; this does not require a new test for each criterion. One criterion may need several kinds of evidence, and one test may support several criteria. Keep validation evidence in Issue comments and ignored run directories such as `TestResults/` and `.godot/validation/`; do not add validation reports, captures or evidence archives to the repository.
 
 Reuse results only with an explanation of why the intervening changes cannot affect those checks, such as a documentation-only revision; if applicability cannot be established, rerun. Never report an earlier complete-suite pass as tests actually executed on the current revision.
 

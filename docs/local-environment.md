@@ -73,4 +73,4 @@ pwsh -NoProfile -File scripts/run-godot-content-export-smoke.ps1 -ExportOnly -Ou
 
 A mounted Windows filesystem provides file access, not a Windows execution environment, so runtime validation still requires Windows.
 
-Historical records in `docs/validation/`, `docs/research/` and `archive/mvp/` retain the OS, paths, commands and results used at the time. New validation records must describe the environment actually used.
+Historical records in `docs/research/` and `archive/mvp/` retain the OS, paths, commands and results used at the time.

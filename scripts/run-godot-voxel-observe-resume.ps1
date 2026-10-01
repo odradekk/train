@@ -26,7 +26,7 @@ if (-not $OutputPath) {
 }
 $recordName = if ($Slice -eq 4) { "issue74" } elseif ($Slice -eq 3) { "issue-62-resume" } else { "issue-53-resume" }
 if (-not $CaptureOutputPath) {
-    $CaptureOutputPath = if ($Slice -eq 4) { ".godot/validation/issue74" } else { "docs/validation/$recordName" }
+    $CaptureOutputPath = if ($Slice -eq 4) { ".godot/validation/issue74" } else { ".godot/validation/$recordName" }
 }
 
 foreach ($name in @(
@@ -192,7 +192,7 @@ $report = @(
     "- $loaded",
     "",
     "Copied captures:",
-    ($hashes | ForEach-Object { "- ``docs/validation/$recordName/$($_.Name)`` SHA256 ``$($_.Hash)``" }),
+    ($hashes | ForEach-Object { "- ``$CaptureOutputPath/$($_.Name)`` SHA256 ``$($_.Hash)``" }),
     "",
     "Capture log:",
     "",

@@ -7,10 +7,9 @@
 # (structure_ms), display Refresh (refresh_ms), and save/load timings
 # (10 s frames each). structure_ms is the Damage call only; refresh_ms is
 # not reported as structural settlement.
-# Results are written to docs/validation/issue-62-voxel-baseline.md by default.
-# This script does not overwrite docs/validation/issue-53-voxel-baseline.md.
+# Results are written to .godot/validation/issue62/baseline-report.md by default.
 # -Slice 4 is a separate 1800-step straight-rail presentation baseline and
-# writes docs/validation/issue-74-rail-presentation.md by default. It does
+# writes .godot/validation/issue74/baseline-report.md by default. It does
 # not mix slice 1–3 mutation load into the same recorded numbers.
 param(
     [ValidateSet(0, 4)]
@@ -42,7 +41,7 @@ foreach ($name in @(
 }
 
 if (-not $OutputPath) {
-    $OutputPath = if ($Slice -eq 4) { ".godot/validation/issue74/baseline-report.md" } else { "docs/validation/issue-62-voxel-baseline.md" }
+    $OutputPath = if ($Slice -eq 4) { ".godot/validation/issue74/baseline-report.md" } else { ".godot/validation/issue62/baseline-report.md" }
 }
 $userPrefix = if ($Slice -eq 4) { "train-issue74-baseline-" } else { "train-issue53-baseline-" }
 $userData = Join-Path ([System.IO.Path]::GetTempPath()) ($userPrefix + [guid]::NewGuid().ToString("N"))
