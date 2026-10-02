@@ -9,11 +9,11 @@
       "group": "godot-workspace",
       "script": "scripts/run-godot-world-editor-cross-process.ps1",
       "arguments": ["-Workspace", "-OutputDirectory", "{output}"],
-      "claim": "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload",
+      "claim": "json-transfer+save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload",
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 300,
-      "timeoutReason": "The issue #168 four-process workspace check measured 9190ms after review fixes, 9726ms before review, and 10190ms in coordinator review, including leave and reload coverage. 300s allows four children bounded at 60s each (240s total), plus 60s for cold-start host overhead and evidence writing. This margin keeps the timeout a hang cap; frame budgets and elapsed time do not establish success."
+      "timeoutReason": "The issue #169 five-process workspace check measured 11375ms on Windows, including JSON export/import and the existing leave/reload checks. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all five child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
     },
     {
       "id": "godot.logging-smoke",
@@ -48,12 +48,12 @@
     {
       "id": "godot.world-editor-workspace",
       "entry": "pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -Workspace",
-      "contract": "真实菜单的世界编辑器入口先到工作区；新建空白和列表打开进入相同暂停编辑器；统一按钮、退出命令与关闭请求的离开确认、暂挂和取消恢复；重新加载取消、失败保护与另存后恢复原目标；返回取消、保存失败、放弃和保存后继续保护；另存为取消保留身份、未保存状态和原文件，成功建立新身份并保留原存档；列表生成后存档损坏，打开失败仍留在工作区且行更新为不可打开；新进程分别打开原存档和副本继续待执行输入、编辑并保存，最终再次读取验证两份存档互不影响。",
-      "boundary": "四个隔离真实 Godot 进程共享测试专用用户数据，需先构建和导入；输出目录必须是新的。自动断言不代替人工交互。",
+      "contract": "真实菜单的世界编辑器入口先到工作区；新建空白和列表打开进入相同暂停编辑器；统一按钮、退出命令与关闭请求的离开确认、暂挂和取消恢复；重新加载取消、失败保护与另存后恢复原目标；返回取消、保存失败、放弃和保存后继续保护；另存为取消保留身份、未保存状态和原文件，成功建立新身份并保留原存档；从当前世界导出 JSON；新进程从工作区导入该文件，直接观察刷新后的列表并以新本地 UUID 打开，验证导出世界的模拟位置、待执行输入和世界内容，再继续编辑、运行及保存；最终再次读取原存档、另存副本和导入存档，验证三者互不影响。",
+      "boundary": "五个隔离真实 Godot 进程共享测试专用用户数据，需先构建和导入；输出目录必须是新的。自动断言不代替人工交互。",
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
-      "claim": "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload",
+      "claim": "json-transfer+save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload",
       "requirements": "godot,process",
       "fourScene": false,
       "followUp": ""

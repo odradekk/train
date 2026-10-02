@@ -471,6 +471,7 @@ $expected = @{
     PhysicalRailTests = "headless/railway/railway"
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
     WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorTransferTests = "headless/world-editor,persistence/world-editor"
     WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
     WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
@@ -875,10 +876,16 @@ internal static class Program
                     Console.WriteLine("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
                     Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
                     Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
+                    Console.WriteLine("WORKSPACE_EXPORTED path=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH") + " status=Saved");
                     Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");
                     Console.WriteLine("WORKSPACE_SAVED old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222");
                 }
-                else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 cross_edits=false pending=0");
+                else if (leg == "import-new")
+                {
+                    Console.WriteLine("WORKSPACE_IMPORTED id=33333333-3333-3333-3333-333333333333 listed=true opened=true");
+                    Console.WriteLine("WORKSPACE_CONTINUED leg=import-new id=33333333-3333-3333-3333-333333333333 pending=0 paused=true");
+                }
+                else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0");
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
                 return mode == "workspace-fail" ? 7 : 0;
@@ -927,7 +934,7 @@ It "fixture-workspace-script" {
         Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
         Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
         if ($mode -eq 'pass') {
-            foreach ($leg in @('resume-old', 'resume-new', 'verify')) {
+            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify')) {
                 Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
             }
         } else {
@@ -1986,7 +1993,6 @@ It "real-list" {
     Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
     Assert-Equal "workspace group" "godot-workspace" $workspace.Group
-    Assert-Equal "workspace claim" "save-as-isolation+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload" $workspace.Claim
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family

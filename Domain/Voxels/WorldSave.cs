@@ -31,7 +31,8 @@ public enum WorldSaveStatus
     UnsupportedRailway,
     UnknownSource,
     SimulationFaulted,
-    WorldChanging
+    WorldChanging,
+    OverwriteConfirmationRequired
 }
 
 public sealed record WorldSaveDiagnostic(string Stage, string Subject, string Relationship, string Detail)
@@ -1258,7 +1259,7 @@ public static class WorldSaveRestorer
 
         if (!TryValidateDefinitionRecords(catalog, generated, document, failures, out status))
             return false;
-        if (!TryValidateDelta(catalog, generated, document, out status))
+        if (!TryValidateDelta(catalog, generated, document, failures, out status))
             return false;
         if (!ApplySavedDurability(catalog, generated, document, adaptations, failures))
         {
@@ -1274,13 +1275,15 @@ public static class WorldSaveRestorer
                 generated,
                 adaptations,
                 out var vehicles,
-                out status))
+                out status,
+                failures))
             return false;
         if (!WorldSaveRailwayCodec.TryRestore(
                 document,
                 generated,
                 vehicles,
                 catalog,
+                failures,
                 out var rails,
                 out var assemblies,
                 out status))
@@ -1423,7 +1426,10 @@ public static class WorldSaveRestorer
         {
             if (!recorded.Contains(id) || !catalog.TryGet(id, out _))
             {
-                failures.Report("dependency", id.Value, "definition", "a required voxel definition is missing");
+                var location = document.Added.Concat(document.Changed)
+                    .Where(item => item.DefinitionId == id).Select(item => $"world[{item.Position}]")
+                    .FirstOrDefault() ?? "external_definitions";
+                failures.Report("dependency", id.Value, location, "a required voxel definition is missing");
                 return false;
             }
         }
@@ -1436,6 +1442,7 @@ public static class WorldSaveRestorer
         VoxelCatalogSnapshot catalog,
         VoxelWorld generated,
         WorldSaveDocument document,
+        WorldSaveFailureLog failures,
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
@@ -1466,7 +1473,7 @@ public static class WorldSaveRestorer
                 return false;
             }
 
-            if (!TryValidateInstance(catalog, instance, out status))
+            if (!TryValidateInstance(catalog, instance, failures, out status))
                 return false;
         }
 
@@ -1490,7 +1497,7 @@ public static class WorldSaveRestorer
                 return false;
             }
 
-            if (!TryValidateInstance(catalog, instance, out status))
+            if (!TryValidateInstance(catalog, instance, failures, out status))
                 return false;
         }
 
@@ -1501,6 +1508,7 @@ public static class WorldSaveRestorer
     private static bool TryValidateInstance(
         VoxelCatalogSnapshot catalog,
         WorldSaveInstance instance,
+        WorldSaveFailureLog failures,
         out WorldSaveStatus status)
     {
         status = WorldSaveStatus.InvalidDelta;
@@ -1509,12 +1517,16 @@ public static class WorldSaveRestorer
         if (!catalog.TryGet(instance.DefinitionId, out var entry))
         {
             status = WorldSaveStatus.MissingDefinition;
+            failures.Report("dependency", instance.DefinitionId.Value, $"world[{instance.Position}]", "the saved voxel definition is missing");
             return false;
         }
 
         if (!instance.Orientation.IsOrthogonal ||
             !instance.Orientation.IsAllowedBy(entry.Definition.AllowedOrientations))
+        {
+            failures.Report("dependency", instance.DefinitionId.Value, $"world[{instance.Position}]", "the saved voxel orientation is no longer allowed");
             return false;
+        }
         status = WorldSaveStatus.Loaded;
         return true;
     }

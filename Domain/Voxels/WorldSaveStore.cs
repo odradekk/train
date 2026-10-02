@@ -52,7 +52,12 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
         }
     }
 
-    public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+    public bool TryWrite(Guid id, string json, out WorldSaveStatus status) => TryWriteCore(id, json, true, out status);
+
+    /// <summary>Publishes an independent local save without replacing any existing file.</summary>
+    public bool TryWriteNew(Guid id, string json, out WorldSaveStatus status) => TryWriteCore(id, json, false, out status);
+
+    private bool TryWriteCore(Guid id, string json, bool overwrite, out WorldSaveStatus status)
     {
         ArgumentNullException.ThrowIfNull(json);
         status = WorldSaveStatus.Saved;
@@ -68,15 +73,8 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
         try
         {
             Directory.CreateDirectory(directory);
-            using (var stream = new FileStream(candidate, FileMode.Create, FileAccess.Write, FileShare.None))
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            {
-                writer.Write(json);
-                writer.Flush();
-                stream.Flush(true);
-            }
-
-            File.Move(candidate, target, overwrite: true);
+            WriteCandidate(candidate, json, FileMode.Create);
+            File.Move(candidate, target, overwrite);
             return true;
         }
         catch
@@ -94,5 +92,14 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
 
             return false;
         }
+    }
+
+    internal static void WriteCandidate(string path, string json, FileMode mode)
+    {
+        using var stream = new FileStream(path, mode, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.Write(json);
+        writer.Flush();
+        stream.Flush(true);
     }
 }
