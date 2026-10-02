@@ -471,6 +471,7 @@ $expected = @{
     PhysicalRailTests = "headless/railway/railway"
     BlankWorldTests = "headless/world-editor,persistence/world-editor"
     WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorExampleTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTransferTests = "headless/world-editor,persistence/world-editor"
     WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
     WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
@@ -886,6 +887,17 @@ internal static class Program
                     Console.WriteLine("WORKSPACE_CONTINUED leg=import-new id=33333333-3333-3333-3333-333333333333 pending=0 paused=true");
                 }
                 else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0");
+                else if (leg == "example-save")
+                {
+                    Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
+                    Console.WriteLine("WORKSPACE_EXAMPLE_SAVED id=44444444-4444-4444-4444-444444444444 original=55555555-5555-5555-5555-555555555555 voxels=5 pending=1 paused=true");
+                }
+                else if (leg == "example-verify")
+                {
+                    Console.WriteLine("WORKSPACE_EXAMPLE_COPY_OPEN id=44444444-4444-4444-4444-444444444444");
+                    Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
+                    Console.WriteLine("WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true");
+                }
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
                 return mode == "workspace-fail" ? 7 : 0;
@@ -934,7 +946,7 @@ It "fixture-workspace-script" {
         Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
         Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
         if ($mode -eq 'pass') {
-            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify')) {
+            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify')) {
                 Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
             }
         } else {
