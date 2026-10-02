@@ -103,18 +103,28 @@ public sealed class VoxelConsoleCommands
             WorldEditConsole.Execute(_session, arguments) is { } editsText)
             return editsText;
 
-        if (WorldEditConsole.TrySplitAt(arguments, out var cellArguments, out var cellAtStep) &&
+        if (arguments.Count == 1 && string.Equals(arguments[0], "undo", StringComparison.OrdinalIgnoreCase))
+            return WorldEditConsole.FormatHistorySubmission(_session, _session.Undo);
+
+        if (arguments.Count == 1 && string.Equals(arguments[0], "redo", StringComparison.OrdinalIgnoreCase))
+            return WorldEditConsole.FormatHistorySubmission(_session, _session.Redo);
+
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
+            return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
+
+        if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var cellArguments, out var cellAtStep, out var cellConfirm) &&
             TryParseCellEdit(cellArguments, out var cellEdit))
-            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(cellEdit, cellAtStep));
+            return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(cellEdit, cellAtStep, cellConfirm));
 
-        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
-            atStep is { } step &&
-            TryParseEdit(editArguments, out var edit))
-            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, step));
+        var submissionOptionsValid = WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var atStep, out var confirmEndHistory);
+        if (!submissionOptionsValid)
+            return Usage();
+        if (atStep is not null && TryParseEdit(editArguments, out var edit))
+            return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(edit, atStep, confirmEndHistory));
 
-        if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
-            TryPosition(arguments, 1, out var removePosition))
-            return FormatResult(_session.Remove(removePosition));
+        if (editArguments.Count == 4 && string.Equals(editArguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
+            TryPosition(editArguments, 1, out var removePosition))
+            return WorldEditConsole.FormatWithHistoryEvictionNotice(_session, () => FormatResult(_session.Remove(removePosition)));
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var queryPosition))
@@ -125,20 +135,17 @@ public sealed class VoxelConsoleCommands
             TryCollisionQuery(arguments, out var collision))
             return FormatCollision(collision);
 
-        if (arguments.Count == 6 && string.Equals(arguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
-            TryPosition(arguments, 1, out var addPosition) &&
-            TryDefinition(arguments[4], out var definitionId) &&
-            VoxelOrientation.TryParse(arguments[5], out var orientation))
-            return FormatResult(_session.Add(addPosition, definitionId, orientation));
+        if (editArguments.Count == 6 && string.Equals(editArguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
+            TryPosition(editArguments, 1, out var addPosition) &&
+            TryDefinition(editArguments[4], out var definitionId) &&
+            VoxelOrientation.TryParse(editArguments[5], out var orientation))
+            return WorldEditConsole.FormatWithHistoryEvictionNotice(_session, () => FormatResult(_session.Add(addPosition, definitionId, orientation)));
 
-        if (arguments.Count >= 5 &&
-            string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
-            (arguments.Count - 1) % 4 == 0 &&
-            TryDamageTargets(arguments, out var targets))
-            return FormatDamage(_session.Damage(targets));
-
-        if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
-            return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
+        if (editArguments.Count >= 5 &&
+            string.Equals(editArguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
+            (editArguments.Count - 1) % 4 == 0 &&
+            TryDamageTargets(editArguments, out var targets))
+            return FormatDamage(_session.Damage(targets, confirmEndHistory));
 
         if (arguments.Count is 2 or 3 &&
             string.Equals(arguments[0], "load", StringComparison.OrdinalIgnoreCase) &&
@@ -186,9 +193,12 @@ public sealed class VoxelConsoleCommands
             $"voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] ({BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
-            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] | voxel cell remove <x> <y> <z> [at <step>] | voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>]",
-            "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
-            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>].");
+            "voxel undo | voxel redo",
+            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel cell remove <x> <y> <z> [at <step>] [confirm-end-history]",
+            "voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel remove <x> <y> <z> [at <step>] [confirm-end-history] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>] [confirm-end-history].");
     }
 
     private static string BlankParametersRejected() =>

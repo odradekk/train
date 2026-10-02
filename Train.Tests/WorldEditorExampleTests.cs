@@ -38,7 +38,7 @@ public sealed class WorldEditorExampleTests
             var voxel = new VoxelDefinitionId("core", "ferrous-ore");
             for (var x = 2; x <= 4; x++)
                 Assert.IsTrue(made.Add(new(x, 1, 2), voxel, VoxelOrientation.Identity).Succeeded);
-            Assert.IsTrue(made.SubmitEdit(new VoxelAddEdit(new(5, 1, 2), voxel, VoxelOrientation.Identity), 3).Accepted);
+            Assert.IsTrue(made.SubmitEdit(new VoxelAddEdit(new(5, 1, 2), voxel, VoxelOrientation.Identity), 3, confirmEndHistory: true).Accepted);
             Assert.IsTrue(made.AdvanceSimulation(1).Succeeded);
             Assert.IsTrue(restored.LoadDocument(entry.Document).Succeeded);
             Assert.AreEqual(identity, restored.Identity);

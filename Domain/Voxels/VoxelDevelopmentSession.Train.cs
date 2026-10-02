@@ -234,6 +234,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (IsChangingWorld)
             return RejectMotion(TrainMotionStatus.WorldChanging);
+        ClearHistory();
         SimulationPaused = false;
         Changed?.Invoke();
         return new TrainMotionResult(TrainMotionStatus.Resumed, SimulationStep);
@@ -289,6 +290,7 @@ public sealed partial class VoxelDevelopmentSession
             }
         }
 
+        ClearHistory();
         Changed?.Invoke();
         return new TrainMotionResult(TrainMotionStatus.Advanced, SimulationStep, steps);
     }

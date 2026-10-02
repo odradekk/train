@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [结果与错误处理](README.md#结果与错误处理)
 
+施工不可撤销；结束撤销历史所需的确认词及排期顺序见 [`confirm-end-history`](README.md#confirm-end-history)。
+
 ```text
 rail construct
 rail construct at 330

@@ -12,7 +12,7 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     exit 2
 }
 if (-not $OutputDirectory) {
-    $validationIssue = if ($Workspace) { 'issue-181' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
+    $validationIssue = if ($Workspace) { 'issue-182' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
     $OutputDirectory = Join-Path $root ('.godot/validation/' + $validationIssue + '/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
@@ -33,7 +33,7 @@ foreach ($name in @(
     'TRAIN_WORLD_EDITOR_WORKSPACE_LEG', 'TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID',
     'TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH',
     'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH',
-    'TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID'
+    'TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -167,6 +167,27 @@ if ($Workspace) {
             'WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false')) {
             if (-not $cellToolResume.Contains($marker)) { throw "Workspace cell-tool-resume omitted assertion marker: $marker" }
         }
+
+        # History uses a fourth isolated store: saved world state crosses the process boundary, session history does not.
+        $userData = Join-Path $OutputDirectory 'history-user-data'
+        New-Item -ItemType Directory -Path $userData | Out-Null
+        $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'history-save'
+        $historySave = Invoke-EntryLeg 'history-save' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_HISTORY_SAVED id=',
+            'voxels=2 durability=75 undo=1 redo=0 shortcuts=true line_edit=true shared=true prompt=true draft_only=true evictions=0')) {
+            if (-not $historySave.Contains($marker)) { throw "Workspace history-save omitted assertion marker: $marker" }
+        }
+        $historyId = [regex]::Match($historySave,
+            'WORKSPACE_HISTORY_SAVED id=([0-9a-fA-F-]{36}) voxels=2 durability=75 undo=1 redo=0')
+        if (-not $historyId.Success) { throw 'Workspace history save did not provide a usable save UUID.' }
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID = $historyId.Groups[1].Value
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'history-resume'
+        $historyResume = Invoke-EntryLeg 'history-resume' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_HISTORY_OPEN id=',
+            'WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true')) {
+            if (-not $historyResume.Contains($marker)) { throw "Workspace history-resume omitted assertion marker: $marker" }
+        }
         [ordered]@{
             outcome = 'passed'
             durationMs = $started.ElapsedMilliseconds
@@ -176,6 +197,7 @@ if ($Workspace) {
             exampleSaveId = $exampleIds.Groups[1].Value
             exampleDocumentId = $exampleIds.Groups[2].Value
             cellToolSaveId = $cellToolId.Groups[1].Value
+            historySaveId = $historyId.Groups[1].Value
             exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
@@ -200,15 +222,22 @@ example, edits and runs it while retaining a future pending command, and gives i
 document. The next process restores that saved copy, then creates the example again and verifies the documented step-1 world,
 pending command and source bytes were unchanged and contain none of the copy-only edits.
 
-Two final processes use a third isolated save directory. The first uses parsed Godot mouse and keyboard events on the
+Two further processes use a third isolated save directory. The first uses parsed Godot mouse and keyboard events on the
 horizontal cell tool, verifies that definition/orientation/operation settings keep hover following, checks that hover and exact
 parameters share one preview, checks published replacement collision shapes and input after a definition disappears,
 keeps a rejected draft, resolves its guarded
 tool switch, and saves one committed cell plus one pending formal cell edit without a UI draft. The second opens that save in
 a fresh process, confirms no draft was persisted, continues editing by mouse, and runs the restored pending input.
 
+Two final processes use a fourth isolated save directory. The first drives world-focused Ctrl+Z and Ctrl+Shift+Z through
+Godot input, verifies a focused LineEdit consumes its own undo, alternates panel undo with console redo on the shared history,
+cancels and accepts the panel confirmation for non-reversible damage, and proves a world-focused shortcut changes only an
+active precise-input draft. It saves the resulting world while session history remains available. The second process opens
+that save, verifies the resulting world and durability, and proves no undo or redo history crossed the save boundary.
+
 Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log,
-example-save.stdout.log, example-verify.stdout.log, cell-tool-save.stdout.log, cell-tool-resume.stdout.log; process identities:
+example-save.stdout.log, example-verify.stdout.log, cell-tool-save.stdout.log, cell-tool-resume.stdout.log,
+history-save.stdout.log, history-resume.stdout.log; process identities:
 processes.log; tested head: config.json.
 This headless result does not establish graphical interaction or manual acceptance.
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
@@ -229,6 +258,7 @@ This headless result does not establish graphical interaction or manual acceptan
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
     }
 }

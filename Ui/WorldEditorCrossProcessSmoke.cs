@@ -95,7 +95,7 @@ internal sealed class WorldEditorCrossProcessSmoke
             if (_leg == "observe" && _index == 8)
                 _targetPoseBeforeEdit = Observer.Pose;
             _input = step.Operation.InputIdentity(Session);
-            var actual = step.Operation.Apply(Session);
+            var actual = step.Operation.Apply(Session, step.ConfirmEndHistory);
             Require(actual == step.ExpectedStatus,
                 $"step {_index + 1} {step.Operation.Describe()} status {actual}, expected {step.ExpectedStatus}");
             foreach (var check in step.Checkpoint)

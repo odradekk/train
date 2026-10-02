@@ -210,6 +210,14 @@ public partial class VoxelDeveloperScene : Node3D
         Inspect,
         Assemble,
         AwaitAssemble,
+        LegacyAdd,
+        AwaitLegacyAdd,
+        LegacyStart,
+        AwaitLegacyStart,
+        LegacyRemove,
+        AwaitLegacyRemove,
+        LegacyStop,
+        AwaitLegacyStop,
         MotionStep300,
         AwaitMotionVisual,
         AwaitResetAfterMotion,
@@ -234,6 +242,10 @@ public partial class VoxelDeveloperScene : Node3D
     private enum VoxelSlice3SmokePhase
     {
         None,
+        LegacyAdd,
+        AwaitLegacyAdd,
+        LegacyManufacture,
+        AwaitLegacyManufacture,
         Manufacture,
         AwaitManufacture,
         Query,
@@ -706,7 +718,7 @@ public partial class VoxelDeveloperScene : Node3D
             }
 
             if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
-                _slice3SmokePhase = VoxelSlice3SmokePhase.Manufacture;
+                _slice3SmokePhase = VoxelSlice3SmokePhase.LegacyAdd;
             else if (_session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
             {
                 _smokePhase = VoxelSmokePhase.None;
@@ -817,7 +829,7 @@ public partial class VoxelDeveloperScene : Node3D
         }
         else if (key.Keycode == Key.T && _session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
         {
-            var started = _session.StartTrain(RailHeading.AlongAlignment);
+            var started = _session.StartTrain(RailHeading.AlongAlignment, confirmEndHistory: true);
             _result.Text = started.Succeeded
                 ? $"最近命令：列车已启动，步 {_session.SimulationStep}。"
                 : $"最近命令：启动失败 {started.Status}。";
@@ -825,7 +837,7 @@ public partial class VoxelDeveloperScene : Node3D
         }
         else if (key.Keycode == Key.Y && _session.Identity.Slice == VoxelDevelopmentSlice.Slice4)
         {
-            var stopped = _session.StopTrain();
+            var stopped = _session.StopTrain(confirmEndHistory: true);
             _result.Text = stopped.Succeeded
                 ? "最近命令：列车已停车。"
                 : $"最近命令：停车失败 {stopped.Status}。";
@@ -843,7 +855,7 @@ public partial class VoxelDeveloperScene : Node3D
         }
         else if (key.Keycode == Key.M && _session.Identity.Slice == VoxelDevelopmentSlice.Slice3)
         {
-            SetCompositeResult(_session.Manufacture(HollowShellFixture.DefinitionId));
+            SetCompositeResult(_session.Manufacture(HollowShellFixture.DefinitionId, confirmEndHistory: true));
             GetViewport().SetInputAsHandled();
         }
         else if (key.Keycode == Key.Delete)
@@ -2218,6 +2230,27 @@ public partial class VoxelDeveloperScene : Node3D
     {
         switch (_slice3SmokePhase)
         {
+            case VoxelSlice3SmokePhase.LegacyAdd:
+                _session.PauseSimulation();
+                PressKey(Key.Insert);
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitLegacyAdd;
+                return;
+            case VoxelSlice3SmokePhase.AwaitLegacyAdd:
+                if (_session.Query(_selectedPosition).Voxel is null || _session.UndoCount != 1)
+                    throw new InvalidOperationException($"Slice 3 Insert shortcut did not add a voxel with one undo record; undo={_session.UndoCount}.");
+                _slice3SmokePhase = VoxelSlice3SmokePhase.LegacyManufacture;
+                return;
+            case VoxelSlice3SmokePhase.LegacyManufacture:
+                PressKey(Key.M);
+                _slice3SmokePhase = VoxelSlice3SmokePhase.AwaitLegacyManufacture;
+                return;
+            case VoxelSlice3SmokePhase.AwaitLegacyManufacture:
+                if (_session.Vehicles.Count != 1 || _session.HasEditHistory)
+                    throw new InvalidOperationException("Slice 3 M shortcut did not manufacture after ending non-empty history.");
+                GD.Print("VOXEL_SMOKE_SLICE3_LEGACY_SHORTCUT key=M history=nonempty manufactured=true");
+                _session.Reset();
+                _slice3SmokePhase = VoxelSlice3SmokePhase.Manufacture;
+                return;
             case VoxelSlice3SmokePhase.Manufacture:
                 if (GetNode<Main>("/root/Main").Reloader?.Composites.Current.TryGet(HollowShellFixture.DefinitionId, out _) != true)
                     throw new InvalidOperationException("Slice 3 smoke did not load core:dev-hollow-shell from JSON.");
@@ -4847,6 +4880,47 @@ public partial class VoxelDeveloperScene : Node3D
                 ValidateCompositeVisual();
                 GD.Print($"VOXEL_SMOKE_SLICE4_TRAIN_VISUAL vehicles={_composites.VehicleCount} meshes={_composites.MeshInstanceCount} faces={_composites.FaceCount}");
                 _slice4TrainMeshIds = _composites.MeshInstanceIds.ToArray();
+                _slice4SmokePhase = VoxelSlice4SmokePhase.LegacyAdd;
+                return;
+            case VoxelSlice4SmokePhase.LegacyAdd:
+                _selectedPosition = new WorldVoxelCoord(4, 4, 4);
+                if (_session.Query(_selectedPosition).IsOccupied)
+                    throw new InvalidOperationException("Slice 4 shortcut probe must start empty.");
+                PressKey(Key.Insert);
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitLegacyAdd;
+                return;
+            case VoxelSlice4SmokePhase.AwaitLegacyAdd:
+                if (_session.Query(_selectedPosition).Voxel is null || _session.UndoCount != 1)
+                    throw new InvalidOperationException($"Slice 4 Insert shortcut did not add a voxel with one undo record; undo={_session.UndoCount}.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.LegacyStart;
+                return;
+            case VoxelSlice4SmokePhase.LegacyStart:
+                PressKey(Key.T);
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitLegacyStart;
+                return;
+            case VoxelSlice4SmokePhase.AwaitLegacyStart:
+                if (!_session.QueryTrainAssemblies().Single().Running || _session.HasEditHistory)
+                    throw new InvalidOperationException("Slice 4 T shortcut started the train without ending non-empty history.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.LegacyRemove;
+                return;
+            case VoxelSlice4SmokePhase.LegacyRemove:
+                PressKey(Key.Delete);
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitLegacyRemove;
+                return;
+            case VoxelSlice4SmokePhase.AwaitLegacyRemove:
+                if (_session.Query(_selectedPosition).Voxel is not null || _session.UndoCount != 1)
+                    throw new InvalidOperationException($"Slice 4 Delete shortcut did not remove the voxel with one undo record; undo={_session.UndoCount}.");
+                _slice4SmokePhase = VoxelSlice4SmokePhase.LegacyStop;
+                return;
+            case VoxelSlice4SmokePhase.LegacyStop:
+                PressKey(Key.Y);
+                _slice4SmokePhase = VoxelSlice4SmokePhase.AwaitLegacyStop;
+                return;
+            case VoxelSlice4SmokePhase.AwaitLegacyStop:
+                if (_session.QueryTrainAssemblies().Single().Running || _session.HasEditHistory || _session.World.VoxelCount != 1032)
+                    throw new InvalidOperationException("Slice 4 Y shortcut did not stop after ending non-empty history and restoring the world.");
+                GD.Print("VOXEL_SMOKE_SLICE4_LEGACY_SHORTCUT keys=T,Y history=nonempty started=true stopped=true");
+                _selectedPosition = SelectedCell(_session.Identity);
                 _slice4SmokePhase = VoxelSlice4SmokePhase.MotionStep300;
                 return;
             case VoxelSlice4SmokePhase.MotionStep300:

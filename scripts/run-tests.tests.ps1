@@ -450,6 +450,8 @@ $expected = @{
     WorldEditOrderingTests = "headless/world-edit/world-edit"
     WorldEditEntryTests = "headless/world-edit/world-edit"
     VoxelCellSetTests = "headless/world-edit/world-edit"
+    VoxelEditHistoryTests = "headless/world-edit,world-editor/world-edit"
+    VoxelHistoryConsoleTests = "headless/world-edit/world-edit"
     VoxelWorldTests = "headless/voxels/voxels"
     VoxelMultiChunkTests = "headless/voxels/voxels"
     VoxelLocalBoxTests = "headless/voxels/voxels"
@@ -910,6 +912,15 @@ internal static class Program
                     Console.WriteLine("WORKSPACE_CELL_TOOL_OPEN id=66666666-6666-6666-6666-666666666666");
                     Console.WriteLine("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false");
                 }
+                else if (leg == "history-save")
+                {
+                    Console.WriteLine("WORKSPACE_HISTORY_SAVED id=77777777-7777-7777-7777-777777777777 voxels=2 durability=75 undo=1 redo=0 shortcuts=true line_edit=true shared=true prompt=true draft_only=true evictions=0");
+                }
+                else if (leg == "history-resume")
+                {
+                    Console.WriteLine("WORKSPACE_HISTORY_OPEN id=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID"));
+                    Console.WriteLine("WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true");
+                }
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
                 return mode == "workspace-fail" ? 7 : 0;
@@ -959,7 +970,7 @@ It "fixture-workspace-script" {
         Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
         if ($mode -eq 'pass') {
             foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify',
-                'cell-tool-save', 'cell-tool-resume')) {
+                'cell-tool-save', 'cell-tool-resume', 'history-save', 'history-resume')) {
                 Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
             }
         } else {

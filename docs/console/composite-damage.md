@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [结果与错误处理](README.md#结果与错误处理)
 
+伤害不可撤销；结束撤销历史所需的确认词及排期顺序见 [`confirm-end-history`](README.md#confirm-end-history)。
+
 ```text
 composite damage <id> <x> <y> <z> <amount>
 composite damage 1 3 1 1 100

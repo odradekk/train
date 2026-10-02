@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数)
 
+改装不可撤销；结束撤销历史所需的确认词及排期顺序见 [`confirm-end-history`](README.md#confirm-end-history)。
+
 ```text
 composite move <id> <partId> <x> <y> <z>
 composite move 1 170 3 1 0

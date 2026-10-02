@@ -119,8 +119,13 @@ internal sealed class WorldEditorObservationSmoke
                 break;
             case 6:
                 RequireUnchanged("observation-only phases");
+                Require(Session.HasEditHistory, "terrain fixture did not leave undo history");
                 _scene.Press("start");
+                Require(_scene.HistoryPrompt.Visible, "start did not request confirmation for terrain history");
+                _scene.HistoryPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
+                Require(!Session.HasEditHistory, "confirmed start did not end terrain history");
                 _scene.Press("run");
+                Require(!_scene.HistoryPrompt.Visible, "run requested history confirmation with empty history");
                 Require(!Session.SimulationPaused && Session.QueryTrainAssemblies().Single().Running, "train did not start");
                 Next();
                 break;
@@ -796,7 +801,7 @@ internal sealed class WorldEditorObservationSmoke
             if (scheduled)
             {
                 var step = Session.SimulationStep + 1;
-                RunConsole($"voxel remove {cell} at {step}");
+                RunConsole($"voxel remove {cell} at {step} confirm-end-history");
                 RunConsole($"{add} at {step}");
                 Require(Observer.Selection is not null && Observer.Notices.Count == notices, "queueing the rebuild dropped the selection");
                 RunConsole("rail step 1");

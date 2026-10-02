@@ -25,7 +25,8 @@ public enum RailEditStatus
     EntityIdExhausted = 11,
     InputExhausted = 12,
     SimulationFaulted = 13,
-    WorldChanging = 14
+    WorldChanging = 14,
+    HistoryConfirmationRequired = 15
 }
 
 public enum RailRepairStatus
@@ -40,7 +41,8 @@ public enum RailRepairStatus
     TransactionExhausted = 7,
     InputExhausted = 8,
     SimulationFaulted = 9,
-    WorldChanging = 10
+    WorldChanging = 10,
+    HistoryConfirmationRequired = 11
 }
 
 public readonly record struct RailInterval(double Start, double End)

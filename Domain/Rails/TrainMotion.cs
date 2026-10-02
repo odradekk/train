@@ -25,7 +25,8 @@ public enum TrainMotionStatus
     Pending = 18,
     InputExhausted = 19,
     UnallocatedReference = 20,
-    WorldChanging = 21
+    WorldChanging = 21,
+    HistoryConfirmationRequired = 22
 }
 
 /// <summary>A pending <c>train.start</c> or <c>train.stop</c> edit; <see cref="Sequence"/> is its edit id.</summary>

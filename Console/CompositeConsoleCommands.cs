@@ -35,21 +35,22 @@ public sealed class CompositeConsoleCommands
             return resetId is null ? FormatReset() : string.Join('\n', FormatReset(), FormatManufactured(changed));
         }
 
-        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
-            atStep is { } step &&
-            TryParseEdit(editArguments, out var edit))
-            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, step));
+        var submissionOptionsValid = WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var atStep, out var confirmEndHistory);
+        if (!submissionOptionsValid)
+            return Usage();
+        if (atStep is not null && TryParseEdit(editArguments, out var edit))
+            return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(edit, atStep, confirmEndHistory));
 
-        if (TryManufacture(arguments, out var definitionId, out var pose))
-            return FormatManufacture(_session.Manufacture(definitionId, pose));
+        if (TryManufacture(editArguments, out var definitionId, out var pose))
+            return FormatManufacture(_session.Manufacture(definitionId, pose, confirmEndHistory));
 
-        if (arguments.Count >= 6 &&
-            string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
-            (arguments.Count - 2) % 4 == 0 &&
-            ulong.TryParse(arguments[1], out var damageId) &&
+        if (editArguments.Count >= 6 &&
+            string.Equals(editArguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
+            (editArguments.Count - 2) % 4 == 0 &&
+            ulong.TryParse(editArguments[1], out var damageId) &&
             damageId > 0 &&
-            TryDamageTargets(new EntityId(damageId), arguments, out var targets))
-            return FormatDamage(_session.Damage(targets));
+            TryDamageTargets(new EntityId(damageId), editArguments, out var targets))
+            return FormatDamage(_session.Damage(targets, confirmEndHistory));
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
         {
@@ -77,7 +78,7 @@ public sealed class CompositeConsoleCommands
             }
         }
 
-        if (TryRefit(arguments, out var refitText))
+        if (TryRefit(editArguments, confirmEndHistory, out var refitText))
             return refitText;
 
         return Usage();
@@ -98,15 +99,15 @@ public sealed class CompositeConsoleCommands
             $"Vehicle pages are {VehiclePageSize} entries, sorted by runtime id. Part pages are {PartPageSize} entries, sorted by local cell.",
             "Damage uses local cells on one vehicle, one event. Page numbers start at 1.",
             "Refit is one atomic transaction. Batch occupancy swaps are legal; a failed batch leaves authority unchanged.",
-            "manufacture/damage/add/remove/move/rotate/replace/batch accept a trailing at <step> to queue the edit.");
+            "manufacture/damage/add/remove/move/rotate/replace/batch accept trailing at <step> and confirm-end-history options.");
     }
 
-    private bool TryRefit(IReadOnlyList<string> arguments, out string text)
+    private bool TryRefit(IReadOnlyList<string> arguments, bool confirmEndHistory, out string text)
     {
         text = "";
         if (!TryRefitOperations(arguments, out var vehicleId, out var operations))
             return false;
-        text = FormatRefit(_session.Refit(vehicleId, operations));
+        text = FormatRefit(_session.Refit(vehicleId, operations, confirmEndHistory));
         return true;
     }
 

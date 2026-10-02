@@ -24,7 +24,7 @@ public sealed class WorldEditEntryTests
 
         using var panel = WorldEditorHarness.Establish(sequence.ConfigurationId);
         foreach (var step in sequence.Steps)
-            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(panel.Session), step.Operation.Describe());
+            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(panel.Session, step.ConfirmEndHistory), step.Operation.Describe());
 
         using var console = WorldEditorHarness.Establish(sequence.ConfigurationId);
         using var logger = LoggerSession.Create();
@@ -36,23 +36,23 @@ public sealed class WorldEditEntryTests
         var probeText = $"{probe.X} {probe.Y} {probe.Z}";
         dispatcher.Execute("rail start");
         dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity}");
-        dispatcher.Execute($"voxel damage {probeText} 25");
-        dispatcher.Execute($"composite manufacture {HollowShellFixture.DefinitionId.Value} pose {pose.OriginX} {pose.OriginY} {pose.OriginZ}");
+        dispatcher.Execute($"voxel damage {probeText} 25 confirm-end-history");
+        dispatcher.Execute($"composite manufacture {HollowShellFixture.DefinitionId.Value} pose {pose.OriginX} {pose.OriginY} {pose.OriginZ} confirm-end-history");
         var shell = session.QueryComposites().Max(item => item.Id.Value);
         string Part(LocalVoxelCoord cell) =>
             session.QueryComposite(new EntityId(shell))!.Parts.Single(part => part.Cell == cell).Id.ToString();
         string Cell(LocalVoxelCoord cell) => $"{cell.X} {cell.Y} {cell.Z}";
         var marker = HollowShellRefit.MarkerId.Value;
-        dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.FirstAdd)} {marker} {identity}");
-        dispatcher.Execute($"composite damage {shell} {Cell(HollowShellRefit.FirstAdd)} 25");
-        dispatcher.Execute($"composite move {shell} {Part(HollowShellRefit.FirstAdd)} {Cell(HollowShellRefit.Moved)}");
-        dispatcher.Execute($"composite rotate {shell} {Part(HollowShellRefit.Moved)} {HollowShellRefit.MarkerOrientation}");
-        dispatcher.Execute($"composite replace {shell} {Cell(HollowShellRefit.Moved)} {HollowShellRefit.ReplacementId.Value} {identity}");
-        dispatcher.Execute($"composite remove {shell} {Part(HollowShellRefit.Moved)}");
-        dispatcher.Execute($"composite batch {shell} add {Cell(HollowShellRefit.FirstAdd)} {marker} {identity} add {Cell(HollowShellRefit.SecondAdd)} {marker} {identity}");
-        dispatcher.Execute($"voxel remove {probeText} at 3");
-        dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity} at 3");
-        dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.OutOfEnvelope)} {marker} {identity} at 3");
+        dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.FirstAdd)} {marker} {identity} confirm-end-history");
+        dispatcher.Execute($"composite damage {shell} {Cell(HollowShellRefit.FirstAdd)} 25 confirm-end-history");
+        dispatcher.Execute($"composite move {shell} {Part(HollowShellRefit.FirstAdd)} {Cell(HollowShellRefit.Moved)} confirm-end-history");
+        dispatcher.Execute($"composite rotate {shell} {Part(HollowShellRefit.Moved)} {HollowShellRefit.MarkerOrientation} confirm-end-history");
+        dispatcher.Execute($"composite replace {shell} {Cell(HollowShellRefit.Moved)} {HollowShellRefit.ReplacementId.Value} {identity} confirm-end-history");
+        dispatcher.Execute($"composite remove {shell} {Part(HollowShellRefit.Moved)} confirm-end-history");
+        dispatcher.Execute($"composite batch {shell} add {Cell(HollowShellRefit.FirstAdd)} {marker} {identity} add {Cell(HollowShellRefit.SecondAdd)} {marker} {identity} confirm-end-history");
+        dispatcher.Execute($"voxel remove {probeText} at 3 confirm-end-history");
+        dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity} at 3 confirm-end-history");
+        dispatcher.Execute($"composite add {shell} {Cell(HollowShellRefit.OutOfEnvelope)} {marker} {identity} at 3 confirm-end-history");
         dispatcher.Execute("voxel edits pending");
         dispatcher.Execute("rail step 3");
         dispatcher.Execute($"voxel add {probeText} {WorldEditorSequences.EditVoxelId.Value} {identity}");

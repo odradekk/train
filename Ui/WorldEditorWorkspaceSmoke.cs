@@ -17,6 +17,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     public const string ExampleSaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID";
     public const string ExampleEvidencePathEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH";
     public const string CellToolSaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID";
+    public const string HistorySaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID";
     private const string OldName = "工作区验证原存档";
     private const string NewName = "工作区验证副本";
     private static readonly WorldVoxelCoord InitialCell = new(2, 2, 2);
@@ -34,6 +35,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static readonly WorldVoxelCoord CellToolPendingCell = new(5, 3, 5);
     private static readonly WorldVoxelCoord CellToolCollisionCell = new(12, 2, 12);
     private static readonly WorldVoxelCoord CellToolMissingDefinitionCell = new(11, 3, 11);
+    private static readonly WorldVoxelCoord HistoryCell = new(2, 2, 2);
+    private static readonly WorldVoxelCoord HistorySavedCell = new(3, 2, 2);
     private static readonly VoxelDefinitionId LedgeDefinition = new("core", "ledge");
     private static string Leg => System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
     private static int _workspaceVisits;
@@ -54,9 +57,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private WorldVoxelCoord _cellToolHoverBeforeSetting;
     private ulong _physicsFrameTarget;
     private VoxelCatalogSnapshot? _catalogBeforeMissingDefinition;
+    private string? _historyLineEditText;
 
     public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify" or
-        "example-save" or "example-verify" or "cell-tool-save" or "cell-tool-resume";
+        "example-save" or "example-verify" or "cell-tool-save" or "cell-tool-resume" or
+        "history-save" or "history-resume";
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
@@ -106,6 +111,21 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             Require(workspace.Entries.Count == 1 && workspace.Entries.Single().Id == id && workspace.OpenSave(id).Succeeded,
                 "cell-tool saved world was unavailable to the continuation process");
             GD.Print($"WORKSPACE_CELL_TOOL_OPEN id={id:D}");
+            return;
+        }
+        if (Leg == "history-save")
+        {
+            Require(workspace.Entries.Count == 0, "history process unexpectedly restored or created a save");
+            workspace.SetBlankInputs(8, 8, 8, "182");
+            workspace.CreateBlank();
+            return;
+        }
+        if (Leg == "history-resume")
+        {
+            var id = RequiredId(HistorySaveIdEnvironmentVariable);
+            Require(workspace.Entries.Count == 1 && workspace.Entries.Single().Id == id && workspace.OpenSave(id).Succeeded,
+                "history save was unavailable to the continuation process");
+            GD.Print($"WORKSPACE_HISTORY_OPEN id={id:D}");
             return;
         }
         if (Leg == "save" && _workspaceVisits == 1)
@@ -190,6 +210,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 AdvanceCellTool(session);
                 return;
             }
+            if (Leg is "history-save" or "history-resume")
+            {
+                AdvanceHistory(session);
+                return;
+            }
             if (_phase == 0)
             {
                 if (Leg == "save" && _visit == 1)
@@ -251,6 +276,135 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         });
     }
 
+    private void AdvanceHistory(VoxelDevelopmentSession session)
+    {
+        if (Leg == "history-resume")
+        {
+            Require(session.SaveId == RequiredId(HistorySaveIdEnvironmentVariable) && session.SimulationPaused &&
+                    session.World.VoxelCount == 2 && session.Query(HistoryCell).Voxel?.CurrentDurability == 75 &&
+                    session.Query(HistorySavedCell).Voxel is not null && session.UndoCount == 0 && session.RedoCount == 0 &&
+                    !session.CanUndo && !session.CanRedo && scene.ApplyHistory(redo: false) == nameof(WorldEditRefusal.NoHistory),
+                "fresh process restored session history or lost the saved post-history world");
+            GD.Print("WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true");
+            _finished = true;
+            Done(scene);
+            return;
+        }
+
+        var view = scene.CellTool ?? throw new InvalidOperationException("cell tool view is unavailable");
+        var tool = view.State;
+        switch (_phase)
+        {
+            case 0:
+                Require(session.SimulationPaused && session.World.VoxelCount == 0 && session.UndoCount == 0,
+                    "history save did not start in an empty paused world");
+                scene.SetEditInputs(HistoryCell, default, 1, 0);
+                Click(scene.ActionButton("edit_add"));
+                _phase++;
+                return;
+            case 1:
+                Require(session.Query(HistoryCell).Voxel is not null && session.UndoCount == 1 && session.RedoCount == 0,
+                    "panel add did not establish world history");
+                FocusWorld();
+                SendShortcut(Godot.Key.Z);
+                _phase++;
+                return;
+            case 2:
+                Require(session.Query(HistoryCell).Voxel is null && session.UndoCount == 0 && session.RedoCount == 1,
+                    "world-focused Ctrl+Z did not undo the formal edit");
+                SendShortcut(Godot.Key.Z, shift: true);
+                _phase++;
+                return;
+            case 3:
+                Require(session.Query(HistoryCell).Voxel is not null && session.UndoCount == 1 && session.RedoCount == 0,
+                    "world-focused Ctrl+Shift+Z did not redo the formal edit");
+                Click(scene.ActionButton("undo"));
+                _phase++;
+                return;
+            case 4:
+                Require(session.Query(HistoryCell).Voxel is null && session.RedoCount == 1,
+                    "panel undo did not update the shared history");
+                scene.GetNode<Main>("/root/Main").GetChildren().OfType<GameConsole>().Single().SubmitLine("voxel redo");
+                _phase++;
+                return;
+            case 5:
+                Require(session.Query(HistoryCell).Voxel is not null && session.UndoCount == 1 && session.RedoCount == 0,
+                    "console redo did not consume the panel-created redo branch");
+                var line = view.HeightInput.GetLineEdit();
+                _historyLineEditText = line.Text;
+                Click(line);
+                SendKey(Godot.Key.A, pressed: true, ctrl: true);
+                SendKey(Godot.Key.A, pressed: false, ctrl: true);
+                TypeText("7");
+                SendShortcut(Godot.Key.Z);
+                _phase++;
+                return;
+            case 6:
+                Require(view.HeightInput.GetLineEdit().Text == _historyLineEditText &&
+                        session.Query(HistoryCell).Voxel is not null && session.UndoCount == 1 && session.RedoCount == 0,
+                    "focused LineEdit Ctrl+Z changed world history or failed to undo its own text");
+                scene.SetEditInputs(HistoryCell, default, 25, 0);
+                Click(scene.ActionButton("edit_damage"));
+                _phase++;
+                return;
+            case 7:
+                Require(scene.HistoryPrompt.Visible && session.Query(HistoryCell).Voxel?.CurrentDurability == 100 &&
+                        session.UndoCount == 1 && session.RedoCount == 0,
+                    "non-reversible panel damage was not held behind confirmation");
+                Click(scene.HistoryPrompt.GetCancelButton());
+                _phase++;
+                return;
+            case 8:
+                Require(!scene.HistoryPrompt.Visible && session.Query(HistoryCell).Voxel?.CurrentDurability == 100 &&
+                        session.UndoCount == 1 && session.RedoCount == 0,
+                    "cancelling history-ending damage changed the world or history");
+                Click(scene.ActionButton("edit_damage"));
+                _phase++;
+                return;
+            case 9:
+                Require(scene.HistoryPrompt.Visible, "second history-ending damage omitted confirmation");
+                Click(scene.HistoryPrompt.GetOkButton());
+                _phase++;
+                return;
+            case 10:
+                Require(!scene.HistoryPrompt.Visible && session.Query(HistoryCell).Voxel?.CurrentDurability == 75 &&
+                        session.UndoCount == 0 && session.RedoCount == 0,
+                    "confirmed damage did not apply and clear world history");
+                tool.SetExact(new WorldVoxelCoord(4, 2, 2), WorldEditorSequences.EditVoxelId,
+                    VoxelOrientation.Identity, VoxelCellOperation.Add);
+                tool.SetExact(new WorldVoxelCoord(5, 2, 2), WorldEditorSequences.EditVoxelId,
+                    VoxelOrientation.Yaw90, VoxelCellOperation.Replace);
+                FocusWorld();
+                SendShortcut(Godot.Key.Z);
+                _phase++;
+                return;
+            case 11:
+                Require(tool.HasDraft && tool.Position == new WorldVoxelCoord(4, 2, 2) &&
+                        tool.Operation == VoxelCellOperation.Add && session.World.VoxelCount == 1 &&
+                        session.UndoCount == 0 && session.RedoCount == 0,
+                    "world-focused draft shortcut changed the world instead of only undoing precise draft input");
+                tool.Discard();
+                scene.SetEditInputs(HistorySavedCell, default, 1, 0);
+                Click(scene.ActionButton("edit_add"));
+                _phase++;
+                return;
+            case 12:
+                Require(session.World.VoxelCount == 2 && session.UndoCount == 1 && session.RedoCount == 0 &&
+                        session.HistoryEvictionCount == 0,
+                    "post-confirmation edit did not establish the history saved only in this session");
+                scene.SetSaveName("历史跨进程验证");
+                var saved = scene.SaveWorld();
+                Require(saved.Succeeded && saved.SaveId.HasValue && session.UndoCount == 1 &&
+                        session.Query(HistoryCell).Voxel?.CurrentDurability == 75,
+                    "saving changed session history or post-undo/redo world content");
+                GD.Print($"WORKSPACE_HISTORY_SAVED id={saved.SaveId.GetValueOrDefault():D} voxels=2 durability=75 undo=1 redo=0 " +
+                         "shortcuts=true line_edit=true shared=true prompt=true draft_only=true evictions=0");
+                _finished = true;
+                Done(scene);
+                return;
+        }
+    }
+
     private static void FromExampleWorkspace(WorldEditorWorkspaceScene workspace)
     {
         var descriptor = WorldEditorExamples.All[0];
@@ -292,7 +446,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(session.SaveId is null && session.HasUnsavedChanges,
                     "example copy did not enter as an unsaved editing session");
                 Add(ExampleCopyOnlyCell);
-                Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity), 100).Accepted,
+                Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity),
+                        100, confirmEndHistory: true).Accepted,
                     "example copy rejected a formal future edit");
                 scene.Press("run");
                 _phase = 1;
@@ -673,7 +828,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     new VoxelCellTarget(CellToolPendingCell, VoxelCellOperation.Add,
                         new VoxelCellContent(state.DefinitionId, state.Orientation))
                 });
-                Require(session.SubmitEdit(pending, 3).Accepted && session.QueryPendingEdits().Count == 1,
+                Require(session.SubmitEdit(pending, 3, confirmEndHistory: true).Accepted && session.QueryPendingEdits().Count == 1,
                     "cell-tool continuation fixture was not accepted as pending formal input");
                 scene.SetSaveName("单格工具跨进程验证");
                 var saved = scene.SaveWorld();
@@ -846,6 +1001,17 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             { ButtonIndex = MouseButton.Left, Pressed = false, Position = position, GlobalPosition = position });
     }
 
+    private void FocusWorld()
+    {
+        var position = ScreenCenter(scene.Observation!.WorldRect);
+        Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Right, Pressed = true, Position = position, GlobalPosition = position });
+        Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Right, Pressed = false, Position = position, GlobalPosition = position });
+        Input.FlushBufferedEvents();
+        Require(scene.Observation.WorldHasInput, "world input did not take focus for a keyboard shortcut");
+    }
+
     private static void Motion(Vector2 position) => Input.ParseInputEvent(new InputEventMouseMotion
         { Position = position, GlobalPosition = position });
 
@@ -862,6 +1028,24 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         }
         SendKey(Godot.Key.Enter, pressed: true);
         SendKey(Godot.Key.Enter, pressed: false);
+    }
+
+    private static void TypeText(string text)
+    {
+        foreach (var character in text)
+        {
+            var key = (Godot.Key)((long)Godot.Key.Key0 + character - '0');
+            Input.ParseInputEvent(new InputEventKey { Keycode = key, Unicode = character, Pressed = true });
+            Input.ParseInputEvent(new InputEventKey { Keycode = key, Unicode = character, Pressed = false });
+        }
+    }
+
+    private static void SendShortcut(Godot.Key key, bool shift = false)
+    {
+        Input.ParseInputEvent(new InputEventKey
+            { Keycode = key, PhysicalKeycode = key, Pressed = true, CtrlPressed = true, ShiftPressed = shift });
+        Input.ParseInputEvent(new InputEventKey
+            { Keycode = key, PhysicalKeycode = key, Pressed = false, CtrlPressed = true, ShiftPressed = shift });
     }
 
     private static void ChooseOpenOption(OptionButton input, int index)
@@ -906,7 +1090,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 session.Vehicles.Count == 0 && session.Rails.Segments.Count == 0,
             "new world is not truly empty and unsaved");
         Add(InitialCell);
-        Require(session.SubmitEdit(new VoxelAddEdit(PendingCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity), 3).Accepted,
+        Require(session.SubmitEdit(new VoxelAddEdit(PendingCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity),
+                3, confirmEndHistory: true).Accepted,
             "queue edit failed");
         Require(session.AdvanceSimulation(1).Succeeded, "advance before save failed");
         scene.SetSaveName(OldName);

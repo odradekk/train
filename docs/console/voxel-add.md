@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [朝向编码](README.md#朝向编码) · [结果与错误处理](README.md#结果与错误处理)
 
+即时提交可撤销；排期会结束撤销历史，确认词规则见 [`confirm-end-history`](README.md#confirm-end-history)。
+
 ```text
 voxel add <x> <y> <z> <namespace:id> <orientation>
 voxel add 0 0 0 core:ferrous-ore px_py

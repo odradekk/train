@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [结果与错误处理](README.md#结果与错误处理)
 
+启动不可撤销且会结束撤销历史；确认词须放在直接写的 `<step>` 或 `at <step>` 之后，详见 [`confirm-end-history`](README.md#confirm-end-history)。
+
 ```text
 rail start
 rail start reverse

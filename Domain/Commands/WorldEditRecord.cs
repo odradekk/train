@@ -30,7 +30,11 @@ public enum WorldEditRefusal
     InputExhausted = 2,
     SimulationFaulted = 3,
     UnallocatedReference = 4,
-    WorldChanging = 5
+    WorldChanging = 5,
+    HistoryConfirmationRequired = 6,
+    VoxelDraftExists = 7,
+    NoHistory = 8,
+    SimulationRunning = 9
 }
 
 /// <summary>

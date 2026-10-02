@@ -196,7 +196,7 @@ public sealed class WorldEditorTests
             WorldEditorSession.TryEstablish(sequence.ConfigurationId, content.Catalog, content.Composites, content.Store, out var manual));
         content.Attach(manual!);
         foreach (var step in sequence.Steps)
-            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(manual!));
+            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(manual!, step.ConfirmEndHistory));
         Assert.AreEqual(first.FinalFingerprint, WorldSaveAuthority.Fingerprint(manual!));
     }
 

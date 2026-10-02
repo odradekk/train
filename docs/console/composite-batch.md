@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [朝向编码](README.md#朝向编码)
 
+改装不可撤销；结束撤销历史所需的确认词及排期顺序见 [`confirm-end-history`](README.md#confirm-end-history)。
+
 ```text
 composite batch <id> <op> ...
 composite batch 1 move 170 4 1 0 move 171 3 1 0
