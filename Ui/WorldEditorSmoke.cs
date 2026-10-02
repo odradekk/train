@@ -26,6 +26,9 @@ internal sealed class WorldEditorSmoke
     private int _frames;
     private ulong _mark;
     private SimulationPosition _saveBoundary;
+    private ulong _physicsReadyAt;
+    private bool _railGapHit;
+    private int _railGapRendered;
     private bool _finished;
 
     public WorldEditorSmoke(WorldEditorScene scene, string? saveId)
@@ -145,7 +148,16 @@ internal sealed class WorldEditorSmoke
                 if (HasTrain)
                     RunRailCommands();
                 else
+                {
                     RunPanelAssembly();
+                    Finish();
+                }
+                break;
+            case 12 when Engine.GetPhysicsFrames() >= _physicsReadyAt:
+                CheckRailGapAndRepair();
+                break;
+            case 13 when Engine.GetPhysicsFrames() >= _physicsReadyAt:
+                CheckRailRepair();
                 Finish();
                 break;
         }
@@ -334,17 +346,31 @@ internal sealed class WorldEditorSmoke
         _scene.SetEditInputs(rail, HollowShellRefit.FirstAdd, 100, 0);
         PressEdit("edit_damage", expectHistoryConfirmation: false);
         _scene.Refresh();
-        var world = _scene.GetWorld3D();
-        var gapHit = _scene.Colliders.QueryPublishedCellInterior(world, rail);
-        var gapRendered = _scene.Tracks.RailSolidCount;
+        // Newly rebuilt collision shapes are published at the physics boundary.
+        _physicsReadyAt = Engine.GetPhysicsFrames() + 2;
+        Next();
+    }
+
+    private void CheckRailGapAndRepair()
+    {
+        var rail = StraightRailFixture.FirstSegmentDamageCell;
+        _railGapHit = _scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), rail);
+        _railGapRendered = _scene.Tracks.RailSolidCount;
         PressEdit("edit_repair", expectHistoryConfirmation: false);
         _scene.Refresh();
-        var repairedHit = _scene.Colliders.QueryPublishedCellInterior(world, rail);
-        Require(!gapHit && repairedHit, $"Godot physics on the edited rail cell gap={gapHit} repaired={repairedHit}");
+        _physicsReadyAt = Engine.GetPhysicsFrames() + 2;
+        Next();
+    }
+
+    private void CheckRailRepair()
+    {
+        var rail = StraightRailFixture.FirstSegmentDamageCell;
+        var repairedHit = _scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), rail);
+        Require(!_railGapHit && repairedHit, $"Godot physics on the edited rail cell gap={_railGapHit} repaired={repairedHit}");
         Require(Session.QueryEditLog()[^1].Status == "Repaired", "immediate repair was not recorded");
         GD.Print(
-            $"WORLD_EDITOR_SMOKE_RAIL_COLLISION godot_gap_hit={gapHit.ToString().ToLowerInvariant()} godot_repaired_hit={repairedHit.ToString().ToLowerInvariant()} " +
-            $"rail_solids_gap={gapRendered} rail_solids_repaired={_scene.Tracks.RailSolidCount} last={WorldEditorCheck.DescribeRecord(Session.QueryEditLog()[^1])}");
+            $"WORLD_EDITOR_SMOKE_RAIL_COLLISION godot_gap_hit={_railGapHit.ToString().ToLowerInvariant()} godot_repaired_hit={repairedHit.ToString().ToLowerInvariant()} " +
+            $"rail_solids_gap={_railGapRendered} rail_solids_repaired={_scene.Tracks.RailSolidCount} last={WorldEditorCheck.DescribeRecord(Session.QueryEditLog()[^1])}");
     }
 
     /// <summary>

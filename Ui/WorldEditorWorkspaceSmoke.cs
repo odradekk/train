@@ -1145,7 +1145,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(hover is not null && hover.VehicleId == session.Vehicles.Single().Id && scene.Observation.PointerCoordinatesVisible,
                     "real vehicle hover did not display its world/local coordinates");
                 var projected = scene.GetViewport().GetScreenTransform() * scene.Camera.UnprojectPosition(
-                    WorldEditorObservationView.To(hover.WorldPosition));
+                    WorldEditorObservationView.To(hover!.WorldPosition));
                 Require(projected.DistanceTo(_vehicleHoverScreen) < 2 &&
                         hover.LocalPosition.X >= hover.Cell.X - 1e-6 && hover.LocalPosition.X <= hover.Cell.X + 1 + 1e-6 &&
                         hover.LocalPosition.Y >= hover.Cell.Y - 1e-6 && hover.LocalPosition.Y <= hover.Cell.Y + 1 + 1e-6 &&
