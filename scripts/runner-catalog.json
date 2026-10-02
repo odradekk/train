@@ -13,7 +13,7 @@
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 300,
-      "timeoutReason": "The issue #184 eleven-process workspace check measured 35286ms on Windows on 2026-10-02 after adding brush release/interruption, box corner/height input, large-edit confirmation/undo/redo and region save/restore to the two cell-tool processes; the preceding issue #182 check measured 27118ms and 27201ms. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
+      "timeoutReason": "The issue #184 review workspace check measured 27123ms on Windows on 2026-10-02 across eleven processes, including release over the inspector and without a work-plane hit, interrupted draft decisions, whole-stroke translation/undo/redrawing, box corners/height, large confirmation/undo/redo and region save/restore. The preceding issue #184 checks measured 35286ms and 26998ms; issue #182 measured 27118ms and 27201ms. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
     },
     {
       "id": "godot.logging-smoke",

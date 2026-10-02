@@ -907,7 +907,7 @@ internal static class Program
                 else if (leg == "cell-tool-save")
                 {
                     Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT height=3 exact_shared=true");
-                    Console.WriteLine("WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true focus_commit=true console_discard=true box_cells=16 shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
+                    Console.WriteLine("WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true no_plane_release_commit=true outside_motion_ignored=true focus_commit=true console_discard=true brush_draft_prompt=true brush_translate_undo=true brush_redraw_after_discard=true box_cells=16 box_draft_prompt=true shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
                     Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false pending_region_cells=2");
                 }
                 else if (leg == "cell-tool-resume")
@@ -2014,9 +2014,6 @@ It "real-list" {
         $classification = $expected[$class].Split("/")
         Assert-Equal "$class family" $classification[0] $case.Family
         $expectedScopes = ($classification[1].Split(",") | Sort-Object) -join ","
-        if ($case.Id -eq "Train.Tests.VoxelRegionTests.Pending_regions_encode_save_restore_and_execute_in_acceptance_order") {
-            $expectedScopes = "persistence,world-edit,world-editor"
-        }
         $actualScopes = ($case.Scopes.Split(",") | Sort-Object) -join ","
         Assert-Equal "$class scopes" $expectedScopes $actualScopes
         Assert-Equal "$class group" $classification[2] $case.Group
