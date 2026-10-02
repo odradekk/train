@@ -675,6 +675,7 @@ public sealed class WorldEditorObservationTests
         var down = new ObservationVector(0, -1, 0);
         var locoHit = WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[0], locoHit!.VehicleId);
+        Assert.AreEqual(session.Vehicles.Single(vehicle => vehicle.Id == locoHit.VehicleId).Parts.Single(part => part.Cell == locoHit.Cell).Id, locoHit.PartId);
         var carriageHit = WorldEditorInspector.RaycastVehicles(session, sample, carriage.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[1], carriageHit!.VehicleId);
         Assert.IsTrue(carriageHit.Distance > 10 && carriageHit.Distance < 20);

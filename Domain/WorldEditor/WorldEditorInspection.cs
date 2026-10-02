@@ -45,7 +45,7 @@ public sealed record WorldEditorInspection(
 
 public sealed record WorldEditorListEntry(ObservedObject Object, string Label);
 
-public sealed record WorldEditorVehicleHit(EntityId VehicleId, LocalVoxelCoord Cell, double Distance);
+public sealed record WorldEditorVehicleHit(EntityId VehicleId, EntityId PartId, LocalVoxelCoord Cell, double Distance);
 
 public static class WorldEditorInspector
 {
@@ -144,7 +144,7 @@ public static class WorldEditorInspector
                     distance > maxDistance ||
                     (best is not null && distance >= best.Distance))
                     continue;
-                best = new WorldEditorVehicleHit(vehicle.Id, part.Cell, distance);
+                best = new WorldEditorVehicleHit(vehicle.Id, part.Id, part.Cell, distance);
             }
         }
 

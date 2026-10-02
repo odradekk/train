@@ -122,7 +122,7 @@ public partial class WorldEditorObservationView : Node3D
         if (Observer.PartVehicleId is { } owner)
         {
             item = item == ObservedObject.Vehicle(owner) && vehicle is not null
-                ? ObservedObject.VehiclePart(owner, _session.Vehicles.Single(v => v.Id == owner).Parts.Single(part => part.Cell == vehicle.Cell).Id)
+                ? ObservedObject.VehiclePart(owner, vehicle.PartId)
                 : null;
         }
         var status = item is { } picked ? Observer.Select(picked) : (WorldEditorObservationStatus?)null;
