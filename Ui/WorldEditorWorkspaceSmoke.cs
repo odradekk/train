@@ -335,7 +335,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 5:
                 Require(session.Query(HistoryCell).Voxel is not null && session.UndoCount == 1 && session.RedoCount == 0,
                     "console redo did not consume the panel-created redo branch");
-                var line = view.HeightInput.GetLineEdit();
+                var line = view.LayerInput.GetLineEdit();
                 _historyLineEditText = line.Text;
                 Click(line);
                 SendKey(Godot.Key.A, pressed: true, ctrl: true);
@@ -345,7 +345,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 _phase++;
                 return;
             case 6:
-                Require(view.HeightInput.GetLineEdit().Text == _historyLineEditText &&
+                Require(view.LayerInput.GetLineEdit().Text == _historyLineEditText &&
                         session.Query(HistoryCell).Voxel is not null && session.UndoCount == 1 && session.RedoCount == 0,
                     "focused LineEdit Ctrl+Z changed world history or failed to undo its own text");
                 scene.SetEditInputs(HistoryCell, default, 25, 0);
@@ -533,13 +533,13 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 return;
             case 1:
                 Require(state.Active,
-                    $"real tool click did not activate the cell tool: active={state.Active} height={state.Height} definition={state.DefinitionId} draft={state.HasDraft}");
-                ReplaceNumber(view.HeightInput, 3);
+                    $"real tool click did not activate the cell tool: active={state.Active} Layer={state.Layer} definition={state.DefinitionId} draft={state.HasDraft}");
+                ReplaceNumber(view.LayerInput, 3);
                 _phase++;
                 return;
             case 2:
-                Require(state.Active && state.Height == 3 && !state.HasDraft,
-                    $"real height input did not establish the horizontal plane: active={state.Active} height={state.Height} definition={state.DefinitionId} draft={state.HasDraft}");
+                Require(state.Active && state.Layer == 3 && !state.HasDraft,
+                    $"real Layer input did not establish the horizontal plane: active={state.Active} Layer={state.Layer} definition={state.DefinitionId} draft={state.HasDraft}");
                 _cellToolDefinition = WorldEditorSequences.EditVoxelId;
                 _cellToolDefinitionIndex = state.Definitions.ToList().IndexOf(_cellToolDefinition);
                 Require(_cellToolDefinitionIndex >= 0, "cell-tool content omitted the editable voxel definition");
@@ -553,8 +553,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 _phase++;
                 return;
             case 4:
-                Require(state.Active && state.Height == 3 && state.DefinitionId == _cellToolDefinition && !state.HasDraft,
-                    $"definition setting unexpectedly created a draft: active={state.Active} height={state.Height} definition={state.DefinitionId} expected={_cellToolDefinition} draft={state.HasDraft}");
+                Require(state.Active && state.Layer == 3 && state.DefinitionId == _cellToolDefinition && !state.HasDraft,
+                    $"definition setting unexpectedly created a draft: active={state.Active} Layer={state.Layer} definition={state.DefinitionId} expected={_cellToolDefinition} draft={state.HasDraft}");
                 Require(state.Orientations.Count > 1, "selected voxel definition does not exercise allowed orientation choice");
                 _cellToolOrientation = state.Orientations[1];
                 Click(view.OrientationInput);
@@ -673,23 +673,23 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 20:
                 Require(state.Active && !state.HasDraft, "plane-switch fixture did not activate its tool");
                 state.SetExact(new WorldVoxelCoord(7, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
-                ReplaceNumber(view.HeightInput, 4);
+                ReplaceNumber(view.LayerInput, 4);
                 _phase++;
                 return;
             case 21:
-                Require(view.DraftPrompt.Visible && state.HasDraft && state.Height == 3,
-                    "changing plane height did not keep the original plane behind a draft decision");
+                Require(view.DraftPrompt.Visible && state.HasDraft && state.Layer == 3,
+                    "changing plane Layer did not keep the original plane behind a draft decision");
                 Click(view.DraftDiscardButton);
                 _phase++;
                 return;
             case 22:
-                Require(!state.HasDraft && state.Height == 4,
-                    $"discarding the plane-switch draft did not apply the requested height: height={state.Height} input={view.HeightInput.Value} draft={state.HasDraft} prompt={view.DraftPrompt.Visible}");
-                ReplaceNumber(view.HeightInput, 3);
+                Require(!state.HasDraft && state.Layer == 4,
+                    $"discarding the plane-switch draft did not apply the requested Layer: Layer={state.Layer} input={view.LayerInput.Value} draft={state.HasDraft} prompt={view.DraftPrompt.Visible}");
+                ReplaceNumber(view.LayerInput, 3);
                 _phase++;
                 return;
             case 23:
-                Require(state.Height == 3 && !state.HasDraft, "plane-switch continuation did not return to its original height");
+                Require(state.Layer == 3 && !state.HasDraft, "plane-switch continuation did not return to its original Layer");
                 Click(view.SelectToolButton);
                 _phase++;
                 return;
@@ -774,11 +774,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(session.Query(CellToolCollisionCell).IsOccupied &&
                         scene.Colliders.QueryPublishedRay(scene.GetWorld3D(), new(11.5f, 2.5f, 12.5f), new(13.5f, 2.5f, 12.5f)) is null,
                     "non-colliding voxel became a pickable surface");
-                state.SetHeight(2);
+                state.SetLayer(2);
                 Require(state.TryPlaneTarget(new(12.5, 6, 12.5), new(0, -1, 0), out var planeCell) &&
                         planeCell == CellToolCollisionCell,
                     "an absent collider prevented targeting a plane layer");
-                state.SetHeight(3);
+                state.SetLayer(3);
                 Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
                 {
                     new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Remove, null)
@@ -936,7 +936,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 48:
                 Require(!scene.PromptVisible && scene.GetTree().CurrentScene == scene,
                     "cancelling after the draft decision left the editor");
-                GD.Print($"WORKSPACE_CELL_TOOL_INPUT height={state.Height} mouse_cell={CellToolCommittedCellForRun} settings_follow=true replace_collision=true missing_definition_kept=true exact_shared=true rejected_kept=true tool_guard=discard target_guard=discard level_guard=commit leave_guard=discard save_kept_draft=true");
+                GD.Print($"WORKSPACE_CELL_TOOL_INPUT Layer={state.Layer} mouse_cell={CellToolCommittedCellForRun} settings_follow=true replace_collision=true missing_definition_kept=true exact_shared=true rejected_kept=true tool_guard=discard target_guard=discard level_guard=commit leave_guard=discard save_kept_draft=true");
                 GD.Print($"WORKSPACE_CELL_TOOL_SAVED id={session.SaveId.GetValueOrDefault():D} committed=true pending=1 draft=false");
                 _finished = true;
                 Done(scene);
@@ -959,10 +959,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.VerticalX);
                 break;
             case 2:
-                ReplaceNumber(view.HeightInput, VerticalXCell.X);
+                ReplaceNumber(view.LayerInput, VerticalXCell.X);
                 break;
             case 3:
-                Require(state.Plane == VoxelWorkPlane.VerticalX && state.Height == VerticalXCell.X && !state.HasDraft,
+                Require(state.Plane == VoxelWorkPlane.VerticalX && state.Layer == VerticalXCell.X && !state.HasDraft,
                     "real plane selection did not establish the X layer");
                 Motion(VerticalScreen(VerticalXCell, VoxelWorkPlane.VerticalX));
                 break;
@@ -980,7 +980,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.VerticalZ);
                 break;
             case 7:
-                Require(state.Plane == VoxelWorkPlane.VerticalZ && state.Height == VerticalZCell.Z,
+                Require(state.Plane == VoxelWorkPlane.VerticalZ && state.Layer == VerticalZCell.Z,
                     "real plane selection did not establish the Z layer");
                 Motion(VerticalScreen(VerticalZCell, VoxelWorkPlane.VerticalZ));
                 break;
@@ -1013,31 +1013,56 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 13:
                 Require(session.Query(SurfaceOutsideCell).Voxel is not null && !state.HasDraft,
                     "real picked surface click did not place outside the hit cell");
-                ReplaceNumber(view.CoordinateInputs[1], 9);
+                Click(view.OperationInput);
                 break;
             case 14:
+                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Remove);
+                break;
+            case 15:
+                Require(state.Position == VerticalZCell && state.Operation == VoxelCellOperation.Remove && state.Preview.Succeeded && !state.HasDraft,
+                    "changing the surface operation did not retarget the shared preview to the hit cell");
+                Click(view.CommitButton);
+                break;
+            case 16:
+                Require(!session.Query(VerticalZCell).IsOccupied && session.Query(SurfaceOutsideCell).IsOccupied && !state.HasDraft,
+                    "surface operation button changed the neighbor instead of removing the hit cell");
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(VerticalZCell, VoxelCellOperation.Add, new VoxelCellContent(state.DefinitionId, state.Orientation))
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied }, "could not restore the surface fixture");
+                Click(view.OperationInput);
+                break;
+            case 17:
+                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Add);
+                break;
+            case 18:
+                Require(state.Position == SurfaceOutsideCell && state.Operation == VoxelCellOperation.Add && !state.HasDraft,
+                    "switching back to addition did not retarget the surface's outside neighbor");
+                ReplaceNumber(view.CoordinateInputs[1], 9);
+                break;
+            case 19:
                 Require(state.HasDraft && state.Position == SurfaceOutsideCell with { Y = 9 } &&
                         state.CurrentEdit.Targets.Single().Position == state.Position,
                     "surface precise input did not share the preview across heights");
                 Motion(SurfaceScreen());
                 Click(view.PlaneInput);
                 break;
-            case 15:
+            case 20:
                 ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.Horizontal);
                 break;
-            case 16:
+            case 21:
                 Require(state.Position == SurfaceOutsideCell with { Y = 9 } && state.Plane == VoxelWorkPlane.Surface && view.DraftPrompt.Visible,
                     "plane switch redirected an existing surface draft");
                 Click(view.DraftDiscardButton);
                 break;
-            case 17:
+            case 22:
                 Require(!state.HasDraft && state.Plane == VoxelWorkPlane.Horizontal,
                     "explicit draft discard did not apply the requested plane");
-                ReplaceNumber(view.HeightInput, 3);
+                ReplaceNumber(view.LayerInput, 3);
                 Click(view.SelectToolButton);
                 break;
-            case 18:
-                Require(!state.Active && !state.HasDraft && state.Height == 3 && scene.Camera.GlobalPosition == _cellToolCamera,
+            case 23:
+                Require(!state.Active && !state.HasDraft && state.Layer == 3 && scene.Camera.GlobalPosition == _cellToolCamera,
                     "work-plane editing changed camera state or left a draft");
                 GD.Print("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
                 _workPlanesChecked = true;
@@ -1093,11 +1118,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                         session.Query(CellToolPendingCell).Voxel is null,
                     "fresh process did not restore committed and pending cell edits without a UI draft");
                 Click(view.VoxelToolButton);
-                ReplaceNumber(view.HeightInput, 4);
+                ReplaceNumber(view.LayerInput, 4);
                 _phase++;
                 return;
             case 1:
-                Require(state.Active && state.Height == 4 && !state.HasDraft,
+                Require(state.Active && state.Layer == 4 && !state.HasDraft,
                     "continued cell tool did not accept the horizontal plane input");
                 var world = ScreenCenter(scene.Observation!.WorldRect);
                 Motion(world);

@@ -17,7 +17,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     private Label3D _axes = null!;
     private bool _syncing;
     private Action? _afterDraft;
-    private int _gridHeight = int.MinValue;
+    private int _gridLayer = int.MinValue;
     private VoxelWorkPlane _gridPlane;
     private WorldVoxelCoord _gridCenter;
     private Func<Vector2, WorldEditorPick> _pick = null!;
@@ -30,7 +30,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     public WorldEditorVoxelTool State { get; private set; } = null!;
     internal Button SelectToolButton { get; private set; } = null!;
     internal Button VoxelToolButton { get; private set; } = null!;
-    internal SpinBox HeightInput { get; private set; } = null!;
+    internal SpinBox LayerInput { get; private set; } = null!;
     internal OptionButton PlaneInput { get; private set; } = null!;
     internal OptionButton DefinitionInput { get; private set; } = null!;
     internal OptionButton OrientationInput { get; private set; } = null!;
@@ -67,17 +67,17 @@ public partial class WorldEditorVoxelToolView : Node3D
             if (_syncing)
                 return;
             var mode = (VoxelWorkPlane)index;
-            var position = Math.Min(State.Height, PlaneSize(mode) - 1);
+            var position = Math.Min(State.Layer, PlaneSize(mode) - 1);
             RequestChange(() => { State.SetPlane(mode, position); _surface = null; _pointerTargetable = mode != VoxelWorkPlane.Surface; });
             Present();
         };
-        HeightInput = Spin(plane, 0, session.Identity.Bounds.SizeY - 1, 0);
-        HeightInput.ValueChanged += value =>
+        LayerInput = Spin(plane, 0, session.Identity.Bounds.SizeY - 1, 0);
+        LayerInput.ValueChanged += value =>
         {
             if (_syncing)
                 return;
-            if (!State.SetHeight((int)value))
-                RequestChange(() => State.SetHeight((int)value));
+            if (!State.SetLayer((int)value))
+                RequestChange(() => State.SetLayer((int)value));
             Present();
         };
         tools.MoveChild(plane, 2);
@@ -193,6 +193,9 @@ public partial class WorldEditorVoxelToolView : Node3D
             return;
         State.SetSettings(operation == VoxelCellOperation.Remove ? State.DefinitionId : _definitions[DefinitionInput.Selected],
             operation == VoxelCellOperation.Remove ? State.Orientation : _orientations[OrientationInput.Selected], operation);
+        if (!State.HasDraft && State.Plane == VoxelWorkPlane.Surface && _pointerTargetable &&
+            _surface?.WorldCell is { } hit && _surface.AdjacentCell is { } adjacent)
+            State.Hover(State.SurfaceTarget(hit, adjacent));
         Present();
     }
 
@@ -254,9 +257,9 @@ public partial class WorldEditorVoxelToolView : Node3D
             _parameters.Visible = State.Active;
             SelectToolButton.ButtonPressed = !State.Active;
             VoxelToolButton.ButtonPressed = State.Active;
-            HeightInput.SetValueNoSignal(State.Height);
-            HeightInput.MaxValue = PlaneSize(State.Plane) - 1;
-            HeightInput.Editable = State.Plane != VoxelWorkPlane.Surface;
+            LayerInput.SetValueNoSignal(State.Layer);
+            LayerInput.MaxValue = PlaneSize(State.Plane) - 1;
+            LayerInput.Editable = State.Plane != VoxelWorkPlane.Surface;
             PlaneInput.Select((int)State.Plane);
             var ids = State.Definitions;
             if (!ids.SequenceEqual(_definitions))
@@ -284,7 +287,7 @@ public partial class WorldEditorVoxelToolView : Node3D
             var canPreview = State.DefinitionId.Namespace is not null || State.Operation == VoxelCellOperation.Remove;
             var preview = canPreview ? State.Preview : new VoxelCellSetResult(VoxelCellSetStatus.UnknownDefinition, State.Position);
             var planeText = State.Plane == VoxelWorkPlane.Surface ? "拾取表面 · 添加吸附到面外相邻格，移除／替换吸附到命中格"
-                : $"{PlaneAxis(State.Plane)} 平面 {State.Height}";
+                : $"{PlaneAxis(State.Plane)} 平面 {State.Layer}";
             _preview.Text = $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · {planeText}\n" +
                 "整数格吸附 · +X 红线 · +Y 绿线 · +Z 蓝线\n" +
                 (!_pointerTargetable && !State.HasDraft ? "光标没有可用目标，可填写精确坐标\n" : "") +
@@ -342,7 +345,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     private void UpdateGrid()
     {
         var plane = State.Plane;
-        var position = State.Height;
+        var position = State.Layer;
         if (plane == VoxelWorkPlane.Surface)
         {
             if (_surface?.WorldNormal is not { } normal || _surface.WorldCell is not { } hit)
@@ -355,9 +358,9 @@ public partial class WorldEditorVoxelToolView : Node3D
                 _ => hit.Y + (normal.Y > 0 ? 1 : 0)
             };
         }
-        if (_gridHeight == position && _gridPlane == plane && _gridCenter == State.Position)
+        if (_gridLayer == position && _gridPlane == plane && _gridCenter == State.Position)
             return;
-        _gridHeight = position;
+        _gridLayer = position;
         _gridPlane = plane;
         _gridCenter = State.Position;
         var bounds = _session.Identity.Bounds;

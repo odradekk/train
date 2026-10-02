@@ -111,7 +111,7 @@ public sealed class WorldEditorVoxelDraftTests
         using var tool = new WorldEditorVoxelTool(session);
         tool.SetActive(true);
         var authority = WorldSaveAuthority.Fingerprint(session);
-        tool.SetHeight(2);
+        tool.SetLayer(2);
         tool.Hover(Cell);
         Assert.AreEqual(Cell, tool.CurrentEdit.Targets[0].Position);
         Assert.IsFalse(tool.HasDraft);
@@ -119,7 +119,7 @@ public sealed class WorldEditorVoxelDraftTests
         tool.SetExact(Cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity, VoxelCellOperation.Remove);
         tool.Hover(new(3, 2, 1));
         Assert.AreEqual(Cell, tool.Position);
-        Assert.IsFalse(tool.SetHeight(3));
+        Assert.IsFalse(tool.SetLayer(3));
         Assert.IsFalse(tool.SetActive(false));
         Assert.AreEqual(VoxelCellSetStatus.Empty, ((VoxelCellSetResult)tool.Commit().Result!).Status);
         Assert.IsTrue(tool.HasDraft);
@@ -128,7 +128,7 @@ public sealed class WorldEditorVoxelDraftTests
         Assert.AreEqual(WorldEditState.Executed, tool.Commit().Record!.State);
         Assert.IsFalse(tool.HasDraft);
         Assert.IsTrue(session.Query(Cell).IsOccupied);
-        Assert.IsTrue(tool.SetHeight(3));
+        Assert.IsTrue(tool.SetLayer(3));
         Assert.IsTrue(tool.SetActive(false));
     }
 

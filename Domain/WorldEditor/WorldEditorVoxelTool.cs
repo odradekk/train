@@ -25,7 +25,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public bool CanUndoDraft => HasDraft && !_session.IsChangingWorld && _undo.Count > 0;
     public bool CanRedoDraft => HasDraft && !_session.IsChangingWorld && _redo.Count > 0;
     public ulong HistoryEvictionCount { get; private set; }
-    public int Height { get; private set; }
+    public int Layer { get; private set; }
     public VoxelWorkPlane Plane { get; private set; }
     public WorldVoxelCoord Position { get; private set; }
     public VoxelDefinitionId DefinitionId { get; private set; }
@@ -55,16 +55,16 @@ public sealed class WorldEditorVoxelTool : IDisposable
         return true;
     }
 
-    public bool SetHeight(int height) => SetPlane(Plane, height);
+    public bool SetLayer(int layer) => SetPlane(Plane, layer);
 
     public bool SetPlane(VoxelWorkPlane plane, int position)
     {
-        if (plane == Plane && position == Height)
+        if (plane == Plane && position == Layer)
             return true;
         if (HasDraft || _session.IsChangingWorld)
             return false;
         Plane = plane;
-        Height = position;
+        Layer = position;
         Position = plane switch
         {
             VoxelWorkPlane.VerticalX => Position with { X = position },
@@ -88,16 +88,16 @@ public sealed class WorldEditorVoxelTool : IDisposable
         };
         if (Math.Abs(component.Item2) < 1e-7)
             return false;
-        var distance = (Height - component.Item1) / component.Item2;
+        var distance = (Layer - component.Item1) / component.Item2;
         if (distance < 0 || !double.IsFinite(distance))
             return false;
         var point = origin + direction * distance;
         cell = new((int)Math.Floor(point.X), (int)Math.Floor(point.Y), (int)Math.Floor(point.Z));
         cell = Plane switch
         {
-            VoxelWorkPlane.Horizontal => cell with { Y = Height },
-            VoxelWorkPlane.VerticalX => cell with { X = Height },
-            _ => cell with { Z = Height }
+            VoxelWorkPlane.Horizontal => cell with { Y = Layer },
+            VoxelWorkPlane.VerticalX => cell with { X = Layer },
+            _ => cell with { Z = Layer }
         };
         return true;
     }
@@ -158,7 +158,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
         _undo.Clear();
         _redo.Clear();
         HistoryEvictionCount = 0;
-        Height = 0;
+        Layer = 0;
         Plane = VoxelWorkPlane.Horizontal;
         Position = default;
     }
