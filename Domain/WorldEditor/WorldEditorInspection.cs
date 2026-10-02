@@ -17,8 +17,13 @@ public sealed record WorldEditorInspection(
     string Eligibility,
     IReadOnlyList<string> Failures)
 {
+    public bool IsPart => Object.Kind == ObservedObjectKind.VehiclePart;
+    public string CoordinateSystem => IsPart ? "vehicle-local" : "world";
+
     public IEnumerable<string> Lines()
     {
+        yield return "level " + (IsPart ? "part" : "whole");
+        yield return "coordinates " + CoordinateSystem;
         yield return "identity " + Identity;
         yield return "owner " + Owner;
         yield return "durability " + Durability;
@@ -28,6 +33,8 @@ public sealed record WorldEditorInspection(
 
     public IEnumerable<string> LinesZh()
     {
+        yield return "层级：" + (IsPart ? "车辆零件" : "整体");
+        yield return "坐标系：" + (IsPart ? "车辆局部坐标" : "世界坐标");
         yield return "身份：" + Identity;
         yield return "所属：" + Owner;
         yield return "耐久：" + Durability;
@@ -42,9 +49,15 @@ public sealed record WorldEditorVehicleHit(EntityId VehicleId, LocalVoxelCoord C
 
 public static class WorldEditorInspector
 {
-    public static IReadOnlyList<WorldEditorListEntry> List(VoxelDevelopmentSession session)
+    public static IReadOnlyList<WorldEditorListEntry> List(VoxelDevelopmentSession session, EntityId? partVehicleId = null)
     {
         ArgumentNullException.ThrowIfNull(session);
+        if (partVehicleId is { } partOwner)
+            return session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == partOwner)?.Parts
+                .OrderBy(part => part.Id.Value)
+                .Select(part => new WorldEditorListEntry(ObservedObject.VehiclePart(partOwner, part.Id),
+                    $"零件 {part.Id.Value} {part.DefinitionId.Value} · 局部 ({part.Cell.X},{part.Cell.Y},{part.Cell.Z})"))
+                .ToArray() ?? Array.Empty<WorldEditorListEntry>();
         var assemblies = session.QueryTrainAssemblies();
         var entries = new List<WorldEditorListEntry>();
         foreach (var vehicle in session.QueryComposites())
@@ -72,9 +85,30 @@ public static class WorldEditorInspector
         return item.Kind switch
         {
             ObservedObjectKind.Vehicle => InspectVehicle(session, item),
+            ObservedObjectKind.VehiclePart => InspectPart(session, item),
             ObservedObjectKind.RailSegment => InspectSegment(session, item),
             _ => InspectCell(session, item)
         };
+    }
+
+    /// <summary>A rail voxel belongs to its segment; shared endpoint cells resolve to the lowest stable segment id.</summary>
+    public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
+        session.Rails.TryGetOccupancy(cell, out var occupancy) && occupancy.Supports.Count > 0
+            ? ObservedObject.Segment(occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId)
+            : ObservedObject.WorldCell(cell);
+
+    private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
+    {
+        var vehicle = session.QueryComposite(item.Id);
+        var part = vehicle?.Parts.FirstOrDefault(part => part.Id == item.PartId);
+        if (part is null)
+            return null;
+        var damaged = session.QueryDamagedParts().FirstOrDefault(value => value.PartId == part.Id);
+        return new WorldEditorInspection(item,
+            $"part {part.Id.Value} {part.DefinitionId.Value} local {part.Cell.X},{part.Cell.Y},{part.Cell.Z} {part.Orientation}",
+            $"vehicle {item.Id.Value}",
+            $"{part.CurrentDurability}/{damaged?.MaxDurability ?? part.CurrentDurability}",
+            vehicle!.OperationalCondition.ToString(), Array.Empty<string>());
     }
 
     /// <summary>

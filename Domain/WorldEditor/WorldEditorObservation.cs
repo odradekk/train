@@ -10,7 +10,8 @@ public enum ObservedObjectKind
 {
     Vehicle,
     RailSegment,
-    WorldCell
+    WorldCell,
+    VehiclePart
 }
 
 /// <summary>
@@ -23,10 +24,13 @@ public readonly record struct ObservedObject(
     EntityId Id,
     WorldVoxelCoord Cell,
     EntityId? RuntimeId,
-    VoxelDefinitionId? Definition = null)
+    VoxelDefinitionId? Definition = null,
+    EntityId? PartId = null)
 {
     public static ObservedObject Vehicle(EntityId id) => new(ObservedObjectKind.Vehicle, id, default, null);
     public static ObservedObject Segment(EntityId id) => new(ObservedObjectKind.RailSegment, id, default, null);
+    public static ObservedObject VehiclePart(EntityId vehicleId, EntityId partId) =>
+        new(ObservedObjectKind.VehiclePart, vehicleId, default, null, PartId: partId);
     public static ObservedObject WorldCell(WorldVoxelCoord cell, EntityId? runtimeId = null, VoxelDefinitionId? definition = null) =>
         new(ObservedObjectKind.WorldCell, default, cell, runtimeId, definition);
 
@@ -34,6 +38,7 @@ public readonly record struct ObservedObject(
     {
         ObservedObjectKind.Vehicle => "vehicle " + Id.Value.ToString(CultureInfo.InvariantCulture),
         ObservedObjectKind.RailSegment => "segment " + Id.Value.ToString(CultureInfo.InvariantCulture),
+        ObservedObjectKind.VehiclePart => $"vehicle {Id.Value} part {PartId!.Value.Value}",
         _ => string.Create(CultureInfo.InvariantCulture, $"cell {Cell.X},{Cell.Y},{Cell.Z}")
     };
 
@@ -41,6 +46,7 @@ public readonly record struct ObservedObject(
     {
         ObservedObjectKind.Vehicle => "车辆 " + Id.Value.ToString(CultureInfo.InvariantCulture),
         ObservedObjectKind.RailSegment => "轨段 " + Id.Value.ToString(CultureInfo.InvariantCulture),
+        ObservedObjectKind.VehiclePart => $"车辆 {Id.Value} 零件 {PartId!.Value.Value}",
         _ => string.Create(CultureInfo.InvariantCulture, $"世界格 {Cell.X},{Cell.Y},{Cell.Z}")
     };
 }
@@ -162,6 +168,7 @@ public sealed class WorldEditorObserver : IDisposable
     }
 
     public ObservedObject? Selection { get; private set; }
+    public EntityId? PartVehicleId { get; private set; }
     public WorldEditorCameraMode Mode { get; private set; } = WorldEditorCameraMode.Free;
     public ObservedObject? Target { get; private set; }
     public bool Transitioning { get; private set; }
@@ -179,6 +186,7 @@ public sealed class WorldEditorObserver : IDisposable
     public bool Exists(ObservedObject item) => item.Kind switch
     {
         ObservedObjectKind.Vehicle => _session.Vehicles.Any(vehicle => vehicle.Id == item.Id),
+        ObservedObjectKind.VehiclePart => _session.Vehicles.Any(vehicle => vehicle.Id == item.Id && vehicle.Parts.Any(part => part.Id == item.PartId)),
         ObservedObjectKind.RailSegment => _session.Rails.Segments.Any(segment => segment.Id == item.Id),
         _ => _session.Query(item.Cell).Voxel is { } voxel &&
              voxel.RuntimeId == item.RuntimeId &&
@@ -193,12 +201,29 @@ public sealed class WorldEditorObserver : IDisposable
         if (!Exists(item))
             return WorldEditorObservationStatus.UnknownObject;
         Selection = item;
+        PartVehicleId = item.Kind == ObservedObjectKind.VehiclePart ? item.Id : null;
         return WorldEditorObservationStatus.Selected;
     }
+
+    /// <summary>Entering local selection is explicit and never changes the camera or the authoritative world.</summary>
+    public WorldEditorObservationStatus EnterVehicleParts()
+    {
+        Reconcile();
+        if (Selection is not { } selected)
+            return WorldEditorObservationStatus.NoSelection;
+        if (selected.Kind != ObservedObjectKind.Vehicle)
+            return WorldEditorObservationStatus.NotVehicle;
+        var part = _session.Vehicles.Single(vehicle => vehicle.Id == selected.Id).Parts.OrderBy(part => part.Id.Value).FirstOrDefault();
+        return part is null ? WorldEditorObservationStatus.UnknownObject : Select(ObservedObject.VehiclePart(selected.Id, part.Id));
+    }
+
+    public WorldEditorObservationStatus ReturnToWhole() => PartVehicleId is { } id
+        ? Select(ObservedObject.Vehicle(id)) : WorldEditorObservationStatus.NotVehicle;
 
     public WorldEditorObservationStatus ClearSelection()
     {
         Selection = null;
+        PartVehicleId = null;
         return WorldEditorObservationStatus.Cleared;
     }
 
@@ -223,8 +248,9 @@ public sealed class WorldEditorObserver : IDisposable
         Reconcile();
         if (Selection is not { } selected)
             return WorldEditorObservationStatus.NoSelection;
-        if (selected.Kind != ObservedObjectKind.Vehicle)
+        if (selected.Kind is not (ObservedObjectKind.Vehicle or ObservedObjectKind.VehiclePart))
             return WorldEditorObservationStatus.NotVehicle;
+        selected = ObservedObject.Vehicle(selected.Id);
         var frame = VehicleFrame(_session, sample ?? _session.QueryDisplayPoses(), selected.Id)!;
         BeginTransition();
         Mode = WorldEditorCameraMode.Follow;
@@ -305,6 +331,8 @@ public sealed class WorldEditorObserver : IDisposable
         }
 
         _notices.AddRange(raised);
+        if (PartVehicleId is { } owner && (replacement is not null || !Exists(ObservedObject.Vehicle(owner))))
+            PartVehicleId = null;
         return raised;
     }
 
@@ -339,6 +367,12 @@ public sealed class WorldEditorObserver : IDisposable
         ArgumentNullException.ThrowIfNull(sample);
         switch (item.Kind)
         {
+            case ObservedObjectKind.VehiclePart:
+                var part = _session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == item.Id)?.Parts.FirstOrDefault(part => part.Id == item.PartId);
+                if (part is null || VehicleFrame(_session, sample, item.Id) is not { } frame)
+                    return Pose.Look;
+                var point = frame.Transform.TransformPoint(part.Cell.X + 0.5, part.Cell.Y + 0.5, part.Cell.Z + 0.5);
+                return new ObservationVector(point.X, point.Y, point.Z);
             case ObservedObjectKind.Vehicle:
                 return VehicleFrame(_session, sample, item.Id)?.Center ?? Pose.Look;
             case ObservedObjectKind.RailSegment:
