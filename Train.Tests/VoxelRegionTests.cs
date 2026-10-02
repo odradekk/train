@@ -274,6 +274,41 @@ public sealed class VoxelRegionTests
     }
 
     [TestMethod]
+    public void Maximum_brush_stroke_keeps_bounded_draft_history_and_records_motion_cost()
+    {
+        using var harness = Blank(128, 16, 32);
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetMode(WorldEditorVoxelMode.Brush);
+        tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        tool.BeginStroke(new(0, 8, 0));
+        var allocated = GC.GetAllocatedBytesForCurrentThread();
+        var watch = Stopwatch.StartNew();
+        for (var z = 0; z < 32; z++)
+        for (var index = 0; index < 128; index++)
+            tool.ExtendStroke(new(z % 2 == 0 ? index : 127 - index, 8, z));
+        watch.Stop();
+        var motionMs = watch.Elapsed.TotalMilliseconds;
+        var motionBytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        tool.InterruptStroke();
+        Assert.AreEqual(0, harness.Session.World.VoxelCount);
+        Assert.AreEqual(4096, tool.RegionPreview.AffectedCount);
+        var undoCount = 0;
+        while (tool.UndoDraft()) undoCount++;
+        Assert.AreEqual(VoxelDevelopmentSession.VoxelHistoryCapacity, undoCount);
+        while (tool.RedoDraft()) { }
+        Assert.AreEqual(4096, tool.RegionPreview.AffectedCount);
+        Assert.AreEqual(WorldEditRefusal.LargeEditConfirmationRequired, tool.Commit().Refusal);
+        watch.Restart();
+        var submitted = tool.Commit(confirmLargeEdit: true);
+        watch.Stop();
+        Assert.AreEqual(WorldEditState.Executed, submitted.Record!.State);
+        Assert.AreEqual(4096, harness.Session.World.VoxelCount);
+        Assert.AreEqual(1, harness.Session.UndoCount);
+        TestContext.WriteLine($"4095 brush motions={motionMs:F3} ms allocated={motionBytes} bytes confirmed_submit={watch.Elapsed.TotalMilliseconds:F3} ms");
+    }
+
+    [TestMethod]
     public void Maximum_region_records_preview_submit_and_payload_measurements_without_timing_assertions()
     {
         using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);

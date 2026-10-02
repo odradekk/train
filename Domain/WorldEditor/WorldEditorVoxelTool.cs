@@ -214,7 +214,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
             return;
         }
         if (steps == 0) return;
-        RecordDraftChange(CaptureDraft() with { Position = cell });
+        AddDraftUndo(CaptureDraft());
         // Interpolate cursor cells so a quick motion cannot leave holes between delivered events.
         for (var step = 1; step <= steps && !_strokeTooLarge; step++)
             AddBrush(new((int)(previous.X + Math.Round((cell.X - (double)previous.X) * step / steps)), previous.Y,
@@ -331,6 +331,11 @@ public sealed class WorldEditorVoxelTool : IDisposable
             previous.BoxCorner == next.BoxCorner && previous.BoxHeight == next.BoxHeight &&
             previous.StrokeTooLarge == next.StrokeTooLarge && previous.Stroke.SequenceEqual(next.Stroke))
             return;
+        AddDraftUndo(previous);
+    }
+
+    private void AddDraftUndo(DraftState previous)
+    {
         _undo.Add(previous);
         _redo.Clear();
         if (_undo.Count > VoxelDevelopmentSession.VoxelHistoryCapacity)
