@@ -35,10 +35,10 @@ public sealed class CompositeConsoleCommands
             return resetId is null ? FormatReset() : string.Join('\n', FormatReset(), FormatManufactured(changed));
         }
 
-        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
-            atStep is { } step &&
+        if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var atStep, out var confirmEndHistory) &&
+            (atStep is not null || confirmEndHistory || _session.UndoCount > 0 || _session.RedoCount > 0) &&
             TryParseEdit(editArguments, out var edit))
-            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, step));
+            return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(edit, atStep, confirmEndHistory));
 
         if (TryManufacture(arguments, out var definitionId, out var pose))
             return FormatManufacture(_session.Manufacture(definitionId, pose));
@@ -98,7 +98,7 @@ public sealed class CompositeConsoleCommands
             $"Vehicle pages are {VehiclePageSize} entries, sorted by runtime id. Part pages are {PartPageSize} entries, sorted by local cell.",
             "Damage uses local cells on one vehicle, one event. Page numbers start at 1.",
             "Refit is one atomic transaction. Batch occupancy swaps are legal; a failed batch leaves authority unchanged.",
-            "manufacture/damage/add/remove/move/rotate/replace/batch accept a trailing at <step> to queue the edit.");
+            "manufacture/damage/add/remove/move/rotate/replace/batch accept trailing at <step> and confirm-end-history options.");
     }
 
     private bool TryRefit(IReadOnlyList<string> arguments, out string text)

@@ -12,6 +12,26 @@ internal static class WorldEditConsole
 {
     public const int DefaultLogCount = 8;
 
+    public static bool TrySplitSubmissionOptions(
+        IReadOnlyList<string> arguments,
+        out IReadOnlyList<string> rest,
+        out ulong? step,
+        out bool confirmEndHistory)
+    {
+        TrySplitHistoryConfirmation(arguments, out rest, out confirmEndHistory);
+        return TrySplitAt(rest, out rest, out step);
+    }
+
+    public static void TrySplitHistoryConfirmation(
+        IReadOnlyList<string> arguments,
+        out IReadOnlyList<string> rest,
+        out bool confirmEndHistory)
+    {
+        confirmEndHistory = arguments.Count > 0 &&
+            string.Equals(arguments[^1], "confirm-end-history", StringComparison.OrdinalIgnoreCase);
+        rest = confirmEndHistory ? arguments.Take(arguments.Count - 1).ToArray() : arguments;
+    }
+
     /// <summary>Splits a trailing <c>at &lt;step&gt;</c>; <paramref name="step"/> is null when absent.</summary>
     public static bool TrySplitAt(IReadOnlyList<string> arguments, out IReadOnlyList<string> rest, out ulong? step)
     {
@@ -29,7 +49,9 @@ internal static class WorldEditConsole
     public static string FormatSubmission(WorldEditSubmission submission)
     {
         if (!submission.Accepted)
-            return $"Edit {submission.Refusal}.";
+            return submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired
+                ? "Edit HistoryConfirmationRequired. This irreversible edit will clear undo and redo history; resubmit with trailing confirm-end-history."
+                : $"Edit {submission.Refusal}.";
         var record = submission.Record!;
         var head = $"Edit {record.Id} {WorldEditCodec.WireKind(record.Edit.Kind)}";
         var text = record.State == WorldEditState.Pending
@@ -38,6 +60,15 @@ internal static class WorldEditConsole
         return submission.Result is VoxelCellSetResult cells && cells.OwnerKind != VoxelCellOwnerKind.None
             ? string.Join('\n', text, FormatCellConflict(cells))
             : text;
+    }
+
+    public static string FormatHistorySubmission(VoxelDevelopmentSession session, Func<WorldEditSubmission> submit)
+    {
+        var evictions = session.HistoryEvictionCount;
+        var text = FormatSubmission(submit());
+        if (session.HistoryEvictionCount > evictions)
+            text = string.Join('\n', text, "History capacity reached; oldest undo record evicted.");
+        return text;
     }
 
     private static string FormatCellConflict(VoxelCellSetResult result) => result.OwnerKind switch

@@ -97,7 +97,17 @@ public sealed class WorldEditEncodingTests
                 new VoxelCellTarget(new WorldVoxelCoord(4, 5, 6), VoxelCellOperation.Remove, null)
             }),
             "{\"input_format_version\":1,\"kind\":\"voxel.cell-set\",\"targets\":[{\"position\":{\"x\":1,\"y\":2,\"z\":3},\"operation\":\"add\",\"content\":{\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"px_py\"}},{\"position\":{\"x\":4,\"y\":5,\"z\":6},\"operation\":\"remove\",\"content\":null}]}",
-            "3B1586B3298D14EDC6858E9B6304E4ECCC622159DD9ABE5AE494196B65E3A207")
+            "3B1586B3298D14EDC6858E9B6304E4ECCC622159DD9ABE5AE494196B65E3A207"),
+        ("voxel.cell-restore",
+            () => new VoxelCellRestoreEdit(new[]
+            {
+                new VoxelCellRestoreTarget(new WorldVoxelCoord(4, 5, 6),
+                    new VoxelCellState(new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity, 100), null),
+                new VoxelCellRestoreTarget(new WorldVoxelCoord(1, 2, 3), null,
+                    new VoxelCellState(new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Yaw90, 75))
+            }),
+            "{\"input_format_version\":1,\"kind\":\"voxel.cell-restore\",\"targets\":[{\"position\":{\"x\":1,\"y\":2,\"z\":3},\"expected\":null,\"content\":{\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"pz_py\",\"current_durability\":75}},{\"position\":{\"x\":4,\"y\":5,\"z\":6},\"expected\":{\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"px_py\",\"current_durability\":100},\"content\":null}]}",
+            "9C0BCFB844B1B77F32A3EA65504BAC15C79640BB10EAAD69D1A7A2F144399BE9")
     };
 
     private const string GoldenRecord =
@@ -142,6 +152,12 @@ public sealed class WorldEditEncodingTests
         var v = new CompositeDamageTarget(new EntityId(5), new LocalVoxelCoord(0, 1, 0), 3);
         var w = new CompositeDamageTarget(new EntityId(4), new LocalVoxelCoord(9, 9, 9), 3);
         Assert.AreEqual(new VehicleDamageEdit(new[] { v, w }).Canonical, new VehicleDamageEdit(new[] { w, v }).Canonical);
+
+        var restoreA = new VoxelCellRestoreTarget(new WorldVoxelCoord(1, 2, 3), null, null);
+        var restoreB = new VoxelCellRestoreTarget(new WorldVoxelCoord(1, 2, 2), null, null);
+        Assert.AreEqual(
+            new VoxelCellRestoreEdit(new[] { restoreA, restoreB }).Canonical,
+            new VoxelCellRestoreEdit(new[] { restoreB, restoreA }).Canonical);
 
         var forward = RefitOperations();
         var reversed = forward.Reverse().ToArray();
@@ -262,6 +278,28 @@ public sealed class WorldEditEncodingTests
             new VoxelCellTarget(default, (VoxelCellOperation)99,
                 new VoxelCellContent(ore, VoxelOrientation.Identity))
         }));
+        Assert.ThrowsException<ArgumentException>(() => new VoxelCellState(default, VoxelOrientation.Identity, 1));
+        Assert.ThrowsException<ArgumentException>(() => new VoxelCellState(ore, default, 1));
+    }
+
+    [TestMethod]
+    public void Restore_payload_rejects_malformed_states_and_unknown_fields()
+    {
+        var restore = Golden.Single(item => item.Name == "voxel.cell-restore").Canonical;
+        AssertDecode(restore.Replace("\"current_durability\":75", "\"current_durability\":75.0", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(restore.Replace("\"orientation\":\"pz_py\"", "\"orientation\":\"PX_PY\"", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(restore.Replace("\"current_durability\":75", "\"durability\":75", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(restore.Replace("\"expected\":null", "\"expected\":false", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
+        AssertDecode(restore.Insert(restore.IndexOf(",\"content\"", StringComparison.Ordinal), ",\"runtime_id\":7"), WorldEditDecodeStatus.UnknownFormat);
+    }
+
+    [TestMethod]
+    public void Restore_golden_vector_matches_the_design_document()
+    {
+        var restore = Golden.Single(item => item.Name == "voxel.cell-restore");
+        var design = File.ReadAllText(Path.Combine(
+            CompositeFixtures.RepositoryRoot(), "docs", "design", "04-deterministic-simulation.md"));
+        StringAssert.Contains(design, $"| `{restore.Canonical}` | `{restore.Digest}` |");
     }
 
     [TestMethod]

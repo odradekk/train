@@ -92,83 +92,87 @@ public sealed partial class VoxelDevelopmentSession
         return submission.Result as WorldCommandResult ?? new WorldCommandResult(RefusedVoxelStatus(submission), position);
     }
 
-    public WorldDamageResult Damage(WorldVoxelCoord position, int amount) =>
-        Damage(new[] { new VoxelDamageTarget(position, amount) });
+    public WorldDamageResult Damage(WorldVoxelCoord position, int amount, bool confirmEndHistory = false) =>
+        Damage(new[] { new VoxelDamageTarget(position, amount) }, confirmEndHistory);
 
-    public WorldDamageResult Damage(IReadOnlyList<VoxelDamageTarget> targets)
+    public WorldDamageResult Damage(IReadOnlyList<VoxelDamageTarget> targets, bool confirmEndHistory = false)
     {
         var edit = new VoxelDamageEdit(targets);
-        var submission = SubmitEdit(edit);
+        var submission = SubmitEdit(edit, confirmEndHistory: confirmEndHistory);
         return submission.Result is WorldDamageResult result ? edit.ToCallerOrder(result) : new WorldDamageResult(
             RefusedVoxelStatus(submission),
             targets.Count == 0 ? default : targets[0].Position,
             Array.Empty<WorldDamageTargetResult>());
     }
 
-    public CompositeDamageResult Damage(EntityId vehicleId, LocalVoxelCoord cell, int amount) =>
-        Damage(new[] { new CompositeDamageTarget(vehicleId, cell, amount) });
+    public CompositeDamageResult Damage(EntityId vehicleId, LocalVoxelCoord cell, int amount, bool confirmEndHistory = false) =>
+        Damage(new[] { new CompositeDamageTarget(vehicleId, cell, amount) }, confirmEndHistory);
 
-    public CompositeDamageResult Damage(IReadOnlyList<CompositeDamageTarget> targets)
+    public CompositeDamageResult Damage(IReadOnlyList<CompositeDamageTarget> targets, bool confirmEndHistory = false)
     {
         ArgumentNullException.ThrowIfNull(targets);
         if (targets.Any(target => target.VehicleId.Value == 0))
             return new CompositeDamageResult(CompositeDamageStatus.UnknownVehicle, targets.First(target => target.VehicleId.Value == 0).VehicleId);
         var edit = new VehicleDamageEdit(targets);
-        var submission = SubmitEdit(edit);
+        var submission = SubmitEdit(edit, confirmEndHistory: confirmEndHistory);
         return submission.Result is CompositeDamageResult result ? edit.ToCallerOrder(result) : new CompositeDamageResult(
+            submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired ? CompositeDamageStatus.HistoryConfirmationRequired :
             submission.Refusal == WorldEditRefusal.WorldChanging ? CompositeDamageStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? CompositeDamageStatus.InputExhausted : CompositeDamageStatus.SimulationFaulted,
             targets.Count == 0 ? null : targets[0].VehicleId);
     }
 
-    public CompositeManufactureResult Manufacture(CompositeDefinitionId definitionId, CompositeTransform? transform = null)
+    public CompositeManufactureResult Manufacture(CompositeDefinitionId definitionId, CompositeTransform? transform = null, bool confirmEndHistory = false)
     {
         var pose = transform ?? HollowShellFixture.DefaultTransform;
         if (definitionId.Namespace is null)
             return new CompositeManufactureResult(ConstructionStatus.UnknownDefinition);
         if (!pose.IsFinite)
             return new CompositeManufactureResult(ConstructionStatus.NonFiniteTransform);
-        var submission = SubmitEdit(new VehicleManufactureEdit(definitionId, pose));
+        var submission = SubmitEdit(new VehicleManufactureEdit(definitionId, pose), confirmEndHistory: confirmEndHistory);
         return submission.Result as CompositeManufactureResult ?? new CompositeManufactureResult(RefusedConstructionStatus(submission));
     }
 
-    public CompositeRefitResult Refit(EntityId vehicleId, CompositeRefitOperation operation) =>
-        Refit(vehicleId, new[] { operation });
+    public CompositeRefitResult Refit(EntityId vehicleId, CompositeRefitOperation operation, bool confirmEndHistory = false) =>
+        Refit(vehicleId, new[] { operation }, confirmEndHistory);
 
-    public CompositeRefitResult Refit(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations)
+    public CompositeRefitResult Refit(EntityId vehicleId, IReadOnlyList<CompositeRefitOperation> operations, bool confirmEndHistory = false)
     {
         ArgumentNullException.ThrowIfNull(operations);
         if (UnencodableRefit(vehicleId, operations) is { } status)
             return new CompositeRefitResult(status, vehicleId);
-        var submission = SubmitEdit(new VehicleRefitEdit(vehicleId, operations));
+        var submission = SubmitEdit(new VehicleRefitEdit(vehicleId, operations), confirmEndHistory: confirmEndHistory);
         return submission.Result as CompositeRefitResult ?? new CompositeRefitResult(RefusedConstructionStatus(submission), vehicleId);
     }
 
-    public RailEditResult ConstructRails(RailConstructionPlan? plan = null)
+    public RailEditResult ConstructRails(RailConstructionPlan? plan = null, bool confirmEndHistory = false)
     {
         plan ??= StraightRailFixture.CreateFixturePlan();
         if (!RailConstructEdit.IsEncodable(plan))
             return new RailEditResult(RailEditStatus.InvalidPlan);
-        var submission = SubmitEdit(new RailConstructEdit(plan));
+        var submission = SubmitEdit(new RailConstructEdit(plan), confirmEndHistory: confirmEndHistory);
         return submission.Result as RailEditResult ?? new RailEditResult(
+            submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired ? RailEditStatus.HistoryConfirmationRequired :
             submission.Refusal == WorldEditRefusal.WorldChanging ? RailEditStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? RailEditStatus.InputExhausted : RailEditStatus.SimulationFaulted);
     }
 
-    public RailRepairResult RepairRails(IReadOnlyList<WorldVoxelCoord> cells)
+    public RailRepairResult RepairRails(IReadOnlyList<WorldVoxelCoord> cells, bool confirmEndHistory = false)
     {
         ArgumentNullException.ThrowIfNull(cells);
-        var submission = SubmitEdit(new RailRepairEdit(cells));
+        var submission = SubmitEdit(new RailRepairEdit(cells), confirmEndHistory: confirmEndHistory);
         return submission.Result as RailRepairResult ?? new RailRepairResult(
+            submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired ? RailRepairStatus.HistoryConfirmationRequired :
             submission.Refusal == WorldEditRefusal.WorldChanging ? RailRepairStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? RailRepairStatus.InputExhausted : RailRepairStatus.SimulationFaulted,
             cells.Count == 0 ? default : cells[0]);
     }
 
-    public TrainAssemblyResult AssembleStaticTrain()
+    public TrainAssemblyResult AssembleStaticTrain(bool confirmEndHistory = false)
     {
-        var submission = SubmitEdit(TrainAssembleEdit.StaticFixture);
+        var submission = SubmitEdit(TrainAssembleEdit.StaticFixture, confirmEndHistory: confirmEndHistory);
         return submission.Result as TrainAssemblyResult ?? new TrainAssemblyResult(
+            submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired ? TrainAssemblyStatus.HistoryConfirmationRequired :
             submission.Refusal == WorldEditRefusal.WorldChanging ? TrainAssemblyStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? TrainAssemblyStatus.InputExhausted : TrainAssemblyStatus.SimulationFaulted);
     }
@@ -177,7 +181,7 @@ public sealed partial class VoxelDevelopmentSession
     /// Submits <c>train.start</c> for the resolved assembly. Reverse heading, a session without railway, and an
     /// unresolvable target (none, or several without an explicit id) cannot be encoded and take no id.
     /// </summary>
-    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null, EntityId? assemblyId = null)
+    public TrainMotionResult StartTrain(RailHeading heading, ulong? atStep = null, EntityId? assemblyId = null, bool confirmEndHistory = false)
     {
         if (heading == RailHeading.AgainstAlignment)
             return RejectMotion(TrainMotionStatus.ReverseUnsupported, atStep);
@@ -185,20 +189,20 @@ public sealed partial class VoxelDevelopmentSession
             return RejectMotion(TrainMotionStatus.NoRailway, atStep);
         if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
             return RejectMotion(status, atStep);
-        return SubmitTrainCommand(new TrainStartEdit(target), atStep);
+        return SubmitTrainCommand(new TrainStartEdit(target), atStep, confirmEndHistory);
     }
 
-    public TrainMotionResult StopTrain(ulong? atStep = null, EntityId? assemblyId = null)
+    public TrainMotionResult StopTrain(ulong? atStep = null, EntityId? assemblyId = null, bool confirmEndHistory = false)
     {
         if (!TryResolveCommandTarget(assemblyId, out var target, out var status))
             return RejectMotion(status, atStep);
-        return SubmitTrainCommand(new TrainStopEdit(target), atStep);
+        return SubmitTrainCommand(new TrainStopEdit(target), atStep, confirmEndHistory);
     }
 
-    private TrainMotionResult SubmitTrainCommand(WorldEdit edit, ulong? atStep)
+    private TrainMotionResult SubmitTrainCommand(WorldEdit edit, ulong? atStep, bool confirmEndHistory)
     {
         var target = atStep ?? SimulationStep;
-        var submission = SubmitEdit(edit, atStep);
+        var submission = SubmitEdit(edit, atStep, confirmEndHistory);
         if (!submission.Accepted)
         {
             return RejectMotion(submission.Refusal switch
@@ -207,6 +211,7 @@ public sealed partial class VoxelDevelopmentSession
                 WorldEditRefusal.PastStep => TrainMotionStatus.PastStep,
                 WorldEditRefusal.InputExhausted => TrainMotionStatus.InputExhausted,
                 WorldEditRefusal.UnallocatedReference => TrainMotionStatus.UnallocatedReference,
+                WorldEditRefusal.HistoryConfirmationRequired => TrainMotionStatus.HistoryConfirmationRequired,
                 _ => TrainMotionStatus.SimulationFaulted
             }, target);
         }
@@ -254,7 +259,7 @@ public sealed partial class VoxelDevelopmentSession
     /// (execute now); a later step queues the edit for that boundary. Past steps, queued edits naming never-allocated
     /// runtime ids, exhausted counters and a faulted session are refused without consuming an id or a sequence.
     /// </summary>
-    public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null)
+    public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null, bool confirmEndHistory = false)
     {
         ArgumentNullException.ThrowIfNull(edit);
         if (edit is ContentPublishEdit)
@@ -272,6 +277,9 @@ public sealed partial class VoxelDevelopmentSession
         if (NextEditId == ulong.MaxValue || EditBoundarySequence == ulong.MaxValue)
             return new WorldEditSubmission(WorldEditRefusal.InputExhausted, null, null);
 
+        if (!confirmEndHistory && RequiresHistoryConfirmation(edit, atStep))
+            return new WorldEditSubmission(WorldEditRefusal.HistoryConfirmationRequired, null, null);
+
         var accepted = new SimulationPosition(SimulationStep, EditBoundarySequence);
         var record = new WorldEditRecord(NextEditId, edit, accepted, target);
         NextEditId++;
@@ -279,6 +287,7 @@ public sealed partial class VoxelDevelopmentSession
         _pendingEdits.Add(record);
         if (target > SimulationStep)
         {
+            ClearHistory();
             Changed?.Invoke();
             return new WorldEditSubmission(WorldEditRefusal.None, record, null);
         }
@@ -305,7 +314,7 @@ public sealed partial class VoxelDevelopmentSession
             }
 
             var position = new SimulationPosition(SimulationStep, EditBoundarySequence++);
-            if (Execute(due, position, () => Dispatch(due.Edit)).Record!.State == WorldEditState.Faulted)
+            if (Execute(due, position, () => Dispatch(due.Edit), trackHistory: false).Record!.State == WorldEditState.Faulted)
                 return false;
         }
 
@@ -317,8 +326,10 @@ public sealed partial class VoxelDevelopmentSession
     private WorldEditSubmission Execute(
         WorldEditRecord pending,
         SimulationPosition position,
-        Func<(bool Succeeded, string Status, object? Result)> dispatch)
+        Func<(bool Succeeded, string Status, object? Result)> dispatch,
+        bool trackHistory = true)
     {
+        var historyBefore = CaptureHistoryBefore(pending);
         var rollback = CaptureEditRollback();
         WorldEditRecord done;
         bool succeeded;
@@ -353,7 +364,11 @@ public sealed partial class VoxelDevelopmentSession
         }
 
         if (done.State == WorldEditState.Executed)
+        {
+            if (trackHistory)
+                RecordHistory(historyBefore);
             EditExecuted?.Invoke(done);
+        }
         return new WorldEditSubmission(WorldEditRefusal.None, done, result);
     }
 
@@ -370,6 +385,9 @@ public sealed partial class VoxelDevelopmentSession
             case VoxelCellSetEdit cells:
                 var cellSet = ApplyCellsCore(cells);
                 return (cellSet.Succeeded, cellSet.Status.ToString(), cellSet);
+            case VoxelCellRestoreEdit restore:
+                var restored = RestoreCellsCore(restore);
+                return (restored.Succeeded, restored.Status.ToString(), restored);
             case VoxelDamageEdit damage:
                 var damaged = DamageVoxelsCore(damage.Targets);
                 return (damaged.Succeeded, damaged.Status.ToString(), damaged);
@@ -482,6 +500,8 @@ public sealed partial class VoxelDevelopmentSession
 
     private void ResetEditState(WorldEditQueueState state)
     {
+        ClearHistory();
+        HistoryEvictionCount = 0;
         NextEditId = state.NextEditId;
         EditBoundarySequence = state.BoundarySequence;
         _pendingEdits.Clear();
@@ -511,10 +531,12 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     private static WorldCommandStatus RefusedVoxelStatus(WorldEditSubmission submission) =>
+        submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired ? WorldCommandStatus.HistoryConfirmationRequired :
         submission.Refusal == WorldEditRefusal.WorldChanging ? WorldCommandStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? WorldCommandStatus.InputExhausted : WorldCommandStatus.SimulationFaulted;
 
     private static ConstructionStatus RefusedConstructionStatus(WorldEditSubmission submission) =>
+        submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired ? ConstructionStatus.HistoryConfirmationRequired :
         submission.Refusal == WorldEditRefusal.WorldChanging ? ConstructionStatus.WorldChanging :
             submission.Refusal == WorldEditRefusal.InputExhausted ? ConstructionStatus.InputExhausted : ConstructionStatus.SimulationFaulted;
 

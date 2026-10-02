@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [朝向编码](README.md#朝向编码) · [结果与错误处理](README.md#结果与错误处理)
 
+即时提交可撤销；尾随 `at <step>` 会结束现有历史，历史非空时须在其后再加 `confirm-end-history`。
+
 ```text
 voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>]
 voxel cell remove <x> <y> <z> [at <step>]

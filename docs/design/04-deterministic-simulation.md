@@ -84,8 +84,9 @@ Simulation Tick
 
 世界修改命令使用输入格式版本 1。编码是紧凑 UTF-8 JSON，字段名与字符串按 Ordinal 比较，不依赖文化设置：
 
-- 顶层固定先写 `input_format_version`、`kind`，再按类型写固定字段顺序。版本 1 的 `kind` 取 `voxel.add` / `voxel.remove` / `voxel.damage` / `voxel.cell-set` / `vehicle.manufacture` / `vehicle.damage` / `vehicle.refit` / `rail.construct` / `rail.repair` / `train.assemble` / `train.start` / `train.stop` / `content.publish`。
+- 顶层固定先写 `input_format_version`、`kind`，再按类型写固定字段顺序。版本 1 的 `kind` 取 `voxel.add` / `voxel.remove` / `voxel.damage` / `voxel.cell-set` / `voxel.cell-restore` / `vehicle.manufacture` / `vehicle.damage` / `vehicle.refit` / `rail.construct` / `rail.repair` / `train.assemble` / `train.start` / `train.stop` / `content.publish`。
 - `voxel.cell-set` 的 `targets` 是按提交顺序保存的格列表，不排序。每项依次写 `position`、`operation`、`content`：`operation` 为 `add` / `remove` / `replace`，并同时规定执行前置条件；添加要求目标为空，移除和替换要求目标已占用。`content` 是含 `definition_id` 与 `orientation` 的目标内容，或 JSON `null`；添加和替换必须带内容，移除必须为 `null`。同一命令出现重复 `position` 时整组以 `DuplicateTarget` 拒绝，不应用任何目标；列表顺序随待执行队列保存恢复并参与规范摘要。
+- `voxel.cell-restore` 的 `targets` 按 `position.x`、`position.y`、`position.z` 升序保存。每项依次写 `position`、`expected`、`content`；`expected` 与 `content` 都是含 `definition_id`、`orientation`、`current_durability` 的格状态，或以 JSON `null` 表示空格。`expected` 是执行前必须逐字段匹配的状态，`content` 是匹配后恢复的状态。两者都不含 `runtime_id`：恢复普通体素不需要运行时身份，恢复 debris 也不恢复旧身份且不分配新身份。
 - 集合语义的多目标伤害按坐标（车辆伤害先按车辆 ID）与伤害值排序；改装操作列表、施工计划的轨段 / 体积盒 / 连接以及修复格列表保持提交顺序。`content_digest` 为 64 位大写十六进制，由当前体素、Archetype 与 Composite 定义的语义 Revision 排序拼接后求 SHA-256。调用方仍按自己的目标顺序拿到逐项结果。
 - 坐标与伤害值为 32 位有符号整数，实体 ID 为非零 64 位无符号整数，朝向写正交编码。`double` 使用与文化无关的 round-trip（`R`）文本，拒绝非有限值。
 - 解码拒绝重复字段、未知字段、缺失或 32 位范围内但不支持的 `input_format_version`、缺失或未知的 `kind`、改装 `op` 或单格编辑的 `operation`（`UnknownFormat`），也拒绝越界整数（包括超出 32 位有符号范围或非整数的 `input_format_version`）、类型错误的版本或 `kind` 字段、零实体 ID、非法朝向与非有限数（`Invalid`）。解码不依赖字段顺序，重新编码得到同一规范文本。
@@ -108,6 +109,7 @@ Simulation Tick
 | `{"input_format_version":1,"kind":"train.stop","assembly_id":18446744073709551615}` | `0BB581D76A7E804CBFFA7D61635AF230D63E238F6DE01357C1BEC562C8031D53` |
 | `{"input_format_version":1,"kind":"content.publish","content_digest":"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"}` | `C0318AACC4275ED027A0C46989447ABBFE44EC53D4B5C1CE5674657B77D01FC4` |
 | `{"input_format_version":1,"kind":"voxel.cell-set","targets":[{"position":{"x":1,"y":2,"z":3},"operation":"add","content":{"definition_id":"core:ferrous-ore","orientation":"px_py"}},{"position":{"x":4,"y":5,"z":6},"operation":"remove","content":null}]}` | `3B1586B3298D14EDC6858E9B6304E4ECCC622159DD9ABE5AE494196B65E3A207` |
+| `{"input_format_version":1,"kind":"voxel.cell-restore","targets":[{"position":{"x":1,"y":2,"z":3},"expected":null,"content":{"definition_id":"core:ferrous-ore","orientation":"pz_py","current_durability":75}},{"position":{"x":4,"y":5,"z":6},"expected":{"definition_id":"core:ferrous-ore","orientation":"px_py","current_durability":100},"content":null}]}` | `9C0BCFB844B1B77F32A3EA65504BAC15C79640BB10EAAD69D1A7A2F144399BE9` |
 | 记录 `{"edit_id":1,"accepted_step":0,"accepted_sequence":0,"target_step":0,"state":"executed","executed_step":0,"executed_sequence":0,"status":"Added","edit":<上表第一行>}` | `01F384A6C4982DD98AF20F8A16D9B410A667E4CC6C3526C7EDE88ED043AF9D9E` |
 
 #### 编辑撤销与重做

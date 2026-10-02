@@ -29,14 +29,14 @@ public sealed class WorldEditOrderingTests
         var submissions = new[]
         {
             session.SubmitEdit(new VoxelAddEdit(Probe, Ore, VoxelOrientation.Identity)),
-            session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(Probe, 25) })),
-            session.SubmitEdit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, ShellPose))
+            session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(Probe, 25) }), confirmEndHistory: true),
+            session.SubmitEdit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, ShellPose), confirmEndHistory: true)
         };
         var shell = ((CompositeManufactureResult)submissions[2].Result!).VehicleId!.Value;
         submissions = submissions.Concat(new[]
         {
-            session.SubmitEdit(new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity) })),
-            session.SubmitEdit(new VehicleDamageEdit(new[] { new CompositeDamageTarget(shell, HollowShellRefit.FirstAdd, 25) })),
+            session.SubmitEdit(new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity) }), confirmEndHistory: true),
+            session.SubmitEdit(new VehicleDamageEdit(new[] { new CompositeDamageTarget(shell, HollowShellRefit.FirstAdd, 25) }), confirmEndHistory: true),
             session.SubmitEdit(new VoxelRemoveEdit(Probe))
         }).ToArray();
 
@@ -216,7 +216,7 @@ public sealed class WorldEditOrderingTests
             if (record.Edit is VoxelRemoveEdit)
                 throw new InvalidOperationException("injected invariant failure");
         };
-        Assert.AreEqual("Pending", session.SubmitEdit(new VoxelRemoveEdit(Probe), 3).Status);
+        Assert.AreEqual("Pending", session.SubmitEdit(new VoxelRemoveEdit(Probe), 3, confirmEndHistory: true).Status);
         var before = session.CaptureAuthority();
 
         var advanced = session.AdvanceSimulation(10);

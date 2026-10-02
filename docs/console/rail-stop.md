@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [结果与错误处理](README.md#结果与错误处理)
 
+停车不可撤销且会结束编辑历史。历史非空时首次提交返回 `HistoryConfirmationRequired`，不分配编辑编号且保留撤销与重做记录；明确执行须在裸步数或 `at <step>` 之后尾随 `confirm-end-history`。失败仍保留历史。
+
 ```text
 rail stop
 rail stop 101

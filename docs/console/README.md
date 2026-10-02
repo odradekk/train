@@ -34,6 +34,8 @@
 | [voxel cell](voxel-cell.md) `add\|remove\|replace ... [at <step>]` | 以 `voxel.cell-set` 正式编辑添加、移除或替换单格体素 | 世界编辑器会话 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
 | [voxel edits](voxel-edits.md) `[pending \| log [<count>] \| fault]` | 查询世界修改命令的边界位置、待执行队列、执行日志与内部故障 | 同上 |
+| [voxel undo](voxel-undo.md) | 撤销最近一次可撤销的已提交体素编辑 | 暂停的世界编辑器会话 |
+| [voxel redo](voxel-redo.md) | 重做最近一次已撤销的体素编辑 | 暂停的世界编辑器会话 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步与待执行世界修改（含列车起停）原子写入 `user://saves/<UUID>/save.json` | 同上 |
 | [voxel load](voxel-load.md) `<uuid> [discard\|save\|cancel]` | 按当前有效定义恢复指定存档并整体替换会话；格式 5 写出，仍可读格式 2–4（旧列车队列须为空）；有未保存变化时先选择 | 同上 |
 | [voxel use](voxel-use.md) `<configuration-id> [discard\|save\|cancel]` | 从当前世界切换到具名固定配置；候选失败时保留当前世界 | 仅世界编辑器会话 |
@@ -86,6 +88,7 @@
 | `x`、`y`、`z` | 三个单独的十进制整数，按世界 X/Y/Z 顺序填写；有效范围取决于当前切片（上表）。Y 是竖直轴，不接受小数、逗号三元组或括号 | 切片 1：`4 4 4`；切片 2 边界：`15 16 15` |
 | `namespace:id` | 已加载体素定义的完整 ID，必须包含一个冒号。两部分各 1–64 字符，以小写 ASCII 字母或数字开头，后续可含小写字母、数字、`_`、`-` | `core:ferrous-ore` |
 | `orientation` | 必填的正交朝向编码，不是角度；详细取值见下节 | `px_py` |
+| `confirm-end-history` | 不可撤销修改的尾随确认词；仅历史非空时需要，可放在 `at <step>` 之后。首次未确认提交返回 `HistoryConfirmationRequired`，说明成功执行会同时清空撤销与重做历史；世界、历史和编辑游标保持不变 | `voxel damage 4 4 4 25 confirm-end-history` |
 
 当前内置测试定义 `core:ferrous-ore` 允许全部 24 种朝向；`core:fixed` 只允许默认朝向。两者原始配置均为 Value=10、Mass=1、MaxDurability=100，碰撞为 `full_box`。`core:hollow` 同样占一整格，但碰撞为 `none`：不能重复放置，`voxel collide` 不命中。`core:ledge` 是偏心且不对称的单个 `local_box`：仍占一整格，只有盒内区域命中，并随实例正交朝向旋转。切片 3 改装夹具 `core:refit-marker` 与壳体同 Value/Mass/上限 100，允许全部 24 向，顶/侧/底纹理不同，顶面与侧面均有指向局部 +X 的箭头；`core:refit-replacement` 上限 150，替换后按新上限初始化。正式 `reload` 成功后，已有世界体素和已有车辆零件按当前目录采用 Mass、Value、耐久上限和碰撞规则；已提交编组按当前 propulsion / `track_contact` 校验运行与滑行条件，失败整次拒绝。`voxel query` / `composite query` 显示当前规格，`voxel collide` 使用当前碰撞。外部蓝图布局更新不覆盖已有实际车辆；新制造使用新模板。Mod 或后续定义变更可能改变可用 ID 和参数，以实际加载内容为准。
 
@@ -488,7 +491,7 @@ composite query
 
 读档错误复现（独立用户数据）：对一个已保存的 UUID 执行 `voxel load` 后，把 `save.json` 的 `save_format_version` 改成 `1` 或 `99` 再加载，应得 `UnknownFormat` 且当前会话车辆数不变；删掉 `save_local_definitions` 或把零件朝向改成 `none`，分别得 `MissingDefinition` / `InvalidDelta`；缺文件得 `NotFound`。失败后仍可 `composite manufacture` 或加载上一份有效文件。
 
-目前没有独立的撤销命令，也没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail assemble`](rail-assemble.md) / [`rail start`](rail-start.md) / [`rail stop`](rail-stop.md) / [`rail pause`](rail-pause.md) / [`rail resume`](rail-resume.md) / [`rail step`](rail-step.md) / [`rail query`](rail-query.md) / [`rail follow`](rail-follow.md) / [`rail repair`](rail-repair.md)，以及正式铁路 / 多编组运行停车、滑行与断轨安全停车状态的 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md)。沿轨显示插值与选定存活车辆跟随相机已接入切片 4；正式设计器仍不在当前切片。
+当前已有共享面板历史的 [`voxel undo`](voxel-undo.md) / [`voxel redo`](voxel-redo.md)；仍没有通过 `voxel query` 更改 HUD 选中坐标的功能。切片 4 已有 [`rail construct`](rail-construct.md) / [`rail assemble`](rail-assemble.md) / [`rail start`](rail-start.md) / [`rail stop`](rail-stop.md) / [`rail pause`](rail-pause.md) / [`rail resume`](rail-resume.md) / [`rail step`](rail-step.md) / [`rail query`](rail-query.md) / [`rail follow`](rail-follow.md) / [`rail repair`](rail-repair.md)，以及正式铁路 / 多编组运行停车、滑行与断轨安全停车状态的 [`voxel save`](voxel-save.md) / [`voxel load`](voxel-load.md)。沿轨显示插值与选定存活车辆跟随相机已接入切片 4；正式设计器仍不在当前切片。
 
 ### 切片 3 五类原子改装
 

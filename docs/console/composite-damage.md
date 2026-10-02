@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [结果与错误处理](README.md#结果与错误处理)
 
+伤害不可撤销。历史非空时须尾随 `confirm-end-history` 明确结束历史；若同时排期，写作 `at <step> confirm-end-history`。首次未确认提交及失败提交都保留历史。
+
 ```text
 composite damage <id> <x> <y> <z> <amount>
 composite damage 1 3 1 1 100

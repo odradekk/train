@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [朝向编码](README.md#朝向编码) · [结果与错误处理](README.md#结果与错误处理)
 
+本命令可撤销；尾随 `at <step>` 会结束现有历史，历史非空时须再尾随 `confirm-end-history`。
+
 ```text
 voxel remove <x> <y> <z>
 voxel remove 4 4 4

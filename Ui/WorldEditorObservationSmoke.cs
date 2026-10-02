@@ -120,6 +120,8 @@ internal sealed class WorldEditorObservationSmoke
             case 6:
                 RequireUnchanged("observation-only phases");
                 _scene.Press("start");
+                if (_scene.HistoryPrompt.Visible)
+                    _scene.HistoryPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
                 _scene.Press("run");
                 Require(!Session.SimulationPaused && Session.QueryTrainAssemblies().Single().Running, "train did not start");
                 Next();
@@ -796,7 +798,7 @@ internal sealed class WorldEditorObservationSmoke
             if (scheduled)
             {
                 var step = Session.SimulationStep + 1;
-                RunConsole($"voxel remove {cell} at {step}");
+                RunConsole($"voxel remove {cell} at {step} confirm-end-history");
                 RunConsole($"{add} at {step}");
                 Require(Observer.Selection is not null && Observer.Notices.Count == notices, "queueing the rebuild dropped the selection");
                 RunConsole("rail step 1");

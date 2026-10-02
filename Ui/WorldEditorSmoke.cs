@@ -369,6 +369,8 @@ internal sealed class WorldEditorSmoke
     {
         var operation = _scene.EditOperation(button);
         _scene.Press(button);
+        if (_scene.HistoryPrompt.Visible)
+            _scene.HistoryPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
         GD.Print($"WORLD_EDITOR_SMOKE_PANEL {button} {operation.Describe()}");
     }
 

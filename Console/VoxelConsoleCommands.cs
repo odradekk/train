@@ -103,14 +103,20 @@ public sealed class VoxelConsoleCommands
             WorldEditConsole.Execute(_session, arguments) is { } editsText)
             return editsText;
 
-        if (WorldEditConsole.TrySplitAt(arguments, out var cellArguments, out var cellAtStep) &&
-            TryParseCellEdit(cellArguments, out var cellEdit))
-            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(cellEdit, cellAtStep));
+        if (arguments.Count == 1 && string.Equals(arguments[0], "undo", StringComparison.OrdinalIgnoreCase))
+            return WorldEditConsole.FormatHistorySubmission(_session, _session.Undo);
 
-        if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
-            atStep is { } step &&
+        if (arguments.Count == 1 && string.Equals(arguments[0], "redo", StringComparison.OrdinalIgnoreCase))
+            return WorldEditConsole.FormatHistorySubmission(_session, _session.Redo);
+
+        if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var cellArguments, out var cellAtStep, out var cellConfirm) &&
+            TryParseCellEdit(cellArguments, out var cellEdit))
+            return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(cellEdit, cellAtStep, cellConfirm));
+
+        if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var atStep, out var confirmEndHistory) &&
+            (atStep is not null || confirmEndHistory || _session.UndoCount > 0 || _session.RedoCount > 0) &&
             TryParseEdit(editArguments, out var edit))
-            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(edit, step));
+            return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(edit, atStep, confirmEndHistory));
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var removePosition))
@@ -186,9 +192,10 @@ public sealed class VoxelConsoleCommands
             $"voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] ({BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
-            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] | voxel cell remove <x> <y> <z> [at <step>] | voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>]",
-            "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
-            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>].");
+            "voxel undo | voxel redo",
+            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history] | voxel cell remove <x> <y> <z> [at <step>] [confirm-end-history] | voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel remove <x> <y> <z> [at <step>] [confirm-end-history] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>] [confirm-end-history].");
     }
 
     private static string BlankParametersRejected() =>

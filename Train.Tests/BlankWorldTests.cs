@@ -96,7 +96,7 @@ public sealed class BlankWorldTests
         var cell = new WorldVoxelCoord(17, 1, 1);
         Assert.IsTrue(session.Add(cell, VoxelWorldFactory.DevelopmentDefinitionId, VoxelOrientation.Identity).Succeeded);
         Assert.IsTrue(session.HasUnsavedChanges);
-        Assert.IsTrue(session.Damage(new[] { new VoxelDamageTarget(cell, 25) }).Succeeded);
+        Assert.IsTrue(session.Damage(new[] { new VoxelDamageTarget(cell, 25) }, confirmEndHistory: true).Succeeded);
         Assert.AreEqual(WorldSaveStatus.Saved, session.Save().Status);
         Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
         Assert.IsTrue(session.HasUnsavedChanges);

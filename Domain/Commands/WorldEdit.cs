@@ -19,7 +19,8 @@ public enum WorldEditKind
     TrainStart = 9,
     TrainStop = 10,
     ContentPublish = 11,
-    VoxelCellSet = 12
+    VoxelCellSet = 12,
+    VoxelCellRestore = 13
 }
 
 /// <summary>
@@ -139,6 +140,51 @@ public sealed class VoxelCellSetEdit : WorldEdit
     }
 
     public override WorldEditKind Kind => WorldEditKind.VoxelCellSet;
+    public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
+}
+
+public sealed record VoxelCellState
+{
+    public VoxelDefinitionId DefinitionId { get; }
+    public VoxelOrientation Orientation { get; }
+    public int CurrentDurability { get; }
+
+    public VoxelCellState(
+        VoxelDefinitionId definitionId,
+        VoxelOrientation orientation,
+        int currentDurability)
+    {
+        DefinitionId = definitionId.Namespace is null
+            ? throw new ArgumentException("Definition id is required.", nameof(definitionId))
+            : definitionId;
+        Orientation = orientation.IsOrthogonal
+            ? orientation
+            : throw new ArgumentException("Orientation must be orthogonal.", nameof(orientation));
+        CurrentDurability = currentDurability;
+    }
+}
+
+public sealed record VoxelCellRestoreTarget(
+    WorldVoxelCoord Position,
+    VoxelCellState? Expected,
+    VoxelCellState? Content);
+
+/// <summary>One atomic restore whose targets are stored in stable coordinate order.</summary>
+public sealed class VoxelCellRestoreEdit : WorldEdit
+{
+    public IReadOnlyList<VoxelCellRestoreTarget> Targets { get; }
+
+    public VoxelCellRestoreEdit(IReadOnlyList<VoxelCellRestoreTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        Targets = Array.AsReadOnly(targets
+            .OrderBy(target => target.Position.X)
+            .ThenBy(target => target.Position.Y)
+            .ThenBy(target => target.Position.Z)
+            .ToArray());
+    }
+
+    public override WorldEditKind Kind => WorldEditKind.VoxelCellRestore;
     public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
 }
 

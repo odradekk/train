@@ -26,7 +26,8 @@ public enum ConstructionStatus
     EntityIdExhausted = 18,
     InputExhausted = 19,
     SimulationFaulted = 20,
-    WorldChanging = 21
+    WorldChanging = 21,
+    HistoryConfirmationRequired = 22
 }
 
 public enum IdentityRetentionStatus

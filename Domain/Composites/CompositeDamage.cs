@@ -13,7 +13,8 @@ public enum CompositeDamageStatus
     EntityIdExhausted = 6,
     InputExhausted = 7,
     SimulationFaulted = 8,
-    WorldChanging = 9
+    WorldChanging = 9,
+    HistoryConfirmationRequired = 10
 }
 
 public readonly record struct CompositeDamageTarget(EntityId VehicleId, LocalVoxelCoord Cell, int Amount);

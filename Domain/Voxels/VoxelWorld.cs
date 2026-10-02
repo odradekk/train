@@ -278,7 +278,8 @@ public enum WorldCommandStatus
     InvalidDamage,
     InputExhausted,
     SimulationFaulted,
-    WorldChanging
+    WorldChanging,
+    HistoryConfirmationRequired
 }
 
 public sealed record WorldCommandResult(WorldCommandStatus Status, WorldVoxelCoord Position)
@@ -300,7 +301,9 @@ public enum VoxelCellSetStatus
     DisallowedOrientation,
     RailOccupied,
     VehicleOccupied,
-    NoChange
+    NoChange,
+    ExpectedContentMismatch,
+    InvalidDurability
 }
 
 public enum VoxelCellOwnerKind

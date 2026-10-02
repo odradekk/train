@@ -48,6 +48,7 @@ public static class WorldEditCodec
         WorldEditKind.TrainStop => "train.stop",
         WorldEditKind.ContentPublish => "content.publish",
         WorldEditKind.VoxelCellSet => "voxel.cell-set",
+        WorldEditKind.VoxelCellRestore => "voxel.cell-restore",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 
@@ -201,6 +202,7 @@ public static class WorldEditCodec
             WorldEditKind.TrainStop => TryReadTrainCommand(fields, start: false, out edit, out status),
             WorldEditKind.ContentPublish => TryReadContentPublish(fields, out edit, out status),
             WorldEditKind.VoxelCellSet => TryReadVoxelCellSet(fields, out edit, out status),
+            WorldEditKind.VoxelCellRestore => TryReadVoxelCellRestore(fields, out edit, out status),
             _ => Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat)
         };
         return read && fields.TryFinish(out status);
@@ -346,6 +348,18 @@ public static class WorldEditCodec
                 }
                 writer.WriteEndArray();
                 break;
+            case VoxelCellRestoreEdit restore:
+                writer.WriteStartArray("targets");
+                foreach (var target in restore.Targets)
+                {
+                    writer.WriteStartObject();
+                    WriteCoord(writer, "position", target.Position.X, target.Position.Y, target.Position.Z);
+                    WriteCellState(writer, "expected", target.Expected);
+                    WriteCellState(writer, "content", target.Content);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(edit), edit.Kind, "Unknown world edit.");
         }
@@ -402,6 +416,21 @@ public static class WorldEditCodec
         VoxelCellOperation.Replace => "replace",
         _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
     };
+
+    private static void WriteCellState(Utf8JsonWriter writer, string name, VoxelCellState? state)
+    {
+        if (state is null)
+        {
+            writer.WriteNull(name);
+            return;
+        }
+
+        writer.WriteStartObject(name);
+        writer.WriteString("definition_id", state.DefinitionId.Value);
+        writer.WriteString("orientation", state.Orientation.ToString());
+        writer.WriteNumber("current_durability", state.CurrentDurability);
+        writer.WriteEndObject();
+    }
 
     private static void WriteCoord(Utf8JsonWriter writer, string name, int x, int y, int z)
     {
@@ -584,6 +613,48 @@ public static class WorldEditCodec
             targets.Add(new VoxelCellTarget(new WorldVoxelCoord(x, y, z), operation, content));
         }
         edit = new VoxelCellSetEdit(targets);
+        return true;
+    }
+
+    private static bool TryReadVoxelCellRestore(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!fields.TryTake("targets", JsonValueKind.Array, out var array, out status))
+            return false;
+        var targets = new List<VoxelCellRestoreTarget>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (!Fields.TryOpen(item, out var target, out status) ||
+                !target.TryCoord("position", out var x, out var y, out var z, out status) ||
+                !TryReadCellState(target, "expected", out var expected, out status) ||
+                !TryReadCellState(target, "content", out var content, out status) ||
+                !target.TryFinish(out status))
+                return false;
+            targets.Add(new VoxelCellRestoreTarget(new WorldVoxelCoord(x, y, z), expected, content));
+        }
+
+        edit = new VoxelCellRestoreEdit(targets);
+        return true;
+    }
+
+    private static bool TryReadCellState(
+        Fields fields,
+        string name,
+        out VoxelCellState? state,
+        out WorldEditDecodeStatus status)
+    {
+        state = null;
+        if (!fields.TryTakeAny(name, out var element, out status))
+            return false;
+        if (element.ValueKind == JsonValueKind.Null)
+            return true;
+        if (!Fields.TryOpen(element, out var content, out status) ||
+            !content.TryVoxelDefinition("definition_id", out var definition, out status) ||
+            !content.TryOrientation("orientation", out var orientation, out status) ||
+            !content.TryInt32("current_durability", out var durability, out status) ||
+            !content.TryFinish(out status))
+            return false;
+        state = new VoxelCellState(definition, orientation, durability);
         return true;
     }
 

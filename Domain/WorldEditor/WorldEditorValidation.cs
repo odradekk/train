@@ -114,7 +114,7 @@ public sealed record WorldEditorOperation(
     public static WorldEditorOperation Damage(WorldVoxelCoord cell, int amount) =>
         new(WorldEditorOperationKind.DamageVoxel, Cell: cell, Amount: amount);
 
-    public string Apply(VoxelDevelopmentSession session)
+    public string Apply(VoxelDevelopmentSession session, bool confirmEndHistory = false)
     {
         ArgumentNullException.ThrowIfNull(session);
         return Kind switch
@@ -122,11 +122,11 @@ public sealed record WorldEditorOperation(
             WorldEditorOperationKind.Pause => session.PauseSimulation().Status.ToString(),
             WorldEditorOperationKind.Resume => session.ResumeSimulation().Status.ToString(),
             WorldEditorOperationKind.Advance => session.AdvanceSimulation(Steps).Status.ToString(),
-            WorldEditorOperationKind.StartTrain => session.StartTrain(Heading, AtStep).Status.ToString(),
-            WorldEditorOperationKind.StopTrain => session.StopTrain(AtStep).Status.ToString(),
-            WorldEditorOperationKind.DamageVoxel => session.Damage(Cell, Amount).Status.ToString(),
+            WorldEditorOperationKind.StartTrain => session.StartTrain(Heading, AtStep, confirmEndHistory: confirmEndHistory).Status.ToString(),
+            WorldEditorOperationKind.StopTrain => session.StopTrain(AtStep, confirmEndHistory: confirmEndHistory).Status.ToString(),
+            WorldEditorOperationKind.DamageVoxel => session.Damage(Cell, Amount, confirmEndHistory).Status.ToString(),
             WorldEditorOperationKind.Edit or WorldEditorOperationKind.RefitLatestVehicle or WorldEditorOperationKind.DamageLatestVehicle =>
-                ResolveEdit(session, out var edit) is { } refused ? refused : session.SubmitEdit(edit!, AtStep).Status,
+                ResolveEdit(session, out var edit) is { } refused ? refused : session.SubmitEdit(edit!, AtStep, confirmEndHistory).Status,
             _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, null)
         };
     }
@@ -367,7 +367,8 @@ public sealed record WorldEditorCheck(WorldEditorObservation Observation, string
 public sealed record WorldEditorValidationStep(
     WorldEditorOperation Operation,
     string ExpectedStatus,
-    IReadOnlyList<WorldEditorCheck> Checkpoint);
+    IReadOnlyList<WorldEditorCheck> Checkpoint,
+    bool ConfirmEndHistory = false);
 
 /// <summary>Validation steps live outside the fixed configuration and only reference it by id.</summary>
 public sealed record WorldEditorSequence(
@@ -458,7 +459,7 @@ public static class WorldEditorValidation
         for (var index = 0; index < sequence.Steps.Count; index++)
         {
             var step = sequence.Steps[index];
-            var actual = step.Operation.Apply(session);
+            var actual = step.Operation.Apply(session, step.ConfirmEndHistory);
             var checks = step.Checkpoint
                 .Select(check => new WorldEditorCheckResult(check.Observation, check.Expected, WorldEditorCheck.Observe(session, check.Observation)))
                 .ToArray();
@@ -505,7 +506,7 @@ public static class WorldEditorSequences
                     Check(WorldEditorObservation.EditBoundary, "0:2"),
                     Check(WorldEditorObservation.NextEditId, "3")),
                 Step(WorldEditorOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(EditProbe, 25) })), "Damaged",
-                    Check(WorldEditorObservation.EditBoundary, "0:3")),
+                    Check(WorldEditorObservation.EditBoundary, "0:3")) with { ConfirmEndHistory = true },
                 Step(WorldEditorOperation.Submit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, EditShellPose)), "Valid",
                     Check(WorldEditorObservation.VehicleCount, "3")),
                 Step(WorldEditorOperation.RefitLatest(WorldEditorRefit.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId)), "Valid"),
@@ -638,7 +639,7 @@ public static class WorldEditorSequences
                     Check(WorldEditorObservation.VehicleCount, "4")),
                 Step(WorldEditorOperation.Start(), "Started", Check(WorldEditorObservation.Paused, "true")),
                 Step(WorldEditorOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity)), "Added"),
-                Step(WorldEditorOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending"),
+                Step(WorldEditorOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending") with { ConfirmEndHistory = true },
                 Step(WorldEditorOperation.Submit(new VoxelRemoveEdit(EditProbe), 3), "Pending"),
                 Step(WorldEditorOperation.Submit(new VoxelAddEdit(EditProbe, EditVoxelId, VoxelOrientation.Identity), 3), "Pending"),
                 Step(WorldEditorOperation.Submit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(EditProbe, 25) }), 3), "Pending",

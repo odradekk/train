@@ -67,7 +67,7 @@ public sealed class WorldEditorSaveSwitchTests
         Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Edited").Status);
         Assert.IsFalse(session.HasUnsavedChanges);
 
-        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(session.StartTrain(RailHeading.AlongAlignment, confirmEndHistory: true).Succeeded);
         Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
         var step = session.SimulationStep;
         Assert.IsTrue(session.HasUnsavedChanges);
@@ -209,7 +209,7 @@ public sealed class WorldEditorSaveSwitchTests
             if (record.Edit is VoxelRemoveEdit)
                 throw new InvalidOperationException("injected invariant failure");
         };
-        Assert.AreEqual("Pending", session.SubmitEdit(new VoxelRemoveEdit(probe), 3).Status);
+        Assert.AreEqual("Pending", session.SubmitEdit(new VoxelRemoveEdit(probe), 3, confirmEndHistory: true).Status);
         Assert.AreEqual(TrainMotionStatus.SimulationFaulted, session.AdvanceSimulation(10).Status);
         var fingerprint = WorldSaveAuthority.Fingerprint(session);
         Assert.IsNotNull(session.Fault);

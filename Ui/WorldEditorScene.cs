@@ -37,6 +37,9 @@ public partial class WorldEditorScene : Node3D
     private SpinBox _editDelay = null!;
     private Label _edits = null!;
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
+    private ConfirmationDialog _historyPrompt = null!;
+    private WorldEditorOperation? _pendingHistoryOperation;
+    private Label _historyState = null!;
     private bool _dirty = true;
     private WorldEditorSmoke? _smoke;
     private WorldEditorObservationSmoke? _observationSmoke;
@@ -104,6 +107,7 @@ public partial class WorldEditorScene : Node3D
         _cellTool.Initialize(_session, _camera, _tools, _inspector);
         _observation.CellPointer = _cellTool.HandlePointer;
         _observation.DraftGuard = _cellTool.RequestChange;
+        _worldInput.GuiInput += HandleHistoryInput;
         Refresh();
 
         if (WorldEditorWorkspaceSmoke.Requested())
@@ -176,11 +180,16 @@ public partial class WorldEditorScene : Node3D
         }
     }
 
-    internal string ApplyOperation(WorldEditorOperation operation)
+    internal string ApplyOperation(WorldEditorOperation operation, bool confirmEndHistory = false)
     {
         if (_session is null)
             return "NoSession";
-        var status = operation.Apply(_session);
+        var status = operation.Apply(_session, confirmEndHistory);
+        if (status == nameof(WorldEditRefusal.HistoryConfirmationRequired))
+        {
+            _pendingHistoryOperation = operation;
+            _historyPrompt.PopupCentered(new Vector2I(460, 160));
+        }
         _result.Text = $"最近操作：{operation.Describe()} → {status}";
         Refresh();
         return status;
@@ -188,6 +197,32 @@ public partial class WorldEditorScene : Node3D
 
     internal void Press(string button) => _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
     internal Button ActionButton(string action) => _buttons[action];
+    internal ConfirmationDialog HistoryPrompt => _historyPrompt;
+
+    internal string ApplyHistory(bool redo)
+    {
+        if (_session is null || _cellTool is null)
+            return "NoSession";
+        var status = _cellTool.State.HasDraft
+            ? ((redo ? _cellTool.State.RedoDraft() : _cellTool.State.UndoDraft()) ? "DraftApplied" : "NoDraftHistory")
+            : (redo ? _session.Redo() : _session.Undo()).Status;
+        _result.Text = $"最近操作：{(redo ? "重做" : "撤销")} → {status}";
+        Refresh();
+        return status;
+    }
+
+    private void HandleHistoryInput(InputEvent input)
+    {
+        if (_observation?.WorldHasInput != true || input is not InputEventKey { Pressed: true, Echo: false, CtrlPressed: true } key)
+            return;
+        if (key.Keycode == Key.Z)
+            ApplyHistory(key.ShiftPressed);
+        else if (key.Keycode == Key.Y)
+            ApplyHistory(redo: true);
+        else
+            return;
+        GetViewport().SetInputAsHandled();
+    }
 
     internal void SetSaveName(string name) => _saveName.Text = name;
 
@@ -267,8 +302,23 @@ public partial class WorldEditorScene : Node3D
         _composites.ApplyDisplayPoses(sample);
         _observation?.Present(delta, sample);
         _cellTool?.Present();
+        PresentHistory();
         _state.Text = StateText();
         _edits.Text = EditsText();
+    }
+
+    private void PresentHistory()
+    {
+        if (_session is null || _cellTool is null)
+            return;
+        var tool = _cellTool.State;
+        _buttons["undo"].Disabled = tool.HasDraft ? !tool.CanUndoDraft : !_session.CanUndo;
+        _buttons["redo"].Disabled = tool.HasDraft ? !tool.CanRedoDraft : !_session.CanRedo;
+        var evicted = _session.HistoryEvictionCount + tool.HistoryEvictionCount;
+        _historyState.Text = tool.HasDraft ? "草稿撤销 / 重做 · 提交或放弃后可操作世界历史"
+            : $"世界历史：可撤销 {_session.UndoCount} · 可重做 {_session.RedoCount} · 上限 {VoxelDevelopmentSession.VoxelHistoryCapacity}";
+        if (evicted > 0)
+            _historyState.Text += $"\n已淘汰 {evicted} 条最旧记录。";
     }
 
     private string StateText()
@@ -349,6 +399,27 @@ public partial class WorldEditorScene : Node3D
         _stepCount = new SpinBox { MinValue = 1, MaxValue = 100000, Value = 60, Rounded = true };
         controls.AddChild(_stepCount);
         AddButton(controls, "step_n", "推进 N 步", () => ApplyOperation(WorldEditorOperation.Advance((ulong)_stepCount.Value)));
+        var history = new HBoxContainer();
+        box.AddChild(history);
+        AddButton(history, "undo", "撤销 Ctrl+Z", () => ApplyHistory(redo: false));
+        AddButton(history, "redo", "重做 Ctrl+Shift+Z", () => ApplyHistory(redo: true));
+        _historyState = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        box.AddChild(_historyState);
+        _historyPrompt = new ConfirmationDialog
+        {
+            Title = "此操作会结束撤销历史",
+            DialogText = "这项修改不能撤销。成功后将结束当前撤销和重做历史，是否继续？",
+            OkButtonText = "继续修改", CancelButtonText = "取消"
+        };
+        AddChild(_historyPrompt);
+        _historyPrompt.Confirmed += () =>
+        {
+            var operation = _pendingHistoryOperation;
+            _pendingHistoryOperation = null;
+            if (operation is not null)
+                ApplyOperation(operation, confirmEndHistory: true);
+        };
+        _historyPrompt.Canceled += () => _pendingHistoryOperation = null;
         var persistence = new HFlowContainer();
         persistence.AddThemeConstantOverride("separation", 6);
         box.AddChild(persistence);

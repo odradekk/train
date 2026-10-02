@@ -291,7 +291,7 @@ public sealed class WorldEditorObservationTests
         observer.FocusSelection();
         StringAssert.Contains(WorldEditorInspector.Inspect(session, observer.Selection!.Value)!.Durability, "100/100");
 
-        session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(probe, 25) }));
+        session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(probe, 25) }), confirmEndHistory: true);
         var damaged = WorldEditorInspector.Inspect(session, observer.Selection!.Value)!;
         StringAssert.Contains(damaged.Durability, "75/100");
         StringAssert.Contains(damaged.Eligibility, "Hit");
@@ -349,7 +349,7 @@ public sealed class WorldEditorObservationTests
         using var observer = FocusedOnProbe(session, out var held);
         var step = session.SimulationStep + 1;
 
-        Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(new VoxelRemoveEdit(probe), step).Refusal);
+        Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(new VoxelRemoveEdit(probe), step, confirmEndHistory: true).Refusal);
         Assert.AreEqual(WorldEditRefusal.None, session.SubmitEdit(AddProbe(), step).Refusal);
         Assert.IsTrue(session.AdvanceSimulation(1).Succeeded);
         CollectionAssert.AreEqual(
@@ -390,7 +390,7 @@ public sealed class WorldEditorObservationTests
         var probe = WorldEditorSequences.EditProbe;
         using var observer = FocusedOnProbe(session, out var held);
         var step = session.SimulationStep + 1;
-        session.SubmitEdit(new VoxelRemoveEdit(probe), step);
+        session.SubmitEdit(new VoxelRemoveEdit(probe), step, confirmEndHistory: true);
         session.SubmitEdit(AddProbe(), step);
         session.EditFaultProbe = record =>
         {

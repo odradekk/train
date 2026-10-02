@@ -2,6 +2,8 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数)
 
+改装不可撤销。历史非空时须尾随 `confirm-end-history`；若同时排期，写作 `at <step> confirm-end-history`。未确认或失败不清历史。
+
 ```text
 composite remove <id> <partId>
 composite remove 1 171
