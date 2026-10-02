@@ -28,6 +28,13 @@ public partial class WorldEditorObservationView : Node3D
     public const double FastMultiplier = 4;
     public const float PickDistance = 500;
 
+    private static readonly IReadOnlyDictionary<Key, ObservationVector> FlyDirections = new Dictionary<Key, ObservationVector>
+    {
+        [Key.D] = new(1, 0, 0), [Key.A] = new(-1, 0, 0),
+        [Key.E] = new(0, 1, 0), [Key.Q] = new(0, -1, 0),
+        [Key.W] = new(0, 0, 1), [Key.S] = new(0, 0, -1)
+    };
+
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
     private VoxelDevelopmentSession _session = null!;
     private Camera3D _camera = null!;
@@ -41,7 +48,9 @@ public partial class WorldEditorObservationView : Node3D
     private ItemList _list = null!;
     private IReadOnlyList<WorldEditorListEntry> _entries = Array.Empty<WorldEditorListEntry>();
     private MeshInstance3D _highlight = null!;
-    private PanelContainer _panel = null!;
+    private Control _panel = null!;
+    private Control _worldInput = null!;
+    private readonly HashSet<Key> _flyKeys = new();
     private int _shownNotices;
     private bool _dragging;
 
@@ -53,20 +62,27 @@ public partial class WorldEditorObservationView : Node3D
     internal string NoticeText => _notice.Text;
     internal IReadOnlyList<WorldEditorListEntry> Entries => _entries;
     internal Rect2 PanelRect => _panel.GetGlobalRect();
+    internal Rect2 WorldRect => _worldInput.GetGlobalRect();
+    internal bool WorldHasInput => GetViewport().GuiGetFocusOwner() == _worldInput && !_consoleOpen();
 
     public void Initialize(
         VoxelDevelopmentSession session,
         Camera3D camera,
         VoxelWorldCollisionPresenter colliders,
         Func<bool> consoleOpen,
-        ObservationCameraPose initial)
+        ObservationCameraPose initial,
+        Control worldInput,
+        VBoxContainer inspector)
     {
         _session = session;
         _camera = camera;
         _colliders = colliders;
         _consoleOpen = consoleOpen;
+        _worldInput = worldInput;
+        _worldInput.GuiInput += HandleWorldInput;
+        _worldInput.FocusExited += EndInput;
         Observer = new WorldEditorObserver(session, initial.Position, initial.Look);
-        CreatePanel();
+        CreatePanel(inspector);
         CreateHighlight();
         ApplyCamera(Observer.Pose);
     }
@@ -77,8 +93,12 @@ public partial class WorldEditorObservationView : Node3D
     public void Present(double delta, TrainDisplaySample sample)
     {
         _sample = sample;
-        if (_consoleOpen() || !Input.IsMouseButtonPressed(MouseButton.Right))
+        if (_consoleOpen())
+            _worldInput.ReleaseFocus();
+        if (!Input.IsMouseButtonPressed(MouseButton.Right))
             _dragging = false;
+        if (!WorldHasInput)
+            EndInput();
         if (delta > 0)
             FlyFromKeys(delta);
         ApplyCamera(Observer.Present(delta, sample));
@@ -86,7 +106,12 @@ public partial class WorldEditorObservationView : Node3D
         UpdatePanel();
     }
 
-    internal void Press(string button) => _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
+    internal void Press(string button)
+    {
+        if (_buttons[button].Disabled)
+            throw new InvalidOperationException($"Observation action {button} is disabled.");
+        _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
+    }
 
     internal void SelectListIndex(int index)
     {
@@ -104,7 +129,13 @@ public partial class WorldEditorObservationView : Node3D
         var worldDistance = world is { } hit ? origin.DistanceTo(hit.Position) : double.PositiveInfinity;
         ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
             ? ObservedObject.Vehicle(vehicle.VehicleId)
-            : world is { } cell ? ObservedObject.WorldCell(cell.Cell) : null;
+            : world is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
+        if (Observer.PartVehicleId is { } owner)
+        {
+            item = item == ObservedObject.Vehicle(owner) && vehicle is not null
+                ? ObservedObject.VehiclePart(owner, vehicle.PartId)
+                : null;
+        }
         var status = item is { } picked ? Observer.Select(picked) : (WorldEditorObservationStatus?)null;
         LastPick = new WorldEditorPick(screen, item, status, vehicle, world?.Cell, worldDistance);
         _action.Text = item is null ? "点选：未命中对象，选择不变" : $"点选：{item.Value.DescribeZh()} → {status}";
@@ -115,7 +146,20 @@ public partial class WorldEditorObservationView : Node3D
     public override void _Notification(int what)
     {
         if (what is (int)NotificationWMWindowFocusOut or (int)NotificationApplicationFocusOut)
-            _dragging = false;
+            EndInput();
+    }
+
+    private void EndInput()
+    {
+        _dragging = false;
+        _flyKeys.Clear();
+    }
+
+    public override void _Input(InputEvent @event)
+    {
+        // Non-focusable panel buttons still take input away from the world. GUI delivery remains Godot's job.
+        if (Observer is not null && @event is InputEventMouseButton { Pressed: true } mouse && !WorldRect.HasPoint(mouse.Position))
+            _worldInput.ReleaseFocus();
     }
 
     /// <summary>
@@ -123,14 +167,26 @@ public partial class WorldEditorObservationView : Node3D
     /// the console, a panel holding mouse focus or a focus loss can swallow the release, so each frame drops a drag
     /// whose button is up or whose input the console took, instead of resuming it later.
     /// </summary>
-    public override void _UnhandledInput(InputEvent @event)
+    private void HandleWorldInput(InputEvent @event)
     {
         if (Observer is null || _consoleOpen())
             return;
+        if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left or MouseButton.Right })
+            _worldInput.GrabFocus();
+        if (!WorldHasInput)
+            return;
+        // Physical movement keys and logical shortcuts can overlap on layouts such as Colemak.
+        if (@event is InputEventKey movement && (movement.PhysicalKeycode == Key.Shift || FlyDirections.ContainsKey(movement.PhysicalKeycode)))
+        {
+            if (movement.Pressed)
+                _flyKeys.Add(movement.PhysicalKeycode);
+            else
+                _flyKeys.Remove(movement.PhysicalKeycode);
+        }
         switch (@event)
         {
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } click:
-                Pick(click.Position);
+                Pick(_worldInput.GetGlobalTransformWithCanvas() * click.Position);
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right } right:
                 _dragging = right.Pressed;
@@ -162,17 +218,18 @@ public partial class WorldEditorObservationView : Node3D
 
     private void FlyFromKeys(double delta)
     {
-        if (_consoleOpen() || GetViewport().GuiGetFocusOwner() is LineEdit)
+        if (!WorldHasInput)
             return;
-        double Axis(Key positive, Key negative) =>
-            (Input.IsPhysicalKeyPressed(positive) ? 1 : 0) - (Input.IsPhysicalKeyPressed(negative) ? 1 : 0);
-        var right = Axis(Key.D, Key.A);
-        var up = Axis(Key.E, Key.Q);
-        var forward = Axis(Key.W, Key.S);
-        if (right == 0 && up == 0 && forward == 0)
+        var direction = default(ObservationVector);
+        foreach (var key in _flyKeys)
+        {
+            if (FlyDirections.TryGetValue(key, out var axis))
+                direction += axis;
+        }
+        if (direction == default)
             return;
-        var speed = FlySpeed * delta * (Input.IsPhysicalKeyPressed(Key.Shift) ? FastMultiplier : 1);
-        Observer.Fly(right * speed, up * speed, forward * speed);
+        var speed = FlySpeed * delta * (_flyKeys.Contains(Key.Shift) ? FastMultiplier : 1);
+        Observer.Fly(direction.X * speed, direction.Y * speed, direction.Z * speed);
     }
 
     private void ApplyCamera(ObservationCameraPose pose)
@@ -184,34 +241,23 @@ public partial class WorldEditorObservationView : Node3D
             _camera.LookAt(look, Vector3.Up);
     }
 
-    private void CreatePanel()
+    private void CreatePanel(VBoxContainer box)
     {
-        var layer = new CanvasLayer();
-        AddChild(layer);
-        var panel = _panel = new PanelContainer
-        {
-            AnchorLeft = 1,
-            AnchorRight = 1,
-            OffsetLeft = -372,
-            OffsetRight = -12,
-            OffsetTop = 12,
-            CustomMinimumSize = new Vector2(360, 0)
-        };
-        layer.AddChild(panel);
-        var box = new VBoxContainer();
+        _panel = box;
         box.AddThemeConstantOverride("separation", 6);
-        panel.AddChild(box);
 
-        box.AddChild(new Label { Text = "观察" });
+        box.AddChild(new Label { Text = "对象检查器" });
         _mode = new Label();
         box.AddChild(_mode);
-        var controls = new HBoxContainer();
+        var controls = new HFlowContainer();
         controls.AddThemeConstantOverride("separation", 6);
         box.AddChild(controls);
         AddButton(controls, "focus", "聚焦选中", () => Report("聚焦", Observer.FocusSelection(_sample)));
         AddButton(controls, "follow", "跟随选中", () => Report("跟随", Observer.FollowSelection(_sample)));
         AddButton(controls, "free", "自由观察", () => Report("自由观察", Observer.Free()));
         AddButton(controls, "clear", "清除选择", () => Report("清除选择", Observer.ClearSelection()));
+        AddButton(controls, "parts", "进入车辆零件", () => Report("进入零件层级", Observer.EnterVehicleParts()));
+        AddButton(controls, "whole", "返回整体", () => Report("返回整体", Observer.ReturnToWhole()));
         _action = new Label { Text = "左键点选 · 右键拖动转向 · 滚轮推拉 · WASD/QE 飞行 · F 聚焦 · V 跟随 · C 自由" };
         _action.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         box.AddChild(_action);
@@ -260,8 +306,11 @@ public partial class WorldEditorObservationView : Node3D
         };
         SetText(_mode, $"镜头：{mode}{(Observer.Transitioning ? "（过渡中）" : "")}");
 
-        var entries = WorldEditorInspector.List(_session);
-        if (!entries.Select(entry => entry.Label).SequenceEqual(_entries.Select(entry => entry.Label)))
+        _buttons["parts"].Disabled = Observer.Selection?.Kind != ObservedObjectKind.Vehicle;
+        _buttons["whole"].Disabled = Observer.PartVehicleId is null;
+        var entries = Observer.PartVehicleId is { } owner
+            ? WorldEditorInspector.ListParts(_session, owner) : WorldEditorInspector.List(_session);
+        if (!entries.SequenceEqual(_entries))
         {
             _entries = entries;
             _list.Clear();
@@ -334,6 +383,13 @@ public partial class WorldEditorObservationView : Node3D
         transform = Transform3D.Identity;
         switch (selected.Kind)
         {
+            case ObservedObjectKind.VehiclePart:
+                if (WorldEditorObserver.FindVehiclePart(_session, selected) is not { } found ||
+                    WorldEditorObserver.VehicleFrame(_session, sample, selected.Id) is not { } partFrame)
+                    return false;
+                transform = new Transform3D(ToGodot(partFrame.Transform).Basis.Scaled(new Vector3(1.1f, 1.1f, 1.1f)),
+                    To(WorldEditorObserver.PartCenter(found.Part, partFrame.Transform)));
+                return true;
             case ObservedObjectKind.Vehicle:
                 var vehicle = _session.Vehicles.FirstOrDefault(item => item.Id == selected.Id);
                 if (vehicle is null || vehicle.Parts.Count == 0 || WorldEditorObserver.VehicleFrame(_session, sample, selected.Id) is not { } frame)

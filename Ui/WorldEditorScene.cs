@@ -53,6 +53,8 @@ public partial class WorldEditorScene : Node3D
     private ConfirmationDialog _saveAsPrompt = null!;
     private LineEdit _saveAsName = null!;
     private FileDialog _exportFile = null!;
+    private Control _worldInput = null!;
+    private VBoxContainer _inspector = null!;
 
     internal VoxelDevelopmentSession? Session => _session;
     internal WorldEditorObservationView? Observation => _observation;
@@ -61,6 +63,7 @@ public partial class WorldEditorScene : Node3D
     internal VoxelWorldMeshPresenter Meshes => _meshes;
     internal CompositeVisualPresenter Composites => _composites;
     internal TrackRendererPresenter Tracks => _tracks;
+    internal LineEdit SaveNameInput => _saveName;
 
     public override void _Ready()
     {
@@ -91,7 +94,7 @@ public partial class WorldEditorScene : Node3D
         _colliders.Rebuild(this, _session.Identity);
         _observation = new WorldEditorObservationView();
         AddChild(_observation);
-        _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, InitialPose(_session));
+        _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, InitialPose(_session), _worldInput, _inspector);
         main.SetWorldEditorObserver(_observation.Observer);
         Refresh();
 
@@ -308,8 +311,12 @@ public partial class WorldEditorScene : Node3D
     {
         var layer = new CanvasLayer();
         AddChild(layer);
-        var panel = new PanelContainer { Position = new Vector2(12, 12) };
-        layer.AddChild(panel);
+        var workspace = new VBoxContainer { OffsetLeft = 12, OffsetTop = 12, OffsetRight = -12, OffsetBottom = -12 };
+        workspace.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        layer.AddChild(workspace);
+        var panel = new PanelContainer();
+        StylePanel(panel);
+        workspace.AddChild(panel);
         var box = new VBoxContainer();
         box.AddThemeConstantOverride("separation", 6);
         panel.AddChild(box);
@@ -318,7 +325,8 @@ public partial class WorldEditorScene : Node3D
         _result = new Label { Text = "最近操作：无（建立后默认暂停）" };
         box.AddChild(_source);
         box.AddChild(_state);
-        box.AddChild(_result);
+        _source.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _state.AutowrapMode = TextServer.AutowrapMode.WordSmart;
 
         var controls = new HBoxContainer();
         controls.AddThemeConstantOverride("separation", 6);
@@ -329,9 +337,7 @@ public partial class WorldEditorScene : Node3D
         _stepCount = new SpinBox { MinValue = 1, MaxValue = 100000, Value = 60, Rounded = true };
         controls.AddChild(_stepCount);
         AddButton(controls, "step_n", "推进 N 步", () => ApplyOperation(WorldEditorOperation.Advance((ulong)_stepCount.Value)));
-        AddButton(controls, "start", "启动列车", () => ApplyEdit("start"));
-        AddButton(controls, "stop", "停车", () => ApplyEdit("stop"));
-        var persistence = new HBoxContainer();
+        var persistence = new HFlowContainer();
         persistence.AddThemeConstantOverride("separation", 6);
         box.AddChild(persistence);
         _saveName = new LineEdit { PlaceholderText = "存档名称", MaxLength = WorldSaveDocument.DisplayNameMaxLength, CustomMinimumSize = new Vector2(150, 0) };
@@ -372,39 +378,89 @@ public partial class WorldEditorScene : Node3D
         _exportFile.FileSelected += path => ExportWorld(path, overwrite: File.Exists(path));
         AddChild(_exportFile);
 
+        var areas = new HBoxContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        workspace.AddChild(areas);
+        var tools = AddSidebar(areas, 310);
+        tools.AddChild(new Label { Text = "工具与内容库" });
+        tools.AddChild(new Button { Text = "选择（当前工具）", Disabled = true });
+        var help = new Label { Text = "以下开发操作使用精确参数；不随选择改变目标。", AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        tools.AddChild(help);
+        _worldInput = new Control { FocusMode = Control.FocusModeEnum.All, MouseFilter = Control.MouseFilterEnum.Stop,
+            SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        areas.AddChild(_worldInput);
+        _inspector = AddSidebar(areas, 340);
+
+        tools.AddChild(new Label { Text = "世界坐标 X / Y / Z" });
         var world = new HBoxContainer();
-        world.AddThemeConstantOverride("separation", 6);
-        box.AddChild(world);
-        world.AddChild(new Label { Text = "世界格" });
+        tools.AddChild(world);
         var probe = WorldEditorSequences.EditProbe;
         _worldCell = new[] { probe.X, probe.Y, probe.Z }.Select(value => AddSpin(world, -100000, 100000, value)).ToArray();
-        world.AddChild(new Label { Text = "量" });
-        _editAmount = AddSpin(world, 1, 100000, 25);
-        world.AddChild(new Label { Text = "延迟步" });
-        _editDelay = AddSpin(world, 0, 100000, 0);
-        AddButton(world, "edit_add", "放置矿石", () => ApplyEdit("edit_add"));
-        AddButton(world, "edit_remove", "移除体素", () => ApplyEdit("edit_remove"));
-        AddButton(world, "edit_damage", "损伤体素", () => ApplyEdit("edit_damage"));
-        AddButton(world, "edit_manufacture", "在此制造空壳", () => ApplyEdit("edit_manufacture"));
-        AddButton(world, "edit_repair", "修复轨道", () => ApplyEdit("edit_repair"));
-        AddButton(world, "edit_construct", "施工直轨", () => ApplyEdit("edit_construct"));
-        AddButton(world, "edit_assemble", "组装列车", () => ApplyEdit("edit_assemble"));
+        var parameters = new HBoxContainer();
+        tools.AddChild(parameters);
+        parameters.AddChild(new Label { Text = "伤害量" });
+        _editAmount = AddSpin(parameters, 1, 100000, 25);
+        parameters.AddChild(new Label { Text = "延迟步" });
+        _editDelay = AddSpin(parameters, 0, 100000, 0);
+        var voxels = AddToolGroup(tools, "世界体素");
+        AddButton(voxels, "edit_add", "放置矿石", () => ApplyEdit("edit_add"));
+        AddButton(voxels, "edit_remove", "移除体素", () => ApplyEdit("edit_remove"));
+        AddButton(voxels, "edit_damage", "损伤体素", () => ApplyEdit("edit_damage"));
+        var rails = AddToolGroup(tools, "铁路");
+        AddButton(rails, "edit_repair", "修复轨道", () => ApplyEdit("edit_repair"));
+        AddButton(rails, "edit_construct", "施工直轨", () => ApplyEdit("edit_construct"));
+        var vehicles = AddToolGroup(tools, "车辆与编组");
+        AddButton(vehicles, "edit_manufacture", "在此制造空壳", () => ApplyEdit("edit_manufacture"));
+        AddButton(vehicles, "edit_assemble", "组装列车", () => ApplyEdit("edit_assemble"));
+        AddButton(vehicles, "start", "启动列车", () => ApplyEdit("start"));
+        AddButton(vehicles, "stop", "停车", () => ApplyEdit("stop"));
 
         var vehicle = new HBoxContainer();
         vehicle.AddThemeConstantOverride("separation", 6);
-        box.AddChild(vehicle);
-        vehicle.AddChild(new Label { Text = "最新车辆局部格" });
+        tools.AddChild(new Label { Text = "最新车辆局部坐标 X / Y / Z" });
+        tools.AddChild(vehicle);
         var local = HollowShellRefit.FirstAdd;
         _localCell = new[] { local.X, local.Y, local.Z }.Select(value => AddSpin(vehicle, 0, 255, value)).ToArray();
-        AddButton(vehicle, "vehicle_damage", "损伤零件", () => ApplyEdit("vehicle_damage"));
-        AddButton(vehicle, "refit_add", "加装", () => ApplyEdit("refit_add"));
-        AddButton(vehicle, "refit_remove", "拆除", () => ApplyEdit("refit_remove"));
-        AddButton(vehicle, "refit_move", "移到 +X", () => ApplyEdit("refit_move"));
-        AddButton(vehicle, "refit_rotate", "旋转", () => ApplyEdit("refit_rotate"));
-        AddButton(vehicle, "refit_replace", "替换", () => ApplyEdit("refit_replace"));
-        AddButton(vehicle, "refit_batch", "批量加装两格", () => ApplyEdit("refit_batch"));
-        _edits = new Label();
-        box.AddChild(_edits);
+        var refit = AddToolGroup(tools, "车辆零件开发操作（最新车辆）");
+        AddButton(refit, "vehicle_damage", "损伤零件", () => ApplyEdit("vehicle_damage"));
+        AddButton(refit, "refit_add", "加装", () => ApplyEdit("refit_add"));
+        AddButton(refit, "refit_remove", "拆除", () => ApplyEdit("refit_remove"));
+        AddButton(refit, "refit_move", "移到 +X", () => ApplyEdit("refit_move"));
+        AddButton(refit, "refit_rotate", "旋转", () => ApplyEdit("refit_rotate"));
+        AddButton(refit, "refit_replace", "替换", () => ApplyEdit("refit_replace"));
+        AddButton(refit, "refit_batch", "批量加装两格", () => ApplyEdit("refit_batch"));
+        var results = new VBoxContainer { Visible = false };
+        AddButton(box, "results", "展开 / 收起操作结果", () => results.Visible = !results.Visible);
+        _result.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        _edits = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        results.AddChild(_result);
+        results.AddChild(_edits);
+        box.AddChild(results);
+    }
+
+    private static VBoxContainer AddSidebar(Container parent, float width)
+    {
+        var panel = new PanelContainer { CustomMinimumSize = new Vector2(width, 0) };
+        StylePanel(panel);
+        parent.AddChild(panel);
+        var scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        panel.AddChild(scroll);
+        var box = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        scroll.AddChild(box);
+        return box;
+    }
+
+    private static void StylePanel(PanelContainer panel) => panel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+    {
+        BgColor = new Color(0.14f, 0.15f, 0.17f),
+        ContentMarginLeft = 10, ContentMarginRight = 10, ContentMarginTop = 8, ContentMarginBottom = 8
+    });
+
+    private static HFlowContainer AddToolGroup(Container parent, string title)
+    {
+        parent.AddChild(new Label { Text = title });
+        var group = new HFlowContainer();
+        parent.AddChild(group);
+        return group;
     }
 
     private static SpinBox AddSpin(Container parent, double min, double max, double value)

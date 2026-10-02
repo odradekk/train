@@ -675,6 +675,7 @@ public sealed class WorldEditorObservationTests
         var down = new ObservationVector(0, -1, 0);
         var locoHit = WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[0], locoHit!.VehicleId);
+        Assert.AreEqual(session.Vehicles.Single(vehicle => vehicle.Id == locoHit.VehicleId).Parts.Single(part => part.Cell == locoHit.Cell).Id, locoHit.PartId);
         var carriageHit = WorldEditorInspector.RaycastVehicles(session, sample, carriage.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[1], carriageHit!.VehicleId);
         Assert.IsTrue(carriageHit.Distance > 10 && carriageHit.Distance < 20);
@@ -683,6 +684,124 @@ public sealed class WorldEditorObservationTests
         Assert.AreEqual(assembly.VehicleIds[1], along!.VehicleId);
         Assert.IsNull(WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), new ObservationVector(0, 1, 0), 100));
         Assert.IsNull(WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 5));
+    }
+
+    [TestMethod]
+    public void Vehicle_part_level_selects_stable_parts_and_returns_to_the_whole_without_changing_observation_or_authority()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
+        var vehicleId = session.QueryTrainAssemblies().Single().VehicleIds[0];
+        using var observer = new WorldEditorObserver(session, Overview, OverviewLook);
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.Vehicle(vehicleId)));
+        Assert.AreEqual(WorldEditorObservationStatus.NotInPartLevel, observer.ReturnToWhole());
+        Assert.AreEqual(WorldEditorObservationStatus.Following, observer.FollowSelection());
+        PresentFrames(observer, session, 60);
+        var pose = observer.Pose;
+        var target = observer.Target;
+        var mode = observer.Mode;
+        var authority = Capture(session);
+
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.EnterVehicleParts());
+        var parts = WorldEditorInspector.ListParts(session, vehicleId);
+        Assert.IsTrue(parts.Count > 1);
+        var first = parts[0].Object;
+        var second = parts[1].Object;
+        Assert.AreEqual(first, observer.Selection);
+        Assert.AreEqual(ObservedObjectKind.VehiclePart, first.Kind);
+
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(second));
+        var inspection = WorldEditorInspector.Inspect(session, second)!;
+        Assert.IsTrue(inspection.IsPart);
+        Assert.AreEqual("vehicle-local", inspection.CoordinateSystem);
+        Assert.AreEqual($"vehicle {vehicleId.Value}", inspection.Owner);
+        StringAssert.Contains(inspection.Identity, $"part {second.PartId!.Value.Value}");
+
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.ReturnToWhole());
+        Assert.AreEqual(ObservedObject.Vehicle(vehicleId), observer.Selection);
+        Assert.IsNull(observer.PartVehicleId);
+        Assert.AreEqual(pose, observer.Pose);
+        Assert.AreEqual(target, observer.Target);
+        Assert.AreEqual(mode, observer.Mode);
+        Assert.AreEqual(authority, Capture(session));
+    }
+
+    [TestMethod]
+    public void Selected_part_keeps_its_identity_when_moved_and_is_lost_when_removed()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        new CompositeConsoleCommands(session).Execute(new[] { "reset", "hollow" });
+        var vehicleId = session.Vehicles.Single().Id;
+        var added = session.Refit(vehicleId,
+            CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity));
+        Assert.IsTrue(added.Succeeded);
+        var partId = added.AllocatedIds!.Single();
+        using var observer = new WorldEditorObserver(session, Overview, OverviewLook);
+        var selected = ObservedObject.VehiclePart(vehicleId, partId);
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(selected));
+
+        Assert.IsTrue(session.Refit(vehicleId, CompositeRefitOperation.Move(partId, HollowShellRefit.Moved)).Succeeded);
+        Assert.AreEqual(selected, observer.Selection);
+        var moved = WorldEditorInspector.Inspect(session, selected)!;
+        StringAssert.Contains(moved.Identity, $"local {HollowShellRefit.Moved.X},{HollowShellRefit.Moved.Y},{HollowShellRefit.Moved.Z}");
+
+        Assert.IsTrue(session.Refit(vehicleId, CompositeRefitOperation.Remove(partId)).Succeeded);
+        Assert.IsNull(observer.Selection);
+        Assert.IsFalse(WorldEditorInspector.ListParts(session, vehicleId).Any(entry => entry.Object == selected));
+        Assert.IsNull(WorldEditorInspector.Inspect(session, selected));
+    }
+
+    [TestMethod]
+    public void World_replacement_clears_part_level()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        new CompositeConsoleCommands(session).Execute(new[] { "reset", "hollow" });
+        var vehicleId = session.Vehicles.Single().Id;
+        using var observer = new WorldEditorObserver(session, Overview, OverviewLook);
+        observer.Select(ObservedObject.Vehicle(vehicleId));
+        Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.EnterVehicleParts());
+        Assert.AreEqual(vehicleId, observer.PartVehicleId);
+
+        new VoxelConsoleCommands(session).Execute(new[] { "reset", "discard" });
+
+        Assert.IsNull(observer.Selection);
+        Assert.IsNull(observer.PartVehicleId);
+    }
+
+    [TestMethod]
+    public void World_target_resolves_shared_seam_to_first_segment_and_exclusive_cells_to_their_own_segment()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        var first = session.Rails.Segments.Single(segment => segment.Alignment == StraightRailFixture.FirstAlignment);
+        var second = session.Rails.Segments.Single(segment => segment.Alignment == StraightRailFixture.SecondAlignment);
+        Assert.IsTrue(first.Id.Value < second.Id.Value);
+        Assert.IsTrue(session.Rails.TryGetOccupancy(StraightRailFixture.SharedSeamCell, out var shared));
+        CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, shared.Supports.Select(support => support.SegmentId).Distinct().ToArray());
+
+        Assert.AreEqual(ObservedObject.Segment(first.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.SharedSeamCell));
+        Assert.AreEqual(ObservedObject.Segment(first.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.LeftRailSample));
+        Assert.AreEqual(ObservedObject.Segment(second.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.CrossSegmentGapCell));
+        Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
+        Assert.AreEqual(ObservedObject.WorldCell(WorldEditorSequences.EditProbe), WorldEditorInspector.WorldTarget(session, WorldEditorSequences.EditProbe));
+    }
+
+    [TestMethod]
+    public void Other_voxel_placed_on_a_destroyed_rail_cell_is_a_world_cell()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        var cell = StraightRailFixture.LeftRailSample;
+        Assert.AreEqual("Removed", session.SubmitEdit(new VoxelRemoveEdit(cell)).Status);
+        Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Status);
+        Assert.IsTrue(session.Rails.TryGetOccupancy(cell, out _));
+        Assert.IsTrue(session.Rails.IsDestroyed(cell));
+        Assert.AreEqual(WorldEditorSequences.EditVoxelId, session.Query(cell).Voxel!.DefinitionId);
+
+        Assert.AreEqual(ObservedObject.WorldCell(cell), WorldEditorInspector.WorldTarget(session, cell));
+        Assert.AreEqual("world", WorldEditorInspector.Inspect(session, ObservedObject.WorldCell(cell))!.Owner);
     }
 
     [TestMethod]

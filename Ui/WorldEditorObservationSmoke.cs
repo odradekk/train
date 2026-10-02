@@ -1,5 +1,6 @@
 using System.Globalization;
 using Godot;
+using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
@@ -22,7 +23,7 @@ internal sealed class WorldEditorObservationSmoke
     private const int FollowFrames = 40;
     private const int TransitionLimitFrames = 600;
     private const float Tolerance = 1e-3f;
-    private const int RailClickX = 90;
+    private const int RailClickX = 84;
     private const float OrbitDragPixels = 60;
 
     private readonly WorldEditorScene _scene;
@@ -43,6 +44,9 @@ internal sealed class WorldEditorObservationSmoke
     private Guid _hollowSave;
     private string _replacedDefinition = "";
     private bool _finished;
+    private bool _routingFinished;
+    private ObservedObject? _routingSelection;
+    private ObservedObject? _partSelection;
 
     public WorldEditorObservationSmoke(WorldEditorScene scene, string? saveId)
     {
@@ -93,7 +97,7 @@ internal sealed class WorldEditorObservationSmoke
                 Next();
                 break;
             case 1:
-                if (FlyForward())
+                if (RouteThenFly())
                     Next();
                 break;
             case 2:
@@ -200,7 +204,7 @@ internal sealed class WorldEditorObservationSmoke
                 Next();
                 break;
             case 1:
-                if (FlyForward())
+                if (RouteThenFly())
                     Next();
                 break;
             case 2:
@@ -213,9 +217,16 @@ internal sealed class WorldEditorObservationSmoke
                     Next();
                 break;
             case 4:
-                View.Press("follow");
-                Require(Observer.Mode == WorldEditorCameraMode.Focus, "follow on a segment changed the mode");
-                View.Press("free");
+                if (_frames == 1)
+                {
+                    View.Press("follow");
+                    Require(Observer.Mode == WorldEditorCameraMode.Focus, "follow on a segment changed the mode");
+                    PressKey(Key.C, true, Key.Q);
+                    PressKey(Key.C, false, Key.Q);
+                    break;
+                }
+                if (_frames < 3)
+                    break;
                 Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Target is null, "free did not release the target");
                 GD.Print($"OBSERVE_SEGMENT_FOLLOW_REFUSED mode={Observer.Mode} selection={Observer.Selection?.Describe()}");
                 Next();
@@ -268,6 +279,11 @@ internal sealed class WorldEditorObservationSmoke
         Require(Session.SimulationPaused && Session.SimulationStep == 0, "world editor did not start paused at step 0");
         Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Selection is null, $"start observation {Observer.Describe()}");
         RequireCameraAt(WorldEditorScene.OverviewPose, "start camera");
+        RequireActionDisabled("parts");
+        RequireActionDisabled("whole");
+        if (HasTrain)
+            Require(Session.SubmitEdit(new VoxelAddEdit(new WorldVoxelCoord(76, 0, 6), WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Status == "Added",
+                "terrain fixture was not placed");
         _mark = Session.SimulationStep;
         _fingerprint = WorldSaveAuthority.Fingerprint(Session);
         GD.Print(
@@ -299,6 +315,107 @@ internal sealed class WorldEditorObservationSmoke
         return true;
     }
 
+    private bool RouteThenFly()
+    {
+        if (_routingFinished)
+            return FlyForward();
+        if (CheckInputRouting())
+        {
+            _routingFinished = true;
+            _frames = 0;
+        }
+        return false;
+    }
+
+    /// <summary>Real GUI delivery, including a held movement key when a panel takes ownership.</summary>
+    private bool CheckInputRouting()
+    {
+        var world = View.WorldRect.GetCenter();
+        var panel = View.PanelRect.Position + new Vector2(8, 8);
+        var field = _scene.SaveNameInput.GetGlobalRect().GetCenter();
+        var screen = _scene.GetViewport().GetScreenTransform();
+        void MouseObservation(Vector2 at)
+        {
+            var window = screen * at;
+            RightButton(true, window);
+            Motion(window, screen.BasisXform(new Vector2(20, 0)), MouseButtonMask.Right);
+            RightButton(false, window);
+            Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.WheelUp, Pressed = true, Position = window, GlobalPosition = window });
+            Input.ParseInputEvent(new InputEventMouseButton { ButtonIndex = MouseButton.WheelUp, Pressed = false, Position = window, GlobalPosition = window });
+        }
+        void Still(string context)
+        {
+            Require(Observer.Pose == _pose, context + " moved the camera");
+            Require(Observer.Selection == _routingSelection, context + " changed selection");
+            RequireUnchanged(context);
+        }
+        switch (_frames)
+        {
+            case 1:
+                Click(world);
+                break;
+            case 3:
+                Require(View.WorldHasInput, "world click did not acquire input");
+                _pose = Observer.Pose;
+                PressKey(Key.W, true);
+                break;
+            case 6:
+                Require(Observer.Pose.Position != _pose.Position, "world input did not fly");
+                Click(panel); // W is still held when the panel takes input.
+                break;
+            case 8:
+                Require(!View.WorldHasInput, "panel click retained world input");
+                _pose = Observer.Pose;
+                _routingSelection = Observer.Selection;
+                MouseObservation(panel);
+                break;
+            case 10:
+                Still("panel input");
+                PressKey(Key.W, false);
+                Click(field);
+                break;
+            case 12:
+                Require(_scene.GetViewport().GuiGetFocusOwner() == _scene.SaveNameInput, "text field did not acquire input");
+                _pose = Observer.Pose;
+                _routingSelection = Observer.Selection;
+                Input.ParseInputEvent(new InputEventKey { Keycode = Key.W, PhysicalKeycode = Key.W, Unicode = 'w', Pressed = true });
+                MouseObservation(field);
+                break;
+            case 15:
+                Still("text field input");
+                Require(_scene.SaveNameInput.Text.Contains('w'), "text field did not receive the typed character");
+                PressKey(Key.W, false);
+                TapKey(Key.Escape); // Dismiss the LineEdit's ordinary right-click menu before toggling the console.
+                break;
+            case 17:
+                TapKey(Key.Quoteleft);
+                break;
+            case 19:
+                Require(Main.ConsoleOpen, "console did not open");
+                _pose = Observer.Pose;
+                _routingSelection = Observer.Selection;
+                PressKey(Key.W, true);
+                Click(world);
+                MouseObservation(world);
+                break;
+            case 22:
+                Still("console input");
+                PressKey(Key.W, false);
+                TapKey(Key.Quoteleft);
+                break;
+            case 24:
+                Require(!Main.ConsoleOpen && !View.WorldHasInput, "closing console resumed world input");
+                Click(world);
+                break;
+            case 26:
+                Require(View.WorldHasInput, "fresh world click did not restore input");
+                RequireUnchanged("input routing");
+                GD.Print("OBSERVE_INPUT_ROUTING world=fly panel=isolated text=isolated console=isolated authority=unchanged");
+                return true;
+        }
+        return false;
+    }
+
     private void SelectFromList(ObservedObject item)
     {
         if (_frames != 1)
@@ -309,8 +426,7 @@ internal sealed class WorldEditorObservationSmoke
         View.SelectListIndex(index);
         Require(Observer.Selection == item, $"list selection is {Observer.Selection?.Describe()}");
         Require(CameraPose() == before, "list selection moved the camera");
-        Require(View.InspectionText.Contains("身份", StringComparison.Ordinal) && View.InspectionText.Contains("运行资格", StringComparison.Ordinal),
-            "inspection panel did not show the formal facts");
+        RequireInspectionBinding();
         GD.Print($"OBSERVE_LIST_SELECT {item.Describe()} camera_moved=false mode={Observer.Mode} inspection_lines={View.InspectionText.Split('\n').Length}");
     }
 
@@ -327,13 +443,57 @@ internal sealed class WorldEditorObservationSmoke
 
         if (_frames < 3)
             return false;
+        if (_frames == 3)
+        {
+            var whole = ReceivedClick();
+            Require(whole.Object == ObservedObject.Vehicle(vehicleId), "default click did not select whole vehicle");
+            Require(Observer.Pose == _pose, "whole selection moved the camera");
+            RequireActionDisabled("whole");
+            View.Press("parts");
+            Require(Observer.PartVehicleId == vehicleId && Observer.Selection?.Kind == ObservedObjectKind.VehiclePart, "explicit part entry failed");
+            Click(_scene.Camera.UnprojectPosition(BodyCenter(vehicleId)));
+            return false;
+        }
+        if (_frames < 5)
+            return false;
+        if (_frames == 5)
+        {
+            var partPick = ReceivedClick();
+            var hitPart = Session.Vehicles.Single(vehicle => vehicle.Id == vehicleId).Parts.Single(part => part.Cell == partPick.VehicleHit!.Cell);
+            Require(partPick.Object == ObservedObject.VehiclePart(vehicleId, hitPart.Id) && Observer.Selection == partPick.Object, "local click selected the wrong part");
+            RequireInspectionBinding();
+            RequireActionDisabled("parts");
+            _partSelection = Observer.Selection;
+            var otherVehicle = Session.Vehicles.First(vehicle => vehicle.Id != vehicleId);
+            Click(_scene.Camera.UnprojectPosition(BodyCenter(otherVehicle.Id)));
+            return false;
+        }
+        if (_frames < 7)
+            return false;
+        if (_frames == 7)
+        {
+            var otherPick = ReceivedClick();
+            Require(otherPick.VehicleHit is { } other && other.VehicleId != vehicleId && other.Distance <= otherPick.WorldDistance,
+                "out-of-level click did not hit another vehicle");
+            Require(otherPick.Object is null && Observer.Selection == _partSelection, "other vehicle changed local selection");
+            Click(_scene.Camera.UnprojectPosition(new Vector3(76.5f, 0.5f, 6.5f)));
+            return false;
+        }
+        if (_frames < 9)
+            return false;
         var pick = ReceivedClick();
-        Require(pick.Object == ObservedObject.Vehicle(vehicleId), $"click at {pick.Screen} picked {pick.Object?.Describe() ?? "nothing"}");
-        Require(Observer.Selection == pick.Object, "click did not select the picked vehicle");
-        Require(Observer.Pose == _pose, "world click moved the camera");
+        Require(pick.WorldCell is { } terrain && Session.Query(terrain).IsOccupied && !Session.Rails.TryGetOccupancy(terrain, out _) &&
+            (pick.VehicleHit is null || pick.WorldDistance < pick.VehicleHit.Distance), "out-of-level click did not hit terrain");
+        Require(pick.Object is null && Observer.Selection == _partSelection, "terrain changed local selection");
+        Require(Observer.Pose == _pose, "world clicks moved the camera");
+        View.Press("whole");
+        Require(Observer.Selection == ObservedObject.Vehicle(vehicleId) && Observer.PartVehicleId is null, "return did not restore whole vehicle");
+        RequireInspectionBinding();
+        Require(Observer.Pose == _pose, "return moved the camera");
+        RequireUnchanged("selection hierarchy");
+        GD.Print("OBSERVE_SELECTION_HIERARCHY whole=vehicle part=stable-id return=whole camera_moved=false");
         GD.Print(
-            $"OBSERVE_CLICK_VEHICLE picked={pick.Object!.Value.Describe()} part={pick.VehicleHit!.Cell.X},{pick.VehicleHit.Cell.Y},{pick.VehicleHit.Cell.Z} " +
-            $"distance={pick.VehicleHit.Distance:0.###} camera_moved=false");
+            $"OBSERVE_CLICK_VEHICLE picked={Observer.Selection!.Value.Describe()} part={_partSelection!.Value.PartId!.Value.Value} out_of_level=ignored camera_moved=false");
         return true;
     }
 
@@ -354,11 +514,12 @@ internal sealed class WorldEditorObservationSmoke
         var pick = ReceivedClick();
         var cell = pick.WorldCell ?? throw new InvalidOperationException($"rail click hit no world collider (object {pick.Object?.Describe()})");
         var domain = Session.QueryCollision(cell).Status;
-        Require(pick.Object?.Kind == ObservedObjectKind.WorldCell, $"rail click picked {pick.Object?.Describe()}");
+        Require(pick.Object?.Kind == ObservedObjectKind.RailSegment && Session.Rails.TryGetOccupancy(cell, out var occupancy) &&
+            occupancy.Supports.Any(support => support.SegmentId == pick.Object.Value.Id), $"rail click picked {pick.Object?.Describe()}");
         Require(domain == VoxelCollisionQueryStatus.Hit, $"Godot hit {cell} but domain collision is {domain}");
         Require(_scene.Colliders.QueryPublishedCellInterior(_scene.GetWorld3D(), cell), "published collider interior disagrees with the ray hit");
         Require(Observer.Pose == _pose, "rail click moved the camera");
-        Require(View.InspectionText.Contains("rail segment", StringComparison.Ordinal), $"rail cell inspection: {View.InspectionText}");
+        RequireInspectionBinding();
         GD.Print(
             $"OBSERVE_CLICK_RAIL cell={cell.X},{cell.Y},{cell.Z} godot_hit=true domain={domain} " +
             $"voxel={Session.Query(cell).Voxel?.DefinitionId.Value} camera_moved=false");
@@ -382,8 +543,9 @@ internal sealed class WorldEditorObservationSmoke
                 View.Press(mode == WorldEditorCameraMode.Focus ? "focus" : "follow");
             else
             {
-                PressKey(key, true);
-                PressKey(key, false);
+                var physical = key == Key.F ? Key.E : Key.W;
+                PressKey(key, true, physical);
+                PressKey(key, false, physical);
             }
 
             return false;
@@ -657,8 +819,6 @@ internal sealed class WorldEditorObservationSmoke
             $"rebuilt cell kept {Observer.Describe()}");
         Require(Observer.LastNotice is { Kind: WorldEditorNoticeKind.TargetLost, Mode: WorldEditorCameraMode.Focus } lost && lost.Object.Cell == probe,
             $"notice {Observer.LastNotice?.Describe()}");
-        Require(View.NoticeText.Contains("已彻底销毁", StringComparison.Ordinal), $"panel notice: {View.NoticeText}");
-        Require(View.InspectionText == "选中：无", $"panel inspection: {View.InspectionText}");
         Require(Observer.Pose.Position == _pose.Position && (_scene.Camera.GlobalPosition - _positions[0]).Length() < Tolerance,
             "camera moved when the rebuilt cell was lost");
         RunConsole("observe");
@@ -733,9 +893,6 @@ internal sealed class WorldEditorObservationSmoke
             $"replaced world kept {Observer.Describe()}");
         Require(Observer.LastNotice is { Kind: WorldEditorNoticeKind.TargetLost, Mode: WorldEditorCameraMode.Follow } lost && lost.Replacement == replacement,
             $"notice {Observer.LastNotice?.Describe()}");
-        Require(View.NoticeText.StartsWith(replacement == WorldReplacement.Reset ? "世界已重置" : "世界已由读档替换", StringComparison.Ordinal),
-            $"panel notice: {View.NoticeText}");
-        Require(View.InspectionText == "选中：无", $"panel inspection: {View.InspectionText}");
         Require(Observer.Pose.Position == _pose.Position && (_scene.Camera.GlobalPosition - _positions[0]).Length() < Tolerance,
             "camera moved when the world was replaced");
         RunConsole("observe");
@@ -831,7 +988,6 @@ internal sealed class WorldEditorObservationSmoke
         Require(Observer.Mode == WorldEditorCameraMode.Free && Observer.Target is null && Observer.Selection is null,
             $"destroyed target left {Observer.Describe()}");
         Require(Observer.LastNotice is { Kind: WorldEditorNoticeKind.TargetLost }, "no target-lost notice");
-        Require(View.NoticeText.Contains("已彻底销毁", StringComparison.Ordinal), $"panel notice: {View.NoticeText}");
         Require((camera - _positions[0]).Length() < Tolerance, $"camera jumped from {_positions[0]} to {camera}");
         Require(Observer.Pose.Position == _pose.Position, "observer position changed on target loss");
         var before = (WorldEditorObservationView.To(_pose.Look) - WorldEditorObservationView.To(_pose.Position)).Normalized();
@@ -925,8 +1081,23 @@ internal sealed class WorldEditorObservationSmoke
         WorldChangeSmoke.Finish(Session);
     }
 
-    private static void PressKey(Key key, bool pressed) =>
-        Input.ParseInputEvent(new InputEventKey { Keycode = key, PhysicalKeycode = key, Pressed = pressed });
+    private static void PressKey(Key key, bool pressed, Key? physical = null) =>
+        Input.ParseInputEvent(new InputEventKey { Keycode = key, PhysicalKeycode = physical ?? key, Pressed = pressed });
+
+    private void RequireInspectionBinding()
+    {
+        var inspection = WorldEditorInspector.Inspect(Session, Observer.Selection!.Value)!;
+        Require(View.InspectionText.EndsWith(string.Join('\n', inspection.LinesZh()), StringComparison.Ordinal),
+            "inspector panel is not bound to the selected object's facts");
+    }
+
+    private void RequireActionDisabled(string action)
+    {
+        var refused = false;
+        try { View.Press(action); }
+        catch (InvalidOperationException) { refused = true; }
+        Require(refused, $"{action} was enabled outside its selection level");
+    }
 
     /// <summary>The pick produced by the last synthesized click, which must have arrived at the aimed viewport point.</summary>
     private WorldEditorPick ReceivedClick()

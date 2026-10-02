@@ -113,6 +113,7 @@ try {
             "OBSERVE_FREE ",
             "mode free selection none",
             "OBSERVE_FREE_FLY moved=",
+            "OBSERVE_INPUT_ROUTING world=fly panel=isolated text=isolated console=isolated authority=unchanged",
             "OBSERVE_CLICK_RAIL cell=",
             "godot_hit=true domain=Hit",
             "OBSERVE_TRANSITION focus mode=Focus",
@@ -123,6 +124,7 @@ try {
             $markers += @(
                 "OBSERVE_LIST_SELECT vehicle",
                 "OBSERVE_CLICK_VEHICLE picked=vehicle",
+                "OBSERVE_SELECTION_HIERARCHY whole=vehicle part=stable-id return=whole camera_moved=false",
                 "OBSERVE_TRANSITION follow mode=Follow",
                 "OBSERVE_FOLLOW_RUNNING vehicle=",
                 "OBSERVE_FOLLOW_PAUSED frames=10",

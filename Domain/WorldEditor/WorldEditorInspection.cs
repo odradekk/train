@@ -17,8 +17,13 @@ public sealed record WorldEditorInspection(
     string Eligibility,
     IReadOnlyList<string> Failures)
 {
+    public bool IsPart => Object.Kind == ObservedObjectKind.VehiclePart;
+    public string CoordinateSystem => IsPart ? "vehicle-local" : "world";
+
     public IEnumerable<string> Lines()
     {
+        yield return "level " + (IsPart ? "part" : "whole");
+        yield return "coordinates " + CoordinateSystem;
         yield return "identity " + Identity;
         yield return "owner " + Owner;
         yield return "durability " + Durability;
@@ -28,6 +33,8 @@ public sealed record WorldEditorInspection(
 
     public IEnumerable<string> LinesZh()
     {
+        yield return "层级：" + (IsPart ? "车辆零件" : "整体");
+        yield return "坐标系：" + (IsPart ? "车辆局部坐标" : "世界坐标");
         yield return "身份：" + Identity;
         yield return "所属：" + Owner;
         yield return "耐久：" + Durability;
@@ -38,10 +45,20 @@ public sealed record WorldEditorInspection(
 
 public sealed record WorldEditorListEntry(ObservedObject Object, string Label);
 
-public sealed record WorldEditorVehicleHit(EntityId VehicleId, LocalVoxelCoord Cell, double Distance);
+public sealed record WorldEditorVehicleHit(EntityId VehicleId, EntityId PartId, LocalVoxelCoord Cell, double Distance);
 
 public static class WorldEditorInspector
 {
+    public static IReadOnlyList<WorldEditorListEntry> ListParts(VoxelDevelopmentSession session, EntityId vehicleId)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == vehicleId)?.Parts
+            .OrderBy(part => part.Id.Value)
+            .Select(part => new WorldEditorListEntry(ObservedObject.VehiclePart(vehicleId, part.Id),
+                $"零件 {part.Id.Value} {part.DefinitionId.Value} · 局部 ({part.Cell.X},{part.Cell.Y},{part.Cell.Z})"))
+            .ToArray() ?? Array.Empty<WorldEditorListEntry>();
+    }
+
     public static IReadOnlyList<WorldEditorListEntry> List(VoxelDevelopmentSession session)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -72,9 +89,33 @@ public static class WorldEditorInspector
         return item.Kind switch
         {
             ObservedObjectKind.Vehicle => InspectVehicle(session, item),
+            ObservedObjectKind.VehiclePart => InspectPart(session, item),
             ObservedObjectKind.RailSegment => InspectSegment(session, item),
             _ => InspectCell(session, item)
         };
+    }
+
+    /// <summary>A rail voxel belongs to its segment; shared endpoint cells resolve to the lowest stable segment id.</summary>
+    public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
+        HasRailVoxel(session, cell) && session.Rails.TryGetOccupancy(cell, out var occupancy) && occupancy.Supports.Count > 0
+            ? ObservedObject.Segment(occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId)
+            : ObservedObject.WorldCell(cell);
+
+    private static bool HasRailVoxel(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
+        !session.Rails.IsDestroyed(cell) && session.World.Query(cell).Voxel is { } voxel &&
+        voxel.DefinitionId == StraightRailFixture.RailDefinitionId;
+
+    private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
+    {
+        if (WorldEditorObserver.FindVehiclePart(session, item) is not { } found)
+            return null;
+        var (vehicle, part) = found;
+        var damaged = session.QueryDamagedParts().FirstOrDefault(value => value.PartId == part.Id);
+        return new WorldEditorInspection(item,
+            $"part {part.Id.Value} {part.DefinitionId.Value} local {part.Cell.X},{part.Cell.Y},{part.Cell.Z} {part.Orientation}",
+            $"vehicle {item.Id.Value}",
+            $"{part.CurrentDurability}/{damaged?.MaxDurability ?? part.CurrentDurability}",
+            session.QueryComposite(vehicle.Id)!.OperationalCondition.ToString(), Array.Empty<string>());
     }
 
     /// <summary>
@@ -110,7 +151,7 @@ public static class WorldEditorInspector
                     distance > maxDistance ||
                     (best is not null && distance >= best.Distance))
                     continue;
-                best = new WorldEditorVehicleHit(vehicle.Id, part.Cell, distance);
+                best = new WorldEditorVehicleHit(vehicle.Id, part.Id, part.Cell, distance);
             }
         }
 
@@ -212,7 +253,7 @@ public static class WorldEditorInspector
         if (query.Voxel is not { } voxel || voxel.RuntimeId != item.RuntimeId)
             return null;
         var owners = new List<string>();
-        if (session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
+        if (HasRailVoxel(session, item.Cell) && session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
             owners.Add("rail segment " + string.Join(',', occupancy.Supports.Select(support => Number(support.SegmentId.Value)).Distinct()));
         if (voxel.RuntimeId is { } runtime)
             owners.Add("detached part runtime " + Number(runtime.Value));
