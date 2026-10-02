@@ -694,6 +694,7 @@ public sealed class WorldEditorObservationTests
         var vehicleId = session.QueryTrainAssemblies().Single().VehicleIds[0];
         using var observer = new WorldEditorObserver(session, Overview, OverviewLook);
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.Vehicle(vehicleId)));
+        Assert.AreEqual(WorldEditorObservationStatus.NotInPartLevel, observer.ReturnToWhole());
         Assert.AreEqual(WorldEditorObservationStatus.Following, observer.FollowSelection());
         PresentFrames(observer, session, 60);
         var pose = observer.Pose;
@@ -702,7 +703,7 @@ public sealed class WorldEditorObservationTests
         var authority = Capture(session);
 
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.EnterVehicleParts());
-        var parts = WorldEditorInspector.List(session, observer.PartVehicleId);
+        var parts = WorldEditorInspector.ListParts(session, vehicleId);
         Assert.IsTrue(parts.Count > 1);
         var first = parts[0].Object;
         var second = parts[1].Object;
@@ -747,12 +748,12 @@ public sealed class WorldEditorObservationTests
 
         Assert.IsTrue(session.Refit(vehicleId, CompositeRefitOperation.Remove(partId)).Succeeded);
         Assert.IsNull(observer.Selection);
-        Assert.IsFalse(WorldEditorInspector.List(session, observer.PartVehicleId).Any(entry => entry.Object == selected));
+        Assert.IsFalse(WorldEditorInspector.ListParts(session, vehicleId).Any(entry => entry.Object == selected));
         Assert.IsNull(WorldEditorInspector.Inspect(session, selected));
     }
 
     [TestMethod]
-    public void World_replacement_clears_part_level_and_world_targets_resolve_rail_before_cells()
+    public void World_replacement_clears_part_level()
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
@@ -767,12 +768,40 @@ public sealed class WorldEditorObservationTests
 
         Assert.IsNull(observer.Selection);
         Assert.IsNull(observer.PartVehicleId);
-        var railCell = StraightRailFixture.LeftRailSample;
-        Assert.AreEqual(ObservedObject.Segment(session.Rails.Segments.MinBy(segment => segment.Id.Value)!.Id),
-            WorldEditorInspector.WorldTarget(session, railCell));
+    }
+
+    [TestMethod]
+    public void World_target_resolves_shared_seam_to_first_segment_and_exclusive_cells_to_their_own_segment()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        var first = session.Rails.Segments.Single(segment => segment.Alignment == StraightRailFixture.FirstAlignment);
+        var second = session.Rails.Segments.Single(segment => segment.Alignment == StraightRailFixture.SecondAlignment);
+        Assert.IsTrue(first.Id.Value < second.Id.Value);
+        Assert.IsTrue(session.Rails.TryGetOccupancy(StraightRailFixture.SharedSeamCell, out var shared));
+        CollectionAssert.AreEquivalent(new[] { first.Id, second.Id }, shared.Supports.Select(support => support.SegmentId).Distinct().ToArray());
+
+        Assert.AreEqual(ObservedObject.Segment(first.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.SharedSeamCell));
+        Assert.AreEqual(ObservedObject.Segment(first.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.LeftRailSample));
+        Assert.AreEqual(ObservedObject.Segment(second.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.CrossSegmentGapCell));
         Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
-        Assert.AreEqual(ObservedObjectKind.WorldCell, WorldEditorInspector.WorldTarget(session, WorldEditorSequences.EditProbe).Kind);
-        Assert.AreEqual(WorldEditorSequences.EditProbe, WorldEditorInspector.WorldTarget(session, WorldEditorSequences.EditProbe).Cell);
+        Assert.AreEqual(ObservedObject.WorldCell(WorldEditorSequences.EditProbe), WorldEditorInspector.WorldTarget(session, WorldEditorSequences.EditProbe));
+    }
+
+    [TestMethod]
+    public void Other_voxel_placed_on_a_destroyed_rail_cell_is_a_world_cell()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        var cell = StraightRailFixture.LeftRailSample;
+        Assert.AreEqual("Removed", session.SubmitEdit(new VoxelRemoveEdit(cell)).Status);
+        Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity)).Status);
+        Assert.IsTrue(session.Rails.TryGetOccupancy(cell, out _));
+        Assert.IsTrue(session.Rails.IsDestroyed(cell));
+        Assert.AreEqual(WorldEditorSequences.EditVoxelId, session.Query(cell).Voxel!.DefinitionId);
+
+        Assert.AreEqual(ObservedObject.WorldCell(cell), WorldEditorInspector.WorldTarget(session, cell));
+        Assert.AreEqual("world", WorldEditorInspector.Inspect(session, ObservedObject.WorldCell(cell))!.Owner);
     }
 
     [TestMethod]

@@ -49,15 +49,19 @@ public sealed record WorldEditorVehicleHit(EntityId VehicleId, EntityId PartId, 
 
 public static class WorldEditorInspector
 {
-    public static IReadOnlyList<WorldEditorListEntry> List(VoxelDevelopmentSession session, EntityId? partVehicleId = null)
+    public static IReadOnlyList<WorldEditorListEntry> ListParts(VoxelDevelopmentSession session, EntityId vehicleId)
     {
         ArgumentNullException.ThrowIfNull(session);
-        if (partVehicleId is { } partOwner)
-            return session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == partOwner)?.Parts
-                .OrderBy(part => part.Id.Value)
-                .Select(part => new WorldEditorListEntry(ObservedObject.VehiclePart(partOwner, part.Id),
-                    $"零件 {part.Id.Value} {part.DefinitionId.Value} · 局部 ({part.Cell.X},{part.Cell.Y},{part.Cell.Z})"))
-                .ToArray() ?? Array.Empty<WorldEditorListEntry>();
+        return session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == vehicleId)?.Parts
+            .OrderBy(part => part.Id.Value)
+            .Select(part => new WorldEditorListEntry(ObservedObject.VehiclePart(vehicleId, part.Id),
+                $"零件 {part.Id.Value} {part.DefinitionId.Value} · 局部 ({part.Cell.X},{part.Cell.Y},{part.Cell.Z})"))
+            .ToArray() ?? Array.Empty<WorldEditorListEntry>();
+    }
+
+    public static IReadOnlyList<WorldEditorListEntry> List(VoxelDevelopmentSession session)
+    {
+        ArgumentNullException.ThrowIfNull(session);
         var assemblies = session.QueryTrainAssemblies();
         var entries = new List<WorldEditorListEntry>();
         foreach (var vehicle in session.QueryComposites())
@@ -93,22 +97,25 @@ public static class WorldEditorInspector
 
     /// <summary>A rail voxel belongs to its segment; shared endpoint cells resolve to the lowest stable segment id.</summary>
     public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        session.Rails.TryGetOccupancy(cell, out var occupancy) && occupancy.Supports.Count > 0
+        HasRailVoxel(session, cell) && session.Rails.TryGetOccupancy(cell, out var occupancy) && occupancy.Supports.Count > 0
             ? ObservedObject.Segment(occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId)
             : ObservedObject.WorldCell(cell);
 
+    private static bool HasRailVoxel(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
+        !session.Rails.IsDestroyed(cell) && session.World.Query(cell).Voxel is { } voxel &&
+        voxel.DefinitionId == StraightRailFixture.RailDefinitionId;
+
     private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
     {
-        var vehicle = session.QueryComposite(item.Id);
-        var part = vehicle?.Parts.FirstOrDefault(part => part.Id == item.PartId);
-        if (part is null)
+        if (WorldEditorObserver.FindVehiclePart(session, item) is not { } found)
             return null;
+        var (vehicle, part) = found;
         var damaged = session.QueryDamagedParts().FirstOrDefault(value => value.PartId == part.Id);
         return new WorldEditorInspection(item,
             $"part {part.Id.Value} {part.DefinitionId.Value} local {part.Cell.X},{part.Cell.Y},{part.Cell.Z} {part.Orientation}",
             $"vehicle {item.Id.Value}",
             $"{part.CurrentDurability}/{damaged?.MaxDurability ?? part.CurrentDurability}",
-            vehicle!.OperationalCondition.ToString(), Array.Empty<string>());
+            session.QueryComposite(vehicle.Id)!.OperationalCondition.ToString(), Array.Empty<string>());
     }
 
     /// <summary>
@@ -246,7 +253,7 @@ public static class WorldEditorInspector
         if (query.Voxel is not { } voxel || voxel.RuntimeId != item.RuntimeId)
             return null;
         var owners = new List<string>();
-        if (session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
+        if (HasRailVoxel(session, item.Cell) && session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
             owners.Add("rail segment " + string.Join(',', occupancy.Supports.Select(support => Number(support.SegmentId.Value)).Distinct()));
         if (voxel.RuntimeId is { } runtime)
             owners.Add("detached part runtime " + Number(runtime.Value));

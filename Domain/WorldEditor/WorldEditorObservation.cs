@@ -67,7 +67,9 @@ public enum WorldEditorObservationStatus
     Free,
     NoSelection,
     NotVehicle,
-    UnknownObject
+    UnknownObject,
+    NoParts,
+    NotInPartLevel
 }
 
 public enum WorldEditorNoticeKind
@@ -186,7 +188,7 @@ public sealed class WorldEditorObserver : IDisposable
     public bool Exists(ObservedObject item) => item.Kind switch
     {
         ObservedObjectKind.Vehicle => _session.Vehicles.Any(vehicle => vehicle.Id == item.Id),
-        ObservedObjectKind.VehiclePart => _session.Vehicles.Any(vehicle => vehicle.Id == item.Id && vehicle.Parts.Any(part => part.Id == item.PartId)),
+        ObservedObjectKind.VehiclePart => FindVehiclePart(_session, item) is not null,
         ObservedObjectKind.RailSegment => _session.Rails.Segments.Any(segment => segment.Id == item.Id),
         _ => _session.Query(item.Cell).Voxel is { } voxel &&
              voxel.RuntimeId == item.RuntimeId &&
@@ -214,11 +216,11 @@ public sealed class WorldEditorObserver : IDisposable
         if (selected.Kind != ObservedObjectKind.Vehicle)
             return WorldEditorObservationStatus.NotVehicle;
         var part = _session.Vehicles.Single(vehicle => vehicle.Id == selected.Id).Parts.OrderBy(part => part.Id.Value).FirstOrDefault();
-        return part is null ? WorldEditorObservationStatus.UnknownObject : Select(ObservedObject.VehiclePart(selected.Id, part.Id));
+        return part is null ? WorldEditorObservationStatus.NoParts : Select(ObservedObject.VehiclePart(selected.Id, part.Id));
     }
 
     public WorldEditorObservationStatus ReturnToWhole() => PartVehicleId is { } id
-        ? Select(ObservedObject.Vehicle(id)) : WorldEditorObservationStatus.NotVehicle;
+        ? Select(ObservedObject.Vehicle(id)) : WorldEditorObservationStatus.NotInPartLevel;
 
     public WorldEditorObservationStatus ClearSelection()
     {
@@ -368,11 +370,9 @@ public sealed class WorldEditorObserver : IDisposable
         switch (item.Kind)
         {
             case ObservedObjectKind.VehiclePart:
-                var part = _session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == item.Id)?.Parts.FirstOrDefault(part => part.Id == item.PartId);
-                if (part is null || VehicleFrame(_session, sample, item.Id) is not { } frame)
+                if (FindVehiclePart(_session, item) is not { } found || VehicleFrame(_session, sample, item.Id) is not { } frame)
                     return Pose.Look;
-                var point = frame.Transform.TransformPoint(part.Cell.X + 0.5, part.Cell.Y + 0.5, part.Cell.Z + 0.5);
-                return new ObservationVector(point.X, point.Y, point.Z);
+                return PartCenter(found.Part, frame.Transform);
             case ObservedObjectKind.Vehicle:
                 return VehicleFrame(_session, sample, item.Id)?.Center ?? Pose.Look;
             case ObservedObjectKind.RailSegment:
@@ -387,6 +387,21 @@ public sealed class WorldEditorObserver : IDisposable
             default:
                 return new ObservationVector(item.Cell.X + 0.5, item.Cell.Y + 0.5, item.Cell.Z + 0.5);
         }
+    }
+
+    /// <summary>Resolves a part's stable identity within its owning vehicle; a missing owner or part returns null.</summary>
+    public static (CompositeInstance Vehicle, CompositePart Part)? FindVehiclePart(VoxelDevelopmentSession session, ObservedObject item)
+    {
+        var vehicle = session.Vehicles.FirstOrDefault(vehicle => vehicle.Id == item.Id);
+        return item.Kind == ObservedObjectKind.VehiclePart && item.PartId is { } partId && vehicle?.PartById(partId) is { } part
+            ? (vehicle, part) : null;
+    }
+
+    /// <summary>The centre of a local part cell in the vehicle's displayed world transform.</summary>
+    public static ObservationVector PartCenter(CompositePart part, CompositeTransform transform)
+    {
+        var point = transform.TransformPoint(part.Cell.X + 0.5, part.Cell.Y + 0.5, part.Cell.Z + 0.5);
+        return new ObservationVector(point.X, point.Y, point.Z);
     }
 
     /// <summary>
