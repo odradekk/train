@@ -147,7 +147,7 @@ public partial class WorldEditorWorkspaceScene : Control
         }
     }
 
-    private static string Describe(WorldSaveResult result) =>
+    internal static string Describe(WorldSaveResult result) =>
         $"{result.Status}" + (result.Diagnostic is { } reason ? $" · {reason.Stage}/{reason.Subject}/{reason.Relationship} · {reason.Detail}" : "");
 
     private static Button AddButton(Container parent, string text, Action action)

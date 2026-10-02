@@ -552,9 +552,8 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (_store is null)
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
-        var captured = CaptureSave(id, displayName, out var document);
-        if (!captured.Succeeded)
-            return captured;
+        if (!TryCaptureSave(id, displayName, out var document, out var captureStatus))
+            return new WorldSaveResult(captureStatus, SaveId, DisplayName);
         var json = WorldSaveCodec.Serialize(document);
         var capturedFingerprint = WorldSaveAuthority.Fingerprint(this);
         if (!_store.TryWrite(id, json, out var writeStatus))
@@ -567,19 +566,26 @@ public sealed partial class VoxelDevelopmentSession
     }
 
     // Save and export share the same synchronous transaction-boundary capture.
-    internal WorldSaveResult CaptureSave(Guid id, string? displayName, out WorldSaveDocument document)
+    internal bool TryCaptureSave(Guid id, string? displayName, out WorldSaveDocument document, out WorldSaveStatus failureStatus)
     {
         document = null!;
+        failureStatus = WorldSaveStatus.Unavailable;
         if (_catalog.Current is null)
-            return new WorldSaveResult(WorldSaveStatus.Unavailable, SaveId, DisplayName);
+            return false;
         if (Fault is not null)
-            return new WorldSaveResult(WorldSaveStatus.SimulationFaulted, SaveId, DisplayName);
+        {
+            failureStatus = WorldSaveStatus.SimulationFaulted;
+            return false;
+        }
 
         var name = displayName ?? DisplayName;
         if (!WorldSaveDocument.TryNormalizeDisplayName(name, out var normalized))
-            return new WorldSaveResult(WorldSaveStatus.InvalidName, SaveId, DisplayName);
+        {
+            failureStatus = WorldSaveStatus.InvalidName;
+            return false;
+        }
 
-        if (!WorldSaveCodec.TryCapture(
+        return WorldSaveCodec.TryCapture(
                 World,
                 _catalog.Current,
                 id,
@@ -588,15 +594,12 @@ public sealed partial class VoxelDevelopmentSession
                 NextEntityId,
                 TransactionCount,
                 out document,
-                out var captureStatus,
+                out failureStatus,
                 _rails,
                 _assemblies,
                 SimulationStep,
                 WorldSource,
-                CaptureEditQueue()))
-            return new WorldSaveResult(captureStatus, SaveId, DisplayName);
-
-        return new WorldSaveResult(WorldSaveStatus.Saved, id, normalized);
+                CaptureEditQueue());
     }
 
     public WorldSaveResult Load(Guid saveId)

@@ -353,8 +353,8 @@ public partial class WorldEditorScene : Node3D
             Filters = new[] { "*.json ; JSON 存档" }, ModeOverridesTitle = false,
             Title = "导出已提交世界（不包含临时草稿）"
         };
-        // SaveFile emits the selected path only after its built-in overwrite warning is confirmed.
-        _exportFile.FileSelected += path => ExportWorld(path, overwrite: true);
+        // An existing selected file has passed FileDialog's overwrite warning. Later arrivals must not be replaced.
+        _exportFile.FileSelected += path => ExportWorld(path, overwrite: File.Exists(path));
         AddChild(_exportFile);
 
         var world = new HBoxContainer();
@@ -494,7 +494,7 @@ public partial class WorldEditorScene : Node3D
         _exportFile.PopupCentered(new Vector2I(820, 560));
     }
 
-    internal WorldSaveResult ExportWorld(string path, bool overwrite = false)
+    internal WorldSaveResult ExportWorld(string path, bool overwrite)
     {
         var main = GetNode<Main>("/root/Main");
         var reloader = main.Reloader!;
@@ -502,7 +502,7 @@ public partial class WorldEditorScene : Node3D
             new FileWorldSaveStore(main.IsolatedUserDataDirectory));
         var result = _session is null ? new WorldSaveResult(WorldSaveStatus.Unavailable) : workspace.Export(_session, path, overwrite);
         _result.Text = result.Succeeded ? $"已导出已提交世界：{path}（不包含临时草稿）。"
-            : $"无法导出：{result.Status}" + (result.Diagnostic is { } reason ? $" · {reason.Stage}/{reason.Subject}/{reason.Relationship} · {reason.Detail}" : "");
+            : $"无法导出：{WorldEditorWorkspaceScene.Describe(result)}";
         return result;
     }
 

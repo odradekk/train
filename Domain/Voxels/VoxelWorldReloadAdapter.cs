@@ -104,7 +104,7 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         List<WorldSaveAdaptation>? adaptations,
         out IReadOnlyList<CompositeInstance> adapted,
         out WorldSaveStatus status,
-        WorldSaveFailureLog? failures = null)
+        WorldSaveFailureLog failures)
     {
         ArgumentNullException.ThrowIfNull(vehicles);
         ArgumentNullException.ThrowIfNull(voxels);
@@ -126,7 +126,7 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
             ? WorldSaveStatus.MissingDefinition
             : WorldSaveStatus.InvalidDelta;
         var reason = diagnostics[0];
-        failures?.Report("dependency", reason.JsonPath ?? "vehicle", reason.Code, reason.Message);
+        failures.Report("dependency", reason.JsonPath ?? "vehicle", reason.Code, reason.Message);
         return false;
     }
 

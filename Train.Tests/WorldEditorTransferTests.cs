@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 
@@ -93,6 +94,74 @@ public sealed class WorldEditorTransferTests
         Assert.IsFalse(session.SimulationPaused);
         CollectionAssert.AreEqual(existing, File.ReadAllBytes(harness.Store.PathFor(id)));
         CollectionAssert.AreEqual(input, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    public void Incompatible_world_voxel_import_identifies_the_definition_and_saved_position()
+    {
+        var definition = new VoxelDefinitionId("core", "import-rotated");
+        var position = new WorldVoxelCoord(1, 2, 3);
+        var package = StaticTrainHarness.Package();
+        package.AddVoxelFile("core", "voxels/import-rotated.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good(definition.LocalId, "Rotated", "Rotated")));
+        using var writer = WorldEditorHarness.Content(package);
+        var exporting = new WorldEditorWorkspace(writer.Catalog, writer.Composites, writer.Store);
+        BlankWorldSource.TryIdentity(8, 8, 8, 42, out var identity);
+        var source = exporting.NewBlank(identity);
+        writer.Attach(source);
+        Assert.IsTrue(source.Add(position, definition, VoxelOrientation.Yaw90).Succeeded);
+        var path = Path.Combine(writer.UserData, "rotated.json");
+        Assert.IsTrue(exporting.Export(source, path).Succeeded);
+        var bytes = File.ReadAllBytes(path);
+        var restricted = StaticTrainHarness.Package();
+        restricted.AddVoxelFile("core", "voxels/import-rotated.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good(definition.LocalId, "Rotated", "Rotated", orientations: "none")));
+        using var reader = WorldEditorHarness.Content(restricted);
+        var workspace = new WorldEditorWorkspace(reader.Catalog, reader.Composites, reader.Store);
+        var current = workspace.NewBlank(identity);
+        reader.Attach(current);
+        var fingerprint = WorldSaveAuthority.Fingerprint(current);
+
+        var rejected = workspace.Import(path);
+
+        Assert.AreEqual(WorldSaveStatus.InvalidDelta, rejected.Status);
+        Assert.IsNotNull(rejected.Diagnostic);
+        Assert.AreEqual(definition.Value, rejected.Diagnostic.Subject);
+        StringAssert.Contains(rejected.Diagnostic.Relationship, position.ToString());
+        Assert.AreEqual(0, workspace.ListSaves().Count);
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(current));
+        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    public void Incompatible_train_dependency_import_identifies_the_changed_definition_and_part()
+    {
+        using var writer = StaticTrainHarness.Create();
+        Assert.IsTrue(writer.Session.ConstructRails().Succeeded);
+        Assert.IsTrue(writer.Session.AssembleStaticTrain().Succeeded);
+        Assert.IsTrue(writer.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
+        Assert.IsTrue(writer.Session.AdvanceSimulation(1).Succeeded);
+        var definition = StaticTrainFixture.PropulsionId;
+        var part = writer.Session.Vehicles.SelectMany(vehicle => vehicle.Parts)
+            .First(item => item.DefinitionId == definition);
+        var exporting = new WorldEditorWorkspace(writer.Reloader.Catalog, writer.Reloader.Composites, writer.Store);
+        var path = Path.Combine(writer.UserData, "train.json");
+        Assert.IsTrue(exporting.Export(writer.Session, path).Succeeded);
+        Assert.IsTrue(exporting.Import(path).Succeeded, "The source-free moving save must be valid before its dependency changes.");
+        var package = StaticTrainHarness.Package();
+        var definitionJson = JsonNode.Parse(CompositeFixtures.BuiltinText("voxels", "propulsion.voxels.json"))!;
+        definitionJson["voxels"]![0]!["behaviors"] = new JsonArray();
+        package.AddVoxelFile("core", "voxels/propulsion.voxels.json", definitionJson.ToJsonString());
+        using var reader = WorldEditorHarness.Content(package);
+        var workspace = new WorldEditorWorkspace(reader.Catalog, reader.Composites, reader.Store);
+
+        var rejected = workspace.Import(path);
+
+        Assert.AreEqual(WorldSaveStatus.InvalidDelta, rejected.Status);
+        Assert.IsNotNull(rejected.Diagnostic);
+        Assert.AreEqual(definition.Value, rejected.Diagnostic.Subject);
+        StringAssert.Contains(rejected.Diagnostic.Relationship, part.Cell.ToString());
+        Assert.AreEqual(0, workspace.ListSaves().Count);
     }
 
     [DataTestMethod]

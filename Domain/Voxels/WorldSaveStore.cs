@@ -63,7 +63,7 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
         status = WorldSaveStatus.Saved;
         var directory = DirectoryFor(id);
         var target = PathFor(id);
-        var candidate = Path.Combine(directory, overwrite ? CandidateFileName : $"save.json.{Guid.NewGuid():N}.candidate");
+        var candidate = Path.Combine(directory, CandidateFileName);
         if (!ExternalPath.IsSafeUnderRoot(Root, target) || !ExternalPath.IsSafeUnderRoot(Root, candidate))
         {
             status = WorldSaveStatus.WriteFailed;
@@ -73,14 +73,7 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
         try
         {
             Directory.CreateDirectory(directory);
-            using (var stream = new FileStream(candidate, FileMode.Create, FileAccess.Write, FileShare.None))
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            {
-                writer.Write(json);
-                writer.Flush();
-                stream.Flush(true);
-            }
-
+            WriteCandidate(candidate, json, FileMode.Create);
             File.Move(candidate, target, overwrite);
             return true;
         }
@@ -99,5 +92,14 @@ public sealed class FileWorldSaveStore : IWorldSaveStore
 
             return false;
         }
+    }
+
+    internal static void WriteCandidate(string path, string json, FileMode mode)
+    {
+        using var stream = new FileStream(path, mode, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        writer.Write(json);
+        writer.Flush();
+        stream.Flush(true);
     }
 }

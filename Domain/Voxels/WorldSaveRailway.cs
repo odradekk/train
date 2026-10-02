@@ -304,6 +304,7 @@ internal static class WorldSaveRailwayCodec
         VoxelWorld world,
         IReadOnlyList<CompositeInstance> vehicles,
         VoxelCatalogSnapshot catalog,
+        WorldSaveFailureLog failures,
         out PhysicalRailState rails,
         out IReadOnlyList<TrainAssembly> assemblies,
         out WorldSaveStatus status)
@@ -315,10 +316,11 @@ internal static class WorldSaveRailwayCodec
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(vehicles);
         ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(failures);
 
         if (!TryValidateRailway(document.Railway, out status))
             return false;
-        if (!TryValidateAssemblies(document.Assemblies, document.Railway, vehicles, catalog, out status))
+        if (!TryValidateAssemblies(document, vehicles, catalog, failures, out status))
             return false;
         if (document.ScheduledSequence > document.TransactionCount)
         {
@@ -400,12 +402,14 @@ internal static class WorldSaveRailwayCodec
     }
 
     private static bool TryValidateAssemblies(
-        IReadOnlyList<TrainAssembly> assemblies,
-        WorldSaveRailway railway,
+        WorldSaveDocument document,
         IReadOnlyList<CompositeInstance> vehicles,
         VoxelCatalogSnapshot catalog,
+        WorldSaveFailureLog failures,
         out WorldSaveStatus status)
     {
+        var assemblies = document.Assemblies;
+        var railway = document.Railway;
         status = WorldSaveStatus.InvalidDelta;
         var assemblyIds = new HashSet<ulong>();
         var claimedVehicles = new HashSet<EntityId>();
@@ -447,7 +451,7 @@ internal static class WorldSaveRailwayCodec
                 return false;
             }
 
-            if (!TryValidateAssemblyMembers(assembly, vehicleById, segment, catalog))
+            if (!TryValidateAssemblyMembers(assembly, vehicleById, segment, catalog, document.Vehicles, failures))
                 return false;
         }
 
@@ -459,7 +463,9 @@ internal static class WorldSaveRailwayCodec
         TrainAssembly assembly,
         IReadOnlyDictionary<EntityId, CompositeInstance> vehicleById,
         PhysicalRailSegment segment,
-        VoxelCatalogSnapshot catalog)
+        VoxelCatalogSnapshot catalog,
+        IReadOnlyList<WorldSaveVehicle> savedVehicles,
+        WorldSaveFailureLog failures)
     {
         var members = new List<CompositeInstance>(assembly.VehicleIds.Count);
         var contacts = new List<(double X, double Y, double Z)>();
@@ -511,12 +517,55 @@ internal static class WorldSaveRailwayCodec
         {
             if (assembly.ActiveLocomotiveId is not { } locoId)
                 return false;
-            return StraightTrainMotion.TryResolveLocomotive(vehicleById[locoId], catalog, out _, out _);
+            if (StraightTrainMotion.TryResolveLocomotive(vehicleById[locoId], catalog, out _, out _))
+                return true;
+            ReportChangedAssemblyDependency(assembly, new[] { locoId }, savedVehicles, catalog, failures,
+                "the saved locomotive no longer has its required dependencies");
+            return false;
         }
 
         if (assembly.Speed > 0)
-            return StraightTrainMotion.TryResolveTrackContact(members, catalog, out _);
+        {
+            if (StraightTrainMotion.TryResolveTrackContact(members, catalog, out _))
+                return true;
+            ReportChangedAssemblyDependency(assembly, assembly.VehicleIds, savedVehicles, catalog, failures,
+                "the moving saved assembly no longer has a track contact dependency");
+            return false;
+        }
         return true;
+    }
+
+    private static void ReportChangedAssemblyDependency(
+        TrainAssembly assembly,
+        IReadOnlyCollection<EntityId> vehicleIds,
+        IReadOnlyList<WorldSaveVehicle> savedVehicles,
+        VoxelCatalogSnapshot catalog,
+        WorldSaveFailureLog failures,
+        string detail)
+    {
+        var candidates = savedVehicles.Where(vehicle => vehicleIds.Contains(vehicle.Id)).ToArray();
+        var changed = candidates
+            .SelectMany(vehicle => vehicle.Parts.Select(part => (Vehicle: vehicle, Part: part)))
+            .Where(item => !catalog.TryGet(item.Part.DefinitionId, out var current) ||
+                           !string.Equals(item.Part.LastUsedRevision, current.SemanticRevision, StringComparison.Ordinal))
+            .ToArray();
+        if (changed.Length > 0)
+        {
+            failures.Report(
+                "dependency",
+                string.Join(", ", changed.Select(item => item.Part.DefinitionId.Value).Distinct(StringComparer.Ordinal)),
+                string.Join(", ", changed.Select(item =>
+                    $"vehicle[{item.Vehicle.Id.Value}].parts[{item.Part.Cell}]")),
+                $"{detail}; these related saved part definitions changed");
+            return;
+        }
+
+        var related = candidates.FirstOrDefault();
+        failures.Report(
+            "dependency",
+            related?.DefinitionId.Value ?? $"assembly:{assembly.Id.Value}",
+            $"assembly[{assembly.Id.Value}]",
+            detail);
     }
 
     private static bool AreConnectionsATree(TrainAssembly assembly)

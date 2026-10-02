@@ -111,17 +111,10 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
             if (File.Exists(path) && !overwrite)
                 return new WorldSaveResult(WorldSaveStatus.OverwriteConfirmationRequired,
                     Diagnostic: new("export", path, "overwrite", "confirm before replacing the existing file"));
-            var captured = session.CaptureSave(session.SaveId ?? Guid.NewGuid(), null, out var document);
-            if (!captured.Succeeded)
-                return captured;
+            if (!session.TryCaptureSave(session.SaveId ?? Guid.NewGuid(), null, out var document, out var captureStatus))
+                return new WorldSaveResult(captureStatus, session.SaveId, session.DisplayName);
             candidatePath = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.candidate");
-            using (var stream = new FileStream(candidatePath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
-            {
-                writer.Write(WorldSaveCodec.Serialize(document));
-                writer.Flush();
-                stream.Flush(true);
-            }
+            FileWorldSaveStore.WriteCandidate(candidatePath, WorldSaveCodec.Serialize(document), FileMode.CreateNew);
             var read = ReadDocument(candidatePath, out var written);
             if (!read.Succeeded)
                 return read;
@@ -164,9 +157,7 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
 
     private WorldSaveResult ValidateDocument(WorldSaveDocument document)
     {
-        BlankWorldSource.TryIdentity(1, 1, 1, 0, out var empty);
-        var candidate = new VoxelDevelopmentSession(catalog, empty, store, composites);
-        candidate.MarkWorldEditorHost();
+        var candidate = CreateCandidate();
         try
         {
             return candidate.LoadDocument(document);
@@ -180,9 +171,7 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
     public WorldSaveResult TryOpen(Guid id, out VoxelDevelopmentSession? session)
     {
         session = null;
-        BlankWorldSource.TryIdentity(1, 1, 1, 0, out var empty);
-        var candidate = new VoxelDevelopmentSession(catalog, empty, store, composites);
-        candidate.MarkWorldEditorHost();
+        var candidate = CreateCandidate();
         try
         {
             var result = candidate.Load(id);
@@ -197,5 +186,13 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
             if (session is null)
                 candidate.Detach();
         }
+    }
+
+    private VoxelDevelopmentSession CreateCandidate()
+    {
+        BlankWorldSource.TryIdentity(1, 1, 1, 0, out var empty);
+        var candidate = new VoxelDevelopmentSession(catalog, empty, store, composites);
+        candidate.MarkWorldEditorHost();
+        return candidate;
     }
 }

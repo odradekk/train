@@ -325,7 +325,7 @@ internal static partial class WorldSaveVehicleCodec
         List<WorldSaveAdaptation> adaptations,
         out IReadOnlyList<CompositeInstance> vehicles,
         out WorldSaveStatus status,
-        WorldSaveFailureLog? failures = null)
+        WorldSaveFailureLog failures)
     {
         vehicles = Array.Empty<CompositeInstance>();
         status = WorldSaveStatus.InvalidDelta;
@@ -339,7 +339,7 @@ internal static partial class WorldSaveVehicleCodec
                 if (!locals.TryGetValue(saved.SaveLocalRevision, out var local))
                 {
                     status = WorldSaveStatus.MissingDefinition;
-                    failures?.Report("dependency", saved.DefinitionId.Value, "save_local_revision", "the embedded definition revision is missing");
+                    failures.Report("dependency", saved.DefinitionId.Value, "save_local_revision", "the embedded definition revision is missing");
                     return false;
                 }
 
