@@ -4,6 +4,14 @@ using Train.Domain.Voxels;
 
 namespace Train.Domain.WorldEditor;
 
+public enum WorldEditorVoxelInputStatus
+{
+    Applied,
+    WorldChanging,
+    BatchTargetsBound,
+    BatchOperationBound
+}
+
 /// <summary>Single-cell preview and identity-bound cell batches, sharing one draft and submission path.</summary>
 public sealed class WorldEditorVoxelTool : IDisposable
 {
@@ -50,9 +58,14 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public VoxelCellSetResult StartBatch(IEnumerable<ObservedObject> selection, VoxelCellOperation operation)
     {
         var items = selection.Distinct().OrderBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z).ToArray();
-        if (HasDraft || _session.IsChangingWorld || operation is not (VoxelCellOperation.Remove or VoxelCellOperation.Replace) ||
-            items.Any(item => item.Kind != ObservedObjectKind.WorldCell))
-            return new(VoxelCellSetStatus.InvalidTarget);
+        if (_session.IsChangingWorld)
+            return new(VoxelCellSetStatus.WorldChanging);
+        if (HasDraft)
+            return new(VoxelCellSetStatus.VoxelDraftExists);
+        if (operation is not (VoxelCellOperation.Remove or VoxelCellOperation.Replace))
+            return new(VoxelCellSetStatus.UnsupportedOperation);
+        if (items.Any(item => item.Kind != ObservedObjectKind.WorldCell))
+            return new(VoxelCellSetStatus.NotWorldCells);
         if (items.Length == 0)
             return new(VoxelCellSetStatus.NoTargets);
         var targets = new List<BatchTarget>();
@@ -99,25 +112,30 @@ public sealed class WorldEditorVoxelTool : IDisposable
             Position = position;
     }
 
-    public void SetExact(WorldVoxelCoord position, VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
+    public WorldEditorVoxelInputStatus SetExact(WorldVoxelCoord position, VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
     {
-        if (_session.IsChangingWorld || HasBatchDraft)
-            return;
+        if (_session.IsChangingWorld)
+            return WorldEditorVoxelInputStatus.WorldChanging;
+        if (HasBatchDraft)
+            return WorldEditorVoxelInputStatus.BatchTargetsBound;
         var next = new DraftState(position, definition, orientation, operation);
         if (HasDraft)
             RecordDraftChange(next);
         RestoreDraft(next);
         HasDraft = true;
+        return WorldEditorVoxelInputStatus.Applied;
     }
 
-    public void SetSettings(VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
+    public WorldEditorVoxelInputStatus SetSettings(VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
     {
         if (_session.IsChangingWorld)
-            return;
+            return WorldEditorVoxelInputStatus.WorldChanging;
+        var operationBound = HasBatchDraft && Operation != operation;
         var next = new DraftState(Position, definition, orientation, HasBatchDraft ? Operation : operation);
         if (HasDraft)
             RecordDraftChange(next);
         RestoreDraft(next);
+        return operationBound ? WorldEditorVoxelInputStatus.BatchOperationBound : WorldEditorVoxelInputStatus.Applied;
     }
 
     public WorldEditSubmission Commit()
@@ -207,19 +225,19 @@ public sealed class WorldEditorVoxelTool : IDisposable
     private sealed record BatchTarget(WorldVoxelCoord Position, VoxelDefinitionId Definition,
         VoxelOrientation Orientation, EntityId? RuntimeId);
 
-    private void CheckBatchTargets(WorldEditRecord record) => BatchIdentityFailure();
+    // Remember loss at each edit boundary, including removal followed by identical recreation before a frame.
+    private void CheckBatchTargets(WorldEditRecord record) => _changedTarget ??= FindChangedBatchTarget();
 
-    private VoxelCellSetResult? BatchIdentityFailure()
+    private WorldVoxelCoord? FindChangedBatchTarget()
     {
-        // Remember loss at each edit boundary, including removal followed by identical recreation before a frame.
-        if (_batch is not null && _changedTarget is null)
+        if (_batch is not null)
             foreach (var target in _batch)
                 if (_session.Query(target.Position).Voxel is not { } voxel || voxel.DefinitionId != target.Definition ||
                     voxel.Orientation != target.Orientation || voxel.RuntimeId != target.RuntimeId)
-                {
-                    _changedTarget = target.Position;
-                    break;
-                }
-        return _changedTarget is { } changed ? new(VoxelCellSetStatus.ExpectedContentMismatch, changed) : null;
+                    return target.Position;
+        return null;
     }
+
+    private VoxelCellSetResult? BatchIdentityFailure() => (_changedTarget ?? FindChangedBatchTarget()) is { } changed
+        ? new(VoxelCellSetStatus.ExpectedContentMismatch, changed) : null;
 }

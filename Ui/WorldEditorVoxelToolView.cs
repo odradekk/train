@@ -23,6 +23,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     private IReadOnlyList<VoxelDefinitionId> _definitions = Array.Empty<VoxelDefinitionId>();
     private IReadOnlyList<VoxelOrientation> _orientations = Array.Empty<VoxelOrientation>();
     private string _lastResult = "";
+    private string _inputNotice = "";
 
     public WorldEditorVoxelTool State { get; private set; } = null!;
     internal Button SelectToolButton { get; private set; } = null!;
@@ -86,7 +87,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         {
             if (_syncing || _session.IsChangingWorld || index < 0 || index >= _definitions.Count)
                 return;
-            State.SetSettings(_definitions[(int)index], VoxelOrientation.Identity, State.Operation);
+            ReportInput(State.SetSettings(_definitions[(int)index], VoxelOrientation.Identity, State.Operation));
             Present();
         };
         OrientationInput.ItemSelected += _ => SettingsInput();
@@ -147,16 +148,16 @@ public partial class WorldEditorVoxelToolView : Node3D
         if (!HasContentSelection && State.Operation != VoxelCellOperation.Remove)
             return;
         var result = State.Commit();
-        _lastResult = result.Result is VoxelCellSetResult cells ? Describe(cells) : result.Status;
+        _lastResult = result.Result is VoxelCellSetResult cells ? Describe(cells, State.HasBatchDraft) : result.Status;
         Present();
     }
 
     private void ExactInput()
     {
-        if (_syncing || _session.IsChangingWorld || State.HasBatchDraft || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
+        if (_syncing || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
             return;
-        State.SetExact(new WorldVoxelCoord((int)CoordinateInputs[0].Value, (int)CoordinateInputs[1].Value, (int)CoordinateInputs[2].Value),
-            State.DefinitionId, State.Orientation, State.Operation);
+        ReportInput(State.SetExact(new WorldVoxelCoord((int)CoordinateInputs[0].Value, (int)CoordinateInputs[1].Value, (int)CoordinateInputs[2].Value),
+            State.DefinitionId, State.Orientation, State.Operation));
         Present();
     }
 
@@ -170,10 +171,18 @@ public partial class WorldEditorVoxelToolView : Node3D
         var operation = (VoxelCellOperation)OperationInput.Selected;
         if (!HasContentSelection && operation != VoxelCellOperation.Remove)
             return;
-        State.SetSettings(operation == VoxelCellOperation.Remove ? State.DefinitionId : _definitions[DefinitionInput.Selected],
-            operation == VoxelCellOperation.Remove ? State.Orientation : _orientations[OrientationInput.Selected], operation);
+        ReportInput(State.SetSettings(operation == VoxelCellOperation.Remove ? State.DefinitionId : _definitions[DefinitionInput.Selected],
+            operation == VoxelCellOperation.Remove ? State.Orientation : _orientations[OrientationInput.Selected], operation));
         Present();
     }
+
+    private void ReportInput(WorldEditorVoxelInputStatus status) => _inputNotice = status switch
+    {
+        WorldEditorVoxelInputStatus.WorldChanging => "世界变更中，参数输入未应用",
+        WorldEditorVoxelInputStatus.BatchTargetsBound => "批量目标已绑定，坐标输入未应用；请放弃草稿后重新建立",
+        WorldEditorVoxelInputStatus.BatchOperationBound => "批量操作已绑定，操作输入未应用；定义和朝向已应用；更换操作需放弃草稿后重新建立",
+        _ => ""
+    };
 
     /// <summary>The chosen integer Y plane is targetable even when no world collider exists.</summary>
     internal bool HandlePointer(Vector2 screen, bool commit)
@@ -246,10 +255,11 @@ public partial class WorldEditorVoxelToolView : Node3D
             CoordinateInputs[2].SetValueNoSignal(State.Position.Z);
             var canPreview = State.DefinitionId.Namespace is not null || State.Operation == VoxelCellOperation.Remove;
             var preview = canPreview ? State.Preview : new VoxelCellSetResult(VoxelCellSetStatus.UnknownDefinition, State.Position);
-            _preview.Text = (State.HasBatchDraft ? $"批量草稿 · {State.BatchTargets.Count} 格 · 目标已绑定，选择变化不改写目标\n" :
+            _preview.Text = (State.HasBatchDraft ? $"批量草稿 · {State.BatchTargets.Count} 格 · 目标和操作已绑定，选择变化不改写目标；修改坐标或操作需放弃后重新建立\n" :
                 $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n") +
                 "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
-                $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview)}" + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
+                $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview, State.HasBatchDraft)}" +
+                (_inputNotice.Length > 0 ? "\n" + _inputNotice : "") + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
             DiscardButton.Disabled = !State.HasDraft;
             CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld;
             var material = (StandardMaterial3D)_cell.MaterialOverride;
@@ -267,7 +277,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         finally { _syncing = false; }
     }
 
-    internal static string Describe(VoxelCellSetResult result)
+    internal static string Describe(VoxelCellSetResult result, bool batchDraft = false)
     {
         var reason = result.Status switch
         {
@@ -279,7 +289,12 @@ public partial class WorldEditorVoxelToolView : Node3D
             VoxelCellSetStatus.UnknownDefinition => "定义不在当前有效内容中",
             VoxelCellSetStatus.DisallowedOrientation => "定义不允许该朝向",
             VoxelCellSetStatus.NoChange => "定义和朝向未变化",
-            VoxelCellSetStatus.ExpectedContentMismatch => $"绑定目标 ({result.Position.X},{result.Position.Y},{result.Position.Z}) 已消失或身份已改变；整次拒绝，草稿保留",
+            VoxelCellSetStatus.ExpectedContentMismatch => $"目标 ({result.Position.X},{result.Position.Y},{result.Position.Z}) 已消失或身份已改变；" +
+                (batchDraft ? "整次拒绝，草稿保留；请放弃草稿后重新选择并建立" : "未建立草稿，请重新选择目标"),
+            VoxelCellSetStatus.VoxelDraftExists => "已有草稿，请先提交或放弃",
+            VoxelCellSetStatus.WorldChanging => "世界变更中，不能建立草稿",
+            VoxelCellSetStatus.UnsupportedOperation => "批量只支持移除或替换",
+            VoxelCellSetStatus.NotWorldCells => "批量目标必须全部是世界格",
             VoxelCellSetStatus.RailOccupied => result.OwnerKind == VoxelCellOwnerKind.None ? "铁路体素（未登记轨段）" : "属于铁路",
             VoxelCellSetStatus.VehicleOccupied => "车辆实际占用",
             _ => result.Status.ToString()

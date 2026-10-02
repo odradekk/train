@@ -458,19 +458,6 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 RequireExampleBoundary(session);
                 Require(session.SaveId is null && session.HasUnsavedChanges,
                     "example copy did not enter as an unsaved editing session");
-                var view = scene.Observation!;
-                var screen = scene.GetViewport().GetScreenTransform();
-                DragAt(screen * (view.WorldRect.Position + new Vector2(2, 2)),
-                    screen * (view.WorldRect.End - new Vector2(2, 2)));
-                _phase = 1;
-                return;
-            }
-            if (_phase == 1)
-            {
-                var view = scene.Observation!;
-                var cost = view.LastBoxSelection ?? throw new InvalidOperationException("example full-world drag produced no box result");
-                GD.Print($"WORKSPACE_MULTI_EXAMPLE_COST candidates={cost.Candidates} rays={cost.Rays} " +
-                         $"truncated={cost.Truncated.ToString().ToLowerInvariant()} elapsed_ms={cost.ElapsedMilliseconds:0.###}");
                 Add(ExampleCopyOnlyCell);
                 Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity),
                         100, confirmEndHistory: true).Accepted,
@@ -1020,23 +1007,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         ClickAt(control.GetViewport().GetScreenTransform() * control.GetGlobalRect().GetCenter());
 
     private static void ClickAt(Vector2 position)
-    {
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = true, Position = position, GlobalPosition = position });
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = false, Position = position, GlobalPosition = position });
-    }
+        => GodotSmokeInput.Click(position);
 
     private static void DragAt(Vector2 start, Vector2 end)
-    {
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = true, Position = start, GlobalPosition = start });
-        Input.ParseInputEvent(new InputEventMouseMotion
-            { Position = end, GlobalPosition = end, Relative = end - start, ButtonMask = MouseButtonMask.Left });
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = false, Position = end, GlobalPosition = end });
-        Input.FlushBufferedEvents();
-    }
+        => GodotSmokeInput.Drag(start, end);
 
     private void FocusWorld()
     {

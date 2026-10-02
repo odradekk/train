@@ -59,14 +59,6 @@ public enum WorldEditorCameraMode
     Follow
 }
 
-[Flags]
-public enum WorldEditorSelectionOperations
-{
-    None = 0,
-    Remove = 1,
-    Replace = 2
-}
-
 public enum WorldEditorObservationStatus
 {
     Selected,
@@ -183,10 +175,9 @@ public sealed class WorldEditorObserver : IDisposable
     private readonly HashSet<ObservedObject> _selection = new();
     public IReadOnlySet<ObservedObject> SelectedObjects { get; }
     public ObservedObject? Selection => _selection.Count == 1 ? _selection.First() : null;
-    public WorldEditorSelectionOperations CommonOperations => _selection.Count > 0 &&
-        _selection.All(item => item.Kind == ObservedObjectKind.WorldCell)
-        ? WorldEditorSelectionOperations.Remove | WorldEditorSelectionOperations.Replace
-        : WorldEditorSelectionOperations.None;
+    public bool CanBatchEdit => _selection.Count > 0 && _selection.All(item => item.Kind == ObservedObjectKind.WorldCell);
+    public IEnumerable<ObservedObject> OrderedSelection => _selection.OrderBy(item => item.Kind).ThenBy(item => item.Id.Value)
+        .ThenBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z);
     public EntityId? PartVehicleId { get; private set; }
     public WorldEditorCameraMode Mode { get; private set; } = WorldEditorCameraMode.Free;
     public ObservedObject? Target { get; private set; }
@@ -218,11 +209,11 @@ public sealed class WorldEditorObserver : IDisposable
 
     public WorldEditorObservationStatus SelectMany(IEnumerable<ObservedObject> items)
     {
-        var next = items.Select(item => item.Kind == ObservedObjectKind.WorldCell && _session.Query(item.Cell).Voxel is { } voxel
-            ? ObservedObject.WorldCell(item.Cell, voxel.RuntimeId, voxel.DefinitionId) : item).ToHashSet();
+        var next = items.Select(item => item.Kind == ObservedObjectKind.WorldCell
+            ? WorldEditorInspector.WorldCell(_session, item.Cell) : item).ToHashSet();
         if (next.Any(item => !Exists(item)) || (next.Count > 1 && next.Any(item => item.Kind == ObservedObjectKind.VehiclePart)))
             return WorldEditorObservationStatus.UnknownObject;
-        if (_session.HasEditorDraft && _session.VoxelTool?.HasBatchDraft != true && !_selection.SetEquals(next))
+        if (SelectionRequiresDraftResolution && !_selection.SetEquals(next))
             return WorldEditorObservationStatus.DraftRequired;
         _selection.Clear();
         _selection.UnionWith(next);
@@ -247,12 +238,14 @@ public sealed class WorldEditorObserver : IDisposable
 
     public WorldEditorObservationStatus ClearSelection()
     {
-        if (_session.HasEditorDraft && _session.VoxelTool?.HasBatchDraft != true && _selection.Count > 0)
+        if (SelectionRequiresDraftResolution && _selection.Count > 0)
             return WorldEditorObservationStatus.DraftRequired;
         _selection.Clear();
         PartVehicleId = null;
         return WorldEditorObservationStatus.Cleared;
     }
+
+    private bool SelectionRequiresDraftResolution => _session.HasEditorDraft && _session.VoxelTool?.HasBatchDraft != true;
 
     /// <summary>Frames the selection once from the current view direction; the pivot does not track later motion.</summary>
     public WorldEditorObservationStatus FocusSelection(TrainDisplaySample? sample = null)
@@ -476,8 +469,7 @@ public sealed class WorldEditorObserver : IDisposable
     {
         var target = Target is { } value ? " target " + value.Describe() : "";
         var selection = Selection is { } selected ? selected.Describe() : _selection.Count == 0 ? "none" :
-            $"count {_selection.Count} " + string.Join("; ", _selection.OrderBy(item => item.Kind).ThenBy(item => item.Id.Value)
-                .ThenBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z).Select(item => item.Describe()));
+            $"count {_selection.Count} " + string.Join("; ", OrderedSelection.Select(item => item.Describe()));
         return $"mode {Mode.ToString().ToLowerInvariant()}{target} selection {selection} transitioning {Transitioning.ToString().ToLowerInvariant()}";
     }
 

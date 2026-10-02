@@ -130,7 +130,6 @@ if ($Workspace) {
         $exampleSave = Invoke-EntryLeg 'example-save' 'WORKSPACE'
         foreach ($marker in @('WORKSPACE_MENU ready=true',
             'WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json',
-            'WORKSPACE_MULTI_EXAMPLE_COST candidates=',
             'WORKSPACE_EXAMPLE_SAVED id=', 'voxels=5 pending=1 paused=true')) {
             if (-not $exampleSave.Contains($marker)) { throw "Workspace example-save omitted assertion marker: $marker" }
         }
@@ -199,17 +198,19 @@ if ($Workspace) {
         foreach ($marker in @('WORKSPACE_MENU ready=true',
             'WORKSPACE_MULTI_BOX types=vehicle,rail,cell',
             'WORKSPACE_MULTI_OCCLUSION visible=true hidden=false',
-            'WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true camera_moved=false',
-            'WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true',
-            'WORKSPACE_MULTI_COST candidates=')) {
+            'WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true cells_preserved=true camera_moved=false',
+            'WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true')) {
             if (-not $multiSelect.Contains($marker)) { throw "Workspace multi-select omitted assertion marker: $marker" }
         }
         $multiCost = [regex]::Match($multiSelect,
             'WORKSPACE_MULTI_COST candidates=(\d+) rays=(\d+) truncated=(true|false) elapsed_ms=([0-9.]+)')
         if (-not $multiCost.Success) { throw 'Workspace multi-select omitted parseable box cost evidence.' }
-        $exampleCost = [regex]::Match($exampleSave,
-            'WORKSPACE_MULTI_EXAMPLE_COST candidates=(\d+) rays=(\d+) truncated=(true|false) elapsed_ms=([0-9.]+)')
-        if (-not $exampleCost.Success) { throw 'Workspace example omitted parseable maximum-view box cost evidence.' }
+        $capacity = [regex]::Match($multiSelect,
+            'WORKSPACE_MULTI_CAP samples=(\d+) in_rectangle=(\d+) candidates=(\d+) rays=(\d+) selected=(\d+) truncated=(true) deterministic=true filter_before_cap=true elapsed_ms=([0-9.]+)')
+        if (-not $capacity.Success) { throw 'Workspace multi-select omitted capped selection evidence.' }
+        $maximum = [regex]::Match($multiSelect,
+            'WORKSPACE_MULTI_MAX_BLANK bounds=(\d+x\d+x\d+) occupied=(\d+) samples=(\d+) in_rectangle=(\d+) projection_elapsed_ms=([0-9.]+)')
+        if (-not $maximum.Success) { throw 'Workspace multi-select omitted maximum-world traversal evidence.' }
         [ordered]@{
             outcome = 'passed'
             durationMs = $started.ElapsedMilliseconds
@@ -226,18 +227,22 @@ if ($Workspace) {
                 truncated = $multiCost.Groups[3].Value -eq 'true'
                 elapsedMs = [double]::Parse($multiCost.Groups[4].Value,
                     [Globalization.CultureInfo]::InvariantCulture)
-                boxTypes = @('vehicle', 'rail', 'cell')
-                occlusion = 'nearest-hit'
-                batchTargets = 2
-                edits = 1
-                undoRecords = 1
-                exampleMaximum = [ordered]@{
-                    candidates = [int]$exampleCost.Groups[1].Value
-                    rays = [int]$exampleCost.Groups[2].Value
-                    truncated = $exampleCost.Groups[3].Value -eq 'true'
-                    elapsedMs = [double]::Parse($exampleCost.Groups[4].Value,
-                        [Globalization.CultureInfo]::InvariantCulture)
-                }
+            }
+            boxCapacity = [ordered]@{
+                samples = [int]$capacity.Groups[1].Value
+                inRectangle = [int]$capacity.Groups[2].Value
+                candidates = [int]$capacity.Groups[3].Value
+                rays = [int]$capacity.Groups[4].Value
+                selected = [int]$capacity.Groups[5].Value
+                truncated = $capacity.Groups[6].Value -eq 'true'
+                elapsedMs = [double]::Parse($capacity.Groups[7].Value, [Globalization.CultureInfo]::InvariantCulture)
+            }
+            maximumWorld = [ordered]@{
+                bounds = $maximum.Groups[1].Value
+                occupied = [int]$maximum.Groups[2].Value
+                samples = [int]$maximum.Groups[3].Value
+                inRectangle = [int]$maximum.Groups[4].Value
+                projectionElapsedMs = [double]::Parse($maximum.Groups[5].Value, [Globalization.CultureInfo]::InvariantCulture)
             }
             exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |
@@ -278,8 +283,8 @@ that save, verifies the resulting world and durability, and proves no undo or re
 
 One final isolated process enters the formal train world, adds test-owned visible and aligned occlusion cells through formal
 edits, and drives Godot left-drag, Ctrl-click and Shift-click input. It checks whole-level boxes across vehicles, rail segments
-and world cells, nearest-hit occlusion, unchanged camera pose, list add/range/remove semantics, the 4096-candidate cap metrics,
-and a two-target replacement draft whose targets survive a selection change and commit as one edit and one undo record.
+and world cells, nearest-hit occlusion, unchanged camera pose, list modifiers preserving box-selected cells, the bounded-box
+metrics, and a two-target replacement draft whose targets survive a selection change and commit as one edit and one undo record.
 
 Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log,
 example-save.stdout.log, example-verify.stdout.log, cell-tool-save.stdout.log, cell-tool-resume.stdout.log,

@@ -35,8 +35,9 @@ Two more processes exercise shared undo/redo, world-focus shortcuts, text-input 
 independent draft history and the absence of restored history in a new session.
 One additional process uses real Godot drag and Ctrl/Shift list input to select whole objects, excludes an occluded cell,
 refuses box selection at the part level and commits a batch draft after clearing or changing the selection. It verifies
-that the bound cells change together in one edit and one undo record. The example and multi-selection processes also
-report full-world rectangle candidate counts, ray counts and elapsed cost.
+that the bound cells change together in one edit and one undo record. The multi-selection process reports full-screen
+rectangle cost, verifies small and capped rectangles in a world above 4096 samples, compares real selections after
+reversing cell storage order, and measures projection traversal over a filled maximum blank world (320×32×32 cells).
 The workspace check therefore runs twelve processes in total. Its assertions do not replace manual window input or visual acceptance.
 Graphical workspace, window close, quit and dialog acceptance remain separate manual checks. Injected window-close notifications prove the handler; they do not prove a real window close-button interaction.
 

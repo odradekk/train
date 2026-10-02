@@ -303,7 +303,11 @@ public enum VoxelCellSetStatus
     VehicleOccupied,
     NoChange,
     ExpectedContentMismatch,
-    InvalidDurability
+    InvalidDurability,
+    VoxelDraftExists,
+    WorldChanging,
+    UnsupportedOperation,
+    NotWorldCells
 }
 
 public enum VoxelCellOwnerKind

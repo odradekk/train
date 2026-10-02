@@ -35,27 +35,26 @@ public sealed class WorldEditorMultiSelectionTests
         Assert.AreEqual(2, observer.SelectedObjects.Count);
         Assert.IsNull(observer.Selection);
         Assert.IsTrue(observer.SelectedObjects.All(item => item.Definition == Ore));
-        Assert.AreEqual(WorldEditorSelectionOperations.Remove | WorldEditorSelectionOperations.Replace,
-            observer.CommonOperations);
+        Assert.IsTrue(observer.CanBatchEdit);
 
         var segment = session.Rails.Segments.First();
         var vehicles = session.Vehicles.Select(vehicle => ObservedObject.Vehicle(vehicle.Id)).ToArray();
         Assert.IsTrue(vehicles.Length > 1);
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.SelectMany(vehicles));
-        Assert.AreEqual(WorldEditorSelectionOperations.None, observer.CommonOperations);
+        Assert.IsFalse(observer.CanBatchEdit);
         Assert.AreEqual(WorldEditorObservationStatus.Selected,
             observer.SelectMany(new[] { ObservedObject.WorldCell(First), ObservedObject.Segment(segment.Id) }));
-        Assert.AreEqual(WorldEditorSelectionOperations.None, observer.CommonOperations);
+        Assert.IsFalse(observer.CanBatchEdit);
         Assert.AreEqual(WorldEditorObservationStatus.Selected,
             observer.SelectMany(new[] { vehicles[0], ObservedObject.Segment(segment.Id) }));
-        Assert.AreEqual(WorldEditorSelectionOperations.None, observer.CommonOperations);
+        Assert.IsFalse(observer.CanBatchEdit);
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.Segment(segment.Id)));
         Assert.AreEqual(ObservedObject.Segment(segment.Id), observer.Selection);
-        Assert.AreEqual(WorldEditorSelectionOperations.None, observer.CommonOperations);
+        Assert.IsFalse(observer.CanBatchEdit);
         Assert.AreEqual(WorldEditorObservationStatus.Cleared, observer.ClearSelection());
         Assert.AreEqual(0, observer.SelectedObjects.Count);
         Assert.IsNull(observer.Selection);
-        Assert.AreEqual(WorldEditorSelectionOperations.None, observer.CommonOperations);
+        Assert.IsFalse(observer.CanBatchEdit);
     }
 
     [TestMethod]
@@ -67,7 +66,8 @@ public sealed class WorldEditorMultiSelectionTests
         using var tool = new WorldEditorVoxelTool(session);
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.WorldCell(First)));
 
-        tool.SetExact(new(4, 2, 2), Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        Assert.AreEqual(WorldEditorVoxelInputStatus.Applied,
+            tool.SetExact(new(4, 2, 2), Ore, VoxelOrientation.Identity, VoxelCellOperation.Add));
         Assert.AreEqual(WorldEditorObservationStatus.DraftRequired,
             observer.Select(ObservedObject.WorldCell(Second)));
         Assert.AreEqual(WorldEditorObservationStatus.DraftRequired, observer.ClearSelection());
@@ -82,13 +82,54 @@ public sealed class WorldEditorMultiSelectionTests
         Assert.AreEqual(WorldEditorObservationStatus.Cleared, observer.ClearSelection());
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(ObservedObject.WorldCell(Second)));
         CollectionAssert.AreEquivalent(new[] { First, Second }, tool.CurrentEdit.Targets.Select(item => item.Position).ToArray());
-        tool.SetExact(new(5, 2, 2), Marker, VoxelOrientation.Yaw90, VoxelCellOperation.Add);
+        Assert.AreEqual(WorldEditorVoxelInputStatus.BatchTargetsBound,
+            tool.SetExact(new(5, 2, 2), Marker, VoxelOrientation.Yaw90, VoxelCellOperation.Add));
         CollectionAssert.AreEquivalent(new[] { First, Second }, tool.BatchTargets.ToArray());
         Assert.AreEqual(VoxelCellOperation.Remove, tool.Operation);
 
-        Assert.AreEqual(VoxelCellSetStatus.InvalidTarget,
+        Assert.AreEqual(VoxelCellSetStatus.VoxelDraftExists,
             tool.StartBatch(new[] { ObservedObject.WorldCell(Second) }, VoxelCellOperation.Remove).Status);
         CollectionAssert.AreEquivalent(new[] { First, Second }, tool.BatchTargets.ToArray());
+    }
+
+    [TestMethod]
+    public void Batch_start_reports_each_refusal_without_replacing_the_current_draft()
+    {
+        using var harness = BlankWithCells();
+        var session = harness.Session;
+        using var tool = new WorldEditorVoxelTool(session);
+        var targets = Observe(session, First, Second);
+
+        Assert.AreEqual(VoxelCellSetStatus.UnsupportedOperation,
+            tool.StartBatch(targets, VoxelCellOperation.Add).Status);
+        Assert.IsFalse(tool.HasDraft);
+        Assert.AreEqual(VoxelCellSetStatus.NotWorldCells,
+            tool.StartBatch(new[] { ObservedObject.Segment(new Train.Domain.Composites.EntityId(999)) },
+                VoxelCellOperation.Remove).Status);
+        Assert.IsFalse(tool.HasDraft);
+
+        Assert.AreEqual(VoxelCellSetStatus.Valid,
+            tool.StartBatch(targets, VoxelCellOperation.Replace).Status);
+        Assert.AreEqual(WorldEditorVoxelInputStatus.BatchOperationBound,
+            tool.SetSettings(Marker, VoxelOrientation.Yaw90, VoxelCellOperation.Remove));
+        CollectionAssert.AreEquivalent(new[] { First, Second }, tool.BatchTargets.ToArray());
+        Assert.AreEqual(VoxelCellOperation.Replace, tool.Operation);
+        Assert.AreEqual(Marker, tool.DefinitionId);
+        Assert.AreEqual(VoxelOrientation.Yaw90, tool.Orientation);
+        Assert.AreEqual(VoxelCellSetStatus.VoxelDraftExists,
+            tool.StartBatch(new[] { targets[0] }, VoxelCellOperation.Remove).Status);
+        CollectionAssert.AreEquivalent(new[] { First, Second }, tool.BatchTargets.ToArray());
+        tool.Discard();
+
+        Assert.AreEqual(WorldChangeStatus.ChoiceRequired,
+            session.BeginWorldChange(new(WorldChangeKind.Quit, null)).Status);
+        Assert.AreEqual(VoxelCellSetStatus.WorldChanging,
+            tool.StartBatch(targets, VoxelCellOperation.Remove).Status);
+        Assert.AreEqual(WorldEditorVoxelInputStatus.WorldChanging,
+            tool.SetExact(First, Marker, VoxelOrientation.Identity, VoxelCellOperation.Replace));
+        Assert.AreEqual(WorldEditorVoxelInputStatus.WorldChanging,
+            tool.SetSettings(Marker, VoxelOrientation.Identity, VoxelCellOperation.Replace));
+        Assert.IsFalse(tool.HasDraft);
     }
 
     [TestMethod]
@@ -105,8 +146,6 @@ public sealed class WorldEditorMultiSelectionTests
         var committed = tool.Commit();
 
         Assert.AreEqual(WorldEditState.Executed, committed.Record!.State);
-        Assert.IsInstanceOfType<VoxelCellSetEdit>(committed.Record.Edit);
-        Assert.AreEqual(2, ((VoxelCellSetEdit)committed.Record.Edit).Targets.Count);
         Assert.AreEqual(beforeHistory + 1, session.UndoCount);
         Assert.AreEqual(beforeLog + 1, session.QueryEditLog().Count);
         Assert.IsFalse(tool.HasDraft);
@@ -129,7 +168,8 @@ public sealed class WorldEditorMultiSelectionTests
         using var tool = new WorldEditorVoxelTool(session);
         Assert.AreEqual(VoxelCellSetStatus.Valid,
             tool.StartBatch(Observe(session, First, Second), VoxelCellOperation.Replace).Status);
-        tool.SetSettings(Marker, VoxelOrientation.Yaw90, VoxelCellOperation.Remove);
+        Assert.AreEqual(WorldEditorVoxelInputStatus.BatchOperationBound,
+            tool.SetSettings(Marker, VoxelOrientation.Yaw90, VoxelCellOperation.Remove));
 
         Assert.AreEqual(VoxelCellOperation.Replace, tool.Operation);
         Assert.IsTrue(tool.CurrentEdit.Targets.All(target => target.Content == new VoxelCellContent(Marker, VoxelOrientation.Yaw90)));
@@ -149,7 +189,8 @@ public sealed class WorldEditorMultiSelectionTests
         using var tool = new WorldEditorVoxelTool(session);
         Assert.AreEqual(VoxelCellSetStatus.Valid,
             tool.StartBatch(Observe(session, First, Second), VoxelCellOperation.Replace).Status);
-        tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Remove);
+        Assert.AreEqual(WorldEditorVoxelInputStatus.BatchOperationBound,
+            tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Remove));
         var beforeHistory = session.UndoCount;
         var beforeLog = session.QueryEditLog().Count;
         var nextEdit = session.NextEditId;
@@ -212,6 +253,31 @@ public sealed class WorldEditorMultiSelectionTests
         tool.Discard();
         Assert.AreEqual(VoxelCellSetStatus.Valid,
             tool.StartBatch(Observe(session, First, Second), VoxelCellOperation.Remove).Status);
+    }
+
+    [TestMethod]
+    public void Preview_does_not_remember_transient_identity_drift_but_an_executed_edit_does()
+    {
+        using var harness = BlankWithCells();
+        var session = harness.Session;
+        var original = session.Query(First).Voxel!;
+        using var tool = new WorldEditorVoxelTool(session);
+        Assert.AreEqual(VoxelCellSetStatus.Valid,
+            tool.StartBatch(Observe(session, First, Second), VoxelCellOperation.Remove).Status);
+
+        Assert.IsTrue(session.World.TryReplace(First,
+            new WorldVoxel(original.DefinitionId, original.CurrentDurability, original.Orientation,
+                new Train.Domain.Composites.EntityId(999))));
+        Assert.AreEqual(VoxelCellSetStatus.ExpectedContentMismatch, tool.Preview.Status);
+        Assert.IsTrue(session.World.TryReplace(First, original));
+        Assert.AreEqual(VoxelCellSetStatus.Valid, tool.Preview.Status);
+
+        Assert.AreEqual(WorldEditState.Executed, session.SubmitEdit(new VoxelCellSetEdit(new[]
+        {
+            new VoxelCellTarget(First, VoxelCellOperation.Replace,
+                new VoxelCellContent(Marker, VoxelOrientation.Identity))
+        })).Record!.State);
+        Assert.AreEqual(WorldEditRefusal.DraftTargetsChanged, tool.Commit().Refusal);
     }
 
     [TestMethod]
@@ -280,7 +346,6 @@ public sealed class WorldEditorMultiSelectionTests
             Assert.IsTrue(restored.Load(saveId).Succeeded);
             AssertVoxel(restored, First, Ore, VoxelOrientation.Identity);
             AssertVoxel(restored, Second, Ore, VoxelOrientation.Yaw90);
-            Assert.IsFalse(restored.HasEditorDraft);
         }
         finally
         {
@@ -304,11 +369,7 @@ public sealed class WorldEditorMultiSelectionTests
     }
 
     private static ObservedObject[] Observe(VoxelDevelopmentSession session, params WorldVoxelCoord[] cells) =>
-        cells.Select(cell =>
-        {
-            var voxel = session.Query(cell).Voxel!;
-            return ObservedObject.WorldCell(cell, voxel.RuntimeId, voxel.DefinitionId);
-        }).ToArray();
+        cells.Select(cell => WorldEditorInspector.WorldTarget(session, cell)).ToArray();
 
     private static void AssertVoxel(VoxelDevelopmentSession session, WorldVoxelCoord position,
         VoxelDefinitionId definition, VoxelOrientation orientation)

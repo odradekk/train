@@ -20,6 +20,7 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
     private IReadOnlySet<ObservedObject> _expectedRange = new HashSet<ObservedObject>();
     private int _commitBeforeEdits;
     private int _commitBeforeUndo;
+    private WorldEditorBoxCapacitySmoke? _capacitySmoke;
 
     private VoxelDevelopmentSession Session => scene.Session!;
     private WorldEditorObservationView View => scene.Observation!;
@@ -111,15 +112,29 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
                 _phase++;
                 return false;
             case 9:
-                // Let one complete process/layout frame present the newly visible batch parameters and commit button.
+                // Let one complete process/layout frame present the newly visible batch parameters.
                 _phase++;
                 return false;
             case 10:
-                ClickBatchCommit();
+                OpenReplacementDefinition();
                 _phase++;
                 return false;
             case 11:
+                ChooseReplacementDefinition();
+                _phase++;
+                return false;
+            case 12:
+                ClickBatchCommit();
+                _phase++;
+                return false;
+            case 13:
                 CheckBatchCommit();
+                _capacitySmoke = new WorldEditorBoxCapacitySmoke(scene);
+                _phase++;
+                return false;
+            case 14:
+                if (!_capacitySmoke!.Advance())
+                    return false;
                 GD.Print("WORKSPACE_DONE leg=multi-select");
                 scene.GetTree().Quit();
                 return true;
@@ -130,34 +145,36 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
 
     private void CheckListModifiers()
     {
-        Click(View.ActionButton("clear"));
         _camera = Observer.Pose;
         var list = View.ListControl;
         var first = IndexOf(ObservedObject.Vehicle(Session.Vehicles[0].Id));
         var second = IndexOf(ObservedObject.Vehicle(Session.Vehicles[1].Id));
-        ClickList(list, first);
-        ClickList(list, second, ctrl: true);
-        Require(Observer.SelectedObjects.SetEquals(new[] { View.Entries[first].Object, View.Entries[second].Object }),
-            "Ctrl list input did not add the second vehicle");
-
-        // Godot keeps ItemList.current on the last ordinary click when Ctrl toggles another row. Establish a new
-        // native range anchor with an ordinary click before exercising Shift selection.
+        // A Ctrl toggle preserves ItemList.current. Pin the native Shift anchor before box selection replaces
+        // the domain set; clearing list highlights leaves that anchor in place.
         ClickList(list, second);
-        Require(Observer.SelectedObjects.SetEquals(new[] { View.Entries[second].Object }),
-            "ordinary list input did not replace the Ctrl selection and establish the range anchor");
+        SelectBatchTargets();
+        var cells = new[] { Target(FirstBatchCell), Target(SecondBatchCell) };
+        Require(Observer.SelectedObjects.SetEquals(cells), "list modifier fixture did not start from box-selected world cells");
+        ClickList(list, second, ctrl: true);
+        Require(Observer.SelectedObjects.SetEquals(cells.Append(View.Entries[second].Object)),
+            "Ctrl list input did not preserve box-selected world cells");
         var rangeEnd = Math.Min(Math.Max(first, second) + 2, View.Entries.Count - 1);
         ClickList(list, rangeEnd, shift: true);
         var anchor = second;
         _expectedRange = Enumerable.Range(Math.Min(anchor, rangeEnd), Math.Abs(rangeEnd - anchor) + 1)
             .Select(index => View.Entries[index].Object).ToHashSet();
-        Require(Observer.SelectedObjects.SetEquals(_expectedRange), "Shift list input did not select the anchored contiguous range");
+        Require(Observer.SelectedObjects.SetEquals(_expectedRange.Concat(cells)),
+            "Shift list input did not preserve box-selected world cells while selecting the anchored range");
         var removed = Math.Min(anchor, rangeEnd);
         ClickList(list, removed, ctrl: true);
         Require(!Observer.SelectedObjects.Contains(View.Entries[removed].Object) &&
-                Observer.SelectedObjects.Count == _expectedRange.Count - 1 && Observer.Pose == _camera,
-            "Ctrl list input did not remove one item or moved the camera");
+                cells.All(Observer.SelectedObjects.Contains) &&
+                Observer.SelectedObjects.Count == _expectedRange.Count + cells.Length - 1 && Observer.Pose == _camera,
+            "Ctrl list input did not remove one list item while preserving world cells, or moved the camera");
         ClickList(list, first);
-        GD.Print("WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true camera_moved=false");
+        Require(Observer.SelectedObjects.SetEquals(new[] { View.Entries[first].Object }),
+            "ordinary list input did not replace the complete mixed selection");
+        GD.Print("WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true cells_preserved=true camera_moved=false");
     }
 
     private void CheckPartBox()
@@ -196,8 +213,6 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         Require(!View.ActionButton("batch-remove").Disabled && !View.ActionButton("batch-replace").Disabled,
             "world-cell selection did not expose both common batch operations");
         var tool = scene.CellTool!.State;
-        Require(tool.Definitions.Contains(Ledge), "batch replacement definition is unavailable");
-        tool.SetSettings(Ledge, VoxelOrientation.Identity, VoxelCellOperation.Replace);
         Click(View.ActionButton("batch-replace"));
         Require(tool.HasBatchDraft && tool.BatchTargets.ToHashSet().SetEquals(new[] { FirstBatchCell, SecondBatchCell }),
             "batch action did not bind exactly the selected cells");
@@ -212,11 +227,36 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
             "selection change redirected or discarded the bound batch draft");
     }
 
+    private void OpenReplacementDefinition()
+    {
+        var tool = scene.CellTool!.State;
+        Require(tool.Definitions.Contains(Ledge), "batch replacement definition is unavailable");
+        Click(scene.CellTool.DefinitionInput);
+    }
+
+    private void ChooseReplacementDefinition()
+    {
+        var input = scene.CellTool!.DefinitionInput;
+        Require(input.GetPopup().Visible, "definition popup did not open for batch replacement");
+        var index = scene.CellTool.State.Definitions.ToList().IndexOf(Ledge);
+        var focused = input.GetPopup().GetFocusedItem();
+        var steps = focused < 0 ? index + 1 : (index - focused + input.ItemCount) % input.ItemCount;
+        for (var item = 0; item < steps; item++)
+        {
+            SendKey(Key.Down, true);
+            SendKey(Key.Down, false);
+        }
+        SendKey(Key.Enter, true);
+        SendKey(Key.Enter, false);
+    }
+
     private void ClickBatchCommit()
     {
         _commitBeforeEdits = Session.QueryEditLog().Count;
         _commitBeforeUndo = Session.UndoCount;
         var button = scene.CellTool!.CommitButton;
+        Require(scene.CellTool.State.DefinitionId == Ledge,
+            "real definition input did not select the batch replacement definition");
         Require(button.IsVisibleInTree() && !button.Disabled && button.GetGlobalRect().Size.X > 0 && button.GetGlobalRect().Size.Y > 0,
             $"batch commit control is not input-ready: visible={button.IsVisibleInTree()} disabled={button.Disabled} rect={button.GetGlobalRect()}");
         Click(scene.CellTool!.CommitButton);
@@ -262,12 +302,7 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
     }
 
     private ObservedObject Target(WorldVoxelCoord cell)
-    {
-        var target = WorldEditorInspector.WorldTarget(Session, cell);
-        return target.Kind == ObservedObjectKind.WorldCell && Session.Query(cell).Voxel is { } voxel
-            ? ObservedObject.WorldCell(cell, voxel.RuntimeId, voxel.DefinitionId)
-            : target;
-    }
+        => WorldEditorInspector.WorldTarget(Session, cell);
 
     private Vector2 RawWorldScreen(WorldVoxelCoord cell) => scene.Camera.UnprojectPosition(CellCenter(cell));
 
@@ -281,15 +316,7 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         new[] { FirstBatchCell, SecondBatchCell, VisibleOccluder, HiddenOccluder };
 
     private static void Drag(Vector2 start, Vector2 end)
-    {
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = true, Position = start, GlobalPosition = start });
-        Input.ParseInputEvent(new InputEventMouseMotion
-            { Position = end, GlobalPosition = end, Relative = end - start, ButtonMask = MouseButtonMask.Left });
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = false, Position = end, GlobalPosition = end });
-        Input.FlushBufferedEvents();
-    }
+        => GodotSmokeInput.Drag(start, end);
 
     private static void Click(Control control)
     {
@@ -305,19 +332,10 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
     }
 
     private static void ClickAt(Vector2 point, bool ctrl = false, bool shift = false)
-    {
-        Input.ParseInputEvent(new InputEventMouseButton
-        {
-            ButtonIndex = MouseButton.Left, Pressed = true, Position = point, GlobalPosition = point,
-            CtrlPressed = ctrl, ShiftPressed = shift
-        });
-        Input.ParseInputEvent(new InputEventMouseButton
-        {
-            ButtonIndex = MouseButton.Left, Pressed = false, Position = point, GlobalPosition = point,
-            CtrlPressed = ctrl, ShiftPressed = shift
-        });
-        Input.FlushBufferedEvents();
-    }
+        => GodotSmokeInput.Click(point, ctrl, shift);
+
+    private static void SendKey(Key key, bool pressed) => Input.ParseInputEvent(new InputEventKey
+        { Keycode = key, PhysicalKeycode = key, Pressed = pressed });
 
     private static void Require(bool condition, string message)
     {

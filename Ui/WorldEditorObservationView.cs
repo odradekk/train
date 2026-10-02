@@ -17,8 +17,10 @@ internal sealed record WorldEditorPick(
     WorldVoxelCoord? WorldCell,
     double WorldDistance);
 
+internal sealed record WorldEditorBoxCandidate(ObservedObject Object, Vector3 Point, Vector2 Screen);
+
 internal sealed record WorldEditorBoxSelection(IReadOnlyList<ObservedObject> Objects, int Candidates, int Rays,
-    bool Truncated, double ElapsedMilliseconds);
+    bool Truncated, double ElapsedMilliseconds, int Samples = 0);
 
 /// <summary>
 /// Godot adapter for <see cref="WorldEditorObserver"/>: drives the camera from its pose, draws the selection
@@ -62,6 +64,7 @@ public partial class WorldEditorObservationView : Node3D
     private readonly HashSet<Key> _flyKeys = new();
     private int _shownNotices;
     private bool _dragging;
+    private bool _extendListSelection;
 
     public WorldEditorObserver Observer { get; private set; } = null!;
     internal Func<Vector2, bool, bool>? CellPointer { get; set; }
@@ -135,6 +138,7 @@ public partial class WorldEditorObservationView : Node3D
 
     internal void SelectListIndex(int index)
     {
+        _extendListSelection = false;
         _list.Select(index);
         ApplyListSelection();
     }
@@ -165,8 +169,6 @@ public partial class WorldEditorObservationView : Node3D
         ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
             ? ObservedObject.Vehicle(vehicle.VehicleId)
             : world is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
-        if (item is { Kind: ObservedObjectKind.WorldCell } target && _session.Query(target.Cell).Voxel is { } voxel)
-            item = ObservedObject.WorldCell(target.Cell, voxel.RuntimeId, voxel.DefinitionId);
         return (item, vehicle, world?.Cell, worldDistance);
     }
 
@@ -179,50 +181,66 @@ public partial class WorldEditorObservationView : Node3D
         }
         var timer = System.Diagnostics.Stopwatch.StartNew();
         var rectangle = new Rect2(start, end - start).Abs().Intersection(WorldRect);
+        if (rectangle.Size.X <= 0 || rectangle.Size.Y <= 0)
+        {
+            _action.Text = "框选：空矩形，选择不变";
+            return LastBoxSelection = new(Observer.OrderedSelection.ToArray(), 0, 0, false, timer.Elapsed.TotalMilliseconds);
+        }
+        var projected = ProjectBoxCandidates(_session, _sample ?? _session.QueryDisplayPoses(), _camera, rectangle, out var samples);
         var selected = new HashSet<ObservedObject>();
-        var candidates = 0;
+        var candidates = Math.Min(projected.Length, BoxSelectionCandidateLimit);
         var rays = 0;
-        var truncated = false;
+        var truncated = projected.Length > candidates;
         // A whole object is visible iff a sample projects into the rectangle and the existing nearest-hit ray
         // reaches that object first: world/rail voxels sample their cell centre, vehicles sample each part centre.
         // This is deliberately a sample rule, not selection of every object whose silhouette touches the box.
-        IEnumerable<(ObservedObject Object, Vector3 Point)> Samples()
+        foreach (var candidate in projected.Take(candidates))
         {
-            foreach (var vehicle in _session.Vehicles.OrderBy(vehicle => vehicle.Id.Value))
-            {
-                var frame = WorldEditorObserver.VehicleFrame(_session, _sample ?? _session.QueryDisplayPoses(), vehicle.Id)!;
-                foreach (var part in vehicle.Parts.OrderBy(part => part.Id.Value))
-                    yield return (ObservedObject.Vehicle(vehicle.Id), To(WorldEditorObserver.PartCenter(part, frame.Transform)));
-            }
-            foreach (var (cell, voxel) in _session.World.OccupiedVoxels())
-            {
-                var target = WorldEditorInspector.WorldTarget(_session, cell);
-                if (target.Kind == ObservedObjectKind.WorldCell)
-                    target = ObservedObject.WorldCell(cell, voxel.RuntimeId, voxel.DefinitionId);
-                yield return (target, new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f));
-            }
-        }
-        foreach (var (item, point) in Samples())
-        {
-            if (candidates == BoxSelectionCandidateLimit)
-            {
-                truncated = true;
-                break;
-            }
-            candidates++;
-            if (_camera.IsPositionBehind(point) || !rectangle.HasPoint(_camera.UnprojectPosition(point)) || selected.Contains(item))
+            if (selected.Contains(candidate.Object))
                 continue;
             rays++;
-            if (ResolvePick(_camera.UnprojectPosition(point)).Object == item)
-                selected.Add(item);
+            if (ResolvePick(candidate.Screen).Object == candidate.Object)
+                selected.Add(candidate.Object);
         }
         var targets = selected.ToArray();
         ChangeSelection(() => Observer.SelectMany(targets));
-        LastBoxSelection = new(targets, candidates, rays, truncated, timer.Elapsed.TotalMilliseconds);
-        _action.Text = $"框选：{targets.Length} 个对象 · {candidates} 个采样 · {rays} 条射线" +
+        LastBoxSelection = new(targets, candidates, rays, truncated, timer.Elapsed.TotalMilliseconds, samples);
+        _action.Text = $"框选：{targets.Length} 个对象 · 矩形内 {candidates} 个候选 · {rays} 条射线" +
             (truncated ? $"；达到暂定上限 {BoxSelectionCandidateLimit}，后续候选未选择" : "");
         UpdatePanel();
         return LastBoxSelection;
+    }
+
+    internal static WorldEditorBoxCandidate[] ProjectBoxCandidates(VoxelDevelopmentSession session,
+        TrainDisplaySample sample, Camera3D camera, Rect2 rectangle, out int samples)
+    {
+        IEnumerable<(ObservedObject Object, Vector3 Point)> Samples()
+        {
+            foreach (var vehicle in session.Vehicles)
+            {
+                var frame = WorldEditorObserver.VehicleFrame(session, sample, vehicle.Id)!;
+                foreach (var part in vehicle.Parts)
+                    yield return (ObservedObject.Vehicle(vehicle.Id), To(WorldEditorObserver.PartCenter(part, frame.Transform)));
+            }
+            foreach (var (cell, _) in session.World.OccupiedVoxels())
+                yield return (WorldEditorInspector.WorldTarget(session, cell), new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f));
+        }
+        var projected = new List<WorldEditorBoxCandidate>();
+        samples = 0;
+        foreach (var (item, point) in Samples())
+        {
+            samples++;
+            if (camera.IsPositionBehind(point))
+                continue;
+            var screen = camera.UnprojectPosition(point);
+            if (rectangle.HasPoint(screen))
+                projected.Add(new(item, point, screen));
+        }
+        // Filter before applying the ray budget. Distance, coordinates and identity break ties independently of
+        // world dictionary insertion/load order, so an oversized rectangle always truncates the same candidates.
+        return projected.OrderBy(candidate => camera.GlobalPosition.DistanceSquaredTo(candidate.Point))
+            .ThenBy(candidate => candidate.Point.X).ThenBy(candidate => candidate.Point.Y).ThenBy(candidate => candidate.Point.Z)
+            .ThenBy(candidate => candidate.Object.Kind).ThenBy(candidate => candidate.Object.Id.Value).ToArray();
     }
 
     public override void _Notification(int what)
@@ -242,6 +260,9 @@ public partial class WorldEditorObservationView : Node3D
 
     public override void _Input(InputEvent @event)
     {
+        if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } listClick &&
+            _list.GetGlobalRect().HasPoint(listClick.Position))
+            _extendListSelection = listClick.CtrlPressed || listClick.MetaPressed || listClick.ShiftPressed;
         // Non-focusable panel buttons still take input away from the world. GUI delivery remains Godot's job.
         if (Observer is not null && @event is InputEventMouseButton { Pressed: true } mouse && !WorldRect.HasPoint(mouse.Position))
             _worldInput.ReleaseFocus();
@@ -401,16 +422,19 @@ public partial class WorldEditorObservationView : Node3D
     private void ApplyListSelection()
     {
         var selected = _list.GetSelectedItems().Where(index => index < _entries.Count).Select(index => _entries[index].Object).ToArray();
+        if (_extendListSelection)
+        {
+            var listed = _entries.Select(entry => entry.Object).ToHashSet();
+            selected = selected.Concat(Observer.SelectedObjects.Where(item => !listed.Contains(item))).ToArray();
+        }
         ChangeSelection(() => Observer.SelectMany(selected));
         UpdatePanel();
     }
 
     private void ChangeSelection(Func<WorldEditorObservationStatus> action)
     {
-        if (_session.HasEditorDraft && _session.VoxelTool?.HasBatchDraft != true)
+        if (action() == WorldEditorObservationStatus.DraftRequired)
             DraftGuard?.Invoke(() => { action(); UpdatePanel(); });
-        else
-            action();
     }
 
     private void StartBatch(VoxelCellOperation operation)
@@ -457,9 +481,9 @@ public partial class WorldEditorObservationView : Node3D
         _buttons["parts"].Disabled = Observer.Selection?.Kind != ObservedObjectKind.Vehicle;
         _buttons["whole"].Disabled = Observer.PartVehicleId is null;
         _buttons["focus"].Disabled = Observer.Selection is null;
-        _buttons["follow"].Disabled = Observer.SelectedObjects.Count > 1;
-        _buttons["batch-remove"].Disabled = !Observer.CommonOperations.HasFlag(WorldEditorSelectionOperations.Remove) || _session.HasEditorDraft || _session.IsChangingWorld;
-        _buttons["batch-replace"].Disabled = !Observer.CommonOperations.HasFlag(WorldEditorSelectionOperations.Replace) || _session.HasEditorDraft || _session.IsChangingWorld;
+        _buttons["follow"].Disabled = Observer.Selection is null;
+        _buttons["batch-remove"].Disabled = !Observer.CanBatchEdit || _session.HasEditorDraft || _session.IsChangingWorld;
+        _buttons["batch-replace"].Disabled = !Observer.CanBatchEdit || _session.HasEditorDraft || _session.IsChangingWorld;
         _list.SelectMode = Observer.PartVehicleId is null ? ItemList.SelectModeEnum.Multi : ItemList.SelectModeEnum.Single;
         var entries = Observer.PartVehicleId is { } owner
             ? WorldEditorInspector.ListParts(_session, owner) : WorldEditorInspector.List(_session);
@@ -484,8 +508,7 @@ public partial class WorldEditorObservationView : Node3D
 
         var inspection = Observer.Selection is { } selected && WorldEditorInspector.Inspect(_session, selected) is { } facts
             ? "选中：1 个 · " + selected.DescribeZh() + "\n" + string.Join('\n', facts.LinesZh())
-            : "选中：" + Observer.SelectedObjects.Count + " 个\n" + string.Join('\n', Observer.SelectedObjects
-                .OrderBy(item => item.Kind).ThenBy(item => item.Id.Value).ThenBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z)
+            : "选中：" + Observer.SelectedObjects.Count + " 个\n" + string.Join('\n', Observer.OrderedSelection
                 .Select(item => item.DescribeZh() + (item.Kind == ObservedObjectKind.WorldCell ? $" · {item.Definition} · RuntimeId {item.RuntimeId?.Value.ToString() ?? "无"}" : "")));
         if (Observer.PartVehicleId is not null)
             inspection = "零件层级不支持框选，请返回整体层级\n" + inspection;
