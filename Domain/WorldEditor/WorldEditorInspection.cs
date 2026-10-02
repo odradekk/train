@@ -148,8 +148,7 @@ public static class WorldEditorInspector
                     (best is not null && distance >= best.Distance))
                     continue;
                 var world = origin + unit * distance;
-                // Coordinates use the formal occupancy transform, even while display poses interpolate.
-                var point = vehicle.Transform.InverseTransformPoint(world.X, world.Y, world.Z);
+                var point = transform.InverseTransformPoint(world.X, world.Y, world.Z);
                 best = new WorldEditorVehicleHit(vehicle.Id, part.Id, part.Cell, distance, world,
                     new ObservationVector(point.X, point.Y, point.Z));
             }

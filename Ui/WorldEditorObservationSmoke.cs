@@ -478,7 +478,7 @@ internal sealed class WorldEditorObservationSmoke
         if (_frames == 7)
         {
             var otherPick = ReceivedClick();
-            Require(otherPick.VehicleHit is { } other && other.VehicleId != vehicleId && other.Distance <= otherPick.WorldDistance,
+            Require(otherPick.VehicleHit is { } other && other.VehicleId != vehicleId && otherPick.WorldHit is null,
                 "out-of-level click did not hit another vehicle");
             Require(otherPick.Object is null && Observer.Selection == _partSelection, "other vehicle changed local selection");
             Click(_scene.Camera.UnprojectPosition(new Vector3(76.5f, 0.5f, 6.5f)));
@@ -487,8 +487,8 @@ internal sealed class WorldEditorObservationSmoke
         if (_frames < 9)
             return false;
         var pick = ReceivedClick();
-        Require(pick.WorldCell is { } terrain && Session.Query(terrain).IsOccupied && !Session.Rails.TryGetOccupancy(terrain, out _) &&
-            (pick.VehicleHit is null || pick.WorldDistance < pick.VehicleHit.Distance), "out-of-level click did not hit terrain");
+        Require(pick.WorldHit?.Cell is { } terrain && Session.Query(terrain).IsOccupied && !Session.Rails.TryGetOccupancy(terrain, out _) &&
+            pick.VehicleHit is null, "out-of-level click did not hit terrain");
         Require(pick.Object is null && Observer.Selection == _partSelection, "terrain changed local selection");
         Require(Observer.Pose == _pose, "world clicks moved the camera");
         View.Press("whole");
@@ -517,7 +517,7 @@ internal sealed class WorldEditorObservationSmoke
         if (_frames < 3)
             return false;
         var pick = ReceivedClick();
-        var cell = pick.WorldCell ?? throw new InvalidOperationException($"rail click hit no world collider (object {pick.Object?.Describe()})");
+        var cell = pick.WorldHit?.Cell ?? throw new InvalidOperationException($"rail click hit no world collider (object {pick.Object?.Describe()})");
         var domain = Session.QueryCollision(cell).Status;
         Require(pick.Object?.Kind == ObservedObjectKind.RailSegment && Session.Rails.TryGetOccupancy(cell, out var occupancy) &&
             occupancy.Supports.Any(support => support.SegmentId == pick.Object.Value.Id), $"rail click picked {pick.Object?.Describe()}");
@@ -1018,7 +1018,7 @@ internal sealed class WorldEditorObservationSmoke
         if (_frames < 3)
             return false;
         var pick = ReceivedClick();
-        var cell = pick.WorldCell ?? throw new InvalidOperationException("fragment click hit no world collider");
+        var cell = pick.WorldHit?.Cell ?? throw new InvalidOperationException("fragment click hit no world collider");
         var voxel = Session.Query(cell).Voxel;
         Require(voxel is not null, $"Godot hit {cell} but the domain cell is empty");
         Require(voxel!.RuntimeId is not null, $"click at the destroyed carriage hit {cell} {voxel.DefinitionId.Value}, not a detached fragment");
@@ -1108,7 +1108,7 @@ internal sealed class WorldEditorObservationSmoke
     private WorldEditorPick ReceivedClick()
     {
         var pick = View.LastPick ?? throw new InvalidOperationException("click did not reach the observation view");
-        Require((pick.Screen - _clickTarget).Length() < 1f, $"click arrived at {pick.Screen}, aimed at {_clickTarget}");
+        Require((pick.Ray.Screen - _clickTarget).Length() < 1f, $"click arrived at {pick.Ray.Screen}, aimed at {_clickTarget}");
         return pick;
     }
 

@@ -7,17 +7,19 @@ using Train.Presentation;
 
 namespace Train;
 
-/// <summary>What one world click resolved to, with both candidate hits so automation can compare them.</summary>
+internal sealed record WorldEditorWorldHit(WorldVoxelCoord Cell, double Distance, Vector3 Position, Vector3 Normal, WorldVoxelCoord AdjacentCell);
+
+internal sealed record WorldEditorRay(Vector2 Screen, Vector3 Origin, Vector3 Direction);
+
+internal delegate bool WorldEditorCellPointer(WorldEditorPick pick, bool commit, out ObservationVector? worldPoint);
+
+/// <summary>The visible vehicle or world surface resolved at one screen point.</summary>
 internal sealed record WorldEditorPick(
-    Vector2 Screen,
+    WorldEditorRay Ray,
     ObservedObject? Object,
     WorldEditorObservationStatus? Status,
     WorldEditorVehicleHit? VehicleHit,
-    WorldVoxelCoord? WorldCell,
-    double WorldDistance,
-    Vector3? WorldPosition,
-    Vector3? WorldNormal,
-    WorldVoxelCoord? AdjacentCell);
+    WorldEditorWorldHit? WorldHit);
 
 /// <summary>
 /// Godot adapter for <see cref="WorldEditorObserver"/>: drives the camera from its pose, draws the selection
@@ -58,12 +60,16 @@ public partial class WorldEditorObservationView : Node3D
     private int _shownNotices;
     private bool _dragging;
     private Vector2? _pointerScreen;
+    private WorldEditorRay? _pointerClick;
+    private ulong _pointerPickFrame = ulong.MaxValue;
 
     public WorldEditorObserver Observer { get; private set; } = null!;
-    internal Func<Vector2, bool, bool>? CellPointer { get; set; }
+    internal WorldEditorCellPointer? CellPointer { get; set; }
     internal Action<Action>? DraftGuard { get; set; }
     internal WorldEditorPick? LastPick { get; private set; }
+    internal WorldEditorPick? LastPointerPick { get; private set; }
     internal WorldEditorVehicleHit? HoverVehicle { get; private set; }
+    internal ObservationVector? PointerWorldPosition { get; private set; }
     internal bool PointerCoordinatesVisible => _coordinates.IsVisibleInTree();
     internal bool HighlightVisible => _highlight.Visible;
     internal string ModeText => _mode.Text;
@@ -90,14 +96,21 @@ public partial class WorldEditorObservationView : Node3D
         _worldInput = worldInput;
         _worldInput.GuiInput += HandleWorldInput;
         _worldInput.FocusExited += EndInput;
-        _worldInput.MouseExited += () => { _pointerScreen = null; HoverVehicle = null; _coordinates.Text = ""; };
+        _worldInput.MouseExited += ClearHover;
+        session.WorldReplaced += OnWorldReplaced;
         Observer = new WorldEditorObserver(session, initial.Position, initial.Look);
         CreatePanel(inspector);
+        ClearPointerCoordinates();
         CreateHighlight();
         ApplyCamera(Observer.Pose);
     }
 
-    public override void _ExitTree() => Observer?.Dispose();
+    public override void _ExitTree()
+    {
+        if (_session is not null)
+            _session.WorldReplaced -= OnWorldReplaced;
+        Observer?.Dispose();
+    }
 
     /// <summary>Advances the camera by one display frame from the same sample the vehicle bodies were just drawn with.</summary>
     public void Present(double delta, TrainDisplaySample sample)
@@ -112,8 +125,21 @@ public partial class WorldEditorObservationView : Node3D
         if (delta > 0)
             FlyFromKeys(delta);
         ApplyCamera(Observer.Present(delta, sample));
-        if (_pointerScreen is { } screen && !_consoleOpen())
-            ShowPointerCoordinates(screen);
+        if ((_pointerClick?.Screen ?? _pointerScreen) is { } screen && !_consoleOpen() && _pointerPickFrame != Engine.GetProcessFrames())
+        {
+            _pointerPickFrame = Engine.GetProcessFrames();
+            var pick = QueryPick(_pointerClick ?? PointerRay(screen));
+            LastPointerPick = pick;
+            ObservationVector? toolPoint = null;
+            var consumed = !_dragging && CellPointer?.Invoke(pick, _pointerClick is not null, out toolPoint) == true;
+            if (_pointerClick is not null && !consumed)
+                Pick(pick);
+            _pointerClick = null;
+            if (_pointerScreen is null)
+                ClearPointerCoordinates();
+            else
+                ShowPointerCoordinates(pick, consumed ? toolPoint : pick.WorldHit is { } hit ? From(hit.Position) : null);
+        }
         UpdateHighlight(sample);
         UpdatePanel();
     }
@@ -132,9 +158,8 @@ public partial class WorldEditorObservationView : Node3D
     }
 
     /// <summary>Resolves a screen point to the nearest vehicle part or published world-voxel collider and selects it.</summary>
-    internal WorldEditorPick Pick(Vector2 screen)
+    private WorldEditorPick Pick(WorldEditorPick raw)
     {
-        var raw = QueryPick(screen);
         var vehicle = raw.VehicleHit;
         var item = raw.Object;
         if (Observer.PartVehicleId is { } owner)
@@ -153,27 +178,55 @@ public partial class WorldEditorObservationView : Node3D
     }
 
     /// <summary>Raw nearest hits without selection, camera changes or tool snapping.</summary>
-    internal WorldEditorPick QueryPick(Vector2 screen)
+    internal WorldEditorPick QueryPick(Vector2 screen) => QueryPick(PointerRay(screen));
+
+    private WorldEditorRay PointerRay(Vector2 screen) => new(screen, _camera.ProjectRayOrigin(screen), _camera.ProjectRayNormal(screen));
+
+    private WorldEditorPick QueryPick(WorldEditorRay ray)
     {
-        var origin = _camera.ProjectRayOrigin(screen);
-        var direction = _camera.ProjectRayNormal(screen);
+        var (_, origin, direction) = ray;
         var vehicle = WorldEditorInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
         var world = _colliders.QueryPublishedRay(GetWorld3D(), origin, origin + direction * PickDistance);
-        var worldDistance = world is { } hit ? origin.DistanceTo(hit.Position) : double.PositiveInfinity;
-        ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
-            ? ObservedObject.Vehicle(vehicle.VehicleId)
-            : world is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
-        return new WorldEditorPick(screen, item, null, vehicle, world?.Cell, worldDistance,
-            world?.Position, world?.Normal, world?.AdjacentCell);
+        WorldEditorWorldHit? worldHit = world is { } hit
+            ? new(hit.Cell, origin.DistanceTo(hit.Position), hit.Position, hit.Normal, hit.AdjacentCell) : null;
+        if (vehicle is not null && (worldHit is null || vehicle.Distance <= worldHit.Distance))
+            worldHit = null;
+        else
+            vehicle = null;
+        ObservedObject? item = vehicle is not null ? ObservedObject.Vehicle(vehicle.VehicleId)
+            : worldHit is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
+        return new WorldEditorPick(ray, item, null, vehicle, worldHit);
     }
 
-    private void ShowPointerCoordinates(Vector2 screen)
+    private void ShowPointerCoordinates(WorldEditorPick pick, ObservationVector? worldPoint)
     {
-        var pick = QueryPick(screen);
-        HoverVehicle = pick.VehicleHit is { } hit && hit.Distance <= pick.WorldDistance ? hit : null;
+        HoverVehicle = pick.VehicleHit;
+        PointerWorldPosition = HoverVehicle?.WorldPosition ?? worldPoint;
+        _coordinates.Visible = PointerWorldPosition is not null;
         _coordinates.Text = HoverVehicle is { } vehicle
             ? $"光标 · 车辆 {vehicle.VehicleId.Value}\n世界坐标 {Coordinates(vehicle.WorldPosition)}\n车辆局部坐标 {Coordinates(vehicle.LocalPosition)}"
-            : pick.WorldPosition is { } point ? $"光标 · 世界坐标 {Coordinates(From(point))}" : "光标：未命中表面";
+            : PointerWorldPosition is { } point ? $"光标 · 世界坐标 {Coordinates(point)}" : "";
+    }
+
+    private void ClearPointerCoordinates()
+    {
+        HoverVehicle = null;
+        PointerWorldPosition = null;
+        _coordinates.Text = "";
+        _coordinates.Hide();
+    }
+
+    private void ClearHover()
+    {
+        _pointerScreen = null;
+        LastPointerPick = null;
+        ClearPointerCoordinates();
+    }
+
+    private void OnWorldReplaced(WorldReplacement _)
+    {
+        _pointerClick = null;
+        ClearHover();
     }
 
     private static string Coordinates(ObservationVector point) => FormattableString.Invariant($"({point.X:0.###}, {point.Y:0.###}, {point.Z:0.###})");
@@ -187,6 +240,7 @@ public partial class WorldEditorObservationView : Node3D
     private void EndInput()
     {
         _dragging = false;
+        _pointerClick = null;
         _flyKeys.Clear();
     }
 
@@ -209,13 +263,11 @@ public partial class WorldEditorObservationView : Node3D
         if (@event is InputEventMouseMotion pointer)
         {
             _pointerScreen = _worldInput.GetGlobalTransformWithCanvas() * pointer.Position;
-            ShowPointerCoordinates(_pointerScreen.Value);
-        }
-        if (@event is InputEventMouseMotion hover && !_dragging &&
-            CellPointer?.Invoke(_worldInput.GetGlobalTransformWithCanvas() * hover.Position, false) == true)
-        {
-            GetViewport().SetInputAsHandled();
-            return;
+            if (!_dragging)
+            {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
         }
         if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left or MouseButton.Right })
             _worldInput.GrabFocus();
@@ -232,9 +284,8 @@ public partial class WorldEditorObservationView : Node3D
         switch (@event)
         {
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } click:
-                var screen = _worldInput.GetGlobalTransformWithCanvas() * click.Position;
-                if (CellPointer?.Invoke(screen, true) != true)
-                    Pick(screen);
+                _pointerScreen = _worldInput.GetGlobalTransformWithCanvas() * click.Position;
+                _pointerClick = PointerRay(_pointerScreen.Value);
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right } right:
                 _dragging = right.Pressed;

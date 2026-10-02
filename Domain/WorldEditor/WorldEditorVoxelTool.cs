@@ -5,6 +5,26 @@ namespace Train.Domain.WorldEditor;
 
 public enum VoxelWorkPlane { Horizontal, VerticalX, VerticalZ, Surface }
 
+public static class VoxelWorkPlaneCoordinates
+{
+    public static int? Axis(VoxelWorkPlane plane) => plane switch
+    {
+        VoxelWorkPlane.VerticalX => 0,
+        VoxelWorkPlane.Horizontal => 1,
+        VoxelWorkPlane.VerticalZ => 2,
+        _ => null
+    };
+
+    public static double Component(ObservationVector point, int axis) => axis switch { 0 => point.X, 1 => point.Y, _ => point.Z };
+    public static int Component(WorldVoxelCoord cell, int axis) => axis switch { 0 => cell.X, 1 => cell.Y, _ => cell.Z };
+    public static WorldVoxelCoord WithLayer(WorldVoxelCoord cell, int axis, int layer) => axis switch
+    {
+        0 => cell with { X = layer },
+        1 => cell with { Y = layer },
+        _ => cell with { Z = layer }
+    };
+}
+
 /// <summary>A single grid-cell preview. Only precise input or a failed commit creates a draft.</summary>
 public sealed class WorldEditorVoxelTool : IDisposable
 {
@@ -57,48 +77,39 @@ public sealed class WorldEditorVoxelTool : IDisposable
 
     public bool SetLayer(int layer) => SetPlane(Plane, layer);
 
-    public bool SetPlane(VoxelWorkPlane plane, int position)
+    public bool SetPlane(VoxelWorkPlane plane, int layer)
     {
-        if (plane == Plane && position == Layer)
+        if (plane == Plane && layer == Layer)
             return true;
         if (HasDraft || _session.IsChangingWorld)
             return false;
         Plane = plane;
-        Layer = position;
-        Position = plane switch
-        {
-            VoxelWorkPlane.VerticalX => Position with { X = position },
-            VoxelWorkPlane.VerticalZ => Position with { Z = position },
-            VoxelWorkPlane.Horizontal => Position with { Y = position },
-            _ => Position
-        };
+        Layer = layer;
+        if (VoxelWorkPlaneCoordinates.Axis(plane) is { } axis)
+            Position = VoxelWorkPlaneCoordinates.WithLayer(Position, axis, layer);
         return true;
     }
 
     /// <summary>Integer plane layers use floor on the other axes. Bounds are checked by Preview/Commit.</summary>
     public bool TryPlaneTarget(ObservationVector origin, ObservationVector direction, out WorldVoxelCoord cell)
+        => TryPlaneTarget(origin, direction, out cell, out _);
+
+    public bool TryPlaneTarget(ObservationVector origin, ObservationVector direction, out WorldVoxelCoord cell, out ObservationVector point)
     {
         cell = default;
-        var component = Plane switch
-        {
-            VoxelWorkPlane.Horizontal => (origin.Y, direction.Y),
-            VoxelWorkPlane.VerticalX => (origin.X, direction.X),
-            VoxelWorkPlane.VerticalZ => (origin.Z, direction.Z),
-            _ => (0d, 0d)
-        };
-        if (Math.Abs(component.Item2) < 1e-7)
+        point = default;
+        if (VoxelWorkPlaneCoordinates.Axis(Plane) is not { } axis)
             return false;
-        var distance = (Layer - component.Item1) / component.Item2;
-        if (distance < 0 || !double.IsFinite(distance))
+        var (originComponent, directionComponent) =
+            (VoxelWorkPlaneCoordinates.Component(origin, axis), VoxelWorkPlaneCoordinates.Component(direction, axis));
+        if (Math.Abs(directionComponent) < 1e-7)
             return false;
-        var point = origin + direction * distance;
+        var distance = (Layer - originComponent) / directionComponent;
+        if (distance < 0)
+            return false;
+        point = origin + direction * distance;
         cell = new((int)Math.Floor(point.X), (int)Math.Floor(point.Y), (int)Math.Floor(point.Z));
-        cell = Plane switch
-        {
-            VoxelWorkPlane.Horizontal => cell with { Y = Layer },
-            VoxelWorkPlane.VerticalX => cell with { X = Layer },
-            _ => cell with { Z = Layer }
-        };
+        cell = VoxelWorkPlaneCoordinates.WithLayer(cell, axis, Layer);
         return true;
     }
 

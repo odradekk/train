@@ -673,20 +673,60 @@ public sealed class WorldEditorObservationTests
         var carriage = WorldEditorObserver.VehicleFrame(session, sample, assembly.VehicleIds[1])!;
 
         var down = new ObservationVector(0, -1, 0);
-        var locoHit = WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 100);
+        var locoOrigin = loco.Center + new ObservationVector(0, 20, 0);
+        var locoHit = WorldEditorInspector.RaycastVehicles(session, sample, locoOrigin, down, 100);
         Assert.AreEqual(assembly.VehicleIds[0], locoHit!.VehicleId);
         var owner = session.Vehicles.Single(vehicle => vehicle.Id == locoHit.VehicleId);
-        var restored = owner.Transform.TransformPoint(locoHit.LocalPosition.X, locoHit.LocalPosition.Y, locoHit.LocalPosition.Z);
-        AssertClose(locoHit.WorldPosition, new(restored.X, restored.Y, restored.Z));
+        Assert.IsTrue(session.SimulationPaused);
+        Assert.AreEqual(owner.Transform, loco.Transform);
+        Assert.AreEqual(session.Vehicles.Single(vehicle => vehicle.Id == carriage.VehicleId).Transform, carriage.Transform);
+        AssertClose(locoOrigin + down * locoHit.Distance, locoHit.WorldPosition);
+        AssertPointInCell(locoHit.LocalPosition, locoHit.Cell);
         Assert.AreEqual(session.Vehicles.Single(vehicle => vehicle.Id == locoHit.VehicleId).Parts.Single(part => part.Cell == locoHit.Cell).Id, locoHit.PartId);
         var carriageHit = WorldEditorInspector.RaycastVehicles(session, sample, carriage.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[1], carriageHit!.VehicleId);
         Assert.IsTrue(carriageHit.Distance > 10 && carriageHit.Distance < 20);
+        AssertPointInCell(carriageHit.LocalPosition, carriageHit.Cell);
 
         var along = WorldEditorInspector.RaycastVehicles(session, sample, carriage.Center - new ObservationVector(40, 0, 0), new ObservationVector(1, 0, 0), 200);
         Assert.AreEqual(assembly.VehicleIds[1], along!.VehicleId);
+        AssertPointInCell(along.LocalPosition, along.Cell);
         Assert.IsNull(WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), new ObservationVector(0, 1, 0), 100));
         Assert.IsNull(WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 5));
+    }
+
+    [TestMethod]
+    public void Vehicle_hit_coordinates_use_the_displayed_pose_when_it_differs_from_the_formal_pose()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        var session = worldEditor.Session;
+        var vehicle = session.Vehicles.First();
+        Assert.IsTrue(CompositeTransform.TryCreate(100, 40, 100, 0, 0, -1, 0, 1, 0, out var displayed));
+        Assert.AreNotEqual(vehicle.Transform, displayed);
+        var sample = new TrainDisplaySample(0.5, false, Array.Empty<TrainDisplayAssemblyQuery>(), new[]
+        {
+            new TrainDisplayVehicleQuery(vehicle.Id, null, displayed, default!, default!)
+        });
+        var part = vehicle.Parts.First();
+        var center = displayed.TransformPoint(part.Cell.X + 0.5, part.Cell.Y + 0.5, part.Cell.Z + 0.5);
+        var origin = new ObservationVector(center.X, center.Y + 20, center.Z);
+        var down = new ObservationVector(0, -1, 0);
+
+        var hit = WorldEditorInspector.RaycastVehicles(session, sample, origin, down, 100);
+
+        Assert.IsNotNull(hit);
+        Assert.AreEqual(vehicle.Id, hit.VehicleId);
+        AssertClose(origin + down * hit.Distance, hit.WorldPosition);
+        AssertPointInCell(hit.LocalPosition, hit.Cell);
+        Assert.AreEqual(vehicle.Parts.Single(value => value.Cell == hit.Cell).Id, hit.PartId);
+    }
+
+    private static void AssertPointInCell(ObservationVector point, LocalVoxelCoord cell)
+    {
+        const double tolerance = 1e-7;
+        Assert.IsTrue(point.X >= cell.X - tolerance && point.X <= cell.X + 1 + tolerance);
+        Assert.IsTrue(point.Y >= cell.Y - tolerance && point.Y <= cell.Y + 1 + tolerance);
+        Assert.IsTrue(point.Z >= cell.Z - tolerance && point.Z <= cell.Z + 1 + tolerance);
     }
 
     [TestMethod]

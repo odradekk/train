@@ -104,11 +104,12 @@ public partial class WorldEditorScene : Node3D
         main.SetWorldEditorObserver(_observation.Observer);
         _cellTool = new WorldEditorVoxelToolView();
         AddChild(_cellTool);
-        _cellTool.Initialize(_session, _camera, _tools, _inspector, _observation.QueryPick);
+        _cellTool.Initialize(_session, _tools, _inspector);
         _observation.CellPointer = _cellTool.HandlePointer;
         _observation.DraftGuard = _cellTool.RequestChange;
         _worldInput.GuiInput += HandleHistoryInput;
         Refresh();
+        ApplyMotionPresentation(0);
 
         if (WorldEditorWorkspaceSmoke.Requested())
             _workspaceSmoke = new WorldEditorWorkspaceSmoke(this);
@@ -255,7 +256,6 @@ public partial class WorldEditorScene : Node3D
         _composites.Refresh(this, _session, catalog);
         _tracks.Refresh(this, _session);
         _dirty = false;
-        ApplyMotionPresentation();
         _source.Text = SourceText(_session.WorldSource);
     }
 
@@ -294,7 +294,7 @@ public partial class WorldEditorScene : Node3D
 
     private void QuitFailedEstablish() => GetTree().Quit(1);
 
-    private void ApplyMotionPresentation(double delta = 0)
+    private void ApplyMotionPresentation(double delta)
     {
         if (_session is null)
             return;
