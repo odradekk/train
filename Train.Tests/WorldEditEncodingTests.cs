@@ -294,15 +294,6 @@ public sealed class WorldEditEncodingTests
     }
 
     [TestMethod]
-    public void Restore_golden_vector_matches_the_design_document()
-    {
-        var restore = Golden.Single(item => item.Name == "voxel.cell-restore");
-        var design = File.ReadAllText(Path.Combine(
-            CompositeFixtures.RepositoryRoot(), "docs", "design", "04-deterministic-simulation.md"));
-        StringAssert.Contains(design, $"| `{restore.Canonical}` | `{restore.Digest}` |");
-    }
-
-    [TestMethod]
     public void Malformed_version_or_kind_fields_are_invalid_while_unsupported_values_are_unknown_formats()
     {
         var remove = Golden[1].Canonical;

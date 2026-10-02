@@ -1,7 +1,8 @@
 param(
     [ValidateSet(1, 2, 3, 4)]
     [int] $Slice = 1,
-    [switch] $IsolationAbort
+    [switch] $IsolationAbort,
+    [string] $OutputDirectory = ".godot/validation/issue-73-revision"
 )
 
 # Repeatable real-Godot voxel smoke for slice 1 (#39/#46), slice 2 (#50),
@@ -300,6 +301,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SLICE4_DISPLAY",
         "VOXEL_SMOKE_SLICE4_FOLLOW",
         "VOXEL_SMOKE_SLICE4_TRANSFORM_ONLY",
+        "VOXEL_SMOKE_SLICE4_LEGACY_SHORTCUT",
         "VOXEL_SMOKE_SLICE4_COAST_SPLIT",
         "VOXEL_SMOKE_SLICE4_CAMERA_BEFORE_SPLIT",
         "VOXEL_SMOKE_SLICE4_CAMERA_AFTER_SPLIT",
@@ -345,6 +347,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_SCENE_READY",
         "VOXEL_SMOKE_SLICE3_BASE",
         "VOXEL_SMOKE_SLICE3_LOADED",
+        "VOXEL_SMOKE_SLICE3_LEGACY_SHORTCUT",
         "VOXEL_SMOKE_SLICE3_MANUFACTURED",
         "VOXEL_SMOKE_SLICE3_VISUAL",
         "VOXEL_SMOKE_SLICE3_QUERY",
@@ -483,7 +486,7 @@ $required = if ($IsolationAbort) {
         "VOXEL_SMOKE_MENU_REENTERED"
     )
 }
-$logDir = Join-Path $root ".godot/validation/issue-73-revision"
+$logDir = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory } else { Join-Path $root $OutputDirectory }
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 @(
     "os=$([System.Environment]::OSVersion.VersionString)"

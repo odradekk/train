@@ -265,20 +265,20 @@ internal sealed class WorldEditorSmoke
         var add = HollowShellRefit.FirstAdd;
         var identity = VoxelOrientation.Identity;
         _scene.SetEditInputs(probe, add, 25, 0);
-        PressEdit("edit_add");
-        PressEdit("edit_damage");
+        PressEdit("edit_add", expectHistoryConfirmation: false);
+        PressEdit("edit_damage", expectHistoryConfirmation: true);
         RunConsole($"voxel add {ConsoleCell.X} {ConsoleCell.Y} {ConsoleCell.Z} {WorldEditorSequences.EditVoxelId.Value} {identity}");
         var pose = WorldEditorSequences.EditShellPose;
         _scene.SetEditInputs(new WorldVoxelCoord((int)pose.OriginX, (int)pose.OriginY, (int)pose.OriginZ), add, 25, 0);
-        PressEdit("edit_manufacture");
+        PressEdit("edit_manufacture", expectHistoryConfirmation: true);
         var shell = Session.QueryComposites().Max(item => item.Id.Value);
         RunConsole($"composite add {shell} {add.X} {add.Y} {add.Z} {HollowShellRefit.MarkerId.Value} {identity} at {step + EditDelay}");
         _scene.SetEditInputs(probe, add, 25, EditDelay);
-        PressEdit("edit_remove");
+        PressEdit("edit_remove", expectHistoryConfirmation: false);
         if (HasTrain)
         {
             var rail = StraightRailFixture.FirstSegmentDamageCell;
-            PressEdit("stop");
+            PressEdit("stop", expectHistoryConfirmation: false);
             RunConsole($"rail repair {rail.X} {rail.Y} {rail.Z} at {step + EditDelay}");
             RunConsole($"rail start assembly {shell} at {step + EditDelay}");
         }
@@ -309,9 +309,9 @@ internal sealed class WorldEditorSmoke
         var rail = StraightRailFixture.FirstSegmentDamageCell;
         var boundary = step + EditDelay;
         _scene.SetEditInputs(rail, HollowShellRefit.FirstAdd, 100, EditDelay);
-        PressEdit("edit_damage");
-        PressEdit("edit_repair");
-        PressEdit("start");
+        PressEdit("edit_damage", expectHistoryConfirmation: false);
+        PressEdit("edit_repair", expectHistoryConfirmation: false);
+        PressEdit("start", expectHistoryConfirmation: false);
         RunConsole($"rail stop at {boundary + EditDelay}");
         Require(Session.QueryPendingEdits().Count == 4 && Session.SimulationStep == step, $"rail commands queue {QueueText()}");
         _scene.SetStepCount(2 * EditDelay + 1);
@@ -332,12 +332,12 @@ internal sealed class WorldEditorSmoke
         GD.Print($"WORLD_EDITOR_SMOKE_RAIL_QUEUE step={Session.SimulationStep} executed={string.Join(',', executed.Select(WorldEditorCheck.DescribeRecord))} {MotionText()}");
 
         _scene.SetEditInputs(rail, HollowShellRefit.FirstAdd, 100, 0);
-        PressEdit("edit_damage");
+        PressEdit("edit_damage", expectHistoryConfirmation: false);
         _scene.Refresh();
         var world = _scene.GetWorld3D();
         var gapHit = _scene.Colliders.QueryPublishedCellInterior(world, rail);
         var gapRendered = _scene.Tracks.RailSolidCount;
-        PressEdit("edit_repair");
+        PressEdit("edit_repair", expectHistoryConfirmation: false);
         _scene.Refresh();
         var repairedHit = _scene.Colliders.QueryPublishedCellInterior(world, rail);
         Require(!gapHit && repairedHit, $"Godot physics on the edited rail cell gap={gapHit} repaired={repairedHit}");
@@ -354,8 +354,8 @@ internal sealed class WorldEditorSmoke
     private void RunPanelAssembly()
     {
         _scene.SetEditInputs(WorldEditorSequences.EditProbe, HollowShellRefit.FirstAdd, 25, 0);
-        PressEdit("edit_construct");
-        PressEdit("edit_assemble");
+        PressEdit("edit_construct", expectHistoryConfirmation: false);
+        PressEdit("edit_assemble", expectHistoryConfirmation: false);
         var records = Session.QueryEditLog().TakeLast(2).ToArray();
         Require(
             records.Select(record => record.Status).SequenceEqual(new[] { "IndependentLineConflict", "Formed" }),
@@ -365,11 +365,13 @@ internal sealed class WorldEditorSmoke
         GD.Print($"WORLD_EDITOR_SMOKE_PANEL_ASSEMBLY executed={string.Join(',', records.Select(WorldEditorCheck.DescribeRecord))} {MotionText()}");
     }
 
-    private void PressEdit(string button)
+    private void PressEdit(string button, bool expectHistoryConfirmation)
     {
         var operation = _scene.EditOperation(button);
         _scene.Press(button);
-        if (_scene.HistoryPrompt.Visible)
+        Require(_scene.HistoryPrompt.Visible == expectHistoryConfirmation,
+            $"panel {button} history confirmation visible={_scene.HistoryPrompt.Visible}, expected={expectHistoryConfirmation}");
+        if (expectHistoryConfirmation)
             _scene.HistoryPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
         GD.Print($"WORLD_EDITOR_SMOKE_PANEL {button} {operation.Describe()}");
     }

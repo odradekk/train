@@ -2,7 +2,7 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数)
 
-制造不可撤销。历史非空时须尾随 `confirm-end-history` 明确结束历史；若同时排期，写作 `at <step> confirm-end-history`。首次未确认提交及失败提交都保留历史。
+制造不可撤销；结束撤销历史所需的确认词及排期顺序见 [`confirm-end-history`](README.md#confirm-end-history)。
 
 ```text
 composite manufacture [<namespace:id>] [pose <x> <y> <z>] [at <step>]

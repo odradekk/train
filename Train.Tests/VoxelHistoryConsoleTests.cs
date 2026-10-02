@@ -41,9 +41,7 @@ public sealed class VoxelHistoryConsoleTests
         dispatcher.Execute($"voxel damage {cell.X} {cell.Y} {cell.Z} 25 confirm-end-history");
         Assert.AreEqual(75, session.Query(cell).Voxel!.CurrentDurability);
         Assert.AreEqual(0, session.UndoCount);
-        StringAssert.Contains(
-            WorldEditEntryTests.Messages(logger),
-            "This irreversible edit will clear undo and redo history; resubmit with trailing confirm-end-history.");
+        Assert.AreEqual(0, session.RedoCount);
     }
 
     [TestMethod]
@@ -87,10 +85,10 @@ public sealed class VoxelHistoryConsoleTests
         var second = cell with { X = cell.X + 1 };
         dispatcher.Execute($"voxel add {second.X} {second.Y} {second.Z} {WorldEditorSequences.EditVoxelId.Value} {VoxelOrientation.Identity}");
         dispatcher.Execute($"rail stop assembly {assembly} 4 confirm-end-history");
-        Assert.IsInstanceOfType<TrainStopEdit>(session.QueryPendingEdits().Single().Edit);
-        StringAssert.Contains(
-            WorldEditEntryTests.Messages(logger),
-            "This irreversible edit will clear undo and redo history; resubmit with trailing confirm-end-history.");
+        var pending = session.QueryPendingEdits().Single();
+        Assert.IsInstanceOfType<TrainStopEdit>(pending.Edit);
+        Assert.AreEqual(4ul, pending.TargetStep);
+        Assert.AreEqual(0, session.UndoCount);
     }
 
     [TestMethod]
@@ -133,7 +131,8 @@ public sealed class VoxelHistoryConsoleTests
 
         Assert.IsTrue(session.Query(cell).IsOccupied);
         Assert.AreEqual(1, session.UndoCount);
-        StringAssert.Contains(WorldEditEntryTests.Messages(logger), "Edit VoxelDraftExists.");
+        Assert.AreEqual(0, session.RedoCount);
+        Assert.IsTrue(tool.HasDraft);
     }
 
     [TestMethod]
@@ -144,11 +143,54 @@ public sealed class VoxelHistoryConsoleTests
         var dispatcher = WorldEditEntryTests.Dispatcher(logger, worldEditor.Session);
 
         for (var x = 0; x <= 64; x++)
-            dispatcher.Execute($"voxel cell add {x} 5 0 {WorldEditorSequences.EditVoxelId.Value} {VoxelOrientation.Identity}");
+            dispatcher.Execute($"voxel add {x} 5 0 {WorldEditorSequences.EditVoxelId.Value} {VoxelOrientation.Identity}");
 
         Assert.AreEqual(64, worldEditor.Session.UndoCount);
-        StringAssert.Contains(
-            WorldEditEntryTests.Messages(logger),
-            "History capacity reached; oldest undo record evicted.");
+        Assert.AreEqual(1UL, worldEditor.Session.HistoryEvictionCount);
+    }
+
+    [TestMethod]
+    public void Save_names_are_not_parsed_as_edit_submission_options()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        var voxel = new VoxelConsoleCommands(session);
+        var cell = WorldEditorSequences.EditProbe;
+        session.Add(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity);
+
+        voxel.Execute(["save", "Home", "at", "Station"]);
+
+        Assert.IsNotNull(session.SaveId);
+        Assert.AreEqual("Home at Station", session.DisplayName);
+        Assert.IsFalse(session.HasUnsavedChanges);
+        Assert.AreEqual(1, session.UndoCount);
+        Assert.IsTrue(session.Query(cell).IsOccupied);
+    }
+
+    [TestMethod]
+    public void Immediate_console_commands_keep_typed_output_when_history_exists_or_is_confirmed()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = worldEditor.Session;
+        var voxel = new VoxelConsoleCommands(session);
+        var composite = new CompositeConsoleCommands(session);
+        var first = WorldEditorSequences.EditProbe;
+        var second = first with { X = first.X + 1 };
+
+        voxel.Execute(["add", first.X.ToString(), first.Y.ToString(), first.Z.ToString(), WorldEditorSequences.EditVoxelId.Value, VoxelOrientation.Identity.ToString()]);
+        var voxelOutput = voxel.Execute(["add", second.X.ToString(), second.Y.ToString(), second.Z.ToString(), WorldEditorSequences.EditVoxelId.Value, VoxelOrientation.Identity.ToString()]);
+
+        Assert.IsTrue(session.Query(second).IsOccupied);
+        StringAssert.Contains(voxelOutput, $"({second.X}, {second.Y}, {second.Z})");
+        var count = System.Text.RegularExpressions.Regex.Match(voxelOutput, @"Voxel count:\s*(\d+)");
+        Assert.IsTrue(count.Success);
+        Assert.AreEqual(session.World.VoxelCount, int.Parse(count.Groups[1].Value));
+
+        var manufactureOutput = composite.Execute(["manufacture", "confirm-end-history"]);
+        var vehicle = session.QueryComposites().Single();
+
+        Assert.AreEqual(0, session.UndoCount);
+        StringAssert.Contains(manufactureOutput, $"vehicle {vehicle.Id}");
+        StringAssert.Contains(manufactureOutput, $"parts {vehicle.Parts.Count}");
     }
 }

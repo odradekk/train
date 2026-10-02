@@ -2,7 +2,7 @@
 
 [返回命令索引](README.md) · [场景前提与参数](README.md#使用前提与通用参数) · [朝向编码](README.md#朝向编码) · [结果与错误处理](README.md#结果与错误处理)
 
-伤害不可撤销。撤销历史非空时，首次提交返回 `HistoryConfirmationRequired`；确认结束历史须在命令（或 `at <step>`）后追加 `confirm-end-history`。拒绝或执行失败保留历史。
+伤害不可撤销；结束撤销历史所需的确认词及排期顺序见 [`confirm-end-history`](README.md#confirm-end-history)。
 
 ```text
 voxel damage <x> <y> <z> <amount>

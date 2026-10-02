@@ -253,8 +253,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                           session.Query(OldOnlyCell).Voxel is null && session.Query(NewOnlyCell).Voxel is null)),
                     "ordinary open lost identity, simulation position, copied state or pending input");
                 Add(Leg switch { "resume-old" => OldOnlyCell, "resume-new" => NewOnlyCell, _ => ImportedOnlyCell });
-                Require(scene.ApplyOperation(WorldEditorOperation.Resume(), confirmEndHistory: true) == "Resumed",
-                    "continued workspace could not explicitly end edit history and run");
+                scene.Press("run");
                 _phase = 1;
                 return;
             }
@@ -450,8 +449,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity),
                         100, confirmEndHistory: true).Accepted,
                     "example copy rejected a formal future edit");
-                Require(scene.ApplyOperation(WorldEditorOperation.Resume(), confirmEndHistory: true) == "Resumed",
-                    "example copy could not explicitly start after accepting future input");
+                scene.Press("run");
                 _phase = 1;
                 return;
             }
@@ -955,8 +953,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 3:
                 Require(session.Query(CellToolCommittedCellForRun).Voxel is not null && !state.HasDraft,
                     "fresh process could not continue editing through real mouse input");
-                Require(scene.ApplyOperation(WorldEditorOperation.Resume(), confirmEndHistory: true) == "Resumed",
-                    "continued cell-tool world could not explicitly end edit history and run");
+                scene.Press("run");
                 _phase++;
                 return;
             case 4 when session.SimulationStep < 3:

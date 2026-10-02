@@ -63,11 +63,14 @@ internal static class WorldEditConsole
     }
 
     public static string FormatHistorySubmission(VoxelDevelopmentSession session, Func<WorldEditSubmission> submit)
+        => FormatWithHistoryEvictionNotice(session, () => FormatSubmission(submit()));
+
+    public static string FormatWithHistoryEvictionNotice(VoxelDevelopmentSession session, Func<string> format)
     {
         var evictions = session.HistoryEvictionCount;
-        var text = FormatSubmission(submit());
+        var text = format();
         if (session.HistoryEvictionCount > evictions)
-            text = string.Join('\n', text, "History capacity reached; oldest undo record evicted.");
+            text = string.Join('\n', text, "World undo history capacity reached; oldest record evicted.");
         return text;
     }
 

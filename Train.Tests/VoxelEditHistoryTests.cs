@@ -212,6 +212,14 @@ public sealed class VoxelEditHistoryTests
         Assert.IsTrue(session.Query(new(0, 2, 2)).IsOccupied);
         Assert.IsTrue(session.Query(new(1, 2, 2)).IsOccupied);
         Assert.AreEqual(WorldEditRefusal.NoHistory, session.Undo().Refusal);
+        Assert.AreEqual(WorldChangeStatus.ChoiceRequired,
+            session.BeginWorldChange(new(WorldChangeKind.Quit, null)).Status);
+        Assert.AreEqual(TrainMotionStatus.WorldChanging, session.ResumeSimulation().Status);
+        Assert.AreEqual(2UL, session.HistoryEvictionCount);
+        session.ChooseWorldChange(WorldChangeChoice.Cancel);
+        Assert.IsTrue(session.ResumeSimulation().Succeeded);
+        Assert.AreEqual(0UL, session.HistoryEvictionCount);
+        AssertHistory(session, 0, 0);
     }
 
     [TestMethod]
@@ -362,8 +370,70 @@ public sealed class VoxelEditHistoryTests
         Assert.AreEqual(1, session.UndoCount);
         Assert.IsFalse(session.CanUndo);
         Assert.AreEqual(WorldEditRefusal.SimulationFaulted, session.Undo().Refusal);
-        Assert.AreEqual(TrainMotionStatus.SimulationFaulted, session.ResumeSimulation().Status);
+        Assert.AreEqual(TrainMotionStatus.SimulationFaulted, session.AdvanceSimulation(1).Status);
         Assert.AreEqual(1, session.UndoCount);
+        Assert.AreEqual(TrainMotionStatus.Resumed, session.ResumeSimulation().Status);
+        Assert.AreEqual(0, session.UndoCount);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void A_new_draft_does_not_record_hover_or_pre_draft_settings(bool hover)
+    {
+        using var harness = Blank();
+        var session = harness.Session;
+        using var tool = new WorldEditorVoxelTool(session);
+        tool.SetActive(true);
+        if (hover)
+            tool.Hover(new(5, 0, 5));
+        tool.SetSettings(Ore, VoxelOrientation.Yaw90, VoxelCellOperation.Remove);
+        var fingerprint = WorldSaveAuthority.Fingerprint(session);
+        var nextEdit = session.NextEditId;
+
+        tool.SetExact(First, Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        Assert.IsTrue(tool.HasDraft);
+        Assert.IsFalse(tool.CanUndoDraft);
+        Assert.IsFalse(tool.CanRedoDraft);
+        Assert.IsFalse(tool.UndoDraft());
+        Assert.AreEqual(First, tool.Position);
+        Assert.AreEqual(VoxelOrientation.Identity, tool.Orientation);
+        Assert.AreEqual(VoxelCellOperation.Add, tool.Operation);
+
+        tool.SetExact(Second, Ore, VoxelOrientation.Yaw90, VoxelCellOperation.Replace);
+        Assert.IsTrue(tool.UndoDraft());
+        Assert.AreEqual(First, tool.Position);
+        Assert.IsFalse(tool.UndoDraft());
+        Assert.IsTrue(tool.RedoDraft());
+        Assert.AreEqual(Second, tool.Position);
+        Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
+        Assert.AreEqual(nextEdit, session.NextEditId);
+        AssertHistory(session, 0, 0);
+    }
+
+    [TestMethod]
+    public void Draft_evictions_end_on_discard_or_commit()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        void FillDraft()
+        {
+            tool.SetExact(First, Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+            for (var i = 0; i < VoxelDevelopmentSession.VoxelHistoryCapacity + 2; i++)
+                tool.SetExact(i % 2 == 0 ? Second : First, Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+            Assert.AreEqual(2UL, tool.HistoryEvictionCount);
+        }
+
+        FillDraft();
+        tool.Discard();
+        Assert.AreEqual(0UL, tool.HistoryEvictionCount);
+        Assert.IsFalse(tool.CanUndoDraft);
+        FillDraft();
+        Assert.AreEqual(WorldEditState.Executed, tool.Commit().Record!.State);
+        Assert.AreEqual(0UL, tool.HistoryEvictionCount);
+        Assert.IsFalse(tool.HasDraft);
+        Assert.IsFalse(tool.CanUndoDraft);
+        Assert.AreEqual(1, harness.Session.UndoCount);
     }
 
     [TestMethod]

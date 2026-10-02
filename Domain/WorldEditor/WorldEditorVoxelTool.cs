@@ -74,7 +74,8 @@ public sealed class WorldEditorVoxelTool : IDisposable
         if (_session.IsChangingWorld)
             return;
         var next = new DraftState(position, definition, orientation, operation);
-        RecordDraftChange(next);
+        if (HasDraft)
+            RecordDraftChange(next);
         RestoreDraft(next);
         HasDraft = true;
     }
@@ -105,6 +106,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
         HasDraft = false;
         _undo.Clear();
         _redo.Clear();
+        HistoryEvictionCount = 0;
         _session.ResolveVoxelDraft();
     }
 

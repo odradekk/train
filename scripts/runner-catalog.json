@@ -13,7 +13,7 @@
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 300,
-      "timeoutReason": "The issue #182 eleven-process workspace check measured 22491ms on Windows on 2026-10-02: five workspace processes, two example-copy processes, two cell-tool processes and two history processes. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
+      "timeoutReason": "The issue #182 eleven-process workspace check measured 27118ms and 27201ms during PR #188 revisions on Windows on 2026-10-02: five workspace processes, two example-copy processes, two cell-tool processes and two history processes. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
     },
     {
       "id": "godot.logging-smoke",

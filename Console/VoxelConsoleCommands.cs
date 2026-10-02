@@ -109,18 +109,22 @@ public sealed class VoxelConsoleCommands
         if (arguments.Count == 1 && string.Equals(arguments[0], "redo", StringComparison.OrdinalIgnoreCase))
             return WorldEditConsole.FormatHistorySubmission(_session, _session.Redo);
 
+        if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
+            return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
+
         if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var cellArguments, out var cellAtStep, out var cellConfirm) &&
             TryParseCellEdit(cellArguments, out var cellEdit))
             return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(cellEdit, cellAtStep, cellConfirm));
 
-        if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var atStep, out var confirmEndHistory) &&
-            (atStep is not null || confirmEndHistory || _session.UndoCount > 0 || _session.RedoCount > 0) &&
-            TryParseEdit(editArguments, out var edit))
+        var submissionOptionsValid = WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var atStep, out var confirmEndHistory);
+        if (!submissionOptionsValid)
+            return Usage();
+        if (atStep is not null && TryParseEdit(editArguments, out var edit))
             return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(edit, atStep, confirmEndHistory));
 
-        if (arguments.Count == 4 && string.Equals(arguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
-            TryPosition(arguments, 1, out var removePosition))
-            return FormatResult(_session.Remove(removePosition));
+        if (editArguments.Count == 4 && string.Equals(editArguments[0], "remove", StringComparison.OrdinalIgnoreCase) &&
+            TryPosition(editArguments, 1, out var removePosition))
+            return WorldEditConsole.FormatWithHistoryEvictionNotice(_session, () => FormatResult(_session.Remove(removePosition)));
 
         if (arguments.Count == 4 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase) &&
             TryPosition(arguments, 1, out var queryPosition))
@@ -131,20 +135,17 @@ public sealed class VoxelConsoleCommands
             TryCollisionQuery(arguments, out var collision))
             return FormatCollision(collision);
 
-        if (arguments.Count == 6 && string.Equals(arguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
-            TryPosition(arguments, 1, out var addPosition) &&
-            TryDefinition(arguments[4], out var definitionId) &&
-            VoxelOrientation.TryParse(arguments[5], out var orientation))
-            return FormatResult(_session.Add(addPosition, definitionId, orientation));
+        if (editArguments.Count == 6 && string.Equals(editArguments[0], "add", StringComparison.OrdinalIgnoreCase) &&
+            TryPosition(editArguments, 1, out var addPosition) &&
+            TryDefinition(editArguments[4], out var definitionId) &&
+            VoxelOrientation.TryParse(editArguments[5], out var orientation))
+            return WorldEditConsole.FormatWithHistoryEvictionNotice(_session, () => FormatResult(_session.Add(addPosition, definitionId, orientation)));
 
-        if (arguments.Count >= 5 &&
-            string.Equals(arguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
-            (arguments.Count - 1) % 4 == 0 &&
-            TryDamageTargets(arguments, out var targets))
-            return FormatDamage(_session.Damage(targets));
-
-        if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
-            return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
+        if (editArguments.Count >= 5 &&
+            string.Equals(editArguments[0], "damage", StringComparison.OrdinalIgnoreCase) &&
+            (editArguments.Count - 1) % 4 == 0 &&
+            TryDamageTargets(editArguments, out var targets))
+            return FormatDamage(_session.Damage(targets, confirmEndHistory));
 
         if (arguments.Count is 2 or 3 &&
             string.Equals(arguments[0], "load", StringComparison.OrdinalIgnoreCase) &&

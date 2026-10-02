@@ -9,37 +9,40 @@ public sealed partial class VoxelDevelopmentSession
 
     private readonly List<VoxelCellRestoreEdit> _undo = new();
     private readonly List<VoxelCellRestoreEdit> _redo = new();
-    private bool _applyingHistory;
 
     public int UndoCount => _undo.Count;
     public int RedoCount => _redo.Count;
     public ulong HistoryEvictionCount { get; private set; }
     public bool HasEditHistory => UndoCount != 0 || RedoCount != 0;
-    private bool HistoryAvailable => SimulationPaused && !IsChangingWorld && Fault is null && !HasEditorDraft &&
-        NextEditId != ulong.MaxValue && EditBoundarySequence != ulong.MaxValue;
-    public bool CanUndo => HistoryAvailable && UndoCount > 0;
-    public bool CanRedo => HistoryAvailable && RedoCount > 0;
+    public bool CanUndo => HistoryRefusal(_undo) == WorldEditRefusal.None;
+    public bool CanRedo => HistoryRefusal(_redo) == WorldEditRefusal.None;
 
     public WorldEditSubmission Undo() => ApplyHistory(_undo, _redo);
     public WorldEditSubmission Redo() => ApplyHistory(_redo, _undo);
 
-    private WorldEditSubmission ApplyHistory(List<VoxelCellRestoreEdit> source, List<VoxelCellRestoreEdit> destination)
+    private WorldEditRefusal HistoryRefusal(IReadOnlyCollection<VoxelCellRestoreEdit> source)
     {
         if (IsChangingWorld)
-            return new(WorldEditRefusal.WorldChanging, null, null);
+            return WorldEditRefusal.WorldChanging;
         if (Fault is not null)
-            return new(WorldEditRefusal.SimulationFaulted, null, null);
+            return WorldEditRefusal.SimulationFaulted;
         if (HasEditorDraft)
-            return new(WorldEditRefusal.VoxelDraftExists, null, null);
+            return WorldEditRefusal.VoxelDraftExists;
         if (!SimulationPaused)
-            return new(WorldEditRefusal.SimulationRunning, null, null);
+            return WorldEditRefusal.SimulationRunning;
         if (source.Count == 0)
-            return new(WorldEditRefusal.NoHistory, null, null);
+            return WorldEditRefusal.NoHistory;
+        return NextEditId == ulong.MaxValue || EditBoundarySequence == ulong.MaxValue
+            ? WorldEditRefusal.InputExhausted : WorldEditRefusal.None;
+    }
+
+    private WorldEditSubmission ApplyHistory(List<VoxelCellRestoreEdit> source, List<VoxelCellRestoreEdit> destination)
+    {
+        var refusal = HistoryRefusal(source);
+        if (refusal != WorldEditRefusal.None)
+            return new(refusal, null, null);
         var edit = source[^1];
-        WorldEditSubmission result;
-        _applyingHistory = true;
-        try { result = SubmitEdit(edit); }
-        finally { _applyingHistory = false; }
+        var result = SubmitEditCore(edit, null, confirmEndHistory: true, trackHistory: false);
         if (result.Record?.State == WorldEditState.Executed)
         {
             source.RemoveAt(source.Count - 1);
@@ -50,22 +53,21 @@ public sealed partial class VoxelDevelopmentSession
         return result;
     }
 
-    public bool RequiresHistoryConfirmation(WorldEdit edit, ulong? atStep = null) =>
-        HasEditHistory && !_applyingHistory && !IsUndoable(edit, atStep ?? SimulationStep);
+    private bool RequiresHistoryConfirmation(WorldEdit edit, ulong? atStep) =>
+        HasEditHistory && ((atStep ?? SimulationStep) != SimulationStep || !IsUndoable(edit));
 
-    private bool IsUndoable(WorldEdit edit, ulong targetStep) =>
-        SimulationPaused && targetStep == SimulationStep &&
-        edit is VoxelAddEdit or VoxelRemoveEdit or VoxelCellSetEdit;
+    private bool IsUndoable(WorldEdit edit) =>
+        SimulationPaused && edit is VoxelAddEdit or VoxelRemoveEdit or VoxelCellSetEdit;
 
     private VoxelCellState? CellState(WorldVoxelCoord position) => World.Query(position).Voxel is { } voxel
         ? new VoxelCellState(voxel.DefinitionId, voxel.Orientation, voxel.CurrentDurability)
         : null;
 
-    private VoxelCellRestoreTarget[]? CaptureHistoryBefore(WorldEditRecord record)
+    private VoxelCellRestoreTarget[]? CaptureHistoryBefore(WorldEdit edit)
     {
-        if (_applyingHistory || !IsUndoable(record.Edit, record.TargetStep) || record.AcceptedAt.Step != SimulationStep)
+        if (!IsUndoable(edit))
             return null;
-        IEnumerable<WorldVoxelCoord> positions = record.Edit switch
+        IEnumerable<WorldVoxelCoord> positions = edit switch
         {
             VoxelAddEdit add => new[] { add.Position },
             VoxelRemoveEdit remove => new[] { remove.Position },
@@ -77,8 +79,6 @@ public sealed partial class VoxelDevelopmentSession
 
     private void RecordHistory(VoxelCellRestoreTarget[]? before)
     {
-        if (_applyingHistory)
-            return;
         if (before is null)
         {
             ClearHistory();
@@ -99,6 +99,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         _undo.Clear();
         _redo.Clear();
+        HistoryEvictionCount = 0;
     }
 
     private VoxelCellSetResult RestoreCellsCore(VoxelCellRestoreEdit edit)

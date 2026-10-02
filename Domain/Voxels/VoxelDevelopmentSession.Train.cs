@@ -234,8 +234,6 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (IsChangingWorld)
             return RejectMotion(TrainMotionStatus.WorldChanging);
-        if (Fault is not null)
-            return RejectMotion(TrainMotionStatus.SimulationFaulted);
         ClearHistory();
         SimulationPaused = false;
         Changed?.Invoke();

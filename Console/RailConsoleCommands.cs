@@ -19,16 +19,17 @@ public sealed class RailConsoleCommands
     public string Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
-        if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var editAt, out var confirmEndHistory) &&
-            (editAt is not null || confirmEndHistory || _session.UndoCount > 0 || _session.RedoCount > 0) &&
-            TryParseEdit(editArguments, out var edit))
+        var submissionOptionsValid = WorldEditConsole.TrySplitSubmissionOptions(arguments, out var editArguments, out var editAt, out var confirmEndHistory);
+        if (!submissionOptionsValid)
+            return Usage();
+        if (editAt is not null && TryParseEdit(editArguments, out var edit))
             return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(edit, editAt, confirmEndHistory));
 
-        if (arguments.Count == 1 && string.Equals(arguments[0], "construct", StringComparison.OrdinalIgnoreCase))
-            return FormatConstruct(_session.ConstructRails());
+        if (editArguments.Count == 1 && string.Equals(editArguments[0], "construct", StringComparison.OrdinalIgnoreCase))
+            return FormatConstruct(_session.ConstructRails(confirmEndHistory: confirmEndHistory));
 
-        if (arguments.Count == 1 && string.Equals(arguments[0], "assemble", StringComparison.OrdinalIgnoreCase))
-            return FormatAssemble(_session.AssembleStaticTrain());
+        if (editArguments.Count == 1 && string.Equals(editArguments[0], "assemble", StringComparison.OrdinalIgnoreCase))
+            return FormatAssemble(_session.AssembleStaticTrain(confirmEndHistory));
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "start", StringComparison.OrdinalIgnoreCase))
         {
@@ -62,11 +63,11 @@ public sealed class RailConsoleCommands
             return Usage();
         }
 
-        if (arguments.Count >= 2 &&
-            string.Equals(arguments[0], "repair", StringComparison.OrdinalIgnoreCase) &&
-            (arguments.Count - 1) % 3 == 0 &&
-            TryCells(arguments, 1, out var cells))
-            return FormatRepair(_session.RepairRails(cells));
+        if (editArguments.Count >= 2 &&
+            string.Equals(editArguments[0], "repair", StringComparison.OrdinalIgnoreCase) &&
+            (editArguments.Count - 1) % 3 == 0 &&
+            TryCells(editArguments, 1, out var cells))
+            return FormatRepair(_session.RepairRails(cells, confirmEndHistory));
 
         if (arguments.Count >= 1 && string.Equals(arguments[0], "query", StringComparison.OrdinalIgnoreCase))
             return FormatQuery(arguments.Skip(1).ToArray());

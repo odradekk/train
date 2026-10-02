@@ -260,6 +260,9 @@ public sealed partial class VoxelDevelopmentSession
     /// runtime ids, exhausted counters and a faulted session are refused without consuming an id or a sequence.
     /// </summary>
     public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null, bool confirmEndHistory = false)
+        => SubmitEditCore(edit, atStep, confirmEndHistory, trackHistory: true);
+
+    private WorldEditSubmission SubmitEditCore(WorldEdit edit, ulong? atStep, bool confirmEndHistory, bool trackHistory)
     {
         ArgumentNullException.ThrowIfNull(edit);
         if (edit is ContentPublishEdit)
@@ -292,7 +295,7 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldEditSubmission(WorldEditRefusal.None, record, null);
         }
 
-        return Execute(record, accepted, () => Dispatch(record.Edit));
+        return Execute(record, accepted, () => Dispatch(record.Edit), trackHistory);
     }
 
     public IReadOnlyList<WorldEditRecord> QueryPendingEdits() => _pendingEdits.ToArray();
@@ -329,7 +332,7 @@ public sealed partial class VoxelDevelopmentSession
         Func<(bool Succeeded, string Status, object? Result)> dispatch,
         bool trackHistory = true)
     {
-        var historyBefore = CaptureHistoryBefore(pending);
+        var historyBefore = trackHistory ? CaptureHistoryBefore(pending.Edit) : null;
         var rollback = CaptureEditRollback();
         WorldEditRecord done;
         bool succeeded;
@@ -501,7 +504,6 @@ public sealed partial class VoxelDevelopmentSession
     private void ResetEditState(WorldEditQueueState state)
     {
         ClearHistory();
-        HistoryEvictionCount = 0;
         NextEditId = state.NextEditId;
         EditBoundarySequence = state.BoundarySequence;
         _pendingEdits.Clear();

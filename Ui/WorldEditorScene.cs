@@ -314,11 +314,12 @@ public partial class WorldEditorScene : Node3D
         var tool = _cellTool.State;
         _buttons["undo"].Disabled = tool.HasDraft ? !tool.CanUndoDraft : !_session.CanUndo;
         _buttons["redo"].Disabled = tool.HasDraft ? !tool.CanRedoDraft : !_session.CanRedo;
-        var evicted = _session.HistoryEvictionCount + tool.HistoryEvictionCount;
         _historyState.Text = tool.HasDraft ? "草稿撤销 / 重做 · 提交或放弃后可操作世界历史"
             : $"世界历史：可撤销 {_session.UndoCount} · 可重做 {_session.RedoCount} · 上限 {VoxelDevelopmentSession.VoxelHistoryCapacity}";
-        if (evicted > 0)
-            _historyState.Text += $"\n已淘汰 {evicted} 条最旧记录。";
+        if (_session.HistoryEvictionCount > 0)
+            _historyState.Text += $"\n世界撤销历史已淘汰 {_session.HistoryEvictionCount} 条最旧记录。";
+        if (tool.HistoryEvictionCount > 0)
+            _historyState.Text += $"\n草稿撤销历史已淘汰 {tool.HistoryEvictionCount} 条最旧记录。";
     }
 
     private string StateText()
@@ -408,7 +409,7 @@ public partial class WorldEditorScene : Node3D
         _historyPrompt = new ConfirmationDialog
         {
             Title = "此操作会结束撤销历史",
-            DialogText = "这项修改不能撤销。成功后将结束当前撤销和重做历史，是否继续？",
+            DialogText = "这项修改不能撤销。成功后将结束撤销历史，是否继续？",
             OkButtonText = "继续修改", CancelButtonText = "取消"
         };
         AddChild(_historyPrompt);

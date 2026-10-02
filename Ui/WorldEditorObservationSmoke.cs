@@ -119,10 +119,13 @@ internal sealed class WorldEditorObservationSmoke
                 break;
             case 6:
                 RequireUnchanged("observation-only phases");
+                Require(Session.HasEditHistory, "terrain fixture did not leave undo history");
                 _scene.Press("start");
-                if (_scene.HistoryPrompt.Visible)
-                    _scene.HistoryPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
+                Require(_scene.HistoryPrompt.Visible, "start did not request confirmation for terrain history");
+                _scene.HistoryPrompt.GetOkButton().EmitSignal(BaseButton.SignalName.Pressed);
+                Require(!Session.HasEditHistory, "confirmed start did not end terrain history");
                 _scene.Press("run");
+                Require(!_scene.HistoryPrompt.Visible, "run requested history confirmation with empty history");
                 Require(!Session.SimulationPaused && Session.QueryTrainAssemblies().Single().Running, "train did not start");
                 Next();
                 break;
