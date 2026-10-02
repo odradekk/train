@@ -482,6 +482,7 @@ $expected = @{
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
+    WorldEditorMultiSelectionTests = "headless/world-editor/world-editor"
     ObserveConsoleCommandTests = "headless/world-editor/world-editor"
     ModLoadingTests = "headless/content/content"
     ContentReloaderTests = "headless/content/content"
@@ -894,6 +895,7 @@ internal static class Program
                 else if (leg == "example-save")
                 {
                     Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
+                    Console.WriteLine("WORKSPACE_MULTI_EXAMPLE_COST candidates=3 rays=3 truncated=false elapsed_ms=2.5");
                     Console.WriteLine("WORKSPACE_EXAMPLE_SAVED id=44444444-4444-4444-4444-444444444444 original=55555555-5555-5555-5555-555555555555 voxels=5 pending=1 paused=true");
                 }
                 else if (leg == "example-verify")
@@ -920,6 +922,14 @@ internal static class Program
                 {
                     Console.WriteLine("WORKSPACE_HISTORY_OPEN id=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID"));
                     Console.WriteLine("WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true");
+                }
+                else if (leg == "multi-select")
+                {
+                    Console.WriteLine("WORKSPACE_MULTI_BOX types=vehicle,rail,cell camera_moved=false");
+                    Console.WriteLine("WORKSPACE_MULTI_OCCLUSION visible=true hidden=false camera_moved=false");
+                    Console.WriteLine("WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true camera_moved=false");
+                    Console.WriteLine("WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true");
+                    Console.WriteLine("WORKSPACE_MULTI_COST candidates=17 rays=4 truncated=false elapsed_ms=4.5");
                 }
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
@@ -970,9 +980,14 @@ It "fixture-workspace-script" {
         Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
         if ($mode -eq 'pass') {
             foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify',
-                'cell-tool-save', 'cell-tool-resume', 'history-save', 'history-resume')) {
+                'cell-tool-save', 'cell-tool-resume', 'history-save', 'history-resume', 'multi-select')) {
                 Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
             }
+            $report = Get-Content -LiteralPath (Join-Path $directory 'result.json') -Raw | ConvertFrom-Json
+            Assert-Equal 'reported box candidates' 17 ([int] $report.multiSelection.candidates)
+            Assert-Equal 'reported box rays' 4 ([int] $report.multiSelection.rays)
+            Assert-Equal 'reported box elapsed' 4.5 ([double] $report.multiSelection.elapsedMs)
+            Assert-Equal 'reported example elapsed' 2.5 ([double] $report.multiSelection.exampleMaximum.elapsedMs)
         } else {
             Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume-old.stdout.log')))
             Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))
