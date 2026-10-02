@@ -205,7 +205,7 @@ public sealed class AuthorityCheckpointTests
         try
         {
             for (var index = 0; index < 8; index++)
-                Assert.AreEqual(sequence.Steps[index].ExpectedStatus, sequence.Steps[index].Operation.Apply(interrupted!));
+                Assert.AreEqual(sequence.Steps[index].ExpectedStatus, sequence.Steps[index].Operation.Apply(interrupted!, sequence.Steps[index].ConfirmEndHistory));
             Assert.AreEqual(4, interrupted!.QueryPendingEdits().Count);
             var saved = interrupted.Save("Cross process sequence");
             Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
@@ -220,7 +220,7 @@ public sealed class AuthorityCheckpointTests
             {
                 var step = sequence.Steps[index];
                 var input = step.Operation.InputIdentity(resumed);
-                Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(resumed));
+                Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(resumed, step.ConfirmEndHistory));
                 var expected = continuous.Observation.Checkpoints[index + 1];
                 var actual = AuthorityCodec.Checkpoint(resumed, index + 1, input);
                 var difference = AuthorityComparison.Compare(
@@ -533,10 +533,10 @@ public sealed class AuthorityCheckpointTests
         var sequence = WorldEditorSequences.Find(WorldEditorSequences.AuthorityManufactureFractureId)!;
         using var harness = WorldEditorHarness.Establish(sequence.ConfigurationId);
         foreach (var step in sequence.Steps.Take(sequence.Steps.Count - 1))
-            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(harness.Session), step.Operation.Describe());
+            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(harness.Session, step.ConfirmEndHistory), step.Operation.Describe());
         var last = sequence.Steps[^1];
         var before = last.Operation.InputIdentity(harness.Session);
-        Assert.AreEqual(last.ExpectedStatus, last.Operation.Apply(harness.Session));
+        Assert.AreEqual(last.ExpectedStatus, last.Operation.Apply(harness.Session, last.ConfirmEndHistory));
         Assert.AreNotEqual(before, last.Operation.InputIdentity(harness.Session));
         StringAssert.Contains(before, "\"kind\":\"damage_latest\"");
         StringAssert.Contains(before, "\"amount\":100");

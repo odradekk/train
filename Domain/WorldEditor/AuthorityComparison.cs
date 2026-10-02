@@ -503,7 +503,7 @@ public static class AuthorityValidation
         {
             var step = sequence.Steps[index];
             var identity = step.Operation.InputIdentity(session);
-            var actual = step.Operation.Apply(session);
+            var actual = step.Operation.Apply(session, step.ConfirmEndHistory);
             var checks = step.Checkpoint
                 .Select(check => new WorldEditorCheckResult(check.Observation, check.Expected, WorldEditorCheck.Observe(session, check.Observation)))
                 .ToArray();

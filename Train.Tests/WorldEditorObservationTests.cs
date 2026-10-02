@@ -902,7 +902,7 @@ public sealed class WorldEditorObservationTests
         foreach (var step in sequence.Steps)
         {
             PresentFrames(observer, observed, 3);
-            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(observed));
+            Assert.AreEqual(step.ExpectedStatus, step.Operation.Apply(observed, step.ConfirmEndHistory));
             PresentFrames(observer, observed, 3);
         }
 

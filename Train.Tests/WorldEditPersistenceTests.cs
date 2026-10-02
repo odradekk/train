@@ -287,7 +287,7 @@ public sealed class WorldEditPersistenceTests
     {
         var step = session.SimulationStep;
         Assert.AreEqual("Added", session.SubmitEdit(new VoxelAddEdit(Probe, Ore, VoxelOrientation.Identity)).Status);
-        Assert.AreEqual("Damaged", session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(Probe, 25) })).Status);
+        Assert.AreEqual("Damaged", session.SubmitEdit(new VoxelDamageEdit(new[] { new VoxelDamageTarget(Probe, 25) }), confirmEndHistory: true).Status);
         var manufactured = session.SubmitEdit(new VehicleManufactureEdit(HollowShellFixture.DefinitionId, WorldEditOrderingTests.ShellPose));
         Assert.AreEqual("Valid", manufactured.Status);
         var shell = ((CompositeManufactureResult)manufactured.Result!).VehicleId!.Value;

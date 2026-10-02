@@ -193,7 +193,9 @@ public sealed class VoxelConsoleCommands
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
             "voxel undo | voxel redo",
-            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history] | voxel cell remove <x> <y> <z> [at <step>] [confirm-end-history] | voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel cell remove <x> <y> <z> [at <step>] [confirm-end-history]",
+            "voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
             "voxel remove <x> <y> <z> [at <step>] [confirm-end-history] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
             "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>] [confirm-end-history].");
     }
