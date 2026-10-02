@@ -162,11 +162,8 @@ public partial class WorldEditorWorkspaceScene : Control
         {
             var row = new HBoxContainer();
             _examples.AddChild(row);
-            var dependencies = entry.Document?.ExternalDefinitions
-                .Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}")
-                .Concat(entry.Document.Source?.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}") ?? Array.Empty<string>())
-                .Distinct() ?? Array.Empty<string>();
-            var text = $"{entry.Document?.DisplayName ?? entry.Example.Path}\n{entry.Example.Purpose}\n适用版本 {entry.Example.ApplicableVersion} · 格式 {entry.Document?.FormatVersion.ToString() ?? "未知"}\n依赖：{string.Join("，", dependencies)}";
+            var dependencies = DescribeDependencies(entry.Document?.ExternalDefinitions ?? Array.Empty<WorldSaveDefinitionRef>(), entry.Document?.Source);
+            var text = $"{entry.Document?.DisplayName ?? entry.Example.Path}\n{entry.Example.Purpose}\n适用版本 {entry.Example.ApplicableVersion} · 格式 {entry.Document?.FormatVersion.ToString() ?? "未知"}\n依赖：{dependencies}";
             if (!entry.Recovery.Succeeded)
                 text += $"\n无法打开：{Describe(entry.Recovery)}";
             else if (entry.Recovery.Adaptations is { Count: > 0 } adaptations)
@@ -183,10 +180,7 @@ public partial class WorldEditorWorkspaceScene : Control
             var row = new HBoxContainer();
             _saves.AddChild(row);
             var saved = entry.LastSavedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知";
-            var hints = entry.ExternalDefinitions.Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}")
-                .Concat(entry.Source?.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}") ?? Array.Empty<string>())
-                .Distinct().ToArray();
-            var dependencies = hints.Length == 0 ? "无外部依赖" : string.Join("，", hints);
+            var dependencies = DescribeDependencies(entry.ExternalDefinitions, entry.Source);
             var source = entry.Source is { } origin ? $"{origin.Kind}/{origin.ConfigurationId} v{origin.ConfigurationVersion}" : entry.GeneratorVersion;
             var text = $"{entry.Name} · 最近保存 {saved} · {entry.Id:D}\n格式 {entry.FormatVersion?.ToString() ?? "未知"} · {source}\n依赖：{dependencies}";
             if (!entry.Recovery.Succeeded)
@@ -201,6 +195,11 @@ public partial class WorldEditorWorkspaceScene : Control
 
     internal static string Describe(WorldSaveResult result) =>
         $"{result.Status}" + (result.Diagnostic is { } reason ? $" · {reason.Stage}/{reason.Subject}/{reason.Relationship} · {reason.Detail}" : "");
+
+    private static string DescribeDependencies(IReadOnlyList<WorldSaveDefinitionRef> definitions, WorldSource? source) =>
+        string.Join("，", definitions.Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}")
+            .Concat(source?.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}") ?? Array.Empty<string>())
+            .Distinct().DefaultIfEmpty("无外部依赖"));
 
     private static Button AddButton(Container parent, string text, Action action)
     {
