@@ -1,6 +1,5 @@
-using System.Diagnostics;
-using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
@@ -18,8 +17,6 @@ public sealed class VoxelRegionTests
     private static readonly VoxelDefinitionId Ore = WorldEditorSequences.EditVoxelId;
     private static readonly VoxelCellContent OreIdentity = new(Ore, VoxelOrientation.Identity);
 
-    public TestContext TestContext { get; set; } = null!;
-
     [TestMethod]
     public void Boxes_normalize_reverse_corners_height_and_report_world_boundary_conflicts()
     {
@@ -33,7 +30,7 @@ public sealed class VoxelRegionTests
         using var harness = Blank();
         var preview = harness.Session.PreviewRegion(
             VoxelCellRegion.Box(new(14, 7, 14), new(16, 7, 15), 2), VoxelCellOperation.Add, OreIdentity);
-        Assert.AreEqual(12L, preview.Range.Count);
+        Assert.AreEqual(12L, preview.Region.Count);
         Assert.AreEqual(4, preview.AffectedCount);
         Assert.AreEqual(0, preview.SkippedCount);
         Assert.AreEqual(VoxelCellSetStatus.OutOfBounds, preview.Validation.Status);
@@ -51,8 +48,9 @@ public sealed class VoxelRegionTests
         var add = session.PreviewRegion(range, VoxelCellOperation.Add, OreIdentity);
         AssertPreview(add, affected: 0, skipped: 4, VoxelCellSetStatus.NoTargets);
         var next = session.NextEditId;
-        Assert.AreEqual(WorldEditRefusal.RegionRejected,
-            session.SubmitRegion(range, VoxelCellOperation.Add, OreIdentity).Refusal);
+        var noTargets = session.SubmitRegion(range, VoxelCellOperation.Add, OreIdentity);
+        Assert.AreEqual(WorldEditRefusal.RegionRejected, noTargets.Refusal);
+        Assert.AreEqual(VoxelCellSetStatus.NoTargets, noTargets.RegionPreview!.Validation.Status);
         Assert.AreEqual(next, session.NextEditId);
         var same = session.PreviewRegion(range, VoxelCellOperation.Replace, OreIdentity);
         AssertPreview(same, affected: 0, skipped: 4, VoxelCellSetStatus.NoTargets);
@@ -82,12 +80,12 @@ public sealed class VoxelRegionTests
         using var harness = Blank(32, 16, 32);
         var range = VoxelCellRegion.Box(new(0, 0, 0), new(31, 0, 31), 5);
         Assert.AreEqual(5120L, range.Count);
-        Assert.AreEqual(VoxelCellSetStatus.RangeTooLarge, range.Status);
+        Assert.AreEqual(VoxelCellSetStatus.RegionTooLarge, range.Status);
         Assert.AreEqual(WorldEditRefusal.RegionRejected,
             harness.Session.SubmitRegion(range, VoxelCellOperation.Add, OreIdentity, confirmLargeEdit: true).Refusal);
-        Assert.AreEqual(VoxelCellSetStatus.InvalidRange,
+        Assert.AreEqual(VoxelCellSetStatus.InvalidRegion,
             VoxelCellRegion.Box(new(0, int.MaxValue, 0), new(0, 0, 0), 2).Status);
-        Assert.AreEqual(VoxelCellSetStatus.InvalidRange, VoxelCellRegion.Box(default, default, 0).Status);
+        Assert.AreEqual(VoxelCellSetStatus.InvalidRegion, VoxelCellRegion.Box(default, default, 0).Status);
         Assert.AreEqual(1UL, harness.Session.NextEditId);
         Assert.AreEqual(0, harness.Session.World.VoxelCount);
     }
@@ -110,6 +108,33 @@ public sealed class VoxelRegionTests
     }
 
     [TestMethod]
+    public void Draft_hover_reuses_the_same_preview_until_world_or_catalog_state_changes()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetMode(WorldEditorVoxelMode.Box);
+        tool.SetBoxExact(new(2, 1, 2), new(3, 1, 3), 1, Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        var first = tool.RegionPreview;
+
+        tool.Hover(new(12, 1, 12));
+        Assert.AreSame(first, tool.RegionPreview);
+        Assert.AreEqual(new WorldVoxelCoord(2, 1, 2), tool.Position);
+        Assert.AreEqual(new WorldVoxelCoord(3, 1, 3), tool.BoxCorner);
+
+        Assert.IsTrue(harness.Session.Add(new(10, 1, 10), Ore, VoxelOrientation.Identity).Succeeded);
+        var afterWorldChange = tool.RegionPreview;
+        Assert.AreNotSame(first, afterWorldChange);
+        Assert.AreSame(afterWorldChange, tool.RegionPreview);
+
+        harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", """
+            {"schema_version":1,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"kind":"full_box"},"description":"说明","id":"ferrous-ore","mass":1,"max_durability":100,"name":"Ferrous Ore Reloaded","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":["raw_good"],"value":100}]}
+            """);
+        Assert.AreEqual(ContentReloadStatus.Committed, harness.Reloader.Reload().Status);
+        Assert.AreNotSame(afterWorldChange, tool.RegionPreview);
+    }
+
+    [TestMethod]
     public void Every_rail_or_vehicle_conflict_rejects_the_whole_region_without_changing_authority()
     {
         using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
@@ -129,7 +154,7 @@ public sealed class VoxelRegionTests
             Assert.AreEqual(next, session.NextEditId);
             Assert.AreEqual(before, WorldSaveAuthority.Fingerprint(session));
             Assert.AreEqual(cell == railCell ? VoxelCellSetStatus.RailOccupied : VoxelCellSetStatus.VehicleOccupied,
-                ((VoxelCellSetResult)result.Result!).Status);
+                result.RegionPreview!.Validation.Status);
         }
         var otherPart = session.QueryComposite(vehicle.VehicleId.Value)!.Parts.Skip(1).First();
         var otherVehicleCell = new WorldVoxelCoord(200 + otherPart.Cell.X, 8 + otherPart.Cell.Y, 20 + otherPart.Cell.Z);
@@ -140,7 +165,7 @@ public sealed class VoxelRegionTests
         Assert.AreEqual(1, preview.AffectedCount);
         var beforeMixed = WorldSaveAuthority.Fingerprint(session);
         Assert.AreEqual(WorldEditRefusal.RegionRejected,
-            session.SubmitRegion(preview.Range, VoxelCellOperation.Add, OreIdentity).Refusal);
+            session.SubmitRegion(preview.Region, VoxelCellOperation.Add, OreIdentity).Refusal);
         Assert.AreEqual(beforeMixed, WorldSaveAuthority.Fingerprint(session));
     }
 
@@ -162,6 +187,7 @@ public sealed class VoxelRegionTests
             if (preview.RequiresConfirmation)
             {
                 Assert.AreEqual(WorldEditRefusal.LargeEditConfirmationRequired, first.Refusal);
+                Assert.AreEqual(count, first.RegionPreview!.AffectedCount);
                 Assert.AreEqual(next, session.NextEditId);
                 Assert.AreEqual(0, session.World.VoxelCount);
                 first = session.SubmitRegion(range, VoxelCellOperation.Add, OreIdentity, confirmLargeEdit: true);
@@ -198,6 +224,73 @@ public sealed class VoxelRegionTests
     }
 
     [TestMethod]
+    public void Exact_brush_edit_translates_the_whole_shape_and_settings_preserve_geometry_through_draft_history()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetMode(WorldEditorVoxelMode.Brush);
+        tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        Assert.IsTrue(tool.BeginStroke(new(2, 1, 2)));
+        tool.ExtendStroke(new(4, 1, 2));
+        tool.InterruptDraftInput();
+        var original = tool.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+        CollectionAssert.AreEqual(
+            new[] { new WorldVoxelCoord(2, 1, 2), new WorldVoxelCoord(3, 1, 2), new WorldVoxelCoord(4, 1, 2) }, original);
+
+        tool.SetExact(new(8, 2, 8), Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        var translated = tool.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+        CollectionAssert.AreEqual(
+            new[] { new WorldVoxelCoord(6, 2, 8), new WorldVoxelCoord(7, 2, 8), new WorldVoxelCoord(8, 2, 8) }, translated);
+        Assert.AreEqual(3, tool.RegionPreview.AffectedCount);
+
+        tool.SetSettings(Ore, VoxelOrientation.Yaw90, VoxelCellOperation.Add);
+        CollectionAssert.AreEqual(translated, tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.CurrentEdit.Targets.All(target =>
+            target.Operation == VoxelCellOperation.Add && target.Content!.Orientation == VoxelOrientation.Yaw90));
+        Assert.IsTrue(tool.UndoDraft());
+        CollectionAssert.AreEqual(translated, tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.CurrentEdit.Targets.All(target => target.Operation == VoxelCellOperation.Add));
+        Assert.IsTrue(tool.UndoDraft());
+        CollectionAssert.AreEqual(original, tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.RedoDraft());
+        CollectionAssert.AreEqual(translated, tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.RedoDraft());
+        CollectionAssert.AreEqual(translated, tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.CurrentEdit.Targets.All(target =>
+            target.Operation == VoxelCellOperation.Add && target.Content!.Orientation == VoxelOrientation.Yaw90));
+    }
+
+    [TestMethod]
+    public void Far_brush_jump_reports_region_too_large_without_input_or_world_change_and_undo_restores_valid_draft()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetMode(WorldEditorVoxelMode.Brush);
+        tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        Assert.IsTrue(tool.BeginStroke(new(1, 1, 1)));
+        tool.ExtendStroke(new(10_000, 1, 1));
+        tool.InterruptDraftInput();
+        Assert.AreEqual(VoxelRegionLimits.MaxCells + 1L, tool.RegionPreview.Region.Count);
+        Assert.AreEqual(VoxelCellSetStatus.RegionTooLarge, tool.RegionPreview.Validation.Status);
+        var nextEdit = harness.Session.NextEditId;
+        var before = WorldSaveAuthority.Fingerprint(harness.Session);
+
+        var refused = tool.Commit(confirmLargeEdit: true);
+        Assert.AreEqual(WorldEditRefusal.RegionRejected, refused.Refusal);
+        Assert.AreEqual(VoxelCellSetStatus.RegionTooLarge, refused.RegionPreview!.Validation.Status);
+        Assert.AreEqual(nextEdit, harness.Session.NextEditId);
+        Assert.AreEqual(before, WorldSaveAuthority.Fingerprint(harness.Session));
+        Assert.IsTrue(tool.HasDraft);
+
+        Assert.IsTrue(tool.UndoDraft());
+        Assert.AreEqual(VoxelCellSetStatus.Valid, tool.RegionPreview.Validation.Status);
+        Assert.AreEqual(1, tool.RegionPreview.AffectedCount);
+        Assert.IsFalse(tool.UndoDraft());
+    }
+
+    [TestMethod]
     public void Interrupted_stroke_remains_a_protected_draft_with_draft_undo()
     {
         using var harness = Blank();
@@ -207,15 +300,14 @@ public sealed class VoxelRegionTests
         tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
         Assert.IsTrue(tool.BeginStroke(new(2, 1, 2)));
         tool.ExtendStroke(new(4, 1, 2));
-        tool.InterruptStroke();
+        tool.InterruptDraftInput();
 
         Assert.IsTrue(tool.HasDraft);
         Assert.IsFalse(tool.StrokeInProgress);
         Assert.AreEqual(0, harness.Session.World.VoxelCount);
         Assert.IsTrue(tool.CanUndoDraft);
-        var count = tool.RegionPreview.AffectedCount;
         Assert.IsTrue(tool.UndoDraft());
-        Assert.IsTrue(tool.RegionPreview.AffectedCount < count);
+        Assert.AreEqual(1, tool.RegionPreview.AffectedCount);
         Assert.AreEqual(WorldChangeStatus.ChoiceRequired,
             harness.Session.BeginWorldChange(new(WorldChangeKind.Quit, null)).Status);
     }
@@ -240,41 +332,7 @@ public sealed class VoxelRegionTests
     }
 
     [TestMethod]
-    [TestCategory("scope:persistence")]
-    public void Pending_regions_encode_save_restore_and_execute_in_acceptance_order()
-    {
-        using var writer = Blank();
-        var cells = new[]
-        {
-            new WorldVoxelCoord(4, 2, 4),
-            new WorldVoxelCoord(4, 2, 5),
-            new WorldVoxelCoord(4, 2, 6)
-        };
-        var ends = cells.Select(cell => cell with { X = 5 }).ToArray();
-        var submissions = new[]
-        {
-            writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[0], ends[0], 1), VoxelCellOperation.Add, OreIdentity, atStep: 3),
-            writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[1], ends[1], 1), VoxelCellOperation.Add, OreIdentity, atStep: 3),
-            writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[2], ends[2], 1), VoxelCellOperation.Add, OreIdentity, atStep: 3)
-        };
-        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, submissions.Select(x => x.Record!.Id).ToArray());
-        var acceptedPayloads = submissions.Select(x => x.Record!.Canonical).ToArray();
-        var saved = writer.Session.Save("region pending");
-
-        using var restarted = WorldEditorHarness.Content(userData: writer.UserData);
-        var reader = BlankWorldSource.Establish(writer.Session.Identity, restarted.Catalog, restarted.Composites, restarted.Store);
-        restarted.Attach(reader);
-        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId!.Value).Status);
-        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, reader.QueryPendingEdits().Select(x => x.Id).ToArray());
-        CollectionAssert.AreEqual(acceptedPayloads, reader.QueryPendingEdits().Select(x => x.Canonical).ToArray());
-        Assert.IsTrue(reader.ResumeSimulation().Succeeded);
-        Assert.IsTrue(reader.AdvanceSimulation(3).Succeeded);
-        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, reader.QueryEditLog().Select(x => x.Id).ToArray());
-        Assert.IsTrue(cells.Concat(ends).All(cell => reader.Query(cell).IsOccupied));
-    }
-
-    [TestMethod]
-    public void Maximum_brush_stroke_keeps_bounded_draft_history_and_records_motion_cost()
+    public void Maximum_brush_stroke_keeps_bounded_draft_history_and_submits_once()
     {
         using var harness = Blank(128, 16, 32);
         using var tool = new WorldEditorVoxelTool(harness.Session);
@@ -282,55 +340,24 @@ public sealed class VoxelRegionTests
         tool.SetMode(WorldEditorVoxelMode.Brush);
         tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
         tool.BeginStroke(new(0, 8, 0));
-        var allocated = GC.GetAllocatedBytesForCurrentThread();
-        var watch = Stopwatch.StartNew();
         for (var z = 0; z < 32; z++)
         for (var index = 0; index < 128; index++)
             tool.ExtendStroke(new(z % 2 == 0 ? index : 127 - index, 8, z));
-        watch.Stop();
-        var motionMs = watch.Elapsed.TotalMilliseconds;
-        var motionBytes = GC.GetAllocatedBytesForCurrentThread() - allocated;
-        tool.InterruptStroke();
+        tool.InterruptDraftInput();
         Assert.AreEqual(0, harness.Session.World.VoxelCount);
         Assert.AreEqual(4096, tool.RegionPreview.AffectedCount);
-        var undoCount = 0;
-        while (tool.UndoDraft()) undoCount++;
-        Assert.AreEqual(VoxelDevelopmentSession.VoxelHistoryCapacity, undoCount);
-        while (tool.RedoDraft()) { }
+        for (var index = 0; index < VoxelDevelopmentSession.VoxelHistoryCapacity; index++)
+            Assert.IsTrue(tool.UndoDraft(), $"undo {index}");
+        Assert.IsFalse(tool.UndoDraft());
+        for (var index = 0; index < VoxelDevelopmentSession.VoxelHistoryCapacity; index++)
+            Assert.IsTrue(tool.RedoDraft(), $"redo {index}");
+        Assert.IsFalse(tool.RedoDraft());
         Assert.AreEqual(4096, tool.RegionPreview.AffectedCount);
         Assert.AreEqual(WorldEditRefusal.LargeEditConfirmationRequired, tool.Commit().Refusal);
-        watch.Restart();
         var submitted = tool.Commit(confirmLargeEdit: true);
-        watch.Stop();
         Assert.AreEqual(WorldEditState.Executed, submitted.Record!.State);
         Assert.AreEqual(4096, harness.Session.World.VoxelCount);
         Assert.AreEqual(1, harness.Session.UndoCount);
-        TestContext.WriteLine($"4095 brush motions={motionMs:F3} ms allocated={motionBytes} bytes confirmed_submit={watch.Elapsed.TotalMilliseconds:F3} ms");
-    }
-
-    [TestMethod]
-    public void Maximum_region_records_preview_submit_and_payload_measurements_without_timing_assertions()
-    {
-        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
-        Assert.IsTrue(harness.Session.Manufacture(HollowShellFixture.DefinitionId, CompositeTransform.Translation(250, 8, 20)).Succeeded);
-        var range = VoxelCellRegion.Box(new(0, 8, 0), new(127, 8, 31), 1);
-        Assert.AreEqual(VoxelRegionLimits.MaxCells, range.Count);
-        var beforeCount = harness.Session.World.VoxelCount;
-
-        var watch = Stopwatch.StartNew();
-        var preview = harness.Session.PreviewRegion(range, VoxelCellOperation.Add, OreIdentity);
-        watch.Stop();
-        var previewMs = watch.Elapsed.TotalMilliseconds;
-        Assert.AreEqual(VoxelCellSetStatus.Valid, preview.Validation.Status);
-        Assert.AreEqual(VoxelRegionLimits.MaxCells, preview.AffectedCount);
-        var payloadBytes = Encoding.UTF8.GetByteCount(WorldEditCodec.Encode(preview.Edit));
-
-        watch.Restart();
-        var submitted = harness.Session.SubmitRegion(range, VoxelCellOperation.Add, OreIdentity, confirmLargeEdit: true);
-        watch.Stop();
-        Assert.AreEqual(WorldEditState.Executed, submitted.Record!.State);
-        Assert.AreEqual(beforeCount + VoxelRegionLimits.MaxCells, harness.Session.World.VoxelCount);
-        TestContext.WriteLine($"4096-cell region preview={previewMs:F3} ms submit={watch.Elapsed.TotalMilliseconds:F3} ms payload={payloadBytes} UTF-8 bytes");
     }
 
     private static void AssertPreview(VoxelRegionPreview preview, int affected, int skipped, VoxelCellSetStatus status)

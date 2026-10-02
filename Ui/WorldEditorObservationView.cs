@@ -165,6 +165,16 @@ public partial class WorldEditorObservationView : Node3D
 
     public override void _Input(InputEvent @event)
     {
+        if (Observer is not null && !_consoleOpen() &&
+            @event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } release &&
+            !WorldRect.HasPoint(release.Position) &&
+            CellPointer?.Invoke(release.Position, WorldPointerAction.LeftReleased) == true)
+        {
+            // A world press may be released over another control or outside the window, where World.GuiInput
+            // is not guaranteed to receive it. Forward that release once through the global input path.
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         // Non-focusable panel buttons still take input away from the world. GUI delivery remains Godot's job.
         if (Observer is not null && @event is InputEventMouseButton { Pressed: true } mouse && !WorldRect.HasPoint(mouse.Position))
             _worldInput.ReleaseFocus();
@@ -179,11 +189,15 @@ public partial class WorldEditorObservationView : Node3D
     {
         if (Observer is null || _consoleOpen())
             return;
-        if (@event is InputEventMouseMotion hover && !_dragging &&
-            CellPointer?.Invoke(_worldInput.GetGlobalTransformWithCanvas() * hover.Position, WorldPointerAction.Move) == true)
+        if (@event is InputEventMouseMotion hover && !_dragging)
         {
-            GetViewport().SetInputAsHandled();
-            return;
+            var screen = _worldInput.GetGlobalTransformWithCanvas() * hover.Position;
+            // Mouse focus keeps delivering motion after a world press; do not paint through the inspector.
+            if (WorldRect.HasPoint(screen) && CellPointer?.Invoke(screen, WorldPointerAction.Move) == true)
+            {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
         }
         if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left or MouseButton.Right })
             _worldInput.GrabFocus();
@@ -202,6 +216,8 @@ public partial class WorldEditorObservationView : Node3D
             case InputEventMouseButton { ButtonIndex: MouseButton.Left } click:
                 var screen = _worldInput.GetGlobalTransformWithCanvas() * click.Position;
                 var action = click.Pressed ? WorldPointerAction.LeftPressed : WorldPointerAction.LeftReleased;
+                // Release always reaches the tool so a stroke commits at its last legal world position,
+                // even after the cursor left WorldRect or no longer intersects the work plane.
                 if (CellPointer?.Invoke(screen, action) != true && click.Pressed)
                     Pick(screen);
                 break;

@@ -58,8 +58,8 @@ public partial class WorldEditorVoxelToolView : Node3D
         mode.AddChild(new Label { Text = "体素工具" });
         ModeInput = new OptionButton();
         ModeInput.AddItem("单格");
-        ModeInput.AddItem("刷子");
-        ModeInput.AddItem("盒选");
+        ModeInput.AddItem("笔刷");
+        ModeInput.AddItem("长方体");
         mode.AddChild(ModeInput);
         ModeInput.ItemSelected += index =>
         {
@@ -205,11 +205,12 @@ public partial class WorldEditorVoxelToolView : Node3D
             return;
         _lastResult = result.Result is VoxelCellSetResult cells
             ? Describe(cells) + (cells.Conflicts.Count == 0 ? "" :
-                $" · 冲突 {cells.Conflicts.Count} 格\n" + string.Join('\n', cells.Conflicts.Take(6).Select(Describe)))
+                $" · 冲突 {cells.Conflicts.Count} 格\n" + string.Join('\n',
+                    cells.Conflicts.Take(VoxelRegionLimits.ConflictDisplayLimit).Select(Describe)))
             : result.Status;
         if (result.Refusal == WorldEditRefusal.LargeEditConfirmationRequired)
         {
-            var preview = State.RegionPreview;
+            var preview = result.RegionPreview ?? throw new InvalidOperationException("Large region refusal omitted its preview.");
             LargeEditPrompt.DialogText = $"将一次提交 {preview.AffectedCount} 格（跳过 {preview.SkippedCount} 格）。确认继续？";
             LargeEditPrompt.PopupCentered(new Vector2I(520, 170));
         }
@@ -255,6 +256,14 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         if (!State.Active)
             return false;
+        if (action == WorldPointerAction.LeftReleased)
+        {
+            if (State.Mode != WorldEditorVoxelMode.Brush || !State.StrokeInProgress)
+                return false;
+            HandleSubmission(State.EndStroke());
+            Present();
+            return true;
+        }
         if (_session.IsChangingWorld || DraftPrompt.Visible || LargeEditPrompt.Visible)
             return true;
         var origin = _camera.ProjectRayOrigin(screen);
@@ -266,10 +275,20 @@ public partial class WorldEditorVoxelToolView : Node3D
             return true;
         var point = origin + direction * distance;
         var target = new WorldVoxelCoord((int)Math.Floor(point.X), State.Height, (int)Math.Floor(point.Z));
-        if (State.Mode == WorldEditorVoxelMode.Cell && action == WorldPointerAction.LeftPressed &&
-            State.HasDraft && State.Position != target)
+        if (action == WorldPointerAction.LeftPressed && State.HasDraft &&
+            (State.Mode != WorldEditorVoxelMode.Box || !State.BoxCornerPending))
         {
-            RequestChange(() => State.Hover(target));
+            RequestChange(() =>
+            {
+                if (State.Mode == WorldEditorVoxelMode.Cell)
+                    State.Hover(target);
+                else if (State.Mode == WorldEditorVoxelMode.Brush)
+                    // The decision dialog is completed after the initiating button was released. Move the
+                    // cursor only; a fresh physical press starts the replacement stroke.
+                    State.Hover(target);
+                else
+                    State.BoxPoint(target);
+            });
             return true;
         }
         switch (State.Mode, action)
@@ -290,9 +309,6 @@ public partial class WorldEditorVoxelToolView : Node3D
             case (WorldEditorVoxelMode.Brush, WorldPointerAction.Move):
                 State.Hover(target);
                 break;
-            case (WorldEditorVoxelMode.Brush, WorldPointerAction.LeftReleased):
-                HandleSubmission(State.EndStroke());
-                break;
             case (WorldEditorVoxelMode.Box, WorldPointerAction.Move):
                 State.Hover(target);
                 break;
@@ -308,7 +324,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         if (State?.StrokeInProgress == true)
         {
-            State.InterruptStroke();
+            State.InterruptDraftInput();
             Present();
         }
     }
@@ -317,8 +333,10 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         if (State is null)
             return;
+        // Godot may swallow release when focus changes. EndInput normally interrupts immediately; this
+        // frame check is the fallback for a release lost without a focus notification. It preserves the draft.
         if (State.StrokeInProgress && !Input.IsMouseButtonPressed(MouseButton.Left))
-            State.InterruptStroke();
+            State.InterruptDraftInput();
         _syncing = true;
         try
         {
@@ -365,9 +383,10 @@ public partial class WorldEditorVoxelToolView : Node3D
             var preview = !canPreview ? new VoxelCellSetResult(VoxelCellSetStatus.UnknownDefinition, State.Position)
                 : region?.Validation ?? State.Preview;
             var regionText = region is null ? "" :
-                $"\n范围：{region.Range.Min} → {region.Range.Max} · 共 {region.Range.Count} 格 · " +
+                $"\n范围：{region.Region.Min} → {region.Region.Max} · 共 {region.Region.Count} 格 · " +
                 $"影响 {region.AffectedCount} · 跳过 {region.SkippedCount} · 冲突 {region.Validation.Conflicts.Count}" +
-                (region.Validation.Conflicts.Count == 0 ? "" : "\n" + string.Join('\n', region.Validation.Conflicts.Select(Describe)));
+                (region.Validation.Conflicts.Count == 0 ? "" : "\n" + string.Join('\n',
+                    region.Validation.Conflicts.Take(VoxelRegionLimits.ConflictDisplayLimit).Select(Describe)));
             _preview.Text = $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n" +
                 "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
                 $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview)}{regionText}" +
@@ -396,8 +415,8 @@ public partial class WorldEditorVoxelToolView : Node3D
             VoxelCellSetStatus.DisallowedOrientation => "定义不允许该朝向",
             VoxelCellSetStatus.NoChange => "定义和朝向未变化",
             VoxelCellSetStatus.NoTargets => "范围内没有适用的格",
-            VoxelCellSetStatus.RangeTooLarge => $"覆盖格超过暂定上限 {VoxelRegionLimits.MaxCells}，请缩小范围",
-            VoxelCellSetStatus.InvalidRange => "范围参数无效，高度须为正整数且不能溢出坐标",
+            VoxelCellSetStatus.RegionTooLarge => $"覆盖格超过暂定上限 {VoxelRegionLimits.MaxCells}，请缩小范围",
+            VoxelCellSetStatus.InvalidRegion => "范围参数无效，高度须为正整数且不能溢出坐标",
             VoxelCellSetStatus.RailOccupied => result.OwnerKind == VoxelCellOwnerKind.None ? "铁路体素（未登记轨段）" : "属于铁路",
             VoxelCellSetStatus.VehicleOccupied => "车辆实际占用",
             _ => result.Status.ToString()
@@ -408,7 +427,7 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     private static string Describe(VoxelCellConflict conflict) =>
         $"({conflict.Position.X}, {conflict.Position.Y}, {conflict.Position.Z}) · " +
-        Describe(new VoxelCellSetResult(conflict.Status, conflict.Position, conflict.OwnerKind, conflict.OwnerId, conflict.PartId));
+        Describe(conflict.ToResult());
 
     private void CreateMeshes()
     {
@@ -475,13 +494,9 @@ public partial class WorldEditorVoxelToolView : Node3D
         if (region is not null && ReferenceEquals(region, _presentedRegion))
             return;
         _presentedRegion = region;
-        var positions = region?.Range.Cells ?? new[] { State.Position };
-        var conflicts = region?.Validation.Conflicts.ToDictionary(item => item.Position) ??
-            (cellPreview.Succeeded ? new Dictionary<WorldVoxelCoord, VoxelCellConflict>() :
-                new Dictionary<WorldVoxelCoord, VoxelCellConflict>
-                {
-                    [State.Position] = new(cellPreview.Status, cellPreview.Position, cellPreview.OwnerKind, cellPreview.OwnerId, cellPreview.PartId)
-                });
+        var positions = region?.Region.Cells ?? new[] { State.Position };
+        var conflicts = region?.Validation.Conflicts.Select(item => item.Position).ToHashSet() ??
+            (cellPreview.Succeeded ? new HashSet<WorldVoxelCoord>() : new HashSet<WorldVoxelCoord> { State.Position });
         var affected = region?.Edit.Targets.Select(target => target.Position).ToHashSet() ?? new HashSet<WorldVoxelCoord> { State.Position };
         var multimesh = _cells.Multimesh;
         multimesh.InstanceCount = positions.Count;
@@ -490,7 +505,7 @@ public partial class WorldEditorVoxelToolView : Node3D
             var position = positions[index];
             multimesh.SetInstanceTransform(index, new Transform3D(Basis.Identity,
                 new Vector3(position.X + 0.5f, position.Y + 0.5f, position.Z + 0.5f)));
-            var color = conflicts.ContainsKey(position) ? new Color(1, 0.2f, 0.15f, 0.4f)
+            var color = conflicts.Contains(position) ? new Color(1, 0.2f, 0.15f, 0.4f)
                 : affected.Contains(position) ? new Color(0.2f, 1, 0.4f, 0.35f)
                 : new Color(0.6f, 0.65f, 0.7f, 0.25f);
             multimesh.SetInstanceColor(index, color);

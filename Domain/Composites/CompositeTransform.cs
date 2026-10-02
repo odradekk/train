@@ -41,9 +41,6 @@ public readonly record struct CompositeTransform
 
     internal bool OverlapsCell(LocalVoxelCoord localCell, WorldVoxelCoord target)
     {
-        var bounds = CellBounds(localCell);
-        if (!BoundsMayOverlapCell(bounds, target))
-            return false;
         var partCorners = new (double X, double Y, double Z)[8];
         var targetCorners = new (double X, double Y, double Z)[8];
         var index = 0;

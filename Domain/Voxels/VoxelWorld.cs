@@ -304,8 +304,8 @@ public enum VoxelCellSetStatus
     NoChange,
     ExpectedContentMismatch,
     InvalidDurability,
-    RangeTooLarge,
-    InvalidRange
+    RegionTooLarge,
+    InvalidRegion
 }
 
 public enum VoxelCellOwnerKind
@@ -327,7 +327,10 @@ public sealed record VoxelCellSetResult(
 }
 
 public sealed record VoxelCellConflict(VoxelCellSetStatus Status, WorldVoxelCoord Position,
-    VoxelCellOwnerKind OwnerKind = VoxelCellOwnerKind.None, EntityId OwnerId = default, EntityId PartId = default);
+    VoxelCellOwnerKind OwnerKind = VoxelCellOwnerKind.None, EntityId OwnerId = default, EntityId PartId = default)
+{
+    public VoxelCellSetResult ToResult() => new(Status, Position, OwnerKind, OwnerId, PartId);
+}
 
 public readonly record struct VoxelDamageTarget(WorldVoxelCoord Position, int Amount);
 

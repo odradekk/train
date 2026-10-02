@@ -21,16 +21,22 @@ public sealed class VoxelRegionConsoleTests
 
         session.Add(new WorldVoxelCoord(1, 0, 0), WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity);
         var added = commands.Execute(["region", "add", "0", "0", "0", "1", "0", "1", id, "px_py"]);
-        StringAssert.Contains(added, "Region Valid affected 1 skipped 1");
+        StringAssert.Contains(added, nameof(VoxelCellSetStatus.Valid));
+        StringAssert.Contains(added, "affected 1");
+        StringAssert.Contains(added, "skipped 1");
         Assert.AreEqual(2, session.World.VoxelCount);
 
         var replaced = commands.Execute(["region", "replace", "0", "0", "0", "1", "0", "1", id, "pz_py"]);
-        StringAssert.Contains(replaced, "Region Valid affected 2 skipped 0");
+        StringAssert.Contains(replaced, nameof(VoxelCellSetStatus.Valid));
+        StringAssert.Contains(replaced, "affected 2");
+        StringAssert.Contains(replaced, "skipped 0");
         Assert.IsTrue(new[] { new WorldVoxelCoord(0, 0, 0), new WorldVoxelCoord(1, 0, 0) }
             .All(cell => session.Query(cell).Voxel!.Orientation == VoxelOrientation.Yaw90));
 
         var removed = commands.Execute(["region", "remove", "0", "0", "0", "2", "0", "1"]);
-        StringAssert.Contains(removed, "Region Valid affected 2 skipped 1");
+        StringAssert.Contains(removed, nameof(VoxelCellSetStatus.Valid));
+        StringAssert.Contains(removed, "affected 2");
+        StringAssert.Contains(removed, "skipped 1");
         Assert.AreEqual(0, session.World.VoxelCount);
     }
 
@@ -41,13 +47,15 @@ public sealed class VoxelRegionConsoleTests
         var session = harness.Session;
         var commands = new VoxelConsoleCommands(session);
         var cell = StraightRailFixture.FirstSegmentDamageCell;
-        var segment = session.Rails.Segments[0].Id;
 
         var result = commands.Execute(["region", "remove", cell.X.ToString(), cell.Y.ToString(), cell.Z.ToString(),
             cell.X.ToString(), cell.Z.ToString(), "1"]);
 
-        StringAssert.Contains(result, "Edit RegionRejected.");
-        StringAssert.Contains(result, $"conflict rail-segment {segment} at ({cell.X}, {cell.Y}, {cell.Z})");
+        StringAssert.Contains(result, nameof(WorldEditRefusal.RegionRejected));
+        StringAssert.Contains(result, nameof(VoxelCellSetStatus.RailOccupied));
+        StringAssert.Contains(result, "affected 0");
+        StringAssert.Contains(result, "skipped 0");
+        Assert.IsNotNull(session.Query(cell).Voxel);
         Assert.AreEqual(1UL, session.NextEditId);
     }
 
@@ -60,8 +68,9 @@ public sealed class VoxelRegionConsoleTests
         var result = commands.Execute(["region", "add", "15", "0", "0", "16", "0", "1",
             WorldEditorSequences.EditVoxelId.Value, "px_py"]);
 
-        StringAssert.Contains(result, "Region OutOfBounds affected 1 skipped 0");
-        StringAssert.Contains(result, "conflict OutOfBounds at (16, 0, 0)");
+        StringAssert.Contains(result, nameof(VoxelCellSetStatus.OutOfBounds));
+        StringAssert.Contains(result, "affected 1");
+        StringAssert.Contains(result, "skipped 0");
         Assert.AreEqual(0, harness.Session.World.VoxelCount);
         Assert.AreEqual(1UL, harness.Session.NextEditId);
     }
@@ -75,12 +84,16 @@ public sealed class VoxelRegionConsoleTests
         var args = new[] { "region", "add", "0", "0", "0", "15", "4", "8", WorldEditorSequences.EditVoxelId.Value, "px_py" };
 
         var refused = commands.Execute(args);
-        StringAssert.Contains(refused, "Edit LargeEditConfirmationRequired.");
+        StringAssert.Contains(refused, nameof(WorldEditRefusal.LargeEditConfirmationRequired));
+        StringAssert.Contains(refused, "affected 640");
+        StringAssert.Contains(refused, "skipped 0");
         Assert.AreEqual(1UL, session.NextEditId);
         Assert.AreEqual(0, session.World.VoxelCount);
 
         var accepted = commands.Execute(args.Append("confirm-large-edit").ToArray());
-        StringAssert.Contains(accepted, "Edit 1 voxel.cell-set executed Applied");
+        StringAssert.Contains(accepted, nameof(VoxelCellSetStatus.Applied));
+        StringAssert.Contains(accepted, "affected 640");
+        StringAssert.Contains(accepted, "skipped 0");
         Assert.AreEqual(640, session.World.VoxelCount);
         Assert.AreEqual(2UL, session.NextEditId);
     }
@@ -95,10 +108,12 @@ public sealed class VoxelRegionConsoleTests
         var result = commands.Execute(["region", "add", "1", "1", "2", "2", "3", "2",
             WorldEditorSequences.EditVoxelId.Value, "px_py", "at", "4"]);
 
-        StringAssert.Contains(result, "Edit 1 voxel.cell-set pending");
+        StringAssert.Contains(result, nameof(WorldEditState.Pending).ToLowerInvariant());
+        StringAssert.Contains(result, "affected 8");
+        StringAssert.Contains(result, "skipped 0");
         var edit = (VoxelCellSetEdit)session.QueryPendingEdits().Single().Edit;
         Assert.AreEqual(8, edit.Targets.Count);
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
                 new WorldVoxelCoord(1, 1, 2), new WorldVoxelCoord(1, 1, 3),

@@ -8,6 +8,7 @@ public static class VoxelRegionLimits
     public const int MaxBrushSize = 16;
     public const int ConfirmationThreshold = 512;
     public const int MaxCells = 4096;
+    public const int ConflictDisplayLimit = 6;
 }
 
 /// <summary>The covered range, including skipped and conflicting cells. Box corners are inclusive.</summary>
@@ -34,12 +35,12 @@ public sealed class VoxelCellRegion
         var min = new WorldVoxelCoord(Math.Min(first.X, second.X), first.Y, Math.Min(first.Z, second.Z));
         var top = (long)first.Y + height - 1;
         if (height < 1 || top > int.MaxValue)
-            return new(Array.Empty<WorldVoxelCoord>(), min, min, 0, VoxelCellSetStatus.InvalidRange);
+            return new(Array.Empty<WorldVoxelCoord>(), min, min, 0, VoxelCellSetStatus.InvalidRegion);
         var max = new WorldVoxelCoord(Math.Max(first.X, second.X), (int)top, Math.Max(first.Z, second.Z));
         var volume = (decimal)((long)max.X - min.X + 1) * height * ((long)max.Z - min.Z + 1);
         var count = (long)Math.Min(volume, long.MaxValue);
         if (count > VoxelRegionLimits.MaxCells)
-            return new(Array.Empty<WorldVoxelCoord>(), min, max, count, VoxelCellSetStatus.RangeTooLarge);
+            return new(Array.Empty<WorldVoxelCoord>(), min, max, count, VoxelCellSetStatus.RegionTooLarge);
         var cells = new List<WorldVoxelCoord>((int)count);
         for (var x = (long)min.X; x <= max.X; x++)
         for (var y = (long)min.Y; y <= max.Y; y++)
@@ -57,11 +58,11 @@ public sealed class VoxelCellRegion
         var min = new WorldVoxelCoord(sorted.Min(cell => cell.X), sorted.Min(cell => cell.Y), sorted.Min(cell => cell.Z));
         var max = new WorldVoxelCoord(sorted.Max(cell => cell.X), sorted.Max(cell => cell.Y), sorted.Max(cell => cell.Z));
         return new(Array.AsReadOnly(sorted), min, max, sorted.Length,
-            sorted.Length > VoxelRegionLimits.MaxCells ? VoxelCellSetStatus.RangeTooLarge : VoxelCellSetStatus.Valid);
+            sorted.Length > VoxelRegionLimits.MaxCells ? VoxelCellSetStatus.RegionTooLarge : VoxelCellSetStatus.Valid);
     }
 }
 
-public sealed record VoxelRegionPreview(VoxelCellRegion Range, VoxelCellSetEdit Edit,
+public sealed record VoxelRegionPreview(VoxelCellRegion Region, VoxelCellSetEdit Edit,
     int SkippedCount, VoxelCellSetResult Validation)
 {
     public int AffectedCount => Edit.Targets.Count;

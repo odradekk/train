@@ -84,12 +84,11 @@ internal static class WorldEditConsole
             : string.Join('\n', $"{head} {WorldEditCodec.WireState(record.State)} {record.Status}", $"accepted {record.AcceptedAt} executed {record.ExecutedAt}");
         if (submission.Result is not VoxelCellSetResult cells)
             return text;
-        var conflicts = cells.Conflicts.Count > 0
-            ? cells.Conflicts
-            : cells.OwnerKind == VoxelCellOwnerKind.None
-                ? Array.Empty<VoxelCellConflict>()
-                : [new VoxelCellConflict(cells.Status, cells.Position, cells.OwnerKind, cells.OwnerId, cells.PartId)];
-        return conflicts.Count == 0 ? text : string.Join('\n', new[] { text }.Concat(FormatCellConflicts(conflicts)));
+        if (cells.Conflicts.Count > 0)
+            return string.Join('\n', new[] { text }.Concat(FormatCellConflicts(cells.Conflicts)));
+        return cells.OwnerKind == VoxelCellOwnerKind.None
+            ? text
+            : string.Join('\n', text, FormatCellConflict(cells));
     }
 
     public static string FormatHistorySubmission(VoxelDevelopmentSession session, Func<WorldEditSubmission> submit)
@@ -106,15 +105,14 @@ internal static class WorldEditConsole
 
     public static IEnumerable<string> FormatCellConflicts(IReadOnlyList<VoxelCellConflict> conflicts)
     {
-        const int shown = 6;
         yield return $"conflicts {conflicts.Count}";
-        foreach (var conflict in conflicts.Take(shown))
-            yield return FormatCellConflict(conflict);
-        if (conflicts.Count > shown)
-            yield return $"conflicts omitted {conflicts.Count - shown}";
+        foreach (var conflict in conflicts.Take(VoxelRegionLimits.ConflictDisplayLimit))
+            yield return FormatCellConflict(conflict.ToResult());
+        if (conflicts.Count > VoxelRegionLimits.ConflictDisplayLimit)
+            yield return $"conflicts omitted {conflicts.Count - VoxelRegionLimits.ConflictDisplayLimit}";
     }
 
-    private static string FormatCellConflict(VoxelCellConflict result) => result.OwnerKind switch
+    private static string FormatCellConflict(VoxelCellSetResult result) => result.OwnerKind switch
     {
         VoxelCellOwnerKind.RailSegment => $"conflict rail-segment {result.OwnerId} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})",
         VoxelCellOwnerKind.VehiclePart => $"conflict vehicle {result.OwnerId} part {result.PartId} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})",

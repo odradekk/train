@@ -106,6 +106,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (edit.Targets.Count == 0)
             return new(VoxelCellSetStatus.NoTargets);
+        var vehicleCells = VehicleCells();
         var seen = new HashSet<WorldVoxelCoord>();
         foreach (var target in edit.Targets)
         {
@@ -117,7 +118,7 @@ public sealed partial class VoxelDevelopmentSession
                 return new(VoxelCellSetStatus.ExpectedContentMismatch, target.Position);
             if (HasRailVoxel(target.Position))
                 return new(VoxelCellSetStatus.RailOccupied, target.Position);
-            if (TryVehicleOwner(target.Position, out var vehicleId, out var partId))
+            if (TryVehicleOwner(target.Position, vehicleCells, out var vehicleId, out var partId))
                 return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, vehicleId, partId);
             if (target.Content is not { } content)
                 continue;

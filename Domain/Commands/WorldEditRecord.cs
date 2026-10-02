@@ -1,4 +1,5 @@
 using System.Globalization;
+using Train.Domain.Voxels;
 
 namespace Train.Domain.Commands;
 
@@ -57,6 +58,7 @@ public sealed record WorldEditRecord(
 
 public sealed record WorldEditSubmission(WorldEditRefusal Refusal, WorldEditRecord? Record, object? Result)
 {
+    public VoxelRegionPreview? RegionPreview { get; init; }
     public bool Accepted => Refusal == WorldEditRefusal.None;
 
     /// <summary>Refusal name, <c>Pending</c>, the business status, or the fault type name.</summary>

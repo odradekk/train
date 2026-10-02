@@ -36,29 +36,29 @@ public sealed partial class VoxelDevelopmentSession
     public VoxelCellSetResult ValidateCells(VoxelCellSetEdit edit)
         => ValidateCellsCore(edit, skipInapplicable: false, out _);
 
-    public VoxelRegionPreview PreviewRegion(VoxelCellRegion range, VoxelCellOperation operation, VoxelCellContent? content)
+    public VoxelRegionPreview PreviewRegion(VoxelCellRegion region, VoxelCellOperation operation, VoxelCellContent? content)
     {
-        ArgumentNullException.ThrowIfNull(range);
-        if (range.Status != VoxelCellSetStatus.Valid)
-            return new(range, new VoxelCellSetEdit(Array.Empty<VoxelCellTarget>()), 0, new(range.Status, range.Min));
-        var targets = new VoxelCellSetEdit(range.Cells.Select(cell => new VoxelCellTarget(cell, operation, content)).ToArray());
+        ArgumentNullException.ThrowIfNull(region);
+        if (region.Status != VoxelCellSetStatus.Valid)
+            return new(region, new VoxelCellSetEdit(Array.Empty<VoxelCellTarget>()), 0, new(region.Status, region.Min));
+        var targets = new VoxelCellSetEdit(region.Cells.Select(cell => new VoxelCellTarget(cell, operation, content)).ToArray());
         var validation = ValidateCellsCore(targets, skipInapplicable: true, out var affected);
         var conflicts = validation.Conflicts.Count;
-        return new(range, new VoxelCellSetEdit(affected), targets.Targets.Count - affected.Count - conflicts, validation);
+        return new(region, new VoxelCellSetEdit(affected), targets.Targets.Count - affected.Count - conflicts, validation);
     }
 
     /// <summary>Filter a covered range, then submit its affected cells as one existing formal input.</summary>
-    public WorldEditSubmission SubmitRegion(VoxelCellRegion range, VoxelCellOperation operation, VoxelCellContent? content,
+    public WorldEditSubmission SubmitRegion(VoxelCellRegion region, VoxelCellOperation operation, VoxelCellContent? content,
         bool confirmLargeEdit = false, ulong? atStep = null, bool confirmEndHistory = false)
     {
         if (IsChangingWorld)
             return new(WorldEditRefusal.WorldChanging, null, null);
-        var preview = PreviewRegion(range, operation, content);
+        var preview = PreviewRegion(region, operation, content);
         if (!preview.Validation.Succeeded)
-            return new(WorldEditRefusal.RegionRejected, null, preview.Validation);
+            return new(WorldEditRefusal.RegionRejected, null, preview.Validation) { RegionPreview = preview };
         if (preview.RequiresConfirmation && !confirmLargeEdit)
-            return new(WorldEditRefusal.LargeEditConfirmationRequired, null, null);
-        return SubmitEdit(preview.Edit, atStep, confirmEndHistory);
+            return new(WorldEditRefusal.LargeEditConfirmationRequired, null, null) { RegionPreview = preview };
+        return SubmitEdit(preview.Edit, atStep, confirmEndHistory) with { RegionPreview = preview };
     }
 
     private VoxelCellSetResult ValidateCellsCore(VoxelCellSetEdit edit, bool skipInapplicable,
@@ -70,15 +70,13 @@ public sealed partial class VoxelDevelopmentSession
         if (edit.Targets.Count == 0)
             return new(VoxelCellSetStatus.NoTargets);
         var conflicts = new List<VoxelCellConflict>();
-        var vehicleCells = _vehicles.OrderBy(vehicle => vehicle.Id.Value).SelectMany(vehicle =>
-            vehicle.Parts.OrderBy(part => part.Id.Value).Select(part => new VehicleCell(
-                vehicle.Id, part.Id, part.Cell, vehicle.Transform, vehicle.Transform.CellBounds(part.Cell)))).ToArray();
+        var vehicleCells = VehicleCells();
         var seen = new HashSet<WorldVoxelCoord>();
         foreach (var target in edit.Targets)
         {
             var conflict = !seen.Add(target.Position)
                 ? new VoxelCellConflict(VoxelCellSetStatus.DuplicateTarget, target.Position)
-                : ValidateCell(target, vehicleCells);
+                : ValidateCell(target, vehicleCells, skipInapplicable);
             if (conflict is null)
                 applicable.Add(target);
             else if (!skipInapplicable || conflict.Status is not
@@ -87,12 +85,10 @@ public sealed partial class VoxelDevelopmentSession
         }
         if (conflicts.Count == 0)
             return new(applicable.Count == 0 ? VoxelCellSetStatus.NoTargets : VoxelCellSetStatus.Valid);
-        var first = conflicts[0];
-        return new(first.Status, first.Position, first.OwnerKind, first.OwnerId, first.PartId)
-            { Conflicts = conflicts.AsReadOnly() };
+        return conflicts[0].ToResult() with { Conflicts = conflicts.AsReadOnly() };
     }
 
-    private VoxelCellConflict? ValidateCell(VoxelCellTarget target, IReadOnlyList<VehicleCell> vehicleCells)
+    private VoxelCellConflict? ValidateCell(VoxelCellTarget target, IReadOnlyList<VehicleCell> vehicleCells, bool skipInapplicable)
     {
         if (!ValidCellTarget(target))
             return new(VoxelCellSetStatus.InvalidTarget, target.Position);
@@ -102,9 +98,14 @@ public sealed partial class VoxelDevelopmentSession
             return TryRailOwner(target.Position, out var segmentId)
                 ? new(VoxelCellSetStatus.RailOccupied, target.Position, VoxelCellOwnerKind.RailSegment, segmentId)
                 : new(VoxelCellSetStatus.RailOccupied, target.Position);
-        foreach (var part in vehicleCells)
-            if (CompositeTransform.BoundsMayOverlapCell(part.Bounds, target.Position) && part.Transform.OverlapsCell(part.Cell, target.Position))
-                return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, part.VehicleId, part.PartId);
+        if (TryVehicleOwner(target.Position, vehicleCells, out var vehicleId, out var partId))
+            return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, vehicleId, partId);
+        var current = World.Query(target.Position).Voxel;
+        var occupancy = target.Operation == VoxelCellOperation.Add && current is not null ? VoxelCellSetStatus.Occupied
+            : target.Operation != VoxelCellOperation.Add && current is null ? VoxelCellSetStatus.Empty : VoxelCellSetStatus.Valid;
+        // Single-cell inputs keep their original rejection order; a region also checks content on skipped cells.
+        if (!skipInapplicable && occupancy != VoxelCellSetStatus.Valid)
+            return new(occupancy, target.Position);
         // Check content even for cells the regional operation would skip.
         if (target.Content is { } content)
         {
@@ -113,11 +114,8 @@ public sealed partial class VoxelDevelopmentSession
             if (!content.Orientation.IsAllowedBy(entry.Definition.AllowedOrientations))
                 return new(VoxelCellSetStatus.DisallowedOrientation, target.Position);
         }
-        var current = World.Query(target.Position).Voxel;
-        if (target.Operation == VoxelCellOperation.Add && current is not null)
-            return new(VoxelCellSetStatus.Occupied, target.Position);
-        if (target.Operation != VoxelCellOperation.Add && current is null)
-            return new(VoxelCellSetStatus.Empty, target.Position);
+        if (occupancy != VoxelCellSetStatus.Valid)
+            return new(occupancy, target.Position);
         if (target.Operation == VoxelCellOperation.Replace && current!.DefinitionId == target.Content!.DefinitionId &&
             current.Orientation == target.Content.Orientation)
             return new(VoxelCellSetStatus.NoChange, target.Position);
@@ -529,15 +527,19 @@ public sealed partial class VoxelDevelopmentSession
         return true;
     }
 
-    private bool TryVehicleOwner(WorldVoxelCoord cell, out EntityId vehicleId, out EntityId partId)
+    private VehicleCell[] VehicleCells() => _vehicles.OrderBy(vehicle => vehicle.Id.Value).SelectMany(vehicle =>
+        vehicle.Parts.OrderBy(part => part.Id.Value).Select(part => new VehicleCell(
+            vehicle.Id, part.Id, part.Cell, vehicle.Transform, vehicle.Transform.CellBounds(part.Cell)))).ToArray();
+
+    private static bool TryVehicleOwner(WorldVoxelCoord cell, IReadOnlyList<VehicleCell> vehicleCells,
+        out EntityId vehicleId, out EntityId partId)
     {
-        foreach (var vehicle in _vehicles.OrderBy(item => item.Id.Value))
-        foreach (var part in vehicle.Parts.OrderBy(item => item.Id.Value))
+        foreach (var part in vehicleCells)
         {
-            if (!vehicle.Transform.OverlapsCell(part.Cell, cell))
+            if (!CompositeTransform.BoundsMayOverlapCell(part.Bounds, cell) || !part.Transform.OverlapsCell(part.Cell, cell))
                 continue;
-            vehicleId = vehicle.Id;
-            partId = part.Id;
+            vehicleId = part.VehicleId;
+            partId = part.PartId;
             return true;
         }
         vehicleId = default;
