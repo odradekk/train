@@ -303,7 +303,9 @@ public enum VoxelCellSetStatus
     VehicleOccupied,
     NoChange,
     ExpectedContentMismatch,
-    InvalidDurability
+    InvalidDurability,
+    RangeTooLarge,
+    InvalidRange
 }
 
 public enum VoxelCellOwnerKind
@@ -321,7 +323,11 @@ public sealed record VoxelCellSetResult(
     EntityId PartId = default)
 {
     public bool Succeeded => Status is VoxelCellSetStatus.Valid or VoxelCellSetStatus.Applied;
+    public IReadOnlyList<VoxelCellConflict> Conflicts { get; init; } = Array.Empty<VoxelCellConflict>();
 }
+
+public sealed record VoxelCellConflict(VoxelCellSetStatus Status, WorldVoxelCoord Position,
+    VoxelCellOwnerKind OwnerKind = VoxelCellOwnerKind.None, EntityId OwnerId = default, EntityId PartId = default);
 
 public readonly record struct VoxelDamageTarget(WorldVoxelCoord Position, int Amount);
 

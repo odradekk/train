@@ -34,44 +34,98 @@ public sealed partial class VoxelDevelopmentSession
     internal event Action<WorldEditRecord>? EditExecuted;
 
     public VoxelCellSetResult ValidateCells(VoxelCellSetEdit edit)
+        => ValidateCellsCore(edit, skipInapplicable: false, out _);
+
+    public VoxelRegionPreview PreviewRegion(VoxelCellRegion range, VoxelCellOperation operation, VoxelCellContent? content)
+    {
+        ArgumentNullException.ThrowIfNull(range);
+        if (range.Status != VoxelCellSetStatus.Valid)
+            return new(range, new VoxelCellSetEdit(Array.Empty<VoxelCellTarget>()), 0, new(range.Status, range.Min));
+        var targets = new VoxelCellSetEdit(range.Cells.Select(cell => new VoxelCellTarget(cell, operation, content)).ToArray());
+        var validation = ValidateCellsCore(targets, skipInapplicable: true, out var affected);
+        var conflicts = validation.Conflicts.Count;
+        return new(range, new VoxelCellSetEdit(affected), targets.Targets.Count - affected.Count - conflicts, validation);
+    }
+
+    /// <summary>Filter a covered range, then submit its affected cells as one existing formal input.</summary>
+    public WorldEditSubmission SubmitRegion(VoxelCellRegion range, VoxelCellOperation operation, VoxelCellContent? content,
+        bool confirmLargeEdit = false, ulong? atStep = null, bool confirmEndHistory = false)
+    {
+        if (IsChangingWorld)
+            return new(WorldEditRefusal.WorldChanging, null, null);
+        var preview = PreviewRegion(range, operation, content);
+        if (!preview.Validation.Succeeded)
+            return new(WorldEditRefusal.RegionRejected, null, preview.Validation);
+        if (preview.RequiresConfirmation && !confirmLargeEdit)
+            return new(WorldEditRefusal.LargeEditConfirmationRequired, null, null);
+        return SubmitEdit(preview.Edit, atStep, confirmEndHistory);
+    }
+
+    private VoxelCellSetResult ValidateCellsCore(VoxelCellSetEdit edit, bool skipInapplicable,
+        out IReadOnlyList<VoxelCellTarget> affected)
     {
         ArgumentNullException.ThrowIfNull(edit);
+        var applicable = new List<VoxelCellTarget>();
+        affected = applicable;
         if (edit.Targets.Count == 0)
             return new(VoxelCellSetStatus.NoTargets);
-
+        var conflicts = new List<VoxelCellConflict>();
+        var vehicleCells = _vehicles.OrderBy(vehicle => vehicle.Id.Value).SelectMany(vehicle =>
+            vehicle.Parts.OrderBy(part => part.Id.Value).Select(part => new VehicleCell(
+                vehicle.Id, part.Id, part.Cell, vehicle.Transform, vehicle.Transform.CellBounds(part.Cell)))).ToArray();
         var seen = new HashSet<WorldVoxelCoord>();
         foreach (var target in edit.Targets)
         {
-            if (!seen.Add(target.Position))
-                return new(VoxelCellSetStatus.DuplicateTarget, target.Position);
-            if (!ValidCellTarget(target))
-                return new(VoxelCellSetStatus.InvalidTarget, target.Position);
-            if (!World.Bounds.Contains(target.Position))
-                return new(VoxelCellSetStatus.OutOfBounds, target.Position);
-            if (HasRailVoxel(target.Position))
-                return TryRailOwner(target.Position, out var segmentId)
-                    ? new(VoxelCellSetStatus.RailOccupied, target.Position, VoxelCellOwnerKind.RailSegment, segmentId)
-                    : new(VoxelCellSetStatus.RailOccupied, target.Position);
-            if (TryVehicleOwner(target.Position, out var vehicleId, out var partId))
-                return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, vehicleId, partId);
-            var current = World.Query(target.Position).Voxel;
-            if (target.Operation == VoxelCellOperation.Add && current is not null)
-                return new(VoxelCellSetStatus.Occupied, target.Position);
-            if (target.Operation != VoxelCellOperation.Add && current is null)
-                return new(VoxelCellSetStatus.Empty, target.Position);
-            if (target.Content is not { } content)
-                continue;
+            var conflict = !seen.Add(target.Position)
+                ? new VoxelCellConflict(VoxelCellSetStatus.DuplicateTarget, target.Position)
+                : ValidateCell(target, vehicleCells);
+            if (conflict is null)
+                applicable.Add(target);
+            else if (!skipInapplicable || conflict.Status is not
+                     (VoxelCellSetStatus.Occupied or VoxelCellSetStatus.Empty or VoxelCellSetStatus.NoChange))
+                conflicts.Add(conflict);
+        }
+        if (conflicts.Count == 0)
+            return new(applicable.Count == 0 ? VoxelCellSetStatus.NoTargets : VoxelCellSetStatus.Valid);
+        var first = conflicts[0];
+        return new(first.Status, first.Position, first.OwnerKind, first.OwnerId, first.PartId)
+            { Conflicts = conflicts.AsReadOnly() };
+    }
+
+    private VoxelCellConflict? ValidateCell(VoxelCellTarget target, IReadOnlyList<VehicleCell> vehicleCells)
+    {
+        if (!ValidCellTarget(target))
+            return new(VoxelCellSetStatus.InvalidTarget, target.Position);
+        if (!World.Bounds.Contains(target.Position))
+            return new(VoxelCellSetStatus.OutOfBounds, target.Position);
+        if (HasRailVoxel(target.Position))
+            return TryRailOwner(target.Position, out var segmentId)
+                ? new(VoxelCellSetStatus.RailOccupied, target.Position, VoxelCellOwnerKind.RailSegment, segmentId)
+                : new(VoxelCellSetStatus.RailOccupied, target.Position);
+        foreach (var part in vehicleCells)
+            if (CompositeTransform.BoundsMayOverlapCell(part.Bounds, target.Position) && part.Transform.OverlapsCell(part.Cell, target.Position))
+                return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, part.VehicleId, part.PartId);
+        // Check content even for cells the regional operation would skip.
+        if (target.Content is { } content)
+        {
             if (CurrentVoxels?.TryGet(content.DefinitionId, out var entry) != true)
                 return new(VoxelCellSetStatus.UnknownDefinition, target.Position);
             if (!content.Orientation.IsAllowedBy(entry.Definition.AllowedOrientations))
                 return new(VoxelCellSetStatus.DisallowedOrientation, target.Position);
-            if (target.Operation == VoxelCellOperation.Replace && current!.DefinitionId == content.DefinitionId &&
-                current.Orientation == content.Orientation)
-                return new(VoxelCellSetStatus.NoChange, target.Position);
         }
-
-        return new(VoxelCellSetStatus.Valid);
+        var current = World.Query(target.Position).Voxel;
+        if (target.Operation == VoxelCellOperation.Add && current is not null)
+            return new(VoxelCellSetStatus.Occupied, target.Position);
+        if (target.Operation != VoxelCellOperation.Add && current is null)
+            return new(VoxelCellSetStatus.Empty, target.Position);
+        if (target.Operation == VoxelCellOperation.Replace && current!.DefinitionId == target.Content!.DefinitionId &&
+            current.Orientation == target.Content.Orientation)
+            return new(VoxelCellSetStatus.NoChange, target.Position);
+        return null;
     }
+
+    private sealed record VehicleCell(EntityId VehicleId, EntityId PartId, LocalVoxelCoord Cell, CompositeTransform Transform,
+        (double MinX, double MinY, double MinZ, double MaxX, double MaxY, double MaxZ) Bounds);
 
     // The typed entries below keep their business statuses for payloads a WorldEdit cannot encode (missing ids,
     // non-orthogonal orientations, non-finite poses); such calls are never accepted, so they take no id or sequence.

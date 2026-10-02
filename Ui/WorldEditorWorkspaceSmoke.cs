@@ -32,7 +32,6 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static readonly WorldVoxelCoord ExampleCopyOnlyCell = new(6, 1, 2);
     private static readonly WorldVoxelCoord ExampleFutureCell = new(7, 1, 2);
     private static readonly WorldVoxelCoord ExampleDiscardedCell = new(8, 1, 2);
-    private static readonly WorldVoxelCoord CellToolPendingCell = new(5, 3, 5);
     private static readonly WorldVoxelCoord CellToolCollisionCell = new(12, 2, 12);
     private static readonly WorldVoxelCoord CellToolMissingDefinitionCell = new(11, 3, 11);
     private static readonly WorldVoxelCoord HistoryCell = new(2, 2, 2);
@@ -58,6 +57,12 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private ulong _physicsFrameTarget;
     private VoxelCatalogSnapshot? _catalogBeforeMissingDefinition;
     private string? _historyLineEditText;
+    private ulong _regionEditCursor;
+    private int _regionUndoCount;
+    private IReadOnlyList<WorldVoxelCoord> _committedBrushCells = Array.Empty<WorldVoxelCoord>();
+    private IReadOnlyList<WorldVoxelCoord> _committedBoxCells = Array.Empty<WorldVoxelCoord>();
+    private static readonly WorldVoxelCoord RegionPendingFirst = new(28, 3, 14);
+    private static readonly WorldVoxelCoord RegionPendingSecond = new(29, 3, 14);
 
     public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify" or
         "example-save" or "example-verify" or "cell-tool-save" or "cell-tool-resume" or
@@ -818,23 +823,209 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(state.HasDraft && state.DefinitionId == _cellToolDefinition && state.Preview.Succeeded,
                     "reselecting a valid definition did not allow the preserved draft to continue editing");
                 Click(view.DiscardButton);
+                Click(view.ModeInput);
+                _phase = 50;
+                return;
+            case 50:
+                Require(view.ModeInput.GetPopup().Visible, "region mode popup did not open for brush selection");
+                ChooseOpenOption(view.ModeInput, (int)WorldEditorVoxelMode.Brush);
+                ReplaceNumber(view.BrushSizeInput, 2);
+                Motion(PlaneScreen(new WorldVoxelCoord(20, 3, 10)));
+                _phase++;
+                return;
+            case 51:
+                Require(state.Mode == WorldEditorVoxelMode.Brush && state.BrushSize == 2 && !state.HasDraft,
+                    "real mode and brush-size inputs did not configure the brush");
+                _regionEditCursor = session.NextEditId;
+                _regionUndoCount = session.UndoCount;
+                MouseLeft(PlaneScreen(new WorldVoxelCoord(20, 3, 10)), true);
+                _phase++;
+                return;
+            case 52:
+                Require(state.StrokeInProgress && state.HasDraft && session.NextEditId == _regionEditCursor &&
+                        session.UndoCount == _regionUndoCount,
+                    "brush press wrote the world before release");
+                HeldMotion(PlaneScreen(new WorldVoxelCoord(21, 3, 10)));
+                _phase++;
+                return;
+            case 53:
+                Require(state.StrokeInProgress && session.NextEditId == _regionEditCursor &&
+                        session.UndoCount == _regionUndoCount,
+                    "first held brush motion wrote the world");
+                HeldMotion(PlaneScreen(new WorldVoxelCoord(22, 3, 10)));
+                _phase++;
+                return;
+            case 54:
+                Require(state.StrokeInProgress && state.CurrentEdit.Targets.Count == 8 &&
+                        session.NextEditId == _regionEditCursor && session.UndoCount == _regionUndoCount,
+                    "multi-motion brush did not retain one unwritten continuous draft");
+                _committedBrushCells = state.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+                MouseLeft(PlaneScreen(new WorldVoxelCoord(22, 3, 10)), false);
+                _phase++;
+                return;
+            case 55:
+                Require(!state.StrokeInProgress && !state.HasDraft && session.NextEditId == _regionEditCursor + 1 &&
+                        session.UndoCount == _regionUndoCount + 1 &&
+                        _committedBrushCells.All(cell => session.Query(cell).Voxel is not null),
+                    "brush release did not create exactly one formal edit and one undo record");
+                _regionEditCursor = session.NextEditId;
+                MouseLeft(PlaneScreen(new WorldVoxelCoord(20, 3, 13)), true);
+                HeldMotion(PlaneScreen(new WorldVoxelCoord(21, 3, 13)));
+                _phase++;
+                return;
+            case 56:
+                Require(state.StrokeInProgress && state.HasDraft, "focus-out brush fixture did not begin a stroke");
+                scene.GetTree().Root.PropagateNotification((int)Node.NotificationWMWindowFocusOut);
+                _phase++;
+                return;
+            case 57:
+                Require(!state.StrokeInProgress && state.HasDraft && session.NextEditId == _regionEditCursor,
+                    "window focus-out submitted or discarded the interrupted brush draft");
+                MouseLeft(PlaneScreen(new WorldVoxelCoord(21, 3, 13)), false);
+                Click(view.CommitButton);
+                _phase++;
+                return;
+            case 58:
+                Require(!state.HasDraft && session.NextEditId == _regionEditCursor + 1,
+                    "release after focus-out submitted, or explicit commit failed");
+                _regionEditCursor = session.NextEditId;
+                MouseLeft(PlaneScreen(new WorldVoxelCoord(24, 3, 14)), true);
+                HeldMotion(PlaneScreen(new WorldVoxelCoord(25, 3, 14)));
+                SendKey(Godot.Key.Quoteleft, pressed: true);
+                SendKey(Godot.Key.Quoteleft, pressed: false);
+                _phase++;
+                return;
+            case 59:
+                Require(scene.GetNode<Main>("/root/Main").ConsoleOpen && !state.StrokeInProgress && state.HasDraft &&
+                        session.NextEditId == _regionEditCursor,
+                    "opening the console did not preserve and interrupt the active brush draft");
+                MouseLeft(PlaneScreen(new WorldVoxelCoord(25, 3, 14)), false);
+                SendKey(Godot.Key.Quoteleft, pressed: true);
+                SendKey(Godot.Key.Quoteleft, pressed: false);
+                _phase++;
+                return;
+            case 60:
+                Require(!scene.GetNode<Main>("/root/Main").ConsoleOpen && state.HasDraft &&
+                        session.NextEditId == _regionEditCursor,
+                    "release after console interruption submitted the brush draft");
+                Click(view.DiscardButton);
+                Click(view.ModeInput);
+                _phase++;
+                return;
+            case 61:
+                Require(view.ModeInput.GetPopup().Visible && !state.HasDraft,
+                    "discarding the interrupted brush draft did not restore mode selection");
+                ChooseOpenOption(view.ModeInput, (int)WorldEditorVoxelMode.Box);
+                _phase = 66;
+                return;
+            case 66:
+                ReplaceNumber(view.HeightInput, 4);
+                ReplaceNumber(view.BoxHeightInput, 2);
+                _phase = 67;
+                return;
+            case 67:
+                Require(state.Height == 4 && state.BoxHeight == 2 && !state.HasDraft,
+                    "box height controls did not configure the tool before corner input");
+                ClickAt(PlaneScreen(new WorldVoxelCoord(24, 4, 10)));
+                Motion(PlaneScreen(new WorldVoxelCoord(26, 4, 11)));
+                _phase = 62;
+                return;
+            case 62:
+                Require(state.Mode == WorldEditorVoxelMode.Box && state.BoxHeight == 2 && state.BoxCornerPending &&
+                        state.Position == new WorldVoxelCoord(24, 4, 10) && state.BoxCorner == new WorldVoxelCoord(26, 4, 11),
+                    $"box first corner and mouse-motion second corner did not share one preview: mode={state.Mode} height={state.Height} boxHeight={state.BoxHeight} draft={state.HasDraft} pending={state.BoxCornerPending} first={state.Position} second={state.BoxCorner}");
+                ClickAt(PlaneScreen(new WorldVoxelCoord(26, 4, 11)));
+                ReplaceNumber(view.BoxCornerInputs[0], 27);
+                _phase++;
+                return;
+            case 63:
+                Require(state.HasDraft && !state.BoxCornerPending && state.BoxCorner == new WorldVoxelCoord(27, 4, 11) &&
+                        state.RegionPreview.Range.Count == 16 && state.RegionPreview.AffectedCount == 16,
+                    "box inspector input did not modify the mouse-created region preview");
+                _committedBoxCells = state.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+                Click(view.CommitButton);
+                _phase++;
+                return;
+            case 64:
+                Require(!state.HasDraft && _committedBoxCells.All(cell => session.Query(cell).Voxel is not null),
+                    "box commit did not apply the shared mouse and inspector state");
+                ReplaceNumber(view.BoxHeightInput, 1);
+                ReplaceNumber(view.CoordinateInputs[0], 0);
+                ReplaceNumber(view.CoordinateInputs[1], 6);
+                ReplaceNumber(view.CoordinateInputs[2], 0);
+                ReplaceNumber(view.BoxCornerInputs[0], 32);
+                ReplaceNumber(view.BoxCornerInputs[2], 18);
+                _regionEditCursor = session.NextEditId;
+                _regionUndoCount = session.UndoCount;
+                _phase = 70;
+                return;
+            case 70:
+                Require(state.RegionPreview.AffectedCount == 627 && state.RegionPreview.RequiresConfirmation,
+                    "large box inspector fixture did not exceed the affected-cell confirmation threshold");
+                Click(view.CommitButton);
+                _phase++;
+                return;
+            case 71:
+                Require(view.LargeEditPrompt.Visible && state.HasDraft && session.NextEditId == _regionEditCursor &&
+                        session.Query(new WorldVoxelCoord(0, 6, 0)).Voxel is null,
+                    "large box submission wrote before confirmation");
+                Click(view.LargeEditPrompt.GetCancelButton());
+                _phase++;
+                return;
+            case 72:
+                Require(!view.LargeEditPrompt.Visible && state.HasDraft && session.NextEditId == _regionEditCursor,
+                    "cancelling large box confirmation wrote or discarded its draft");
+                Click(view.CommitButton);
+                _phase++;
+                return;
+            case 73:
+                Require(view.LargeEditPrompt.Visible, "large box confirmation did not reopen");
+                Click(view.LargeEditPrompt.GetOkButton());
+                _phase++;
+                return;
+            case 74:
+                Require(!state.HasDraft && session.NextEditId == _regionEditCursor + 1 &&
+                        session.UndoCount == _regionUndoCount + 1 && session.World.VoxelCount == 658,
+                    "confirmed large box did not submit once as a single undo record");
+                Click(scene.ActionButton("undo"));
+                _phase++;
+                return;
+            case 75:
+                Require(session.World.VoxelCount == 31 && session.Query(new WorldVoxelCoord(0, 6, 0)).Voxel is null,
+                    "large box undo did not remove the whole confirmed range");
+                Click(scene.ActionButton("redo"));
+                _phase++;
+                return;
+            case 76:
+                Require(session.World.VoxelCount == 658, "large box redo did not restore the whole range");
+                Click(scene.ActionButton("undo"));
+                _phase++;
+                return;
+            case 77:
+                Require(session.World.VoxelCount == 31 && !state.HasDraft,
+                    "large box cleanup changed the retained region edits");
+                Click(view.ModeInput);
+                _phase++;
+                return;
+            case 78:
+                Require(view.ModeInput.GetPopup().Visible, "cell mode popup did not open after box checks");
+                ChooseOpenOption(view.ModeInput, (int)WorldEditorVoxelMode.Cell);
                 Click(view.SelectToolButton);
                 _phase = 40;
                 return;
             case 40:
                 Require(!state.Active && !state.HasDraft, "target-switch fixture did not activate the selection tool");
-                var pending = new VoxelCellSetEdit(new[]
-                {
-                    new VoxelCellTarget(CellToolPendingCell, VoxelCellOperation.Add,
-                        new VoxelCellContent(state.DefinitionId, state.Orientation))
-                });
-                Require(session.SubmitEdit(pending, 3, confirmEndHistory: true).Accepted && session.QueryPendingEdits().Count == 1,
-                    "cell-tool continuation fixture was not accepted as pending formal input");
+                var pending = VoxelCellRegion.Box(RegionPendingFirst, RegionPendingSecond, 1);
+                Require(session.SubmitRegion(pending, VoxelCellOperation.Add,
+                            new VoxelCellContent(state.DefinitionId, state.Orientation), atStep: 3,
+                            confirmEndHistory: true).Accepted && session.QueryPendingEdits().Count == 1 &&
+                        ((VoxelCellSetEdit)session.QueryPendingEdits().Single().Edit).Targets.Count == 2,
+                    "region continuation fixture was not accepted as an explicit pending cell list");
                 scene.SetSaveName("单格工具跨进程验证");
                 var saved = scene.SaveWorld();
                 Require(saved.Succeeded && saved.SaveId.HasValue && !state.HasDraft &&
                         session.Query(CellToolCommittedCellForRun).Voxel is not null &&
-                        session.Query(CellToolPendingCell).Voxel is null,
+                        session.Query(RegionPendingFirst).Voxel is null && session.Query(RegionPendingSecond).Voxel is null,
                     "cell-tool save did not capture committed and pending state without its draft");
                 state.SetExact(new WorldVoxelCoord(7, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
                 Require(state.HasDraft && scene.SaveWorld().Succeeded && state.HasDraft,
@@ -897,7 +1088,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(!scene.PromptVisible && scene.GetTree().CurrentScene == scene,
                     "cancelling after the draft decision left the editor");
                 GD.Print($"WORKSPACE_CELL_TOOL_INPUT height={state.Height} mouse_cell={CellToolCommittedCellForRun} settings_follow=true replace_collision=true missing_definition_kept=true exact_shared=true rejected_kept=true tool_guard=discard target_guard=discard level_guard=commit leave_guard=discard save_kept_draft=true");
-                GD.Print($"WORKSPACE_CELL_TOOL_SAVED id={session.SaveId.GetValueOrDefault():D} committed=true pending=1 draft=false");
+                GD.Print($"WORKSPACE_REGION_INPUT brush_cells={_committedBrushCells.Count} brush_release_one_edit=true focus_commit=true console_discard=true box_cells={_committedBoxCells.Count} shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
+                GD.Print($"WORKSPACE_CELL_TOOL_SAVED id={session.SaveId.GetValueOrDefault():D} committed=true pending=1 draft=false pending_region_cells=2");
                 _finished = true;
                 Done(scene);
                 return;
@@ -929,9 +1121,13 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         {
             case 0:
                 Require(session.SaveId == RequiredId(CellToolSaveIdEnvironmentVariable) && session.SimulationPaused &&
-                        session.World.VoxelCount == 1 && session.QueryPendingEdits().Count == 1 && !state.HasDraft &&
-                        session.Query(CellToolPendingCell).Voxel is null,
-                    "fresh process did not restore committed and pending cell edits without a UI draft");
+                        session.World.VoxelCount == 31 && session.QueryPendingEdits().Count == 1 && !state.HasDraft &&
+                        session.Query(RegionPendingFirst).Voxel is null && session.Query(RegionPendingSecond).Voxel is null &&
+                        ExpectedBrushCells().All(cell => session.Query(cell).Voxel is not null) &&
+                        ExpectedBoxCells().All(cell => session.Query(cell).Voxel is not null) &&
+                        ((VoxelCellSetEdit)session.QueryPendingEdits().Single().Edit).Targets.Select(target => target.Position)
+                            .SequenceEqual(new[] { RegionPendingFirst, RegionPendingSecond }),
+                    "fresh process did not restore committed brush/box edits and the explicit pending region without a UI draft");
                 Click(view.VoxelToolButton);
                 ReplaceNumber(view.HeightInput, 4);
                 _phase++;
@@ -961,13 +1157,14 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 4:
                 scene.Press("pause");
                 scene.Refresh();
-                Require(session.Query(CellToolPendingCell).Voxel is not null && session.QueryPendingEdits().Count == 0 &&
+                Require(session.Query(RegionPendingFirst).Voxel is not null && session.Query(RegionPendingSecond).Voxel is not null &&
+                        session.QueryPendingEdits().Count == 0 &&
                         session.Query(CellToolCommittedCellForRun).Voxel is not null && !state.HasDraft,
                     "continued process did not execute the restored pending edit and keep its mouse edit");
                 var saved = scene.SaveWorld();
                 Require(saved.Succeeded && saved.SaveId == session.SaveId && !session.HasUnsavedChanges,
                     "continued cell-tool world was not saved back to its own identity");
-                GD.Print("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false");
+                GD.Print("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false pending_region_cells=2 brush_restored=true box_restored=true");
                 _finished = true;
                 Done(scene);
                 return;
@@ -999,6 +1196,40 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             { ButtonIndex = MouseButton.Left, Pressed = true, Position = position, GlobalPosition = position });
         Input.ParseInputEvent(new InputEventMouseButton
             { ButtonIndex = MouseButton.Left, Pressed = false, Position = position, GlobalPosition = position });
+    }
+
+    private static void MouseLeft(Vector2 position, bool pressed) => Input.ParseInputEvent(new InputEventMouseButton
+    {
+        ButtonIndex = MouseButton.Left,
+        ButtonMask = pressed ? MouseButtonMask.Left : (MouseButtonMask)0,
+        Pressed = pressed,
+        Position = position,
+        GlobalPosition = position
+    });
+
+    private static void HeldMotion(Vector2 position) => Input.ParseInputEvent(new InputEventMouseMotion
+    {
+        ButtonMask = MouseButtonMask.Left,
+        Position = position,
+        GlobalPosition = position
+    });
+
+    private static IEnumerable<WorldVoxelCoord> ExpectedBrushCells()
+    {
+        for (var x = 19; x <= 22; x++)
+        for (var z = 9; z <= 10; z++)
+            yield return new WorldVoxelCoord(x, 3, z);
+        for (var x = 19; x <= 21; x++)
+        for (var z = 12; z <= 13; z++)
+            yield return new WorldVoxelCoord(x, 3, z);
+    }
+
+    private static IEnumerable<WorldVoxelCoord> ExpectedBoxCells()
+    {
+        for (var x = 24; x <= 27; x++)
+        for (var y = 4; y <= 5; y++)
+        for (var z = 10; z <= 11; z++)
+            yield return new WorldVoxelCoord(x, y, z);
     }
 
     private void FocusWorld()
