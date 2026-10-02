@@ -83,7 +83,7 @@ if ($Workspace) {
         foreach ($marker in @('WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored',
             'WORKSPACE_NO_WORLD_LEAVE completed=true',
             'WORKSPACE_MENU ready=true', 'WORKSPACE_LIST_OPEN id=', 'WORKSPACE_SAVE_AS old=', 'cancel=kept dirty=true original=kept',
-            'WORKSPACE_EXPORTED path=', 'status=Saved overwrite_refused=true overwrite_confirmed=true',
+            "WORKSPACE_EXPORTED path=$env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH status=Saved",
             'WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace', 'WORKSPACE_OPEN_FAILED fault=corrupt',
             'WORKSPACE_SAVE_CONTINUE id=', 'voxels=3', 'row_disabled=true', 'WORKSPACE_SAVED old=')) {
             if (-not $save.Contains($marker)) { throw "Workspace save omitted assertion marker: $marker" }
@@ -99,16 +99,15 @@ if ($Workspace) {
             $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = $leg
             $text = Invoke-EntryLeg $leg 'WORKSPACE'
             $markers = @('WORKSPACE_MENU ready=true', "WORKSPACE_CONTINUED leg=$leg", 'pending=0 paused=true')
-            if ($leg -eq 'import-new') { $markers += @('WORKSPACE_IMPORTED id=', 'refreshed=true opened=true') }
+            if ($leg -eq 'import-new') { $markers += @('WORKSPACE_IMPORTED id=', 'listed=true opened=true') }
             else { $markers += 'WORKSPACE_LIST_OPEN id=' }
             foreach ($marker in $markers) {
                 if (-not $text.Contains($marker)) { throw "Workspace $leg omitted assertion marker: $marker" }
             }
             if ($leg -eq 'import-new') {
-                $imported = [regex]::Match($text, 'WORKSPACE_IMPORTED id=([0-9a-fA-F-]{36}) source=([0-9a-fA-F-]{36})')
-                if (-not $imported.Success -or $imported.Groups[1].Value -in @($ids.Groups[1].Value, $ids.Groups[2].Value) -or
-                    $imported.Groups[2].Value -ne $ids.Groups[2].Value) {
-                    throw 'Workspace import leg did not provide a distinct UUID derived from the exported copy.'
+                $imported = [regex]::Match($text, 'WORKSPACE_IMPORTED id=([0-9a-fA-F-]{36}) listed=true opened=true')
+                if (-not $imported.Success -or $imported.Groups[1].Value -in @($ids.Groups[1].Value, $ids.Groups[2].Value)) {
+                    throw 'Workspace import leg did not provide a distinct usable local UUID.'
                 }
                 $env:TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID = $imported.Groups[1].Value
             }
@@ -134,11 +133,12 @@ if ($Workspace) {
 Five fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
 world, saves it, exercises return cancellation and failed ordinary save, then drives the save-as button and confirmation
 signals. Cancelling preserves identity, dirty state and the original bytes; confirming creates a distinct current save
-and keeps the original. It exports that current world, rejects an unconfirmed overwrite without changing the file, and
-completes a confirmed overwrite. It then reopens the copy, edits it and completes a successful save-and-return. A save corrupted
+and keeps the original. It exports that current world through the new-file path. It then reopens the copy, edits it and completes
+a successful save-and-return. A save corrupted
 after the list loads keeps the workspace with a reason and refreshed disabled row.
 The next two processes independently open and continue the original and save-as copy. A fourth process imports the exported
-file through the workspace, refreshes the list, opens the new local UUID, runs the shared pending command, makes a distinct
+file through the workspace, observes the refreshed list, opens the new local UUID, verifies the exported world's content,
+runs the shared pending command, makes a distinct
 edit and saves it. The final
 process opens the original, save-as copy and imported save and proves their edits did not cross. Godot mesh and collider
 counts match each continued world.

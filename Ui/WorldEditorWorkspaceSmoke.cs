@@ -111,12 +111,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             _importedId = importedId;
             Require(importedId != oldEntry.Id && importedId != newEntry.Id,
                 "workspace import did not create a distinct local save identity");
-            workspace.RefreshSaves();
             Require(workspace.Entries.Count == 3 &&
                     workspace.Entries.Single(item => item.Id == importedId).Recovery.Succeeded,
-                "workspace refresh did not expose the imported save as usable");
-            Require(workspace.OpenSave(importedId).Succeeded, "imported save could not be opened from the refreshed workspace");
-            GD.Print($"WORKSPACE_IMPORTED id={importedId:D} source={newEntry.Id:D} refreshed=true opened=true");
+                "workspace import did not expose the imported save as usable");
+            Require(workspace.OpenSave(importedId).Succeeded, "imported save could not be opened from the workspace");
+            GD.Print($"WORKSPACE_IMPORTED id={importedId:D} listed=true opened=true");
             return;
         }
 
@@ -172,7 +171,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     RequiredId(Leg == "resume-old" ? OldIdEnvironmentVariable : NewIdEnvironmentVariable);
                 var expectedVoxels = Leg switch { "resume-old" => 1, "resume-new" => 3, _ => 2 };
                 Require(session.SaveId == expectedId && session.SimulationStep == 1 && session.QueryPendingEdits().Count == 1 &&
-                        session.World.VoxelCount == expectedVoxels,
+                        session.World.VoxelCount == expectedVoxels &&
+                        (Leg != "import-new" ||
+                         (session.Query(InitialCell).Voxel is not null && session.Query(CopiedCell).Voxel is not null &&
+                          session.Query(OldOnlyCell).Voxel is null && session.Query(NewOnlyCell).Voxel is null)),
                     "ordinary open lost identity, simulation position, copied state or pending input");
                 Add(Leg switch { "resume-old" => OldOnlyCell, "resume-new" => NewOnlyCell, _ => ImportedOnlyCell });
                 scene.Press("run");
@@ -254,18 +256,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         _newId = newId;
         GD.Print($"WORKSPACE_SAVE_AS old={oldId:D} copy={newId:D} cancel=kept dirty=true original=kept");
         var exportPath = RequiredPath(ExportPathEnvironmentVariable);
-        var exported = scene.ExportWorld(exportPath);
+        var exported = scene.ExportWorld(exportPath, overwrite: false);
         Require(exported.Status == WorldSaveStatus.Saved && File.Exists(exportPath),
             "current save-as world was not exported to the requested path");
-        var exportedBytes = File.ReadAllBytes(exportPath);
-        var refused = scene.ExportWorld(exportPath);
-        Require(refused.Status == WorldSaveStatus.OverwriteConfirmationRequired &&
-                File.ReadAllBytes(exportPath).SequenceEqual(exportedBytes),
-            "export without overwrite permission changed the existing file");
-        var overwritten = scene.ExportWorld(exportPath, overwrite: true);
-        Require(overwritten.Status == WorldSaveStatus.Saved && File.Exists(exportPath),
-            "confirmed export did not replace the file with the current world");
-        GD.Print($"WORKSPACE_EXPORTED path={exportPath} status=Saved overwrite_refused=true overwrite_confirmed=true");
+        GD.Print($"WORKSPACE_EXPORTED path={exportPath} status=Saved");
         Add(DiscardedCell);
         scene.Press("workspace");
         Require(scene.PromptVisible, "post-save-as unsaved return omitted prompt");

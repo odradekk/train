@@ -16,9 +16,9 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.world-editor-workspace
 blank creation, shared leave protection through editor buttons, console commands and window-close notifications,
 suspended input and cancellation, reload failure and save-as-then-reload of the original target,
 return cancellation, failed save, discard and successful save-and-return protection, save-as cancellation
-and success through button signals, and preservation of the original save. The save process exports its current world to JSON,
-verifies that an unconfirmed overwrite leaves the file unchanged, and confirms an overwrite. A fresh process imports that file
-through the workspace, refreshes the list, opens the new local UUID, verifies its simulation position, pending input and world
+and success through button signals, and preservation of the original save. The save process exports its current world to a new JSON file.
+A fresh process imports that file through the workspace, directly observes the refreshed list, opens the new local UUID, and verifies
+the exported world's simulation position, pending input and world
 content, then continues editing, running and saving. Separate fresh processes continue the original and save-as copy; a final
 process reopens the original, save-as copy and imported save to prove that their edits stayed isolated. Only the final process reports isolation; the save process
 verifies its current save identity, clean state and voxel count after save-and-return, and its next workspace visit verifies the return.
