@@ -164,7 +164,7 @@ Save
 - 运行时保存请求在完整提交边界捕获，不为保存额外推进模拟；暂停时可直接保存最近完整事务后的状态。
 - 已接受但尚未执行的命令及其目标步、顺序须随存档保存，恢复后仅在原定位置执行一次，不为保存提前执行或清空队列。未提交的面板输入不属于世界状态。
 - 暂停修改及同一步边界内的操作按 [04 的输入顺序](04-deterministic-simulation.md#本阶段输入边界与顺序)记录、保存和重放，不能仅凭 Tick 或墙钟日志猜测顺序。
-- 当前实现为存档格式 5（[#122](https://github.com/odradekk/train/issues/122)、[#123](https://github.com/odradekk/train/issues/123)）：根字段 `world_edits` 写出 `next_edit_id`、`boundary_sequence` 与 `pending`；每项待执行命令带 `edit_id`、`accepted_step`、`accepted_sequence`、`target_step` 和 [规范负载](04-deterministic-simulation.md#世界修改命令的规范编码)。体素、车辆、铁路施工与修复、编组和列车起停同在这一队列，混合队列在新进程按原位置执行得到相同结果。恢复时编号须落在 `[1, next_edit_id)` 内且严格递增，接受位置严格递增且不晚于存档边界，目标步晚于存档步；引用的实体 ID（包括起停引用的编组）必须小于 `next_entity_id`：曾分配后被摧毁的目标合法，到期在原位置拒绝；从未分配的 ID 属于损坏引用，整次 `InvalidDelta`。待执行队列出现 `content.publish` 同样为 `InvalidDelta`。已完全摧毁、仍被引用的轨段保留登记身份与定位几何，排队修复据此定位。
+- 当前实现为存档格式 5（[#122](https://github.com/odradekk/train/issues/122)、[#123](https://github.com/odradekk/train/issues/123)）：根字段 `world_edits` 写出 `next_edit_id`、`boundary_sequence` 与 `pending`；每项待执行命令带 `edit_id`、`accepted_step`、`accepted_sequence`、`target_step` 和 [输入格式版本 1 的规范负载](04-deterministic-simulation.md#世界修改命令的规范编码)，包括 `voxel.cell-set`。格集合负载中的目标按原提交顺序保存，每项目标包含 `position`、`operation` 和 `content`；`operation` 同时确定目标必须为空或已占用。加载时恢复原提交顺序。旧存档格式的读取规则不变。体素、车辆、铁路施工与修复、编组和列车起停同在这一队列，混合队列在新进程按原位置执行得到相同结果。恢复时编号须落在 `[1, next_edit_id)` 内且严格递增，接受位置严格递增且不晚于存档边界，目标步晚于存档步；引用的实体 ID（包括起停引用的编组）必须小于 `next_entity_id`：曾分配后被摧毁的目标合法，到期在原位置拒绝；从未分配的 ID 属于损坏引用，整次 `InvalidDelta`。待执行队列出现 `content.publish` 同样为 `InvalidDelta`。已完全摧毁、仍被引用的轨段保留登记身份与定位几何，排队修复据此定位。
 
 旧格式仍可读取。格式 3、4 的旧列车队列没有 `edit_id` 与边界位置，不能放进统一输入全序，因此必须为空，不猜测顺序：
 

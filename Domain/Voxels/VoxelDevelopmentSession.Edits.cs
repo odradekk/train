@@ -33,6 +33,46 @@ public sealed partial class VoxelDevelopmentSession
     /// </summary>
     internal event Action<WorldEditRecord>? EditExecuted;
 
+    public VoxelCellSetResult ValidateCells(VoxelCellSetEdit edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        if (edit.Targets.Count == 0)
+            return new(VoxelCellSetStatus.NoTargets);
+
+        var seen = new HashSet<WorldVoxelCoord>();
+        foreach (var target in edit.Targets)
+        {
+            if (!seen.Add(target.Position))
+                return new(VoxelCellSetStatus.DuplicateTarget, target.Position);
+            if (!ValidCellTarget(target))
+                return new(VoxelCellSetStatus.InvalidTarget, target.Position);
+            if (!World.Bounds.Contains(target.Position))
+                return new(VoxelCellSetStatus.OutOfBounds, target.Position);
+            if (HasRailVoxel(target.Position))
+                return TryRailOwner(target.Position, out var segmentId)
+                    ? new(VoxelCellSetStatus.RailOccupied, target.Position, VoxelCellOwnerKind.RailSegment, segmentId)
+                    : new(VoxelCellSetStatus.RailOccupied, target.Position);
+            if (TryVehicleOwner(target.Position, out var vehicleId, out var partId))
+                return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, vehicleId, partId);
+            var current = World.Query(target.Position).Voxel;
+            if (target.Operation == VoxelCellOperation.Add && current is not null)
+                return new(VoxelCellSetStatus.Occupied, target.Position);
+            if (target.Operation != VoxelCellOperation.Add && current is null)
+                return new(VoxelCellSetStatus.Empty, target.Position);
+            if (target.Content is not { } content)
+                continue;
+            if (CurrentVoxels?.TryGet(content.DefinitionId, out var entry) != true)
+                return new(VoxelCellSetStatus.UnknownDefinition, target.Position);
+            if (!content.Orientation.IsAllowedBy(entry.Definition.AllowedOrientations))
+                return new(VoxelCellSetStatus.DisallowedOrientation, target.Position);
+            if (target.Operation == VoxelCellOperation.Replace && current!.DefinitionId == content.DefinitionId &&
+                current.Orientation == content.Orientation)
+                return new(VoxelCellSetStatus.NoChange, target.Position);
+        }
+
+        return new(VoxelCellSetStatus.Valid);
+    }
+
     // The typed entries below keep their business statuses for payloads a WorldEdit cannot encode (missing ids,
     // non-orthogonal orientations, non-finite poses); such calls are never accepted, so they take no id or sequence.
 
@@ -327,6 +367,9 @@ public sealed partial class VoxelDevelopmentSession
             case VoxelRemoveEdit remove:
                 var removed = RemoveCore(remove.Position);
                 return (removed.Succeeded, removed.Status.ToString(), removed);
+            case VoxelCellSetEdit cells:
+                var cellSet = ApplyCellsCore(cells);
+                return (cellSet.Succeeded, cellSet.Status.ToString(), cellSet);
             case VoxelDamageEdit damage:
                 var damaged = DamageVoxelsCore(damage.Targets);
                 return (damaged.Succeeded, damaged.Status.ToString(), damaged);
@@ -357,6 +400,74 @@ public sealed partial class VoxelDevelopmentSession
             default:
                 throw new InvalidOperationException($"Unknown world edit kind {edit.Kind}.");
         }
+    }
+
+    private VoxelCellSetResult ApplyCellsCore(VoxelCellSetEdit edit)
+    {
+        var validation = ValidateCells(edit);
+        if (!validation.Succeeded)
+            return validation;
+        foreach (var target in edit.Targets)
+        {
+            if (target.Content is { } content)
+            {
+                var definition = CurrentVoxels!.Entries[content.DefinitionId].Definition;
+                var voxel = new WorldVoxel(content.DefinitionId, definition.MaxDurability, content.Orientation);
+                if (target.Operation == VoxelCellOperation.Add)
+                    World.TryAdd(target.Position, voxel);
+                else
+                    World.TryReplace(target.Position, voxel);
+            }
+            else
+            {
+                World.TryRemove(target.Position);
+            }
+            NoteChange(target.Position, occupancyChanged: target.Operation != VoxelCellOperation.Replace, publish: false);
+            // Replacement can change the collision shape without changing occupancy or destroying railway support.
+            if (target.Operation == VoxelCellOperation.Replace)
+                _pendingCollisionChanges.Add(target.Position);
+        }
+        FreezeUnsupportedAssemblies();
+        Changed?.Invoke();
+        return new(VoxelCellSetStatus.Applied);
+    }
+
+    private static bool ValidCellTarget(VoxelCellTarget target) => target.Operation switch
+    {
+        VoxelCellOperation.Add or VoxelCellOperation.Replace => target.Content is not null,
+        VoxelCellOperation.Remove => target.Content is null,
+        _ => false
+    };
+
+    internal bool HasRailVoxel(WorldVoxelCoord cell) =>
+        !_rails.IsDestroyed(cell) && World.Query(cell).Voxel is { } voxel &&
+        voxel.DefinitionId == StraightRailFixture.RailDefinitionId;
+
+    internal bool TryRailOwner(WorldVoxelCoord cell, out EntityId segmentId)
+    {
+        segmentId = default;
+        if (!HasRailVoxel(cell) ||
+            !_rails.TryGetOccupancy(cell, out var occupancy) ||
+            occupancy.Supports.Count == 0)
+            return false;
+        segmentId = occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId;
+        return true;
+    }
+
+    private bool TryVehicleOwner(WorldVoxelCoord cell, out EntityId vehicleId, out EntityId partId)
+    {
+        foreach (var vehicle in _vehicles.OrderBy(item => item.Id.Value))
+        foreach (var part in vehicle.Parts.OrderBy(item => item.Id.Value))
+        {
+            if (!vehicle.Transform.OverlapsCell(part.Cell, cell))
+                continue;
+            vehicleId = vehicle.Id;
+            partId = part.Id;
+            return true;
+        }
+        vehicleId = default;
+        partId = default;
+        return false;
     }
 
     private void AppendLog(WorldEditRecord record)

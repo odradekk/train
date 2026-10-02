@@ -13,7 +13,7 @@ voxel edits fault
 
 ## 世界修改命令与执行位置
 
-体素 [`add`](voxel-add.md) / [`remove`](voxel-remove.md) / [`damage`](voxel-damage.md)，车辆 [`manufacture`](composite-manufacture.md) / [`damage`](composite-damage.md)，五类改装 [`add`](composite-add.md) / [`remove`](composite-remove.md) / [`move`](composite-move.md) / [`rotate`](composite-rotate.md) / [`replace`](composite-replace.md) 以及 [`batch`](composite-batch.md)，铁路 [`construct`](rail-construct.md) / [`repair`](rail-repair.md)、编组 [`assemble`](rail-assemble.md) 与列车 [`start`](rail-start.md) / [`stop`](rail-stop.md)，都先解析成同一种世界修改命令（种类依次为 `voxel.*`、`vehicle.*`、`rail.construct`、`rail.repair`、`train.assemble`、`train.start`、`train.stop`），再交给会话唯一的校验与事务入口。世界编辑器修改面板、起停按钮和自动验证序列走同一入口。内容重载改变世界时，在当前边界记录一条 `content.publish`（见 [`reload`](reload.md)）；它只由重载边界产生，不能从控制台或面板提交。
+体素 [`add`](voxel-add.md) / [`remove`](voxel-remove.md) / [`damage`](voxel-damage.md) / [`cell`](voxel-cell.md)，车辆 [`manufacture`](composite-manufacture.md) / [`damage`](composite-damage.md)，五类改装 [`add`](composite-add.md) / [`remove`](composite-remove.md) / [`move`](composite-move.md) / [`rotate`](composite-rotate.md) / [`replace`](composite-replace.md) 以及 [`batch`](composite-batch.md)，铁路 [`construct`](rail-construct.md) / [`repair`](rail-repair.md)、编组 [`assemble`](rail-assemble.md) 与列车 [`start`](rail-start.md) / [`stop`](rail-stop.md)，都先解析成同一种世界修改命令（种类依次为 `voxel.*`、`vehicle.*`、`rail.construct`、`rail.repair`、`train.assemble`、`train.start`、`train.stop`），再交给会话唯一的校验与事务入口。世界编辑器修改面板、起停按钮和自动验证序列走同一入口。内容重载改变世界时，在当前边界记录一条 `content.publish`（见 [`reload`](reload.md)）；它只由重载边界产生，不能从控制台或面板提交。
 
 - 每条被接受的命令获得递增的编号 `edit_id`，并在当前边界取下一个步内序号，位置写作 `步:序号`，例如 `300:2`。全序由已完成模拟步和步内序号决定，与墙钟、帧或线程无关。
 - 暂停时连续提交多条命令只递增步内序号，不推进时钟，也不移动列车。模拟推进到新的一步时序号从 0 重新开始。

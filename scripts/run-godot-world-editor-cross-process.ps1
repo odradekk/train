@@ -12,7 +12,7 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     exit 2
 }
 if (-not $OutputDirectory) {
-    $validationIssue = if ($Workspace) { 'issue-169' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
+    $validationIssue = if ($Workspace) { 'issue-181' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
     $OutputDirectory = Join-Path $root ('.godot/validation/' + $validationIssue + '/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
@@ -32,7 +32,8 @@ foreach ($name in @(
     'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID',
     'TRAIN_WORLD_EDITOR_WORKSPACE_LEG', 'TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID',
     'TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH',
-    'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH'
+    'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH',
+    'TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -145,6 +146,27 @@ if ($Workspace) {
             'WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true')) {
             if (-not $exampleVerify.Contains($marker)) { throw "Workspace example-verify omitted assertion marker: $marker" }
         }
+
+        # The cell-tool pair has its own store so the established workspace identity and isolation counts stay exact.
+        $userData = Join-Path $OutputDirectory 'cell-tool-user-data'
+        New-Item -ItemType Directory -Path $userData | Out-Null
+        $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'cell-tool-save'
+        $cellToolSave = Invoke-EntryLeg 'cell-tool-save' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_CELL_TOOL_INPUT',
+            'WORKSPACE_CELL_TOOL_SAVED id=', 'committed=true pending=1 draft=false')) {
+            if (-not $cellToolSave.Contains($marker)) { throw "Workspace cell-tool-save omitted assertion marker: $marker" }
+        }
+        $cellToolId = [regex]::Match($cellToolSave,
+            'WORKSPACE_CELL_TOOL_SAVED id=([0-9a-fA-F-]{36}) committed=true pending=1 draft=false')
+        if (-not $cellToolId.Success) { throw 'Workspace cell-tool save did not provide a usable save UUID.' }
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID = $cellToolId.Groups[1].Value
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'cell-tool-resume'
+        $cellToolResume = Invoke-EntryLeg 'cell-tool-resume' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_CELL_TOOL_OPEN id=',
+            'WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false')) {
+            if (-not $cellToolResume.Contains($marker)) { throw "Workspace cell-tool-resume omitted assertion marker: $marker" }
+        }
         [ordered]@{
             outcome = 'passed'
             durationMs = $started.ElapsedMilliseconds
@@ -153,13 +175,14 @@ if ($Workspace) {
             importedSaveId = $imported.Groups[1].Value
             exampleSaveId = $exampleIds.Groups[1].Value
             exampleDocumentId = $exampleIds.Groups[2].Value
+            cellToolSaveId = $cellToolId.Groups[1].Value
             exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
         @'
 # World editor workspace cross-process validation
 
-Seven fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
+Five fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
 world, saves it, exercises return cancellation and failed ordinary save, then drives the save-as button and confirmation
 signals. Cancelling preserves identity, dirty state and the original bytes; confirming creates a distinct current save
 and keeps the original. It exports that current world through the new-file path. It then reopens the copy, edits it and completes
@@ -177,8 +200,15 @@ example, edits and runs it while retaining a future pending command, and gives i
 document. The next process restores that saved copy, then creates the example again and verifies the documented step-1 world,
 pending command and source bytes were unchanged and contain none of the copy-only edits.
 
+Two final processes use a third isolated save directory. The first uses parsed Godot mouse and keyboard events on the
+horizontal cell tool, verifies that definition/orientation/operation settings keep hover following, checks that hover and exact
+parameters share one preview, checks published replacement collision shapes and input after a definition disappears,
+keeps a rejected draft, resolves its guarded
+tool switch, and saves one committed cell plus one pending formal cell edit without a UI draft. The second opens that save in
+a fresh process, confirms no draft was persisted, continues editing by mouse, and runs the restored pending input.
+
 Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log,
-example-save.stdout.log, example-verify.stdout.log; process identities:
+example-save.stdout.log, example-verify.stdout.log, cell-tool-save.stdout.log, cell-tool-resume.stdout.log; process identities:
 processes.log; tested head: config.json.
 This headless result does not establish graphical interaction or manual acceptance.
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
@@ -198,6 +228,7 @@ This headless result does not establish graphical interaction or manual acceptan
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
     }
 }

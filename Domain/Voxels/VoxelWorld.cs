@@ -286,6 +286,40 @@ public sealed record WorldCommandResult(WorldCommandStatus Status, WorldVoxelCoo
     public bool Succeeded => Status is WorldCommandStatus.Added or WorldCommandStatus.Removed or WorldCommandStatus.Damaged;
 }
 
+public enum VoxelCellSetStatus
+{
+    Valid,
+    Applied,
+    NoTargets,
+    DuplicateTarget,
+    InvalidTarget,
+    OutOfBounds,
+    Occupied,
+    Empty,
+    UnknownDefinition,
+    DisallowedOrientation,
+    RailOccupied,
+    VehicleOccupied,
+    NoChange
+}
+
+public enum VoxelCellOwnerKind
+{
+    None,
+    RailSegment,
+    VehiclePart
+}
+
+public sealed record VoxelCellSetResult(
+    VoxelCellSetStatus Status,
+    WorldVoxelCoord Position = default,
+    VoxelCellOwnerKind OwnerKind = VoxelCellOwnerKind.None,
+    EntityId OwnerId = default,
+    EntityId PartId = default)
+{
+    public bool Succeeded => Status is VoxelCellSetStatus.Valid or VoxelCellSetStatus.Applied;
+}
+
 public readonly record struct VoxelDamageTarget(WorldVoxelCoord Position, int Amount);
 
 public sealed record WorldDamageTargetResult(

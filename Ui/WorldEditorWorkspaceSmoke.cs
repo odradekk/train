@@ -1,4 +1,5 @@
 using Godot;
+using Train.Content;
 using Train.Domain.Commands;
 using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
@@ -15,6 +16,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     public const string ExportPathEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH";
     public const string ExampleSaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID";
     public const string ExampleEvidencePathEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH";
+    public const string CellToolSaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_CELL_TOOL_SAVE_ID";
     private const string OldName = "工作区验证原存档";
     private const string NewName = "工作区验证副本";
     private static readonly WorldVoxelCoord InitialCell = new(2, 2, 2);
@@ -29,6 +31,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static readonly WorldVoxelCoord ExampleCopyOnlyCell = new(6, 1, 2);
     private static readonly WorldVoxelCoord ExampleFutureCell = new(7, 1, 2);
     private static readonly WorldVoxelCoord ExampleDiscardedCell = new(8, 1, 2);
+    private static readonly WorldVoxelCoord CellToolPendingCell = new(5, 3, 5);
+    private static readonly WorldVoxelCoord CellToolCollisionCell = new(12, 2, 12);
+    private static readonly WorldVoxelCoord CellToolMissingDefinitionCell = new(11, 3, 11);
+    private static readonly VoxelDefinitionId LedgeDefinition = new("core", "ledge");
     private static string Leg => System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
     private static int _workspaceVisits;
     private static int _menuVisits;
@@ -41,9 +47,16 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
     private WorldEditorLeaveSmoke? _leaveSmoke;
+    private VoxelDefinitionId _cellToolDefinition;
+    private VoxelOrientation _cellToolOrientation;
+    private Vector3 _cellToolCamera;
+    private int _cellToolDefinitionIndex;
+    private WorldVoxelCoord _cellToolHoverBeforeSetting;
+    private ulong _physicsFrameTarget;
+    private VoxelCatalogSnapshot? _catalogBeforeMissingDefinition;
 
     public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify" or
-        "example-save" or "example-verify";
+        "example-save" or "example-verify" or "cell-tool-save" or "cell-tool-resume";
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
@@ -78,6 +91,21 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         if (Leg is "example-save" or "example-verify")
         {
             FromExampleWorkspace(workspace);
+            return;
+        }
+        if (Leg == "cell-tool-save")
+        {
+            Require(workspace.Entries.Count == 0, "cell-tool process unexpectedly restored or created a save");
+            workspace.SetBlankInputs(33, 17, 19, "181");
+            workspace.CreateBlank();
+            return;
+        }
+        if (Leg == "cell-tool-resume")
+        {
+            var id = RequiredId(CellToolSaveIdEnvironmentVariable);
+            Require(workspace.Entries.Count == 1 && workspace.Entries.Single().Id == id && workspace.OpenSave(id).Succeeded,
+                "cell-tool saved world was unavailable to the continuation process");
+            GD.Print($"WORKSPACE_CELL_TOOL_OPEN id={id:D}");
             return;
         }
         if (Leg == "save" && _workspaceVisits == 1)
@@ -155,6 +183,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             if (Leg is "example-save" or "example-verify")
             {
                 AdvanceExample(session);
+                return;
+            }
+            if (Leg is "cell-tool-save" or "cell-tool-resume")
+            {
+                AdvanceCellTool(session);
                 return;
             }
             if (_phase == 0)
@@ -317,6 +350,535 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         _finished = true;
         Done(scene);
     }
+
+    private void AdvanceCellTool(VoxelDevelopmentSession session)
+    {
+        var view = scene.CellTool ?? throw new InvalidOperationException("cell tool view is unavailable");
+        var state = view.State;
+        if (Leg == "cell-tool-resume")
+        {
+            AdvanceCellToolResume(session, view, state);
+            return;
+        }
+
+        switch (_phase)
+        {
+            case 0:
+                Require(session.SaveId is null && session.SimulationPaused && session.World.VoxelCount == 0 &&
+                        session.QueryPendingEdits().Count == 0 && !state.HasDraft,
+                    "cell-tool save did not start in a blank paused world");
+                Click(view.VoxelToolButton);
+                _cellToolCamera = scene.Camera.GlobalPosition;
+                _phase++;
+                return;
+            case 1:
+                Require(state.Active,
+                    $"real tool click did not activate the cell tool: active={state.Active} height={state.Height} definition={state.DefinitionId} draft={state.HasDraft}");
+                ReplaceNumber(view.HeightInput, 3);
+                _phase++;
+                return;
+            case 2:
+                Require(state.Active && state.Height == 3 && !state.HasDraft,
+                    $"real height input did not establish the horizontal plane: active={state.Active} height={state.Height} definition={state.DefinitionId} draft={state.HasDraft}");
+                _cellToolDefinition = WorldEditorSequences.EditVoxelId;
+                _cellToolDefinitionIndex = state.Definitions.ToList().IndexOf(_cellToolDefinition);
+                Require(_cellToolDefinitionIndex >= 0, "cell-tool content omitted the editable voxel definition");
+                Click(view.DefinitionInput);
+                _phase++;
+                return;
+            case 3:
+                Require(view.DefinitionInput.GetPopup().Visible,
+                    $"definition popup did not open from real click: visible={view.DefinitionInput.Visible} rect={view.DefinitionInput.GetGlobalRect()}");
+                ChooseOpenOption(view.DefinitionInput, _cellToolDefinitionIndex);
+                _phase++;
+                return;
+            case 4:
+                Require(state.Active && state.Height == 3 && state.DefinitionId == _cellToolDefinition && !state.HasDraft,
+                    $"definition setting unexpectedly created a draft: active={state.Active} height={state.Height} definition={state.DefinitionId} expected={_cellToolDefinition} draft={state.HasDraft}");
+                Require(state.Orientations.Count > 1, "selected voxel definition does not exercise allowed orientation choice");
+                _cellToolOrientation = state.Orientations[1];
+                Click(view.OrientationInput);
+                _phase++;
+                return;
+            case 5:
+                Require(view.OrientationInput.GetPopup().Visible,
+                    $"orientation popup did not open from real click: visible={view.OrientationInput.Visible} rect={view.OrientationInput.GetGlobalRect()}");
+                ChooseOpenOption(view.OrientationInput, 1);
+                _phase++;
+                return;
+            case 6:
+                Require(state.Orientation == _cellToolOrientation && !state.HasDraft,
+                    $"orientation setting unexpectedly created a draft: actual={state.Orientation} expected={_cellToolOrientation} draft={state.HasDraft}");
+                _cellToolHoverBeforeSetting = state.Position;
+                Motion(PlaneScreen(new WorldVoxelCoord(10, 3, 10)));
+                _phase++;
+                return;
+            case 7:
+                Require(state.Position == new WorldVoxelCoord(10, 3, 10) && state.Position != _cellToolHoverBeforeSetting &&
+                        state.Orientation == _cellToolOrientation &&
+                        !state.HasDraft && scene.Camera.GlobalPosition == _cellToolCamera,
+                    "definition/orientation settings prevented hover following or moved the camera");
+                Click(view.OperationInput);
+                _phase++;
+                return;
+            case 8:
+                Require(view.OperationInput.GetPopup().Visible, "operation popup did not open for remove selection");
+                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Remove);
+                _phase++;
+                return;
+            case 9:
+                Require(state.Operation == VoxelCellOperation.Remove && !state.HasDraft,
+                    "remove setting unexpectedly created a draft");
+                _cellToolHoverBeforeSetting = state.Position;
+                Motion(PlaneScreen(new WorldVoxelCoord(11, 3, 10)));
+                _phase++;
+                return;
+            case 10:
+                Require(state.Position == new WorldVoxelCoord(11, 3, 10) &&
+                        state.Position != _cellToolHoverBeforeSetting && !state.HasDraft,
+                    "remove setting prevented hover following");
+                Click(view.OperationInput);
+                _phase++;
+                return;
+            case 11:
+                Require(view.OperationInput.GetPopup().Visible, "operation popup did not open for replace selection");
+                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Replace);
+                _phase++;
+                return;
+            case 12:
+                Require(state.Operation == VoxelCellOperation.Replace && !state.HasDraft,
+                    "replace setting unexpectedly created a draft");
+                _cellToolHoverBeforeSetting = state.Position;
+                Motion(PlaneScreen(new WorldVoxelCoord(12, 3, 10)));
+                _phase++;
+                return;
+            case 13:
+                Require(state.Position == new WorldVoxelCoord(12, 3, 10) &&
+                        state.Position != _cellToolHoverBeforeSetting && !state.HasDraft,
+                    "replace setting prevented hover following");
+                Click(view.OperationInput);
+                _phase++;
+                return;
+            case 14:
+                Require(view.OperationInput.GetPopup().Visible, "operation popup did not open for add selection");
+                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Add);
+                Motion(PlaneScreen(new WorldVoxelCoord(10, 3, 10)));
+                _phase++;
+                return;
+            case 15:
+                Require(state.Position.Y == 3 && !state.HasDraft && state.Preview.Succeeded &&
+                        state.Operation == VoxelCellOperation.Add && state.Definitions.Contains(state.DefinitionId) &&
+                        state.Orientations.Contains(state.Orientation),
+                    "blank-world mouse did not retain valid settings after operation changes");
+                var mouseCell = state.Position;
+                ClickAt(PlaneScreen(mouseCell));
+                CellToolCommittedCellForRun = mouseCell;
+                _phase++;
+                return;
+            case 16:
+                var committed = CellToolCommittedCellForRun;
+                Require(session.Query(committed).Voxel is { } voxel && voxel.DefinitionId == state.DefinitionId &&
+                        voxel.Orientation == state.Orientation && !state.HasDraft,
+                    "real mouse click did not commit the shared preview");
+                ReplaceNumber(view.CoordinateInputs[0], committed.X + 1);
+                ReplaceNumber(view.CoordinateInputs[0], committed.X);
+                _phase++;
+                return;
+            case 17:
+                Require(state.HasDraft && state.Position == CellToolCommittedCellForRun &&
+                        state.Preview.Status == VoxelCellSetStatus.Occupied,
+                    "precise parameters did not share the rejected occupied-cell preview");
+                Click(view.CommitButton);
+                Click(view.SelectToolButton);
+                _phase++;
+                return;
+            case 18:
+                Require(session.QueryEditLog().Last().State == WorldEditState.Rejected &&
+                        state.Preview.Status == VoxelCellSetStatus.Occupied && session.World.VoxelCount == 1 &&
+                        session.Query(CellToolCommittedCellForRun).Voxel is { } kept &&
+                        kept.DefinitionId == _cellToolDefinition && kept.Orientation == _cellToolOrientation,
+                    "rejected cell commit changed world content or lost its reason");
+                Require(view.DraftPrompt.Visible && state.Active && state.HasDraft,
+                    "tool switch did not require an explicit draft decision");
+                Click(view.DraftDiscardButton);
+                _phase++;
+                return;
+            case 19:
+                Require(!view.DraftPrompt.Visible && !state.Active && !state.HasDraft &&
+                        session.Query(CellToolCommittedCellForRun).Voxel is not null,
+                    $"discard did not complete the guarded tool switch while preserving committed state: prompt={view.DraftPrompt.Visible} active={state.Active} draft={state.HasDraft} committed={session.Query(CellToolCommittedCellForRun).Voxel is not null}");
+                Click(view.VoxelToolButton);
+                _phase++;
+                return;
+            case 20:
+                Require(state.Active && !state.HasDraft, "plane-switch fixture did not activate its tool");
+                state.SetExact(new WorldVoxelCoord(7, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
+                ReplaceNumber(view.HeightInput, 4);
+                _phase++;
+                return;
+            case 21:
+                Require(view.DraftPrompt.Visible && state.HasDraft && state.Height == 3,
+                    "changing plane height did not keep the original plane behind a draft decision");
+                Click(view.DraftDiscardButton);
+                _phase++;
+                return;
+            case 22:
+                Require(!state.HasDraft && state.Height == 4,
+                    $"discarding the plane-switch draft did not apply the requested height: height={state.Height} input={view.HeightInput.Value} draft={state.HasDraft} prompt={view.DraftPrompt.Visible}");
+                ReplaceNumber(view.HeightInput, 3);
+                _phase++;
+                return;
+            case 23:
+                Require(state.Height == 3 && !state.HasDraft, "plane-switch continuation did not return to its original height");
+                Click(view.SelectToolButton);
+                _phase++;
+                return;
+            case 24:
+                Require(!state.Active && !state.HasDraft && session.Query(CellToolCollisionCell).Voxel is null,
+                    "collision replacement fixture did not start from an isolated empty cell");
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Add,
+                        new VoxelCellContent(WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity))
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied },
+                    "formal cell-set could not add the full-box collision fixture");
+                _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
+                _phase++;
+                return;
+            case 25:
+                if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
+                    return;
+                RequirePublishedCollision(
+                    CellToolCollisionCell,
+                    new VoxelCollisionBox(12.78, 2.38, 12.48, 12.82, 2.42, 12.52),
+                    new Vector3(11.5f, 2.5f, 12.5f),
+                    new Vector3(13.5f, 2.5f, 12.5f),
+                    12f);
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Replace,
+                        new VoxelCellContent(LedgeDefinition, VoxelOrientation.Identity))
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied },
+                    "formal cell-set could not replace full-box with identity local-box");
+                _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
+                _phase++;
+                return;
+            case 26:
+                if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
+                    return;
+                RequirePublishedCollision(
+                    CellToolCollisionCell,
+                    new VoxelCollisionBox(12.18, 2.08, 12.48, 12.22, 2.12, 12.52),
+                    new Vector3(11.5f, 2.5f, 12.5f),
+                    new Vector3(13.5f, 2.5f, 12.5f),
+                    12.125f);
+                Require(!scene.Colliders.QueryPublishedHits(scene.GetWorld3D(),
+                        new VoxelCollisionBox(12.68, 2.38, 12.48, 12.72, 2.42, 12.52))
+                        .Contains(CellToolCollisionCell),
+                    "identity local-box replacement retained the old full-box collider");
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Replace,
+                        new VoxelCellContent(LedgeDefinition, VoxelOrientation.Yaw90))
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied },
+                    "formal cell-set could not replace the local-box orientation");
+                _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
+                _phase++;
+                return;
+            case 27:
+                if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
+                    return;
+                Require(!scene.Colliders.QueryPublishedHits(scene.GetWorld3D(),
+                        new VoxelCollisionBox(12.18, 2.08, 12.48, 12.22, 2.12, 12.52))
+                        .Contains(CellToolCollisionCell),
+                    "orientation replacement retained the identity local-box collider");
+                RequirePublishedCollision(
+                    CellToolCollisionCell,
+                    new VoxelCollisionBox(12.48, 2.38, 12.18, 12.52, 2.42, 12.22),
+                    new Vector3(12.5f, 2.5f, 11.5f),
+                    new Vector3(12.5f, 2.5f, 13.5f),
+                    12.125f);
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Remove, null)
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied },
+                    "formal cell-set could not clean up the collision fixture");
+                Require(session.Query(CellToolCollisionCell).Voxel is null,
+                    "collision fixture cleanup did not restore the blank world cell");
+                Click(view.VoxelToolButton);
+                _phase = 29;
+                return;
+            case 29:
+                Require(state.Active && !state.HasDraft && state.Definitions.Contains(LedgeDefinition),
+                    "missing-definition fixture could not activate with the unused ledge definition available");
+                state.SetSettings(LedgeDefinition, VoxelOrientation.Identity, VoxelCellOperation.Add);
+                view.Present();
+                ReplaceNumber(view.CoordinateInputs[0], CellToolMissingDefinitionCell.X);
+                ReplaceNumber(view.CoordinateInputs[1], CellToolMissingDefinitionCell.Y);
+                ReplaceNumber(view.CoordinateInputs[2], CellToolMissingDefinitionCell.Z);
+                _phase++;
+                return;
+            case 30:
+                Require(state.HasDraft && state.Position == CellToolMissingDefinitionCell &&
+                        state.DefinitionId == LedgeDefinition && state.Preview.Succeeded,
+                    "exact keyboard input did not create the isolated missing-definition draft");
+                var catalog = scene.GetNode<Main>("/root/Main").Reloader?.Catalog
+                    ?? throw new InvalidOperationException("content catalog is unavailable");
+                _catalogBeforeMissingDefinition = catalog.Current
+                    ?? throw new InvalidOperationException("published voxel catalog is unavailable");
+                Require(!session.World.OccupiedVoxels().Any(item => item.Value.DefinitionId == LedgeDefinition),
+                    "missing-definition fixture selected a definition already used by the world");
+                catalog.Publish(new VoxelCatalogSnapshot(
+                    _catalogBeforeMissingDefinition.Generation + 1,
+                    _catalogBeforeMissingDefinition.Entries
+                        .Where(item => item.Key != LedgeDefinition)
+                        .ToDictionary(item => item.Key, item => item.Value)));
+                view.Present();
+                ReplaceNumber(view.CoordinateInputs[0], CellToolMissingDefinitionCell.X + 1);
+                _phase++;
+                return;
+            case 31:
+                Require(state.HasDraft && state.Position == CellToolMissingDefinitionCell &&
+                        state.DefinitionId == LedgeDefinition && state.CurrentEdit.Targets.Single().Content?.DefinitionId == LedgeDefinition &&
+                        state.Preview.Status == VoxelCellSetStatus.UnknownDefinition,
+                    "keyboard input after content removal crashed, rewrote the draft, or lost UnknownDefinition");
+                var restoreCatalog = scene.GetNode<Main>("/root/Main").Reloader?.Catalog
+                    ?? throw new InvalidOperationException("content catalog is unavailable during restore");
+                restoreCatalog.Publish(new VoxelCatalogSnapshot(
+                    restoreCatalog.Current!.Generation + 1,
+                    _catalogBeforeMissingDefinition!.Entries));
+                view.Present();
+                _cellToolDefinitionIndex = state.Definitions.ToList().IndexOf(_cellToolDefinition);
+                Require(_cellToolDefinitionIndex >= 0, "restored catalog omitted the valid cell-tool definition");
+                Click(view.DefinitionInput);
+                _phase++;
+                return;
+            case 32:
+                Require(view.DefinitionInput.GetPopup().Visible,
+                    "definition popup did not reopen after restoring content");
+                ChooseOpenOption(view.DefinitionInput, _cellToolDefinitionIndex);
+                _phase++;
+                return;
+            case 33:
+                Require(state.HasDraft && state.DefinitionId == _cellToolDefinition && state.Preview.Succeeded,
+                    "reselecting a valid definition did not allow the preserved draft to continue editing");
+                Click(view.DiscardButton);
+                Click(view.SelectToolButton);
+                _phase = 40;
+                return;
+            case 40:
+                Require(!state.Active && !state.HasDraft, "target-switch fixture did not activate the selection tool");
+                var pending = new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(CellToolPendingCell, VoxelCellOperation.Add,
+                        new VoxelCellContent(state.DefinitionId, state.Orientation))
+                });
+                Require(session.SubmitEdit(pending, 3).Accepted && session.QueryPendingEdits().Count == 1,
+                    "cell-tool continuation fixture was not accepted as pending formal input");
+                scene.SetSaveName("单格工具跨进程验证");
+                var saved = scene.SaveWorld();
+                Require(saved.Succeeded && saved.SaveId.HasValue && !state.HasDraft &&
+                        session.Query(CellToolCommittedCellForRun).Voxel is not null &&
+                        session.Query(CellToolPendingCell).Voxel is null,
+                    "cell-tool save did not capture committed and pending state without its draft");
+                state.SetExact(new WorldVoxelCoord(7, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
+                Require(state.HasDraft && scene.SaveWorld().Succeeded && state.HasDraft,
+                    "ordinary save discarded the cell draft");
+                ClickAt(WorldScreen(CellToolCommittedCellForRun));
+                _phase++;
+                return;
+            case 41:
+                Require(view.DraftPrompt.Visible && state.HasDraft,
+                    "real target click did not require an explicit draft decision");
+                Click(view.DraftDiscardButton);
+                _phase++;
+                return;
+            case 42:
+                Require(!state.HasDraft && scene.Observation!.Observer.Selection is { Kind: ObservedObjectKind.WorldCell } selected &&
+                        selected.Cell == CellToolCommittedCellForRun,
+                    "discarding the target-switch draft did not select the clicked committed cell");
+                scene.SetEditInputs(new WorldVoxelCoord(15, 4, 10), default, 1, 0);
+                scene.ApplyOperation(scene.EditOperation("edit_manufacture"));
+                Require(session.Vehicles.Count == 1, "level-switch fixture vehicle could not be manufactured");
+                var vehicle = session.Vehicles.Single().Id;
+                var observation = scene.Observation ?? throw new InvalidOperationException("observation view is unavailable");
+                Require(observation.Observer.Select(ObservedObject.Vehicle(vehicle)) == WorldEditorObservationStatus.Selected &&
+                        observation.Observer.EnterVehicleParts() == WorldEditorObservationStatus.Selected,
+                    "level-switch fixture could not enter vehicle parts");
+                state.SetExact(new WorldVoxelCoord(8, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
+                _phase++;
+                return;
+            case 43:
+                Click(scene.Observation!.ActionButton("whole"));
+                _phase++;
+                return;
+            case 44:
+                Require(view.DraftPrompt.Visible && state.HasDraft && scene.Observation!.Observer.PartVehicleId is not null,
+                    "level switch did not require an explicit draft decision");
+                Click(view.DraftCommitButton);
+                _phase++;
+                return;
+            case 45:
+                Require(!state.HasDraft && scene.Observation!.Observer.PartVehicleId is null &&
+                        session.Query(new WorldVoxelCoord(8, 3, 5)).Voxel is not null,
+                    "committing the level-switch draft did not apply it and return to the whole vehicle");
+                state.SetExact(new WorldVoxelCoord(9, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
+                Click(scene.ActionButton("workspace"));
+                _phase++;
+                return;
+            case 46:
+                Require(scene.PromptVisible && state.HasDraft && scene.WorldChangePrompt?.Visible == true,
+                    "leaving the world did not route its draft through the unified protection");
+                Click(scene.DraftLeaveDiscardButton);
+                _phase++;
+                return;
+            case 47:
+                Require(scene.PromptVisible && !state.HasDraft,
+                    "leaving draft discard did not return to the remaining unsaved-world decision");
+                Click(scene.WorldChangePrompt?.CancelButton ?? throw new InvalidOperationException("leave cancel is unavailable"));
+                _phase++;
+                return;
+            case 48:
+                Require(!scene.PromptVisible && scene.GetTree().CurrentScene == scene,
+                    "cancelling after the draft decision left the editor");
+                GD.Print($"WORKSPACE_CELL_TOOL_INPUT height={state.Height} mouse_cell={CellToolCommittedCellForRun} settings_follow=true replace_collision=true missing_definition_kept=true exact_shared=true rejected_kept=true tool_guard=discard target_guard=discard level_guard=commit leave_guard=discard save_kept_draft=true");
+                GD.Print($"WORKSPACE_CELL_TOOL_SAVED id={session.SaveId.GetValueOrDefault():D} committed=true pending=1 draft=false");
+                _finished = true;
+                Done(scene);
+                return;
+        }
+    }
+
+    private WorldVoxelCoord CellToolCommittedCellForRun { get; set; }
+
+    private void RequirePublishedCollision(
+        WorldVoxelCoord cell,
+        VoxelCollisionBox probe,
+        Vector3 rayFrom,
+        Vector3 rayTo,
+        float expectedRayCoordinate)
+    {
+        Require(scene.Session!.QueryCollision(probe).Hits.Any(hit => hit.Cell == cell),
+            $"domain collision omitted {cell} for the expected shape pocket");
+        Require(scene.Colliders.QueryPublishedHits(scene.GetWorld3D(), probe).Contains(cell),
+            $"published collision omitted {cell} for the expected shape pocket");
+        var ray = scene.Colliders.QueryPublishedRay(scene.GetWorld3D(), rayFrom, rayTo);
+        var actualCoordinate = rayFrom.X != rayTo.X ? ray?.Position.X : ray?.Position.Z;
+        Require(ray?.Cell == cell && actualCoordinate.HasValue && Math.Abs(actualCoordinate.Value - expectedRayCoordinate) < 0.02f,
+            $"published ray hit {ray?.Cell} at {actualCoordinate}, expected {cell} near {expectedRayCoordinate}");
+    }
+
+    private void AdvanceCellToolResume(VoxelDevelopmentSession session, WorldEditorVoxelToolView view, WorldEditorVoxelTool state)
+    {
+        switch (_phase)
+        {
+            case 0:
+                Require(session.SaveId == RequiredId(CellToolSaveIdEnvironmentVariable) && session.SimulationPaused &&
+                        session.World.VoxelCount == 1 && session.QueryPendingEdits().Count == 1 && !state.HasDraft &&
+                        session.Query(CellToolPendingCell).Voxel is null,
+                    "fresh process did not restore committed and pending cell edits without a UI draft");
+                Click(view.VoxelToolButton);
+                ReplaceNumber(view.HeightInput, 4);
+                _phase++;
+                return;
+            case 1:
+                Require(state.Active && state.Height == 4 && !state.HasDraft,
+                    "continued cell tool did not accept the horizontal plane input");
+                var world = ScreenCenter(scene.Observation!.WorldRect);
+                Motion(world);
+                _phase++;
+                return;
+            case 2:
+                CellToolCommittedCellForRun = state.Position;
+                Require(state.Position.Y == 4 && state.Preview.Succeeded && !state.HasDraft,
+                    "continued blank plane did not expose an empty mouse target");
+                ClickAt(ScreenCenter(scene.Observation!.WorldRect));
+                _phase++;
+                return;
+            case 3:
+                Require(session.Query(CellToolCommittedCellForRun).Voxel is not null && !state.HasDraft,
+                    "fresh process could not continue editing through real mouse input");
+                scene.Press("run");
+                _phase++;
+                return;
+            case 4 when session.SimulationStep < 3:
+                return;
+            case 4:
+                scene.Press("pause");
+                scene.Refresh();
+                Require(session.Query(CellToolPendingCell).Voxel is not null && session.QueryPendingEdits().Count == 0 &&
+                        session.Query(CellToolCommittedCellForRun).Voxel is not null && !state.HasDraft,
+                    "continued process did not execute the restored pending edit and keep its mouse edit");
+                var saved = scene.SaveWorld();
+                Require(saved.Succeeded && saved.SaveId == session.SaveId && !session.HasUnsavedChanges,
+                    "continued cell-tool world was not saved back to its own identity");
+                GD.Print("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false");
+                _finished = true;
+                Done(scene);
+                return;
+        }
+    }
+
+    private static Vector2 ScreenCenter(Rect2 globalRect)
+    {
+        var viewport = Engine.GetMainLoop() as SceneTree ?? throw new InvalidOperationException("scene tree is unavailable");
+        return viewport.Root.GetScreenTransform() * globalRect.GetCenter();
+    }
+
+    private Vector2 WorldScreen(WorldVoxelCoord cell)
+    {
+        var viewport = scene.GetViewport();
+        var point = scene.Camera.UnprojectPosition(new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f));
+        return viewport.GetScreenTransform() * point;
+    }
+
+    private Vector2 PlaneScreen(WorldVoxelCoord cell) => scene.GetViewport().GetScreenTransform() *
+        scene.Camera.UnprojectPosition(new Vector3(cell.X + 0.5f, cell.Y, cell.Z + 0.5f));
+
+    private static void Click(Control control) =>
+        ClickAt(control.GetViewport().GetScreenTransform() * control.GetGlobalRect().GetCenter());
+
+    private static void ClickAt(Vector2 position)
+    {
+        Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, Pressed = true, Position = position, GlobalPosition = position });
+        Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, Pressed = false, Position = position, GlobalPosition = position });
+    }
+
+    private static void Motion(Vector2 position) => Input.ParseInputEvent(new InputEventMouseMotion
+        { Position = position, GlobalPosition = position });
+
+    private static void ReplaceNumber(SpinBox input, int value)
+    {
+        Click(input.GetLineEdit());
+        SendKey(Godot.Key.A, pressed: true, ctrl: true);
+        SendKey(Godot.Key.A, pressed: false, ctrl: true);
+        foreach (var character in value.ToString(System.Globalization.CultureInfo.InvariantCulture))
+        {
+            var key = character == '-' ? Godot.Key.Minus : (Godot.Key)((long)Godot.Key.Key0 + character - '0');
+            Input.ParseInputEvent(new InputEventKey { Keycode = key, Unicode = character, Pressed = true });
+            Input.ParseInputEvent(new InputEventKey { Keycode = key, Unicode = character, Pressed = false });
+        }
+        SendKey(Godot.Key.Enter, pressed: true);
+        SendKey(Godot.Key.Enter, pressed: false);
+    }
+
+    private static void ChooseOpenOption(OptionButton input, int index)
+    {
+        var focused = input.GetPopup().GetFocusedItem();
+        var steps = focused < 0 ? index + 1 : (index - focused + input.ItemCount) % input.ItemCount;
+        for (var item = 0; item < steps; item++)
+        {
+            SendKey(Godot.Key.Down, pressed: true);
+            SendKey(Godot.Key.Down, pressed: false);
+        }
+        SendKey(Godot.Key.Enter, pressed: true);
+        SendKey(Godot.Key.Enter, pressed: false);
+    }
+
+    private static void SendKey(Godot.Key key, bool pressed, bool ctrl = false) => Input.ParseInputEvent(new InputEventKey
+        { Keycode = key, PhysicalKeycode = key, Pressed = pressed, CtrlPressed = ctrl });
 
     private void RequireExampleBoundary(VoxelDevelopmentSession session)
     {

@@ -55,6 +55,8 @@ public partial class WorldEditorObservationView : Node3D
     private bool _dragging;
 
     public WorldEditorObserver Observer { get; private set; } = null!;
+    internal Func<Vector2, bool, bool>? CellPointer { get; set; }
+    internal Action<Action>? DraftGuard { get; set; }
     internal WorldEditorPick? LastPick { get; private set; }
     internal bool HighlightVisible => _highlight.Visible;
     internal string ModeText => _mode.Text;
@@ -137,6 +139,8 @@ public partial class WorldEditorObservationView : Node3D
                 : null;
         }
         var status = item is { } picked ? Observer.Select(picked) : (WorldEditorObservationStatus?)null;
+        if (status == WorldEditorObservationStatus.DraftRequired && item is { } blocked)
+            DraftGuard?.Invoke(() => Observer.Select(blocked));
         LastPick = new WorldEditorPick(screen, item, status, vehicle, world?.Cell, worldDistance);
         _action.Text = item is null ? "点选：未命中对象，选择不变" : $"点选：{item.Value.DescribeZh()} → {status}";
         UpdatePanel();
@@ -171,6 +175,12 @@ public partial class WorldEditorObservationView : Node3D
     {
         if (Observer is null || _consoleOpen())
             return;
+        if (@event is InputEventMouseMotion hover && !_dragging &&
+            CellPointer?.Invoke(_worldInput.GetGlobalTransformWithCanvas() * hover.Position, false) == true)
+        {
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left or MouseButton.Right })
             _worldInput.GrabFocus();
         if (!WorldHasInput)
@@ -186,7 +196,9 @@ public partial class WorldEditorObservationView : Node3D
         switch (@event)
         {
             case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } click:
-                Pick(_worldInput.GetGlobalTransformWithCanvas() * click.Position);
+                var screen = _worldInput.GetGlobalTransformWithCanvas() * click.Position;
+                if (CellPointer?.Invoke(screen, true) != true)
+                    Pick(screen);
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right } right:
                 _dragging = right.Pressed;
@@ -255,9 +267,9 @@ public partial class WorldEditorObservationView : Node3D
         AddButton(controls, "focus", "聚焦选中", () => Report("聚焦", Observer.FocusSelection(_sample)));
         AddButton(controls, "follow", "跟随选中", () => Report("跟随", Observer.FollowSelection(_sample)));
         AddButton(controls, "free", "自由观察", () => Report("自由观察", Observer.Free()));
-        AddButton(controls, "clear", "清除选择", () => Report("清除选择", Observer.ClearSelection()));
-        AddButton(controls, "parts", "进入车辆零件", () => Report("进入零件层级", Observer.EnterVehicleParts()));
-        AddButton(controls, "whole", "返回整体", () => Report("返回整体", Observer.ReturnToWhole()));
+        AddButton(controls, "clear", "清除选择", () => ChangeTarget(() => Report("清除选择", Observer.ClearSelection())));
+        AddButton(controls, "parts", "进入车辆零件", () => ChangeTarget(() => Report("进入零件层级", Observer.EnterVehicleParts())));
+        AddButton(controls, "whole", "返回整体", () => ChangeTarget(() => Report("返回整体", Observer.ReturnToWhole())));
         _action = new Label { Text = "左键点选 · 右键拖动转向 · 滚轮推拉 · WASD/QE 飞行 · F 聚焦 · V 跟随 · C 自由" };
         _action.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         box.AddChild(_action);
@@ -271,7 +283,10 @@ public partial class WorldEditorObservationView : Node3D
         _list.ItemSelected += index =>
         {
             if (index >= 0 && index < _entries.Count)
-                Report(_entries[(int)index].Object.DescribeZh(), Observer.Select(_entries[(int)index].Object));
+            {
+                var item = _entries[(int)index].Object;
+                ChangeTarget(() => Report(item.DescribeZh(), Observer.Select(item)));
+            }
         };
         box.AddChild(_list);
 
@@ -280,6 +295,16 @@ public partial class WorldEditorObservationView : Node3D
         _notice = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         _notice.AddThemeColorOverride("font_color", new Color(1f, 0.75f, 0.3f));
         box.AddChild(_notice);
+    }
+
+    internal Button ActionButton(string action) => _buttons[action];
+
+    private void ChangeTarget(Action action)
+    {
+        if (_session.HasEditorDraft)
+            DraftGuard?.Invoke(action);
+        else
+            action();
     }
 
     private void AddButton(Container parent, string id, string text, Action action)

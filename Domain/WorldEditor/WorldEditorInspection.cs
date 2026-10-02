@@ -97,13 +97,10 @@ public static class WorldEditorInspector
 
     /// <summary>A rail voxel belongs to its segment; shared endpoint cells resolve to the lowest stable segment id.</summary>
     public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        HasRailVoxel(session, cell) && session.Rails.TryGetOccupancy(cell, out var occupancy) && occupancy.Supports.Count > 0
-            ? ObservedObject.Segment(occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId)
+        session.TryRailOwner(cell, out var segmentId)
+            ? ObservedObject.Segment(segmentId)
             : ObservedObject.WorldCell(cell);
 
-    private static bool HasRailVoxel(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        !session.Rails.IsDestroyed(cell) && session.World.Query(cell).Voxel is { } voxel &&
-        voxel.DefinitionId == StraightRailFixture.RailDefinitionId;
 
     private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
     {
@@ -253,7 +250,7 @@ public static class WorldEditorInspector
         if (query.Voxel is not { } voxel || voxel.RuntimeId != item.RuntimeId)
             return null;
         var owners = new List<string>();
-        if (HasRailVoxel(session, item.Cell) && session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
+        if (session.HasRailVoxel(item.Cell) && session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
             owners.Add("rail segment " + string.Join(',', occupancy.Supports.Select(support => Number(support.SegmentId.Value)).Distinct()));
         if (voxel.RuntimeId is { } runtime)
             owners.Add("detached part runtime " + Number(runtime.Value));

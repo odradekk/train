@@ -1,6 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
+using Train.Domain.Rails;
 using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Logging;
@@ -118,6 +119,43 @@ public sealed class WorldEditEntryTests
         StringAssert.Contains(text, "Edit SimulationFaulted.");
         StringAssert.Contains(text, "Usage: voxel reset");
         Assert.AreEqual(0, session.QueryComposites().Count);
+    }
+
+    [TestMethod]
+    public void Console_cell_conflicts_report_the_owning_rail_and_vehicle_part()
+    {
+        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
+        using var logger = LoggerSession.Create();
+        var session = worldEditor.Session;
+        var dispatcher = Dispatcher(logger, session);
+
+        var railCell = StraightRailFixture.FirstSegmentDamageCell;
+        var railId = session.Rails.Segments[0].Id;
+        dispatcher.Execute($"voxel cell remove {railCell.X} {railCell.Y} {railCell.Z}");
+
+        var vehicle = session.QueryComposites().First();
+        WorldVoxelCoord vehicleCell = default;
+        EntityId partId = default;
+        foreach (var part in vehicle.Parts)
+        {
+            var center = vehicle.Transform.TransformPoint(part.Cell.X + 0.5, part.Cell.Y + 0.5, part.Cell.Z + 0.5);
+            var candidate = new WorldVoxelCoord((int)Math.Floor(center.X), (int)Math.Floor(center.Y), (int)Math.Floor(center.Z));
+            if (!session.World.Bounds.Contains(candidate) ||
+                session.Query(candidate).IsOccupied ||
+                session.Rails.TryGetOccupancy(candidate, out _))
+                continue;
+            vehicleCell = candidate;
+            partId = part.Id;
+            break;
+        }
+        Assert.AreNotEqual(default, partId, "Fixture must expose a vehicle-owned cell away from railway occupancy.");
+        dispatcher.Execute($"voxel cell add {vehicleCell.X} {vehicleCell.Y} {vehicleCell.Z} {WorldEditorSequences.EditVoxelId.Value} {VoxelOrientation.Identity}");
+
+        var text = Messages(logger);
+        StringAssert.Contains(text, $"Edit 1 voxel.cell-set rejected RailOccupied");
+        StringAssert.Contains(text, $"conflict rail-segment {railId} at ({railCell.X}, {railCell.Y}, {railCell.Z})");
+        StringAssert.Contains(text, $"Edit 2 voxel.cell-set rejected VehicleOccupied");
+        StringAssert.Contains(text, $"conflict vehicle {vehicle.Id} part {partId} at ({vehicleCell.X}, {vehicleCell.Y}, {vehicleCell.Z})");
     }
 
     internal static ConsoleCommandDispatcher Dispatcher(LoggerSession logger, VoxelDevelopmentSession session) =>

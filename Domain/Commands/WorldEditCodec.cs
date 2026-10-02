@@ -17,7 +17,7 @@ public enum WorldEditDecodeStatus
 }
 
 /// <summary>
-/// Canonical encoding of parsed world edits (input format version 1). See docs/design/04 for the contract:
+/// Canonical encoding of parsed world edits. See docs/design/04 for the contract:
 /// compact UTF-8 JSON, fixed field order, ordinal ASCII identifiers, sorted unordered target sets, preserved
 /// ordered operation lists, i32 coordinates and amounts, non-zero u64 runtime ids, and finite doubles written
 /// as the shortest culture-invariant round-trip text.
@@ -47,6 +47,7 @@ public static class WorldEditCodec
         WorldEditKind.TrainStart => "train.start",
         WorldEditKind.TrainStop => "train.stop",
         WorldEditKind.ContentPublish => "content.publish",
+        WorldEditKind.VoxelCellSet => "voxel.cell-set",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 
@@ -185,7 +186,6 @@ public static class WorldEditCodec
             return false;
         if (!TryParseWireKind(kindElement.GetString(), out var kind))
             return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
-
         var read = kind switch
         {
             WorldEditKind.VoxelAdd => TryReadVoxelAdd(fields, out edit, out status),
@@ -200,6 +200,7 @@ public static class WorldEditCodec
             WorldEditKind.TrainStart => TryReadTrainCommand(fields, start: true, out edit, out status),
             WorldEditKind.TrainStop => TryReadTrainCommand(fields, start: false, out edit, out status),
             WorldEditKind.ContentPublish => TryReadContentPublish(fields, out edit, out status),
+            WorldEditKind.VoxelCellSet => TryReadVoxelCellSet(fields, out edit, out status),
             _ => Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat)
         };
         return read && fields.TryFinish(out status);
@@ -323,6 +324,28 @@ public static class WorldEditCodec
             case ContentPublishEdit publish:
                 writer.WriteString("content_digest", publish.ContentDigest);
                 break;
+            case VoxelCellSetEdit cells:
+                writer.WriteStartArray("targets");
+                foreach (var target in cells.Targets)
+                {
+                    writer.WriteStartObject();
+                    WriteCoord(writer, "position", target.Position.X, target.Position.Y, target.Position.Z);
+                    writer.WriteString("operation", CellOperationWire(target.Operation));
+                    if (target.Content is { } content)
+                    {
+                        writer.WriteStartObject("content");
+                        writer.WriteString("definition_id", content.DefinitionId.Value);
+                        writer.WriteString("orientation", content.Orientation.ToString());
+                        writer.WriteEndObject();
+                    }
+                    else
+                    {
+                        writer.WriteNull("content");
+                    }
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(edit), edit.Kind, "Unknown world edit.");
         }
@@ -370,6 +393,14 @@ public static class WorldEditCodec
         CompositeRefitKind.Rotate => "rotate",
         CompositeRefitKind.Replace => "replace",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+    };
+
+    private static string CellOperationWire(VoxelCellOperation operation) => operation switch
+    {
+        VoxelCellOperation.Add => "add",
+        VoxelCellOperation.Remove => "remove",
+        VoxelCellOperation.Replace => "replace",
+        _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
     };
 
     private static void WriteCoord(Utf8JsonWriter writer, string name, int x, int y, int z)
@@ -521,6 +552,53 @@ public static class WorldEditCodec
 
         edit = new VoxelDamageEdit(targets);
         return true;
+    }
+
+    private static bool TryReadVoxelCellSet(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
+    {
+        edit = null!;
+        if (!fields.TryTake("targets", JsonValueKind.Array, out var array, out status))
+            return false;
+        var targets = new List<VoxelCellTarget>();
+        foreach (var item in array.EnumerateArray())
+        {
+            if (!Fields.TryOpen(item, out var target, out status) ||
+                !target.TryCoord("position", out var x, out var y, out var z, out status) ||
+                !target.TryTake("operation", JsonValueKind.String, out var operationElement, out status) ||
+                !target.TryTakeAny("content", out var contentElement, out status))
+                return false;
+            if (!TryCellOperation(operationElement.GetString(), out var operation))
+                return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
+            VoxelCellContent? content = null;
+            if (contentElement.ValueKind != JsonValueKind.Null)
+            {
+                if (!Fields.TryOpen(contentElement, out var contentFields, out status) ||
+                    !contentFields.TryVoxelDefinition("definition_id", out var definition, out status) ||
+                    !contentFields.TryOrientation("orientation", out var orientation, out status) ||
+                    !contentFields.TryFinish(out status))
+                    return false;
+                content = new VoxelCellContent(definition, orientation);
+            }
+            if (!target.TryFinish(out status))
+                return false;
+            targets.Add(new VoxelCellTarget(new WorldVoxelCoord(x, y, z), operation, content));
+        }
+        edit = new VoxelCellSetEdit(targets);
+        return true;
+    }
+
+    private static bool TryCellOperation(string? text, out VoxelCellOperation operation)
+    {
+        foreach (var candidate in Enum.GetValues<VoxelCellOperation>())
+        {
+            if (string.Equals(CellOperationWire(candidate), text, StringComparison.Ordinal))
+            {
+                operation = candidate;
+                return true;
+            }
+        }
+        operation = default;
+        return false;
     }
 
     private static bool TryReadManufacture(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)
@@ -778,6 +856,17 @@ public static class WorldEditCodec
                 return false;
             }
 
+            status = WorldEditDecodeStatus.Decoded;
+            return true;
+        }
+
+        public bool TryTakeAny(string name, out JsonElement value, out WorldEditDecodeStatus status)
+        {
+            if (!_remaining.Remove(name, out value))
+            {
+                status = WorldEditDecodeStatus.Invalid;
+                return false;
+            }
             status = WorldEditDecodeStatus.Decoded;
             return true;
         }

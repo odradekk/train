@@ -32,10 +32,20 @@ internal static class WorldEditConsole
             return $"Edit {submission.Refusal}.";
         var record = submission.Record!;
         var head = $"Edit {record.Id} {WorldEditCodec.WireKind(record.Edit.Kind)}";
-        return record.State == WorldEditState.Pending
+        var text = record.State == WorldEditState.Pending
             ? string.Join('\n', $"{head} pending", $"accepted {record.AcceptedAt} target {record.TargetStep}")
             : string.Join('\n', $"{head} {WorldEditCodec.WireState(record.State)} {record.Status}", $"accepted {record.AcceptedAt} executed {record.ExecutedAt}");
+        return submission.Result is VoxelCellSetResult cells && cells.OwnerKind != VoxelCellOwnerKind.None
+            ? string.Join('\n', text, FormatCellConflict(cells))
+            : text;
     }
+
+    private static string FormatCellConflict(VoxelCellSetResult result) => result.OwnerKind switch
+    {
+        VoxelCellOwnerKind.RailSegment => $"conflict rail-segment {result.OwnerId} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})",
+        VoxelCellOwnerKind.VehiclePart => $"conflict vehicle {result.OwnerId} part {result.PartId} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})",
+        _ => throw new ArgumentOutOfRangeException(nameof(result), "Cell conflict owner must be defined.")
+    };
 
     public static string? Execute(VoxelDevelopmentSession session, IReadOnlyList<string> arguments)
     {

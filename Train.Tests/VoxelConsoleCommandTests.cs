@@ -1,5 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
+using Train.Domain.Commands;
+using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Logging;
 
@@ -10,6 +12,89 @@ namespace Train.Tests;
 [TestCategory("scope:voxels")]
 public sealed class VoxelConsoleCommandTests
 {
+    [TestMethod]
+    public void Console_save_reports_that_the_editor_draft_is_retained_and_excluded()
+    {
+        using var harness = WorldEditorHarness.Content();
+        Assert.IsTrue(BlankWorldSource.TryIdentity(16, 8, 16, 12, out var identity));
+        harness.Attach(BlankWorldSource.Establish(identity, harness.Catalog, harness.Composites, harness.Store));
+        var session = harness.Session;
+        using var tool = new WorldEditorVoxelTool(session);
+        var cell = new WorldVoxelCoord(1, 2, 1);
+        tool.SetExact(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity, VoxelCellOperation.Add);
+
+        var result = new VoxelConsoleCommands(session).Execute(["save", "Draft excluded"]);
+
+        StringAssert.Contains(result, "Voxel Saved.");
+        StringAssert.Contains(result, "draft retained; not included in save");
+        Assert.IsTrue(session.HasEditorDraft);
+        Assert.IsFalse(session.Query(cell).IsOccupied);
+        var restored = new VoxelDevelopmentSession(harness.Catalog, session.Identity, harness.Store, harness.Composites);
+        try
+        {
+            Assert.IsTrue(restored.Load(session.SaveId!.Value).Succeeded);
+            Assert.IsFalse(restored.Query(cell).IsOccupied);
+            Assert.IsFalse(restored.HasEditorDraft);
+        }
+        finally
+        {
+            restored.Detach();
+        }
+    }
+
+    [TestMethod]
+    public void Console_cell_commands_submit_formal_add_replace_remove_edits()
+    {
+        using var logger = LoggerSession.Create();
+        var source = ContentFixtures.ValidFerrousOre();
+        var reloader = ContentFixtures.Create(source, logger.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
+        var dispatcher = new ConsoleCommandDispatcher(
+            logger.Logger,
+            static () => { },
+            static () => { },
+            static () => { },
+            allowReload: true,
+            new VoxelConsoleCommands(voxelSession));
+
+        dispatcher.Execute("voxel cell add 0 0 0 core:ferrous-ore px_py");
+        dispatcher.Execute("voxel cell replace 0 0 0 core:ferrous-ore pz_py");
+        dispatcher.Execute("voxel cell remove 0 0 0 at 2");
+
+        var records = voxelSession.QueryEditLog();
+        Assert.AreEqual(2, records.Count);
+        Assert.IsTrue(records.All(record => record.Edit.Kind == WorldEditKind.VoxelCellSet));
+        Assert.AreEqual("Applied", records[0].Status);
+        Assert.AreEqual(VoxelOrientation.Yaw90, voxelSession.Query(new WorldVoxelCoord(0, 0, 0)).Voxel!.Orientation);
+        var pending = voxelSession.QueryPendingEdits().Single();
+        Assert.AreEqual(WorldEditKind.VoxelCellSet, pending.Edit.Kind);
+        Assert.AreEqual(2UL, pending.TargetStep);
+
+        var messages = string.Join('\n', logger.Memory.Snapshot()
+            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
+            .Select(item => item.Message));
+        StringAssert.Contains(messages, "Edit 1 voxel.cell-set executed Applied");
+        StringAssert.Contains(messages, "Edit 2 voxel.cell-set executed Applied");
+        StringAssert.Contains(messages, "Edit 3 voxel.cell-set pending");
+    }
+
+    [TestMethod]
+    public void Console_cell_rejects_invalid_syntax_without_consuming_an_edit_id()
+    {
+        using var logger = LoggerSession.Create();
+        var source = ContentFixtures.ValidFerrousOre();
+        var reloader = ContentFixtures.Create(source, logger.Logger);
+        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
+        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
+        var commands = new VoxelConsoleCommands(voxelSession);
+
+        StringAssert.Contains(commands.Execute(["cell", "replace", "4", "4", "4", "core:ferrous-ore"]), "Usage:");
+        StringAssert.Contains(commands.Execute(["cell", "remove", "4", "4", "4", "at", "soon"]), "Usage:");
+        Assert.AreEqual(1UL, voxelSession.NextEditId);
+        Assert.AreEqual(0UL, voxelSession.EditLogCount);
+    }
+
     [TestMethod]
     public void Console_uses_the_development_sessions_formal_world_commands_and_query()
     {
