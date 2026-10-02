@@ -22,7 +22,7 @@ internal sealed record WorldEditorBoxSelection(IReadOnlyList<ObservedObject> Obj
 
 /// <summary>
 /// Godot adapter for <see cref="WorldEditorObserver"/>: drives the camera from its pose, draws the selection
-/// highlight, and hosts the object list / inspection panel and observation input. It never touches the session.
+/// highlight, and hosts the object list / inspection panel and observation input. Batch actions use the shared voxel draft.
 /// </summary>
 public partial class WorldEditorObservationView : Node3D
 {
@@ -364,7 +364,12 @@ public partial class WorldEditorObservationView : Node3D
         AddButton(controls, "focus", "聚焦选中", () => Report("聚焦", Observer.FocusSelection(_sample)));
         AddButton(controls, "follow", "跟随选中", () => Report("跟随", Observer.FollowSelection(_sample)));
         AddButton(controls, "free", "自由观察", () => Report("自由观察", Observer.Free()));
-        AddButton(controls, "clear", "清除选择", () => ChangeTarget(() => Report("清除选择", Observer.ClearSelection())));
+        AddButton(controls, "clear", "清除选择", () => ChangeSelection(() =>
+        {
+            var status = Observer.ClearSelection();
+            Report("清除选择", status);
+            return status;
+        }));
         AddButton(controls, "parts", "进入车辆零件", () => ChangeTarget(() => Report("进入零件层级", Observer.EnterVehicleParts())));
         AddButton(controls, "whole", "返回整体", () => ChangeTarget(() => Report("返回整体", Observer.ReturnToWhole())));
         AddButton(controls, "batch-remove", "批量移除", () => StartBatch(VoxelCellOperation.Remove));
@@ -483,7 +488,7 @@ public partial class WorldEditorObservationView : Node3D
                 .OrderBy(item => item.Kind).ThenBy(item => item.Id.Value).ThenBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z)
                 .Select(item => item.DescribeZh() + (item.Kind == ObservedObjectKind.WorldCell ? $" · {item.Definition} · RuntimeId {item.RuntimeId?.Value.ToString() ?? "无"}" : "")));
         if (Observer.PartVehicleId is not null)
-            inspection += "\n零件层级不支持框选，请返回整体层级";
+            inspection = "零件层级不支持框选，请返回整体层级\n" + inspection;
         SetText(_inspection, inspection);
 
         if (Observer.Notices.Count != _shownNotices)

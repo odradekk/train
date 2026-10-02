@@ -15,8 +15,11 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
     private static readonly VoxelDefinitionId Ledge = new("core", "ledge");
     private int _phase;
     private ulong _physicsFrame;
+    private ulong _physicsDeadline;
     private ObservationCameraPose _camera;
     private IReadOnlySet<ObservedObject> _expectedRange = new HashSet<ObservedObject>();
+    private int _commitBeforeEdits;
+    private int _commitBeforeUndo;
 
     private VoxelDevelopmentSession Session => scene.Session!;
     private WorldEditorObservationView View => scene.Observation!;
@@ -29,14 +32,24 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
             case 0:
                 Require(Session.SimulationPaused && Session.Vehicles.Count >= 2 && Session.Rails.Segments.Count > 0,
                     "multi-select leg did not establish the paused train configuration");
-                foreach (var cell in new[] { FirstBatchCell, SecondBatchCell, VisibleOccluder, HiddenOccluder })
+                foreach (var cell in FixtureCells())
                     Require(Session.SubmitEdit(new VoxelAddEdit(cell, WorldEditorSequences.EditVoxelId,
                             VoxelOrientation.Identity)).Status == "Added", $"could not add multi-select fixture {cell}");
-                _physicsFrame = Engine.GetPhysicsFrames() + 2;
                 _phase++;
                 return false;
             case 1:
-                if (Engine.GetPhysicsFrames() < _physicsFrame)
+                // MarkDirty is consumed before this Advance call. Start the physics wait only now, after Refresh has
+                // rebuilt the collider nodes, and wait for their actual published shapes as well as a frame count.
+                if (_physicsFrame == 0)
+                {
+                    _physicsFrame = Engine.GetPhysicsFrames() + 2;
+                    _physicsDeadline = Engine.GetPhysicsFrames() + 120;
+                    return false;
+                }
+                if (Engine.GetPhysicsFrames() > _physicsDeadline)
+                    throw new InvalidOperationException("multi-select fixture colliders were not published within 120 physics frames");
+                if (Engine.GetPhysicsFrames() < _physicsFrame ||
+                    FixtureCells().Any(cell => !scene.Colliders.QueryPublishedCellInterior(scene.GetWorld3D(), cell)))
                     return false;
                 _camera = Observer.Pose;
                 var screen = scene.GetViewport().GetScreenTransform();
@@ -61,11 +74,12 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
             case 3:
                 if (Engine.GetPhysicsFrames() < _physicsFrame)
                     return false;
-                var projection = WorldScreen(VisibleOccluder);
-                Require(projection.DistanceTo(WorldScreen(HiddenOccluder)) < 0.1f,
+                var projection = RawWorldScreen(VisibleOccluder);
+                Require(projection.DistanceTo(RawWorldScreen(HiddenOccluder)) < 0.1f,
                     "occlusion fixture cells are not on the same camera ray");
                 _camera = Observer.Pose;
-                Drag(projection - new Vector2(7, 7), projection + new Vector2(7, 7));
+                Drag(ToInputScreen(projection - new Vector2(7, 7)),
+                    ToInputScreen(projection + new Vector2(7, 7)));
                 _phase++;
                 return false;
             case 4:
@@ -89,11 +103,23 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
                 _phase++;
                 return false;
             case 7:
-                StartBatch();
+                SelectBatchTargets();
                 _phase++;
                 return false;
             case 8:
-                CommitBatch();
+                StartBatch();
+                _phase++;
+                return false;
+            case 9:
+                // Let one complete process/layout frame present the newly visible batch parameters and commit button.
+                _phase++;
+                return false;
+            case 10:
+                ClickBatchCommit();
+                _phase++;
+                return false;
+            case 11:
+                CheckBatchCommit();
                 GD.Print("WORKSPACE_DONE leg=multi-select");
                 scene.GetTree().Quit();
                 return true;
@@ -114,6 +140,11 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         Require(Observer.SelectedObjects.SetEquals(new[] { View.Entries[first].Object, View.Entries[second].Object }),
             "Ctrl list input did not add the second vehicle");
 
+        // Godot keeps ItemList.current on the last ordinary click when Ctrl toggles another row. Establish a new
+        // native range anchor with an ordinary click before exercising Shift selection.
+        ClickList(list, second);
+        Require(Observer.SelectedObjects.SetEquals(new[] { View.Entries[second].Object }),
+            "ordinary list input did not replace the Ctrl selection and establish the range anchor");
         var rangeEnd = Math.Min(Math.Max(first, second) + 2, View.Entries.Count - 1);
         ClickList(list, rangeEnd, shift: true);
         var anchor = second;
@@ -144,15 +175,24 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         Click(View.ActionButton("whole"));
     }
 
-    private void StartBatch()
+    private void SelectBatchTargets()
     {
         Click(View.ActionButton("clear"));
-        var first = WorldScreen(FirstBatchCell);
-        var second = WorldScreen(SecondBatchCell);
-        Drag(new Vector2(Math.Min(first.X, second.X) - 4, Math.Min(first.Y, second.Y) - 4),
-            new Vector2(Math.Max(first.X, second.X) + 4, Math.Max(first.Y, second.Y) + 4));
+        var first = RawWorldScreen(FirstBatchCell);
+        var second = RawWorldScreen(SecondBatchCell);
+        Drag(ToInputScreen(new Vector2(Math.Min(first.X, second.X) - 4, Math.Min(first.Y, second.Y) - 4)),
+            ToInputScreen(new Vector2(Math.Max(first.X, second.X) + 4, Math.Max(first.Y, second.Y) + 4)));
+    }
+
+    private void StartBatch()
+    {
+        var first = RawWorldScreen(FirstBatchCell);
+        var second = RawWorldScreen(SecondBatchCell);
+        var boxStart = ToInputScreen(new Vector2(Math.Min(first.X, second.X) - 4, Math.Min(first.Y, second.Y) - 4));
+        var boxEnd = ToInputScreen(new Vector2(Math.Max(first.X, second.X) + 4, Math.Max(first.Y, second.Y) + 4));
         Require(Observer.SelectedObjects.SetEquals(new[] { Target(FirstBatchCell), Target(SecondBatchCell) }),
-            "real list input did not establish the two batch targets");
+            $"real box drag did not establish the two batch targets: actual=[{string.Join(';', Observer.SelectedObjects.Select(item => item.Describe()))}] " +
+            $"box_objects=[{string.Join(';', View.LastBoxSelection?.Objects.Select(item => item.Describe()) ?? Array.Empty<string>())}] box={boxStart}..{boxEnd}");
         Require(!View.ActionButton("batch-remove").Disabled && !View.ActionButton("batch-replace").Disabled,
             "world-cell selection did not expose both common batch operations");
         var tool = scene.CellTool!.State;
@@ -161,22 +201,42 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         Click(View.ActionButton("batch-replace"));
         Require(tool.HasBatchDraft && tool.BatchTargets.ToHashSet().SetEquals(new[] { FirstBatchCell, SecondBatchCell }),
             "batch action did not bind exactly the selected cells");
+        Click(View.ActionButton("clear"));
+        Require(Observer.SelectedObjects.Count == 0 && tool.HasBatchDraft &&
+                tool.BatchTargets.ToHashSet().SetEquals(new[] { FirstBatchCell, SecondBatchCell }) &&
+                !scene.CellTool!.DraftPrompt.Visible,
+            "real clear input did not clear selection independently of the bound batch draft");
         ClickList(View.ListControl, IndexOf(ObservedObject.Vehicle(Session.Vehicles[0].Id)));
         Require(tool.HasBatchDraft && tool.BatchTargets.ToHashSet().SetEquals(new[] { FirstBatchCell, SecondBatchCell }) &&
                 Observer.SelectedObjects.SetEquals(new[] { ObservedObject.Vehicle(Session.Vehicles[0].Id) }),
             "selection change redirected or discarded the bound batch draft");
     }
 
-    private void CommitBatch()
+    private void ClickBatchCommit()
     {
-        var beforeEdits = Session.QueryEditLog().Count;
-        var beforeUndo = Session.UndoCount;
+        _commitBeforeEdits = Session.QueryEditLog().Count;
+        _commitBeforeUndo = Session.UndoCount;
+        var button = scene.CellTool!.CommitButton;
+        Require(button.IsVisibleInTree() && !button.Disabled && button.GetGlobalRect().Size.X > 0 && button.GetGlobalRect().Size.Y > 0,
+            $"batch commit control is not input-ready: visible={button.IsVisibleInTree()} disabled={button.Disabled} rect={button.GetGlobalRect()}");
         Click(scene.CellTool!.CommitButton);
+    }
+
+    private void CheckBatchCommit()
+    {
+        var tool = scene.CellTool!.State;
+        var button = scene.CellTool.CommitButton;
+        var editDelta = Session.QueryEditLog().Count - _commitBeforeEdits;
+        var undoDelta = Session.UndoCount - _commitBeforeUndo;
         Require(!scene.CellTool.State.HasBatchDraft && !scene.CellTool.State.HasDraft &&
                 Session.Query(FirstBatchCell).Voxel?.DefinitionId == Ledge &&
                 Session.Query(SecondBatchCell).Voxel?.DefinitionId == Ledge &&
-                Session.QueryEditLog().Count == beforeEdits + 1 && Session.UndoCount == beforeUndo + 1,
-            "real commit input did not apply one formal multi-target edit and one undo record");
+                editDelta == 1 && undoDelta == 1,
+            $"real commit input did not apply one formal multi-target edit and one undo record: batch={tool.HasBatchDraft} " +
+            $"draft={tool.HasDraft} definition={tool.DefinitionId} orientation={tool.Orientation} edit_delta={editDelta} " +
+            $"undo_delta={undoDelta} first={Session.Query(FirstBatchCell).Voxel?.DefinitionId.ToString() ?? "none"} " +
+            $"second={Session.Query(SecondBatchCell).Voxel?.DefinitionId.ToString() ?? "none"} button_visible={button.IsVisibleInTree()} " +
+            $"button_disabled={button.Disabled} button_rect={button.GetGlobalRect()}");
         GD.Print("WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true");
     }
 
@@ -209,8 +269,16 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
             : target;
     }
 
-    private Vector2 WorldScreen(WorldVoxelCoord cell) => scene.GetViewport().GetScreenTransform() *
-        scene.Camera.UnprojectPosition(new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f));
+    private Vector2 RawWorldScreen(WorldVoxelCoord cell) => scene.Camera.UnprojectPosition(CellCenter(cell));
+
+    private Vector2 ToInputScreen(Vector2 viewportPoint) =>
+        scene.GetViewport().GetScreenTransform() * viewportPoint;
+
+    private static Vector3 CellCenter(WorldVoxelCoord cell) =>
+        new(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f);
+
+    private static WorldVoxelCoord[] FixtureCells() =>
+        new[] { FirstBatchCell, SecondBatchCell, VisibleOccluder, HiddenOccluder };
 
     private static void Drag(Vector2 start, Vector2 end)
     {

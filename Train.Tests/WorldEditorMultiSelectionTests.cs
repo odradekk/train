@@ -30,6 +30,8 @@ public sealed class WorldEditorMultiSelectionTests
             ObservedObject.WorldCell(Second),
             ObservedObject.WorldCell(First)
         }));
+        if (observer.SelectedObjects is ISet<ObservedObject> writable)
+            Assert.ThrowsException<NotSupportedException>(() => writable.Clear());
         Assert.AreEqual(2, observer.SelectedObjects.Count);
         Assert.IsNull(observer.Selection);
         Assert.IsTrue(observer.SelectedObjects.All(item => item.Definition == Ore));

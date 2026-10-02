@@ -5,7 +5,7 @@ using Train.Domain.Voxels;
 
 namespace Train;
 
-/// <summary>Controls and visualization for the single-cell tool; edits always enter the session.</summary>
+/// <summary>Controls and visualization for single cells and bound batches; edits always enter the session.</summary>
 public partial class WorldEditorVoxelToolView : Node3D
 {
     private VoxelDevelopmentSession _session = null!;

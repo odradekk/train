@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Collections.ObjectModel;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
@@ -172,6 +173,7 @@ public sealed class WorldEditorObserver : IDisposable
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        SelectedObjects = new ReadOnlySet<ObservedObject>(_selection);
         SetFreePose(new ObservationCameraPose(position, look));
         Pose = FreePose();
         _session.EditExecuted += OnEditExecuted;
@@ -179,7 +181,7 @@ public sealed class WorldEditorObserver : IDisposable
     }
 
     private readonly HashSet<ObservedObject> _selection = new();
-    public IReadOnlySet<ObservedObject> SelectedObjects => _selection;
+    public IReadOnlySet<ObservedObject> SelectedObjects { get; }
     public ObservedObject? Selection => _selection.Count == 1 ? _selection.First() : null;
     public WorldEditorSelectionOperations CommonOperations => _selection.Count > 0 &&
         _selection.All(item => item.Kind == ObservedObjectKind.WorldCell)
