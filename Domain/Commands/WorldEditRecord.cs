@@ -34,7 +34,8 @@ public enum WorldEditRefusal
     HistoryConfirmationRequired = 6,
     VoxelDraftExists = 7,
     NoHistory = 8,
-    SimulationRunning = 9
+    SimulationRunning = 9,
+    DraftTargetsChanged = 10
 }
 
 /// <summary>

@@ -12,8 +12,9 @@ public partial class WorldEditorVoxelToolView : Node3D
     private Camera3D _camera = null!;
     private Control _parameters = null!;
     private Label _preview = null!;
+    private Label _title = null!;
     private MeshInstance3D _grid = null!;
-    private MeshInstance3D _cell = null!;
+    private MultiMeshInstance3D _cell = null!;
     private Label3D _axes = null!;
     private bool _syncing;
     private Action? _afterDraft;
@@ -65,7 +66,8 @@ public partial class WorldEditorVoxelToolView : Node3D
         _parameters = box;
         inspector.AddChild(box);
         inspector.MoveChild(box, 0);
-        box.AddChild(new Label { Text = "单格体素 · 世界坐标" });
+        _title = new Label { Text = "单格体素 · 世界坐标" };
+        box.AddChild(_title);
         var coordinates = new HBoxContainer();
         box.AddChild(coordinates);
         CoordinateInputs = Enumerable.Range(0, 3).Select(_ => Spin(coordinates, -100000, 100000, 0)).ToArray();
@@ -151,7 +153,7 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     private void ExactInput()
     {
-        if (_syncing || _session.IsChangingWorld || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
+        if (_syncing || _session.IsChangingWorld || State.HasBatchDraft || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
             return;
         State.SetExact(new WorldVoxelCoord((int)CoordinateInputs[0].Value, (int)CoordinateInputs[1].Value, (int)CoordinateInputs[2].Value),
             State.DefinitionId, State.Orientation, State.Operation);
@@ -209,7 +211,9 @@ public partial class WorldEditorVoxelToolView : Node3D
         _syncing = true;
         try
         {
-            _parameters.Visible = State.Active;
+            _parameters.Visible = State.Active || State.HasBatchDraft;
+            _title.Text = State.HasBatchDraft ? "批量体素 · 世界坐标" : "单格体素 · 世界坐标";
+            CommitButton.Text = State.HasBatchDraft ? "提交批量" : "提交单格";
             SelectToolButton.ButtonPressed = !State.Active;
             VoxelToolButton.ButtonPressed = State.Active;
             HeightInput.SetValueNoSignal(State.Height);
@@ -234,20 +238,28 @@ public partial class WorldEditorVoxelToolView : Node3D
             }
             OrientationInput.Select(_orientations.ToList().IndexOf(State.Orientation));
             OperationInput.Select((int)State.Operation);
+            OperationInput.Disabled = State.HasBatchDraft;
+            foreach (var input in CoordinateInputs)
+                input.Editable = !State.HasBatchDraft;
             CoordinateInputs[0].SetValueNoSignal(State.Position.X);
             CoordinateInputs[1].SetValueNoSignal(State.Position.Y);
             CoordinateInputs[2].SetValueNoSignal(State.Position.Z);
             var canPreview = State.DefinitionId.Namespace is not null || State.Operation == VoxelCellOperation.Remove;
             var preview = canPreview ? State.Preview : new VoxelCellSetResult(VoxelCellSetStatus.UnknownDefinition, State.Position);
-            _preview.Text = $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n" +
+            _preview.Text = (State.HasBatchDraft ? $"批量草稿 · {State.BatchTargets.Count} 格 · 目标已绑定，选择变化不改写目标\n" :
+                $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n") +
                 "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
                 $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview)}" + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
             DiscardButton.Disabled = !State.HasDraft;
             CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld;
             var material = (StandardMaterial3D)_cell.MaterialOverride;
             material.AlbedoColor = preview.Succeeded ? new Color(0.2f, 1, 0.4f, 0.35f) : new Color(1, 0.2f, 0.15f, 0.4f);
-            _cell.Position = new Vector3(State.Position.X + 0.5f, State.Position.Y + 0.5f, State.Position.Z + 0.5f);
-            _cell.Visible = State.Active;
+            var cells = State.HasBatchDraft ? State.BatchTargets : new[] { State.Position };
+            _cell.Multimesh.InstanceCount = cells.Count;
+            for (var index = 0; index < cells.Count; index++)
+                _cell.Multimesh.SetInstanceTransform(index, new Transform3D(Basis.Identity,
+                    new Vector3(cells[index].X + 0.5f, cells[index].Y + 0.5f, cells[index].Z + 0.5f)));
+            _cell.Visible = State.Active || State.HasBatchDraft;
             _grid.Visible = State.Active;
             _axes.Visible = State.Active;
             UpdateGrid();
@@ -267,6 +279,7 @@ public partial class WorldEditorVoxelToolView : Node3D
             VoxelCellSetStatus.UnknownDefinition => "定义不在当前有效内容中",
             VoxelCellSetStatus.DisallowedOrientation => "定义不允许该朝向",
             VoxelCellSetStatus.NoChange => "定义和朝向未变化",
+            VoxelCellSetStatus.ExpectedContentMismatch => $"绑定目标 ({result.Position.X},{result.Position.Y},{result.Position.Z}) 已消失或身份已改变；整次拒绝，草稿保留",
             VoxelCellSetStatus.RailOccupied => result.OwnerKind == VoxelCellOwnerKind.None ? "铁路体素（未登记轨段）" : "属于铁路",
             VoxelCellSetStatus.VehicleOccupied => "车辆实际占用",
             _ => result.Status.ToString()
@@ -278,9 +291,9 @@ public partial class WorldEditorVoxelToolView : Node3D
     private void CreateMeshes()
     {
         _grid = new MeshInstance3D { CastShadow = GeometryInstance3D.ShadowCastingSetting.Off };
-        _cell = new MeshInstance3D
+        _cell = new MultiMeshInstance3D
         {
-            Mesh = new BoxMesh { Size = Vector3.One * 1.02f },
+            Multimesh = new MultiMesh { TransformFormat = MultiMesh.TransformFormatEnum.Transform3D, Mesh = new BoxMesh { Size = Vector3.One * 1.02f } },
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             MaterialOverride = new StandardMaterial3D { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
                 Transparency = BaseMaterial3D.TransparencyEnum.Alpha, NoDepthTest = true }

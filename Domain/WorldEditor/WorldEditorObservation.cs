@@ -58,6 +58,14 @@ public enum WorldEditorCameraMode
     Follow
 }
 
+[Flags]
+public enum WorldEditorSelectionOperations
+{
+    None = 0,
+    Remove = 1,
+    Replace = 2
+}
+
 public enum WorldEditorObservationStatus
 {
     Selected,
@@ -170,7 +178,13 @@ public sealed class WorldEditorObserver : IDisposable
         _session.WorldReplaced += OnWorldReplaced;
     }
 
-    public ObservedObject? Selection { get; private set; }
+    private readonly HashSet<ObservedObject> _selection = new();
+    public IReadOnlySet<ObservedObject> SelectedObjects => _selection;
+    public ObservedObject? Selection => _selection.Count == 1 ? _selection.First() : null;
+    public WorldEditorSelectionOperations CommonOperations => _selection.Count > 0 &&
+        _selection.All(item => item.Kind == ObservedObjectKind.WorldCell)
+        ? WorldEditorSelectionOperations.Remove | WorldEditorSelectionOperations.Replace
+        : WorldEditorSelectionOperations.None;
     public EntityId? PartVehicleId { get; private set; }
     public WorldEditorCameraMode Mode { get; private set; } = WorldEditorCameraMode.Free;
     public ObservedObject? Target { get; private set; }
@@ -198,15 +212,19 @@ public sealed class WorldEditorObserver : IDisposable
 
     /// <summary>Selecting only changes what the panel inspects; the camera does not move.</summary>
     public WorldEditorObservationStatus Select(ObservedObject item)
+        => SelectMany(new[] { item });
+
+    public WorldEditorObservationStatus SelectMany(IEnumerable<ObservedObject> items)
     {
-        if (item.Kind == ObservedObjectKind.WorldCell && _session.Query(item.Cell).Voxel is { } voxel)
-            item = ObservedObject.WorldCell(item.Cell, voxel.RuntimeId, voxel.DefinitionId);
-        if (!Exists(item))
+        var next = items.Select(item => item.Kind == ObservedObjectKind.WorldCell && _session.Query(item.Cell).Voxel is { } voxel
+            ? ObservedObject.WorldCell(item.Cell, voxel.RuntimeId, voxel.DefinitionId) : item).ToHashSet();
+        if (next.Any(item => !Exists(item)) || (next.Count > 1 && next.Any(item => item.Kind == ObservedObjectKind.VehiclePart)))
             return WorldEditorObservationStatus.UnknownObject;
-        if (_session.HasEditorDraft && item != Selection)
+        if (_session.HasEditorDraft && _session.VoxelTool?.HasBatchDraft != true && !_selection.SetEquals(next))
             return WorldEditorObservationStatus.DraftRequired;
-        Selection = item;
-        PartVehicleId = item.Kind == ObservedObjectKind.VehiclePart ? item.Id : null;
+        _selection.Clear();
+        _selection.UnionWith(next);
+        PartVehicleId = Selection is { Kind: ObservedObjectKind.VehiclePart } part ? part.Id : null;
         return WorldEditorObservationStatus.Selected;
     }
 
@@ -227,9 +245,9 @@ public sealed class WorldEditorObserver : IDisposable
 
     public WorldEditorObservationStatus ClearSelection()
     {
-        if (_session.HasEditorDraft && Selection is not null)
+        if (_session.HasEditorDraft && _session.VoxelTool?.HasBatchDraft != true && _selection.Count > 0)
             return WorldEditorObservationStatus.DraftRequired;
-        Selection = null;
+        _selection.Clear();
         PartVehicleId = null;
         return WorldEditorObservationStatus.Cleared;
     }
@@ -324,9 +342,9 @@ public sealed class WorldEditorObserver : IDisposable
     {
         bool Lost(ObservedObject item) => replacement is not null || !Exists(item);
         var raised = new List<WorldEditorObservationNotice>();
-        if (Selection is { } selected && Lost(selected))
+        foreach (var selected in _selection.Where(Lost).ToArray())
         {
-            Selection = null;
+            _selection.Remove(selected);
             raised.Add(new WorldEditorObservationNotice(WorldEditorNoticeKind.SelectionLost, selected, Mode, replacement));
         }
 
@@ -455,7 +473,9 @@ public sealed class WorldEditorObserver : IDisposable
     public string Describe()
     {
         var target = Target is { } value ? " target " + value.Describe() : "";
-        var selection = Selection is { } selected ? selected.Describe() : "none";
+        var selection = Selection is { } selected ? selected.Describe() : _selection.Count == 0 ? "none" :
+            $"count {_selection.Count} " + string.Join("; ", _selection.OrderBy(item => item.Kind).ThenBy(item => item.Id.Value)
+                .ThenBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z).Select(item => item.Describe()));
         return $"mode {Mode.ToString().ToLowerInvariant()}{target} selection {selection} transitioning {Transitioning.ToString().ToLowerInvariant()}";
     }
 

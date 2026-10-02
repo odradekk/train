@@ -12,7 +12,7 @@ if (-not $env:GODOT -or -not (Test-Path -LiteralPath $env:GODOT)) {
     exit 2
 }
 if (-not $OutputDirectory) {
-    $validationIssue = if ($Workspace) { 'issue-182' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
+    $validationIssue = if ($Workspace) { 'issue-185' } elseif ($BlankWorld) { 'issue-165' } else { 'issue-127' }
     $OutputDirectory = Join-Path $root ('.godot/validation/' + $validationIssue + '/' + (Get-Date -Format 'yyyyMMdd-HHmmss-fff'))
 }
 $OutputDirectory = [System.IO.Path]::GetFullPath($OutputDirectory)
@@ -130,6 +130,7 @@ if ($Workspace) {
         $exampleSave = Invoke-EntryLeg 'example-save' 'WORKSPACE'
         foreach ($marker in @('WORKSPACE_MENU ready=true',
             'WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json',
+            'WORKSPACE_MULTI_EXAMPLE_COST candidates=',
             'WORKSPACE_EXAMPLE_SAVED id=', 'voxels=5 pending=1 paused=true')) {
             if (-not $exampleSave.Contains($marker)) { throw "Workspace example-save omitted assertion marker: $marker" }
         }
@@ -188,6 +189,27 @@ if ($Workspace) {
             'WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true')) {
             if (-not $historyResume.Contains($marker)) { throw "Workspace history-resume omitted assertion marker: $marker" }
         }
+
+        # One isolated process drives the actual Godot box drag and list modifier input, then commits a multi-cell draft.
+        $userData = Join-Path $OutputDirectory 'multi-select-user-data'
+        New-Item -ItemType Directory -Path $userData | Out-Null
+        $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'multi-select'
+        $multiSelect = Invoke-EntryLeg 'multi-select' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true',
+            'WORKSPACE_MULTI_BOX types=vehicle,rail,cell',
+            'WORKSPACE_MULTI_OCCLUSION visible=true hidden=false',
+            'WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true camera_moved=false',
+            'WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true',
+            'WORKSPACE_MULTI_COST candidates=')) {
+            if (-not $multiSelect.Contains($marker)) { throw "Workspace multi-select omitted assertion marker: $marker" }
+        }
+        $multiCost = [regex]::Match($multiSelect,
+            'WORKSPACE_MULTI_COST candidates=(\d+) rays=(\d+) truncated=(true|false) elapsed_ms=([0-9.]+)')
+        if (-not $multiCost.Success) { throw 'Workspace multi-select omitted parseable box cost evidence.' }
+        $exampleCost = [regex]::Match($exampleSave,
+            'WORKSPACE_MULTI_EXAMPLE_COST candidates=(\d+) rays=(\d+) truncated=(true|false) elapsed_ms=([0-9.]+)')
+        if (-not $exampleCost.Success) { throw 'Workspace example omitted parseable maximum-view box cost evidence.' }
         [ordered]@{
             outcome = 'passed'
             durationMs = $started.ElapsedMilliseconds
@@ -198,6 +220,25 @@ if ($Workspace) {
             exampleDocumentId = $exampleIds.Groups[2].Value
             cellToolSaveId = $cellToolId.Groups[1].Value
             historySaveId = $historyId.Groups[1].Value
+            multiSelection = [ordered]@{
+                candidates = [int]$multiCost.Groups[1].Value
+                rays = [int]$multiCost.Groups[2].Value
+                truncated = $multiCost.Groups[3].Value -eq 'true'
+                elapsedMs = [double]::Parse($multiCost.Groups[4].Value,
+                    [Globalization.CultureInfo]::InvariantCulture)
+                boxTypes = @('vehicle', 'rail', 'cell')
+                occlusion = 'nearest-hit'
+                batchTargets = 2
+                edits = 1
+                undoRecords = 1
+                exampleMaximum = [ordered]@{
+                    candidates = [int]$exampleCost.Groups[1].Value
+                    rays = [int]$exampleCost.Groups[2].Value
+                    truncated = $exampleCost.Groups[3].Value -eq 'true'
+                    elapsedMs = [double]::Parse($exampleCost.Groups[4].Value,
+                        [Globalization.CultureInfo]::InvariantCulture)
+                }
+            }
             exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
@@ -235,10 +276,15 @@ cancels and accepts the panel confirmation for non-reversible damage, and proves
 active precise-input draft. It saves the resulting world while session history remains available. The second process opens
 that save, verifies the resulting world and durability, and proves no undo or redo history crossed the save boundary.
 
+One final isolated process enters the formal train world, adds test-owned visible and aligned occlusion cells through formal
+edits, and drives Godot left-drag, Ctrl-click and Shift-click input. It checks whole-level boxes across vehicles, rail segments
+and world cells, nearest-hit occlusion, unchanged camera pose, list add/range/remove semantics, the 4096-candidate cap metrics,
+and a two-target replacement draft whose targets survive a selection change and commit as one edit and one undo record.
+
 Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log,
 example-save.stdout.log, example-verify.stdout.log, cell-tool-save.stdout.log, cell-tool-resume.stdout.log,
-history-save.stdout.log, history-resume.stdout.log; process identities:
-processes.log; tested head: config.json.
+history-save.stdout.log, history-resume.stdout.log, multi-select.stdout.log; process identities: processes.log;
+tested head: config.json.
 This headless result does not establish graphical interaction or manual acceptance.
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
         Write-Host "World editor workspace cross-process validation passed. Evidence: $OutputDirectory"

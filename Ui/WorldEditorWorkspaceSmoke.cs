@@ -50,6 +50,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
     private WorldEditorLeaveSmoke? _leaveSmoke;
+    private WorldEditorMultiSelectionSmoke? _multiSelectionSmoke;
     private VoxelDefinitionId _cellToolDefinition;
     private VoxelOrientation _cellToolOrientation;
     private Vector3 _cellToolCamera;
@@ -61,11 +62,17 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify" or
         "example-save" or "example-verify" or "cell-tool-save" or "cell-tool-resume" or
-        "history-save" or "history-resume";
+        "history-save" or "history-resume" or "multi-select";
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
         Require(menu.GetTree().CurrentScene == menu, "menu was replaced before choosing world editor");
+        if (Leg == "multi-select")
+        {
+            menu.GetNode<Main>("/root/Main").EnterWorldEditor(WorldEditorConfigurations.StraightRailTrainId);
+            GD.Print("WORKSPACE_MENU ready=true");
+            return;
+        }
         if (Leg == "save" && ++_menuVisits == 1)
         {
             menu.GetNode<Main>("/root/Main").EnterWorldEditor("missing-smoke-configuration");
@@ -200,6 +207,12 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         Guard(scene, () =>
         {
             var session = scene.Session!;
+            if (Leg == "multi-select")
+            {
+                _multiSelectionSmoke ??= new WorldEditorMultiSelectionSmoke(scene);
+                _finished = _multiSelectionSmoke.Advance();
+                return;
+            }
             if (Leg is "example-save" or "example-verify")
             {
                 AdvanceExample(session);
@@ -445,12 +458,25 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 RequireExampleBoundary(session);
                 Require(session.SaveId is null && session.HasUnsavedChanges,
                     "example copy did not enter as an unsaved editing session");
+                var view = scene.Observation!;
+                var screen = scene.GetViewport().GetScreenTransform();
+                DragAt(screen * (view.WorldRect.Position + new Vector2(2, 2)),
+                    screen * (view.WorldRect.End - new Vector2(2, 2)));
+                _phase = 1;
+                return;
+            }
+            if (_phase == 1)
+            {
+                var view = scene.Observation!;
+                var cost = view.LastBoxSelection ?? throw new InvalidOperationException("example full-world drag produced no box result");
+                GD.Print($"WORKSPACE_MULTI_EXAMPLE_COST candidates={cost.Candidates} rays={cost.Rays} " +
+                         $"truncated={cost.Truncated.ToString().ToLowerInvariant()} elapsed_ms={cost.ElapsedMilliseconds:0.###}");
                 Add(ExampleCopyOnlyCell);
                 Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity),
                         100, confirmEndHistory: true).Accepted,
                     "example copy rejected a formal future edit");
                 scene.Press("run");
-                _phase = 1;
+                _phase = 2;
                 return;
             }
             if (session.SimulationStep < 5)
@@ -999,6 +1025,17 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             { ButtonIndex = MouseButton.Left, Pressed = true, Position = position, GlobalPosition = position });
         Input.ParseInputEvent(new InputEventMouseButton
             { ButtonIndex = MouseButton.Left, Pressed = false, Position = position, GlobalPosition = position });
+    }
+
+    private static void DragAt(Vector2 start, Vector2 end)
+    {
+        Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, Pressed = true, Position = start, GlobalPosition = start });
+        Input.ParseInputEvent(new InputEventMouseMotion
+            { Position = end, GlobalPosition = end, Relative = end - start, ButtonMask = MouseButtonMask.Left });
+        Input.ParseInputEvent(new InputEventMouseButton
+            { ButtonIndex = MouseButton.Left, Pressed = false, Position = end, GlobalPosition = end });
+        Input.FlushBufferedEvents();
     }
 
     private void FocusWorld()
