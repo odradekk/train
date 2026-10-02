@@ -30,6 +30,12 @@ public sealed partial class VoxelDevelopmentSession
 
     internal void MarkNewWorldUnsaved() => _cleanFingerprint = "";
 
+    internal void MarkUnsavedCopy()
+    {
+        SaveId = null;
+        MarkNewWorldUnsaved();
+    }
+
     /// <summary>
     /// Marks this session as the world editor host. The duty stays with the session object and is not cleared when a
     /// save replaces <see cref="WorldSource"/>.

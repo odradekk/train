@@ -22,6 +22,10 @@ the exported world's simulation position, pending input and world
 content, then continues editing, running and saving. Separate fresh processes continue the original and save-as copy; a final
 process reopens the original, save-as copy and imported save to prove that their edits stayed isolated. Only the final process reports isolation; the save process
 verifies its current save identity, clean state and voxel count after save-and-return, and its next workspace visit verifies the return.
+Two further real Godot processes use a separate user-data directory. The first creates a paused unsaved copy from the distributed
+basic-editing example through the workspace, continues formal editing and running while retaining a future pending edit, and gives
+the first save a UUID distinct from the example document. The next process restores that saved copy, then creates the example again
+and verifies its documented step-1 boundary, pending edit and Godot-read source bytes are unchanged and exclude copy-only edits.
 Graphical workspace, window close, quit and dialog acceptance remain separate manual checks. Injected window-close notifications prove the handler; they do not prove a real window close-button interaction.
 
 `--quit-after` in those scripts is a Godot frame budget, not the entry timeout and not a pass condition. `-Correctness` selects these Godot checks together with MSTest, so it needs `GODOT` and a `Train.csproj` build plus import. Each Godot check gets its own `APPDATA` directory under the run, shared by the processes it starts; the import and the version probe get one each. The entry does not write `override.cfg`, so killing it leaves no user-data redirect; an existing `override.cfg` is left in place, and the summary records whether it exists and its SHA256.

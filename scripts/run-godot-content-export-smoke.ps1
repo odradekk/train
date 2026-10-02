@@ -132,7 +132,8 @@ $required = @(
     "CONTENT_EXPORT_INIT_OK",
     "CONTENT_EXPORT_JSON_READABLE",
     "CONTENT_EXPORT_PNG_READABLE",
-    "CONTENT_EXPORT_JSONL_CREATED"
+    "CONTENT_EXPORT_JSONL_CREATED",
+    "CONTENT_EXPORT_EXAMPLES_RESTORED"
 )
 $missing = @($required | Where-Object { $output -notlike "*$_*" })
 if ($processExit -ne 0) {

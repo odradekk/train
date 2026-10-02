@@ -11,9 +11,61 @@ public sealed record WorldEditorSaveEntry(
     IReadOnlyList<WorldSaveDefinitionRef> ExternalDefinitions, WorldSaveResult Recovery);
 
 /// <summary>Lists local saves and validates an independent candidate before handing it to the editor.</summary>
-public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog composites, FileWorldSaveStore store)
+public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog composites, FileWorldSaveStore store,
+    Func<string, string>? readExample = null)
 {
     public WorldSaveDiagnostic? ListFailure { get; private set; }
+
+    public IReadOnlyList<WorldEditorExampleEntry> ListExamples() => WorldEditorExamples.All.Select(example =>
+    {
+        var read = ReadExample(example.Path, out var document);
+        var recovery = read.Succeeded ? ValidateDocument(document) : read;
+        return new WorldEditorExampleEntry(example, document, recovery);
+    }).ToArray();
+
+    /// <summary>Restores the distributed document, then removes only its file identity before handing off the copy.</summary>
+    public WorldSaveResult TryCreateExampleCopy(string path, out VoxelDevelopmentSession? session)
+    {
+        session = null;
+        var read = ReadExample(path, out var document);
+        if (!read.Succeeded)
+            return read;
+        var candidate = CreateCandidate();
+        try
+        {
+            var restored = candidate.LoadDocument(document);
+            if (!restored.Succeeded)
+                return restored;
+            candidate.MarkUnsavedCopy();
+            candidate.PauseSimulation();
+            session = candidate;
+            return restored with { SaveId = null };
+        }
+        finally
+        {
+            if (session is null)
+                candidate.Detach();
+        }
+    }
+
+    private WorldSaveResult ReadExample(string path, out WorldSaveDocument document)
+    {
+        document = null!;
+        if (!WorldEditorExamples.All.Any(example => example.Path == path))
+            return new WorldSaveResult(WorldSaveStatus.NotFound, Diagnostic: new("example", path, "distribution", "the file is not a distributed example"));
+        if (readExample is null)
+            return new WorldSaveResult(WorldSaveStatus.Unavailable, Diagnostic: new("example", path, "read", "no distributed-file reader is available"));
+        try
+        {
+            if (!WorldSaveCodec.TryDeserialize(readExample(path), out document, out var status))
+                return new WorldSaveResult(status, Diagnostic: new("format", path, status.ToString(), "the example is not a supported complete save"));
+            return new WorldSaveResult(WorldSaveStatus.Loaded, document.Id, document.DisplayName);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return new WorldSaveResult(WorldSaveStatus.ReadFailed, Diagnostic: new("example", path, "read", error.Message));
+        }
+    }
 
     public IReadOnlyList<WorldEditorSaveEntry> ListSaves()
     {
