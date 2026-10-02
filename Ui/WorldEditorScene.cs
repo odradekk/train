@@ -91,7 +91,7 @@ public partial class WorldEditorScene : Node3D
         _colliders.Rebuild(this, _session.Identity);
         _observation = new WorldEditorObservationView();
         AddChild(_observation);
-        _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, OverviewPose);
+        _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, InitialPose(_session));
         main.SetWorldEditorObserver(_observation.Observer);
         Refresh();
 
@@ -111,6 +111,21 @@ public partial class WorldEditorScene : Node3D
             _crossProcess = new WorldEditorCrossProcessSmoke(this);
         else if (IsAuthority())
             _authority = new AuthorityCheckpointSmoke(this, System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable));
+    }
+
+    private ObservationCameraPose InitialPose(VoxelDevelopmentSession session)
+    {
+        if (session.WorldSource?.Kind == WorldSource.FixedConfigurationKind)
+            return OverviewPose;
+
+        var bounds = session.Identity.Bounds;
+        var center = new Vector3(bounds.SizeX, bounds.SizeY, bounds.SizeZ) * 0.5f;
+        var viewport = GetViewport().GetVisibleRect().Size;
+        var halfAngle = Math.Atan(Math.Tan(Mathf.DegToRad(_camera.Fov) * 0.5) * Math.Min(1, viewport.X / viewport.Y));
+        // Fit the sphere enclosing the world, with margin, using the narrower field of view.
+        var distance = (float)(center.Length() / Math.Sin(halfAngle) * 1.1);
+        var position = center + new Vector3(0, 1, -1).Normalized() * distance;
+        return new(WorldEditorObservationView.From(position), WorldEditorObservationView.From(center));
     }
 
     public override void _Process(double delta)

@@ -244,7 +244,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             return;
         }
 
-        var created = workspace.CreateExampleCopy(descriptor.Path);
+        var created = workspace.CreateExampleCopy(descriptor);
         Require(created.Succeeded, "the workspace could not create an editable example copy");
         GD.Print($"WORKSPACE_EXAMPLE_CREATED path={descriptor.Path} original={document.Id:D} leg={Leg}");
     }
@@ -258,7 +258,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 RequireExampleBoundary(session);
                 Require(session.SaveId is null && session.HasUnsavedChanges,
                     "example copy did not enter as an unsaved editing session");
-                AddExample(ExampleCopyOnlyCell);
+                Add(ExampleCopyOnlyCell);
                 Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity), 100).Accepted,
                     "example copy rejected a formal future edit");
                 scene.Press("run");
@@ -293,7 +293,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     session.Query(ExampleQueuedCell).Voxel is not null && session.Query(ExampleCopyOnlyCell).Voxel is not null &&
                     session.Query(ExampleFutureCell).Voxel is null,
                 "fresh process did not restore the saved example copy independently");
-            AddExample(ExampleDiscardedCell);
+            Add(ExampleDiscardedCell);
             scene.Press("workspace");
             Require(scene.PromptVisible, "edited example copy omitted workspace leave protection");
             scene.PressPrompt("cancel");
@@ -318,7 +318,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         Done(scene);
     }
 
-    private static void RequireExampleBoundary(VoxelDevelopmentSession session) =>
+    private void RequireExampleBoundary(VoxelDevelopmentSession session)
+    {
         Require(session.SimulationPaused && session.Identity.Bounds == new VoxelWorldBounds(16, 8, 16) &&
                 session.Identity.Seed == 42 && session.SimulationStep == 1 && session.World.VoxelCount == 3 &&
                 session.QueryPendingEdits().Count == 1 && session.Query(ExampleQueuedCell).Voxel is null &&
@@ -326,10 +327,16 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 session.Query(new WorldVoxelCoord(3, 1, 2)).Voxel?.DefinitionId == WorldEditorSequences.EditVoxelId &&
                 session.Query(new WorldVoxelCoord(4, 1, 2)).Voxel?.DefinitionId == WorldEditorSequences.EditVoxelId,
             "distributed example did not restore its documented paused boundary");
-
-    private void AddExample(WorldVoxelCoord cell) =>
-        Require(scene.Session!.Add(cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity).Succeeded,
-            "formal example voxel edit failed");
+        foreach (var (cell, _) in session.World.OccupiedVoxels())
+        for (var x = 0; x <= 1; x++)
+        for (var y = 0; y <= 1; y++)
+        for (var z = 0; z <= 1; z++)
+        {
+            var point = new Vector3(cell.X + x, cell.Y + y, cell.Z + z);
+            Require(scene.Camera.IsPositionInFrustum(point),
+                $"initial view excludes example voxel at {point}; camera={scene.Camera.GlobalPosition}");
+        }
+    }
 
     private void CreateSaveAsPair(VoxelDevelopmentSession session)
     {

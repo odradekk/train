@@ -2,7 +2,7 @@ using Train.Domain.Voxels;
 
 namespace Train.Domain.WorldEditor;
 
-public sealed record WorldEditorExample(string Path, string Purpose, string ApplicableVersion);
+public sealed record WorldEditorExample(string Path, string Purpose, string ApplicableSinceVersion);
 
 public sealed record WorldEditorExampleEntry(
     WorldEditorExample Example, WorldSaveDocument? Document, WorldSaveResult Recovery);

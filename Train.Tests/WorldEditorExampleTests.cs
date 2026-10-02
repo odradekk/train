@@ -21,7 +21,7 @@ public sealed class WorldEditorExampleTests
         Assert.IsTrue(entry.Recovery.Succeeded);
         Assert.IsNotNull(entry.Document);
         Assert.IsTrue(entry.Example.Purpose.Length > 0);
-        Assert.IsTrue(Version.TryParse(entry.Example.ApplicableVersion, out _));
+        Assert.IsTrue(Version.TryParse(entry.Example.ApplicableSinceVersion, out _));
         Assert.IsTrue(entry.Document.ExternalDefinitions.Count > 0);
         foreach (var dependency in entry.Document.ExternalDefinitions)
         {
@@ -57,7 +57,7 @@ public sealed class WorldEditorExampleTests
         var workspace = Workspace(harness);
         var entry = workspace.ListExamples().Single();
         var original = ReadExample(entry.Example.Path);
-        Assert.IsTrue(workspace.TryCreateExampleCopy(entry.Example.Path, out var copy).Succeeded);
+        Assert.IsTrue(workspace.TryCreateExampleCopy(entry.Example, out var copy).Succeeded);
         try
         {
             Assert.IsNotNull(copy);
@@ -76,7 +76,7 @@ public sealed class WorldEditorExampleTests
             Assert.IsTrue(copy.AdvanceSimulation(2).Succeeded);
             Assert.AreEqual(4, copy.World.VoxelCount);
             Assert.AreEqual(0, copy.QueryPendingEdits().Count);
-            Assert.IsTrue(workspace.TryCreateExampleCopy(entry.Example.Path, out var again).Succeeded);
+            Assert.IsTrue(workspace.TryCreateExampleCopy(entry.Example, out var again).Succeeded);
             try
             {
                 Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(again!));
@@ -102,16 +102,6 @@ public sealed class WorldEditorExampleTests
         CollectionAssert.AreEqual(examples.Select(item => item.Example).ToArray(), unchanged.Select(item => item.Example).ToArray());
         Assert.IsTrue(unchanged.All(item => item.Recovery.Succeeded));
         Assert.IsFalse(workspace.ListSaves().Single().Recovery.Succeeded);
-        // Even a valid ordinary save outside the explicit distribution cannot be selected as an example.
-        var readerCalls = 0;
-        var guarded = new WorldEditorWorkspace(harness.Catalog, harness.Composites, harness.Store, _ =>
-        {
-            readerCalls++;
-            return ReadExample(examples[0].Example.Path);
-        });
-        Assert.AreEqual(WorldSaveStatus.NotFound, guarded.TryCreateExampleCopy(harness.Store.PathFor(corruptId), out var rejected).Status);
-        Assert.IsNull(rejected);
-        Assert.AreEqual(0, readerCalls);
     }
 
     [TestMethod]
@@ -127,7 +117,7 @@ public sealed class WorldEditorExampleTests
         var entry = workspace.ListExamples().Single();
         Assert.AreEqual(WorldSaveStatus.MissingDefinition, entry.Recovery.Status);
         Assert.IsNotNull(entry.Recovery.Diagnostic);
-        Assert.AreEqual(WorldSaveStatus.MissingDefinition, workspace.TryCreateExampleCopy(entry.Example.Path, out var copy).Status);
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, workspace.TryCreateExampleCopy(entry.Example, out var copy).Status);
         Assert.IsNull(copy);
         Assert.AreEqual(0, workspace.ListSaves().Count);
     }
@@ -137,8 +127,7 @@ public sealed class WorldEditorExampleTests
 
     internal static string ReadExample(string path)
     {
-        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        return File.ReadAllText(Path.Combine(root, path["res://".Length..]));
+        return File.ReadAllText(Path.Combine(CompositeFixtures.RepositoryRoot(), path["res://".Length..]));
     }
 
     internal static MemoryContentSource ExampleContent()

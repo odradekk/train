@@ -68,11 +68,16 @@ internal static class CompositeFixtures
 
     public static string BuiltinText(params string[] relative)
     {
-        var repo = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
-        var path = Path.Combine(new[] { repo, "builtin", "core", "resources" }.Concat(relative).ToArray());
-        if (!System.IO.File.Exists(path))
-            path = Path.GetFullPath(Path.Combine(new[] { Environment.CurrentDirectory, "builtin", "core", "resources" }.Concat(relative).ToArray()));
+        var path = Path.Combine(new[] { RepositoryRoot(), "builtin", "core", "resources" }.Concat(relative).ToArray());
         return System.IO.File.ReadAllText(path);
+    }
+
+    public static string RepositoryRoot()
+    {
+        var root = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        return System.IO.File.Exists(Path.Combine(root, "Train.csproj"))
+            ? root
+            : Path.GetFullPath(Environment.CurrentDirectory);
     }
 
     public static MemoryContentSource FormalFixturePackage()

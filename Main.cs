@@ -539,7 +539,7 @@ public partial class Main : Node
             var restored = true;
             foreach (var example in WorldEditorExamples.All)
             {
-                var result = workspace.TryCreateExampleCopy(example.Path, out var copy);
+                var result = workspace.TryCreateExampleCopy(example, out var copy);
                 restored &= result.Succeeded && copy is { SimulationPaused: true, SaveId: null } && copy.HasUnsavedChanges;
                 copy?.Detach();
                 if (!result.Succeeded)

@@ -104,9 +104,9 @@ public partial class WorldEditorWorkspaceScene : Control
         return result;
     }
 
-    internal WorldSaveResult CreateExampleCopy(string path)
+    internal WorldSaveResult CreateExampleCopy(WorldEditorExample example)
     {
-        var result = _workspace.TryCreateExampleCopy(path, out var candidate);
+        var result = _workspace.TryCreateExampleCopy(example, out var candidate);
         if (candidate is null)
         {
             RefreshSaves();
@@ -163,13 +163,13 @@ public partial class WorldEditorWorkspaceScene : Control
             var row = new HBoxContainer();
             _examples.AddChild(row);
             var dependencies = DescribeDependencies(entry.Document?.ExternalDefinitions ?? Array.Empty<WorldSaveDefinitionRef>(), entry.Document?.Source);
-            var text = $"{entry.Document?.DisplayName ?? entry.Example.Path}\n{entry.Example.Purpose}\n适用版本 {entry.Example.ApplicableVersion} · 格式 {entry.Document?.FormatVersion.ToString() ?? "未知"}\n依赖：{dependencies}";
+            var text = $"{entry.Document?.DisplayName ?? entry.Example.Path}\n{entry.Example.Purpose}\n自版本 {entry.Example.ApplicableSinceVersion} 起适用 · 格式 {entry.Document?.FormatVersion.ToString() ?? "未知"}\n依赖：{dependencies}";
             if (!entry.Recovery.Succeeded)
                 text += $"\n无法打开：{Describe(entry.Recovery)}";
             else if (entry.Recovery.Adaptations is { Count: > 0 } adaptations)
                 text += "\n适配提示：" + string.Join("；", adaptations.Select(item => $"{item.Subject}/{item.Relationship}"));
             row.AddChild(new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart, SizeFlagsHorizontal = SizeFlags.ExpandFill });
-            var button = AddButton(row, "从示例创建副本", () => CreateExampleCopy(entry.Example.Path));
+            var button = AddButton(row, "从示例创建副本", () => CreateExampleCopy(entry.Example));
             button.Disabled = !entry.Recovery.Succeeded;
         }
         _result.Text = _workspace.ListFailure is { } failure ? $"存档列表读取失败：{failure.Detail}" : "选择存档打开，或新建空白世界。";
