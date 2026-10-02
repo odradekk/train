@@ -49,6 +49,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private int _phase;
     private int _workPlanePhase;
     private bool _workPlanesChecked;
+    private ulong _surfaceRemovedNextEdit;
     private static readonly WorldVoxelCoord VerticalXCell = new(18, 5, 8);
     private static readonly WorldVoxelCoord VerticalZCell = new(20, 5, 18);
     private static readonly WorldVoxelCoord SurfaceOutsideCell = new(20, 6, 18);
@@ -1001,14 +1002,14 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 11:
                 if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
                     return;
-                Motion(SurfaceScreen());
+                Motion(SurfaceScreen(VerticalZCell));
                 break;
             case 12:
-                var pick = scene.Observation!.QueryPick(scene.GetViewport().GetScreenTransform().AffineInverse() * SurfaceScreen());
+                var pick = scene.Observation!.QueryPick(scene.GetViewport().GetScreenTransform().AffineInverse() * SurfaceScreen(VerticalZCell));
                 Require(state.Plane == VoxelWorkPlane.Surface && pick.WorldCell == VerticalZCell && pick.WorldNormal == Vector3.Up &&
                         pick.AdjacentCell == SurfaceOutsideCell && state.Position == SurfaceOutsideCell && state.Preview.Succeeded,
                     $"surface preview did not target the outside cell: hit={pick.WorldCell} normal={pick.WorldNormal} target={state.Position}");
-                ClickAt(SurfaceScreen());
+                ClickAt(SurfaceScreen(VerticalZCell));
                 break;
             case 13:
                 Require(session.Query(SurfaceOutsideCell).Voxel is not null && !state.HasDraft,
@@ -1026,45 +1027,61 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             case 16:
                 Require(!session.Query(VerticalZCell).IsOccupied && session.Query(SurfaceOutsideCell).IsOccupied && !state.HasDraft,
                     "surface operation button changed the neighbor instead of removing the hit cell");
-                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
-                {
-                    new VoxelCellTarget(VerticalZCell, VoxelCellOperation.Add, new VoxelCellContent(state.DefinitionId, state.Orientation))
-                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied }, "could not restore the surface fixture");
                 Click(view.OperationInput);
                 break;
             case 17:
                 ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Add);
                 break;
             case 18:
-                Require(state.Position == SurfaceOutsideCell && state.Operation == VoxelCellOperation.Add && !state.HasDraft,
-                    "switching back to addition did not retarget the surface's outside neighbor");
-                ReplaceNumber(view.CoordinateInputs[1], 9);
+                Require(view.CommitButton.Disabled && !state.HasDraft, "removed surface still allowed a cached target to be committed");
+                _surfaceRemovedNextEdit = session.NextEditId;
+                Click(view.CommitButton);
                 break;
             case 19:
+                Require(session.NextEditId == _surfaceRemovedNextEdit && !state.HasDraft &&
+                        !session.Query(VerticalZCell).IsOccupied && session.Query(SurfaceOutsideCell).IsOccupied,
+                    "a commit without a live surface changed the world");
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(VerticalZCell, VoxelCellOperation.Add, new VoxelCellContent(state.DefinitionId, state.Orientation))
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied }, "could not restore the surface fixture");
+                _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
+                break;
+            case 20:
+                if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
+                    return;
+                Motion(SurfaceScreen(SurfaceOutsideCell));
+                break;
+            case 21:
+                Require(state.Position == SurfaceOutsideCell with { Y = 7 } && state.Operation == VoxelCellOperation.Add && !state.HasDraft,
+                    $"a fresh surface pick did not restore addition at the new outside neighbor: {state.Position}");
+                ReplaceNumber(view.CoordinateInputs[1], 9);
+                break;
+            case 22:
                 Require(state.HasDraft && state.Position == SurfaceOutsideCell with { Y = 9 } &&
                         state.CurrentEdit.Targets.Single().Position == state.Position,
                     "surface precise input did not share the preview across heights");
-                Motion(SurfaceScreen());
+                Motion(SurfaceScreen(VerticalZCell));
                 Click(view.PlaneInput);
                 break;
-            case 20:
+            case 23:
                 ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.Horizontal);
                 break;
-            case 21:
+            case 24:
                 Require(state.Position == SurfaceOutsideCell with { Y = 9 } && state.Plane == VoxelWorkPlane.Surface && view.DraftPrompt.Visible,
                     "plane switch redirected an existing surface draft");
                 Click(view.DraftDiscardButton);
                 break;
-            case 22:
+            case 25:
                 Require(!state.HasDraft && state.Plane == VoxelWorkPlane.Horizontal,
                     "explicit draft discard did not apply the requested plane");
                 ReplaceNumber(view.LayerInput, 3);
                 Click(view.SelectToolButton);
                 break;
-            case 23:
+            case 26:
                 Require(!state.Active && !state.HasDraft && state.Layer == 3 && scene.Camera.GlobalPosition == _cellToolCamera,
                     "work-plane editing changed camera state or left a draft");
-                GD.Print("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
+                GD.Print("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true operation_retarget=true removed_surface_invalid=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
                 _workPlanesChecked = true;
                 return;
         }
@@ -1076,8 +1093,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             ? new Vector3(cell.X, cell.Y + 0.5f, cell.Z + 0.5f)
             : new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z));
 
-    private Vector2 SurfaceScreen() => scene.GetViewport().GetScreenTransform() *
-        scene.Camera.UnprojectPosition(new Vector3(VerticalZCell.X + 0.5f, VerticalZCell.Y + 1, VerticalZCell.Z + 0.5f));
+    private Vector2 SurfaceScreen(WorldVoxelCoord cell) => scene.GetViewport().GetScreenTransform() *
+        scene.Camera.UnprojectPosition(new Vector3(cell.X + 0.5f, cell.Y + 1, cell.Z + 0.5f));
 
     private void RequireCellFaces(WorldVoxelCoord cell, Vector3 center)
     {

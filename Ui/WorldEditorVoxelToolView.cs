@@ -22,6 +22,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     private WorldVoxelCoord _gridCenter;
     private Func<Vector2, WorldEditorPick> _pick = null!;
     private WorldEditorPick? _surface;
+    private (VoxelDefinitionId Definition, VoxelOrientation Orientation, VoxelCollision Collision)? _surfaceContent;
     private bool _pointerTargetable = true;
     private IReadOnlyList<VoxelDefinitionId> _definitions = Array.Empty<VoxelDefinitionId>();
     private IReadOnlyList<VoxelOrientation> _orientations = Array.Empty<VoxelOrientation>();
@@ -163,6 +164,7 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     internal void Commit()
     {
+        CheckSurface();
         if (State.Plane == VoxelWorkPlane.Surface && !_pointerTargetable && !State.HasDraft)
             return;
         if (!HasContentSelection && State.Operation != VoxelCellOperation.Remove)
@@ -223,7 +225,7 @@ public partial class WorldEditorVoxelToolView : Node3D
                 return true;
             }
             if (!State.HasDraft)
-                _surface = pick;
+                RememberSurface(pick);
             target = State.SurfaceTarget(pick.WorldCell!.Value, pick.AdjacentCell!.Value);
         }
         else if (!State.TryPlaneTarget(WorldEditorObservationView.From(origin), WorldEditorObservationView.From(direction), out target))
@@ -236,7 +238,7 @@ public partial class WorldEditorVoxelToolView : Node3D
             _pointerTargetable = true;
         if (commit && State.HasDraft && State.Position != target)
         {
-            RequestChange(() => { State.Hover(target); if (surface is not null) _surface = surface; });
+            RequestChange(() => { State.Hover(target); if (surface is not null) RememberSurface(surface); });
             return true;
         }
         State.Hover(target);
@@ -251,6 +253,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         if (State is null)
             return;
+        CheckSurface();
         _syncing = true;
         try
         {
@@ -304,6 +307,30 @@ public partial class WorldEditorVoxelToolView : Node3D
             UpdateGrid();
         }
         finally { _syncing = false; }
+    }
+
+    private void CheckSurface()
+    {
+        if (State.Plane == VoxelWorkPlane.Surface && !State.HasDraft && _surface?.WorldCell is { } cell)
+        {
+            var voxel = _session.Query(cell).Voxel;
+            if (voxel is not null && _surfaceContent is { } content && voxel.DefinitionId == content.Definition &&
+                voxel.Orientation == content.Orientation && _session.CurrentVoxels?.TryGet(voxel.DefinitionId, out var entry) == true &&
+                ReferenceEquals(content.Collision, entry.Definition.Collision) && content.Collision.Kind != VoxelCollisionKind.None)
+                return;
+            _surface = null;
+            _surfaceContent = null;
+            _pointerTargetable = false;
+        }
+    }
+
+    private void RememberSurface(WorldEditorPick pick)
+    {
+        _surface = pick;
+        var voxel = _session.Query(pick.WorldCell!.Value).Voxel;
+        _surfaceContent = voxel is not null && _session.CurrentVoxels?.TryGet(voxel.DefinitionId, out var entry) == true
+            ? (voxel.DefinitionId, voxel.Orientation, entry.Definition.Collision) : null;
+        CheckSurface();
     }
 
     internal static string Describe(VoxelCellSetResult result)

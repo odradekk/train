@@ -9,11 +9,11 @@
       "group": "godot-workspace",
       "script": "scripts/run-godot-world-editor-cross-process.ps1",
       "arguments": ["-Workspace", "-OutputDirectory", "{output}"],
-      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+shared-undo-redo-input+history-not-persisted",
+      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+voxel-work-planes+vehicle-cursor-coordinates+shared-undo-redo-input+history-not-persisted",
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 300,
-      "timeoutReason": "The issue #182 eleven-process workspace check measured 27118ms and 27201ms during PR #188 revisions on Windows on 2026-10-02: five workspace processes, two example-copy processes, two cell-tool processes and two history processes. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
+      "timeoutReason": "The issue #183 eleven-process workspace check measured 26936ms and 26143ms on Windows on 2026-10-02, including vertical/surface placement, raw collider faces, non-pickable cells, stale-surface refusal and vehicle cursor coordinates in the existing cell-tool leg. Five workspace, two example-copy, two cell-tool and two history processes remain. The 300s outer hang cap and each child's 60s bound are unchanged. The outer deadline may cancel before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
     },
     {
       "id": "godot.logging-smoke",
@@ -53,7 +53,7 @@
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
-      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+shared-undo-redo-input+history-not-persisted",
+      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+voxel-work-planes+vehicle-cursor-coordinates+shared-undo-redo-input+history-not-persisted",
       "requirements": "godot,process",
       "fourScene": false,
       "followUp": ""
