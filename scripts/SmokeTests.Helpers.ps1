@@ -124,7 +124,7 @@ function New-FakeWindowsGuiExe {
     Set-Content -LiteralPath (Join-Path $root "TrainFakeGui.csproj") -Value $project -Encoding utf8NoBOM
 
     $prints = @($Lines | ForEach-Object {
-        $literal = [System.Text.Json.JsonSerializer]::Serialize($_)
+        $literal = [System.Text.Json.JsonSerializer]::Serialize([string] $_, [System.Text.Json.JsonSerializerOptions]::new())
         "        System.Console.WriteLine($literal);"
     }) -join [Environment]::NewLine
     $code = @"
