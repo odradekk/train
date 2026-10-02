@@ -905,6 +905,8 @@ internal static class Program
                 else if (leg == "cell-tool-save")
                 {
                     Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT height=3 exact_shared=true");
+                    Console.WriteLine("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true operation_retarget=true removed_surface_invalid=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
+                    Console.WriteLine("WORKSPACE_VEHICLE_COORDINATES world=fixture local=fixture visible=true");
                     Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false");
                 }
                 else if (leg == "cell-tool-resume")
