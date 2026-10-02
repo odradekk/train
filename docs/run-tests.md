@@ -26,12 +26,18 @@ Two further real Godot processes use a separate user-data directory. The first c
 basic-editing example through the workspace, continues formal editing and running while retaining a future pending edit, and gives
 the first save a UUID distinct from the example document. The next process restores that saved copy, then creates the example again
 and verifies its documented step-1 boundary, pending edit and Godot-read source bytes are unchanged and exclude copy-only edits.
-Two final real Godot processes use another isolated user-data directory for the single-cell tool. The first selects definition,
+Two further real Godot processes use another isolated user-data directory for the single-cell tool. The first selects definition,
 orientation and horizontal-plane height through real Godot input in a blank world, places a cell, verifies the shared precise
 preview and rejected draft, and exercises tool/target/level/leave guards. Saving retains an uncommitted draft but excludes it
 from the saved world. The second process opens that saved world with committed and pending cell edits, verifies that no UI
-draft was restored, executes the pending edits in formal order, and continues mouse editing and saving. The workspace check
-therefore runs nine processes in total. Its assertions do not replace manual window input or visual acceptance.
+draft was restored, executes the pending edits in formal order, and continues mouse editing and saving.
+Two more processes exercise shared undo/redo, world-focus shortcuts, text-input history, irreversible-edit confirmation,
+independent draft history and the absence of restored history in a new session.
+One additional process uses real Godot drag and Ctrl/Shift list input to select whole objects, excludes an occluded cell,
+refuses box selection at the part level and commits a batch draft after clearing or changing the selection. It verifies
+that the bound cells change together in one edit and one undo record. The example and multi-selection processes also
+report full-world rectangle candidate counts, ray counts and elapsed cost.
+The workspace check therefore runs twelve processes in total. Its assertions do not replace manual window input or visual acceptance.
 Graphical workspace, window close, quit and dialog acceptance remain separate manual checks. Injected window-close notifications prove the handler; they do not prove a real window close-button interaction.
 
 `--quit-after` in those scripts is a Godot frame budget, not the entry timeout and not a pass condition. `-Correctness` selects these Godot checks together with MSTest, so it needs `GODOT` and a `Train.csproj` build plus import. Each Godot check gets its own `APPDATA` directory under the run, shared by the processes it starts; the import and the version probe get one each. The entry does not write `override.cfg`, so killing it leaves no user-data redirect; an existing `override.cfg` is left in place, and the summary records whether it exists and its SHA256.
