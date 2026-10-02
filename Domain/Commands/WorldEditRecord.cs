@@ -30,8 +30,7 @@ public enum WorldEditRefusal
     InputExhausted = 2,
     SimulationFaulted = 3,
     UnallocatedReference = 4,
-    WorldChanging = 5,
-    DraftCommitInProgress = 6
+    WorldChanging = 5
 }
 
 /// <summary>

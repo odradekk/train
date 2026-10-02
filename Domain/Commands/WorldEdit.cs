@@ -101,12 +101,6 @@ public enum VoxelCellOperation
     Replace
 }
 
-public enum VoxelCellOccupancy
-{
-    Empty,
-    Occupied
-}
-
 public sealed record VoxelCellContent
 {
     public VoxelDefinitionId DefinitionId { get; }
@@ -126,7 +120,6 @@ public sealed record VoxelCellContent
 public sealed record VoxelCellTarget(
     WorldVoxelCoord Position,
     VoxelCellOperation Operation,
-    VoxelCellOccupancy ExpectedOccupancy,
     VoxelCellContent? Content);
 
 /// <summary>One ordered, atomic set of world-cell targets. Every target is validated before any is written.</summary>
@@ -139,8 +132,8 @@ public sealed class VoxelCellSetEdit : WorldEdit
         ArgumentNullException.ThrowIfNull(targets);
         foreach (var target in targets)
         {
-            if (!Enum.IsDefined(target.Operation) || !Enum.IsDefined(target.ExpectedOccupancy))
-                throw new ArgumentOutOfRangeException(nameof(targets), "Cell operation and expected occupancy must be defined.");
+            if (!Enum.IsDefined(target.Operation))
+                throw new ArgumentOutOfRangeException(nameof(targets), "Cell operation must be defined.");
         }
         Targets = Array.AsReadOnly(targets.ToArray());
     }

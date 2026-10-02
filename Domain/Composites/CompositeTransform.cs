@@ -39,6 +39,31 @@ public readonly record struct CompositeTransform
             OriginY + x * RightY + y * UpY + z * ForwardY,
             OriginZ + x * RightZ + y * UpZ + z * ForwardZ);
 
+    internal bool OverlapsCell(LocalVoxelCoord localCell, WorldVoxelCoord target)
+    {
+        var partCorners = new (double X, double Y, double Z)[8];
+        var targetCorners = new (double X, double Y, double Z)[8];
+        var index = 0;
+        for (var x = 0; x <= 1; x++)
+        for (var y = 0; y <= 1; y++)
+        for (var z = 0; z <= 1; z++)
+        {
+            partCorners[index] = TransformPoint(localCell.X + x, localCell.Y + y, localCell.Z + z);
+            targetCorners[index++] = (target.X + x, target.Y + y, target.Z + z);
+        }
+
+        var worldAxes = new[] { (1d, 0d, 0d), (0d, 1d, 0d), (0d, 0d, 1d) };
+        var partAxes = new[] { Right, Up, Forward };
+        foreach (var axis in worldAxes.Concat(partAxes).Concat(
+                     worldAxes.SelectMany(worldAxis => partAxes.Select(partAxis => Cross(worldAxis, partAxis)))))
+        {
+            if (Dot(axis, axis) >= 1e-24 && Separated(partCorners, targetCorners, axis))
+                return false;
+        }
+
+        return true;
+    }
+
     public bool IsFinite =>
         double.IsFinite(OriginX) && double.IsFinite(OriginY) && double.IsFinite(OriginZ) &&
         double.IsFinite(RightX) && double.IsFinite(RightY) && double.IsFinite(RightZ) &&
@@ -152,6 +177,31 @@ public readonly record struct CompositeTransform
         (double X, double Y, double Z) left,
         (double X, double Y, double Z) right) =>
         left.X * right.X + left.Y * right.Y + left.Z * right.Z;
+
+    private static bool Separated(
+        (double X, double Y, double Z)[] left,
+        (double X, double Y, double Z)[] right,
+        (double X, double Y, double Z) axis)
+    {
+        Project(left, axis, out var leftMin, out var leftMax);
+        Project(right, axis, out var rightMin, out var rightMax);
+        return leftMax <= rightMin || rightMax <= leftMin;
+    }
+
+    private static void Project(
+        (double X, double Y, double Z)[] points,
+        (double X, double Y, double Z) axis,
+        out double min,
+        out double max)
+    {
+        min = max = Dot(points[0], axis);
+        foreach (var point in points.AsSpan(1))
+        {
+            var value = Dot(point, axis);
+            min = Math.Min(min, value);
+            max = Math.Max(max, value);
+        }
+    }
 
     private static bool TryOrthonormalize(
         (double X, double Y, double Z) right,

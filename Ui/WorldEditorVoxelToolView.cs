@@ -82,13 +82,13 @@ public partial class WorldEditorVoxelToolView : Node3D
         box.AddChild(OrientationInput);
         DefinitionInput.ItemSelected += index =>
         {
-            if (_syncing || _session.IsChangingWorld)
+            if (_syncing || _session.IsChangingWorld || index < 0 || index >= _definitions.Count)
                 return;
-            State.SetExact(State.Position, _definitions[(int)index], VoxelOrientation.Identity, State.Operation);
+            State.SetSettings(_definitions[(int)index], VoxelOrientation.Identity, State.Operation);
             Present();
         };
-        OrientationInput.ItemSelected += _ => ExactInput();
-        OperationInput.ItemSelected += _ => ExactInput();
+        OrientationInput.ItemSelected += _ => SettingsInput();
+        OperationInput.ItemSelected += _ => SettingsInput();
         _preview = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
         box.AddChild(_preview);
         var actions = new HBoxContainer();
@@ -142,7 +142,7 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     internal void Commit()
     {
-        if (_definitions.Count == 0 && State.Operation != VoxelCellOperation.Remove)
+        if (!HasContentSelection && State.Operation != VoxelCellOperation.Remove)
             return;
         var result = State.Commit();
         _lastResult = result.Result is VoxelCellSetResult cells ? Describe(cells) : result.Status;
@@ -151,10 +151,25 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     private void ExactInput()
     {
-        if (_syncing || _session.IsChangingWorld || _definitions.Count == 0 || _orientations.Count == 0)
+        if (_syncing || _session.IsChangingWorld || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
             return;
         State.SetExact(new WorldVoxelCoord((int)CoordinateInputs[0].Value, (int)CoordinateInputs[1].Value, (int)CoordinateInputs[2].Value),
-            _definitions[DefinitionInput.Selected], _orientations[OrientationInput.Selected], (VoxelCellOperation)OperationInput.Selected);
+            State.DefinitionId, State.Orientation, State.Operation);
+        Present();
+    }
+
+    private bool HasContentSelection => DefinitionInput.Selected >= 0 && DefinitionInput.Selected < _definitions.Count &&
+        OrientationInput.Selected >= 0 && OrientationInput.Selected < _orientations.Count;
+
+    private void SettingsInput()
+    {
+        if (_syncing || _session.IsChangingWorld || OperationInput.Selected < 0)
+            return;
+        var operation = (VoxelCellOperation)OperationInput.Selected;
+        if (!HasContentSelection && operation != VoxelCellOperation.Remove)
+            return;
+        State.SetSettings(operation == VoxelCellOperation.Remove ? State.DefinitionId : _definitions[DefinitionInput.Selected],
+            operation == VoxelCellOperation.Remove ? State.Orientation : _orientations[OrientationInput.Selected], operation);
         Present();
     }
 
@@ -228,7 +243,7 @@ public partial class WorldEditorVoxelToolView : Node3D
                 "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
                 $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview)}" + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
             DiscardButton.Disabled = !State.HasDraft;
-            CommitButton.Disabled = !canPreview || _session.IsChangingWorld;
+            CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld;
             var material = (StandardMaterial3D)_cell.MaterialOverride;
             material.AlbedoColor = preview.Succeeded ? new Color(0.2f, 1, 0.4f, 0.35f) : new Color(1, 0.2f, 0.15f, 0.4f);
             _cell.Position = new Vector3(State.Position.X + 0.5f, State.Position.Y + 0.5f, State.Position.Z + 0.5f);
@@ -251,12 +266,13 @@ public partial class WorldEditorVoxelToolView : Node3D
             VoxelCellSetStatus.OutOfBounds => "超出世界范围",
             VoxelCellSetStatus.UnknownDefinition => "定义不在当前有效内容中",
             VoxelCellSetStatus.DisallowedOrientation => "定义不允许该朝向",
-            VoxelCellSetStatus.RailOccupied => result.OwnerId.Value == 0 ? "铁路体素（未登记轨段）" : "属于铁路",
+            VoxelCellSetStatus.NoChange => "定义和朝向未变化",
+            VoxelCellSetStatus.RailOccupied => result.OwnerKind == VoxelCellOwnerKind.None ? "铁路体素（未登记轨段）" : "属于铁路",
             VoxelCellSetStatus.VehicleOccupied => "车辆实际占用",
             _ => result.Status.ToString()
         };
-        return reason + (result.OwnerId.Value != 0 ? $" · 对象 {result.OwnerId.Value}" : "") +
-            (result.PartId.Value != 0 ? $" · 零件 {result.PartId.Value}" : "");
+        return reason + (result.OwnerKind != VoxelCellOwnerKind.None ? $" · 对象 {result.OwnerId.Value}" : "") +
+            (result.OwnerKind == VoxelCellOwnerKind.VehiclePart ? $" · 零件 {result.PartId.Value}" : "");
     }
 
     private void CreateMeshes()

@@ -130,8 +130,7 @@ public sealed class WorldEditEntryTests
         var dispatcher = Dispatcher(logger, session);
 
         var railCell = StraightRailFixture.FirstSegmentDamageCell;
-        Assert.IsTrue(session.Rails.TryGetOccupancy(railCell, out var railOccupancy));
-        var railId = railOccupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId;
+        var railId = session.Rails.Segments[0].Id;
         dispatcher.Execute($"voxel cell remove {railCell.X} {railCell.Y} {railCell.Z}");
 
         var vehicle = session.QueryComposites().First();

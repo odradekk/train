@@ -198,7 +198,6 @@ public partial class WorldEditorScene : Node3D
 
     internal bool PromptVisible => _worldChangePrompt?.Visible == true;
     internal UnsavedWorldChangePrompt? WorldChangePrompt => _worldChangePrompt;
-    internal Button DraftLeaveCommitButton => _worldChangePrompt!.DraftCommitButton;
     internal Button DraftLeaveDiscardButton => _worldChangePrompt!.DraftDiscardButton;
 
     internal void PressPrompt(string name) => _worldChangePrompt!.Press(name);
@@ -374,7 +373,6 @@ public partial class WorldEditorScene : Node3D
         }
         _worldChangePrompt = new UnsavedWorldChangePrompt();
         _worldChangePrompt.Chosen += ConfirmWorldChange;
-        _worldChangePrompt.DraftCommit += () => _cellTool?.Commit();
         _worldChangePrompt.DraftDiscard += () => _cellTool?.State.Discard();
         AddChild(_worldChangePrompt);
         _saveAsPrompt = new ConfirmationDialog { Title = "另存为新存档", OkButtonText = "另存为", CancelButtonText = "取消" };
@@ -658,7 +656,7 @@ public partial class WorldEditorScene : Node3D
         if (result.Status == WorldChangeStatus.ChoiceRequired)
         {
             var canSave = _session?.Fault is null;
-            _worldChangePrompt?.Open(request.Kind, canSave, _session?.HasEditorDraft == true);
+            _worldChangePrompt?.Open(request.Kind, canSave, _session?.HasEditorDraft == true, _session?.HasUnsavedChanges == true);
             _result.Text = canSave ? "最近操作：有未保存变化，请选择保存后继续、放弃或取消。"
                 : "最近操作：模拟发生故障，无法保存当前世界。可以放弃更改或取消。";
             _state.Text = StateText();

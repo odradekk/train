@@ -229,7 +229,7 @@ public sealed partial class VoxelDevelopmentSession
     {
         if (_worldChange is null || !_changeNeedsChoice || HasEditorDraft)
             return;
-        // A prior save or world-discard choice cannot also consent to discarding a draft or its new commit.
+        // A prior save or world-discard choice cannot also consent to discarding a draft.
         _worldChange = _worldChange with { Choice = null };
         _changeNeedsSave = false;
         _changeNeedsChoice = HasUnsavedChanges;

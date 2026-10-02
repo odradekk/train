@@ -15,6 +15,35 @@ public sealed class WorldEditorVoxelDraftTests
     private static readonly WorldVoxelCoord Cell = new(1, 2, 1);
 
     [TestMethod]
+    public void Definition_orientation_and_operation_settings_keep_hover_transient_and_following_the_mouse()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetSettings(WorldEditorSequences.EditVoxelId,
+            new VoxelOrientation(VoxelAxis.PositiveZ, VoxelAxis.PositiveY), VoxelCellOperation.Add);
+        tool.Hover(Cell);
+        Assert.IsFalse(tool.HasDraft);
+        Assert.AreEqual(Cell, tool.Position);
+        Assert.AreEqual(VoxelCellSetStatus.Valid, tool.Preview.Status);
+        tool.SetSettings(tool.DefinitionId, tool.Orientation, VoxelCellOperation.Remove);
+        var next = new WorldVoxelCoord(3, 2, 1);
+        tool.Hover(next);
+        Assert.AreEqual(next, tool.Position);
+        Assert.IsFalse(tool.HasDraft);
+        Assert.AreEqual(VoxelCellSetStatus.Empty, tool.Preview.Status);
+        tool.SetSettings(tool.DefinitionId, tool.Orientation, VoxelCellOperation.Replace);
+        tool.Hover(Cell);
+        Assert.AreEqual(Cell, tool.Position);
+        Assert.IsFalse(tool.HasDraft);
+        tool.SetExact(Cell, tool.DefinitionId, tool.Orientation, VoxelCellOperation.Add);
+        tool.SetSettings(tool.DefinitionId, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        tool.Hover(next);
+        Assert.AreEqual(Cell, tool.Position);
+        Assert.IsTrue(tool.HasDraft);
+    }
+
+    [TestMethod]
     public void Hover_is_transient_but_precise_input_and_rejected_commits_pin_the_same_preview()
     {
         using var harness = Blank();
@@ -66,6 +95,9 @@ public sealed class WorldEditorVoxelDraftTests
         Assert.AreEqual(WorldChangeStatus.ChoiceRequired, session.BeginWorldChange(request).Status);
         Assert.IsTrue(session.IsChangingWorld);
         Assert.AreEqual(WorldEditRefusal.WorldChanging, session.SubmitEdit(tool.CurrentEdit).Refusal);
+        Assert.AreEqual(WorldEditRefusal.WorldChanging, tool.Commit().Refusal);
+        Assert.IsFalse(session.Query(Cell).IsOccupied);
+        Assert.AreEqual(0, session.QueryEditLog().Count);
         Assert.AreEqual(WorldChangeStatus.ChoiceRequired, session.ChooseWorldChange(WorldChangeChoice.Discard).Status);
         Assert.AreEqual(WorldChangeStatus.ChoiceRequired, session.AdvanceWorldChange().Status);
         Assert.AreSame(original, session.World);
@@ -97,11 +129,15 @@ public sealed class WorldEditorVoxelDraftTests
             Assert.IsFalse(restored.HasEditorDraft);
         }
         finally { restored.Detach(); }
+        Assert.AreEqual(WorldEditRefusal.WorldChanging, tool.Commit().Refusal);
+        Assert.IsTrue(tool.HasDraft);
+        Assert.IsFalse(session.Query(Cell).IsOccupied);
+        Assert.AreEqual(WorldChangeStatus.Cancelled, session.ChooseWorldChange(WorldChangeChoice.Cancel).Status);
         Assert.AreEqual(WorldEditState.Executed, tool.Commit().Record!.State);
         Assert.IsFalse(tool.HasDraft);
         Assert.IsTrue(session.Query(Cell).IsOccupied);
-        Assert.AreEqual(WorldChangeStatus.ChoiceRequired, session.AdvanceWorldChange().Status);
-        session.ChooseWorldChange(WorldChangeChoice.SaveThenSwitch);
+        Assert.AreEqual(WorldChangeStatus.Switching,
+            session.BeginWorldChange(new(WorldChangeKind.Quit, WorldChangeChoice.SaveThenSwitch)).Status);
         Assert.AreEqual(WorldChangeStatus.Switching, session.AdvanceWorldChange().Status);
         Assert.AreEqual(WorldChangeStatus.Completed, session.AdvanceWorldChange().Status);
     }
@@ -121,7 +157,10 @@ public sealed class WorldEditorVoxelDraftTests
         Assert.AreNotEqual(original, copy);
         Assert.IsTrue(tool.HasDraft);
         tool.Discard();
-        while (session.AdvanceWorldChange().Status == WorldChangeStatus.Switching) { }
+        WorldChangeResult result = new(WorldChangeStatus.Switching);
+        Assert.IsTrue(SpinWait.SpinUntil(() => (result = session.AdvanceWorldChange()).Status != WorldChangeStatus.Switching,
+            TimeSpan.FromSeconds(10)), "Reload did not finish within the bounded wait.");
+        Assert.AreEqual(WorldChangeStatus.Completed, result.Status);
         Assert.AreEqual(original, session.SaveId);
         Assert.IsFalse(tool.HasDraft);
         Assert.IsFalse(session.Query(Cell).IsOccupied);
@@ -151,28 +190,23 @@ public sealed class WorldEditorVoxelDraftTests
     }
 
     [TestMethod]
-    public void Explicit_draft_commit_during_departure_does_not_reopen_other_world_input()
+    public void Draft_commit_is_suspended_until_departure_is_cancelled()
     {
         using var harness = Blank();
         var session = harness.Session;
         using var tool = new WorldEditorVoxelTool(session);
         tool.SetExact(Cell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity, VoxelCellOperation.Add);
         session.BeginWorldChange(new(WorldChangeKind.Quit, null));
-        WorldEditSubmission? other = null;
-        WorldEditSubmission? nestedDraft = null;
-        void TryOtherInput() => other = session.SubmitEdit(new VoxelAddEdit(new(2, 2, 1),
-            WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity));
-        void TryNestedDraft() => nestedDraft = tool.Commit();
-        session.Changed += TryOtherInput;
-        session.Changed += TryNestedDraft;
-        try { Assert.AreEqual(WorldEditState.Executed, tool.Commit().Record!.State); }
-        finally { session.Changed -= TryOtherInput; session.Changed -= TryNestedDraft; }
-        Assert.AreEqual(WorldEditRefusal.WorldChanging, other!.Refusal);
-        Assert.AreEqual(WorldEditRefusal.DraftCommitInProgress, nestedDraft!.Refusal);
-        Assert.AreEqual(1, session.QueryEditLog().Count);
+        var nextEdit = session.NextEditId;
+        Assert.AreEqual(WorldEditRefusal.WorldChanging, tool.Commit().Refusal);
+        Assert.AreEqual(nextEdit, session.NextEditId);
+        Assert.AreEqual(0, session.QueryEditLog().Count);
+        Assert.IsTrue(tool.HasDraft);
+        Assert.IsFalse(session.Query(Cell).IsOccupied);
+        Assert.AreEqual(WorldChangeStatus.Cancelled, session.ChooseWorldChange(WorldChangeChoice.Cancel).Status);
+        Assert.AreEqual(WorldEditState.Executed, tool.Commit().Record!.State);
+        Assert.IsFalse(tool.HasDraft);
         Assert.IsTrue(session.Query(Cell).IsOccupied);
-        Assert.IsFalse(session.Query(new(2, 2, 1)).IsOccupied);
-        session.ChooseWorldChange(WorldChangeChoice.Cancel);
     }
 
     private static WorldEditorHarness Blank()

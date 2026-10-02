@@ -17,16 +17,14 @@ public enum WorldEditDecodeStatus
 }
 
 /// <summary>
-/// Canonical encoding of parsed world edits. Legacy edit kinds remain input format version 1; the ordered,
-/// atomic voxel cell set is version 2. See docs/design/04 for the contract:
+/// Canonical encoding of parsed world edits. See docs/design/04 for the contract:
 /// compact UTF-8 JSON, fixed field order, ordinal ASCII identifiers, sorted unordered target sets, preserved
 /// ordered operation lists, i32 coordinates and amounts, non-zero u64 runtime ids, and finite doubles written
 /// as the shortest culture-invariant round-trip text.
 /// </summary>
 public static class WorldEditCodec
 {
-    public const int InputFormatVersion = 2;
-    public const int LegacyInputFormatVersion = 1;
+    public const int InputFormatVersion = 1;
     public const string EmptyLogDigest = "0000000000000000000000000000000000000000000000000000000000000000";
 
     private static readonly JsonWriterOptions WriterOptions = new()
@@ -182,15 +180,12 @@ public static class WorldEditCodec
             return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
         if (!fields.TryInt32("input_format_version", out var version, out status))
             return false;
-        if (version is not (LegacyInputFormatVersion or InputFormatVersion))
+        if (version != InputFormatVersion)
             return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
         if (!fields.TryTake("kind", JsonValueKind.String, out var kindElement, out status))
             return false;
         if (!TryParseWireKind(kindElement.GetString(), out var kind))
             return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
-        if ((version == LegacyInputFormatVersion) != (kind != WorldEditKind.VoxelCellSet))
-            return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
-
         var read = kind switch
         {
             WorldEditKind.VoxelAdd => TryReadVoxelAdd(fields, out edit, out status),
@@ -205,7 +200,7 @@ public static class WorldEditCodec
             WorldEditKind.TrainStart => TryReadTrainCommand(fields, start: true, out edit, out status),
             WorldEditKind.TrainStop => TryReadTrainCommand(fields, start: false, out edit, out status),
             WorldEditKind.ContentPublish => TryReadContentPublish(fields, out edit, out status),
-            WorldEditKind.VoxelCellSet when version == InputFormatVersion => TryReadVoxelCellSet(fields, out edit, out status),
+            WorldEditKind.VoxelCellSet => TryReadVoxelCellSet(fields, out edit, out status),
             _ => Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat)
         };
         return read && fields.TryFinish(out status);
@@ -252,7 +247,7 @@ public static class WorldEditCodec
     private static void WriteEdit(Utf8JsonWriter writer, WorldEdit edit)
     {
         writer.WriteStartObject();
-        writer.WriteNumber("input_format_version", edit is VoxelCellSetEdit ? InputFormatVersion : LegacyInputFormatVersion);
+        writer.WriteNumber("input_format_version", InputFormatVersion);
         writer.WriteString("kind", WireKind(edit.Kind));
         switch (edit)
         {
@@ -336,7 +331,6 @@ public static class WorldEditCodec
                     writer.WriteStartObject();
                     WriteCoord(writer, "position", target.Position.X, target.Position.Y, target.Position.Z);
                     writer.WriteString("operation", CellOperationWire(target.Operation));
-                    writer.WriteString("expected", CellOccupancyWire(target.ExpectedOccupancy));
                     if (target.Content is { } content)
                     {
                         writer.WriteStartObject("content");
@@ -407,13 +401,6 @@ public static class WorldEditCodec
         VoxelCellOperation.Remove => "remove",
         VoxelCellOperation.Replace => "replace",
         _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
-    };
-
-    private static string CellOccupancyWire(VoxelCellOccupancy occupancy) => occupancy switch
-    {
-        VoxelCellOccupancy.Empty => "empty",
-        VoxelCellOccupancy.Occupied => "occupied",
-        _ => throw new ArgumentOutOfRangeException(nameof(occupancy), occupancy, null)
     };
 
     private static void WriteCoord(Utf8JsonWriter writer, string name, int x, int y, int z)
@@ -578,11 +565,9 @@ public static class WorldEditCodec
             if (!Fields.TryOpen(item, out var target, out status) ||
                 !target.TryCoord("position", out var x, out var y, out var z, out status) ||
                 !target.TryTake("operation", JsonValueKind.String, out var operationElement, out status) ||
-                !target.TryTake("expected", JsonValueKind.String, out var expectedElement, out status) ||
                 !target.TryTakeAny("content", out var contentElement, out status))
                 return false;
-            if (!TryCellOperation(operationElement.GetString(), out var operation) ||
-                !TryCellOccupancy(expectedElement.GetString(), out var expected))
+            if (!TryCellOperation(operationElement.GetString(), out var operation))
                 return Fail(out edit, out status, WorldEditDecodeStatus.UnknownFormat);
             VoxelCellContent? content = null;
             if (contentElement.ValueKind != JsonValueKind.Null)
@@ -596,7 +581,7 @@ public static class WorldEditCodec
             }
             if (!target.TryFinish(out status))
                 return false;
-            targets.Add(new VoxelCellTarget(new WorldVoxelCoord(x, y, z), operation, expected, content));
+            targets.Add(new VoxelCellTarget(new WorldVoxelCoord(x, y, z), operation, content));
         }
         edit = new VoxelCellSetEdit(targets);
         return true;
@@ -604,20 +589,16 @@ public static class WorldEditCodec
 
     private static bool TryCellOperation(string? text, out VoxelCellOperation operation)
     {
-        operation = text switch
+        foreach (var candidate in Enum.GetValues<VoxelCellOperation>())
         {
-            "add" => VoxelCellOperation.Add,
-            "remove" => VoxelCellOperation.Remove,
-            "replace" => VoxelCellOperation.Replace,
-            _ => default
-        };
-        return text is "add" or "remove" or "replace";
-    }
-
-    private static bool TryCellOccupancy(string? text, out VoxelCellOccupancy occupancy)
-    {
-        occupancy = text == "occupied" ? VoxelCellOccupancy.Occupied : VoxelCellOccupancy.Empty;
-        return text is "empty" or "occupied";
+            if (string.Equals(CellOperationWire(candidate), text, StringComparison.Ordinal))
+            {
+                operation = candidate;
+                return true;
+            }
+        }
+        operation = default;
+        return false;
     }
 
     private static bool TryReadManufacture(Fields fields, out WorldEdit edit, out WorldEditDecodeStatus status)

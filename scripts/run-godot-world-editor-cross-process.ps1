@@ -182,7 +182,7 @@ if ($Workspace) {
         @'
 # World editor workspace cross-process validation
 
-Seven fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
+Five fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
 world, saves it, exercises return cancellation and failed ordinary save, then drives the save-as button and confirmation
 signals. Cancelling preserves identity, dirty state and the original bytes; confirming creates a distinct current save
 and keeps the original. It exports that current world through the new-file path. It then reopens the copy, edits it and completes
@@ -201,7 +201,9 @@ document. The next process restores that saved copy, then creates the example ag
 pending command and source bytes were unchanged and contain none of the copy-only edits.
 
 Two final processes use a third isolated save directory. The first uses parsed Godot mouse and keyboard events on the
-horizontal cell tool, checks that hover and exact parameters share one preview, keeps a rejected draft, resolves its guarded
+horizontal cell tool, verifies that definition/orientation/operation settings keep hover following, checks that hover and exact
+parameters share one preview, checks published replacement collision shapes and input after a definition disappears,
+keeps a rejected draft, resolves its guarded
 tool switch, and saves one committed cell plus one pending formal cell edit without a UI draft. The second opens that save in
 a fresh process, confirms no draft was persisted, continues editing by mouse, and runs the restored pending input.
 

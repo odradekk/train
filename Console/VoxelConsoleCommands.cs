@@ -222,7 +222,7 @@ public sealed class VoxelConsoleCommands
             TryPosition(arguments, 2, out var removePosition))
         {
             edit = new VoxelCellSetEdit([
-                new VoxelCellTarget(removePosition, VoxelCellOperation.Remove, VoxelCellOccupancy.Occupied, null)
+                new VoxelCellTarget(removePosition, VoxelCellOperation.Remove, null)
             ]);
         }
         else if (arguments.Count == 7 &&
@@ -243,7 +243,6 @@ public sealed class VoxelConsoleCommands
                     new VoxelCellTarget(
                         position,
                         parsedOperation,
-                        parsedOperation == VoxelCellOperation.Add ? VoxelCellOccupancy.Empty : VoxelCellOccupancy.Occupied,
                         new VoxelCellContent(definitionId, orientation))
                 ]);
             }

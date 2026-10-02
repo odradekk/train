@@ -7,7 +7,6 @@ namespace Train.Domain.WorldEditor;
 public sealed class WorldEditorVoxelTool : IDisposable
 {
     private readonly VoxelDevelopmentSession _session;
-    private bool _committing;
 
     public WorldEditorVoxelTool(VoxelDevelopmentSession session)
     {
@@ -33,7 +32,6 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public VoxelCellSetEdit CurrentEdit => new(new[]
     {
         new VoxelCellTarget(Position, Operation,
-            Operation == VoxelCellOperation.Add ? VoxelCellOccupancy.Empty : VoxelCellOccupancy.Occupied,
             Operation == VoxelCellOperation.Remove ? null : new VoxelCellContent(DefinitionId, Orientation))
     });
 
@@ -71,28 +69,28 @@ public sealed class WorldEditorVoxelTool : IDisposable
         if (_session.IsChangingWorld)
             return;
         Position = position;
+        SetSettings(definition, orientation, operation);
+        HasDraft = true;
+    }
+
+    public void SetSettings(VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
+    {
+        if (_session.IsChangingWorld)
+            return;
         DefinitionId = definition;
         Orientation = orientation;
         Operation = operation;
-        HasDraft = true;
     }
 
     public WorldEditSubmission Commit()
     {
-        if (_committing)
-            return new(WorldEditRefusal.DraftCommitInProgress, null, null);
-        if (_session.IsChangingWorld && !HasDraft)
+        if (_session.IsChangingWorld)
             return new(WorldEditRefusal.WorldChanging, null, null);
-        _committing = true;
-        try
-        {
-            HasDraft = true;
-            var submission = _session.SubmitVoxelDraft(CurrentEdit);
-            if (submission.Accepted && submission.Record?.State is WorldEditState.Executed or WorldEditState.Pending)
-                Discard();
-            return submission;
-        }
-        finally { _committing = false; }
+        HasDraft = true;
+        var submission = _session.SubmitEdit(CurrentEdit);
+        if (submission.Accepted && submission.Record?.State is WorldEditState.Executed or WorldEditState.Pending)
+            Discard();
+        return submission;
     }
 
     public void Discard()

@@ -9,9 +9,7 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
     private readonly Dictionary<string, Button> _buttons = new(StringComparer.Ordinal);
 
     public event Action<WorldChangeChoice>? Chosen;
-    public event Action? DraftCommit;
     public event Action? DraftDiscard;
-    internal Button DraftCommitButton => _buttons["draft_commit"];
     internal Button DraftDiscardButton => _buttons["draft_discard"];
     internal Button CancelButton => _buttons["cancel"];
 
@@ -34,26 +32,24 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
         AddChoice(row, "cancel", "取消", WorldChangeChoice.Cancel);
         var drafts = new HBoxContainer();
         box.AddChild(drafts);
-        AddDraftAction(drafts, "draft_commit", "提交草稿", () => DraftCommit?.Invoke());
-        AddDraftAction(drafts, "draft_discard", "放弃草稿", () => DraftDiscard?.Invoke());
+        AddAction(drafts, "draft_discard", "放弃草稿", () => DraftDiscard?.Invoke());
         Visible = false;
     }
 
-    public void Open(WorldChangeKind kind, bool canSave, bool hasDraft = false)
+    public void Open(WorldChangeKind kind, bool canSave, bool hasDraft = false, bool hasUnsavedChanges = true)
     {
         var reload = kind == WorldChangeKind.ReloadSaved;
-        _text.Text = reload ? "当前世界有未保存的变化。重新加载请求时的已保存版本？" : "当前世界有未保存的变化。是否继续离开当前世界？";
+        _text.Text = hasUnsavedChanges ? "当前世界有未保存的变化。" : "已提交世界已保存。";
+        _text.Text += reload ? "重新加载请求时的已保存版本？" : "是否继续离开当前世界？";
         if (!canSave)
             _text.Text += "\n模拟发生故障，无法保存当前世界。可以放弃更改或取消。";
         if (hasDraft)
-            _text.Text += "\n体素草稿未提交。保存仅包含已提交世界；离开前请明确提交或放弃草稿。";
+            _text.Text += "\n体素草稿未提交。保存不包含草稿；可明确放弃草稿，或取消离开返回继续编辑。";
         _buttons["save_then_switch"].Disabled = !canSave;
         _buttons["save_then_switch"].Text = reload ? "另存当前修改后重新加载" : "保存后继续";
         _buttons["discard"].Text = reload ? "放弃修改并重新加载" : "放弃更改";
-        _buttons["save_then_switch"].Visible = true;
+        _buttons["save_then_switch"].Visible = hasUnsavedChanges;
         _buttons["discard"].Visible = !hasDraft;
-        _buttons["draft_commit"].Visible = hasDraft;
-        _buttons["draft_commit"].Disabled = !canSave;
         _buttons["draft_discard"].Visible = hasDraft;
         Visible = true;
     }
@@ -63,7 +59,6 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
         _text.Text = text;
         _buttons["save_then_switch"].Visible = false;
         _buttons["discard"].Visible = false;
-        _buttons["draft_commit"].Visible = false;
         _buttons["draft_discard"].Visible = false;
         Visible = true;
     }
@@ -72,21 +67,16 @@ public partial class UnsavedWorldChangePrompt : CanvasLayer
 
     internal void Press(string name) => _buttons[name].EmitSignal(BaseButton.SignalName.Pressed);
 
-    private void AddDraftAction(Container parent, string name, string text, Action action)
-    {
-        var button = new Button { Text = text, FocusMode = Control.FocusModeEnum.None };
-        button.Pressed += action;
-        parent.AddChild(button);
-        _buttons[name] = button;
-    }
+    private void AddChoice(Container parent, string name, string text, WorldChangeChoice choice) =>
+        AddAction(parent, name, text, () => Chosen?.Invoke(choice));
 
-    private void AddChoice(Container parent, string name, string text, WorldChangeChoice choice)
+    private void AddAction(Container parent, string name, string text, Action action)
     {
         var button = new Button { Name = name, Text = text, FocusMode = Control.FocusModeEnum.None };
         button.Pressed += () =>
         {
             if (Visible && button.Visible && !button.Disabled)
-                Chosen?.Invoke(choice);
+                action();
         };
         parent.AddChild(button);
         _buttons[name] = button;

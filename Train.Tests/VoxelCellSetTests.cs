@@ -47,9 +47,10 @@ public sealed class VoxelCellSetTests
             (Set(Add(first), Add(occupied)), VoxelCellSetStatus.Occupied),
             (Set(Add(first), Remove(untouched)), VoxelCellSetStatus.Empty),
             (Set(Add(first), Add(new WorldVoxelCoord(-1, 0, 0))), VoxelCellSetStatus.OutOfBounds),
-            (Set(Add(first), new VoxelCellTarget(untouched, VoxelCellOperation.Add, VoxelCellOccupancy.Empty,
+            (Set(Add(first), new VoxelCellTarget(untouched, VoxelCellOperation.Add,
                 new VoxelCellContent(new VoxelDefinitionId("core", "missing"), VoxelOrientation.Identity))), VoxelCellSetStatus.UnknownDefinition),
-            (Set(Add(first), new VoxelCellTarget(untouched, VoxelCellOperation.Remove, VoxelCellOccupancy.Empty, null)), VoxelCellSetStatus.InvalidTarget),
+            (Set(Add(first), new VoxelCellTarget(untouched, VoxelCellOperation.Add, null)), VoxelCellSetStatus.InvalidTarget),
+            (Set(Add(first), new VoxelCellTarget(untouched, VoxelCellOperation.Remove, OreIdentity)), VoxelCellSetStatus.InvalidTarget),
             (Set(Add(first), Add(first)), VoxelCellSetStatus.DuplicateTarget)
         };
         foreach (var (edit, expected) in cases)
@@ -66,7 +67,7 @@ public sealed class VoxelCellSetTests
         var locked = new VoxelCellContent(new VoxelDefinitionId("core", "fixed"),
             new VoxelOrientation(VoxelAxis.PositiveZ, VoxelAxis.PositiveY));
         AssertRejectedUnchanged(harness.Session, Set(Add(new WorldVoxelCoord(9, 10, 10)),
-            new VoxelCellTarget(target, VoxelCellOperation.Add, VoxelCellOccupancy.Empty, locked)),
+            new VoxelCellTarget(target, VoxelCellOperation.Add, locked)),
             VoxelCellSetStatus.DisallowedOrientation);
         Assert.AreEqual(before, harness.Session.World.VoxelCount);
     }
@@ -134,30 +135,51 @@ public sealed class VoxelCellSetTests
     }
 
     [TestMethod]
-    public void Cell_set_has_independent_version_two_golden_and_round_trips()
+    public void Replace_rebuilds_collision_without_destroying_rail_state()
     {
-        var edit = Set(
-            Add(new WorldVoxelCoord(1, 2, 3)),
-            Remove(new WorldVoxelCoord(4, 5, 6)));
-        const string canonical = "{\"input_format_version\":2,\"kind\":\"voxel.cell-set\",\"targets\":[{\"position\":{\"x\":1,\"y\":2,\"z\":3},\"operation\":\"add\",\"expected\":\"empty\",\"content\":{\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"px_py\"}},{\"position\":{\"x\":4,\"y\":5,\"z\":6},\"operation\":\"remove\",\"expected\":\"occupied\",\"content\":null}]}";
-        Assert.AreEqual(canonical, edit.Canonical);
-        Assert.AreEqual("B20F6A48CFF8AE491AC7BC8E0E8C6A7943276E3F7A4E568CD49037744841A945", edit.Digest);
-        Assert.IsTrue(WorldEditCodec.TryDecode(canonical, out var decoded, out var status));
-        Assert.AreEqual(WorldEditDecodeStatus.Decoded, status);
-        Assert.AreEqual(edit, decoded);
-        StringAssert.Contains(new VoxelAddEdit(new WorldVoxelCoord(1, 2, 3), Ore, VoxelOrientation.Identity).Canonical,
-            "\"input_format_version\":1");
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = harness.Session;
+        var cell = new WorldVoxelCoord(4, 4, 4);
+        Assert.AreEqual("Applied", session.SubmitEdit(Set(Add(cell))).Status);
+        session.TakePendingCollisionDirtyChunks();
 
-        Assert.ThrowsException<ArgumentException>(() => new VoxelCellContent(default, VoxelOrientation.Identity));
-        Assert.ThrowsException<ArgumentException>(() => new VoxelCellContent(Ore, default));
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => new VoxelCellSetEdit(new[]
+        Assert.AreEqual("Applied", session.SubmitEdit(Set(Replace(cell,
+            new VoxelCellContent(Ore, VoxelOrientation.Yaw90)))).Status);
+
+        CollectionAssert.Contains(session.TakePendingCollisionDirtyChunks().ToArray(),
+            VoxelChunks.Of(cell, session.World.ChunkSize));
+        Assert.IsFalse(session.Rails.IsDestroyed(cell));
+        Assert.AreEqual(VoxelOrientation.Yaw90, session.Query(cell).Voxel!.Orientation);
+        Assert.AreEqual(VoxelCollisionQueryStatus.Hit, session.QueryCollision(cell).Status);
+    }
+
+    [TestMethod]
+    public void Replace_rejects_no_change_and_other_replacements_create_a_fresh_full_durability_voxel()
+    {
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = harness.Session;
+        var manufactured = session.Manufacture(BridgeFixture.DefinitionId);
+        var vehicleId = manufactured.VehicleId!.Value;
+        var droppedPart = manufactured.Parts!.Single(part => part.Cell.Equals(new LocalVoxelCoord(0, 0, 0)));
+        Assert.IsTrue(session.Damage(new[]
         {
-            new VoxelCellTarget(default, (VoxelCellOperation)99, VoxelCellOccupancy.Empty, OreIdentity)
-        }));
-        AssertDecodeRejected(canonical.Replace("\"operation\":\"add\"", "\"operation\":\"paint\""), WorldEditDecodeStatus.UnknownFormat);
-        AssertDecodeRejected(canonical.Replace("\"input_format_version\":2", "\"input_format_version\":1"), WorldEditDecodeStatus.UnknownFormat);
-        AssertDecodeRejected(new VoxelAddEdit(new WorldVoxelCoord(1, 2, 3), Ore, VoxelOrientation.Identity).Canonical
-            .Replace("\"input_format_version\":1", "\"input_format_version\":2"), WorldEditDecodeStatus.UnknownFormat);
+            new CompositeDamageTarget(vehicleId, BridgeFixture.BridgeCell, 100),
+            new CompositeDamageTarget(vehicleId, BridgeFixture.LeftCoreCell, 100)
+        }).Succeeded);
+        var cell = new WorldVoxelCoord(8, 8, 8);
+        var untouched = new WorldVoxelCoord(4, 4, 4);
+        Assert.AreEqual(droppedPart.Id, session.Query(cell).Voxel!.RuntimeId);
+        Assert.AreEqual(WorldCommandStatus.Damaged, session.Damage(cell, 25).Status);
+        var damaged = session.Query(cell).Voxel!;
+        Assert.AreEqual(75, damaged.CurrentDurability);
+
+        AssertRejectedUnchanged(session, Set(Add(untouched), Replace(cell,
+            new VoxelCellContent(damaged.DefinitionId, damaged.Orientation))), VoxelCellSetStatus.NoChange);
+
+        Assert.AreEqual("Applied", session.SubmitEdit(Set(Replace(cell, OreIdentity))).Status);
+        var replaced = session.Query(cell);
+        Assert.AreEqual(replaced.MaxDurability, replaced.Voxel!.CurrentDurability);
+        Assert.IsNull(replaced.Voxel.RuntimeId);
     }
 
     [TestMethod]
@@ -197,11 +219,11 @@ public sealed class VoxelCellSetTests
 
     private static VoxelCellSetEdit Set(params VoxelCellTarget[] targets) => new(targets);
     private static VoxelCellTarget Add(WorldVoxelCoord position) =>
-        new(position, VoxelCellOperation.Add, VoxelCellOccupancy.Empty, OreIdentity);
+        new(position, VoxelCellOperation.Add, OreIdentity);
     private static VoxelCellTarget Remove(WorldVoxelCoord position) =>
-        new(position, VoxelCellOperation.Remove, VoxelCellOccupancy.Occupied, null);
+        new(position, VoxelCellOperation.Remove, null);
     private static VoxelCellTarget Replace(WorldVoxelCoord position, VoxelCellContent content) =>
-        new(position, VoxelCellOperation.Replace, VoxelCellOccupancy.Occupied, content);
+        new(position, VoxelCellOperation.Replace, content);
 
     private static VoxelCellSetResult AssertRejectedUnchanged(VoxelDevelopmentSession session, VoxelCellSetEdit edit, VoxelCellSetStatus expected)
     {
@@ -218,9 +240,4 @@ public sealed class VoxelCellSetTests
         return (VoxelCellSetResult)submission.Result!;
     }
 
-    private static void AssertDecodeRejected(string canonical, WorldEditDecodeStatus expected)
-    {
-        Assert.IsFalse(WorldEditCodec.TryDecode(canonical, out _, out var status));
-        Assert.AreEqual(expected, status);
-    }
 }

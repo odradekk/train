@@ -101,8 +101,6 @@ public static class WorldEditorInspector
             ? ObservedObject.Segment(segmentId)
             : ObservedObject.WorldCell(cell);
 
-    internal static bool HasRailVoxel(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        session.HasRailVoxel(cell);
 
     private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
     {
@@ -252,7 +250,7 @@ public static class WorldEditorInspector
         if (query.Voxel is not { } voxel || voxel.RuntimeId != item.RuntimeId)
             return null;
         var owners = new List<string>();
-        if (HasRailVoxel(session, item.Cell) && session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
+        if (session.HasRailVoxel(item.Cell) && session.Rails.TryGetOccupancy(item.Cell, out var occupancy))
             owners.Add("rail segment " + string.Join(',', occupancy.Supports.Select(support => Number(support.SegmentId.Value)).Distinct()));
         if (voxel.RuntimeId is { } runtime)
             owners.Add("detached part runtime " + Number(runtime.Value));

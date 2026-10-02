@@ -88,7 +88,16 @@ public sealed class WorldEditEncodingTests
         ("content.publish",
             () => new ContentPublishEdit("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"),
             "{\"input_format_version\":1,\"kind\":\"content.publish\",\"content_digest\":\"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF\"}",
-            "C0318AACC4275ED027A0C46989447ABBFE44EC53D4B5C1CE5674657B77D01FC4")
+            "C0318AACC4275ED027A0C46989447ABBFE44EC53D4B5C1CE5674657B77D01FC4"),
+        ("voxel.cell-set",
+            () => new VoxelCellSetEdit(new[]
+            {
+                new VoxelCellTarget(new WorldVoxelCoord(1, 2, 3), VoxelCellOperation.Add,
+                    new VoxelCellContent(new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity)),
+                new VoxelCellTarget(new WorldVoxelCoord(4, 5, 6), VoxelCellOperation.Remove, null)
+            }),
+            "{\"input_format_version\":1,\"kind\":\"voxel.cell-set\",\"targets\":[{\"position\":{\"x\":1,\"y\":2,\"z\":3},\"operation\":\"add\",\"content\":{\"definition_id\":\"core:ferrous-ore\",\"orientation\":\"px_py\"}},{\"position\":{\"x\":4,\"y\":5,\"z\":6},\"operation\":\"remove\",\"content\":null}]}",
+            "3B1586B3298D14EDC6858E9B6304E4ECCC622159DD9ABE5AE494196B65E3A207")
     };
 
     private const string GoldenRecord =
@@ -228,6 +237,10 @@ public sealed class WorldEditEncodingTests
         AssertDecode(add.Replace("\"kind\":\"voxel.add\"", "\"kind\":\"Voxel.Add\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(add.Insert(add.Length - 1, ",\"priority\":1"), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(add.Replace("\"z\":20}", "\"z\":20,\"w\":0}", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+
+        var cells = Golden.Single(item => item.Name == "voxel.cell-set").Canonical;
+        AssertDecode(cells.Replace("\"operation\":\"add\"", "\"operation\":\"paint\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
+        AssertDecode(cells.Insert(cells.IndexOf(",\"content\"", StringComparison.Ordinal), ",\"expected\":\"empty\""), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(add.Insert(add.Length - 1, ",\"orientation\":\"px_py\""), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(Golden[5].Canonical.Replace("\"op\":\"remove\"", "\"op\":\"weld\"", StringComparison.Ordinal), WorldEditDecodeStatus.UnknownFormat);
         AssertDecode(add.Replace("core:ferrous-ore", "Core:ferrous-ore", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
@@ -236,6 +249,19 @@ public sealed class WorldEditEncodingTests
         AssertDecode(add.Replace(",\"orientation\":\"px_py\"", "", StringComparison.Ordinal), WorldEditDecodeStatus.Invalid);
         AssertDecode("[1]", WorldEditDecodeStatus.Invalid);
         AssertDecode("{", WorldEditDecodeStatus.Invalid);
+    }
+
+    [TestMethod]
+    public void Cell_target_construction_rejects_unencodable_values()
+    {
+        var ore = new VoxelDefinitionId("core", "ferrous-ore");
+        Assert.ThrowsException<ArgumentException>(() => new VoxelCellContent(default, VoxelOrientation.Identity));
+        Assert.ThrowsException<ArgumentException>(() => new VoxelCellContent(ore, default));
+        Assert.ThrowsException<ArgumentOutOfRangeException>(() => new VoxelCellSetEdit(new[]
+        {
+            new VoxelCellTarget(default, (VoxelCellOperation)99,
+                new VoxelCellContent(ore, VoxelOrientation.Identity))
+        }));
     }
 
     [TestMethod]

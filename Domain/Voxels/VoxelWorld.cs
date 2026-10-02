@@ -299,7 +299,8 @@ public enum VoxelCellSetStatus
     UnknownDefinition,
     DisallowedOrientation,
     RailOccupied,
-    VehicleOccupied
+    VehicleOccupied,
+    NoChange
 }
 
 public enum VoxelCellOwnerKind
