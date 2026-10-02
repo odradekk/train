@@ -89,7 +89,7 @@ public sealed class VoxelWorldCollisionPresenter
     }
 
     /// <summary>The first published world-voxel collider a segment hits, with the cell that shape was built for.</summary>
-    public (WorldVoxelCoord Cell, Vector3 Position)? QueryPublishedRay(World3D world, Vector3 from, Vector3 to)
+    public (WorldVoxelCoord Cell, Vector3 Position, Vector3 Normal, WorldVoxelCoord AdjacentCell)? QueryPublishedRay(World3D world, Vector3 from, Vector3 to)
     {
         ArgumentNullException.ThrowIfNull(world);
         var query = PhysicsRayQueryParameters3D.Create(from, to, VoxelCollisionLayer);
@@ -98,7 +98,11 @@ public sealed class VoxelWorldCollisionPresenter
         var result = world.DirectSpaceState.IntersectRay(query);
         if (result.Count == 0 || !TryReadCell(result, out var cell))
             return null;
-        return (cell, result["position"].AsVector3());
+        var normal = result["normal"].AsVector3();
+        // Published shapes are axis-aligned boxes. Keep the collider's raw point and normal;
+        // adjacency belongs to its logical cell, including sub-cell LocalBox faces.
+        var adjacent = new WorldVoxelCoord(cell.X + (int)normal.X, cell.Y + (int)normal.Y, cell.Z + (int)normal.Z);
+        return (cell, result["position"].AsVector3(), normal, adjacent);
     }
 
     public bool QueryPublishedCellInterior(World3D world, WorldVoxelCoord cell) =>

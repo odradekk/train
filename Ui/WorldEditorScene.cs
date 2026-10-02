@@ -104,7 +104,7 @@ public partial class WorldEditorScene : Node3D
         main.SetWorldEditorObserver(_observation.Observer);
         _cellTool = new WorldEditorVoxelToolView();
         AddChild(_cellTool);
-        _cellTool.Initialize(_session, _camera, _tools, _inspector);
+        _cellTool.Initialize(_session, _camera, _tools, _inspector, _observation.QueryPick);
         _observation.CellPointer = _cellTool.HandlePointer;
         _observation.DraftGuard = _cellTool.RequestChange;
         _worldInput.GuiInput += HandleHistoryInput;

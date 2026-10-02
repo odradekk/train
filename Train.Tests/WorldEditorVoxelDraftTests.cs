@@ -14,6 +14,66 @@ public sealed class WorldEditorVoxelDraftTests
 {
     private static readonly WorldVoxelCoord Cell = new(1, 2, 1);
 
+    [DataTestMethod]
+    [DataRow(VoxelWorkPlane.Horizontal, 2, 6, 6, 9, -2, -2, -4, 2, 2, 1)]
+    [DataRow(VoxelWorkPlane.VerticalX, 2, 6, 2, 9, -2, -0.1, -4, 2, 1, 1)]
+    [DataRow(VoxelWorkPlane.VerticalZ, 1, 6, 2, 9, -2, -0.1, -4, 2, 1, 1)]
+    public void Plane_intersections_target_the_integer_layer_and_floor_the_other_axes(
+        VoxelWorkPlane plane, int layer, int ox, int oy, int oz, double dx, double dy, double dz, int x, int y, int z)
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        Assert.IsTrue(tool.SetPlane(plane, layer));
+        Assert.IsTrue(tool.TryPlaneTarget(new(ox, oy, oz), new(dx, dy, dz), out var target));
+        Assert.AreEqual(new WorldVoxelCoord(x, y, z), target);
+        tool.Hover(target);
+        Assert.AreEqual(target, tool.CurrentEdit.Targets.Single().Position);
+        Assert.IsFalse(tool.HasDraft);
+    }
+
+    [TestMethod]
+    public void Plane_misses_and_outside_targets_never_bypass_world_validation_or_redirect_a_draft()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetPlane(VoxelWorkPlane.VerticalX, 0);
+        Assert.IsFalse(tool.TryPlaneTarget(new(2, 2, 2), new(0, 1, 0), out _));
+        Assert.IsFalse(tool.TryPlaneTarget(new(2, 2, 2), new(1, 0, 0), out _));
+        Assert.IsTrue(tool.TryPlaneTarget(new(2, 2, 2), new(-1, -2, 0), out var outside));
+        Assert.AreEqual(new WorldVoxelCoord(0, -2, 2), outside);
+        tool.Hover(outside);
+        Assert.AreEqual(VoxelCellSetStatus.OutOfBounds, tool.Preview.Status);
+        Assert.AreEqual(VoxelCellSetStatus.OutOfBounds, ((VoxelCellSetResult)tool.Commit().Result!).Status);
+        Assert.AreEqual(0, harness.Session.World.VoxelCount);
+        Assert.IsFalse(tool.SetPlane(VoxelWorkPlane.VerticalZ, 3));
+        Assert.IsFalse(tool.SetPlane(VoxelWorkPlane.Surface, 0));
+        tool.SetExact(Cell, tool.DefinitionId, tool.Orientation, VoxelCellOperation.Add);
+        tool.Hover(default);
+        Assert.AreEqual(Cell, tool.Position);
+        Assert.AreEqual(WorldEditState.Executed, tool.Commit().Record!.State);
+        Assert.IsTrue(tool.SetPlane(VoxelWorkPlane.VerticalZ, 3));
+    }
+
+    [TestMethod]
+    public void Surface_add_targets_the_outside_neighbor_and_remove_replace_target_the_hit_cell()
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetPlane(VoxelWorkPlane.Surface, 0);
+        var hit = new WorldVoxelCoord(0, 2, 1);
+        var adjacent = new WorldVoxelCoord(-1, 2, 1);
+        tool.Hover(tool.SurfaceTarget(hit, adjacent));
+        Assert.AreEqual(adjacent, tool.Position);
+        Assert.AreEqual(VoxelCellSetStatus.OutOfBounds, tool.Preview.Status);
+        tool.SetSettings(tool.DefinitionId, tool.Orientation, VoxelCellOperation.Remove);
+        Assert.AreEqual(hit, tool.SurfaceTarget(hit, adjacent));
+        tool.SetSettings(tool.DefinitionId, tool.Orientation, VoxelCellOperation.Replace);
+        Assert.AreEqual(hit, tool.SurfaceTarget(hit, adjacent));
+    }
+
     [TestMethod]
     public void Definition_orientation_and_operation_settings_keep_hover_transient_and_following_the_mouse()
     {

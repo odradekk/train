@@ -45,7 +45,8 @@ public sealed record WorldEditorInspection(
 
 public sealed record WorldEditorListEntry(ObservedObject Object, string Label);
 
-public sealed record WorldEditorVehicleHit(EntityId VehicleId, EntityId PartId, LocalVoxelCoord Cell, double Distance);
+public sealed record WorldEditorVehicleHit(EntityId VehicleId, EntityId PartId, LocalVoxelCoord Cell, double Distance,
+    ObservationVector WorldPosition, ObservationVector LocalPosition);
 
 public static class WorldEditorInspector
 {
@@ -136,19 +137,21 @@ public static class WorldEditorInspector
         foreach (var vehicle in session.Vehicles.OrderBy(item => item.Id.Value))
         {
             var transform = WorldEditorObserver.VehicleFrame(session, sample, vehicle.Id)!.Transform;
-            var right = transform.Right;
-            var up = transform.Up;
-            var forward = transform.Forward;
-            var offset = origin - new ObservationVector(transform.OriginX, transform.OriginY, transform.OriginZ);
-            var localOrigin = new ObservationVector(Dot(offset, right), Dot(offset, up), Dot(offset, forward));
-            var localDirection = new ObservationVector(Dot(unit, right), Dot(unit, up), Dot(unit, forward));
+            var local = transform.InverseTransformPoint(origin.X, origin.Y, origin.Z);
+            var vector = transform.InverseTransformDirection(unit.X, unit.Y, unit.Z);
+            var localOrigin = new ObservationVector(local.X, local.Y, local.Z);
+            var localDirection = new ObservationVector(vector.X, vector.Y, vector.Z);
             foreach (var part in vehicle.Parts)
             {
                 if (!TrySlab(localOrigin, localDirection, part.Cell, out var distance) ||
                     distance > maxDistance ||
                     (best is not null && distance >= best.Distance))
                     continue;
-                best = new WorldEditorVehicleHit(vehicle.Id, part.Id, part.Cell, distance);
+                var world = origin + unit * distance;
+                // Coordinates use the formal occupancy transform, even while display poses interpolate.
+                var point = vehicle.Transform.InverseTransformPoint(world.X, world.Y, world.Z);
+                best = new WorldEditorVehicleHit(vehicle.Id, part.Id, part.Cell, distance, world,
+                    new ObservationVector(point.X, point.Y, point.Z));
             }
         }
 
@@ -289,12 +292,6 @@ public static class WorldEditorInspector
         far = Math.Min(far, Math.Max(first, second));
         return near <= far;
     }
-
-    private static double Dot(ObservationVector left, (double X, double Y, double Z) right) =>
-        left.X * right.X + left.Y * right.Y + left.Z * right.Z;
-
-    private static double Dot(ObservationVector left, ObservationVector right) =>
-        left.X * right.X + left.Y * right.Y + left.Z * right.Z;
 
     private static string Number(double value) => value.ToString("0.###", CultureInfo.InvariantCulture);
 

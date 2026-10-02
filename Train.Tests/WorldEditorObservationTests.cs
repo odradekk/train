@@ -675,6 +675,9 @@ public sealed class WorldEditorObservationTests
         var down = new ObservationVector(0, -1, 0);
         var locoHit = WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[0], locoHit!.VehicleId);
+        var owner = session.Vehicles.Single(vehicle => vehicle.Id == locoHit.VehicleId);
+        var restored = owner.Transform.TransformPoint(locoHit.LocalPosition.X, locoHit.LocalPosition.Y, locoHit.LocalPosition.Z);
+        AssertClose(locoHit.WorldPosition, new(restored.X, restored.Y, restored.Z));
         Assert.AreEqual(session.Vehicles.Single(vehicle => vehicle.Id == locoHit.VehicleId).Parts.Single(part => part.Cell == locoHit.Cell).Id, locoHit.PartId);
         var carriageHit = WorldEditorInspector.RaycastVehicles(session, sample, carriage.Center + new ObservationVector(0, 20, 0), down, 100);
         Assert.AreEqual(assembly.VehicleIds[1], carriageHit!.VehicleId);
@@ -684,6 +687,15 @@ public sealed class WorldEditorObservationTests
         Assert.AreEqual(assembly.VehicleIds[1], along!.VehicleId);
         Assert.IsNull(WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), new ObservationVector(0, 1, 0), 100));
         Assert.IsNull(WorldEditorInspector.RaycastVehicles(session, sample, loco.Center + new ObservationVector(0, 20, 0), down, 5));
+    }
+
+    [TestMethod]
+    public void Rigid_inverse_distinguishes_world_points_from_local_coordinates_and_directions()
+    {
+        Assert.IsTrue(CompositeTransform.TryCreate(10, 20, 30, 0, 0, -1, 0, 1, 0, out var transform));
+        var local = transform.InverseTransformPoint(14, 23, 28);
+        Assert.AreEqual((2d, 3d, 4d), local);
+        Assert.AreEqual((2d, 3d, 4d), transform.InverseTransformDirection(4, 3, -2));
     }
 
     [TestMethod]

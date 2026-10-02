@@ -18,7 +18,11 @@ public partial class WorldEditorVoxelToolView : Node3D
     private bool _syncing;
     private Action? _afterDraft;
     private int _gridHeight = int.MinValue;
+    private VoxelWorkPlane _gridPlane;
     private WorldVoxelCoord _gridCenter;
+    private Func<Vector2, WorldEditorPick> _pick = null!;
+    private WorldEditorPick? _surface;
+    private bool _pointerTargetable = true;
     private IReadOnlyList<VoxelDefinitionId> _definitions = Array.Empty<VoxelDefinitionId>();
     private IReadOnlyList<VoxelOrientation> _orientations = Array.Empty<VoxelOrientation>();
     private string _lastResult = "";
@@ -27,6 +31,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     internal Button SelectToolButton { get; private set; } = null!;
     internal Button VoxelToolButton { get; private set; } = null!;
     internal SpinBox HeightInput { get; private set; } = null!;
+    internal OptionButton PlaneInput { get; private set; } = null!;
     internal OptionButton DefinitionInput { get; private set; } = null!;
     internal OptionButton OrientationInput { get; private set; } = null!;
     internal OptionButton OperationInput { get; private set; } = null!;
@@ -37,10 +42,12 @@ public partial class WorldEditorVoxelToolView : Node3D
     internal Button DraftCommitButton { get; private set; } = null!;
     internal Button DraftDiscardButton { get; private set; } = null!;
 
-    internal void Initialize(VoxelDevelopmentSession session, Camera3D camera, VBoxContainer tools, VBoxContainer inspector)
+    internal void Initialize(VoxelDevelopmentSession session, Camera3D camera, VBoxContainer tools, VBoxContainer inspector,
+        Func<Vector2, WorldEditorPick> pick)
     {
         _session = session;
         _camera = camera;
+        _pick = pick;
         State = new WorldEditorVoxelTool(session);
         var switches = new HBoxContainer();
         tools.AddChild(switches);
@@ -49,7 +56,21 @@ public partial class WorldEditorVoxelToolView : Node3D
         tools.MoveChild(switches, 1);
         var plane = new HBoxContainer();
         tools.AddChild(plane);
-        plane.AddChild(new Label { Text = "水平工作平面 Y" });
+        PlaneInput = new OptionButton();
+        PlaneInput.AddItem("水平 Y");
+        PlaneInput.AddItem("竖直 X");
+        PlaneInput.AddItem("竖直 Z");
+        PlaneInput.AddItem("拾取世界体素表面");
+        plane.AddChild(PlaneInput);
+        PlaneInput.ItemSelected += index =>
+        {
+            if (_syncing)
+                return;
+            var mode = (VoxelWorkPlane)index;
+            var position = Math.Min(State.Height, PlaneSize(mode) - 1);
+            RequestChange(() => { State.SetPlane(mode, position); _surface = null; _pointerTargetable = mode != VoxelWorkPlane.Surface; });
+            Present();
+        };
         HeightInput = Spin(plane, 0, session.Identity.Bounds.SizeY - 1, 0);
         HeightInput.ValueChanged += value =>
         {
@@ -142,6 +163,8 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     internal void Commit()
     {
+        if (State.Plane == VoxelWorkPlane.Surface && !_pointerTargetable && !State.HasDraft)
+            return;
         if (!HasContentSelection && State.Operation != VoxelCellOperation.Remove)
             return;
         var result = State.Commit();
@@ -173,7 +196,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         Present();
     }
 
-    /// <summary>The chosen integer Y plane is targetable even when no world collider exists.</summary>
+    /// <summary>Planes target integer layers; surface addition uses the hit cell's outside neighbor.</summary>
     internal bool HandlePointer(Vector2 screen, bool commit)
     {
         if (!State.Active)
@@ -182,16 +205,35 @@ public partial class WorldEditorVoxelToolView : Node3D
             return true;
         var origin = _camera.ProjectRayOrigin(screen);
         var direction = _camera.ProjectRayNormal(screen);
-        if (Math.Abs(direction.Y) < 1e-7)
+        WorldVoxelCoord target;
+        WorldEditorPick? surface = null;
+        if (State.Plane == VoxelWorkPlane.Surface)
+        {
+            var pick = _pick(screen);
+            surface = pick;
+            _pointerTargetable = pick.WorldCell is not null && pick.AdjacentCell is not null &&
+                pick.WorldNormal is { } normal && normal.LengthSquared() > 0 &&
+                (pick.VehicleHit is null || pick.VehicleHit.Distance > pick.WorldDistance);
+            if (!_pointerTargetable)
+            {
+                Present();
+                return true;
+            }
+            if (!State.HasDraft)
+                _surface = pick;
+            target = State.SurfaceTarget(pick.WorldCell!.Value, pick.AdjacentCell!.Value);
+        }
+        else if (!State.TryPlaneTarget(WorldEditorObservationView.From(origin), WorldEditorObservationView.From(direction), out target))
+        {
+            _pointerTargetable = false;
+            Present();
             return true;
-        var distance = (State.Height - origin.Y) / direction.Y;
-        if (distance < 0)
-            return true;
-        var point = origin + direction * distance;
-        var target = new WorldVoxelCoord((int)Math.Floor(point.X), State.Height, (int)Math.Floor(point.Z));
+        }
+        else
+            _pointerTargetable = true;
         if (commit && State.HasDraft && State.Position != target)
         {
-            RequestChange(() => State.Hover(target));
+            RequestChange(() => { State.Hover(target); if (surface is not null) _surface = surface; });
             return true;
         }
         State.Hover(target);
@@ -213,7 +255,9 @@ public partial class WorldEditorVoxelToolView : Node3D
             SelectToolButton.ButtonPressed = !State.Active;
             VoxelToolButton.ButtonPressed = State.Active;
             HeightInput.SetValueNoSignal(State.Height);
-            HeightInput.MaxValue = _session.Identity.Bounds.SizeY - 1;
+            HeightInput.MaxValue = PlaneSize(State.Plane) - 1;
+            HeightInput.Editable = State.Plane != VoxelWorkPlane.Surface;
+            PlaneInput.Select((int)State.Plane);
             var ids = State.Definitions;
             if (!ids.SequenceEqual(_definitions))
             {
@@ -239,17 +283,21 @@ public partial class WorldEditorVoxelToolView : Node3D
             CoordinateInputs[2].SetValueNoSignal(State.Position.Z);
             var canPreview = State.DefinitionId.Namespace is not null || State.Operation == VoxelCellOperation.Remove;
             var preview = canPreview ? State.Preview : new VoxelCellSetResult(VoxelCellSetStatus.UnknownDefinition, State.Position);
-            _preview.Text = $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n" +
-                "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
+            var planeText = State.Plane == VoxelWorkPlane.Surface ? "拾取表面 · 添加吸附到面外相邻格，移除／替换吸附到命中格"
+                : $"{PlaneAxis(State.Plane)} 平面 {State.Height}";
+            _preview.Text = $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · {planeText}\n" +
+                "整数格吸附 · +X 红线 · +Y 绿线 · +Z 蓝线\n" +
+                (!_pointerTargetable && !State.HasDraft ? "光标没有可用目标，可填写精确坐标\n" : "") +
                 $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview)}" + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
             DiscardButton.Disabled = !State.HasDraft;
-            CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld;
+            CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld ||
+                (State.Plane == VoxelWorkPlane.Surface && !_pointerTargetable && !State.HasDraft);
             var material = (StandardMaterial3D)_cell.MaterialOverride;
             material.AlbedoColor = preview.Succeeded ? new Color(0.2f, 1, 0.4f, 0.35f) : new Color(1, 0.2f, 0.15f, 0.4f);
             _cell.Position = new Vector3(State.Position.X + 0.5f, State.Position.Y + 0.5f, State.Position.Z + 0.5f);
-            _cell.Visible = State.Active;
-            _grid.Visible = State.Active;
-            _axes.Visible = State.Active;
+            _cell.Visible = State.Active && (_pointerTargetable || State.HasDraft);
+            _grid.Visible = State.Active && (State.Plane != VoxelWorkPlane.Surface || _surface is not null) && (_pointerTargetable || State.HasDraft);
+            _axes.Visible = _grid.Visible;
             UpdateGrid();
         }
         finally { _syncing = false; }
@@ -293,16 +341,43 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     private void UpdateGrid()
     {
-        if (_gridHeight == State.Height && _gridCenter == State.Position)
+        var plane = State.Plane;
+        var position = State.Height;
+        if (plane == VoxelWorkPlane.Surface)
+        {
+            if (_surface?.WorldNormal is not { } normal || _surface.WorldCell is not { } hit)
+                return;
+            plane = normal.X != 0 ? VoxelWorkPlane.VerticalX : normal.Z != 0 ? VoxelWorkPlane.VerticalZ : VoxelWorkPlane.Horizontal;
+            position = plane switch
+            {
+                VoxelWorkPlane.VerticalX => hit.X + (normal.X > 0 ? 1 : 0),
+                VoxelWorkPlane.VerticalZ => hit.Z + (normal.Z > 0 ? 1 : 0),
+                _ => hit.Y + (normal.Y > 0 ? 1 : 0)
+            };
+        }
+        if (_gridHeight == position && _gridPlane == plane && _gridCenter == State.Position)
             return;
-        _gridHeight = State.Height;
+        _gridHeight = position;
+        _gridPlane = plane;
         _gridCenter = State.Position;
         var bounds = _session.Identity.Bounds;
         // Draw at most 64 cells around the preview rather than building a mesh for the entire finite world.
-        var x0 = Math.Clamp(State.Position.X - 32, 0, Math.Max(0, bounds.SizeX - 64));
-        var z0 = Math.Clamp(State.Position.Z - 32, 0, Math.Max(0, bounds.SizeZ - 64));
-        var x1 = Math.Min(bounds.SizeX, x0 + 64);
-        var z1 = Math.Min(bounds.SizeZ, z0 + 64);
+        var (u, v, sizeU, sizeV) = plane switch
+        {
+            VoxelWorkPlane.VerticalX => (State.Position.Z, State.Position.Y, bounds.SizeZ, bounds.SizeY),
+            VoxelWorkPlane.VerticalZ => (State.Position.X, State.Position.Y, bounds.SizeX, bounds.SizeY),
+            _ => (State.Position.X, State.Position.Z, bounds.SizeX, bounds.SizeZ)
+        };
+        var u0 = Math.Clamp(u - 32, 0, Math.Max(0, sizeU - 64));
+        var v0 = Math.Clamp(v - 32, 0, Math.Max(0, sizeV - 64));
+        var u1 = Math.Min(sizeU, u0 + 64);
+        var v1 = Math.Min(sizeV, v0 + 64);
+        Vector3 Point(float a, float b) => plane switch
+        {
+            VoxelWorkPlane.VerticalX => new(position + 0.005f, b, a),
+            VoxelWorkPlane.VerticalZ => new(a, b, position + 0.005f),
+            _ => new(a, position + 0.005f, b)
+        };
         var mesh = new ImmediateMesh();
         var material = new StandardMaterial3D { ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             VertexColorUseAsAlbedo = true, Transparency = BaseMaterial3D.TransparencyEnum.Alpha };
@@ -313,17 +388,32 @@ public partial class WorldEditorVoxelToolView : Node3D
             mesh.SurfaceAddVertex(from);
             mesh.SurfaceAddVertex(to);
         }
-        var y = State.Height + 0.005f;
-        for (var x = x0; x <= x1; x++)
-            Line(new Vector3(x, y, z0), new Vector3(x, y, z1), new Color(0.85f, 0.85f, 0.9f, 0.45f));
-        for (var z = z0; z <= z1; z++)
-            Line(new Vector3(x0, y, z), new Vector3(x1, y, z), new Color(0.85f, 0.85f, 0.9f, 0.45f));
-        Line(new Vector3(x0, y, z0), new Vector3(x1, y, z0), Colors.Red);
-        Line(new Vector3(x0, y, z0), new Vector3(x0, y, z1), Colors.DodgerBlue);
+        for (var a = u0; a <= u1; a++)
+            Line(Point(a, v0), Point(a, v1), new Color(0.85f, 0.85f, 0.9f, 0.45f));
+        for (var b = v0; b <= v1; b++)
+            Line(Point(u0, b), Point(u1, b), new Color(0.85f, 0.85f, 0.9f, 0.45f));
+        Line(Point(u0, v0), Point(u1, v0), plane == VoxelWorkPlane.VerticalX ? Colors.DodgerBlue : Colors.Red);
+        Line(Point(u0, v0), Point(u0, v1), plane == VoxelWorkPlane.Horizontal ? Colors.DodgerBlue : Colors.LimeGreen);
         mesh.SurfaceEnd();
         _grid.Mesh = mesh;
-        _axes.Position = new Vector3(x0, y + 0.4f, z0);
+        _axes.Position = Point(u0, v0) + Vector3.Up * 0.4f;
+        var start = Point(u0, v0);
+        _axes.Text = $"世界网格 ({start.X:0}, {start.Y:0}, {start.Z:0})\n{(plane == VoxelWorkPlane.VerticalX ? "+Z →" : "+X →")} · {(plane == VoxelWorkPlane.Horizontal ? "+Z ↓" : "+Y ↑")}";
     }
+
+    private int PlaneSize(VoxelWorkPlane plane) => plane switch
+    {
+        VoxelWorkPlane.VerticalX => _session.Identity.Bounds.SizeX,
+        VoxelWorkPlane.VerticalZ => _session.Identity.Bounds.SizeZ,
+        _ => _session.Identity.Bounds.SizeY
+    };
+
+    private static string PlaneAxis(VoxelWorkPlane plane) => plane switch
+    {
+        VoxelWorkPlane.VerticalX => "X",
+        VoxelWorkPlane.VerticalZ => "Z",
+        _ => "Y"
+    };
 
     private static Button Button(Container box, string text, Action action)
     {

@@ -47,6 +47,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static Guid _importedId;
     private static Guid _exampleDocumentId;
     private int _phase;
+    private int _workPlanePhase;
+    private bool _workPlanesChecked;
+    private static readonly WorldVoxelCoord VerticalXCell = new(18, 5, 8);
+    private static readonly WorldVoxelCoord VerticalZCell = new(20, 5, 18);
+    private static readonly WorldVoxelCoord SurfaceOutsideCell = new(20, 6, 18);
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
     private WorldEditorLeaveSmoke? _leaveSmoke;
@@ -731,6 +736,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                         new VoxelCollisionBox(12.68, 2.38, 12.48, 12.72, 2.42, 12.52))
                         .Contains(CellToolCollisionCell),
                     "identity local-box replacement retained the old full-box collider");
+                RequireCellFaces(CellToolCollisionCell, new Vector3(12.25f, 2.4375f, 12.5f));
                 Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
                 {
                     new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Replace,
@@ -753,6 +759,26 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                     new Vector3(12.5f, 2.5f, 11.5f),
                     new Vector3(12.5f, 2.5f, 13.5f),
                     12.125f);
+                Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
+                {
+                    new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Replace,
+                        new VoxelCellContent(VoxelDefinitionId.Parse("core:hollow"), VoxelOrientation.Identity))
+                })).Result is VoxelCellSetResult { Status: VoxelCellSetStatus.Applied },
+                    "could not establish a non-colliding cell");
+                _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
+                _phase++;
+                return;
+            case 28:
+                if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
+                    return;
+                Require(session.Query(CellToolCollisionCell).IsOccupied &&
+                        scene.Colliders.QueryPublishedRay(scene.GetWorld3D(), new(11.5f, 2.5f, 12.5f), new(13.5f, 2.5f, 12.5f)) is null,
+                    "non-colliding voxel became a pickable surface");
+                state.SetHeight(2);
+                Require(state.TryPlaneTarget(new(12.5, 6, 12.5), new(0, -1, 0), out var planeCell) &&
+                        planeCell == CellToolCollisionCell,
+                    "an absent collider prevented targeting a plane layer");
+                state.SetHeight(3);
                 Require(session.SubmitEdit(new VoxelCellSetEdit(new[]
                 {
                     new VoxelCellTarget(CellToolCollisionCell, VoxelCellOperation.Remove, null)
@@ -822,6 +848,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 _phase = 40;
                 return;
             case 40:
+                if (!_workPlanesChecked)
+                {
+                    AdvanceWorkPlanes(session, view);
+                    return;
+                }
                 Require(!state.Active && !state.HasDraft, "target-switch fixture did not activate the selection tool");
                 var pending = new VoxelCellSetEdit(new[]
                 {
@@ -861,9 +892,18 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                         observation.Observer.EnterVehicleParts() == WorldEditorObservationStatus.Selected,
                     "level-switch fixture could not enter vehicle parts");
                 state.SetExact(new WorldVoxelCoord(8, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
+                var frame = WorldEditorObserver.VehicleFrame(session, session.QueryDisplayPoses(), vehicle)!;
+                Motion(scene.GetViewport().GetScreenTransform() * scene.Camera.UnprojectPosition(WorldEditorObservationView.To(frame.Center)));
                 _phase++;
                 return;
             case 43:
+                var hover = scene.Observation!.HoverVehicle;
+                Require(hover is not null && hover.VehicleId == session.Vehicles.Single().Id && scene.Observation.PointerCoordinatesVisible,
+                    "real vehicle hover did not display its world/local coordinates");
+                var worldPoint = session.Vehicles.Single().Transform.TransformPoint(hover!.LocalPosition.X, hover.LocalPosition.Y, hover.LocalPosition.Z);
+                Require((hover.WorldPosition - new ObservationVector(worldPoint.X, worldPoint.Y, worldPoint.Z)).Length < 1e-6,
+                    "vehicle cursor coordinates used a different transform from occupancy");
+                GD.Print($"WORKSPACE_VEHICLE_COORDINATES world={hover.WorldPosition} local={hover.LocalPosition} visible=true");
                 Click(scene.Observation!.ActionButton("whole"));
                 _phase++;
                 return;
@@ -906,6 +946,125 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     private WorldVoxelCoord CellToolCommittedCellForRun { get; set; }
 
+    private void AdvanceWorkPlanes(VoxelDevelopmentSession session, WorldEditorVoxelToolView view)
+    {
+        var state = view.State;
+        switch (_workPlanePhase)
+        {
+            case 0:
+                Click(view.VoxelToolButton);
+                Click(view.PlaneInput);
+                break;
+            case 1:
+                ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.VerticalX);
+                break;
+            case 2:
+                ReplaceNumber(view.HeightInput, VerticalXCell.X);
+                break;
+            case 3:
+                Require(state.Plane == VoxelWorkPlane.VerticalX && state.Height == VerticalXCell.X && !state.HasDraft,
+                    "real plane selection did not establish the X layer");
+                Motion(VerticalScreen(VerticalXCell, VoxelWorkPlane.VerticalX));
+                break;
+            case 4:
+                Require(state.Position == VerticalXCell && state.Preview.Succeeded && !state.HasDraft,
+                    $"X plane mouse preview targeted {state.Position}, expected {VerticalXCell}");
+                ClickAt(VerticalScreen(VerticalXCell, VoxelWorkPlane.VerticalX));
+                break;
+            case 5:
+                Require(session.Query(VerticalXCell).Voxel is not null && !state.HasDraft,
+                    "real X plane click did not commit its preview");
+                Click(view.PlaneInput);
+                break;
+            case 6:
+                ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.VerticalZ);
+                break;
+            case 7:
+                Require(state.Plane == VoxelWorkPlane.VerticalZ && state.Height == VerticalZCell.Z,
+                    "real plane selection did not establish the Z layer");
+                Motion(VerticalScreen(VerticalZCell, VoxelWorkPlane.VerticalZ));
+                break;
+            case 8:
+                Require(state.Position == VerticalZCell && state.Preview.Succeeded,
+                    $"Z plane mouse preview targeted {state.Position}, expected {VerticalZCell}");
+                ClickAt(VerticalScreen(VerticalZCell, VoxelWorkPlane.VerticalZ));
+                break;
+            case 9:
+                Require(session.Query(VerticalZCell).Voxel is not null && !state.HasDraft,
+                    "real Z plane click did not commit its preview");
+                _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
+                Click(view.PlaneInput);
+                break;
+            case 10:
+                ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.Surface);
+                break;
+            case 11:
+                if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
+                    return;
+                Motion(SurfaceScreen());
+                break;
+            case 12:
+                var pick = scene.Observation!.QueryPick(scene.GetViewport().GetScreenTransform().AffineInverse() * SurfaceScreen());
+                Require(state.Plane == VoxelWorkPlane.Surface && pick.WorldCell == VerticalZCell && pick.WorldNormal == Vector3.Up &&
+                        pick.AdjacentCell == SurfaceOutsideCell && state.Position == SurfaceOutsideCell && state.Preview.Succeeded,
+                    $"surface preview did not target the outside cell: hit={pick.WorldCell} normal={pick.WorldNormal} target={state.Position}");
+                ClickAt(SurfaceScreen());
+                break;
+            case 13:
+                Require(session.Query(SurfaceOutsideCell).Voxel is not null && !state.HasDraft,
+                    "real picked surface click did not place outside the hit cell");
+                ReplaceNumber(view.CoordinateInputs[1], 9);
+                break;
+            case 14:
+                Require(state.HasDraft && state.Position == SurfaceOutsideCell with { Y = 9 } &&
+                        state.CurrentEdit.Targets.Single().Position == state.Position,
+                    "surface precise input did not share the preview across heights");
+                Motion(SurfaceScreen());
+                Click(view.PlaneInput);
+                break;
+            case 15:
+                ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.Horizontal);
+                break;
+            case 16:
+                Require(state.Position == SurfaceOutsideCell with { Y = 9 } && state.Plane == VoxelWorkPlane.Surface && view.DraftPrompt.Visible,
+                    "plane switch redirected an existing surface draft");
+                Click(view.DraftDiscardButton);
+                break;
+            case 17:
+                Require(!state.HasDraft && state.Plane == VoxelWorkPlane.Horizontal,
+                    "explicit draft discard did not apply the requested plane");
+                ReplaceNumber(view.HeightInput, 3);
+                Click(view.SelectToolButton);
+                break;
+            case 18:
+                Require(!state.Active && !state.HasDraft && state.Height == 3 && scene.Camera.GlobalPosition == _cellToolCamera,
+                    "work-plane editing changed camera state or left a draft");
+                GD.Print("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
+                _workPlanesChecked = true;
+                return;
+        }
+        _workPlanePhase++;
+    }
+
+    private Vector2 VerticalScreen(WorldVoxelCoord cell, VoxelWorkPlane plane) => scene.GetViewport().GetScreenTransform() *
+        scene.Camera.UnprojectPosition(plane == VoxelWorkPlane.VerticalX
+            ? new Vector3(cell.X, cell.Y + 0.5f, cell.Z + 0.5f)
+            : new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z));
+
+    private Vector2 SurfaceScreen() => scene.GetViewport().GetScreenTransform() *
+        scene.Camera.UnprojectPosition(new Vector3(VerticalZCell.X + 0.5f, VerticalZCell.Y + 1, VerticalZCell.Z + 0.5f));
+
+    private void RequireCellFaces(WorldVoxelCoord cell, Vector3 center)
+    {
+        foreach (var normal in new[] { Vector3.Right, Vector3.Left, Vector3.Up, Vector3.Down, Vector3.Back, Vector3.Forward })
+        {
+            var hit = scene.Colliders.QueryPublishedRay(scene.GetWorld3D(), center + normal * 2, center);
+            var adjacent = new WorldVoxelCoord(cell.X + (int)normal.X, cell.Y + (int)normal.Y, cell.Z + (int)normal.Z);
+            Require(hit?.Cell == cell && hit?.Normal == normal && hit?.AdjacentCell == adjacent,
+                $"LocalBox logical face failed: expected normal={normal} adjacent={adjacent}, got {hit}");
+        }
+    }
+
     private void RequirePublishedCollision(
         WorldVoxelCoord cell,
         VoxelCollisionBox probe,
@@ -929,7 +1088,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         {
             case 0:
                 Require(session.SaveId == RequiredId(CellToolSaveIdEnvironmentVariable) && session.SimulationPaused &&
-                        session.World.VoxelCount == 1 && session.QueryPendingEdits().Count == 1 && !state.HasDraft &&
+                        session.World.VoxelCount == 4 && session.QueryPendingEdits().Count == 1 && !state.HasDraft &&
+                        session.Query(VerticalXCell).IsOccupied && session.Query(VerticalZCell).IsOccupied && session.Query(SurfaceOutsideCell).IsOccupied &&
                         session.Query(CellToolPendingCell).Voxel is null,
                     "fresh process did not restore committed and pending cell edits without a UI draft");
                 Click(view.VoxelToolButton);

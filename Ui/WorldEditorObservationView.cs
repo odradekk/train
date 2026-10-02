@@ -14,7 +14,10 @@ internal sealed record WorldEditorPick(
     WorldEditorObservationStatus? Status,
     WorldEditorVehicleHit? VehicleHit,
     WorldVoxelCoord? WorldCell,
-    double WorldDistance);
+    double WorldDistance,
+    Vector3? WorldPosition,
+    Vector3? WorldNormal,
+    WorldVoxelCoord? AdjacentCell);
 
 /// <summary>
 /// Godot adapter for <see cref="WorldEditorObserver"/>: drives the camera from its pose, draws the selection
@@ -45,6 +48,7 @@ public partial class WorldEditorObservationView : Node3D
     private Label _action = null!;
     private Label _inspection = null!;
     private Label _notice = null!;
+    private Label _coordinates = null!;
     private ItemList _list = null!;
     private IReadOnlyList<WorldEditorListEntry> _entries = Array.Empty<WorldEditorListEntry>();
     private MeshInstance3D _highlight = null!;
@@ -53,11 +57,14 @@ public partial class WorldEditorObservationView : Node3D
     private readonly HashSet<Key> _flyKeys = new();
     private int _shownNotices;
     private bool _dragging;
+    private Vector2? _pointerScreen;
 
     public WorldEditorObserver Observer { get; private set; } = null!;
     internal Func<Vector2, bool, bool>? CellPointer { get; set; }
     internal Action<Action>? DraftGuard { get; set; }
     internal WorldEditorPick? LastPick { get; private set; }
+    internal WorldEditorVehicleHit? HoverVehicle { get; private set; }
+    internal bool PointerCoordinatesVisible => _coordinates.IsVisibleInTree();
     internal bool HighlightVisible => _highlight.Visible;
     internal string ModeText => _mode.Text;
     internal string InspectionText => _inspection.Text;
@@ -83,6 +90,7 @@ public partial class WorldEditorObservationView : Node3D
         _worldInput = worldInput;
         _worldInput.GuiInput += HandleWorldInput;
         _worldInput.FocusExited += EndInput;
+        _worldInput.MouseExited += () => { _pointerScreen = null; HoverVehicle = null; _coordinates.Text = ""; };
         Observer = new WorldEditorObserver(session, initial.Position, initial.Look);
         CreatePanel(inspector);
         CreateHighlight();
@@ -104,6 +112,8 @@ public partial class WorldEditorObservationView : Node3D
         if (delta > 0)
             FlyFromKeys(delta);
         ApplyCamera(Observer.Present(delta, sample));
+        if (_pointerScreen is { } screen && !_consoleOpen())
+            ShowPointerCoordinates(screen);
         UpdateHighlight(sample);
         UpdatePanel();
     }
@@ -124,14 +134,9 @@ public partial class WorldEditorObservationView : Node3D
     /// <summary>Resolves a screen point to the nearest vehicle part or published world-voxel collider and selects it.</summary>
     internal WorldEditorPick Pick(Vector2 screen)
     {
-        var origin = _camera.ProjectRayOrigin(screen);
-        var direction = _camera.ProjectRayNormal(screen);
-        var vehicle = WorldEditorInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
-        var world = _colliders.QueryPublishedRay(GetWorld3D(), origin, origin + direction * PickDistance);
-        var worldDistance = world is { } hit ? origin.DistanceTo(hit.Position) : double.PositiveInfinity;
-        ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
-            ? ObservedObject.Vehicle(vehicle.VehicleId)
-            : world is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
+        var raw = QueryPick(screen);
+        var vehicle = raw.VehicleHit;
+        var item = raw.Object;
         if (Observer.PartVehicleId is { } owner)
         {
             item = item == ObservedObject.Vehicle(owner) && vehicle is not null
@@ -141,11 +146,37 @@ public partial class WorldEditorObservationView : Node3D
         var status = item is { } picked ? Observer.Select(picked) : (WorldEditorObservationStatus?)null;
         if (status == WorldEditorObservationStatus.DraftRequired && item is { } blocked)
             DraftGuard?.Invoke(() => Observer.Select(blocked));
-        LastPick = new WorldEditorPick(screen, item, status, vehicle, world?.Cell, worldDistance);
+        LastPick = raw with { Object = item, Status = status };
         _action.Text = item is null ? "点选：未命中对象，选择不变" : $"点选：{item.Value.DescribeZh()} → {status}";
         UpdatePanel();
         return LastPick;
     }
+
+    /// <summary>Raw nearest hits without selection, camera changes or tool snapping.</summary>
+    internal WorldEditorPick QueryPick(Vector2 screen)
+    {
+        var origin = _camera.ProjectRayOrigin(screen);
+        var direction = _camera.ProjectRayNormal(screen);
+        var vehicle = WorldEditorInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
+        var world = _colliders.QueryPublishedRay(GetWorld3D(), origin, origin + direction * PickDistance);
+        var worldDistance = world is { } hit ? origin.DistanceTo(hit.Position) : double.PositiveInfinity;
+        ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
+            ? ObservedObject.Vehicle(vehicle.VehicleId)
+            : world is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
+        return new WorldEditorPick(screen, item, null, vehicle, world?.Cell, worldDistance,
+            world?.Position, world?.Normal, world?.AdjacentCell);
+    }
+
+    private void ShowPointerCoordinates(Vector2 screen)
+    {
+        var pick = QueryPick(screen);
+        HoverVehicle = pick.VehicleHit is { } hit && hit.Distance <= pick.WorldDistance ? hit : null;
+        _coordinates.Text = HoverVehicle is { } vehicle
+            ? $"光标 · 车辆 {vehicle.VehicleId.Value}\n世界坐标 {Coordinates(vehicle.WorldPosition)}\n车辆局部坐标 {Coordinates(vehicle.LocalPosition)}"
+            : pick.WorldPosition is { } point ? $"光标 · 世界坐标 {Coordinates(From(point))}" : "光标：未命中表面";
+    }
+
+    private static string Coordinates(ObservationVector point) => FormattableString.Invariant($"({point.X:0.###}, {point.Y:0.###}, {point.Z:0.###})");
 
     public override void _Notification(int what)
     {
@@ -175,6 +206,11 @@ public partial class WorldEditorObservationView : Node3D
     {
         if (Observer is null || _consoleOpen())
             return;
+        if (@event is InputEventMouseMotion pointer)
+        {
+            _pointerScreen = _worldInput.GetGlobalTransformWithCanvas() * pointer.Position;
+            ShowPointerCoordinates(_pointerScreen.Value);
+        }
         if (@event is InputEventMouseMotion hover && !_dragging &&
             CellPointer?.Invoke(_worldInput.GetGlobalTransformWithCanvas() * hover.Position, false) == true)
         {
@@ -259,6 +295,8 @@ public partial class WorldEditorObservationView : Node3D
         box.AddThemeConstantOverride("separation", 6);
 
         box.AddChild(new Label { Text = "对象检查器" });
+        _coordinates = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        box.AddChild(_coordinates);
         _mode = new Label();
         box.AddChild(_mode);
         var controls = new HFlowContainer();

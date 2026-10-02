@@ -3,7 +3,9 @@ using Train.Domain.Voxels;
 
 namespace Train.Domain.WorldEditor;
 
-/// <summary>A single horizontal-plane preview. Only precise input or a failed commit creates a draft.</summary>
+public enum VoxelWorkPlane { Horizontal, VerticalX, VerticalZ, Surface }
+
+/// <summary>A single grid-cell preview. Only precise input or a failed commit creates a draft.</summary>
 public sealed class WorldEditorVoxelTool : IDisposable
 {
     private readonly VoxelDevelopmentSession _session;
@@ -24,6 +26,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public bool CanRedoDraft => HasDraft && !_session.IsChangingWorld && _redo.Count > 0;
     public ulong HistoryEvictionCount { get; private set; }
     public int Height { get; private set; }
+    public VoxelWorkPlane Plane { get; private set; }
     public WorldVoxelCoord Position { get; private set; }
     public VoxelDefinitionId DefinitionId { get; private set; }
     public VoxelOrientation Orientation { get; private set; } = VoxelOrientation.Identity;
@@ -52,16 +55,55 @@ public sealed class WorldEditorVoxelTool : IDisposable
         return true;
     }
 
-    public bool SetHeight(int height)
+    public bool SetHeight(int height) => SetPlane(Plane, height);
+
+    public bool SetPlane(VoxelWorkPlane plane, int position)
     {
-        if (height == Height)
+        if (plane == Plane && position == Height)
             return true;
         if (HasDraft || _session.IsChangingWorld)
             return false;
-        Height = height;
-        Position = Position with { Y = height };
+        Plane = plane;
+        Height = position;
+        Position = plane switch
+        {
+            VoxelWorkPlane.VerticalX => Position with { X = position },
+            VoxelWorkPlane.VerticalZ => Position with { Z = position },
+            VoxelWorkPlane.Horizontal => Position with { Y = position },
+            _ => Position
+        };
         return true;
     }
+
+    /// <summary>Integer plane layers use floor on the other axes. Bounds are checked by Preview/Commit.</summary>
+    public bool TryPlaneTarget(ObservationVector origin, ObservationVector direction, out WorldVoxelCoord cell)
+    {
+        cell = default;
+        var component = Plane switch
+        {
+            VoxelWorkPlane.Horizontal => (origin.Y, direction.Y),
+            VoxelWorkPlane.VerticalX => (origin.X, direction.X),
+            VoxelWorkPlane.VerticalZ => (origin.Z, direction.Z),
+            _ => (0d, 0d)
+        };
+        if (Math.Abs(component.Item2) < 1e-7)
+            return false;
+        var distance = (Height - component.Item1) / component.Item2;
+        if (distance < 0 || !double.IsFinite(distance))
+            return false;
+        var point = origin + direction * distance;
+        cell = new((int)Math.Floor(point.X), (int)Math.Floor(point.Y), (int)Math.Floor(point.Z));
+        cell = Plane switch
+        {
+            VoxelWorkPlane.Horizontal => cell with { Y = Height },
+            VoxelWorkPlane.VerticalX => cell with { X = Height },
+            _ => cell with { Z = Height }
+        };
+        return true;
+    }
+
+    public WorldVoxelCoord SurfaceTarget(WorldVoxelCoord hit, WorldVoxelCoord adjacent) =>
+        Operation == VoxelCellOperation.Add ? adjacent : hit;
 
     public void Hover(WorldVoxelCoord position)
     {
@@ -117,6 +159,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
         _redo.Clear();
         HistoryEvictionCount = 0;
         Height = 0;
+        Plane = VoxelWorkPlane.Horizontal;
         Position = default;
     }
 
