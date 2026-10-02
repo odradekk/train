@@ -532,6 +532,22 @@ public partial class Main : Node
     {
         _contentExportSmoke = true;
         ReportCatalogMarkers(loaded, "CONTENT_EXPORT");
+        if (loaded.IsCommitted && _reloader is not null)
+        {
+            var workspace = new WorldEditorWorkspace(_reloader.Catalog, _reloader.Composites,
+                new FileWorldSaveStore(IsolatedUserDataDirectory), WorldEditorWorkspaceScene.ReadExample);
+            var restored = true;
+            foreach (var example in WorldEditorExamples.All)
+            {
+                var result = workspace.TryCreateExampleCopy(example, out var copy);
+                restored &= result.Succeeded && copy is { SimulationPaused: true, SaveId: null } && copy.HasUnsavedChanges;
+                copy?.Detach();
+                if (!result.Succeeded)
+                    GD.PrintErr($"CONTENT_EXPORT_EXAMPLE_FAILED {example.Path} {WorldEditorWorkspaceScene.Describe(result)}");
+            }
+            if (restored)
+                GD.Print("CONTENT_EXPORT_EXAMPLES_RESTORED");
+        }
         if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore.voxels.json"))
             GD.Print("CONTENT_EXPORT_JSON_READABLE");
         if (Godot.FileAccess.FileExists("res://builtin/core/resources/voxels/ferrous-ore/icon.png") &&

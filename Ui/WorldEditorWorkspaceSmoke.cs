@@ -13,6 +13,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     public const string NewIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID";
     public const string ImportedIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID";
     public const string ExportPathEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH";
+    public const string ExampleSaveIdEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID";
+    public const string ExampleEvidencePathEnvironmentVariable = "TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH";
     private const string OldName = "工作区验证原存档";
     private const string NewName = "工作区验证副本";
     private static readonly WorldVoxelCoord InitialCell = new(2, 2, 2);
@@ -23,6 +25,10 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static readonly WorldVoxelCoord DiscardedCell = new(7, 2, 2);
     private static readonly WorldVoxelCoord SaveContinueCell = new(8, 2, 2);
     private static readonly WorldVoxelCoord ImportedOnlyCell = new(9, 2, 2);
+    private static readonly WorldVoxelCoord ExampleQueuedCell = new(5, 1, 2);
+    private static readonly WorldVoxelCoord ExampleCopyOnlyCell = new(6, 1, 2);
+    private static readonly WorldVoxelCoord ExampleFutureCell = new(7, 1, 2);
+    private static readonly WorldVoxelCoord ExampleDiscardedCell = new(8, 1, 2);
     private static string Leg => System.Environment.GetEnvironmentVariable(LegEnvironmentVariable) ?? "";
     private static int _workspaceVisits;
     private static int _menuVisits;
@@ -30,12 +36,14 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private static Guid _oldId;
     private static Guid _newId;
     private static Guid _importedId;
+    private static Guid _exampleDocumentId;
     private int _phase;
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
     private WorldEditorLeaveSmoke? _leaveSmoke;
 
-    public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify";
+    public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify" or
+        "example-save" or "example-verify";
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
@@ -67,6 +75,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         _workspaceVisits++;
         var main = workspace.GetNode<Main>("/root/Main");
         Require(workspace.GetTree().CurrentScene == workspace, "workspace was not displayed first");
+        if (Leg is "example-save" or "example-verify")
+        {
+            FromExampleWorkspace(workspace);
+            return;
+        }
         if (Leg == "save" && _workspaceVisits == 1)
         {
             Require(workspace.Entries.Count == 0, "new process unexpectedly restored or created a save");
@@ -139,6 +152,11 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         Guard(scene, () =>
         {
             var session = scene.Session!;
+            if (Leg is "example-save" or "example-verify")
+            {
+                AdvanceExample(session);
+                return;
+            }
             if (_phase == 0)
             {
                 if (Leg == "save" && _visit == 1)
@@ -198,6 +216,126 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
             _finished = true;
             Done(scene);
         });
+    }
+
+    private static void FromExampleWorkspace(WorldEditorWorkspaceScene workspace)
+    {
+        var descriptor = WorldEditorExamples.All[0];
+        var entry = workspace.ExampleEntries.Single(item => item.Example.Path == descriptor.Path);
+        Require(entry.Document is not null && entry.Recovery.Succeeded,
+            "the distributed example was not parsed as a usable document");
+        var document = entry.Document!;
+        _exampleDocumentId = document.Id;
+        var source = Godot.FileAccess.GetFileAsString(descriptor.Path);
+        Require(!string.IsNullOrEmpty(source), "Godot FileAccess could not read the distributed example");
+        var evidencePath = RequiredPath(ExampleEvidencePathEnvironmentVariable);
+        if (Leg == "example-save" && _workspaceVisits == 1)
+            File.WriteAllText(evidencePath, source);
+        else
+            Require(File.Exists(evidencePath) && File.ReadAllText(evidencePath) == source,
+                "the distributed example bytes changed after creating or saving a copy");
+
+        if (Leg == "example-verify" && _workspaceVisits == 1)
+        {
+            var savedId = RequiredId(ExampleSaveIdEnvironmentVariable);
+            Require(savedId != document.Id && workspace.OpenSave(savedId).Succeeded,
+                "the saved example copy is missing or reused the example document identity");
+            GD.Print($"WORKSPACE_EXAMPLE_COPY_OPEN id={savedId:D} example={document.Id:D}");
+            return;
+        }
+
+        var created = workspace.CreateExampleCopy(descriptor);
+        Require(created.Succeeded, "the workspace could not create an editable example copy");
+        GD.Print($"WORKSPACE_EXAMPLE_CREATED path={descriptor.Path} original={document.Id:D} leg={Leg}");
+    }
+
+    private void AdvanceExample(VoxelDevelopmentSession session)
+    {
+        if (Leg == "example-save")
+        {
+            if (_phase == 0)
+            {
+                RequireExampleBoundary(session);
+                Require(session.SaveId is null && session.HasUnsavedChanges,
+                    "example copy did not enter as an unsaved editing session");
+                Add(ExampleCopyOnlyCell);
+                Require(session.SubmitEdit(new VoxelAddEdit(ExampleFutureCell, WorldEditorSequences.EditVoxelId, VoxelOrientation.Identity), 100).Accepted,
+                    "example copy rejected a formal future edit");
+                scene.Press("run");
+                _phase = 1;
+                return;
+            }
+            if (session.SimulationStep < 5)
+                return;
+            scene.Press("pause");
+            scene.Refresh();
+            Require(session.SimulationPaused && session.World.VoxelCount == 5 &&
+                    session.Query(ExampleQueuedCell).Voxel is not null && session.Query(ExampleCopyOnlyCell).Voxel is not null &&
+                    session.Query(ExampleFutureCell).Voxel is null && session.QueryPendingEdits().Count == 1,
+                "example copy did not preserve editing, running and pending-command state");
+            scene.SetSaveName("示例副本跨进程验证");
+            var saved = scene.SaveWorld();
+            Require(saved.Succeeded && saved.SaveId.HasValue && !session.HasUnsavedChanges,
+                "example copy did not receive a save identity");
+            var savedId = saved.SaveId.GetValueOrDefault();
+            var originalId = _exampleDocumentId;
+            Require(savedId != originalId, "the first save reused the distributed example document UUID");
+            GD.Print($"WORKSPACE_EXAMPLE_SAVED id={savedId:D} original={originalId:D} step={session.SimulationStep} voxels=5 pending=1 paused=true");
+            _finished = true;
+            Done(scene);
+            return;
+        }
+
+        if (_visit == 1)
+        {
+            Require(session.SaveId == RequiredId(ExampleSaveIdEnvironmentVariable) && session.SimulationPaused &&
+                    session.SimulationStep >= 5 && session.World.VoxelCount == 5 && session.QueryPendingEdits().Count == 1 &&
+                    session.Query(ExampleQueuedCell).Voxel is not null && session.Query(ExampleCopyOnlyCell).Voxel is not null &&
+                    session.Query(ExampleFutureCell).Voxel is null,
+                "fresh process did not restore the saved example copy independently");
+            Add(ExampleDiscardedCell);
+            scene.Press("workspace");
+            Require(scene.PromptVisible, "edited example copy omitted workspace leave protection");
+            scene.PressPrompt("cancel");
+            Require(!scene.PromptVisible && scene.GetTree().CurrentScene == scene && session.HasUnsavedChanges &&
+                    session.Query(ExampleDiscardedCell).Voxel is not null,
+                "cancelling workspace leave did not preserve the edited example copy");
+            scene.Press("workspace");
+            Require(scene.PromptVisible, "second example-copy leave omitted workspace protection");
+            scene.PressPrompt("discard");
+            WorldChangeSmoke.Finish(session);
+            _finished = true;
+            return;
+        }
+
+        RequireExampleBoundary(session);
+        Require(session.SaveId is null && session.Query(ExampleCopyOnlyCell).Voxel is null &&
+                session.Query(ExampleFutureCell).Voxel is null && session.Query(ExampleDiscardedCell).Voxel is null &&
+                session.HasUnsavedChanges,
+            "creating the example again inherited edits or identity from the saved copy");
+        GD.Print("WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true");
+        _finished = true;
+        Done(scene);
+    }
+
+    private void RequireExampleBoundary(VoxelDevelopmentSession session)
+    {
+        Require(session.SimulationPaused && session.Identity.Bounds == new VoxelWorldBounds(16, 8, 16) &&
+                session.Identity.Seed == 42 && session.SimulationStep == 1 && session.World.VoxelCount == 3 &&
+                session.QueryPendingEdits().Count == 1 && session.Query(ExampleQueuedCell).Voxel is null &&
+                session.Query(new WorldVoxelCoord(2, 1, 2)).Voxel?.DefinitionId == WorldEditorSequences.EditVoxelId &&
+                session.Query(new WorldVoxelCoord(3, 1, 2)).Voxel?.DefinitionId == WorldEditorSequences.EditVoxelId &&
+                session.Query(new WorldVoxelCoord(4, 1, 2)).Voxel?.DefinitionId == WorldEditorSequences.EditVoxelId,
+            "distributed example did not restore its documented paused boundary");
+        foreach (var (cell, _) in session.World.OccupiedVoxels())
+        for (var x = 0; x <= 1; x++)
+        for (var y = 0; y <= 1; y++)
+        for (var z = 0; z <= 1; z++)
+        {
+            var point = new Vector3(cell.X + x, cell.Y + y, cell.Z + z);
+            Require(scene.Camera.IsPositionInFrustum(point),
+                $"initial view excludes example voxel at {point}; camera={scene.Camera.GlobalPosition}");
+        }
     }
 
     private void CreateSaveAsPair(VoxelDevelopmentSession session)

@@ -31,7 +31,8 @@ foreach ($name in @(
     'TRAIN_WORLD_EDITOR_CAPTURE_STEPS', 'TRAIN_AUTHORITY_CHECKPOINT', 'TRAIN_AUTHORITY_CHECKPOINT_DIR',
     'TRAIN_AUTHORITY_BUILD', 'TRAIN_WORLD_EDITOR_SAVE_ID', 'TRAIN_BLANK_WORLD_LEG', 'TRAIN_BLANK_WORLD_SAVE_ID',
     'TRAIN_WORLD_EDITOR_WORKSPACE_LEG', 'TRAIN_WORLD_EDITOR_WORKSPACE_OLD_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID',
-    'TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH'
+    'TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH',
+    'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID', 'TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH'
 )) {
     Remove-Item "Env:$name" -ErrorAction SilentlyContinue
 }
@@ -118,19 +119,47 @@ if ($Workspace) {
             'WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0')) {
             if (-not $verify.Contains($marker)) { throw "Workspace verify omitted assertion marker: $marker" }
         }
+
+        # Example copies use a separate save directory so the existing five legs retain their exact list assertions.
+        $userData = Join-Path $OutputDirectory 'example-user-data'
+        New-Item -ItemType Directory -Path $userData | Out-Null
+        $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH = Join-Path $evidence 'basic-editing.source.json'
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'example-save'
+        $exampleSave = Invoke-EntryLeg 'example-save' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true',
+            'WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json',
+            'WORKSPACE_EXAMPLE_SAVED id=', 'voxels=5 pending=1 paused=true')) {
+            if (-not $exampleSave.Contains($marker)) { throw "Workspace example-save omitted assertion marker: $marker" }
+        }
+        $exampleIds = [regex]::Match($exampleSave,
+            'WORKSPACE_EXAMPLE_SAVED id=([0-9a-fA-F-]{36}) original=([0-9a-fA-F-]{36})')
+        if (-not $exampleIds.Success -or $exampleIds.Groups[1].Value -eq $exampleIds.Groups[2].Value) {
+            throw 'Workspace example save did not create a UUID distinct from the distributed document.'
+        }
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID = $exampleIds.Groups[1].Value
+        $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'example-verify'
+        $exampleVerify = Invoke-EntryLeg 'example-verify' 'WORKSPACE'
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_EXAMPLE_COPY_OPEN id=',
+            'WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json',
+            'WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true')) {
+            if (-not $exampleVerify.Contains($marker)) { throw "Workspace example-verify omitted assertion marker: $marker" }
+        }
         [ordered]@{
             outcome = 'passed'
             durationMs = $started.ElapsedMilliseconds
             originalSaveId = $ids.Groups[1].Value
             copiedSaveId = $ids.Groups[2].Value
             importedSaveId = $imported.Groups[1].Value
+            exampleSaveId = $exampleIds.Groups[1].Value
+            exampleDocumentId = $exampleIds.Groups[2].Value
             exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |
             ConvertTo-Json | Set-Content -LiteralPath (Join-Path $OutputDirectory 'result.json') -Encoding utf8
         @'
 # World editor workspace cross-process validation
 
-Five fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
+Seven fresh Godot processes enter through the menu action and workspace list. The first creates a truly blank paused
 world, saves it, exercises return cancellation and failed ordinary save, then drives the save-as button and confirmation
 signals. Cancelling preserves identity, dirty state and the original bytes; confirming creates a distinct current save
 and keeps the original. It exports that current world through the new-file path. It then reopens the copy, edits it and completes
@@ -143,7 +172,13 @@ edit and saves it. The final
 process opens the original, save-as copy and imported save and proves their edits did not cross. Godot mesh and collider
 counts match each continued world.
 
-Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log; process identities:
+Two additional processes use a separate save directory. One creates an unsaved paused copy from the distributed basic-editing
+example, edits and runs it while retaining a future pending command, and gives its first save a UUID distinct from the example
+document. The next process restores that saved copy, then creates the example again and verifies the documented step-1 world,
+pending command and source bytes were unchanged and contain none of the copy-only edits.
+
+Automated assertions: save.stdout.log, resume-old.stdout.log, resume-new.stdout.log, import-new.stdout.log, verify.stdout.log,
+example-save.stdout.log, example-verify.stdout.log; process identities:
 processes.log; tested head: config.json.
 This headless result does not establish graphical interaction or manual acceptance.
 '@ | Set-Content -LiteralPath (Join-Path $OutputDirectory 'report.md') -Encoding utf8
@@ -161,6 +196,8 @@ This headless result does not establish graphical interaction or manual acceptan
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_NEW_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_IMPORTED_ID -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_SAVE_ID -ErrorAction SilentlyContinue
+        Remove-Item Env:TRAIN_WORLD_EDITOR_WORKSPACE_EXAMPLE_EVIDENCE_PATH -ErrorAction SilentlyContinue
         Remove-Item Env:TRAIN_MODS_SMOKE_USER_DATA -ErrorAction SilentlyContinue
     }
 }

@@ -9,18 +9,20 @@ public partial class WorldEditorWorkspaceScene : Control
 {
     private WorldEditorWorkspace _workspace = null!;
     private VBoxContainer _saves = null!;
+    private VBoxContainer _examples = null!;
     private Label _result = null!;
     private SpinBox[] _bounds = null!;
     private LineEdit _seed = null!;
     private FileDialog _importFile = null!;
     internal IReadOnlyList<WorldEditorSaveEntry> Entries { get; private set; } = Array.Empty<WorldEditorSaveEntry>();
+    internal IReadOnlyList<WorldEditorExampleEntry> ExampleEntries { get; private set; } = Array.Empty<WorldEditorExampleEntry>();
     internal string Result => _result.Text;
 
     public override void _Ready()
     {
         var main = GetNode<Main>("/root/Main");
         var reloader = main.Reloader!;
-        _workspace = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites, new FileWorldSaveStore(main.IsolatedUserDataDirectory));
+        _workspace = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites, new FileWorldSaveStore(main.IsolatedUserDataDirectory), ReadExample);
         var margin = new MarginContainer { OffsetLeft = 24, OffsetTop = 24, OffsetRight = -24, OffsetBottom = -24 };
         margin.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(margin);
@@ -55,9 +57,15 @@ public partial class WorldEditorWorkspaceScene : Control
         box.AddChild(_result);
         var scroll = new ScrollContainer { SizeFlagsVertical = SizeFlags.ExpandFill, HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         box.AddChild(scroll);
+        var lists = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        scroll.AddChild(lists);
+        lists.AddChild(new Label { Text = "随附示例" });
+        _examples = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+        lists.AddChild(_examples);
+        lists.AddChild(new Label { Text = "本地存档" });
         _saves = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
         _saves.AddThemeConstantOverride("separation", 12);
-        scroll.AddChild(_saves);
+        lists.AddChild(_saves);
         RefreshSaves();
         GD.Print($"WORLD_EDITOR_WORKSPACE_READY saves={Entries.Count}");
         if (WorldEditorWorkspaceSmoke.Requested())
@@ -96,6 +104,27 @@ public partial class WorldEditorWorkspaceScene : Control
         return result;
     }
 
+    internal WorldSaveResult CreateExampleCopy(WorldEditorExample example)
+    {
+        var result = _workspace.TryCreateExampleCopy(example, out var candidate);
+        if (candidate is null)
+        {
+            RefreshSaves();
+            _result.Text = $"无法从示例创建副本：{Describe(result)}";
+        }
+        else
+            Enter(candidate);
+        return result;
+    }
+
+    internal static string ReadExample(string path)
+    {
+        using var file = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
+        if (file is null)
+            throw new IOException($"{path}: {Godot.FileAccess.GetOpenError()}");
+        return file.GetAsText();
+    }
+
     internal WorldSaveResult ImportSave(string path)
     {
         var result = _workspace.Import(path);
@@ -117,12 +146,32 @@ public partial class WorldEditorWorkspaceScene : Control
 
     internal void RefreshSaves()
     {
+        foreach (var child in _examples.GetChildren())
+        {
+            _examples.RemoveChild(child);
+            child.QueueFree();
+        }
         foreach (var child in _saves.GetChildren())
         {
             _saves.RemoveChild(child);
             child.QueueFree();
         }
         Entries = _workspace.ListSaves();
+        ExampleEntries = _workspace.ListExamples();
+        foreach (var entry in ExampleEntries)
+        {
+            var row = new HBoxContainer();
+            _examples.AddChild(row);
+            var dependencies = DescribeDependencies(entry.Document?.ExternalDefinitions ?? Array.Empty<WorldSaveDefinitionRef>(), entry.Document?.Source);
+            var text = $"{entry.Document?.DisplayName ?? entry.Example.Path}\n{entry.Example.Purpose}\n自版本 {entry.Example.ApplicableSinceVersion} 起适用 · 格式 {entry.Document?.FormatVersion.ToString() ?? "未知"}\n依赖：{dependencies}";
+            if (!entry.Recovery.Succeeded)
+                text += $"\n无法打开：{Describe(entry.Recovery)}";
+            else if (entry.Recovery.Adaptations is { Count: > 0 } adaptations)
+                text += "\n适配提示：" + string.Join("；", adaptations.Select(item => $"{item.Subject}/{item.Relationship}"));
+            row.AddChild(new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart, SizeFlagsHorizontal = SizeFlags.ExpandFill });
+            var button = AddButton(row, "从示例创建副本", () => CreateExampleCopy(entry.Example));
+            button.Disabled = !entry.Recovery.Succeeded;
+        }
         _result.Text = _workspace.ListFailure is { } failure ? $"存档列表读取失败：{failure.Detail}" : "选择存档打开，或新建空白世界。";
         if (Entries.Count == 0)
             _saves.AddChild(new Label { Text = "暂无本地存档。" });
@@ -131,10 +180,7 @@ public partial class WorldEditorWorkspaceScene : Control
             var row = new HBoxContainer();
             _saves.AddChild(row);
             var saved = entry.LastSavedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") ?? "未知";
-            var hints = entry.ExternalDefinitions.Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}")
-                .Concat(entry.Source?.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}") ?? Array.Empty<string>())
-                .Distinct().ToArray();
-            var dependencies = hints.Length == 0 ? "无外部依赖" : string.Join("，", hints);
+            var dependencies = DescribeDependencies(entry.ExternalDefinitions, entry.Source);
             var source = entry.Source is { } origin ? $"{origin.Kind}/{origin.ConfigurationId} v{origin.ConfigurationVersion}" : entry.GeneratorVersion;
             var text = $"{entry.Name} · 最近保存 {saved} · {entry.Id:D}\n格式 {entry.FormatVersion?.ToString() ?? "未知"} · {source}\n依赖：{dependencies}";
             if (!entry.Recovery.Succeeded)
@@ -149,6 +195,11 @@ public partial class WorldEditorWorkspaceScene : Control
 
     internal static string Describe(WorldSaveResult result) =>
         $"{result.Status}" + (result.Diagnostic is { } reason ? $" · {reason.Stage}/{reason.Subject}/{reason.Relationship} · {reason.Detail}" : "");
+
+    private static string DescribeDependencies(IReadOnlyList<WorldSaveDefinitionRef> definitions, WorldSource? source) =>
+        string.Join("，", definitions.Select(item => $"{item.DefinitionId} @ {item.SemanticRevision}")
+            .Concat(source?.ContentDependencies.Select(item => $"{item.Kind}:{item.Id} @ {item.SemanticRevision}") ?? Array.Empty<string>())
+            .Distinct().DefaultIfEmpty("无外部依赖"));
 
     private static Button AddButton(Container parent, string text, Action action)
     {
