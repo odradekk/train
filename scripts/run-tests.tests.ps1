@@ -449,6 +449,7 @@ $expected = @{
     CompositeReloadSaveRejectionTests = "headless/persistence/persistence"
     WorldEditOrderingTests = "headless/world-edit/world-edit"
     WorldEditEntryTests = "headless/world-edit/world-edit"
+    VoxelCellSetTests = "headless/world-edit/world-edit"
     VoxelWorldTests = "headless/voxels/voxels"
     VoxelMultiChunkTests = "headless/voxels/voxels"
     VoxelLocalBoxTests = "headless/voxels/voxels"
@@ -475,6 +476,7 @@ $expected = @{
     WorldEditorTransferTests = "headless/world-editor,persistence/world-editor"
     WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
     WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
+    WorldEditorVoxelDraftTests = "headless/world-editor,persistence/world-editor"
     WorldEditorTests = "headless/world-editor/world-editor"
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
@@ -898,6 +900,16 @@ internal static class Program
                     Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
                     Console.WriteLine("WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true");
                 }
+                else if (leg == "cell-tool-save")
+                {
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT height=3 exact_shared=true");
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false");
+                }
+                else if (leg == "cell-tool-resume")
+                {
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_OPEN id=66666666-6666-6666-6666-666666666666");
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false");
+                }
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
                 return mode == "workspace-fail" ? 7 : 0;
@@ -946,7 +958,8 @@ It "fixture-workspace-script" {
         Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
         Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
         if ($mode -eq 'pass') {
-            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify')) {
+            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify',
+                'cell-tool-save', 'cell-tool-resume')) {
                 Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
             }
         } else {

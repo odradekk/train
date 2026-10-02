@@ -33,6 +33,53 @@ public sealed partial class VoxelDevelopmentSession
     /// </summary>
     internal event Action<WorldEditRecord>? EditExecuted;
 
+    internal WorldEditSubmission SubmitVoxelDraft(VoxelCellSetEdit edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        var tool = VoxelTool;
+        if (tool?.HasDraft != true || !tool.CurrentEdit.Equals(edit) ||
+            (IsChangingWorld && (_worldChange is null || !_changeNeedsChoice)))
+            return new WorldEditSubmission(WorldEditRefusal.WorldChanging, null, null);
+        return SubmitEdit(edit, null, committingVoxelDraft: true);
+    }
+
+    public VoxelCellSetResult ValidateCells(VoxelCellSetEdit edit)
+    {
+        ArgumentNullException.ThrowIfNull(edit);
+        if (edit.Targets.Count == 0)
+            return new(VoxelCellSetStatus.NoTargets);
+
+        var seen = new HashSet<WorldVoxelCoord>();
+        foreach (var target in edit.Targets)
+        {
+            if (!seen.Add(target.Position))
+                return new(VoxelCellSetStatus.DuplicateTarget, target.Position);
+            if (!ValidCellTarget(target))
+                return new(VoxelCellSetStatus.InvalidTarget, target.Position);
+            if (!World.Bounds.Contains(target.Position))
+                return new(VoxelCellSetStatus.OutOfBounds, target.Position);
+            if (HasRailVoxel(target.Position))
+                return TryRailOwner(target.Position, out var segmentId)
+                    ? new(VoxelCellSetStatus.RailOccupied, target.Position, VoxelCellOwnerKind.RailSegment, segmentId)
+                    : new(VoxelCellSetStatus.RailOccupied, target.Position);
+            if (TryVehicleOwner(target.Position, out var vehicleId, out var partId))
+                return new(VoxelCellSetStatus.VehicleOccupied, target.Position, VoxelCellOwnerKind.VehiclePart, vehicleId, partId);
+            var occupied = World.Query(target.Position).IsOccupied;
+            if (target.ExpectedOccupancy == VoxelCellOccupancy.Empty && occupied)
+                return new(VoxelCellSetStatus.Occupied, target.Position);
+            if (target.ExpectedOccupancy == VoxelCellOccupancy.Occupied && !occupied)
+                return new(VoxelCellSetStatus.Empty, target.Position);
+            if (target.Content is not { } content)
+                continue;
+            if (CurrentVoxels?.TryGet(content.DefinitionId, out var entry) != true)
+                return new(VoxelCellSetStatus.UnknownDefinition, target.Position);
+            if (!content.Orientation.IsAllowedBy(entry.Definition.AllowedOrientations))
+                return new(VoxelCellSetStatus.DisallowedOrientation, target.Position);
+        }
+
+        return new(VoxelCellSetStatus.Valid);
+    }
+
     // The typed entries below keep their business statuses for payloads a WorldEdit cannot encode (missing ids,
     // non-orthogonal orientations, non-finite poses); such calls are never accepted, so they take no id or sequence.
 
@@ -214,12 +261,15 @@ public sealed partial class VoxelDevelopmentSession
     /// (execute now); a later step queues the edit for that boundary. Past steps, queued edits naming never-allocated
     /// runtime ids, exhausted counters and a faulted session are refused without consuming an id or a sequence.
     /// </summary>
-    public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null)
+    public WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep = null) =>
+        SubmitEdit(edit, atStep, committingVoxelDraft: false);
+
+    private WorldEditSubmission SubmitEdit(WorldEdit edit, ulong? atStep, bool committingVoxelDraft)
     {
         ArgumentNullException.ThrowIfNull(edit);
         if (edit is ContentPublishEdit)
             throw new ArgumentException("Content publications are recorded by the content reload boundary.", nameof(edit));
-        if (IsChangingWorld)
+        if (IsChangingWorld && !committingVoxelDraft)
             return new WorldEditSubmission(WorldEditRefusal.WorldChanging, null, null);
         if (Fault is not null)
             return new WorldEditSubmission(WorldEditRefusal.SimulationFaulted, null, null);
@@ -327,6 +377,9 @@ public sealed partial class VoxelDevelopmentSession
             case VoxelRemoveEdit remove:
                 var removed = RemoveCore(remove.Position);
                 return (removed.Succeeded, removed.Status.ToString(), removed);
+            case VoxelCellSetEdit cells:
+                var cellSet = ApplyCellsCore(cells);
+                return (cellSet.Succeeded, cellSet.Status.ToString(), cellSet);
             case VoxelDamageEdit damage:
                 var damaged = DamageVoxelsCore(damage.Targets);
                 return (damaged.Succeeded, damaged.Status.ToString(), damaged);
@@ -358,6 +411,116 @@ public sealed partial class VoxelDevelopmentSession
                 throw new InvalidOperationException($"Unknown world edit kind {edit.Kind}.");
         }
     }
+
+    private VoxelCellSetResult ApplyCellsCore(VoxelCellSetEdit edit)
+    {
+        var validation = ValidateCells(edit);
+        if (!validation.Succeeded)
+            return validation;
+        foreach (var target in edit.Targets)
+        {
+            if (target.Content is { } content)
+            {
+                var definition = CurrentVoxels!.Entries[content.DefinitionId].Definition;
+                var voxel = new WorldVoxel(content.DefinitionId, definition.MaxDurability, content.Orientation);
+                if (target.Operation == VoxelCellOperation.Add)
+                    World.TryAdd(target.Position, voxel);
+                else
+                    World.TryReplace(target.Position, voxel);
+            }
+            else
+            {
+                World.TryRemove(target.Position);
+            }
+            NoteChange(target.Position, occupancyChanged: target.Operation != VoxelCellOperation.Replace, publish: false);
+        }
+        FreezeUnsupportedAssemblies();
+        Changed?.Invoke();
+        return new(VoxelCellSetStatus.Applied);
+    }
+
+    private static bool ValidCellTarget(VoxelCellTarget target) => target.Operation switch
+    {
+        VoxelCellOperation.Add => target.ExpectedOccupancy == VoxelCellOccupancy.Empty && target.Content is not null,
+        VoxelCellOperation.Remove => target.ExpectedOccupancy == VoxelCellOccupancy.Occupied && target.Content is null,
+        VoxelCellOperation.Replace => target.ExpectedOccupancy == VoxelCellOccupancy.Occupied && target.Content is not null,
+        _ => false
+    };
+
+    internal bool HasRailVoxel(WorldVoxelCoord cell) =>
+        !_rails.IsDestroyed(cell) && World.Query(cell).Voxel is { } voxel &&
+        voxel.DefinitionId == StraightRailFixture.RailDefinitionId;
+
+    internal bool TryRailOwner(WorldVoxelCoord cell, out EntityId segmentId)
+    {
+        segmentId = default;
+        if (!HasRailVoxel(cell) ||
+            !_rails.TryGetOccupancy(cell, out var occupancy) ||
+            occupancy.Supports.Count == 0)
+            return false;
+        segmentId = occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId;
+        return true;
+    }
+
+    private bool TryVehicleOwner(WorldVoxelCoord cell, out EntityId vehicleId, out EntityId partId)
+    {
+        foreach (var vehicle in _vehicles.OrderBy(item => item.Id.Value))
+        foreach (var part in vehicle.Parts.OrderBy(item => item.Id.Value))
+        {
+            if (!PartOverlapsCell(vehicle.Transform, part.Cell, cell))
+                continue;
+            vehicleId = vehicle.Id;
+            partId = part.Id;
+            return true;
+        }
+        vehicleId = default;
+        partId = default;
+        return false;
+    }
+
+    internal static bool PartOverlapsCell(CompositeTransform transform, LocalVoxelCoord part, WorldVoxelCoord cell)
+    {
+        var obb = new (double X, double Y, double Z)[8];
+        var aabb = new (double X, double Y, double Z)[8];
+        var index = 0;
+        for (var x = 0; x <= 1; x++)
+        for (var y = 0; y <= 1; y++)
+        for (var z = 0; z <= 1; z++)
+        {
+            obb[index] = transform.TransformPoint(part.X + x, part.Y + y, part.Z + z);
+            aabb[index++] = (cell.X + x, cell.Y + y, cell.Z + z);
+        }
+        var worldAxes = new[] { (1d, 0d, 0d), (0d, 1d, 0d), (0d, 0d, 1d) };
+        var bodyAxes = new[] { transform.Right, transform.Up, transform.Forward };
+        foreach (var axis in worldAxes.Concat(bodyAxes).Concat(worldAxes.SelectMany(left => bodyAxes.Select(right => Cross(left, right)))))
+        {
+            var lengthSquared = Dot(axis, axis);
+            if (lengthSquared < 1e-24)
+                continue;
+            Project(obb, axis, out var obbMin, out var obbMax);
+            Project(aabb, axis, out var cellMin, out var cellMax);
+            if (obbMax <= cellMin || cellMax <= obbMin)
+                return false;
+        }
+        return true;
+    }
+
+    private static void Project((double X, double Y, double Z)[] points, (double X, double Y, double Z) axis, out double min, out double max)
+    {
+        min = max = Dot(points[0], axis);
+        foreach (var point in points.AsSpan(1))
+        {
+            var value = Dot(point, axis);
+            min = Math.Min(min, value);
+            max = Math.Max(max, value);
+        }
+    }
+
+    private static double Dot((double X, double Y, double Z) left, (double X, double Y, double Z) right) =>
+        left.X * right.X + left.Y * right.Y + left.Z * right.Z;
+
+    private static (double X, double Y, double Z) Cross((double X, double Y, double Z) left, (double X, double Y, double Z) right) =>
+        (left.Y * right.Z - left.Z * right.Y, left.Z * right.X - left.X * right.Z, left.X * right.Y - left.Y * right.X);
 
     private void AppendLog(WorldEditRecord record)
     {

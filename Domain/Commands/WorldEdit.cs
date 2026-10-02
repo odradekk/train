@@ -18,7 +18,8 @@ public enum WorldEditKind
     TrainAssemble = 8,
     TrainStart = 9,
     TrainStop = 10,
-    ContentPublish = 11
+    ContentPublish = 11,
+    VoxelCellSet = 12
 }
 
 /// <summary>
@@ -90,6 +91,61 @@ public sealed class VoxelRemoveEdit : WorldEdit
     }
 
     public override WorldEditKind Kind => WorldEditKind.VoxelRemove;
+    public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
+}
+
+public enum VoxelCellOperation
+{
+    Add,
+    Remove,
+    Replace
+}
+
+public enum VoxelCellOccupancy
+{
+    Empty,
+    Occupied
+}
+
+public sealed record VoxelCellContent
+{
+    public VoxelDefinitionId DefinitionId { get; }
+    public VoxelOrientation Orientation { get; }
+
+    public VoxelCellContent(VoxelDefinitionId definitionId, VoxelOrientation orientation)
+    {
+        DefinitionId = definitionId.Namespace is null
+            ? throw new ArgumentException("Definition id is required.", nameof(definitionId))
+            : definitionId;
+        Orientation = orientation.IsOrthogonal
+            ? orientation
+            : throw new ArgumentException("Orientation must be orthogonal.", nameof(orientation));
+    }
+}
+
+public sealed record VoxelCellTarget(
+    WorldVoxelCoord Position,
+    VoxelCellOperation Operation,
+    VoxelCellOccupancy ExpectedOccupancy,
+    VoxelCellContent? Content);
+
+/// <summary>One ordered, atomic set of world-cell targets. Every target is validated before any is written.</summary>
+public sealed class VoxelCellSetEdit : WorldEdit
+{
+    public IReadOnlyList<VoxelCellTarget> Targets { get; }
+
+    public VoxelCellSetEdit(IReadOnlyList<VoxelCellTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        foreach (var target in targets)
+        {
+            if (!Enum.IsDefined(target.Operation) || !Enum.IsDefined(target.ExpectedOccupancy))
+                throw new ArgumentOutOfRangeException(nameof(targets), "Cell operation and expected occupancy must be defined.");
+        }
+        Targets = Array.AsReadOnly(targets.ToArray());
+    }
+
+    public override WorldEditKind Kind => WorldEditKind.VoxelCellSet;
     public override IEnumerable<EntityId> EntityReferences => Array.Empty<EntityId>();
 }
 

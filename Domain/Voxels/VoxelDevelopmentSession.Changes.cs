@@ -19,6 +19,9 @@ public sealed partial class VoxelDevelopmentSession
     private bool _advancingWorldChange;
 
     public bool IsChangingWorld => _worldChange is not null;
+    /// <summary>Transient editing state; excluded from world fingerprints and saves.</summary>
+    public WorldEditorVoxelTool? VoxelTool { get; internal set; }
+    public bool HasEditorDraft => VoxelTool?.HasDraft == true;
     public bool CanReloadSaved => SaveId is not null;
     public event Action<WorldChangeRequest, WorldChangeResult>? WorldChangeChanged;
 
@@ -96,7 +99,7 @@ public sealed partial class VoxelDevelopmentSession
              blank != supported))
             return Change(WorldChangeStatus.CandidateFailed, candidateStatus: WorldSaveStatus.IncompatibleBase,
                 diagnostic: new WorldSaveDiagnostic("base", "blank", "parameters", $"blank extent requires {BlankWorldSource.ExtentDescription} and the supported source version"));
-        var needsChoice = HasUnsavedChanges && request.Choice is null;
+        var needsChoice = HasEditorDraft || (HasUnsavedChanges && request.Choice is null);
         if (needsChoice && !retainPendingChoice)
             return Change(WorldChangeStatus.ChoiceRequired);
         _worldChange = request;
@@ -118,6 +121,8 @@ public sealed partial class VoxelDevelopmentSession
             return FinishChange(Change(WorldChangeStatus.Cancelled));
         if (!_changeNeedsChoice)
             return Change(WorldChangeStatus.Busy);
+        if (HasEditorDraft && choice == WorldChangeChoice.Discard)
+            return ReportChange(WorldChangeStatus.ChoiceRequired);
         if (_worldChange.Kind == WorldChangeKind.ReloadSaved && choice == WorldChangeChoice.SaveThenSwitch)
             choice = WorldChangeChoice.SaveAsThenReload;
         if (choice == WorldChangeChoice.SaveAsThenReload && _worldChange.Kind != WorldChangeKind.ReloadSaved)
@@ -156,7 +161,8 @@ public sealed partial class VoxelDevelopmentSession
             }
             _changeSaveStatus = saved.Status;
             _changeNeedsSave = false;
-            return ReportChange(WorldChangeStatus.Switching);
+            _changeNeedsChoice = HasEditorDraft;
+            return ReportChange(_changeNeedsChoice ? WorldChangeStatus.ChoiceRequired : WorldChangeStatus.Switching);
         }
 
         if (request.LeavesScene)
@@ -217,6 +223,17 @@ public sealed partial class VoxelDevelopmentSession
             return FinishChange(Change(WorldChangeStatus.CandidateFailed,
                 diagnostic: new WorldSaveDiagnostic("candidate", "world", "prepare", exception.Message)));
         }
+    }
+
+    internal void ResolveVoxelDraft()
+    {
+        if (_worldChange is null || !_changeNeedsChoice || HasEditorDraft)
+            return;
+        // A prior save or world-discard choice cannot also consent to discarding a draft or its new commit.
+        _worldChange = _worldChange with { Choice = null };
+        _changeNeedsSave = false;
+        _changeNeedsChoice = HasUnsavedChanges;
+        ReportChange(_changeNeedsChoice ? WorldChangeStatus.ChoiceRequired : WorldChangeStatus.Switching);
     }
 
     private WorldChangeResult ApplyCandidateChange(WorldChangeRequest request) => request.Kind switch

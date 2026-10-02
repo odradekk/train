@@ -103,6 +103,10 @@ public sealed class VoxelConsoleCommands
             WorldEditConsole.Execute(_session, arguments) is { } editsText)
             return editsText;
 
+        if (WorldEditConsole.TrySplitAt(arguments, out var cellArguments, out var cellAtStep) &&
+            TryParseCellEdit(cellArguments, out var cellEdit))
+            return WorldEditConsole.FormatSubmission(_session.SubmitEdit(cellEdit, cellAtStep));
+
         if (WorldEditConsole.TrySplitAt(arguments, out var editArguments, out var atStep) &&
             atStep is { } step &&
             TryParseEdit(editArguments, out var edit))
@@ -182,6 +186,7 @@ public sealed class VoxelConsoleCommands
             $"voxel new <size-x> <size-y> <size-z> <seed> [discard|save|cancel] ({BlankWorldSource.ExtentDescription}; seed 0..18446744073709551615)",
             "voxel collide <minx> <miny> <minz> <maxx> <maxy> <maxz>",
             "voxel edits [pending | log [<count>] | fault]",
+            "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] | voxel cell remove <x> <y> <z> [at <step>] | voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>]",
             "voxel remove <x> <y> <z> [at <step>] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>]",
             "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>].");
     }
@@ -205,6 +210,45 @@ public sealed class VoxelConsoleCommands
                  (arguments.Count - 1) % 4 == 0 &&
                  TryDamageTargets(arguments, out var targets))
             edit = new VoxelDamageEdit(targets);
+        return edit is not null;
+    }
+
+    private static bool TryParseCellEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
+    {
+        edit = null!;
+        if (arguments.Count == 5 &&
+            string.Equals(arguments[0], "cell", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(arguments[1], "remove", StringComparison.OrdinalIgnoreCase) &&
+            TryPosition(arguments, 2, out var removePosition))
+        {
+            edit = new VoxelCellSetEdit([
+                new VoxelCellTarget(removePosition, VoxelCellOperation.Remove, VoxelCellOccupancy.Occupied, null)
+            ]);
+        }
+        else if (arguments.Count == 7 &&
+                 string.Equals(arguments[0], "cell", StringComparison.OrdinalIgnoreCase) &&
+                 TryPosition(arguments, 2, out var position) &&
+                 TryDefinition(arguments[5], out var definitionId) &&
+                 VoxelOrientation.TryParse(arguments[6], out var orientation))
+        {
+            var operation = arguments[1].ToLowerInvariant() switch
+            {
+                "add" => VoxelCellOperation.Add,
+                "replace" => VoxelCellOperation.Replace,
+                _ => (VoxelCellOperation?)null
+            };
+            if (operation is { } parsedOperation)
+            {
+                edit = new VoxelCellSetEdit([
+                    new VoxelCellTarget(
+                        position,
+                        parsedOperation,
+                        parsedOperation == VoxelCellOperation.Add ? VoxelCellOccupancy.Empty : VoxelCellOccupancy.Occupied,
+                        new VoxelCellContent(definitionId, orientation))
+                ]);
+            }
+        }
+
         return edit is not null;
     }
 
@@ -247,6 +291,8 @@ public sealed class VoxelConsoleCommands
             $"name {result.DisplayName}",
             $"Voxel count: {_session.World.VoxelCount}."
         };
+        if (result.Status == WorldSaveStatus.Saved && _session.HasEditorDraft)
+            lines.Add("draft retained; not included in save");
         foreach (var adaptation in result.Adaptations ?? Array.Empty<WorldSaveAdaptation>())
             lines.Add($"adapted {adaptation.Subject} {adaptation.Relationship}");
         return string.Join("\n", lines);

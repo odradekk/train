@@ -69,7 +69,8 @@ public enum WorldEditorObservationStatus
     NotVehicle,
     UnknownObject,
     NoParts,
-    NotInPartLevel
+    NotInPartLevel,
+    DraftRequired
 }
 
 public enum WorldEditorNoticeKind
@@ -202,6 +203,8 @@ public sealed class WorldEditorObserver : IDisposable
             item = ObservedObject.WorldCell(item.Cell, voxel.RuntimeId, voxel.DefinitionId);
         if (!Exists(item))
             return WorldEditorObservationStatus.UnknownObject;
+        if (_session.HasEditorDraft && item != Selection)
+            return WorldEditorObservationStatus.DraftRequired;
         Selection = item;
         PartVehicleId = item.Kind == ObservedObjectKind.VehiclePart ? item.Id : null;
         return WorldEditorObservationStatus.Selected;
@@ -224,6 +227,8 @@ public sealed class WorldEditorObserver : IDisposable
 
     public WorldEditorObservationStatus ClearSelection()
     {
+        if (_session.HasEditorDraft && Selection is not null)
+            return WorldEditorObservationStatus.DraftRequired;
         Selection = null;
         PartVehicleId = null;
         return WorldEditorObservationStatus.Cleared;

@@ -31,6 +31,7 @@
 | [voxel collide](voxel-collide.md) `<minx> <miny> <minz> <maxx> <maxy> <maxz>` | 查询探测盒与当前碰撞形状的重叠 | 同上 |
 | [voxel remove](voxel-remove.md) `<x> <y> <z> [at <step>]` | 移除一个体素 | 同上 |
 | [voxel add](voxel-add.md) `<x> <y> <z> <namespace:id> <orientation> [at <step>]` | 在空格中添加指定体素 | 同上 |
+| [voxel cell](voxel-cell.md) `add\|remove\|replace ... [at <step>]` | 以 `voxel.cell-set` 正式编辑添加、移除或替换单格体素 | 世界编辑器会话 |
 | [voxel damage](voxel-damage.md) `<x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>]` | 对一个或多个体素施加同一事件的指定伤害 | 同上 |
 | [voxel edits](voxel-edits.md) `[pending \| log [<count>] \| fault]` | 查询世界修改命令的边界位置、待执行队列、执行日志与内部故障 | 同上 |
 | [voxel save](voxel-save.md) `[<display-name>]` | 把当前世界、车辆、正式铁路、编组、模拟步与待执行世界修改（含列车起停）原子写入 `user://saves/<UUID>/save.json` | 同上 |

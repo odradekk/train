@@ -97,13 +97,12 @@ public static class WorldEditorInspector
 
     /// <summary>A rail voxel belongs to its segment; shared endpoint cells resolve to the lowest stable segment id.</summary>
     public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        HasRailVoxel(session, cell) && session.Rails.TryGetOccupancy(cell, out var occupancy) && occupancy.Supports.Count > 0
-            ? ObservedObject.Segment(occupancy.Supports.MinBy(support => support.SegmentId.Value)!.SegmentId)
+        session.TryRailOwner(cell, out var segmentId)
+            ? ObservedObject.Segment(segmentId)
             : ObservedObject.WorldCell(cell);
 
-    private static bool HasRailVoxel(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        !session.Rails.IsDestroyed(cell) && session.World.Query(cell).Voxel is { } voxel &&
-        voxel.DefinitionId == StraightRailFixture.RailDefinitionId;
+    internal static bool HasRailVoxel(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
+        session.HasRailVoxel(cell);
 
     private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
     {

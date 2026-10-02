@@ -55,6 +55,8 @@ public partial class WorldEditorScene : Node3D
     private FileDialog _exportFile = null!;
     private Control _worldInput = null!;
     private VBoxContainer _inspector = null!;
+    private VBoxContainer _tools = null!;
+    private WorldEditorVoxelToolView? _cellTool;
 
     internal VoxelDevelopmentSession? Session => _session;
     internal WorldEditorObservationView? Observation => _observation;
@@ -64,6 +66,7 @@ public partial class WorldEditorScene : Node3D
     internal CompositeVisualPresenter Composites => _composites;
     internal TrackRendererPresenter Tracks => _tracks;
     internal LineEdit SaveNameInput => _saveName;
+    internal WorldEditorVoxelToolView? CellTool => _cellTool;
 
     public override void _Ready()
     {
@@ -96,6 +99,11 @@ public partial class WorldEditorScene : Node3D
         AddChild(_observation);
         _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, InitialPose(_session), _worldInput, _inspector);
         main.SetWorldEditorObserver(_observation.Observer);
+        _cellTool = new WorldEditorVoxelToolView();
+        AddChild(_cellTool);
+        _cellTool.Initialize(_session, _camera, _tools, _inspector);
+        _observation.CellPointer = _cellTool.HandlePointer;
+        _observation.DraftGuard = _cellTool.RequestChange;
         Refresh();
 
         if (WorldEditorWorkspaceSmoke.Requested())
@@ -179,6 +187,7 @@ public partial class WorldEditorScene : Node3D
     }
 
     internal void Press(string button) => _buttons[button].EmitSignal(BaseButton.SignalName.Pressed);
+    internal Button ActionButton(string action) => _buttons[action];
 
     internal void SetSaveName(string name) => _saveName.Text = name;
 
@@ -188,6 +197,9 @@ public partial class WorldEditorScene : Node3D
     internal void PressSaveAsCancel() => _saveAsPrompt.GetCancelButton().EmitSignal(BaseButton.SignalName.Pressed);
 
     internal bool PromptVisible => _worldChangePrompt?.Visible == true;
+    internal UnsavedWorldChangePrompt? WorldChangePrompt => _worldChangePrompt;
+    internal Button DraftLeaveCommitButton => _worldChangePrompt!.DraftCommitButton;
+    internal Button DraftLeaveDiscardButton => _worldChangePrompt!.DraftDiscardButton;
 
     internal void PressPrompt(string name) => _worldChangePrompt!.Press(name);
 
@@ -255,6 +267,7 @@ public partial class WorldEditorScene : Node3D
         var sample = _session.QueryDisplayPoses();
         _composites.ApplyDisplayPoses(sample);
         _observation?.Present(delta, sample);
+        _cellTool?.Present();
         _state.Text = StateText();
         _edits.Text = EditsText();
     }
@@ -361,6 +374,8 @@ public partial class WorldEditorScene : Node3D
         }
         _worldChangePrompt = new UnsavedWorldChangePrompt();
         _worldChangePrompt.Chosen += ConfirmWorldChange;
+        _worldChangePrompt.DraftCommit += () => _cellTool?.Commit();
+        _worldChangePrompt.DraftDiscard += () => _cellTool?.State.Discard();
         AddChild(_worldChangePrompt);
         _saveAsPrompt = new ConfirmationDialog { Title = "另存为新存档", OkButtonText = "另存为", CancelButtonText = "取消" };
         _saveAsName = new LineEdit { MaxLength = WorldSaveDocument.DisplayNameMaxLength, PlaceholderText = "新存档名称（留空沿用当前名称）" };
@@ -381,8 +396,8 @@ public partial class WorldEditorScene : Node3D
         var areas = new HBoxContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
         workspace.AddChild(areas);
         var tools = AddSidebar(areas, 310);
+        _tools = tools;
         tools.AddChild(new Label { Text = "工具与内容库" });
-        tools.AddChild(new Button { Text = "选择（当前工具）", Disabled = true });
         var help = new Label { Text = "以下开发操作使用精确参数；不随选择改变目标。", AutowrapMode = TextServer.AutowrapMode.WordSmart };
         tools.AddChild(help);
         _worldInput = new Control { FocusMode = Control.FocusModeEnum.All, MouseFilter = Control.MouseFilterEnum.Stop,
@@ -542,7 +557,7 @@ public partial class WorldEditorScene : Node3D
     {
         var result = _session?.Save(RequestedSaveName())
                      ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
-        _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}";
+        _result.Text = $"最近操作：保存 → {result.Status} {result.SaveId}" + DraftSaveNotice();
         UpdateSavedName(result);
         return result;
     }
@@ -582,7 +597,7 @@ public partial class WorldEditorScene : Node3D
         _saveAsPrompt.Hide();
         var name = _saveAsName.Text.Length > 0 ? _saveAsName.Text : null;
         var result = _session?.SaveAs(name) ?? new WorldSaveResult(WorldSaveStatus.Unavailable);
-        _result.Text = $"最近操作：另存为 → {result.Status} {result.SaveId}";
+        _result.Text = $"最近操作：另存为 → {result.Status} {result.SaveId}" + DraftSaveNotice();
         UpdateSavedName(result);
     }
 
@@ -594,6 +609,8 @@ public partial class WorldEditorScene : Node3D
         _saveName.PlaceholderText = _session!.DisplayName;
         _state.Text = StateText();
     }
+
+    private string DraftSaveNotice() => _session?.HasEditorDraft == true ? " · 体素草稿未保存，仍保留。" : "";
 
     private string? RequestedSaveName() =>
         _saveName.Text.Length > 0 ? _saveName.Text : _session?.SaveId is null ? "新世界" : null;
@@ -641,7 +658,7 @@ public partial class WorldEditorScene : Node3D
         if (result.Status == WorldChangeStatus.ChoiceRequired)
         {
             var canSave = _session?.Fault is null;
-            _worldChangePrompt?.Open(request.Kind, canSave);
+            _worldChangePrompt?.Open(request.Kind, canSave, _session?.HasEditorDraft == true);
             _result.Text = canSave ? "最近操作：有未保存变化，请选择保存后继续、放弃或取消。"
                 : "最近操作：模拟发生故障，无法保存当前世界。可以放弃更改或取消。";
             _state.Text = StateText();
