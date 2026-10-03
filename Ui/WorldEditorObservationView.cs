@@ -131,7 +131,7 @@ public partial class WorldEditorObservationView : Node3D
             var pick = QueryPick(_pointerClick ?? PointerRay(screen));
             LastPointerPick = pick;
             ObservationVector? toolPoint = null;
-            var consumed = !_dragging && CellPointer?.Invoke(pick, _pointerClick is not null, out toolPoint) == true;
+            var consumed = (_pointerClick is not null || !_dragging) && CellPointer?.Invoke(pick, _pointerClick is not null, out toolPoint) == true;
             if (_pointerClick is not null && !consumed)
                 Pick(pick);
             _pointerClick = null;
@@ -157,8 +157,8 @@ public partial class WorldEditorObservationView : Node3D
         _list.EmitSignal(ItemList.SignalName.ItemSelected, index);
     }
 
-    /// <summary>Resolves a screen point to the nearest vehicle part or published world-voxel collider and selects it.</summary>
-    private WorldEditorPick Pick(WorldEditorPick raw)
+    /// <summary>Selects the picked object at the current inspection level, respecting an existing draft.</summary>
+    private void Pick(WorldEditorPick raw)
     {
         var vehicle = raw.VehicleHit;
         var item = raw.Object;
@@ -174,11 +174,7 @@ public partial class WorldEditorObservationView : Node3D
         LastPick = raw with { Object = item, Status = status };
         _action.Text = item is null ? "点选：未命中对象，选择不变" : $"点选：{item.Value.DescribeZh()} → {status}";
         UpdatePanel();
-        return LastPick;
     }
-
-    /// <summary>Raw nearest hits without selection, camera changes or tool snapping.</summary>
-    internal WorldEditorPick QueryPick(Vector2 screen) => QueryPick(PointerRay(screen));
 
     private WorldEditorRay PointerRay(Vector2 screen) => new(screen, _camera.ProjectRayOrigin(screen), _camera.ProjectRayNormal(screen));
 

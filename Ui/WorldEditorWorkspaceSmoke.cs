@@ -58,6 +58,8 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private VoxelDefinitionId _cellToolDefinition;
     private VoxelOrientation _cellToolOrientation;
     private Vector3 _cellToolCamera;
+    private ObservationVector _cellToolLookBeforeDrag;
+    private ObservedObject? _cellToolSelectionBeforeDrag;
     private Vector2 _vehicleHoverScreen;
     private Vector2 _noTargetScreen;
     private double _cellToolPitchTurn;
@@ -1003,42 +1005,75 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(state.Plane == VoxelWorkPlane.Surface && hit?.Cell == VerticalZCell && hit.Normal == Vector3.Up &&
                         hit.AdjacentCell == SurfaceOutsideCell && state.Position == SurfaceOutsideCell && state.Preview.Succeeded,
                     $"surface preview did not target the outside cell: hit={hit?.Cell} normal={hit?.Normal} target={state.Position}");
-                ClickAt(SurfaceScreen(VerticalZCell));
+                _cellToolLookBeforeDrag = scene.Observation.Observer.Pose.Look;
+                _cellToolSelectionBeforeDrag = scene.Observation.Observer.Selection;
+                var dragScreen = SurfaceScreen(VerticalZCell);
+                var dragMotion = scene.GetViewport().GetScreenTransform().BasisXform(new Vector2(6, 0));
+                Input.ParseInputEvent(new InputEventMouseButton
+                    { ButtonIndex = MouseButton.Right, Pressed = true, Position = dragScreen, GlobalPosition = dragScreen });
+                Motion(dragScreen + dragMotion, dragMotion, MouseButtonMask.Right);
                 _phase++;
                 return;
             case 56:
-                Require(session.Query(SurfaceOutsideCell).Voxel is not null && !state.HasDraft,
-                    "real picked surface click did not place outside the hit cell");
-                Click(view.OperationInput);
+                Require(Input.IsMouseButtonPressed(MouseButton.Right) &&
+                        (scene.Observation!.Observer.Pose.Look - _cellToolLookBeforeDrag).Length > 1e-3,
+                    "right-drag input did not turn the camera before the cell-tool click");
+                var dragClickScreen = scene.Camera.UnprojectPosition(new Vector3(VerticalZCell.X + 0.5f, VerticalZCell.Y + 1, VerticalZCell.Z + 0.5f));
+                Require(scene.Observation!.WorldRect.HasPoint(dragClickScreen), "drag fixture clicked outside the world");
+                // Viewport-local clicks keep window stretching from releasing focus during this held-button gesture.
+                scene.GetViewport().PushInput(new InputEventMouseButton
+                    { ButtonIndex = MouseButton.Left, Pressed = true, Position = dragClickScreen, GlobalPosition = dragClickScreen }, inLocalCoords: true);
                 _phase++;
                 return;
             case 57:
-                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Remove);
+                Require(Input.IsMouseButtonPressed(MouseButton.Right), "drag-click fixture released the right button before committing");
+                Require(session.Query(SurfaceOutsideCell).Voxel is not null && !state.HasDraft,
+                    "left click during right-drag did not place outside the picked surface");
+                Require(scene.Observation!.Observer.Selection == _cellToolSelectionBeforeDrag && !view.DraftPrompt.Visible,
+                    "left click during right-drag changed the inspector selection or requested a draft decision");
+                var releasePoint = scene.Camera.UnprojectPosition(new Vector3(VerticalZCell.X + 0.5f, VerticalZCell.Y + 1, VerticalZCell.Z + 0.5f));
+                scene.GetViewport().PushInput(new InputEventMouseButton
+                    { ButtonIndex = MouseButton.Left, Pressed = false, Position = releasePoint, GlobalPosition = releasePoint }, inLocalCoords: true);
+                var releaseScreen = SurfaceScreen(VerticalZCell);
+                Motion(releaseScreen, scene.GetViewport().GetScreenTransform().BasisXform(new Vector2(-6, 0)), MouseButtonMask.Right);
+                Input.ParseInputEvent(new InputEventMouseButton
+                    { ButtonIndex = MouseButton.Right, Pressed = false, Position = releaseScreen, GlobalPosition = releaseScreen });
+                Motion(ScreenCenter(view.OperationInput.GetGlobalRect()));
                 _phase++;
                 return;
             case 58:
+                Require((scene.Observation!.Observer.Pose.Look - _cellToolLookBeforeDrag).Length < 1e-8,
+                    "right-drag fixture did not restore the camera direction");
+                Click(view.OperationInput);
+                _phase++;
+                return;
+            case 59:
+                ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Remove);
+                _phase++;
+                return;
+            case 60:
                 Require(state.Position == VerticalZCell && state.Operation == VoxelCellOperation.Remove && state.Preview.Succeeded && !state.HasDraft,
                     "changing the surface operation did not retarget the shared preview to the hit cell");
                 Click(view.CommitButton);
                 _phase++;
                 return;
-            case 59:
+            case 61:
                 Require(!session.Query(VerticalZCell).IsOccupied && session.Query(SurfaceOutsideCell).IsOccupied && !state.HasDraft,
                     "surface operation button changed the neighbor instead of removing the hit cell");
                 Click(view.OperationInput);
                 _phase++;
                 return;
-            case 60:
+            case 62:
                 ChooseOpenOption(view.OperationInput, (int)VoxelCellOperation.Add);
                 _phase++;
                 return;
-            case 61:
+            case 63:
                 Require(view.CommitButton.Disabled && !state.HasDraft, "removed surface still allowed a cached target to be committed");
                 _surfaceRemovedNextEdit = session.NextEditId;
                 Click(view.CommitButton);
                 _phase++;
                 return;
-            case 62:
+            case 64:
                 Require(session.NextEditId == _surfaceRemovedNextEdit && !state.HasDraft &&
                         !session.Query(VerticalZCell).IsOccupied && session.Query(SurfaceOutsideCell).IsOccupied,
                     "a commit without a live surface changed the world");
@@ -1049,19 +1084,19 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 _physicsFrameTarget = Engine.GetPhysicsFrames() + 2;
                 _phase++;
                 return;
-            case 63:
+            case 65:
                 if (Engine.GetPhysicsFrames() < _physicsFrameTarget)
                     return;
                 Motion(SurfaceScreen(SurfaceOutsideCell));
                 _phase++;
                 return;
-            case 64:
+            case 66:
                 Require(state.Position == SurfaceOutsideCell with { Y = 7 } && state.Operation == VoxelCellOperation.Add && !state.HasDraft,
                     $"a fresh surface pick did not restore addition at the new outside neighbor: {state.Position}");
                 ReplaceNumber(view.CoordinateInputs[1], 9);
                 _phase++;
                 return;
-            case 65:
+            case 67:
                 Require(state.HasDraft && state.Position == SurfaceOutsideCell with { Y = 9 } &&
                         state.CurrentEdit.Targets.Single().Position == state.Position,
                     "surface precise input did not share the preview across heights");
@@ -1069,30 +1104,30 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Click(view.PlaneInput);
                 _phase++;
                 return;
-            case 66:
+            case 68:
                 ChooseOpenOption(view.PlaneInput, (int)VoxelWorkPlane.Horizontal);
                 _phase++;
                 return;
-            case 67:
+            case 69:
                 Require(state.Position == SurfaceOutsideCell with { Y = 9 } && state.Plane == VoxelWorkPlane.Surface && view.DraftPrompt.Visible,
                     "plane switch redirected an existing surface draft");
                 Click(view.DraftDiscardButton);
                 _phase++;
                 return;
-            case 68:
+            case 70:
                 Require(!state.HasDraft && state.Plane == VoxelWorkPlane.Horizontal,
                     "explicit draft discard did not apply the requested plane");
                 ReplaceNumber(view.LayerInput, 3);
                 _phase++;
                 return;
-            case 69:
+            case 71:
                 Require(state.Active && !state.HasDraft && state.Layer == 3 && scene.Camera.GlobalPosition == _cellToolCamera,
                     "work-plane editing changed camera state or left a draft");
                 Click(view.SelectToolButton);
                 GD.Print("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true operation_retarget=true removed_surface_invalid=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
                 _phase++;
                 return;
-            case 70:
+            case 72:
                 Require(!state.Active && !state.HasDraft, "target-switch fixture did not activate the selection tool");
                 var pending = new VoxelCellSetEdit(new[]
                 {
@@ -1113,13 +1148,13 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 ClickAt(WorldScreen(CellToolCommittedCellForRun));
                 _phase++;
                 return;
-            case 71:
+            case 73:
                 Require(view.DraftPrompt.Visible && state.HasDraft,
                     "real target click did not require an explicit draft decision");
                 Click(view.DraftDiscardButton);
                 _phase++;
                 return;
-            case 72:
+            case 74:
                 Require(!state.HasDraft && scene.Observation!.Observer.Selection is { Kind: ObservedObjectKind.WorldCell } selected &&
                         selected.Cell == CellToolCommittedCellForRun,
                     "discarding the target-switch draft did not select the clicked committed cell");
@@ -1140,7 +1175,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Motion(_vehicleHoverScreen);
                 _phase++;
                 return;
-            case 73:
+            case 75:
                 var hover = scene.Observation!.HoverVehicle;
                 Require(hover is not null && hover.VehicleId == session.Vehicles.Single().Id && scene.Observation.PointerCoordinatesVisible,
                     "real vehicle hover did not display its world/local coordinates");
@@ -1154,17 +1189,17 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 GD.Print($"WORKSPACE_VEHICLE_COORDINATES world={hover.WorldPosition} local={hover.LocalPosition} visible=true");
                 _phase++;
                 return;
-            case 74:
+            case 76:
                 Click(scene.Observation!.ActionButton("whole"));
                 _phase++;
                 return;
-            case 75:
+            case 77:
                 Require(view.DraftPrompt.Visible && state.HasDraft && scene.Observation!.Observer.PartVehicleId is not null,
                     "level switch did not require an explicit draft decision");
                 Click(view.DraftCommitButton);
                 _phase++;
                 return;
-            case 76:
+            case 78:
                 Require(!state.HasDraft && scene.Observation!.Observer.PartVehicleId is null &&
                         session.Query(new WorldVoxelCoord(8, 3, 5)).Voxel is not null,
                     "committing the level-switch draft did not apply it and return to the whole vehicle");
@@ -1172,19 +1207,19 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Click(scene.ActionButton("workspace"));
                 _phase++;
                 return;
-            case 77:
+            case 79:
                 Require(scene.PromptVisible && state.HasDraft && scene.WorldChangePrompt?.Visible == true,
                     "leaving the world did not route its draft through the unified protection");
                 Click(scene.DraftLeaveDiscardButton);
                 _phase++;
                 return;
-            case 78:
+            case 80:
                 Require(scene.PromptVisible && !state.HasDraft,
                     "leaving draft discard did not return to the remaining unsaved-world decision");
                 Click(scene.WorldChangePrompt?.CancelButton ?? throw new InvalidOperationException("leave cancel is unavailable"));
                 _phase++;
                 return;
-            case 79:
+            case 81:
                 Require(!scene.PromptVisible && scene.GetTree().CurrentScene == scene,
                     "cancelling after the draft decision left the editor");
                 GD.Print($"WORKSPACE_CELL_TOOL_INPUT layer={state.Layer} mouse_cell={CellToolCommittedCellForRun} settings_follow=true replace_collision=true missing_definition_kept=true exact_shared=true rejected_kept=true tool_guard=discard target_guard=discard level_guard=commit leave_guard=discard save_kept_draft=true");
@@ -1385,8 +1420,9 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         Require(scene.Observation.WorldHasInput, "world input did not take focus for a keyboard shortcut");
     }
 
-    private static void Motion(Vector2 position) => Input.ParseInputEvent(new InputEventMouseMotion
-        { Position = position, GlobalPosition = position });
+    private static void Motion(Vector2 position, Vector2 relative = default, MouseButtonMask buttons = default) =>
+        Input.ParseInputEvent(new InputEventMouseMotion
+            { Position = position, GlobalPosition = position, Relative = relative, ButtonMask = buttons });
 
     private static void ReplaceNumber(SpinBox input, int value)
     {
