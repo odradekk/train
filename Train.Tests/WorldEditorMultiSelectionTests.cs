@@ -289,7 +289,7 @@ public sealed class WorldEditorMultiSelectionTests
 
         Assert.AreEqual(WorldEditRefusal.None, rejected.Refusal);
         Assert.AreEqual(WorldEditState.Rejected, rejected.Record!.State);
-        var result = Assert.IsInstanceOfType<VoxelCellSetResult>(rejected.Result);
+        var result = (VoxelCellSetResult)rejected.Result!;
         Assert.AreEqual(VoxelCellSetStatus.NoChange, result.Status);
         Assert.AreEqual(First, result.Position);
         Assert.AreEqual(nextEdit + 1, session.NextEditId);
