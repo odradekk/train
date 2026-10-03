@@ -184,6 +184,8 @@ public partial class WorldEditorVoxelToolView : Node3D
         Present();
     }
 
+    internal bool InputNoticeVisible => _inputNotice.Length > 0;
+
     private void ReportInput(WorldEditorVoxelInputStatus status) => _inputNotice = status switch
     {
         WorldEditorVoxelInputStatus.WorldChanging => "世界变更中，参数输入未应用",
@@ -267,7 +269,7 @@ public partial class WorldEditorVoxelToolView : Node3D
                 $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n") +
                 "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
                 $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview, State.HasBatchDraft)}" +
-                (_inputNotice.Length > 0 ? "\n" + _inputNotice : "") + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
+                (InputNoticeVisible ? "\n" + _inputNotice : "") + (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
             DiscardButton.Disabled = !State.HasDraft;
             CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld;
             var material = (StandardMaterial3D)_cell.MaterialOverride;

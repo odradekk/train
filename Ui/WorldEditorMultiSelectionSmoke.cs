@@ -129,10 +129,20 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
                 return false;
             case 13:
                 CheckBatchCommit();
-                _capacitySmoke = new WorldEditorBoxCapacitySmoke(scene);
+                Observer.SelectMany(new[] { Target(FirstBatchCell), Target(SecondBatchCell) });
+                View.Present(0, Session.QueryDisplayPoses());
+                Click(View.ActionButton("batch-remove"));
                 _phase++;
                 return false;
             case 14:
+                ShowBoundInputNotice();
+                Click(scene.CellTool!.DiscardButton);
+                Require(!scene.CellTool.State.HasDraft && !scene.CellTool.InputNoticeVisible,
+                    "discard left feedback for the previous batch input visible");
+                _capacitySmoke = new WorldEditorBoxCapacitySmoke(scene);
+                _phase++;
+                return false;
+            case 15:
                 if (!_capacitySmoke!.Advance())
                     return false;
                 GD.Print("WORKSPACE_DONE leg=multi-select");
@@ -252,6 +262,7 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
 
     private void ClickBatchCommit()
     {
+        ShowBoundInputNotice();
         _commitBeforeEdits = Session.QueryEditLog().Count;
         _commitBeforeUndo = Session.UndoCount;
         var button = scene.CellTool!.CommitButton;
@@ -262,13 +273,22 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         Click(scene.CellTool!.CommitButton);
     }
 
+    private void ShowBoundInputNotice()
+    {
+        var view = scene.CellTool!;
+        Require(view.State.HasBatchDraft, "bound input feedback requires a batch draft");
+        // Exercise the Godot control binding for a queued coordinate change, even after the editor locks it.
+        view.CoordinateInputs[0].Value += 1;
+        Require(view.InputNoticeVisible, "ignored batch coordinate input did not show feedback");
+    }
+
     private void CheckBatchCommit()
     {
         var tool = scene.CellTool!.State;
         var button = scene.CellTool.CommitButton;
         var editDelta = Session.QueryEditLog().Count - _commitBeforeEdits;
         var undoDelta = Session.UndoCount - _commitBeforeUndo;
-        Require(!scene.CellTool.State.HasBatchDraft && !scene.CellTool.State.HasDraft &&
+        Require(!scene.CellTool.State.HasBatchDraft && !scene.CellTool.State.HasDraft && !scene.CellTool.InputNoticeVisible &&
                 Session.Query(FirstBatchCell).Voxel?.DefinitionId == Ledge &&
                 Session.Query(SecondBatchCell).Voxel?.DefinitionId == Ledge &&
                 editDelta == 1 && undoDelta == 1,
