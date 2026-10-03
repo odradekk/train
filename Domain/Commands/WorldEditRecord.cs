@@ -37,7 +37,8 @@ public enum WorldEditRefusal
     NoHistory = 8,
     SimulationRunning = 9,
     LargeEditConfirmationRequired = 10,
-    RegionRejected = 11
+    RegionRejected = 11,
+    DraftTargetsChanged = 12
 }
 
 /// <summary>

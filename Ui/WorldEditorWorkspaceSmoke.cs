@@ -49,6 +49,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
     private readonly int _visit = ++_editorVisits;
     private bool _finished;
     private WorldEditorLeaveSmoke? _leaveSmoke;
+    private WorldEditorMultiSelectionSmoke? _multiSelectionSmoke;
     private VoxelDefinitionId _cellToolDefinition;
     private VoxelOrientation _cellToolOrientation;
     private Vector3 _cellToolCamera;
@@ -69,11 +70,17 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     public static bool Requested() => Leg is "save" or "resume-old" or "resume-new" or "import-new" or "verify" or
         "example-save" or "example-verify" or "cell-tool-save" or "cell-tool-resume" or
-        "history-save" or "history-resume";
+        "history-save" or "history-resume" or "multi-select";
 
     public static void FromMenu(StartMenu menu) => Guard(menu, () =>
     {
         Require(menu.GetTree().CurrentScene == menu, "menu was replaced before choosing world editor");
+        if (Leg == "multi-select")
+        {
+            menu.GetNode<Main>("/root/Main").EnterWorldEditor(WorldEditorConfigurations.StraightRailTrainId);
+            GD.Print("WORKSPACE_MENU ready=true");
+            return;
+        }
         if (Leg == "save" && ++_menuVisits == 1)
         {
             menu.GetNode<Main>("/root/Main").EnterWorldEditor("missing-smoke-configuration");
@@ -208,6 +215,12 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         Guard(scene, () =>
         {
             var session = scene.Session!;
+            if (Leg == "multi-select")
+            {
+                _multiSelectionSmoke ??= new WorldEditorMultiSelectionSmoke(scene);
+                _finished = _multiSelectionSmoke.Advance();
+                return;
+            }
             if (Leg is "example-save" or "example-verify")
             {
                 AdvanceExample(session);
@@ -1378,12 +1391,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         ClickAt(control.GetViewport().GetScreenTransform() * control.GetGlobalRect().GetCenter());
 
     private static void ClickAt(Vector2 position)
-    {
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = true, Position = position, GlobalPosition = position });
-        Input.ParseInputEvent(new InputEventMouseButton
-            { ButtonIndex = MouseButton.Left, Pressed = false, Position = position, GlobalPosition = position });
-    }
+        => GodotSmokeInput.Click(position);
 
     private static void MouseLeft(Vector2 position, bool pressed) => Input.ParseInputEvent(new InputEventMouseButton
     {

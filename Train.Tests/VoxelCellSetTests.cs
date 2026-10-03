@@ -127,7 +127,9 @@ public sealed class VoxelCellSetTests
         var cell = new WorldVoxelCoord(5, 15, 5);
         Assert.IsTrue(session.Add(cell, StraightRailFixture.RailDefinitionId, VoxelOrientation.Identity).Succeeded);
         Assert.IsFalse(session.Rails.TryGetOccupancy(cell, out _));
-        Assert.AreEqual(ObservedObject.WorldCell(cell), WorldEditorInspector.WorldTarget(session, cell));
+        var voxel = session.Query(cell).Voxel!;
+        Assert.AreEqual(ObservedObject.WorldCell(cell, voxel.RuntimeId, voxel.DefinitionId),
+            WorldEditorInspector.WorldTarget(session, cell));
         foreach (var target in new[] { Add(cell), Remove(cell), Replace(cell, OreIdentity) })
         {
             var result = AssertRejectedUnchanged(session, Set(Add(new(6, 15, 5)), target), VoxelCellSetStatus.RailOccupied);

@@ -9,11 +9,11 @@
       "group": "godot-workspace",
       "script": "scripts/run-godot-world-editor-cross-process.ps1",
       "arguments": ["-Workspace", "-OutputDirectory", "{output}"],
-      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+region-tool-real-input-save-continue+shared-undo-redo-input+history-not-persisted",
+      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+region-tool-real-input-save-continue+shared-undo-redo-input+history-not-persisted+visible-box-selection+bounded-box-cap+storage-order-independent-box-selection+rectangle-before-cap+ctrl-shift-preserve-box-selection+bound-batch-draft-real-input",
       "needsImport": true,
       "needsGameBuild": true,
       "timeoutSeconds": 300,
-      "timeoutReason": "The issue #184 review workspace check measured 27123ms on Windows on 2026-10-02 across eleven processes, including release over the inspector and without a work-plane hit, interrupted draft decisions, whole-stroke translation/undo/redrawing, box corners/height, large confirmation/undo/redo and region save/restore. The preceding issue #184 checks measured 35286ms and 26998ms; issue #182 measured 27118ms and 27201ms. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
+      "timeoutReason": "The merged twelve-process workspace group measured 54363ms at 85e7511 via -Scope world-editor on Windows 10.0.26300.0 with SDK 10.0.112 and Godot 4.7.2. It includes brush and box input, interruption and save/restore, bounded box selection and batch-input feedback checks; maximum filled-world timing is separate. It starts five workspace processes, two example-copy processes, two cell-tool processes including region coverage, two history processes and one multi-selection process. The existing 300s outer hang cap remains, with each child separately bounded at 60s. The outer deadline may cancel the script before all child deadlines are exhausted; the unified entry retains evidence and cleans up its owned process tree. Frame budgets and elapsed time do not establish success."
     },
     {
       "id": "godot.logging-smoke",
@@ -48,12 +48,12 @@
     {
       "id": "godot.world-editor-workspace",
       "entry": "pwsh -NoProfile -File scripts/run-godot-world-editor-cross-process.ps1 -Workspace",
-      "contract": "真实菜单的世界编辑器入口先到工作区；新建空白和列表打开进入相同暂停编辑器；统一按钮、退出命令与关闭请求的离开确认、暂挂和取消恢复；重新加载取消、失败保护与另存后恢复原目标；返回取消、保存失败、放弃和保存后继续保护；另存为取消保留身份、未保存状态和原文件，成功建立新身份并保留原存档；从当前世界导出 JSON；新进程从工作区导入该文件，直接观察刷新后的列表并以新本地 UUID 打开，验证导出世界的模拟位置、待执行输入和世界内容，再继续编辑、运行及保存；最终再次读取原存档、另存副本和导入存档，验证三者互不影响。另两个真实进程从分发示例创建未保存副本，验证实际体素位于相机初始视锥内，编辑、运行、保留待执行输入并首次保存为新 UUID；后一个进程验证该存档副本独立，再次从同一示例恢复其原始边界和文件内容未变。另两个真实进程在空白世界用真实 Godot 鼠标和键盘输入提交单格体素，保存已提交及待执行编辑且不保存草稿，再由新进程打开、执行待处理编辑并继续鼠标编辑。最后两个真实进程验证世界焦点快捷键、文本输入自身撤销、面板与控制台共享历史、不可撤销修改确认、草稿独立历史，以及保存保留当前会话历史但新进程不恢复历史。",
-      "boundary": "原工作区进程共享一份测试用户数据；示例、单格工具和历史进程分别共享各自的测试用户数据，避免改变既有存档列表断言。需先构建和导入；输出目录必须是新的。自动断言不代替人工交互。",
+      "contract": "真实菜单的世界编辑器入口先到工作区；新建空白和列表打开进入相同暂停编辑器；统一按钮、退出命令与关闭请求的离开确认、暂挂和取消恢复；重新加载取消、失败保护与另存后恢复原目标；返回取消、保存失败、放弃和保存后继续保护；另存为取消保留身份、未保存状态和原文件，成功建立新身份并保留原存档；从当前世界导出 JSON；新进程从工作区导入该文件，直接观察刷新后的列表并以新本地 UUID 打开，验证导出世界的模拟位置、待执行输入和世界内容，再继续编辑、运行及保存；最终再次读取原存档、另存副本和导入存档，验证三者互不影响。另两个真实进程从分发示例创建未保存副本，验证实际体素位于相机初始视锥内，编辑、运行、保留待执行输入并首次保存为新 UUID；后一个进程验证该存档副本独立，再次从同一示例恢复其原始边界和文件内容未变。另两个真实进程在空白世界用真实 Godot 鼠标和键盘输入提交单格体素，并覆盖笔刷按住移动到释放才形成一次编辑及撤销记录、焦点或控制台中断、两角和检查器调整方框，以及显式格列表区域输入；保存已提交及待执行编辑且不保存草稿，再由新进程打开，验证笔刷、方框和待处理区域且不恢复 UI 草稿，执行待处理编辑并继续鼠标编辑和保存。另两个真实进程验证世界焦点快捷键、文本输入自身撤销、面板与控制台共享历史、不可撤销修改确认、草稿独立历史，以及保存保留当前会话历史但新进程不恢复历史。另一个真实进程通过拖框和 Ctrl/Shift 列表输入验证整体可见对象集合、遮挡排除、零件层级禁用框选、4096 个候选限额、反向存储顺序下结果稳定、超过旧全局上限的小框只选择矩形内对象，以及 Ctrl/Shift 保留框选格；清除或改变选择不改写批量草稿目标，并通过真实按钮提交一条编辑和一条撤销记录。",
+      "boundary": "原工作区进程共享一份测试用户数据；示例、单格工具、历史和多选进程分别使用隔离的测试用户数据，避免改变既有存档列表断言。共十二个真实进程。需先构建和导入；输出目录必须是新的。自动断言不代替人工交互。",
       "destination": "headless/world-editor 与 persistence，已接入统一入口。",
       "status": "connected",
       "durationStatus": "unmeasured",
-      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+region-tool-real-input-save-continue+shared-undo-redo-input+history-not-persisted",
+      "claim": "json-transfer+save-as-isolation+example-copy-isolation+initial-view+cross-process-restore+workspace-navigation+leave-protection+saved-version-reload+cell-tool-real-input-save-continue+region-tool-real-input-save-continue+shared-undo-redo-input+history-not-persisted+visible-box-selection+bounded-box-cap+storage-order-independent-box-selection+rectangle-before-cap+ctrl-shift-preserve-box-selection+bound-batch-draft-real-input",
       "requirements": "godot,process",
       "fourScene": false,
       "followUp": ""

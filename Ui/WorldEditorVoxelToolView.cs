@@ -5,13 +5,14 @@ using Train.Domain.Voxels;
 
 namespace Train;
 
-/// <summary>Controls and visualization for voxel cells, brush strokes and boxes.</summary>
+/// <summary>Controls and visualization for voxel cells, regions and bound batches.</summary>
 public partial class WorldEditorVoxelToolView : Node3D
 {
     private VoxelDevelopmentSession _session = null!;
     private Camera3D _camera = null!;
     private Control _parameters = null!;
     private Label _preview = null!;
+    private Label _title = null!;
     private MeshInstance3D _grid = null!;
     private MultiMeshInstance3D _cells = null!;
     private Label3D _axes = null!;
@@ -22,6 +23,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     private IReadOnlyList<VoxelDefinitionId> _definitions = Array.Empty<VoxelDefinitionId>();
     private IReadOnlyList<VoxelOrientation> _orientations = Array.Empty<VoxelOrientation>();
     private string _lastResult = "";
+    private string _inputNotice = "";
     private VoxelRegionPreview? _presentedRegion;
 
     public WorldEditorVoxelTool State { get; private set; } = null!;
@@ -102,7 +104,8 @@ public partial class WorldEditorVoxelToolView : Node3D
         _parameters = box;
         inspector.AddChild(box);
         inspector.MoveChild(box, 0);
-        box.AddChild(new Label { Text = "体素范围 · 世界坐标" });
+        _title = new Label { Text = "单格体素 · 世界坐标" };
+        box.AddChild(_title);
         var coordinates = new HBoxContainer();
         box.AddChild(coordinates);
         CoordinateInputs = Enumerable.Range(0, 3).Select(_ => Spin(coordinates, -100000, 100000, 0)).ToArray();
@@ -127,7 +130,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         {
             if (_syncing || _session.IsChangingWorld || index < 0 || index >= _definitions.Count)
                 return;
-            State.SetSettings(_definitions[(int)index], VoxelOrientation.Identity, State.Operation);
+            ReportInput(State.SetSettings(_definitions[(int)index], VoxelOrientation.Identity, State.Operation));
             Present();
         };
         OrientationInput.ItemSelected += _ => SettingsInput();
@@ -137,7 +140,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         var actions = new HBoxContainer();
         box.AddChild(actions);
         CommitButton = Button(actions, "提交草稿", Commit);
-        DiscardButton = Button(actions, "放弃草稿", () => { State.Discard(); Present(); });
+        DiscardButton = Button(actions, "放弃草稿", Discard);
         DraftPrompt = new ConfirmationDialog { Title = "先处理体素草稿", DialogText = "切换工具、层级或目标前，请提交或放弃当前草稿。", OkButtonText = "提交草稿", CancelButtonText = "继续编辑" };
         AddChild(DraftPrompt);
         DraftCommitButton = DraftPrompt.GetOkButton();
@@ -177,7 +180,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         DraftPrompt.Hide();
         if (discard)
-            State.Discard();
+            Discard();
         else
             Commit();
         if (State.HasDraft)
@@ -194,6 +197,7 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     internal void Commit()
     {
+        _inputNotice = "";
         if (!HasContentSelection && State.Operation != VoxelCellOperation.Remove)
             return;
         HandleSubmission(State.Commit());
@@ -203,8 +207,9 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         if (result is null)
             return;
+        _inputNotice = "";
         _lastResult = result.Result is VoxelCellSetResult cells
-            ? Describe(cells) + (cells.Conflicts.Count == 0 ? "" :
+            ? Describe(cells, State.HasBatchDraft) + (cells.Conflicts.Count == 0 ? "" :
                 $" · 冲突 {cells.Conflicts.Count} 格\n" + string.Join('\n',
                     cells.Conflicts.Take(VoxelRegionLimits.ConflictDisplayLimit).Select(Describe)))
             : result.Status;
@@ -222,17 +227,24 @@ public partial class WorldEditorVoxelToolView : Node3D
         Present();
     }
 
+    private void Discard()
+    {
+        State.Discard();
+        _inputNotice = "";
+        Present();
+    }
+
     private void ExactInput()
     {
-        if (_syncing || _session.IsChangingWorld || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
+        if (_syncing || (!HasContentSelection && State.Operation != VoxelCellOperation.Remove))
             return;
         var first = new WorldVoxelCoord((int)CoordinateInputs[0].Value, (int)CoordinateInputs[1].Value, (int)CoordinateInputs[2].Value);
-        if (State.Mode == WorldEditorVoxelMode.Box)
-            State.SetBoxExact(first,
+        if (State.Mode == WorldEditorVoxelMode.Box && !State.HasBatchDraft)
+            ReportInput(State.SetBoxExact(first,
                 new WorldVoxelCoord((int)BoxCornerInputs[0].Value, first.Y, (int)BoxCornerInputs[2].Value), State.BoxHeight,
-                State.DefinitionId, State.Orientation, State.Operation);
+                State.DefinitionId, State.Orientation, State.Operation));
         else
-            State.SetExact(first, State.DefinitionId, State.Orientation, State.Operation);
+            ReportInput(State.SetExact(first, State.DefinitionId, State.Orientation, State.Operation));
         Present();
     }
 
@@ -246,10 +258,21 @@ public partial class WorldEditorVoxelToolView : Node3D
         var operation = (VoxelCellOperation)OperationInput.Selected;
         if (!HasContentSelection && operation != VoxelCellOperation.Remove)
             return;
-        State.SetSettings(operation == VoxelCellOperation.Remove ? State.DefinitionId : _definitions[DefinitionInput.Selected],
-            operation == VoxelCellOperation.Remove ? State.Orientation : _orientations[OrientationInput.Selected], operation);
+        ReportInput(State.SetSettings(operation == VoxelCellOperation.Remove ? State.DefinitionId : _definitions[DefinitionInput.Selected],
+            operation == VoxelCellOperation.Remove ? State.Orientation : _orientations[OrientationInput.Selected], operation));
         Present();
     }
+
+    internal bool InputNoticeVisible => _inputNotice.Length > 0;
+
+    private void ReportInput(WorldEditorVoxelInputStatus status) => _inputNotice = status switch
+    {
+        WorldEditorVoxelInputStatus.WorldChanging => "世界变更中，参数输入未应用",
+        WorldEditorVoxelInputStatus.BatchTargetsBound => "批量目标已绑定，坐标输入未应用；请放弃草稿后重新建立",
+        WorldEditorVoxelInputStatus.BatchOperationBound => "批量操作已绑定，操作输入未应用；定义和朝向已应用；更换操作需放弃草稿后重新建立",
+        WorldEditorVoxelInputStatus.StrokeInProgress => "笔刷正在采样，参数输入未应用；请结束笔画后修改",
+        _ => ""
+    };
 
     /// <summary>The chosen integer Y plane is targetable even when no world collider exists.</summary>
     internal bool HandlePointer(Vector2 screen, WorldPointerAction action)
@@ -341,14 +364,16 @@ public partial class WorldEditorVoxelToolView : Node3D
         _syncing = true;
         try
         {
-            _parameters.Visible = State.Active;
+            _parameters.Visible = State.Active || State.HasBatchDraft;
+            _title.Text = State.HasBatchDraft ? "批量体素 · 世界坐标" : "体素范围 · 世界坐标";
+            CommitButton.Text = State.HasBatchDraft ? "提交批量" : "提交草稿";
             SelectToolButton.ButtonPressed = !State.Active;
             VoxelToolButton.ButtonPressed = State.Active;
             ModeInput.Select((int)State.Mode);
             BrushSizeInput.SetValueNoSignal(State.BrushSize);
             BoxHeightInput.SetValueNoSignal(State.BoxHeight);
-            BrushSizeInput.Visible = State.Mode == WorldEditorVoxelMode.Brush;
-            BoxHeightInput.Visible = State.Mode == WorldEditorVoxelMode.Box;
+            BrushSizeInput.Visible = !State.HasBatchDraft && State.Mode == WorldEditorVoxelMode.Brush;
+            BoxHeightInput.Visible = !State.HasBatchDraft && State.Mode == WorldEditorVoxelMode.Box;
             HeightInput.SetValueNoSignal(State.Height);
             HeightInput.MaxValue = _session.Identity.Bounds.SizeY - 1;
             var ids = State.Definitions;
@@ -371,6 +396,9 @@ public partial class WorldEditorVoxelToolView : Node3D
             }
             OrientationInput.Select(_orientations.ToList().IndexOf(State.Orientation));
             OperationInput.Select((int)State.Operation);
+            OperationInput.Disabled = State.HasBatchDraft;
+            foreach (var input in CoordinateInputs)
+                input.Editable = !State.HasBatchDraft;
             CoordinateInputs[0].SetValueNoSignal(State.Position.X);
             CoordinateInputs[1].SetValueNoSignal(State.Position.Y);
             CoordinateInputs[2].SetValueNoSignal(State.Position.Z);
@@ -378,9 +406,9 @@ public partial class WorldEditorVoxelToolView : Node3D
             BoxCornerInputs[1].SetValueNoSignal(State.BoxCorner.Y);
             BoxCornerInputs[2].SetValueNoSignal(State.BoxCorner.Z);
             foreach (var input in BoxCornerInputs)
-                input.Visible = State.Mode == WorldEditorVoxelMode.Box;
+                input.Visible = !State.HasBatchDraft && State.Mode == WorldEditorVoxelMode.Box;
             var canPreview = State.DefinitionId.Namespace is not null || State.Operation == VoxelCellOperation.Remove;
-            var region = State.Mode == WorldEditorVoxelMode.Cell || !canPreview ? null : State.RegionPreview;
+            var region = State.HasBatchDraft || State.Mode == WorldEditorVoxelMode.Cell || !canPreview ? null : State.RegionPreview;
             var preview = !canPreview ? new VoxelCellSetResult(VoxelCellSetStatus.UnknownDefinition, State.Position)
                 : region?.Validation ?? State.Preview;
             var regionText = region is null ? "" :
@@ -388,14 +416,16 @@ public partial class WorldEditorVoxelToolView : Node3D
                 $"影响 {region.AffectedCount} · 跳过 {region.SkippedCount} · 冲突 {region.Validation.Conflicts.Count}" +
                 (region.Validation.Conflicts.Count == 0 ? "" : "\n" + string.Join('\n',
                     region.Validation.Conflicts.Take(VoxelRegionLimits.ConflictDisplayLimit).Select(Describe)));
-            _preview.Text = $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n" +
+            _preview.Text = (State.HasBatchDraft ? $"批量草稿 · {State.BatchTargets.Count} 格 · 目标和操作已绑定，选择变化不改写目标；修改坐标或操作需放弃后重新建立\n" :
+                $"世界格 {State.Position.X}, {State.Position.Y}, {State.Position.Z} · Y 平面 {State.Height}\n") +
                 "轴向：+X 红线 · +Z 蓝线 · +Y 向上\n" +
-                $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview)}{regionText}" +
+                $"{(State.HasDraft ? "草稿（保存不包含）" : "悬停预览")} · {Describe(preview, State.HasBatchDraft)}{regionText}" +
+                (InputNoticeVisible ? "\n" + _inputNotice : "") +
                 (_lastResult.Length > 0 ? "\n上次提交：" + _lastResult : "");
             DiscardButton.Disabled = !State.HasDraft;
             CommitButton.Disabled = (!HasContentSelection && State.Operation != VoxelCellOperation.Remove) || _session.IsChangingWorld;
             UpdateCells(preview, region);
-            _cells.Visible = State.Active;
+            _cells.Visible = State.Active || State.HasBatchDraft;
             _grid.Visible = State.Active;
             _axes.Visible = State.Active;
             UpdateGrid();
@@ -403,7 +433,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         finally { _syncing = false; }
     }
 
-    internal static string Describe(VoxelCellSetResult result)
+    internal static string Describe(VoxelCellSetResult result, bool batchDraft = false)
     {
         var reason = result.Status switch
         {
@@ -415,6 +445,12 @@ public partial class WorldEditorVoxelToolView : Node3D
             VoxelCellSetStatus.UnknownDefinition => "定义不在当前有效内容中",
             VoxelCellSetStatus.DisallowedOrientation => "定义不允许该朝向",
             VoxelCellSetStatus.NoChange => "定义和朝向未变化",
+            VoxelCellSetStatus.ExpectedContentMismatch => $"目标 ({result.Position.X},{result.Position.Y},{result.Position.Z}) 已消失或身份已改变；" +
+                (batchDraft ? "整次拒绝，草稿保留；请放弃草稿后重新选择并建立" : "未建立草稿，请重新选择目标"),
+            VoxelCellSetStatus.VoxelDraftExists => "已有草稿，请先提交或放弃",
+            VoxelCellSetStatus.WorldChanging => "世界变更中，不能建立草稿",
+            VoxelCellSetStatus.UnsupportedOperation => "批量只支持移除或替换",
+            VoxelCellSetStatus.NotWorldCells => "批量目标必须全部是世界格",
             VoxelCellSetStatus.NoTargets => "范围内没有适用的格",
             VoxelCellSetStatus.RegionTooLarge => $"覆盖格超过暂定上限 {VoxelRegionLimits.MaxCells}，请缩小范围",
             VoxelCellSetStatus.InvalidRegion => "范围参数无效，高度须为正整数且不能溢出坐标",
@@ -495,10 +531,10 @@ public partial class WorldEditorVoxelToolView : Node3D
         if (region is not null && ReferenceEquals(region, _presentedRegion))
             return;
         _presentedRegion = region;
-        var positions = region?.Region.Cells ?? new[] { State.Position };
+        var positions = State.HasBatchDraft ? State.BatchTargets : region?.Region.Cells ?? new[] { State.Position };
         var conflicts = region?.Validation.Conflicts.Select(item => item.Position).ToHashSet() ??
-            (cellPreview.Succeeded ? new HashSet<WorldVoxelCoord>() : new HashSet<WorldVoxelCoord> { State.Position });
-        var affected = region?.Edit.Targets.Select(target => target.Position).ToHashSet() ?? new HashSet<WorldVoxelCoord> { State.Position };
+            (cellPreview.Succeeded ? new HashSet<WorldVoxelCoord>() : positions.ToHashSet());
+        var affected = region?.Edit.Targets.Select(target => target.Position).ToHashSet() ?? positions.ToHashSet();
         var multimesh = _cells.Multimesh;
         multimesh.InstanceCount = positions.Count;
         for (var index = 0; index < positions.Count; index++)

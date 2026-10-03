@@ -11,6 +11,7 @@ observe
 输出按行分为：
 
 - `mode free|focus|follow[ target <对象>] selection <对象|none> transitioning true|false`：当前镜头模式、聚焦/跟随目标、选中对象，以及是否仍在平滑过渡。
+- 面板框选或列表多选后，选择部分写作 `selection count <数量> <对象>; <对象>...`，逐项列出类型及身份；单选格式保持不变。多选时只显示集合，详细检查、聚焦和跟随需要先选定单个对象。
 - `camera <x,y,z> look <x,y,z>`：当前镜头位置与注视点。
 - `notice ...`：最近一次失效提示。`selection-lost <对象>` 表示选中对象已不存在；`target-lost <对象> mode <focus|follow> camera free-in-place` 表示聚焦或跟随目标已彻底销毁（普通体素格被正式修改移除后即算销毁，同定义重建的是新体素），引用已清除，镜头停在原位并转为自由观察。整个世界被 [`voxel reset`](voxel-reset.md) / [`composite reset`](composite-reset.md) / [`voxel use`](voxel-use.md) 或成功的 [`voxel load`](voxel-load.md) 替换时，旧选择与目标一律清除（即使新世界复用了同一车辆 ID 或同一格），两种提示末尾追加 `world-replaced reset|load` 说明原因。取消、保存失败或候选失败时世界与观察都不变。纯选择、聚焦、跟随和查询不把世界标成未保存。
 - 选中对象存在时，追加该对象的检查行：`level whole|part`（整体或车辆零件层级）、`coordinates world|vehicle-local`（世界或车辆局部坐标系）、`identity`（身份）、`owner`（所属车辆 / 编组 / 线路 / 世界）、`durability`（耐久）、`eligibility`（运行资格）、`failures`（正式状态中已有的失败原因，无则 `none`）。

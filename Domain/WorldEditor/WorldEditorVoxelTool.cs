@@ -1,4 +1,5 @@
 using Train.Domain.Commands;
+using Train.Domain.Composites;
 using Train.Domain.Voxels;
 using Train.Content;
 
@@ -6,12 +7,23 @@ namespace Train.Domain.WorldEditor;
 
 public enum WorldEditorVoxelMode { Cell, Brush, Box }
 
-/// <summary>One horizontal-plane preview and draft shared by pointer and precise input.</summary>
+public enum WorldEditorVoxelInputStatus
+{
+    Applied,
+    WorldChanging,
+    BatchTargetsBound,
+    BatchOperationBound,
+    StrokeInProgress
+}
+
+/// <summary>Cells, regions and identity-bound batches share one draft and submission path.</summary>
 public sealed class WorldEditorVoxelTool : IDisposable
 {
     private readonly VoxelDevelopmentSession _session;
     private readonly List<DraftState> _undo = new();
     private readonly List<DraftState> _redo = new();
+    private BatchTarget[]? _batch;
+    private WorldVoxelCoord? _changedTarget;
     private readonly HashSet<WorldVoxelCoord> _stroke = new();
     private VoxelRegionPreview? _cachedPreview;
     private VoxelCatalogSnapshot? _previewCatalog;
@@ -22,11 +34,14 @@ public sealed class WorldEditorVoxelTool : IDisposable
         session.VoxelTool = this;
         DefinitionId = Definitions.FirstOrDefault();
         session.WorldReplaced += Reset;
+        session.EditExecuted += CheckBatchTargets;
         session.Changed += InvalidatePreview;
     }
 
     public bool Active { get; private set; }
     public bool HasDraft { get; private set; }
+    public bool HasBatchDraft => _batch is not null;
+    public IReadOnlyList<WorldVoxelCoord> BatchTargets => _batch?.Select(target => target.Position).ToArray() ?? Array.Empty<WorldVoxelCoord>();
     public WorldEditorVoxelMode Mode { get; private set; }
     public int BrushSize { get; private set; } = 1;
     public int BoxHeight { get; private set; } = 1;
@@ -54,6 +69,9 @@ public sealed class WorldEditorVoxelTool : IDisposable
         new VoxelCellTarget(Position, Operation, Content)
     });
 
+    private VoxelCellSetEdit BatchEdit => new(_batch!.Select(target =>
+        new VoxelCellTarget(target.Position, Operation, Content)).ToArray());
+
     private VoxelCellRegion Region => Mode == WorldEditorVoxelMode.Box
         ? VoxelCellRegion.Box(Position, BoxCorner, BoxHeight)
         : _stroke.Count > 0 ? VoxelCellRegion.FromCells(_stroke) : BrushRegion(Position);
@@ -70,8 +88,40 @@ public sealed class WorldEditorVoxelTool : IDisposable
     }
 
     private void InvalidatePreview() => _cachedPreview = null;
-    public VoxelCellSetEdit CurrentEdit => Mode == WorldEditorVoxelMode.Cell ? CellEdit : RegionPreview.Edit;
-    public VoxelCellSetResult Preview => Mode == WorldEditorVoxelMode.Cell ? _session.ValidateCells(CellEdit) : RegionPreview.Validation;
+    public VoxelCellSetEdit CurrentEdit => HasBatchDraft ? BatchEdit : Mode == WorldEditorVoxelMode.Cell ? CellEdit : RegionPreview.Edit;
+    public VoxelCellSetResult Preview => BatchIdentityFailure() ?? (HasBatchDraft || Mode == WorldEditorVoxelMode.Cell
+        ? _session.ValidateCells(CurrentEdit) : RegionPreview.Validation);
+
+    /// <summary>Captures identity once. Selection changes and precise coordinates cannot redirect these targets.</summary>
+    public VoxelCellSetResult StartBatch(IEnumerable<ObservedObject> selection, VoxelCellOperation operation)
+    {
+        var items = selection.Distinct().OrderBy(item => item.Cell.X).ThenBy(item => item.Cell.Y).ThenBy(item => item.Cell.Z).ToArray();
+        if (_session.IsChangingWorld)
+            return new(VoxelCellSetStatus.WorldChanging);
+        if (HasDraft)
+            return new(VoxelCellSetStatus.VoxelDraftExists);
+        if (operation is not (VoxelCellOperation.Remove or VoxelCellOperation.Replace))
+            return new(VoxelCellSetStatus.UnsupportedOperation);
+        if (items.Any(item => item.Kind != ObservedObjectKind.WorldCell))
+            return new(VoxelCellSetStatus.NotWorldCells);
+        if (items.Length == 0)
+            return new(VoxelCellSetStatus.NoTargets);
+        var targets = new List<BatchTarget>();
+        foreach (var item in items)
+        {
+            if (_session.Query(item.Cell).Voxel is not { } voxel || voxel.RuntimeId != item.RuntimeId ||
+                (item.Definition is { } definition && voxel.DefinitionId != definition))
+                return new(VoxelCellSetStatus.ExpectedContentMismatch, item.Cell);
+            targets.Add(new(item.Cell, voxel.DefinitionId, voxel.Orientation, voxel.RuntimeId));
+        }
+        _batch = targets.ToArray();
+        _changedTarget = null;
+        Position = _batch[0].Position;
+        Operation = operation;
+        Active = false;
+        HasDraft = true;
+        return Preview;
+    }
 
     public bool SetMode(WorldEditorVoxelMode mode)
     {
@@ -94,7 +144,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
 
     public bool SetBoxHeight(int height)
     {
-        if (_session.IsChangingWorld || height < 1)
+        if (_session.IsChangingWorld || HasBatchDraft || height < 1)
             return false;
         var next = CaptureDraft() with { BoxHeight = height };
         if (HasDraft) RecordDraftChange(next);
@@ -143,10 +193,12 @@ public sealed class WorldEditorVoxelTool : IDisposable
         InvalidatePreview();
     }
 
-    public void SetExact(WorldVoxelCoord position, VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
+    public WorldEditorVoxelInputStatus SetExact(WorldVoxelCoord position, VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
     {
         if (_session.IsChangingWorld)
-            return;
+            return WorldEditorVoxelInputStatus.WorldChanging;
+        if (HasBatchDraft)
+            return WorldEditorVoxelInputStatus.BatchTargetsBound;
         var next = CaptureDraft() with { Position = position, DefinitionId = definition, Orientation = orientation, Operation = operation };
         if (Mode == WorldEditorVoxelMode.Brush)
         {
@@ -159,19 +211,25 @@ public sealed class WorldEditorVoxelTool : IDisposable
             RecordDraftChange(next);
         RestoreDraft(next);
         HasDraft = true;
+        return WorldEditorVoxelInputStatus.Applied;
     }
 
-    public void SetBoxExact(WorldVoxelCoord first, WorldVoxelCoord second, int height,
+    public WorldEditorVoxelInputStatus SetBoxExact(WorldVoxelCoord first, WorldVoxelCoord second, int height,
         VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
     {
-        if (_session.IsChangingWorld || StrokeInProgress)
-            return;
+        if (_session.IsChangingWorld)
+            return WorldEditorVoxelInputStatus.WorldChanging;
+        if (HasBatchDraft)
+            return WorldEditorVoxelInputStatus.BatchTargetsBound;
+        if (StrokeInProgress)
+            return WorldEditorVoxelInputStatus.StrokeInProgress;
         var next = CaptureDraft() with { Position = first, BoxCorner = second with { Y = first.Y }, BoxHeight = height,
             DefinitionId = definition, Orientation = orientation, Operation = operation };
         if (HasDraft) RecordDraftChange(next);
         RestoreDraft(next);
         BoxCornerPending = false;
         HasDraft = true;
+        return WorldEditorVoxelInputStatus.Applied;
     }
 
     public bool BoxPoint(WorldVoxelCoord cell)
@@ -252,14 +310,18 @@ public sealed class WorldEditorVoxelTool : IDisposable
         }
     }
 
-    public void SetSettings(VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
+    public WorldEditorVoxelInputStatus SetSettings(VoxelDefinitionId definition, VoxelOrientation orientation, VoxelCellOperation operation)
     {
-        if (_session.IsChangingWorld || StrokeInProgress)
-            return;
-        var next = CaptureDraft() with { DefinitionId = definition, Orientation = orientation, Operation = operation };
+        if (_session.IsChangingWorld)
+            return WorldEditorVoxelInputStatus.WorldChanging;
+        if (StrokeInProgress)
+            return WorldEditorVoxelInputStatus.StrokeInProgress;
+        var operationBound = HasBatchDraft && Operation != operation;
+        var next = CaptureDraft() with { DefinitionId = definition, Orientation = orientation, Operation = HasBatchDraft ? Operation : operation };
         if (HasDraft)
             RecordDraftChange(next);
         RestoreDraft(next);
+        return operationBound ? WorldEditorVoxelInputStatus.BatchOperationBound : WorldEditorVoxelInputStatus.Applied;
     }
 
     public WorldEditSubmission Commit(bool confirmLargeEdit = false)
@@ -268,7 +330,9 @@ public sealed class WorldEditorVoxelTool : IDisposable
             return new(WorldEditRefusal.WorldChanging, null, null);
         HasDraft = true;
         InterruptDraftInput();
-        var submission = Mode == WorldEditorVoxelMode.Cell ? _session.SubmitEdit(CellEdit)
+        if (BatchIdentityFailure() is { } failure)
+            return new(WorldEditRefusal.DraftTargetsChanged, null, failure);
+        var submission = HasBatchDraft || Mode == WorldEditorVoxelMode.Cell ? _session.SubmitEdit(CurrentEdit)
             : _session.SubmitRegion(Region, Operation, Content, confirmLargeEdit);
         if (submission.RegionPreview is { } preview)
         {
@@ -283,6 +347,8 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public void Discard()
     {
         HasDraft = false;
+        _batch = null;
+        _changedTarget = null;
         InterruptDraftInput();
         _stroke.Clear();
         InvalidatePreview();
@@ -303,6 +369,7 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public void Dispose()
     {
         _session.WorldReplaced -= Reset;
+        _session.EditExecuted -= CheckBatchTargets;
         _session.Changed -= InvalidatePreview;
         if (ReferenceEquals(_session.VoxelTool, this))
             _session.VoxelTool = null;
@@ -359,4 +426,23 @@ public sealed class WorldEditorVoxelTool : IDisposable
     private sealed record DraftState(WorldVoxelCoord Position, VoxelDefinitionId DefinitionId,
         VoxelOrientation Orientation, VoxelCellOperation Operation, WorldVoxelCoord BoxCorner, int BoxHeight,
         WorldVoxelCoord[] Stroke);
+
+    private sealed record BatchTarget(WorldVoxelCoord Position, VoxelDefinitionId Definition,
+        VoxelOrientation Orientation, EntityId? RuntimeId);
+
+    // Remember loss at each edit boundary, including removal followed by identical recreation before a frame.
+    private void CheckBatchTargets(WorldEditRecord record) => _changedTarget ??= FindChangedBatchTarget();
+
+    private WorldVoxelCoord? FindChangedBatchTarget()
+    {
+        if (_batch is not null)
+            foreach (var target in _batch)
+                if (_session.Query(target.Position).Voxel is not { } voxel || voxel.DefinitionId != target.Definition ||
+                    voxel.Orientation != target.Orientation || voxel.RuntimeId != target.RuntimeId)
+                    return target.Position;
+        return null;
+    }
+
+    private VoxelCellSetResult? BatchIdentityFailure() => (_changedTarget ?? FindChangedBatchTarget()) is { } changed
+        ? new(VoxelCellSetStatus.ExpectedContentMismatch, changed) : null;
 }

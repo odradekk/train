@@ -60,7 +60,7 @@
 | [rail query](rail-query.md) `[occupancy\|intervals\|connections\|graph\|rebuild\|assembly\|motion\|display \| <x> <y> <z>]` | 查询轨段、连接、实际占格、通行区间、编组、运动或显示插值 | 同上 |
 | [rail follow](rail-follow.md) `[vehicle <id>]` | 查询或选择跟随相机的存活车辆 | 同上 |
 | [rail repair](rail-repair.md) `<x> <y> <z> [...] [at <step>]` | 修复原轨段损坏占格并恢复依赖区间 | 同上 |
-| [observe](observe.md) | 查询世界编辑器镜头模式、选择、失效提示与检查器（含整体/零件层级及坐标系） | 已进入世界编辑器 |
+| [observe](observe.md) | 查询世界编辑器镜头模式、选择集合的数量与身份、失效提示与检查器（含整体/零件层级及坐标系） | 已进入世界编辑器 |
 | [observe list](observe-list.md) | 列出可观察的车辆与轨段 | 同上 |
 | [observe select](observe-select.md) `vehicle <id> \| segment <id> \| cell <x> <y> <z> \| none` | 选择或清除检查对象；不移动镜头 | 同上 |
 | [observe focus](observe-focus.md) | 镜头平滑聚焦选中对象 | 同上 |

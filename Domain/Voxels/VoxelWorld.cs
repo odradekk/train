@@ -304,6 +304,10 @@ public enum VoxelCellSetStatus
     NoChange,
     ExpectedContentMismatch,
     InvalidDurability,
+    VoxelDraftExists,
+    WorldChanging,
+    UnsupportedOperation,
+    NotWorldCells,
     RegionTooLarge,
     InvalidRegion
 }

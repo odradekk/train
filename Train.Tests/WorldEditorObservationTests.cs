@@ -785,7 +785,9 @@ public sealed class WorldEditorObservationTests
         Assert.AreEqual(ObservedObject.Segment(first.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.LeftRailSample));
         Assert.AreEqual(ObservedObject.Segment(second.Id), WorldEditorInspector.WorldTarget(session, StraightRailFixture.CrossSegmentGapCell));
         Assert.AreEqual("Added", session.SubmitEdit(AddProbe()).Status);
-        Assert.AreEqual(ObservedObject.WorldCell(WorldEditorSequences.EditProbe), WorldEditorInspector.WorldTarget(session, WorldEditorSequences.EditProbe));
+        var probe = session.Query(WorldEditorSequences.EditProbe).Voxel!;
+        Assert.AreEqual(ObservedObject.WorldCell(WorldEditorSequences.EditProbe, probe.RuntimeId, probe.DefinitionId),
+            WorldEditorInspector.WorldTarget(session, WorldEditorSequences.EditProbe));
     }
 
     [TestMethod]
@@ -800,7 +802,9 @@ public sealed class WorldEditorObservationTests
         Assert.IsTrue(session.Rails.IsDestroyed(cell));
         Assert.AreEqual(WorldEditorSequences.EditVoxelId, session.Query(cell).Voxel!.DefinitionId);
 
-        Assert.AreEqual(ObservedObject.WorldCell(cell), WorldEditorInspector.WorldTarget(session, cell));
+        var voxel = session.Query(cell).Voxel!;
+        Assert.AreEqual(ObservedObject.WorldCell(cell, voxel.RuntimeId, voxel.DefinitionId),
+            WorldEditorInspector.WorldTarget(session, cell));
         Assert.AreEqual("world", WorldEditorInspector.Inspect(session, ObservedObject.WorldCell(cell))!.Owner);
     }
 
