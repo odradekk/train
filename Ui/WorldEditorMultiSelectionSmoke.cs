@@ -136,13 +136,20 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
                 return false;
             case 14:
                 ShowBoundInputNotice();
-                Click(scene.CellTool!.DiscardButton);
-                Require(!scene.CellTool.State.HasDraft && !scene.CellTool.InputNoticeVisible,
-                    "discard left feedback for the previous batch input visible");
-                _capacitySmoke = new WorldEditorBoxCapacitySmoke(scene);
+                EnsureVisible(scene.CellTool!.DiscardButton);
                 _phase++;
                 return false;
             case 15:
+                EnsureVisible(scene.CellTool!.DiscardButton);
+                Click(scene.CellTool!.DiscardButton);
+                Require(!scene.CellTool.State.HasDraft && !scene.CellTool.InputNoticeVisible,
+                    $"discard left batch feedback visible: draft={scene.CellTool.State.HasDraft} " +
+                    $"notice={scene.CellTool.InputNoticeVisible} rect={scene.CellTool.DiscardButton.GetGlobalRect()} " +
+                    $"viewport={scene.GetViewport().GetVisibleRect()}");
+                _capacitySmoke = new WorldEditorBoxCapacitySmoke(scene);
+                _phase++;
+                return false;
+            case 16:
                 if (!_capacitySmoke!.Advance())
                     return false;
                 GD.Print("WORKSPACE_DONE leg=multi-select");
@@ -280,6 +287,13 @@ internal sealed class WorldEditorMultiSelectionSmoke(WorldEditorScene scene)
         // Exercise the Godot control binding for a queued coordinate change, even after the editor locks it.
         view.CoordinateInputs[0].Value += 1;
         Require(view.InputNoticeVisible, "ignored batch coordinate input did not show feedback");
+    }
+
+    private static void EnsureVisible(Control control)
+    {
+        for (var parent = control.GetParent(); parent is not null; parent = parent.GetParent())
+            if (parent is ScrollContainer scroll)
+                scroll.EnsureControlVisible(control);
     }
 
     private void CheckBatchCommit()
