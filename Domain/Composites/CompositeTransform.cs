@@ -39,6 +39,15 @@ public readonly record struct CompositeTransform
             OriginY + x * RightY + y * UpY + z * ForwardY,
             OriginZ + x * RightZ + y * UpZ + z * ForwardZ);
 
+    public (double X, double Y, double Z) InverseTransformPoint(double x, double y, double z) =>
+        InverseTransformDirection(x - OriginX, y - OriginY, z - OriginZ);
+
+    public (double X, double Y, double Z) InverseTransformDirection(double x, double y, double z)
+    {
+        var value = (x, y, z);
+        return (Dot(value, Right), Dot(value, Up), Dot(value, Forward));
+    }
+
     internal bool OverlapsCell(LocalVoxelCoord localCell, WorldVoxelCoord target)
     {
         var partCorners = new (double X, double Y, double Z)[8];

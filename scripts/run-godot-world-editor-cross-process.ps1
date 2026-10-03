@@ -153,7 +153,7 @@ if ($Workspace) {
         $env:TRAIN_MODS_SMOKE_USER_DATA = $userData
         $env:TRAIN_WORLD_EDITOR_WORKSPACE_LEG = 'cell-tool-save'
         $cellToolSave = Invoke-EntryLeg 'cell-tool-save' 'WORKSPACE'
-        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_CELL_TOOL_INPUT',
+        foreach ($marker in @('WORKSPACE_MENU ready=true', 'WORKSPACE_CELL_TOOL_INPUT', 'WORKSPACE_WORK_PLANES', 'WORKSPACE_VEHICLE_COORDINATES',
             'WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true no_plane_release_commit=true outside_motion_ignored=true focus_commit=true console_discard=true brush_draft_prompt=true brush_translate_undo=true brush_redraw_after_discard=true box_cells=16 box_draft_prompt=true shared_preview=true',
             'WORKSPACE_CELL_TOOL_SAVED id=', 'committed=true pending=1 draft=false pending_region_cells=2')) {
             if (-not $cellToolSave.Contains($marker)) { throw "Workspace cell-tool-save omitted assertion marker: $marker" }

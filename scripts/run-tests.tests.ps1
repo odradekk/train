@@ -907,7 +907,9 @@ internal static class Program
                 }
                 else if (leg == "cell-tool-save")
                 {
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT height=3 exact_shared=true");
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT layer=3 exact_shared=true");
+                    Console.WriteLine("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true operation_retarget=true removed_surface_invalid=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
+                    Console.WriteLine("WORKSPACE_VEHICLE_COORDINATES world=fixture local=fixture visible=true");
                     Console.WriteLine("WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true no_plane_release_commit=true outside_motion_ignored=true focus_commit=true console_discard=true brush_draft_prompt=true brush_translate_undo=true brush_redraw_after_discard=true box_cells=16 box_draft_prompt=true shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
                     Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false pending_region_cells=2");
                 }

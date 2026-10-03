@@ -5,6 +5,28 @@ using Train.Content;
 
 namespace Train.Domain.WorldEditor;
 
+public enum VoxelWorkPlane { Horizontal, VerticalX, VerticalZ, Surface }
+
+public static class VoxelWorkPlaneCoordinates
+{
+    public static int? Axis(VoxelWorkPlane plane) => plane switch
+    {
+        VoxelWorkPlane.VerticalX => 0,
+        VoxelWorkPlane.Horizontal => 1,
+        VoxelWorkPlane.VerticalZ => 2,
+        _ => null
+    };
+
+    public static double Component(ObservationVector point, int axis) => axis switch { 0 => point.X, 1 => point.Y, _ => point.Z };
+    public static int Component(WorldVoxelCoord cell, int axis) => axis switch { 0 => cell.X, 1 => cell.Y, _ => cell.Z };
+    public static WorldVoxelCoord WithLayer(WorldVoxelCoord cell, int axis, int layer) => axis switch
+    {
+        0 => cell with { X = layer },
+        1 => cell with { Y = layer },
+        _ => cell with { Z = layer }
+    };
+}
+
 public enum WorldEditorVoxelMode { Cell, Brush, Box }
 
 public enum WorldEditorVoxelInputStatus
@@ -48,10 +70,14 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public WorldVoxelCoord BoxCorner { get; private set; }
     public bool BoxCornerPending { get; private set; }
     public bool StrokeInProgress { get; private set; }
+    /// <summary>A queued press may start the stroke before its release is dispatched.</summary>
+    public bool AcceptsPointerRelease(bool pressPending = false) =>
+        Active && Mode == WorldEditorVoxelMode.Brush && (StrokeInProgress || pressPending);
     public bool CanUndoDraft => HasDraft && !StrokeInProgress && !_session.IsChangingWorld && _undo.Count > 0;
     public bool CanRedoDraft => HasDraft && !StrokeInProgress && !_session.IsChangingWorld && _redo.Count > 0;
     public ulong HistoryEvictionCount { get; private set; }
-    public int Height { get; private set; }
+    public int Layer { get; private set; }
+    public VoxelWorkPlane Plane { get; private set; }
     public WorldVoxelCoord Position { get; private set; }
     public VoxelDefinitionId DefinitionId { get; private set; }
     public VoxelOrientation Orientation { get; private set; } = VoxelOrientation.Identity;
@@ -127,6 +153,8 @@ public sealed class WorldEditorVoxelTool : IDisposable
     {
         if (HasDraft || _session.IsChangingWorld)
             return false;
+        if (mode != WorldEditorVoxelMode.Cell)
+            SetPlane(VoxelWorkPlane.Horizontal, Math.Clamp(Layer, 0, _session.World.Bounds.SizeY - 1));
         Mode = mode;
         BoxCorner = Position;
         InvalidatePreview();
@@ -162,18 +190,52 @@ public sealed class WorldEditorVoxelTool : IDisposable
         return true;
     }
 
-    public bool SetHeight(int height)
+    public bool SetLayer(int layer) => SetPlane(Plane, layer);
+
+    public bool SetPlane(VoxelWorkPlane plane, int layer)
     {
-        if (height == Height)
+        if (Mode != WorldEditorVoxelMode.Cell && plane != VoxelWorkPlane.Horizontal)
+            return false;
+        if (plane == Plane && layer == Layer)
             return true;
         if (HasDraft || _session.IsChangingWorld)
             return false;
-        Height = height;
-        Position = Position with { Y = height };
-        BoxCorner = BoxCorner with { Y = height };
+        Plane = plane;
+        Layer = layer;
+        if (VoxelWorkPlaneCoordinates.Axis(plane) is { } axis)
+        {
+            Position = VoxelWorkPlaneCoordinates.WithLayer(Position, axis, layer);
+            BoxCorner = VoxelWorkPlaneCoordinates.WithLayer(BoxCorner, axis, layer);
+        }
         InvalidatePreview();
         return true;
     }
+
+    /// <summary>Integer plane layers use floor on the other axes. Bounds are checked by Preview/Commit.</summary>
+    public bool TryPlaneTarget(ObservationVector origin, ObservationVector direction, out WorldVoxelCoord cell)
+        => TryPlaneTarget(origin, direction, out cell, out _);
+
+    public bool TryPlaneTarget(ObservationVector origin, ObservationVector direction, out WorldVoxelCoord cell, out ObservationVector point)
+    {
+        cell = default;
+        point = default;
+        if (VoxelWorkPlaneCoordinates.Axis(Plane) is not { } axis)
+            return false;
+        var (originComponent, directionComponent) =
+            (VoxelWorkPlaneCoordinates.Component(origin, axis), VoxelWorkPlaneCoordinates.Component(direction, axis));
+        if (Math.Abs(directionComponent) < 1e-7)
+            return false;
+        var distance = (Layer - originComponent) / directionComponent;
+        if (distance < 0)
+            return false;
+        point = origin + direction * distance;
+        cell = new((int)Math.Floor(point.X), (int)Math.Floor(point.Y), (int)Math.Floor(point.Z));
+        cell = VoxelWorkPlaneCoordinates.WithLayer(cell, axis, Layer);
+        return true;
+    }
+
+    public WorldVoxelCoord SurfaceTarget(WorldVoxelCoord hit, WorldVoxelCoord adjacent) =>
+        Operation == VoxelCellOperation.Add ? adjacent : hit;
 
     public void Hover(WorldVoxelCoord position)
     {
@@ -361,7 +423,8 @@ public sealed class WorldEditorVoxelTool : IDisposable
     private void Reset(WorldReplacement replacement)
     {
         Discard();
-        Height = 0;
+        Layer = 0;
+        Plane = VoxelWorkPlane.Horizontal;
         Position = default;
         BoxCorner = default;
     }

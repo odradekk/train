@@ -10,14 +10,19 @@ namespace Train;
 
 internal enum WorldPointerAction { Move, LeftPressed, LeftReleased }
 
-/// <summary>What one world click resolved to, with both candidate hits so automation can compare them.</summary>
+internal sealed record WorldEditorWorldHit(WorldVoxelCoord Cell, double Distance, Vector3 Position, Vector3 Normal, WorldVoxelCoord AdjacentCell);
+
+internal sealed record WorldEditorRay(Vector2 Screen, Vector3 Origin, Vector3 Direction);
+
+internal delegate bool WorldEditorCellPointer(WorldEditorPick pick, WorldPointerAction action, out ObservationVector? worldPoint);
+
+/// <summary>The visible vehicle or world surface resolved at one screen point.</summary>
 internal sealed record WorldEditorPick(
-    Vector2 Screen,
+    WorldEditorRay Ray,
     ObservedObject? Object,
     WorldEditorObservationStatus? Status,
     WorldEditorVehicleHit? VehicleHit,
-    WorldVoxelCoord? WorldCell,
-    double WorldDistance);
+    WorldEditorWorldHit? WorldHit);
 
 internal sealed record WorldEditorBoxCandidate(ObservedObject Object, Vector3 Point, Vector2 Screen);
 
@@ -56,6 +61,7 @@ public partial class WorldEditorObservationView : Node3D
     private Label _action = null!;
     private Label _inspection = null!;
     private Label _notice = null!;
+    private Label _coordinates = null!;
     private ItemList _list = null!;
     private IReadOnlyList<WorldEditorListEntry> _entries = Array.Empty<WorldEditorListEntry>();
     private MultiMeshInstance3D _highlight = null!;
@@ -67,12 +73,19 @@ public partial class WorldEditorObservationView : Node3D
     private int _shownNotices;
     private bool _dragging;
     private bool _extendListSelection;
+    private Vector2? _pointerScreen;
+    private readonly List<(WorldEditorRay Ray, WorldPointerAction Action)> _pointerActions = new();
+    private ulong _pointerPickFrame = ulong.MaxValue;
 
     public WorldEditorObserver Observer { get; private set; } = null!;
-    internal Func<Vector2, WorldPointerAction, bool>? CellPointer { get; set; }
+    internal WorldEditorCellPointer? CellPointer { get; set; }
     internal Action? PointerInputInterrupted { get; set; }
     internal Action<Action>? DraftGuard { get; set; }
     internal WorldEditorPick? LastPick { get; private set; }
+    internal WorldEditorPick? LastPointerPick { get; private set; }
+    internal WorldEditorVehicleHit? HoverVehicle { get; private set; }
+    internal ObservationVector? PointerWorldPosition { get; private set; }
+    internal bool PointerCoordinatesVisible => _coordinates.IsVisibleInTree();
     internal WorldEditorBoxSelection? LastBoxSelection { get; private set; }
     internal ItemList ListControl => _list;
     internal bool HighlightVisible => _highlight.Visible;
@@ -100,6 +113,8 @@ public partial class WorldEditorObservationView : Node3D
         _worldInput = worldInput;
         _worldInput.GuiInput += HandleWorldInput;
         _worldInput.FocusExited += EndInput;
+        _worldInput.MouseExited += ClearHover;
+        session.WorldReplaced += OnWorldReplaced;
         _boxRectangle = new Panel { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
         _boxRectangle.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
@@ -109,11 +124,21 @@ public partial class WorldEditorObservationView : Node3D
         _worldInput.AddChild(_boxRectangle);
         Observer = new WorldEditorObserver(session, initial.Position, initial.Look);
         CreatePanel(inspector);
+        ClearPointerCoordinates();
         CreateHighlight();
         ApplyCamera(Observer.Pose);
     }
 
-    public override void _ExitTree() => Observer?.Dispose();
+    public override void _ExitTree()
+    {
+        _pointerActions.Clear();
+        _worldInput.GuiInput -= HandleWorldInput;
+        _worldInput.FocusExited -= EndInput;
+        _worldInput.MouseExited -= ClearHover;
+        if (_session is not null)
+            _session.WorldReplaced -= OnWorldReplaced;
+        Observer?.Dispose();
+    }
 
     /// <summary>Advances the camera by one display frame from the same sample the vehicle bodies were just drawn with.</summary>
     public void Present(double delta, TrainDisplaySample sample)
@@ -128,8 +153,68 @@ public partial class WorldEditorObservationView : Node3D
         if (delta > 0)
             FlyFromKeys(delta);
         ApplyCamera(Observer.Present(delta, sample));
+        ProcessPointerActions();
         UpdateHighlight(sample);
         UpdatePanel();
+    }
+
+    private void ProcessPointerActions()
+    {
+        if ((_pointerActions.Count > 0 || _pointerScreen is not null) && !_consoleOpen())
+        {
+            var actions = _pointerActions.ToArray();
+            _pointerActions.Clear();
+            // A tool press owns its original ray; inspector point selection resolves the release instead.
+            var ray = actions.Length == 0 ? PointerRay(_pointerScreen!.Value)
+                : _session.VoxelTool?.Active == true
+                    ? actions.FirstOrDefault(action => action.Action == WorldPointerAction.LeftPressed).Ray ?? actions[^1].Ray
+                    : actions.LastOrDefault(action => action.Action == WorldPointerAction.LeftReleased).Ray ?? actions[^1].Ray;
+            var pick = LastPointerPick;
+            if (_pointerPickFrame != Engine.GetProcessFrames())
+            {
+                _pointerPickFrame = Engine.GetProcessFrames();
+                pick = QueryPick(ray);
+            }
+            else if (actions.Length == 0)
+                return;
+            pick ??= new WorldEditorPick(ray, null, null, null, null);
+            LastPointerPick = pick;
+            ObservationVector? toolPoint = null;
+            var consumed = false;
+            foreach (var (actionRay, action) in actions)
+            {
+                if (action == WorldPointerAction.Move && (_dragging || !WorldRect.HasPoint(actionRay.Screen)))
+                    continue;
+                ObservationVector? point = null;
+                // Only the queried ray owns the raw hit. Other events may still intersect an analytic plane.
+                var actionPick = actionRay == pick.Ray ? pick : new WorldEditorPick(actionRay, null, null, null, null);
+                var handled = CellPointer?.Invoke(actionPick, action, out point) == true;
+                if (point is not null) toolPoint = point;
+                consumed |= handled;
+                if (handled)
+                {
+                    _selectionStart = null;
+                    _boxRectangle.Hide();
+                }
+                else if (action == WorldPointerAction.LeftPressed)
+                    _selectionStart = actionRay.Screen;
+                else if (action == WorldPointerAction.LeftReleased && _selectionStart is { } start)
+                {
+                    _selectionStart = null;
+                    _boxRectangle.Hide();
+                    if (start.DistanceTo(actionRay.Screen) >= BoxDragThreshold)
+                        BoxSelect(start, actionRay.Screen);
+                    else
+                        Pick(pick);
+                }
+            }
+            if (actions.Length == 0 && !_dragging && WorldRect.HasPoint(ray.Screen))
+                consumed = CellPointer?.Invoke(pick, WorldPointerAction.Move, out toolPoint) == true;
+            if (_pointerScreen is null)
+                ClearPointerCoordinates();
+            else
+                ShowPointerCoordinates(pick, consumed ? toolPoint : pick.WorldHit is { } hit ? From(hit.Position) : null);
+        }
     }
 
     internal void Press(string button)
@@ -146,33 +231,23 @@ public partial class WorldEditorObservationView : Node3D
         ApplyListSelection();
     }
 
-    /// <summary>Resolves a screen point to the nearest vehicle part or published world-voxel collider and selects it.</summary>
-    internal WorldEditorPick Pick(Vector2 screen)
+    /// <summary>Selects the picked object at the current inspection level, respecting an existing draft.</summary>
+    private void Pick(WorldEditorPick raw)
     {
-        var (item, vehicle, world, worldDistance) = ResolvePick(screen);
+        var vehicle = raw.VehicleHit;
+        var item = raw.Object;
         if (Observer.PartVehicleId is { } owner)
+        {
             item = item == ObservedObject.Vehicle(owner) && vehicle is not null
-                ? ObservedObject.VehiclePart(owner, vehicle.PartId) : null;
+                ? ObservedObject.VehiclePart(owner, vehicle.PartId)
+                : null;
+        }
         var status = item is { } picked ? Observer.Select(picked) : (WorldEditorObservationStatus?)null;
         if (status == WorldEditorObservationStatus.DraftRequired && item is { } blocked)
             DraftGuard?.Invoke(() => Observer.Select(blocked));
-        LastPick = new WorldEditorPick(screen, item, status, vehicle, world, worldDistance);
+        LastPick = raw with { Object = item, Status = status };
         _action.Text = item is null ? "点选：未命中对象，选择不变" : $"点选：{item.Value.DescribeZh()} → {status}";
         UpdatePanel();
-        return LastPick;
-    }
-
-    private (ObservedObject? Object, WorldEditorVehicleHit? Vehicle, WorldVoxelCoord? Cell, double Distance) ResolvePick(Vector2 screen)
-    {
-        var origin = _camera.ProjectRayOrigin(screen);
-        var direction = _camera.ProjectRayNormal(screen);
-        var vehicle = WorldEditorInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
-        var world = _colliders.QueryPublishedRay(GetWorld3D(), origin, origin + direction * PickDistance);
-        var worldDistance = world is { } hit ? origin.DistanceTo(hit.Position) : double.PositiveInfinity;
-        ObservedObject? item = vehicle is not null && vehicle.Distance <= worldDistance
-            ? ObservedObject.Vehicle(vehicle.VehicleId)
-            : world is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
-        return (item, vehicle, world?.Cell, worldDistance);
     }
 
     internal WorldEditorBoxSelection BoxSelect(Vector2 start, Vector2 end)
@@ -202,7 +277,7 @@ public partial class WorldEditorObservationView : Node3D
             if (selected.Contains(candidate.Object))
                 continue;
             rays++;
-            if (ResolvePick(candidate.Screen).Object == candidate.Object)
+            if (QueryPick(PointerRay(candidate.Screen)).Object == candidate.Object)
                 selected.Add(candidate.Object);
         }
         var targets = selected.ToArray();
@@ -246,6 +321,57 @@ public partial class WorldEditorObservationView : Node3D
             .ThenBy(candidate => candidate.Object.Kind).ThenBy(candidate => candidate.Object.Id.Value).ToArray();
     }
 
+    private WorldEditorRay PointerRay(Vector2 screen) => new(screen, _camera.ProjectRayOrigin(screen), _camera.ProjectRayNormal(screen));
+
+    private WorldEditorPick QueryPick(WorldEditorRay ray)
+    {
+        var (_, origin, direction) = ray;
+        var vehicle = WorldEditorInspector.RaycastVehicles(_session, _sample ?? _session.QueryDisplayPoses(), From(origin), From(direction), PickDistance);
+        var world = _colliders.QueryPublishedRay(GetWorld3D(), origin, origin + direction * PickDistance);
+        WorldEditorWorldHit? worldHit = world is { } hit
+            ? new(hit.Cell, origin.DistanceTo(hit.Position), hit.Position, hit.Normal, hit.AdjacentCell) : null;
+        if (vehicle is not null && (worldHit is null || vehicle.Distance <= worldHit.Distance))
+            worldHit = null;
+        else
+            vehicle = null;
+        ObservedObject? item = vehicle is not null ? ObservedObject.Vehicle(vehicle.VehicleId)
+            : worldHit is { } cell ? WorldEditorInspector.WorldTarget(_session, cell.Cell) : null;
+        return new WorldEditorPick(ray, item, null, vehicle, worldHit);
+    }
+
+    private void ShowPointerCoordinates(WorldEditorPick pick, ObservationVector? worldPoint)
+    {
+        HoverVehicle = pick.VehicleHit;
+        PointerWorldPosition = HoverVehicle?.WorldPosition ?? worldPoint;
+        _coordinates.Visible = PointerWorldPosition is not null;
+        _coordinates.Text = HoverVehicle is { } vehicle
+            ? $"光标 · 车辆 {vehicle.VehicleId.Value}\n世界坐标 {Coordinates(vehicle.WorldPosition)}\n车辆局部坐标 {Coordinates(vehicle.LocalPosition)}"
+            : PointerWorldPosition is { } point ? $"光标 · 世界坐标 {Coordinates(point)}" : "";
+    }
+
+    private void ClearPointerCoordinates()
+    {
+        HoverVehicle = null;
+        PointerWorldPosition = null;
+        _coordinates.Text = "";
+        _coordinates.Hide();
+    }
+
+    private void ClearHover()
+    {
+        _pointerScreen = null;
+        LastPointerPick = null;
+        ClearPointerCoordinates();
+    }
+
+    private void OnWorldReplaced(WorldReplacement _)
+    {
+        _pointerActions.Clear();
+        ClearHover();
+    }
+
+    private static string Coordinates(ObservationVector point) => FormattableString.Invariant($"({point.X:0.###}, {point.Y:0.###}, {point.Z:0.###})");
+
     public override void _Notification(int what)
     {
         if (what is (int)NotificationWMWindowFocusOut or (int)NotificationApplicationFocusOut)
@@ -254,7 +380,11 @@ public partial class WorldEditorObservationView : Node3D
 
     private void EndInput()
     {
+        // Complete earlier world input before a panel press changes tools or interrupts a stroke.
+        if (_pointerActions.Count > 0 && !_consoleOpen())
+            ProcessPointerActions();
         _dragging = false;
+        _pointerActions.Clear();
         _selectionStart = null;
         if (_boxRectangle is not null)
             _boxRectangle.Visible = false;
@@ -269,11 +399,11 @@ public partial class WorldEditorObservationView : Node3D
             _extendListSelection = listClick.CtrlPressed || listClick.MetaPressed || listClick.ShiftPressed;
         if (Observer is not null && !_consoleOpen() &&
             @event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } release &&
-            !WorldRect.HasPoint(release.Position) &&
-            CellPointer?.Invoke(release.Position, WorldPointerAction.LeftReleased) == true)
+            !WorldRect.HasPoint(release.Position) && _session.VoxelTool is { } tool &&
+            tool.AcceptsPointerRelease(pressPending: _pointerActions.Any(action => action.Action == WorldPointerAction.LeftPressed)))
         {
-            // A world press may be released over another control or outside the window, where World.GuiInput
-            // is not guaranteed to receive it. Forward that release once through the global input path.
+            // A stroke can be released over the inspector, outside World.GuiInput's delivery area.
+            _pointerActions.Add((PointerRay(release.Position), WorldPointerAction.LeftReleased));
             GetViewport().SetInputAsHandled();
             return;
         }
@@ -291,15 +421,12 @@ public partial class WorldEditorObservationView : Node3D
     {
         if (Observer is null || _consoleOpen())
             return;
-        if (@event is InputEventMouseMotion hover && !_dragging)
+        if (@event is InputEventMouseMotion pointer)
         {
-            var screen = _worldInput.GetGlobalTransformWithCanvas() * hover.Position;
-            // Mouse focus keeps delivering motion after a world press; do not paint through the inspector.
-            if (WorldRect.HasPoint(screen) && CellPointer?.Invoke(screen, WorldPointerAction.Move) == true)
-            {
-                GetViewport().SetInputAsHandled();
-                return;
-            }
+            var screen = _worldInput.GetGlobalTransformWithCanvas() * pointer.Position;
+            _pointerScreen = WorldRect.HasPoint(screen) ? screen : null;
+            if (!_dragging && WorldRect.HasPoint(screen))
+                _pointerActions.Add((PointerRay(screen), WorldPointerAction.Move));
         }
         if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left or MouseButton.Right })
             _worldInput.GrabFocus();
@@ -317,21 +444,23 @@ public partial class WorldEditorObservationView : Node3D
         {
             case InputEventMouseButton { ButtonIndex: MouseButton.Left } click:
                 var screen = _worldInput.GetGlobalTransformWithCanvas() * click.Position;
-                var action = click.Pressed ? WorldPointerAction.LeftPressed : WorldPointerAction.LeftReleased;
-                // Forward a release to the voxel tool before finishing any selection drag.
-                if (CellPointer?.Invoke(screen, action) == true)
-                    break;
-                if (click.Pressed)
-                    _selectionStart = screen;
-                else if (_selectionStart is { } selectionStart)
+                _pointerScreen = WorldRect.HasPoint(screen) ? screen : null;
+                if (_session.VoxelTool?.Active != true)
                 {
-                    _selectionStart = null;
-                    _boxRectangle.Visible = false;
-                    if (selectionStart.DistanceTo(screen) >= BoxDragThreshold)
+                    if (click.Pressed)
+                    {
+                        _selectionStart = screen;
+                        break;
+                    }
+                    if (_selectionStart is { } selectionStart && selectionStart.DistanceTo(screen) >= BoxDragThreshold)
+                    {
+                        _selectionStart = null;
+                        _boxRectangle.Hide();
                         BoxSelect(selectionStart, screen);
-                    else
-                        Pick(screen);
+                        break;
+                    }
                 }
+                _pointerActions.Add((PointerRay(screen), click.Pressed ? WorldPointerAction.LeftPressed : WorldPointerAction.LeftReleased));
                 break;
             case InputEventMouseMotion motion when _selectionStart is { } start && motion.ButtonMask.HasFlag(MouseButtonMask.Left):
                 var localStart = _worldInput.GetGlobalTransformWithCanvas().AffineInverse() * start;
@@ -399,6 +528,9 @@ public partial class WorldEditorObservationView : Node3D
         box.AddThemeConstantOverride("separation", 6);
 
         box.AddChild(new Label { Text = "对象检查器" });
+        _coordinates = new Label { AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        box.AddChild(_coordinates);
+
         _mode = new Label();
         box.AddChild(_mode);
         var controls = new HFlowContainer();
