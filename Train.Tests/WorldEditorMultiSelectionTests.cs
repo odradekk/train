@@ -283,12 +283,15 @@ public sealed class WorldEditorMultiSelectionTests
         var beforeLog = session.QueryEditLog().Count;
         var nextEdit = session.NextEditId;
 
-        Assert.AreEqual(new VoxelCellSetResult(VoxelCellSetStatus.NoChange, First), tool.Preview);
+        Assert.AreEqual(VoxelCellSetStatus.NoChange, tool.Preview.Status);
+        Assert.AreEqual(First, tool.Preview.Position);
         var rejected = tool.Commit();
 
         Assert.AreEqual(WorldEditRefusal.None, rejected.Refusal);
         Assert.AreEqual(WorldEditState.Rejected, rejected.Record!.State);
-        Assert.AreEqual(new VoxelCellSetResult(VoxelCellSetStatus.NoChange, First), rejected.Result);
+        var result = Assert.IsInstanceOfType<VoxelCellSetResult>(rejected.Result);
+        Assert.AreEqual(VoxelCellSetStatus.NoChange, result.Status);
+        Assert.AreEqual(First, result.Position);
         Assert.AreEqual(nextEdit + 1, session.NextEditId);
         Assert.AreEqual(beforeLog + 1, session.QueryEditLog().Count);
         Assert.AreEqual(beforeHistory, session.UndoCount);
