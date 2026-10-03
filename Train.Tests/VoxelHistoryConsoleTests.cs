@@ -1,5 +1,6 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
+using Train.Domain.Composites;
 using Train.Domain.Voxels;
 using Train.Domain.WorldEditor;
 using Train.Logging;
@@ -11,6 +12,36 @@ namespace Train.Tests;
 [TestCategory("scope:world-edit")]
 public sealed class VoxelHistoryConsoleTests
 {
+    [TestMethod]
+    public void Console_history_conflict_preserves_owner_identity_and_position()
+    {
+        var cell = new WorldVoxelCoord(7, 3, 5);
+        var vehicle = new EntityId(41);
+        var part = new EntityId(73);
+        var result = new VoxelCellSetResult(
+            VoxelCellSetStatus.VehicleOccupied,
+            cell,
+            VoxelCellOwnerKind.VehiclePart,
+            vehicle,
+            part);
+        var record = new WorldEditRecord(
+            9,
+            new VoxelCellRestoreEdit(Array.Empty<VoxelCellRestoreTarget>()),
+            default,
+            0,
+            WorldEditState.Rejected,
+            default,
+            nameof(VoxelCellSetStatus.VehicleOccupied));
+
+        var output = WorldEditConsole.FormatSubmission(new WorldEditSubmission(WorldEditRefusal.None, record, result));
+
+        StringAssert.Contains(output, nameof(VoxelCellSetStatus.VehicleOccupied));
+        Assert.IsTrue(output.Split('\n').Any(line =>
+            line.Contains(vehicle.ToString(), StringComparison.Ordinal) &&
+            line.Contains(part.ToString(), StringComparison.Ordinal) &&
+            line.Contains($"({cell.X}, {cell.Y}, {cell.Z})", StringComparison.Ordinal)));
+    }
+
     [TestMethod]
     public void Panel_and_console_share_history_and_irreversible_edits_require_explicit_confirmation()
     {

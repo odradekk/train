@@ -15,6 +15,32 @@ public sealed class WorldEditorVoxelDraftTests
     private static readonly WorldVoxelCoord Cell = new(1, 2, 1);
 
     [DataTestMethod]
+    [DataRow(WorldEditorVoxelMode.Brush, VoxelWorkPlane.VerticalX)]
+    [DataRow(WorldEditorVoxelMode.Box, VoxelWorkPlane.Surface)]
+    public void Region_modes_keep_horizontal_targets_and_cannot_redirect_an_existing_draft(
+        WorldEditorVoxelMode mode, VoxelWorkPlane plane)
+    {
+        using var harness = Blank();
+        using var tool = new WorldEditorVoxelTool(harness.Session);
+        tool.SetActive(true);
+        tool.SetPlane(plane, 12);
+        Assert.IsTrue(tool.SetMode(mode));
+        Assert.AreEqual(VoxelWorkPlane.Horizontal, tool.Plane);
+        Assert.AreEqual(7, tool.Layer);
+        Assert.IsFalse(tool.SetPlane(VoxelWorkPlane.VerticalZ, 3));
+        Assert.IsTrue(tool.TryPlaneTarget(new(1.5, 10, 2.5), new(0, -1, 0), out var target));
+        Assert.AreEqual(new WorldVoxelCoord(1, 7, 2), target);
+        tool.SetExact(target, tool.DefinitionId, tool.Orientation, VoxelCellOperation.Add);
+        var boundTargets = tool.CurrentEdit.Targets.Select(item => item.Position).ToArray();
+        Assert.IsFalse(tool.SetMode(WorldEditorVoxelMode.Cell));
+        Assert.IsFalse(tool.SetLayer(1));
+        CollectionAssert.AreEqual(boundTargets, tool.CurrentEdit.Targets.Select(item => item.Position).ToArray());
+        tool.Discard();
+        Assert.IsTrue(tool.SetMode(WorldEditorVoxelMode.Cell));
+        Assert.IsTrue(tool.SetPlane(VoxelWorkPlane.VerticalZ, 3));
+    }
+
+    [DataTestMethod]
     [DataRow(VoxelWorkPlane.Horizontal, 2, 6, 6, 9, -2, -2, -4, 2, 2, 1)]
     [DataRow(VoxelWorkPlane.VerticalX, 2, 6, 2, 9, -2, -0.1, -4, 2, 1, 1)]
     [DataRow(VoxelWorkPlane.VerticalZ, 1, 6, 2, 9, -2, -0.1, -4, 2, 1, 1)]

@@ -26,15 +26,24 @@ Two further real Godot processes use a separate user-data directory. The first c
 basic-editing example through the workspace, continues formal editing and running while retaining a future pending edit, and gives
 the first save a UUID distinct from the example document. The next process restores that saved copy, then creates the example again
 and verifies its documented step-1 boundary, pending edit and Godot-read source bytes are unchanged and exclude copy-only edits.
-Two further real Godot processes use another isolated user-data directory for the single-cell tool. The first selects definition,
+Two further real Godot processes use another isolated user-data directory for the voxel tools. The first selects definition,
 orientation and horizontal, vertical and surface work-plane coordinates through real Godot input in a blank world, places cells,
 verifies vehicle world/local pointer coordinates, the shared precise preview and rejected draft, and exercises
-tool/target/level/leave guards. Saving retains an uncommitted draft but excludes it from the saved world. The second process opens
-that saved world with committed and pending cell edits, verifies that no UI draft was restored, executes the pending edits in
-formal order, and continues mouse editing and saving. Two final processes exercise shared undo/redo through real input and
-verify that restoring a save starts without editor history. The workspace check therefore runs eleven processes in total. Its assertions
-do not replace manual window input or visual acceptance.
-Graphical workspace, window close, quit and dialog acceptance remain separate manual checks. Injected window-close notifications prove the handler; they do not prove a real window close-button interaction.
+tool/target/level/leave guards. In the same process it drives a brush press, several
+held-button motions and release, verifies that only release creates one edit and undo record, interrupts later strokes through
+focus loss and an open console, and handles the retained drafts explicitly. It then creates a box from two mouse corners, changes
+the same preview through inspector input, commits it, and schedules a region as an explicit cell-list input. Saving retains an
+uncommitted draft but excludes it from the saved world. The second process opens that saved world, verifies the committed brush,
+box and pending region while no UI draft is restored, executes the pending cells in formal order, and continues mouse editing and saving.
+Two more processes exercise shared undo/redo, world-focus shortcuts, text-input history, irreversible-edit confirmation,
+independent draft history and the absence of restored history in a new session.
+One additional process uses real Godot drag and Ctrl/Shift list input to select whole objects, excludes an occluded cell,
+refuses box selection at the part level and commits a batch draft after clearing or changing the selection. It verifies
+that the bound cells change together in one edit and one undo record. The multi-selection process reports full-screen
+rectangle cost, verifies small and capped rectangles in a world above 4096 samples, compares real selections after
+reversing cell storage order, and verifies that Ctrl/Shift list input preserves cells selected by the box.
+The workspace check therefore runs twelve processes in total. Its assertions do not replace manual window input or visual acceptance.
+Graphical workspace, window close, quit and dialog acceptance remain separate manual checks. Manual voxel-tool acceptance also interrupts a brush stroke, uses precise coordinates to translate the full retained stroke, changes its definition/orientation/operation without changing its geometry, exercises draft undo/redo, and verifies that choosing to redraw first asks to discard the old draft; box acceptance changes both corners and height in the inspector. Injected window-close notifications prove the handler; they do not prove a real window close-button interaction.
 
 `--quit-after` in those scripts is a Godot frame budget, not the entry timeout and not a pass condition. `-Correctness` selects these Godot checks together with MSTest, so it needs `GODOT` and a `Train.csproj` build plus import. Each Godot check gets its own `APPDATA` directory under the run, shared by the processes it starts; the import and the version probe get one each. The entry does not write `override.cfg`, so killing it leaves no user-data redirect; an existing `override.cfg` is left in place, and the summary records whether it exists and its SHA256.
 

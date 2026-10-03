@@ -106,6 +106,7 @@ public partial class WorldEditorScene : Node3D
         AddChild(_cellTool);
         _cellTool.Initialize(_session, _tools, _inspector);
         _observation.CellPointer = _cellTool.HandlePointer;
+        _observation.PointerInputInterrupted = _cellTool.InterruptPointer;
         _observation.DraftGuard = _cellTool.RequestChange;
         _worldInput.GuiInput += HandleHistoryInput;
         Refresh();

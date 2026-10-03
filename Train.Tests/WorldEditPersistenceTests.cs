@@ -19,6 +19,57 @@ public sealed class WorldEditPersistenceTests
     private static readonly VoxelDefinitionId Ore = WorldEditOrderingTests.Ore;
 
     [TestMethod]
+    public void Pending_regions_encode_save_restore_and_execute_in_acceptance_order()
+    {
+        using var writer = WorldEditorHarness.Content();
+        Assert.IsTrue(BlankWorldSource.TryIdentity(16, 8, 16, 184, out var identity));
+        writer.Attach(BlankWorldSource.Establish(identity, writer.Catalog, writer.Composites, writer.Store));
+        var content = new VoxelCellContent(Ore, VoxelOrientation.Identity);
+        var cells = new[]
+        {
+            new WorldVoxelCoord(4, 2, 4),
+            new WorldVoxelCoord(5, 2, 4),
+            new WorldVoxelCoord(4, 2, 6)
+        };
+        var ends = cells.Select(cell => cell with { X = cell.X + 1 }).ToArray();
+        var submissions = new[]
+        {
+            writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[0], ends[0], 1), VoxelCellOperation.Add, content, atStep: 3),
+            writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[1], ends[1], 1), VoxelCellOperation.Add, content, atStep: 3),
+            writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[2], ends[2], 1), VoxelCellOperation.Add, content, atStep: 3)
+        };
+        Assert.IsTrue(submissions.All(item => item.Accepted && item.Record!.State == WorldEditState.Pending));
+        CollectionAssert.AreEqual(new[] { 2, 2, 2 }, submissions.Select(item => item.RegionPreview!.AffectedCount).ToArray());
+        Assert.AreEqual(0, writer.Session.World.VoxelCount);
+        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, submissions.Select(item => item.Record!.Id).ToArray());
+        var acceptedPayloads = submissions.Select(item => item.Record!.Canonical).ToArray();
+        var saved = writer.Session.Save("region pending");
+
+        using var restarted = WorldEditorHarness.Content(userData: writer.UserData);
+        var reader = BlankWorldSource.Establish(writer.Session.Identity, restarted.Catalog, restarted.Composites, restarted.Store);
+        restarted.Attach(reader);
+        Assert.AreEqual(WorldSaveStatus.Loaded, reader.Load(saved.SaveId!.Value).Status);
+        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, reader.QueryPendingEdits().Select(item => item.Id).ToArray());
+        CollectionAssert.AreEqual(acceptedPayloads, reader.QueryPendingEdits().Select(item => item.Canonical).ToArray());
+        Assert.IsTrue(reader.ResumeSimulation().Succeeded);
+        Assert.IsTrue(reader.AdvanceSimulation(3).Succeeded);
+        var executed = reader.QueryEditLog();
+        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, executed.Select(item => item.Id).ToArray());
+        CollectionAssert.AreEqual(new[] { WorldEditState.Executed, WorldEditState.Rejected, WorldEditState.Executed },
+            executed.Select(item => item.State).ToArray());
+        CollectionAssert.AreEqual(new[] { nameof(VoxelCellSetStatus.Applied), nameof(VoxelCellSetStatus.Occupied),
+            nameof(VoxelCellSetStatus.Applied) }, executed.Select(item => item.Status).ToArray());
+        CollectionAssert.AreEqual(new SimulationPosition?[] { new(3, 0), new(3, 1), new(3, 2) },
+            executed.Select(item => item.ExecutedAt).ToArray());
+        Assert.IsTrue(new[] { cells[0], ends[0], cells[2], ends[2] }.All(cell => reader.Query(cell).IsOccupied));
+        Assert.IsFalse(reader.Query(ends[1]).IsOccupied);
+        var conflict = reader.ValidateCells((VoxelCellSetEdit)executed[1].Edit);
+        Assert.AreEqual(VoxelCellSetStatus.Occupied, conflict.Status);
+        Assert.AreEqual(cells[1], conflict.Position);
+        Assert.AreEqual(cells[1], conflict.Conflicts.Single().Position);
+    }
+
+    [TestMethod]
     public void Paused_edits_and_pending_structural_edits_survive_save_and_continue_identically_after_restore()
     {
         using var writer = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);

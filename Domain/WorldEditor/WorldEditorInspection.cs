@@ -96,11 +96,20 @@ public static class WorldEditorInspector
         };
     }
 
-    /// <summary>A rail voxel belongs to its segment; shared endpoint cells resolve to the lowest stable segment id.</summary>
-    public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell) =>
-        session.TryRailOwner(cell, out var segmentId)
-            ? ObservedObject.Segment(segmentId)
-            : ObservedObject.WorldCell(cell);
+    /// <summary>A rail voxel belongs to its segment; other cells capture their current definition and runtime identity.</summary>
+    public static ObservedObject WorldTarget(VoxelDevelopmentSession session, WorldVoxelCoord cell)
+    {
+        if (session.TryRailOwner(cell, out var segmentId))
+            return ObservedObject.Segment(segmentId);
+        return WorldCell(session, cell);
+    }
+
+    /// <summary>Captures a cell reference without changing an explicitly requested cell into its rail owner.</summary>
+    public static ObservedObject WorldCell(VoxelDevelopmentSession session, WorldVoxelCoord cell)
+    {
+        var voxel = session.Query(cell).Voxel;
+        return ObservedObject.WorldCell(cell, voxel?.RuntimeId, voxel?.DefinitionId);
+    }
 
 
     private static WorldEditorInspection? InspectPart(VoxelDevelopmentSession session, ObservedObject item)
