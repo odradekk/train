@@ -64,6 +64,28 @@ public readonly record struct CompositeTransform
         return true;
     }
 
+    internal (double MinX, double MinY, double MinZ, double MaxX, double MaxY, double MaxZ) CellBounds(LocalVoxelCoord cell)
+    {
+        var min = TransformPoint(cell.X, cell.Y, cell.Z);
+        var max = min;
+        for (var x = 0; x <= 1; x++)
+        for (var y = 0; y <= 1; y++)
+        for (var z = 0; z <= 1; z++)
+        {
+            var point = TransformPoint(cell.X + x, cell.Y + y, cell.Z + z);
+            min = (Math.Min(min.X, point.X), Math.Min(min.Y, point.Y), Math.Min(min.Z, point.Z));
+            max = (Math.Max(max.X, point.X), Math.Max(max.Y, point.Y), Math.Max(max.Z, point.Z));
+        }
+        // Use the exact same corner arithmetic as SAT, including at large translated coordinates.
+        return (min.X, min.Y, min.Z, max.X, max.Y, max.Z);
+    }
+
+    internal static bool BoundsMayOverlapCell(
+        (double MinX, double MinY, double MinZ, double MaxX, double MaxY, double MaxZ) bounds, WorldVoxelCoord cell) =>
+        bounds.MaxX > cell.X && bounds.MinX < (double)cell.X + 1 &&
+        bounds.MaxY > cell.Y && bounds.MinY < (double)cell.Y + 1 &&
+        bounds.MaxZ > cell.Z && bounds.MinZ < (double)cell.Z + 1;
+
     public bool IsFinite =>
         double.IsFinite(OriginX) && double.IsFinite(OriginY) && double.IsFinite(OriginZ) &&
         double.IsFinite(RightX) && double.IsFinite(RightY) && double.IsFinite(RightZ) &&

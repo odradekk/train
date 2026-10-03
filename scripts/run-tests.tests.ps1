@@ -450,6 +450,8 @@ $expected = @{
     WorldEditOrderingTests = "headless/world-edit/world-edit"
     WorldEditEntryTests = "headless/world-edit/world-edit"
     VoxelCellSetTests = "headless/world-edit/world-edit"
+    VoxelRegionTests = "headless/world-edit,world-editor/world-edit"
+    VoxelRegionConsoleTests = "headless/world-edit/world-edit"
     VoxelEditHistoryTests = "headless/world-edit,world-editor/world-edit"
     VoxelHistoryConsoleTests = "headless/world-edit/world-edit"
     VoxelWorldTests = "headless/voxels/voxels"
@@ -905,12 +907,13 @@ internal static class Program
                 else if (leg == "cell-tool-save")
                 {
                     Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT height=3 exact_shared=true");
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false");
+                    Console.WriteLine("WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true no_plane_release_commit=true outside_motion_ignored=true focus_commit=true console_discard=true brush_draft_prompt=true brush_translate_undo=true brush_redraw_after_discard=true box_cells=16 box_draft_prompt=true shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false pending_region_cells=2");
                 }
                 else if (leg == "cell-tool-resume")
                 {
                     Console.WriteLine("WORKSPACE_CELL_TOOL_OPEN id=66666666-6666-6666-6666-666666666666");
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false");
+                    Console.WriteLine("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false pending_region_cells=2 brush_restored=true box_restored=true");
                 }
                 else if (leg == "history-save")
                 {
