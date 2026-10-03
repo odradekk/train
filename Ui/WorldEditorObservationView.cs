@@ -8,6 +8,8 @@ using Train.Presentation;
 
 namespace Train;
 
+internal enum WorldPointerAction { Move, LeftPressed, LeftReleased }
+
 /// <summary>What one world click resolved to, with both candidate hits so automation can compare them.</summary>
 internal sealed record WorldEditorPick(
     Vector2 Screen,
@@ -67,7 +69,8 @@ public partial class WorldEditorObservationView : Node3D
     private bool _extendListSelection;
 
     public WorldEditorObserver Observer { get; private set; } = null!;
-    internal Func<Vector2, bool, bool>? CellPointer { get; set; }
+    internal Func<Vector2, WorldPointerAction, bool>? CellPointer { get; set; }
+    internal Action? PointerInputInterrupted { get; set; }
     internal Action<Action>? DraftGuard { get; set; }
     internal WorldEditorPick? LastPick { get; private set; }
     internal WorldEditorBoxSelection? LastBoxSelection { get; private set; }
@@ -256,6 +259,7 @@ public partial class WorldEditorObservationView : Node3D
         if (_boxRectangle is not null)
             _boxRectangle.Visible = false;
         _flyKeys.Clear();
+        PointerInputInterrupted?.Invoke();
     }
 
     public override void _Input(InputEvent @event)
@@ -263,6 +267,16 @@ public partial class WorldEditorObservationView : Node3D
         if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left } listClick &&
             _list.GetGlobalRect().HasPoint(listClick.Position))
             _extendListSelection = listClick.CtrlPressed || listClick.MetaPressed || listClick.ShiftPressed;
+        if (Observer is not null && !_consoleOpen() &&
+            @event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } release &&
+            !WorldRect.HasPoint(release.Position) &&
+            CellPointer?.Invoke(release.Position, WorldPointerAction.LeftReleased) == true)
+        {
+            // A world press may be released over another control or outside the window, where World.GuiInput
+            // is not guaranteed to receive it. Forward that release once through the global input path.
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         // Non-focusable panel buttons still take input away from the world. GUI delivery remains Godot's job.
         if (Observer is not null && @event is InputEventMouseButton { Pressed: true } mouse && !WorldRect.HasPoint(mouse.Position))
             _worldInput.ReleaseFocus();
@@ -277,11 +291,15 @@ public partial class WorldEditorObservationView : Node3D
     {
         if (Observer is null || _consoleOpen())
             return;
-        if (@event is InputEventMouseMotion hover && !_dragging &&
-            CellPointer?.Invoke(_worldInput.GetGlobalTransformWithCanvas() * hover.Position, false) == true)
+        if (@event is InputEventMouseMotion hover && !_dragging)
         {
-            GetViewport().SetInputAsHandled();
-            return;
+            var screen = _worldInput.GetGlobalTransformWithCanvas() * hover.Position;
+            // Mouse focus keeps delivering motion after a world press; do not paint through the inspector.
+            if (WorldRect.HasPoint(screen) && CellPointer?.Invoke(screen, WorldPointerAction.Move) == true)
+            {
+                GetViewport().SetInputAsHandled();
+                return;
+            }
         }
         if (@event is InputEventMouseButton { Pressed: true, ButtonIndex: MouseButton.Left or MouseButton.Right })
             _worldInput.GrabFocus();
@@ -297,10 +315,23 @@ public partial class WorldEditorObservationView : Node3D
         }
         switch (@event)
         {
-            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } click:
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left } click:
                 var screen = _worldInput.GetGlobalTransformWithCanvas() * click.Position;
-                if (CellPointer?.Invoke(screen, true) != true)
+                var action = click.Pressed ? WorldPointerAction.LeftPressed : WorldPointerAction.LeftReleased;
+                // Forward a release to the voxel tool before finishing any selection drag.
+                if (CellPointer?.Invoke(screen, action) == true)
+                    break;
+                if (click.Pressed)
                     _selectionStart = screen;
+                else if (_selectionStart is { } selectionStart)
+                {
+                    _selectionStart = null;
+                    _boxRectangle.Visible = false;
+                    if (selectionStart.DistanceTo(screen) >= BoxDragThreshold)
+                        BoxSelect(selectionStart, screen);
+                    else
+                        Pick(screen);
+                }
                 break;
             case InputEventMouseMotion motion when _selectionStart is { } start && motion.ButtonMask.HasFlag(MouseButtonMask.Left):
                 var localStart = _worldInput.GetGlobalTransformWithCanvas().AffineInverse() * start;
@@ -308,15 +339,6 @@ public partial class WorldEditorObservationView : Node3D
                 _boxRectangle.Position = box.Position;
                 _boxRectangle.Size = box.Size;
                 _boxRectangle.Visible = box.Size.Length() >= BoxDragThreshold;
-                break;
-            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } release when _selectionStart is { } start:
-                var end = _worldInput.GetGlobalTransformWithCanvas() * release.Position;
-                _selectionStart = null;
-                _boxRectangle.Visible = false;
-                if (start.DistanceTo(end) >= BoxDragThreshold)
-                    BoxSelect(start, end);
-                else
-                    Pick(end);
                 break;
             case InputEventMouseButton { ButtonIndex: MouseButton.Right } right:
                 _dragging = right.Pressed;

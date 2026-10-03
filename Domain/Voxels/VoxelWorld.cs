@@ -307,7 +307,9 @@ public enum VoxelCellSetStatus
     VoxelDraftExists,
     WorldChanging,
     UnsupportedOperation,
-    NotWorldCells
+    NotWorldCells,
+    RegionTooLarge,
+    InvalidRegion
 }
 
 public enum VoxelCellOwnerKind
@@ -325,6 +327,13 @@ public sealed record VoxelCellSetResult(
     EntityId PartId = default)
 {
     public bool Succeeded => Status is VoxelCellSetStatus.Valid or VoxelCellSetStatus.Applied;
+    public IReadOnlyList<VoxelCellConflict> Conflicts { get; init; } = Array.Empty<VoxelCellConflict>();
+}
+
+public sealed record VoxelCellConflict(VoxelCellSetStatus Status, WorldVoxelCoord Position,
+    VoxelCellOwnerKind OwnerKind = VoxelCellOwnerKind.None, EntityId OwnerId = default, EntityId PartId = default)
+{
+    public VoxelCellSetResult ToResult() => new(Status, Position, OwnerKind, OwnerId, PartId);
 }
 
 public readonly record struct VoxelDamageTarget(WorldVoxelCoord Position, int Amount);

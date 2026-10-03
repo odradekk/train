@@ -26,11 +26,14 @@ Two further real Godot processes use a separate user-data directory. The first c
 basic-editing example through the workspace, continues formal editing and running while retaining a future pending edit, and gives
 the first save a UUID distinct from the example document. The next process restores that saved copy, then creates the example again
 and verifies its documented step-1 boundary, pending edit and Godot-read source bytes are unchanged and exclude copy-only edits.
-Two further real Godot processes use another isolated user-data directory for the single-cell tool. The first selects definition,
+Two further real Godot processes use another isolated user-data directory for the voxel tools. The first selects definition,
 orientation and horizontal-plane height through real Godot input in a blank world, places a cell, verifies the shared precise
-preview and rejected draft, and exercises tool/target/level/leave guards. Saving retains an uncommitted draft but excludes it
-from the saved world. The second process opens that saved world with committed and pending cell edits, verifies that no UI
-draft was restored, executes the pending edits in formal order, and continues mouse editing and saving.
+preview and rejected draft, and exercises tool/target/level/leave guards. In the same process it drives a brush press, several
+held-button motions and release, verifies that only release creates one edit and undo record, interrupts later strokes through
+focus loss and an open console, and handles the retained drafts explicitly. It then creates a box from two mouse corners, changes
+the same preview through inspector input, commits it, and schedules a region as an explicit cell-list input. Saving retains an
+uncommitted draft but excludes it from the saved world. The second process opens that saved world, verifies the committed brush,
+box and pending region while no UI draft is restored, executes the pending cells in formal order, and continues mouse editing and saving.
 Two more processes exercise shared undo/redo, world-focus shortcuts, text-input history, irreversible-edit confirmation,
 independent draft history and the absence of restored history in a new session.
 One additional process uses real Godot drag and Ctrl/Shift list input to select whole objects, excludes an occluded cell,

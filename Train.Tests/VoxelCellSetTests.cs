@@ -73,6 +73,26 @@ public sealed class VoxelCellSetTests
     }
 
     [TestMethod]
+    public void Single_cell_applicability_precedes_definition_and_orientation_validation()
+    {
+        using var harness = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
+        var session = harness.Session;
+        var occupied = new WorldVoxelCoord(8, 10, 8);
+        var empty = new WorldVoxelCoord(9, 10, 8);
+        Assert.AreEqual("Applied", session.SubmitEdit(Set(Add(occupied))).Status);
+        var unknown = new VoxelCellContent(new VoxelDefinitionId("core", "missing"), VoxelOrientation.Identity);
+        var disallowed = new VoxelCellContent(new VoxelDefinitionId("core", "fixed"), VoxelOrientation.Yaw90);
+
+        foreach (var content in new[] { unknown, disallowed })
+        {
+            AssertRejectedUnchanged(session,
+                Set(new VoxelCellTarget(occupied, VoxelCellOperation.Add, content)), VoxelCellSetStatus.Occupied);
+            AssertRejectedUnchanged(session,
+                Set(new VoxelCellTarget(empty, VoxelCellOperation.Replace, content)), VoxelCellSetStatus.Empty);
+        }
+    }
+
+    [TestMethod]
     public void Rail_and_vehicle_ownership_are_reported_with_stable_ids()
     {
         using var rail = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);

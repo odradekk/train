@@ -112,6 +112,20 @@ public sealed class VoxelConsoleCommands
         if (arguments.Count >= 1 && string.Equals(arguments[0], "save", StringComparison.OrdinalIgnoreCase))
             return FormatSave(_session.Save(arguments.Count == 1 ? null : string.Join(' ', arguments.Skip(1))));
 
+        if (WorldEditConsole.TrySplitRegionSubmissionOptions(arguments, out var regionArguments, out var regionAtStep,
+                out var confirmLargeEdit, out var regionConfirmEndHistory) &&
+            TryParseRegion(regionArguments, out var region, out var regionOperation, out var regionContent))
+        {
+            return WorldEditConsole.FormatWithHistoryEvictionNotice(_session, () => FormatRegion(
+                _session.SubmitRegion(
+                    region,
+                    regionOperation,
+                    regionContent,
+                    confirmLargeEdit,
+                    regionAtStep,
+                    regionConfirmEndHistory)));
+        }
+
         if (WorldEditConsole.TrySplitSubmissionOptions(arguments, out var cellArguments, out var cellAtStep, out var cellConfirm) &&
             TryParseCellEdit(cellArguments, out var cellEdit))
             return WorldEditConsole.FormatHistorySubmission(_session, () => _session.SubmitEdit(cellEdit, cellAtStep, cellConfirm));
@@ -197,6 +211,8 @@ public sealed class VoxelConsoleCommands
             "voxel cell add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
             "voxel cell remove <x> <y> <z> [at <step>] [confirm-end-history]",
             "voxel cell replace <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
+            "voxel region add|replace <x1> <y> <z1> <x2> <z2> <height> <namespace:id> <orientation> [at <step>] [confirm-large-edit] [confirm-end-history]",
+            "voxel region remove <x1> <y> <z1> <x2> <z2> <height> [at <step>] [confirm-large-edit] [confirm-end-history]",
             "voxel remove <x> <y> <z> [at <step>] [confirm-end-history] | voxel add <x> <y> <z> <namespace:id> <orientation> [at <step>] [confirm-end-history]",
             "voxel damage <x> <y> <z> <amount> [<x> <y> <z> <amount> ...] [at <step>] [confirm-end-history].");
     }
@@ -226,39 +242,93 @@ public sealed class VoxelConsoleCommands
     private static bool TryParseCellEdit(IReadOnlyList<string> arguments, out WorldEdit edit)
     {
         edit = null!;
-        if (arguments.Count == 5 &&
-            string.Equals(arguments[0], "cell", StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(arguments[1], "remove", StringComparison.OrdinalIgnoreCase) &&
+        if (arguments.Count < 2 ||
+            !string.Equals(arguments[0], "cell", StringComparison.OrdinalIgnoreCase) ||
+            !TryOperation(arguments[1], out var operation))
+            return false;
+        if (arguments.Count == 5 && operation == VoxelCellOperation.Remove &&
             TryPosition(arguments, 2, out var removePosition))
         {
             edit = new VoxelCellSetEdit([
                 new VoxelCellTarget(removePosition, VoxelCellOperation.Remove, null)
             ]);
         }
-        else if (arguments.Count == 7 &&
-                 string.Equals(arguments[0], "cell", StringComparison.OrdinalIgnoreCase) &&
+        else if (arguments.Count == 7 && operation != VoxelCellOperation.Remove &&
                  TryPosition(arguments, 2, out var position) &&
                  TryDefinition(arguments[5], out var definitionId) &&
                  VoxelOrientation.TryParse(arguments[6], out var orientation))
         {
-            var operation = arguments[1].ToLowerInvariant() switch
-            {
-                "add" => VoxelCellOperation.Add,
-                "replace" => VoxelCellOperation.Replace,
-                _ => (VoxelCellOperation?)null
-            };
-            if (operation is { } parsedOperation)
-            {
-                edit = new VoxelCellSetEdit([
-                    new VoxelCellTarget(
-                        position,
-                        parsedOperation,
-                        new VoxelCellContent(definitionId, orientation))
-                ]);
-            }
+            edit = new VoxelCellSetEdit([
+                new VoxelCellTarget(position, operation, new VoxelCellContent(definitionId, orientation))
+            ]);
         }
 
         return edit is not null;
+    }
+
+    private static bool TryParseRegion(
+        IReadOnlyList<string> arguments,
+        out VoxelCellRegion region,
+        out VoxelCellOperation operation,
+        out VoxelCellContent? content)
+    {
+        region = null!;
+        operation = default;
+        content = null;
+        if (arguments.Count is not (8 or 10) ||
+            !string.Equals(arguments[0], "region", StringComparison.OrdinalIgnoreCase) ||
+            !int.TryParse(arguments[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var x1) ||
+            !int.TryParse(arguments[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var y) ||
+            !int.TryParse(arguments[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out var z1) ||
+            !int.TryParse(arguments[5], NumberStyles.Integer, CultureInfo.InvariantCulture, out var x2) ||
+            !int.TryParse(arguments[6], NumberStyles.Integer, CultureInfo.InvariantCulture, out var z2) ||
+            !int.TryParse(arguments[7], NumberStyles.Integer, CultureInfo.InvariantCulture, out var height))
+            return false;
+
+        if (!TryOperation(arguments[1], out operation) ||
+            (operation == VoxelCellOperation.Remove) != (arguments.Count == 8))
+            return false;
+        if (operation != VoxelCellOperation.Remove)
+        {
+            if (!TryDefinition(arguments[8], out var definitionId) ||
+                !VoxelOrientation.TryParse(arguments[9], out var orientation))
+                return false;
+            content = new VoxelCellContent(definitionId, orientation);
+        }
+
+        region = VoxelCellRegion.Box(
+            new WorldVoxelCoord(x1, y, z1),
+            new WorldVoxelCoord(x2, y, z2),
+            height);
+        return true;
+    }
+
+    private static bool TryOperation(string text, out VoxelCellOperation operation)
+    {
+        var parsed = text.ToLowerInvariant() switch
+        {
+            "add" => VoxelCellOperation.Add,
+            "remove" => VoxelCellOperation.Remove,
+            "replace" => VoxelCellOperation.Replace,
+            _ => (VoxelCellOperation?)null
+        };
+        operation = parsed.GetValueOrDefault();
+        return parsed.HasValue;
+    }
+
+    private static string FormatRegion(WorldEditSubmission submission)
+    {
+        if (submission.RegionPreview is not { } preview)
+            return WorldEditConsole.FormatSubmission(submission);
+        var lines = new List<string>
+        {
+            $"Region {preview.Validation.Status} affected {preview.AffectedCount} skipped {preview.SkippedCount}",
+            $"region ({preview.Region.Min.X},{preview.Region.Min.Y},{preview.Region.Min.Z}) .. ({preview.Region.Max.X},{preview.Region.Max.Y},{preview.Region.Max.Z}) cells {preview.Region.Count}",
+            WorldEditConsole.FormatSubmission(submission)
+        };
+        if (preview.Validation.Status == VoxelCellSetStatus.RegionTooLarge)
+            lines.Add($"Covered region exceeds provisional limit {VoxelRegionLimits.MaxCells}; reduce the region.");
+        return string.Join('\n', lines);
     }
 
     private string FormatResult(WorldCommandResult result) =>

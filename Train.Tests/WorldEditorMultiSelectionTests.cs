@@ -133,11 +133,99 @@ public sealed class WorldEditorMultiSelectionTests
     }
 
     [TestMethod]
-    public void Batch_remove_commits_one_cell_set_and_one_history_entry_then_undo_and_redo_restore_the_group()
+    public void Brush_and_box_drafts_refuse_batch_start_without_losing_their_geometry()
+    {
+        using var harness = BlankWithCells();
+        var session = harness.Session;
+        var batchTargets = Observe(session, First, Second);
+        using var tool = new WorldEditorVoxelTool(session);
+        Assert.IsTrue(tool.SetActive(true));
+
+        Assert.IsTrue(tool.SetMode(WorldEditorVoxelMode.Brush));
+        tool.SetSettings(Ore, VoxelOrientation.Identity, VoxelCellOperation.Add);
+        Assert.IsTrue(tool.BeginStroke(new(6, 1, 6)));
+        tool.ExtendStroke(new(8, 1, 6));
+        var brushGeometry = tool.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+
+        Assert.AreEqual(VoxelCellSetStatus.VoxelDraftExists,
+            tool.StartBatch(batchTargets, VoxelCellOperation.Remove).Status);
+        CollectionAssert.AreEquivalent(brushGeometry,
+            tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.StrokeInProgress);
+        Assert.IsTrue(session.HasEditorDraft);
+        Assert.IsFalse(tool.HasBatchDraft);
+        tool.Discard();
+
+        Assert.IsTrue(tool.SetMode(WorldEditorVoxelMode.Box));
+        tool.SetBoxExact(new(6, 1, 6), new(8, 1, 7), 2, Ore, VoxelOrientation.Identity,
+            VoxelCellOperation.Add);
+        var boxGeometry = tool.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+
+        Assert.AreEqual(VoxelCellSetStatus.VoxelDraftExists,
+            tool.StartBatch(batchTargets, VoxelCellOperation.Remove).Status);
+        CollectionAssert.AreEquivalent(boxGeometry,
+            tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(session.HasEditorDraft);
+        Assert.IsFalse(tool.HasBatchDraft);
+        tool.Discard();
+
+        Assert.IsTrue(tool.BoxPoint(new(6, 1, 6)));
+        var pendingCornerGeometry = tool.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+
+        Assert.AreEqual(VoxelCellSetStatus.VoxelDraftExists,
+            tool.StartBatch(batchTargets, VoxelCellOperation.Remove).Status);
+        CollectionAssert.AreEquivalent(pendingCornerGeometry,
+            tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.BoxCornerPending);
+        Assert.IsTrue(session.HasEditorDraft);
+        Assert.IsFalse(tool.HasBatchDraft);
+    }
+
+    [TestMethod]
+    [DataRow(WorldEditorVoxelMode.Brush)]
+    [DataRow(WorldEditorVoxelMode.Box)]
+    public void Batch_draft_rejects_region_redirects_and_discard_allows_a_new_region_draft(WorldEditorVoxelMode mode)
     {
         using var harness = BlankWithCells();
         var session = harness.Session;
         using var tool = new WorldEditorVoxelTool(session);
+        Assert.IsTrue(tool.SetMode(mode));
+        Assert.AreEqual(VoxelCellSetStatus.Valid,
+            tool.StartBatch(Observe(session, First, Second), VoxelCellOperation.Remove).Status);
+        var boundTargets = tool.CurrentEdit.Targets.Select(target => target.Position).ToArray();
+
+        Assert.IsFalse(tool.SetMode(WorldEditorVoxelMode.Brush));
+        Assert.IsFalse(tool.BeginStroke(new(6, 1, 6)));
+        Assert.IsFalse(tool.BoxPoint(new(6, 1, 6)));
+        Assert.AreEqual(WorldEditorVoxelInputStatus.BatchTargetsBound,
+            tool.SetBoxExact(new(6, 1, 6), new(8, 1, 7), 2, Ore, VoxelOrientation.Identity,
+                VoxelCellOperation.Add));
+        Assert.IsFalse(tool.SetBoxHeight(3));
+
+        CollectionAssert.AreEquivalent(boundTargets,
+            tool.CurrentEdit.Targets.Select(target => target.Position).ToArray());
+        Assert.IsTrue(tool.HasBatchDraft);
+        Assert.IsTrue(session.HasEditorDraft);
+
+        tool.Discard();
+        Assert.IsFalse(session.HasEditorDraft);
+        Assert.IsTrue(tool.SetActive(true));
+        Assert.IsTrue(tool.SetMode(WorldEditorVoxelMode.Box));
+        Assert.IsTrue(tool.BoxPoint(new(6, 1, 6)));
+        Assert.IsTrue(session.HasEditorDraft);
+        Assert.IsFalse(tool.HasBatchDraft);
+    }
+
+    [TestMethod]
+    [DataRow(WorldEditorVoxelMode.Cell)]
+    [DataRow(WorldEditorVoxelMode.Brush)]
+    [DataRow(WorldEditorVoxelMode.Box)]
+    public void Batch_remove_commits_one_cell_set_and_one_history_entry_then_undo_and_redo_restore_the_group(WorldEditorVoxelMode mode)
+    {
+        using var harness = BlankWithCells();
+        var session = harness.Session;
+        using var tool = new WorldEditorVoxelTool(session);
+        Assert.IsTrue(tool.SetMode(mode));
         var beforeHistory = session.UndoCount;
         var beforeLog = session.QueryEditLog().Count;
 

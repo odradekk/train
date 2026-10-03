@@ -22,6 +22,21 @@ internal static class WorldEditConsole
         return TrySplitAt(rest, out rest, out step);
     }
 
+    public static bool TrySplitRegionSubmissionOptions(
+        IReadOnlyList<string> arguments,
+        out IReadOnlyList<string> rest,
+        out ulong? step,
+        out bool confirmLargeEdit,
+        out bool confirmEndHistory)
+    {
+        TrySplitHistoryConfirmation(arguments, out rest, out confirmEndHistory);
+        confirmLargeEdit = rest.Count > 0 &&
+            string.Equals(rest[^1], "confirm-large-edit", StringComparison.OrdinalIgnoreCase);
+        if (confirmLargeEdit)
+            rest = rest.Take(rest.Count - 1).ToArray();
+        return TrySplitAt(rest, out rest, out step);
+    }
+
     public static void TrySplitHistoryConfirmation(
         IReadOnlyList<string> arguments,
         out IReadOnlyList<string> rest,
@@ -49,17 +64,31 @@ internal static class WorldEditConsole
     public static string FormatSubmission(WorldEditSubmission submission)
     {
         if (!submission.Accepted)
-            return submission.Refusal == WorldEditRefusal.HistoryConfirmationRequired
-                ? "Edit HistoryConfirmationRequired. This irreversible edit will clear undo and redo history; resubmit with trailing confirm-end-history."
-                : $"Edit {submission.Refusal}.";
+        {
+            var refusal = submission.Refusal switch
+            {
+                WorldEditRefusal.HistoryConfirmationRequired =>
+                    "Edit HistoryConfirmationRequired. This irreversible edit will clear undo and redo history; resubmit with trailing confirm-end-history.",
+                WorldEditRefusal.LargeEditConfirmationRequired =>
+                    $"Edit LargeEditConfirmationRequired. More than {VoxelRegionLimits.ConfirmationThreshold} affected cells; resubmit with confirm-large-edit before confirm-end-history.",
+                _ => $"Edit {submission.Refusal}."
+            };
+            return submission.Result is VoxelCellSetResult rejected && rejected.Conflicts.Count > 0
+                ? string.Join('\n', new[] { refusal }.Concat(FormatCellConflicts(rejected.Conflicts)))
+                : refusal;
+        }
         var record = submission.Record!;
         var head = $"Edit {record.Id} {WorldEditCodec.WireKind(record.Edit.Kind)}";
         var text = record.State == WorldEditState.Pending
             ? string.Join('\n', $"{head} pending", $"accepted {record.AcceptedAt} target {record.TargetStep}")
             : string.Join('\n', $"{head} {WorldEditCodec.WireState(record.State)} {record.Status}", $"accepted {record.AcceptedAt} executed {record.ExecutedAt}");
-        return submission.Result is VoxelCellSetResult cells && cells.OwnerKind != VoxelCellOwnerKind.None
-            ? string.Join('\n', text, FormatCellConflict(cells))
-            : text;
+        if (submission.Result is not VoxelCellSetResult cells)
+            return text;
+        if (cells.Conflicts.Count > 0)
+            return string.Join('\n', new[] { text }.Concat(FormatCellConflicts(cells.Conflicts)));
+        return cells.OwnerKind == VoxelCellOwnerKind.None
+            ? text
+            : string.Join('\n', text, FormatCellConflict(cells));
     }
 
     public static string FormatHistorySubmission(VoxelDevelopmentSession session, Func<WorldEditSubmission> submit)
@@ -74,11 +103,20 @@ internal static class WorldEditConsole
         return text;
     }
 
+    public static IEnumerable<string> FormatCellConflicts(IReadOnlyList<VoxelCellConflict> conflicts)
+    {
+        yield return $"conflicts {conflicts.Count}";
+        foreach (var conflict in conflicts.Take(VoxelRegionLimits.ConflictDisplayLimit))
+            yield return FormatCellConflict(conflict.ToResult());
+        if (conflicts.Count > VoxelRegionLimits.ConflictDisplayLimit)
+            yield return $"conflicts omitted {conflicts.Count - VoxelRegionLimits.ConflictDisplayLimit}";
+    }
+
     private static string FormatCellConflict(VoxelCellSetResult result) => result.OwnerKind switch
     {
         VoxelCellOwnerKind.RailSegment => $"conflict rail-segment {result.OwnerId} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})",
         VoxelCellOwnerKind.VehiclePart => $"conflict vehicle {result.OwnerId} part {result.PartId} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})",
-        _ => throw new ArgumentOutOfRangeException(nameof(result), "Cell conflict owner must be defined.")
+        _ => $"conflict {result.Status} at ({result.Position.X}, {result.Position.Y}, {result.Position.Z})"
     };
 
     public static string? Execute(VoxelDevelopmentSession session, IReadOnlyList<string> arguments)
