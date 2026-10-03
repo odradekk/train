@@ -70,6 +70,9 @@ public sealed class WorldEditorVoxelTool : IDisposable
     public WorldVoxelCoord BoxCorner { get; private set; }
     public bool BoxCornerPending { get; private set; }
     public bool StrokeInProgress { get; private set; }
+    /// <summary>A queued press may start the stroke before its release is dispatched.</summary>
+    public bool AcceptsPointerRelease(bool pressPending = false) =>
+        Active && Mode == WorldEditorVoxelMode.Brush && (StrokeInProgress || pressPending);
     public bool CanUndoDraft => HasDraft && !StrokeInProgress && !_session.IsChangingWorld && _undo.Count > 0;
     public bool CanRedoDraft => HasDraft && !StrokeInProgress && !_session.IsChangingWorld && _redo.Count > 0;
     public ulong HistoryEvictionCount { get; private set; }

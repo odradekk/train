@@ -168,7 +168,7 @@ public partial class WorldEditorObservationView : Node3D
             var ray = actions.Length == 0 ? PointerRay(_pointerScreen!.Value)
                 : _session.VoxelTool?.Active == true
                     ? actions.FirstOrDefault(action => action.Action == WorldPointerAction.LeftPressed).Ray ?? actions[^1].Ray
-                    : actions[^1].Ray;
+                    : actions.LastOrDefault(action => action.Action == WorldPointerAction.LeftReleased).Ray ?? actions[^1].Ray;
             var pick = LastPointerPick;
             if (_pointerPickFrame != Engine.GetProcessFrames())
             {
@@ -399,8 +399,8 @@ public partial class WorldEditorObservationView : Node3D
             _extendListSelection = listClick.CtrlPressed || listClick.MetaPressed || listClick.ShiftPressed;
         if (Observer is not null && !_consoleOpen() &&
             @event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } release &&
-            !WorldRect.HasPoint(release.Position) && _session.VoxelTool is { Active: true, Mode: WorldEditorVoxelMode.Brush } tool &&
-            (tool.StrokeInProgress || _pointerActions.Any(action => action.Action == WorldPointerAction.LeftPressed)))
+            !WorldRect.HasPoint(release.Position) && _session.VoxelTool is { } tool &&
+            tool.AcceptsPointerRelease(pressPending: _pointerActions.Any(action => action.Action == WorldPointerAction.LeftPressed)))
         {
             // A stroke can be released over the inspector, outside World.GuiInput's delivery area.
             _pointerActions.Add((PointerRay(release.Position), WorldPointerAction.LeftReleased));

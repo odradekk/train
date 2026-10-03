@@ -1524,10 +1524,19 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(view.ModeInput.GetPopup().Visible, "cell mode popup did not open after box checks");
                 ChooseOpenOption(view.ModeInput, (int)WorldEditorVoxelMode.Cell);
                 Click(view.SelectToolButton);
+                Require(session.Query(CellToolCommittedCellForRun).Voxel is not null &&
+                        session.Query(VerticalXCell).Voxel is not null &&
+                        CellToolCommittedCellForRun != VerticalXCell,
+                    "selection release/motion fixture did not retain two distinct pickable world cells");
+                ClickAt(WorldScreen(CellToolCommittedCellForRun));
+                Motion(WorldScreen(VerticalXCell));
                 _phase++;
                 return;
             case 124:
-                Require(!state.Active && !state.HasDraft, "target-switch fixture did not activate the selection tool");
+                Require(!state.Active && !state.HasDraft &&
+                        scene.Observation!.Observer.Selection is { Kind: ObservedObjectKind.WorldCell } clicked &&
+                        clicked.Cell == CellToolCommittedCellForRun,
+                    "selection click resolved against the following same-frame pointer motion instead of its release target");
                 var pending = VoxelCellRegion.Box(RegionPendingFirst, RegionPendingSecond, 1);
                 Require(session.SubmitRegion(pending, VoxelCellOperation.Add,
                             new VoxelCellContent(state.DefinitionId, state.Orientation), atStep: 3,
@@ -1543,7 +1552,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 state.SetExact(new WorldVoxelCoord(7, 3, 5), state.DefinitionId, state.Orientation, VoxelCellOperation.Add);
                 Require(state.HasDraft && scene.SaveWorld().Succeeded && state.HasDraft,
                     "ordinary save discarded the cell draft");
-                ClickAt(WorldScreen(CellToolCommittedCellForRun));
+                ClickAt(WorldScreen(VerticalXCell));
                 _phase++;
                 return;
             case 125:
@@ -1554,7 +1563,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 return;
             case 126:
                 Require(!state.HasDraft && scene.Observation!.Observer.Selection is { Kind: ObservedObjectKind.WorldCell } selected &&
-                        selected.Cell == CellToolCommittedCellForRun,
+                        selected.Cell == VerticalXCell,
                     "discarding the target-switch draft did not select the clicked committed cell");
                 scene.SetEditInputs(new WorldVoxelCoord(15, 4, 10), default, 1, 0);
                 scene.ApplyOperation(scene.EditOperation("edit_manufacture"));

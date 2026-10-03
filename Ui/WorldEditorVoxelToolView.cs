@@ -330,7 +330,7 @@ public partial class WorldEditorVoxelToolView : Node3D
             return false;
         if (action == WorldPointerAction.LeftReleased)
         {
-            if (State.Mode != WorldEditorVoxelMode.Brush || !State.StrokeInProgress)
+            if (!State.AcceptsPointerRelease())
                 return false;
             HandleSubmission(State.EndStroke());
             Present(pointerInput: true);
