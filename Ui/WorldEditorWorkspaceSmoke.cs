@@ -463,7 +463,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                         100, confirmEndHistory: true).Accepted,
                     "example copy rejected a formal future edit");
                 scene.Press("run");
-                _phase = 2;
+                _phase = 1;
                 return;
             }
             if (session.SimulationStep < 5)
@@ -1008,9 +1008,6 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     private static void ClickAt(Vector2 position)
         => GodotSmokeInput.Click(position);
-
-    private static void DragAt(Vector2 start, Vector2 end)
-        => GodotSmokeInput.Drag(start, end);
 
     private void FocusWorld()
     {

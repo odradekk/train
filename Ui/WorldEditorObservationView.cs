@@ -214,27 +214,27 @@ public partial class WorldEditorObservationView : Node3D
     internal static WorldEditorBoxCandidate[] ProjectBoxCandidates(VoxelDevelopmentSession session,
         TrainDisplaySample sample, Camera3D camera, Rect2 rectangle, out int samples)
     {
-        IEnumerable<(ObservedObject Object, Vector3 Point)> Samples()
+        IEnumerable<(ObservedObject? Object, WorldVoxelCoord? Cell, Vector3 Point)> Samples()
         {
             foreach (var vehicle in session.Vehicles)
             {
                 var frame = WorldEditorObserver.VehicleFrame(session, sample, vehicle.Id)!;
                 foreach (var part in vehicle.Parts)
-                    yield return (ObservedObject.Vehicle(vehicle.Id), To(WorldEditorObserver.PartCenter(part, frame.Transform)));
+                    yield return (ObservedObject.Vehicle(vehicle.Id), null, To(WorldEditorObserver.PartCenter(part, frame.Transform)));
             }
             foreach (var (cell, _) in session.World.OccupiedVoxels())
-                yield return (WorldEditorInspector.WorldTarget(session, cell), new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f));
+                yield return (null, cell, new Vector3(cell.X + 0.5f, cell.Y + 0.5f, cell.Z + 0.5f));
         }
         var projected = new List<WorldEditorBoxCandidate>();
         samples = 0;
-        foreach (var (item, point) in Samples())
+        foreach (var (item, cell, point) in Samples())
         {
             samples++;
             if (camera.IsPositionBehind(point))
                 continue;
             var screen = camera.UnprojectPosition(point);
             if (rectangle.HasPoint(screen))
-                projected.Add(new(item, point, screen));
+                projected.Add(new(item ?? WorldEditorInspector.WorldTarget(session, cell!.Value), point, screen));
         }
         // Filter before applying the ray budget. Distance, coordinates and identity break ties independently of
         // world dictionary insertion/load order, so an oversized rectangle always truncates the same candidates.

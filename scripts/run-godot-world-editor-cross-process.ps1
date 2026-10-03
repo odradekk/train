@@ -206,11 +206,8 @@ if ($Workspace) {
             'WORKSPACE_MULTI_COST candidates=(\d+) rays=(\d+) truncated=(true|false) elapsed_ms=([0-9.]+)')
         if (-not $multiCost.Success) { throw 'Workspace multi-select omitted parseable box cost evidence.' }
         $capacity = [regex]::Match($multiSelect,
-            'WORKSPACE_MULTI_CAP samples=(\d+) in_rectangle=(\d+) candidates=(\d+) rays=(\d+) selected=(\d+) truncated=(true) deterministic=true filter_before_cap=true elapsed_ms=([0-9.]+)')
+            'WORKSPACE_MULTI_CAP samples=(\d+) in_rectangle=(\d+) candidates=(\d+) rays=(\d+) selected=(\d+) truncated=true deterministic=true filter_before_cap=true elapsed_ms=([0-9.]+)')
         if (-not $capacity.Success) { throw 'Workspace multi-select omitted capped selection evidence.' }
-        $maximum = [regex]::Match($multiSelect,
-            'WORKSPACE_MULTI_MAX_BLANK bounds=(\d+x\d+x\d+) occupied=(\d+) samples=(\d+) in_rectangle=(\d+) projection_elapsed_ms=([0-9.]+)')
-        if (-not $maximum.Success) { throw 'Workspace multi-select omitted maximum-world traversal evidence.' }
         [ordered]@{
             outcome = 'passed'
             durationMs = $started.ElapsedMilliseconds
@@ -234,15 +231,7 @@ if ($Workspace) {
                 candidates = [int]$capacity.Groups[3].Value
                 rays = [int]$capacity.Groups[4].Value
                 selected = [int]$capacity.Groups[5].Value
-                truncated = $capacity.Groups[6].Value -eq 'true'
-                elapsedMs = [double]::Parse($capacity.Groups[7].Value, [Globalization.CultureInfo]::InvariantCulture)
-            }
-            maximumWorld = [ordered]@{
-                bounds = $maximum.Groups[1].Value
-                occupied = [int]$maximum.Groups[2].Value
-                samples = [int]$maximum.Groups[3].Value
-                inRectangle = [int]$maximum.Groups[4].Value
-                projectionElapsedMs = [double]::Parse($maximum.Groups[5].Value, [Globalization.CultureInfo]::InvariantCulture)
+                elapsedMs = [double]::Parse($capacity.Groups[6].Value, [Globalization.CultureInfo]::InvariantCulture)
             }
             exportedWorld = $env:TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH
         } |

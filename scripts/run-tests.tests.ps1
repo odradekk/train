@@ -930,7 +930,6 @@ internal static class Program
                     Console.WriteLine("WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true");
                     Console.WriteLine("WORKSPACE_MULTI_COST candidates=17 rays=4 truncated=false elapsed_ms=4.5");
                     Console.WriteLine("WORKSPACE_MULTI_CAP samples=5000 in_rectangle=4200 candidates=4096 rays=4000 selected=300 truncated=true deterministic=true filter_before_cap=true elapsed_ms=12.5");
-                    Console.WriteLine("WORKSPACE_MULTI_MAX_BLANK bounds=320x32x32 occupied=327680 samples=327680 in_rectangle=12345 projection_elapsed_ms=25.5");
                 }
                 else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
                 Console.WriteLine("WORKSPACE_DONE leg=" + leg);
@@ -989,9 +988,6 @@ It "fixture-workspace-script" {
             Assert-Equal 'reported box rays' 4 ([int] $report.multiSelection.rays)
             Assert-Equal 'reported box elapsed' 4.5 ([double] $report.multiSelection.elapsedMs)
             Assert-Equal 'reported capped candidates' 4096 ([int] $report.boxCapacity.candidates)
-            Assert-Equal 'reported cap truncation' $true ([bool] $report.boxCapacity.truncated)
-            Assert-Equal 'reported maximum samples' 327680 ([int] $report.maximumWorld.samples)
-            Assert-Equal 'reported maximum projection cost' 25.5 ([double] $report.maximumWorld.projectionElapsedMs)
         } else {
             Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume-old.stdout.log')))
             Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))

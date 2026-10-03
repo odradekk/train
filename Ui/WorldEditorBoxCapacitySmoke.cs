@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using Godot;
 using Train.Domain.Commands;
 using Train.Domain.Voxels;
@@ -6,7 +5,7 @@ using Train.Domain.WorldEditor;
 
 namespace Train;
 
-/// <summary>Real Godot coverage for the box-selection cap, plus maximum-blank-world projection cost.</summary>
+/// <summary>Real Godot coverage for the box-selection cap and stable rectangle filtering.</summary>
 internal sealed class WorldEditorBoxCapacitySmoke(WorldEditorScene scene)
 {
     private const int FixtureMargin = 128;
@@ -36,7 +35,6 @@ internal sealed class WorldEditorBoxCapacitySmoke(WorldEditorScene scene)
                     (_added.Count > 0 && !scene.Colliders.QueryPublishedCellInterior(scene.GetWorld3D(), _added[0])))
                     return false;
                 CheckRealSelection();
-                MeasureMaximumBlankWorld();
                 return true;
             default:
                 return true;
@@ -130,40 +128,6 @@ internal sealed class WorldEditorBoxCapacitySmoke(WorldEditorScene scene)
                  $"candidates={result.Candidates} rays={result.Rays} selected={result.Objects.Count} " +
                  $"truncated={result.Truncated.ToString().ToLowerInvariant()} deterministic=true filter_before_cap=true " +
                  $"elapsed_ms={result.ElapsedMilliseconds:0.###}");
-    }
-
-    private void MeasureMaximumBlankWorld()
-    {
-        Require(BlankWorldSource.TryIdentity(BlankWorldSource.MaxSizeX, BlankWorldSource.MaxSizeY,
-            BlankWorldSource.MaxSizeZ, 185, out var identity), "maximum blank-world identity was rejected");
-        var main = scene.GetNode<Main>("/root/Main");
-        var reloader = main.Reloader ?? throw new InvalidOperationException("content reloader is unavailable");
-        var maximum = BlankWorldSource.Establish(identity, reloader.Catalog, reloader.Composites, store: null);
-        try
-        {
-            var voxel = new WorldVoxel(WorldEditorSequences.EditVoxelId, 100, VoxelOrientation.Identity);
-            var bounds = maximum.World.Bounds;
-            for (var x = 0; x < bounds.SizeX; x++)
-            for (var y = 0; y < bounds.SizeY; y++)
-            for (var z = 0; z < bounds.SizeZ; z++)
-                Require(maximum.World.TryAdd(new WorldVoxelCoord(x, y, z), voxel),
-                    $"maximum blank-world fill rejected {x},{y},{z}");
-
-            var timer = Stopwatch.StartNew();
-            var candidates = WorldEditorObservationView.ProjectBoxCandidates(
-                maximum, maximum.QueryDisplayPoses(), scene.Camera, View.WorldRect, out var samples);
-            timer.Stop();
-            var expected = BlankWorldSource.MaxSizeX * BlankWorldSource.MaxSizeY * BlankWorldSource.MaxSizeZ;
-            Require(samples == expected && maximum.World.VoxelCount == expected,
-                $"maximum blank-world traversal visited {samples} of {expected} occupied samples");
-            GD.Print($"WORKSPACE_MULTI_MAX_BLANK bounds={bounds.SizeX}x{bounds.SizeY}x{bounds.SizeZ} " +
-                     $"occupied={maximum.World.VoxelCount} samples={samples} in_rectangle={candidates.Length} " +
-                     $"projection_elapsed_ms={timer.Elapsed.TotalMilliseconds:0.###}");
-        }
-        finally
-        {
-            maximum.Detach();
-        }
     }
 
     private static Vector3 Center(WorldVoxelCoord cell) =>

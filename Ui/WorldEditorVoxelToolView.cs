@@ -97,7 +97,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         var actions = new HBoxContainer();
         box.AddChild(actions);
         CommitButton = Button(actions, "提交单格", Commit);
-        DiscardButton = Button(actions, "放弃草稿", () => { State.Discard(); Present(); });
+        DiscardButton = Button(actions, "放弃草稿", Discard);
         DraftPrompt = new ConfirmationDialog { Title = "先处理体素草稿", DialogText = "切换工具、层级或目标前，请提交或放弃当前草稿。", OkButtonText = "提交草稿", CancelButtonText = "继续编辑" };
         AddChild(DraftPrompt);
         DraftCommitButton = DraftPrompt.GetOkButton();
@@ -129,7 +129,7 @@ public partial class WorldEditorVoxelToolView : Node3D
     {
         DraftPrompt.Hide();
         if (discard)
-            State.Discard();
+            Discard();
         else
             Commit();
         if (State.HasDraft)
@@ -145,10 +145,18 @@ public partial class WorldEditorVoxelToolView : Node3D
 
     internal void Commit()
     {
+        _inputNotice = "";
         if (!HasContentSelection && State.Operation != VoxelCellOperation.Remove)
             return;
         var result = State.Commit();
         _lastResult = result.Result is VoxelCellSetResult cells ? Describe(cells, State.HasBatchDraft) : result.Status;
+        Present();
+    }
+
+    private void Discard()
+    {
+        State.Discard();
+        _inputNotice = "";
         Present();
     }
 
