@@ -651,7 +651,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
                 Require(state.HasDraft && state.Position == CellToolCommittedCellForRun &&
                         state.Preview.Status == VoxelCellSetStatus.Occupied,
                     "precise parameters did not share the rejected occupied-cell preview");
-                Click(view.CommitButton);
+                ClickAt(PlaneScreen(CellToolCommittedCellForRun));
                 Click(view.SelectToolButton);
                 _phase++;
                 return;

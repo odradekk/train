@@ -28,16 +28,19 @@ public sealed class WorldEditPersistenceTests
         var cells = new[]
         {
             new WorldVoxelCoord(4, 2, 4),
-            new WorldVoxelCoord(4, 2, 5),
+            new WorldVoxelCoord(5, 2, 4),
             new WorldVoxelCoord(4, 2, 6)
         };
-        var ends = cells.Select(cell => cell with { X = 5 }).ToArray();
+        var ends = cells.Select(cell => cell with { X = cell.X + 1 }).ToArray();
         var submissions = new[]
         {
             writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[0], ends[0], 1), VoxelCellOperation.Add, content, atStep: 3),
             writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[1], ends[1], 1), VoxelCellOperation.Add, content, atStep: 3),
             writer.Session.SubmitRegion(VoxelCellRegion.Box(cells[2], ends[2], 1), VoxelCellOperation.Add, content, atStep: 3)
         };
+        Assert.IsTrue(submissions.All(item => item.Accepted && item.Record!.State == WorldEditState.Pending));
+        CollectionAssert.AreEqual(new[] { 2, 2, 2 }, submissions.Select(item => item.RegionPreview!.AffectedCount).ToArray());
+        Assert.AreEqual(0, writer.Session.World.VoxelCount);
         CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, submissions.Select(item => item.Record!.Id).ToArray());
         var acceptedPayloads = submissions.Select(item => item.Record!.Canonical).ToArray();
         var saved = writer.Session.Save("region pending");
@@ -50,8 +53,20 @@ public sealed class WorldEditPersistenceTests
         CollectionAssert.AreEqual(acceptedPayloads, reader.QueryPendingEdits().Select(item => item.Canonical).ToArray());
         Assert.IsTrue(reader.ResumeSimulation().Succeeded);
         Assert.IsTrue(reader.AdvanceSimulation(3).Succeeded);
-        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, reader.QueryEditLog().Select(item => item.Id).ToArray());
-        Assert.IsTrue(cells.Concat(ends).All(cell => reader.Query(cell).IsOccupied));
+        var executed = reader.QueryEditLog();
+        CollectionAssert.AreEqual(new ulong[] { 1, 2, 3 }, executed.Select(item => item.Id).ToArray());
+        CollectionAssert.AreEqual(new[] { WorldEditState.Executed, WorldEditState.Rejected, WorldEditState.Executed },
+            executed.Select(item => item.State).ToArray());
+        CollectionAssert.AreEqual(new[] { nameof(VoxelCellSetStatus.Applied), nameof(VoxelCellSetStatus.Occupied),
+            nameof(VoxelCellSetStatus.Applied) }, executed.Select(item => item.Status).ToArray());
+        CollectionAssert.AreEqual(new SimulationPosition?[] { new(3, 0), new(3, 1), new(3, 2) },
+            executed.Select(item => item.ExecutedAt).ToArray());
+        Assert.IsTrue(new[] { cells[0], ends[0], cells[2], ends[2] }.All(cell => reader.Query(cell).IsOccupied));
+        Assert.IsFalse(reader.Query(ends[1]).IsOccupied);
+        var conflict = reader.ValidateCells((VoxelCellSetEdit)executed[1].Edit);
+        Assert.AreEqual(VoxelCellSetStatus.Occupied, conflict.Status);
+        Assert.AreEqual(cells[1], conflict.Position);
+        Assert.AreEqual(cells[1], conflict.Conflicts.Single().Position);
     }
 
     [TestMethod]

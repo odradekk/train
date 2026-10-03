@@ -276,6 +276,7 @@ public partial class WorldEditorVoxelToolView : Node3D
         var point = origin + direction * distance;
         var target = new WorldVoxelCoord((int)Math.Floor(point.X), State.Height, (int)Math.Floor(point.Z));
         if (action == WorldPointerAction.LeftPressed && State.HasDraft &&
+            (State.Mode != WorldEditorVoxelMode.Cell || State.Position != target) &&
             (State.Mode != WorldEditorVoxelMode.Box || !State.BoxCornerPending))
         {
             RequestChange(() =>
