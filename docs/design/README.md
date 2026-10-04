@@ -1,4 +1,4 @@
-# 设计文档集：火车放置贸易游戏
+# 设计文档集：列车放置经营游戏
 
 本目录是项目唯一且权威的设计契约。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。
 
@@ -23,7 +23,7 @@
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
 7. Deterministic Simulation 是整个项目的基础架构原则。
 
-资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，实现随后续切片安排；市场与价格、聚居地市场模拟与人口模拟属于 Demo，具体设计待定；AI、自动贸易、复杂调度和完整车辆设计器在 Demo 之后扩充。
+Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；市场与价格、人口、战斗与征服的具体规则待定。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实现随后续切片安排。AI 势力、自动贸易策略和复杂调度在 Demo 之后扩充。
 
 ## 文档地图
 
