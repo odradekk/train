@@ -118,4 +118,4 @@ ConstructionJob、RefitJob、RepairJob、DeconstructionJob、地块预留、库�
 - 地图迷雾（不立票）：未冻结的参数，包括 ConstructionWorkPerVoxel、RefitWorkPerChangedVoxel、DeconstructionWorkPerVoxel、受损部件的修理工作量，以及 Construction Equipment 的基础能力。
 - 地图迷雾（不立票）：建造、改装、修理的主动 Pause / Resume，以及四类任务的主动取消与退款，有待后续设计；Demo 只采用上文已明确的暂停与失败结算规则。
 
-按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时，再立票。
+资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。

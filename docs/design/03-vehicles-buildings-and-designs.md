@@ -1,8 +1,6 @@
 # 03 车辆、建筑与设计属性
 
 > **所属层**：核心模拟层（车辆与建筑的实例）；设计的体素布局与合法性属于内容和设计编辑器。
->
-> **修订中**：文末的“本阶段改装操作”原样保留了以全局体素世界为前提的旧契约，交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。改写完成前，这一节不能作为实现依据；其余规则继续有效。
 
 > 决策出处：实例保存的内容、部件与结构、设计属性、损伤粒度、编组成员、五档尺寸，以及建造、改装、修理的含义，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确认。它取代了逐体素实例、连通断裂、身份继承和体素所有权等规则。Tag、Behavior、Capability 三层与 Behavior 组合沿用转录 Q10–Q16、Q43–Q52、Q63–Q88；功能设备为单格体素沿用资源转录 Q284。
 
@@ -120,13 +118,6 @@
 - 采用 Behavior Registry + Composition。避免 Voxel → MechanicalVoxel → EngineVoxel → DieselEngineVoxel 这样的继承链；一个体素定义组合 EngineBehavior、FuelConsumerBehavior 等多个 Behavior。
 - 核心模拟层不逐体素执行 Behavior。Behavior 在内容层汇总为设计属性；运行时只根据设计属性和实例状态计算。
 - Behavior 按所属对象的语境生效（转录 Q69）。
-
-### 本阶段改装操作
-
-- 世界编辑器和控制台的世界修改命令完整覆盖添加、移除、移动、旋转和替换车辆体素；旋转遵守体素正交方向约束。
-- 支持一次提交多项修改，例如交换两个零件的位置。按最终方案校验并原子提交，施工中间状态不进入 Simulation。
-- 移动、旋转已有零件时保留其身份、耐久和已有运行状态；替换表示旧件移除、新件加入，不将旧件身份和状态作为新件继承。
-- 非法改装整体拒绝，原车辆及其零件状态不变；成功改装保留车辆身份。制造新车仍走 Blueprint 加载、Construction Validation 与 Instantiate 流程。
 
 ## Demo 范围
 

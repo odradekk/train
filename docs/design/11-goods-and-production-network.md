@@ -184,4 +184,4 @@ Future Product Families 的具体产品与 Process；Window、Door、Armor Block
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
 - 地图迷雾（不立票）：Train Equipment 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
-按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。
+资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。

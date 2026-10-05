@@ -153,4 +153,4 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 
 - 地图迷雾（不立票）：未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数。
 
-按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。[#78](https://github.com/odradekk/train/issues/78) 已随之延期；它仅验证开采伤害与 Yield，明确不含 Facility、Job 和 OutputBuffer，不受此处输出提交边界阻塞。
+资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。

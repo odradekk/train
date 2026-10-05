@@ -1,8 +1,6 @@
 # 02 Definition、Revision、Instance 与内容来源
 
 > **所属层**：内容。
->
-> **修订中**：“本阶段表现资产校验”交给[新阶段：下一个里程碑的范围与验收](https://github.com/odradekk/train/issues/212)改写。改写完成前，该节不能作为实现依据；其余规则有效。
 
 > 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。
 
@@ -134,11 +132,11 @@
 - 读档遇到相同问题时明确报告并失败。Demo 不自动替换零件、删除状态或回退到存档中的旧 Mod 定义。
 - 全部校验与状态适配成功后再原子发布内容及相关实例更新。这替代 #31 曾确定的“保留旧 Revision 即可接受目录删除”规则。
 
-### 本阶段表现资产校验
+### 表现资产校验
 
-[三路表现契约](07-rendering.md#本阶段表现验收契约)确认 Cube、CustomStaticMesh 与领域专用表现共存；CustomStaticMesh 使用 LOD0 静态模型、基础颜色/贴图、光照/阴影和不透明或镂空裁剪材质。资产原点、尺寸、方向及适用表现绑定须有明确约定，具体文件格式和字段由实施规格记录；模型不能替代权威碰撞定义。
+Cube、CustomStaticMesh 与领域专用表现共存（[07](07-rendering.md#总体策略)）；CustomStaticMesh 使用 LOD0 静态模型、基础颜色/贴图、光照/阴影和不透明或镂空裁剪材质。资产原点、尺寸、方向及适用表现绑定须有明确约定，具体文件格式和字段由实施规格记录；模型不能替代权威碰撞定义。
 
-模型、材质等必需资产缺失、损坏或不支持，以及专用渲染绑定不存在或不适用，均须明确诊断。首次加载沿用上文内容包校验与候选自洽规则；热重载失败保留旧 Catalog、世界及有效表现，不部分发布，也不以静默替换 Cube 或隐藏对象冒充成功。合法纯表现变化采用 Asset Revision/表现绑定及 Catalog 发布机制，更新受影响视觉，不改变 Semantic Revision、碰撞、身份、铁路连接或模拟结果。区域未驻留不妨碍内容有效性校验，再次显示时使用当前有效内容。
+模型、材质等必需资产缺失、损坏或不支持，以及专用渲染绑定不存在或不适用，均须明确诊断。首次加载沿用上文内容包校验与候选自洽规则；热重载失败保留旧 Catalog、世界及有效表现，不部分发布，也不以静默替换 Cube 或隐藏对象冒充成功。合法纯表现变化采用 Asset Revision/表现绑定及 Catalog 发布机制，更新受影响视觉，不改变 Semantic Revision、碰撞、身份、铁路连接或模拟结果。场景未打开不妨碍内容有效性校验，再次构建场景时使用当前有效内容。
 
 ## Demo 范围
 

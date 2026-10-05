@@ -219,4 +219,4 @@
 
 ## 开放问题
 
-- 地图迷雾“新阶段”（不立票）：倍速最高档、录制容量与起点间隔、确定性长测的运行时长与负载，以及标准测试地图，在性能实测后确认，原先见[实测与参数冻结](https://github.com/odradekk/train/issues/119)和[可执行 Benchmark](https://github.com/odradekk/train/issues/157)。
+- 倍速最高档按 8× 测量；录制容量与起点间隔、确定性长测的运行时长，在开发机实测后提交用户确认。标准测试地图和长测见 [00 的本阶段验收](00-product-and-core-loop.md#本阶段验收)。
