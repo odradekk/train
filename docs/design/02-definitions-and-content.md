@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 >
-> **修订中**：“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中聚居地布局的内容含义见 [16](16-settlements.md#布局)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。
 
@@ -174,7 +174,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 | 独立草稿（非有效来源） | `user://authoring-drafts/`，带版本的创作文档，不参与有效内容扫描 |
 
 - 定义文件带明确的 `schema_version`，按内容类型（体素定义、蓝图、Layout）区分格式；文件后缀和各格式的版本在代码重构时确定。目录用于组织文件，不决定定义身份。
-- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由 [16](16-settlements.md) 的 SettlementArchetype 与 Layout 取代，不作为长期内容类型。
+- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由节点资源和 [16](16-settlements.md) 的聚居地类型与布局取代，不作为长期内容类型。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；本轮将创作视图纳入世界编辑器，按上述顺序分片交付，不再以“正式设计器延后”排除编辑器能力。
 

@@ -1,8 +1,7 @@
 # 13 生产运行时与设施能力
 
 > **所属层**：核心模拟层。
->
-> **修订中**：不变量“玩家与 NPC 聚居地使用同一套规则”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)确认。Process、Batch、Resolver、OutputBuffer、Job 生命周期等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 
 > 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance 回收、剩余燃料改由聚居地电力池共用，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。
 
@@ -18,7 +17,7 @@
 - 所有长生命周期 Job、OutputBuffer、Reservation、Fuel remainder 等影响未来模拟的状态都必须持久化。
 - 已启动事务的承诺不能被内容热更新重新解释：需要冻结的执行契约在 Job 启动时冻结；外部 Definition 身份仍按 DefinitionId / current-definition 规则解析。
 - 所有 Job 严格遵守 Simulation Tick Barrier。
-- 玩家与 NPC 聚居地使用同一套 ProcessDefinition、Facility 与 Capability 规则；差异只来自设施、产能与地域，NPC 聚居地不使用另一套简化公式凭空产出 Goods（资源转录 Q182）。
+- 玩家与 NPC 聚居地使用同一套 ProcessDefinition、Facility 与 Capability 规则；差异只来自设施、产能与地域，NPC 聚居地不使用另一套简化公式凭空产出 Goods（资源转录 Q182）。这条规则覆盖生产与库存；Demo 中 NPC 聚居地不自行建造，见 [16](16-settlements.md#npc-聚居地)（[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)，2026-10-05）。
 
 ## 规则
 

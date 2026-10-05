@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层。
 >
-> **修订中**：由[地图](https://github.com/odradekk/train/issues/193)迷雾“存档”改写：“存档组成”中的生成基底加 Runtime Delta，以及“本阶段保存契约”中的“生成基底与来源身份”“候选世界恢复与校验”，都依赖全局体素世界；旧存档能否读取也由该迷雾决定。“静态建筑与修复目标恢复”依赖全局体素世界，同时交给[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)；“视觉驻留与渲染原点”已失去意义，局部场景不进入存档（[ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)）；“世界编辑器存档工作流”属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”。“保存边界”由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)、“列车状态恢复”由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)于 2026-10-05 确定，已经有效；录制与复现的规则已移到 [04](04-deterministic-simulation.md#录制与复现)。格式版本、ID 计数、定义绑定、资源与生产状态恢复等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：由[地图](https://github.com/odradekk/train/issues/193)迷雾“存档”改写：“存档组成”中的生成基底加 Runtime Delta，以及“本阶段保存契约”中的“生成基底与来源身份”“候选世界恢复与校验”，都依赖全局体素世界；旧存档能否读取也由该迷雾决定。“视觉驻留与渲染原点”已失去意义，局部场景不进入存档（[ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)）；“世界编辑器存档工作流”属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”。“保存边界”由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)、“列车状态恢复”由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)、“聚居地与建筑状态恢复”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)于 2026-10-05 确定，已经有效；录制与复现的规则已移到 [04](04-deterministic-simulation.md#录制与复现)。格式版本、ID 计数、定义绑定、资源与生产状态恢复等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q29、Q42、Q79–Q88；2026-09-05 #34 确认无状态随机与浮点往返要求；[#35](https://github.com/odradekk/train/issues/35) 确认当前外部定义绑定与落盘方式，见 [ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。
 
@@ -107,7 +107,7 @@ Save
 └─ Save-local Definitions
 ```
 
-上图为本阶段逻辑组成，具体字段编码随实现规格冻结。Runtime Delta 须保留本节确定的实际结构、铁路路径与保护、故障、建筑修复目标和残块来源等事实；不能将 Seed 和 GeneratorVersion 视为充分重建输入。普通存档、世界来源与复现包分别按各自格式/规则版本解释，外部 Semantic Revision、Asset Revision 和运行时 Catalog Generation 的职责继续遵守 [02](02-definitions-and-content.md)，不能用目录发布计数代替持久版本身份。
+上图为本阶段逻辑组成，具体字段编码随实现规格冻结。Runtime Delta 须保留本节确定的实际结构与运行状态；不能将 Seed 和 GeneratorVersion 视为充分重建输入。普通存档、世界来源与复现包分别按各自格式/规则版本解释，外部 Semantic Revision、Asset Revision 和运行时 Catalog Generation 的职责继续遵守 [02](02-definitions-and-content.md)，不能用目录发布计数代替持久版本身份。
 
 后期如果加载性能出现瓶颈，用 Snapshot + Delta 作为优化。Demo 不做完整 Event Sourcing。
 
@@ -160,7 +160,7 @@ Save
 
 ### 定义绑定与恢复
 
-以下外部定义绑定原则不允许用最新版 Blueprint 重写实际实例或建筑修复目标；建筑两类布局状态的保存要求见下节。
+以下外部定义绑定原则不允许用最新版 Blueprint 重写实际实例；实例引用的蓝图版本随存档保存，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。
 
 - 普通存档中的外部定义只保存 DefinitionId 和上次使用的 Revision，后者用于识别变化；不嵌入旧外部定义副本。普通读档时按 ID 使用当前安装的内置、Mod 或用户内容库定义；严格复现使用上文隔离复现包中已核验的原内容。
 - 玩家自定义车辆的布局及其所需的其他存档内定义内嵌保存；其中的外部零件按 ID 引用当前定义，不固定目标 Revision。世界实际布局、实例身份与运行状态从存档恢复，不被更新后的设计模板覆盖。
@@ -169,15 +169,19 @@ Save
 - 缺失必需定义或无法解释保存的状态时明确加载失败；这也包括缺失 Mod 或必需资产导致所需内容包无法通过校验的情况。不自动替换、删除或回退到旧定义。更新 Mod 数值后产生不同模拟结果是预期行为，不属于无损往返失败。
 - 若生成内容更新改变了重建基底，使旧 Runtime Delta 无法正确恢复原实际布局，按不兼容读档失败处理；不能把旧 Delta 静默应用到不同布局后当作成功恢复。
 
-### 静态建筑与修复目标恢复
+### 聚居地与建筑状态恢复
 
-[03 的建筑契约](03-vehicles-buildings-and-designs.md#本阶段静态建筑契约)定义建筑的单一身份、断裂失效、原位碎块与完整修复。恢复须覆盖实际部件布局及身份/耐久、四向落位、核心与失效状态、聚居地/站点引用、实际部件绑定的接轨接口，以及该建筑最后确认的完整修复目标。修复目标不能从受损布局或更新后的外部模板重新猜测；目标中的零件定义仍按当前有效内容解析，不冻结为旧零件数值。
+> 决策出处：[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)，2026-10-05。
 
-普通存档直接保存实例最后确认的完整修复目标，包括必要的局部格、零件 DefinitionId、朝向等设计内容，允许在存档内去重引用；不能只存外部 Blueprint 的 ID/Revision，也不复制旧零件数值。实际受损布局、零件身份与耐久、建筑断裂失效标记、站点及部件绑定另行保存，不能从修复目标代推当前状态。
+以下聚居地状态是核心状态，随存档保存：
 
-原位世界残块保留可验证的来源建筑、零件身份及回收匹配依据，不凭材质相同反推归属。来源建筑已毁坏的历史来源记录允许存在，但不能复活旧建筑。恢复须核验唯一身份与所有权；合法受损建筑可以有多个不连通但有核心的部分，仍是同一失效建筑，不能按车辆规则拆成多个建筑、丢弃部分、自动修复或解除失效。
+- 每个聚居地的所有者与关系、类型、布局和常住人口；
+- 每个地块上的建筑实例（引用的蓝图版本、部件耐久、结构耐久）或工地；
+- 进行中的建造、改装、修理、拆解任务与委托队列；
+- 玩家的租用库存，以及它的容量和到期时间；
+- 停放在聚居地的车辆。
 
-静态占用索引、碰撞和显示按恢复后的实际所有权与布局重建；修复目标不是当前实体占用，不为已缺失部分保留虚假占格。若目标位置后来被其他对象占据，读档仍可恢复合法受损状态，后续修复按占用冲突拒绝。恢复遵守上文候选世界校验流程，跨进程对照纳入 [04 的验收矩阵](04-deterministic-simulation.md#确定性验收)。
+读档后不重新选择布局，也不按新发布的布局调整已有地块。
 
 ### 视觉驻留与渲染原点
 
@@ -185,7 +189,7 @@ Save
 
 ### 资源与生产状态恢复
 
-资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderDeconstruction 锁定、Spatial Reservations、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+资源与生产系统的以下状态都是权威 Runtime State，进入 Runtime Delta，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
 
 ### 文件位置
 

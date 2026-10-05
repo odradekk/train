@@ -2,7 +2,7 @@
 
 > **所属层**：体素引擎层（局部场景与设计编辑器）。
 >
-> **修订中**：“体素尺度”“场景中的结构破损”“线路场景中的铁轨”三节由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确定，已经有效。其余部分仍按全局体素世界书写，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写为局部场景与设计编辑器中的体素规则。“有限三维体素世界”中的全图常驻、全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“所有权”中的世界网格占用和铁路净空交给[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。不变量中的格网规则继续有效，但只适用于体素引擎层。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“体素尺度”“场景中的结构破损”“线路场景中的铁轨”三节由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确定，已经有效。其余部分仍按全局体素世界书写，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写为局部场景与设计编辑器中的体素规则。“有限三维体素世界”中的全图常驻、全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；不变量中的格网规则继续有效，但只适用于体素引擎层。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q1–Q9、Q166–Q175。
 
@@ -73,13 +73,11 @@
 
 - Demo 中 World-owned Voxel 不拥有通用结构支撑模拟：挖掉下面的体素，上面的普通 Voxel 可以悬空。
 - 只有明确具有 GravityBehavior、FallingBehavior 的特殊 Voxel 才会下落。
-- Composite 新建及正常改装要求六面连通；车辆按连通部分拆分，静态建筑受损时保留单一建筑身份并整体失效，见 [03](03-vehicles-buildings-and-designs.md#本阶段静态建筑契约)。建筑不做支撑坍塌，无核心碎块原位转为世界体素，仍可悬空。
+- 新建及正常改装的设计要求六面连通。车辆和建筑在核心模拟层中不按连通部分拆分，见 [03](03-vehicles-buildings-and-designs.md#损伤与战斗事件)。
 
 ### 所有权
 
 任意 Voxel Instance 同一时间只有一个空间所有者：World Grid 或 Composite。规则见 [03](03-vehicles-buildings-and-designs.md)。
-
-静态 Building Composite 的实际体素占用登记到世界网格查询中；登记是指向 Composite 内体素的引用，不创建 World-owned 副本，不改变所有权。该格不能再放置其他地形或轨道体素；建筑修改、破坏和修复后同步更新占用，见 [16](16-settlements.md)。占用查询须能追溯真实所有者及建筑零件；占用登记不额外持有一份实例。原位所有权转移应原子撤销旧登记、建立新归属，不能出现双重占用或可被插入其他体素的空窗。铁路净空按实际存在体素的整格保守检查，普通碰撞仍按定义形状；建筑空格不按包围盒填充。
 
 ## Demo 范围
 
