@@ -68,4 +68,4 @@ fault none
 
 [`voxel save`](voxel-save.md) 在格式 5 的 `world_edits` 中写出下一个编号、当前边界序号，以及已接受但未执行的命令及其接受位置与目标步。保存不执行、不清空队列。[`voxel load`](voxel-load.md) 恢复后，队列里的命令仍在原目标步、按原顺序执行一次；混合了体素、载具、铁路与起停的队列在新进程中得到相同结果。保存前目标已被摧毁的命令可以正常恢复，并在到期时拒绝；已完全摧毁、仍被引用的轨段保留登记身份与几何，排队的修复据此定位；引用从未分配过的实体 ID、目标步不晚于存档步、编号或接受位置不递增等坏档整次返回 `InvalidDelta`，未知命令类型或范围内但不支持的输入格式版本返回 `UnknownFormat`；版本或类型字段类型错误、版本超出 32 位有符号整数范围等非法值属于坏档，返回 `InvalidDelta`。执行日志和摘要不写入存档。
 
-规范编码（字段顺序、数值格式、固定向量）见 [设计文档](../design/04-deterministic-simulation.md#世界修改命令的规范编码)。
+规范编码（字段顺序、数值格式、固定向量）见重构前的[设计文档](https://github.com/odradekk/train/blob/62c40d2/docs/design/04-deterministic-simulation.md#世界修改命令的规范编码)；新设计已改为输入格式版本 2，见 [04](../design/04-deterministic-simulation.md#规范编码)。

@@ -32,7 +32,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 层 | 文件 | 内容 |
 | --- | --- | --- |
 | 产品 | [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品定位、核心循环、Demo 范围与本阶段目标 |
-| 核心模拟层 | [04-deterministic-simulation.md](04-deterministic-simulation.md) | 确定性模拟 |
+| 核心模拟层 | [04-deterministic-simulation.md](04-deterministic-simulation.md) | 时间、命令与确定性 |
 | 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
 | 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
 | 核心模拟层 | [06-railway.md](06-railway.md) | 铁路 |
@@ -85,8 +85,8 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 1. 核心模拟层是唯一的权威游戏状态；局部场景、渲染、碰撞和界面都是派生结果。
 2. 核心模拟层不依赖 Godot、SceneTree 和体素引擎层；三层只通过公开接口交互。
-3. 模拟结果与帧率、相机、窗口状态无关，也与局部场景是否打开、打开的是哪一个无关；核心模拟层对整个世界使用同一精度。
-4. 局部场景不保存状态，不影响模拟结果；场景中的操作只能通过命令改变世界。
+3. 模拟结果与帧率、相机、窗口状态、倍速和暂停时机无关，也与局部场景是否打开、打开的是哪一个无关；核心模拟层对整个世界使用同一精度，从不等待玩家，只有玩家暂停和内部故障能让时钟停下。
+4. 局部场景不保存状态，不影响模拟结果；场景中的操作只能通过命令改变世界。每条命令在确定的模拟位置执行一次，作为一个事务原子结算；存档中没有待执行命令。
 5. 列车在世界图上的位置是权威位置，场景中的位置由它派生。
 6. 位置不是持久身份。
 7. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。

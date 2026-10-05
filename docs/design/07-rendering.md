@@ -136,8 +136,6 @@ Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、D
 
 Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 Composite 的 Presentation-only Baking；本阶段不以半透明玻璃、骨骼动画、模型内部机械动画、任意自定义着色器或正式美术完成度作为验收门槛。
 
-Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续功能；若性能问题促使未来考虑引入，须先重审全图全精度模拟规则，见 [04 的开放问题](04-deterministic-simulation.md#开放问题)。
-
 ## 开放问题
 
 - 已确认依据：本阶段跨区域观察、修改/重建与长期运行的渲染性能、内存测量及用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)。
