@@ -139,7 +139,7 @@
 
 ### 存档
 
-Production Plans、ActiveBatch、OutputBuffer、聚居地电力池的 CurrentFuelEnergyRemaining、Job ProgressWork 与 priorities 都是权威 Runtime State，进入 Runtime Delta；完整清单与恢复要求见 [09](09-persistence.md)。
+Production Plans、ActiveBatch、OutputBuffer、聚居地电力池的 CurrentFuelEnergyRemaining、Job ProgressWork 与 priorities 都是核心状态，随存档保存；完整清单与恢复要求见 [09](09-persistence.md#资源与生产状态恢复)。
 
 ## Demo 范围
 
