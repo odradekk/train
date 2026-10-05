@@ -26,6 +26,8 @@
 | 创作模式 | 开发者、Mod 作者 | 开发构建 | 制作场景模型、布局，填写各类定义表单，写入数据包 |
 | 调试模式 | 开发者 | 开发构建 | 调试命令、诊断、录制与重放 |
 
+开发构建指在 Godot 编辑器中运行，或用 debug 导出模板导出的游戏；用 release 模板导出的是玩家构建，见 [ADR-0009](../adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)。开发工具的代码也在玩家构建中，只是不显示。
+
 玩家构建中只有“报告问题”可以导出复现包，见 [08](08-window-and-ui.md#常驻控件)。
 
 ### 设计编辑器
