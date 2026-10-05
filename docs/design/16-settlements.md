@@ -113,7 +113,7 @@
 ### 节点场景
 
 - 节点场景展示：布局中的地形、道路和装饰；地块上的建筑，按蓝图版本构建，破损按 [01](01-voxel-engine-and-scenes.md#场景中的结构破损) 表现；施工中的地块（工地或脚手架）；站点、站台上的列车和在节点等待的列车；正在运行的设施的简单活动效果，例如烟和灯光。
-- 库存、人口、产量等数字只在窗口中显示，见[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)。
+- 库存、人口、产量等数字只在窗口中显示，见 [08](08-window-and-ui.md#管理界面)。
 - 节点场景同样用于节点上的战斗，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。
 
 ### 代码迁移
