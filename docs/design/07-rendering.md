@@ -2,20 +2,20 @@
 
 > **所属层**：体素引擎层与渲染层。
 >
-> **修订中**：由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写：“Visual Streaming”“Render Origin”依赖全图常驻、全精度模拟（转录 Q5），已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“LOD”中关于 Simulation LOD 的规则、“Track Render Section”的几何来源和“列车插值”的位置来源，要按局部场景改写；“本阶段表现验收契约”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。三路表现、Dirty Rendering 和渲染作为派生缓存等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“本阶段表现验收契约”以全局体素世界为前提（视觉驻留、渲染原点切换、跨区观察、物理轨道几何等），由[新阶段：下一个里程碑的范围与验收](https://github.com/odradekk/train/issues/212)改写。改写完成前，该节不能作为实现依据；其余规则有效。
 
-> 决策出处：转录 Q126–Q143、Q179。
+> 决策出处：转录 Q126–Q143、Q179。线路分段、浮动原点、铁轨渲染、列车插值的位置来源、拾取与碰撞，由[局部场景的生成与表现](https://github.com/odradekk/train/issues/210)于 2026-10-05 确认，取代了视觉驻留、全局渲染原点、按物理轨段派生轨道网格和逐格碰撞的规则。
 
 ## 边界
 
-本文定义表现层策略：三路 Voxel Presentation、Chunk Mesh、Custom Static Mesh、Specialized Renderer 与 TrackRenderer、Composite 渲染、Dirty 重建、Visual Streaming、LOD、Render Origin、Collision Adapter。所有内容都是 World State 的派生缓存，不改变 Simulation。相机见 [08](08-window-and-ui.md)。
+本文定义局部场景和设计编辑器的表现策略：三路体素表现、区块网格、自定义静态模型、铁轨渲染、对象渲染、增量重建、LOD、列车插值、拾取与碰撞。所有内容都是核心状态与内容的派生结果，不改变模拟。场景怎样生成见 [01](01-voxel-engine-and-scenes.md)，相机见 [08](08-window-and-ui.md)。
 
 ## 不变量
 
-- Rendering 与 Collider 都是 World State 的派生缓存；World Model 不保存 Godot CollisionShape 作为事实。
-- 本文的表现层 LOD 只改变 Presentation，不改变 Simulation；Simulation LOD 是另需设计决策的模拟策略，不属于渲染优化。
-- Composite 移动时只更新根 Transform，绝不因为移动重建内部 Mesh。
-- Rebase 统一转换局部显示、相机及 Godot 碰撞/查询适配坐标；World Voxel Coordinate、RailPosition、聚居地位置、Save State、Seed、Simulation 永远不变。
+- 渲染与 Godot 碰撞都是派生缓存；核心状态不保存 Godot 网格或碰撞形状。
+- 表现层的任何优化只改变表现，不改变模拟。
+- 车辆、建筑和生物移动时只更新根变换，绝不因为移动重建内部网格。
+- 线路场景的浮动原点移动时只平移场景对象，不改变核心状态、存档或模拟结果。
 
 ## 规则
 
@@ -75,69 +75,58 @@
 - Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
 - 普通 Custom Mesh 的视觉主体应基本限制在自己的 Cell 内；需要真正跨 Cell 的视觉结构进入 Specialized Renderer。
 
-### Specialized Renderer
+### 铁轨渲染
 
-需要领域专用视觉的 Voxel 使用独立 Renderer。首要例子是 TrackRenderer：Rail 仍然参与体素占用与破坏，但渲染网格从物理轨段保存的连续几何及当前有效部分派生，与列车行驶路径使用同一事实来源，见 [06](06-railway.md)。物理曲线参数不是表现缓存；网格与采样缓存可以丢弃重建。
+- 需要领域专用视觉的内容使用独立 Renderer，首要例子是 TrackRenderer。钢轨是沿线路中心线（[01](01-voxel-engine-and-scenes.md#中心线)）生成的网格，不占体素格；轨枕和道床是体素。
+- 铁轨网格按线路场景的分段构建。铁轨数变化或出现断点时，只重建受影响的分段。断点显示为实际缺口，剩余部分不移位。
+- 节点进站区域的道岔只作表现，连接方式由节点场景生成。
+- 不能只在渲染时平滑阶梯状轨道，或缩放、剪切、弯曲车体来掩盖路径错误。
 
-不能只在渲染时平滑阶梯状轨道，或缩放、剪切、弯曲车体来掩盖运动约束错误。轨道破坏须显示实际缺口，剩余完好部分不重新拟合或移位。本阶段弯坡与水平基本道岔的几何边界见 [06 的验证契约](https://github.com/odradekk/train/blob/62c40d2/docs/design/06-railway.md#本阶段几何与车辆验证契约)；其拓扑与切换规则由网络运行决策确定，表现不能独立发明连接。
+### 对象渲染
 
-### Track Render Section
-
-TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成局部 TrackRenderSection，按 Chunk Boundary、Control Point、Junction 等自然边界切分。局部轨道变化只重建受影响的 Section。
-
-### Composite Rendering
-
-- Composite-owned Voxel 不进入 World Chunk Mesh。无论 Composite 是否移动，Demo 统一使用 CompositeVisual { Cube Batch, Custom Mesh Batch, Specialized Visuals }。
-- 移动时 update root Transform only。Damage、Refit、Voxel Layout Change 及引用的表现资产变化标记受影响对象的内部 Visual Dirty 并批量更新；单个对象改变不能触发全部组合体重建。
-- 未来可以针对大量静态 Composite 增加 Presentation-only Baking 优化。
+- 车辆、建筑和生物不进入地形区块网格。每个对象统一使用 { Cube Batch, Custom Mesh Batch, Specialized Visuals }。
+- 移动时只更新根变换。损伤、改装、建造完成以及引用的表现资产变化，只标记受影响的对象并批量更新；单个对象变化不能触发全部对象重建。
+- 未来可以针对大量静态对象增加只作表现的烘焙优化。
 
 ### 列车插值
 
-运动、接触点与车钩约束，以及断开、换端或支撑失效后的插值重建，统一遵守 [06 的沿轨渲染插值](https://github.com/odradekk/train/blob/62c40d2/docs/design/06-railway.md#沿轨渲染插值)；编组与停车状态由 [06 的运动规则](https://github.com/odradekk/train/blob/62c40d2/docs/design/06-railway.md#rail-movement) 决定。本节只定义显示层契约。
+- 列车在核心中的位置（线路、铁轨号、方向和距离）换算成该铁轨中心线上的弧长位置。显示在相邻两个已完成的模拟状态之间插值，不外推未发生的运动，正常运行接受最多一个模拟步的显示延迟，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。
+- 各节车辆按编组顺序沿中心线排列，车体朝向取所在位置的路径切线；车体是刚性的，转弯时不弯曲或拉伸。
+- 显示结果不回写核心状态；Godot 变换只是派生表示。
+- 相机与车体使用所选车辆的同一份显示位置和车体朝向，不直接跟随跳动的模拟步位置，也不以行驶方向代替车体朝向，见 [08](08-window-and-ui.md#线路场景的相机跟随)。
+- 真实 Godot 观感检查覆盖弯道、坡道、较长编组、跨分段和浮动原点移动时的连续性。headless 检查通过不替代人工观感。
 
-- 在相邻两个已完成模拟状态之间取插值时间，不外推未发生的运动，正常运行接受最多一个模拟步的显示延迟。
-- 显示结果不回写 RailPosition、速度或其他权威状态；Godot 变换只是派生表示。
-- 相机与车体使用所选车辆的同一份显示位置和车体朝向，不直接跟随跳动的 Tick 位置，也不以行驶方向代替车体朝向；目标选择与具体跟随语义见 [08](08-window-and-ui.md)。
-- 真实 Godot 观感检查覆盖 [06 验证矩阵](https://github.com/odradekk/train/blob/62c40d2/docs/design/06-railway.md#本阶段几何与车辆验证契约)中的三维弯坡、混编、较长编组和事件后接续，检查刚性车体、车钩、轨道接缝与相机连续性。原型采样或 headless 检查通过不替代用户观感；几何失败不得由显示层修补后当作通过。
+### 增量重建
 
-### Dirty Rendering
+- 场景中的变化不逐体素立即重建网格：标记受影响的区块或对象 → 合并 → 一次重建。
+- 区块边界的修改要同时考虑相邻区块的暴露面变化。
+- 场景首次构建和线路分段构建在后台线程进行（[01](01-voxel-engine-and-scenes.md#场景的存储与构建)）。场景打开后的局部重建，Demo 可以同步进行，出现实际卡顿后再改为异步。
 
-- 世界变化不逐 Voxel 立即重建 Mesh：World changes → mark affected Chunk dirty → coalesce → one rebuild。
-- Chunk 边界修改要同时考虑相邻 Chunk 的暴露面变化。Demo 可以同步生成 Mesh，出现实际卡顿后再考虑异步 Meshing。
+### LOD 与远景
 
-### Visual Streaming
-
-- 遵守 [01](01-voxel-engine-and-scenes.md) 与 [04](04-deterministic-simulation.md) 的当前已定规则：World Data 完整常驻内存，全图全精度实时模拟（转录 Q5）。"不加载"只表示不构建或不保留当前区域的视觉表示，不暂停或降低该区域的模拟精度。
-- 采用 Visual Residency + Frustum Visibility。Resident 区域使用 Load Radius < Unload Radius 形成 hysteresis，避免边界反复 Load/Unload。
-- 当前跟随列车时根据其 route + velocity 做 directional prefetch，随换端/改道更新；不根据 Camera 朝向决定主要预取方向。自由视角准备相机周边，其他远处列车不各自要求驻留区域，见上文验收契约。
-
-### LOD
-
-- Demo 不实现真正的 Voxel Geometry LOD，依靠 Residency、Frustum Culling、Distance Culling、Custom Mesh LOD0。
+- Demo 不实现体素几何 LOD。场景范围有限，远处用雾和场景边界收住；线路场景超出已构建分段的部分显示为雾。
 - 后期性能需要时再增加 Greedy Meshing、Custom Mesh LOD、Voxel Geometry LOD。
 
-### Render Origin
+### 坐标
 
-- Domain 使用绝对世界坐标，例如 WorldVoxelCoord = (183421, 42, 91822)。Godot Presentation 使用局部 Render Origin：RenderPosition = AbsolutePosition − RenderOrigin。由上文主观察位置规则触发 Rebase RenderOrigin，不能由各辆远处列车竞争驱动。
-- 全图常驻内存与 RenderOrigin Rebase 并存是刻意选择：转录 Q179 否决了用 Godot 双精度构建承载大世界的方案，Rebase 是在单精度表现层保持精度的手段，不表示世界需要流式加载。
+- 节点场景以节点为原点，线路场景使用浮动原点，见 [01](01-voxel-engine-and-scenes.md#场景的存储与构建)。场景范围有限，加上浮动原点，单精度浮点足以保持显示精度；转录 Q179 否决用 Godot 双精度构建的结论继续有效。
 - Demo 的逻辑单位 1 Voxel Unit = 1 Godot Unit，但概念上保持解耦。
 
-### Collision Rendering / Adapter
+### 拾取与碰撞
 
-World Voxel Data → Chunk Collider Builder → Godot Collision。Voxel 被修改后标记 Collision Cache dirty。静态建筑的真实所有权与碰撞语义见 [01](01-voxel-engine-and-scenes.md) 和 [03](03-vehicles-buildings-and-designs.md)。
-
-Rebase 时已有 Godot 碰撞表示、射线/命中查询与可见对象使用一致的局部坐标转换，命中结果仍能还原为绝对世界位置及真实 owner/part。没有某区域的视觉或 Godot 代理，不能让领域占用、净空或列车防护查询漏掉该区域对象；这些规则继续读取权威世界。进入区域或读档后从最新权威状态恢复必要缓存，不把过期碰撞当作当前命中结果。
+- 拾取沿射线在场景体素数据和对象网格上逐格前进（DDA），不为每格建立 Godot 碰撞形状，见 [01](01-voxel-engine-and-scenes.md#拾取)。
+- Godot 物理只用于碎片等表现效果。碎片需要的地形碰撞，用按区块合并的少量形状，例如高度图；形状数量随场景范围增长，不随体素数增长。
+- 相机按地形高度避免穿进地形。
 
 ## Demo 范围
 
-Chunk Rendering（Face Culling）、Custom Static Mesh batch、AssetResolver、Dirty Chunk、TrackRenderer、Dynamic Composite Rendering、Visual Streaming。
+区块网格（遮面剔除）、Custom Static Mesh 批处理、AssetResolver、增量重建、TrackRenderer 与线路分段、对象渲染、列车插值、浮动原点、逐格拾取。
 
 ## Demo 之后
 
-Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态 Composite 的 Presentation-only Baking；本阶段不以半透明玻璃、骨骼动画、模型内部机械动画、任意自定义着色器或正式美术完成度作为验收门槛。
+Greedy Meshing、Voxel Geometry LOD、Custom Mesh LOD、异步 Meshing、静态对象的只作表现烘焙；半透明玻璃、骨骼动画、模型内部机械动画、任意自定义着色器。
 
 ## 开放问题
 
-- 已确认依据：本阶段跨区域观察、修改/重建与长期运行的渲染性能、内存测量及用户冻结流程见[性能验收决议](https://github.com/odradekk/train/issues/98#issuecomment-5856117703)。
-- 本阶段表现规则已由上文验收契约确定；Chunk Size、驻留/卸载半径、路径预取距离、Rebase 触发条件、重建预算和 Meshing Threshold 等数值须实测后提交用户确认，不能把方法决议当作数值已经冻结或实现已经通过。
-- 地图迷雾（不立票）：本阶段之外的 Custom Mesh LOD Distance、Voxel Geometry LOD Distance、额外批处理或存储优化；实测表明需要选入后再评估，不预先承诺。
+- 区块边长、分段长度、预取距离、单帧重建预算等数值，由[新阶段：下一个里程碑的范围与验收](https://github.com/odradekk/train/issues/212)安排实测后确定。
+- 地图迷雾（不立票）：Custom Mesh LOD 距离、Voxel Geometry LOD 距离、额外的批处理或存储优化；实测表明需要后再评估，不预先承诺。

@@ -118,7 +118,7 @@
 
 ### 场景中的线路与列车
 
-线路场景按列车在核心中的位置摆放列车，在相邻两个模拟步之间插值，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。铁轨的尺度见 [01](01-voxel-engine-and-scenes.md#线路场景中的铁轨)。弯道、坡道、道岔、桥梁和隧道怎样表现，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”确定。
+线路场景按列车在核心中的位置摆放列车，在相邻两个模拟步之间插值，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。铁轨的尺度见 [01](01-voxel-engine-and-scenes.md#线路场景中的铁轨)。线路的中心线、弯道、坡道、桥梁和隧道见 [01](01-voxel-engine-and-scenes.md#线路场景)；道岔只出现在节点场景的进站区域。
 
 ## Demo 范围
 
@@ -130,5 +130,4 @@
 
 ## 开放问题
 
-- 地图迷雾“观察与表现”（不立票）：线路场景中的弯道、坡道、道岔、桥梁与隧道。旧的几何参数可以参考[重构前的 06](https://github.com/odradekk/train/blob/62c40d2/docs/design/06-railway.md#首批铁路几何与机械参数)。
 - 动力部件的牵引力与额定速度、最小间距、制动减速度、加速度下限，以及施工用量与工期，都是内容数值，在试玩后冻结。

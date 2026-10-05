@@ -153,7 +153,7 @@
 
 ### 场景中的战斗
 
-- 战斗场景就是该地点的线路场景或节点场景，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。场景按战斗事件表现射击、命中和部件被毁，按结构耐久比例表现结构损伤，见 [01](01-voxel-engine-and-scenes.md#场景中的结构破损)。
+- 战斗场景就是该地点的线路场景或节点场景，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。场景按战斗事件表现射击、命中和部件被毁，按结构耐久比例表现结构损伤，见 [01](01-voxel-engine-and-scenes.md#场景中的结构破损)。单位的摆放、射击和生物的表现见 [01](01-voxel-engine-and-scenes.md#战斗与世界生物的表现)。
 - 单位在场景中怎样摆放只影响表现。
 
 ## Demo 范围
