@@ -1,8 +1,6 @@
 # 11 货物与生产网络
 
 > **所属层**：核心模拟层。
->
-> **修订中**：“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：资源转录 Q183–Q186、Q188、Q190–Q195、Q201–Q202、Q211–Q216、Q223–Q225、Q229–Q253、Q255–Q259、Q269–Q276、Q285–Q292、Q376–Q397、Q415（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
@@ -124,9 +122,15 @@ Structural Metal + Mechanical Components + Electrical Components → Propulsion 
 Electronic Components + Electrical Components                    → Control Equipment
 ```
 
+### 武器
+
+- 武器是带 WeaponBehavior 的单格体素，属于部件；WeaponBehavior 的参数是每次伤害和射击间隔。战斗规则见 [17](17-combat.md#武器与防御建筑)，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。
+- 每种武器是一个货物，由普通 Production Process 制造，需要的 Recovery Process 按下文规则显式定义。武器的种类和配方在试玩后冻结；新增武器同样要通过 Gameplay Difference Test。
+- Demo 中武器不消耗弹药，所以没有弹药货物。
+
 ### Future Product Families
 
-Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process。Propulsion Equipment 与 Control Equipment 已移入上文 Functional Equipment：车头制造需要动力与控制能力（[03](03-vehicles-buildings-and-designs.md)），因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，重新采用资源转录 Q288 将其作为独立成品的结论。
+Train Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process。Demo 没有乘员作战，Crew Weapons 与 Crew Equipment 占位已删除。Propulsion Equipment 与 Control Equipment 已移入上文 Functional Equipment：车头制造需要动力与控制能力（[03](03-vehicles-buildings-and-designs.md)），因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，重新采用资源转录 Q288 将其作为独立成品的结论。
 
 ### Recovery DAG
 
@@ -164,19 +168,20 @@ Control Equipment      → Electronic Components + Electrical Components
 | Civilian / Consumable Goods（6） | Staple Food、Prepared Food、Clothing、Consumer Goods、Consumer Electronics、Medical Supplies |
 | Construction Goods（3） | Structural Block、Construction Block、Rail |
 | Functional Equipment（7） | Industrial Machinery、Storage Equipment、Power Equipment、Extraction Equipment、Construction Equipment、Propulsion Equipment、Control Equipment |
-| Future Product Families | Train Weapons、Crew Weapons、Train Equipment、Crew Equipment（仅占位） |
+| Weapons | 若干种武器，种类在试玩后冻结 |
+| Future Product Families | Train Equipment（仅占位） |
 
 ## Demo 范围
 
-上表除 Future Product Families 占位外的货物、5 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
+上表除 Future Product Families 占位外的货物（含武器）、5 种 Primary Production、Forward Production DAG 与首批 Recovery Skeleton、Paint 作为 Presentation Override。本文冻结结构与语义，不冻结配方数量；范围归属见 [10](10-resources-and-extraction.md)。
 
 ## Demo 之后
 
-Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；人口消费率；具体 Train Weapon、Crew Weapon、Train Equipment、Crew Equipment 玩法与医疗效果。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
+Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；人口消费率；具体 Train Equipment 玩法与医疗效果；弹药。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
-- 地图迷雾（不立票）：Train Weapons 等 Future Product Families 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
+- 地图迷雾（不立票）：Train Equipment 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
 按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。

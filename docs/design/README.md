@@ -23,7 +23,7 @@
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
 7. Deterministic Simulation 是整个项目的基础架构原则。
 
-Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；市场与价格、人口、战斗与征服的具体规则待定。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实现随后续切片安排。AI 势力、自动贸易策略和复杂调度在 Demo 之后扩充。
+Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；市场与价格、人口的具体规则待定，战斗与征服见 [17](17-combat.md)。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实现随后续切片安排。AI 势力、自动贸易策略和复杂调度在 Demo 之后扩充。
 
 ## 文档地图
 
@@ -36,6 +36,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
 | 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
 | 核心模拟层 | [06-railway.md](06-railway.md) | 铁路与列车运行 |
+| 核心模拟层 | [17-combat.md](17-combat.md) | 战斗、世界生物与征服 |
 | 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |
 | 核心模拟层 | [09-persistence.md](09-persistence.md) | 存档 |
 | 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
@@ -87,7 +88,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 2. 核心模拟层不依赖 Godot、SceneTree 和体素引擎层；三层只通过公开接口交互。
 3. 模拟结果与帧率、相机、窗口状态、倍速和暂停时机无关，也与局部场景是否打开、打开的是哪一个无关；核心模拟层对整个世界使用同一精度，从不等待玩家，只有玩家暂停和内部故障能让时钟停下。
 4. 局部场景不保存状态，不影响模拟结果；场景中的操作只能通过命令改变世界。每条命令在确定的模拟位置执行一次，作为一个事务原子结算；存档中没有待执行命令。
-5. 列车在世界图上的位置是权威位置，场景中的位置由它派生；同一条铁轨上同一时间只有一个方向的列车，列车只在节点等待。
+5. 列车在世界图上的位置是权威位置，场景中的位置由它派生；同一条铁轨上同一时间只有一个方向的列车；除断轨和线路上的战斗外，列车只在节点等待。
 6. 位置不是持久身份。
 7. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
 8. 所有 Gameplay Random 最终源于 WorldSeed。
@@ -98,7 +99,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 13. 性能优化必须服从 Profiling，而不是提前猜测。
 14. 世界图的节点和线路集合、节点位置、线路长度、地貌概况和铁轨上限在生成后固定；之后只有占据者、铁轨数、断点和资源会变化；节点资源的储量只由开采流程减少，由原地恢复或再生事件增加。
 15. 车辆和建筑实例引用固定的蓝图版本，只保存部件耐久、结构耐久等实例状态；设计属性由内容层从蓝图版本派生。每座建筑占据聚居地的一个地块。
-16. 建造、改装、修理和损伤按事务原子结算。
+16. 建造、改装、修理和损伤按事务原子结算；战斗按模拟步结算，同一步的全部命中作为一个伤害事件统一施加。
 17. 车辆和建筑只能由显式的建造、委托或世界生成产生。
 
 ### 内容
