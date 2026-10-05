@@ -20,4 +20,4 @@ Built-in and mod resources are organized under `voxels`, `composites` and `layou
 
 ## 2026-10-05 修订
 
-[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)确认：在核心模拟层不涉及体素之后，每种货物仍是一个体素定义，因为游戏中所有物品的外观和图标都用体素块表现。字段按层划分：核心模拟层只读取身份、Value、Mass、Tags、耐久上限和 Behaviors；允许朝向、表现和碰撞只供体素引擎层与渲染层使用，允许朝向和碰撞有默认值。带 `scene_only` 标签的场景体素不是货物。断裂身份继承已随断裂规则删除，Value 只作为基本货币价值。Composite 在文档中改称蓝图；文件后缀和 schema 版本在代码重构时确定。命名空间、身份和严格校验的规则不变。
+[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)确认：在核心模拟层不涉及体素之后，每种货物仍是一个体素定义，因为游戏中所有物品的外观和图标都用体素块表现。字段按层划分：核心模拟层只读取身份、Value、Mass、Tags、耐久上限和 Behaviors；允许朝向、表现和碰撞只供体素引擎层与渲染层使用，允许朝向和碰撞有默认值。带 `scene_only` 标签的场景体素不是货物。断裂身份继承已随断裂规则删除，Value 只作为基本货币价值。Composite 在文档中改称蓝图；文件后缀和 schema 版本在代码重构时确定。命名空间、身份和严格校验的规则不变。[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)同日删除了 `resource_source` 标签和 ResourceSourceBehavior：节点资源直接引用初级货物的体素定义，`raw_good` 保留。

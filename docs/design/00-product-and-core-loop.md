@@ -97,7 +97,7 @@
 
 Demo 是最终游戏完整可玩的最小集合，包含：
 
-- **经济**：贸易与运行计划；聚居地的生产、库存、市场与人口模拟；资源与生产的最小链条（开采 → 生产 → 库存 → 作为贸易供给），见 [10](10-resources-and-extraction.md)–[13](13-production-runtime-and-facilities.md)。资源模型由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写。
+- **经济**：贸易与运行计划；聚居地的生产、库存、市场与人口模拟；资源与生产的最小链条（开采 → 生产 → 库存 → 作为贸易供给），见 [10](10-resources-and-extraction.md)–[13](13-production-runtime-and-facilities.md)。资源是节点上的储量，开采是普通生产流程，见 [10](10-resources-and-extraction.md)。
 - **建设**：在自己的聚居地建造和改装建筑；扩建铁轨、修复断轨、修建新线路。
 - **设计**：面向玩家的通用设计编辑器，用来设计列车和建筑，同时提供预置蓝图。
 - **战斗**：武装列车、聚居地防御、世界生物和生物聚落。

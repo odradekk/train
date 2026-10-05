@@ -2,13 +2,13 @@
 
 > **所属层**：内容。
 >
-> **修订中**：“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；`resource_source` 相关条文交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。
 
 ## 边界
 
-本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及库存中货物的表示。车辆与建筑、蓝图版本与 Archetype 见 [03](03-vehicles-buildings-and-designs.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；Resource Source、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
+本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及库存中货物的表示。车辆与建筑、蓝图版本与 Archetype 见 [03](03-vehicles-buildings-and-designs.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；节点资源、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
 
 ## 不变量
 
@@ -112,7 +112,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 - **Price** 不属于体素定义。Price 是市场状态 × 体素定义产生的运行时报价，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
 - **Mass** 是一个单位的质量，用于车辆和建筑的设计质量，以及列车所载货物的质量，见 [06](06-railway.md#速度)。
 - **Material**：Demo 不建立通用 MaterialDefinition 系统。只有当实际开发中大量体素重复相同材料规则时，再抽象 Material 层。
-- **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-graph-and-generation.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；ResourceSourceBehavior 与 `resource_source` 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
+- **自然资源**：初级货物带 `raw_good` 标签，是普通可库存、可交易的体素定义。节点资源直接引用初级货物的体素定义标识，不设资源源体素、`resource_source` 标签或 ResourceSourceBehavior，见 [10](10-resources-and-extraction.md)（[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)，2026-10-05）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义已废止。
 
 ### 迁移历史
 

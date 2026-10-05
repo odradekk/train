@@ -53,7 +53,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 每份文档的固定小节：边界、不变量、规则、Demo 范围、Demo 之后、开放问题。Demo 指最终游戏完整可玩的最小集合；本阶段是 Demo 之前的开发里程碑，其范围只在 [00 的本阶段范围](00-product-and-core-loop.md#本阶段范围)中描述，详细分期见各实施 Issue。
 
-术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；Train Assembly 对应列车编组。Voxel、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；Train Assembly 对应列车编组。Voxel、Revision，以及 Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
 ## 总体架构
 
@@ -96,7 +96,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 11. Price 属于 Market Context，不属于 Voxel。
 12. 影响未来模拟的长生命周期 Job、Buffer、Reservation 与设备 Runtime State 必须持久化。
 13. 性能优化必须服从 Profiling，而不是提前猜测。
-14. 世界图的节点和线路集合、节点位置、线路长度、地貌概况和铁轨上限在生成后固定；之后只有占据者、铁轨数、断点和资源会变化。
+14. 世界图的节点和线路集合、节点位置、线路长度、地貌概况和铁轨上限在生成后固定；之后只有占据者、铁轨数、断点和资源会变化；节点资源的储量只由开采流程减少，由原地恢复或再生事件增加。
 15. 车辆和建筑实例引用固定的蓝图版本，只保存部件耐久、结构耐久等实例状态；设计属性由内容层从蓝图版本派生。
 16. 建造、改装、修理和损伤按事务原子结算。
 17. 车辆和建筑只能由显式的建造、委托或世界生成产生。
@@ -123,7 +123,6 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 下列条目依赖“全局体素世界是模拟核心”的旧前提，暂按原文保留，由对应票改写或删除。括号内是改写前的编号。
 
 - 受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效（原第 6 条后半）：[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。
-- Resource Source 与 Raw Good 严格分离，Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good（原第 27 条）：[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)。
 
 原第 12、13 条（Physical Rail State 是铁路 Runtime Truth；Logical Rail Graph 是派生索引）已废弃，铁路模型已由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)改写为线路上的铁轨、方向锁与同向跟车，见 [06](06-railway.md)。
 

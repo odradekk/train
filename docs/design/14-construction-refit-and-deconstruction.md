@@ -100,7 +100,7 @@
 - 建造：Power、Labor 或 Capability 不足时，进度保留，BOM 不返还，预留保留。场地或放置约束失效，或施工设施被毁、失去执行资格时，任务失败，已投入的货物不返还，进度丢失，预留释放。
 - 改装、修理：实例被摧毁时任务失败，已投入的货物不返还，库存预留释放。
 - 拆解：实例被摧毁时任务失败，进度丢失，库存预留释放。
-- 设施存在 ActiveBatch（包括 Recovery Batch）、非空 OutputBuffer 或 ExtractionJob 时，不允许直接进入改装、修理或拆解，见 [13](13-production-runtime-and-facilities.md)。
+- 设施存在 ActiveBatch（包括 Recovery Batch）或非空 OutputBuffer 时，不允许直接进入改装、修理或拆解，见 [13](13-production-runtime-and-facilities.md)。
 
 ### 存档
 

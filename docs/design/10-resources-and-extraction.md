@@ -1,119 +1,93 @@
-# 10 资源源与开采
+# 10 资源与开采
 
 > **所属层**：核心模拟层。
->
-> **修订中**：全文由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写：资源改为聚居地节点的属性，资源源体素、以 Damage 完成的开采、Cluster，以及 Durability 即剩余可采量等规则失去前提。Job、OutputBuffer、热更新拒绝等与世界表示无关的规则，由该票确认去留。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
-> 决策出处：资源转录 Q180–Q181、Q187、Q189、Q196–Q210、Q217–Q222、Q367–Q371、Q375、Q406–Q407、Q410、Q414、Q424（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)，其编号与旧转录在 Q180 重叠，引用须带前缀）。本文与 [11](11-goods-and-production-network.md)、[12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md) 共同定义资源与生产系统；它建立在既有体素、Definition、Composite、Behavior、Capability、确定性 Simulation 与存档契约之上。代码与内容迁移由后续实现切片执行，不属于本阶段。
+> 决策出处：节点资源的表示与分布、可再生与不可再生、开采改为生产流程、定义的位置、再生事件与原地恢复、储量耗尽，由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)于 2026-10-05 确认。它取代了资源源体素、以伤害完成的开采、Cluster、耐久即剩余可采量和 ExtractionJob 等规则。资源与生产系统的定位、`raw_good` 的语义、开采需要真实设施和通用 Extraction Equipment，沿用资源转录 Q180–Q181、Q187、Q189、Q196–Q210、Q217–Q222（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)，其编号与旧转录在 Q180 重叠，引用须带前缀）。
 
 > 实现验证保留条款：10–14 的资源与生产子系统尚未经实现验证，首个实现切片可依据实际验证结果回写修订这些设计；修改须同步受影响文档并说明理由。本文中的“冻结”表示当前设计基线，不表示禁止基于实现证据重审。
 
 ## 边界
 
-本文定义世界中的自然资源如何表示、开采、耗尽与更新：Resource Source 与 Raw Good 的语义、Extraction 与 Damage 的关系、Yield 计算、Extraction Facility 与 Extraction Job、Resource Renewal。Raw Goods 目录与生产网络见 [11](11-goods-and-production-network.md)；Facility Tag 与 Capability 分层、Work / Power / Labor、OutputBuffer 与 Job 通用规则见 [13](13-production-runtime-and-facilities.md)；聚居地资源种类的派生见 [05](05-world-graph-and-generation.md)。市场、价格、人口与资源探勘的地图呈现不在本文。
+本文定义节点资源怎样表示、分布、开采、耗尽、恢复与再生。本文与 [11](11-goods-and-production-network.md)、[12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md) 共同定义资源与生产系统。
+
+相关内容见：
+- 资源在世界生成中的位置：[05](05-world-graph-and-generation.md#资源)
+- Raw Goods 目录与初级生产：[11](11-goods-and-production-network.md)
+- 生产流程、Facility Tag 与 Capability、Batch、Resolver：[13](13-production-runtime-and-facilities.md)
+
+市场、价格、人口与资源勘探不在本文。
 
 资源与生产系统的定位：为贸易与玩家自建列车、聚居地打基础的宏观生产链，让玩家在直接购买之外拥有低价收购原料、自行生产与建设的策略空间，不是生产线优化玩法；长期目标是局部枯竭、整体可持续（资源转录 Q180、Q187）。
 
 ## 不变量
 
-- Resource Source 与 Raw Good 严格分离：世界中的 Source Voxel 是可开采资源源，Raw Good 才是进入标准库存与贸易体系的货物。
-- Resource Source 不拥有独立 Reserve 字段；CurrentDurability 同时表达该 Source Voxel 的剩余可开采量。
-- Extraction 是显式 Gameplay 行为：通过正式 Damage Transaction 造成 Effective Damage 并产生 Raw Good；普通 Damage 不产生资源。
-- Extraction 只产生 Raw Good。
-- Yield 完全确定且为整数；Overkill 不产生额外 Goods。
-- 矿床、森林资源区等 Cluster 不建立第二份储量事实。
+- 节点资源是某种初级货物在节点上的储量，直接引用该货物的体素定义，不另设资源定义。
+- 只有开采流程减少储量并产出初级货物；储量只由原地恢复或再生事件增加。
+- 储量与产出都是整数，开采结果完全确定，不使用逐次随机掉落。
 
 ## 规则
 
-### Resource Source
+### 节点资源
 
-- Resource Source 是世界中可以通过 Extraction 获取 Raw Good 的 Voxel。它仍是普通 VoxelDefinition，不增加独立的 ResourceSourceDefinition：以 `resource_source` Tag 做被动分类，以 ResourceSourceBehavior 描述实际 Yield 与 Extraction 语义。Tag 只回答“这是 Resource Source”，实际产出由 Behavior 定义。
-- 这取代旧的“带 `natural_resource` 标签的 Voxel 自身就是货物”语义，不长期保留含糊兼容层；Definition 层与聚居地资源查询的对应修订见 [02](02-definitions-and-content.md)、[05](05-world-graph-and-generation.md)。
-- 一个 Source Voxel 可以产生多种 Raw Good，但多产物是内容设计上的例外，不是默认目标；首批内容默认单主产物。
-- CurrentDurability ≤ 0 时按普通 Voxel 破坏规则销毁。
+- 节点资源由若干项“初级货物 + 储量”组成。储量是整数，单位与该货物相同。
+- 任何节点都可以有资源，包括聚居地、生物聚落和空节点。开采要求节点上有聚居地，所以空节点和生物聚落上的资源，是玩家建立或攻取聚居地的理由。
+- 资源在世界生成的第 5 步按节点的地貌概况生成，见 [05](05-world-graph-and-generation.md#资源)。
+- 节点资源和储量对玩家完全可见。勘探放在 Demo 之后。
+- 资源的种类直接是初级货物的体素定义标识，例如 `core:ferrous-ore`。不设资源源体素、`resource_source` 标签或 ResourceSourceBehavior。
+
+### 可再生与不可再生
+
+可再生性是资源种类的属性，写在资源生成配置中，不在代码里写死。
+
+| 资源 | 主产物 | 可再生 |
+| --- | --- | --- |
+| Ferrous Ore | Ferrous Ore | 否 |
+| Conductive Ore | Conductive Ore | 否 |
+| Rare Mineral | Rare Mineral | 否 |
+| Stone | Stone | 否 |
+| Silica | Silica | 否 |
+| Coal | Coal | 否 |
+| Crude Oil | Crude Oil | 否 |
+| Natural Forest | Timber | 是 |
+
+- **不可再生**：储量采到 0 时，这一项从节点上删除，并发出“资源耗尽”事件。
+- **可再生**：每项有一个上限（生成时的初始储量）和一个恢复速率。储量按速率逐步恢复，不超过上限。储量为 0 时这一项保留，继续恢复；开采快于恢复时储量会降到 0，此后开采量受恢复速率限制。
+- Timber 只来自 Natural Forest，不再有 Forestry 这条初级生产。农牧业仍是受地貌约束的初级生产，不算节点资源，见 [11](11-goods-and-production-network.md#primary-production)。
+
+### 再生事件
+
+- 某种不可再生资源在全世界剩余的总储量，低于初始总量的一定比例时，触发一次再生事件，给一个节点新增一项该资源。
+- 候选节点是地貌允许这种资源、当前没有这项资源的节点，占据者不限。从候选中用 WorldSeed、货物身份和事件序号构成的无状态带键随机选出，见 [04](04-deterministic-simulation.md#随机性)；储量按生成表决定。
+- 再生事件发出领域事件，通知玩家。
+- 世界图的结构不变，只改变节点资源，符合 [05](05-world-graph-and-generation.md) 的不变量。
+
+### 开采
+
+- 开采是普通的生产流程（Production Process），由 [13](13-production-runtime-and-facilities.md) 的 Batch 运行时执行。开采流程的输入包括本节点某种资源的储量，储量与产出 1:1，例如“消耗 10 单位 Ferrous Ore 储量 → 产出 10 Ferrous Ore”。
+- 储量和库存输入一样，在 Batch 启动时扣除。同一节点上多个设施争用同一项储量时，由 Resolver 仲裁，见 [04](04-deterministic-simulation.md#resolver)。
+- 开采必须由真实设施提供：带 `mining`、`oil_extraction` 或 `forestry` 标签的设施，加上提供 ExtractionCapability 的 Extraction Equipment。Demo 只有一种通用的 Extraction Equipment，不拆分钻机、伐木机、油泵。Facility Tag 只表达兼容性，见 [13](13-production-runtime-and-facilities.md)。
+- 开采流程是普通的 ProcessDefinition，例如 `core:ferrous-mining`，ID 与 Revision 规则见 [02](02-definitions-and-content.md)。
+- 储量耗尽后，节点上的开采设施保留，流程因缺少输入而等待，与缺料相同。设施不会自动拆除，也不会自动改用其他流程。
+- NPC 聚居地开采时同样消耗节点储量。NPC 聚居地是否运行完整的生产模拟，见 [16](16-settlements.md)。
+- 输出、OutputBuffer、失败与暂停、热更新都按 [13](13-production-runtime-and-facilities.md) 的 Batch 规则处理，开采没有单独的规则。
 
 ### Raw Good
 
-- Raw Good 是通过 Extraction 或 Primary Production 获得、尚未经过有 Gameplay 意义的工业加工的标准货物，使用 `raw_good` Tag。
-- `raw_good` 是内容语义，不表示图论上的根节点、Tier 0 或无 Goods 输入：Animal Products 消耗 Grain，仍属于 Raw Good。Demo 的 Raw Goods 目录与 Primary Production 见 [11](11-goods-and-production-network.md)。
+- Raw Good 是通过开采或初级生产获得、尚未经过有玩法意义的工业加工的标准货物，使用 `raw_good` 标签。
+- `raw_good` 是内容语义，不表示图论上的根节点、Tier 0 或无货物输入：Animal Products 消耗 Grain，仍属于 Raw Good。Demo 的 Raw Goods 目录与初级生产见 [11](11-goods-and-production-network.md)。
 
-### Durability 即剩余可采量
+### 代码迁移
 
-- Source 不增加 Reserve 字段。例如 Forest Source 的 MaxDurability = 500、CurrentDurability = 500，表示一个完整 Source Voxel 拥有标准 500 点可开采量。
-- 同一种 Source Definition 的完整 Voxel 使用相同 MaxDurability。资源丰富度来自 Source 类型 × Source Voxel 数量 × 空间密度，而不是每个实例额外维护 Richness / Reserve。
-
-### Extraction 与普通 Damage
-
-```text
-Extraction Command / Job → ResourceSourceBehavior → formal Damage Transaction → Effective Damage → deterministic Yield
-Ordinary Damage → Damage Transaction → Durability decreases → no Raw Good yield
-```
-
-- Extraction 是 Damage 的一种显式 Gameplay 使用方式，但 Damage 不等于 Extraction：武器、事故等普通 Damage 只扣减 Durability。Damage Transaction 的结算规则见 [03](03-vehicles-buildings-and-designs.md)。
-
-### Effective Damage 与 Yield
-
-- Yield 只按实际发生的 Effective Damage 计算：`EffectiveDamage = min(RequestedDamage, CurrentDurability)`。Overkill 不得产生额外 Goods。
-- ResourceSourceBehavior 支持整数比率 `N Damage → M Goods`。一次 Extraction 使 Durability 从 `old` 变为 `new` 时，对某个 Yield：`Yield = floor(old × M / N) − floor(new × M / N)`。
-- 该公式不需要小数 Goods，也不需要 Yield remainder state；不依赖 MaxDurability，因此内容更新 MaxDurability 不会重算过去的产出；同样的总 Effective Damage 分一次或多次发生，最终 Yield 一致。Source 同时产出多个 Raw Good 时，对每种 Yield 独立应用相同原则。
-- 完整 Source 的产出完全确定，不使用逐次随机掉落。资源稀缺性通过 Source 类型、World Generation 分布、Source Cluster 大小、地理位置与可达性表达，而不是开采时重复掷随机数。
-
-### Source 耗尽与 Cluster
-
-- CurrentDurability ≤ 0 时 Source Voxel 按普通破坏规则消失。不保存 Exhausted Source 空壳，也不自动转化为另一个资源状态。若某种内容确实需要耗尽后留下专门地形，应作为明确的额外 Gameplay 行为设计，而不是 Resource Source 的通用规则。
-- “矿床”“森林资源区”不建立新的 Runtime Entity，只是多个实际 Source Voxel 的空间 Cluster。总储量由实际 Source Voxels 的 CurrentDurability 与 Yield 派生，不建立 `DepositInstance.Reserve` 作为权威事实。Cluster 只可以作为 World Generation 概念、地图 / UI 聚类查询、AI 探勘结果。
-
-### Extraction Facility
-
-- Extraction 必须由真实 Facility 提供，不允许 Settlement 拥有凭空的 `MiningCapacity`：开采设施建筑 → Extraction Equipment → ExtractionBehavior / ExtractionCapability → Extraction Job。
-- Demo 使用一个通用 Extraction Equipment，不提前拆分 Mining Drill、Logging Machine、Oil Pump。资源类型差异通过 Facility Tag 与 Source 要求表达：Mining Facility `facility_tags = [mining]`、Forestry Facility `[forestry]`、Oil Extraction Facility `[oil_extraction]`；通用 Extraction Equipment 只提供实际 Extraction Capability。Facility Tag 与 Capability 的分层见 [13](13-production-runtime-and-facilities.md)。
-- 每个 Extraction Facility 只能选择其明确 Extraction Area / Range 内、类型兼容的 Source Voxel；范围形状与数值不冻结。
-- `ExtractionJob.Target` 是精确的 WorldVoxelCoord，一次明确指向一个 Source Voxel。“自动开采整片区域”属于更高层 Player / AI Extraction Plan，不由底层 Extraction Runtime 自动承担。
-- 一个 Extraction Capability 同时最多运行 1 个 Extraction Job；同一 Building 内不同 Capability 的 Job 可以并行并共同竞争 Power / Labor，见 [13](13-production-runtime-and-facilities.md)。
-
-### Extraction Work 与输出
-
-- Extraction 使用连续 Work → 离散 Damage：ExtractionJob { Target Source, ProgressWork, WorkPerDamage }。累计 Work 达到 WorkPerDamage 时 commit 1 Extraction Damage 并计算 Yield；Source Durability 保持整数。实际 Work 受 Capability、Power、Labor 共同限制，模型见 [13](13-production-runtime-and-facilities.md)。
-- 输出复用 Facility-local OutputBuffer：Settlement Inventory 无空间时 Raw Goods 进入 Facility OutputBuffer，Buffer 清空前该 Facility 阻塞，规则见 [13](13-production-runtime-and-facilities.md)。
-
-### Job 失败、暂停与内容更新
-
-- Source destroyed / invalid 时 Job 结束。Power / Labor / Capability 不足时 Progress 保留、实际 Work 降低或为零。
-- Extraction Job 不冻结整个 Yield Definition：已经发生的 Damage 不重算，下一次 Extraction Damage 使用当前 ResourceSourceBehavior。
-- 若内容热更新使正在运行 Job 的 Source 不再是 Resource Source、不再具有 ResourceSourceBehavior、或与 Facility 不再兼容，则拒绝本次内容发布，不静默取消正在运行的 Job；这与 [02](02-definitions-and-content.md) 的候选内容校验规则一致。
-- ExtractionJob 及其 ProgressWork 属于权威 Runtime State，必须存档，见 [09](09-persistence.md)。
-
-### Resource Renewal
-
-- 不可再生资源不在原地 Respawn。长期可持续通过 Resource Renewal Event：existing resource area depleted → Resource Renewal Event → select eligible undeveloped region → generate new Resource Source cluster。
-- 新资源区的选择必须服从 WorldSeed 与稳定随机键的确定性规则（[04](04-deterministic-simulation.md)）。触发条件、触发间隔、新 Cluster 大小、eligible / undeveloped region 的精确定义不冻结。
-
-### 首批 Resource Source
-
-| Resource Source | 主产物 |
-| --- | --- |
-| Ferrous Ore Deposit | Ferrous Ore |
-| Conductive Ore Deposit | Conductive Ore |
-| Rare Mineral Deposit | Rare Mineral |
-| Stone Deposit | Stone |
-| Silica Deposit | Silica |
-| Coal Deposit | Coal |
-| Oil Deposit | Crude Oil |
-| Natural Forest | Timber |
-
-Timber 同时可由 Forestry 这一 Primary Production 产出，见 [11](11-goods-and-production-network.md)。
+现有代码用过渡格式 `settlements/*.settlements.json` 直接声明聚居地可获得的初级货物种类。代码重构时改为从节点资源派生，过渡格式随之删除。
 
 ## Demo 范围
 
-资源与生产系统的 Demo 范围：`resource_source` 与 `raw_good` 语义、ResourceSourceBehavior、Durability-based deterministic Extraction、8 类基础 Resource Source、通用 Extraction Equipment 与 Extraction Capability、Extraction Job、Facility-local OutputBuffer 复用、Resource Renewal Event 的架构方向。本文冻结的是结构、语义与不变量，不是平衡数值。该系统不属于本阶段，实现顺序随后续切片确定。
+节点资源与可见储量；七种不可再生资源与 Natural Forest 一种可再生资源；以生产流程完成的开采；通用 Extraction Equipment；再生事件与原地恢复；储量耗尽。本文冻结的是结构、语义与不变量，不是平衡数值。
 
 ## Demo 之后
 
-耗尽后留下专门地形；自动开采整片区域的 Player / AI Extraction Plan；Mining Drill、Logging Machine、Oil Pump 等专用开采设备；逐实例 Richness / Reserve；资源探勘与地图信息呈现。
+资源勘探与地图信息呈现；专用开采设备；更多可再生资源；耗尽后改变节点地貌。
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：每个 Resource Source 的 MaxDurability、各 Source Yield 的 `N Damage → M Goods`、Source Cluster 大小和分布、Extraction Range / Area、WorkPerDamage、Extraction Equipment base capability、Resource Renewal Event 的触发条件、间隔和规模。
-- 地图迷雾（不立票）：Extraction 连续产出如何对应 OutputBuffer 的“一个完成 Batch 剩余”尚未确定：需在首个 Extraction 实现切片明确一次输出提交的边界、同 Tick 多次 Damage 的处理及 Buffer 非空后的停止点，与 [13 的开放问题](13-production-runtime-and-facilities.md#开放问题) 同步；在此之前不将整个 Source 或整个 Job 默认视作一个 Batch。
-
-按[分期决议](https://github.com/odradekk/train/issues/145#issuecomment-5896477710)，资源生产不属于本阶段；相关实现切片被选入当前或下一切片、且需要明确决策才能推进时再立票。[#78](https://github.com/odradekk/train/issues/78) 已随之延期；它仅验证开采伤害与 Yield，明确不含 Facility、Job 和 OutputBuffer，不受此处输出提交边界阻塞。
+- 地图迷雾（不立票）：未冻结参数：各地貌生成哪些资源、储量范围，开采流程的 WorkRequired，Extraction Equipment 的基础能力，可再生资源的恢复速率，再生事件的检查周期、触发比例与新储量。

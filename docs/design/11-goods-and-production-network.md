@@ -2,13 +2,13 @@
 
 > **所属层**：核心模拟层。
 >
-> **修订中**：“Raw Goods”“Primary Production”中的资源源与 Site 约束由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：资源转录 Q183–Q186、Q188、Q190–Q195、Q201–Q202、Q211–Q216、Q223–Q225、Q229–Q253、Q255–Q259、Q269–Q276、Q285–Q292、Q376–Q397、Q415（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
 ## 边界
 
-本文定义哪些东西进入资源与货物体系、货物拆分与多输出的内容设计原则、Demo 的 Raw Goods 与 Primary Production、Forward Production DAG 与 Recovery DAG 的内容骨架、Paint 与货物身份。Resource Source 与 Extraction 见 [10](10-resources-and-extraction.md)；Process Definition 的结构与执行见 [13](13-production-runtime-and-facilities.md)；库存见 [12](12-inventory-and-storage.md)；Composite 使用 Goods 建造见 [14](14-construction-refit-and-deconstruction.md)。市场 Supply / Demand、Price、Treasury、人口消费与具体装备玩法不在本文；未来经济系统以本文与 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 产生和消耗的真实 Goods、Inventory、Production Capability 为事实基础。
+本文定义哪些东西进入资源与货物体系、货物拆分与多输出的内容设计原则、Demo 的 Raw Goods 与 Primary Production、Forward Production DAG 与 Recovery DAG 的内容骨架、Paint 与货物身份。节点资源与开采见 [10](10-resources-and-extraction.md)；Process Definition 的结构与执行见 [13](13-production-runtime-and-facilities.md)；库存见 [12](12-inventory-and-storage.md)；车辆与建筑使用货物建造见 [14](14-construction-refit-and-deconstruction.md)。市场 Supply / Demand、Price、Treasury、人口消费与具体装备玩法不在本文；未来经济系统以本文与 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 产生和消耗的真实 Goods、Inventory、Production Capability 为事实基础。
 
 ## 不变量
 
@@ -53,12 +53,12 @@ Demo 的 Raw Goods 使用克制的功能性抽象。
 | Geological | Crude Oil | 同时连接 Fuel、Chemical Feedstock 与 Polymer 化工链 |
 | Biological / Primary | Grain、Produce、Animal Products、Timber、Natural Fiber | 不拆 Apple / Banana、Beef / Pork、Cotton / Wool 等，除非未来通过 Gameplay Difference Test |
 
-Geological Raw Goods 由 [10](10-resources-and-extraction.md) 的 Resource Source 开采得到；Timber 既可开采 Natural Forest，也可由 Forestry 生产。
+Geological Raw Goods 从 [10](10-resources-and-extraction.md) 的节点资源开采得到，不可再生；Timber 只从可再生的 Natural Forest 开采得到（[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)，2026-10-05）。
 
 ### Primary Production
 
-- 首批：Grain Farming → Grain、Produce Farming → Produce、Livestock Production（Input：Grain）→ Animal Products、Fiber Farming → Natural Fiber、Forestry → Timber。
-- 除 Livestock Production 外的四种可以没有 Goods Input，由 Site、Work、Labor 等 Production Factors 约束。
+- 首批：Grain Farming → Grain、Produce Farming → Produce、Livestock Production（Input：Grain）→ Animal Products、Fiber Farming → Natural Fiber。Forestry 已删除，Timber 只来自 Natural Forest。
+- 除 Livestock Production 外的三种可以没有 Goods Input，由节点地貌、Work、Labor 等 Production Factors 约束，见 [13](13-production-runtime-and-facilities.md#environmental-requirements)。
 - 不为了现实主义强行添加 Seed、Water、Fertilizer、Sapling、Feed 等商品；若未来这些对象产生明确贸易或产业策略价值，再加入。
 
 ### Forward Production DAG

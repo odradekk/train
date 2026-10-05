@@ -2,7 +2,7 @@
 
 > **所属层**：体素引擎层（局部场景与设计编辑器）。
 >
-> **修订中**：“体素尺度”“场景中的结构破损”“线路场景中的铁轨”三节由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确定，已经有效。其余部分仍按全局体素世界书写，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写为局部场景与设计编辑器中的体素规则。“有限三维体素世界”中的全图常驻、全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“耐久与破坏”中资源源体素耐久兼作储量的规则交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“所有权”中的世界网格占用和铁路净空交给[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。不变量中的格网规则继续有效，但只适用于体素引擎层。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“体素尺度”“场景中的结构破损”“线路场景中的铁轨”三节由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确定，已经有效。其余部分仍按全局体素世界书写，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写为局部场景与设计编辑器中的体素规则。“有限三维体素世界”中的全图常驻、全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“所有权”中的世界网格占用和铁路净空交给[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。不变量中的格网规则继续有效，但只适用于体素引擎层。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q1–Q9、Q166–Q175。
 
@@ -65,7 +65,7 @@
 
 ### 耐久与破坏
 
-- Demo 只有统一的 Durability：CurrentDurability 与 MaxDurability。CurrentDurability ≤ 0 时 Voxel 直接消失，视觉上用碎片、火花、烟尘表现。Resource Source Voxel 不增加 Reserve 字段，其 CurrentDurability 同时表达剩余可开采量，见 [10](10-resources-and-extraction.md)。
+- Demo 只有统一的 Durability：CurrentDurability 与 MaxDurability。CurrentDurability ≤ 0 时 Voxel 直接消失，视觉上用碎片、火花、烟尘表现。
 - Demo 不建立 kinetic、fire、electric、corrosion 等 Damage Type Matrix；复杂损伤机制未来通过 Behavior 增加。
 - 同一逻辑 Damage Event 内的破坏统一结算，见 [03](03-vehicles-buildings-and-designs.md) Damage Transaction。
 
