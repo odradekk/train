@@ -2,13 +2,13 @@
 
 > **所属层**：内容。
 >
-> **修订中**：“VoxelDefinition”“Good 迁移边界”“Inventory 与实体化”和语义哈希字段的分层由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“从实例提取蓝图”“蓝图与 Layout 创作”中的派生属性与校验，以及“候选内容与运行中引用校验”中的占用与净空检查，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)改写；“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；`resource_source` 相关条文交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“VoxelDefinition”“Good 迁移边界”“Inventory 与实体化”和语义哈希字段的分层由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；`resource_source` 相关条文交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。
 
 ## 边界
 
-本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及 Inventory 数量与空间实例的关系。Composite 的 Definition 与 Archetype 见 [03](03-composite-and-behavior.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；Resource Source、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；Stack 与 ItemInstance 的库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
+本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及 Inventory 数量与空间实例的关系。Composite 的 Definition 与 Archetype 见 [03](03-vehicles-buildings-and-designs.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；Resource Source、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；Stack 与 ItemInstance 的库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
 
 ## 不变量
 
@@ -16,7 +16,7 @@
 - Semantic Revision 与 Presentation Asset Revision 分离。
 - Price 属于 Market Context，不属于 Voxel。
 - Inventory Quantity 不等于空间 Voxel Instance。
-- Capability 不允许在 Mod JSON 中伪造，由实际注册的 Behavior 推导（[03](03-composite-and-behavior.md)）。
+- Capability 不允许在 Mod JSON 中伪造，由实际注册的 Behavior 推导（[03](03-vehicles-buildings-and-designs.md)）。
 
 ## 规则
 
@@ -32,9 +32,7 @@
 
 #### 从实例提取蓝图
 
-默认提取实例当前实际零件布局、定义与朝向，形成设计草稿，不复制实体 ID、耐久损伤、速度、运行计划或待执行命令。受损建筑可明确选择按当前形态提取，或按实例完整修复目标提取；两种来源不能混用或静默替换。
-
-提取本身不修复或修改原实例，也不改变其修复目标。缺核心、结构非法等草稿不能作为可制造蓝图发布；合法设计制造时仍须经过正式校验。不把本规则扩大为复制受损运行状态的另一种存档。
+从实例提取蓝图时，复制实例引用的蓝图版本作为设计草稿，不复制实例身份、部件耐久、结构损伤、速度、运行计划或待执行命令。提取本身不修改原实例。草稿合法才能发布为可建造的版本，建造时仍须经过正式校验，见 [03 的设计合法性](03-vehicles-buildings-and-designs.md#设计合法性)。
 
 #### 草稿保存与发布范围
 
@@ -74,7 +72,7 @@
 
 #### 蓝图与 Layout 创作
 
-车辆／建筑蓝图支持零件添加、移除、移动、旋转、替换及批量编辑，显示尺寸、质量、核心、连通性、已有能力及不合法原因。车辆明确选择五档之一，检查该档包络和机械约束，不自动升档。离轨设计预览通过不等于任意位置可制造或运行；制造到世界时仍须验证实际空间、轨道和净空。
+车辆／建筑蓝图支持零件添加、移除、移动、旋转、替换及批量编辑，显示尺寸、质量、部件与结构耐久、设计属性及不合法原因。车辆明确选择五档之一，检查该档包络，不自动升档。发布为版本前按 [03 的设计合法性](03-vehicles-buildings-and-designs.md#设计合法性)校验。
 
 首批 Layout 是一个聚居地的空间模板，编排建筑蓝图、道路／装饰等世界体素，以及可选的一个站点和接轨接口；可设置局部锚点、位置、朝向、占地及场地约束。沿用四种水平正交朝向，不提供任意缩放、镜像或递归嵌套 Layout。Layout 不包含整张地图、列车、运行计划或铁路网络；实际铁路由正式施工或联合生成建立，接轨接口不自动成为轨道连接。
 
@@ -92,7 +90,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 相对交付顺序为车辆／建筑蓝图 → 体素定义 → Layout：先贯通蓝图草稿、校验、发布、实例化和恢复，再补体素表单与已有实例适配，最后随聚居地能力接入 Layout 编排、提取、放置和生成选用。每片只开放当时支持的字段和行为，未实现能力明确显示；不先建设完整通用编辑框架。与铁路、生成等工作的整体依赖由[分期重组](https://github.com/odradekk/train/issues/145)统一安排。
 
-每类内容用代表案例贯通创作、草稿重新打开、校验发布和实际使用；存档内内容验证新进程恢复，用户库内容验证另一个存档可复用。共享发布机制集中覆盖写入失败、引用缺失、来源已更新及适配拒绝等风险，不按三类内容复制同一矩阵。另验证模板更新不重建既有实例、不改建筑修复目标，副本不改变原引用；交互变化补必要人工检查。合法蓝图或 Layout 不能代替铁路运行与生成地图验收。测试选择遵守[最小充分覆盖标准](../implement-sop.md#testing-standard)。
+每类内容用代表案例贯通创作、草稿重新打开、校验发布和实际使用；存档内内容验证新进程恢复，用户库内容验证另一个存档可复用。共享发布机制集中覆盖写入失败、引用缺失、来源已更新及适配拒绝等风险，不按三类内容复制同一矩阵。另验证模板更新不重建既有实例、不改变实例引用的蓝图版本，副本不改变原引用；交互变化补必要人工检查。合法蓝图或 Layout 不能代替铁路运行与生成地图验收。测试选择遵守[最小充分覆盖标准](../implement-sop.md#testing-standard)。
 
 ### VoxelDefinition
 
@@ -192,7 +190,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 ### 候选内容与运行中引用校验
 
-[静态建筑与内容更新契约](https://github.com/odradekk/train/issues/106)已确认建筑同样遵守以下更新边界：建筑 Blueprint 和聚居地 Layout 模板更新只影响后续新建，不重写已有实例布局；零件数值、碰撞和表现更新作用于已有实例，保留身份、实际布局与耐久等状态，并沿用上述数值范围适配。候选发布须校验所有受影响建筑、站点、空间关系与引用；必需引用缺失、建筑身份不能保留或产生非法占用/铁路净空时，整次热重载拒绝。纯表现更新不改变权威碰撞或铁路连接。建筑修复使用实例最后确认的完整设计，具体目标与身份规则见 [03](03-composite-and-behavior.md#本阶段静态建筑契约)；外部模板更新不替换该目标，不可借热重载直接重建现存建筑。修复目标引用的零件定义以及残块归属等恢复必需信息也属于受影响引用，不能只校验当前仍在建筑里的零件。
+车辆和建筑引用的蓝图版本随存档保存。蓝图和聚居地 Layout 模板的更新只影响以后的建造和改装，不改变已有实例引用的版本或已放置的聚居地。体素定义的数值、碰撞和表现更新作用于已有实例：重算设计属性，部件耐久保留绝对值并按新上限截断，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。实例引用的蓝图版本所需的体素定义，同样属于受影响的引用。
 
 - 新加载的定义必须引用有效内容，非法 Mod 整包排除；内置内容出错则拒绝发布。排除后的候选内容仍必须自洽，不能留下未解析引用。
 - 必须基于候选当前定义校验全部受影响的运行中引用与状态适配。缺失必需定义或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和世界状态；不能发布部分更新或留下部分修正后的实例。
@@ -207,7 +205,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 ## Demo 范围
 
-VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；Blueprint 加载、校验、制造及已有车辆的完整改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。上文世界编辑器的蓝图、体素定义与 Layout 创作流程是本阶段的开发工具，不是 Demo 的玩家内容，按可用切片交付；原手写 JSON 与独立自动测试仍可用于验证，不代替常用创作界面。Composite 规则见 [03](03-composite-and-behavior.md)。
+VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；Blueprint 加载、校验、制造及已有车辆的完整改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。上文世界编辑器的蓝图、体素定义与 Layout 创作流程是本阶段的开发工具，不是 Demo 的玩家内容，按可用切片交付；原手写 JSON 与独立自动测试仍可用于验证，不代替常用创作界面。Composite 规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 ## Demo 之后
 

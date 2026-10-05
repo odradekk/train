@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层。
 >
-> **修订中**：不变量“Inventory Quantity 不等于空间 Voxel Instance”、“Stack 与 ItemInstance”和“BOM 对 ItemInstance 的消费”由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“Storage Capability”中容量来自设备 Behavior 的规则由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)改写。地点库存、统一库存池、容量计数与 Overcapacity 等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：不变量“Inventory Quantity 不等于空间 Voxel Instance”、“Stack 与 ItemInstance”和“BOM 对 ItemInstance 的消费”由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写。地点库存、统一库存池、容量计数与 Overcapacity 等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：资源转录 Q261–Q263、Q266–Q267、Q277–Q279、Q282–Q283、Q293–Q294、Q300、Q329、Q416–Q417（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
@@ -39,8 +39,8 @@
 
 ### Storage Capability
 
-- Train：installed Storage Equipment → StorageCapability → Train Inventory Capacity。
-- Settlement：Warehouse Building Composite 内实际 Storage Equipment → StorageCapability → Settlement Inventory Capacity。表面上“建仓库增加容量”，底层事实仍由仓库内实际 Storage Voxel 提供。
+- Train：车辆中完好的存储部件 → StorageCapability → Train Inventory Capacity。
+- Settlement：仓库建筑中完好的存储部件 → StorageCapability → Settlement Inventory Capacity。表面上“建仓库增加容量”，底层事实仍由仓库设计中的存储部件提供；部件被毁时容量相应减少，见 [03 的设计属性](03-vehicles-buildings-and-designs.md#设计属性)。
 - Capability 由真实 Behavior 推导，Facility Tag 不能伪造 Storage Capability，见 [13](13-production-runtime-and-facilities.md)。
 
 ### Overcapacity

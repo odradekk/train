@@ -2,13 +2,13 @@
 
 > **所属层**：体素引擎层（局部场景与设计编辑器）。
 >
-> **修订中**：本文仍按全局体素世界书写，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写为局部场景与设计编辑器中的体素规则。“有限三维体素世界”中的全图常驻、全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“耐久与破坏”中资源源体素耐久兼作储量的规则交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“所有权”中的世界网格占用和铁路净空交给[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。不变量中的格网规则继续有效，但只适用于体素引擎层。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“体素尺度”“场景中的结构破损”“线路场景中的铁轨”三节由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确定，已经有效。其余部分仍按全局体素世界书写，由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写为局部场景与设计编辑器中的体素规则。“有限三维体素世界”中的全图常驻、全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“耐久与破坏”中资源源体素耐久兼作储量的规则交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“所有权”中的世界网格占用和铁路净空交给[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。不变量中的格网规则继续有效，但只适用于体素引擎层。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q1–Q9、Q166–Q175。
 
 ## 边界
 
-本文定义世界空间、Voxel 逻辑单位、网格不变量、Voxel 的耐久与世界体素的结构规则。VoxelDefinition 的字段见 [02](02-definitions-and-content.md)；Composite 的内部网格、所有权与断裂见 [03](03-composite-and-behavior.md)；Chunk Mesh 与渲染见 [07](07-rendering.md)。世界尺寸与 Chunk 尺寸是未冻结参数。
+本文定义世界空间、Voxel 逻辑单位、网格不变量、Voxel 的耐久与世界体素的结构规则。VoxelDefinition 的字段见 [02](02-definitions-and-content.md)；Composite 的内部网格、所有权与断裂见 [03](03-vehicles-buildings-and-designs.md)；Chunk Mesh 与渲染见 [07](07-rendering.md)。世界尺寸与 Chunk 尺寸是未冻结参数。
 
 ## 不变量
 
@@ -20,6 +20,36 @@
 6. **结构连接只看 Grid。** Voxel 之间的结构连接完全根据六面邻接（±X、±Y、±Z）判断，不检查 Mesh 是否接触、Collider 是否接触、物理引擎是否认为发生碰撞。
 
 ## 规则
+
+### 体素尺度
+
+- 一个体素格边长 0.5 米。人物高 3 格，约 1.5 米。世界图中的米与场景中的格按这个比例换算。
+- 车辆的五档尺寸按这个尺度定义，见 [03](03-vehicles-buildings-and-designs.md#五档尺寸)。
+
+### 场景中的结构破损
+
+核心模拟层只给出每辆车或每座建筑的结构耐久比例 r（当前值 ÷ 上限），以及战斗事件（命中了谁、哪个部件被毁），见 [03](03-vehicles-buildings-and-designs.md#损伤与战斗事件)。场景用四层效果表现：
+
+1. **固定的破损顺序**：按“实例身份 + 蓝图版本”派生的随机键，为全部结构体素排一个移除顺序，偏向外壳，并按若干弹坑中心成团。r 每下降一段，就从顺序开头移除相应数量的体素，形成弹孔和缺口。移除量设上限（例如最多 40% 的结构体素），保证对象被摧毁前外形仍可辨认。修理时按相反顺序补回。顺序只取决于实例身份、蓝图版本和 r，所以重新打开场景时看到的破损相同。
+2. **表面损伤**：即将被移除的体素和弹孔周围的体素，通过 shader 参数加上焦痕、裂纹和变暗，程度随 r 加深。
+3. **状态特效**：r 低于阈值时持续冒烟（例如低于 50%），再低时起火（例如低于 25%），以及火花、漏液等。
+4. **命中瞬间**：每个命中事件在下一批要移除的体素位置播放闪光、碎片飞溅和镜头抖动，然后移除这批体素。碎片可以使用 Godot 物理，只作表现。
+
+被毁的部件按事件精确移除；受损但未被毁的部件用表面损伤表现。各项阈值和移除量上限在实测中调整。血条、状态图标属于界面，见[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)。
+
+### 线路场景中的铁轨
+
+- 每条铁轨在场景中由三对轮轨组成，各档车辆使用其中一对，核心模拟层和调度不区分轨距：
+
+| 轨距 | 宽度 | 使用的档位 |
+| --- | --- | --- |
+| 标准轨距 | 3 格（1.5 米） | 小型 |
+| 宽轨 | 7 格（3.5 米） | 中型、大型 |
+| 巨型轨距 | 15 格（7.5 米） | 超大型、泰坦 |
+
+- 钢轨用网格表现，不占体素格；轨枕和道床用体素表示，道床宽约 21 格。
+- 任何一条铁轨都可能有泰坦通过，相邻铁轨的中心距按最宽车辆加安全间隙取约 34 格（17 米）。
+- 弯道半径、坡度等线形参数按这个尺度另定，见[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)。具体格数在场景实测时可以微调。
 
 ### 有限三维体素世界
 
@@ -37,17 +67,17 @@
 
 - Demo 只有统一的 Durability：CurrentDurability 与 MaxDurability。CurrentDurability ≤ 0 时 Voxel 直接消失，视觉上用碎片、火花、烟尘表现。Resource Source Voxel 不增加 Reserve 字段，其 CurrentDurability 同时表达剩余可开采量，见 [10](10-resources-and-extraction.md)。
 - Demo 不建立 kinetic、fire、electric、corrosion 等 Damage Type Matrix；复杂损伤机制未来通过 Behavior 增加。
-- 同一逻辑 Damage Event 内的破坏统一结算，见 [03](03-composite-and-behavior.md) Damage Transaction。
+- 同一逻辑 Damage Event 内的破坏统一结算，见 [03](03-vehicles-buildings-and-designs.md) Damage Transaction。
 
 ### 世界体素的结构稳定性
 
 - Demo 中 World-owned Voxel 不拥有通用结构支撑模拟：挖掉下面的体素，上面的普通 Voxel 可以悬空。
 - 只有明确具有 GravityBehavior、FallingBehavior 的特殊 Voxel 才会下落。
-- Composite 新建及正常改装要求六面连通；车辆按连通部分拆分，静态建筑受损时保留单一建筑身份并整体失效，见 [03](03-composite-and-behavior.md#本阶段静态建筑契约)。建筑不做支撑坍塌，无核心碎块原位转为世界体素，仍可悬空。
+- Composite 新建及正常改装要求六面连通；车辆按连通部分拆分，静态建筑受损时保留单一建筑身份并整体失效，见 [03](03-vehicles-buildings-and-designs.md#本阶段静态建筑契约)。建筑不做支撑坍塌，无核心碎块原位转为世界体素，仍可悬空。
 
 ### 所有权
 
-任意 Voxel Instance 同一时间只有一个空间所有者：World Grid 或 Composite。规则见 [03](03-composite-and-behavior.md)。
+任意 Voxel Instance 同一时间只有一个空间所有者：World Grid 或 Composite。规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 静态 Building Composite 的实际体素占用登记到世界网格查询中；登记是指向 Composite 内体素的引用，不创建 World-owned 副本，不改变所有权。该格不能再放置其他地形或轨道体素；建筑修改、破坏和修复后同步更新占用，见 [16](16-settlements.md)。占用查询须能追溯真实所有者及建筑零件；占用登记不额外持有一份实例。原位所有权转移应原子撤销旧登记、建立新归属，不能出现双重占用或可被插入其他体素的空窗。铁路净空按实际存在体素的整格保守检查，普通碰撞仍按定义形状；建筑空格不按包围盒填充。
 

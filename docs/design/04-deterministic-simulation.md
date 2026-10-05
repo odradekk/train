@@ -8,7 +8,7 @@
 
 ## 边界
 
-本文定义 Simulation 时钟、确定性目标、Tick 流水线、资源仲裁、Transaction、随机性、运行时 ID。Damage Transaction 的结构结算见 [03](03-composite-and-behavior.md)；存档内容见 [09](09-persistence.md)；窗口状态与 Pause 的关系见 [08](08-window-and-ui.md)。
+本文定义 Simulation 时钟、确定性目标、Tick 流水线、资源仲裁、Transaction、随机性、运行时 ID。Damage Transaction 的结构结算见 [03](03-vehicles-buildings-and-designs.md)；存档内容见 [09](09-persistence.md)；窗口状态与 Pause 的关系见 [08](08-window-and-ui.md)。
 
 ## 不变量
 

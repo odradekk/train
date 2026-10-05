@@ -36,7 +36,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
 | 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
 | 核心模拟层 | [06-railway.md](06-railway.md) | 铁路 |
-| 核心模拟层 | [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability（列车与建筑的表示） |
+| 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |
 | 核心模拟层 | [09-persistence.md](09-persistence.md) | 存档 |
 | 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
 | 核心模拟层 | [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
@@ -97,26 +97,30 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 12. 影响未来模拟的长生命周期 Job、Buffer、Reservation 与设备 Runtime State 必须持久化。
 13. 性能优化必须服从 Profiling，而不是提前猜测。
 14. 世界图的节点和线路集合、节点位置、线路长度、地貌概况和铁轨上限在生成后固定；之后只有占据者、铁轨数、断点和资源会变化。
+15. 车辆和建筑实例引用固定的蓝图版本，只保存部件耐久、结构耐久等实例状态；设计属性由内容层从蓝图版本派生。
+16. 建造、改装、修理和损伤按事务原子结算。
+17. 车辆和建筑只能由显式的建造、委托或世界生成产生。
 
 ### 内容
 
-15. Definition 是不可变数据。
-16. Runtime State 不写回 Definition。
-17. Semantic Revision 与 Presentation Asset Revision 分离。
+18. Definition 是不可变数据。
+19. Runtime State 不写回 Definition。
+20. Semantic Revision 与 Presentation Asset Revision 分离。
+21. Capability 必须来自真实的 Behavior；Facility Tag 只表达兼容性。
+22. BOM 由蓝图版本的体素布局派生；建造消费完成的货物，不递归展开配方。
 
 ### 体素引擎层（只在局部场景和设计编辑器中成立）
 
-18. 一个 Voxel = 一个 Cell；一个 Cell 最多一个 Voxel。
-19. Voxel Local Coordinate 永远为整数；Voxel Orientation 永远为正交方向。
-20. Voxel 同一时间只有一个 Owner。
-21. 新建及正常改装的设计要求六面连通。
+23. 一个 Voxel = 一个 Cell；一个 Cell 最多一个 Voxel。
+24. Voxel Local Coordinate 永远为整数；Voxel Orientation 永远为正交方向。
+25. Voxel 同一时间只有一个 Owner。
+26. 新建及正常改装的设计要求六面连通。
 
 ### 待对应票重新确定
 
 下列条目依赖“全局体素世界是模拟核心”的旧前提，暂按原文保留，由对应票改写或删除。括号内是改写前的编号。
 
-- 运行时车辆按连通部分拆分；受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效（原第 6 条后半）：[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)、[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。
-- Damage、Refit、Construction 等结构修改按 Transaction 原子结算（原第 21 条）；Composite Creation 永远来自显式 Gameplay 行为（原第 22 条）；Capability 必须来自真实 Behavior，Facility Tag 只表达兼容性（原第 28 条）；Composite 的 BOM 由实际 Voxel Layout 派生，Construction 消费完成的 Goods，不递归展开配方（原第 29 条）：[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)。
+- 受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效（原第 6 条后半）：[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。
 - Inventory Quantity 不等于空间 Voxel Instance（原第 24 条）；所有标准货物都是 VoxelDefinition，Composite 不是普通 Goods（原第 26 条）：[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)。
 - Resource Source 与 Raw Good 严格分离，Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good（原第 27 条）：[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)。
 

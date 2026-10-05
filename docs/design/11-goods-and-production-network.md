@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层。
 >
-> **修订中**：不变量“所有标准货物都是 VoxelDefinition”由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“Raw Goods”“Primary Production”中的资源源与 Site 约束由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Forward Production DAG”中把 Rail 作为体素货物的说明由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)处理；“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”；单格功能设备与 Paint 的表现规则由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)处理。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：不变量“所有标准货物都是 VoxelDefinition”由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“Raw Goods”“Primary Production”中的资源源与 Site 约束由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Forward Production DAG”中把 Rail 作为体素货物的说明由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)处理；“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：资源转录 Q183–Q186、Q188、Q190–Q195、Q201–Q202、Q211–Q216、Q223–Q225、Q229–Q253、Q255–Q259、Q269–Q276、Q285–Q292、Q376–Q397、Q415（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
@@ -35,8 +35,8 @@
 ### Paint 与货物身份
 
 - 纯表现差异不创建不同 Good Definition：不存在 Red Structural Block、Blue Structural Block 作为经济商品。
-- PaintColor 属于空间实例 / Composite 的 Presentation Override。改变颜色不改变 VoxelDefinitionId、Value、Production Recipe 或经济身份。
-- Paint 不作为需要随库存 ItemInstance 保留的 Gameplay State：涂装 Voxel 被拆回库存后其颜色 Override 消失，重新安装后可以重新涂装。
+- 涂装属于蓝图的表现设置。改变颜色不改变 VoxelDefinitionId、Value、生产配方或经济身份，也不改变蓝图版本的语义 Revision。
+- 涂装不是需要随库存保留的游戏状态：部件拆回库存后不保留涂装，重新安装后可以重新涂装。
 
 ### Raw Goods
 
@@ -112,7 +112,7 @@ Construction Material → Construction Block
 Structural Metal      → Rail
 ```
 
-Functional Equipment：Demo 包含七种功能设备。前五种是 Facility 通用能力设备；Propulsion Equipment 与 Control Equipment 为车辆提供动力与控制能力，二者在带 `assembly` Facility Tag 的设施中生产（2026-10-01 设计讨论）。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。所有功能设备严格是单 Cell Voxel，能力通过数量叠加或不同 Definition 表达，不存在 3×2×2 之类的大型设备体素（资源转录 Q284，[01](01-voxel-engine-and-scenes.md)）。
+Functional Equipment：Demo 包含七种功能设备。前五种是 Facility 通用能力设备；Propulsion Equipment 与 Control Equipment 为车辆提供动力与控制能力，二者在带 `assembly` Facility Tag 的设施中生产（2026-10-01 设计讨论）。不同功能设备即使 BOM 类似，也因为 Behavior / Capability 不同而是不同 VoxelDefinition；各自提供的 Capability 见 [13](13-production-runtime-and-facilities.md)。所有功能设备严格是单 Cell Voxel，能力通过数量叠加或不同 Definition 表达，不存在 3×2×2 之类的大型设备体素（资源转录 Q284，[01](01-voxel-engine-and-scenes.md)）。每个功能体素在车辆或建筑中是一个部件，见 [03 的部件与结构](03-vehicles-buildings-and-designs.md#部件与结构)。
 
 ```text
 Structural Metal + Mechanical Components + Electrical Components → Industrial Machinery
@@ -126,7 +126,7 @@ Electronic Components + Electrical Components                    → Control Equ
 
 ### Future Product Families
 
-Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process。Propulsion Equipment 与 Control Equipment 已移入上文 Functional Equipment：车头制造需要动力与控制能力（[03](03-composite-and-behavior.md)），因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，重新采用资源转录 Q288 将其作为独立成品的结论。
+Train Weapons、Crew Weapons、Train Equipment、Crew Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应 Gameplay 系统设计完成并通过 Gameplay Difference Test 后，再创建具体产品 VoxelDefinition、Production Process 与需要的 Recovery Process。Propulsion Equipment 与 Control Equipment 已移入上文 Functional Equipment：车头制造需要动力与控制能力（[03](03-vehicles-buildings-and-designs.md)），因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，重新采用资源转录 Q288 将其作为独立成品的结论。
 
 ### Recovery DAG
 

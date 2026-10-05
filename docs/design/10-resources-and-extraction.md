@@ -49,7 +49,7 @@ Extraction Command / Job → ResourceSourceBehavior → formal Damage Transactio
 Ordinary Damage → Damage Transaction → Durability decreases → no Raw Good yield
 ```
 
-- Extraction 是 Damage 的一种显式 Gameplay 使用方式，但 Damage 不等于 Extraction：武器、事故等普通 Damage 只扣减 Durability。Damage Transaction 的结算规则见 [03](03-composite-and-behavior.md)。
+- Extraction 是 Damage 的一种显式 Gameplay 使用方式，但 Damage 不等于 Extraction：武器、事故等普通 Damage 只扣减 Durability。Damage Transaction 的结算规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 ### Effective Damage 与 Yield
 
