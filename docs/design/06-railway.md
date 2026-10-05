@@ -274,7 +274,7 @@ RailConstructionPlan（连续几何、连接与占格方案）→ Validate → R
 ### 桥梁和隧道
 
 - Bridge 与 Tunnel 与 Rail Definition 正交：Bridge Structure + Rail Voxels，而不是 bridge_rail；隧道是 Terrain excavation + Tunnel structure + Rail。桥梁可以没有铁路，铁路也可以不在桥梁上。
-- 本阶段的世界生成器不自动生成桥梁和隧道，见 [05 的自动施工范围](05-world-graph-and-generation.md#本阶段无资源生成契约)。
+- 本阶段的世界生成器不自动生成桥梁和隧道，旧的自动施工范围已随 05 的本阶段生成契约删除，见 [05](05-world-graph-and-generation.md)。
 
 ### Rail Movement
 
