@@ -7,3 +7,7 @@ An assembly break creates independent motion units where the surviving vehicles 
 A locomotive cannot provide traction backwards; the inactive end locomotive may be towed opposite to its own heading. Reversing powered travel requires outward-facing locomotives at both ends, with at most one active for traction. The assembly must stop before an atomic handover to the other locomotive; reference changes do not move or rotate vehicles. This supersedes the interview's rejected negative-speed, permanently fixed-reference proposal.
 
 Presentation interpolates along the path between completed simulation states and solves the vehicle constraints there, accepting up to one simulation step of display latency without extrapolation. Splits, handovers and support loss end the previous interpolation interval. The camera follows the selected vehicle's displayed pose and body heading, not tick positions, travel direction or the active locomotive selection. See [the railway contract](../design/06-railway.md) for the complete rules and pending implementation validation.
+
+## 2026-10-05 状态
+
+本决定以物理轨段上的 RailPosition 作为列车的权威位置，而它所依赖的全局体素世界已被 [ADR-0008](0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取消。列车改为在世界图上运行之后，本决定将由 [列车在图上的运行与调度](https://github.com/odradekk/train/issues/203) 取代。其中的显示插值规则（在相邻两个已完成的模拟状态之间插值、不外推，最多延迟一步）已由 ADR-0008 沿用。在此之前，不得依据本决定新增实现。

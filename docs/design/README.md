@@ -55,74 +55,75 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 ## 总体架构
 
 ```text
-                   World Domain
-                        │
-          ┌─────────────┼─────────────┐
-          │             │             │
-      Simulation     Persistence    Generation
-          │
-          └─────────────┬─────────────┘
-                        │
-                    World Model
-                        │
-          ┌─────────────┴─────────────┐
-          │                           │
-       Godot Adapter              Management UI
-          │
-   ┌──────┼────────┐
-   │      │        │
-Render  Audio    Input
+                核心模拟层
+   权威游戏状态；确定性；不涉及体素；不依赖 Godot
+        │ 只读查询、领域事件              ▲ 命令
+        ▼                                │
+   体素引擎层：局部场景与设计编辑器          │
+        │ 场景数据                         │
+        ▼                                │
+   渲染层：Godot（渲染、相机、输入、音频、窗口、界面）
 ```
 
-- **World Model 是游戏事实来源。** Godot Node、Mesh、Collider、窗口和 UI 都不是游戏事实本身："世界中存在一个 Voxel"不能通过"SceneTree 中存在某个 MeshInstance3D"来判断。Rail Graph、Chunk Mesh、Collision Shape、CompositeVisual 均属于 World Model 的派生表示、缓存或 Adapter。
-- **Domain Model 使用普通 C# 类型。** 不采用 `VoxelInstance : Node3D`、`CompositeInstance : Node3D`。VoxelDefinition、Voxel runtime data、CompositeDefinition、CompositeInstance、World、Chunk、Simulation、RailNetwork 等核心领域都不依赖 SceneTree 生命周期。
-- **Godot 负责** Rendering、Input、Audio、Windows、UI、Asset Loading、Physics Adapter。
-- **Asset 引用。** Domain Definition 不直接依赖 Godot Resource 作为核心身份，使用 AssetId（MeshAssetId、TextureAssetId、MaterialAssetId）；Presentation Adapter 按需解析 AssetId 到 Godot Resource，只有实际需要渲染某区域时才加载视觉资产。
-- **Domain Event 与 Godot Signal。** Simulation 内部使用普通 C# Domain Event / Message（VoxelDestroyed、CompositeConditionChanged、CapabilityChanged）；Adapter 可以转换成 Godot Signal，但 Domain 不为了 Signal 而继承 GodotObject。
+- **核心模拟层是唯一的权威来源。** 它在抽象世界图上以同一精度模拟整个世界：节点、边与铁轨、聚居地、列车、经济、战斗、世界生物、时钟与命令。存档只保存核心状态，世界生成只产生初始核心状态。它使用普通 C# 类型，不依赖 Godot、SceneTree 和体素引擎层。
+- **体素引擎层只构建局部场景。** 玩家进入某个地点时，体素引擎层构建边场景或节点场景，离开时销毁；设计编辑器也由它构建。场景只由该地点的核心状态快照、内容定义，以及由 WorldSeed 和地点身份派生的无状态随机键生成，所以同一地点每次生成的结果相同。场景不保存状态，也不影响任何结果。同一时间只构建一个场景。
+- **渲染层是 Godot。** 它负责渲染、相机、输入、音频、窗口和界面。宏观地图和管理界面通过核心模拟层的只读查询读取数据，不经过体素引擎层。Godot 节点、网格、碰撞形状和界面都不是游戏事实。
+- **接口与信息隐藏。** 依赖方向是渲染层 → 体素引擎层 → 核心模拟层，下层不知道上层的存在。各层只通过窄接口交互：核心模拟层对外只有命令入口、只读查询和供表现使用的领域事件；体素引擎层对外只有构建、更新、销毁场景，拾取，以及交给渲染层的场景数据。玩家在任何界面或场景中的操作，都作为命令提交给核心模拟层。
+- **内容是共用的只读数据。** 体素定义、蓝图等内容同时供核心模拟层和体素引擎层读取，核心模拟层只读取由设计派生出的属性。定义不直接依赖 Godot Resource，而是使用 AssetId，由渲染层在需要时解析。
+- **领域事件与 Godot Signal。** 核心模拟层使用普通 C# 领域事件；适配层可以把它们转换为 Godot Signal，领域类型不为此继承 GodotObject。
 
-这一决定记录为 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md)；出处为转录 Q17、Q34、Q49、Q50、Q147。
+这一决定记录为 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)，它取代了 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 对游戏状态范围的描述。出处为[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)；原架构的出处为转录 Q17、Q34、Q49、Q50、Q147。
 
 ## 核心不变量汇总
 
-实现过程中优先保护：
+实现过程中优先保护以下规则。
 
-1. 一个 Voxel = 一个 Cell。
-2. 一个 Cell 最多一个 Voxel。
-3. Voxel Local Coordinate 永远为整数。
-4. Voxel Orientation 永远为正交方向。
-5. Voxel 同一时间只有一个 Owner。
-6. 新建及正常改装的 Composite 要求六面连通，运行时车辆按连通部分拆分；受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效，按 [03 的建筑契约](03-composite-and-behavior.md#本阶段静态建筑契约)处理。
-7. Definition 是不可变数据。
-8. Runtime State 不写回 Definition。
-9. Semantic Revision 与 Presentation Asset Revision 分离。
-10. 位置不是持久身份。
-11. World Model 不依赖 SceneTree。
-12. Physical Rail State（轨道体素、连续几何及明确连接）是铁路 Runtime Truth。
-13. Logical Rail Graph 是派生索引。
-14. RailPosition 是列车权威位置，World Transform 是派生结果。
-15. Rendering、Collider 都是 World State 的派生缓存。
-16. Simulation 与 FPS、Camera、Window Focus 解耦。
-17. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
-18. 所有 Gameplay Random 最终源于 WorldSeed。
-19. 本阶段全部使用 Stateless Random；有状态随机流在后续玩法确有需求时加入。
-20. 后续引入 Stateful RNG 时必须持久化完整状态。
-21. Damage、Refit、Construction 等结构修改按 Transaction 原子结算。
-22. Composite Creation 永远来自显式 Gameplay 行为。
-23. Price 属于 Market Context，不属于 Voxel。
-24. Inventory Quantity 不等于空间 Voxel Instance。
-25. 性能优化必须服从 Profiling，而不是提前猜测。
-26. 所有标准货物都是 VoxelDefinition；Composite 不是普通 Goods。
-27. Resource Source 与 Raw Good 严格分离；Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good。
-28. Capability 必须来自真实 Behavior；Facility Tag 只表达兼容性。
-29. Composite 的 BOM 由实际 Voxel Layout 派生，Construction 消费完成的 Goods，不递归展开配方。
-30. 影响未来模拟的长生命周期 Job、Buffer、Reservation 与设备 Runtime State 必须持久化。
+### 核心模拟层
+
+1. 核心模拟层是唯一的权威游戏状态；局部场景、渲染、碰撞和界面都是派生结果。
+2. 核心模拟层不依赖 Godot、SceneTree 和体素引擎层；三层只通过公开接口交互。
+3. 模拟结果与帧率、相机、窗口状态无关，也与局部场景是否打开、打开的是哪一个无关；核心模拟层对整个世界使用同一精度。
+4. 局部场景不保存状态，不影响模拟结果；场景中的操作只能通过命令改变世界。
+5. 列车在世界图上的位置是权威位置，场景中的位置由它派生。
+6. 位置不是持久身份。
+7. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
+8. 所有 Gameplay Random 最终源于 WorldSeed。
+9. 本阶段全部使用 Stateless Random；有状态随机流在后续玩法确有需求时加入。
+10. 后续引入 Stateful RNG 时必须持久化完整状态。
+11. Price 属于 Market Context，不属于 Voxel。
+12. 影响未来模拟的长生命周期 Job、Buffer、Reservation 与设备 Runtime State 必须持久化。
+13. 性能优化必须服从 Profiling，而不是提前猜测。
+
+### 内容
+
+14. Definition 是不可变数据。
+15. Runtime State 不写回 Definition。
+16. Semantic Revision 与 Presentation Asset Revision 分离。
+
+### 体素引擎层（只在局部场景和设计编辑器中成立）
+
+17. 一个 Voxel = 一个 Cell；一个 Cell 最多一个 Voxel。
+18. Voxel Local Coordinate 永远为整数；Voxel Orientation 永远为正交方向。
+19. Voxel 同一时间只有一个 Owner。
+20. 新建及正常改装的设计要求六面连通。
+
+### 待对应票重新确定
+
+下列条目依赖“全局体素世界是模拟核心”的旧前提，暂按原文保留，由对应票改写或删除。括号内是改写前的编号。
+
+- 运行时车辆按连通部分拆分；受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效（原第 6 条后半）：[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)、[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。
+- Damage、Refit、Construction 等结构修改按 Transaction 原子结算（原第 21 条）；Composite Creation 永远来自显式 Gameplay 行为（原第 22 条）；Capability 必须来自真实 Behavior，Facility Tag 只表达兼容性（原第 28 条）；Composite 的 BOM 由实际 Voxel Layout 派生，Construction 消费完成的 Goods，不递归展开配方（原第 29 条）：[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)。
+- Inventory Quantity 不等于空间 Voxel Instance（原第 24 条）；所有标准货物都是 VoxelDefinition，Composite 不是普通 Goods（原第 26 条）：[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)。
+- Resource Source 与 Raw Good 严格分离，Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good（原第 27 条）：[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)。
+
+原第 12、13 条（Physical Rail State 是铁路 Runtime Truth；Logical Rail Graph 是派生索引）已废弃，铁路模型由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)改写。
 
 ## 设计指导思想
 
-本项目不追求建立理论上最通用的 Voxel Engine、ECS、铁路模拟器或物理模拟框架。核心目标是：**用少量稳定、直观且可组合的基础规则，支持一个具有高度自由度的体素世界和长期可扩展的火车贸易游戏。**
+本项目不追求建立理论上最通用的 Voxel Engine、ECS、铁路模拟器或物理模拟框架。核心目标是：**用少量稳定、直观且可组合的基础规则，支持一个由核心模拟层持续运行、可长期扩展的列车经营世界，并用体素局部场景给玩家带来精美、沉浸的画面。**
 
 对未来需求：简单模型已能满足玩法就继续使用；Profiling 证明性能不足再优化数据布局；真实 Gameplay 证明某个抽象不足再增加新系统；不因为"未来可能需要"就提前实现复杂框架。尤其避免：一个 Voxel 一个 Node、一种物品一个 C# 子类、万能 Composite 递归树、万能状态机、完整 ECS Framework、完整 Event Sourcing、提前实现跨平台 bit-perfect determinism、提前实现结构力学、提前实现完整铁路联锁。
 
 长期稳定性来自：清晰边界 + 少量强不变量 + 数据驱动 + 组合 + 确定性 Simulation + 可替换的 Presentation Optimization，而不是过度抽象。
 
-一句话总结：**游戏是一个有限、完整三维、数据驱动的体素世界；所有可实体化对象共享 VoxelDefinition，Voxel 可组成拥有独立身份和能力的 Composite；整个世界由确定性 Simulation 持续运行，程序生成世界通过物理体素与高层语义索引共同构成，其中铁路是核心空间与视觉系统；Godot 负责表现与平台适配，而不是承担 World Model 本身。**
+一句话总结：**游戏世界是一张由确定性核心模拟层持续运行的抽象世界图，经济、建设和战斗都在其上结算；体素只用于玩家关注的局部场景和设计编辑器，场景按需构建、只作表现；所有层都不依赖 Godot 承担游戏状态，Godot 只负责表现与平台适配。**
