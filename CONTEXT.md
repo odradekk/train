@@ -2,6 +2,18 @@
 
 本上下文描述玩家作为列车长，通过经济、建设和战斗经营车队与聚居地的游戏领域语言；世界由核心模拟层自动运行，体素只用于玩家关注的局部场景。
 
+> **修订中**：以下词条依赖旧的全局体素世界前提，由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)中的票改写或删除，改写前不能作为实现依据：
+>
+> - [列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)：物理轨道状态、物理轨段、沿轨位置、等效轨道接触点、轨距、通行区段、通行权、等待位置、车辆实际占用、活动车头
+> - [列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)：车辆尺寸档位、建筑修复目标
+> - [宏观世界模型：节点、边与地图生成](https://github.com/odradekk/train/issues/200)：地图位置、接轨接口、铁路连接规划、生成基底、空白世界
+> - [聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)：聚居地、聚居地类型、聚居地布局、站点、静态建筑、建筑数量
+> - [核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)：世界修改命令
+> - [货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)：体素定义、货物种类、货物标识
+> - [资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)：自然资源种类、自然资源种类定义
+> - 地图迷雾“观察与表现”：视觉驻留、渲染原点
+> - 地图迷雾“编辑器的去向”：世界编辑器、编辑草稿、创作文档
+
 ## Language
 
 **Demo**：

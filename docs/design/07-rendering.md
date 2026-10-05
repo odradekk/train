@@ -1,10 +1,14 @@
 # 07 渲染
 
+> **所属层**：体素引擎层与渲染层。
+>
+> **修订中**：由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”改写：“Visual Streaming”“Render Origin”依赖全图常驻、全精度模拟（转录 Q5），已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“LOD”中关于 Simulation LOD 的规则、“Track Render Section”的几何来源和“列车插值”的位置来源，要按局部场景改写；“本阶段表现验收契约”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。三路表现、Dirty Rendering 和渲染作为派生缓存等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：转录 Q126–Q143、Q179。
 
 ## 边界
 
-本文定义表现层策略：三路 Voxel Presentation、Chunk Mesh、Custom Static Mesh、Specialized Renderer 与 TrackRenderer、Composite 渲染、Dirty 重建、Visual Streaming、LOD、Render Origin、Collision Adapter。所有内容都是 World State 的派生缓存，不改变 Simulation。相机见 [08](08-desktop-window-and-camera.md)。
+本文定义表现层策略：三路 Voxel Presentation、Chunk Mesh、Custom Static Mesh、Specialized Renderer 与 TrackRenderer、Composite 渲染、Dirty 重建、Visual Streaming、LOD、Render Origin、Collision Adapter。所有内容都是 World State 的派生缓存，不改变 Simulation。相机见 [08](08-window-and-ui.md)。
 
 ## 不变量
 
@@ -93,7 +97,7 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 
 - 在相邻两个已完成模拟状态之间取插值时间，不外推未发生的运动，正常运行接受最多一个模拟步的显示延迟。
 - 显示结果不回写 RailPosition、速度或其他权威状态；Godot 变换只是派生表示。
-- 相机与车体使用所选车辆的同一份显示位置和车体朝向，不直接跟随跳动的 Tick 位置，也不以行驶方向代替车体朝向；目标选择与具体跟随语义见 [08](08-desktop-window-and-camera.md)。
+- 相机与车体使用所选车辆的同一份显示位置和车体朝向，不直接跟随跳动的 Tick 位置，也不以行驶方向代替车体朝向；目标选择与具体跟随语义见 [08](08-window-and-ui.md)。
 - 真实 Godot 观感检查覆盖 [06 验证矩阵](06-railway.md#本阶段几何与车辆验证契约)中的三维弯坡、混编、较长编组和事件后接续，检查刚性车体、车钩、轨道接缝与相机连续性。原型采样或 headless 检查通过不替代用户观感；几何失败不得由显示层修补后当作通过。
 
 ### Dirty Rendering
@@ -103,7 +107,7 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 
 ### Visual Streaming
 
-- 遵守 [01](01-voxel-world.md) 与 [04](04-deterministic-simulation.md) 的当前已定规则：World Data 完整常驻内存，全图全精度实时模拟（转录 Q5）。"不加载"只表示不构建或不保留当前区域的视觉表示，不暂停或降低该区域的模拟精度。
+- 遵守 [01](01-voxel-engine-and-scenes.md) 与 [04](04-deterministic-simulation.md) 的当前已定规则：World Data 完整常驻内存，全图全精度实时模拟（转录 Q5）。"不加载"只表示不构建或不保留当前区域的视觉表示，不暂停或降低该区域的模拟精度。
 - 采用 Visual Residency + Frustum Visibility。Resident 区域使用 Load Radius < Unload Radius 形成 hysteresis，避免边界反复 Load/Unload。
 - 当前跟随列车时根据其 route + velocity 做 directional prefetch，随换端/改道更新；不根据 Camera 朝向决定主要预取方向。自由视角准备相机周边，其他远处列车不各自要求驻留区域，见上文验收契约。
 
@@ -120,7 +124,7 @@ TrackRenderer 不为整个几公里的 Edge 建一个巨大 Mesh，而是拆成�
 
 ### Collision Rendering / Adapter
 
-World Voxel Data → Chunk Collider Builder → Godot Collision。Voxel 被修改后标记 Collision Cache dirty。静态建筑的真实所有权与碰撞语义见 [01](01-voxel-world.md) 和 [03](03-composite-and-behavior.md)。
+World Voxel Data → Chunk Collider Builder → Godot Collision。Voxel 被修改后标记 Collision Cache dirty。静态建筑的真实所有权与碰撞语义见 [01](01-voxel-engine-and-scenes.md) 和 [03](03-composite-and-behavior.md)。
 
 Rebase 时已有 Godot 碰撞表示、射线/命中查询与可见对象使用一致的局部坐标转换，命中结果仍能还原为绝对世界位置及真实 owner/part。没有某区域的视觉或 Godot 代理，不能让领域占用、净空或列车防护查询漏掉该区域对象；这些规则继续读取权威世界。进入区域或读档后从最新权威状态恢复必要缓存，不把过期碰撞当作当前命中结果。
 

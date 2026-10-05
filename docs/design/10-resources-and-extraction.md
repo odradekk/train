@@ -1,12 +1,16 @@
 # 10 资源源与开采
 
+> **所属层**：核心模拟层。
+>
+> **修订中**：全文由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写：资源改为聚居地节点的属性，资源源体素、以 Damage 完成的开采、Cluster，以及 Durability 即剩余可采量等规则失去前提。Job、OutputBuffer、热更新拒绝等与世界表示无关的规则，由该票确认去留。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：资源转录 Q180–Q181、Q187、Q189、Q196–Q210、Q217–Q222、Q367–Q371、Q375、Q406–Q407、Q410、Q414、Q424（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)，其编号与旧转录在 Q180 重叠，引用须带前缀）。本文与 [11](11-goods-and-production-network.md)、[12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md) 共同定义资源与生产系统；它建立在既有体素、Definition、Composite、Behavior、Capability、确定性 Simulation 与存档契约之上。代码与内容迁移由后续实现切片执行，不属于本阶段。
 
 > 实现验证保留条款：10–14 的资源与生产子系统尚未经实现验证，首个实现切片可依据实际验证结果回写修订这些设计；修改须同步受影响文档并说明理由。本文中的“冻结”表示当前设计基线，不表示禁止基于实现证据重审。
 
 ## 边界
 
-本文定义世界中的自然资源如何表示、开采、耗尽与更新：Resource Source 与 Raw Good 的语义、Extraction 与 Damage 的关系、Yield 计算、Extraction Facility 与 Extraction Job、Resource Renewal。Raw Goods 目录与生产网络见 [11](11-goods-and-production-network.md)；Facility Tag 与 Capability 分层、Work / Power / Labor、OutputBuffer 与 Job 通用规则见 [13](13-production-runtime-and-facilities.md)；聚居地资源种类的派生见 [05](05-world-generation-and-settlements.md)。市场、价格、人口与资源探勘的地图呈现不在本文。
+本文定义世界中的自然资源如何表示、开采、耗尽与更新：Resource Source 与 Raw Good 的语义、Extraction 与 Damage 的关系、Yield 计算、Extraction Facility 与 Extraction Job、Resource Renewal。Raw Goods 目录与生产网络见 [11](11-goods-and-production-network.md)；Facility Tag 与 Capability 分层、Work / Power / Labor、OutputBuffer 与 Job 通用规则见 [13](13-production-runtime-and-facilities.md)；聚居地资源种类的派生见 [05](05-world-graph-and-generation.md)。市场、价格、人口与资源探勘的地图呈现不在本文。
 
 资源与生产系统的定位：为贸易与玩家自建列车、聚居地打基础的宏观生产链，让玩家在直接购买之外拥有低价收购原料、自行生产与建设的策略空间，不是生产线优化玩法；长期目标是局部枯竭、整体可持续（资源转录 Q180、Q187）。
 
@@ -24,7 +28,7 @@
 ### Resource Source
 
 - Resource Source 是世界中可以通过 Extraction 获取 Raw Good 的 Voxel。它仍是普通 VoxelDefinition，不增加独立的 ResourceSourceDefinition：以 `resource_source` Tag 做被动分类，以 ResourceSourceBehavior 描述实际 Yield 与 Extraction 语义。Tag 只回答“这是 Resource Source”，实际产出由 Behavior 定义。
-- 这取代旧的“带 `natural_resource` 标签的 Voxel 自身就是货物”语义，不长期保留含糊兼容层；Definition 层与聚居地资源查询的对应修订见 [02](02-definitions-and-content.md)、[05](05-world-generation-and-settlements.md)。
+- 这取代旧的“带 `natural_resource` 标签的 Voxel 自身就是货物”语义，不长期保留含糊兼容层；Definition 层与聚居地资源查询的对应修订见 [02](02-definitions-and-content.md)、[05](05-world-graph-and-generation.md)。
 - 一个 Source Voxel 可以产生多种 Raw Good，但多产物是内容设计上的例外，不是默认目标；首批内容默认单主产物。
 - CurrentDurability ≤ 0 时按普通 Voxel 破坏规则销毁。
 

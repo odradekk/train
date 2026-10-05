@@ -1,5 +1,9 @@
 # 09 存档
 
+> **所属层**：核心模拟层。
+>
+> **修订中**：由[地图](https://github.com/odradekk/train/issues/193)迷雾“存档”改写：“存档组成”中的生成基底加 Runtime Delta、“列车与轨道引用恢复”和“静态建筑与修复目标恢复”依赖全局体素世界，后两节同时交给[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)和[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)；“视觉驻留与渲染原点”已失去意义，局部场景不进入存档（[ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)）；“世界编辑器存档工作流”属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”；“本阶段保存与复现契约”交给[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)和[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。格式版本、ID 计数、定义绑定、待执行命令、资源与生产状态恢复等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：转录 Q29、Q42、Q79–Q88；2026-09-05 #34 确认无状态随机与浮点往返要求；[#35](https://github.com/odradekk/train/issues/35) 确认当前外部定义绑定与落盘方式，见 [ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。
 
 ## 边界
@@ -8,7 +12,7 @@
 
 ## 不变量
 
-- 基础世界通过 Seed + GeneratorVersion + 完整生效生成配置 + 有效生成语义内容重建，之后应用 Runtime Delta。固定配置使用独立来源身份；生成输入见 [05](05-world-generation-and-settlements.md#复现输入与输出)，基底、版本与封装要求见下文本阶段契约。
+- 基础世界通过 Seed + GeneratorVersion + 完整生效生成配置 + 有效生成语义内容重建，之后应用 Runtime Delta。固定配置使用独立来源身份；生成输入见 [05](05-world-graph-and-generation.md#复现输入与输出)，基底、版本与封装要求见下文本阶段契约。
 - 所有主要格式从现在开始保留 Version 字段。
 - Next Transaction ID、Next Entity ID、Save-local Definitions 必须进入存档；本阶段只有无状态随机，不需要保存可推进的 RNG State。后续添加有状态随机流时，其完整状态必须进入存档。
 - 旧 Save 不能因为 Generator 更新而偷偷使用新算法重新解释世界。

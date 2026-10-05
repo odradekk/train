@@ -1,5 +1,9 @@
 # 03 Composite、Behavior 与 Capability
 
+> **所属层**：核心模拟层（列车与建筑的表示）；体素布局与合法性属于设计编辑器。
+>
+> **修订中**：全文由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)改写；“本阶段静态建筑契约”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)改写，其中“建筑验收矩阵”和“本阶段改装操作”同时交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。连通与断裂、身份继承、Damage Transaction 中依赖全局体素世界的部分已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：转录 Q10–Q16、Q23–Q30、Q43–Q52、Q63–Q88；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认本阶段改装、伤害操作与阵营延期。
 
 ## 边界
@@ -26,7 +30,7 @@
 
 ### 不允许递归嵌套
 
-Composite 只能直接拥有 Voxel。更高层对象使用 Gameplay Assembly：Train = Locomotive Composite + Carriage Composite + …；聚居地 = Building Composite + … + World Voxels（聚居地本身不是 Composite，见 [05](05-world-generation-and-settlements.md)）。避免建立无限递归 Composite Tree。
+Composite 只能直接拥有 Voxel。更高层对象使用 Gameplay Assembly：Train = Locomotive Composite + Carriage Composite + …；聚居地 = Building Composite + … + World Voxels（聚居地本身不是 Composite，见 [16](16-settlements.md)）。避免建立无限递归 Composite Tree。
 
 ### 合法性三分
 
@@ -79,7 +83,7 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 
 - 内容须能够数据驱动地声明普通建筑、站点和其核心规则、建筑 Blueprint、站点部件接轨接口与聚居地 Layout；生成器和世界编辑器都通过正式校验与实例化入口使用它们。建筑不需要虚假的车辆尺寸或轨道接触点才能加载。
 - 车辆内容继续覆盖 [06](06-railway.md) 已定五档、混编与活动车头/接触能力。普通建筑不因存在或带有类型标签就获得生产能力；核心标签只参与分类与身份/结构校验，不伪装为 Behavior。
-- 碰撞沿用 [01](01-voxel-world.md) 的 None、Full Box、一个或少量格内局部 Box 及正交方向约束；建筑和车辆复用此语义。三路表现及资产契约由 [07](07-rendering.md) 和[表现验收](https://github.com/odradekk/train/issues/107)收敛。
+- 碰撞沿用 [01](01-voxel-engine-and-scenes.md) 的 None、Full Box、一个或少量格内局部 Box 及正交方向约束；建筑和车辆复用此语义。三路表现及资产契约由 [07](07-rendering.md) 和[表现验收](https://github.com/odradekk/train/issues/107)收敛。
 - 只实现本阶段车辆运行、建筑结构和站点接轨确需的逻辑；Capability 必须有真实实现来源，不开放 JSON 任意伪造能力或任意行为执行。资源、库存、生产、耗时施工、材料成本、通用规则语言及插件框架不在本阶段。
 
 #### 建筑验收矩阵
@@ -100,7 +104,7 @@ Mod 或内置内容更新不要求先执行 Refit：读档与热重载按 [02](0
 | Blueprint/Layout、零件语义及纯表现更新 | 新模板不重写已有布局或修复目标；合法零件更新按当前定义适配，纯表现不改变碰撞/连接；非法候选整批拒绝并保留旧内容与实例。 |
 | 保存受损、多分离部分、原位残块及修复后状态 | 恢复实际布局、单一建筑身份、失效状态、修复目标、可验证残块来源与站点引用；读档不自动修复或多生建筑。完整目标入档、残块来源及唯一所有权校验见 [09](09-persistence.md#静态建筑与修复目标恢复)，跨进程对照见 [04](04-deterministic-simulation.md#确定性验收)。 |
 
-以上需有领域契约检查、真实 Godot 显示/碰撞验证和世界编辑器操作证据。损伤与修复中的事务及确定性沿用 [04](04-deterministic-simulation.md)；建筑位置、统计、站点关系由 [05](05-world-generation-and-settlements.md)消费，不再保存与实际实例脱节的手工计数。
+以上需有领域契约检查、真实 Godot 显示/碰撞验证和世界编辑器操作证据。损伤与修复中的事务及确定性沿用 [04](04-deterministic-simulation.md)；建筑位置、统计、站点关系由 [16](16-settlements.md)消费，不再保存与实际实例脱节的手工计数。
 
 ### Voxel Ownership
 

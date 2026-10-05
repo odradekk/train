@@ -1,10 +1,14 @@
 # 04 确定性模拟
 
+> **所属层**：核心模拟层。
+>
+> **修订中**：由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)改写：“Simulation Clock”中的全图全精度实时模拟（转录 Q5）已被 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 取代；“Tick 流水线”的结构结算、“世界修改命令”及其规范编码、“编辑撤销与重做”、“随机性”中以坐标为键的部分，以及“确定性验收”的检查点字段，都依赖全局体素世界。“本阶段输入边界与顺序”同时交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。时钟解耦、确定性边界、数值类型、Resolver、Transaction 与 Runtime Instance ID 等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：转录 Q49、Q63–Q88、Q152；研究 [`docs/research/dotnet-godot-determinism.md`](../research/dotnet-godot-determinism.md)（票 #26）；2026-09-05 [#34](https://github.com/odradekk/train/issues/34) 的决策记录于 [ADR-0003](../adr/0003-use-scalar-doubles-and-stateless-random-for-determinism.md)；编辑撤销与重做由 [#140](https://github.com/odradekk/train/issues/140) 确认。
 
 ## 边界
 
-本文定义 Simulation 时钟、确定性目标、Tick 流水线、资源仲裁、Transaction、随机性、运行时 ID。Damage Transaction 的结构结算见 [03](03-composite-and-behavior.md)；存档内容见 [09](09-persistence.md)；窗口状态与 Pause 的关系见 [08](08-desktop-window-and-camera.md)。
+本文定义 Simulation 时钟、确定性目标、Tick 流水线、资源仲裁、Transaction、随机性、运行时 ID。Damage Transaction 的结构结算见 [03](03-composite-and-behavior.md)；存档内容见 [09](09-persistence.md)；窗口状态与 Pause 的关系见 [08](08-window-and-ui.md)。
 
 ## 不变量
 
@@ -21,7 +25,7 @@
 - Simulation 拥有独立于 Rendering FPS 的逻辑时钟。Godot 仅提供 Host：Godot SimulationHost → SimulationClock → WorldSimulation。
 - Simulation 不依赖 SceneTree 中是否存在某对象、当前 FPS、Camera 是否看到某区域、窗口是否获得焦点。
 - Simulation 使用固定步长。当前实现为每秒 60 个模拟步，每步 1/60 秒；步长调优见下文开放问题。
-- 遵守 [01](01-voxel-world.md) 的当前已定规则：全图全精度实时模拟（转录 Q5），不因距离或区域不可见而降低模拟精度。Visual Streaming 与表现层 LOD 不改变这一规则。
+- 遵守 [01](01-voxel-engine-and-scenes.md) 的当前已定规则：全图全精度实时模拟（转录 Q5），不因距离或区域不可见而降低模拟精度。Visual Streaming 与表现层 LOD 不改变这一规则。
 - 本阶段：Pause 与 1×。架构预留 2×、4× 等倍速，但在系统稳定前不开放倍速 Gameplay。
 
 ### 确定性目标
@@ -193,5 +197,5 @@ Simulation LOD 仅作为延后评估的候选方向，不是已承诺的后续�
 ## 开放问题
 
 - 近期决策（有票）：确定性长测的运行时长、多列车负载、检查点安排及录制容量，在[可执行 Benchmark](https://github.com/odradekk/train/issues/157) 以代表负载实测后提交用户确认并冻结，见[实测与参数冻结](https://github.com/odradekk/train/issues/119)。
-- 地图迷雾（不立票）：Simulation LOD；若后续性能问题促使考虑分层模拟，须先重审转录 Q5 的全图全精度模拟规则，并同步 [01](01-voxel-world.md)、本文与 [07](07-rendering.md)；新决策前继续遵守当前规则。
+- 地图迷雾（不立票）：Simulation LOD；若后续性能问题促使考虑分层模拟，须先重审转录 Q5 的全图全精度模拟规则，并同步 [01](01-voxel-engine-and-scenes.md)、本文与 [07](07-rendering.md)；新决策前继续遵守当前规则。
 - 地图迷雾（不立票）：Simulation Tick Rate 调优；出现需要改变当前固定步长的近期验证问题时再评估。

@@ -1,6 +1,6 @@
 # 设计文档集：列车放置经营游戏
 
-本目录是项目唯一且权威的设计契约。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。
+本目录是项目唯一且权威的设计契约。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。2026-10 的架构调整由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)推进，此后的决定引用该地图中对应票的名称和链接；仍然有效的旧规则保留原来的转录出处。被废弃的规则直接从文档删除，历史只保留在 git、已关闭的票和 `docs/research` 的转录中；ADR 不删除，被取代时在末尾注明。
 
 **文档内明确为规则的内容是当前设计基线。** 未定项在各篇“开放问题”小节标明状态，已登记的候选方向与未冻结参数不构成实施承诺；基于实现验证修订设计时，同步受影响章节。
 
@@ -8,7 +8,7 @@
 
 - **近期决策（有票）**：只有需要产出明确决策、且阻塞当前或下一切片的未定项才立票，并在对应开放问题条目链接。尚在收敛阶段切片规格时，阻塞这些规格形成的必要决策也属于此类；条目说明要决定什么，不把整章未来细节打包立票。
 - **地图迷雾（不立票）**：尚未进入当前或下一切片的方向、待实测调优参数、未形成具体决策问题的实现细节，保留简短描述及重新评估条件，不为完整目录提前建票。它们成为近期阻塞时再升级为决策票。
-- 优先复用已有决策票，不重复立票；是否属于某张 wayfinder 地图取决于当前工作，不指定某张地图为唯一入口。本阶段规格以[世界编辑器规划地图](https://github.com/odradekk/train/issues/135)及其[分期决策](https://github.com/odradekk/train/issues/145)为准，实施安排见各实施 Issue；后续疑问仅在阻塞所选切片且能明确提出问题时立票。
+- 优先复用已有决策票，不重复立票；是否属于某张 wayfinder 地图取决于当前工作，不指定某张地图为唯一入口。本阶段规格原以[世界编辑器规划地图](https://github.com/odradekk/train/issues/135)及其[分期决策](https://github.com/odradekk/train/issues/145)为准；架构调整后由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)重新规划，修订进度见该地图；后续疑问仅在阻塞所选切片且能明确提出问题时立票。
 - 决策完成后，由解决该票的会话回写对应规则，移除或改写开放问题；已关闭票可以保留为历史出处，不能继续充当未解决的阻塞。无待决事项可写“无”，已经明确的规则留在规则章节。
 
 ## 文档目标
@@ -17,7 +17,7 @@
 
 1. 优先明确稳定的系统边界和不变量。
 2. 具体数值尽量通过实现、Benchmark、Profiling 和 Playtest 确定。
-3. 本阶段只实现通过世界编辑器、普通示例存档和独立自动测试验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法在 Demo 中接入。
+3. 本阶段只实现通过世界编辑器、普通示例存档和独立自动测试验收体素基础所需的系统；达到 [00](00-product-and-core-loop.md) 的验收条件后进入正式游戏场景开发，贸易玩法在 Demo 中接入。（待地图迷雾“新阶段”改写）
 4. 对明确会在未来加入的重要功能，架构上避免封死扩展空间，但不提前实现。
 5. 组合优于继承。
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
@@ -27,24 +27,27 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 ## 文档地图
 
-| 文件 | 内容 |
-| --- | --- |
-| [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品形态、长期核心循环、Demo 范围与本阶段验收目标 |
-| [01-voxel-world.md](01-voxel-world.md) | 体素世界与网格不变量 |
-| [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 |
-| [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability |
-| [04-deterministic-simulation.md](04-deterministic-simulation.md) | 确定性模拟 |
-| [05-world-generation-and-settlements.md](05-world-generation-and-settlements.md) | 世界生成与聚居地 |
-| [06-railway.md](06-railway.md) | 铁路 |
-| [07-rendering.md](07-rendering.md) | 渲染 |
-| [08-desktop-window-and-camera.md](08-desktop-window-and-camera.md) | 桌面窗口与相机 |
-| [09-persistence.md](09-persistence.md) | 存档 |
-| [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
-| [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
-| [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
-| [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
-| [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | Composite 的建造、改装与拆解 |
-| [15-world-editor.md](15-world-editor.md) | 世界编辑器的工作区、创作工具交互与运行诊断 |
+每篇开头标明所属的层。正在修订的文档开头有“修订中”说明，列出失效的章节和负责改写的票或地图迷雾；改写完成前，这些章节不能作为实现依据。
+
+| 层 | 文件 | 内容 |
+| --- | --- | --- |
+| 产品 | [00-product-and-core-loop.md](00-product-and-core-loop.md) | 产品定位、核心循环、Demo 范围与本阶段目标 |
+| 核心模拟层 | [04-deterministic-simulation.md](04-deterministic-simulation.md) | 确定性模拟 |
+| 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
+| 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
+| 核心模拟层 | [06-railway.md](06-railway.md) | 铁路 |
+| 核心模拟层 | [03-composite-and-behavior.md](03-composite-and-behavior.md) | Composite、Behavior 与 Capability（列车与建筑的表示） |
+| 核心模拟层 | [09-persistence.md](09-persistence.md) | 存档 |
+| 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
+| 核心模拟层 | [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
+| 核心模拟层 | [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
+| 核心模拟层 | [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
+| 核心模拟层 | [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | Composite 的建造、改装与拆解 |
+| 内容 | [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 |
+| 体素引擎层 | [01-voxel-engine-and-scenes.md](01-voxel-engine-and-scenes.md) | 体素引擎与局部场景 |
+| 体素引擎层、渲染层 | [07-rendering.md](07-rendering.md) | 渲染 |
+| 渲染层 | [08-window-and-ui.md](08-window-and-ui.md) | 窗口与界面 |
+| 工具 | [15-world-editor.md](15-world-editor.md) | 世界编辑器的工作区、创作工具交互与运行诊断 |
 
 用于讨论和参数取舍的独立 HTML 原型及原始测量统一保留在[设计原型归档](../../archive/prototypes/README.md)，不作为正式游戏实现或最终验收结果。
 

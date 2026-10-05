@@ -1,5 +1,9 @@
 # 14 Composite 建造、改装与拆解
 
+> **所属层**：核心模拟层。
+>
+> **修订中**：“BOM”“Goods 实体化”“Refit Job”“Deconstruction Job”中依赖实例体素布局和零件身份的部分由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)改写；“Construction Job”中的放置校验和“Spatial Reservation”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)改写。用已完成货物建造、不递归展开配方、三类 Job 耗时且原子提交等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）；Demo 只为 Deconstruction 提供主动 Pause / Resume、Construction / Refit 主动暂停延后，依据 [#85](https://github.com/odradekk/train/issues/85)。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
 ## 边界

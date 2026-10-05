@@ -1,4 +1,8 @@
-# 08 桌面窗口与相机
+# 08 窗口与界面
+
+> **所属层**：渲染层。
+>
+> **修订中**：全文由[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)改写。“Docked 与 Floating”“Demo 的 Docked 实现与验收”等桌面停靠规则已由[产品定位、玩法支柱与 Demo 范围](https://github.com/odradekk/train/issues/194)删除；“世界编辑器的观察与模拟控制”同时属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：转录 Q18–Q20、Q154–Q165；研究 [`docs/research/desktop-dock-window.md`](../research/desktop-dock-window.md)（票 #27）；2026-09-05 [#30](https://github.com/odradekk/train/issues/30) 确认渲染策略、AppBar 路径与验收要求。
 

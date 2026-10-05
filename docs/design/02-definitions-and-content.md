@@ -1,5 +1,9 @@
 # 02 Definition、Revision、Instance 与内容来源
 
+> **所属层**：内容。
+>
+> **修订中**：“VoxelDefinition”“Good 迁移边界”“Inventory 与实体化”和语义哈希字段的分层由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“从实例提取蓝图”“蓝图与 Layout 创作”中的派生属性与校验，以及“候选内容与运行中引用校验”中的占用与净空检查，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)改写；“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；`resource_source` 相关条文交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。
 
 ## 边界
@@ -98,7 +102,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 - **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
 - **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
 - **Material**：Demo 不建立通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
-- **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-generation-and-settlements.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；ResourceSourceBehavior 与 `resource_source` 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
+- **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-graph-and-generation.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；ResourceSourceBehavior 与 `resource_source` 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
 
 ### Good 迁移边界
 
@@ -162,7 +166,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 | 独立草稿（非有效来源） | `user://authoring-drafts/`，带版本的创作文档，不参与有效内容扫描 |
 
 - 新定义文件使用明确的 `schema_version`，从 1 开始；按类型使用 `.voxels.json`、`.composites.json`、`.layouts.json`。目录用于组织文件，不决定定义身份。
-- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由 [05](05-world-generation-and-settlements.md) 的 SettlementArchetype 与 Layout 取代，不作为长期内容类型。
+- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由 [16](16-settlements.md) 的 SettlementArchetype 与 Layout 取代，不作为长期内容类型。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；本轮将创作视图纳入世界编辑器，按上述顺序分片交付，不再以“正式设计器延后”排除编辑器能力。
 

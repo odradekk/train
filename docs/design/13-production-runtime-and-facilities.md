@@ -1,5 +1,9 @@
 # 13 生产运行时与设施能力
 
+> **所属层**：核心模拟层。
+>
+> **修订中**：“Facility 与 Capability 分层”“Work 与 Production Capability”中能力由建筑内设备体素派生的规则由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)改写；“Environmental Requirements”及资源源相关条文由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Power 与 Fuel”“Recovery 执行”中随件转移的 ItemInstance 状态由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；不变量“玩家与 NPC 聚居地使用同一套规则”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)确认。Process、Batch、Resolver、OutputBuffer、Job 生命周期等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+
 > 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
 ## 边界
@@ -36,7 +40,7 @@
 ### Facility 与 Capability 分层
 
 - Settlement 不直接拥有 IndustrialCapacity、MiningCapacity、StorageCapacity 等无来源的抽象事实；能力来自实际 Building Composite 内的功能 Voxel。生产设施是聚居地拥有的 Building Composite，其产出进入该聚居地的 Settlement Inventory（资源转录 Q226）。
-- 聚居地周边的 Resource Sources、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由 Source Voxel、建筑内设备与 Settlement Inventory 派生，不互相推导：农业聚居地可以没有 Grain Source 却大量生产 Grain（资源转录 Q228，[05](05-world-generation-and-settlements.md)）。
+- 聚居地周边的 Resource Sources、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由 Source Voxel、建筑内设备与 Settlement Inventory 派生，不互相推导：农业聚居地可以没有 Grain Source 却大量生产 Grain（资源转录 Q228，[05](05-world-graph-and-generation.md)）。
 - Building Composite Definition 保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自真实 Voxel Behavior 的对应 Capability。
 - 例如 Smelter `facility_tags = [metallurgy]`，其中的 Industrial Machinery 提供实际 ProductionCapability；设备全部损坏时 facility tag 仍是 metallurgy，但 ProductionCapability = 0。
 - Demo 的 Facility 通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability；Power Equipment → PowerCapability。Propulsion Equipment 与 Control Equipment 也是 Demo 功能设备，但提供的是车辆的动力与控制能力（见 [03](03-composite-and-behavior.md)），不是 Facility 能力；车头制造需要控制能力，因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，目录见 [11](11-goods-and-production-network.md)。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-composite-and-behavior.md)。

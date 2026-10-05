@@ -1,5 +1,7 @@
 # 00 产品形态与核心循环
 
+> **所属层**：产品。
+
 > 决策出处：[产品定位、玩法支柱与 Demo 范围](https://github.com/odradekk/train/issues/194)（2026-10-04）重新确定了产品定位、核心循环、体素的作用和 Demo 范围，取代此前依据转录 Q2、Q8、Q109 确定的定位，以及“桌面底部常驻 3D 条形窗口”的产品形态。架构调整见地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)。`CONTEXT.md` 与历史 [MVP 规格](https://github.com/odradekk/train/blob/eb6a502329a1830a51c5da62e2c24545f34c9a46/docs/specs/mvp.md) 描述的 MVP 已验证贸易循环，是经济主循环的基础。
 
 ## 边界
@@ -20,7 +22,7 @@
 
 “放置”指世界自动运行：玩家制定运行计划、交易规则、建设和战斗安排，观看自动运行的结果，按需调整；玩家可以开着游戏做别的事。游戏不采用离线收益、数值指数增长和周期性重置这些传统放置机制。
 
-游戏使用普通游戏窗口，不做桌面停靠。默认视图、宏观地图的呈现、各类场景之间的切换、管理界面的形式、失焦时的行为和相机，由[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)决定。[08](08-desktop-window-and-camera.md) 中 Bottom Dock、Floating、AppBar 等桌面停靠规则已不适用，由该票改写。
+游戏使用普通游戏窗口，不做桌面停靠。默认视图、宏观地图的呈现、各类场景之间的切换、管理界面的形式、失焦时的行为和相机，由[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)决定。[08](08-window-and-ui.md) 中 Bottom Dock、Floating、AppBar 等桌面停靠规则已不适用，由该票改写。
 
 ### 核心循环
 
@@ -68,7 +70,7 @@
 
 世界编辑器和自动测试直接使用正式的世界模型、模拟、渲染与存档代码。进入正式游戏场景开发前，需要证明：
 
-- 按 [05 的生成契约](05-world-generation-and-settlements.md)生成实际地形、聚居地与至少四站网络，支持 10 节泰坦能力及三列联合运行；五档和跨档混编通过 [06 的几何与网络契约](06-railway.md)，包含弯坡、道岔、冲突防护及持续通行。
+- 按 [05 的生成契约](05-world-graph-and-generation.md)生成实际地形、聚居地与至少四站网络，支持 10 节泰坦能力及三列联合运行；五档和跨档混编通过 [06 的几何与网络契约](06-railway.md)，包含弯坡、道岔、冲突防护及持续通行。
 - 修改与破坏后，世界状态、显示和碰撞保持一致。
 - 修改车辆后，其结构和运行行为符合规则。
 - 静态建筑断裂后保持单一身份并整体失效，修复完整还原实例最后确认的设计；身份终止及残块按 [03](03-composite-and-behavior.md#本阶段静态建筑契约)验收。
@@ -77,7 +79,7 @@
 - 世界编辑器可以创作、校验并发布车辆／建筑蓝图、体素定义与聚居地 Layout，发布结果能在世界中实际使用，流程见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)；已提交的编辑支持有限撤销与重做，范围见 [04](04-deterministic-simulation.md#编辑撤销与重做)。
 - 在冻结的世界规模、负载和修改频率下，普通 1080p 窗口中的运行与长期稳定满足下文的[本阶段性能目标](#本阶段性能目标)。目标实机暂无时保持待验证；桌面停靠和多显示器不作为本阶段完成条件。
 
-修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-composite-and-behavior.md) 与 [08](08-desktop-window-and-camera.md)；其中 Blueprint 形态已由[蓝图、布局与内容定义的创作和发布决策](https://github.com/odradekk/train/issues/141)更新为在世界编辑器中创作和发布，见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)。
+修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-composite-and-behavior.md) 与 [08](08-window-and-ui.md)；其中 Blueprint 形态已由[蓝图、布局与内容定义的创作和发布决策](https://github.com/odradekk/train/issues/141)更新为在世界编辑器中创作和发布，见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)。
 
 领域自动测试、Godot 集成检查与人工观感共同验收；具体配置、操作序列和通过条件由各实施 Issue 规定。大世界、高频修改与多列车的性能要求以下文的本阶段性能目标为准，不能把小场景通过视为规模保证。
 
