@@ -6,7 +6,7 @@
 
 ## 边界
 
-本文定义体素引擎层：体素格网的不变量，局部场景怎样由核心状态生成，场景中各类内容的表现，以及场景内的存储与拾取。体素定义的字段见 [02](02-definitions-and-content.md)；蓝图版本、部件与结构耐久见 [03](03-vehicles-buildings-and-designs.md)；网格构建、铁轨渲染和列车插值见 [07](07-rendering.md)；相机和界面上的场景切换见 [08](08-window-and-ui.md)；设计编辑器的交互由[编辑器的去向](https://github.com/odradekk/train/issues/211)确定。
+本文定义体素引擎层：体素格网的不变量，局部场景怎样由核心状态生成，场景中各类内容的表现，以及场景内的存储与拾取。体素定义的字段见 [02](02-definitions-and-content.md)；蓝图版本、部件与结构耐久见 [03](03-vehicles-buildings-and-designs.md)；网格构建、铁轨渲染和列车插值见 [07](07-rendering.md)；相机和界面上的场景切换见 [08](08-window-and-ui.md)；设计编辑器的交互见 [15](15-design-editor-and-tools.md)。
 
 ## 不变量
 
@@ -47,7 +47,7 @@
 - 聚居地布局的场景内容引用一个场景模型，地块的位置使用该模型的坐标，见 [16](16-settlements.md#布局)。
 - 生物聚落类型引用一个场景模型作为聚落外观，见 [17](17-combat.md#生物聚落)。
 - 桥梁、隧道口和路基构件也是场景模型，按地貌类型和铁轨数选用。
-- 场景模型的创作工具由[编辑器的去向](https://github.com/odradekk/train/issues/211)确定。
+- 场景模型由创作模式制作，见 [15](15-design-editor-and-tools.md#创作模式)。
 
 ### 地形生成
 

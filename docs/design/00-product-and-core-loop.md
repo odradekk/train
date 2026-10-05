@@ -62,7 +62,7 @@
 
 > **待改写**：本节和下一节以全局体素世界为前提（全图全精度模拟、四站物理铁路网络、10 节泰坦等），已不符合新架构。新阶段的范围、验收条件与性能目标由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)中的迷雾“新阶段”重新规划。在此之前，这两节只作历史参考，不作为验收依据。
 
-本阶段是 Demo 之前的开发里程碑，交付通过世界编辑器和独立自动测试验收的体素基础；具体分期与排期见各实施 Issue。人工调试统一进入世界编辑器，按[存档工作流](09-persistence.md#世界编辑器存档工作流)新建、生成、打开和保存普通存档，直接创建和修改地形、轨道、建筑与车辆，用于开发、重复验证与性能测量；不要求正式面向玩家的建造或设计 UI。
+本阶段是 Demo 之前的开发里程碑，交付通过世界编辑器和独立自动测试验收的体素基础；具体分期与排期见各实施 Issue。人工调试统一进入世界编辑器，按[存档工作流](https://github.com/odradekk/train/blob/83a3305/docs/design/09-persistence.md#世界编辑器存档工作流)新建、生成、打开和保存普通存档，直接创建和修改地形、轨道、建筑与车辆，用于开发、重复验证与性能测量；不要求正式面向玩家的建造或设计 UI。
 
 编辑器可以免费、即时创建和修改对象，并可绕过后续玩法的进度和操作权限；身份唯一、引用完整、事务原子性、确定性，以及相应操作的结构、铁路几何和占用规则仍须满足。正式伤害形成的断轨、残骸和失效建筑是可保存、可运行的受损状态，不因不满足新建条件而被当作坏档。
 
@@ -76,10 +76,10 @@
 - 静态建筑断裂后保持单一身份并整体失效，修复完整还原实例最后确认的设计；身份终止及残块按 [03](https://github.com/odradekk/train/blob/329a0a2/docs/design/03-vehicles-buildings-and-designs.md#本阶段静态建筑契约)验收。
 - 全图全精度模拟、跨进程确定性、普通存档恢复及严格复现通过 [04](04-deterministic-simulation.md#确定性验收) 与 [09](09-persistence.md#恢复流程)的证据矩阵；默认有界录制和故障复现包可用。
 - 世界编辑器的新建、生成与存档恢复入口统一，三路表现、跨区观察及诊断可用，旧四切片按覆盖等价条件退役。
-- 世界编辑器可以创作、校验并发布车辆／建筑蓝图、体素定义与聚居地 Layout，发布结果能在世界中实际使用，流程见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)；已提交的编辑支持有限撤销与重做（核心模拟层的撤销与重做已由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)取消）。
+- 世界编辑器可以创作、校验并发布车辆／建筑蓝图、体素定义与聚居地 Layout，发布结果能在世界中实际使用，流程见 [02](https://github.com/odradekk/train/blob/83a3305/docs/design/02-definitions-and-content.md#世界编辑器内容创作流程)；已提交的编辑支持有限撤销与重做（核心模拟层的撤销与重做已由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)取消）。
 - 在冻结的世界规模、负载和修改频率下，普通 1080p 窗口中的运行与长期稳定满足下文的[本阶段性能目标](#本阶段性能目标)。目标实机暂无时保持待验证；桌面停靠和多显示器不作为本阶段完成条件。
 
-修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-vehicles-buildings-and-designs.md) 与 [08](08-window-and-ui.md)；其中 Blueprint 形态已由[蓝图、布局与内容定义的创作和发布决策](https://github.com/odradekk/train/issues/141)更新为在世界编辑器中创作和发布，见 [02](02-definitions-and-content.md#世界编辑器内容创作流程)。
+修改与破坏测试操作、Blueprint 形态、阵营延期及窗口策略已由 [#30](https://github.com/odradekk/train/issues/30) 确认，详见 [03](03-vehicles-buildings-and-designs.md) 与 [08](08-window-and-ui.md)；其中 Blueprint 形态已由[蓝图、布局与内容定义的创作和发布决策](https://github.com/odradekk/train/issues/141)更新为在世界编辑器中创作和发布，见 [02](https://github.com/odradekk/train/blob/83a3305/docs/design/02-definitions-and-content.md#世界编辑器内容创作流程)。
 
 领域自动测试、Godot 集成检查与人工观感共同验收；具体配置、操作序列和通过条件由各实施 Issue 规定。大世界、高频修改与多列车的性能要求以下文的本阶段性能目标为准，不能把小场景通过视为规模保证。
 
@@ -114,7 +114,7 @@ Overlay、Top Dock、托盘与后台模式（转录 Q18、Q154、Q85）已随桌
 
 ## 开放问题
 
-- 已被本文取代、待对应票改写的规则：03、05 的“阵营延后，Demo 不保留阵营字段”；02、03、15 的“创作工具是开发工具，不是 Demo 的玩家内容”。
+- 已被本文取代、待对应票改写的规则：03、05 的“阵营延后，Demo 不保留阵营字段”。
 - 本阶段的分期原以[世界编辑器规划地图](https://github.com/odradekk/train/issues/135)及其[分期决策](https://github.com/odradekk/train/issues/145)为准；架构调整后，由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)重新规划。
 - 地图迷雾（不立票）：市场与价格、人口的具体规则属于 Demo，设计待定。战斗、征服与关系变化的规则见 [17](17-combat.md)，其中的数值在试玩后冻结。倍速属于 Demo（2026-10-01 确认，推翻转录 Q158 “只实现 1×” 的结论）。
 - 地图迷雾（不立票）：Demo 玩法细节待定，包括起始资金和初始列车、目标与进度、一局的开始与结束；开始设计 Demo 玩法时再讨论。

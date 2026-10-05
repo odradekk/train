@@ -105,7 +105,7 @@
   - 任务期间实例被锁定，完成时原子地切换到新版本。
 - **修理**：把实例恢复到它自己的蓝图版本：补回被毁部件，把受损部件和结构耐久恢复到上限。
 - 部件不在车辆或建筑之外保留个体身份。燃料、弹药等消耗品放在车辆的库存里，不记在单个部件上。
-- 成本、工作量、锁定与失败规则见 [14](14-construction-refit-and-deconstruction.md)。世界编辑器和控制台的瞬时原子改装保留为调试命令。
+- 成本、工作量、锁定与失败规则见 [14](14-construction-refit-and-deconstruction.md)。调试模式和控制台的瞬时原子改装保留为调试命令，见 [15](15-design-editor-and-tools.md#调试命令)。
 
 ### Tag、Behavior、Capability
 

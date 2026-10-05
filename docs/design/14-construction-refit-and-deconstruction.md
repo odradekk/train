@@ -61,7 +61,7 @@
 
 ### Refit Job
 
-- 世界编辑器和控制台的改装命令提供瞬时的原子改装，用于创建和验证修改，不代表正式玩法零耗时。正式玩法中，改装是把实例从当前蓝图版本切换到目标版本的耗时任务：校验目标版本 → 派生差额 BOM → 消费新增的货物 → 为返还的货物预留库存容量 → 创建 RefitJob → 完成时原子提交。中间的非法结构不暴露给模拟。
+- 调试模式和控制台的改装命令（[15](15-design-editor-and-tools.md#调试命令)）提供瞬时的原子改装，用于创建和验证修改，不代表正式玩法零耗时。正式玩法中，改装是把实例从当前蓝图版本切换到目标版本的耗时任务：校验目标版本 → 派生差额 BOM → 消费新增的货物 → 为返还的货物预留库存容量 → 创建 RefitJob → 完成时原子提交。中间的非法结构不暴露给模拟。
 - 差额 BOM 按体素位置和定义对比两个版本：
   - 位置和定义都不变的体素保持原样，部件保留耐久，不消耗也不返还货物。
   - 新增或替换进去的体素消耗对应的货物。例如从 100 Structural Block + 2 Engine 改为 105 Structural Block + 2 同款 Engine + 1 Storage Equipment，需要 Structural Block ×5 和 Storage Equipment ×1。
@@ -107,7 +107,7 @@ ConstructionJob、RefitJob、RepairJob、DeconstructionJob、地块预留、库�
 
 ## Demo 范围
 
-从蓝图版本派生 BOM；精确的 DefinitionId；耗时的建造任务与地块预留；耗时的改装任务、差额 BOM 与返还货物的库存预留；修理任务；拆解任务与库存预留；列车拆解前须清空列车库存；UnderRefit、UnderRepair、UnderDeconstruction 锁定；快照与失败语义；拆解的主动 Pause / Resume。玩家使用自己设计或预置的蓝图建造、改装和修理车辆与建筑。世界编辑器和控制台的瞬时原子改装继续保留（[03](03-vehicles-buildings-and-designs.md)）。
+从蓝图版本派生 BOM；精确的 DefinitionId；耗时的建造任务与地块预留；耗时的改装任务、差额 BOM 与返还货物的库存预留；修理任务；拆解任务与库存预留；列车拆解前须清空列车库存；UnderRefit、UnderRepair、UnderDeconstruction 锁定；快照与失败语义；拆解的主动 Pause / Resume。玩家使用自己设计或预置的蓝图建造、改装和修理车辆与建筑。调试模式和控制台的瞬时原子改装继续保留（[15](15-design-editor-and-tools.md#调试命令)）。
 
 ## Demo 之后
 

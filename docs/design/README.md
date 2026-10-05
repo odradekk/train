@@ -48,7 +48,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 体素引擎层 | [01-voxel-engine-and-scenes.md](01-voxel-engine-and-scenes.md) | 体素引擎与局部场景 |
 | 体素引擎层、渲染层 | [07-rendering.md](07-rendering.md) | 渲染 |
 | 渲染层 | [08-window-and-ui.md](08-window-and-ui.md) | 窗口与界面 |
-| 工具 | [15-world-editor.md](15-world-editor.md) | 世界编辑器的工作区、创作工具交互与运行诊断 |
+| 工具 | [15-design-editor-and-tools.md](15-design-editor-and-tools.md) | 设计编辑器、创作模式与调试模式 |
 
 用于讨论和参数取舍的独立 HTML 原型及原始测量统一保留在[设计原型归档](../../archive/prototypes/README.md)，不作为正式游戏实现或最终验收结果。
 

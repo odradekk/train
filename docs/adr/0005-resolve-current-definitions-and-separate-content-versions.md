@@ -21,3 +21,7 @@ Saves embed player-defined content and its required save-local definitions, whil
 ## 核心存档修订
 
 2026-10-05，[存档：核心状态的保存、恢复与兼容](https://github.com/odradekk/train/issues/209)确认存档完整保存核心状态，不再依赖生成基底。存档内嵌的范围随之扩大：存档中引用到的蓝图版本全部内嵌，不论来自内置、Mod 还是用户库；已有聚居地使用的布局也内嵌。蓝图版本只固定形状和对体素定义的引用，体素定义等其他外部内容仍按 ID 解析为当前定义，所以 Mod 的平衡更新照常作用于已有车辆。见 [09](../design/09-persistence.md#存档中的内容)。
+
+## 编辑器去向修订
+
+2026-10-05，[编辑器的去向](https://github.com/odradekk/train/issues/211)取消了存档内定义：存档只内嵌引用到的蓝图版本和已有聚居地使用的布局，用户内容库只保存蓝图，其他内容由创作模式写入数据包。用户库中的蓝图版本可以随时删除，因为用到它的存档都有内嵌副本。见 [09](../design/09-persistence.md#存档中的内容) 和 [15](../design/15-design-editor-and-tools.md)。
