@@ -2,9 +2,9 @@
 
 > **所属层**：核心模拟层。
 >
-> **修订中**：“Environmental Requirements”及资源源相关条文由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Power 与 Fuel”“Recovery 执行”中随件转移的 ItemInstance 状态由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；不变量“玩家与 NPC 聚居地使用同一套规则”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)确认。Process、Batch、Resolver、OutputBuffer、Job 生命周期等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“Environmental Requirements”及资源源相关条文由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；不变量“玩家与 NPC 聚居地使用同一套规则”由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)确认。Process、Batch、Resolver、OutputBuffer、Job 生命周期等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
-> 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
+> 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance 回收、剩余燃料改由聚居地电力池共用，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。
 
 ## 边界
 
@@ -25,23 +25,23 @@
 ### 术语
 
 - **Production Process**：把 Goods 与 Production Factors 转换为 Goods 的正式内容 Definition。
-- **Recovery Process**：把耐用 Goods 或 ItemInstance 有损转换为已有 Goods 的正式内容 Definition。二者使用不同的强类型 ID 和不同的 DAG，但复用同一套 Batch Runtime。
+- **Recovery Process**：把耐用货物有损转换为已有货物 的正式内容 Definition。二者使用不同的强类型 ID 和不同的 DAG，但复用同一套 Batch Runtime。
 - **Production Factors**：不属于 Goods、不可库存的生产约束：Work Capacity、Power、Labor、Site / Environmental Requirements。
-- **Facility**：承担 Production、Extraction、Construction 等功能的 Building Composite。职责分成两层：Composite Definition / Facility Tags 决定允许什么类型的 Process；内部真实 Voxel Behavior / Capability 决定当前拥有多少实际执行能力。
+- **Facility**：承担 Production、Extraction、Construction 等功能的建筑。职责分成两层：建筑蓝图的 Facility Tags 决定允许什么类型的 Process；其中完好部件的 Behavior / Capability 决定当前拥有多少实际执行能力。
 
 ### Process Definition
 
 - Process 是正式内容 Definition，使用强类型、namespaced ID：ProductionProcessDefinitionId、RecoveryProcessDefinitionId，例如 `core:ferrous-refining`、`core:mechanical-components`、`core:recover-power-equipment`。显示名称、文件路径不是身份。ID 与 Semantic Revision 规则沿用 [02](02-definitions-and-content.md)。
 - ProductionProcessDefinition { ProductionProcessDefinitionId, Inputs, Outputs, WorkRequired, PowerPerWork, LaborPerWork, RequiredFacilityTags, EnvironmentalRequirements }。所有 Goods Input / Output Quantity 为正整数。
 - Process 可以多输入、多输出、跨所谓“加工层级”直接引用已有 Goods、与同一 Output 的其他显式替代 Process 并存。Process 不允许隐式 Tag 替代 Input，也不允许 `any metal` 之类自动配方替换；同一 Product 的两种路线必须是两个显式 ProcessDefinition。
-- RecoveryProcessDefinition 使用单独 Definition 类型和 DAG，Runtime 复用 Production Batch Framework。Recovery 输入可以是 Stack Good 或指定 ItemInstance；Recovery 不从 Production Recipe 自动反推。内容覆盖范围见 [11](11-goods-and-production-network.md)。
+- RecoveryProcessDefinition 使用单独 Definition 类型和 DAG，Runtime 复用 Production Batch Framework。Recovery 输入是库存中的标准货物；Recovery 不从 Production Recipe 自动反推。内容覆盖范围见 [11](11-goods-and-production-network.md)。
 - Production Plan 与 ActiveBatch 通过带类型的 ProcessRef 引用 Process：它指向一个 ProductionProcessDefinitionId 或一个 RecoveryProcessDefinitionId，两类 ID 仍各自强类型，不合并为无类型的 ProcessDefinitionId（2026-10-01 设计讨论）。
 
 ### Facility 与 Capability 分层
 
 - Settlement 不直接拥有 IndustrialCapacity、MiningCapacity、StorageCapacity 等无来源的抽象事实；能力来自建筑设计属性中完好部件提供的能力，见 [03 的设计属性](03-vehicles-buildings-and-designs.md#设计属性)。生产设施是聚居地拥有的 Building Composite，其产出进入该聚居地的 Settlement Inventory（资源转录 Q226）。
 - 聚居地周边的 Resource Sources、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由 Source Voxel、建筑内设备与 Settlement Inventory 派生，不互相推导：农业聚居地可以没有 Grain Source 却大量生产 Grain（资源转录 Q228，[05](05-world-graph-and-generation.md)）。
-- Building Composite Definition 保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自部件 Behavior 的对应 Capability。
+- 建筑蓝图保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自部件 Behavior 的对应 Capability。
 - 例如 Smelter `facility_tags = [metallurgy]`，其中的 Industrial Machinery 提供实际 ProductionCapability；设备全部损坏时 facility tag 仍是 metallurgy，但 ProductionCapability = 0。
 - Demo 的 Facility 通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability；Power Equipment → PowerCapability。Propulsion Equipment 与 Control Equipment 也是 Demo 功能设备，但提供的是车辆的动力与控制能力（见 [03](03-vehicles-buildings-and-designs.md)），不是 Facility 能力；车头制造需要控制能力，因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，目录见 [11](11-goods-and-production-network.md)。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-vehicles-buildings-and-designs.md)。
 
@@ -55,7 +55,7 @@
 - 底层 Production Plan 只表达 { ProcessRef, Enabled, Priority }。Enabled 时 Facility 持续尝试执行该 Process。Stack Good 的 Recovery 同样可以作为持续 Plan。
 - 底层系统不负责自动判断最赚钱商品、自动维持目标库存、自动决定生产多少 Batch；这些属于未来 Player Policy / Settlement AI / Economy 层。
 - 缺 Input 时 Enabled = true、ActiveBatch = none、WaitingForInputs；新 Input 到达后自动继续尝试。
-- Plan 只保存稳定的 ProcessRef。Facility 的 Plan 列表还可以包含 ItemInstance Recovery 的一次性条目，与持续 Plan 按同一 Priority 排序，见下文 Recovery 执行。
+- Plan 只保存稳定的 ProcessRef。
 
 ### ActiveBatch 与 Batch Start
 
@@ -72,7 +72,7 @@
 
 - Power 不是 Goods，不可库存。Settlement 使用统一 Power Pool：所有 active Power Equipment → Settlement Power Pool；不模拟内部 Cable、Substation、Grid topology。
 - Power Equipment 消耗 Settlement Inventory 中的 Fuel。采用 demand-driven 发电：actual delivered Power → proportional FuelEnergy consumption；闲置 Power Equipment 不按额定功率白白消耗燃料。
-- Fuel Inventory Quantity 仍是整数。Power Equipment 每次取出一个完整 Fuel unit，并保存设备 Runtime State `CurrentFuelEnergyRemaining : double`，实际发电持续扣减。该状态在 Pause、Save / Load、拆卸进入 ItemInstance、重新安装后都保留；设备被摧毁时丢失。它不是可库存 Power。
+- Fuel Inventory Quantity 仍是整数。聚居地电力池保存一份 `CurrentFuelEnergyRemaining : double`：剩余能量不足时从 Settlement Inventory 取出一个完整 Fuel unit，实际发电持续扣减。它属于电力池，不属于单台 Power Equipment，设备拆下或被毁都不影响它，随存档保存。它不是可库存的 Power。
 
 ### Labor
 
@@ -92,7 +92,7 @@
 
 ### 单 Facility 并行限制
 
-- 此处 Capability 的并行名额按 Facility Composite 内的能力类型计算，不按每个设备 Voxel 分配；同类设备贡献合计执行能力，增加设备只提高产能，不增加 Job 名额。
+- 此处 Capability 的并行名额按设施建筑内的能力类型计算，不按每个设备部件分配；同类设备贡献合计执行能力，增加设备只提高产能，不增加 Job 名额。
 - Demo：一个 Production Capability 同时最多 1 个 Production 或 Recovery Batch；一个 Extraction Capability 最多 1 个 Extraction Job；一个 Construction Capability 最多 1 个 Construction / Refit / Deconstruction Job。
 - 同一 Building 同时拥有不同 Capability 时，可以并行运行不同 Capability 的 Job，并共同竞争 Power / Labor。
 - 不允许在同一 Capability 内手工分配 40% Job A、30% Job B、30% Job C 之类的份额。
@@ -109,16 +109,14 @@
 - 只有 Settlement Inventory 存在扣除有效 Storage Reservation 后的可用容量，OutputBuffer 才自动内部转入，转入数量不得超过该容量。UsedCapacity ≥ Capacity 时不转入；遵守 [12 的 Overcapacity 规则](12-inventory-and-storage.md#overcapacity)，Buffer 优先级不允许制造或扩大超容。Facility 即使生产设备暂时失效，只要 Facility Composite 仍存在，Buffer 仍可继续执行这种抽象内部物流。
 - Storage Resolver 优先级：已完成 OutputBuffer 的转入优先于新的普通外部入库请求。多个 Buffer 竞争时按 Production Priority → stable Facility identity 排序。
 - 多输出 Batch 只有部分 Output 能立即入库时，使用规范化 VoxelDefinitionId 的 Ordinal 顺序填充空间；这只是确定性 fallback，不表示经济优先级。
-- Facility Composite 真正 destroyed 时 ActiveBatch 丢失、未完成 Inputs 不返还、OutputBuffer 中已完成 Goods 丢失。未来事故 / Salvage 系统可以扩展，但 Demo 不自动实体化散落物，也不强制写入 Overcapacity。
+- 设施建筑被摧毁时 ActiveBatch 丢失、未完成 Inputs 不返还、OutputBuffer 中已完成 Goods 丢失。未来事故 / Salvage 系统可以扩展，但 Demo 不自动实体化散落物，也不强制写入 Overcapacity。
 
 ### Recovery 执行
 
-- Stack Good { DefinitionId, Quantity } 按完整标准状态执行 Recovery。ItemInstance 带 specific identity、CurrentDurability 与 Runtime State，Recovery 必须真正消费指定实例。
-- Recovery 总是以 ActiveBatch 运行。Stack Good 的 Recovery 可以作为持续 Plan；ItemInstance 的 Recovery 使用 Facility Plan 列表中的一次性条目 { ProcessRef, 玩家选定的 ItemInstance, Priority }：它与持续 Plan 共用同一 Priority 排序，对应 Batch 启动并消费该实例后自动移除；实例不在可访问库存（该聚居地的 Settlement Inventory，见 [12](12-inventory-and-storage.md)）中时，条目保持等待并给出诊断。系统从不自动挑选 ItemInstance（2026-10-01 设计讨论）。
-- 对 ItemInstance：`Recovered_i = floor(BaseRecoveryOutput_i × CurrentDurability / MaxDurability)`，每种 Output 独立计算，结果可以为 0；Recovery 不保存小数 remainder，也不随机补偿。
-- 除明确参与 Recovery 计算的状态外，其余 Runtime State 在 Recovery 中销毁：Power Equipment 的 CurrentFuelEnergyRemaining 不会自动还原为部分 Fuel Good。
+- Recovery 只处理库存中的标准货物 Stack { DefinitionId, Quantity }，按完整标准状态执行；库存中没有受损或带状态的件，见 [12](12-inventory-and-storage.md#只有-stack)。
+- Recovery 总是以 ActiveBatch 运行，可以作为持续 Plan。
 - Recovery 必须由带兼容 Facility Tag 的真实 Facility 通过 Batch Runtime 执行，占用其 Production Capability 并经 Work / Power / Labor 与 OutputBuffer；复用 Industrial Machinery，不新增 Recycling Machinery，也不是库存菜单中的瞬时分解按钮（资源转录 Q346）。
-- Composite 不能直接 Recovery，必须先显式 Deconstruction（[14](14-construction-refit-and-deconstruction.md)）。
+- 车辆和建筑不能直接 Recovery，必须先显式拆解（[14](14-construction-refit-and-deconstruction.md)）。
 
 ### Job 与 Facility 生命周期
 
@@ -141,11 +139,11 @@
 
 ### 存档
 
-Production Plans（含 ItemInstance Recovery 的一次性条目及其选定实例）、ActiveBatch、OutputBuffer、CurrentFuelEnergyRemaining、Job ProgressWork 与 priorities 都是权威 Runtime State，进入 Runtime Delta；完整清单与恢复要求见 [09](09-persistence.md)。
+Production Plans、ActiveBatch、OutputBuffer、聚居地电力池的 CurrentFuelEnergyRemaining、Job ProgressWork 与 priorities 都是权威 Runtime State，进入 Runtime Delta；完整清单与恢复要求见 [09](09-persistence.md)。
 
 ## Demo 范围
 
-ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facility Tags 与 Behavior / Capability 分层、Industrial / Extraction / Construction / Storage / Power 基础 Capability、Settlement-wide Power Pool 与 Labor Pool 接口、Production Plan（含 ItemInstance Recovery 的一次性条目）与 ActiveBatch、Production / Recovery Batch Runtime、Facility-local OutputBuffer、Shared Resource Resolver、Job 失败与暂停语义、运行中 Job 的热重载语义。范围归属见 [10](10-resources-and-extraction.md)。
+ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facility Tags 与 Behavior / Capability 分层、Industrial / Extraction / Construction / Storage / Power 基础 Capability、Settlement-wide Power Pool 与 Labor Pool 接口、Production Plan 与 ActiveBatch、Production / Recovery Batch Runtime、Facility-local OutputBuffer、Shared Resource Resolver、Job 失败与暂停语义、运行中 Job 的热重载语义。范围归属见 [10](10-resources-and-extraction.md)。
 
 ## Demo 之后
 

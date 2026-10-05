@@ -42,7 +42,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
 | 核心模拟层 | [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
 | 核心模拟层 | [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
-| 核心模拟层 | [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | Composite 的建造、改装与拆解 |
+| 核心模拟层 | [14-construction-refit-and-deconstruction.md](14-construction-refit-and-deconstruction.md) | 车辆与建筑的建造、改装、修理与拆解 |
 | 内容 | [02-definitions-and-content.md](02-definitions-and-content.md) | Definition、Revision、Instance 与内容来源 |
 | 体素引擎层 | [01-voxel-engine-and-scenes.md](01-voxel-engine-and-scenes.md) | 体素引擎与局部场景 |
 | 体素引擎层、渲染层 | [07-rendering.md](07-rendering.md) | 渲染 |
@@ -53,7 +53,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 每份文档的固定小节：边界、不变量、规则、Demo 范围、Demo 之后、开放问题。Demo 指最终游戏完整可玩的最小集合；本阶段是 Demo 之前的开发里程碑，其范围只在 [00 的本阶段范围](00-product-and-core-loop.md#本阶段范围)中描述，详细分期见各实施 Issue。
 
-术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；RailPosition、Train Assembly 分别对应沿轨位置、列车编组。Voxel、Composite、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack、ItemInstance 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；Train Assembly 对应列车编组。Voxel、Revision，以及 Resource Source、Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
 ## 总体架构
 
@@ -108,20 +108,21 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 20. Semantic Revision 与 Presentation Asset Revision 分离。
 21. Capability 必须来自真实的 Behavior；Facility Tag 只表达兼容性。
 22. BOM 由蓝图版本的体素布局派生；建造消费完成的货物，不递归展开配方。
+23. 每种货物都是一个体素定义；车辆和建筑不是货物。核心模拟层只读取体素定义中的核心字段。
+24. 库存中的货物只按种类和数量计数，没有个体身份或个体状态。
 
 ### 体素引擎层（只在局部场景和设计编辑器中成立）
 
-23. 一个 Voxel = 一个 Cell；一个 Cell 最多一个 Voxel。
-24. Voxel Local Coordinate 永远为整数；Voxel Orientation 永远为正交方向。
-25. Voxel 同一时间只有一个 Owner。
-26. 新建及正常改装的设计要求六面连通。
+25. 一个 Voxel = 一个 Cell；一个 Cell 最多一个 Voxel。
+26. Voxel Local Coordinate 永远为整数；Voxel Orientation 永远为正交方向。
+27. Voxel 同一时间只有一个 Owner。
+28. 新建及正常改装的设计要求六面连通。
 
 ### 待对应票重新确定
 
 下列条目依赖“全局体素世界是模拟核心”的旧前提，暂按原文保留，由对应票改写或删除。括号内是改写前的编号。
 
 - 受损静态建筑可在单一身份下保留多个有核心的分离部分并整体失效（原第 6 条后半）：[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)。
-- Inventory Quantity 不等于空间 Voxel Instance（原第 24 条）；所有标准货物都是 VoxelDefinition，Composite 不是普通 Goods（原第 26 条）：[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)。
 - Resource Source 与 Raw Good 严格分离，Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good（原第 27 条）：[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)。
 
 原第 12、13 条（Physical Rail State 是铁路 Runtime Truth；Logical Rail Graph 是派生索引）已废弃，铁路模型已由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)改写为线路上的铁轨、方向锁与同向跟车，见 [06](06-railway.md)。

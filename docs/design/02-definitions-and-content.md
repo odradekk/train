@@ -2,20 +2,22 @@
 
 > **所属层**：内容。
 >
-> **修订中**：“VoxelDefinition”“Good 迁移边界”“Inventory 与实体化”和语义哈希字段的分层由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；`resource_source` 相关条文交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：“世界编辑器内容创作流程”的去向属于[地图](https://github.com/odradekk/train/issues/193)迷雾“编辑器的去向”，其中 Layout 部分由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)决定；`resource_source` 相关条文交给[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)；“本阶段表现资产校验”交给[地图](https://github.com/odradekk/train/issues/193)迷雾“新阶段”。内容身份、版本、来源、Mod 与热加载等规则继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。
 
 ## 边界
 
-本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及 Inventory 数量与空间实例的关系。Composite 的 Definition 与 Archetype 见 [03](03-vehicles-buildings-and-designs.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；Resource Source、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；Stack 与 ItemInstance 的库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
+本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及库存中货物的表示。车辆与建筑、蓝图版本与 Archetype 见 [03](03-vehicles-buildings-and-designs.md)；存档中的 Save-local Definition 见 [09](09-persistence.md)；Resource Source、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
 
 ## 不变量
 
 - Definition 是不可变数据；Runtime State 不写回 Definition。
 - Semantic Revision 与 Presentation Asset Revision 分离。
 - Price 属于 Market Context，不属于 Voxel。
-- Inventory Quantity 不等于空间 Voxel Instance。
+- 每种货物都是一个体素定义；车辆和建筑不是货物。
+- 核心模拟层只读取体素定义中的核心字段。
+- 库存中的货物只按种类和数量计数，没有个体身份或个体状态。
 - Capability 不允许在 Mod JSON 中伪造，由实际注册的 Behavior 推导（[03](03-vehicles-buildings-and-designs.md)）。
 
 ## 规则
@@ -92,33 +94,41 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 每类内容用代表案例贯通创作、草稿重新打开、校验发布和实际使用；存档内内容验证新进程恢复，用户库内容验证另一个存档可复用。共享发布机制集中覆盖写入失败、引用缺失、来源已更新及适配拒绝等风险，不按三类内容复制同一矩阵。另验证模板更新不重建既有实例、不改变实例引用的蓝图版本，副本不改变原引用；交互变化补必要人工检查。合法蓝图或 Layout 不能代替铁路运行与生成地图验收。测试选择遵守[最小充分覆盖标准](../implement-sop.md#testing-standard)。
 
-### VoxelDefinition
+### 体素定义
 
-- 所有可实体化对象共享统一的 VoxelDefinition。原独立的货物定义已并入这一体系，不再另设货物定义；Cargo、Market、Trade 统一引用 VoxelDefinitionId（转录 Q176）。TradeMetadata 的字段与实现整体延后到贸易接入时，本阶段不预留空对象。
-- 本阶段核心字段：DefinitionId、Name、Description、Value、MaxDurability、Mass、Tags、Behaviors、AllowedOrientations、Presentation、Collision。
-- **Value** 即术语表的基本货币价值：当前定义中的固定基础价值，不随世界经济变化，但可随内容更新改变。用于基础经济计算、Composite 断裂后的身份继承、其他稳定估值。例如 Ferrous Ore 的 Value = 100。
-- **Price** 不属于 VoxelDefinition，也不属于 VoxelInstance。Price 是 MarketState × VoxelDefinition 产生的 Runtime Quote，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
-- **Mass** 为 Voxel 的基础质量，未来用于 Composite 总质量、列车动力学、碰撞损伤、其他 Gameplay 计算。
-- **Material**：Demo 不建立通用 MaterialDefinition 系统。只有当实际开发中大量 Voxel 重复相同材料规则时，再抽象 Material 层。
+- 每种货物都是一个体素定义。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义；货物、库存、市场和贸易都引用体素定义标识（转录 Q176）。TradeMetadata 的字段与实现随贸易接入时确定。
+- 字段按读取方分为三组：
+
+  | 读取方 | 字段 |
+  | --- | --- |
+  | 核心模拟层（直接读取，或经内容层派生的设计属性读取） | 身份、Value、Mass、Tags、耐久上限、Behaviors |
+  | 体素引擎层与渲染层 | 允许朝向、表现、碰撞 |
+  | 显示 | 名称、说明 |
+
+- 核心模拟层通过只暴露第一组字段的接口读取体素定义，不接触体素字段。
+- 允许朝向默认只有默认朝向，碰撞默认是整格方块；不放进设计的货物（例如矿石）不必填写这两项。表现必须填写，物品图标也由它生成。
+- 带 `scene_only` 标签的体素定义只供场景生成使用，例如地形和装饰。它们不是货物，不能库存、交易，也不能放进设计；具体内容由[地图](https://github.com/odradekk/train/issues/193)迷雾“观察与表现”确定。其余体素定义都是货物，可以库存和交易；设计中每放一格消耗一个单位的该货物，见 [14](14-construction-refit-and-deconstruction.md)。
+- **Value** 即术语表的基本货币价值：定义中的固定基础价值，不随世界经济变化，但可随内容更新改变，是市场计算实际价格的基础。例如 Ferrous Ore 的 Value = 100。
+- **Price** 不属于体素定义。Price 是市场状态 × 体素定义产生的运行时报价，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
+- **Mass** 是一个单位的质量，用于车辆和建筑的设计质量，以及列车所载货物的质量，见 [06](06-railway.md#速度)。
+- **Material**：Demo 不建立通用 MaterialDefinition 系统。只有当实际开发中大量体素重复相同材料规则时，再抽象 Material 层。
 - **自然资源**：Resource Source 与 Raw Good 严格分离（[10](10-resources-and-extraction.md)）。世界中的资源源体素带 `resource_source` 标签并由 ResourceSourceBehavior 定义产出；开采得到的初级货物带 `raw_good` 标签，是普通可库存、可交易的 VoxelDefinition。世界生成与聚居地资源记录检查 `resource_source` 标签与其 Behavior 产出（[05](05-world-graph-and-generation.md)）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义废止，不保留含糊兼容层。[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物与聚居地种类集合改为 `raw_good`；ResourceSourceBehavior 与 `resource_source` 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。当前聚居地内容仍直接列出可获得的初级货物种类，尚未从周边资源源扫描派生。
 
-### Good 迁移边界
+### 迁移历史
 
-- [#43](https://github.com/odradekk/train/issues/43) 已一次性迁移根目录项目的 GoodDefinition、GoodId、GoodCatalog、内容文件及其消费者和引用，改用体素定义与 VoxelDefinitionId；不保留旧 goods schema 的兼容层或临时双轨目录。
-- 新 schema 从版本 1 开始，不作为 goods schema v2。迁移时曾将自然资源类别转为 `natural_resource` 标签；[#77](https://github.com/odradekk/train/issues/77) 已把这些可交易货物改为 `raw_good`。对应的世界资源源体素及 ResourceSourceBehavior 尚未实现，已移出当前阶段，见 [#78](https://github.com/odradekk/train/issues/78)。基本货币价值保留为 Value；Value 已用于断裂后的身份继承，不随 TradeMetadata 一起延后。
-- `archive/mvp/` 保持原样，不参与迁移。Catalog 版本、Revision 哈希与存档绑定按下文执行。
+[#43](https://github.com/odradekk/train/issues/43) 已一次性把根目录项目的 GoodDefinition、GoodId、GoodCatalog、内容文件及其引用迁移为体素定义与 VoxelDefinitionId，没有保留旧 goods schema 的兼容层；[#77](https://github.com/odradekk/train/issues/77) 已把可交易初级货物改为 `raw_good`。`archive/mvp/` 保持原样，不参与迁移。
 
-### Inventory 与实体化
+### 库存中的货物
 
-- Inventory 中的数量不是空间 Voxel Instance。Cargo Stack { VoxelDefinitionId = `core:ferrous-ore`, Quantity = 500 } 表示 500 个可实体化的单位；只有被放置进入世界时才产生 Voxel Instance。
-- 普通无特殊 Runtime State 的 Voxel 被收纳时可以转化为 Stack；需要保存 Durability、Behavior State、Voxel Runtime ID 的 Voxel 使用独立的 ItemInstance。统一的 Stackability predicate、库存地点、容量与 ItemInstance 消费规则见 [12](12-inventory-and-storage.md)。
+- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
+- 货物在建造、改装、修理时被消耗，成为车辆或建筑蓝图版本中的体素；拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还，见 [03](03-vehicles-buildings-and-designs.md#建造改装与修理) 和 [14](14-construction-refit-and-deconstruction.md)。
 
 ### Definition、Revision 与 Instance
 
 - **Definition** 定义"某种东西是什么"。
 - **Revision** 是 Definition 的一个不可变语义版本。内部 Revision ID 使用 Semantic Content Hash，而不是 r1、r2、r3；完全相同的语义内容产生相同 Revision。UI 可额外维护纯数字的人类版本号（Version 1、2、3），只用于展示，不承担身份职责。
 - Semantic Revision 用于识别规格变化，不强制实例锁定旧外部规格。读档与热重载按 DefinitionId 解析当前安装的定义；定义本身仍是不可变快照，更新通过发布新快照完成。
-- **Instance** 保存当前 Durability、Behavior Runtime State、Ownership、当前几何变化、其他 Runtime 信息。Definition 永远不保存实例状态。
+- **Instance** 是车辆或建筑的实例，保存引用的蓝图版本、部件耐久、结构耐久、所属关系等运行状态，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。Definition 永远不保存实例状态。
 
 ### 三种内容版本
 
@@ -135,35 +145,35 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 | 参与语义哈希 | 不参与语义哈希 |
 | --- | --- |
 | 定义类型、DefinitionId、哈希编码版本 | 名称、说明等显示文本 |
-| Value、MaxDurability、Mass、Tags、AllowedOrientations | 图片、模型、材质、声音的内容与路径 |
-| Behavior 类型与参数 | 纯视觉配置及资产绑定 |
-| Collision 的规则、形状与尺寸 | 编辑器排版等辅助信息 |
-| Composite 体素布局、构造与身份保留规则引用 | 引用目标的 Revision |
+| Value、耐久上限、Mass、Tags、允许朝向 | 图片、模型、材质、声音的内容与路径 |
+| Behavior 类型与参数 | 碰撞、纯视觉配置与资产绑定、编辑器排版等辅助信息 |
+| 蓝图的体素布局（格、定义身份、朝向）、Archetype 与档位声明 | 蓝图的涂装；引用目标的 Revision |
 
 - 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
 - 对象字段和字符串键按 Ordinal 顺序编码。标签等无序集合稳定排序；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
 - 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
 - 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎功率会改变引擎 Revision，不改变引用它的车辆设计自身的 Revision；使用方仍必须根据当前引擎规格重算受影响能力。
-- 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。权威碰撞数据属于语义；更换显示模型不能自动改变碰撞形状。
+- 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。碰撞只在场景中使用，属于表现数据，不参与语义哈希；更换显示模型不自动改变碰撞形状。
 - 验收覆盖重新排版不变、更改有效语义字段产生变化、纯表现更新不改变语义 Revision、依赖更新生效但不改变引用方自身 Revision。
 
 ### Definition 来源
 
 - 四类有效来源：Built-in、Mod、用户内容库、Save-local Definitions。独立创作草稿不是有效内容来源。
 - 玩家在当前世界发布自定义内容时默认进入 Save-local Definitions；显式发布到用户内容库后才可跨存档复用。库从原有 Player Blueprint Library 扩展为蓝图、Layout 和体素定义，跨范围复制按上文建立新身份及必要依赖。
+- 蓝图每次发布产生一个不可变的版本，以语义 Revision 识别。用户内容库保留所有已发布的版本；存档内嵌所有被实例或进行中任务引用的版本，作为存档内定义，即使用户库中已删除也能读档。用户可以删除库中的旧版本，删除前按[用户内容删除](#用户内容删除)列出引用影响，不影响已有存档。
 - 已发布的存档内定义及其所需的其他存档内定义包含在普通存档中；未放置为实例不等于可以丢弃已发布设计。外部引用仍依赖当前安装内容，保存不会暗中嵌入外部旧定义以兜底。用户显式创建的新身份副本属于自己的内容，仍须保留并检查其外部依赖，不能据此宣称缺失 Mod 或资产也能加载。
 
 ### 内容目录与格式
 
 | 来源 | 组织方式 |
 | --- | --- |
-| Built-in | `builtin/core/resources/` 下按 `voxels`、`composites`、`layouts` 分类 |
+| Built-in | `builtin/core/resources/` 下按内容类型分类 |
 | Mod | `user://mods` 中各包的 `resources/` 下沿用相同结构 |
-| 用户内容库 | 目标目录 `user://content-library/`，按类型使用体素、Composite、Layout 定义格式；旧 `user://blueprints/` 读取／迁移单独落实 |
+| 用户内容库 | 目标目录 `user://content-library/`，按类型使用体素定义、蓝图、Layout 格式；旧 `user://blueprints/` 读取／迁移单独落实 |
 | Save-local Definitions | 直接内嵌存档，不作为独立内容目录扫描 |
 | 独立草稿（非有效来源） | `user://authoring-drafts/`，带版本的创作文档，不参与有效内容扫描 |
 
-- 新定义文件使用明确的 `schema_version`，从 1 开始；按类型使用 `.voxels.json`、`.composites.json`、`.layouts.json`。目录用于组织文件，不决定定义身份。
+- 定义文件带明确的 `schema_version`，按内容类型（体素定义、蓝图、Layout）区分格式；文件后缀和各格式的版本在代码重构时确定。目录用于组织文件，不决定定义身份。
 - `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由 [16](16-settlements.md) 的 SettlementArchetype 与 Layout 取代，不作为长期内容类型。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；本轮将创作视图纳入世界编辑器，按上述顺序分片交付，不再以“正式设计器延后”排除编辑器能力。
@@ -171,20 +181,20 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 ### ID 与命名空间
 
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
-- 不同领域保持强类型 ID：VoxelDefinitionId、CompositeDefinitionId、CompositeArchetypeId 等。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
+- 不同领域保持强类型 ID：体素定义标识、蓝图标识、Archetype 标识等。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - Behavior 目前只能由代码注册，内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
 - ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。
 - 用户内容的新身份由系统基于 UUID 分配，命名空间不由显示名或当前存档文件 UUID 推导；内容更新、独立复制与整个存档复制的区别见[内容身份与跨范围依赖](#内容身份与跨范围依赖)。存档内解析须隔离，不能让另一存档的同标识内容覆盖当前定义。
 
 ### Mod 与热加载
 
-- **第一阶段 Data Mod**：支持新增 VoxelDefinition、Composite Definition、Layout（Layout 实现前沿用上文的过渡聚居地内容），修改自有定义的数值、引用资产、组合已有 Behavior。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增体素定义、蓝图、Layout（Layout 实现前沿用上文的过渡聚居地内容），修改自有定义的数值、引用资产、组合已有 Behavior。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
-- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 更新 Asset Revision 和表现。布局定义更新不覆盖已存在车辆保存的实际布局。
+- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 或碰撞更新 Asset Revision 和表现。蓝图更新产生新版本，不改变已有实例引用的版本。
 
 ### 内容更新与实例状态
 
-- 读档和热重载都采用当前安装的外部定义，更新数值作用于已有车辆；保留车辆及零件身份、实际布局与运行状态。玩家自定义设计保留自身布局，其中的外部零件按 ID 采用当前定义。
+- 读档和热重载都采用当前安装的外部定义，更新数值作用于已有车辆和建筑：实例保留引用的蓝图版本、部件耐久与运行状态，蓝图版本中的体素按定义身份采用当前定义，设计属性随之重算。
 - 状态保留绝对值，仅在超出新定义允许范围时修正，不按比例换算、不自动恢复。原耐久上限 100、当前耐久 80：新上限 150 时仍为 80，新上限 60 时截到 60。
 - 功率、质量等定义属性直接采用新值，并重算受影响的能力和派生状态。记录上次使用的 Revision 以识别变化，不借此保留旧外部规格。
 
@@ -205,7 +215,7 @@ Layout 同时用于手工放置和程序生成。手工放置先预览朝向、�
 
 ## Demo 范围
 
-VoxelDefinition；JSON/Data Mod；Definition、Revision、Instance 三分；Blueprint 加载、校验、制造及已有车辆的完整改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。上文世界编辑器的蓝图、体素定义与 Layout 创作流程是本阶段的开发工具，不是 Demo 的玩家内容，按可用切片交付；原手写 JSON 与独立自动测试仍可用于验证，不代替常用创作界面。Composite 规则见 [03](03-vehicles-buildings-and-designs.md)。
+体素定义（每种货物都是体素定义）；JSON/Data Mod；Definition、Revision、Instance 三分；蓝图版本的加载、校验、建造与改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。上文世界编辑器的蓝图、体素定义与 Layout 创作流程是本阶段的开发工具，不是 Demo 的玩家内容，按可用切片交付；原手写 JSON 与独立自动测试仍可用于验证，不代替常用创作界面。车辆与建筑的规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 ## Demo 之后
 
@@ -213,4 +223,4 @@ Code Mod API、通用 Material System；跨包覆盖与 patch、Mod 依赖、加
 
 ## 开放问题
 
-- 无。库存系统与非堆叠 ItemInstance（转录 Q175）已由 [12](12-inventory-and-storage.md) 确定。
+- 无。

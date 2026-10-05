@@ -65,7 +65,7 @@ Ordinary Damage → Damage Transaction → Durability decreases → no Raw Good 
 
 ### Extraction Facility
 
-- Extraction 必须由真实 Facility 提供，不允许 Settlement 拥有凭空的 `MiningCapacity`：Extraction Facility Composite → Extraction Equipment → ExtractionBehavior / ExtractionCapability → Extraction Job。
+- Extraction 必须由真实 Facility 提供，不允许 Settlement 拥有凭空的 `MiningCapacity`：开采设施建筑 → Extraction Equipment → ExtractionBehavior / ExtractionCapability → Extraction Job。
 - Demo 使用一个通用 Extraction Equipment，不提前拆分 Mining Drill、Logging Machine、Oil Pump。资源类型差异通过 Facility Tag 与 Source 要求表达：Mining Facility `facility_tags = [mining]`、Forestry Facility `[forestry]`、Oil Extraction Facility `[oil_extraction]`；通用 Extraction Equipment 只提供实际 Extraction Capability。Facility Tag 与 Capability 的分层见 [13](13-production-runtime-and-facilities.md)。
 - 每个 Extraction Facility 只能选择其明确 Extraction Area / Range 内、类型兼容的 Source Voxel；范围形状与数值不冻结。
 - `ExtractionJob.Target` 是精确的 WorldVoxelCoord，一次明确指向一个 Source Voxel。“自动开采整片区域”属于更高层 Player / AI Extraction Plan，不由底层 Extraction Runtime 自动承担。
