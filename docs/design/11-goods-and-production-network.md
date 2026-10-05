@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层。
 >
-> **修订中**：不变量“所有标准货物都是 VoxelDefinition”由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“Raw Goods”“Primary Production”中的资源源与 Site 约束由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Forward Production DAG”中把 Rail 作为体素货物的说明由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)处理；“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
+> **修订中**：不变量“所有标准货物都是 VoxelDefinition”由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)改写；“Raw Goods”“Primary Production”中的资源源与 Site 约束由[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)改写；“Future Product Families”中的武器已进入 Demo（[00](00-product-and-core-loop.md#demo-范围)），归[地图](https://github.com/odradekk/train/issues/193)迷雾“战斗、征服与世界生物”。货物拆分原则、生产与回收网络、Demo 货物目录继续有效。改写完成前，上述规则不能作为实现依据；其余规则继续有效。
 
 > 决策出处：资源转录 Q183–Q186、Q188、Q190–Q195、Q201–Q202、Q211–Q216、Q223–Q225、Q229–Q253、Q255–Q259、Q269–Q276、Q285–Q292、Q376–Q397、Q415（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
 
@@ -104,7 +104,7 @@ Electronic Components + Polymer + Glass           → Consumer Electronics
 Chemical Feedstock + Textile + Polymer            → Medical Supplies
 ```
 
-Construction Goods：Demo 只冻结三种；不预置 Window、Door、Armor Block、Decoration Goods，实际 Gameplay 需要时再添加。Rail 是正常 Voxel Good，直线、曲线、坡道等仍是实例空间拓扑，不产生不同 Rail 商品（[06](06-railway.md)）。
+Construction Goods：Demo 只冻结三种；不预置 Window、Door、Armor Block、Decoration Goods，实际 Gameplay 需要时再添加。Rail 是正常货物，用于修建、扩建和修复线路的铁轨，见 [06](06-railway.md#修建扩建与修复)。
 
 ```text
 Structural Metal      → Structural Block

@@ -35,7 +35,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [04-deterministic-simulation.md](04-deterministic-simulation.md) | 时间、命令与确定性 |
 | 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
 | 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
-| 核心模拟层 | [06-railway.md](06-railway.md) | 铁路 |
+| 核心模拟层 | [06-railway.md](06-railway.md) | 铁路与列车运行 |
 | 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |
 | 核心模拟层 | [09-persistence.md](09-persistence.md) | 存档 |
 | 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
@@ -87,7 +87,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 2. 核心模拟层不依赖 Godot、SceneTree 和体素引擎层；三层只通过公开接口交互。
 3. 模拟结果与帧率、相机、窗口状态、倍速和暂停时机无关，也与局部场景是否打开、打开的是哪一个无关；核心模拟层对整个世界使用同一精度，从不等待玩家，只有玩家暂停和内部故障能让时钟停下。
 4. 局部场景不保存状态，不影响模拟结果；场景中的操作只能通过命令改变世界。每条命令在确定的模拟位置执行一次，作为一个事务原子结算；存档中没有待执行命令。
-5. 列车在世界图上的位置是权威位置，场景中的位置由它派生。
+5. 列车在世界图上的位置是权威位置，场景中的位置由它派生；同一条铁轨上同一时间只有一个方向的列车，列车只在节点等待。
 6. 位置不是持久身份。
 7. 注册顺序、容器枚举顺序、线程完成顺序不得决定 Gameplay。
 8. 所有 Gameplay Random 最终源于 WorldSeed。
@@ -124,7 +124,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 - Inventory Quantity 不等于空间 Voxel Instance（原第 24 条）；所有标准货物都是 VoxelDefinition，Composite 不是普通 Goods（原第 26 条）：[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)。
 - Resource Source 与 Raw Good 严格分离，Extraction 是经正式 Damage Transaction 的显式 Gameplay 行为，只有它产生 Raw Good（原第 27 条）：[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)。
 
-原第 12、13 条（Physical Rail State 是铁路 Runtime Truth；Logical Rail Graph 是派生索引）已废弃，铁路模型由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)改写。
+原第 12、13 条（Physical Rail State 是铁路 Runtime Truth；Logical Rail Graph 是派生索引）已废弃，铁路模型已由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)改写为线路上的铁轨、方向锁与同向跟车，见 [06](06-railway.md)。
 
 ## 设计指导思想
 

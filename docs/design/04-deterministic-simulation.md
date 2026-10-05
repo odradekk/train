@@ -131,7 +131,7 @@
 
 多个行为竞争共享资源时：Request → Resolver → Commit。例如 Engine A 与 Engine B 同时 RequestFuel，Resolver 采用 Explicit Gameplay Priority → Deterministic Fallback，而不是“谁先执行谁得到”。Facility 对库存 Input、Power、Labor 与 Storage Capacity 的竞争同样经 Resolver，Input 按完整 Batch 授予，Power / Labor 允许部分分配，见 [13](13-production-runtime-and-facilities.md)。生产、开采与施工 Job 严格遵守 Tick Barrier：本 Tick 提交的状态变化下一 Tick 才参与评估。
 
-多列车通行使用同一确定性仲裁边界：结果不能由列车的遍历先后决定，平局按稳定身份裁决。具体规则见 [06](06-railway.md) 与[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)。
+多列车通行使用同一确定性仲裁边界：结果不能由列车的遍历先后决定，平局按稳定身份裁决。具体规则见 [06](06-railway.md)。
 
 ### Transaction
 
@@ -200,7 +200,7 @@
 | --- | --- |
 | 同输入重复运行；保存、退出、恢复后继续 | 跨进程比较相同模拟位置的检查点；失败报告能定位首次差异的对象与字段。 |
 | 暂停时的命令与拒绝 | 保留步内次序，覆盖执行和拒绝；目标消失等预期拒绝不重试、不换目标、不撤销之前的独立命令，后续命令继续；保存恢复前后结果一致。 |
-| 列车在图上运行 | 由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)补充，与不中断运行对照。 |
+| 列车在图上运行 | 同向跟车与方向锁、对向等待不饿死、站台排队、断轨掉头、替换计划；跨保存恢复与不中断运行一致，规则见 [06](06-railway.md)。 |
 | 建造、改装、修理、拆解与委托 | 任务启动、进行、完成与失败，跨保存恢复与不中断运行一致。 |
 | 损伤与战斗结算 | 同一伤害事件的结果不依赖遍历顺序；部件被毁、车辆摧毁与编组变化跨保存恢复一致。 |
 | 地图生成 | 覆盖生成成功、失败与重试；改变集合枚举顺序不改变结果。 |
