@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using System.Globalization;
 using System.Text.Json;
 using Train.Core.Content;
@@ -463,7 +464,7 @@ public static class AuthorityValidation
         WorldEditorSequence sequence,
         VoxelCatalog catalog,
         CompositeCatalog composites,
-        IWorldSaveStore? store = null,
+        ISaveStore? store = null,
         string? buildId = null)
     {
         ArgumentNullException.ThrowIfNull(sequence);

@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using Train.Core.Content;
@@ -13,7 +14,7 @@ public sealed partial class VoxelDevelopmentSession
 {
     private readonly VoxelCatalog _catalog;
     private readonly CompositeCatalog _composites;
-    private readonly IWorldSaveStore? _store;
+    private readonly ISaveStore? _store;
     private readonly Action<VoxelCatalogChange> _onCatalogChanged;
     private readonly Action<CompositeCatalogChange> _onCompositesChanged;
     private readonly List<(WorldVoxelCoord Position, bool OccupancyChanged)> _pendingChanges = new();
@@ -49,7 +50,7 @@ public sealed partial class VoxelDevelopmentSession
     public VoxelDevelopmentSession(
         VoxelCatalog catalog,
         VoxelWorldIdentity? identity = null,
-        IWorldSaveStore? store = null,
+        ISaveStore? store = null,
         CompositeCatalog? composites = null)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -558,8 +559,8 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldSaveResult(captureStatus, SaveId, DisplayName);
         var json = WorldSaveCodec.Serialize(document);
         var capturedFingerprint = WorldSaveAuthority.Fingerprint(this);
-        if (!_store.TryWrite(id, json, out var writeStatus))
-            return new WorldSaveResult(writeStatus, SaveId, DisplayName);
+        if (!_store.TryWrite(id, json, out _))
+            return new WorldSaveResult(WorldSaveStatus.WriteFailed, SaveId, DisplayName);
 
         SaveId = id;
         DisplayName = document.DisplayName;
@@ -613,7 +614,10 @@ public sealed partial class VoxelDevelopmentSession
             return new WorldSaveResult(WorldSaveStatus.Unavailable);
 
         if (!_store.TryRead(saveId, out var json, out var readStatus))
-            return new WorldSaveResult(readStatus, SaveId, DisplayName, WorldSaveDiagnostic.For(readStatus));
+        {
+            var status = readStatus == SaveStoreStatus.NotFound ? WorldSaveStatus.NotFound : WorldSaveStatus.ReadFailed;
+            return new WorldSaveResult(status, SaveId, DisplayName, WorldSaveDiagnostic.For(status));
+        }
         if (!WorldSaveCodec.TryDeserialize(json, out var document, out var parseStatus) ||
             (parseStatus is WorldSaveStatus.Loaded && document is null))
             return new WorldSaveResult(

@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
@@ -296,7 +297,7 @@ internal sealed class WorldEditorHarness : IDisposable
     private readonly LoggerSession _logger;
 
     public string UserData { get; }
-    public FileWorldSaveStore Store { get; }
+    public FileSaveStore Store { get; }
     public MemoryContentSource Source { get; }
     public ContentReloader Reloader { get; }
     public VoxelCatalog Catalog => Reloader.Catalog;
@@ -309,7 +310,7 @@ internal sealed class WorldEditorHarness : IDisposable
     {
         _logger = logger;
         UserData = userData;
-        Store = new FileWorldSaveStore(userData);
+        Store = new FileSaveStore(userData);
         Source = source;
         Reloader = reloader;
         _ownsUserData = ownsUserData;

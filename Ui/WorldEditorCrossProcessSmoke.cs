@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using System.Text;
 using System.Text.Json.Nodes;
 using Godot;
@@ -248,7 +249,7 @@ internal sealed class WorldEditorCrossProcessSmoke
         Require(Session.AdvanceSimulation(1).Succeeded, "dirty after save");
         var current = Capture();
         var main = _scene.GetNode<Main>("/root/Main");
-        var path = new FileWorldSaveStore(main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
+        var path = new FileSaveStore(main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
         var file = new FileInfo(path);
         file.IsReadOnly = true;
         try
@@ -289,7 +290,7 @@ internal sealed class WorldEditorCrossProcessSmoke
         var saved = _scene.SaveWorld();
         Require(saved.Status == WorldSaveStatus.Saved && saved.SaveId is not null, "adaptation setup save failed");
         var main = _scene.GetNode<Main>("/root/Main");
-        var path = new FileWorldSaveStore(main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
+        var path = new FileSaveStore(main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
         var root = JsonNode.Parse(File.ReadAllText(path, Encoding.UTF8))
             ?? throw new InvalidOperationException("adaptation save is invalid JSON");
         var dependency = root["world_source"]!["content_dependencies"]![0]!;

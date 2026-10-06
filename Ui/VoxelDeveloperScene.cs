@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using Godot;
@@ -1375,7 +1376,7 @@ public partial class VoxelDeveloperScene : Node3D
             _ => new(4, 4, 4)
         };
 
-    private static FileWorldSaveStore CreateSaveStore(Main main) =>
+    private static FileSaveStore CreateSaveStore(Main main) =>
         new(main.IsolatedUserDataDirectory);
 
     private static VoxelDevelopmentSession CreateDevelopmentSession(Main main, VoxelWorldIdentity identity) =>

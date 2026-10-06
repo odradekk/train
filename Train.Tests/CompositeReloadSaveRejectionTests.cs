@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 using Train.Domain.Composites;
@@ -173,21 +174,21 @@ public sealed class CompositeReloadSaveRejectionTests
         Assert.AreEqual(168, voxelSession.QueryComposites()[0].Parts.Count);
     }
 
-    private sealed class RecordingStore : IWorldSaveStore
+    private sealed class RecordingStore : ISaveStore
     {
         public bool Wrote { get; private set; }
 
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status)
         {
             Wrote = true;
-            status = WorldSaveStatus.Saved;
+            status = SaveStoreStatus.Saved;
             return true;
         }
 
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status)
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status)
         {
             json = "";
-            status = WorldSaveStatus.NotFound;
+            status = SaveStoreStatus.NotFound;
             return false;
         }
     }

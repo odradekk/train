@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using Godot;
 using Train.Domain.Commands;
@@ -273,7 +274,7 @@ internal sealed class WorldEditorLeaveSmoke(WorldEditorScene scene)
 
     private void RestoreOriginalSave() => File.WriteAllBytes(_originalPath!, _originalBytes!);
 
-    private FileWorldSaveStore Store() => new(_main.IsolatedUserDataDirectory);
+    private FileSaveStore Store() => new(_main.IsolatedUserDataDirectory);
 
     private void DeleteOwnedSave(Guid id)
     {

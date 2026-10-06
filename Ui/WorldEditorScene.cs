@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using System.Globalization;
@@ -268,7 +269,7 @@ public partial class WorldEditorScene : Node3D
         if (session is not null)
             return WorldEditorEstablishStatus.Established;
         var reloader = main.Reloader ?? throw new InvalidOperationException("Content reloader is unavailable.");
-        var store = new FileWorldSaveStore(main.IsolatedUserDataDirectory);
+        var store = new FileSaveStore(main.IsolatedUserDataDirectory);
         var rawSaveId = System.Environment.GetEnvironmentVariable(SaveIdEnvironmentVariable);
         if (!(IsSmoke() || IsAuthority() || IsCrossProcess()) || !Guid.TryParse(rawSaveId, out var saveId))
             return WorldEditorSession.TryEstablish(main.WorldEditorConfigurationId, reloader.Catalog, reloader.Composites, store, out session);
@@ -658,7 +659,7 @@ public partial class WorldEditorScene : Node3D
         var main = GetNode<Main>("/root/Main");
         var reloader = main.Reloader!;
         var workspace = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites,
-            new FileWorldSaveStore(main.IsolatedUserDataDirectory));
+            new FileSaveStore(main.IsolatedUserDataDirectory));
         var result = _session is null ? new WorldSaveResult(WorldSaveStatus.Unavailable) : workspace.Export(_session, path, overwrite);
         _result.Text = result.Succeeded ? $"已导出已提交世界：{path}（不包含临时草稿）。"
             : $"无法导出：{WorldEditorWorkspaceScene.Describe(result)}";

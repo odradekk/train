@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -243,7 +244,7 @@ public sealed class WorldEditorTransferTests
         var bytes = File.ReadAllBytes(path);
         using (var handle = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             Assert.AreEqual(WorldSaveStatus.ReadFailed, workspace.Import(path).Status);
-        File.WriteAllText(Path.Combine(harness.UserData, FileWorldSaveStore.SavesFolder), "blocks local publication");
+        File.WriteAllText(Path.Combine(harness.UserData, FileSaveStore.SavesFolder), "blocks local publication");
         Assert.AreEqual(WorldSaveStatus.WriteFailed, workspace.Import(path).Status);
         Assert.AreEqual(0, workspace.ListSaves().Count);
         CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));

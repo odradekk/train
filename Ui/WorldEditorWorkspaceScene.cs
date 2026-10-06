@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using System.Globalization;
 using Godot;
 using Train.Domain.WorldEditor;
@@ -22,7 +23,7 @@ public partial class WorldEditorWorkspaceScene : Control
     {
         var main = GetNode<Main>("/root/Main");
         var reloader = main.Reloader!;
-        _workspace = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites, new FileWorldSaveStore(main.IsolatedUserDataDirectory), ReadExample);
+        _workspace = new WorldEditorWorkspace(reloader.Catalog, reloader.Composites, new FileSaveStore(main.IsolatedUserDataDirectory), ReadExample);
         var margin = new MarginContainer { OffsetLeft = 24, OffsetTop = 24, OffsetRight = -24, OffsetBottom = -24 };
         margin.SetAnchorsPreset(LayoutPreset.FullRect);
         AddChild(margin);

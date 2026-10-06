@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;
@@ -453,38 +454,38 @@ public sealed class WorldEditorLeaveProtectionTests
         return result;
     }
 
-    private sealed class ReadFailingStore(FileWorldSaveStore files) : IWorldSaveStore
+    private sealed class ReadFailingStore(FileSaveStore files) : ISaveStore
     {
         public Guid? FailingRead { get; set; }
 
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status)
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status)
         {
             if (id == FailingRead)
             {
                 json = "";
-                status = WorldSaveStatus.ReadFailed;
+                status = SaveStoreStatus.ReadFailed;
                 return false;
             }
             return files.TryRead(id, out json, out status);
         }
 
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status) => files.TryWrite(id, json, out status);
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status) => files.TryWrite(id, json, out status);
     }
 
-    private sealed class CallbackStore(FileWorldSaveStore files) : IWorldSaveStore
+    private sealed class CallbackStore(FileSaveStore files) : ISaveStore
     {
         public Action? AfterCapture { get; set; }
 
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status) => files.TryRead(id, out json, out status);
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status) => files.TryRead(id, out json, out status);
 
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status)
         {
             AfterCapture?.Invoke();
             return files.TryWrite(id, json, out status);
         }
     }
 
-    private sealed class BlockingReadStore(IWorldSaveStore files) : IWorldSaveStore, IDisposable
+    private sealed class BlockingReadStore(ISaveStore files) : ISaveStore, IDisposable
     {
         private int _readCount;
         public Guid? BlockedId { get; set; }
@@ -492,7 +493,7 @@ public sealed class WorldEditorLeaveProtectionTests
         public ManualResetEventSlim ReadStarted { get; } = new();
         public ManualResetEventSlim ReleaseRead { get; } = new();
 
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status)
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status)
         {
             Interlocked.Increment(ref _readCount);
             if (id == BlockedId)
@@ -503,7 +504,7 @@ public sealed class WorldEditorLeaveProtectionTests
             return files.TryRead(id, out json, out status);
         }
 
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status) =>
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status) =>
             files.TryWrite(id, json, out status);
 
         public void Dispose()

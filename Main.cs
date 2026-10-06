@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 using Godot;
@@ -323,7 +324,7 @@ public partial class Main : Node
         if (GetTree().CurrentScene is VoxelDeveloperScene)
         {
             var status = WorldEditorSession.TryEstablish(configurationId, _reloader.Catalog, _reloader.Composites,
-                new FileWorldSaveStore(IsolatedUserDataDirectory), out var candidate);
+                new FileSaveStore(IsolatedUserDataDirectory), out var candidate);
             if (status != WorldEditorEstablishStatus.Established || candidate is null)
             {
                 _logger?.Error("world-editor", "world_editor_establish_failed", $"Failed to establish world editor configuration: {status}.");
@@ -538,7 +539,7 @@ public partial class Main : Node
         if (loaded.IsCommitted && _reloader is not null)
         {
             var workspace = new WorldEditorWorkspace(_reloader.Catalog, _reloader.Composites,
-                new FileWorldSaveStore(IsolatedUserDataDirectory), WorldEditorWorkspaceScene.ReadExample);
+                new FileSaveStore(IsolatedUserDataDirectory), WorldEditorWorkspaceScene.ReadExample);
             var restored = true;
             foreach (var example in WorldEditorExamples.All)
             {

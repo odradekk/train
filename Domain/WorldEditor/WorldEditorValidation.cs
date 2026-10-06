@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using System.Globalization;
@@ -428,7 +429,7 @@ public static class WorldEditorValidation
         WorldEditorSequence sequence,
         VoxelCatalog catalog,
         CompositeCatalog composites,
-        IWorldSaveStore? store = null)
+        ISaveStore? store = null)
     {
         ArgumentNullException.ThrowIfNull(sequence);
         var status = WorldEditorSession.TryEstablish(sequence.ConfigurationId, catalog, composites, store, out var session);

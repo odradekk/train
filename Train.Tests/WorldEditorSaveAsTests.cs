@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -99,7 +100,7 @@ public sealed class WorldEditorSaveAsTests
         Assert.AreEqual(dirty, session.HasUnsavedChanges);
         Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(session));
         CollectionAssert.AreEqual(bytes, File.ReadAllBytes(harness.Store.PathFor(original)));
-        Assert.IsFalse(File.Exists(Path.Combine(harness.Store.DirectoryFor(target), FileWorldSaveStore.CandidateFileName)));
+        Assert.IsFalse(File.Exists(Path.Combine(harness.Store.DirectoryFor(target), FileSaveStore.CandidateFileName)));
         var workspace = new WorldEditorWorkspace(harness.Catalog, harness.Composites, harness.Store);
         Assert.AreEqual(original, workspace.ListSaves().Single().Id);
     }
@@ -201,12 +202,12 @@ public sealed class WorldEditorSaveAsTests
         CollectionAssert.AreEqual(expected.Voxels.Select(voxel => (voxel.Cell, voxel.DefinitionId, voxel.Orientation)).ToArray(),
             actual.Voxels.Select(voxel => (voxel.Cell, voxel.DefinitionId, voxel.Orientation)).ToArray());
 
-    private sealed class ObservedStore(FileWorldSaveStore files) : IWorldSaveStore
+    private sealed class ObservedStore(FileSaveStore files) : ISaveStore
     {
         public Action<Guid>? BeforeWrite { get; set; }
         public Action<Guid>? AfterWrite { get; set; }
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status) => files.TryRead(id, out json, out status);
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status) => files.TryRead(id, out json, out status);
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status)
         {
             BeforeWrite?.Invoke(id);
             var written = files.TryWrite(id, json, out status);

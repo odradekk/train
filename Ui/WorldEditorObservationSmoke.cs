@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using System.Globalization;
 using Godot;
@@ -1036,7 +1037,7 @@ internal sealed class WorldEditorObservationSmoke
         var before = WorldSaveAuthority.Fingerprint(Session);
         var saved = _scene.SaveWorld();
         Require(saved.Status == WorldSaveStatus.Saved, $"save status {saved.Status}");
-        var path = new FileWorldSaveStore(Main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
+        var path = new FileSaveStore(Main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
         var json = File.ReadAllText(path);
         foreach (var key in new[] { "observ", "camera", "select", "follow", "focus" })
             Require(!json.Contains(key, StringComparison.OrdinalIgnoreCase), $"save mentions {key}");

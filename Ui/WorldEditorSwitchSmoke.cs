@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Godot;
 using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
@@ -100,7 +101,7 @@ internal sealed class WorldEditorSwitchSmoke
                 Require(saved.Status == WorldSaveStatus.Saved && saved.SaveId is not null, "clean save");
                 _scene.Press("step");
                 Require(Session.HasUnsavedChanges, "step after save is unsaved");
-                var path = new FileWorldSaveStore(Main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
+                var path = new FileSaveStore(Main.IsolatedUserDataDirectory).PathFor(saved.SaveId!.Value);
                 var file = new FileInfo(path);
                 file.IsReadOnly = true;
                 try

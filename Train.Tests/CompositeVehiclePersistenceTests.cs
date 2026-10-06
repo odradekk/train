@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using System.Globalization;
@@ -547,7 +548,7 @@ public sealed class CompositeVehiclePersistenceTests
         else
         {
             // Unix permits replacing an open file; a directory at the candidate path blocks file creation even as root.
-            var candidate = Path.Combine(harness.Store.DirectoryFor(first.SaveId.Value), FileWorldSaveStore.CandidateFileName);
+            var candidate = Path.Combine(harness.Store.DirectoryFor(first.SaveId.Value), FileSaveStore.CandidateFileName);
             Directory.CreateDirectory(candidate);
             try
             {
@@ -563,7 +564,7 @@ public sealed class CompositeVehiclePersistenceTests
         Assert.AreEqual("Keep File", harness.Session.DisplayName);
         Assert.AreEqual(before, harness.Session.CaptureAuthority());
         Assert.AreEqual(previous, File.ReadAllText(path));
-        Assert.IsFalse(File.Exists(Path.Combine(harness.Store.DirectoryFor(first.SaveId.Value), FileWorldSaveStore.CandidateFileName)));
+        Assert.IsFalse(File.Exists(Path.Combine(harness.Store.DirectoryFor(first.SaveId.Value), FileSaveStore.CandidateFileName)));
 
         using var reader = Open(harness.UserData, harness.Source);
         Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(first.SaveId.Value).Status);
@@ -1328,25 +1329,25 @@ public sealed class CompositeVehiclePersistenceTests
         }
     }
 
-    private sealed class ControllableStore : IWorldSaveStore
+    private sealed class ControllableStore : ISaveStore
     {
-        private readonly FileWorldSaveStore _inner;
+        private readonly FileSaveStore _inner;
         public bool FailNextWrite;
 
-        public ControllableStore(string userDataDirectory) => _inner = new FileWorldSaveStore(userDataDirectory);
+        public ControllableStore(string userDataDirectory) => _inner = new FileSaveStore(userDataDirectory);
 
         public string PathFor(Guid id) => _inner.PathFor(id);
         public string DirectoryFor(Guid id) => _inner.DirectoryFor(id);
 
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status) =>
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status) =>
             _inner.TryRead(id, out json, out status);
 
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status)
         {
             if (FailNextWrite)
             {
                 FailNextWrite = false;
-                status = WorldSaveStatus.WriteFailed;
+                status = SaveStoreStatus.WriteFailed;
                 return false;
             }
 

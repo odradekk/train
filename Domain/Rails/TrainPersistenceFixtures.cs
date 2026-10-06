@@ -1,10 +1,11 @@
+using Train.Core.Saves;
 using Train.Domain.Voxels;
 
 namespace Train.Domain.Rails;
 
 public static class TrainPersistenceFixtures
 {
-    public static Guid WriteHighSpeed(VoxelDevelopmentSession session, IWorldSaveStore store, double frontX)
+    public static Guid WriteHighSpeed(VoxelDevelopmentSession session, ISaveStore store, double frontX)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(store);

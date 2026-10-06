@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -109,7 +110,7 @@ public sealed class WorldEditorWorkspaceTests
         var locked = SaveBlank(workspace, "Locked");
         var unpublished = Guid.NewGuid();
         Directory.CreateDirectory(harness.Store.DirectoryFor(unpublished));
-        File.WriteAllText(Path.Combine(harness.Store.DirectoryFor(unpublished), FileWorldSaveStore.CandidateFileName), "{");
+        File.WriteAllText(Path.Combine(harness.Store.DirectoryFor(unpublished), FileSaveStore.CandidateFileName), "{");
         using var handle = new FileStream(harness.Store.PathFor(locked), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         var entries = workspace.ListSaves();
         Assert.AreEqual(2, entries.Count);

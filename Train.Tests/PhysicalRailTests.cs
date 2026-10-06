@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -786,7 +787,7 @@ public sealed class PhysicalRailTests
         private readonly bool _ownsUserData;
 
         public string UserData { get; }
-        public FileWorldSaveStore Store { get; }
+        public FileSaveStore Store { get; }
         public VoxelDevelopmentSession Session { get; }
         public TrainLogger Logger => _logger.Logger;
         public MemoryLogSink Memory => _logger.Memory;
@@ -794,7 +795,7 @@ public sealed class PhysicalRailTests
         private RailHarness(
             LoggerSession logger,
             string userData,
-            FileWorldSaveStore store,
+            FileSaveStore store,
             VoxelDevelopmentSession session,
             bool ownsUserData)
         {
@@ -809,7 +810,7 @@ public sealed class PhysicalRailTests
         {
             var logger = LoggerSession.Create();
             var userData = existingUserData ?? Directory.CreateTempSubdirectory("train-rails-").FullName;
-            var store = new FileWorldSaveStore(userData);
+            var store = new FileSaveStore(userData);
             var source = RailPackage();
             var reloader = ContentFixtures.Create(source, logger.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);

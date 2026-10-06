@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Content;
@@ -11,7 +12,7 @@ public sealed record WorldEditorSaveEntry(
     IReadOnlyList<WorldSaveDefinitionRef> ExternalDefinitions, WorldSaveResult Recovery);
 
 /// <summary>Lists local saves and validates an independent candidate before handing it to the editor.</summary>
-public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog composites, FileWorldSaveStore store,
+public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog composites, FileSaveStore store,
     Func<string, string>? readExample = null)
 {
     public WorldSaveDiagnostic? ListFailure { get; private set; }
@@ -70,7 +71,7 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
         var entries = new List<WorldEditorSaveEntry>();
         try
         {
-            var root = Path.Combine(store.Root, FileWorldSaveStore.SavesFolder);
+            var root = Path.Combine(store.Root, FileSaveStore.SavesFolder);
             if (!Directory.Exists(root))
                 return entries;
             foreach (var directory in Directory.EnumerateDirectories(root))
@@ -84,7 +85,7 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
                 try { saved = File.GetLastWriteTimeUtc(path); }
                 catch (IOException) { }
                 catch (UnauthorizedAccessException) { }
-                var name = FileWorldSaveStore.FormatId(id);
+                var name = FileSaveStore.FormatId(id);
                 int? format = null;
                 var generator = "";
                 WorldSource? source = null;
@@ -140,8 +141,8 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
         if (!validated.Succeeded)
             return validated;
         var copy = document.With(Guid.NewGuid(), document.Vehicles, document.Assemblies);
-        if (!store.TryWriteNew(copy.Id, WorldSaveCodec.Serialize(copy), out var status))
-            return new WorldSaveResult(status, Diagnostic: new("import", store.PathFor(copy.Id), "write", "the local copy was not published"));
+        if (!store.TryWriteNew(copy.Id, WorldSaveCodec.Serialize(copy), out _))
+            return new WorldSaveResult(WorldSaveStatus.WriteFailed, Diagnostic: new("import", store.PathFor(copy.Id), "write", "the local copy was not published"));
         return new WorldSaveResult(WorldSaveStatus.Saved, copy.Id, copy.DisplayName, Adaptations: validated.Adaptations);
     }
 
@@ -154,7 +155,7 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
         try
         {
             path = Path.GetFullPath(path);
-            if (ExternalPath.IsSafeUnderRoot(Path.Combine(store.Root, FileWorldSaveStore.SavesFolder), path))
+            if (ExternalPath.IsSafeUnderRoot(Path.Combine(store.Root, FileSaveStore.SavesFolder), path))
                 return new WorldSaveResult(WorldSaveStatus.WriteFailed,
                     Diagnostic: new("export", path, "working_save", "export must not replace a local working save; choose another location"));
             if (File.Exists(path) && !overwrite)
@@ -163,7 +164,7 @@ public sealed class WorldEditorWorkspace(VoxelCatalog catalog, CompositeCatalog 
             if (!session.TryCaptureSave(session.SaveId ?? Guid.NewGuid(), null, out var document, out var captureStatus))
                 return new WorldSaveResult(captureStatus, session.SaveId, session.DisplayName);
             candidatePath = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.candidate");
-            FileWorldSaveStore.WriteCandidate(candidatePath, WorldSaveCodec.Serialize(document), FileMode.CreateNew);
+            FileSaveStore.WriteCandidate(candidatePath, WorldSaveCodec.Serialize(document), FileMode.CreateNew);
             var read = ReadDocument(candidatePath, out var written);
             if (!read.Succeeded)
                 return read;

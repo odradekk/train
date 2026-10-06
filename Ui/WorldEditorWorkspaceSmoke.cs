@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using Godot;
 using Train.Core.Content;
@@ -1990,7 +1991,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
         Require(saved.Succeeded && saved.SaveId is not null, "ordinary save failed");
         var oldId = saved.SaveId.GetValueOrDefault();
         _oldId = oldId;
-        var store = new FileWorldSaveStore(scene.GetNode<Main>("/root/Main").IsolatedUserDataDirectory);
+        var store = new FileSaveStore(scene.GetNode<Main>("/root/Main").IsolatedUserDataDirectory);
         var oldPath = store.PathFor(oldId);
         var oldBytes = File.ReadAllBytes(oldPath);
 
@@ -2124,7 +2125,7 @@ internal sealed class WorldEditorWorkspaceSmoke(WorldEditorScene scene)
 
     private static void VerifyOpenFailure(WorldEditorWorkspaceScene workspace, Main main, Guid id)
     {
-        var path = new FileWorldSaveStore(main.IsolatedUserDataDirectory).PathFor(id);
+        var path = new FileSaveStore(main.IsolatedUserDataDirectory).PathFor(id);
         var original = File.ReadAllText(path);
         try
         {

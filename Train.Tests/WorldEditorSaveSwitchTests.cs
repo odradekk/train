@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Voxels;
 using System.Globalization;
 using System.Text.Json.Nodes;
@@ -170,7 +171,7 @@ public sealed class WorldEditorSaveSwitchTests
     public void Save_failure_cancels_the_switch_and_leaves_the_previous_file()
     {
         using var worldEditor = WorldEditorHarness.Content();
-        var files = new FileWorldSaveStore(worldEditor.UserData);
+        var files = new FileSaveStore(worldEditor.UserData);
         var store = new FailStore(files);
         Assert.AreEqual(
             WorldEditorEstablishStatus.Established,
@@ -542,22 +543,22 @@ public sealed class WorldEditorSaveSwitchTests
         return root.ToJsonString();
     }
 
-    private sealed class FailStore : IWorldSaveStore
+    private sealed class FailStore : ISaveStore
     {
-        private readonly FileWorldSaveStore _inner;
+        private readonly FileSaveStore _inner;
 
-        public FailStore(FileWorldSaveStore inner) => _inner = inner;
+        public FailStore(FileSaveStore inner) => _inner = inner;
 
         public bool Fail { get; set; }
 
-        public bool TryRead(Guid id, out string json, out WorldSaveStatus status) =>
+        public bool TryRead(Guid id, out string json, out SaveStoreStatus status) =>
             _inner.TryRead(id, out json, out status);
 
-        public bool TryWrite(Guid id, string json, out WorldSaveStatus status)
+        public bool TryWrite(Guid id, string json, out SaveStoreStatus status)
         {
             if (Fail)
             {
-                status = WorldSaveStatus.WriteFailed;
+                status = SaveStoreStatus.WriteFailed;
                 return false;
             }
 

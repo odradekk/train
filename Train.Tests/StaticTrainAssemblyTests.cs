@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content.Composites;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -677,7 +678,7 @@ internal sealed class StaticTrainHarness : IDisposable
     private readonly bool _ownsUserData;
 
     public string UserData { get; }
-    public FileWorldSaveStore Store { get; }
+    public FileSaveStore Store { get; }
     public MemoryContentSource Source { get; }
     public VoxelDevelopmentSession Session { get; }
     public ContentReloader Reloader { get; }
@@ -687,7 +688,7 @@ internal sealed class StaticTrainHarness : IDisposable
     private StaticTrainHarness(
         LoggerSession logger,
         string userData,
-        FileWorldSaveStore store,
+        FileSaveStore store,
         MemoryContentSource source,
         ContentReloader reloader,
         VoxelDevelopmentSession session,
@@ -706,7 +707,7 @@ internal sealed class StaticTrainHarness : IDisposable
     {
         var logger = LoggerSession.Create();
         var userData = existingUserData ?? Directory.CreateTempSubdirectory("train-static-").FullName;
-        var store = new FileWorldSaveStore(userData);
+        var store = new FileSaveStore(userData);
         var content = source ?? Package();
         var reloader = ContentFixtures.Create(content, logger.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);

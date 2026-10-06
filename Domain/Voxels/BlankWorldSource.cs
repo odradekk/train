@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using System.Globalization;
 using Train.Core.Content;
 using Train.Domain.WorldEditor;
@@ -28,7 +29,7 @@ public static class BlankWorldSource
     }
 
     public static VoxelDevelopmentSession Establish(
-        VoxelWorldIdentity identity, VoxelCatalog catalog, CompositeCatalog composites, IWorldSaveStore? store)
+        VoxelWorldIdentity identity, VoxelCatalog catalog, CompositeCatalog composites, ISaveStore? store)
     {
         if (!TryIdentity(identity.Bounds.SizeX, identity.Bounds.SizeY, identity.Bounds.SizeZ, identity.Seed, out var supported) ||
             identity != supported)

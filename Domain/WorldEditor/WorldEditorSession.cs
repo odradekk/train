@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using Train.Core.Content;
 using Train.Domain.Voxels;
 
@@ -13,7 +14,7 @@ public static class WorldEditorSession
         string configurationId,
         VoxelCatalog catalog,
         CompositeCatalog composites,
-        IWorldSaveStore? store,
+        ISaveStore? store,
         out VoxelDevelopmentSession? session)
     {
         session = null;

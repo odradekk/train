@@ -1,3 +1,4 @@
+using Train.Core.Saves;
 using System.Text;
 using System.Text.Json.Nodes;
 using Godot;
@@ -154,7 +155,7 @@ internal sealed class BlankWorldSmoke
                 var reloader = Main.Reloader ?? throw new InvalidOperationException("content reloader is unavailable");
                 var predecessor = new VoxelDevelopmentSession(
                     reloader.Catalog, VoxelWorldIdentity.Slice2,
-                    new FileWorldSaveStore(Main.IsolatedUserDataDirectory), reloader.Composites);
+                    new FileSaveStore(Main.IsolatedUserDataDirectory), reloader.Composites);
                 try
                 {
                     var legacy = predecessor.Save("Blank smoke slice 2 predecessor");
@@ -191,7 +192,7 @@ internal sealed class BlankWorldSmoke
                 var step = Session.SimulationStep;
                 var selected = Observer.Selection;
                 var paused = Session.SimulationPaused;
-                var store = new FileWorldSaveStore(Main.IsolatedUserDataDirectory);
+                var store = new FileSaveStore(Main.IsolatedUserDataDirectory);
                 var path = store.PathFor(_savedBlank.GetValueOrDefault());
                 var original = File.ReadAllText(path, Encoding.UTF8);
                 try
