@@ -8,6 +8,16 @@
     <LangVersion>12.0</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="Core/Train.Core.csproj" />
+    <ProjectReference Include="Scenes/Train.Scenes.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Core/**" />
+    <EmbeddedResource Remove="Core/**" />
+    <None Remove="Core/**" />
+    <Compile Remove="Scenes/**" />
+    <EmbeddedResource Remove="Scenes/**" />
+    <None Remove="Scenes/**" />
     <Compile Remove="archive/**" />
     <EmbeddedResource Remove="archive/**" />
     <None Remove="archive/**" />

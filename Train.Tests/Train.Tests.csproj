@@ -13,6 +13,10 @@
     <PackageReference Include="MSTest.TestFramework" Version="3.6.3" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../Core/Train.Core.csproj" />
+    <ProjectReference Include="../Scenes/Train.Scenes.csproj" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Include="..\Domain\Behaviors\*.cs" Link="Domain\Behaviors\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Commands\*.cs" Link="Domain\Commands\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Settlements\*.cs" Link="Domain\Settlements\%(Filename)%(Extension)" />
