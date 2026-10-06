@@ -1,49 +1,70 @@
 # Implementation Standard Operating Procedure
 
-Use this procedure to execute an assigned Issue, validate changes, deliver a PR and respond to review. Workspace preparation, dispatch, acceptance and user-approved closeout belong to the coordinator under [dispatch-sop.md](dispatch-sop.md). GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
+Use this procedure for pair programming on an assigned Issue: the developer and the implementation agent discuss and design together, the agent implements, and the developer supervises every step. The goal is that the developer understands and agrees with every change, and that the work stays within the Issue. Workspace preparation, acceptance and user-approved closeout belong to the coordinator under [dispatch-sop.md](dispatch-sop.md). GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
 
 ## Scope and authority
 
-Work only in the assigned worktree, branch and Issue scope, and keep the worktree for review and revision. The dispatch grants task-branch commits/pushes, PR creation or updates, and Issue completion/revision comments under the [dispatch authority](dispatch-sop.md#roles-and-authority); reading this file alone does not. Acceptance checkboxes, technical acceptance, merge, worktree reclamation, Issue closure and version updates belong to the coordinator and user. Preserve published history.
+Work only in the assigned worktree, branch and Issue scope, and keep the worktree for review and revision. The developer directs the session: commit, push the task branch, open or update the PR, and post Issue comments only when the developer asks, under the [dispatch authority](dispatch-sop.md#roles-and-authority). Design choices and scope belong to the developer; changing Acceptance criteria requires the user's decision. Acceptance checkboxes, technical acceptance, merge, worktree reclamation, Issue closure and version updates belong to the coordinator and user. Preserve published history.
 
 For Godot scene, resource, editor or runtime work, use the project's Godot MCP Native plugin (`addons/godot_mcp/`) under [Godot MCP validation](#godot-mcp-validation).
 
-## 0. Verify the assignment
+## 0. Prepare
 
-Read the dispatch brief, the Issue body and discussion, `AGENTS.md`, relevant design docs/ADRs and the [Testing standard](#testing-standard). Verify the assigned absolute worktree, task branch, baseline and PR base, preserving unrelated changes. Before environment setup, validation or export, consult [Local validation and Windows builds](local-environment.md). Report missing prerequisites or conflicting scope instead of silently changing the assignment.
+Read the startup prompt, the Issue body and discussion, `AGENTS.md`, the referenced design docs/ADRs and the [Testing standard](#testing-standard). Verify the assigned absolute worktree, task branch, baseline and PR base, preserving unrelated changes. Before environment setup, validation or export, consult [Local validation and Windows builds](local-environment.md).
 
-**Complete when:** the workspace and assignment match, applicable prerequisites are available, and the required validation is understood.
+Reply to the developer with a short summary of the task, the open questions you see, and a proposed approach. Then wait; do not start implementing before the developer agrees.
 
-## 1. Implement and deliver a PR — implementation agent
+**Complete when:** the workspace and assignment match, and the developer has your summary, questions and proposed approach.
 
-1. Implement only the assigned scope, add the minimum sufficient observable regression coverage, run the checks selected under the [Testing standard](#testing-standard), and review the diff. For Godot changes, follow [Godot MCP validation](#godot-mcp-validation).
-2. Commit intended changes with Conventional Commit messages, push the task branch to the agreed repository and open a PR against the agreed base. Revisions add commits to the same branch and PR.
-3. Reference the Issue with a normal link or `Refs #<issue>`. Avoid closing keywords in PR descriptions and commits so the coordinator can close the Issue after worktree cleanup.
-4. Post the completion brief below as an Issue comment. The PR head SHA must identify the exact code tested.
+## 1. Discuss and design with the developer
 
-If implementation or validation is blocked, post a blocker comment with evidence, missing prerequisites and the next required action. If PR creation fails, report that delivery is incomplete; a local or unpushed commit is not delivered work.
+- Explain your understanding and the open questions. For each real choice, give the options and a recommendation; the developer decides.
+- Do not make design choices or expand scope on your own. When the Issue is ambiguous, the design docs conflict, or a better approach would change the result, raise it instead of picking silently.
+- Agree on the approach and on an order of small, separately verifiable steps before writing code.
+- Once agreed, record decisions that the Issue does not already state (design choices, scope changes, Acceptance-criteria changes approved by the user) in an Issue comment. Acceptance is judged against the Issue and these recorded decisions.
 
-**Complete when:** the PR is accessible, its remote head matches the tested commit, and the Issue has a completion brief linking that PR. Required checks that failed or were not run remain explicit blockers, not passes.
+**Complete when:** the developer has agreed on the approach and step order, and new decisions are recorded on the Issue.
 
-### Completion brief — Issue comment
+## 2. Implement in small steps
+
+1. Implement one agreed step at a time. After each step, summarize the diff, explain anything non-obvious, and report the checks you ran; wait for the developer before moving on.
+2. Stop and ask when the work contradicts the agreed approach, a new design decision appears, or the change would leave the Issue's scope. Record any resulting decision on the Issue.
+3. Add the minimum sufficient observable regression coverage and run the checks selected under the [Testing standard](#testing-standard). For Godot changes, follow [Godot MCP validation](#godot-mcp-validation).
+4. Commit with Conventional Commit messages when the developer agrees.
+
+**Complete when:** all agreed steps are implemented, reviewed by the developer, validated and committed.
+
+## 3. Deliver a PR
+
+When the developer says the work is ready:
+
+1. Push the task branch and open a PR against the agreed base. Revisions add commits to the same branch and PR.
+2. Reference the Issue with a normal link or `Refs #<issue>`. Avoid closing keywords in PR descriptions and commits so the coordinator can close the Issue after worktree cleanup.
+3. Post the completion comment below on the Issue. The PR head SHA must identify the exact code tested.
+
+The developer then asks the coordinator for acceptance. If implementation or validation is blocked, post a blocker comment with evidence, missing prerequisites and the next required action. A local or unpushed commit is not delivered work.
+
+**Complete when:** the PR is accessible, its remote head matches the tested commit, and the Issue has a completion comment linking that PR. Required checks that failed or were not run remain explicit blockers, not passes.
+
+### Completion comment
 
 - PR URL, base branch and tested head SHA.
-- What changed and which Acceptance criteria it covers.
+- What changed and which Acceptance criteria it covers; links to the decisions recorded during the session.
 - Selected validation scope; exact commands, results, test-group durations, unified-entry summary paths and anything not run; host OS and tool versions where relevant. Identify reused evidence and why intervening changes do not invalidate it. For Windows builds, include the export path and report export and Windows runtime validation separately.
 - For Godot MCP validation: plugin source commit, MCP port, actual project/worktree path, tool calls and relevant arguments, observed results, retained log/artifact paths, and any fallback or unverified coverage, tied to the tested head SHA.
 - Manual and visual checks, listed separately from automated results.
 - Reproduction steps or example content needed to verify the behavior.
 - Remaining risks/blockers, or an explicit statement that none are known.
 
-## 2. Respond to review
+## 4. Handle review findings
 
-Read the coordinator's findings and linked Issue discussion. In the same worktree, branch and PR, fix the assigned findings, rerun affected checks under the evidence-reuse rules, and add commits. Reply to each finding in the Issue with the resolution, commit IDs, actual validation and remaining gaps, and update the PR for its final scope.
+The coordinator posts findings on the Issue and tells the developer. Go through them with the developer, then fix the agreed findings in the same worktree, branch and PR, in small steps as above. Rerun affected checks under the evidence-reuse rules and add commits. Reply to each finding in the Issue with the resolution, commit IDs, actual validation and remaining gaps. The developer asks the coordinator for re-review.
 
-**Complete when:** the revision is pushed to the same PR, its tested code is identified, and every requested finding has a traceable response.
+**Complete when:** the revision is pushed to the same PR, its tested code is identified, and every finding has a traceable response.
 
 ## Recovery
 
-After interruption, read the latest brief, Issue comments, PR head and local Git state. Check which build/test processes belong to this worktree and whether they are still running before starting replacements. Preserve existing changes and evidence and resume the first incomplete action. If the assignment or worker ownership is unclear, report the blocker to the coordinator instead of creating another branch, agent or workspace. A changed head requires affected revalidation.
+After interruption, read the startup prompt, Issue comments (including recorded decisions), PR head and local Git state. Check which build/test processes belong to this worktree and whether they are still running before starting replacements. Preserve existing changes and evidence, tell the developer where the work stands, and resume the first incomplete step once the developer agrees. If the assignment or ownership is unclear, ask the developer instead of creating another branch, agent or workspace. A changed head requires affected revalidation.
 
 ## Testing standard
 
@@ -117,7 +138,7 @@ Benchmark belongs to stage gates, not to every PR, and not every change needs a 
 
 Apply this sequence to Godot scene/resource edits, editor checks and runtime diagnosis. Documentation-only or pure domain tasks need no MCP run unless their Acceptance criteria require Godot behavior. Server startup, client approval, the pinned plugin commit and known limitations are in [godot-mcp.md](godot-mcp.md).
 
-1. **Check your own connection** before the first Godot operation; another agent's connection does not prove yours. Start the MCP editor for the assigned worktree as godot-mcp.md describes, then call `get_project_info` in the actual session and verify that `project_path` is the assigned worktree and the engine version is expected. The client connects to a fixed port, not a worktree: if the path differs, another task's editor holds the port, so stop and report instead of operating on it. If your brief assigns MCP to another parallel task, do not connect; use the CLI fallback under step 5. Record the plugin commit from godot-mcp.md, not the server's reported version. Reconnect or restart the session after changing its configuration or restarting the editor, and keep registration project-scoped.
+1. **Check your own connection** before the first Godot operation; another agent's connection does not prove yours. Start the MCP editor for the assigned worktree as godot-mcp.md describes, then call `get_project_info` in the actual session and verify that `project_path` is the assigned worktree and the engine version is expected. The client connects to a fixed port, not a worktree: if the path differs, another task's editor holds the port, so stop and report instead of operating on it. If your startup prompt assigns MCP to another parallel task, do not connect; use the CLI fallback under step 5. Record the plugin commit from godot-mcp.md, not the server's reported version. Reconnect or restart the session after changing its configuration or restarting the editor, and keep registration project-scoped.
 2. **Prepare the project.** Build C# and import resources through the [local CLI workflow](local-environment.md) before runtime checks; import new assets/scripts before UID operations. MCP does not build the .NET project or replace required repository checks.
 3. **Use the relevant tools.** Use project, scene, node and script queries for inspection. Edit scenes, nodes, properties or scripts only within the authorized scope, then inspect the resulting files and reload affected resources to verify the values. Test the MCP itself in an isolated disposable project. For runtime checks, call `run_project` with `allow_window=true`, then `get_editor_logs` with `source` set to `editor_panel`; confirm the log timestamps belong to this run and check the expected ready/behavior markers, errors and running or exit status. A start acknowledgement alone is not a pass. `run_project` saves open scenes first; revert unrelated scene or `.uid` changes. When editor interaction is needed, use the graphical editor and record what was actually observed.
 4. **Preserve evidence and stop owned processes.** Save tool inputs, output/error logs, exit status and artifact checks in the task's validation directory before another run or the end of the session; a new run replaces the editor's current one. Never start or stop anything through an editor serving another worktree. Stop a task-owned game with `stop_project` (`allow_window=true`) and verify termination; close the task-owned MCP editor, identified by its `--path` and `--mcp-server` command line. MCP output is not evidence of visual quality or user acceptance.

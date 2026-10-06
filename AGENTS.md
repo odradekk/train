@@ -41,8 +41,8 @@ Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository 
 
 The two SOPs define the standard workflow; an individual task's scope and Acceptance criteria live in its Issue.
 
-- **Executing a task** (implementation, testing, PR delivery and review revisions): read [Implementation SOP](docs/implement-sop.md). It also holds the Testing standard.
-- **Coordinating a task** (dispatch, review, Acceptance-criteria verification, and user-approved merge, cleanup, closure and version updates): read [Dispatch SOP](docs/dispatch-sop.md).
+- **Implementing a task** (pair programming between the developer and an agent: discussion, design, implementation, testing, PR delivery and review fixes): read [Implementation SOP](docs/implement-sop.md). It also holds the Testing standard.
+- **Coordinating a task** (preparing the worktree and agent, review and Acceptance-criteria verification when the developer asks, and user-approved merge, cleanup, closure and version updates): read [Dispatch SOP](docs/dispatch-sop.md).
 
 ### Console command documentation
 

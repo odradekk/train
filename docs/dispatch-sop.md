@@ -1,28 +1,31 @@
 # Dispatch Standard Operating Procedure
 
-Use this procedure as coordinator/reviewer for Issue dispatch, review, acceptance and user-approved closeout in `odradekk/train`. Implementation agents follow [implement-sop.md](implement-sop.md); GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
+Use this procedure as coordinator/reviewer for Issues in `odradekk/train`: prepare the worktree and implementation agent, hand the task to the developer, review and verify acceptance when the developer asks, and carry out the user-approved closeout. The implementation itself is pair programming between the developer and the agent under [implement-sop.md](implement-sop.md); the coordinator does not direct it. GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
 
-Dispatch implementation work through **Paseo**. Use the `paseo` skill and available Paseo MCP tools; the Paseo CLI is an alternative interface. If Paseo is unavailable, report the blocker rather than switching launchers or worktree managers.
+Prepare workspaces and agents through **Paseo**. Use the `paseo` skill and available Paseo MCP tools; the Paseo CLI is an alternative interface. If Paseo is unavailable, report the blocker rather than switching launchers or worktree managers.
 
-Issue comments are the durable record of dispatch, implementation and acceptance; the PR contains the code to review. Agent notifications and workspace titles do not replace either.
+Issue comments are the durable record of dispatch, design decisions made during implementation, and acceptance; the PR contains the code to review. Agent notifications and workspace titles do not replace either.
 
 When the coordinator performs Godot scene, resource, editor or runtime work, including independent review checks, follow [Godot MCP validation](implement-sop.md#godot-mcp-validation). Its MCP use, fallback, evidence and process-ownership rules apply to the coordinator as well as the implementation agent.
 
 ## Roles and authority
 
-- **Coordinator / reviewer**: prepares and dispatches the task, reviews the delivered PR, records findings, verifies Acceptance criteria, and requests the user's final approval.
-- **Implementation agent**: works in its assigned independent worktree, validates and commits its changes, pushes its task branch, opens or updates the PR, and reports in the Issue comments.
-- **User**: gives final approval for the specific reviewed PR revision and proposed version change. Only then may the coordinator merge the PR, reclaim the worktree, close the Issue, and update the version.
+- **Coordinator / reviewer**: prepares the worktree and agent for an Issue the developer selects, reviews the delivered PR and verifies Acceptance criteria when the developer asks, and requests the user's final approval.
+- **Developer**: works with the agent in pair programming: discusses and decides the design, supervises the implementation, and decides when the agent commits, pushes, opens the PR and posts Issue comments. The developer asks the coordinator for acceptance and drives fixes for review findings.
+- **Implementation agent**: works in its assigned worktree under the developer's direction.
+- **User**: gives final approval for the specific reviewed PR revision and proposed version change. Only then may the coordinator merge the PR, reclaim the worktree, close the Issue, and update the version. The developer and the user may be the same person.
 
-A dispatch under this SOP authorizes the implementation agent's task-branch push, PR creation/update, and Issue completion/revision comments. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
+A dispatch under this SOP authorizes the implementation agent, at the developer's instruction, to commit, push its task branch, create or update the PR, and post Issue comments. It does not authorize merging, closing the Issue, force-pushing, or changing unrelated shared state. Acceptance by the reviewer is not the user's final approval.
 
-## Parallel dispatch
+## Selecting tasks
 
-When several ready Issues have no open blockers, dispatch them in parallel by default; dispatch one at a time only when the user asks. An Issue whose specification depends on code or decisions that another open task will produce is blocked even without a recorded blocker; record that dependency on the Issue. Overlapping files alone are not a reason to wait.
+Dispatch only the Issues the developer names, one at a time unless the developer asks for several. An Issue whose specification depends on code or decisions that another open task will produce is blocked even without a recorded blocker; record that dependency on the Issue.
 
-- Each Issue gets its own Paseo workspace, worktree, task branch, agent and dispatch comment, and goes through steps 0–5 on its own. Review each task when its agent finishes. User approval, merge and the version increase remain per PR.
-- The MCP port is fixed, so at most one parallel task can have an MCP editor. Give it to the task whose Acceptance criteria depend most on interactive editor or runtime observation. The other briefs state that MCP belongs to another worktree and that the worker uses the CLI fallback; their required evidence still comes from repository checks and real-Godot scripts.
-- After one PR merges, ask each remaining worker to merge the updated base into its task branch (no rebase or force-push), resolve conflicts and rerun the affected checks. Review the merge and the affected behavior again before acceptance; an acceptance written before the update does not cover the new head.
+When several tasks run at once:
+
+- Each Issue gets its own Paseo workspace, worktree, task branch, agent and dispatch comment, and goes through the steps below on its own. User approval, merge and the version increase remain per PR.
+- The MCP port is fixed, so at most one task can have an MCP editor. Give it to the task whose Acceptance criteria depend most on interactive editor or runtime observation. The other startup prompts state that MCP belongs to another worktree and that the agent uses the CLI fallback.
+- After one PR merges, tell the developer that the remaining task branches must merge the updated base (no rebase or force-push), resolve conflicts and rerun the affected checks. Review the merge and the affected behavior again before acceptance; an acceptance written before the update does not cover the new head.
 - Parallel validation shares one machine. If a check times out while another task is validating, rerun it with no other validation running before reporting it as failed, and record both results.
 
 ## 0. Prepare an independent worktree — coordinator
@@ -30,90 +33,68 @@ When several ready Issues have no open blockers, dispatch them in parallel by de
 Before dispatch, verify:
 
 - The Issue is open, labelled `ready-for-agent`, not superseded, and has no open native blockers.
-- The specification and Acceptance criteria are executable without unresolved design choices.
+- The specification and Acceptance criteria are clear enough to start. Note open design questions for the developer; they are settled in the pair session, not by the coordinator.
 - The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
-- The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them before promising a PR; report any required user action.
-- The requested Paseo provider is available and authenticated, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](local-environment.md); check the SDK, script runtime, and target-platform requirements before dispatch.
+- The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them first; report any required user action.
+- The requested Paseo provider is available and authenticated, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](local-environment.md); check the SDK, script runtime, and target-platform requirements.
 
-Use an independent top-level worktree from the repository's default base unless the user selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
+Use an independent top-level worktree from the repository's default base unless the developer selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
 
 Prepare it through Paseo:
 
-1. Inspect existing workspaces and agents before creating anything, so a resumed dispatch does not create a second worker for the same Issue.
-2. Read `list_profiles`, including profile notes. Honor the user's provider and model choices and select an applicable profile. If no profile fits, use `list_providers`, `list_models`, and `inspect_provider` to choose supported settings and report the selection. This SOP does not prescribe a particular model. Record the actual provider, model, mode, and thinking settings used.
+1. Inspect existing workspaces and agents before creating anything, so a resumed dispatch does not create a second agent for the same Issue.
+2. Read `list_profiles`, including profile notes. Honor the developer's provider and model choices and select an applicable profile. If no profile fits, use `list_providers`, `list_models`, and `inspect_provider` to choose supported settings and report the selection. Record the actual provider, model, mode, and thinking settings used.
 3. Use `create_workspace` with `isolation: "worktree"`, `mode: "branch-off"`, the verified project/source checkout, a task branch name, and an explicit `baseBranch` resolving to the repository's default base, normally `origin/<default-branch>`. Copy the returned `workspaceId` and absolute `cwd`; verify the actual branch and baseline SHA in that checkout.
-4. Inspect configured setup scripts with `list_workspace_scripts` and run applicable ones with `start_workspace_script`. Run any remaining repository setup and validation checks in the returned checkout. Wait for setup to succeed before sending implementation work; workspace creation alone does not prove setup passed.
-5. For Godot work, verify that the selected baseline contains `addons/godot_mcp/`, enables the plugin in `project.godot`, and has the selected client's project MCP configuration as described in [godot-mcp.md](godot-mcp.md). Check the Godot executable in the worktree environment. The MCP port is fixed, so only one worktree can use it at a time (see [Parallel dispatch](#parallel-dispatch)): for the task that gets MCP, confirm no other task's editor holds it, then start the worktree's MCP editor before launching the worker, because the worker's client connects at session start. This editor is task-owned. Include the worker's MCP connection check and any known setup gap in the brief; the coordinator's own connection does not prove that a newly launched worker can access it.
+4. Inspect configured setup scripts with `list_workspace_scripts` and run applicable ones with `start_workspace_script`. Run any remaining repository setup checks in the returned checkout and wait for them to succeed; workspace creation alone does not prove setup passed.
+5. For Godot work, verify that the selected baseline contains `addons/godot_mcp/`, enables the plugin in `project.godot`, and has the selected client's project MCP configuration as described in [godot-mcp.md](godot-mcp.md). Check the Godot executable in the worktree environment. For the task that gets MCP, confirm no other task's editor holds the port, then start the worktree's MCP editor before creating the agent, because the agent's client connects at session start. This editor is task-owned.
 
 **Complete when:** one valid Issue has one Paseo workspace owning an independent worktree, a self-contained baseline, successful setup, and a verified agent launch configuration.
 
-## 1. Dispatch the implementation brief — coordinator
+## 1. Create the agent and hand over — coordinator
 
-The brief must begin exactly with `/implement `: one space after the command, with no preceding text. Use the template below and fill every placeholder. The worker follows [Implementation SOP](implement-sop.md) and reports using its [completion brief](implement-sop.md#completion-brief--issue-comment).
+Call Paseo `create_agent` with the prepared `workspaceId`, a descriptive title, the selected `provider/model`, applicable `settings`, and the startup prompt below as `initialPrompt`. Fill every placeholder. The prompt orients the agent and makes it wait for the developer; it is not an implementation brief.
 
-Include the Issue URL, worktree path, task branch, baseline SHA, PR base branch, scope boundaries, repository instructions, required validation, PR delivery, and Issue-comment requirements. Select validation under [Testing standard](implement-sop.md#testing-standard) and explain its relationship to the changed behavior and Acceptance criteria. Provide verified local tool paths when needed.
+Confirm that the agent received the prompt and replied with its task summary, using `get_agent_activity`. A successful create response or `running` status alone is insufficient. Keep this check bounded; if startup fails or remains unconfirmed, report that state and inspect the existing session rather than creating a duplicate agent.
 
-For a new worker, call Paseo `create_agent` with the prepared `workspaceId`, a descriptive title, the selected `provider/model`, applicable `settings`, and the complete brief as `initialPrompt`. Set `notifyOnFinish: true`. Supplying the brief here starts the task; do not send it again with `send_agent_prompt`.
+Record the Issue, `workspaceId`, `agentId`, absolute worktree path, task branch, baseline SHA, PR base, launch settings, MCP assignment and startup evidence in a dispatch comment on the Issue. These identifiers are needed for acceptance and recovery.
 
-For an existing worker, first verify its `agentId`, workspace, and current task. Send a new or revision brief once with `send_agent_prompt`, using `background: true` and `notifyOnFinish: true`. Do not inject implementation briefs through a shell terminal when a Paseo agent session is available.
+Report the handoff to the developer with what is needed to reach the agent, then stop. Do not send further prompts to the agent, monitor it, or start a review until the developer asks for acceptance.
 
-Confirm that the agent received the intended brief and actually started task work, using its acknowledgement and task-specific activity from `get_agent_activity`. A successful create/send response or `running` status alone is insufficient. Keep this check bounded; if startup fails or remains unconfirmed, report that state and inspect the existing session rather than sending a duplicate brief.
+**Complete when:** the agent has started in the prepared worktree, the Issue has the dispatch record, and the developer has the handoff.
 
-For Godot work, the worker checks MCP access in its own session before the first Godot operation. Record the result, or the explicit CLI fallback and reason, with the startup evidence under [Godot MCP validation](implement-sop.md#godot-mcp-validation).
-
-Record the Issue, `workspaceId`, `agentId`, absolute worktree path, task branch, baseline SHA, PR base, launch settings, and startup evidence in a dispatch comment on the Issue. Report the handoff to the user. These identifiers are needed for revisions and recovery; a terminal ID is supplementary when a setup terminal is involved.
-
-After startup is confirmed, stop monitoring by default. Use Paseo completion/error/permission notifications instead of continuous status polling. A notification does not constitute technical acceptance or user approval; resume acceptance when the user requests it or an already authorized review workflow applies.
-
-**Complete when:** the exact brief was delivered once through Paseo, the assigned agent has started task work, and the Issue and user have the dispatch record.
-
-### Implementation brief template
+### Startup prompt template
 
 ```text
-/implement GitHub Issue #<issue>: <title> — <issue-url>
+GitHub Issue #<issue>: <title> — <issue-url>
 
-You own the independent worktree <absolute-path> and task branch <branch>.
+You are the implementation agent in a pair-programming session with the developer.
+Your worktree is <absolute-path> on task branch <branch>.
 Baseline: <sha>. Target repository: odradekk/train. PR base: <base-branch>.
 Work only in this worktree; preserve unrelated changes and keep archive/mvp read-only.
 
-Read docs/implement-sop.md, the full Issue body/comments, AGENTS.md,
-and relevant domain docs/ADRs.
-Implement only #<issue>; exclude <adjacent-scope>.
-Required validation: <risk-based selection of tests/build/integration checks,
-Acceptance-criteria coverage, verified tool paths; see Testing standard>.
-Godot MCP: <applicable work and whether the worktree's MCP editor is running,
-assigned to another parallel task (use the CLI fallback), or not applicable>.
-For Godot work, read docs/godot-mcp.md and follow the Godot MCP validation
-section of docs/implement-sop.md. Verify access in your own session and check
-that get_project_info returns your assigned worktree. Record any CLI fallback and reason.
-Review the diff and commit intended changes with Conventional Commit messages.
+Read AGENTS.md, docs/implement-sop.md, the full Issue body and comments,
+and the design docs/ADRs it references.
+Godot MCP: <the worktree's MCP editor is running / assigned to another task,
+use the CLI fallback / not applicable>.
 
-You are authorized to push this task branch, create/update its PR against the
-specified base, and post completion/revision comments on this Issue.
-After validation, submit the PR and post an Issue comment with the PR URL,
-tested head SHA, changes, Acceptance-criteria coverage, exact validation
-commands/results, reproduction steps, and any remaining risks or blockers.
-Use a normal Issue reference, not an automatic closing keyword.
-If blocked, report the evidence and required action in an Issue comment.
-
-For review fixes, keep the same worktree, branch, and PR; add commits and reply
-to each finding with its resolution and validation.
-Leave checkboxes/final acceptance to the reviewer. Leave merge, worktree
-cleanup, and Issue closure to the coordinator after explicit user approval.
+Then reply with a short summary of the task, the open questions you see,
+and a proposed approach, and wait for the developer. Do not start
+implementing until the developer agrees on the approach.
 ```
 
-## 2. Review and return findings — coordinator / reviewer
+## 2. Review on the developer's request — coordinator / reviewer
 
-Read the Issue completion brief and all subsequent discussion, then inspect the PR's actual base/head and full relevant diff. Use `code-review` for Standards and Spec review; review test quality and independently run key risk-appropriate checks under [Testing standard](implement-sop.md#testing-standard). Reuse prior evidence only when it still applies to the reviewed revision.
+Start only when the developer asks for acceptance, normally after the PR exists and the agent has posted its completion comment on the Issue.
 
-For MCP-assisted changes, inspect the saved scene/resource diff and runtime evidence, not just tool success messages. Apply the same required test, real Godot, cross-process, export, and user visual-acceptance gates as the Issue specifies; an MCP launch or log capture only proves the behavior it actually exercised.
+Read the Issue body, the completion comment and all other comments, including design decisions recorded during the pair session. Inspect the PR's actual base/head and full relevant diff. Use `code-review` for Standards and Spec review; review test quality and independently run key risk-appropriate checks under [Testing standard](implement-sop.md#testing-standard). Reuse prior evidence only when it still applies to the reviewed revision. Judge scope against the Issue and the recorded decisions; a change outside both is a finding, even if it looks useful.
+
+For MCP-assisted changes, inspect the saved scene/resource diff and runtime evidence, not just tool success messages. Apply the same required test, real Godot, cross-process, export, and user visual-acceptance requirements as the Issue specifies; an MCP launch or log capture only proves the behavior it actually exercised.
 
 If review fails:
 
 1. Reply in an Issue comment identifying the PR/head SHA and each finding: severity, violated requirement, file/line or reproduction, observed versus expected result, and requested correction.
-2. Send the same Paseo implementation agent a `/implement ` revision brief linking that comment through `send_agent_prompt`, with `background: true` and `notifyOnFinish: true`. Retain the same workspace, branch, and PR. The agent message supplements, rather than replaces, the Issue record; if the session is unavailable, follow Recovery before creating a replacement.
-3. The agent fixes the same PR, reruns affected checks, and posts a new Issue comment responding to each finding with commit IDs and validation results.
-4. Re-review the new head and affected behavior. Keep the Issue open and retain the worktree throughout this loop.
+2. Tell the developer that findings are posted. The developer works through them with the agent in the same worktree, branch and PR, and asks for re-review when ready. Do not send instructions to the agent.
+3. Re-review the new head and affected behavior when asked. Keep the Issue open and retain the worktree throughout this loop.
 
 **Complete when:** no unresolved review findings or required validation gaps remain for the identified PR head.
 
@@ -123,7 +104,7 @@ After the code review passes:
 
 1. Read the current Issue body again. Map every Acceptance criterion to inspected implementation and applicable test/integration evidence.
 2. Mark only satisfied criteria `[x]`; leave incomplete or unverified criteria `[ ]`. If a previously checked criterion no longer holds, clear it and explain why in a comment. Preserve the wording and unrelated Issue content; do not weaken requirements to obtain a pass.
-3. If any criterion remains unmet, publish the gap and return to step 2. Scope changes require the user's decision.
+3. If any criterion remains unmet, publish the gap, tell the developer, and return to step 2 when the developer asks for re-review. Scope changes require the user's decision.
 4. Read back the saved Issue body to verify the actual checkbox state. Reconcile any concurrent edits before writing; do not overwrite newer discussion or requirements.
 5. When every criterion passes, post the final acceptance conclusion in an Issue comment: PR URL/head SHA, per-criterion evidence, validation results, resolved review findings, and remaining nonblocking risks. State explicitly: **technical acceptance passed; awaiting user approval to merge**.
 
@@ -149,7 +130,7 @@ Before archiving a worktree, retain required MCP logs and generated validation a
 
 ## 5. Update the version — coordinator
 
-After the PR is merged, its worktree reclaimed, and the Issue closed, update the version on the merged base branch. This is the final step of the task, not part of the implementation agent's PR.
+After the PR is merged, its worktree reclaimed, and the Issue closed, update the version on the merged base branch. This is the final step of the task, not part of the task's PR.
 
 During development, use `0.MINOR.PATCH`:
 
@@ -172,8 +153,8 @@ Apply one increase per completed task, not per implementation commit, repair rou
 
 ## Recovery
 
-After interruption, read the latest Issue comments, PR head/checks, worktree state, and any recorded version commit before acting. Resolve the recorded Paseo `workspaceId` and `agentId` against `list_workspaces`, `list_agents`, and the relevant agent status/activity. Verify the actual checkout and branch; neither a workspace title nor an old `running` status proves that the intended worker is still active.
+After interruption, read the latest Issue comments, PR head/checks, worktree state, and any recorded version commit before acting. Resolve the recorded Paseo `workspaceId` and `agentId` against `list_workspaces`, `list_agents`, and the relevant agent status/activity. Verify the actual checkout and branch; neither a workspace title nor an old `running` status proves that the intended agent is still active.
 
-Resume the first incomplete step instead of recreating worktrees, resending accepted briefs, opening duplicate PRs, repeating completed merges, or incrementing a version twice. For an ambiguous create/send failure, inspect existing Paseo sessions and activity before retrying. If the worker must be replaced, first confirm the old worker has stopped, preserve its changes, reuse the task workspace and branch where possible, and record the replacement agent ID and handoff in the Issue. Preserve the previous launch settings unless the user requests a change or they are no longer available; report any necessary change.
+Resume the first incomplete step instead of recreating worktrees, creating duplicate agents, opening duplicate PRs, repeating completed merges, or incrementing a version twice. For an ambiguous create failure, inspect existing Paseo sessions and activity before retrying. If the agent must be replaced, agree with the developer first, confirm the old agent has stopped, preserve its changes, reuse the task workspace and branch where possible, and record the replacement agent ID in the Issue.
 
 A newly discovered blocker, scope change, or changed PR head returns the task to the relevant earlier step. Never treat a stale acceptance comment as approval for unreviewed code.
