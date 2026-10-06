@@ -1,10 +1,8 @@
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Domain.Voxels;
-using Train.Domain.Settlements;
-using Train.Logging;
+using Train.Core.Logging;
 
-namespace Train.Tests;
+namespace Train.Tests.Core.Logging;
 
 [TestClass]
 [TestCategory("family:unit")]
@@ -96,16 +94,9 @@ public sealed class StructuredLoggingTests
         Assert.AreEqual(2, ((IReadOnlyDictionary<string, object?>)recorded.Attributes["nested"]!)["units"]);
 
         Assert.ThrowsException<ArgumentException>(() =>
-            session.Logger.Info("test", "rejects_domain", "x", new Dictionary<string, object?>
+            session.Logger.Info("test", "rejects_object_graph", "x", new Dictionary<string, object?>
             {
-                ["settlement"] = new Settlement(
-                    new SettlementId("oak"),
-                    "Oak Town",
-                    new SettlementTypeId("city"),
-                    new MapPosition(0, 0),
-                    1,
-                    new Dictionary<BuildingTypeId, int>(),
-                    new HashSet<VoxelDefinitionId>())
+                ["graph"] = new { Label = "unsupported", Values = new[] { 1, 2 } }
             }));
         Assert.ThrowsException<ArgumentException>(() =>
             session.Logger.Info("test", "rejects_nan", "x", new Dictionary<string, object?> { ["bad"] = double.NaN }));
@@ -491,75 +482,6 @@ public sealed class StructuredLoggingConcurrencyTests
         Assert.IsTrue(done.Wait(TimeSpan.FromSeconds(10)));
         Assert.IsTrue(worker.Join(TimeSpan.FromSeconds(5)));
     }
-}
-
-internal sealed class LoggerSession : IDisposable
-{
-    private readonly string _directory;
-    private bool _loggerDisposed;
-
-    public TrainLogger Logger { get; private set; }
-    public MemoryLogSink Memory { get; }
-    public RecordingGodotOutput Godot { get; }
-    public StringWriter Overflow { get; }
-    public string? JsonlPath => Logger.JsonlPath;
-
-    private LoggerSession(
-        string directory,
-        TrainLogger logger,
-        MemoryLogSink memory,
-        RecordingGodotOutput godot,
-        StringWriter overflow)
-    {
-        _directory = directory;
-        Logger = logger;
-        Memory = memory;
-        Godot = godot;
-        Overflow = overflow;
-    }
-
-    public static LoggerSession Create(
-        LogLevel buildDefault = LogLevel.Debug,
-        string? levelOverride = null,
-        bool startApplication = false)
-    {
-        var directory = Directory.CreateTempSubdirectory("train-log-").FullName;
-        var memory = new MemoryLogSink();
-        var godot = new RecordingGodotOutput();
-        var overflow = new StringWriter();
-        TrainLogger logger = startApplication
-            ? TrainLogger.StartSession(directory, buildDefault, godot, memory, levelOverride, overflow, false)
-            : new TrainLogger(directory, buildDefault, godot, memory, levelOverride, overflow, false);
-        return new LoggerSession(directory, logger, memory, godot, overflow);
-    }
-
-    public void DisposeLogger()
-    {
-        if (_loggerDisposed)
-            return;
-        Logger.Dispose();
-        _loggerDisposed = true;
-    }
-
-    public void Dispose()
-    {
-        DisposeLogger();
-        try
-        {
-            Directory.Delete(_directory, true);
-        }
-        catch
-        {
-            // Best-effort cleanup for temp directories that Windows may still have open.
-        }
-    }
-}
-
-internal sealed class RecordingGodotOutput : IGodotLogOutput
-{
-    public List<LogEvent> Events { get; } = new();
-
-    public void Write(LogEvent logEvent) => Events.Add(logEvent);
 }
 
 internal sealed class BlockingGodotOutput : IGodotLogOutput

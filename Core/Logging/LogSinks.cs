@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Train.Logging;
+namespace Train.Core.Logging;
 
 public interface ILogSink
 {

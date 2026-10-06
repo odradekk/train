@@ -1,4 +1,4 @@
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train;
 

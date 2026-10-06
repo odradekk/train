@@ -4,7 +4,7 @@ using Train.Content;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Tests;
 

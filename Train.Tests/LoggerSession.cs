@@ -1,0 +1,72 @@
+using Train.Core.Logging;
+
+namespace Train.Tests;
+
+internal sealed class LoggerSession : IDisposable
+{
+    private readonly string _directory;
+    private bool _loggerDisposed;
+
+    public TrainLogger Logger { get; private set; }
+    public MemoryLogSink Memory { get; }
+    public RecordingGodotOutput Godot { get; }
+    public StringWriter Overflow { get; }
+    public string? JsonlPath => Logger.JsonlPath;
+
+    private LoggerSession(
+        string directory,
+        TrainLogger logger,
+        MemoryLogSink memory,
+        RecordingGodotOutput godot,
+        StringWriter overflow)
+    {
+        _directory = directory;
+        Logger = logger;
+        Memory = memory;
+        Godot = godot;
+        Overflow = overflow;
+    }
+
+    public static LoggerSession Create(
+        LogLevel buildDefault = LogLevel.Debug,
+        string? levelOverride = null,
+        bool startApplication = false)
+    {
+        var directory = Directory.CreateTempSubdirectory("train-log-").FullName;
+        var memory = new MemoryLogSink();
+        var godot = new RecordingGodotOutput();
+        var overflow = new StringWriter();
+        TrainLogger logger = startApplication
+            ? TrainLogger.StartSession(directory, buildDefault, godot, memory, levelOverride, overflow, false)
+            : new TrainLogger(directory, buildDefault, godot, memory, levelOverride, overflow, false);
+        return new LoggerSession(directory, logger, memory, godot, overflow);
+    }
+
+    public void DisposeLogger()
+    {
+        if (_loggerDisposed)
+            return;
+        Logger.Dispose();
+        _loggerDisposed = true;
+    }
+
+    public void Dispose()
+    {
+        DisposeLogger();
+        try
+        {
+            Directory.Delete(_directory, true);
+        }
+        catch
+        {
+            // Best-effort cleanup for temp directories that Windows may still have open.
+        }
+    }
+}
+
+internal sealed class RecordingGodotOutput : IGodotLogOutput
+{
+    public List<LogEvent> Events { get; } = new();
+
+    public void Write(LogEvent logEvent) => Events.Add(logEvent);
+}

@@ -1296,7 +1296,7 @@ public sealed class CompositeVehiclePersistenceTests
         public MemoryContentSource Source { get; }
         public ControllableStore Store { get; }
         public string UserData { get; }
-        public Train.Logging.TrainLogger Logger => _logger.Logger;
+        public Train.Core.Logging.TrainLogger Logger => _logger.Logger;
         private readonly LoggerSession _logger;
         private readonly bool _ownsUserData;
 

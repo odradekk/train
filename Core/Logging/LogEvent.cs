@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 
-namespace Train.Logging;
+namespace Train.Core.Logging;
 
 public enum LogLevel
 {
@@ -271,7 +271,7 @@ internal static class LogConsoleColors
     public const string CommandEcho = "#56b6c2";
 }
 
-internal static class LogLevelText
+public static class LogLevelText
 {
     public const string CommandEchoEventId = "command_echo";
 

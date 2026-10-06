@@ -2,7 +2,7 @@ using System.Collections.Frozen;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 using Train.Domain.Settlements;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Content;
 

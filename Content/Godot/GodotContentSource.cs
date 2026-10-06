@@ -1,6 +1,6 @@
 using Godot;
 using Train.Domain.Voxels;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Content;
 

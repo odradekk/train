@@ -1,4 +1,4 @@
-namespace Train.Logging;
+namespace Train.Core.Logging;
 
 public sealed class TrainLogger : IDisposable
 {

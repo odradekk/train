@@ -1,5 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Logging;
+using Train.Core.Logging;
 using Train;
 
 namespace Train.Tests;

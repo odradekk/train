@@ -3,7 +3,7 @@ using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 using Train.Domain.WorldEditor;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Tests;
 

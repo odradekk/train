@@ -1,8 +1,8 @@
 using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Logging;
+using Train.Core.Logging;
 
-namespace Train.Tests;
+namespace Train.Tests.Core.Logging;
 
 [TestClass]
 [TestCategory("family:unit")]

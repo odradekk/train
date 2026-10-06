@@ -560,7 +560,7 @@ public sealed class CompositeVehicleReloadTests
         public VoxelDevelopmentSession Session { get; }
         public ContentReloader Reloader { get; set; }
         public MemoryContentSource Source { get; }
-        public Train.Logging.TrainLogger Logger => _logger.Logger;
+        public Train.Core.Logging.TrainLogger Logger => _logger.Logger;
         private readonly LoggerSession _logger;
 
         public SessionHandle(

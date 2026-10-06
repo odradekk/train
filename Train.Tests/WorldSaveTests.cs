@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Domain.Voxels;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Tests;
 

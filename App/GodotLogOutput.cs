@@ -1,6 +1,7 @@
 using Godot;
+using Train.Core.Logging;
 
-namespace Train.Logging;
+namespace Train.App;
 
 public sealed class GodotLogOutput : IGodotLogOutput
 {

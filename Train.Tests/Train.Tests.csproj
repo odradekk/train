@@ -26,9 +26,6 @@
     <Compile Include="..\Domain\Voxels\*.cs" Link="Domain\Voxels\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\WorldEditor\*.cs" Link="Domain\WorldEditor\%(Filename)%(Extension)" />
     <Compile Include="..\Content\*.cs" Link="Content\%(Filename)%(Extension)" />
-    <Compile Include="..\Logging\LogEvent.cs" Link="Logging\LogEvent.cs" />
-    <Compile Include="..\Logging\LogSinks.cs" Link="Logging\LogSinks.cs" />
-    <Compile Include="..\Logging\TrainLogger.cs" Link="Logging\TrainLogger.cs" />
     <Compile Include="..\Console\*.cs" Link="Console\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

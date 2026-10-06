@@ -7,7 +7,7 @@ using Train.Domain.Commands;
 using Train.Domain.Rails;
 using Train.Domain.Simulation;
 using Train.Domain.Voxels;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Tests;
 

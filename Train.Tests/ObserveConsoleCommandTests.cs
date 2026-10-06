@@ -1,7 +1,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
-using Train.Logging;
+using Train.Core.Logging;
 
 namespace Train.Tests;
 
