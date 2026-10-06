@@ -30,7 +30,8 @@ Reply to the developer with a short summary of the task, the open questions you 
 1. Implement one agreed step at a time. After each step, summarize the diff, explain anything non-obvious, and report the checks you ran; wait for the developer before moving on.
 2. Stop and ask when the work contradicts the agreed approach, a new design decision appears, or the change would leave the Issue's scope. Record any resulting decision on the Issue.
 3. Add the minimum sufficient observable regression coverage and run the checks selected under the [Testing standard](#testing-standard). For Godot changes, follow [Godot MCP validation](#godot-mcp-validation).
-4. Commit with Conventional Commit messages when the developer agrees.
+4. Document the code under [Code comments](#code-comments) as part of each step, not afterwards.
+5. Commit with Conventional Commit messages when the developer agrees.
 
 **Complete when:** all agreed steps are implemented, reviewed by the developer, validated and committed.
 
@@ -133,6 +134,53 @@ Measure test-group durations before setting speed targets. Prefer related quick 
 Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Unit-suite wall time or headless throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
 
 **Complete when:** the changed risks have sufficient applicable evidence, tests make valid claims about their boundaries, required failures/gaps are resolved or handled through the explicit scope/exception rules, and the reviewed revision's results and reused evidence are distinguishable.
+
+## Code comments
+
+Comments let a reader understand the code without re-deriving it from the implementation. They follow the design recipe of [How to Design Programs](https://htdp.org/2026-5-28/Book/part_preface.html): state what data represents, what each function consumes and produces and what it computes, and illustrate both with concrete examples that also exist as tests. Write comments in English. Use C# XML documentation comments (`///`) for types and members.
+
+### What to document
+
+- **Module overview**: each top-level directory of `Core/` and `Scenes/`, and the Godot project's `App/`, `Rendering/` and `Ui/`, has a short `README.md`. It states what the module is responsible for, its main types and their roles, what it depends on, and the design-doc sections it implements. Update it in the same change when the module's main types or responsibilities change.
+- **File header**: two or three lines at the top of each source file stating which module the file belongs to and its role there. Do not list the file's members; the code and the IDE outline already show them.
+- **Types (data definitions)**: `<summary>` states what the type represents in the domain, using the term from [CONTEXT.md](../CONTEXT.md). Document every field or property whose meaning is not obvious from its name and type: its unit (metres, seconds, tonnes, kN, simulation steps), valid range, and what special values such as `null` or `0` mean. State the invariants that always hold. Give one concrete example in `<example>`.
+- **Members (signature and purpose)**: `<summary>` is a one-sentence purpose statement: what the member computes or changes. `<param>` and `<returns>` state what the values represent, not their types. Document rejected inputs and thrown exceptions with `<exception>`. For members with business rules, give a concrete example in `<example>`, using the same values as a test; for complex behavior, point to the test instead of writing a long example.
+- **Constants and magic numbers**: do not leave unnamed literals with domain meaning. Name the constant and document what it controls, its unit, why it has this value with a source (design-doc section, measurement or deciding Issue), and whether the value is provisional. Gameplay tuning values belong in content data, not in code constants.
+- **Rationale**: explain code whose reason is not obvious, such as ordering made explicit for determinism, a workaround for a Godot or .NET quirk, a check that looks redundant, or a performance trade-off.
+
+### Depth by visibility
+
+| Code | Documentation |
+| --- | --- |
+| Types and members that cross a layer or module boundary (the public API of `Train.Core` and `Train.Scenes`, the queries and commands the render layer uses), data types, and members with business rules | Full documentation as above |
+| Other non-trivial members | One-line purpose statement; units and special values where they are not obvious |
+| Trivial properties, forwarders, and members whose name and signature say everything | None |
+
+### What not to write
+
+- Line-by-line restatements of what the code does.
+- Change history, Issue numbers or "added for …" notes; git history records them.
+- TODOs without a linked Issue.
+- Copies of design-doc rules; link the section instead, so the design doc stays the single source.
+
+### Keep comments true
+
+A comment that no longer matches the behavior is a defect. Update comments in the same commit as the code they describe. `Train.Core` and `Train.Scenes` build with `GenerateDocumentationFile` enabled, so a public member without documentation produces compiler warning CS1591; resolve these warnings instead of suppressing them. Reviewers check comments against the behavior and this section.
+
+### Example
+
+```csharp
+/// <summary>
+/// Computes the price a settlement quotes for one good at the current market tick.
+/// </summary>
+/// <param name="value">The good's base currency value: the price when supply and demand are balanced.</param>
+/// <param name="slot">The settlement's current supply and demand for this good.</param>
+/// <returns>The price in currency units, rounded half away from zero and clamped to the market table limits.</returns>
+/// <example>
+/// Grain (value 100, sensitivity 0.6, limits 60–180) at a farm with full supply and no demand:
+/// 100 × (1 + 0.6 × (0 − 1)) = 40, clamped to 60.
+/// </example>
+```
 
 ## Godot MCP validation
 
