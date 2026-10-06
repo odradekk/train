@@ -137,7 +137,7 @@ Benchmark belongs to stage gates, not to every PR, and not every change needs a 
 
 ## Code comments
 
-Comments let a reader understand the code without re-deriving it from the implementation. They follow the design recipe of [How to Design Programs](https://htdp.org/2026-5-28/Book/part_preface.html): state what data represents, what each function consumes and produces and what it computes, and illustrate both with concrete examples that also exist as tests. Write comments in English. Use C# XML documentation comments (`///`) for types and members.
+Comments let a reader understand the code without re-deriving it from the implementation. They follow the design recipe of [How to Design Programs](https://htdp.org/2026-5-28/Book/part_preface.html): state what data represents, what each function consumes and produces and what it computes, and illustrate both with concrete examples that also exist as tests. Write comments and module overviews in Chinese, the project's working language, using the terms from [CONTEXT.md](../CONTEXT.md) and plain wording; code identifiers stay in English. Use C# XML documentation comments (`///`) for types and members.
 
 ### What to document
 
@@ -171,14 +171,14 @@ A comment that no longer matches the behavior is a defect. Update comments in th
 
 ```csharp
 /// <summary>
-/// Computes the price a settlement quotes for one good at the current market tick.
+/// 计算聚居地在当前市场刻对某种货物的报价。
 /// </summary>
-/// <param name="value">The good's base currency value: the price when supply and demand are balanced.</param>
-/// <param name="slot">The settlement's current supply and demand for this good.</param>
-/// <returns>The price in currency units, rounded half away from zero and clamped to the market table limits.</returns>
+/// <param name="value">货物的基本货币价值，即供需平衡时的价格。</param>
+/// <param name="slot">该聚居地这种货物当前的供给量和需求量。</param>
+/// <returns>以货币单位计的价格：四舍五入（0.5 远离零）后，限制在市场表的价格上下限内。</returns>
 /// <example>
-/// Grain (value 100, sensitivity 0.6, limits 60–180) at a farm with full supply and no demand:
-/// 100 × (1 + 0.6 × (0 − 1)) = 40, clamped to 60.
+/// 粮食（Value 100，敏感度 0.6，价格范围 60–180）在供给满、没有需求的农庄：
+/// 100 ×（1 + 0.6 ×（0 − 1））= 40，限制到下限 60。
 /// </example>
 ```
 
