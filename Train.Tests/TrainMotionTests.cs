@@ -389,40 +389,6 @@ public sealed class TrainMotionTests
     }
 
     [TestMethod]
-    public void Console_uses_the_same_start_step_stop_and_query_entry()
-    {
-        using var harness = Parked();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            new CompositeConsoleCommands(harness.Session),
-            new RailConsoleCommands(harness.Session));
-
-        dispatcher.Execute("rail start reverse");
-        dispatcher.Execute("rail start 0");
-        dispatcher.Execute("rail stop 101");
-        dispatcher.Execute("rail query motion");
-        dispatcher.Execute("rail step 102");
-        dispatcher.Execute("rail query assembly");
-        dispatcher.Execute("rail pause");
-        dispatcher.Execute("rail resume");
-        var log = string.Join('\n', harness.Memory.Snapshot().Where(item => item.EventId == ConsoleCommandDispatcher.RailEventId).Select(item => item.Message));
-        StringAssert.Contains(log, "ReverseUnsupported");
-        StringAssert.Contains(log, "Started");
-        StringAssert.Contains(log, "at 0");
-        StringAssert.Contains(log, "at 101");
-        StringAssert.Contains(log, "Rail Pending edit");
-        StringAssert.Contains(log, "pending stop 101");
-        StringAssert.Contains(log, "speed 0");
-        StringAssert.Contains(log, "Paused");
-        StringAssert.Contains(log, "Resumed");
-    }
-
-    [TestMethod]
     public void Default_and_explicit_fixture_propulsion_share_a_semantic_revision()
     {
         using var omitted = LoggerSession.Create();

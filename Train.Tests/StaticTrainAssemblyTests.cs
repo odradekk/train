@@ -327,38 +327,6 @@ public sealed class StaticTrainAssemblyTests
     }
 
     [TestMethod]
-    public void Destroying_a_carriage_contact_is_queryable_from_console()
-    {
-        using var harness = StaticTrainHarness.Create();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            new CompositeConsoleCommands(harness.Session),
-            new RailConsoleCommands(harness.Session));
-        Assert.IsTrue(harness.Session.ConstructRails().Succeeded);
-        Assert.IsTrue(harness.Session.AssembleStaticTrain().Succeeded);
-        var carriageId = harness.Session.QueryTrainAssemblies().Single().VehicleIds[1];
-
-        Assert.AreEqual(
-            CompositeDamageStatus.Damaged,
-            harness.Session.Damage(carriageId, HollowShellFixture.RearBoundCell, 100).Status);
-        Assert.AreEqual(0, harness.Session.QueryTrainAssemblies().Count);
-        Assert.AreEqual(OperationalCondition.Disabled, harness.Session.QueryComposite(carriageId)!.OperationalCondition);
-
-        dispatcher.Execute("rail query assembly");
-        dispatcher.Execute($"composite query {carriageId.Value}");
-        var railLog = Messages(harness, ConsoleCommandDispatcher.RailEventId);
-        var compositeLog = Messages(harness, ConsoleCommandDispatcher.CompositeEventId);
-        StringAssert.Contains(railLog, "Rail assembly none.");
-        StringAssert.Contains(compositeLog, StaticTrainFixture.CarriageId.Value);
-        StringAssert.Contains(compositeLog, "operational Disabled");
-    }
-
-    [TestMethod]
     public void AssembleStaticTrain_prechecks_entity_and_transaction_capacity()
     {
         using var harness = StaticTrainHarness.Create();
@@ -490,36 +458,6 @@ public sealed class StaticTrainAssemblyTests
         Assert.IsTrue(harness.Session.Manufacture(HollowShellFixture.DefinitionId).Succeeded);
         Assert.AreEqual(WorldSaveStatus.Saved, harness.Session.Save("Parked").Status);
         Assert.AreEqual(1, harness.Session.QueryComposites().Count);
-    }
-
-    [TestMethod]
-    public void Console_uses_the_same_manufacture_assemble_and_query_entry()
-    {
-        using var harness = StaticTrainHarness.Create();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            new CompositeConsoleCommands(harness.Session),
-            new RailConsoleCommands(harness.Session));
-
-        dispatcher.Execute("rail construct");
-        dispatcher.Execute("rail assemble");
-        Assert.AreEqual(1, harness.Session.QueryTrainAssemblies().Count);
-        dispatcher.Execute("rail query assembly");
-        var assemblyLog = Messages(harness, ConsoleCommandDispatcher.RailEventId);
-        StringAssert.Contains(assemblyLog, "assembly");
-        StringAssert.Contains(assemblyLog, "active");
-        StringAssert.Contains(assemblyLog, "80");
-        StringAssert.Contains(assemblyLog, "Operational");
-
-        dispatcher.Execute("composite query");
-        var compositeLog = Messages(harness, ConsoleCommandDispatcher.CompositeEventId);
-        StringAssert.Contains(compositeLog, StaticTrainFixture.LocomotiveId.Value);
-        StringAssert.Contains(compositeLog, StaticTrainFixture.CarriageId.Value);
     }
 
     private static void AssertWorldContact(WorldContactQuery contact, double x, double y, double z)

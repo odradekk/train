@@ -88,7 +88,7 @@ public sealed class TrainLogger : IDisposable
     /// <param name="godotOutput">在创建日志器的线程或显式取出队列时调用的宿主输出。</param>
     /// <param name="additionalSink">可选的同步接收器；null 表示持久输出仅使用 JSONL 接收器。</param>
     /// <param name="levelOverride">显式启动级别；只要非 null 就优先于环境变量，包括空字符串和空白字符串。</param>
-    /// <param name="overflowWriter">用于无法排队的警告或错误、无效覆盖值和释放后日志的备用写入器；null 时使用 Console.Error。</param>
+    /// <param name="overflowWriter">用于无法排队的警告或错误、无效覆盖值和释放后日志的备用写入器；null 时使用 System.Console.Error。</param>
     /// <param name="readEnvironmentVariable">显式覆盖值为 null 时，是否读取 TRAIN_LOG_LEVEL。</param>
     /// <exception cref="ArgumentNullException"><paramref name="logDirectory"/> 或 <paramref name="godotOutput"/> 为 null。</exception>
     /// <remarks>
@@ -108,7 +108,7 @@ public sealed class TrainLogger : IDisposable
         ArgumentNullException.ThrowIfNull(godotOutput);
 
         _godotOutput = godotOutput;
-        _overflowWriter = overflowWriter ?? Console.Error;
+        _overflowWriter = overflowWriter ?? System.Console.Error;
         _additionalSink = additionalSink;
         _mainThread = Thread.CurrentThread;
         SessionId = Guid.NewGuid();
@@ -135,7 +135,7 @@ public sealed class TrainLogger : IDisposable
     /// <param name="godotOutput">在当前调用线程使用的宿主输出。</param>
     /// <param name="additionalSink">由调用方管理的可选同步接收器。</param>
     /// <param name="levelOverride">显式启动级别；非 null 时优先于环境变量。</param>
-    /// <param name="overflowWriter">备用写入器；null 时使用 Console.Error。</param>
+    /// <param name="overflowWriter">备用写入器；null 时使用 System.Console.Error。</param>
     /// <param name="readEnvironmentVariable">显式覆盖值为 null 时，是否读取 TRAIN_LOG_LEVEL。</param>
     /// <returns>新会话；调用方应在创建它的线程上取出输出队列并释放会话。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="logDirectory"/> 或 <paramref name="godotOutput"/> 为 null。</exception>

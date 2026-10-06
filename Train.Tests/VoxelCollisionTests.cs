@@ -273,67 +273,6 @@ public sealed class VoxelCollisionTests
         Assert.AreNotEqual(generation, afterHit);
     }
 
-    [TestMethod]
-    public void Console_collide_uses_the_formal_session_query()
-    {
-        using var session = LoggerSession.Create();
-        var source = CollisionHarness.Content();
-        var reloader = ContentFixtures.Create(source, session.Logger);
-        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
-        var dispatcher = new ConsoleCommandDispatcher(
-            session.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(voxelSession));
-
-        dispatcher.Execute("voxel collide 4 4 4");
-        dispatcher.Execute("voxel add 0 0 0 core:hollow px_py");
-        dispatcher.Execute("voxel collide 0 0 0");
-        dispatcher.Execute("voxel collide 16 4 4");
-        dispatcher.Execute("voxel collide 1 1 1 0 2 2");
-        dispatcher.Execute("voxel collide 4 4");
-
-        var messages = session.Memory.Snapshot()
-            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
-            .Select(item => item.Message)
-            .ToArray();
-        var displayed = string.Join("\n", messages);
-        StringAssert.Contains(displayed, "Collision Hit");
-        StringAssert.Contains(displayed, "(4, 4, 4)");
-        StringAssert.Contains(displayed, "full_box");
-        StringAssert.Contains(displayed, "Collision Miss");
-        StringAssert.Contains(displayed, "OutOfBounds");
-        StringAssert.Contains(displayed, "InvalidQuery");
-        Assert.IsTrue(messages.Any(message =>
-            message.Contains("Usage:", StringComparison.Ordinal) &&
-            message.Contains("voxel collide", StringComparison.Ordinal)));
-        Assert.IsTrue(messages.All(message => message.Length <= 200), displayed);
-        Assert.IsTrue(voxelSession.Query(new WorldVoxelCoord(0, 0, 0)).IsOccupied);
-        Assert.AreEqual(VoxelCollisionQueryStatus.Miss, voxelSession.QueryCollision(new WorldVoxelCoord(0, 0, 0)).Status);
-    }
-
-    [TestMethod]
-    public void Console_collide_maps_extrema_and_invalid_numbers_without_usage_or_throw()
-    {
-        using var harness = CollisionHarness.Create();
-        var console = new VoxelConsoleCommands(harness.Session);
-
-        StringAssert.Contains(console.Execute(["collide", "2147483647", "0", "0"]), "OutOfBounds");
-        StringAssert.Contains(console.Execute(["collide", "0", "2147483647", "0"]), "OutOfBounds");
-        StringAssert.Contains(console.Execute(["collide", "0", "0", "2147483647"]), "OutOfBounds");
-        StringAssert.Contains(console.Execute(["collide", "-2147483648", "0", "0"]), "OutOfBounds");
-        StringAssert.Contains(console.Execute(["collide", "32", "0", "0"]), "OutOfBounds");
-        StringAssert.Contains(console.Execute(["collide", "0", "0", "0", "0", "0", "0"]), "InvalidQuery");
-        StringAssert.Contains(console.Execute(["collide", "NaN", "0", "0", "1", "1", "1"]), "InvalidQuery");
-        StringAssert.Contains(console.Execute(["collide", "Infinity", "0", "0", "1", "1", "1"]), "InvalidQuery");
-        StringAssert.Contains(console.Execute(["collide", "0", "0", "0", "-Infinity", "1", "1"]), "InvalidQuery");
-        StringAssert.Contains(console.Execute(["collide", "foo", "0", "0", "1", "1", "1"]), "Usage:");
-        StringAssert.Contains(console.Execute(["collide", "4", "4"]), "Usage:");
-    }
-
     private static void AssertOutOfBoundsCell(VoxelWorldCommands commands, WorldVoxelCoord cell)
     {
         var result = commands.QueryCollision(cell);

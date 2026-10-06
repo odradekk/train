@@ -250,39 +250,6 @@ public sealed class VoxelMultiChunkTests
     }
 
     [TestMethod]
-    public void Console_and_session_share_the_slice2_command_boundary()
-    {
-        using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
-        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2);
-        var dispatcher = new ConsoleCommandDispatcher(
-            session.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(voxelSession));
-
-        dispatcher.Execute("voxel query 15 16 15");
-        dispatcher.Execute("voxel remove 16 16 15");
-        dispatcher.Execute("voxel add 16 16 15 core:ferrous-ore px_py");
-        dispatcher.Execute("voxel damage 15 16 15 100 16 16 16 25");
-        Assert.IsFalse(voxelSession.Query(new WorldVoxelCoord(15, 16, 15)).IsOccupied);
-        Assert.AreEqual(75, voxelSession.Query(new WorldVoxelCoord(16, 16, 16)).Voxel!.CurrentDurability);
-        Assert.AreEqual(1087, voxelSession.World.VoxelCount);
-
-        dispatcher.Execute("voxel reset discard");
-        Assert.AreEqual(1088, voxelSession.World.VoxelCount);
-        Assert.IsTrue(voxelSession.Query(new WorldVoxelCoord(15, 16, 15)).IsOccupied);
-
-        var before = voxelSession.World.VoxelCount;
-        dispatcher.Execute("voxel add 32 0 0 core:ferrous-ore px_py");
-        Assert.AreEqual(before, voxelSession.World.VoxelCount);
-    }
-
-    [TestMethod]
     public void Slice2_live_reload_keeps_absolute_durability_and_rejects_without_mutating_the_world()
     {
         using var session = LoggerSession.Create();

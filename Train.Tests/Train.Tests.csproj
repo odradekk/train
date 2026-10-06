@@ -23,6 +23,5 @@
     <Compile Include="..\Domain\Rails\*.cs" Link="Domain\Rails\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Voxels\*.cs" Link="Domain\Voxels\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\WorldEditor\*.cs" Link="Domain\WorldEditor\%(Filename)%(Extension)" />
-    <Compile Include="..\Console\*.cs" Link="Console\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

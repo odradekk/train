@@ -389,60 +389,6 @@ public sealed class TrainTrackSafetyTests
         Assert.AreEqual(before, destroyed.Session.CaptureTrainAuthority());
     }
 
-    [TestMethod]
-    public void Console_reproduces_gap_support_loss_repair_and_start_cases()
-    {
-        using var harness = StaticTrainHarness.Create();
-        var dispatcher = Dispatcher(harness);
-        dispatcher.Execute("voxel reset");
-        dispatcher.Execute("rail construct");
-        dispatcher.Execute("rail assemble");
-        dispatcher.Execute("rail start");
-        dispatcher.Execute("rail step 300");
-        dispatcher.Execute("voxel damage 110 1 15 100");
-        dispatcher.Execute("rail step 2000");
-        dispatcher.Execute("rail query assembly");
-        dispatcher.Execute("rail query motion");
-        dispatcher.Execute("voxel save Gap Halt");
-        Assert.IsTrue(harness.Session.SaveId.HasValue);
-        dispatcher.Execute($"voxel load {harness.Session.SaveId.Value:D}");
-        dispatcher.Execute("rail start");
-        dispatcher.Execute("rail repair 110 1 15");
-        dispatcher.Execute("rail query assembly");
-        dispatcher.Execute("rail start");
-        var gapLog = RailLog(harness);
-        StringAssert.Contains(gapLog, "halt forward-gap");
-        StringAssert.Contains(gapLog, "DisconnectedPath");
-        StringAssert.Contains(gapLog, "halt none");
-        StringAssert.Contains(gapLog, "Started");
-        var voxelLog = VoxelLog(harness);
-        StringAssert.Contains(voxelLog, "Saved");
-        StringAssert.Contains(voxelLog, "Loaded");
-
-        using var split = StaticTrainHarness.Create();
-        var splitDispatcher = Dispatcher(split);
-        splitDispatcher.Execute("voxel reset");
-        splitDispatcher.Execute("rail construct");
-        splitDispatcher.Execute("rail assemble");
-        splitDispatcher.Execute("rail start");
-        splitDispatcher.Execute("rail step 300");
-        var locoId = split.Session.QueryTrainAssemblies().Single().ActiveLocomotiveId!.Value;
-        var coupler = split.Session.QueryTrainAssemblies().Single().Connections[0].FromCell;
-        splitDispatcher.Execute($"composite damage {locoId.Value} {coupler.X} {coupler.Y} {coupler.Z} 100");
-        splitDispatcher.Execute("rail step 30");
-        splitDispatcher.Execute("voxel damage 88 1 15 100");
-        splitDispatcher.Execute("rail query assembly");
-        splitDispatcher.Execute("rail query motion");
-        splitDispatcher.Execute("voxel save Support Loss Halt");
-        splitDispatcher.Execute("rail repair 88 1 15");
-        var rear = split.Session.QueryTrainAssemblies().Single(item => item.ActiveLocomotiveId is null);
-        splitDispatcher.Execute($"rail start assembly {rear.Id.Value}");
-        var supportLog = RailLog(split);
-        StringAssert.Contains(supportLog, "halt support-lost");
-        StringAssert.Contains(supportLog, "MissingPropulsion");
-        StringAssert.Contains(VoxelLog(split), "Saved");
-    }
-
     private static TrainAssemblyQuery AssertStoppedAtIncomingBoundary(
         StaticTrainHarness harness,
         double start,
@@ -571,27 +517,6 @@ public sealed class TrainTrackSafetyTests
         Assert.IsTrue(harness.Reloader.Catalog.Current!.TryGet(StaticTrainFixture.PropulsionId, out var entry));
         return entry.Definition.Propulsion!.TargetSpeed;
     }
-
-    private static ConsoleCommandDispatcher Dispatcher(StaticTrainHarness harness) =>
-        new(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            new CompositeConsoleCommands(harness.Session),
-            new RailConsoleCommands(harness.Session));
-
-    private static string RailLog(StaticTrainHarness harness) =>
-        string.Join('\n', harness.Memory.Snapshot()
-            .Where(item => item.EventId == ConsoleCommandDispatcher.RailEventId)
-            .Select(item => item.Message));
-
-    private static string VoxelLog(StaticTrainHarness harness) =>
-        string.Join('\n', harness.Memory.Snapshot()
-            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
-            .Select(item => item.Message));
 
     private static RailConstructionPlan ShiftZ(RailConstructionPlan plan, double deltaZ) =>
         new(

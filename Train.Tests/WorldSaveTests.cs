@@ -384,22 +384,13 @@ public sealed class WorldSaveTests
     }
 
     [TestMethod]
-    public void Parse_failures_report_unsuccessful_status_through_session_and_console()
+    public void Parse_failures_report_unsuccessful_status_and_keep_the_session_restorable()
     {
         using var harness = SaveHarness.Create();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session));
         WorldSaveFixture.ApplyFixedSequence(harness.Session);
         var good = harness.Session.Save("Good");
         var goodPath = harness.Store.PathFor(good.SaveId!.Value);
         var goodJson = File.ReadAllText(goodPath);
-        var before = Snapshot(harness.Session);
-
         AssertLoadKeepsWorld(harness, AppendRootField(goodJson, "unexpected", "invalid"), WorldSaveStatus.UnknownFormat);
         AssertLoadKeepsWorld(harness, AppendDeltaField(goodJson, "surprise", true), WorldSaveStatus.UnknownFormat);
         AssertLoadKeepsWorld(harness, RemoveRootField(goodJson, "display_name"), WorldSaveStatus.Truncated);
@@ -408,49 +399,9 @@ public sealed class WorldSaveTests
         Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(good.SaveId.Value).Status);
         AssertRestoredSequence(harness.Session);
 
-        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
-            AppendRootField(goodJson, "unexpected", "invalid"), "UnknownFormat", expectLoaded: false);
-        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
-            AppendDeltaField(goodJson, "surprise", true), "UnknownFormat", expectLoaded: false);
-        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
-            RemoveRootField(goodJson, "display_name"), "Truncated", expectLoaded: false);
-        AssertConsoleLoad(harness, dispatcher, goodPath, good.SaveId.Value, before,
-            ReverseRootFields(goodJson), "Voxel Loaded.", expectLoaded: true);
-
         File.WriteAllText(goodPath, goodJson);
         Assert.AreEqual(WorldSaveStatus.Loaded, harness.Session.Load(good.SaveId.Value).Status);
         AssertRestoredSequence(harness.Session);
-    }
-
-    [TestMethod]
-    public void Console_save_and_load_use_the_session_and_report_failures_without_mutating()
-    {
-        using var harness = SaveHarness.Create();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session));
-        WorldSaveFixture.ApplyFixedSequence(harness.Session);
-        dispatcher.Execute("voxel save Fixture Console");
-        Assert.AreEqual(WorldSaveStatus.Saved, harness.LastConsoleSaveHint());
-        var id = harness.Session.SaveId!.Value;
-        Assert.AreEqual(1088, harness.Session.World.VoxelCount);
-
-        dispatcher.Execute("voxel reset");
-        Assert.AreEqual(1088, harness.Session.World.VoxelCount);
-        Assert.IsTrue(harness.Session.Query(WorldSaveFixture.RemovedGround).IsOccupied);
-        dispatcher.Execute($"voxel load {id:D}");
-        AssertRestoredSequence(harness.Session);
-
-        dispatcher.Execute("voxel load not-a-uuid");
-        dispatcher.Execute("voxel save ../../escape");
-        AssertRestoredSequence(harness.Session);
-        var usage = harness.Memory.Snapshot().Select(item => item.Message).ToArray();
-        Assert.IsTrue(usage.Any(message => message.Contains("voxel load", StringComparison.Ordinal)));
-        Assert.IsTrue(usage.Any(message => message.Contains("InvalidName", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -547,34 +498,6 @@ public sealed class WorldSaveTests
             new WorldVoxelCoord(2, 1, 2), Iron, VoxelOrientation.Identity).Status);
         Assert.AreEqual(WorldCommandStatus.Removed, harness.Session.Remove(new WorldVoxelCoord(2, 1, 2)).Status);
         AssertState(harness.Session, before);
-    }
-
-    private static void AssertConsoleLoad(
-        SaveHarness harness,
-        ConsoleCommandDispatcher dispatcher,
-        string path,
-        Guid saveId,
-        IReadOnlyDictionary<WorldVoxelCoord, WorldVoxel> before,
-        string json,
-        string expectedText,
-        bool expectLoaded)
-    {
-        File.WriteAllText(path, json);
-        var watermark = harness.Memory.Snapshot().Count;
-        dispatcher.Execute($"voxel load {saveId:D}");
-        var added = harness.Memory.Snapshot().Skip(watermark).Select(item => item.Message).ToArray();
-        Assert.IsTrue(added.Any(message => message.Contains(expectedText, StringComparison.Ordinal)), expectedText);
-        if (expectLoaded)
-        {
-            AssertRestoredSequence(harness.Session);
-            Assert.AreEqual(saveId, harness.Session.SaveId);
-            return;
-        }
-
-        Assert.IsFalse(added.Any(message => message.Contains("Voxel Loaded.", StringComparison.Ordinal)));
-        AssertState(harness.Session, before);
-        Assert.AreEqual(saveId, harness.Session.SaveId);
-        Assert.AreEqual("Good", harness.Session.DisplayName);
     }
 
     private static string AlignDocumentId(string json, Guid id)

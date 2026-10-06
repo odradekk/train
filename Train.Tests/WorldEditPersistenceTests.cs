@@ -163,9 +163,7 @@ public sealed class WorldEditPersistenceTests
     public void Scheduled_edits_naming_never_allocated_ids_are_refused_so_every_saved_queue_loads()
     {
         using var writer = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
-        using var logger = LoggerSession.Create();
         var session = writer.Session;
-        var dispatcher = WorldEditEntryTests.Dispatcher(logger, session);
         var shell = session.Manufacture(HollowShellFixture.DefinitionId, WorldEditOrderingTests.ShellPose).VehicleId!.Value;
         var part = session.QueryComposite(shell)!.Parts[0].Id;
         var unallocated = new EntityId(session.NextEntityId);
@@ -187,16 +185,11 @@ public sealed class WorldEditPersistenceTests
             session.SubmitEdit(new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Remove(unallocated) }), target),
             session.SubmitEdit(new VehicleRefitEdit(shell, new[] { CompositeRefitOperation.Move(unallocated, new LocalVoxelCoord(2, 5, 1)) }), target)
         };
-        dispatcher.Execute($"composite damage {unallocated.Value} 0 0 0 1 at {target}");
-        dispatcher.Execute($"composite remove {shell.Value} {unallocated.Value} at {target}");
-
         foreach (var refusal in refusals)
         {
             Assert.AreEqual(WorldEditRefusal.UnallocatedReference, refusal.Refusal);
             Assert.IsNull(refusal.Record);
         }
-        var messages = WorldEditEntryTests.Messages(logger).Split('\n');
-        Assert.AreEqual(2, messages.Count(line => line == "Edit UnallocatedReference."));
         Assert.AreEqual(boundary, session.EditBoundary);
         Assert.AreEqual(nextEditId, session.NextEditId);
         Assert.AreEqual(0, session.QueryPendingEdits().Count);

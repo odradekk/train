@@ -454,49 +454,6 @@ public sealed class RailCommandTests
         Assert.AreEqual(1UL, worldEditor.Session.NextEditId);
     }
 
-    [TestMethod]
-    public void Console_schedules_rail_edits_and_reports_train_edit_ids()
-    {
-        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
-        using var logger = LoggerSession.Create();
-        var session = worldEditor.Session;
-        var dispatcher = WorldEditEntryTests.Dispatcher(logger, session);
-        var cell = StraightRailFixture.FirstSegmentDamageCell;
-        var text = $"{cell.X} {cell.Y} {cell.Z}";
-
-        dispatcher.Execute("rail start at 4");
-        dispatcher.Execute($"voxel damage {text} 100 at 2");
-        dispatcher.Execute($"rail repair {text} at 3");
-        dispatcher.Execute("rail stop 6");
-        dispatcher.Execute("rail construct at 1");
-        dispatcher.Execute("rail assemble at 1");
-        dispatcher.Execute("rail query motion");
-        dispatcher.Execute("rail step 7");
-        dispatcher.Execute("rail start");
-        dispatcher.Execute("rail start at 3");
-        dispatcher.Execute("voxel edits log 8");
-
-        var log = session.QueryEditLog();
-        CollectionAssert.AreEqual(
-            new[] { "rail.construct", "train.assemble", "voxel.damage", "rail.repair", "train.start", "train.stop", "train.start" },
-            log.Select(record => record.Edit.WireKind).ToArray());
-        CollectionAssert.AreEqual(
-            new[] { "IndependentLineConflict", "AlreadyAssembled", "Removed", "Repaired", "Started", "Stopped", "Started" },
-            log.Select(record => record.Status).ToArray());
-        CollectionAssert.AreEqual(
-            new SimulationPosition?[] { new(1, 0), new(1, 1), new(2, 0), new(3, 0), new(4, 0), new(6, 0), new(7, 0) },
-            log.Select(record => record.ExecutedAt).ToArray());
-        var messages = WorldEditEntryTests.Messages(logger);
-        StringAssert.Contains(messages, "Rail Pending edit 1 step 0 at 4.");
-        StringAssert.Contains(messages, "Rail Pending edit 4 step 0 at 6.");
-        StringAssert.Contains(messages, "Edit 5 rail.construct pending");
-        StringAssert.Contains(messages, "pending start 4 assembly");
-        StringAssert.Contains(messages, " edit 1");
-        StringAssert.Contains(messages, "Rail Started edit 7 step 7 at 7.");
-        StringAssert.Contains(messages, "Rail PastStep.");
-        Assert.AreEqual(8UL, session.NextEditId);
-    }
-
     private static VoxelDamageEdit DestroyAll(IEnumerable<WorldVoxelCoord> cells) =>
         new(cells.Select(cell => new VoxelDamageTarget(cell, 100)).ToArray());
 

@@ -20,8 +20,10 @@ public sealed class BlankWorldTests
     {
         using var harness = WorldEditorHarness.Establish("straight-rail-train");
         var session = harness.Session;
-        var commands = new VoxelConsoleCommands(session);
-        StringAssert.StartsWith(commands.Execute(new[] { "new", "33", "17", "19", "42", "discard" }), "Voxel blank world.");
+        Assert.IsTrue(BlankWorldSource.TryIdentity(33, 17, 19, 42, out var identity));
+        var changed = session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.NewBlank, WorldChangeChoice.Discard, BlankIdentity: identity));
+        Assert.AreEqual(WorldChangeStatus.Completed, changed.Status);
         Assert.AreEqual(new VoxelWorldBounds(33, 17, 19), session.Identity.Bounds);
         Assert.AreEqual(42UL, session.Identity.Seed);
         Assert.AreEqual("blank", session.WorldSource!.Kind);
@@ -132,13 +134,24 @@ public sealed class BlankWorldTests
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(
             new WorldVoxelCoord(1, 1, 1), VoxelDefinitionId.Parse("core:ferrous-ore"), VoxelOrientation.Identity).Status);
         var world = session.World;
-        var commands = new VoxelConsoleCommands(session);
-        foreach (var command in new[] { "new 8 8 8 1", "use straight-rail-empty" })
-        foreach (var choice in new[] { " discard", " save", "", " cancel" })
+        Assert.IsTrue(BlankWorldSource.TryIdentity(8, 8, 8, 1, out var blankIdentity));
+        foreach (var request in new[]
         {
-            var output = commands.Execute((command + choice).Split(' ', StringSplitOptions.RemoveEmptyEntries));
-            StringAssert.StartsWith(output, "Voxel IncompatibleBase.");
-            StringAssert.Contains(output, "stage base subject session relationship world_editor");
+            new WorldChangeRequest(WorldChangeKind.NewBlank, null, BlankIdentity: blankIdentity),
+            new WorldChangeRequest(WorldChangeKind.SwitchConfiguration, null, ConfigurationId: "straight-rail-empty")
+        })
+        foreach (var choice in new WorldChangeChoice?[]
+        {
+            null, WorldChangeChoice.SaveThenSwitch, WorldChangeChoice.Discard,
+            WorldChangeChoice.Cancel, WorldChangeChoice.SaveAsThenReload
+        })
+        {
+            var rejected = session.TryChangeWorld(request with { Choice = choice });
+            Assert.AreEqual(WorldChangeStatus.CandidateFailed, rejected.Status);
+            Assert.AreEqual(WorldSaveStatus.IncompatibleBase, rejected.CandidateStatus);
+            Assert.AreEqual("base", rejected.Diagnostic!.Stage);
+            Assert.AreEqual("session", rejected.Diagnostic.Subject);
+            Assert.AreEqual("world_editor", rejected.Diagnostic.Relationship);
             Assert.AreSame(world, session.World);
             Assert.AreEqual(VoxelWorldIdentity.Slice3, session.Identity);
             Assert.IsNull(session.WorldSource);
@@ -165,10 +178,23 @@ public sealed class BlankWorldTests
         var selection = observer.Selection;
         var target = observer.Target;
         var pose = observer.Pose;
-        var commands = new VoxelConsoleCommands(session);
-        foreach (var invalid in new[] { "0 17 19 42", "321 17 19 42", "33 -1 19 42", "33 33 19 42", "33 17 33 42", "33 17 19 -1", "33 17 19 18446744073709551616", "33.5 17 19 42", "33 17 19", "33 17 19 42 extra" })
+        foreach (var invalid in new[]
         {
-            StringAssert.Contains(commands.Execute(("new " + invalid + " save").Split(' ')), "relationship parameters");
+            identity with { GeneratorVersion = BlankWorldSource.GeneratorVersion, Bounds = default },
+            identity with { GeneratorVersion = BlankWorldSource.GeneratorVersion, Bounds = new VoxelWorldBounds(321, 17, 19) },
+            identity with { GeneratorVersion = BlankWorldSource.GeneratorVersion, Bounds = new VoxelWorldBounds(33, 33, 19) },
+            identity with { GeneratorVersion = BlankWorldSource.GeneratorVersion, Bounds = new VoxelWorldBounds(33, 17, 33) },
+            identity with { GeneratorVersion = "unsupported-blank", Bounds = new VoxelWorldBounds(33, 17, 19) },
+            identity with { GeneratorVersion = BlankWorldSource.GeneratorVersion, Bounds = new VoxelWorldBounds(33, 17, 19), ChunkSize = 8 }
+        })
+        {
+            var rejected = session.TryChangeWorld(new WorldChangeRequest(
+                WorldChangeKind.NewBlank, WorldChangeChoice.SaveThenSwitch, BlankIdentity: invalid));
+            Assert.AreEqual(WorldChangeStatus.CandidateFailed, rejected.Status);
+            Assert.AreEqual(WorldSaveStatus.IncompatibleBase, rejected.CandidateStatus);
+            Assert.AreEqual("base", rejected.Diagnostic!.Stage);
+            Assert.AreEqual("blank", rejected.Diagnostic.Subject);
+            Assert.AreEqual("parameters", rejected.Diagnostic.Relationship);
             Assert.AreSame(world, session.World);
             Assert.AreEqual(identity, session.Identity);
             Assert.IsNull(session.SaveId);
@@ -178,10 +204,12 @@ public sealed class BlankWorldTests
             Assert.AreEqual(target, observer.Target);
             Assert.AreEqual(pose, observer.Pose);
         }
-        var badIdentity = identity with { GeneratorVersion = BlankWorldSource.GeneratorVersion, Bounds = new VoxelWorldBounds(321, 17, 19) };
-        Assert.AreEqual(WorldChangeStatus.CandidateFailed, session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.NewBlank, WorldChangeChoice.SaveThenSwitch, BlankIdentity: badIdentity)).Status);
-        Assert.IsNull(session.SaveId);
-        Assert.AreSame(world, session.World);
+        Assert.IsFalse(BlankWorldSource.TryIdentity(0, 17, 19, 42, out _));
+        Assert.IsFalse(BlankWorldSource.TryIdentity(33, 0, 19, 42, out _));
+        Assert.IsFalse(BlankWorldSource.TryIdentity(33, 17, 0, 42, out _));
+        Assert.IsFalse(BlankWorldSource.TryIdentity(321, 17, 19, 42, out _));
+        Assert.IsFalse(BlankWorldSource.TryIdentity(33, 33, 19, 42, out _));
+        Assert.IsFalse(BlankWorldSource.TryIdentity(33, 17, 33, 42, out _));
         NewBlank(session, 320, 32, 32, 0);
         Assert.AreEqual(new VoxelWorldBounds(320, 32, 32), session.Identity.Bounds);
     }

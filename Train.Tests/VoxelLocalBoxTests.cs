@@ -161,10 +161,6 @@ public sealed class VoxelLocalBoxTests
         AssertHit(harness.Commands, 1.99, 0.08, 0.48, 2, 0.12, 0.52, translated);
         AssertMiss(harness.Commands, 1.18, 0.08, 0.48, 1.22, 0.12, 0.52);
 
-        var console = new VoxelConsoleCommands(harness.Session);
-        StringAssert.Contains(console.Execute(["collide", "0", "0", "0"]), "Collision Hit");
-        StringAssert.Contains(console.Execute(["collide", "1", "0", "0"]), "Collision Hit");
-
         var snapshot = harness.Reloader.Catalog.Current;
         var generation = snapshot.Generation;
         harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
@@ -193,8 +189,6 @@ public sealed class VoxelLocalBoxTests
         Assert.AreEqual(VoxelOrientation.Yaw90, harness.Commands.Query(Empty).Voxel!.Orientation);
         Assert.AreEqual(80, harness.Commands.Query(Empty).Voxel!.CurrentDurability);
         Assert.AreEqual(VoxelCollisionQueryStatus.Hit, harness.Commands.QueryCollision(Empty).Status);
-        StringAssert.Contains(new VoxelConsoleCommands(harness.Session).Execute(["collide", "0", "0", "0"]), "Collision Hit");
-
         var snapshot = harness.Reloader.Catalog.Current;
         var generation = snapshot.Generation;
         foreach (var sizeX in new[] { 1e-50, double.Epsilon })
@@ -292,27 +286,6 @@ public sealed class VoxelLocalBoxTests
         Assert.AreSame(snapshot, harness.Reloader.Catalog.Current);
         Assert.AreEqual(Ledge, harness.Commands.Query(Empty).Voxel!.DefinitionId);
         Assert.AreNotEqual(generation, afterLegal);
-    }
-
-    [TestMethod]
-    public void Console_collide_reports_local_box_hits_through_the_session()
-    {
-        using var harness = LocalBoxHarness.Create();
-        var console = new VoxelConsoleCommands(harness.Session);
-        Assert.AreEqual(WorldCommandStatus.Added, harness.Session.Add(Empty, Ledge, VoxelOrientation.Identity).Status);
-
-        var hit = console.Execute(["collide", "0", "0", "0"]);
-        StringAssert.Contains(hit, "Collision Hit");
-        StringAssert.Contains(hit, "core:ledge");
-        StringAssert.Contains(hit, "local_box");
-
-        var inside = console.Execute(["collide", "0.18", "0.08", "0.48", "0.22", "0.12", "0.52"]);
-        StringAssert.Contains(inside, "Collision Hit");
-        var outside = console.Execute(["collide", "0.68", "0.38", "0.48", "0.72", "0.42", "0.52"]);
-        StringAssert.Contains(outside, "Collision Miss");
-        StringAssert.Contains(console.Execute(["collide", "NaN", "0", "0", "1", "1", "1"]), "InvalidQuery");
-        StringAssert.Contains(console.Execute(["collide", "2147483647", "0", "0"]), "OutOfBounds");
-        StringAssert.Contains(console.Execute(["collide", "foo", "0", "0"]), "Usage:");
     }
 
     [TestMethod]

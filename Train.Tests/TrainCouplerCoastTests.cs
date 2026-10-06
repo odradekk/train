@@ -205,33 +205,6 @@ public sealed class TrainCouplerCoastTests
     }
 
     [TestMethod]
-    public void Console_targets_one_assembly_and_does_not_broadcast()
-    {
-        using var harness = RunningAt300();
-        BreakCoupler(harness.Session);
-        var split = AssertSplit(harness, 96, 87, 4, 4);
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            new CompositeConsoleCommands(harness.Session),
-            new RailConsoleCommands(harness.Session));
-        dispatcher.Execute("rail start");
-        dispatcher.Execute($"rail start assembly {split.Carriage.Id.Value}");
-        dispatcher.Execute($"rail query assembly");
-        dispatcher.Execute("rail query motion");
-        var log = string.Join('\n', harness.Memory.Snapshot().Where(item => item.EventId == ConsoleCommandDispatcher.RailEventId).Select(item => item.Message));
-        StringAssert.Contains(log, "UnknownAssembly");
-        StringAssert.Contains(log, "MissingPropulsion");
-        StringAssert.Contains(log, "active none");
-        StringAssert.Contains(log, $"assembly {split.Loco.Id}");
-        StringAssert.Contains(log, $"assembly {split.Carriage.Id}");
-    }
-
-    [TestMethod]
     public void Coast_deceleration_reload_keeps_speed_and_rejects_illegal_candidates()
     {
         using var harness = RunningAt300();

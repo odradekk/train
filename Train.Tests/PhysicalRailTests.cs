@@ -641,44 +641,6 @@ public sealed class PhysicalRailTests
         Assert.AreEqual(0, VoxelSurfaceMesher.Build(harness.Session.World).FaceCount);
     }
 
-    [TestMethod]
-    public void Console_constructs_queries_repairs_and_saves_railway()
-    {
-        using var harness = RailHarness.Create();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            railCommands: new RailConsoleCommands(harness.Session));
-        dispatcher.Execute("help");
-        StringAssert.Contains(
-            harness.Memory.Snapshot().Single(item => item.EventId == ConsoleCommandDispatcher.HelpEventId).Message,
-            "rail");
-
-        dispatcher.Execute("rail construct");
-        Assert.IsTrue(harness.Session.HasRailway);
-        var afterConstruct = Messages(harness, ConsoleCommandDispatcher.RailEventId);
-        StringAssert.Contains(afterConstruct, "Committed");
-        StringAssert.Contains(afterConstruct, "sleepers 257");
-
-        dispatcher.Execute("rail query 80 1 14");
-        StringAssert.Contains(Messages(harness, ConsoleCommandDispatcher.RailEventId), "occupied");
-
-        dispatcher.Execute("voxel damage 110 1 15 100");
-        dispatcher.Execute("rail query intervals");
-        StringAssert.Contains(Messages(harness, ConsoleCommandDispatcher.RailEventId), "110");
-
-        dispatcher.Execute("rail repair 110 1 15");
-        StringAssert.Contains(Messages(harness, ConsoleCommandDispatcher.RailEventId), "Repaired");
-        Assert.IsTrue(harness.Session.Query(DamageCell).IsOccupied);
-
-        dispatcher.Execute("voxel save After Railway");
-        StringAssert.Contains(Messages(harness, ConsoleCommandDispatcher.VoxelEventId), "Saved");
-    }
-
     private static void AssertOccupies(RailHarness harness, WorldVoxelCoord cell)
     {
         Assert.IsTrue(harness.Session.Rails.Occupies(cell), cell.ToString());

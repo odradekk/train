@@ -425,12 +425,13 @@ function Get-AppDataStamp {
 # Expected family / comma-separated scopes / group. The scope set and group are separate contracts.
 $expected = @{
     WorldEditEncodingTests = "unit/world-edit/world-edit"
-    VoxelCubeUvTests = "unit/voxels/voxels"
+    VoxelCubeUvTests = "unit/voxels,content/voxels"
+    VoxelCollisionDefinitionTests = "unit/content,voxels/content"
     SplitMix64Tests = "unit/composites/composites"
+    "Train.Tests.Core.Simulation.SplitMix64Tests" = "unit/simulation/simulation"
+    SimulationSchedulerTests = "unit/simulation/simulation"
     FragmentGridSnapTests = "unit/composites/composites"
-    SettlementsJsonParserTests = "unit/settlements/settlements"
-    SettlementTests = "unit/settlements/settlements"
-    SettlementRegistryTests = "unit/settlements/settlements"
+    BlueprintSchemaTests = "unit/content/content"
     ModManifestTests = "unit/content/content"
     ModDiscoveryTests = "unit/content/content"
     ContentPackageWalkTests = "unit/content/content"
@@ -441,24 +442,21 @@ $expected = @{
     StructuredLoggingTests = "unit/logging/logging"
     StructuredLoggingConcurrencyTests = "unit/logging/logging"
     ConsoleCommandParseTests = "unit/console/console"
-    IdentityTests = "unit/identity/identity"
+    VoxelIdentityTests = "unit/identity/identity"
+    FileSaveStoreTests = "headless/saves/saves"
     WorldSaveTests = "headless/persistence/persistence"
     WorldEditPersistenceTests = "headless/persistence/persistence"
     TrainPersistenceTests = "headless/persistence/persistence"
     CompositeVehiclePersistenceTests = "headless/persistence/persistence"
     CompositeReloadSaveRejectionTests = "headless/persistence/persistence"
     WorldEditOrderingTests = "headless/world-edit/world-edit"
-    WorldEditEntryTests = "headless/world-edit/world-edit"
     VoxelCellSetTests = "headless/world-edit/world-edit"
     VoxelRegionTests = "headless/world-edit,world-editor/world-edit"
-    VoxelRegionConsoleTests = "headless/world-edit/world-edit"
     VoxelEditHistoryTests = "headless/world-edit,world-editor/world-edit"
-    VoxelHistoryConsoleTests = "headless/world-edit/world-edit"
     VoxelWorldTests = "headless/voxels/voxels"
     VoxelMultiChunkTests = "headless/voxels/voxels"
     VoxelLocalBoxTests = "headless/voxels/voxels"
     VoxelLiveReloadTests = "headless/voxels/voxels"
-    VoxelConsoleCommandTests = "headless/voxels/voxels"
     VoxelCollisionTests = "headless/voxels/voxels"
     VehicleEnvelopeTests = "headless/composites/composites"
     CompositeVehicleReloadTests = "headless/composites/composites"
@@ -466,7 +464,6 @@ $expected = @{
     CompositeManufactureTests = "headless/composites/composites"
     CompositeDamageTests = "headless/composites/composites"
     CompositeContentTests = "headless/composites/composites"
-    CompositeConsoleCommandTests = "headless/composites/composites"
     TrainTrackSafetyTests = "headless/railway/railway"
     TrainMotionTests = "headless/railway/railway"
     TrainDisplayPresentationTests = "headless/railway/railway"
@@ -485,7 +482,6 @@ $expected = @{
     WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
     WorldEditorObservationTests = "headless/world-editor/world-editor"
     WorldEditorMultiSelectionTests = "headless/world-editor/world-editor"
-    ObserveConsoleCommandTests = "headless/world-editor/world-editor"
     ModLoadingTests = "headless/content/content"
     ContentReloaderTests = "headless/content/content"
     ConsoleCommandDispatchTests = "headless/console/console"
@@ -1996,7 +1992,7 @@ It "real-help" {
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
-        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace",
+        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
@@ -2026,29 +2022,25 @@ It "real-list" {
     foreach ($case in $mstest) {
         $parts = $case.Id.Split(".")
         Assert-True "id shape $($case.Id)" ($parts.Length -ge 3)
-        $class = $parts[$parts.Length - 2]
-        Assert-True "known class $class" $expected.ContainsKey($class)
-        $classification = $expected[$class].Split("/")
-        Assert-Equal "$class family" $classification[0] $case.Family
+        $className = $parts[$parts.Length - 2]
+        $fullTypeName = ($parts[0..($parts.Length - 2)] -join ".")
+        $key = if ($expected.ContainsKey($fullTypeName)) { $fullTypeName } else { $className }
+        Assert-True "known class $fullTypeName" $expected.ContainsKey($key)
+        $classification = $expected[$key].Split("/")
+        Assert-Equal "$key family" $classification[0] $case.Family
         $expectedScopes = ($classification[1].Split(",") | Sort-Object) -join ","
         $actualScopes = ($case.Scopes.Split(",") | Sort-Object) -join ","
-        Assert-Equal "$class scopes" $expectedScopes $actualScopes
-        Assert-Equal "$class group" $classification[2] $case.Group
-        Assert-Equal "$class requirements" "none" $case.Requirements
-        $seen[$class] = $true
+        Assert-Equal "$key scopes" $expectedScopes $actualScopes
+        Assert-Equal "$key group" $classification[2] $case.Group
+        Assert-Equal "$key requirements" "none" $case.Requirements
+        $seen[$key] = $true
         Assert-True "family $($case.Family)" ($case.Family -eq "unit" -or $case.Family -eq "headless")
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 3 $external.Count
+    Assert-Equal "external count" 2 $external.Count
     $logging = $externalById["godot.logging-smoke"]
     $authority = $externalById["godot.authority-checkpoint"]
-    $workspace = $externalById["godot.world-editor-workspace"]
-    Assert-True "workspace listed" ($null -ne $workspace)
-    Assert-Equal "workspace is headless" "headless" $workspace.Family
-    Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
-    Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
-    Assert-Equal "workspace group" "godot-workspace" $workspace.Group
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "authority listed" ($null -ne $authority)
     Assert-Equal "logging is headless" "headless" $logging.Family
@@ -2145,7 +2137,7 @@ It "real-voxels" {
 
 It "real-headless" {
     $results = New-Results "real-headless"
-    $id = "Train.Tests.ConsoleCommandDispatchTests.Blank_input_is_ignored"
+    $id = "Train.Tests.Core.Console.ConsoleCommandDispatchTests.Blank_input_is_ignored"
     $result = Invoke-Runner -ArgumentList @("-Test", $id, "-ResultsRoot", $results) -WaitMs 600000
     Assert-Exit $result 0
     $summary = Read-Summary $result.Stdout
@@ -2184,7 +2176,7 @@ It "real-correctness-list" {
     $correctCount = [regex]::Match($correctness.Stdout, "SELECTED count=(\d+)").Groups[1].Value
     Assert-Equal "correctness lists every discovered case" $allCount $correctCount
     Assert-Contains "boundary" $correctness.Stdout "not all repository validation"
-    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace")) {
+    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint")) {
         Assert-Contains "all $id" $all.Stdout "CASE id=$id"
         Assert-Contains "correctness $id" $correctness.Stdout "CASE id=$id"
     }
@@ -2196,11 +2188,9 @@ It "fixture-no-repo-catalog" {
     Assert-Exit $hidden 0
     Assert-True "none stays local" ($hidden.Stdout -notlike "*godot.logging-smoke*")
     Assert-True "none stays local authority" ($hidden.Stdout -notlike "*godot.authority-checkpoint*")
-    Assert-True "none stays local workspace" ($hidden.Stdout -notlike "*godot.world-editor-workspace*")
     $shown = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $shown 0
     Assert-Contains "default catalog is not tied to the project path" $shown.Stdout "godot.logging-smoke"
-    Assert-Contains "default catalog includes workspace" $shown.Stdout "godot.world-editor-workspace"
 }
 
 It "fixture-external-env-missing" {

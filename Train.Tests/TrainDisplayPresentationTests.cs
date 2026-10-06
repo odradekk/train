@@ -304,32 +304,6 @@ public sealed class TrainDisplayPresentationTests
         Assert.AreEqual(live.Session.CaptureTrainAuthority(), reader.Session.CaptureTrainAuthority());
     }
 
-    [TestMethod]
-    public void Console_display_and_follow_reuse_the_session_entry()
-    {
-        using var harness = Parked();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            static () => { },
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session),
-            new CompositeConsoleCommands(harness.Session),
-            new RailConsoleCommands(harness.Session));
-        dispatcher.Execute("rail start");
-        dispatcher.Execute("rail step 1");
-        dispatcher.Execute("rail query display");
-        var carriage = harness.Session.QueryTrainAssemblies().Single().VehicleIds[1];
-        dispatcher.Execute($"rail follow vehicle {carriage.Value.ToString(CultureInfo.InvariantCulture)}");
-        dispatcher.Execute("rail follow");
-        var log = string.Join('\n', harness.Memory.Snapshot().Where(item => item.EventId == ConsoleCommandDispatcher.RailEventId).Select(item => item.Message));
-        StringAssert.Contains(log, "Rail display");
-        StringAssert.Contains(log, "alpha");
-        StringAssert.Contains(log, "follow");
-        StringAssert.Contains(log, carriage.Value.ToString(CultureInfo.InvariantCulture));
-    }
-
     private static void AssertLastLimitStepInterpolates(StaticTrainHarness harness, TrainHaltReason expected)
     {
         for (var i = 0; i < 400; i++)

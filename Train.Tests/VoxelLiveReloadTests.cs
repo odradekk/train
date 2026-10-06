@@ -160,38 +160,6 @@ public sealed class VoxelLiveReloadTests
         Assert.AreEqual(1, worldNotifications);
     }
 
-    [TestMethod]
-    public void Console_query_shows_current_catalog_specs_on_field_safe_lines()
-    {
-        using var harness = LiveReloadHarness.Create();
-        var dispatcher = new ConsoleCommandDispatcher(
-            harness.Logger,
-            static () => { },
-            static () => { },
-            () => harness.Reloader.Reload(),
-            allowReload: true,
-            new VoxelConsoleCommands(harness.Session));
-
-        Assert.AreEqual(WorldCommandStatus.Damaged, harness.Session.Damage(new WorldVoxelCoord(4, 4, 4), 20).Status);
-        Assert.AreEqual(ContentReloadStatus.Committed, harness.ReloadFerrousOre(maxDurability: 150).Status);
-
-        var before = harness.Memory.Snapshot().Count;
-        dispatcher.Execute("voxel query 4 4 4");
-        var display = string.Join("\n", harness.Memory.Snapshot()
-            .Skip(before)
-            .Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId)
-            .Select(LogLevelText.FormatConsole));
-
-        StringAssert.Contains(display, "core:ferrous-ore");
-        StringAssert.Contains(display, "durability 80");
-        StringAssert.Contains(display, "value 100");
-        StringAssert.Contains(display, "mass 1");
-        StringAssert.Contains(display, "max 150");
-        StringAssert.Contains(display, "Voxel count: 512");
-        foreach (var item in harness.Memory.Snapshot().Skip(before).Where(item => item.EventId == ConsoleCommandDispatcher.VoxelEventId))
-            Assert.IsTrue(item.Message.Length <= 200, item.Message);
-    }
-
     private static void AssertInspection(
         LiveReloadHarness harness,
         WorldVoxelCoord position,

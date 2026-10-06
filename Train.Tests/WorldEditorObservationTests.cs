@@ -435,12 +435,13 @@ public sealed class WorldEditorObservationTests
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
-        var composites = new CompositeConsoleCommands(session);
-        composites.Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
         var id = session.Vehicles.Single().Id;
         using var observer = FollowingVehicle(session, id, out var held);
 
-        composites.Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
 
         Assert.AreEqual(id, session.Vehicles.Single().Id, "the reset should reuse the id for a new vehicle");
         AssertReplacementDropped(observer, session, held, ObservedObject.Vehicle(id), WorldEditorCameraMode.Follow, WorldReplacement.Reset);
@@ -451,17 +452,18 @@ public sealed class WorldEditorObservationTests
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
-        var composites = new CompositeConsoleCommands(session);
-        var voxels = new VoxelConsoleCommands(session);
-        composites.Execute(new[] { "reset", "hollow" });
-        voxels.Execute(new[] { "save", "Hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
+        Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Hollow").Status);
         var saveId = session.SaveId!.Value;
-        composites.Execute(new[] { "reset", "bridge" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: BridgeFixture.DefinitionId.Value)).Status);
         var id = session.Vehicles.Single().Id;
         var before = session.QueryComposite(id)!.DefinitionId;
         using var observer = FollowingVehicle(session, id, out var held);
 
-        StringAssert.StartsWith(voxels.Execute(new[] { "load", saveId.ToString("D") }), "Voxel Loaded.");
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Load, null, SaveId: saveId)).Status);
 
         Assert.AreNotEqual(before, session.QueryComposite(id)!.DefinitionId, "the load should put a different vehicle under the same id");
         AssertReplacementDropped(observer, session, held, ObservedObject.Vehicle(id), WorldEditorCameraMode.Follow, WorldReplacement.Load);
@@ -472,8 +474,8 @@ public sealed class WorldEditorObservationTests
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
-        var composites = new CompositeConsoleCommands(session);
-        composites.Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
         Assert.AreEqual(WorldSaveStatus.Saved, session.Save("Hollow").Status);
         var saved = session.SaveId!.Value;
         var json = File.ReadAllText(worldEditor.Store.PathFor(saved));
@@ -533,7 +535,8 @@ public sealed class WorldEditorObservationTests
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.Select(segment));
         var before = observer.Present(Frame, session.QueryDisplayPoses());
 
-        new VoxelConsoleCommands(session).Execute(new[] { "reset" });
+        Assert.AreEqual(WorldChangeStatus.Completed,
+            session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, null)).Status);
 
         Assert.IsNull(observer.Selection);
         Assert.AreEqual(WorldEditorCameraMode.Free, observer.Mode);
@@ -551,7 +554,8 @@ public sealed class WorldEditorObservationTests
         using var observer = FocusedOnProbe(session, out var held);
         var reference = observer.Target!.Value;
 
-        new VoxelConsoleCommands(session).Execute(new[] { "reset", "discard" });
+        Assert.AreEqual(WorldChangeStatus.Completed,
+            session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, WorldChangeChoice.Discard)).Status);
 
         AssertReplacementDropped(observer, session, held, reference, WorldEditorCameraMode.Focus, WorldReplacement.Reset);
     }
@@ -576,13 +580,14 @@ public sealed class WorldEditorObservationTests
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
-        var composites = new CompositeConsoleCommands(session);
-        composites.Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
         var id = session.Vehicles.Single().Id;
         var observer = FollowingVehicle(session, id, out _);
 
         observer.Dispose();
-        composites.Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
 
         Assert.AreEqual(ObservedObject.Vehicle(id), observer.Target);
         Assert.AreEqual(0, observer.Notices.Count);
@@ -785,7 +790,8 @@ public sealed class WorldEditorObservationTests
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
-        new CompositeConsoleCommands(session).Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
         var vehicleId = session.Vehicles.Single().Id;
         var added = session.Refit(vehicleId,
             CompositeRefitOperation.Add(HollowShellRefit.FirstAdd, HollowShellRefit.MarkerId, VoxelOrientation.Identity));
@@ -811,14 +817,16 @@ public sealed class WorldEditorObservationTests
     {
         using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailEmptyId);
         var session = worldEditor.Session;
-        new CompositeConsoleCommands(session).Execute(new[] { "reset", "hollow" });
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset, null, FixtureId: HollowShellFixture.DefinitionId.Value)).Status);
         var vehicleId = session.Vehicles.Single().Id;
         using var observer = new WorldEditorObserver(session, Overview, OverviewLook);
         observer.Select(ObservedObject.Vehicle(vehicleId));
         Assert.AreEqual(WorldEditorObservationStatus.Selected, observer.EnterVehicleParts());
         Assert.AreEqual(vehicleId, observer.PartVehicleId);
 
-        new VoxelConsoleCommands(session).Execute(new[] { "reset", "discard" });
+        Assert.AreEqual(WorldChangeStatus.Completed,
+            session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, WorldChangeChoice.Discard)).Status);
 
         Assert.IsNull(observer.Selection);
         Assert.IsNull(observer.PartVehicleId);

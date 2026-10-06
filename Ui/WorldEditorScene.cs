@@ -104,7 +104,6 @@ public partial class WorldEditorScene : Node3D
         _observation = new WorldEditorObservationView();
         AddChild(_observation);
         _observation.Initialize(_session, _camera, _colliders, () => main.ConsoleOpen, InitialPose(_session), _worldInput, _inspector);
-        main.SetWorldEditorObserver(_observation.Observer);
         _cellTool = new WorldEditorVoxelToolView();
         AddChild(_cellTool);
         _cellTool.Initialize(_session, _tools, _inspector);
@@ -181,7 +180,6 @@ public partial class WorldEditorScene : Node3D
         if (GetNodeOrNull<Main>("/root/Main") is { } main)
         {
             main.SetVoxelDevelopmentSession(null);
-            main.SetWorldEditorObserver(null);
         }
     }
 

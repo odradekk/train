@@ -360,28 +360,35 @@ public sealed class WorldEditorSaveSwitchTests
         var path = worldEditor.Store.PathFor(saved.SaveId!.Value);
         File.WriteAllText(path, Mutate(File.ReadAllText(path), root => root.Remove("world_source")));
 
-        var commands = new VoxelConsoleCommands(session);
-        var saveId = saved.SaveId!.Value.ToString();
-        StringAssert.StartsWith(commands.Execute(new[] { "load", saveId, "discard" }), "Voxel Loaded.");
+        var saveId = saved.SaveId!.Value;
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saveId)).Status);
         AssertRestoredRunningSave(session, speed, halt);
 
-        StringAssert.StartsWith(commands.Execute(new[] { "load", saveId, "discard" }), "Voxel Loaded.");
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saveId)).Status);
         AssertRestoredRunningSave(session, speed, halt);
         var world = session.World;
 
-        var reset = commands.Execute(new[] { "reset", "discard" });
-        StringAssert.Contains(reset, "relationship configuration");
+        var reset = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Reset, WorldChangeChoice.Discard));
+        Assert.AreEqual(WorldChangeStatus.CandidateFailed, reset.Status);
+        Assert.AreEqual("configuration", reset.Diagnostic!.Relationship);
         Assert.AreSame(world, session.World);
         AssertRestoredRunningSave(session, speed, halt);
 
-        var fixture = new CompositeConsoleCommands(session).Execute(new[] { "reset", "discard", "bridge" });
-        StringAssert.Contains(fixture, "relationship configuration");
+        var fixture = session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset,
+            WorldChangeChoice.Discard,
+            FixtureId: BridgeFixture.DefinitionId.Value));
+        Assert.AreEqual(WorldChangeStatus.CandidateFailed, fixture.Status);
+        Assert.AreEqual("configuration", fixture.Diagnostic!.Relationship);
         Assert.AreSame(world, session.World);
         AssertRestoredRunningSave(session, speed, halt);
 
-        StringAssert.StartsWith(
-            commands.Execute(new[] { "use", WorldEditorConfigurations.StraightRailEmptyId, "discard" }),
-            "Voxel configuration straight-rail-empty.");
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.SwitchConfiguration,
+            WorldChangeChoice.Discard,
+            WorldEditorConfigurations.StraightRailEmptyId)).Status);
         Assert.IsTrue(session.SimulationPaused);
         Assert.AreEqual(WorldEditorConfigurations.StraightRailEmptyId, session.WorldSource!.ConfigurationId);
         Assert.IsNull(session.SaveId);
@@ -399,19 +406,24 @@ public sealed class WorldEditorSaveSwitchTests
         Assert.AreEqual(WorldCommandStatus.Added, session.Add(probe, new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
         RenameBridge(worldEditor);
         var world = session.World;
-        var commands = new CompositeConsoleCommands(session);
-
-        var discarded = commands.Execute(new[] { "reset", "discard", "bridge" });
-        StringAssert.Contains(discarded, "Voxel MissingDefinition.");
-        StringAssert.Contains(discarded, "relationship fixture");
-        Assert.IsFalse(discarded.Contains("Composite world reset.", StringComparison.Ordinal));
+        var discarded = session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset,
+            WorldChangeChoice.Discard,
+            FixtureId: BridgeFixture.DefinitionId.Value));
+        Assert.AreEqual(WorldChangeStatus.CandidateFailed, discarded.Status);
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, discarded.CandidateStatus);
+        Assert.AreEqual("fixture", discarded.Diagnostic!.Relationship);
         Assert.AreSame(world, session.World);
         Assert.AreEqual(3UL, session.SimulationStep);
         Assert.IsTrue(session.Query(probe).IsOccupied);
         Assert.IsTrue(session.HasUnsavedChanges);
 
-        var saved = commands.Execute(new[] { "reset", "save", "bridge" });
-        StringAssert.Contains(saved, "Voxel MissingDefinition.");
+        var saved = session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Reset,
+            WorldChangeChoice.SaveThenSwitch,
+            FixtureId: BridgeFixture.DefinitionId.Value));
+        Assert.AreEqual(WorldChangeStatus.CandidateFailed, saved.Status);
+        Assert.AreEqual(WorldSaveStatus.MissingDefinition, saved.CandidateStatus);
         Assert.AreSame(world, session.World);
         Assert.AreEqual(3UL, session.SimulationStep);
         Assert.IsTrue(session.Query(probe).IsOccupied);
@@ -459,27 +471,6 @@ public sealed class WorldEditorSaveSwitchTests
     }
 
     [TestMethod]
-    public void Console_reset_and_use_share_the_unsaved_choice()
-    {
-        using var worldEditor = WorldEditorHarness.Establish(WorldEditorConfigurations.StraightRailTrainId);
-        var session = worldEditor.Session;
-        var commands = new VoxelConsoleCommands(session);
-        Assert.AreEqual(WorldCommandStatus.Added, session.Add(new WorldVoxelCoord(1, 2, 1), new VoxelDefinitionId("core", "ferrous-ore"), VoxelOrientation.Identity).Status);
-
-        StringAssert.Contains(commands.Execute(new[] { "reset" }), "Unsaved changes");
-        Assert.IsTrue(session.Query(new WorldVoxelCoord(1, 2, 1)).IsOccupied);
-        StringAssert.Contains(commands.Execute(new[] { "reset", "cancel" }), "Cancelled");
-        Assert.IsTrue(session.HasUnsavedChanges);
-        StringAssert.StartsWith(commands.Execute(new[] { "reset", "discard" }), "Voxel world reset.");
-        Assert.AreEqual(WorldEditorConfigurations.StraightRailTrainId, session.WorldSource!.ConfigurationId);
-        Assert.IsFalse(session.HasUnsavedChanges);
-
-        StringAssert.Contains(commands.Execute(new[] { "use", WorldEditorConfigurations.StraightRailEmptyId }), "straight-rail-empty");
-        Assert.IsTrue(session.SimulationPaused);
-        Assert.AreEqual(0, session.QueryTrainAssemblies().Count);
-    }
-
-    [TestMethod]
     public void Slice_reset_without_a_source_still_discards_immediately_once_chosen()
     {
         using var worldEditor = WorldEditorHarness.Content();
@@ -498,16 +489,22 @@ public sealed class WorldEditorSaveSwitchTests
 
         var saved = session.Save("Slice");
         Assert.AreEqual(WorldSaveStatus.Saved, saved.Status);
-        var commands = new VoxelConsoleCommands(session);
-        StringAssert.StartsWith(commands.Execute(new[] { "load", saved.SaveId!.Value.ToString(), "discard" }), "Voxel Loaded.");
+        Assert.AreEqual(WorldChangeStatus.Completed, session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId)).Status);
         Assert.IsFalse(session.SimulationPaused);
         Assert.IsNull(session.WorldSource);
         var again = session.TryChangeWorld(new WorldChangeRequest(WorldChangeKind.Load, WorldChangeChoice.Discard, SaveId: saved.SaveId));
         Assert.AreEqual(WorldChangeStatus.Completed, again.Status);
         Assert.IsFalse(session.SimulationPaused);
-        var switched = commands.Execute(new[] { "use", WorldEditorConfigurations.StraightRailEmptyId, "discard" });
-        StringAssert.StartsWith(switched, "Voxel IncompatibleBase.");
-        StringAssert.Contains(switched, "stage base subject session relationship world_editor");
+        var switched = session.TryChangeWorld(new WorldChangeRequest(
+            WorldChangeKind.SwitchConfiguration,
+            WorldChangeChoice.Discard,
+            WorldEditorConfigurations.StraightRailEmptyId));
+        Assert.AreEqual(WorldChangeStatus.CandidateFailed, switched.Status);
+        Assert.AreEqual(WorldSaveStatus.IncompatibleBase, switched.CandidateStatus);
+        Assert.AreEqual("base", switched.Diagnostic!.Stage);
+        Assert.AreEqual("session", switched.Diagnostic.Subject);
+        Assert.AreEqual("world_editor", switched.Diagnostic.Relationship);
         Assert.IsNull(session.WorldSource);
         Assert.IsFalse(session.SimulationPaused);
         Assert.AreEqual(saved.SaveId, session.SaveId);

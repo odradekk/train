@@ -1,8 +1,12 @@
+// Core 控制台模块测试。
+// 验证空白分词、基础分发、宿主回调与共享日志的真实持久回显。
+
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Logging;
-using Train;
+using Train.Core.Console;
+using Train.Tests;
 
-namespace Train.Tests;
+namespace Train.Tests.Core.Console;
 
 [TestClass]
 [TestCategory("family:unit")]
@@ -16,8 +20,12 @@ public sealed class ConsoleCommandParseTests
         Assert.AreEqual("help", help.Name);
         Assert.IsFalse(help.IsEmpty);
 
-        Assert.AreEqual("reload", ParsedConsoleCommand.Parse("  reload   core\tmods  ").Name);
-        Assert.AreEqual("say", ParsedConsoleCommand.Parse("say \"hello world\"").Name);
+        var reload = ParsedConsoleCommand.Parse("  reload   core\tmods  ");
+        Assert.AreEqual("reload", reload.Name);
+        CollectionAssert.AreEqual(new[] { "core", "mods" }, reload.Arguments.ToArray());
+        var quoted = ParsedConsoleCommand.Parse("say \"hello world\"");
+        Assert.AreEqual("say", quoted.Name);
+        CollectionAssert.AreEqual(new[] { "\"hello", "world\"" }, quoted.Arguments.ToArray());
     }
 
     [TestMethod]
@@ -74,6 +82,8 @@ public sealed class ConsoleCommandDispatchTests
         StringAssert.Contains(debugHelp.Message, "quit");
         StringAssert.Contains(debugHelp.Message, "reload");
         StringAssert.Contains(debugHelp.Message, "loglevel");
+        foreach (var retired in new[] { "voxel", "composite", "rail", "observe" })
+            Assert.IsFalse(debugHelp.Message.Contains(retired, StringComparison.Ordinal));
 
         using var release = DispatchHarness.Create(allowReload: false);
         release.Dispatcher.Execute("help");
@@ -200,6 +210,24 @@ public sealed class ConsoleCommandDispatchTests
         Assert.ThrowsException<ArgumentNullException>(() => harness.Dispatcher.Execute(null!));
     }
 
+    [DataTestMethod]
+    [DataRow("voxel")]
+    [DataRow("composite")]
+    [DataRow("rail")]
+    [DataRow("observe")]
+    public void Retired_commands_warn_without_invoking_host_actions(string name)
+    {
+        using var harness = DispatchHarness.Create();
+        harness.Dispatcher.Execute(name.ToUpperInvariant() + " query");
+
+        Assert.IsFalse(harness.Cleared);
+        Assert.IsFalse(harness.Quit);
+        Assert.IsFalse(harness.Reloaded);
+        var warning = harness.ConsoleEvents.Single(item => item.EventId == ConsoleCommandDispatcher.UnknownEventId);
+        Assert.AreEqual(LogLevel.Warning, warning.Level);
+        StringAssert.Contains(warning.Message, name.ToUpperInvariant());
+    }
+
     private static void TryDeleteDirectory(string path)
     {
         try
@@ -208,7 +236,7 @@ public sealed class ConsoleCommandDispatchTests
         }
         catch
         {
-            // Best-effort cleanup for temp directories that Windows may still have open.
+            // Windows 仍占用临时文件时，清理失败不掩盖测试结果。
         }
     }
 }

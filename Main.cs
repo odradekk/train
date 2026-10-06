@@ -1,3 +1,5 @@
+using Train.Core.Console;
+using Train.Ui;
 using Train.Core.Saves;
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
@@ -79,7 +81,8 @@ public partial class Main : Node
         _logger = TrainLogger.StartSession(logDirectory, buildDefault, new GodotLogOutput(), logBuffer);
         _reloader = new ContentReloader(new GodotContentSource(_logger, modsUserData, _isolatedBuiltIn), _logger);
         _console = new GameConsole();
-        _console.Initialize(_logger, logBuffer, _reloader);
+        _console.Initialize(logBuffer, new ConsoleCommandDispatcher(
+            _logger, logBuffer.Clear, RequestQuit, () => _reloader.Reload(), OS.IsDebugBuild()));
         AddChild(_console);
         var loaded = _reloader.Reload();
         ReportDomainEmptyAssertion();
@@ -397,10 +400,7 @@ public partial class Main : Node
     {
         _worldSession = session;
         _reloader?.SetReloadParticipant(session is null ? null : VoxelWorldReloadAdapter.For(session));
-        _console?.SetVoxelDevelopmentSession(session);
     }
-
-    public void SetWorldEditorObserver(WorldEditorObserver? observer) => _console?.SetWorldEditorObserver(observer);
 
     private void StartLoggingSmoke()
     {
