@@ -1,5 +1,5 @@
 using System.Text;
-using Train.Content;
+using Train.Core.Content;
 
 namespace Train.Domain.Voxels;
 

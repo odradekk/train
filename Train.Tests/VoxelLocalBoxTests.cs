@@ -1,6 +1,6 @@
-using System.Globalization;
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -42,103 +42,6 @@ public sealed class VoxelLocalBoxTests
     private const double TiltHitMaxX = 0.22;
     private const double TiltHitMaxY = 0.52;
     private const double TiltHitMaxZ = 0.12;
-
-    [TestMethod]
-    public void Formal_loader_accepts_the_built_in_eccentric_ledge_example()
-    {
-        using var harness = LocalBoxHarness.Create();
-        Assert.IsTrue(harness.Reloader.Catalog.Current!.TryGet(Ledge, out var entry));
-        Assert.AreEqual(VoxelCollisionKind.LocalBox, entry.Definition.Collision.Kind);
-        Assert.AreEqual(0.125, entry.Definition.Collision.OffsetX);
-        Assert.AreEqual(0, entry.Definition.Collision.OffsetY);
-        Assert.AreEqual(0.25, entry.Definition.Collision.OffsetZ);
-        Assert.AreEqual(0.25, entry.Definition.Collision.SizeX);
-        Assert.AreEqual(0.875, entry.Definition.Collision.SizeY);
-        Assert.AreEqual(0.5, entry.Definition.Collision.SizeZ);
-        Assert.AreEqual(VoxelOrientationConstraint.All24, entry.Definition.AllowedOrientations);
-
-        var fromDisk = File.ReadAllText(BuiltInLedgePath());
-        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", fromDisk);
-        ContentFixtures.AddSquareImages(
-            harness.Source,
-            "voxels/ferrous-ore/icon.png",
-            "voxels/ferrous-ore/top.png",
-            "voxels/ferrous-ore/side.png",
-            "voxels/ferrous-ore/bottom.png");
-        var reloaded = harness.Reloader.Reload();
-        Assert.AreEqual(ContentReloadStatus.Committed, reloaded.Status);
-        Assert.AreEqual(VoxelCollisionKind.LocalBox, harness.Reloader.Catalog.Current!.Entries[Ledge].Definition.Collision.Kind);
-        Assert.AreEqual(0.125, harness.Reloader.Catalog.Current.Entries[Ledge].Definition.Collision.OffsetX);
-        Assert.AreEqual(0.875, harness.Reloader.Catalog.Current.Entries[Ledge].Definition.Collision.SizeY);
-    }
-
-    [TestMethod]
-    public void None_and_full_box_keep_working_and_reject_local_box_fields()
-    {
-        using var harness = LocalBoxHarness.Create();
-        Assert.AreEqual(VoxelCollisionKind.FullBox, harness.Reloader.Catalog.Current!.Entries[Iron].Definition.Collision.Kind);
-        Assert.AreEqual(VoxelCollisionKind.None, harness.Reloader.Catalog.Current.Entries[Hollow].Definition.Collision.Kind);
-
-        foreach (var collision in new[]
-                 {
-                     "{\"kind\":\"none\",\"offset\":{\"x\":0.1,\"y\":0.1,\"z\":0.1}}",
-                     "{\"kind\":\"full_box\",\"size\":{\"x\":0.5,\"y\":0.5,\"z\":0.5}}",
-                     "{\"kind\":\"full_box\",\"extra\":1}"
-                 })
-        {
-            harness.Source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
-                ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", collisionJson: collision)));
-            var rejected = harness.Reloader.Reload();
-            Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, collision);
-            Assert.AreEqual(VoxelCollisionKind.FullBox, harness.Reloader.Catalog.Current!.Entries[Iron].Definition.Collision.Kind);
-        }
-    }
-
-    [TestMethod]
-    public void Illegal_local_box_shapes_reject_built_in_publish_and_exclude_the_mod_package()
-    {
-        var invalids = new[]
-        {
-            ContentFixtures.LocalBoxCollision(offsetX: double.NaN),
-            ContentFixtures.LocalBoxCollision(sizeY: double.PositiveInfinity),
-            ContentFixtures.LocalBoxCollision(sizeX: 0),
-            ContentFixtures.LocalBoxCollision(sizeZ: -0.1),
-            ContentFixtures.LocalBoxCollision(offsetX: -0.01),
-            ContentFixtures.LocalBoxCollision(offsetX: 0.8, sizeX: 0.3),
-            ContentFixtures.LocalBoxCollision(offsetX: 0.5, sizeX: 1e-20),
-            ContentFixtures.LocalBoxCollision(offsetX: 1, sizeX: 1e-20),
-            "{\"kind\":\"local_box\"}",
-            "{\"kind\":\"local_box\",\"offset\":{\"x\":0.1,\"y\":0.1,\"z\":0.1}}",
-            "{\"kind\":\"localBox\",\"offset\":{\"x\":0.125,\"y\":0,\"z\":0.25},\"size\":{\"x\":0.25,\"y\":0.875,\"z\":0.5}}",
-            "{\"kind\":\"local_box\",\"offset\":{\"x\":0.125,\"y\":0,\"z\":0.25,\"w\":1},\"size\":{\"x\":0.25,\"y\":0.875,\"z\":0.5}}",
-            "{\"kind\":\"local_box\",\"offset\":{\"x\":0.125,\"y\":0,\"z\":0.25},\"size\":{\"x\":0.25,\"y\":0.875,\"z\":0.5},\"boxes\":[]}"
-        };
-
-        foreach (var collision in invalids)
-        {
-            using var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidFerrousOre();
-            source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
-                ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", collisionJson: collision)));
-            var builtIn = ContentFixtures.Create(source, session.Logger);
-            var rejected = builtIn.Reload();
-            Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, collision);
-            Assert.IsNull(builtIn.Catalog.Current);
-        }
-
-        using var modSession = LoggerSession.Create();
-        var mixed = ModFixtures.CorePlusCopper();
-        mixed.AddMod("broken-box", ModFixtures.OtherUuid);
-        mixed.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
-                collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0.8, sizeX: 0.3))));
-        mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
-        var mods = ContentFixtures.Create(mixed, modSession.Logger);
-        var isolated = mods.Reload();
-        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, isolated.Status);
-        Assert.IsTrue(mods.Catalog.Current!.TryGet(Iron, out _));
-        Assert.IsFalse(mods.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
-    }
 
     [TestMethod]
     public void Identity_local_box_hits_only_inside_the_eccentric_volume()
@@ -277,24 +180,8 @@ public sealed class VoxelLocalBoxTests
     }
 
     [TestMethod]
-    public void Adapter_underflow_sizes_reject_publish_and_keep_representable_hits()
+    public void Representable_thin_boxes_keep_world_hits_when_underflow_reload_is_rejected()
     {
-        Assert.IsTrue(VoxelCollision.TryCreateLocalBox(0, 0, 0.25, 1e-50, 0.875, 0.5, out _));
-        Assert.IsTrue(VoxelCollision.TryCreateLocalBox(0, 0, 0.25, double.Epsilon, 0.875, 0.5, out _));
-
-        foreach (var sizeX in new[] { 1e-50, double.Epsilon })
-        {
-            using var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidFerrousOre();
-            source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
-                ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]",
-                    collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: sizeX))));
-            var builtIn = ContentFixtures.Create(source, session.Logger);
-            var rejected = builtIn.Reload();
-            Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, $"size.x={sizeX:G17}");
-            Assert.IsNull(builtIn.Catalog.Current);
-        }
-
         using var harness = LocalBoxHarness.Create();
         harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
@@ -326,18 +213,6 @@ public sealed class VoxelLocalBoxTests
             Assert.AreEqual(WorldCommandStatus.Occupied, harness.Commands.Add(Empty, Iron, VoxelOrientation.Identity).Status);
         }
 
-        using var modSession = LoggerSession.Create();
-        var mixed = ModFixtures.CorePlusCopper();
-        mixed.AddMod("thin-underflow", ModFixtures.OtherUuid);
-        mixed.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
-                collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-50))));
-        mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
-        var mods = ContentFixtures.Create(mixed, modSession.Logger);
-        var isolated = mods.Reload();
-        Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, isolated.Status);
-        Assert.IsTrue(mods.Catalog.Current!.TryGet(Iron, out _));
-        Assert.IsFalse(mods.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
     }
 
     [TestMethod]
@@ -361,63 +236,6 @@ public sealed class VoxelLocalBoxTests
         Assert.AreEqual(WorldCommandStatus.Removed, harness.Commands.Damage(Empty, 75).Status);
         Assert.IsFalse(harness.Commands.Query(Empty).IsOccupied);
         Assert.AreEqual(VoxelCollisionQueryStatus.Miss, harness.Commands.QueryCollision(Empty).Status);
-    }
-
-    [TestMethod]
-    public void Local_box_kind_and_geometry_enter_canonical_semantic_revision()
-    {
-        using var harness = LocalBoxHarness.Create();
-        var baseline = harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision;
-
-        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", """
-            {"schema_version":1,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"size":{"z":0.5,"y":0.875,"x":0.25},"kind":"local_box","offset":{"z":0.25,"y":0,"x":0.125}},"description":"说明","id":"ledge","mass":1,"max_durability":100,"name":"台沿","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":[],"value":10}]}
-            """);
-        var reordered = harness.Reloader.Reload();
-        Assert.AreEqual(ContentReloadStatus.Committed, reordered.Status);
-        Assert.AreEqual(baseline, harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
-
-        var previousCulture = CultureInfo.CurrentCulture;
-        CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
-        try
-        {
-            harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
-                ContentFixtures.Good("ledge", "台沿", "说明", value: 10, tagsJson: "[]",
-                    collisionJson: ContentFixtures.LocalBoxCollision())));
-            var cultured = harness.Reloader.Reload();
-            Assert.AreEqual(ContentReloadStatus.Committed, cultured.Status);
-            Assert.AreEqual(baseline, harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = previousCulture;
-        }
-
-        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("ledge", "新台沿", "新说明", value: 10, tagsJson: "[]",
-                collisionJson: ContentFixtures.LocalBoxCollision())));
-        var display = harness.Reloader.Reload();
-        Assert.AreEqual(ContentReloadStatus.Committed, display.Status);
-        Assert.AreEqual(baseline, harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
-        Assert.AreEqual("新台沿", harness.Reloader.Catalog.Current.Entries[Ledge].Definition.Name);
-
-        harness.Source.AddImage("core", "iron.png", ContentFixtures.Square(16, 7));
-        var pixels = harness.Reloader.Reload();
-        Assert.AreEqual(ContentReloadStatus.Committed, pixels.Status);
-        Assert.AreEqual(baseline, harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
-
-        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("ledge", "新台沿", "新说明", value: 10, tagsJson: "[]",
-                collisionJson: ContentFixtures.LocalBoxCollision(sizeX: 0.3))));
-        var geometry = harness.Reloader.Reload();
-        Assert.AreEqual(ContentReloadStatus.Committed, geometry.Status);
-        Assert.AreNotEqual(baseline, harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
-
-        var afterGeometry = harness.Reloader.Catalog.Current.Entries[Ledge].SemanticRevision;
-        harness.Source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("ledge", "新台沿", "新说明", value: 10, tagsJson: "[]", collisionJson: "{\"kind\":\"full_box\"}")));
-        var kind = harness.Reloader.Reload();
-        Assert.AreEqual(ContentReloadStatus.Committed, kind.Status);
-        Assert.AreNotEqual(afterGeometry, harness.Reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
     }
 
     [TestMethod]
@@ -572,20 +390,6 @@ public sealed class VoxelLocalBoxTests
         Assert.AreEqual(VoxelCollisionQueryStatus.Miss, result.Status, $"{minX},{minY},{minZ}->{maxX},{maxY},{maxZ}");
     }
 
-    private static string BuiltInLedgePath()
-    {
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
-        while (directory is not null)
-        {
-            var candidate = Path.Combine(directory.FullName, "builtin", "core", "resources", "voxels", "ledge.voxels.json");
-            if (File.Exists(candidate))
-                return candidate;
-            directory = directory.Parent;
-        }
-
-        throw new FileNotFoundException("Could not locate builtin/core/resources/voxels/ledge.voxels.json.");
-    }
-
     private sealed class LocalBoxHarness : IDisposable
     {
         private readonly LoggerSession _session;
@@ -621,7 +425,7 @@ public sealed class VoxelLocalBoxTests
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
             var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, identity);
-            reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+            reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
             return new LocalBoxHarness(
                 session,
                 source,

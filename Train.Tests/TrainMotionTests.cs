@@ -1,7 +1,8 @@
+using Train.Core.Content.Voxels;
 using System.Globalization;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Behaviors;
 using Train.Domain.Commands;
 using Train.Domain.Rails;
@@ -337,7 +338,7 @@ public sealed class TrainMotionTests
     public void Propulsion_reload_keeps_absolute_state_and_rejects_illegal_candidates()
     {
         using var harness = Parked();
-        harness.Reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(harness.Session));
+        harness.Reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(harness.Session));
         Assert.IsTrue(harness.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         Assert.IsTrue(harness.Session.AdvanceSimulation(300).Succeeded);
         var before = harness.Session.QueryTrainAssemblies().Single();

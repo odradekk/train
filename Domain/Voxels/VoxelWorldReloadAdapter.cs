@@ -1,11 +1,11 @@
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 
 namespace Train.Domain.Voxels;
 
-public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
+public sealed class VoxelWorldReloadAdapter : IContentReloadParticipant
 {
     private readonly Func<VoxelWorld> _world;
     private readonly VoxelDevelopmentSession? _session;
@@ -23,17 +23,17 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         return new VoxelWorldReloadAdapter(() => session.World, session);
     }
 
-    public ContentWorldReloadPlan Prepare(VoxelCatalogSnapshot candidate) =>
+    public ContentReloadPlan Prepare(VoxelCatalogSnapshot candidate) =>
         Prepare(candidate, _session?.CurrentComposites ?? CompositeCatalogSnapshot.Empty);
 
-    public ContentWorldReloadPlan Prepare(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites)
+    public ContentReloadPlan Prepare(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites)
     {
         ArgumentNullException.ThrowIfNull(voxels);
         ArgumentNullException.ThrowIfNull(composites);
         var world = _world() ?? throw new InvalidOperationException("A voxel world is required to prepare a live reload.");
         if (_session is { CanRecordContentPublication: false })
         {
-            return ContentWorldReloadPlan.Reject(new[]
+            return ContentReloadPlan.Reject(new[]
             {
                 new ContentDiagnostic(
                     ContentDiagnosticSeverity.Error,
@@ -80,10 +80,10 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
             ValidateAssemblies(_session, vehicles, voxels, diagnostics);
 
         if (diagnostics.Count > 0)
-            return ContentWorldReloadPlan.Reject(diagnostics);
+            return ContentReloadPlan.Reject(diagnostics);
 
         if (_session is null)
-            return ContentWorldReloadPlan.Accept(replacements.Count == 0 ? null : () => world.ReplaceOccupied(replacements));
+            return ContentReloadPlan.Accept(replacements.Count == 0 ? null : () => world.ReplaceOccupied(replacements));
 
         var session = _session;
         var changedVehicles = vehicles is not null && VehiclesDiffer(session.Vehicles, vehicles);
@@ -91,8 +91,8 @@ public sealed class VoxelWorldReloadAdapter : IContentWorldReloadAdapter
         // Equal semantic digests leave world evolution unchanged, so no content.publish edit is recorded.
         if (replacements.Count == 0 && !changedVehicles && session.CurrentVoxels is { } published &&
             ContentPublishEdit.For(published, session.CurrentComposites).ContentDigest == publication.ContentDigest)
-            return ContentWorldReloadPlan.Accept(null);
-        return ContentWorldReloadPlan.Accept(() => session.PublishContent(
+            return ContentReloadPlan.Accept(null);
+        return ContentReloadPlan.Accept(() => session.PublishContent(
             publication,
             () => session.ApplyContentReload(voxels, replacements, changedVehicles ? vehicles : null)));
     }

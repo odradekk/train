@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -289,7 +290,7 @@ public sealed class VoxelMultiChunkTests
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice2);
-        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var cell = new WorldVoxelCoord(15, 16, 15);
         Assert.AreEqual(WorldCommandStatus.Damaged, voxelSession.Damage(cell, 20).Status);
         Assert.AreEqual(80, voxelSession.Query(cell).Voxel!.CurrentDurability);

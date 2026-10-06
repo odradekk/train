@@ -1,3 +1,4 @@
+using Train.Core.Content.Voxels;
 namespace Train.Domain.Voxels;
 
 public readonly record struct VoxelCollisionBox

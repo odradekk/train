@@ -1,5 +1,5 @@
 using System.Globalization;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.WorldEditor;
 
 namespace Train.Domain.Voxels;

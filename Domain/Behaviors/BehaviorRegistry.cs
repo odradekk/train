@@ -1,13 +1,9 @@
+// 属于旧车辆能力层。
+// 将内容 Behavior 映射为旧列车系统使用的 capability。
 using System.Collections.ObjectModel;
+using Train.Core.Content.Behaviors;
 
 namespace Train.Domain.Behaviors;
-
-public static class BehaviorTypes
-{
-    public const string Propulsion = "propulsion";
-    public const string Control = "control";
-    public const string TrackContact = "track_contact";
-}
 
 public static class CapabilityTypes
 {
@@ -16,7 +12,7 @@ public static class CapabilityTypes
     public const string TrackContact = "track_contact";
 }
 
-public static class BehaviorRegistry
+public static class LegacyBehaviorCapabilities
 {
     private static readonly IReadOnlyDictionary<string, string> CapabilitiesByBehavior =
         new ReadOnlyDictionary<string, string>(new Dictionary<string, string>(StringComparer.Ordinal)
@@ -25,9 +21,6 @@ public static class BehaviorRegistry
             [BehaviorTypes.Control] = CapabilityTypes.Control,
             [BehaviorTypes.TrackContact] = CapabilityTypes.TrackContact
         });
-
-    public static bool IsRegistered(string type) =>
-        type is not null && CapabilitiesByBehavior.ContainsKey(type);
 
     public static bool TryGetCapability(string type, out string capability)
     {
@@ -44,39 +37,6 @@ public static class BehaviorRegistry
             if (TryGetCapability(behavior, out var capability))
                 capabilities.Add(capability);
         }
-
         return capabilities.ToArray();
-    }
-
-    public static bool TryNormalizePropulsion(
-        double? targetSpeed,
-        double? acceleration,
-        out PropulsionParameters parameters)
-    {
-        var target = targetSpeed ?? PropulsionParameters.DefaultTargetSpeed;
-        var accel = acceleration ?? PropulsionParameters.DefaultAcceleration;
-        if (!PropulsionParameters.TryCreate(target, accel, out var created) || created is null)
-        {
-            parameters = PropulsionParameters.Default;
-            return false;
-        }
-
-        parameters = created;
-        return true;
-    }
-
-    public static bool TryNormalizeTrackContact(
-        double? coastDeceleration,
-        out TrackContactParameters parameters)
-    {
-        var deceleration = coastDeceleration ?? TrackContactParameters.DefaultCoastDeceleration;
-        if (!TrackContactParameters.TryCreate(deceleration, out var created) || created is null)
-        {
-            parameters = TrackContactParameters.Default;
-            return false;
-        }
-
-        parameters = created;
-        return true;
     }
 }

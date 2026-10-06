@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;

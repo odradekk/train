@@ -1,8 +1,9 @@
+using Train.Core.Content.Voxels;
 using System.Globalization;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.WorldEditor;

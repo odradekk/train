@@ -1,5 +1,7 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -18,7 +20,7 @@ public sealed class VehicleEnvelopeTests
         {
             foreach (var size in Enum.GetValues<VehicleSizeClass>())
             {
-                var dimensions = VehicleSize.Dimensions(size);
+                var dimensions = LegacyVehicleSize.Dimensions(size);
                 var contacts = new[]
                 {
                     new CompositeContactAnchor(1, -0.75, dimensions.Width / 2.0, new LocalVoxelCoord(1, 0, 0)),
@@ -82,23 +84,6 @@ public sealed class VehicleEnvelopeTests
         }
     }
 
-    [TestMethod]
-    public void Unknown_size_class_is_rejected_by_the_parser()
-    {
-        using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "voxels/vehicle-shell.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("vehicle-shell", "壳体", "说明", value: 10, tagsJson: "[]")));
-        source.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("identity-core", "核心", "说明", value: 10, tagsJson: "[\"identity_core\"]")));
-        ContentFixtures.AddSquareImages(source, "iron.png");
-        source.AddCompositeFile(
-            "core",
-            "composites/bad.composites.json",
-            CompositeFixtures.File(null, CompositeFixtures.Archetype(), CompositeFixtures.Composite(size: "huge")));
-        var reloader = ContentFixtures.Create(source, session.Logger);
-        Assert.AreEqual(ContentReloadStatus.Rejected, reloader.Reload().Status);
-    }
 
     private static ConstructionStatus Validate(
         ContentReloader reloader,

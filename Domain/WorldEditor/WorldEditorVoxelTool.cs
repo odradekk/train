@@ -1,7 +1,8 @@
+using Train.Core.Content.Voxels;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
-using Train.Content;
+using Train.Core.Content;
 
 namespace Train.Domain.WorldEditor;
 

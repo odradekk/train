@@ -1,6 +1,6 @@
 using System.Text;
 using System.Text.Json;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 
 namespace Train.Domain.WorldEditor;

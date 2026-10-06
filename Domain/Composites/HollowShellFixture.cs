@@ -1,3 +1,5 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using System.Collections.ObjectModel;
 using Train.Domain.Voxels;
 
@@ -39,7 +41,7 @@ public static class HollowShellFixture
                 contactAnchorCount: 2,
                 contactsMustBeDistinct: true,
                 contactsMustBindExistingParts: true),
-            new IdentityRetentionRules(Train.Domain.Voxels.VoxelTags.IdentityCore));
+            new IdentityRetentionRules(Train.Core.Content.Voxels.VoxelTags.IdentityCore));
 
     private static LocalVoxelCoord[] BuildCells()
     {

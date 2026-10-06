@@ -1,7 +1,8 @@
+using Train.Core.Content.Voxels;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.Rails;

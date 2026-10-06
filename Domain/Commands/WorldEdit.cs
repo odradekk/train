@@ -1,4 +1,6 @@
-using Train.Content;
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;

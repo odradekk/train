@@ -1,5 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -97,15 +97,15 @@ public sealed class CompositeReloadSaveRejectionTests
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
         voxelSession.Manufacture(HollowShellFixture.DefinitionId);
-        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var before = voxelSession.CaptureAuthority();
         var coreRevision = reloader.Catalog.Current!.Entries[HollowShellFixture.CoreId].SemanticRevision;
 
         var later = CompositeFixtures.FormalFixturePackage();
         later.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("identity-core", "核心", "核心说明", value: 20, tagsJson: "[\"identity_core\"]")));
-        var adapted = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        adapted.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var adapted = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog, composites: reloader.Composites);
+        adapted.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var semanticChange = adapted.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, semanticChange.Status);
         Assert.AreEqual(before.Vehicles[0].Id, voxelSession.QueryComposites()[0].Id);
@@ -114,8 +114,8 @@ public sealed class CompositeReloadSaveRejectionTests
         Assert.AreNotEqual(coreRevision, adapted.Catalog.Current.Entries[HollowShellFixture.CoreId].SemanticRevision);
 
         var missing = ContentFixtures.ValidFerrousOre();
-        var stripped = ContentFixtures.Create(missing, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        stripped.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var stripped = ContentFixtures.Create(missing, session.Logger, catalog: reloader.Catalog, composites: reloader.Composites);
+        stripped.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var afterAdapt = voxelSession.CaptureAuthority();
         var missingResult = stripped.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, missingResult.Status);
@@ -139,8 +139,8 @@ public sealed class CompositeReloadSaveRejectionTests
             "core",
             "composites/dev-hollow-shell.composites.json",
             CompositeFixtures.File(null, CompositeFixtures.Archetype(coreTag: "other_core"), CompositeFixtures.CompositeFromFixture()));
-        var identity = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        identity.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var identity = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, composites: reloader.Composites);
+        identity.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var identityReload = identity.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, identityReload.Status);
         Assert.IsTrue(identityReload.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.IncompatibleVoxelState));
@@ -165,8 +165,8 @@ public sealed class CompositeReloadSaveRejectionTests
             "core",
             "composites/dev-hollow-shell.composites.json",
             CompositeFixtures.FixtureFileText().Replace("开发空心壳", "显示名更新", StringComparison.Ordinal));
-        var rebuilt = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        rebuilt.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var rebuilt = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, composites: reloader.Composites);
+        rebuilt.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var result = rebuilt.Reload();
         Assert.IsTrue(result.IsCommitted);
         Assert.AreEqual(before.Vehicles[0].Id, voxelSession.QueryComposites()[0].Id);

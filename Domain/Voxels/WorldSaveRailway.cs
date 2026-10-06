@@ -1,5 +1,6 @@
+using Train.Core.Content.Composites;
 using System.Text.Json;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 

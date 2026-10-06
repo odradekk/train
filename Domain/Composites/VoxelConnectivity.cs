@@ -1,3 +1,4 @@
+using Train.Core.Content.Composites;
 namespace Train.Domain.Composites;
 
 public static class VoxelConnectivity

@@ -1,3 +1,5 @@
+using Train.Core.Content;
+using Train.Core.Content.Voxels;
 using Godot;
 using Train.App;
 using Train.Content;
@@ -393,7 +395,7 @@ public partial class Main : Node
     public void SetVoxelDevelopmentSession(VoxelDevelopmentSession? session)
     {
         _worldSession = session;
-        _reloader?.SetWorldReloadAdapter(session is null ? null : VoxelWorldReloadAdapter.For(session));
+        _reloader?.SetReloadParticipant(session is null ? null : VoxelWorldReloadAdapter.For(session));
         _console?.SetVoxelDevelopmentSession(session);
     }
 
@@ -585,8 +587,7 @@ public partial class Main : Node
             return;
 
         var catalogEmpty = _reloader?.Catalog.Current is null || _reloader.Catalog.Current.Entries.Count == 0;
-        var registryEmpty = _reloader?.Settlements.Count == 0;
-        GD.Print(catalogEmpty && registryEmpty
+        GD.Print(catalogEmpty
             ? "CONTENT_SMOKE_DOMAIN_EMPTY"
             : "CONTENT_SMOKE_DOMAIN_NOT_EMPTY");
     }

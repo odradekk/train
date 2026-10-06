@@ -1,3 +1,5 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using Train.Domain.Voxels;
 
 namespace Train.Domain.Composites;

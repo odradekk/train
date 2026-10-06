@@ -99,7 +99,7 @@
 | 草稿（非有效来源） | `user://authoring-drafts/`，设计编辑器和创作模式的草稿，不参与有效内容扫描 |
 
 - 定义文件带明确的 `schema_version`，按内容类型（体素定义、蓝图、Layout、场景模型、生物种类、生物聚落类型）区分格式，场景模型见 [01](01-voxel-engine-and-scenes.md#场景模型)，后两者见 [17](17-combat.md#世界生物)；文件后缀和各格式的版本在代码重构时确定。目录用于组织文件，不决定定义身份。
-- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。内置内容与 Mod 当前还加载过渡格式 `settlements/*.settlements.json`，直接声明聚居地及其可获得的初级货物种类；它将由节点资源和 [16](16-settlements.md) 的聚居地类型与布局取代，不作为长期内容类型。
+- `layouts` 目录与 `.layouts.json` 是目标格式，尚未实现。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与布局见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)。
 
@@ -113,7 +113,7 @@
 
 ### Mod 与热加载
 
-- **第一阶段 Data Mod**：支持新增体素定义、蓝图、Layout（Layout 实现前沿用上文的过渡聚居地内容），修改自有定义的数值、引用资产、组合已有 Behavior。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增体素定义、蓝图和 Layout（Layout 尚未实现），修改自有定义的数值、引用资产、组合已有 Behavior。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
 - **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 或碰撞更新 Asset Revision 和表现。蓝图更新产生新版本，不改变已有实例引用的版本。
 

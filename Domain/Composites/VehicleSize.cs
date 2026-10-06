@@ -1,47 +1,16 @@
-namespace Train.Domain.Composites;
+using Train.Core.Content.Composites;
 
-public enum VehicleSizeClass
-{
-    Small = 0,
-    Medium = 1,
-    Large = 2,
-    ExtraLarge = 3,
-    Titan = 4
-}
+namespace Train.Domain.Composites;
 
 public readonly record struct VehicleSizeDimensions(int Length, int Width, int Height);
 
-public static class VehicleSize
+public static class LegacyVehicleSize
 {
     public static VehicleSizeDimensions Small { get; } = new(8, 5, 6);
     public static VehicleSizeDimensions Medium { get; } = new(12, 7, 6);
     public static VehicleSizeDimensions Large { get; } = new(16, 9, 8);
     public static VehicleSizeDimensions ExtraLarge { get; } = new(20, 11, 8);
     public static VehicleSizeDimensions Titan { get; } = new(24, 13, 10);
-
-    public static bool TryParse(string? value, out VehicleSizeClass size)
-    {
-        size = value switch
-        {
-            "small" => VehicleSizeClass.Small,
-            "medium" => VehicleSizeClass.Medium,
-            "large" => VehicleSizeClass.Large,
-            "extra_large" => VehicleSizeClass.ExtraLarge,
-            "titan" => VehicleSizeClass.Titan,
-            _ => default
-        };
-        return value is "small" or "medium" or "large" or "extra_large" or "titan";
-    }
-
-    public static string ToWire(VehicleSizeClass size) => size switch
-    {
-        VehicleSizeClass.Small => "small",
-        VehicleSizeClass.Medium => "medium",
-        VehicleSizeClass.Large => "large",
-        VehicleSizeClass.ExtraLarge => "extra_large",
-        VehicleSizeClass.Titan => "titan",
-        _ => throw new ArgumentOutOfRangeException(nameof(size), size, "Unknown vehicle size class.")
-    };
 
     public static VehicleSizeDimensions Dimensions(VehicleSizeClass size) => size switch
     {
@@ -80,7 +49,7 @@ public static class VehicleEnvelope
         if (!double.IsFinite(midX) || !double.IsFinite(midZ))
             return false;
 
-        var dimensions = VehicleSize.Dimensions(size);
+        var dimensions = LegacyVehicleSize.Dimensions(size);
         box = new VehicleEnvelopeBox(
             midX - dimensions.Length / 2.0,
             0,

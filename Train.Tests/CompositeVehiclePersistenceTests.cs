@@ -1,7 +1,9 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -871,7 +873,7 @@ public sealed class CompositeVehiclePersistenceTests
         var first = writer.Session.Save("Bind");
         using var restored = Open(writer.UserData, writer.Source);
         Assert.AreEqual(WorldSaveStatus.Loaded, restored.Session.Load(first.SaveId!.Value).Status);
-        restored.Reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(restored.Session));
+        restored.Reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(restored.Session));
         HollowShellRefit.RunMoveReturnPairs(restored.Session, vehicleId, trace.P, 2);
         Assert.AreEqual(75, restored.Session.QueryComposite(vehicleId)!.Parts.Single(part => part.Id == trace.P).CurrentDurability);
         Assert.IsTrue(restored.Session.Damage(vehicleId, HollowShellRefit.Occupied, 10).Succeeded);
@@ -1112,9 +1114,8 @@ public sealed class CompositeVehiclePersistenceTests
             world.Source,
             world.Logger,
             catalog: world.Reloader.Catalog,
-            settlements: world.Reloader.Settlements,
             composites: world.Reloader.Composites);
-        rebuilt.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(world.Session));
+        rebuilt.SetReloadParticipant(VoxelWorldReloadAdapter.For(world.Session));
         world.Reloader = rebuilt;
         return rebuilt;
     }
@@ -1285,7 +1286,7 @@ public sealed class CompositeVehiclePersistenceTests
         var reloader = ContentFixtures.Create(content, logger.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var session = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, store, reloader.Composites);
-        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(session));
+        reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(session));
         return new SessionHandle(session, reloader, logger, content, store, userData, existingUserData is null);
     }
 

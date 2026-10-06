@@ -1,3 +1,4 @@
+using Train.Core.Content.Voxels;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Commands;

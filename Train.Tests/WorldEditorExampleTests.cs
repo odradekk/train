@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Commands;
 using Train.Domain.Voxels;
 using Train.Domain.WorldEditor;
@@ -111,7 +112,6 @@ public sealed class WorldEditorExampleTests
         var source = ContentFixtures.CorePackage();
         source.AddVoxelFile("core", "voxels/stone.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("stone", "Stone", "Stone")));
         ContentFixtures.AddSquareImages(source, "iron.png");
-        ContentFixtures.AddExampleCity(source, resources: new[] { "core:stone" });
         using var missing = WorldEditorHarness.Content(source);
         var workspace = Workspace(missing);
         var entry = workspace.ListExamples().Single();

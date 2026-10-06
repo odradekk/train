@@ -1,3 +1,4 @@
+using Train.Core.Content.Voxels;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -155,7 +156,7 @@ public static class StraightRailFixture
 
     public static RailVolumeBox SweptClearanceFor(HorizontalStraightAlignment alignment)
     {
-        var dimensions = VehicleSize.Small;
+        var dimensions = LegacyVehicleSize.Small;
         var bodyBottom = alignment.StartY + ContactClearance;
         return new RailVolumeBox(
             alignment.StartX - 1.0,

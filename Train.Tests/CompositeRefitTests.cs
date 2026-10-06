@@ -1,6 +1,7 @@
+using Train.Core.Content.Voxels;
 using System.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -344,7 +345,7 @@ public sealed class CompositeRefitTests
         var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
         var vehicleId = voxelSession.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
         HollowShellRefit.ApplySuccess(voxelSession, vehicleId);
-        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var before = voxelSession.CaptureAuthority();
         var catalogGeneration = reloader.Catalog.Current!.Generation;
         var blueprintRevision = reloader.Composites.Current.Composites[HollowShellFixture.DefinitionId].SemanticRevision;
@@ -352,8 +353,8 @@ public sealed class CompositeRefitTests
         var missingMarker = CompositeFixtures.FormalFixturePackage();
         missingMarker.AddVoxelFile("core", "voxels/refit-marker.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("other-marker", "其他", "其他说明", value: 10, tagsJson: "[]")));
-        var stripped = ContentFixtures.Create(missingMarker, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        stripped.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var stripped = ContentFixtures.Create(missingMarker, session.Logger, catalog: reloader.Catalog, composites: reloader.Composites);
+        stripped.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var missing = stripped.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, missing.Status);
         Assert.AreEqual(before, voxelSession.CaptureAuthority());
@@ -364,8 +365,8 @@ public sealed class CompositeRefitTests
             "core",
             "composites/dev-hollow-shell.composites.json",
             CompositeFixtures.FixtureFileText().Replace("开发空心壳", "显示名更新", StringComparison.Ordinal));
-        var display = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, settlements: reloader.Settlements, composites: reloader.Composites);
-        display.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+        var display = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog, composites: reloader.Composites);
+        display.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
         var displayReload = display.Reload();
         Assert.IsTrue(displayReload.IsCommitted);
         Assert.AreEqual(vehicleId, voxelSession.QueryComposites()[0].Id);

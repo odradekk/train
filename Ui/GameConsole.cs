@@ -1,5 +1,5 @@
 using Godot;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.WorldEditor;
 using Train.Domain.Voxels;
 using Train.Core.Logging;

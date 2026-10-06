@@ -1,3 +1,4 @@
+using Train.Core.Content.Composites;
 using System.Collections.ObjectModel;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;

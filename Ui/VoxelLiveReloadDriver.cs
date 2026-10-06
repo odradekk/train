@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Godot;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 
 namespace Train;

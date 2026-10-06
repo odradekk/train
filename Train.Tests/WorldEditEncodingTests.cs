@@ -1,3 +1,5 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using System.Globalization;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

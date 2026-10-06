@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
@@ -338,7 +339,7 @@ internal sealed class WorldEditorHarness : IDisposable
     {
         EstablishedSession?.Detach();
         EstablishedSession = session;
-        Reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(session));
+        Reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(session));
     }
 
     public static MemoryContentSource PackageWithoutRail() => CompositeFixtures.FormalFixturePackage();

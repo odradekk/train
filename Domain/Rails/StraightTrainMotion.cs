@@ -1,4 +1,5 @@
-using Train.Content;
+using Train.Core.Content.Behaviors;
+using Train.Core.Content;
 using Train.Domain.Behaviors;
 using Train.Domain.Composites;
 using Train.Core.Simulation;

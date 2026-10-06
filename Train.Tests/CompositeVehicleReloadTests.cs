@@ -1,5 +1,7 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
 
@@ -417,7 +419,7 @@ public sealed class CompositeVehicleReloadTests
         var session = new VoxelDevelopmentSession(world.Reloader.Catalog, VoxelWorldIdentity.Slice3, store, world.Reloader.Composites);
         var vehicleId = session.Manufacture(HollowShellFixture.DefinitionId).VehicleId!.Value;
         Assert.IsTrue(session.Damage(vehicleId, new LocalVoxelCoord(0, 1, 0), 25).Succeeded);
-        world.Reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(session));
+        world.Reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(session));
         world.Source.AddVoxelFile(
             "core",
             "voxels/vehicle-shell.voxels.json",
@@ -539,9 +541,8 @@ public sealed class CompositeVehicleReloadTests
             source,
             world.Logger,
             catalog: world.Reloader.Catalog,
-            settlements: world.Reloader.Settlements,
             composites: world.Reloader.Composites);
-        rebuilt.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(world.Session));
+        rebuilt.SetReloadParticipant(VoxelWorldReloadAdapter.For(world.Session));
         world.Reloader = rebuilt;
         return rebuilt;
     }
@@ -551,7 +552,7 @@ public sealed class CompositeVehicleReloadTests
         var source = CompositeFixtures.FormalFixturePackage();
         var (reloader, logger) = CompositeFixtures.Load(source);
         var session = new VoxelDevelopmentSession(reloader.Catalog, VoxelWorldIdentity.Slice3, composites: reloader.Composites);
-        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(session));
+        reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(session));
         return new SessionHandle(session, reloader, logger, source);
     }
 

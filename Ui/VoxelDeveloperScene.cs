@@ -1,6 +1,8 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using Godot;
 using System.Diagnostics;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;

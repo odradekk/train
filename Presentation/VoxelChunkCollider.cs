@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Godot;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 
 namespace Train.Presentation;
@@ -34,9 +35,9 @@ public partial class VoxelChunkCollider : StaticBody3D
                     out var pendingSizeY,
                     out var pendingSizeZ))
                 continue;
-            if (!VoxelCollisionAdapter.TryDeriveSize(pendingSizeX, out _) ||
-                !VoxelCollisionAdapter.TryDeriveSize(pendingSizeY, out _) ||
-                !VoxelCollisionAdapter.TryDeriveSize(pendingSizeZ, out _))
+            if (!VoxelCollisionValidation.TryDeriveSize(pendingSizeX, out _) ||
+                !VoxelCollisionValidation.TryDeriveSize(pendingSizeY, out _) ||
+                !VoxelCollisionValidation.TryDeriveSize(pendingSizeZ, out _))
                 throw new InvalidOperationException(
                     $"Published collision at ({position.X},{position.Y},{position.Z}) lost a positive adapter volume.");
         }
@@ -107,9 +108,9 @@ public partial class VoxelChunkCollider : StaticBody3D
                 out var derivedSizeX,
                 out var derivedSizeY,
                 out var derivedSizeZ) ||
-            !VoxelCollisionAdapter.TryDeriveSize(derivedSizeX, out sizeX) ||
-            !VoxelCollisionAdapter.TryDeriveSize(derivedSizeY, out sizeY) ||
-            !VoxelCollisionAdapter.TryDeriveSize(derivedSizeZ, out sizeZ))
+            !VoxelCollisionValidation.TryDeriveSize(derivedSizeX, out sizeX) ||
+            !VoxelCollisionValidation.TryDeriveSize(derivedSizeY, out sizeY) ||
+            !VoxelCollisionValidation.TryDeriveSize(derivedSizeZ, out sizeZ))
             return false;
         centerX = (float)derivedCenterX;
         centerY = (float)derivedCenterY;

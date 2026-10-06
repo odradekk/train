@@ -1,3 +1,5 @@
+using Train.Core.Content.Composites;
+using Train.Core.Content.Voxels;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.Loader;
@@ -5,7 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.WorldEditor;

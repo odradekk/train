@@ -1,4 +1,5 @@
-using Train.Content;
+using Train.Core.Content.Composites;
+using Train.Core.Content;
 using Train.Domain.Behaviors;
 using Train.Domain.Composites;
 using Train.Domain.Voxels;
@@ -18,7 +19,7 @@ public static class TrainAssemblyRules
                 behaviors.AddRange(entry.Definition.Behaviors);
         }
 
-        return BehaviorRegistry.CapabilitiesFrom(behaviors);
+        return LegacyBehaviorCapabilities.CapabilitiesFrom(behaviors);
     }
 
     public static OperationalCondition EvaluateOperational(int boundContacts, IReadOnlyList<string> capabilities)

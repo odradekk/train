@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -76,8 +77,8 @@ public sealed class VoxelLiveReloadTests
         var snapshot = harness.Reloader.Catalog.Current;
 
         var later = ContentFixtures.ValidFerrousOre();
-        var rebuilt = ContentFixtures.Create(later, harness.Logger, catalog: harness.Reloader.Catalog, settlements: harness.Reloader.Settlements);
-        rebuilt.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(harness.Session));
+        var rebuilt = ContentFixtures.Create(later, harness.Logger, catalog: harness.Reloader.Catalog);
+        rebuilt.SetReloadParticipant(VoxelWorldReloadAdapter.For(harness.Session));
         var rejected = rebuilt.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
@@ -102,8 +103,8 @@ public sealed class VoxelLiveReloadTests
         var later = ContentFixtures.ValidFerrousOre();
         later.AddMod("broken", ModFixtures.SampleUuid);
         later.AddVoxelFile(ModFixtures.SampleUuid, "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
-        var rebuilt = ContentFixtures.Create(later, harness.Logger, catalog: harness.Reloader.Catalog, settlements: harness.Reloader.Settlements);
-        rebuilt.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(harness.Session));
+        var rebuilt = ContentFixtures.Create(later, harness.Logger, catalog: harness.Reloader.Catalog);
+        rebuilt.SetReloadParticipant(VoxelWorldReloadAdapter.For(harness.Session));
         var rejected = rebuilt.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
@@ -236,7 +237,7 @@ public sealed class VoxelLiveReloadTests
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
             var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
-            reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+            reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
             return new LiveReloadHarness(session, source, reloader, voxelSession);
         }
 

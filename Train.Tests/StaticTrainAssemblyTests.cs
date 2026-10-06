@@ -1,6 +1,7 @@
+using Train.Core.Content.Composites;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Behaviors;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
@@ -714,7 +715,7 @@ internal sealed class StaticTrainHarness : IDisposable
             VoxelWorldIdentity.Slice4,
             store,
             reloader.Composites);
-        reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(session));
+        reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(session));
         return new StaticTrainHarness(logger, userData, store, content, reloader, session, existingUserData is null);
     }
 

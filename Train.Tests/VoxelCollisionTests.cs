@@ -1,5 +1,6 @@
+using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -383,7 +384,7 @@ public sealed class VoxelCollisionTests
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
             var world = VoxelWorldFactory.CreateDevelopmentWorld(reloader.Catalog.Current!);
             var voxelSession = new VoxelDevelopmentSession(reloader.Catalog);
-            reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+            reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
             return new CollisionHarness(
                 session,
                 source,
@@ -400,7 +401,7 @@ public sealed class VoxelCollisionTests
             var reloader = ContentFixtures.Create(source, session.Logger);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
             var voxelSession = new VoxelDevelopmentSession(reloader.Catalog, identity);
-            reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+            reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
             return new CollisionHarness(
                 session,
                 source,

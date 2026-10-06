@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Rails;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
@@ -521,7 +521,7 @@ public sealed class TrainPersistenceTests
         Assert.AreEqual(WorldSaveStatus.Loaded, reader.Session.Load(saved.SaveId!.Value).Status);
         Assert.AreEqual(fingerprint, WorldSaveAuthority.Fingerprint(reader.Session));
         Assert.AreEqual(0UL, reader.Session.CollectHostSteps(0));
-        reader.Reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(reader.Session));
+        reader.Reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(reader.Session));
         WritePropulsion(reader, targetSpeed: 4, acceleration: 2);
         Assert.AreEqual(ContentReloadStatus.Committed, reader.Reloader.Reload().Status);
         Assert.AreEqual(saved.SaveId, reader.Session.SaveId);

@@ -1,8 +1,9 @@
+using Train.Core.Content.Voxels;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Content;
+using Train.Core.Content;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -91,7 +92,7 @@ public sealed class WorldSaveTests
         var first = harness.Session.Save("Keep");
         using var restored = SaveHarness.Create(harness.UserData, harness.Source);
         Assert.AreEqual(WorldSaveStatus.Loaded, restored.Session.Load(first.SaveId!.Value).Status);
-        restored.Reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(restored.Session));
+        restored.Reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(restored.Session));
 
         Assert.AreEqual(WorldCommandStatus.Added, restored.Session.Add(
             new WorldVoxelCoord(0, 1, 0), Iron, VoxelOrientation.Identity).Status);
@@ -754,7 +755,7 @@ public sealed class WorldSaveTests
                 reloader.Catalog,
                 identity ?? VoxelWorldIdentity.Slice2,
                 store);
-            reloader.SetWorldReloadAdapter(VoxelWorldReloadAdapter.For(voxelSession));
+            reloader.SetReloadParticipant(VoxelWorldReloadAdapter.For(voxelSession));
             return new SaveHarness(logger, userData, store, content, reloader, voxelSession, existingUserData is null);
         }
 

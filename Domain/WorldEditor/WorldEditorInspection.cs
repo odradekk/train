@@ -1,3 +1,4 @@
+using Train.Core.Content.Composites;
 using System.Globalization;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
