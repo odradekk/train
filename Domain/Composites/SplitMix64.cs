@@ -1,27 +1,20 @@
+// Domain.Composites 按固定断裂随机键给等值候选排序。
+// 通用整数变换由 Core 提供，此文件保留仍在编译的断裂调用所需的用途规则。
+
 namespace Train.Domain.Composites;
 
 /// <summary>
-/// Stateless SplitMix64 mixer. Version 1 has one purpose: fracture tie-breaks.
-/// The key is three unsigned 64-bit fields and no strings: seed, then transaction id, then the
-/// candidate's existing minimum part id. <see cref="FracturePurpose"/> is the ASCII bytes of
-/// "FRACTURE" as a big-endian ulong. Mix is the public-domain SplitMix64 finalizer under unchecked
-/// ulong arithmetic. Failed candidates do not enter the key and do not allocate entity ids.
+/// 按版本 1 的断裂键计算候选分数并选择主候选。
+/// 键依次为种子、事务标识和候选已有的最小部件标识，都是无符号 64 位整数。
+/// <see cref="FracturePurpose"/> 是字符串 "FRACTURE" 的 ASCII 字节按大端排列得到的整数。
+/// 失败候选不进入随机键，也不分配实体标识；通用混合算法由 Core 提供。
 /// </summary>
 public static class SplitMix64
 {
     public const ulong AlgorithmVersion = 1;
     public const ulong FracturePurpose = 0x4652414354555245UL;
 
-    public static ulong Mix(ulong value)
-    {
-        unchecked
-        {
-            value += 0x9E3779B97F4A7C15UL;
-            value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9UL;
-            value = (value ^ (value >> 27)) * 0x94D049BB133111EBUL;
-            return value ^ (value >> 31);
-        }
-    }
+    public static ulong Mix(ulong value) => Train.Core.Simulation.SplitMix64.Mix(value);
 
     public static ulong FractureScore(ulong seed, ulong transactionId, ulong candidateId)
     {

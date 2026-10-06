@@ -1,7 +1,7 @@
 using Train.Content;
 using Train.Domain.Behaviors;
 using Train.Domain.Composites;
-using Train.Domain.Simulation;
+using Train.Core.Simulation;
 using Train.Domain.Voxels;
 
 namespace Train.Domain.Rails;

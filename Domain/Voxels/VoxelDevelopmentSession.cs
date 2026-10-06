@@ -3,7 +3,7 @@ using Train.Domain.Commands;
 using Train.Domain.Composites;
 using Train.Domain.WorldEditor;
 using Train.Domain.Rails;
-using Train.Domain.Simulation;
+using Train.Core.Simulation;
 
 namespace Train.Domain.Voxels;
 

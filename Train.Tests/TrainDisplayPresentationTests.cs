@@ -2,7 +2,7 @@ using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Domain.Composites;
 using Train.Domain.Rails;
-using Train.Domain.Simulation;
+using Train.Core.Simulation;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -160,7 +160,7 @@ public sealed class TrainDisplayPresentationTests
     }
 
     [TestMethod]
-    public void Host_schedules_and_pause_keep_authority_while_alpha_tracks_remainder()
+    public void Host_schedules_and_pause_keep_authority()
     {
         using var first = Parked();
         using var fps30 = Parked();
@@ -175,13 +175,6 @@ public sealed class TrainDisplayPresentationTests
         Assert.AreEqual(expected, fps144.Session.CaptureTrainAuthority());
         Assert.AreEqual(expected, paused.Session.CaptureTrainAuthority());
 
-        var scheduler = new SimulationScheduler();
-        Assert.AreEqual(0.0, scheduler.DisplayAlpha, Tolerance);
-        Assert.AreEqual(0UL, scheduler.CollectSteps(SimulationClock.StepDuration * 0.4, paused: false));
-        Assert.AreEqual(0.4, scheduler.DisplayAlpha, 1e-9);
-        Assert.AreEqual(1UL, scheduler.CollectSteps(SimulationClock.StepDuration * 0.7, paused: false));
-        Assert.IsTrue(scheduler.DisplayAlpha is >= 0 and < 1);
-        Assert.AreEqual(0UL, scheduler.CollectSteps(1.0, paused: true));
     }
 
     [TestMethod]

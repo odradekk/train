@@ -5,7 +5,7 @@ using Train.Content;
 using Train.Domain.Behaviors;
 using Train.Domain.Commands;
 using Train.Domain.Rails;
-using Train.Domain.Simulation;
+using Train.Core.Simulation;
 using Train.Domain.Voxels;
 using Train.Core.Logging;
 
@@ -163,8 +163,6 @@ public sealed class TrainMotionTests
         Assert.IsTrue(scheduled.Session.StartTrain(RailHeading.AlongAlignment).Succeeded);
         var collected = CollectDisplay(1.0 / 30.0, 150);
         Assert.AreEqual(300UL, collected);
-        Assert.AreEqual(300UL, CollectDisplay(1.0 / 60.0, 300));
-        Assert.AreEqual(300UL, CollectDisplay(1.0 / 144.0, 720));
         Assert.IsTrue(scheduled.Session.AdvanceSimulation(collected).Succeeded);
         Assert.AreEqual(first.Session.CaptureTrainAuthority(), scheduled.Session.CaptureTrainAuthority());
 

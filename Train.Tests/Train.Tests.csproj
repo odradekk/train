@@ -22,7 +22,6 @@
     <Compile Include="..\Domain\Settlements\*.cs" Link="Domain\Settlements\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Composites\*.cs" Link="Domain\Composites\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Rails\*.cs" Link="Domain\Rails\%(Filename)%(Extension)" />
-    <Compile Include="..\Domain\Simulation\*.cs" Link="Domain\Simulation\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\Voxels\*.cs" Link="Domain\Voxels\%(Filename)%(Extension)" />
     <Compile Include="..\Domain\WorldEditor\*.cs" Link="Domain\WorldEditor\%(Filename)%(Extension)" />
     <Compile Include="..\Content\*.cs" Link="Content\%(Filename)%(Extension)" />
