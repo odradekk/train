@@ -33,7 +33,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
 ```
 
-`correctness` 包含全部已登记 MSTest 和这两个 Godot／新进程检查，入口复用一次游戏构建和导入并串行运行。Benchmark、长测、人工、导出和额外平台没有通过此选择交付；未接入脚本仍按 `scripts/runner-catalog.json` 的清单独立调用。
+`correctness` 包含全部已登记 MSTest，以及 App 的日志、内容、启动到主菜单三项真实 Godot 检查，入口复用一次游戏构建和导入并串行运行。两项 Windows 导出运行时检查须另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。清单中的旧玩法脚本正在退役，不再作为当前应用的验证入口。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 

@@ -3,14 +3,13 @@
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 using Godot;
-using Train.Domain.Voxels;
 using Train.Core.Logging;
 
 namespace Train.Content;
 
 /// <summary>通过 Godot 和物理文件系统发现内容包、读取资源并解码 PNG。</summary>
 /// <remarks>路径与日志依赖由宿主提供，构造时不访问目录；实例保留最近一次列包诊断，不提供并发同步。内容定义、引用及图片用途的校验由内容加载器负责。</remarks>
-/// <example>真实 Godot 中读取内置 JSON 并发布 core:ferrous-ore 的检查见 <c>scripts/run-godot-content-smoke.ps1</c>。</example>
+/// <example>真实 Godot 中读取内置 JSON 并发布 core:ferrous-ore 的检查见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
 public sealed class GodotContentSource : IContentSource
 {
     /// <summary>内置资源的默认 Godot 路径，供编辑器和导出运行读取同一组资源。</summary>
@@ -29,6 +28,8 @@ public sealed class GodotContentSource : IContentSource
     private readonly string _builtInResourcesRoot;
     /// <summary>内置根不以区分大小写的 res:// 前缀开头时为 true，决定内置包使用物理访问。</summary>
     private readonly bool _usesPhysicalBuiltIn;
+    /// <summary>普通运行允许准备用户内容目录；只读检查设为 false，只扫描已有目录。</summary>
+    private readonly bool _createUserDirectories;
     /// <summary>最近一次完成列包后保留的诊断列表；初始为空，在每次完成扫描时替换引用。</summary>
     private IReadOnlyList<ContentDiagnostic> _scanDiagnostics = Array.Empty<ContentDiagnostic>();
 
@@ -36,11 +37,13 @@ public sealed class GodotContentSource : IContentSource
     /// <param name="logger">扫描日志实例；null 表示关闭此适配器的日志输出。</param>
     /// <param name="userDataDirectory">可信的物理用户数据根；null 时使用 Godot 用户目录，其他文本原样保存。</param>
     /// <param name="builtInResourcesRoot">内置资源根；null、空串或全空白时使用 <see cref="BuiltInResourcesRoot"/>，其他文本原样保存。</param>
+    /// <param name="createUserDirectories">是否在扫描时创建 mods 和 blueprints；false 用于不改写用户内容的启动检查。</param>
     /// <remarks>仅以 Ordinal 比较 res:// 前缀决定访问方式，不修剪路径、不检查存在性或链接，也不创建目录；物理用户数据根应由宿主选定。</remarks>
     public GodotContentSource(
         TrainLogger? logger = null,
         string? userDataDirectory = null,
-        string? builtInResourcesRoot = null)
+        string? builtInResourcesRoot = null,
+        bool createUserDirectories = true)
     {
         _logger = logger;
         _userDataDirectory = userDataDirectory;
@@ -48,6 +51,7 @@ public sealed class GodotContentSource : IContentSource
             ? BuiltInResourcesRoot
             : builtInResourcesRoot;
         _usesPhysicalBuiltIn = !_builtInResourcesRoot.StartsWith("res://", StringComparison.Ordinal);
+        _createUserDirectories = createUserDirectories;
     }
 
     /// <summary>获取注入的物理用户数据根；未注入时，每次访问均查询 Godot 用户目录。</summary>
@@ -58,12 +62,13 @@ public sealed class GodotContentSource : IContentSource
     /// <summary>探测内置内容，并扫描用户目录中的 Mod 与玩家蓝图包。</summary>
     /// <returns>新建的包列表，先包含内置包，再包含已接受的 Mod 和按文件名发现的玩家蓝图；内置根不可用时仍保留 Available 为 false 的内置包。</returns>
     /// <remarks>
-    /// 需要时创建用户根中的 mods 和 blueprints 目录；未注入用户根时还会尝试通过 Godot 创建这两个目录。
+    /// 普通运行需要时创建用户根中的 mods 和 blueprints；只读检查只扫描已有目录。
+    /// 未注入用户根且允许创建目录时，还会通过 Godot 准备这两个目录。
     /// 物理目录准备或枚举失败记为对应根不可用诊断；Mod 扫描代码块的异常也转为 mods_root_unavailable。
     /// 正常完成时替换最近一次扫描诊断，不冻结返回列表；未被转换的 Godot、路径或日志异常向上传播。
     /// 本方法不读取体素或蓝图定义正文，也不解码资源；目录可用标记不代替后续的链接与文件校验。
     /// </remarks>
-    /// <example>隔离用户目录中的 Mod 根为空或不可用时，内置 ferrous-ore 仍可发布；见 <c>scripts/run-godot-mods-export-smoke.ps1</c>。</example>
+    /// <example>隔离用户目录中的 Mod 根为空或不可用时，内置 ferrous-ore 仍可发布；见 <c>scripts/checks/run-app-check.ps1</c> 的 mods-export 检查。</example>
     public IReadOnlyList<ContentPackage> ListPackages()
     {
         bool available;
@@ -93,7 +98,7 @@ public sealed class GodotContentSource : IContentSource
                 ["physical_path"] = physical
             });
 
-        if (_userDataDirectory is null)
+        if (_userDataDirectory is null && _createUserDirectories)
         {
             try
             {
@@ -108,7 +113,8 @@ public sealed class GodotContentSource : IContentSource
         }
 
         var diagnostics = new List<ContentDiagnostic>();
-        if (!ExternalContent.TryEnsureDirectory(userData, physical, out var error))
+        string? error = null;
+        if (_createUserDirectories && !ExternalContent.TryEnsureDirectory(userData, physical, out error))
         {
             diagnostics.Add(ExternalContent.ModsRootUnavailable(ModsGodotPath, error ?? "Mods directory is unavailable."));
         }
@@ -257,7 +263,7 @@ public sealed class GodotContentSource : IContentSource
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="rawBytes"/> 为 null。</exception>
     /// <exception cref="NullReferenceException"><paramref name="normalizedRelativePath"/> 为 null，且原始字节参数非 null。</exception>
-    /// <example>真实 Godot 内容检查通过 PNG 读取与加载流程发布 ferrous-ore；见 <c>scripts/run-godot-content-smoke.ps1</c>。</example>
+    /// <example>真实 Godot 内容检查通过 PNG 读取与加载流程发布 ferrous-ore；见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes)
     {
         ArgumentNullException.ThrowIfNull(rawBytes);
@@ -279,12 +285,13 @@ public sealed class GodotContentSource : IContentSource
             image.GetData()));
     }
 
-    /// <summary>准备玩家蓝图根，并把小写 D 格式 UUID 文件名登记为独立内容包。</summary>
+    /// <summary>按运行方式准备或只读扫描玩家蓝图根，把小写 D 格式 UUID 文件名登记为独立内容包。</summary>
     /// <remarks>目录失败向共享诊断列表追加根不可用诊断；非法 UUID 文件名追加警告后跳过，不读取文件正文，也不拒绝全零 UUID。</remarks>
     private IReadOnlyList<ContentPackage> ListBlueprintPackages(string userData, List<ContentDiagnostic> diagnostics)
     {
         var physical = Path.Combine(userData, "blueprints");
-        if (!ExternalContent.TryEnsureDirectory(userData, physical, out var error))
+        string? error = null;
+        if (_createUserDirectories && !ExternalContent.TryEnsureDirectory(userData, physical, out error))
         {
             diagnostics.Add(ExternalContent.BlueprintsRootUnavailable(
                 BlueprintsGodotPath,

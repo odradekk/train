@@ -23,7 +23,9 @@ function Invoke-HiddenProcess {
     param(
         [Parameter(Mandatory = $true)]
         [string] $FilePath,
-        [string[]] $ArgumentList = @()
+        [string[]] $ArgumentList = @(),
+        [ValidateRange(0, 2147478)]
+        [int] $TimeoutSeconds = 0
     )
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -43,13 +45,10 @@ function Invoke-HiddenProcess {
         if ([string]::IsNullOrEmpty($psi.FileName)) {
             $psi.FileName = "cmd.exe"
         }
-        $quoted = '"' + $FilePath + '"'
-        if ($args.Length -gt 0) {
-            $psi.Arguments = "/c $quoted $args"
-        }
-        else {
-            $psi.Arguments = "/c $quoted"
-        }
+        # cmd.exe 会移除 /c 后的第一层引号；外层再包一层，才能同时保留脚本路径和带空格参数。
+        $command = '"' + $FilePath + '"'
+        if ($args.Length -gt 0) { $command += " $args" }
+        $psi.Arguments = '/d /s /c "' + $command + '"'
     }
     else {
         $psi.FileName = $FilePath
@@ -58,22 +57,59 @@ function Invoke-HiddenProcess {
 
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
-    $process.Start() | Out-Null
-    $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-    $stderrTask = $process.StandardError.ReadToEndAsync()
-    $process.WaitForExit()
-    $stdout = $stdoutTask.GetAwaiter().GetResult()
-    $stderr = $stderrTask.GetAwaiter().GetResult()
+    $started = $false
+    $timedOut = $false
+    $cleanupSucceeded = $true
+    $stdout = ""
+    $stderr = ""
+    $exit = -1
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $cleanupDeadlineMs = if ($TimeoutSeconds -gt 0) { ($TimeoutSeconds + 5) * 1000 } else { 0 }
+    try {
+        $process.Start() | Out-Null
+        $started = $true
+        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+        $stderrTask = $process.StandardError.ReadToEndAsync()
+        if ($TimeoutSeconds -gt 0) {
+            $finished = $process.WaitForExit($TimeoutSeconds * 1000)
+            if (-not $finished) {
+                $timedOut = $true
+                try { $process.Kill($true) } catch { $cleanupSucceeded = $false }
+                $cleanupWaitMs = [Math]::Max(1, $cleanupDeadlineMs - [int] $watch.ElapsedMilliseconds)
+                if (-not $process.WaitForExit($cleanupWaitMs)) { $cleanupSucceeded = $false }
+            }
+        }
+        else {
+            $process.WaitForExit()
+        }
+
+        if ($process.HasExited) { $exit = [int] $process.ExitCode }
+        $streamWaitMs = if ($TimeoutSeconds -gt 0) { [Math]::Max(1, $cleanupDeadlineMs - [int] $watch.ElapsedMilliseconds) } else { 5000 }
+        if (-not [System.Threading.Tasks.Task]::WaitAll(@($stdoutTask, $stderrTask), $streamWaitMs)) {
+            $cleanupSucceeded = $false
+        }
+        else {
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+        }
+    }
+    finally {
+        if ($started -and -not $process.HasExited) {
+            try { $process.Kill($true) } catch { $cleanupSucceeded = $false }
+            $finalWaitMs = if ($TimeoutSeconds -gt 0) { [Math]::Max(1, $cleanupDeadlineMs - [int] $watch.ElapsedMilliseconds) } else { 5000 }
+            try { if (-not $process.WaitForExit($finalWaitMs)) { $cleanupSucceeded = $false } } catch { $cleanupSucceeded = $false }
+        }
+        $watch.Stop()
+        $process.Dispose()
+    }
     if ($null -eq $stdout) { $stdout = "" }
     if ($null -eq $stderr) { $stderr = "" }
 
-    $exit = -1
-    if ($null -ne $process.ExitCode) {
-        $exit = [int] $process.ExitCode
-    }
-
     [pscustomobject]@{
         ExitCode = $exit
-        Output   = $stdout + $stderr
+        Output = $stdout + $stderr
+        TimedOut = $timedOut
+        CleanupSucceeded = $cleanupSucceeded
+        DurationMs = [int] $watch.ElapsedMilliseconds
     }
 }

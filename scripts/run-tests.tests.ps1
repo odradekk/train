@@ -13,7 +13,7 @@ $runner = Join-Path $PSScriptRoot "run-tests.ps1"
 $pwsh = (Get-Process -Id $PID).Path
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 $runStamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
-$evidence = Join-Path $root "TestResults/issue-159/harness/$runStamp"
+$evidence = Join-Path $root "TestResults/run-tests-harness/$runStamp"
 $fixtureRoot = Join-Path $evidence "fixture"
 $project = Join-Path $fixtureRoot "Fixture.csproj"
 $bareProject = Join-Path $evidence "bare/Bare.csproj"
@@ -37,7 +37,13 @@ Note "HARNESS_ROOT=$evidence"
 
 function It {
     param([string] $Name, [scriptblock] $Body)
-    if ($Only -and $Name -notlike "*$Only*") { return }
+    if ($Only) {
+        $selected = $false
+        foreach ($pattern in $Only.Split(",", [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            if ($Name -like "*$($pattern.Trim())*") { $selected = $true; break }
+        }
+        if (-not $selected) { return }
+    }
     Note "RUN $Name"
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
@@ -363,6 +369,12 @@ function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
     Assert-Equal "end identity known" $true ([bool] $Summary.Json.gitAtEnd.identityKnown)
     Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $Summary.Json.cleanCommitProven)
     Assert-Equal "prep count" $PrepCount ([int] $Summary.Json.preparation.commandCount)
+    if ($Summary.Json.environment -and $Summary.Json.environment.PSObject.Properties.Name -contains "gameUserDataUnchanged") {
+        $isolationStep = @($Summary.Json.preparation.steps | Where-Object name -eq "player-user-data-isolation")
+        Assert-Equal "one passed isolation step" 1 $isolationStep.Count
+        Assert-Equal "isolation passed" "passed" $isolationStep[0].outcome
+        Assert-Equal "isolation unchanged" "unchanged" $isolationStep[0].reason
+    }
 }
 
 function New-CheckSpec {
@@ -374,6 +386,8 @@ function New-CheckSpec {
         [string[]] $Requirements = @(),
         [bool] $NeedsImport = $false,
         [bool] $NeedsGameBuild = $false,
+        [bool] $NeedsExport = $false,
+        [bool] $NeedsContentInput = $false,
         [int] $TimeoutSeconds = 30,
         [string] $Scope = "orchestration"
     )
@@ -394,6 +408,8 @@ function New-CheckSpec {
     $map["claim"] = "orchestration"
     $map["needsImport"] = [bool] $NeedsImport
     $map["needsGameBuild"] = [bool] $NeedsGameBuild
+    $map["needsExport"] = [bool] $NeedsExport
+    $map["needsContentInput"] = [bool] $NeedsContentInput
     $map["timeoutSeconds"] = $TimeoutSeconds
     return $map
 }
@@ -764,7 +780,8 @@ param(
     [string] $PidFile = "",
     [string] $UserData = "",
     [string] $Lock = "",
-    [string] $Id = ""
+    [string] $Id = "",
+    [string] $ExportBinary = ""
 )
 $ErrorActionPreference = "Stop"
 switch ($Mode) {
@@ -787,6 +804,33 @@ switch ($Mode) {
             New-Item -ItemType Directory -Force -Path $UserData | Out-Null
             Set-Content -LiteralPath (Join-Path $UserData "started.txt") -Value "started" -Encoding ascii
         }
+        exit 0
+    }
+    "export-path" {
+        Write-Output "EXPORT_BINARY=$ExportBinary"
+        if (-not (Test-Path -LiteralPath $ExportBinary -PathType Leaf)) { exit 8 }
+        exit 0
+    }
+    "content-input" {
+        $content = Join-Path $UserData "content-input"
+        $required = @(
+            "initial/voxels/ferrous-ore.voxels.json",
+            "initial/voxels/ferrous-ore/icon.png",
+            "added/voxels/ferrous-ore.voxels.json",
+            "added/voxels/smoke-ore.voxels.json"
+        )
+        foreach ($relative in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $content $relative) -PathType Leaf)) { exit 8 }
+        }
+        if (Test-Path -LiteralPath (Join-Path $content "initial/devblueprints")) { exit 9 }
+        if (Test-Path -LiteralPath (Join-Path $content "initial/fixtures")) { exit 9 }
+        Write-Output "CONTENT_INPUT=$content"
+        exit 0
+    }
+    "mutate-player-data" {
+        $player = Join-Path $env:APPDATA "Godot/app_userdata/Train"
+        New-Item -ItemType Directory -Force -Path $player | Out-Null
+        Set-Content -LiteralPath (Join-Path $player "mutated.txt") -Value "changed" -Encoding ascii
         exit 0
     }
     "isolate" {
@@ -940,6 +984,16 @@ internal static class Program
             if (mode == "version-fail" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "fail" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
+            if (joined.IndexOf("--export-release", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                string log = Environment.GetEnvironmentVariable("FAKE_EXPORT_LOG");
+                if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, "APPDATA=" + Environment.GetEnvironmentVariable("APPDATA") + Environment.NewLine + joined + Environment.NewLine);
+                if ((Environment.GetEnvironmentVariable("FAKE_EXPORT") ?? "") == "fail") return 1;
+                string output = args[args.Length - 1];
+                Directory.CreateDirectory(Path.GetDirectoryName(output));
+                File.WriteAllText(output, "fake export");
+                return 0;
+            }
             Console.WriteLine("4.7.2.fake");
             return 0;
         }
@@ -1117,11 +1171,11 @@ It "fixture-dedup" {
     ) -WaitMs 300000
     Assert-Exit $result 0
     $cases = Get-CaseLines $result.Stdout
-    Assert-Equal "dedup count" 5 $cases.Count
+    Assert-Equal "dedup count" 8 $cases.Count
     $shared = 0
     foreach ($case in $cases) { if ($case.Id -eq "Fixture.SharedRuleTests.Counts_once") { $shared++ } }
     Assert-Equal "shared once" 1 $shared
-    Assert-Contains "selected" $result.Stdout "SELECTED count=5"
+    Assert-Contains "selected" $result.Stdout "SELECTED count=8"
     $exact = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-List", "-Test", "Fixture.SharedRuleTests.Counts_once", "-Scope", "voxels", "-Scope", "content"
     ) -WaitMs 180000
@@ -1992,7 +2046,8 @@ It "real-help" {
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
-        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint",
+        "REGISTERED", "godot.logging-smoke", "godot.content-smoke", "godot.main-menu",
+        "godot.content-export-smoke", "godot.mods-export-smoke",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
@@ -2038,25 +2093,27 @@ It "real-list" {
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 2 $external.Count
+    Assert-Equal "external count" 5 $external.Count
     $logging = $externalById["godot.logging-smoke"]
-    $authority = $externalById["godot.authority-checkpoint"]
+    $content = $externalById["godot.content-smoke"]
+    $menu = $externalById["godot.main-menu"]
+    $contentExport = $externalById["godot.content-export-smoke"]
+    $modsExport = $externalById["godot.mods-export-smoke"]
     Assert-True "logging listed" ($null -ne $logging)
-    Assert-True "authority listed" ($null -ne $authority)
+    Assert-True "content listed" ($null -ne $content)
+    Assert-True "menu listed" ($null -ne $menu)
+    Assert-True "content export listed" ($null -ne $contentExport)
+    Assert-True "mods export listed" ($null -ne $modsExport)
     Assert-Equal "logging is headless" "headless" $logging.Family
-    Assert-Equal "authority is headless" "headless" $authority.Family
     Assert-True "logging scope" (-not [string]::IsNullOrWhiteSpace([string] $logging.Scopes))
-    Assert-True "authority scope" (-not [string]::IsNullOrWhiteSpace([string] $authority.Scopes))
     Assert-Contains "logging needs godot" $logging.Requirements "godot"
     Assert-True "logging is one process" ([string] $logging.Requirements -notlike "*process*")
-    Assert-Contains "authority needs godot" $authority.Requirements "godot"
-    Assert-Contains "authority needs a process" $authority.Requirements "process"
     Assert-True "logging group" (-not [string]::IsNullOrWhiteSpace([string] $logging.Group))
-    Assert-True "authority group" (-not [string]::IsNullOrWhiteSpace([string] $authority.Group))
-    Assert-True "groups differ" ([string] $logging.Group -ne [string] $authority.Group)
     Assert-Contains "logging observes the engine" $logging.Claim "engine-observation"
-    Assert-Contains "authority restores" $authority.Claim "save-restore"
-    Assert-Contains "authority compares" $authority.Claim "authority-comparison"
+    Assert-Contains "content needs godot" $content.Requirements "godot"
+    Assert-Contains "menu needs godot" $menu.Requirements "godot"
+    Assert-Contains "content export requirement" $contentExport.Requirements "export"
+    Assert-Contains "mods export requirement" $modsExport.Requirements "export"
     foreach ($class in $expected.Keys) { Assert-True "missing class $class" $seen.ContainsKey($class) }
     $selected = [regex]::Match($result.Stdout, "SELECTED count=(\d+)")
     Assert-Equal "selected count" $cases.Count ([int] $selected.Groups[1].Value)
@@ -2123,15 +2180,24 @@ It "real-voxels" {
     Assert-CommonSummary $summary
     $checks = Get-Checks $summary
     Assert-True "voxel cases" ($checks.Count -ge 1)
+    $classes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($check in $checks) {
-        Assert-True "only cube $($check.id)" ([string]$check.id).StartsWith("Train.Tests.VoxelCubeUvTests.")
+        Assert-Equal "unit family $($check.id)" "unit" ([string] $check.family)
+        Assert-True "voxel scope $($check.id)" (@($check.scopes) -contains "voxels")
+        $id = [string] $check.id
+        $parts = $id.Split(".")
+        Assert-True "qualified id $id" ($parts.Count -ge 3)
+        [void] $classes.Add($parts[$parts.Count - 2])
         Assert-Equal "passed $($check.id)" "passed" $check.outcome
         Assert-True "duration $($check.id)" ([int]$check.durationMs -ge 0)
     }
+    Assert-True "cube UV contract selected" $classes.Contains("VoxelCubeUvTests")
+    Assert-True "collision definition contract selected" $classes.Contains("VoxelCollisionDefinitionTests")
     $trx = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter *.trx
     Assert-True "voxel trx" ($trx.Count -gt 0)
-    $trxText = [System.IO.File]::ReadAllText($trx[0].FullName)
-    Assert-Contains "voxel method" $trxText "VoxelCubeUvTests"
+    $trxText = (($trx | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n")
+    Assert-Contains "cube UV results" $trxText "VoxelCubeUvTests"
+    Assert-Contains "collision definition results" $trxText "VoxelCollisionDefinitionTests"
     Note "EVIDENCE real-voxels count=$($checks.Count) $($summary.Directory) $($result.DurationMs)ms"
 }
 
@@ -2174,11 +2240,15 @@ It "real-correctness-list" {
     Assert-Exit $correctness 0
     $allCount = [regex]::Match($all.Stdout, "SELECTED count=(\d+)").Groups[1].Value
     $correctCount = [regex]::Match($correctness.Stdout, "SELECTED count=(\d+)").Groups[1].Value
-    Assert-Equal "correctness lists every discovered case" $allCount $correctCount
+    Assert-Equal "correctness excludes two export checks" ([int]$allCount - 2) ([int]$correctCount)
     Assert-Contains "boundary" $correctness.Stdout "not all repository validation"
-    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint")) {
+    foreach ($id in @("godot.logging-smoke", "godot.content-smoke", "godot.main-menu")) {
         Assert-Contains "all $id" $all.Stdout "CASE id=$id"
         Assert-Contains "correctness $id" $correctness.Stdout "CASE id=$id"
+    }
+    foreach ($id in @("godot.content-export-smoke", "godot.mods-export-smoke")) {
+        Assert-Contains "all $id" $all.Stdout "CASE id=$id"
+        Assert-True "correctness excludes $id" ($correctness.Stdout -notlike "*CASE id=$id *")
     }
     Note "EVIDENCE real-correctness-list count=$correctCount $($correctness.DurationMs)ms"
 }
@@ -2266,6 +2336,10 @@ It "fixture-external-import-blocked" {
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
     Assert-True "import log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log"))
+    $importStep = @($summary.Json.preparation.steps | Where-Object name -eq "import")[0]
+    Assert-True "import recovery mode" (@($importStep.command) -contains "--recovery-mode")
+    Assert-True "import explicit log" (@($importStep.command) -contains "--log-file")
+    Assert-True "import log path" (@($importStep.command) -contains (Join-Path $summary.Directory "engine/import/godot.log"))
 }
 
 It "fixture-external-import-timeout" {
@@ -2461,6 +2535,105 @@ It "fixture-game-build-blocked" {
     Assert-Equal "failed build remains non-success" 2 $summary.Json.exitCode
     Assert-Equal "independent unit still passed" "passed" (Find-Check (Get-Checks $summary) "Fixture.PersistPassTests.Restores_marker").outcome
     Assert-Contains "build failure retained" (Get-Content (Join-Path $summary.Directory "game-build.log") -Raw) "fixture: game compilation failed"
+}
+
+It "fixture-shared-export" {
+    $results = New-Results "fixture-shared-export"
+    $catalog = Join-Path $results "catalog.json"
+    $exportLog = Join-Path $results "export.log"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.export-a" -Group "a-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true),
+        (New-CheckSpec -Id "ext.export-b" -Group "b-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.export-a", "-Test", "ext.export-b", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_EXPORT_LOG = $exportLog } -WaitMs 300000
+    Assert-Exit $result 0
+    $summary = Read-Summary $result.Stdout
+    $exportSteps = @($summary.Json.preparation.steps | Where-Object name -eq "windows-export")
+    Assert-Equal "one shared export" 1 $exportSteps.Count
+    $binary = Join-Path $summary.Directory "exports/windows/train.exe"
+    Assert-True "shared binary exists" (Test-Path -LiteralPath $binary -PathType Leaf)
+    $logs = @(Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log)
+    $text = (($logs | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n")
+    Assert-Equal "both checks receive shared binary" 2 ([regex]::Matches($text, [regex]::Escape("EXPORT_BINARY=$binary")).Count)
+    $exportText = [System.IO.File]::ReadAllText($exportLog)
+    Assert-Equal "export invoked once" 1 ([regex]::Matches($exportText, "--export-release").Count)
+    Assert-Contains "export keeps real appdata" $exportText "APPDATA=$env:APPDATA"
+    Assert-Contains "export recovery mode" $exportText "--recovery-mode"
+    Assert-Contains "export explicit log" $exportText "--log-file"
+    Assert-Contains "export log stays in run" $exportText (Join-Path $summary.Directory "engine/export/godot.log")
+    Assert-True "export binary is final argument" ($exportText.TrimEnd().EndsWith($binary, [System.StringComparison]::Ordinal))
+}
+
+It "fixture-shared-export-failure" {
+    $results = New-Results "fixture-shared-export-failure"
+    $catalog = Join-Path $results "catalog.json"
+    $exportLog = Join-Path $results "export.log"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.export-a" -Group "a-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true),
+        (New-CheckSpec -Id "ext.export-b" -Group "b-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.export-a", "-Test", "ext.export-b", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_EXPORT = "fail"; FAKE_EXPORT_LOG = $exportLog } -WaitMs 300000
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    foreach ($id in @("ext.export-a", "ext.export-b")) {
+        $check = Find-Check (Get-Checks $summary) $id
+        Assert-Equal "$id blocked" "blocked" $check.outcome
+        Assert-Equal "$id export reason" "export" $check.reason
+    }
+    $exportSteps = @($summary.Json.preparation.steps | Where-Object name -eq "windows-export")
+    Assert-Equal "one failed export" 1 $exportSteps.Count
+    Assert-Equal "export preparation blocked" "blocked" $exportSteps[0].outcome
+    Assert-True "export log retained" (Test-Path -LiteralPath (Join-Path $summary.Directory "export-windows.log") -PathType Leaf)
+    $checkLogs = @(Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log -ErrorAction SilentlyContinue)
+    Assert-Equal "checks not started" 0 $checkLogs.Count
+    Assert-Equal "export invoked once" 1 ([regex]::Matches([System.IO.File]::ReadAllText($exportLog), "--export-release").Count)
+}
+
+It "fixture-content-input" {
+    $results = New-Results "fixture-content-input"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.content-input" -Group "content-input" -ScriptPath $externalHost -Arguments @("-Mode", "content-input", "-UserData", "{output}") -NeedsContentInput $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.content-input", "-ResultsRoot", $results
+    ) -WaitMs 300000
+    Assert-Exit $result 0
+    $summary = Read-Summary $result.Stdout
+    Assert-Equal "content input passed" "passed" (Find-Check (Get-Checks $summary) "ext.content-input").outcome
+    $input = Join-Path $summary.Directory "groups/content-input/ext.content-input/output/content-input"
+    Assert-True "input retained as artifact" (Test-Path -LiteralPath $input -PathType Container)
+}
+
+It "fixture-player-data-change" {
+    $results = New-Results "fixture-player-data-change"
+    $catalog = Join-Path $results "catalog.json"
+    $privateAppData = Join-Path $results "private-appdata"
+    New-Item -ItemType Directory -Force -Path $privateAppData | Out-Null
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.mutate-player-data" -Group "player-data" -ScriptPath $externalHost -Arguments @("-Mode", "mutate-player-data"))
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.mutate-player-data", "-ResultsRoot", $results
+    ) -Environment @{ APPDATA = $privateAppData; LOCALAPPDATA = $privateAppData } -WaitMs 300000
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    Assert-Equal "check itself passed" "passed" (Find-Check (Get-Checks $summary) "ext.mutate-player-data").outcome
+    Assert-Equal "player data changed" $false ([bool] $summary.Json.environment.gameUserDataUnchanged)
+    $isolationStep = @($summary.Json.preparation.steps | Where-Object name -eq "player-user-data-isolation")
+    Assert-Equal "one isolation step" 1 $isolationStep.Count
+    Assert-Equal "isolation blocked" "blocked" $isolationStep[0].outcome
+    Assert-Equal "isolation reason" "user-data-changed" $isolationStep[0].reason
+    Assert-Contains "report isolation blocker" $summary.Report "player-user-data-isolation blocked user-data-changed"
+    Assert-True "private player data changed" (Test-Path -LiteralPath (Join-Path $privateAppData "Godot/app_userdata/Train/mutated.txt") -PathType Leaf)
 }
 
 It "fixture-external-timeout-tree" {

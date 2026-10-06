@@ -8,6 +8,25 @@ function Get-TestPowerShellPath {
     return (Get-Process -Id $PID).Path
 }
 
+# 清理本次创建的临时目录前，确认绝对目标是固定名称与 GUID 组成的直系临时子目录。
+function Remove-SmokeTestTemporaryDirectory {
+    param([string] $Path, [string] $ExpectedPrefix)
+    $target = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
+    $temp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/')
+    $parentPath = [System.IO.Path]::GetDirectoryName($target)
+    $parent = if ($parentPath) { $parentPath.TrimEnd('\', '/') } else { "" }
+    $leaf = [System.IO.Path]::GetFileName($target)
+    $suffix = if ($leaf.StartsWith($ExpectedPrefix, [System.StringComparison]::Ordinal)) { $leaf.Substring($ExpectedPrefix.Length) } else { "" }
+    if ($parent -ne $temp -or $suffix -notmatch '^[0-9a-f]{32}$') {
+        throw "Refusing to remove an unexpected smoke fixture directory: $target"
+    }
+    if (-not (Test-Path -LiteralPath $target)) { return }
+    Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+    if (Test-Path -LiteralPath $target) {
+        throw "Smoke fixture directory remains after cleanup: $target"
+    }
+}
+
 function New-FakeNativeProgram {
     param(
         [string] $Name,
@@ -142,13 +161,13 @@ $prints
     $runtime = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
     $buildOutput = & dotnet publish (Join-Path $root "TrainFakeGui.csproj") --configuration Release --runtime $runtime --self-contained false --output $publish 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-SmokeTestTemporaryDirectory -Path $root -ExpectedPrefix "$Name-"
         throw "Could not build Windows GUI fixture.`n$buildOutput"
     }
 
     $filePath = Join-Path $publish "TrainFakeGui.exe"
     if (-not (Test-Path -LiteralPath $filePath)) {
-        Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-SmokeTestTemporaryDirectory -Path $root -ExpectedPrefix "$Name-"
         throw "Windows GUI fixture build did not produce $filePath."
     }
 

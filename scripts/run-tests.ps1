@@ -426,6 +426,8 @@ function Convert-Catalog {
             Arguments = [System.Collections.Generic.List[string]]::new()
             NeedsImport = $false
             NeedsGameBuild = $false
+            NeedsExport = $false
+            NeedsContentInput = $false
             TimeoutSeconds = 0
         })
     }
@@ -489,6 +491,7 @@ function Select-Cases {
     $seen = @{}
     foreach ($case in @($Cases)) {
         if ($Parsed.Correctness -and $case.Family -ne "unit" -and $case.Family -ne "headless") { continue }
+        if ($Parsed.Correctness -and @($case.Requirements) -contains "export") { continue }
         if ($Parsed.Families.Count -gt 0 -and -not ($Parsed.Families -contains $case.Family)) { continue }
         if ($Parsed.Scopes.Count -gt 0) {
             $scopeHit = $false
@@ -612,6 +615,7 @@ function Test-RequirementAvailable {
     switch ($Requirement) {
         "godot" { return [bool] ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) }
         "process" { return $true }
+        "export" { return [bool] ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) }
         default { return $false }
     }
 }
@@ -1165,7 +1169,7 @@ function Publish-Run {
 }
 
 function Get-ExitCode {
-    param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked)
+    param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked, [switch] $IsolationFailed)
     $failed = $false
     $blocked = $false
     $cancelled = $false
@@ -1181,7 +1185,7 @@ function Get-ExitCode {
     if ($failed) { return 1 }
     if ($CleanupFailed) { return 2 }
     if ($UserCancel -or $cancelled -or $PrepTimedOut) { return 3 }
-    if ($blocked -or $notExecuted -or $RequiredBuildBlocked) { return 2 }
+    if ($blocked -or $notExecuted -or $RequiredBuildBlocked -or $IsolationFailed) { return 2 }
     return 0
 }
 
@@ -1340,6 +1344,8 @@ function Convert-ExternalCase {
         Arguments = $arguments
         NeedsImport = [bool] $Item.needsImport
         NeedsGameBuild = [bool] $Item.needsGameBuild
+        NeedsExport = [bool] ($null -ne $Item.PSObject.Properties["needsExport"] -and $Item.needsExport)
+        NeedsContentInput = [bool] ($null -ne $Item.PSObject.Properties["needsContentInput"] -and $Item.needsContentInput)
         TimeoutSeconds = [int] $Item.timeoutSeconds
     }
 }
@@ -1422,7 +1428,9 @@ function New-InventoryMaps {
         Add-Map $map "durationStatus" $durationStatus | Out-Null
         if ($null -ne $durationMs) { Add-Map $map "durationMs" $durationMs | Out-Null }
         Add-Map $map "claim" ([string] $item.claim) | Out-Null
-        Add-Map $map "requirements" ([string] $item.requirements) | Out-Null
+        $inventoryRequirements = New-List
+        foreach ($requirement in @($item.requirements)) { $inventoryRequirements.Add([string] $requirement) }
+        Add-Map $map "requirements" $inventoryRequirements | Out-Null
         Add-Map $map "fourScene" ([bool] $item.fourScene) | Out-Null
         Add-Map $map "followUp" ([string] $item.followUp) | Out-Null
         $list.Add($map)
@@ -1462,8 +1470,31 @@ function Add-UsedFiles {
     }
 }
 
+function New-ContentCheckInput {
+    param([string] $CaseDirectory)
+    $root = Join-Path $CaseDirectory "content-input"
+    $sourceResources = Join-Path $script:Root "builtin/core/resources"
+    foreach ($state in @("initial", "added")) {
+        $resources = Join-Path $root $state
+        $voxels = Join-Path $resources "voxels"
+        $images = Join-Path $voxels "ferrous-ore"
+        New-Item -ItemType Directory -Force -Path $images | Out-Null
+        Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/ferrous-ore.voxels.json") -Destination $voxels
+        foreach ($name in @("icon.png", "top.png", "side.png", "bottom.png")) {
+            Copy-Item -LiteralPath (Join-Path $sourceResources (Join-Path "voxels/ferrous-ore" $name)) -Destination $images
+        }
+    }
+    $sourceDefinition = Join-Path $sourceResources "voxels/ferrous-ore.voxels.json"
+    $probe = [System.IO.File]::ReadAllText($sourceDefinition) | ConvertFrom-Json
+    $probe.voxels[0].id = "smoke-ore"
+    $probe.voxels[0].name = "Smoke Ore"
+    $smokeDefinition = $probe | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText((Join-Path $root "added/voxels/smoke-ore.voxels.json"), $smokeDefinition, $script:Utf8)
+    return $root
+}
+
 function Invoke-ExternalCheck {
-    param($Case, [string] $RunDirectory, [string] $CancelFile, [int] $TimeoutSeconds)
+    param($Case, [string] $RunDirectory, [string] $CancelFile, [int] $TimeoutSeconds, [string] $ExportBinary = "")
     $safe = ($Case.Id -replace '[^A-Za-z0-9._-]', '_')
     $groupDir = Join-Path $RunDirectory (Join-Path "groups" $Case.Group)
     $caseDir = Join-Path $groupDir $safe
@@ -1475,11 +1506,13 @@ function Invoke-ExternalCheck {
     $userData = Join-Path $caseDir "user-data"
     if ($needsUserData) { New-Item -ItemType Directory -Force -Path $userData | Out-Null }
     $output = Join-Path $caseDir "output"
+    $needsContentRoot = [bool] $Case.NeedsContentInput
+    $contentRoot = if ($needsContentRoot) { New-ContentCheckInput -CaseDirectory $output } else { "" }
     $logPath = Join-Path $caseDir "stdout.log"
     $arguments = [System.Collections.Generic.List[string]]::new()
     foreach ($argument in @($Case.Arguments)) {
         $text = [string] $argument
-        $text = $text.Replace("{userData}", $userData).Replace("{output}", $output)
+        $text = $text.Replace("{userData}", $userData).Replace("{output}", $output).Replace("{contentRoot}", $contentRoot).Replace("{exportBinary}", $ExportBinary)
         $arguments.Add($text)
     }
     $empty = [pscustomobject]@{
@@ -1511,6 +1544,7 @@ function Invoke-ExternalCheck {
     $artifacts = New-List
     if (Test-Path -LiteralPath $logPath) { $artifacts.Add($logPath) }
     if ($needsUserData) { Add-UsedFiles -Artifacts $artifacts -Root $userData }
+    if ($needsContentRoot) { Add-UsedFiles -Artifacts $artifacts -Root $contentRoot }
     Add-UsedFiles -Artifacts $artifacts -Root $output
     if ($appData) { Add-UsedFiles -Artifacts $artifacts -Root $appData }
     $command = New-List
@@ -1744,6 +1778,9 @@ function Invoke-Main {
     $gameBlockReason = "build"
     $importBlocked = $false
     $importBlockReason = "import"
+    $exportBlocked = $false
+    $exportBlockReason = "export"
+    $exportBinary = ""
     $godotVersion = ""
     $gameAssembly = ""
     $gameAssemblyReason = "not-requested"
@@ -1800,7 +1837,9 @@ function Invoke-Main {
     if ($needsImport.Count -gt 0 -and -not $dispatch.StopDispatch -and $godotState -eq $env:GODOT) {
         $importAppData = New-EngineAppData -RunDirectory $runDirectory -Name "import"
         # Recovery mode still imports resources and skips editor plugins that write the player user-data folder.
-        $importArgs = @("--headless", "--path", $script:Root, "--recovery-mode", "--editor", "--import")
+        $importEngineLog = Join-Path $runDirectory "engine/import/godot.log"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $importEngineLog) | Out-Null
+        $importArgs = @("--headless", "--path", $script:Root, "--recovery-mode", "--log-file", $importEngineLog, "--editor", "--import")
         $importCommand = New-List
         $importCommand.Add($env:GODOT)
         foreach ($arg in $importArgs) { $importCommand.Add($arg) }
@@ -1821,6 +1860,39 @@ function Invoke-Main {
             Apply-ProcessDisposition $importDisposition $dispatch -PrepStep
         }
         Add-PrepStep -Preparation $preparation -Name "import" -Outcome $importOutcome -Reason $importReason -DurationMs ([int] $importWatch.ElapsedMilliseconds) -Command $importCommand
+    }
+    $needsExport = @($selected | Where-Object { $_.NeedsExport -and -not ($gameBlocked -and $_.NeedsGameBuild) -and -not ($importBlocked -and $_.NeedsImport) })
+    if ($needsExport.Count -gt 0 -and -not $dispatch.StopDispatch -and $godotState -eq $env:GODOT) {
+        $exportBinary = Join-Path $runDirectory "exports/windows/train.exe"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exportBinary) | Out-Null
+        $exportEngineLog = Join-Path $runDirectory "engine/export/godot.log"
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $exportEngineLog) | Out-Null
+        $exportArgs = @("--headless", "--path", $script:Root, "--recovery-mode", "--log-file", $exportEngineLog, "--export-release", "Windows Desktop", $exportBinary)
+        $exportCommand = New-List
+        $exportCommand.Add($env:GODOT)
+        foreach ($arg in $exportArgs) { $exportCommand.Add($arg) }
+        $exportWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        # 导出模板位于真实 APPDATA；这里只隔离随后运行的每项检查，不能隐藏模板目录。
+        $export = Invoke-OwnedProcess -FileName $env:GODOT -Arguments $exportArgs -WorkingDirectory $script:Root -TempDirectory (Join-Path $runDirectory "tmp") -TimeoutSeconds $prepTimeout -CancelFile $cancelFile -LogPath (Join-Path $runDirectory "export-windows.log") -StripTrainSwitches
+        $exportWatch.Stop()
+        $exportOutcome = "passed"
+        $exportReason = "reused-for-checks"
+        $exportDisposition = Get-ProcessDisposition $export
+        if ($exportDisposition.Kind -eq "exit") {
+            if ($export.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $exportBinary)) {
+                $exportOutcome = "blocked"
+                $exportReason = "export"
+                $exportBlocked = $true
+            }
+        }
+        else {
+            $exportOutcome = [string] $exportDisposition.Outcome
+            $exportReason = [string] $exportDisposition.Kind
+            $exportBlocked = $true
+            $exportBlockReason = $exportReason
+            Apply-ProcessDisposition $exportDisposition $dispatch -PrepStep
+        }
+        Add-PrepStep -Preparation $preparation -Name "windows-export" -Outcome $exportOutcome -Reason $exportReason -DurationMs ([int] $exportWatch.ElapsedMilliseconds) -Command $exportCommand
     }
     if ($godotCases.Count -gt 0 -and $godotState -eq $env:GODOT -and -not $dispatch.StopDispatch) {
         $versionAppData = New-EngineAppData -RunDirectory $runDirectory -Name "godot-version"
@@ -1892,6 +1964,9 @@ function Invoke-Main {
                     }
                     elseif ($case.NeedsImport -and $importBlocked) {
                         $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason $importBlockReason -DurationMs 0 -Group $groupName))
+                    }
+                    elseif ($case.NeedsExport -and $exportBlocked) {
+                        $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason $exportBlockReason -DurationMs 0 -Group $groupName))
                     }
                     else { $externalRunnable.Add($case) }
                 }
@@ -2005,7 +2080,7 @@ function Invoke-Main {
                 $caseTimeout = Get-GroupTimeoutSeconds -CaseCount 1 -Override $parsed.TimeoutSeconds
                 if ([int] $parsed.TimeoutSeconds -le 0 -and [int] $case.TimeoutSeconds -gt 0) { $caseTimeout = [int] $case.TimeoutSeconds }
                 [Console]::Out.WriteLine("EXTERNAL id=$($case.Id) timeoutSeconds=$caseTimeout")
-                $external = Invoke-ExternalCheck -Case $case -RunDirectory $runDirectory -CancelFile $cancelFile -TimeoutSeconds $caseTimeout
+                $external = Invoke-ExternalCheck -Case $case -RunDirectory $runDirectory -CancelFile $cancelFile -TimeoutSeconds $caseTimeout -ExportBinary $exportBinary
                 if ($external.Command) { $commands.Add($external.Command) }
                 if ($external.Missing) {
                     $checks.Add((New-Check -Case $case -Outcome "blocked" -Reason "runner-missing" -DurationMs 0 -Group $groupName -Artifacts $external.Artifacts))
@@ -2046,9 +2121,20 @@ function Invoke-Main {
         }
     }
 
-    $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:($dispatch.CleanupFailed) -UserCancel:($dispatch.UserCancel) -PrepTimedOut:($dispatch.PrepTimedOut) -RequiredBuildBlocked:($parsed.BuildGame -and $gameBlocked)
     if ($runDirectory) { $userDataAfter = Get-GameUserDataStamp }
     $userDataUnchanged = ($userDataBefore -eq $userDataAfter) -and ($userDataBefore -ne "unreadable")
+    $userDataIsolationOutcome = if ($userDataUnchanged) { "passed" } else { "blocked" }
+    $userDataIsolationReason = if ($userDataUnchanged) {
+        "unchanged"
+    }
+    elseif ($userDataBefore -eq "unreadable" -or $userDataAfter -eq "unreadable") {
+        "user-data-unreadable"
+    }
+    else {
+        "user-data-changed"
+    }
+    Add-PrepStep -Preparation $preparation -Name "player-user-data-isolation" -Outcome $userDataIsolationOutcome -Reason $userDataIsolationReason -DurationMs 0 -Command $null
+    $exitCode = Get-ExitCode -Checks $checks -CleanupFailed:($dispatch.CleanupFailed) -UserCancel:($dispatch.UserCancel) -PrepTimedOut:($dispatch.PrepTimedOut) -RequiredBuildBlocked:($parsed.BuildGame -and $gameBlocked) -IsolationFailed:(-not $userDataUnchanged)
     $environment = New-Map
     Add-Map $environment "dotnetSdk" $sdk | Out-Null
     Add-Map $environment "os" ([System.Environment]::OSVersion.VersionString) | Out-Null
