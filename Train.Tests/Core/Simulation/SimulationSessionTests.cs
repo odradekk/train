@@ -395,6 +395,239 @@ public sealed class SimulationSessionTests
         AssertState(before, session.GetState());
     }
 
+    [TestMethod]
+    public void Resource_calculations_run_as_complete_steps_and_commands()
+    {
+        var before = new ResourceState
+        {
+            EntityIds = ImmutableSortedSet.Create(10UL, 20UL), NextEntityId = 21,
+            Demands = ImmutableArray.Create(new ResourceDemand(20, 1, 0, 4), new ResourceDemand(10, 1, 0, 3))
+        };
+        var session = new SimulationSession(before, new ResourceCalculations());
+        var advanced = session.Advance(2);
+        var first = (SubmissionResult.Completed)session.Submit(new CreateEntityCommand(), CommandSource.Ui);
+        session.Submit(new DeleteEntityCommand(21), CommandSource.Ui);
+        var rejected = (SubmissionResult.Completed)session.Submit(new DeleteEntityCommand(21), CommandSource.Ui);
+        var last = (SubmissionResult.Completed)session.Submit(new CreateEntityCommand(), CommandSource.Ui);
+
+        Assert.AreEqual(2UL, advanced.StepsAdvanced);
+        Assert.AreEqual(CommandOutcome.Executed, first.Execution.Outcome);
+        Assert.AreEqual(CommandOutcome.Rejected, rejected.Execution.Outcome);
+        Assert.AreEqual("target_missing", rejected.Execution.Reason);
+        Assert.AreEqual(CommandOutcome.Executed, last.Execution.Outcome);
+        AssertState(before with
+        {
+            Stock = 0, Holdings = ImmutableDictionary<ulong, ulong>.Empty.Add(10, 3).Add(20, 2),
+            EntityIds = ImmutableSortedSet.Create(10UL, 20UL, 22UL), NextEntityId = 23,
+            CompletedSteps = 2, BoundarySequence = 4, NextCommandId = 5, TransactionCount = 6
+        }, session.GetState());
+        Assert.AreEqual(5UL, before.Stock);
+        CollectionAssert.AreEqual(new[] { 10UL, 20UL }, before.EntityIds.ToArray());
+    }
+
+    [TestMethod]
+    [DataRow(SimulationPhase.Evaluate)]
+    [DataRow(SimulationPhase.Resolve)]
+    [DataRow(SimulationPhase.Commit)]
+    public void An_unclassified_pipeline_exception_freezes_at_its_actual_phase(SimulationPhase phase)
+    {
+        var before = new ResourceState();
+        var session = new SimulationSession(before, new FailingPipeline(phase));
+        var result = session.Advance(10);
+
+        Assert.AreEqual(3UL, result.StepsAdvanced);
+        Assert.IsNotNull(result.StateAfter.Fault);
+        Assert.AreEqual("calculation_failed", result.StateAfter.Fault.Code);
+        Assert.AreEqual(phase, result.StateAfter.Fault.Phase);
+        Assert.AreEqual(new TransactionContext(4, SimulationOperation.Step, new SimulationPosition(4, 0)),
+            result.StateAfter.Fault.Context);
+        AssertState(before with { CompletedSteps = 3, TransactionCount = 3, Fault = result.StateAfter.Fault },
+            session.GetState());
+        Assert.IsTrue(result.Events.IsEmpty);
+    }
+
+    [TestMethod]
+    [DataRow(SimulationPhase.Evaluate)]
+    [DataRow(SimulationPhase.Resolve)]
+    [DataRow(SimulationPhase.Commit)]
+    public void A_typed_pipeline_exception_preserves_its_code_and_entity_with_the_actual_phase(SimulationPhase phase)
+    {
+        var before = new ResourceState { NextEntityId = 8, EntityIds = ImmutableSortedSet.Create(7UL) };
+        var session = new SimulationSession(before, new FailingPipeline(phase, SimulationPhase.Boundary));
+        var result = session.Advance(10);
+
+        Assert.AreEqual(3UL, result.StepsAdvanced);
+        Assert.IsNotNull(result.StateAfter.Fault);
+        Assert.AreEqual("test_failure", result.StateAfter.Fault.Code);
+        Assert.AreEqual(7UL, result.StateAfter.Fault.EntityId);
+        Assert.AreEqual(phase, result.StateAfter.Fault.Phase);
+        Assert.AreEqual(new TransactionContext(4, SimulationOperation.Step, new SimulationPosition(4, 0)),
+            result.StateAfter.Fault.Context);
+        AssertState(before with { CompletedSteps = 3, TransactionCount = 3, Fault = result.StateAfter.Fault },
+            session.GetState());
+        Assert.IsTrue(result.Events.IsEmpty);
+    }
+
+    [TestMethod]
+    public void A_typed_command_exception_is_recorded_at_the_command_phase()
+    {
+        var before = new ResourceState { NextEntityId = 8, EntityIds = ImmutableSortedSet.Create(7UL) };
+        var session = new SimulationSession(before, new ScriptedCalculations
+        {
+            Command = (_, _, _) => throw new SimulationCalculationException(
+                "test_failure", SimulationPhase.Commit, 7, new InvalidOperationException("诊断消息。"))
+        });
+        var result = (SubmissionResult.Completed)session.Submit(new CreateEntityCommand(), CommandSource.Ui);
+
+        Assert.AreEqual(CommandOutcome.Faulted, result.Execution.Outcome);
+        Assert.IsNotNull(result.StateAfter.Fault);
+        Assert.AreEqual("test_failure", result.StateAfter.Fault.Code);
+        Assert.AreEqual(7UL, result.StateAfter.Fault.EntityId);
+        Assert.AreEqual(SimulationPhase.Command, result.StateAfter.Fault.Phase);
+        Assert.AreEqual(new TransactionContext(1, SimulationOperation.Command, new SimulationPosition(0, 1), 1),
+            result.StateAfter.Fault.Context);
+        AssertState(before with { Fault = result.StateAfter.Fault }, session.GetState());
+        Assert.IsTrue(result.Events.IsEmpty);
+    }
+
+    [TestMethod]
+    [DataRow("stock")]
+    [DataRow("allocator")]
+    [DataRow("events")]
+    public void A_rejection_cannot_publish_business_changes_allocations_or_events(string change)
+    {
+        var before = new ResourceState { NextEntityId = 7 };
+        var candidate = before with { NextCommandId = 2, BoundarySequence = 1, TransactionCount = 1 };
+        candidate = change switch
+        {
+            "stock" => candidate with { Stock = 0 },
+            "allocator" => candidate with { NextEntityId = 8 },
+            _ => candidate
+        };
+        var events = change == "events" ? ImmutableArray.Create<DomainEvent>(new MarkerEvent(1)) : NoEvents;
+        var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
+            new CommandDecision.Reject(new Transition(candidate, events), "requirements_not_met")));
+        var result = (SubmissionResult.Completed)session.Submit(new CreateThenRejectCommand(), CommandSource.Ui);
+
+        Assert.AreEqual(CommandOutcome.Faulted, result.Execution.Outcome);
+        Assert.IsNotNull(result.StateAfter.Fault);
+        Assert.AreEqual(SimulationPhase.Validation, result.StateAfter.Fault.Phase);
+        AssertState(before with { Fault = result.StateAfter.Fault }, session.GetState());
+        Assert.IsTrue(result.Events.IsEmpty);
+    }
+
+    [TestMethod]
+    [DataRow("step")]
+    [DataRow("transaction")]
+    public void Advancing_commits_the_last_representable_step_then_stops_without_overflow(string counter)
+    {
+        var before = counter == "step"
+            ? new ResourceState { CompletedSteps = ulong.MaxValue - 1 }
+            : new ResourceState { TransactionCount = ulong.MaxValue - 1 };
+        var session = new SimulationSession(before, new ResourceCalculations());
+        var first = session.Advance(3);
+        var next = session.Advance(1);
+        var expected = counter == "step"
+            ? before with { CompletedSteps = ulong.MaxValue, TransactionCount = 1 }
+            : before with { CompletedSteps = 1, TransactionCount = ulong.MaxValue };
+
+        Assert.AreEqual(1UL, first.StepsAdvanced);
+        Assert.AreEqual(0UL, next.StepsAdvanced);
+        AssertState(expected, first.StateAfter);
+        AssertState(expected, session.GetState());
+        Assert.IsNull(session.GetState().Fault);
+        Assert.IsTrue(next.Events.IsEmpty);
+    }
+
+    [TestMethod]
+    [DataRow("command")]
+    [DataRow("sequence")]
+    [DataRow("transaction")]
+    public void The_last_available_command_commits_before_the_next_is_refused(string counter)
+    {
+        var before = counter switch
+        {
+            "command" => new ResourceState { NextCommandId = ulong.MaxValue - 1 },
+            "sequence" => new ResourceState { BoundarySequence = ulong.MaxValue - 1 },
+            _ => new ResourceState { TransactionCount = ulong.MaxValue - 1 }
+        };
+        var expected = counter switch
+        {
+            "command" => before with { NextCommandId = ulong.MaxValue, BoundarySequence = 1, TransactionCount = 1 },
+            "sequence" => before with { NextCommandId = 2, BoundarySequence = ulong.MaxValue, TransactionCount = 1 },
+            _ => before with { NextCommandId = 2, BoundarySequence = 1, TransactionCount = ulong.MaxValue }
+        };
+        var session = new SimulationSession(before, new ResourceCalculations());
+        var first = (SubmissionResult.Completed)session.Submit(new NoChangeCommand(), CommandSource.Ui);
+        var next = session.Submit(new NoChangeCommand(), CommandSource.Ui);
+
+        Assert.AreEqual(CommandOutcome.Executed, first.Execution.Outcome);
+        AssertState(expected, first.StateAfter);
+        Assert.IsInstanceOfType(next, typeof(SubmissionResult.NotAccepted));
+        AssertState(expected, session.GetState());
+    }
+
+    [TestMethod]
+    public void Reentering_a_mutation_from_calculation_rolls_back_and_freezes_the_outer_transaction()
+    {
+        var before = new ResourceState();
+        SimulationSession? session = null;
+        session = new SimulationSession(before, new ScriptedCalculations
+        {
+            Step = (state, context) =>
+            {
+                session!.Submit(new NoChangeCommand(), CommandSource.Ui);
+                return ScriptedCalculations.StepResult(state, context);
+            },
+            Command = (_, _, _) => new CommandDecision.Execute(new Transition(
+                before with { NextCommandId = 2, BoundarySequence = 1, TransactionCount = 1 }, NoEvents))
+        });
+        var result = session.Advance(1);
+
+        Assert.AreEqual(0UL, result.StepsAdvanced);
+        Assert.IsNotNull(result.StateAfter.Fault);
+        AssertState(before with { Fault = result.StateAfter.Fault }, session.GetState());
+        Assert.IsTrue(result.Events.IsEmpty);
+    }
+
+    /// <summary>使用真实共享流水线，在第 4 步的指定阶段抛出普通异常或带错误码的内部异常。</summary>
+    private sealed class FailingPipeline(SimulationPhase failingPhase, SimulationPhase? reportedPhase = null)
+        : SimulationCalculations
+    {
+        public override StepRequests Evaluate(SimulationState state, TransactionContext context)
+        {
+            FailAt(SimulationPhase.Evaluate, context);
+            return new ResourceRequests(ImmutableArray<ResourceDemand>.Empty);
+        }
+
+        public override ResolvedStep Resolve(SimulationState state, StepRequests requests, TransactionContext context)
+        {
+            FailAt(SimulationPhase.Resolve, context);
+            return new ResourcePlan(ImmutableArray<ResourceGrant>.Empty);
+        }
+
+        public override SimulationState Commit(SimulationState state, ResolvedStep plan, TransactionContext context)
+        {
+            FailAt(SimulationPhase.Commit, context);
+            return state;
+        }
+
+        public override CommandDecision ComputeCommand(
+            SimulationState state, CoreCommand command, TransactionContext context) =>
+            throw new InvalidOperationException("本例只计算模拟步。");
+
+        private void FailAt(SimulationPhase phase, TransactionContext context)
+        {
+            if (phase == failingPhase && context.Position.CompletedSteps == 4)
+            {
+                if (reportedPhase is { } reported)
+                    throw new SimulationCalculationException("test_failure", reported, 7,
+                        new InvalidOperationException("不进入权威状态的诊断消息。"));
+                throw new InvalidOperationException("不进入权威状态的诊断消息。");
+            }
+        }
+    }
+
     private static void AssertState(SimulationState expected, SimulationState actual)
     {
         Assert.AreEqual(expected.WorldSeed, actual.WorldSeed);

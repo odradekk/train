@@ -1,5 +1,5 @@
 // Train.Tests.Core.Simulation 把各计算用途的固定输入和独立预期输出写成单元测试。
-// 共享计算及资源领域计算仍未实现；这些测试不以未实现异常作为成功条件。
+// 预期结果来自独立例子，同时检查共享流水线与资源领域计算。
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -266,7 +266,7 @@ public sealed class SimulationCalculationTests
     {
         var before = new ResourceState();
         var candidate = before with { CompletedSteps = 1, TransactionCount = 1 };
-        Assert.IsNull(new SimulationCalculations().CheckInvariants(before, candidate, FirstStep));
+        Assert.IsNull(new ResourceCalculations().CheckInvariants(before, candidate, FirstStep));
     }
 
     [TestMethod]
@@ -274,10 +274,50 @@ public sealed class SimulationCalculationTests
     {
         var before = new ResourceState();
         var candidate = before with { CompletedSteps = 1, TransactionCount = 1, NextEntityId = 0 };
-        var result = new SimulationCalculations().CheckInvariants(before, candidate, FirstStep);
+        var result = new ResourceCalculations().CheckInvariants(before, candidate, FirstStep);
 
         Assert.IsNotNull(result);
         Assert.AreEqual(nameof(SimulationState.NextEntityId), result.Field);
+    }
+
+    [TestMethod]
+    [DataRow("seed", nameof(SimulationState.WorldSeed))]
+    [DataRow("generator", nameof(SimulationState.GeneratorVersion))]
+    [DataRow("step", nameof(SimulationState.CompletedSteps))]
+    [DataRow("sequence", nameof(SimulationState.BoundarySequence))]
+    [DataRow("command", nameof(SimulationState.NextCommandId))]
+    [DataRow("entity", nameof(SimulationState.NextEntityId))]
+    [DataRow("transaction", nameof(SimulationState.TransactionCount))]
+    [DataRow("position", nameof(TransactionContext.Position))]
+    public void Invariants_reject_a_successor_that_changes_identity_or_reuses_counters(string change, string field)
+    {
+        var before = new ResourceState
+        {
+            CompletedSteps = 60, BoundarySequence = 2, NextCommandId = 3,
+            NextEntityId = 7, TransactionCount = 62
+        };
+        var candidate = before with { CompletedSteps = 61, BoundarySequence = 0, TransactionCount = 63 };
+        var context = new TransactionContext(63, SimulationOperation.Step, new SimulationPosition(61, 0));
+        candidate = change switch
+        {
+            "seed" => candidate with { WorldSeed = 43 },
+            "generator" => candidate with { GeneratorVersion = "another-generator" },
+            "step" => candidate with { CompletedSteps = 60 },
+            "sequence" => candidate with { BoundarySequence = 2 },
+            "command" => candidate with { NextCommandId = 4 },
+            "entity" => candidate with { NextEntityId = 6 },
+            "transaction" => candidate with { TransactionCount = 62 },
+            _ => candidate
+        };
+        if (change == "position")
+            context = context with { Position = new SimulationPosition(60, 3) };
+
+        var violation = new ResourceCalculations().CheckInvariants(before, candidate, context);
+
+        Assert.IsNotNull(violation);
+        Assert.AreEqual(field, violation.Field);
+        Assert.AreEqual(60UL, before.CompletedSteps);
+        Assert.AreEqual(7UL, before.NextEntityId);
     }
 
     [TestMethod]
@@ -337,5 +377,9 @@ public sealed class SimulationCalculationTests
                 Stock = 0, Holdings = ImmutableDictionary<ulong, ulong>.Empty.Add(10, 3).Add(20, 2)
             };
         }
+
+        public override CommandDecision ComputeCommand(
+            SimulationState state, CoreCommand command, TransactionContext context) =>
+            throw new InvalidOperationException("本例只计算模拟步。");
     }
 }

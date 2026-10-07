@@ -1,5 +1,5 @@
 // Train.Tests.Core.Simulation 提供运行边界的不可变输入输出例子。
-// 资源领域仍是待填模板；预设结果夹具只控制测试输入，不实现任何生产计算。
+// 资源领域计算只用于固定测试例子；预设结果夹具用于隔离会话测试。
 
 using System.Collections.Immutable;
 using Train.Core.Simulation;
@@ -29,23 +29,98 @@ internal sealed record ResourceGrant(ulong EntityId, ulong RequestId, ulong Amou
 /// <summary>按优先级与稳定身份裁决后得到的资源执行计划。</summary>
 internal sealed record ResourcePlan(ImmutableArray<ResourceGrant> Grants) : ResolvedStep;
 
-/// <summary>本轮只给出资源领域的计算模板，输入输出例子见 SimulationCalculationTests。</summary>
+/// <summary>实现测试资源例子的请求、裁决、提交和命令计算。</summary>
 internal sealed class ResourceCalculations : SimulationCalculations
 {
     public override StepRequests Evaluate(SimulationState before, TransactionContext context) =>
-        throw new NotImplementedException();
+        new ResourceRequests(((ResourceState)before).Demands);
 
     public override ResolvedStep Resolve(
-        SimulationState before, StepRequests requests, TransactionContext context) =>
-        throw new NotImplementedException();
+        SimulationState before, StepRequests requests, TransactionContext context)
+    {
+        var remaining = ((ResourceState)before).Stock;
+        var grants = ImmutableArray.CreateBuilder<ResourceGrant>();
+
+        foreach (var demand in ((ResourceRequests)requests).Items
+                     .OrderBy(demand => demand.Priority)
+                     .ThenBy(demand => demand.EntityId)
+                     .ThenBy(demand => demand.RequestId))
+        {
+            var amount = demand.AllowPartial ? Math.Min(demand.Amount, remaining) : demand.Amount;
+            if (amount == 0 || amount > remaining)
+                continue;
+
+            grants.Add(new ResourceGrant(demand.EntityId, demand.RequestId, amount));
+            remaining -= amount;
+        }
+
+        return new ResourcePlan(grants.ToImmutable());
+    }
 
     public override SimulationState Commit(
-        SimulationState before, ResolvedStep plan, TransactionContext context) =>
-        throw new NotImplementedException();
+        SimulationState before, ResolvedStep plan, TransactionContext context)
+    {
+        var state = (ResourceState)before;
+        var stock = state.Stock;
+        var holdings = state.Holdings;
+
+        foreach (var grant in ((ResourcePlan)plan).Grants)
+        {
+            stock -= grant.Amount;
+            holdings = holdings.SetItem(
+                grant.EntityId, checked(holdings.GetValueOrDefault(grant.EntityId) + grant.Amount));
+        }
+
+        return state with { Stock = stock, Holdings = holdings };
+    }
 
     public override CommandDecision ComputeCommand(
-        SimulationState before, CoreCommand command, TransactionContext context) =>
-        throw new NotImplementedException();
+        SimulationState before, CoreCommand command, TransactionContext context)
+    {
+        var state = (ResourceState)before;
+        var completed = state with
+        {
+            NextCommandId = checked(context.CommandId!.Value + 1),
+            BoundarySequence = context.Position.Sequence,
+            TransactionCount = context.TransactionId
+        };
+        var noEvents = ImmutableArray<DomainEvent>.Empty;
+
+        return command switch
+        {
+            NoChangeCommand => Execute(completed),
+            CreateEntityCommand => Create(state, completed),
+            DeleteEntityCommand delete when !state.EntityIds.Contains(delete.EntityId) =>
+                Reject(completed, "target_missing"),
+            DeleteEntityCommand delete =>
+                Execute(completed with { EntityIds = state.EntityIds.Remove(delete.EntityId) }),
+            CreateThenRejectCommand => Reject(completed, "requirements_not_met"),
+            InvalidCandidateCommand => Execute(completed with { NextEntityId = 0 }),
+            _ => throw new InvalidOperationException($"未知测试命令：{command.GetType().Name}。")
+        };
+
+        CommandDecision Execute(ResourceState candidate) =>
+            new CommandDecision.Execute(new Transition(candidate, noEvents));
+
+        CommandDecision Reject(ResourceState candidate, string reason) =>
+            new CommandDecision.Reject(new Transition(candidate, noEvents), reason);
+
+        CommandDecision Create(ResourceState original, ResourceState boundary)
+        {
+            var allocation = AllocateEntityId(original);
+            if (allocation is null)
+                return Reject(boundary, "entity_id_exhausted");
+
+            var allocated = (ResourceState)allocation.Candidate;
+            return Execute(allocated with
+            {
+                EntityIds = original.EntityIds.Add(allocation.EntityId),
+                NextCommandId = boundary.NextCommandId,
+                BoundarySequence = boundary.BoundarySequence,
+                TransactionCount = boundary.TransactionCount
+            });
+        }
+    }
 }
 
 /// <summary>只消耗执行身份、不修改业务状态的测试命令。</summary>
@@ -75,6 +150,17 @@ internal sealed class ScriptedCalculations : SimulationCalculations
 
     public override Transition ComputeStep(SimulationState before, TransactionContext context) =>
         Step(before, context);
+
+    public override StepRequests Evaluate(SimulationState before, TransactionContext context) =>
+        throw new InvalidOperationException("预设计算只通过 Step 委托计算完整模拟步。");
+
+    public override ResolvedStep Resolve(
+        SimulationState before, StepRequests requests, TransactionContext context) =>
+        throw new InvalidOperationException("预设计算只通过 Step 委托计算完整模拟步。");
+
+    public override SimulationState Commit(
+        SimulationState before, ResolvedStep plan, TransactionContext context) =>
+        throw new InvalidOperationException("预设计算只通过 Step 委托计算完整模拟步。");
 
     public override CommandDecision ComputeCommand(
         SimulationState before, CoreCommand command, TransactionContext context)

@@ -1,5 +1,5 @@
 // Train.Core.Simulation 定义完整模拟边界上的权威状态。
-// 本文件只保存不可变数据；状态是否合法由计算模板中的不变量检查负责。
+// 本文件保存不可变数据和位置全序；状态是否合法由不变量检查负责。
 
 namespace Train.Core.Simulation;
 
@@ -41,12 +41,15 @@ public record SimulationState(ulong WorldSeed, string GeneratorVersion)
 public readonly record struct SimulationPosition(ulong CompletedSteps, ulong Sequence)
     : IComparable<SimulationPosition>
 {
-    /// <summary>待实现：先比较已完成步号，再比较同一边界内的序号。</summary>
+    /// <summary>先比较已完成步号，再比较同一边界内的序号。</summary>
     /// <param name="other">需要与当前位置比较的模拟位置。</param>
     /// <returns>当前位置更早时为负数，相同时为零，更晚时为正数。</returns>
-    /// <exception cref="NotImplementedException">当前是计算模板。</exception>
     /// <example>(60, 2) 与 (60, 3) 比较得到负数；见 SimulationCalculationTests.Positions_compare_by_step_then_sequence。</example>
-    public int CompareTo(SimulationPosition other) => throw new NotImplementedException();
+    public int CompareTo(SimulationPosition other)
+    {
+        var stepOrder = CompletedSteps.CompareTo(other.CompletedSteps);
+        return stepOrder != 0 ? stepOrder : Sequence.CompareTo(other.Sequence);
+    }
 }
 
 /// <summary>区分一条命令和一个完整模拟步这两种顶层事务。</summary>
