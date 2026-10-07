@@ -33,7 +33,7 @@ internal static class SimulationStateDocument
     /// <summary>严格读取完整 simulation 对象。</summary>
     internal static SimulationState Read(JsonElement fields, string path)
     {
-        CheckKnownFields(fields, path, FieldNames);
+        SimulationJson.CheckKnownFields(fields, path, FieldNames);
         return new SimulationState(
             SimulationJson.UInt64(Property(fields, "world_seed", path), path + "/world_seed"),
             SimulationJson.String(Property(fields, "generator_version", path), path + "/generator_version", true))
@@ -50,20 +50,6 @@ internal static class SimulationStateDocument
                 path + "/transaction_count"),
             Fault = ReadFault(Property(fields, "fault", path), path + "/fault")
         };
-    }
-
-    /// <summary>拒绝对象中的未知和重复字段，缺失字段留给固定读取顺序定位。</summary>
-    private static void CheckKnownFields(JsonElement value, string path, params string[] names)
-    {
-        SimulationJson.RequireObject(value, path);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var property in value.EnumerateObject())
-        {
-            var fieldPath = path + "/" + SimulationJson.Escape(property.Name);
-            if (!seen.Add(property.Name)) throw SimulationJson.Invalid("duplicate_field", fieldPath);
-            if (!names.Contains(property.Name, StringComparer.Ordinal))
-                throw SimulationJson.Invalid("unknown_field", fieldPath);
-        }
     }
 
     /// <summary>按固定读取顺序取得字段并定位缺失值。</summary>
@@ -117,7 +103,7 @@ internal static class SimulationStateDocument
     private static SimulationFault? ReadFault(JsonElement value, string path)
     {
         if (value.ValueKind == JsonValueKind.Null) return null;
-        CheckKnownFields(value, path, "code", "phase", "context", "entity_id");
+        SimulationJson.CheckKnownFields(value, path, "code", "phase", "context", "entity_id");
         return new SimulationFault(
             SimulationJson.String(Property(value, "code", path), path + "/code", true),
             ReadPhase(Property(value, "phase", path), path + "/phase"),
@@ -129,9 +115,9 @@ internal static class SimulationStateDocument
     private static TransactionContext? ReadContext(JsonElement value, string path)
     {
         if (value.ValueKind == JsonValueKind.Null) return null;
-        CheckKnownFields(value, path, "transaction_id", "operation", "position", "command_id");
+        SimulationJson.CheckKnownFields(value, path, "transaction_id", "operation", "position", "command_id");
         var position = Property(value, "position", path);
-        CheckKnownFields(position, path + "/position", "completed_steps", "sequence");
+        SimulationJson.CheckKnownFields(position, path + "/position", "completed_steps", "sequence");
         return new TransactionContext(
             ReadNonZero(Property(value, "transaction_id", path), path + "/transaction_id", "invalid_transaction_id"),
             ReadOperation(Property(value, "operation", path), path + "/operation"),

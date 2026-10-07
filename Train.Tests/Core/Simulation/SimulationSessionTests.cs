@@ -282,36 +282,54 @@ public sealed class SimulationSessionTests
         AssertState(expected, session.GetState());
     }
 
-    [TestMethod]
-    public void A_committed_entity_id_is_not_reused_after_deletion()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void A_new_fault_returns_original_diagnostics_once_without_changing_authority(bool command)
     {
-        var before = new ResourceState { NextEntityId = 7 };
-        var created = before with
+        var states = new ResourceStateCodec();
+        AuthoritativeCheckpoint? firstCheckpoint = null;
+        string? firstLogHash = null;
+        foreach (var message in new[] { "诊断消息甲。", "诊断消息乙。" })
         {
-            EntityIds = ImmutableSortedSet.Create(7UL), NextEntityId = 8,
-            NextCommandId = 2, BoundarySequence = 1, TransactionCount = 1
-        };
-        var deleted = created with
-        {
-            EntityIds = ImmutableSortedSet<ulong>.Empty,
-            NextCommandId = 3, BoundarySequence = 2, TransactionCount = 2
-        };
-        var recreated = deleted with
-        {
-            EntityIds = ImmutableSortedSet.Create(8UL), NextEntityId = 9,
-            NextCommandId = 4, BoundarySequence = 3, TransactionCount = 3
-        };
-        var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
-            new CommandDecision.Execute(new Transition(created, NoEvents)),
-            new CommandDecision.Execute(new Transition(deleted, NoEvents)),
-            new CommandDecision.Execute(new Transition(recreated, NoEvents))), new ResourceCommandCodec());
+            var exception = new InvalidOperationException(message, new IOException("内部诊断。"));
+            var calculations = new ScriptedCalculations
+            {
+                Step = (_, _) => throw exception,
+                Command = (_, _, _) => throw exception
+            };
+            var session = new SimulationSession(new ResourceState(), calculations, new ResourceCommandCodec());
+            var diagnostic = command
+                ? ((SubmissionResult.Completed)session.Submit(new NoChangeCommand(), CommandSource.Console)).Diagnostic
+                : session.Advance(1).Diagnostic;
 
-        session.Submit(new CreateEntityCommand(), CommandSource.Automation);
-        session.Submit(new DeleteEntityCommand(7), CommandSource.Automation);
-        session.Submit(new CreateEntityCommand(), CommandSource.Automation);
+            Assert.IsNotNull(diagnostic);
+            Assert.AreSame(exception, diagnostic.Exception);
+            Assert.AreEqual(message, diagnostic.Exception.Message);
+            Assert.IsNotNull(diagnostic.Exception.StackTrace);
+            Assert.AreEqual("内部诊断。", diagnostic.Exception.InnerException!.Message);
+            Assert.AreEqual(session.GetState().Fault, diagnostic.Fault);
+            Assert.IsNull(session.Advance(1).Diagnostic);
+            Assert.IsInstanceOfType(session.Submit(new NoChangeCommand(), CommandSource.Ui),
+                typeof(SubmissionResult.NotAccepted));
 
-        AssertState(recreated, session.GetState());
-        Assert.AreEqual(7UL, before.NextEntityId);
+            var checkpoint = states.CreateCheckpoint(session.GetState());
+            var log = session.GetCommandLog();
+            var logHash = log.Entries.IsEmpty ? log.PrefixSha256 : log.Entries[^1].ChainSha256;
+            if (firstCheckpoint is null)
+            {
+                firstCheckpoint = checkpoint;
+                firstLogHash = logHash;
+            }
+            else
+            {
+                Assert.AreEqual(firstCheckpoint, checkpoint);
+                Assert.AreEqual(firstLogHash, logHash);
+            }
+            var restored = (DeterminismResult<SimulationSession>.Success)states.Restore(
+                states.Capture(session.GetState()), calculations, new ResourceCommandCodec());
+            Assert.IsNull(restored.Value.Advance(1).Diagnostic);
+        }
     }
 
     [TestMethod]

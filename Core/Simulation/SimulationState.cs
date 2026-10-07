@@ -85,7 +85,7 @@ public enum SimulationPhase
 /// <param name="Phase">故障发生的运行阶段。</param>
 /// <param name="Context">故障事务尝试使用的身份和位置；不表示这些编号已经提交。准备身份前故障时为 null。</param>
 /// <param name="EntityId">可定位到的实体 ID；无法定位到实体时为 null。</param>
-/// <remarks>异常消息、调用栈和墙钟时间留在诊断日志中。记录故障前须丢弃整个失败事务的候选状态。</remarks>
+/// <remarks>只保存稳定故障信息。异常消息和调用栈由新故障的调用返回，宿主记录诊断日志及真实时间；这些详情不进入权威状态。记录故障前须丢弃整个失败事务的候选状态。</remarks>
 /// <example>第 4 步的 Commit 故障保留第 3 步完成后的状态，并记录尝试执行第 4 步的上下文。</example>
 public sealed record SimulationFault(
     string Code,

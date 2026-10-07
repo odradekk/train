@@ -38,19 +38,19 @@ internal static class SimulationJson
     /// <summary>检查一个对象恰好具有指定字段，不依赖字段枚举次序。</summary>
     internal static void CheckFields(JsonElement value, string path, params string[] names)
     {
-        RequireObject(value, path);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var property in value.EnumerateObject())
-        {
-            var fieldPath = path + "/" + Escape(property.Name);
-            if (!seen.Add(property.Name))
-                throw Invalid("duplicate_field", fieldPath);
-            if (!names.Contains(property.Name, StringComparer.Ordinal))
-                throw Invalid("unknown_field", fieldPath);
-        }
+        CheckKnownFields(value, path, names);
         foreach (var name in names)
-            if (!seen.Contains(name))
+            if (!value.TryGetProperty(name, out _))
                 throw Invalid("missing_field", path + "/" + Escape(name));
+    }
+
+    /// <summary>检查对象只含指定字段；重复字段已由根文档读取统一拒绝。</summary>
+    internal static void CheckKnownFields(JsonElement value, string path, params string[] names)
+    {
+        RequireObject(value, path);
+        foreach (var property in value.EnumerateObject())
+            if (!names.Contains(property.Name, StringComparer.Ordinal))
+                throw Invalid("unknown_field", path + "/" + Escape(property.Name));
     }
 
     /// <summary>检查值属于对象分支。</summary>

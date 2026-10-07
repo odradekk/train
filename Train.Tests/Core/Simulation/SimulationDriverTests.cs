@@ -37,22 +37,24 @@ public sealed class SimulationDriverTests
     }
 
     [TestMethod]
-    public void Budget_is_checked_between_complete_steps_and_keeps_pending_steps_and_events()
+    public void Budget_keeps_complete_events_and_only_carries_fractional_time()
     {
         var clock = new TestClock();
         var driver = Create(clock, TimedSteps(clock, 0.003));
-        clock.Seconds = 4.0 / 60;
-        var first = driver.AdvanceFrame(4.0 / 60, Budget);
+        clock.Seconds = 4.5 / 60;
+        var first = driver.AdvanceFrame(4.5 / 60, Budget);
         Assert.AreEqual(2UL, first.StepsAdvanced);
-        Assert.AreEqual(2UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
         CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(1), new MarkerEvent(2) }, first.Events.ToArray());
 
-        clock.Seconds += 1.0 / 60;
-        var second = driver.AdvanceFrame(1.0 / 60, Budget);
-        Assert.AreEqual(2UL, second.StepsAdvanced);
-        Assert.AreEqual(4UL, second.StateAfter.CompletedSteps);
-        Assert.AreEqual(1UL, driver.GetStatus().PendingSteps);
-        CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(3), new MarkerEvent(4) }, second.Events.ToArray());
+        clock.Seconds += 0.5 / 60;
+        var second = driver.AdvanceFrame(0.5 / 60, Budget);
+        Assert.AreEqual(1UL, second.StepsAdvanced);
+        Assert.AreEqual(3UL, second.StateAfter.CompletedSteps);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0.0, driver.GetStatus().Remainder, 1e-12);
+        CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(3) }, second.Events.ToArray());
     }
 
     [TestMethod]
@@ -64,9 +66,63 @@ public sealed class SimulationDriverTests
         clock.Seconds = 1;
         var result = driver.AdvanceFrame(1, Budget);
         Assert.AreEqual(1UL, result.StepsAdvanced);
-        Assert.AreEqual(479UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(1.0 / 60 / 1.006, driver.GetStatus().ActualSpeed, 1e-12);
         Assert.IsTrue(driver.GetStatus().ActualSpeed < 8);
+    }
+
+    [TestMethod]
+    public void Changing_from_overloaded_eight_to_one_does_not_replay_old_steps()
+    {
+        var clock = new TestClock();
+        var cost = 0.006;
+        var driver = Create(clock, new ScriptedCalculations
+        {
+            Step = (before, context) =>
+            {
+                clock.Seconds += cost;
+                return ScriptedCalculations.StepResult(before, context);
+            }
+        });
+        driver.SetSpeed(SimulationSpeed.Eight);
+        clock.Seconds = 1;
+        Assert.AreEqual(1UL, driver.AdvanceFrame(1, Budget).StepsAdvanced);
+
+        // 计算变快后也只能兑现新帧的 1× 额度，不能补算之前未完成的 479 步。
+        cost = 0;
+        driver.SetSpeed(SimulationSpeed.One);
+        for (var frame = 0; frame < 60; frame++)
+        {
+            clock.Seconds += 1.0 / 60;
+            Assert.AreEqual(1UL, driver.AdvanceFrame(1.0 / 60, Budget).StepsAdvanced);
+            Assert.IsTrue(driver.GetStatus().ActualSpeed <= 1 + 1e-12);
+        }
+        Assert.AreEqual(61UL, driver.GetStatus().State.CompletedSteps);
+    }
+
+    [TestMethod]
+    public void A_long_frame_does_not_make_later_frames_catch_up()
+    {
+        var clock = new TestClock();
+        var cost = 0.003;
+        var driver = Create(clock, new ScriptedCalculations
+        {
+            Step = (before, context) =>
+            {
+                clock.Seconds += cost;
+                return ScriptedCalculations.StepResult(before, context);
+            }
+        });
+        clock.Seconds = 1;
+        Assert.AreEqual(2UL, driver.AdvanceFrame(1, Budget).StepsAdvanced);
+
+        cost = 0;
+        for (var frame = 0; frame < 3; frame++)
+        {
+            clock.Seconds += 1.0 / 60;
+            Assert.AreEqual(1UL, driver.AdvanceFrame(1.0 / 60, Budget).StepsAdvanced);
+        }
+        Assert.AreEqual(5UL, driver.GetStatus().State.CompletedSteps);
     }
 
     [DataTestMethod]
@@ -111,24 +167,26 @@ public sealed class SimulationDriverTests
     }
 
     [TestMethod]
-    public void Manual_steps_require_pause_and_leave_automatic_debt_and_speed_untouched()
+    public void Manual_steps_require_pause_and_leave_fractional_time_and_speed_untouched()
     {
         var clock = new TestClock();
         var driver = Create(clock, TimedSteps(clock, 0.006));
         Assert.ThrowsException<InvalidOperationException>(() => driver.Step(1));
         Assert.IsFalse(driver.GetStatus().IsPaused);
-        clock.Seconds = 0.1;
-        driver.AdvanceFrame(0.1, Budget);
-        Assert.AreEqual(5UL, driver.GetStatus().PendingSteps);
+        clock.Seconds = 2.5 / 60;
+        driver.AdvanceFrame(2.5 / 60, Budget);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
         driver.SetPaused(true);
         var result = driver.Step(2);
         Assert.AreEqual(2UL, result.StepsAdvanced);
         Assert.AreEqual(3UL, result.StateAfter.CompletedSteps);
-        Assert.AreEqual(5UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
         Assert.AreEqual(0.0, driver.GetStatus().ActualSpeed);
         clock.Seconds += 1;
         Assert.AreEqual(0UL, driver.AdvanceFrame(1, Budget).StepsAdvanced);
-        Assert.AreEqual(5UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
     }
 
     [TestMethod]
@@ -170,10 +228,14 @@ public sealed class SimulationDriverTests
         Assert.AreEqual(2UL, result.StateAfter.CompletedSteps);
         Assert.AreEqual("test_stop", result.StateAfter.Fault!.Code);
         CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(1), new MarkerEvent(2) }, result.Events.ToArray());
-        Assert.AreEqual(2UL, driver.GetStatus().PendingSteps);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
+        Assert.IsNotNull(result.Diagnostic);
+        Assert.AreEqual(result.StateAfter.Fault, result.Diagnostic.Fault);
         clock.Seconds += 10;
-        Assert.AreEqual(0UL, driver.AdvanceFrame(10, Budget).StepsAdvanced);
-        Assert.AreEqual(2UL, driver.GetStatus().PendingSteps);
+        var frozen = driver.AdvanceFrame(10, Budget);
+        Assert.AreEqual(0UL, frozen.StepsAdvanced);
+        Assert.IsNull(frozen.Diagnostic);
+        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(0.0, driver.GetStatus().ActualSpeed);
         driver.SetPaused(true);
         Assert.AreEqual(0UL, driver.Step(1).StepsAdvanced);
@@ -224,21 +286,21 @@ public sealed class SimulationDriverTests
     [DataRow(double.NaN)]
     [DataRow(double.PositiveInfinity)]
     [DataRow(double.NegativeInfinity)]
-    public void Invalid_frame_intervals_still_process_previously_accumulated_steps(double delta)
+    public void Invalid_frame_intervals_do_not_replay_discarded_steps(double delta)
     {
         var clock = new TestClock();
         var driver = Create(clock, TimedSteps(clock, 0.006));
         driver.AdvanceFrame(2.5 / 60, Budget);
         var before = driver.GetStatus();
-        Assert.AreEqual(1UL, before.PendingSteps);
+        Assert.AreEqual(0UL, before.PendingSteps);
 
         var result = driver.AdvanceFrame(delta, Budget);
 
-        Assert.AreEqual(1UL, result.StepsAdvanced);
-        Assert.AreEqual(before.State.CompletedSteps + 1, result.StateAfter.CompletedSteps);
+        Assert.AreEqual(0UL, result.StepsAdvanced);
+        Assert.AreEqual(before.State, result.StateAfter);
         Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(before.Remainder, driver.GetStatus().Remainder);
-        CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(2) }, result.Events.ToArray());
+        Assert.IsTrue(result.Events.IsEmpty);
     }
 
     [TestMethod]

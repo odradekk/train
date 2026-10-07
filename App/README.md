@@ -18,11 +18,13 @@
 
 正常启动没有模拟会话。真实世界创建或恢复成功后调用 `AttachSession(session, states)`，App 在 `_Process` 中使用 Core 驱动推进。挂接默认未暂停、1×，新绑定重置宿主余量和采样，保留给定会话的完整状态和命令日志；首帧不累计会话挂接前的时间。`DetachSession()` 移除绑定，已取得的不可变快照仍有效。
 
-模拟入口只允许 Godot 主线程访问。`GetSimulationStatus()` 返回完整核心状态、模拟秒、暂停、目标和实际速度及待完成步数；无会话时返回 null。`SetSimulationPaused`、`SetSimulationSpeed` 无会话时返回 false；`StepSimulation` 要求暂停。`SubmitCommand` 保留输入来源并经过同一个会话，无会话时拒收。`SimulationAdvanced` 和 `SimulationCommandCompleted` 在核心计算结束后报告已提交结果；计算期间禁止重入修改或更换绑定。`CreateSimulationCheckpoint` 返回同一完整边界的权威检查点。
+模拟入口只允许 Godot 主线程访问。`GetSimulationStatus()` 返回完整核心状态、模拟秒、暂停、目标和实际速度及当前调用的剩余额度；调用结束后的整步额度为零，无会话时返回 null。`SetSimulationPaused`、`SetSimulationSpeed` 无会话时返回 false；`StepSimulation` 要求暂停。`SubmitCommand` 保留输入来源并经过同一个会话，无会话时拒收。`SimulationAdvanced` 和 `SimulationCommandCompleted` 在核心计算结束后报告已提交结果；计算期间禁止重入修改或更换绑定。`CreateSimulationCheckpoint` 返回同一完整边界的权威检查点。
 
-每帧工作预算暂为 5 ms，只在完整步之间检查，尚未完成的整步保留到下一帧。实际速度来自完成的模拟秒与真实耗时，不直接显示目标档位。预算与显示平滑方式待 #223 的真实世界测量后调整。Debug 控制台提供 [`sim`](../docs/console/sim.md) 的状态、暂停、恢复、倍速、手动步进和检查点命令；无会话时明确提示。顶栏、暂停按钮与倍速控件仍由 #223 接入和验收。
+每帧工作预算暂为 5 ms，只在完整步之间检查；预算耗尽后放弃未执行的整步额度，跨帧保留不足一步的余量。游戏时间可以因过载变慢，后续帧不加速补算；已完成状态和事件不丢失。实际速度来自完成的模拟秒与真实耗时，不直接显示目标档位。Debug 控制台提供 [`sim`](../docs/console/sim.md) 的状态、暂停、恢复、倍速、手动步进和检查点命令；无会话时明确提示。
 
-自检使用 `-- --check=<名称>`。`logging`、`content`、`mods-export`、`content-export`、`main-menu` 在 Debug 和发布构建都可用；`simulation-host` 使用 Debug 控制台及检查专用会话，不建立生产世界。成功输出 `APP_CHECK_PASSED <名称>` 后退出 0，失败输出失败标记并以非零退出。检查不保存玩法状态，也不改写用户内容；会话日志写入本次输出目录。
+自动推进、手动步进或命令执行新发生内部故障时，App 在收到完整冻结结果后、通知观察者之前记录一次 `simulation_fault` Error。日志保留稳定故障、失败事务尝试位置和原始异常详情，写入本次会话 JSONL；冻结后的调用与恢复的故障不会重复记录历史诊断。
+
+自检使用 `-- --check=<名称>`。`logging`、`content`、`mods-export`、`content-export`、`main-menu` 在 Debug 和发布构建都可用；`simulation-host` 需要开发构建，使用 Debug 控制台及检查专用会话，另外验证三个故障入口只记录一次诊断并写入 JSONL。在发布构建选择它会明确报告“需要开发构建”。成功输出 `APP_CHECK_PASSED <名称>` 后退出 0，失败输出失败标记并以非零退出。检查不保存玩法状态，也不改写用户内容；会话日志写入本次输出目录。
 
 统一[测试入口](../docs/run-tests.md)为每项检查提供隔离用户目录，参数为 `--check-user-data=<物理路径>`；Godot 原生日志另由 `--log-file` 写入检查输出目录。content 还读取 `--check-content-root=<物理路径>` 下的 `initial/` 与 `added/` 两份资源，运行器提前准备文件。检查只切换读取来源；PNG 解码、文件访问和发布仍经过 `GodotContentSource` 及同一个重载器。源码检查验证 Debug 快捷键，发布构建通过宿主回调验证重载。
 

@@ -7,6 +7,7 @@ using System.Diagnostics;
 namespace Train.Core.Simulation;
 
 /// <summary>表示主机每秒真实时间希望推进的模拟秒数，不改变 1/60 秒步长。</summary>
+/// <seealso href="../../docs/design/04-deterministic-simulation.md#时钟与倍速"/>
 /// <example>Two 将 1/30 秒真实间隔换算为四个完整模拟步。</example>
 public enum SimulationSpeed
 {
@@ -16,7 +17,7 @@ public enum SimulationSpeed
     Two = 2,
     /// <summary>每秒真实时间推进四个模拟秒。</summary>
     Four = 4,
-    /// <summary>每秒真实时间推进八个模拟秒；实际速度仍取决于工作预算。</summary>
+    /// <summary>暂定最高档为每秒真实时间推进八个模拟秒，须经性能实测确认；实际速度取决于工作预算。</summary>
     Eight = 8
 }
 
@@ -25,7 +26,7 @@ public enum SimulationSpeed
 /// <param name="IsPaused">主机是否暂停自动推进，不禁止核心命令。</param>
 /// <param name="Speed">目标倍速，保持 1/2/4/8 的固定档位。</param>
 /// <param name="ActualSpeed">最近采样窗口内自动完成的模拟秒除以真实秒；暂停或冻结时为零。</param>
-/// <param name="PendingSteps">时间已累计但工作预算内尚未完成的整步数。</param>
+/// <param name="PendingSteps">当前自动推进调用尚未完成的整步额度；调用结束后为零，不跨帧积压。</param>
 /// <param name="Remainder">不足一个模拟步的剩余模拟秒，不受暂停或切换倍速清除。</param>
 /// <example>完成 120 步的状态对应 2 个模拟秒；目标 8× 不保证测得速度为 8×。</example>
 public sealed record SimulationStatus(
@@ -38,10 +39,10 @@ public sealed record SimulationStatus(
 
 /// <summary>在创建它的宿主线程上驱动一个已验证会话，并返回完整结果。</summary>
 /// <remarks>只拥有主机设置、调度余量和测量值；会话与状态格式必须属于同一领域。调用方负责消费返回的已提交事件。</remarks>
-/// <example>应推进四步，每步耗时 3 ms、帧预算 5 ms 时完成两步，剩余两步留给下一帧。</example>
+/// <example>应推进四步，每步耗时 3 ms、帧预算 5 ms 时完成两步，余下两步额度在帧结束时放弃。</example>
 public sealed class SimulationDriver
 {
-    /// <summary>实际速度采样满一秒后在帧结束时重置；显示平滑方式可在 #223 调整，不改变模拟。</summary>
+    /// <summary>实际速度的暂定采样窗口，单位真实秒；满一秒后在帧结束时重置，不参与模拟计算。</summary>
     private const double SpeedSampleSeconds = 1;
     private readonly SimulationSession _session;
     private readonly SimulationStateCodec _states;
@@ -81,7 +82,7 @@ public sealed class SimulationDriver
             _pendingSteps, _scheduler.Remainder);
     }
 
-    /// <summary>设置主机暂停状态，保留已有整步和小数余量；切换时重新开始速度采样。</summary>
+    /// <summary>设置主机暂停状态，保留不足一步的余量；切换时重新开始速度采样。</summary>
     /// <param name="paused">true 停止自动推进，核心命令仍可以执行。</param>
     public void SetPaused(bool paused)
     {
@@ -107,10 +108,10 @@ public sealed class SimulationDriver
     }
 
     /// <summary>累计帧间隔，在工作预算内发布完整模拟步并返回全部已提交事件。</summary>
-    /// <param name="realDelta">真实帧间隔，单位秒；非正或非有限值不新增时间，仍处理此前待完成的整步。</param>
+    /// <param name="realDelta">真实帧间隔，单位秒；非正或非有限值不新增时间，也不推进。</param>
     /// <param name="budgetSeconds">正且有限的工作预算，单位真实秒；只在完整步之间检查。</param>
-    /// <returns>实际完成步数、最后完整状态和按步骤排列的已提交事件。</returns>
-    /// <remarks>有待完成步骤时至少尝试一个完整步；不截断事务。暂停、冻结及计数耗尽时不继续累计。预算不足保留剩余步数。</remarks>
+    /// <returns>实际完成步数、最后完整状态、按步骤排列的已提交事件及本次新故障的诊断。</returns>
+    /// <remarks>有整步额度时至少尝试一个完整步，不截断事务。预算不足时放弃本帧未执行的整步额度，只保留不足一步的余量；暂停、冻结及计数耗尽时不继续累计。</remarks>
     /// <exception cref="ArgumentOutOfRangeException">预算非正或非有限。</exception>
     public AdvanceResult AdvanceFrame(double realDelta, double budgetSeconds)
     {
@@ -120,7 +121,7 @@ public sealed class SimulationDriver
         if (_paused || IsStopped(_session.GetState()))
             return NoAdvance();
         var scaledDelta = double.IsFinite(realDelta) && realDelta > 0 ? realDelta * (int)_speed : 0;
-        if (scaledDelta == 0 && _pendingSteps == 0)
+        if (scaledDelta == 0)
             return NoAdvance();
         if (!double.IsFinite(scaledDelta) ||
             (scaledDelta + _scheduler.Remainder) * SimulationClock.StepsPerSecond >= (double)ulong.MaxValue)
@@ -130,9 +131,10 @@ public sealed class SimulationDriver
         try
         {
             var startedAt = _getRealSeconds();
-            _pendingSteps = checked(_pendingSteps + _scheduler.CollectSteps(scaledDelta, paused: false));
+            _pendingSteps = _scheduler.CollectSteps(scaledDelta, paused: false);
             var advanced = 0UL;
             var events = ImmutableArray.CreateBuilder<DomainEvent>();
+            SimulationFaultDiagnostic? diagnostic = null;
             while (_pendingSteps > 0)
             {
                 // 预算只能在完整事务之间检查；一个较慢的步骤仍必须完整提交或回滚。
@@ -140,15 +142,18 @@ public sealed class SimulationDriver
                 advanced += step.StepsAdvanced;
                 _pendingSteps -= step.StepsAdvanced;
                 events.AddRange(step.Events);
+                diagnostic = step.Diagnostic;
                 if (step.StepsAdvanced == 0 || IsStopped(step.StateAfter) ||
                     _getRealSeconds() - startedAt >= budgetSeconds)
                     break;
             }
             ObserveSpeed(advanced, _getRealSeconds());
-            return new(advanced, _session.GetState(), events.ToImmutable());
+            return new(advanced, _session.GetState(), events.ToImmutable(), diagnostic);
         }
         finally
         {
+            // 过载只使游戏时间变慢，未执行的整步额度不能令后续帧加速追赶。
+            _pendingSteps = 0;
             _isExecuting = false;
         }
     }

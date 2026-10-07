@@ -42,7 +42,7 @@ public sealed class SimulationSession
 
     /// <summary>依次计算和发布指定数量的完整模拟步，首次内部故障后停止。</summary>
     /// <param name="steps">要求完整推进的步数；零不产生事务，冻结时不推进。</param>
-    /// <returns>实际完成步数、最终完整状态及成功步的事件。</returns>
+    /// <returns>实际完成步数、最终完整状态、成功步的事件及本次新发生故障的诊断。</returns>
     /// <remarks>各步独立发布，单步调用也使用此入口。阶段计算和不变量检查全部成功后才能发布候选状态。步号或事务计数达到上限时停止，不分配身份或附加故障。</remarks>
     /// <exception cref="InvalidOperationException">在计算期间重入修改入口。</exception>
     /// <example>从 (60, 2) 推进一步后到达 (61, 0)，下一条命令使用 (61, 1)。</example>
@@ -55,6 +55,7 @@ public sealed class SimulationSession
         {
             var completed = 0UL;
             var events = ImmutableArray.CreateBuilder<DomainEvent>();
+            SimulationFaultDiagnostic? diagnostic = null;
             while (completed < steps && _published.State.Fault is null)
             {
                 var before = _published.State;
@@ -74,10 +75,12 @@ public sealed class SimulationSession
                 }
                 catch (Exception exception)
                 {
-                    _published = new(CreateFaultState(before, exception, phase, context), _published.Log);
+                    var state = CreateFaultState(before, exception, phase, context);
+                    _published = new(state, _published.Log);
+                    diagnostic = new(state.Fault!, exception);
                 }
             }
-            return new AdvanceResult(completed, _published.State, events.ToImmutable());
+            return new AdvanceResult(completed, _published.State, events.ToImmutable(), diagnostic);
         }
         finally
         {
@@ -88,7 +91,7 @@ public sealed class SimulationSession
     /// <summary>在当前边界分配命令身份，计算、检查并发布一条命令的结果。</summary>
     /// <param name="command">已解析命令，不带目标步号。</param>
     /// <param name="source">仅用于记录来源，不改变校验和事务规则。</param>
-    /// <returns>无身份的入口拒收，或执行、预期拒绝、内部故障的完整结果。</returns>
+    /// <returns>无身份的入口拒收，或执行、预期拒绝、内部故障的完整结果；新故障附宿主诊断。</returns>
     /// <remarks>拒绝不重试、不换目标、不撤销此前命令。故障恢复命令前全部状态再附故障；冻结时不接受新命令。</remarks>
     /// <exception cref="ArgumentNullException">命令为空。</exception>
     /// <exception cref="ArgumentException">命令不属于此领域格式、字段非法，或来源不受支持；拒收前不会消耗身份。</exception>
@@ -160,7 +163,8 @@ public sealed class SimulationSession
                     source, CommandOutcome.Faulted, state.Fault!.Code);
                 var log = SimulationCommandLog.Append(publishedBefore.Log, execution, payload);
                 _published = new(state, log);
-                return new SubmissionResult.Completed(execution, state, ImmutableArray<DomainEvent>.Empty);
+                return new SubmissionResult.Completed(execution, state, ImmutableArray<DomainEvent>.Empty,
+                    new SimulationFaultDiagnostic(state.Fault!, exception));
             }
         }
         finally

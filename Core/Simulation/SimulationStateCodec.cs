@@ -119,7 +119,8 @@ public abstract class SimulationStateCodec
         try
         {
             var root = SimulationJson.ParseObject(json);
-            CheckEnvelopeFields(root);
+            SimulationJson.CheckKnownFields(root, "", "core_state_format_version", "state_kind", "state_version",
+                "simulation", "domain");
 
             var coreVersion = SimulationJson.UInt32(EnvelopeProperty(root, "core_state_format_version"),
                 "/core_state_format_version");
@@ -149,22 +150,6 @@ public abstract class SimulationStateCodec
         catch (SimulationJsonException exception)
         {
             return new DeterminismResult<(SimulationState, JsonElement)>.Failure(exception.Error);
-        }
-    }
-
-    /// <summary>拒绝包络中的未知和重复字段，缺失字段按协议读取顺序定位。</summary>
-    private static void CheckEnvelopeFields(JsonElement root)
-    {
-        var allowed = new HashSet<string>(StringComparer.Ordinal)
-        {
-            "core_state_format_version", "state_kind", "state_version", "simulation", "domain"
-        };
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var property in root.EnumerateObject())
-        {
-            var path = "/" + SimulationJson.Escape(property.Name);
-            if (!seen.Add(property.Name)) throw SimulationJson.Invalid("duplicate_field", path);
-            if (!allowed.Contains(property.Name)) throw SimulationJson.Invalid("unknown_field", path);
         }
     }
 

@@ -19,9 +19,13 @@ public partial class App : Node
     /// <summary>Debug 构建中的内容重载动作，与项目输入映射共用此名称。</summary>
     public const string ReloadContentAction = "reload_content";
 
-    /// <summary>#221 结对确认的暂定每帧模拟工作预算，单位秒；#223 可按真实世界测量调整。</summary>
-    /// <remarks>5 ms 只限制在完整步之间继续工作，不改变模拟步长，不丢弃剩余步骤。</remarks>
+    /// <summary>结对确认的暂定每帧模拟工作预算，单位真实秒，须按真实世界负载测量调整。</summary>
+    /// <remarks>5 ms 只限制在完整步之间继续工作；预算耗尽后放弃本帧未执行的整步额度。</remarks>
+    /// <seealso href="https://github.com/odradekk/train/issues/221#issuecomment-6034401850"/>
     private const double SimulationFrameBudgetSeconds = 0.005;
+
+    /// <summary>宿主首次收到内部故障诊断时记录的稳定事件标识。</summary>
+    internal const string SimulationFaultEventId = "simulation_fault";
 
     private TrainLogger? _logger;
     private ContentReloader? _reloader;
@@ -54,6 +58,8 @@ public partial class App : Node
         try
         {
             _check = CheckArguments.Parse(OS.GetCmdlineUserArgs());
+            if (_check?.Name == "simulation-host" && !OS.IsDebugBuild())
+                throw new InvalidOperationException("simulation-host 检查需要开发构建（Debug），以验证 sim 调试命令。");
             var userData = _check?.UserDataDirectory ?? OS.GetUserDataDir();
             var buffer = new RingBufferLogSink();
             _logger = TrainLogger.StartSession(Path.Combine(userData, "logs"),
@@ -167,6 +173,7 @@ public partial class App : Node
         if (_simulation is null)
             return null;
         var result = RunSimulation(() => _simulation.Step(steps));
+        ReportSimulationFault(result.Diagnostic);
         SimulationAdvanced?.Invoke(result);
         return result;
     }
@@ -182,7 +189,10 @@ public partial class App : Node
             return new SubmissionResult.NotAccepted("simulation_session_unavailable");
         var result = RunSimulation(() => _simulation.SubmitCommand(command, source));
         if (result is SubmissionResult.Completed completed)
+        {
+            ReportSimulationFault(completed.Diagnostic);
             SimulationCommandCompleted?.Invoke(completed);
+        }
         return result;
     }
 
@@ -223,6 +233,7 @@ public partial class App : Node
                     _firstSimulationFrame = false;
                 }
                 var result = RunSimulation(() => _simulation.AdvanceFrame(simulationDelta, SimulationFrameBudgetSeconds));
+                ReportSimulationFault(result.Diagnostic);
                 SimulationAdvanced?.Invoke(result);
             }
             var drained = _logger?.DrainGodotQueue() ?? 0;
@@ -273,6 +284,28 @@ public partial class App : Node
         _insideSimulation = true;
         try { return operation(); }
         finally { _insideSimulation = false; }
+    }
+
+    /// <summary>在核心发布冻结边界后记录本次新故障的异常详情，早于外部观察者回调。</summary>
+    private void ReportSimulationFault(SimulationFaultDiagnostic? diagnostic)
+    {
+        if (diagnostic is null)
+            return;
+        var fault = diagnostic.Fault;
+        var context = fault.Context;
+        _logger!.Error(SimulationConsoleCommands.Category, SimulationFaultEventId,
+            "核心模拟发生内部故障，已冻结在最后完整边界。",
+            new Dictionary<string, object?>
+            {
+                ["fault_code"] = fault.Code,
+                ["fault_phase"] = fault.Phase.ToString(),
+                ["operation"] = context?.Operation.ToString(),
+                ["attempted_transaction_id"] = context?.TransactionId,
+                ["attempted_completed_steps"] = context?.Position.CompletedSteps,
+                ["attempted_sequence"] = context?.Position.Sequence,
+                ["attempted_command_id"] = context?.CommandId,
+                ["entity_id"] = fault.EntityId
+            }, diagnostic.Exception);
     }
 
     /// <summary>要求模拟服务从该 App 的 Godot 主线程访问。</summary>

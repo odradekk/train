@@ -80,9 +80,11 @@ public abstract record SubmissionResult
     /// <param name="Execution">命令的身份和结果；故障记录中的编号不表示已提交。</param>
     /// <param name="StateAfter">执行后的完整状态；故障时保留命令前状态并附故障。</param>
     /// <param name="Events">成功命令的不可变事件；拒绝或故障时为空。</param>
+    /// <param name="Diagnostic">本命令新发生内部故障时的诊断；执行或预期拒绝时为 null。</param>
     /// <example>成功、目标消失和内部异常均返回执行记录，只有内部异常令 StateAfter.Fault 非 null。</example>
     public sealed record Completed(
         CommandExecution Execution,
         SimulationState StateAfter,
-        ImmutableArray<DomainEvent> Events) : SubmissionResult;
+        ImmutableArray<DomainEvent> Events,
+        SimulationFaultDiagnostic? Diagnostic = null) : SubmissionResult;
 }

@@ -16,6 +16,7 @@ internal sealed class SimulationCheck
     private readonly App _app;
     private readonly GameConsole _console;
     private readonly RingBufferLogSink _buffer;
+    private readonly TrainLogger _logger;
     private readonly int _hostThreadId = System.Environment.CurrentManagedThreadId;
     private readonly ProbeCalculations _calculations = new();
     private readonly ProbeStateCodec _states = new();
@@ -26,6 +27,9 @@ internal sealed class SimulationCheck
     private SimulationState? _pausedState;
     private AdvanceResult? _pausedFrame;
     private bool _finished;
+    private bool _checkingFaults;
+    private SimulationState? _automaticFaultState;
+    private int _faultLogsAtStart;
 
     /// <summary>验证无会话查询后，建立并挂接只供本次检查使用的已校验会话。</summary>
     internal SimulationCheck(App app, GameConsole console, TrainLogger logger, RingBufferLogSink buffer)
@@ -37,10 +41,11 @@ internal sealed class SimulationCheck
         _app = app;
         _console = console;
         _buffer = buffer;
+        _logger = logger;
 
         Require(_app.GetSimulationStatus() is null, "普通启动状态不应隐式创建模拟会话。");
         _console.SubmitLine("sim");
-        Require(HasLog("simulation_session_unavailable"), "无会话查询没有经过真实控制台反馈。");
+        Require(HasLog(SimulationConsoleCommands.SessionUnavailableEventId), "无会话查询没有经过真实控制台反馈。");
         Mark("SIMULATION_NO_SESSION");
 
         var initial = new ProbeState(73, "simulation-host-check-v1");
@@ -61,6 +66,8 @@ internal sealed class SimulationCheck
     {
         if (_finished)
             return true;
+        if (_checkingFaults)
+            return ObserveFaults();
         if (_pausedState is null && (_frameNotifications < 2 || _automaticallyAdvanced < 2))
             return null;
 
@@ -86,7 +93,7 @@ internal sealed class SimulationCheck
                 VerifyRunningConsoleCommands(running);
                 _console.SubmitLine("sim pause");
                 var paused = RequireStatus();
-                Require(paused.IsPaused && HasLog("simulation_paused"), "暂停命令没有更新同一宿主会话。");
+                Require(paused.IsPaused && HasLog(SimulationConsoleCommands.PausedEventId), "暂停命令没有更新同一宿主会话。");
                 _pausedState = paused.State;
                 Mark("SIMULATION_PAUSED");
                 return null;
@@ -122,13 +129,14 @@ internal sealed class SimulationCheck
             Require(stepped.IsPaused && steppedState.CompletedSteps == pausedState.CompletedSteps + 2 &&
                 steppedState.Counter == commanded.Counter + 2 &&
                 steppedState.TransactionCount == pausedState.TransactionCount + 3 &&
-                HasLog("simulation_stepped"), "控制台手动步没有修改同一暂停会话。");
+                HasLog(SimulationConsoleCommands.SteppedEventId), "控制台手动步没有修改同一暂停会话。");
             Mark("SIMULATION_CONSOLE_STEP");
 
             _console.SubmitLine("sim checkpoint");
             var checkpoint = _app.CreateSimulationCheckpoint();
             var checkpointLog = _buffer.Snapshot().LastOrDefault(item =>
-                item.Category == "simulation" && item.EventId == "simulation_checkpoint");
+                item.Category == SimulationConsoleCommands.Category &&
+                item.EventId == SimulationConsoleCommands.CheckpointEventId);
             Require(checkpoint is not null && checkpoint.Position ==
                 new SimulationPosition(steppedState.CompletedSteps, steppedState.BoundarySequence) &&
                 checkpointLog is not null &&
@@ -155,8 +163,11 @@ internal sealed class SimulationCheck
             _app.DetachSession();
             Require(_app.GetSimulationStatus() is null, "解绑后仍可查询到模拟会话。");
             Mark("SIMULATION_SESSION_DETACHED");
-            _finished = true;
-            return true;
+            _faultLogsAtStart = CountLogs(App.SimulationFaultEventId);
+            _app.AttachSession(CreateValidatedSession(new ProbeState(94, "simulation-fault-check-v1"),
+                new ProbeCalculations(failStep: true)), _states);
+            _checkingFaults = true;
+            return null;
         }
         catch
         {
@@ -165,6 +176,7 @@ internal sealed class SimulationCheck
         }
     }
 
+    /// <summary>累计实际自动推进的完整事件，或保留暂停后的首个帧结果供下一帧断言。</summary>
     private void ObserveAdvance(AdvanceResult result)
     {
         if (_pausedState is not null)
@@ -187,10 +199,10 @@ internal sealed class SimulationCheck
     {
         var authoritative = running.State;
         var checkpoint = _app.CreateSimulationCheckpoint()!;
-        var requiresPause = CountLogs("simulation_requires_pause");
+        var requiresPause = CountLogs(SimulationConsoleCommands.RequiresPauseEventId);
         _console.SubmitLine("sim step");
         var afterStep = RequireStatus();
-        Require(CountLogs("simulation_requires_pause") == requiresPause + 1 &&
+        Require(CountLogs(SimulationConsoleCommands.RequiresPauseEventId) == requiresPause + 1 &&
             afterStep == running && _app.CreateSimulationCheckpoint() == checkpoint,
             "运行中的 sim step 隐式暂停、修改状态，或没有报告必须暂停。");
 
@@ -221,9 +233,9 @@ internal sealed class SimulationCheck
             "sim unknown"
         })
         {
-            var usage = CountLogs("simulation_usage");
+            var usage = CountLogs(SimulationConsoleCommands.UsageEventId);
             _console.SubmitLine(input);
-            Require(CountLogs("simulation_usage") == usage + 1 && RequireStatus() == unchanged &&
+            Require(CountLogs(SimulationConsoleCommands.UsageEventId) == usage + 1 && RequireStatus() == unchanged &&
                 _app.CreateSimulationCheckpoint() == checkpoint,
                 $"非法控制台输入改变了模拟，或没有报告用法：{input}");
         }
@@ -234,27 +246,107 @@ internal sealed class SimulationCheck
     {
         _console.SubmitLine("sim resume");
         var resumed = RequireStatus();
-        Require(!resumed.IsPaused && resumed.State == expected && HasLog("simulation_resumed"),
+        Require(!resumed.IsPaused && resumed.State == expected && HasLog(SimulationConsoleCommands.ResumedEventId),
             "sim resume 没有取消暂停，或改变了完整状态。");
         _console.SubmitLine("sim pause");
         var paused = RequireStatus();
-        Require(paused.IsPaused && paused.State == expected && HasLog("simulation_paused"),
+        Require(paused.IsPaused && paused.State == expected && HasLog(SimulationConsoleCommands.PausedEventId),
             "再次 sim pause 没有保持同一完整状态。");
     }
 
     /// <summary>用独立领域计算验证起点，并返回可整体重新挂接的新会话。</summary>
-    private SimulationSession CreateValidatedSession(ProbeState initial)
+    private SimulationSession CreateValidatedSession(ProbeState initial, ProbeCalculations? calculations = null)
     {
-        var restored = _states.Restore(_states.Capture(initial), new ProbeCalculations(), new ProbeCommandCodec());
+        var restored = _states.Restore(_states.Capture(initial), calculations ?? new ProbeCalculations(), new ProbeCommandCodec());
         Require(restored is DeterminismResult<SimulationSession>.Success, "重新绑定的测试会话起点无效。");
         return ((DeterminismResult<SimulationSession>.Success)restored).Value;
     }
 
     private bool HasLog(string eventId) => _buffer.Snapshot().Any(item =>
-        item.Category == "simulation" && item.EventId == eventId);
+        item.Category == SimulationConsoleCommands.Category && item.EventId == eventId);
 
     private int CountLogs(string eventId) => _buffer.Snapshot().Count(item =>
-        item.Category == "simulation" && item.EventId == eventId);
+        item.Category == SimulationConsoleCommands.Category && item.EventId == eventId);
+
+    /// <summary>跨两个真实帧验证自动故障只记录一次，再验证手动步和命令的故障诊断与持久输出。</summary>
+    private bool? ObserveFaults()
+    {
+        var state = RequireStatus().State;
+        if (state.Fault is null)
+            return null;
+        if (_automaticFaultState is null)
+        {
+            Require(state.CompletedSteps == 0 && state.TransactionCount == 0,
+                "自动故障没有保留失败步之前的完整边界。");
+            VerifyFaultLog(1, SimulationPhase.Evaluate, SimulationOperation.Step, "自检模拟步异常。");
+            _automaticFaultState = state;
+            return null;
+        }
+        Require(state == _automaticFaultState && CountLogs(App.SimulationFaultEventId) == _faultLogsAtStart + 1,
+            "冻结后的自动帧改变了状态，或重复记录故障。");
+        Mark("SIMULATION_AUTO_FAULT_DIAGNOSTIC");
+
+        _app.AttachSession(CreateValidatedSession(new ProbeState(95, "simulation-fault-check-v1"),
+            new ProbeCalculations(failStep: true)), _states);
+        _app.SetSimulationPaused(true);
+        var stepped = _app.StepSimulation(2)!;
+        Require(stepped.StepsAdvanced == 0 && stepped.Diagnostic is not null && stepped.Events.IsEmpty,
+            "手动步故障没有回滚或交出诊断。");
+        VerifyFaultLog(2, SimulationPhase.Evaluate, SimulationOperation.Step, "自检模拟步异常。");
+        Require(_app.StepSimulation(1)!.Diagnostic is null &&
+            CountLogs(App.SimulationFaultEventId) == _faultLogsAtStart + 2,
+            "冻结后的手动步重复返回或记录诊断。");
+        Mark("SIMULATION_MANUAL_FAULT_DIAGNOSTIC");
+
+        _app.AttachSession(CreateValidatedSession(new ProbeState(96, "simulation-fault-check-v1"),
+            new ProbeCalculations(failCommand: true)), _states);
+        _app.SetSimulationPaused(true);
+        var submitted = (SubmissionResult.Completed)_app.SubmitCommand(new AddCommand(1), CommandSource.Console);
+        Require(submitted.Execution.Outcome == CommandOutcome.Faulted && submitted.Diagnostic is not null &&
+            submitted.StateAfter.CompletedSteps == 0 && submitted.StateAfter.TransactionCount == 0 &&
+            submitted.Events.IsEmpty, "命令故障没有回滚并返回诊断。");
+        VerifyFaultLog(3, SimulationPhase.Command, SimulationOperation.Command, "自检命令异常。");
+        Require(_app.SubmitCommand(new AddCommand(1), CommandSource.Console) is SubmissionResult.NotAccepted &&
+            CountLogs(App.SimulationFaultEventId) == _faultLogsAtStart + 3,
+            "冻结后的拒收重复记录故障。");
+
+        Require(_logger.JsonlPath is not null, "故障诊断没有持久日志文件。");
+        // 日志写句柄尚未关闭；读取句柄也必须允许现有写入，避免 Windows 的双向共享检查拒绝打开。
+        using var stream = new FileStream(_logger.JsonlPath!, FileMode.Open, System.IO.FileAccess.Read, FileShare.ReadWrite);
+        using var reader = new StreamReader(stream);
+        var persisted = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line =>
+        {
+            using var document = JsonDocument.Parse(line);
+            return document.RootElement.Clone();
+        }).Where(item => item.GetProperty("event_id").GetString() == App.SimulationFaultEventId).ToArray();
+        Require(persisted.Length == _faultLogsAtStart + 3 && persisted.All(item =>
+            !string.IsNullOrEmpty(item.GetProperty("exception").GetProperty("stack_trace").GetString())),
+            "新故障没有分别持久记录一次，或诊断丢失调用栈。");
+        Mark("SIMULATION_COMMAND_FAULT_DIAGNOSTIC");
+        _app.DetachSession();
+        _finished = true;
+        return true;
+    }
+
+    /// <summary>验证当前新增的唯一错误日志含事务尝试位置及原始异常消息、调用栈和内部异常。</summary>
+    private void VerifyFaultLog(int added, SimulationPhase phase, SimulationOperation operation, string message)
+    {
+        var errors = _buffer.Snapshot().Where(item => item.Category == SimulationConsoleCommands.Category &&
+            item.EventId == App.SimulationFaultEventId).ToArray();
+        Require(errors.Length == _faultLogsAtStart + added, "内部故障没有在发生的那次调用记录一条日志。");
+        var error = errors[^1];
+        Require(error.Level == LogLevel.Error && error.Exception is not null &&
+            Equals(error.Attributes["fault_phase"], phase.ToString()) &&
+            Equals(error.Attributes["operation"], operation.ToString()) &&
+            Equals(error.Attributes["attempted_transaction_id"], 1UL) &&
+            Equals(error.Attributes["attempted_completed_steps"], operation == SimulationOperation.Step ? 1UL : 0UL) &&
+            Equals(error.Attributes["attempted_sequence"], operation == SimulationOperation.Step ? 0UL : 1UL),
+            "错误日志没有保留故障阶段与失败事务的位置。");
+        var details = new[] { error.Exception! }.Concat(error.Exception!.InnerExceptions).ToArray();
+        Require(details.Any(item => item.Message == message && !string.IsNullOrEmpty(item.StackTrace)) &&
+            details.Any(item => item.Message == "自检内部异常。"),
+            "错误日志没有保留原始异常消息、调用栈或内部异常链。");
+    }
 
     private static void Require(bool condition, string message)
     {
@@ -275,7 +367,7 @@ internal sealed class SimulationCheck
     private sealed record ProbeStepEvent(ulong CompletedStep) : DomainEvent;
     private sealed record ProbeCommandEvent(ulong Amount) : DomainEvent;
 
-    private sealed class ProbeCalculations : SimulationCalculations
+    private sealed class ProbeCalculations(bool failStep = false, bool failCommand = false) : SimulationCalculations
     {
         internal List<int> ThreadIds { get; } = [];
 
@@ -291,6 +383,8 @@ internal sealed class SimulationCheck
         public override StepRequests Evaluate(SimulationState before, TransactionContext context)
         {
             ThreadIds.Add(System.Environment.CurrentManagedThreadId);
+            if (failStep)
+                throw new InvalidOperationException("自检模拟步异常。", new IOException("自检内部异常。"));
             return new ProbeRequests();
         }
 
@@ -313,6 +407,8 @@ internal sealed class SimulationCheck
             SimulationState before, CoreCommand command, TransactionContext context)
         {
             ThreadIds.Add(System.Environment.CurrentManagedThreadId);
+            if (failCommand)
+                throw new InvalidOperationException("自检命令异常。", new IOException("自检内部异常。"));
             if (command is not AddCommand add)
                 throw new InvalidOperationException("未知自检命令。");
             var state = (ProbeState)before;

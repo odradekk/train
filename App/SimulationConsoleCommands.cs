@@ -1,4 +1,5 @@
 // Train.App 在 Godot 主线程执行模拟调试命令，并通过共享日志返回结果。
+// 查询与操作都作用于已挂接会话，无会话时只报告状态，不建立模拟世界。
 
 using System.Globalization;
 using Train.Core.Logging;
@@ -72,6 +73,7 @@ internal sealed class SimulationConsoleCommands
         }
     }
 
+    /// <summary>从同一完整边界输出核心位置、宿主时钟观察值及冻结原因。</summary>
     private void ReportStatus()
     {
         var status = _app.GetSimulationStatus();
@@ -103,6 +105,7 @@ internal sealed class SimulationConsoleCommands
             paused ? "模拟已暂停。" : "模拟已继续运行。");
     }
 
+    /// <summary>检查活动会话尚未冻结后取消宿主暂停。</summary>
     private void Resume()
     {
         var status = _app.GetSimulationStatus();
@@ -133,6 +136,7 @@ internal sealed class SimulationConsoleCommands
             new Dictionary<string, object?> { ["speed"] = (int)speed });
     }
 
+    /// <summary>验证活动会话已经暂停且未冻结，再同步推进并报告实际完成步数。</summary>
     private void Step(ulong steps)
     {
         var status = _app.GetSimulationStatus();
@@ -217,6 +221,7 @@ internal sealed class SimulationConsoleCommands
         return text is "1" or "2" or "4" or "8";
     }
 
+    /// <summary>将省略的步数解析为一步，或接受唯一的正 UInt64 十进制参数。</summary>
     private static bool TryParseStepCount(IReadOnlyList<string> arguments, out ulong steps)
     {
         steps = 1;
