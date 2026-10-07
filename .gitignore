@@ -7,3 +7,4 @@ builds/
 TestResults/
 *.user
 .amp/portals/*
+.vs/
