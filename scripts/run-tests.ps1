@@ -1,7 +1,6 @@
-# Thin PowerShell 7 entry for discovering, selecting, and running MSTest plus the
-# registered Godot and cross-process checks in scripts/runner-catalog.json.
-# MSTest classification is read from TestCategory metadata. Other runners contribute
-# only the invocation fields in that catalog. Windows CI calls this same entry.
+# PowerShell 7 统一检查入口，负责发现、选择、准备环境、调用检查和发布报告。
+# MSTest 分类来自 TestCategory；App 检查由 runner-catalog.json 登记，断言留在各自实现中。
+# Windows CI 与本地验证使用同一入口。
 #
 # Exit codes:
 #   0 selected required checks passed
@@ -174,7 +173,7 @@ function Get-HelpText {
   partial: durationStatus partial keeps the milliseconds a cancelled or blocked check already ran. Only passed and failed checks are measured-this-run.
 
 结果
-  每次执行写入新的 TestResults/run-tests/<id>/summary.json、report.md，并保留原始 TRX、Godot 日志与检查点。
+  每次执行写入新的 TestResults/run-tests/<id>/summary.json、report.md，并保留原始 TRX 和 Godot 日志。
   记录的提交和脏状态取自构建开始前。运行结束时的 Git 状态单独记录。
   运行期间如果提交或工作区变了，结果不能证明结束时的干净提交已通过。
   读不到提交或工作区状态时，身份未验证，不能把该次运行当成干净提交已通过。
@@ -621,11 +620,8 @@ function Test-RequirementAvailable {
 function Get-GroupTimeoutSeconds {
     param([int] $CaseCount, [int] $Override)
     if ($Override -gt 0) { return $Override }
-    # Samples on this workstation: a warm 4-case unit voxel group and a one-case
-    # headless console method each finished in about 2 seconds, mostly process
-    # startup, so the 90-second floor stays above those small runs. The same
-    # formula capped at 900 seconds for headless/railway (105 cases); that group
-    # finished in 482 seconds with no timeout. The cap still ends a hung group.
+    # 沿用编排层的保守等待预算：预留启动时间，随用例数增加，并限制在 90 至 900 秒。
+    # 该预算用于结束卡住的进程，不是测试耗时或性能基线。
     $seconds = 45 + (20 * $CaseCount)
     return [Math]::Min(900, [Math]::Max(90, $seconds))
 }
@@ -1013,8 +1009,8 @@ function New-Markdown {
     if ($registeredNames -contains "godot") { $registeredParts.Add("Godot 检查") }
     if ($registeredNames -contains "cross-process") { $registeredParts.Add("新进程检查") }
     $registeredText = if ($registeredParts.Count -gt 0) { $registeredParts -join "、" } else { "没有外部目录里的可运行检查" }
-    $lines.Add("已登记 $registeredText。旧入口清单仍来自仓库目录。这仍不是全仓验证。Windows CI 说明见 docs/ci.md。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
-    $lines.Add("引擎观察、新进程恢复、领域对照和人工观感分开记录。日志和检查点是原始文件。启动或截图成功不代替这些检查。")
+    $lines.Add("已登记 $registeredText。支持脚本清单来自仓库目录。这仍不是全仓验证。Windows CI 说明见 docs/ci.md。Benchmark、长测、人工和额外平台不是会空跑通过的组。")
+    $lines.Add("引擎观察、新进程恢复、领域对照和人工观感分开记录。TRX 和引擎日志保留原始文件。启动或截图成功不代替这些检查。")
     $lines.Add("需要引擎或共享资源的检查串行执行。隔离策略是 per-check-appdata：每个 Godot 检查在本次运行目录里有一份 APPDATA，导入和版本探测另外各有一份。同一次检查里的多个 Godot 进程共用这一份。入口不写项目根目录的 override.cfg。强制结束进程也不会留下用户目录重定向。environment 只在本次确实启动了使用该目录的 Godot 进程时写成 per-check-appdata，否则写成 not-started。")
     $lines.Add("")
     $selection = $Summary["selection"]
@@ -1493,12 +1489,6 @@ function Invoke-ExternalCheck {
     $groupDir = Join-Path $RunDirectory (Join-Path "groups" $Case.Group)
     $caseDir = Join-Path $groupDir $safe
     New-Item -ItemType Directory -Force -Path $caseDir | Out-Null
-    $needsUserData = $false
-    foreach ($argument in @($Case.Arguments)) {
-        if ([string] $argument -like "*{userData}*") { $needsUserData = $true }
-    }
-    $userData = Join-Path $caseDir "user-data"
-    if ($needsUserData) { New-Item -ItemType Directory -Force -Path $userData | Out-Null }
     $output = Join-Path $caseDir "output"
     $needsContentRoot = [bool] $Case.NeedsContentInput
     $contentRoot = if ($needsContentRoot) { New-ContentCheckInput -CaseDirectory $output } else { "" }
@@ -1506,7 +1496,7 @@ function Invoke-ExternalCheck {
     $arguments = [System.Collections.Generic.List[string]]::new()
     foreach ($argument in @($Case.Arguments)) {
         $text = [string] $argument
-        $text = $text.Replace("{userData}", $userData).Replace("{output}", $output).Replace("{contentRoot}", $contentRoot).Replace("{exportBinary}", $ExportBinary)
+        $text = $text.Replace("{output}", $output).Replace("{exportBinary}", $ExportBinary)
         $arguments.Add($text)
     }
     $empty = [pscustomobject]@{
@@ -1537,7 +1527,6 @@ function Invoke-ExternalCheck {
     $watch.Stop()
     $artifacts = New-List
     if (Test-Path -LiteralPath $logPath) { $artifacts.Add($logPath) }
-    if ($needsUserData) { Add-UsedFiles -Artifacts $artifacts -Root $userData }
     if ($needsContentRoot) { Add-UsedFiles -Artifacts $artifacts -Root $contentRoot }
     Add-UsedFiles -Artifacts $artifacts -Root $output
     if ($appData) { Add-UsedFiles -Artifacts $artifacts -Root $appData }

@@ -88,10 +88,21 @@
       "requirements": []
     },
     {
+      "id": "harness.run-tests",
+      "entry": "pwsh -NoProfile -File scripts/run-tests.tests.ps1",
+      "contract": "验证统一入口的发现、选择、准备、隔离、报告和进程清理；同时对比真实 MSTest 元数据与执行结果。",
+      "boundary": "假宿主只证明编排。Ctrl+C 和进程树清理用例需要 Windows；真实 App 行为由五项已登记检查证明。",
+      "destination": "保留为统一入口的契约测试，不登记为 App 检查。",
+      "status": "support-harness",
+      "durationStatus": "unmeasured",
+      "claim": "orchestration",
+      "requirements": []
+    },
+    {
       "id": "tool.invoke-hidden-process",
-      "entry": "scripts/Invoke-HiddenProcess.ps1",
-      "contract": "等待 Windows 进程并取回标准输出、错误和退出码。它是支持工具，不是测试用例。",
-      "boundary": "被导出烟测点源使用。",
+      "entry": "scripts/checks/Invoke-HiddenProcess.ps1",
+      "contract": "等待 App 检查进程并取回输出、退出码和超时清理结果。它是支持工具，不是测试用例。",
+      "boundary": "由 App 检查脚本点源使用，兼容 Windows GUI 程序的输出捕获。",
       "destination": "不登记为测试用例。",
       "status": "support-tool",
       "durationStatus": "unmeasured",
@@ -99,32 +110,10 @@
       "requirements": []
     },
     {
-      "id": "tool.host-hardware",
-      "entry": "scripts/Get-HostHardwareInfo.ps1",
-      "contract": "读取 CPU 和内存，供需要说明宿主环境的验证记录使用。不是正确性检查，也不是正式性能基线。",
-      "boundary": "Windows 用 CIM，其他系统用 /proc。",
-      "destination": "不登记为测试用例。",
-      "status": "support-tool",
-      "durationStatus": "unmeasured",
-      "claim": "support",
-      "requirements": []
-    },
-    {
-      "id": "tool.smoke-helpers",
-      "entry": "scripts/SmokeTests.Helpers.ps1",
-      "contract": "烟测脚本共用的帮助函数。不是一条可选择的测试。",
-      "boundary": "由其他脚本点源。",
-      "destination": "不登记为测试用例。",
-      "status": "support-tool",
-      "durationStatus": "unmeasured",
-      "claim": "support",
-      "requirements": []
-    },
-    {
-      "id": "tool.placeholder-pngs",
-      "entry": "pwsh -NoProfile -File scripts/write-placeholder-pngs.ps1",
-      "contract": "生成占位 PNG。是资源工具，不是验证运行器。",
-      "boundary": "会写仓库里的图片。不要把它当成测试通过。",
+      "id": "tool.process-fixtures",
+      "entry": "scripts/checks/ProcessFixtures.ps1",
+      "contract": "为 App 检查脚本测试创建假的本机进程，并清理本次拥有的临时目录。不是一条可选择的检查。",
+      "boundary": "仅由 App 检查脚本测试点源使用；假进程不证明游戏行为。",
       "destination": "不登记为测试用例。",
       "status": "support-tool",
       "durationStatus": "unmeasured",

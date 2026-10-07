@@ -45,12 +45,12 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 - SDK 由 `global.json` 固定为 10.0.112、禁止 roll-forward；`setup-dotnet` 在干净 runner 安装它。
 - 测试使用 PowerShell 7.6.6 官方便携构建。bootstrap 使用 runner 自带 PowerShell，将便携版本置于后续步骤 PATH 首位；测试子进程显式调用便携可执行文件。
 - 较重选择下载 Godot 4.7.2 stable .NET Windows x64 官方 ZIP，设置 `GODOT` 为 console 可执行文件。两个工具 ZIP 的 SHA256 固定在工作流；actions 固定到 commit SHA。不安装无关导出模板，不缓存跨运行 Godot／包／结果。
-- PR 显式检出 head SHA；手动运行检出所选 ref 的 SHA。统一摘要记录实际提交、dirty 状态、选择、环境、准备和每组耗时；`TestResults/ci/environment.txt` 补充 Actions run URL、attempt 和 runner 镜像。源码链接 MSTest 不证明部署的 Godot 装配，真实引擎证据另列。
+- PR 显式检出 head SHA；手动运行检出所选 ref 的 SHA。统一摘要记录实际提交、dirty 状态、选择、环境、准备和每组耗时；`TestResults/ci/environment.txt` 补充 Actions run URL、attempt 和 runner 镜像。引用 Core/Scenes 工程的 MSTest 不证明部署的 Godot 装配，真实引擎证据另列。
 
-入口使用唯一 `TestResults/run-tests/<id>/`，保留 `summary.json`、`report.md`、TRX、准备日志、引擎日志、用户数据和检查点。报告追加到 job summary，整个 `TestResults/` 上传为 `windows-<selection>-<run_id>-<attempt>`，保留 14 天，重跑使用新的 attempt 名称。`include-hidden-files` 保留检查点目录里的隐藏文件。
+入口使用唯一 `TestResults/run-tests/<id>/`，保留 `summary.json`、`report.md`、TRX、准备日志、引擎日志和隔离用户数据。报告追加到 job summary，整个 `TestResults/` 上传为 `windows-<selection>-<run_id>-<attempt>`，保留 14 天，重跑使用新的 attempt 名称。`include-hidden-files` 保留验证产物中的隐藏文件。
 
 报告和上传步骤使用 `always()`；失败后仍执行，取消时尽可能收集已产生文件。强制终止 runner 或上传服务不可用时不能保证上传。入口非零状态直接传递给步骤，后续上传成功不会把失败 job 变绿。工具准备失败仍尝试入口，让所选检查报告缺环境；若连 PowerShell 都未准备好，只保留已产生的环境记录与 Actions 原始日志，不宣称执行通过。
 
-job 上限为 30 分钟。已取得的远端完整回归 [run 36746413376](https://github.com/odradekk/train/actions/runs/36746413376) 实测 18 分 48 秒，该上限给工具准备和共享 runner 波动留约 11 分钟余量；它限制卡住时间，不是通过条件。
+job 上限为 30 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；当前检查的实际耗时以各次统一入口报告为准。
 
 私有仓库的 Windows 托管运行消耗付费 Actions 分钟，较重路径要求显式请求。测试证据与复用规则见 [Testing standard](implement-sop.md#testing-standard)。

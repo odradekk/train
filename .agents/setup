@@ -6,9 +6,9 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
-DOTNET_SDK_VERSION="10.0.111"
+DOTNET_SDK_VERSION="10.0.112"
 DOTNET_SDK_URL="https://builds.dotnet.microsoft.com/dotnet/Sdk/${DOTNET_SDK_VERSION}/dotnet-sdk-${DOTNET_SDK_VERSION}-linux-x64.tar.gz"
-DOTNET_SDK_SHA512="aae221be96a3b510d5b6fffefc69d8ad2fa595a1430299419316bb71c65f260a457ca9af24d044e1709b28a9118798caafec535ccfe58f7767c5acb735c00392"
+DOTNET_SDK_SHA512="1ac949dfd3929855e3a102a5b12f843967a784ad2d911dfcfff6abdf81a2e78bccf25ddc055547de02b36133bf792aaf97fcba8db8aa6b52ac2e018b86935d05"
 DOTNET_ROOT="${HOME}/.dotnet"
 
 PWSH_DEB_VERSION="7.6.5"
@@ -200,14 +200,13 @@ restore_and_build() {
 write_agent_notes() {
   local notes="${HOME}/.config/amp/AGENTS.md"
   mkdir -p "$(dirname "$notes")"
-  TRAIN_ORB_SDK_VERSION="$DOTNET_SDK_VERSION" TRAIN_ORB_GODOT_VERSION="$GODOT_VERSION" python3 - "$notes" <<'PY'
+  python3 - "$notes" "$DOTNET_SDK_VERSION" "$GODOT_VERSION" <<'PY'
 from pathlib import Path
-import os
 import sys
 
 path = Path(sys.argv[1])
-sdk = os.environ["TRAIN_ORB_SDK_VERSION"]
-godot = os.environ["TRAIN_ORB_GODOT_VERSION"]
+sdk = sys.argv[2]
+godot = sys.argv[3]
 start = "<!-- train-orb-setup -->"
 end = "<!-- /train-orb-setup -->"
 block = f"""{start}
@@ -223,10 +222,8 @@ Login shells source `~/.config/train-orb/env.sh`. Restore and test without extra
 
 ```bash
 dotnet --version
-dotnet test Train.Tests/Train.Tests.csproj
-dotnet build Train.csproj
 "$GODOT" --headless --version
-pwsh -NoProfile -File scripts/run-godot-voxel-smoke.ps1 -Slice 1
+pwsh -NoProfile -File scripts/run-tests.ps1 -Correctness
 ```
 
 Windows export/runtime validation is not available in this Debian orb.

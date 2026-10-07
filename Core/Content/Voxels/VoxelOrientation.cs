@@ -22,7 +22,7 @@ public enum VoxelAxis
 }
 
 /// <summary>表示体素从局部单位格到世界单位格的右手正交朝向。</summary>
-/// <example>二十四朝向的坐标映射见 <c>VoxelLocalBoxTests.Asymmetric_rotation_moves_the_hit_region_for_all_24_orientations</c>；面 UV 映射见 <c>VoxelCubeUvTests.Tilt_maps_world_top_through_the_local_side_now_pointing_up</c>。</example>
+/// <example>水平旋转见 <c>VoxelCubeUvTests.Yaw90_rotates_top_uvs_instead_of_reusing_world_face_corners</c>；倾斜朝向见 <c>VoxelCubeUvTests.Tilt_maps_world_top_through_the_local_side_now_pointing_up</c>。</example>
 public readonly record struct VoxelOrientation
 {
     private static readonly VoxelAxis[] Axes = Enum.GetValues<VoxelAxis>();

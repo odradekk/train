@@ -4,7 +4,7 @@ This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
-MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. 当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
+MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. `scripts/` 顶层保留统一入口、入口测试和登记表；具体检查、检查测试及其专用进程助手放在 `scripts/checks/`，MSTest 元数据读取器放在 `scripts/metadata-reader/`。当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
 
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
@@ -24,7 +24,7 @@ Windows 上覆盖 APPDATA 不会改变 Godot 原生的默认 `user://` 路径。
 
 ## Classification and selection
 
-Classify tests by family (unit, headless automation, Benchmark) and stable functional scope such as voxels, buildings, railway, persistence or content, and record actual requirements such as Godot, separate processes, export or a graphical session. Speed follows measurements, not a blanket assumption that C# tests are unit tests. Use stable case/group names rather than permanent entry points for individual Issues.
+Classify tests by family (`unit`, `headless`, `benchmark`) and stable functional scope such as content, console, logging, saves, simulation or voxels, and record actual requirements such as Godot, separate processes, export or a graphical session. Speed follows measurements, not a blanket assumption that C# tests are unit tests. Use stable case/group names rather than permanent entry points for individual Issues.
 
 Show the selected cases and prerequisites before execution; combine family/scope filters and deduplicate selected cases. Invalid arguments, unknown names and an explicit selection matching no cases are errors. An unavailable required environment is reported as unverified with a non-success result, never by silently shrinking the selection. Full regression includes the registered correctness checks; unimplemented Benchmark, long-run, manual or platform groups are pending requirements, not empty groups that pass. Publish the actual selected coverage so a partial migration or small CI selection cannot be presented as all repository checks, and list manual observation separately from automated passes.
 
@@ -38,4 +38,4 @@ After an ordinary assertion failure, other independent, safe groups continue and
 
 ## Results and evidence
 
-Each run produces one machine-readable summary and one concise Markdown report beside the original evidence, in a unique directory under one Git-ignored hierarchy that never overwrites earlier reports. Both record the selection, actual execution, per-check outcome, preparation/test durations, tested commit and working-tree dirty state, relevant build/content/environment identities and artifact locations. Native TRX, Godot logs and checkpoints are preserved rather than copied into a second system. Results from a dirty tree do not establish that the recorded clean commit passed. Exact summary fields, nonzero exit codes and helper-file splits are implementation choices within these contracts; keep them minimal and documented.
+Each run produces one machine-readable summary and one concise Markdown report beside the original evidence, in a unique directory under one Git-ignored hierarchy that never overwrites earlier reports. Both record the selection, actual execution, per-check outcome, preparation/test durations, tested commit and working-tree dirty state, relevant build/content/environment identities and artifact locations. Native TRX and Godot logs are preserved rather than copied into a second system. Results from a dirty tree do not establish that the recorded clean commit passed. Exact summary fields, nonzero exit codes and helper-file splits are implementation choices within these contracts; keep them minimal and documented.

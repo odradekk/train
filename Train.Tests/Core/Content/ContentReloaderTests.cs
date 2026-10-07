@@ -3,6 +3,7 @@
 using System.Security.Cryptography;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
+using Train.Core.Content.Behaviors;
 using Train.Core.Content.Voxels;
 using Train.Core.Logging;
 using Train.Tests.Core.Logging;
@@ -14,6 +15,134 @@ namespace Train.Tests.Core.Content;
 [TestCategory("scope:content")]
 public sealed class ContentReloaderTests
 {
+    [TestMethod]
+    public void Omitted_behavior_parameters_and_explicit_defaults_share_a_semantic_revision()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidFerrousOre();
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
+                """[{"type":"propulsion"},{"type":"track_contact"}]""")));
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var snapshot = reloader.Catalog.Current!;
+        var entry = snapshot.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        Assert.AreEqual(new PropulsionParameters(4, 2), entry.Definition.Propulsion);
+        Assert.AreEqual(new TrackContactParameters(1), entry.Definition.TrackContact);
+        Assert.AreEqual(entry.Definition.Propulsion, PropulsionParameters.Default);
+        Assert.AreEqual(entry.Definition.TrackContact, TrackContactParameters.Default);
+
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
+                """[{"type":"propulsion","target_speed":4,"acceleration":2},{"type":"track_contact","coast_deceleration":1}]""")));
+        var result = reloader.Reload();
+
+        Assert.IsTrue(result.IsCommitted);
+        Assert.IsFalse(result.Changed);
+        Assert.AreSame(snapshot, reloader.Catalog.Current);
+        Assert.AreEqual(entry.SemanticRevision,
+            reloader.Catalog.Current!.Entries[entry.Definition.Id].SemanticRevision);
+    }
+
+    [TestMethod]
+    public void Reload_participant_applies_before_publication_and_skips_unchanged_content()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidFerrousOre();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        var prepared = 0;
+        var refreshCount = 0;
+        VoxelCatalogSnapshot? cache = null;
+        reloader.SetReloadParticipant(new CallbackReloadParticipant(candidate =>
+        {
+            prepared++;
+            return ContentReloadPlan.Accept(() =>
+            {
+                Assert.IsNull(reloader.Catalog.Current);
+                cache = candidate;
+                refreshCount++;
+            });
+        }));
+        Assert.AreEqual(0, prepared);
+        Assert.AreEqual(0, refreshCount);
+
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        Assert.AreEqual(1, prepared);
+        Assert.AreEqual(1, refreshCount);
+        Assert.AreSame(cache, reloader.Catalog.Current);
+        Assert.IsFalse(reloader.Reload().Changed);
+        Assert.AreEqual(2, prepared);
+        Assert.AreEqual(1, refreshCount);
+
+        reloader.SetReloadParticipant(null);
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", mass: 2)));
+        Assert.IsTrue(reloader.Reload().Changed);
+        Assert.AreEqual(2, prepared);
+        Assert.AreEqual(1, refreshCount);
+        Assert.AreNotSame(cache, reloader.Catalog.Current);
+    }
+
+    [TestMethod]
+    public void Rejected_reload_plan_preserves_published_catalogs_and_copies_diagnostics()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidFerrousOre();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var voxels = reloader.Catalog.Current;
+        var composites = reloader.Composites.Current;
+        // 使用 Warning 证明拒绝来自计划许可，而不是错误诊断触发的内容校验。
+        var diagnostic = new ContentDiagnostic(ContentDiagnosticSeverity.Warning, "host_rejected", "宿主拒绝候选。");
+        var diagnostics = new List<ContentDiagnostic> { diagnostic };
+        var plan = ContentReloadPlan.Reject(diagnostics);
+        diagnostics.Clear();
+        reloader.SetReloadParticipant(new CallbackReloadParticipant(_ => plan));
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", mass: 2)));
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.IsFalse(result.Changed);
+        Assert.AreSame(voxels, reloader.Catalog.Current);
+        Assert.AreSame(composites, reloader.Composites.Current);
+        CollectionAssert.Contains(result.Diagnostics.ToArray(), diagnostic);
+    }
+
+    [TestMethod]
+    public void Failed_reload_apply_preserves_both_catalogs_without_undoing_host_changes()
+    {
+        using var session = LoggerSession.Create();
+        var source = CompositeFixtures.VehiclePackage();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var voxels = reloader.Catalog.Current;
+        var composites = reloader.Composites.Current;
+        var refreshCount = 0;
+        var failure = new InvalidOperationException("宿主更新失败。");
+        reloader.SetReloadParticipant(new CallbackReloadParticipant(_ => ContentReloadPlan.Accept(() =>
+        {
+            refreshCount++;
+            throw failure;
+        })));
+        source.AddVoxelFile("core", "voxels/vehicle-shell.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("vehicle-shell", "壳体", "壳体说明", value: 10, mass: 2, tagsJson: "[]")));
+        source.AddCompositeFile("core", "composites/dev-hollow-shell.composites.json",
+            CompositeFixtures.File(null, CompositeFixtures.Archetype(), CompositeFixtures.Composite(name: "更新后的蓝图")));
+
+        Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() => reloader.Reload()));
+        Assert.AreEqual(1, refreshCount);
+        Assert.AreSame(voxels, reloader.Catalog.Current);
+        Assert.AreSame(composites, reloader.Composites.Current);
+
+        reloader.SetReloadParticipant(null);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        Assert.AreNotSame(voxels, reloader.Catalog.Current);
+        Assert.AreNotSame(composites, reloader.Composites.Current);
+        Assert.AreEqual(1, refreshCount);
+    }
+
     [TestMethod]
     public void Initial_valid_voxel_catalog_commits_without_settlement_files()
     {
@@ -88,6 +217,8 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("iron", "铁矿", "说明", value: 1_000_000_001),
             ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Raw_Good\"]"),
             ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: "[{\"type\":\"future\"}]"),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","target_speed":0}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"track_contact","coast_deceleration":0}]"""),
             ContentFixtures.Good("iron", "铁矿", "说明", orientations: "free"),
             ContentFixtures.Good("iron", "铁矿", "说明", mass: 0),
             "{\"id\":\"iron\",\"name\":\"铁矿\",\"description\":\"说明\",\"value\":100}"
@@ -637,6 +768,13 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(firstBytes)), baseline.AssetRevisions["iron.png"]);
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(secondBytes)), after.AssetRevisions["iron.png"]);
         Assert.AreNotEqual(baseline.AssetRevisions["iron.png"], after.AssetRevisions["iron.png"]);
+    }
+
+    // 仅实现单目录 Prepare，以验证重载器双目录入口的默认转调契约。
+    private sealed class CallbackReloadParticipant(Func<VoxelCatalogSnapshot, ContentReloadPlan> prepare)
+        : IContentReloadParticipant
+    {
+        public ContentReloadPlan Prepare(VoxelCatalogSnapshot candidate) => prepare(candidate);
     }
 
     private static ContentReloadResult ReloadWithImage(LoggerSession session, string path, DecodedImage image)

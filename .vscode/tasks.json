@@ -15,11 +15,14 @@
         },
         {
             "label": "test",
-            "command": "dotnet",
+            "command": "pwsh",
             "type": "process",
             "args": [
-                "test",
-                "${workspaceFolder}/Train.Tests/Train.Tests.csproj"
+                "-NoProfile",
+                "-File",
+                "${workspaceFolder}/scripts/run-tests.ps1",
+                "-Family",
+                "unit"
             ],
             "problemMatcher": "$msCompile"
         },
@@ -30,10 +33,11 @@
             "args": [
                 "-NoProfile",
                 "-File",
-                "${workspaceFolder}/scripts/run-godot-content-export-smoke.ps1",
-                "-ExportOnly",
-                "-OutputPath",
-                "${workspaceFolder}/builds/windows/train.exe"
+                "${workspaceFolder}/scripts/run-tests.ps1",
+                "-Test",
+                "godot.content-export-smoke",
+                "-Test",
+                "godot.mods-export-smoke"
             ],
             "problemMatcher": "$msCompile"
         }

@@ -1,4 +1,5 @@
-# Shared native-process fixtures for the smoke-script harnesses.
+# 为 App 检查脚本的编排测试创建假的本机进程，并清理本次拥有的临时文件。
+# 假进程只提供输出和退出状态，不证明 Godot 或游戏行为。
 
 function Get-TestPowerShellPath {
     if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -9,7 +10,7 @@ function Get-TestPowerShellPath {
 }
 
 # 清理本次创建的临时目录前，确认绝对目标是固定名称与 GUID 组成的直系临时子目录。
-function Remove-SmokeTestTemporaryDirectory {
+function Remove-ProcessFixtureDirectory {
     param([string] $Path, [string] $ExpectedPrefix)
     $target = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
     $temp = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\', '/')
@@ -18,12 +19,12 @@ function Remove-SmokeTestTemporaryDirectory {
     $leaf = [System.IO.Path]::GetFileName($target)
     $suffix = if ($leaf.StartsWith($ExpectedPrefix, [System.StringComparison]::Ordinal)) { $leaf.Substring($ExpectedPrefix.Length) } else { "" }
     if ($parent -ne $temp -or $suffix -notmatch '^[0-9a-f]{32}$') {
-        throw "Refusing to remove an unexpected smoke fixture directory: $target"
+        throw "Refusing to remove an unexpected process fixture directory: $target"
     }
     if (-not (Test-Path -LiteralPath $target)) { return }
     Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
     if (Test-Path -LiteralPath $target) {
-        throw "Smoke fixture directory remains after cleanup: $target"
+        throw "Process fixture directory remains after cleanup: $target"
     }
 }
 
@@ -56,59 +57,6 @@ function New-FakeNativeProgram {
     & chmod +x $path
     if ($LASTEXITCODE -ne 0) {
         throw "Could not make fake native program executable: $path"
-    }
-    return $path
-}
-
-function New-FakeGodotExporter {
-    param(
-        [string] $Name,
-        [string] $InvocationPath,
-        [int] $ExitCode
-    )
-
-    $id = [guid]::NewGuid().ToString("N")
-    if ($IsWindows) {
-        $path = Join-Path ([System.IO.Path]::GetTempPath()) ("$Name-$id.cmd")
-        $body = @(
-            "@echo off",
-            "set `"last=`"",
-            ":next",
-            "if `"%~1`"==`"`" goto done",
-            ">>`"$InvocationPath`" echo %~1",
-            "set `"last=%~1`"",
-            "shift",
-            "goto next",
-            ":done"
-        )
-        if ($ExitCode -eq 0) {
-            $body += @(
-                "for %%I in (`"%last%`") do if not exist `"%%~dpI`" mkdir `"%%~dpI`"",
-                ">`"%last%`" echo fake export"
-            )
-        }
-        $body += "exit /b $ExitCode"
-        Set-Content -LiteralPath $path -Value $body -Encoding Ascii
-        return $path
-    }
-
-    $path = Join-Path ([System.IO.Path]::GetTempPath()) ("$Name-$id.sh")
-    $body = @(
-        "#!/bin/sh",
-        "printf '%s\n' `"`$@`" > '$InvocationPath'",
-        "for last do :; done"
-    )
-    if ($ExitCode -eq 0) {
-        $body += @(
-            "mkdir -p `"`$(dirname `"`$last`")`"",
-            "printf '%s\n' 'fake export' > `"`$last`""
-        )
-    }
-    $body += "exit $ExitCode"
-    Set-Content -LiteralPath $path -Value $body -Encoding utf8NoBOM
-    & chmod +x $path
-    if ($LASTEXITCODE -ne 0) {
-        throw "Could not make fake Godot exporter executable: $path"
     }
     return $path
 }
@@ -161,13 +109,13 @@ $prints
     $runtime = [System.Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
     $buildOutput = & dotnet publish (Join-Path $root "TrainFakeGui.csproj") --configuration Release --runtime $runtime --self-contained false --output $publish 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
-        Remove-SmokeTestTemporaryDirectory -Path $root -ExpectedPrefix "$Name-"
+        Remove-ProcessFixtureDirectory -Path $root -ExpectedPrefix "$Name-"
         throw "Could not build Windows GUI fixture.`n$buildOutput"
     }
 
     $filePath = Join-Path $publish "TrainFakeGui.exe"
     if (-not (Test-Path -LiteralPath $filePath)) {
-        Remove-SmokeTestTemporaryDirectory -Path $root -ExpectedPrefix "$Name-"
+        Remove-ProcessFixtureDirectory -Path $root -ExpectedPrefix "$Name-"
         throw "Windows GUI fixture build did not produce $filePath."
     }
 

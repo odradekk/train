@@ -14,7 +14,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-. (Join-Path $PSScriptRoot "../Invoke-HiddenProcess.ps1")
+. (Join-Path $PSScriptRoot "Invoke-HiddenProcess.ps1")
 
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $output | Out-Null

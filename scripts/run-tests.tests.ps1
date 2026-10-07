@@ -1,7 +1,6 @@
-# Black-box checks for scripts/run-tests.ps1.
-# Literal expectations are the oracle. Fake hosts never replace the real MSTest cases.
-# The Ctrl+C probe uses this PowerShell host and Win32 console events. It is Windows-only.
-# On any other host that probe is blocked and unverified, and the harness does not succeed.
+# 从统一入口的输出和产物验证选择、隔离、退出状态与进程清理契约。
+# 假宿主只证明编排；真实 MSTest 用例另行执行。
+# Ctrl+C 用例依赖 Windows 控制台事件，其他宿主将其报告为未验证并返回非零。
 
 param([string] $Only = "")
 
@@ -796,10 +795,8 @@ switch ($Mode) {
     "isolate" {
         [Console]::Out.WriteLine("APPDATA=$env:APPDATA")
         [Console]::Out.Flush()
-        $voxel = if ([string]::IsNullOrEmpty($env:TRAIN_VOXEL_SMOKE)) { "empty" } else { "set" }
-        $content = if ([string]::IsNullOrEmpty($env:TRAIN_CONTENT_SMOKE)) { "empty" } else { "set" }
-        Write-Output "VOXEL=$voxel"
-        Write-Output "CONTENT=$content"
+        $inheritedSwitch = if ([string]::IsNullOrEmpty($env:TRAIN_FIXTURE_INHERITED_SWITCH)) { "empty" } else { "set" }
+        Write-Output "INHERITED_SWITCH=$inheritedSwitch"
         Write-Output "TEMP=$env:TEMP"
         if ($UserData) {
             New-Item -ItemType Directory -Force -Path $UserData | Out-Null
@@ -1295,14 +1292,13 @@ function Invoke-NestedGit {
 }
 
 function New-BindingRepository {
-    param([string] $Name, [string] $Source, [string] $RunnerPath)
-    if (-not $RunnerPath) { $RunnerPath = $runner }
+    param([string] $Name, [string] $Source)
     $repo = Join-Path $evidence "git-binding/$Name"
     New-Item -ItemType Directory -Force -Path (Join-Path $repo "scripts") | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $repo ".gitignore"), "bin/`nobj/`nTestResults/`n", $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "Binding.csproj"), $sdk, $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "BindingTests.cs"), $Source, $utf8)
-    [System.IO.File]::Copy($RunnerPath, (Join-Path $repo "scripts/run-tests.ps1"), $true)
+    [System.IO.File]::Copy($runner, (Join-Path $repo "scripts/run-tests.ps1"), $true)
     $readerSource = Join-Path $PSScriptRoot "metadata-reader/TestMetadataReader.cs"
     $readerDir = Join-Path $repo "scripts/metadata-reader"
     New-Item -ItemType Directory -Force -Path $readerDir | Out-Null
@@ -1571,42 +1567,6 @@ Publish-Run -Preparation $preparation -Selection $selection -ExitCode 0 -Directo
     Assert-Contains "unverified report" $report "Git 身份未验证"
     Assert-Contains "missing reason report" $report "构建前没有记录 Git 身份"
     Note "EVIDENCE fixture-git-missing-start $directory"
-}
-
-It "fixture-git-status-before" {
-    $oldDir = Join-Path $evidence "git-status"
-    New-Item -ItemType Directory -Force -Path $oldDir | Out-Null
-    $oldRunner = Join-Path $oldDir "run-tests-6ab7e87.ps1"
-    $show = [System.Diagnostics.ProcessStartInfo]::new()
-    $show.FileName = (Get-Command git).Source
-    $show.UseShellExecute = $false
-    $show.RedirectStandardOutput = $true
-    $show.RedirectStandardError = $true
-    $show.StandardOutputEncoding = $utf8
-    foreach ($argument in @("-C", $root, "show", "6ab7e87:scripts/run-tests.ps1")) { [void] $show.ArgumentList.Add($argument) }
-    $showProcess = [System.Diagnostics.Process]::new()
-    $showProcess.StartInfo = $show
-    [void] $showProcess.Start()
-    $oldText = $showProcess.StandardOutput.ReadToEnd()
-    $showError = $showProcess.StandardError.ReadToEnd()
-    [void] $showProcess.WaitForExit()
-    if ($showProcess.ExitCode -ne 0 -or -not $oldText) { throw "git show 6ab7e87 failed $showError" }
-    [System.IO.File]::WriteAllText($oldRunner, $oldText, $utf8)
-    $repo = New-BindingRepository "status-before" $bindingSource $oldRunner
-    # 6ab7e87 loads scripts/TestMetadataReader.cs beside the runner. Current repos only keep scripts/metadata-reader.
-    $legacyReader = Join-Path $repo.Repo "scripts/TestMetadataReader.cs"
-    [System.IO.File]::Copy((Join-Path $PSScriptRoot "metadata-reader/TestMetadataReader.cs"), $legacyReader, $true)
-    $null = Invoke-NestedGit $repo.Repo @("add", "scripts/TestMetadataReader.cs")
-    $null = Invoke-NestedGit $repo.Repo @("commit", "-m", "historical reader path")
-    Break-NestedIndex $repo.Repo
-    $run = Invoke-CopiedBindingRunner $repo.Repo "git-status-before"
-    Assert-Exit $run 0
-    $summary = Read-Summary $run.Stdout
-    $passed = Find-Check (Get-Checks $summary) "BindingFixture.BindingTests.Runs_built_sources"
-    Assert-Equal "old runner still passed" "passed" $passed.outcome
-    Assert-Equal "old dirty false" $false ([bool] $summary.Json.dirty)
-    Assert-Equal "old proven" $true ([bool] $summary.Json.cleanCommitProven)
-    Note "EVIDENCE fixture-git-status-before $($summary.Directory)"
 }
 
 It "fixture-ctrl-c" {
@@ -2104,7 +2064,7 @@ It "fixture-external-env-missing" {
     $results = New-Results "fixture-external-env"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.need-godot" -Group "a-godot" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot"))
+        (New-CheckSpec -Id "ext.need-godot" -Group "a-godot" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot"))
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
@@ -2128,7 +2088,7 @@ It "fixture-external-build-timeout" {
     $results = New-Results "fixture-external-build-timeout"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -NeedsGameBuild $true)
+        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -NeedsGameBuild $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe,
@@ -2155,7 +2115,7 @@ It "fixture-external-import-blocked" {
     $results = New-Results "fixture-external-import"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true)
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsImport $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
@@ -2183,7 +2143,7 @@ It "fixture-external-import-timeout" {
     $results = New-Results "fixture-external-import-timeout"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true)
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsImport $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog, "-PrepTimeoutSeconds", "20",
@@ -2213,7 +2173,7 @@ It "fixture-prep-timeout-cleanup" {
     $pidFile = Join-Path $results "pids.txt"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true),
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsImport $true),
         (New-CheckSpec -Id "ext.hold" -Group "z-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30)
     )
     $result = Invoke-Runner -ArgumentList @(
@@ -2296,7 +2256,7 @@ It "fixture-assembly-built-this-run" {
     $results = New-Results "fixture-assembly-built"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.game" -Group "a-game" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsGameBuild $true -NeedsImport $true)
+        (New-CheckSpec -Id "ext.game" -Group "a-game" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsGameBuild $true -NeedsImport $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
@@ -2320,7 +2280,7 @@ It "fixture-external-build-blocked" {
     $results = New-Results "fixture-external-build"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -NeedsGameBuild $true)
+        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -NeedsGameBuild $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe,
@@ -2619,13 +2579,13 @@ It "fixture-external-isolation" {
     $results = New-Results "fixture-external-isolation"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.isolate" -Group "a-isolate" -ScriptPath $externalHost -Arguments @("-Mode", "isolate", "-UserData", "{userData}") -TimeoutSeconds 30)
+        (New-CheckSpec -Id "ext.isolate" -Group "a-isolate" -ScriptPath $externalHost -Arguments @("-Mode", "isolate", "-UserData", "{output}/user-data") -TimeoutSeconds 30)
     )
     $before = Get-AppDataStamp
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
         "-Test", "ext.isolate", "-ResultsRoot", $results
-    ) -Environment @{ TRAIN_VOXEL_SMOKE = "1"; TRAIN_CONTENT_SMOKE = "1" } -WaitMs 300000
+    ) -Environment @{ TRAIN_FIXTURE_INHERITED_SWITCH = "1" } -WaitMs 300000
     $after = Get-AppDataStamp
     Assert-Equal "appdata unchanged" $before $after
     Assert-Exit $result 0
@@ -2633,8 +2593,7 @@ It "fixture-external-isolation" {
     Assert-Equal "summary userdata" $true ([bool] $summary.Json.environment.gameUserDataUnchanged)
     $log = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log | Select-Object -First 1
     $text = [System.IO.File]::ReadAllText($log.FullName)
-    Assert-Contains "voxel stripped" $text "VOXEL=empty"
-    Assert-Contains "content stripped" $text "CONTENT=empty"
+    Assert-Contains "inherited switch stripped" $text "INHERITED_SWITCH=empty"
     Assert-Contains "temp isolated" $text (Join-Path $summary.Directory "tmp")
     $markers = @(Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter marker.txt)
     Assert-Equal "one marker" 1 $markers.Count

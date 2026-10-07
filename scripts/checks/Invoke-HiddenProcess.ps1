@@ -1,7 +1,6 @@
-# Wait for a Windows GUI or console process and capture stdout, stderr, and exit code.
-# Call-operator capture (`& exe 2>&1`) misses GUI-subsystem stdout and can leave $LASTEXITCODE unset.
-# Start-Process -Wait -WindowStyle Hidden races when a GUI exe exits immediately, so this uses
-# ProcessStartInfo with the same hidden window and attached redirects.
+# 以隐藏窗口运行 App 检查进程，捕获标准输出、错误、退出码和超时清理结果。
+# PowerShell 调用运算符不能可靠捕获 GUI 程序输出；Start-Process 的等待也会与快速退出竞争。
+# 因此通过 ProcessStartInfo 连接输出流，并等待本次启动的进程。
 
 function ConvertTo-HiddenProcessArgumentString {
     param([string[]] $ArgumentList)

@@ -139,14 +139,14 @@ public interface IContentPreCommitValidator
 
 /// <summary>让宿主先准备相关状态的更新，再与候选内容一起发布。</summary>
 /// <remarks>Prepare 同步执行，只做校验和准备，状态修改放入成功计划的 Apply 委托；无变化时也会准备，但不执行更新。重载器使用双目录重载，默认实现转调仅体素的重载。</remarks>
-/// <example>已有体素耐久度为 80、候选最大耐久度为 60 时，宿主准备更新并在发布时将耐久度降至 60；见 <c>VoxelLiveReloadTests.Formal_damage_then_max_150_then_60_keeps_absolute_durability</c>。</example>
+/// <example>宿主需要随内容发布刷新缓存时，参与者可在 Prepare 中返回包含刷新委托的 <see cref="ContentReloadPlan"/>；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
 public interface IContentReloadParticipant
 {
     /// <summary>基于候选体素目录准备宿主状态更新。</summary>
     /// <param name="candidate">尚未发布的候选体素快照，代数为当前值加一。</param>
     /// <returns>非 null 的宿主计划；允许发布时可以不包含更新委托，拒绝时不执行任何更新。</returns>
     /// <remarks>准备过程不修改宿主状态；实现抛出的异常向上传播。</remarks>
-    /// <example>准备耐久度调整但同时发现不兼容朝向时，拒绝整个候选且不应用调整；见 <c>VoxelLiveReloadTests.Mixed_candidate_rejects_and_does_not_leak_prepared_clamps</c>。</example>
+    /// <example>候选满足宿主约束时返回 <see cref="ContentReloadPlan.None"/>；不满足时返回带诊断的拒绝计划；见 <c>ContentReloaderTests.Rejected_reload_plan_preserves_published_catalogs_and_copies_diagnostics</c>。</example>
     ContentReloadPlan Prepare(VoxelCatalogSnapshot candidate);
 
     /// <summary>基于候选体素和蓝图目录准备宿主状态更新；默认只检查体素目录。</summary>
@@ -154,14 +154,13 @@ public interface IContentReloadParticipant
     /// <param name="composites">尚未发布的候选蓝图与原型快照，代数为当前蓝图目录值加一。</param>
     /// <returns>非 null 的宿主状态发布计划；默认实现返回单目录 Prepare 的结果。</returns>
     /// <remarks>默认实现不使用 composites；需要蓝图约束的宿主应实现此重载。准备过程不修改宿主状态，实现异常向上传播。</remarks>
-    /// <example>宿主同时适配世界占格与完整、改装、碎片车辆的耐久度；见 <c>CompositeVehicleReloadTests.Absolute_durability_adapts_world_complete_refit_fragment_and_dropped_identities</c>。</example>
     ContentReloadPlan Prepare(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites) =>
         Prepare(voxels);
 }
 
 /// <summary>宿主参与内容发布的准备结果，包含诊断和延迟执行的状态更新。</summary>
 /// <remarks>工厂方法复制附带诊断，发布许可与诊断级别独立。只有全部校验通过且任一目录发生变化时，重载器才在替换目录前执行更新；拒绝计划没有更新委托。委托失败不会发布候选，也不会撤销委托已经完成的宿主修改。</remarks>
-/// <example>最大耐久度从 150 降至 60 时，成功计划更新现存体素的绝对耐久度；见 <c>VoxelLiveReloadTests.Formal_damage_then_max_150_then_60_keeps_absolute_durability</c>。</example>
+/// <example><c>Accept(() =&gt; cache = candidate)</c> 保存刷新委托，重载器仅在候选允许发布且目录有变化时执行它；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。更新失败保护见 <c>ContentReloaderTests.Failed_reload_apply_preserves_both_catalogs_without_undoing_host_changes</c>。</example>
 public sealed class ContentReloadPlan
 {
     /// <summary>获取可复用的允许发布、无诊断且无更新委托的计划。</summary>
@@ -190,7 +189,7 @@ public sealed class ContentReloadPlan
     /// <param name="warnings">附带诊断序列，应不含 null 条目；null 表示没有诊断，不强制要求 Warning 级别。</param>
     /// <returns>允许发布的延迟更新计划。</returns>
     /// <remarks>立即枚举诊断序列，枚举异常原样传播；不在创建计划时执行 apply。</remarks>
-    /// <example>现有耐久度为 80 时准备将其限制为新上限 60；见 <c>VoxelLiveReloadTests.Formal_damage_then_max_150_then_60_keeps_absolute_durability</c>。</example>
+    /// <example><c>Accept(() =&gt; refreshCount++)</c> 创建允许发布且延迟增加计数的计划；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
     public static ContentReloadPlan Accept(
         Action? apply,
         IEnumerable<ContentDiagnostic>? warnings = null) =>
@@ -201,13 +200,13 @@ public sealed class ContentReloadPlan
     /// <returns>不允许发布的计划。</returns>
     /// <remarks>立即枚举输入，枚举异常原样传播。</remarks>
     /// <exception cref="ArgumentNullException">diagnostics 为 null。</exception>
-    /// <example>候选禁止现存体素的朝向时拒绝发布，准备的耐久度调整也不应用；见 <c>VoxelLiveReloadTests.Mixed_candidate_rejects_and_does_not_leak_prepared_clamps</c>。</example>
+    /// <example><c>Reject(new[] { diagnostic })</c> 创建带一条诊断且没有更新委托的拒绝计划；见 <c>ContentReloaderTests.Rejected_reload_plan_preserves_published_catalogs_and_copies_diagnostics</c>。</example>
     public static ContentReloadPlan Reject(IEnumerable<ContentDiagnostic> diagnostics) =>
         new(false, diagnostics.ToArray(), null);
 
     /// <summary>执行计划中的宿主状态更新；没有委托时不做操作。</summary>
     /// <remarks>直接调用所保存的委托，不检查目录变化或限制调用次数；发布时机由重载器控制。委托异常原样传播，不撤销已经执行的修改。</remarks>
-    /// <example>成功发布新上限 60 的定义时，宿主计划将原有耐久度 80 降至 60；见 <c>VoxelLiveReloadTests.Formal_damage_then_max_150_then_60_keeps_absolute_durability</c>。</example>
+    /// <example>对 <c>Accept(() =&gt; refreshCount++)</c> 的结果调用 Apply，会把计数增加一次；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
     public void Apply() => _apply?.Invoke();
 }
 
@@ -258,7 +257,7 @@ public sealed class ContentReloader
     /// <summary>设置为内容发布准备相关状态更新的宿主参与者。</summary>
     /// <param name="adapter">参与者；null 表示取消宿主参与。宿主应在 Reload 之外设置。</param>
     /// <remarks>仅替换引用，不执行准备或更新，也不与正在进行的重载同步；调用方须在重载开始前完成设置。</remarks>
-    /// <example>设置世界适配器后，定义重载按新上限更新现存体素耐久度；见 <c>VoxelLiveReloadTests.Formal_damage_then_max_150_then_60_keeps_absolute_durability</c>。</example>
+    /// <example>设置缓存刷新参与者后，后续 Reload 会先调用它准备发布计划；传入 <see langword="null"/> 则取消参与；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
     public void SetReloadParticipant(IContentReloadParticipant? adapter) =>
         _participant = adapter;
 

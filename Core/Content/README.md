@@ -18,7 +18,7 @@
 
 当前实现保留既有体素和蓝图 schema，包括 contacts、Archetype 与现有 Behavior 参数；不扫描旧 `*.settlements.json`。修订编码仍将碰撞几何计入体素语义指纹，与上述语义哈希设计存在差异。
 
-当前内置内容只有 [`core:ferrous-ore`](../../builtin/core/resources/voxels/ferrous-ore.voxels.json) 定义及其 `icon`、`top`、`side`、`bottom` 四张 PNG。各图片的 `.import` 使用 `importer=keep`，保留原始字节供 Godot 内容源和导出版本读取。Core 测试使用最小内存内容包验证体素、蓝图与 Archetype 的解析、引用和发布契约。
+当前内置内容只有 [`core:ferrous-ore`](../../builtin/core/resources/voxels/ferrous-ore.voxels.json) 定义及其 `icon`、`top`、`side`、`bottom` 四张 PNG。各图片的 `.import` 使用 `importer=keep`，保留原始字节供 Godot 内容源和导出版本读取。Core 测试使用最小内存内容包验证体素、蓝图与 Archetype 的解析、引用和发布契约，包括 Behavior 默认参数的语义等价、宿主更新计划的发布时序，以及拒绝或更新异常时保留目录。
 
 测试使用目录内部发布与修订编码验证契约，因此[程序集内部访问声明](../AssemblyInfo.cs)允许测试程序集访问这些成员；应用通过公开接口加载和重载内容。
 
@@ -28,7 +28,7 @@
 
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -Scope content -BuildGame
-pwsh -NoProfile -File scripts/run-tests.ps1 -Family headless -Scope content
+pwsh -NoProfile -File scripts/run-tests.ps1 -Correctness -Scope content
 ```
 
-这些 C# 测试验证内容规则与实际物理目录边界；Godot 虚拟文件系统、PNG 解码及导出仍需相应真实 Godot 检查。
+第一条选择 content 范围的单元测试并构建游戏；第二条选择该范围的非导出正确性检查，包含真实 Godot 内容检查。C# 测试通过工程引用核验内容规则及物理目录边界；Windows 导出与实际运行验证见[本地验证手册](../../docs/local-environment.md#windows-export-and-runtime-validation)。

@@ -2,8 +2,7 @@
 # 本文件不启动 Godot，也不证明游戏内断言或 Windows 导出本身。
 
 $ErrorActionPreference = "Stop"
-$scripts = Split-Path -Parent $PSScriptRoot
-. (Join-Path $scripts "SmokeTests.Helpers.ps1")
+. (Join-Path $PSScriptRoot "ProcessFixtures.ps1")
 $pwsh = Get-TestPowerShellPath
 $subject = Join-Path $PSScriptRoot "run-app-check.ps1"
 $root = Join-Path ([System.IO.Path]::GetTempPath()) ("train-app-check harness " + [guid]::NewGuid().ToString("N"))
@@ -111,8 +110,8 @@ finally {
         if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }
         if (Test-Path -LiteralPath $path) { throw "Native fixture file remains after cleanup: $path" }
     }
-    foreach ($directory in $ownedDirectories) { Remove-SmokeTestTemporaryDirectory -Path $directory.Path -ExpectedPrefix $directory.Prefix }
-    Remove-SmokeTestTemporaryDirectory -Path $root -ExpectedPrefix "train-app-check harness "
+    foreach ($directory in $ownedDirectories) { Remove-ProcessFixtureDirectory -Path $directory.Path -ExpectedPrefix $directory.Prefix }
+    Remove-ProcessFixtureDirectory -Path $root -ExpectedPrefix "train-app-check harness "
 }
 
 if ($failed -gt 0) { exit 1 }

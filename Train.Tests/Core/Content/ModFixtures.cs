@@ -1,9 +1,9 @@
 // Core 内容测试夹具：提供最小 Mod 清单和体素包输入。
-// 保持 Train.Tests 命名空间，供迁移期旧测试共同使用。
+// 供当前 Core 内容测试共用，不读取玩家目录中的外部 Mod。
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 
-namespace Train.Tests;
+namespace Train.Tests.Core.Content;
 
 internal static class ModFixtures
 {

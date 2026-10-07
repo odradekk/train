@@ -81,7 +81,7 @@ This section is the single source of testing policy; inventories, commands and h
 
 Graphical interaction, visual quality, export/platform behavior and target-hardware experience receive supplementary checks when affected or required by a stage gate, not in every quick run. A headless run cannot establish visual quality or real-window responsiveness.
 
-Classify by the behavior actually exercised, not by framework or filename. `Train.Tests` tests `Train.Core` and `Train.Scenes` through project references, so its passing results alone do not verify the deployed Godot assembly or scene/resource wiring. Script harnesses using fake programs validate orchestration such as arguments, exit propagation, timeout, cancellation and owned-process cleanup; they do not run the real game or copy its assertions. Startup markers and screenshots prove only what their accompanying assertions or observation check.
+Classify by the behavior actually exercised, not by framework or filename. `Train.Tests` references `Train.Core` and the currently empty `Train.Scenes` project; its current cases exercise Core, so passing results alone do not verify the deployed Godot assembly or scene/resource wiring. Script harnesses using fake programs validate orchestration such as arguments, exit propagation, timeout, cancellation and owned-process cleanup; they do not run the real game or copy its assertions. Startup markers and screenshots prove only what their accompanying assertions or observation check.
 
 ### Choose checks from the change
 
@@ -141,7 +141,7 @@ Comments let a reader understand the code without re-deriving it from the implem
 
 ### What to document
 
-- **Module overview**: each top-level directory of `Core/` and `Scenes/`, and the Godot project's `App/`, `Rendering/` and `Ui/`, has a short `README.md`. It states what the module is responsible for, its main types and their roles, what it depends on, and the design-doc sections it implements. Update it in the same change when the module's main types or responsibilities change.
+- **Module overview**: each implemented top-level module in `Core/` and `Scenes/`, and each Godot module such as `App/` and `Ui/`, has a short `README.md`. It states what the module is responsible for, its main types and their roles, what it depends on, and the design-doc sections it implements. Update it in the same change when the module's main types or responsibilities change.
 - **File header**: two or three lines at the top of each source file stating which module the file belongs to and its role there. Do not list the file's members; the code and the IDE outline already show them.
 - **Types (data definitions)**: `<summary>` states what the type represents in the domain, using the term from [CONTEXT.md](../CONTEXT.md). Document every field or property whose meaning is not obvious from its name and type: its unit (metres, seconds, tonnes, kN, simulation steps), valid range, and what special values such as `null` or `0` mean. State the invariants that always hold. Give one concrete example in `<example>`.
 - **Members (signature and purpose)**: `<summary>` is a one-sentence purpose statement: what the member computes or changes. `<param>` and `<returns>` state what the values represent, not their types. Document rejected inputs and thrown exceptions with `<exception>`. For members with business rules, give a concrete example in `<example>`, using the same values as a test; for complex behavior, point to the test instead of writing a long example.

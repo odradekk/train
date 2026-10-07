@@ -3,7 +3,7 @@
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 
-namespace Train.Tests;
+namespace Train.Tests.Core.Content;
 
 internal sealed class RequiredVoxelDefinitionsValidator : IContentPreCommitValidator
 {

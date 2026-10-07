@@ -90,7 +90,7 @@ public sealed class VoxelPresentation
 }
 
 /// <summary>表示单位体素格内的不可变碰撞形状。</summary>
-/// <example>边界和浮点可表现性用例见 <c>VoxelLocalBoxTests</c>。</example>
+/// <example>局部盒边界和浮点可表现性用例见 <c>VoxelCollisionDefinitionTests.Illegal_local_box_shapes_reject_built_in_publish_and_exclude_the_mod_package</c> 与 <c>VoxelCollisionDefinitionTests.Adapter_underflow_sizes_reject_publish_and_exclude_the_mod_package</c>。</example>
 public sealed class VoxelCollision
 {
     /// <summary>获取碰撞形状种类。</summary>
