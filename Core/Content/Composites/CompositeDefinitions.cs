@@ -7,7 +7,7 @@ namespace Train.Core.Content.Composites;
 
 /// <summary>表示一种蓝图 Archetype 对布局与接触点施加的构造约束。</summary>
 /// <example>
-/// 内置开发车辆要求非空六连通布局、声明尺寸，并恰有两个不同且绑定已有部件的接触点；
+/// 测试内存包中的车辆要求非空六连通布局、声明尺寸，并恰有两个不同且绑定已有部件的接触点；
 /// 见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。
 /// </example>
 public sealed class ConstructionRules
@@ -48,7 +48,7 @@ public sealed class ConstructionRules
 }
 
 /// <summary>表示蓝图实例保留身份所需的核心部件标签。</summary>
-/// <example>内置车辆使用 <c>identity_core</c>，见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
+/// <example>测试内存包中的车辆使用 <c>identity_core</c>，见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
 public sealed class IdentityRetentionRules
 {
     /// <summary>获取身份核心体素必须具有的标签；值为 1–64 个小写 ASCII 字母、数字、下划线或连字符。</summary>
@@ -65,7 +65,7 @@ public sealed class IdentityRetentionRules
 }
 
 /// <summary>表示一类蓝图共同采用的构造约束和身份保留规则。</summary>
-/// <example>内置 <c>core:dev-hollow-shell</c> Archetype 的加载结果见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
+/// <example>测试内存包中 <c>core:dev-hollow-shell</c> Archetype 的加载结果见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
 public sealed class CompositeArchetype
 {
     /// <summary>获取 Archetype 的稳定身份。</summary>

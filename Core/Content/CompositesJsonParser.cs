@@ -886,7 +886,7 @@ internal static class CompositesJsonParser
     /// <exception cref="NullReferenceException">raw 为 null。</exception>
     /// <exception cref="ArgumentNullException">局部身份有效但 packageNamespace 为 null。</exception>
     /// <exception cref="ArgumentException">局部身份有效但 packageNamespace 不符合身份规则。</exception>
-    /// <example>core 包中的局部引用 dev-hollow-shell 补全为 core:dev-hollow-shell；见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
+    /// <example>测试内存包中，局部引用 dev-hollow-shell 在 core 命名空间补全为 core:dev-hollow-shell；见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
     public static bool TryResolveId(string raw, string packageNamespace, out string namespaced)
     {
         namespaced = "";
@@ -916,7 +916,7 @@ internal static class CompositesJsonParser
     /// <returns>引用及参与补全的命名空间符合身份规则时返回 true，否则返回 false。</returns>
     /// <remarks>通过定义身份构造规则去除各部分首尾空白；这里只解析身份，不查询候选目录。</remarks>
     /// <exception cref="NullReferenceException">raw 为 null。</exception>
-    /// <example>文件中的 identity-core 在 core 包中解析为 core:identity-core；见 <c>CompositeContentTests.Minimal_blueprint_parses_archetype_voxels_and_separate_contact_bindings</c>。</example>
+    /// <example>测试内存包中的 identity-core 在 core 命名空间解析为 core:identity-core；见 <c>CompositeContentTests.Minimal_blueprint_parses_archetype_voxels_and_separate_contact_bindings</c>。</example>
     public static bool TryResolveVoxelId(string raw, string packageNamespace, out VoxelDefinitionId id)
     {
         id = default;

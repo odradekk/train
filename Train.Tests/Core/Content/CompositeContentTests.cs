@@ -1,5 +1,5 @@
 // Core 内容模块测试：验证蓝图定义、archetype、contacts 与引用隔离。
-// 输入由最小内存夹具提供，不读取将删除的开发蓝图资源。
+// 输入由最小内存夹具提供，用于验证内容解析与目录发布契约。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 using Train.Core.Content.Composites;

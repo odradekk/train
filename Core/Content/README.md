@@ -18,6 +18,8 @@
 
 当前实现保留既有体素和蓝图 schema，包括 contacts、Archetype 与现有 Behavior 参数；不扫描旧 `*.settlements.json`。修订编码仍将碰撞几何计入体素语义指纹，与上述语义哈希设计存在差异。
 
+当前内置内容只有 [`core:ferrous-ore`](../../builtin/core/resources/voxels/ferrous-ore.voxels.json) 定义及其 `icon`、`top`、`side`、`bottom` 四张 PNG。各图片的 `.import` 使用 `importer=keep`，保留原始字节供 Godot 内容源和导出版本读取。Core 测试使用最小内存内容包验证体素、蓝图与 Archetype 的解析、引用和发布契约。
+
 测试使用目录内部发布与修订编码验证契约，因此[程序集内部访问声明](../AssemblyInfo.cs)允许测试程序集访问这些成员；应用通过公开接口加载和重载内容。
 
 `ContentLimits` 的字节数、图片尺寸、定义数和诊断数上限沿用当前 schema，尚未根据新的玩法负载重新测量；当前不作为玩法调参数据。
