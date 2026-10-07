@@ -20,7 +20,7 @@ internal static class StartupChecks
 
     /// <summary>验证主菜单只显示可用的退出按钮，并通过真实按钮信号请求宿主退出。</summary>
     /// <param name="menu">本次启动实际显示的主菜单。</param>
-    /// <param name="quitRequested">读取宿主是否已经收到退出请求，不用检查自身的退出来证明按钮接线。</param>
+    /// <param name="quitRequested">读取宿主是否已经收到退出请求，避免用检查自身的退出来证明按钮连接。</param>
     internal static bool MainMenu(MainMenu menu, Func<bool> quitRequested)
     {
         var ready = Report(menu.IsNodeReady() && menu.IsVisibleInTree(), "MAIN_MENU_READY");

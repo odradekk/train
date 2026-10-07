@@ -1,5 +1,5 @@
-// Core 内容测试验证体素定义标识的格式和大小写约束。
-// 从旧混合身份测试中保留独立定义标识契约。
+// Core 内容模块测试。
+// 验证体素定义标识的空白、格式、长度和大小写契约。
 
 using Train.Core.Content.Voxels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

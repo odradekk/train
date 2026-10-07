@@ -5,7 +5,7 @@ using Train.Core.Content.Voxels;
 using Godot;
 using Train.Core.Logging;
 
-namespace Train.Content.Godot;
+namespace Train.App;
 
 /// <summary>通过 Godot 和物理文件系统发现内容包、读取资源并解码 PNG。</summary>
 /// <remarks>路径与日志依赖由宿主提供，构造时不访问目录；实例保留最近一次列包诊断，不提供并发同步。内容定义、引用及图片用途的校验由内容加载器负责。</remarks>
@@ -171,16 +171,9 @@ public sealed class GodotContentSource : IContentSource
     /// <remarks>玩家文件名按 Ordinal 比较；筛选文件后仍保留整次发现的诊断和无效标记，不解析文件内显示名或定义。</remarks>
     /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
     public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
-    {
-        var discovery = ListDataFiles(package, ".composites.json");
-        if (package.Kind != ContentPackageKind.PlayerBlueprint)
-            return discovery;
-        var expected = package.Namespace + ".composites.json";
-        return new ContentFileDiscovery(
-            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
-            discovery.Diagnostics,
-            discovery.Invalid);
-    }
+        => ContentFileDiscovery.ForCompositePackage(
+            package,
+            ListDataFiles(package, ".composites.json"));
 
     /// <summary>按包种类和内置访问方式分派目录扫描，并拒绝无法解析或链接的虚拟根。</summary>
     private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)

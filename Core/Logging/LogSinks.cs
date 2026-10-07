@@ -282,7 +282,7 @@ public sealed class JsonlLogSink : ILogSink, IDisposable
         writer.WriteEndObject();
     }
 
-    /// <summary>写入受支持的结构化属性形态，同时保留 JSON 标量类型。</summary>
+    /// <summary>写入受支持的结构化属性形式，同时保留 JSON 标量类型。</summary>
     private static void WriteValue(Utf8JsonWriter writer, object? value)
     {
         switch (value)

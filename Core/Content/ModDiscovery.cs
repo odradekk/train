@@ -3,6 +3,7 @@
 namespace Train.Core.Content;
 
 /// <summary>表示 Mod 根目录中的一个直接子项及其已读取的清单状态。</summary>
+/// <example><c>readme.txt</c> 可表示不参与扫描计数的文件候选；<c>pretty-name</c> 可表示带有清单字节的目录候选，见 <c>ModDiscoveryTests.Direct_child_directories_are_candidates_and_files_are_ignored</c>。</example>
 public sealed class ModFolderCandidate
 {
     /// <summary>取得 Mod 根下的直接子目录名称。</summary>
@@ -46,6 +47,7 @@ public sealed class ModFolderCandidate
 }
 
 /// <summary>表示一次 Mod 根目录扫描的包与诊断快照。</summary>
+/// <example>一个文件候选和一个有效目录候选产生 CandidateCount 为 1、AcceptedCount 为 1 的结果，见 <c>ModDiscoveryTests.Direct_child_directories_are_candidates_and_files_are_ignored</c>。</example>
 public sealed class ModScanResult
 {
     /// <summary>取得接受的 Mod 包快照。</summary>

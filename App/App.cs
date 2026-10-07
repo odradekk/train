@@ -1,9 +1,8 @@
 // Train.App 管理 Godot 应用的启动、内容服务与日志生命周期。
-// 主菜单和控制台共用宿主回调，检查入口不创建旧玩法会话。
+// 主菜单和控制台共用宿主回调，检查入口复用正式应用服务。
 
 using Godot;
 using Train.App.Checks;
-using Train.Content.Godot;
 using Train.Core.Console;
 using Train.Core.Content;
 using Train.Core.Logging;

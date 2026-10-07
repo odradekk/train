@@ -1,5 +1,5 @@
-// Core 内容模块测试：验证内容发现、解析与重载的无引擎契约。
-// 测试输入保持最小，并与旧世界运行态隔离。
+// Core 内容模块测试。
+// 验证 Mod 清单的严格 schema、身份、版本和文本边界。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 

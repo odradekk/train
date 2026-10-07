@@ -1,6 +1,7 @@
+// Core 内容模块测试。
+// 验证外部内容路径的词法包含、可信路径链和 Mod 根发现边界。
+
 using System.Diagnostics;
-// Core 内容模块测试：验证内容发现、解析与重载的无引擎契约。
-// 测试输入保持最小，并与旧世界运行态隔离。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 
@@ -244,7 +245,7 @@ public sealed class ExternalPathTests
         }
         catch
         {
-            // Best-effort cleanup for Windows temp paths that still have open handles.
+            // Windows 临时路径仍有打开句柄时，尽力清理但不掩盖测试结果。
         }
     }
 }

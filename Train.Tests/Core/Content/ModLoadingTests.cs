@@ -1,5 +1,5 @@
-// Core 内容模块测试：验证 Mod 隔离、命名空间与重载回滚。
-// 测试覆盖数据包边界，不依赖已退役的聚居地内容。
+// Core 内容模块测试。
+// 验证 Mod 的隔离、命名空间、内容限制和重载回滚契约。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
@@ -115,33 +115,6 @@ public sealed class ModLoadingTests
         Assert.IsTrue(result.Removed.Contains(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper")));
         Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
         Assert.IsTrue(reloader.Catalog.Current.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
-    }
-
-    [TestMethod]
-    public void Pre_commit_rejection_retains_the_previous_snapshot_when_mod_removal_breaks_references()
-    {
-        using var session = LoggerSession.Create();
-        var source = ModFixtures.CorePlusCopper();
-        var referenced = new HashSet<VoxelDefinitionId> { new(ModFixtures.SampleUuid, "copper") };
-        var reloader = ContentFixtures.Create(
-            source,
-            session.Logger,
-            new RequiredVoxelDefinitionsValidator(referenced));
-        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var previous = reloader.Catalog.Current!;
-
-        var later = ContentFixtures.ValidFerrousOre();
-        var rebuilt = ContentFixtures.Create(
-            later,
-            session.Logger,
-            new RequiredVoxelDefinitionsValidator(referenced),
-            reloader.Catalog);
-        var rejected = rebuilt.Reload();
-
-        Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
-        Assert.AreSame(previous, reloader.Catalog.Current);
-        Assert.IsTrue(previous.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
-        Assert.IsTrue(rejected.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference));
     }
 
     [TestMethod]

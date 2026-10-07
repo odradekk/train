@@ -511,7 +511,7 @@ internal static class CompositeReferenceValidator
     /// <returns>允许或拒绝候选发布的决定，以及发现的引用诊断。</returns>
     /// <remarks>内置蓝图缺少引用时追加错误并拒绝发布；Mod 或玩家蓝图缺少引用时追加警告，并从三个候选目录移除其命名空间。移除可能使其他蓝图失去引用，因此重复检查直到没有新的失败；拒绝时也不恢复此前已移除的候选条目。</remarks>
     /// <exception cref="ArgumentNullException">任一候选目录为 <see langword="null"/>。</exception>
-    public static ContentPreCommitDecision Filter(
+    public static (bool CanCommit, IReadOnlyList<ContentDiagnostic> Diagnostics) Filter(
         IDictionary<VoxelDefinitionId, VoxelCatalogEntry> voxels,
         IDictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
         IDictionary<CompositeDefinitionId, CompositeCatalogEntry> composites)
@@ -538,11 +538,9 @@ internal static class CompositeReferenceValidator
             }
 
             if (rejectBuiltIn)
-                return ContentPreCommitDecision.Reject(diagnostics);
+                return (false, diagnostics);
             if (failedMods.Count == 0 && failedPlayers.Count == 0)
-                return diagnostics.Count == 0
-                    ? ContentPreCommitDecision.Allow()
-                    : ContentPreCommitDecision.Allow(diagnostics);
+                return (true, diagnostics);
 
             foreach (var ns in failedMods.Concat(failedPlayers))
                 DropNamespace(ns, voxels, archetypes, composites);

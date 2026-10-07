@@ -41,9 +41,29 @@ public sealed class ContentFileDiscovery
     /// <param name="files">调用方已完成路径检查的包内相对路径集合，允许为空集合。</param>
     /// <returns>Files 沿用输入集合、Diagnostics 为空且 Invalid 为 false 的结果。</returns>
     /// <remarks>不校验、排序或复制文件集合；有效标记表示调用方的结论。</remarks>
-    /// <example>内存内容源将 voxels/ores.voxels.json 包装为有效发现结果，再交由加载器解析；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+    /// <example>内存内容源将 voxels/ores.voxels.json 包装为有效发现结果，再交由加载器解析；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
     public static ContentFileDiscovery Of(IReadOnlyList<string> files) =>
         new(files, Array.Empty<ContentDiagnostic>(), invalid: false);
+
+    /// <summary>按内容包身份筛选玩家蓝图文件，其他包的发现结果原样返回。</summary>
+    /// <param name="package">决定是否应用玩家蓝图身份规则的内容包。</param>
+    /// <param name="discovery">已经完成目录扫描的蓝图文件发现结果。</param>
+    /// <returns>玩家蓝图包仅保留与包命名空间加 .composites.json 完全相等的根级文件；其他包返回原结果。</returns>
+    /// <remarks>文件名按 Ordinal 比较；筛选保持原顺序，并原样保留诊断和无效标记。</remarks>
+    /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null，或筛选玩家蓝图包时 <paramref name="discovery"/> 为 null。</exception>
+    /// <example>命名空间为 cccccccc-dddd-4eee-8fff-000000000001 时，仅保留同名的 .composites.json 文件；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
+    public static ContentFileDiscovery ForCompositePackage(
+        ContentPackage package,
+        ContentFileDiscovery discovery)
+    {
+        if (package.Kind != ContentPackageKind.PlayerBlueprint)
+            return discovery;
+        var expected = package.Namespace + ".composites.json";
+        return new ContentFileDiscovery(
+            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
+            discovery.Diagnostics,
+            discovery.Invalid);
+    }
 }
 
 /// <summary>在与存储实现无关的目录树上发现内容文件。</summary>

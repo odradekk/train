@@ -70,7 +70,7 @@ public sealed class VoxelCatalogEntry
 
 /// <summary>表示某一目录世代完整且不可变的体素定义集合。</summary>
 /// <remarks>条目索引被冻结，条目对象直接保留；世代由调用方提供，不检查其取值范围、递增关系或索引键与条目定义身份的一致性。</remarks>
-/// <example>首次发布后按 <c>core:ferrous-ore</c> 查找条目的用例见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+/// <example>首次发布后按 <c>core:ferrous-ore</c> 查找条目的用例见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
 public sealed class VoxelCatalogSnapshot
 {
     /// <summary>获取本快照的目录世代；内容加载器从 1 开始发布，仅在体素目录有变化时递增。</summary>
@@ -94,7 +94,7 @@ public sealed class VoxelCatalogSnapshot
     /// <param name="id">要查找的体素定义标识。</param>
     /// <param name="entry">成功时为对应目录条目；失败时为 <see langword="null"/>。</param>
     /// <returns>存在对应标识时为 <see langword="true"/>；否则为 <see langword="false"/>。</returns>
-    /// <example>读取 <c>core:ferrous-ore</c> 条目的用例见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+    /// <example>读取 <c>core:ferrous-ore</c> 条目的用例见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
     public bool TryGet(VoxelDefinitionId id, out VoxelCatalogEntry entry) => Entries.TryGetValue(id, out entry!);
 }
 
@@ -426,7 +426,7 @@ internal static class CatalogDiff
 
 /// <summary>提供重载结果共用的空体素标识集合，并将诊断列表转换为只读集合。</summary>
 /// <remarks>已有 ReadOnlyCollection 诊断集合会直接复用，其他诊断列表复制后包装；复用集合的底层列表仍须由原持有方保持稳定。</remarks>
-/// <example>重载结果保留发布前校验的警告诊断；见 <c>ContentReloaderTests.Shared_voxel_faces_and_validator_warnings_can_commit</c>。</example>
+/// <example>重载结果保留无效 Mod 的警告诊断；见 <c>ModLoadingTests.Invalid_mod_is_isolated_while_unrelated_valid_packages_commit</c>。</example>
 internal static class ImmutableSets
 {
     /// <summary>获取可复用的冻结空体素标识集合，用于无变化或被拒绝的重载结果。</summary>

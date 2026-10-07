@@ -1,5 +1,5 @@
-// Core 内容测试辅助：构造蓝图及其引用的最小内存内容包。
-// 测试直接生成 JSON，不读取开发蓝图资源，也不创建旧世界或车辆实例。
+// Core 内容模块测试辅助。
+// 构造蓝图、Archetype、接触锚点及其引用体素的最小内存内容包。
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 using Train.Tests.Core.Logging;

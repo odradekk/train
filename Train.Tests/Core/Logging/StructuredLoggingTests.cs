@@ -1,3 +1,6 @@
+// Core 日志模块测试。
+// 验证结构化日志的 JSONL 序列化、保留策略和文件生命周期。
+
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Logging;
@@ -354,7 +357,7 @@ public sealed class StructuredLoggingTests
         }
         catch
         {
-            // Best-effort cleanup for temp directories that Windows may still have open.
+            // Windows 仍占用临时目录时，尽力清理但不掩盖测试结果。
         }
     }
 }

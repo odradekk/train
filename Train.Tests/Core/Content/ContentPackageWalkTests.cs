@@ -1,5 +1,5 @@
-// Core 内容模块测试：验证内容发现、解析与重载的无引擎契约。
-// 测试输入保持最小，并与旧世界运行态隔离。
+// Core 内容模块测试。
+// 验证内容包遍历遇到链接或不可列举目录时使整个包失效。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 

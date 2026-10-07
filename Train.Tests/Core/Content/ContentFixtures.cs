@@ -1,5 +1,5 @@
 // Core 内容测试夹具：提供最小体素、Mod 与图片输入。
-// 供当前 Core 内容测试共用，不读取项目资源或创建世界运行态。
+// 通过内存内容源提供确定的文件字节和解码结果。
 using Train.Core.Content;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
@@ -27,10 +27,9 @@ internal static class ContentFixtures
     public static ContentReloader Create(
         IContentSource source,
         TrainLogger logger,
-        IContentPreCommitValidator? validator = null,
         VoxelCatalog? catalog = null,
         CompositeCatalog? composites = null) =>
-        new(source, logger, catalog, validator, composites);
+        new(source, logger, catalog, composites);
 
     public static void AddSquareImages(MemoryContentSource source, params string[] paths)
     {

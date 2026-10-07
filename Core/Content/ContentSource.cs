@@ -97,7 +97,7 @@ public interface IContentSource
     /// <param name="package">待发现文件的内容包。</param>
     /// <returns>包内规范相对路径、发现诊断和包无效标记；文件路径应以小写 .voxels.json 结尾。</returns>
     /// <remarks>只发现文件，不解析定义；无效发现结果仍可能含部分文件，加载器按包拒绝或隔离。</remarks>
-    /// <example>初次发现 voxels/ores.voxels.json 后加载其中的 ferrous-ore 和 coal；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+    /// <example>初次发现 voxels/ores.voxels.json 后加载其中的 ferrous-ore 和 coal；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
     ContentFileDiscovery ListVoxelFiles(ContentPackage package);
     /// <summary>发现一个包中的蓝图与原型定义 JSON 文件。</summary>
     /// <param name="package">待发现文件的内容包。</param>
@@ -338,7 +338,7 @@ public sealed class MemoryContentSource : IContentSource
     /// <returns>小写 .voxels.json 后缀文件的数组快照，无诊断且 Invalid 为 false；没有登记列表时为空。</returns>
     /// <remarks>不检查包是否仍在当前列表中、是否可用或对应字节是否存在。</remarks>
     /// <exception cref="NullReferenceException">package 为 null。</exception>
-    /// <example>返回 voxels/ores.voxels.json 供加载器解析；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+    /// <example>返回 voxels/ores.voxels.json 供加载器解析；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
     public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
         ListDataFiles(package, ".voxels.json");
 
@@ -349,16 +349,9 @@ public sealed class MemoryContentSource : IContentSource
     /// <exception cref="NullReferenceException">package 为 null。</exception>
     /// <example>玩家文件 cccccccc-dddd-4eee-8fff-000000000001.composites.json 与包命名空间一致；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
     public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
-    {
-        var discovery = ListDataFiles(package, ".composites.json");
-        if (package.Kind != ContentPackageKind.PlayerBlueprint)
-            return discovery;
-        var expected = package.Namespace + ".composites.json";
-        return new ContentFileDiscovery(
-            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
-            discovery.Diagnostics,
-            discovery.Invalid);
-    }
+        => ContentFileDiscovery.ForCompositePackage(
+            package,
+            ListDataFiles(package, ".composites.json"));
 
     /// <summary>将文本编码为 UTF-8 字节，并登记蓝图与原型定义文件。</summary>
     /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>

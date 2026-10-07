@@ -81,12 +81,8 @@ public static class ContentDiagnosticCodes
     public const string PackageInvalid = "package_invalid";
     /// <summary>上一轮内容重载尚未结束。</summary>
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
-    /// <summary>发布前校验所需的模拟边界不可用。</summary>
-    public const string SimulationUnavailable = "simulation_unavailable";
     /// <summary>定义引用了候选目录中不存在的体素定义。</summary>
     public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
-    /// <summary>候选定义与当前世界中的体素状态不兼容。</summary>
-    public const string IncompatibleVoxelState = "incompatible_voxel_state";
     /// <summary>必需的内置内容包不可用。</summary>
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     /// <summary>首次加载没有产生任何体素定义。</summary>
@@ -109,10 +105,6 @@ public static class ContentDiagnosticCodes
     public const string ModManifestMissing = "mod_manifest_missing";
     /// <summary>组合定义引用了不存在的原型。</summary>
     public const string UnresolvedArchetypeReference = "unresolved_archetype_reference";
-    /// <summary>运行时引用了候选目录中不存在的组合定义。</summary>
-    public const string UnresolvedCompositeReference = "unresolved_composite_reference";
-    /// <summary>当前车辆状态无法适配候选定义。</summary>
-    public const string UnsupportedVehicleAdaptation = "unsupported_vehicle_adaptation";
     /// <summary>玩家蓝图根目录无法安全创建或列举。</summary>
     public const string BlueprintsRootUnavailable = "blueprints_root_unavailable";
     /// <summary>组合定义的尺寸等级无效。</summary>
@@ -177,7 +169,7 @@ public sealed class ContentDiagnostic
 
 /// <summary>表示定义所属的包命名空间和源文件。</summary>
 /// <remarks>命名空间按定义身份规则规范化；源文件路径只要求非空，路径安全性由发现和读取边界检查。</remarks>
-/// <example>内置 ferrous-ore 定义的来源属于 core 包；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+/// <example>内置 ferrous-ore 定义的来源属于 core 包；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
 public sealed class ContentOrigin
 {
     /// <summary>取得定义所属的规范包命名空间。</summary>
@@ -493,7 +485,7 @@ internal sealed class DiagnosticBag
 }
 
 /// <summary>提供常用诊断级别及是否标记当前范围无效的追加方式。</summary>
-/// <remarks>Warn 和 Error 都标记无效，WarnSoft 保留已有无效状态；各方法共用诊断容器的条目上限。</remarks>
+/// <remarks>Warn 和 Error 都标记无效；两者共用诊断容器的条目上限。</remarks>
 internal static class DiagnosticBagExtensions
 {
     /// <summary>追加警告级诊断，并将当前校验范围标记无效。</summary>
@@ -503,14 +495,6 @@ internal static class DiagnosticBagExtensions
     /// <param name="jsonPath">相关字段或路径；未提供时为 null。</param>
     public static void Warn(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
         bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath);
-
-    /// <summary>追加警告级诊断，保留当前校验范围已有的无效状态。</summary>
-    /// <param name="bag">非空的诊断容器。</param>
-    /// <param name="code">非空诊断代码。</param>
-    /// <param name="message">非空引用的诊断说明。</param>
-    /// <param name="jsonPath">相关字段或路径；未提供时为 null。</param>
-    public static void WarnSoft(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
-        bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath, invalidate: false);
 
     /// <summary>追加错误级诊断，并将当前校验范围标记无效。</summary>
     /// <param name="bag">非空的诊断容器。</param>

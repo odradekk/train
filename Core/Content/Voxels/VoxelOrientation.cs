@@ -67,17 +67,6 @@ public readonly record struct VoxelOrientation
         Forward = Cross(right, up);
     }
 
-    /// <summary>检查当前朝向是否满足定义声明的朝向约束。</summary>
-    /// <param name="constraint">定义允许的朝向集合。</param>
-    /// <returns>当前朝向属于该集合时返回 <see langword="true"/>；未知枚举值返回 <see langword="false"/>。</returns>
-    public bool IsAllowedBy(VoxelOrientationConstraint constraint) => constraint switch
-    {
-        VoxelOrientationConstraint.None => this == Identity,
-        VoxelOrientationConstraint.FourWay => FourWay.Contains(this),
-        VoxelOrientationConstraint.All24 => All.Contains(this),
-        _ => false
-    };
-
     /// <summary>把一条局部有向轴转换为世界有向轴。</summary>
     /// <param name="localAxis">局部有向轴。</param>
     /// <returns>对应的世界有向轴。</returns>

@@ -120,7 +120,7 @@
 
 ### 代码迁移
 
-现有代码的 `Settlement` 保存二维位置和直接设置的按类型建筑计数，内容使用过渡格式 `settlements/*.settlements.json`。代码重构时改为本文的类型、布局和地块，建筑计数从实际建筑派生，初级货物种类从节点资源派生（[10](10-resources-and-extraction.md#代码迁移)）。
+重构前的 `Settlement` 曾保存二维位置和直接设置的按类型建筑计数，内容曾使用过渡格式 `settlements/*.settlements.json`；这些实现已删除。后续实现采用本文的类型、布局和地块，建筑计数从实际建筑派生，初级货物种类从节点资源派生（[10](10-resources-and-extraction.md#代码迁移)）。
 
 ## Demo 范围
 

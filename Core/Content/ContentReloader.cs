@@ -1,5 +1,5 @@
 // 属于内容模块。
-// 协调候选内容校验、宿主更新计划、目录发布和发布后的变更通知。
+// 协调候选内容校验、目录发布和发布后的变更通知。
 
 using System.Collections.Frozen;
 using Train.Core.Content.Composites;
@@ -10,7 +10,7 @@ namespace Train.Core.Content;
 
 /// <summary>一次内容发布的结果：成功、带警告成功或拒绝。</summary>
 /// <remarks>成功也包括内容无变化的重复加载。发布许可由各校验阶段决定，成功状态只按最终诊断中是否存在 Warning 区分，不以 Error 数量重新判断许可。</remarks>
-/// <example>附带发布前警告仍可返回 CommittedWithWarnings；见 <c>ContentReloaderTests.Shared_voxel_faces_and_validator_warnings_can_commit</c>。</example>
+/// <example>隔离无效 Mod 后仍发布有效内容并返回 CommittedWithWarnings；见 <c>ModLoadingTests.Invalid_mod_is_isolated_while_unrelated_valid_packages_commit</c>。</example>
 public enum ContentReloadStatus
 {
     /// <summary>候选内容成功发布且没有警告。</summary>
@@ -90,135 +90,13 @@ public sealed class ContentReloadResult
     public bool IsCommitted => Status is ContentReloadStatus.Committed or ContentReloadStatus.CommittedWithWarnings;
 }
 
-/// <summary>发布前校验是否允许提交，以及需要并入发布结果的诊断。</summary>
-/// <remarks>CanCommit 与诊断严重程度相互独立；Allow 和 Reject 都按枚举顺序复制诊断，不过滤级别或补充拒绝原因。</remarks>
-/// <example>缺少 core:coal 时返回拒绝诊断，候选目录不发布；见 <c>ContentReloaderTests.Pre_commit_validation_rejects_unresolved_references</c>。</example>
-public sealed class ContentPreCommitDecision
-{
-    /// <summary>获取候选内容是否允许发布。</summary>
-    public bool CanCommit { get; }
-    /// <summary>获取发布前校验附带的只读诊断集合；顺序与输入序列一致，允许为空。</summary>
-    public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
-
-    /// <summary>保存发布许可并将工厂方法已收集的诊断转换为只读集合。</summary>
-    private ContentPreCommitDecision(bool canCommit, IReadOnlyList<ContentDiagnostic> diagnostics)
-    {
-        CanCommit = canCommit;
-        Diagnostics = ImmutableSets.Freeze(diagnostics);
-    }
-
-    /// <summary>创建允许发布的校验结果。</summary>
-    /// <param name="warnings">附带诊断序列，应不含 null 条目；null 或空序列表示没有诊断，不强制要求 Warning 级别。</param>
-    /// <returns>允许发布且保存诊断副本的结果。</returns>
-    /// <remarks>立即枚举输入，枚举过程中的异常原样传播。</remarks>
-    /// <example>附带 precommit_warning 警告后仍允许发布；见 <c>ContentReloaderTests.Shared_voxel_faces_and_validator_warnings_can_commit</c>。</example>
-    public static ContentPreCommitDecision Allow(IEnumerable<ContentDiagnostic>? warnings = null) =>
-        new(true, warnings?.ToArray() ?? Array.Empty<ContentDiagnostic>());
-
-    /// <summary>创建拒绝发布的校验结果。</summary>
-    /// <param name="diagnostics">非 null 的拒绝诊断序列，应不含 null 条目；允许为空，也不强制要求 Error 级别。</param>
-    /// <returns>不允许发布且保存诊断副本的结果。</returns>
-    /// <remarks>立即枚举输入，枚举过程中的异常原样传播。</remarks>
-    /// <exception cref="ArgumentNullException">diagnostics 为 null。</exception>
-    /// <example>候选缺少 core:coal 时拒绝发布；见 <c>ContentReloaderTests.Pre_commit_validation_rejects_unresolved_references</c>。</example>
-    public static ContentPreCommitDecision Reject(IEnumerable<ContentDiagnostic> diagnostics) =>
-        new(false, diagnostics.ToArray());
-}
-
-/// <summary>在发布体素目录前检查调用方要求的内容约束。</summary>
-/// <remarks>在候选引用过滤后、宿主计划准备前同步调用；无变化的重复加载也会调用。拒绝应通过返回决策表达，实现抛出的异常向上传播。</remarks>
-/// <example>要求 core:coal 存在的校验器拒绝仅含 ferrous-ore 的候选；见 <c>ContentReloaderTests.Pre_commit_validation_rejects_unresolved_references</c>。</example>
-public interface IContentPreCommitValidator
-{
-    /// <summary>检查候选体素目录能否发布。</summary>
-    /// <param name="candidate">尚未发布、已完成内容和引用校验的候选体素快照；代数为当前值加一，最终可能因无变化而不发布。</param>
-    /// <returns>非 null 的发布许可及附带诊断；重载器合并诊断并依据 CanCommit 决定是否继续。</returns>
-    /// <example>允许发布并附带警告的用例见 <c>ContentReloaderTests.Shared_voxel_faces_and_validator_warnings_can_commit</c>。</example>
-    ContentPreCommitDecision Validate(VoxelCatalogSnapshot candidate);
-}
-
-/// <summary>让宿主先准备相关状态的更新，再与候选内容一起发布。</summary>
-/// <remarks>Prepare 同步执行，只做校验和准备，状态修改放入成功计划的 Apply 委托；无变化时也会准备，但不执行更新。重载器使用双目录重载，默认实现转调仅体素的重载。</remarks>
-/// <example>宿主需要随内容发布刷新缓存时，参与者可在 Prepare 中返回包含刷新委托的 <see cref="ContentReloadPlan"/>；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
-public interface IContentReloadParticipant
-{
-    /// <summary>基于候选体素目录准备宿主状态更新。</summary>
-    /// <param name="candidate">尚未发布的候选体素快照，代数为当前值加一。</param>
-    /// <returns>非 null 的宿主计划；允许发布时可以不包含更新委托，拒绝时不执行任何更新。</returns>
-    /// <remarks>准备过程不修改宿主状态；实现抛出的异常向上传播。</remarks>
-    /// <example>候选满足宿主约束时返回 <see cref="ContentReloadPlan.None"/>；不满足时返回带诊断的拒绝计划；见 <c>ContentReloaderTests.Rejected_reload_plan_preserves_published_catalogs_and_copies_diagnostics</c>。</example>
-    ContentReloadPlan Prepare(VoxelCatalogSnapshot candidate);
-
-    /// <summary>基于候选体素和蓝图目录准备宿主状态更新；默认只检查体素目录。</summary>
-    /// <param name="voxels">尚未发布的候选体素快照，代数为当前体素目录值加一。</param>
-    /// <param name="composites">尚未发布的候选蓝图与原型快照，代数为当前蓝图目录值加一。</param>
-    /// <returns>非 null 的宿主状态发布计划；默认实现返回单目录 Prepare 的结果。</returns>
-    /// <remarks>默认实现不使用 composites；需要蓝图约束的宿主应实现此重载。准备过程不修改宿主状态，实现异常向上传播。</remarks>
-    ContentReloadPlan Prepare(VoxelCatalogSnapshot voxels, CompositeCatalogSnapshot composites) =>
-        Prepare(voxels);
-}
-
-/// <summary>宿主参与内容发布的准备结果，包含诊断和延迟执行的状态更新。</summary>
-/// <remarks>工厂方法复制附带诊断，发布许可与诊断级别独立。只有全部校验通过且任一目录发生变化时，重载器才在替换目录前执行更新；拒绝计划没有更新委托。委托失败不会发布候选，也不会撤销委托已经完成的宿主修改。</remarks>
-/// <example><c>Accept(() =&gt; cache = candidate)</c> 保存刷新委托，重载器仅在候选允许发布且目录有变化时执行它；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。更新失败保护见 <c>ContentReloaderTests.Failed_reload_apply_preserves_both_catalogs_without_undoing_host_changes</c>。</example>
-public sealed class ContentReloadPlan
-{
-    /// <summary>获取可复用的允许发布、无诊断且无更新委托的计划。</summary>
-    public static ContentReloadPlan None { get; } = Accept(null);
-
-    /// <summary>获取候选内容是否允许发布。</summary>
-    public bool CanCommit { get; }
-    /// <summary>获取计划附带诊断的只读副本，保持输入序列顺序。</summary>
-    public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
-
-    private readonly Action? _apply;
-
-    /// <summary>保存发布许可和延迟更新委托，将工厂方法已收集的诊断转换为只读集合。</summary>
-    private ContentReloadPlan(
-        bool canCommit,
-        IReadOnlyList<ContentDiagnostic> diagnostics,
-        Action? apply)
-    {
-        CanCommit = canCommit;
-        Diagnostics = ImmutableSets.Freeze(diagnostics);
-        _apply = apply;
-    }
-
-    /// <summary>创建允许提交的宿主状态更新计划。</summary>
-    /// <param name="apply">由重载器在目录有变化且校验通过后、替换目录前执行的状态更新；null 表示无需更新。</param>
-    /// <param name="warnings">附带诊断序列，应不含 null 条目；null 表示没有诊断，不强制要求 Warning 级别。</param>
-    /// <returns>允许发布的延迟更新计划。</returns>
-    /// <remarks>立即枚举诊断序列，枚举异常原样传播；不在创建计划时执行 apply。</remarks>
-    /// <example><c>Accept(() =&gt; refreshCount++)</c> 创建允许发布且延迟增加计数的计划；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
-    public static ContentReloadPlan Accept(
-        Action? apply,
-        IEnumerable<ContentDiagnostic>? warnings = null) =>
-        new(true, warnings?.ToArray() ?? Array.Empty<ContentDiagnostic>(), apply);
-
-    /// <summary>创建拒绝提交且没有更新委托的计划。</summary>
-    /// <param name="diagnostics">非 null 的拒绝诊断序列，应不含 null 条目；允许为空，不强制要求 Error 级别。</param>
-    /// <returns>不允许发布的计划。</returns>
-    /// <remarks>立即枚举输入，枚举异常原样传播。</remarks>
-    /// <exception cref="ArgumentNullException">diagnostics 为 null。</exception>
-    /// <example><c>Reject(new[] { diagnostic })</c> 创建带一条诊断且没有更新委托的拒绝计划；见 <c>ContentReloaderTests.Rejected_reload_plan_preserves_published_catalogs_and_copies_diagnostics</c>。</example>
-    public static ContentReloadPlan Reject(IEnumerable<ContentDiagnostic> diagnostics) =>
-        new(false, diagnostics.ToArray(), null);
-
-    /// <summary>执行计划中的宿主状态更新；没有委托时不做操作。</summary>
-    /// <remarks>直接调用所保存的委托，不检查目录变化或限制调用次数；发布时机由重载器控制。委托异常原样传播，不撤销已经执行的修改。</remarks>
-    /// <example>对 <c>Accept(() =&gt; refreshCount++)</c> 的结果调用 Apply，会把计数增加一次；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
-    public void Apply() => _apply?.Invoke();
-}
-
-/// <summary>扫描内容包、校验候选引用并协调体素与蓝图目录的发布。</summary>
-/// <remarks>尚无体素快照时，先检查引用过滤前的候选体素集合非空。每个实例拒绝并发或重入 Reload；宿主计划先执行，有变化的体素和蓝图目录随后依次替换，再按各目录的订阅顺序通知。无变化或返回拒绝结果时保留当前快照。</remarks>
-/// <example>有效体素目录不包含聚居地文件时也可首次发布；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+/// <summary>扫描内容包、校验候选引用并发布体素与蓝图目录。</summary>
+/// <remarks>尚无体素快照时，先检查引用过滤前的候选体素集合非空。每个实例拒绝并发或重入 Reload；有变化的体素和蓝图目录依次替换，再按各目录的订阅顺序通知。无变化或返回拒绝结果时保留当前快照。</remarks>
+/// <example>首次加载 ferrous-ore 和 coal 后生成有效目录；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
 public sealed class ContentReloader
 {
     private readonly IContentSource _source;
     private readonly TrainLogger _logger;
-    private readonly IContentPreCommitValidator? _validator;
-    private IContentReloadParticipant? _participant;
     private int _busy;
 
     /// <summary>获取对外发布的体素目录。</summary>
@@ -233,40 +111,30 @@ public sealed class ContentReloader
     /// <param name="source">提供包、文件发现、原始资源字节与图片解码的非 null 内容源。</param>
     /// <param name="logger">记录扫描和发布诊断的日志实例。</param>
     /// <param name="catalog">要更新的体素目录；null 时创建新的空目录。</param>
-    /// <param name="validator">额外发布前校验器；null 表示没有额外校验。</param>
     /// <param name="composites">要更新的蓝图目录；null 时创建新的空目录。</param>
     /// <remarks>保存依赖和目录引用，不在构造时扫描或发布。传入的目录保留已有快照；本实例的重载互斥不覆盖共享这些目录的其他重载器。</remarks>
     /// <exception cref="ArgumentNullException">source 或 logger 为 null。</exception>
-    /// <example>先创建重载器再首次发布 ferrous-ore 和 coal；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits_without_settlement_files</c>。</example>
+    /// <example>先创建重载器再首次发布 ferrous-ore 和 coal；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
     public ContentReloader(
         IContentSource source,
         TrainLogger logger,
         VoxelCatalog? catalog = null,
-        IContentPreCommitValidator? validator = null,
         CompositeCatalog? composites = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(logger);
         _source = source;
         _logger = logger;
-        _validator = validator;
         Catalog = catalog ?? new VoxelCatalog();
         Composites = composites ?? new CompositeCatalog();
     }
 
-    /// <summary>设置为内容发布准备相关状态更新的宿主参与者。</summary>
-    /// <param name="adapter">参与者；null 表示取消宿主参与。宿主应在 Reload 之外设置。</param>
-    /// <remarks>仅替换引用，不执行准备或更新，也不与正在进行的重载同步；调用方须在重载开始前完成设置。</remarks>
-    /// <example>设置缓存刷新参与者后，后续 Reload 会先调用它准备发布计划；传入 <see langword="null"/> 则取消参与；见 <c>ContentReloaderTests.Reload_participant_applies_before_publication_and_skips_unchanged_content</c>。</example>
-    public void SetReloadParticipant(IContentReloadParticipant? adapter) =>
-        _participant = adapter;
-
-    /// <summary>同步扫描和校验候选内容，执行宿主计划，依次发布有变化的目录并通知订阅者。</summary>
+    /// <summary>同步扫描和校验候选内容，依次发布有变化的目录并通知订阅者。</summary>
     /// <returns>成功、带警告成功或拒绝的结果；无变化时成功但 Changed 为 false，返回拒绝结果时保留原目录。</returns>
     /// <remarks>
-    /// 候选构建、引用检查、额外校验和宿主准备依次执行；全部允许后才检查目录差异，无变化时不执行计划或通知。体素与蓝图各自只在有变化时增加代数，CatalogVersion 不报告蓝图代数。
+    /// 候选构建与引用检查依次执行；全部通过后才检查目录差异，无变化时不发布或通知。体素与蓝图各自只在有变化时增加代数，CatalogVersion 不报告蓝图代数。
     /// 两个目录各自原子替换，不保证同时可见；读取方可能在两次写入之间读到新体素快照和旧蓝图快照。
-    /// 重入或并发调用立即返回 reload_already_in_progress 拒绝诊断。内容源、校验器、宿主准备或更新以及日志调用的异常向上传播，取得的重载权在 finally 中释放。宿主更新异常不回滚已做修改；发布后订阅者异常交给日志回调，回调正常返回后继续通知，不撤回目录或加入返回诊断。
+    /// 重入或并发调用立即返回 reload_already_in_progress 拒绝诊断。内容源和日志调用的异常向上传播，取得的重载权在 finally 中释放；发布后订阅者异常交给日志回调，回调正常返回后继续通知，不撤回目录或加入返回诊断。
     /// </remarks>
     /// <example>订阅者抛出异常后仍保留已发布快照，下一轮也能成功加载；见 <c>ContentReloaderTests.Notify_exception_keeps_the_commit_and_allows_a_later_reload</c>。并发拒绝见 <c>ContentReloaderTests.Concurrent_reload_is_rejected_immediately</c>。</example>
     public ContentReloadResult Reload()
@@ -300,7 +168,7 @@ public sealed class ContentReloader
 
     /// <summary>在已取得重载权的调用中准备并提交完整候选目录。</summary>
     /// <returns>反映当前保留目录、候选统计和诊断的重载结果。</returns>
-    /// <remarks>显式校验拒绝时保留旧目录，尚无体素快照时标记初始化失败。先准备快照和宿主计划，再计算差异；有变化时先应用计划、替换目录，最后通知。异常由 Reload 的 finally 释放重载权，不在此处转换为拒绝结果。</remarks>
+    /// <remarks>内容或引用校验拒绝时保留旧目录，尚无体素快照时标记初始化失败。校验通过后准备快照并计算差异；有变化时替换目录，最后通知。异常由 Reload 的 finally 释放重载权，不在此处转换为拒绝结果。</remarks>
     private ContentReloadResult ReloadExclusive()
     {
         _logger.Info(ContentLog.Category, ContentLog.ScanStartedEventId, "Scanning built-in voxel content.");
@@ -347,29 +215,6 @@ public sealed class ContentReloader
         var nextCompositeGeneration = Composites.Current.Generation + 1;
         var compositeSnapshot = new CompositeCatalogSnapshot(nextCompositeGeneration, archetypes, composites);
 
-        var decision = _validator?.Validate(snapshot) ?? ContentPreCommitDecision.Allow();
-        diagnostics.AddRange(decision.Diagnostics);
-
-        if (!decision.CanCommit)
-        {
-            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, diagnostics);
-            if (Catalog.Current is null)
-                InitializationFailed = true;
-            LogFailure(rejected);
-            return rejected;
-        }
-
-        var reloadPlan = _participant?.Prepare(snapshot, compositeSnapshot) ?? ContentReloadPlan.None;
-        diagnostics.AddRange(reloadPlan.Diagnostics);
-        if (!reloadPlan.CanCommit)
-        {
-            var rejected = Reject(Catalog.Current?.Generation ?? 0, candidate.ScannedFileCount, candidate.Entries.Count, diagnostics);
-            if (Catalog.Current is null)
-                InitializationFailed = true;
-            LogFailure(rejected);
-            return rejected;
-        }
-
         var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, entries);
         var compositeChange = CompositeCatalogDiff.Compute(
             compositeSnapshot.Generation,
@@ -399,7 +244,6 @@ public sealed class ContentReloader
             return unchanged;
         }
 
-        reloadPlan.Apply();
         if (voxelsChanged)
             Catalog.Publish(snapshot);
         if (compositesChanged)
@@ -547,7 +391,7 @@ internal sealed class CatalogCandidate
 }
 
 /// <summary>以内容包为失败隔离边界构造候选定义集合。</summary>
-/// <remarks>扫描、格式和资产校验在本阶段完成；可选包整体隔离，必需包失败阻止发布。跨定义引用和宿主状态约束由后续阶段检查。</remarks>
+/// <remarks>扫描、格式和资产校验在本阶段完成；可选包整体隔离，必需包失败阻止发布。跨定义引用由重载器在候选构建后检查。</remarks>
 /// <example>同一 Mod UUID 的所有包都被禁用，不选择其中一个；见 <c>ModLoadingTests.Duplicate_mod_uuids_are_all_disabled_without_choosing_a_winner</c>。</example>
 internal static class CatalogCandidateBuilder
 {

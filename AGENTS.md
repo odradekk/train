@@ -16,7 +16,7 @@ Current version: `0.0.50`.
 - 当前游戏按 [ADR-0009](docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md) 分成三个项目，在仓库根目录开发：
   - `Core/Train.Core.csproj`：内容、核心模拟、存档，以及日志和控制台分发；当前模块为 `Content/`、`Simulation/`、`Saves/`、`Logging/`、`Console/`。不引用 Godot 或 `Train.Scenes`。
   - `Scenes/Train.Scenes.csproj`：体素引擎层，引用 `Train.Core`，不引用 Godot；当前尚无生产代码。
-  - 根目录 `Train.csproj`：Godot 项目，引用两个库；启动和服务接入放在 `App/`，界面放在 `Ui/`，内容适配器放在 `Content/Godot/`。渲染代码放在 `Rendering/`，当前尚未实现。
+  - 根目录 `Train.csproj`：Godot 项目，引用两个库；源码按 `App/`、`Rendering/`、`Ui/` 划分，启动、服务接入和内容适配器放在 `App/`，渲染代码放在 `Rendering/`，界面放在 `Ui/`。渲染层当前尚未实现。
 - `Train.Tests` 通过项目引用测试两个库，测试按 `Core/`、`Scenes/` 组织；当前用例位于 `Core/`。
 - 命名空间等于“项目名.目录名”，更深的目录结构按当前任务的职责划分。
 - Treat `archive/mvp/` as read-only validation evidence. Reuse an archived implementation only by deliberately moving or rewriting the necessary code into the root project; do not continue product development inside the archive.

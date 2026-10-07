@@ -1600,7 +1600,7 @@ $ErrorActionPreference = "Stop"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class Issue158CtrlInjector {
+public static class ConsoleCtrlInjector {
  [DllImport("kernel32.dll", SetLastError = true)] public static extern bool FreeConsole();
  [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AttachConsole(uint processId);
  [DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
@@ -1611,26 +1611,26 @@ function Write-InjectResult([int] $Code, [string] $Message) {
     Set-Content -LiteralPath $ResultPath -Value "code=$Code message=$Message" -Encoding ascii
     exit $Code
 }
-[Issue158CtrlInjector]::FreeConsole() | Out-Null
-if (-not [Issue158CtrlInjector]::AttachConsole([uint32] $TargetPid)) {
+[ConsoleCtrlInjector]::FreeConsole() | Out-Null
+if (-not [ConsoleCtrlInjector]::AttachConsole([uint32] $TargetPid)) {
     Write-InjectResult 2 ("AttachConsole " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
 }
-if (-not [Issue158CtrlInjector]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)) {
+if (-not [ConsoleCtrlInjector]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)) {
     Write-InjectResult 1 ("SetConsoleCtrlHandler " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
 }
-if (-not [Issue158CtrlInjector]::GenerateConsoleCtrlEvent(0, 0)) {
+if (-not [ConsoleCtrlInjector]::GenerateConsoleCtrlEvent(0, 0)) {
     Write-InjectResult 1 ("GenerateConsoleCtrlEvent " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
 }
-# Stay attached until the target console observes the event.
+# 保持连接，直到目标控制台收到事件。
 Start-Sleep -Milliseconds 500
-[Issue158CtrlInjector]::FreeConsole() | Out-Null
+[ConsoleCtrlInjector]::FreeConsole() | Out-Null
 Write-InjectResult 0 "ok"
 '@ | Set-Content -LiteralPath $injectPath -Encoding utf8
-    if (-not ("Issue158HiddenConsole" -as [type])) {
+    if (-not ("HiddenConsoleProcess" -as [type])) {
         Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class Issue158HiddenConsole {
+public static class HiddenConsoleProcess {
     const uint CREATE_NEW_CONSOLE = 0x00000010;
     const int STARTF_USESHOWWINDOW = 0x00000001;
     const short SW_HIDE = 0;
@@ -1720,7 +1720,7 @@ public static class Issue158HiddenConsole {
                 return Start-Process -FilePath $pwsh -WorkingDirectory $root -WindowStyle Hidden -PassThru -ArgumentList $arguments
             }
             $command = @(Format-ProcessArgument $pwsh) + @($arguments | ForEach-Object { Format-ProcessArgument $_ })
-            $created = [Issue158HiddenConsole]::Start($pwsh, ($command -join " "), $root)
+            $created = [HiddenConsoleProcess]::Start($pwsh, ($command -join " "), $root)
             return Get-Process -Id $created
         }
         finally {
@@ -1749,7 +1749,7 @@ public static class Issue158HiddenConsole {
             if ($LASTEXITCODE -ne 0) { throw "inject failed for $method $inject" }
             if ($target.HasExited) { throw "ctrl-c target $targetId exited before it could be observed" }
             if (-not $target.WaitForExit(20000)) { throw "ctrl-c target still running after 20s" }
-            $nativeExit = if ($method -eq "shell") { [int] $target.ExitCode } else { [Issue158HiddenConsole]::QueryExit($targetId) }
+            $nativeExit = if ($method -eq "shell") { [int] $target.ExitCode } else { [HiddenConsoleProcess]::QueryExit($targetId) }
             Assert-Equal "ctrl-c exit" 3 $nativeExit
             $enableLog = [System.IO.File]::ReadAllText((Join-Path $probeDir "enable.log"))
             Assert-Contains "wrapper exit" $enableLog "EXIT=3"

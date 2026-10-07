@@ -1,3 +1,6 @@
+// Core 日志模块测试。
+// 验证人类可读日志的字段顺序、文化无关格式和异常展开。
+
 using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Logging;

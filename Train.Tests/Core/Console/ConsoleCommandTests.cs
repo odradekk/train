@@ -82,9 +82,6 @@ public sealed class ConsoleCommandDispatchTests
         StringAssert.Contains(debugHelp.Message, "quit");
         StringAssert.Contains(debugHelp.Message, "reload");
         StringAssert.Contains(debugHelp.Message, "loglevel");
-        foreach (var retired in new[] { "voxel", "composite", "rail", "observe" })
-            Assert.IsFalse(debugHelp.Message.Contains(retired, StringComparison.Ordinal));
-
         using var release = DispatchHarness.Create(allowReload: false);
         release.Dispatcher.Execute("help");
         var releaseHelp = release.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId);
@@ -208,24 +205,6 @@ public sealed class ConsoleCommandDispatchTests
     {
         using var harness = DispatchHarness.Create();
         Assert.ThrowsException<ArgumentNullException>(() => harness.Dispatcher.Execute(null!));
-    }
-
-    [DataTestMethod]
-    [DataRow("voxel")]
-    [DataRow("composite")]
-    [DataRow("rail")]
-    [DataRow("observe")]
-    public void Retired_commands_warn_without_invoking_host_actions(string name)
-    {
-        using var harness = DispatchHarness.Create();
-        harness.Dispatcher.Execute(name.ToUpperInvariant() + " query");
-
-        Assert.IsFalse(harness.Cleared);
-        Assert.IsFalse(harness.Quit);
-        Assert.IsFalse(harness.Reloaded);
-        var warning = harness.ConsoleEvents.Single(item => item.EventId == ConsoleCommandDispatcher.UnknownEventId);
-        Assert.AreEqual(LogLevel.Warning, warning.Level);
-        StringAssert.Contains(warning.Message, name.ToUpperInvariant());
     }
 
     private static void TryDeleteDirectory(string path)
