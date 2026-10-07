@@ -1,7 +1,6 @@
-# Black-box checks for scripts/run-tests.ps1.
-# Literal expectations are the oracle. Fake hosts never replace the real MSTest cases.
-# The Ctrl+C probe uses this PowerShell host and Win32 console events. It is Windows-only.
-# On any other host that probe is blocked and unverified, and the harness does not succeed.
+# 从统一入口的输出和产物验证选择、隔离、退出状态与进程清理契约。
+# 假宿主只证明编排；真实 MSTest 用例另行执行。
+# Ctrl+C 用例依赖 Windows 控制台事件，其他宿主将其报告为未验证并返回非零。
 
 param([string] $Only = "")
 
@@ -13,7 +12,7 @@ $runner = Join-Path $PSScriptRoot "run-tests.ps1"
 $pwsh = (Get-Process -Id $PID).Path
 $utf8 = [System.Text.UTF8Encoding]::new($false)
 $runStamp = [DateTime]::UtcNow.ToString("yyyyMMddTHHmmssfff") + "-" + [guid]::NewGuid().ToString("N").Substring(0, 8)
-$evidence = Join-Path $root "TestResults/issue-159/harness/$runStamp"
+$evidence = Join-Path $root "TestResults/run-tests-harness/$runStamp"
 $fixtureRoot = Join-Path $evidence "fixture"
 $project = Join-Path $fixtureRoot "Fixture.csproj"
 $bareProject = Join-Path $evidence "bare/Bare.csproj"
@@ -37,7 +36,13 @@ Note "HARNESS_ROOT=$evidence"
 
 function It {
     param([string] $Name, [scriptblock] $Body)
-    if ($Only -and $Name -notlike "*$Only*") { return }
+    if ($Only) {
+        $selected = $false
+        foreach ($pattern in $Only.Split(",", [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            if ($Name -like "*$($pattern.Trim())*") { $selected = $true; break }
+        }
+        if (-not $selected) { return }
+    }
     Note "RUN $Name"
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
     try {
@@ -298,11 +303,11 @@ function Get-GitFacts {
 function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
     Assert-True "includesAllRepositoryChecks false" ($Summary.Raw -match '"includesAllRepositoryChecks":\s*false')
     Assert-True "registered mstest" ($Summary.Raw -match '"mstest"')
-    Assert-Contains "source link" $Summary.Json.sourceLinkBoundary "does not prove the deployed Godot assembly"
+    Assert-Contains "test assembly boundary" $Summary.Json.testAssemblyBoundary "through project references"
     Assert-Contains "report source" $Summary.Report "does not prove the deployed Godot assembly"
     Assert-Contains "manual section" $Summary.Report "人工观察"
     $gaps = As-List $Summary.Json.migrationGaps
-    foreach ($gap in @("benchmark", "long", "platform", "unconnected-legacy-runners")) {
+    foreach ($gap in @("benchmark", "long", "platform")) {
         $found = $false
         foreach ($item in $gaps) { if ([string] $item -eq $gap) { $found = $true } }
         Assert-True "gap $gap" $found
@@ -323,7 +328,7 @@ function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
         Assert-True "duration status $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.durationStatus))
         if ([string] $item.durationStatus -eq "unmeasured") { $unmeasured++ }
     }
-    Assert-True "unmeasured legacy" ($unmeasured -ge 1)
+    Assert-True "unmeasured support inventory" ($unmeasured -ge 1)
     Assert-Contains "serial execution" $Summary.Report "串行执行"
     Assert-Contains "isolation policy" $Summary.Report "隔离策略是 per-check-appdata"
     $isolation = ""
@@ -363,6 +368,12 @@ function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
     Assert-Equal "end identity known" $true ([bool] $Summary.Json.gitAtEnd.identityKnown)
     Assert-Equal "clean proven" (-not $git.Dirty) ([bool] $Summary.Json.cleanCommitProven)
     Assert-Equal "prep count" $PrepCount ([int] $Summary.Json.preparation.commandCount)
+    if ($Summary.Json.environment -and $Summary.Json.environment.PSObject.Properties.Name -contains "gameUserDataUnchanged") {
+        $isolationStep = @($Summary.Json.preparation.steps | Where-Object name -eq "player-user-data-isolation")
+        Assert-Equal "one passed isolation step" 1 $isolationStep.Count
+        Assert-Equal "isolation passed" "passed" $isolationStep[0].outcome
+        Assert-Equal "isolation unchanged" "unchanged" $isolationStep[0].reason
+    }
 }
 
 function New-CheckSpec {
@@ -374,6 +385,8 @@ function New-CheckSpec {
         [string[]] $Requirements = @(),
         [bool] $NeedsImport = $false,
         [bool] $NeedsGameBuild = $false,
+        [bool] $NeedsExport = $false,
+        [bool] $NeedsContentInput = $false,
         [int] $TimeoutSeconds = 30,
         [string] $Scope = "orchestration"
     )
@@ -394,18 +407,21 @@ function New-CheckSpec {
     $map["claim"] = "orchestration"
     $map["needsImport"] = [bool] $NeedsImport
     $map["needsGameBuild"] = [bool] $NeedsGameBuild
+    $map["needsExport"] = [bool] $NeedsExport
+    $map["needsContentInput"] = [bool] $NeedsContentInput
     $map["timeoutSeconds"] = $TimeoutSeconds
     return $map
 }
 
-function Write-ExternalCatalog([string] $Path, [object[]] $Checks) {
+# 将检查和可选库存写成 JSON；PowerShell 编码器能处理夹具中的哈希表及其包装对象。
+function Write-ExternalCatalog([string] $Path, [object[]] $Checks, [object[]] $Inventory = $null) {
     $list = [System.Collections.Generic.List[object]]::new()
     foreach ($check in @($Checks)) { $list.Add($check) }
     $root = [System.Collections.Generic.Dictionary[string, object]]::new()
     $root["checks"] = $list
-    $options = [System.Text.Json.JsonSerializerOptions]::new()
-    $options.WriteIndented = $true
-    $json = [System.Text.Json.JsonSerializer]::Serialize($root, $options)
+    $root["feedback"] = ""
+    if ($null -ne $Inventory) { $root["inventory"] = $Inventory }
+    $json = ConvertTo-Json -InputObject $root -Depth 10
     [System.IO.File]::WriteAllText($Path, $json)
 }
 
@@ -424,13 +440,11 @@ function Get-AppDataStamp {
 
 # Expected family / comma-separated scopes / group. The scope set and group are separate contracts.
 $expected = @{
-    WorldEditEncodingTests = "unit/world-edit/world-edit"
-    VoxelCubeUvTests = "unit/voxels/voxels"
-    SplitMix64Tests = "unit/composites/composites"
-    FragmentGridSnapTests = "unit/composites/composites"
-    SettlementsJsonParserTests = "unit/settlements/settlements"
-    SettlementTests = "unit/settlements/settlements"
-    SettlementRegistryTests = "unit/settlements/settlements"
+    VoxelCubeUvTests = "unit/voxels,content/voxels"
+    VoxelCollisionDefinitionTests = "unit/content,voxels/content"
+    "Train.Tests.Core.Simulation.SplitMix64Tests" = "unit/simulation/simulation"
+    SimulationSchedulerTests = "unit/simulation/simulation"
+    BlueprintSchemaTests = "unit/content/content"
     ModManifestTests = "unit/content/content"
     ModDiscoveryTests = "unit/content/content"
     ContentPackageWalkTests = "unit/content/content"
@@ -441,55 +455,12 @@ $expected = @{
     StructuredLoggingTests = "unit/logging/logging"
     StructuredLoggingConcurrencyTests = "unit/logging/logging"
     ConsoleCommandParseTests = "unit/console/console"
-    IdentityTests = "unit/identity/identity"
-    WorldSaveTests = "headless/persistence/persistence"
-    WorldEditPersistenceTests = "headless/persistence/persistence"
-    TrainPersistenceTests = "headless/persistence/persistence"
-    CompositeVehiclePersistenceTests = "headless/persistence/persistence"
-    CompositeReloadSaveRejectionTests = "headless/persistence/persistence"
-    WorldEditOrderingTests = "headless/world-edit/world-edit"
-    WorldEditEntryTests = "headless/world-edit/world-edit"
-    VoxelCellSetTests = "headless/world-edit/world-edit"
-    VoxelRegionTests = "headless/world-edit,world-editor/world-edit"
-    VoxelRegionConsoleTests = "headless/world-edit/world-edit"
-    VoxelEditHistoryTests = "headless/world-edit,world-editor/world-edit"
-    VoxelHistoryConsoleTests = "headless/world-edit/world-edit"
-    VoxelWorldTests = "headless/voxels/voxels"
-    VoxelMultiChunkTests = "headless/voxels/voxels"
-    VoxelLocalBoxTests = "headless/voxels/voxels"
-    VoxelLiveReloadTests = "headless/voxels/voxels"
-    VoxelConsoleCommandTests = "headless/voxels/voxels"
-    VoxelCollisionTests = "headless/voxels/voxels"
-    VehicleEnvelopeTests = "headless/composites/composites"
-    CompositeVehicleReloadTests = "headless/composites/composites"
-    CompositeRefitTests = "headless/composites/composites"
-    CompositeManufactureTests = "headless/composites/composites"
-    CompositeDamageTests = "headless/composites/composites"
+    VoxelIdentityTests = "unit/identity/identity"
+    FileSaveStoreTests = "headless/saves/saves"
     CompositeContentTests = "headless/composites/composites"
-    CompositeConsoleCommandTests = "headless/composites/composites"
-    TrainTrackSafetyTests = "headless/railway/railway"
-    TrainMotionTests = "headless/railway/railway"
-    TrainDisplayPresentationTests = "headless/railway/railway"
-    TrainCouplerCoastTests = "headless/railway/railway"
-    StaticTrainAssemblyTests = "headless/railway/railway"
-    RailCommandTests = "headless/railway/railway"
-    PhysicalRailTests = "headless/railway/railway"
-    BlankWorldTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorExampleTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorTransferTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorVoxelDraftTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorTests = "headless/world-editor/world-editor"
-    WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
-    WorldEditorObservationTests = "headless/world-editor/world-editor"
-    WorldEditorMultiSelectionTests = "headless/world-editor/world-editor"
-    ObserveConsoleCommandTests = "headless/world-editor/world-editor"
     ModLoadingTests = "headless/content/content"
     ContentReloaderTests = "headless/content/content"
     ConsoleCommandDispatchTests = "headless/console/console"
-    AuthorityCheckpointTests = "headless/authority/authority"
 }
 
 function Write-Project([string] $Directory, [string] $Name, [string] $Csproj, [string] $Source) {
@@ -768,7 +739,8 @@ param(
     [string] $PidFile = "",
     [string] $UserData = "",
     [string] $Lock = "",
-    [string] $Id = ""
+    [string] $Id = "",
+    [string] $ExportBinary = ""
 )
 $ErrorActionPreference = "Stop"
 switch ($Mode) {
@@ -793,13 +765,38 @@ switch ($Mode) {
         }
         exit 0
     }
+    "export-path" {
+        Write-Output "EXPORT_BINARY=$ExportBinary"
+        if (-not (Test-Path -LiteralPath $ExportBinary -PathType Leaf)) { exit 8 }
+        exit 0
+    }
+    "content-input" {
+        $content = Join-Path $UserData "content-input"
+        $required = @(
+            "initial/voxels/ferrous-ore.voxels.json",
+            "initial/voxels/ferrous-ore/icon.png",
+            "added/voxels/ferrous-ore.voxels.json",
+            "added/voxels/smoke-ore.voxels.json"
+        )
+        foreach ($relative in $required) {
+            if (-not (Test-Path -LiteralPath (Join-Path $content $relative) -PathType Leaf)) { exit 8 }
+        }
+        if (Test-Path -LiteralPath (Join-Path $content "initial/devblueprints")) { exit 9 }
+        if (Test-Path -LiteralPath (Join-Path $content "initial/fixtures")) { exit 9 }
+        Write-Output "CONTENT_INPUT=$content"
+        exit 0
+    }
+    "mutate-player-data" {
+        $player = Join-Path $env:APPDATA "Godot/app_userdata/Train"
+        New-Item -ItemType Directory -Force -Path $player | Out-Null
+        Set-Content -LiteralPath (Join-Path $player "mutated.txt") -Value "changed" -Encoding ascii
+        exit 0
+    }
     "isolate" {
         [Console]::Out.WriteLine("APPDATA=$env:APPDATA")
         [Console]::Out.Flush()
-        $voxel = if ([string]::IsNullOrEmpty($env:TRAIN_VOXEL_SMOKE)) { "empty" } else { "set" }
-        $content = if ([string]::IsNullOrEmpty($env:TRAIN_CONTENT_SMOKE)) { "empty" } else { "set" }
-        Write-Output "VOXEL=$voxel"
-        Write-Output "CONTENT=$content"
+        $inheritedSwitch = if ([string]::IsNullOrEmpty($env:TRAIN_FIXTURE_INHERITED_SWITCH)) { "empty" } else { "set" }
+        Write-Output "INHERITED_SWITCH=$inheritedSwitch"
         Write-Output "TEMP=$env:TEMP"
         if ($UserData) {
             New-Item -ItemType Directory -Force -Path $UserData | Out-Null
@@ -855,95 +852,20 @@ internal static class Program
         if (role == "godot")
         {
             string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
-            if (mode.StartsWith("workspace-", StringComparison.Ordinal) && !joined.Contains("--version"))
-            {
-                string log = Environment.GetEnvironmentVariable("FAKE_WORKSPACE_LOG");
-                if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, joined + Environment.NewLine);
-                if (mode == "workspace-hold")
-                {
-                    if (joined.Contains("--held-child")) { Thread.Sleep(60000); return 0; }
-                    var startChild = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false, CreateNoWindow = true };
-                    startChild.ArgumentList.Add("--held-child");
-                    using Process child = Process.Start(startChild);
-                    File.WriteAllText(Environment.GetEnvironmentVariable("FAKE_WORKSPACE_PIDS"), Environment.ProcessId + "," + child.Id);
-                    Console.WriteLine("held process started");
-                    Console.Out.Flush();
-                    Thread.Sleep(60000);
-                    return 0;
-                }
-                string leg = Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_LEG");
-                Console.WriteLine("WORKSPACE_MENU ready=true");
-                if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
-                if (leg == "save")
-                {
-                    Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=fixture status=UnknownConfiguration");
-                    Console.WriteLine("WORKSPACE_NO_WORLD_LEAVE completed=true");
-                    if (mode == "workspace-establish-fail")
-                        Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=unexpected status=InitialStateRejected");
-                    Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
-                    Console.WriteLine("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
-                    Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
-                    Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
-                    Console.WriteLine("WORKSPACE_EXPORTED path=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH") + " status=Saved");
-                    Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");
-                    Console.WriteLine("WORKSPACE_SAVED old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222");
-                }
-                else if (leg == "import-new")
-                {
-                    Console.WriteLine("WORKSPACE_IMPORTED id=33333333-3333-3333-3333-333333333333 listed=true opened=true");
-                    Console.WriteLine("WORKSPACE_CONTINUED leg=import-new id=33333333-3333-3333-3333-333333333333 pending=0 paused=true");
-                }
-                else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0");
-                else if (leg == "example-save")
-                {
-                    Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
-                    Console.WriteLine("WORKSPACE_EXAMPLE_SAVED id=44444444-4444-4444-4444-444444444444 original=55555555-5555-5555-5555-555555555555 voxels=5 pending=1 paused=true");
-                }
-                else if (leg == "example-verify")
-                {
-                    Console.WriteLine("WORKSPACE_EXAMPLE_COPY_OPEN id=44444444-4444-4444-4444-444444444444");
-                    Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
-                    Console.WriteLine("WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true");
-                }
-                else if (leg == "cell-tool-save")
-                {
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT layer=3 exact_shared=true");
-                    Console.WriteLine("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true operation_retarget=true removed_surface_invalid=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
-                    Console.WriteLine("WORKSPACE_VEHICLE_COORDINATES world=fixture local=fixture visible=true");
-                    Console.WriteLine("WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true no_plane_release_commit=true outside_motion_ignored=true focus_commit=true console_discard=true brush_draft_prompt=true brush_translate_undo=true brush_redraw_after_discard=true box_cells=16 box_draft_prompt=true shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false pending_region_cells=2");
-                }
-                else if (leg == "cell-tool-resume")
-                {
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_OPEN id=66666666-6666-6666-6666-666666666666");
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false pending_region_cells=2 brush_restored=true box_restored=true");
-                }
-                else if (leg == "history-save")
-                {
-                    Console.WriteLine("WORKSPACE_HISTORY_SAVED id=77777777-7777-7777-7777-777777777777 voxels=2 durability=75 undo=1 redo=0 shortcuts=true line_edit=true shared=true prompt=true draft_only=true evictions=0");
-                }
-                else if (leg == "history-resume")
-                {
-                    Console.WriteLine("WORKSPACE_HISTORY_OPEN id=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID"));
-                    Console.WriteLine("WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true");
-                }
-                else if (leg == "multi-select")
-                {
-                    Console.WriteLine("WORKSPACE_MULTI_BOX types=vehicle,rail,cell camera_moved=false");
-                    Console.WriteLine("WORKSPACE_MULTI_OCCLUSION visible=true hidden=false camera_moved=false");
-                    Console.WriteLine("WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true cells_preserved=true camera_moved=false");
-                    Console.WriteLine("WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true");
-                    Console.WriteLine("WORKSPACE_MULTI_COST candidates=17 rays=4 truncated=false elapsed_ms=4.5");
-                    Console.WriteLine("WORKSPACE_MULTI_CAP samples=5000 in_rectangle=4200 candidates=4096 rays=4000 selected=300 truncated=true deterministic=true filter_before_cap=true elapsed_ms=12.5");
-                }
-                else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
-                Console.WriteLine("WORKSPACE_DONE leg=" + leg);
-                return mode == "workspace-fail" ? 7 : 0;
-            }
             if (mode == "version-sleep" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "version-fail" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "fail" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
+            if (joined.IndexOf("--export-release", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                string log = Environment.GetEnvironmentVariable("FAKE_EXPORT_LOG");
+                if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, "APPDATA=" + Environment.GetEnvironmentVariable("APPDATA") + Environment.NewLine + joined + Environment.NewLine);
+                if ((Environment.GetEnvironmentVariable("FAKE_EXPORT") ?? "") == "fail") return 1;
+                string output = args[args.Length - 1];
+                Directory.CreateDirectory(Path.GetDirectoryName(output));
+                File.WriteAllText(output, "fake export");
+                return 0;
+            }
             Console.WriteLine("4.7.2.fake");
             return 0;
         }
@@ -967,48 +889,11 @@ if ($LASTEXITCODE -ne 0) { throw "fake tool build failed" }
 $fakeExe = Join-Path $fakeRoot "bin/Release/net10.0/fake-tool.exe"
 if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
 
-It "fixture-workspace-script" {
-    # Fake programs test script orchestration only. The registered runner separately executes the real game.
-    $scriptPath = Join-Path $root 'scripts/run-godot-world-editor-cross-process.ps1'
-    foreach ($mode in @('pass', 'missing', 'fail', 'hold', 'establish-fail')) {
-        $directory = Join-Path $evidence "workspace-script-$mode"
-        $argumentsLog = Join-Path $evidence "workspace-$mode.arguments.log"
-        $pidFile = Join-Path $evidence "workspace-$mode.pids.log"
-        $result = Invoke-Runner -RunnerPath $scriptPath -ArgumentList @(
-            '-Workspace', '-OutputDirectory', $directory, '-LegTimeoutSeconds', '2'
-        ) -Environment @{
-            GODOT = $fakeExe; FAKE_ROLE = 'godot'; FAKE_GODOT = "workspace-$mode"
-            FAKE_WORKSPACE_LOG = $argumentsLog; FAKE_WORKSPACE_PIDS = $pidFile
-        } -WaitMs 30000
-        Assert-Exit $result $(if ($mode -eq 'pass') { 0 } else { 1 })
-        Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
-        Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
-        if ($mode -eq 'pass') {
-            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify',
-                'cell-tool-save', 'cell-tool-resume', 'history-save', 'history-resume', 'multi-select')) {
-                Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
-            }
-            $report = Get-Content -LiteralPath (Join-Path $directory 'result.json') -Raw | ConvertFrom-Json
-            Assert-Equal 'reported box candidates' 17 ([int] $report.multiSelection.candidates)
-            Assert-Equal 'reported box rays' 4 ([int] $report.multiSelection.rays)
-            Assert-Equal 'reported box elapsed' 4.5 ([double] $report.multiSelection.elapsedMs)
-            Assert-Equal 'reported capped candidates' 4096 ([int] $report.boxCapacity.candidates)
-        } else {
-            Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume-old.stdout.log')))
-            Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))
-        }
-        if ($mode -eq 'hold') {
-            foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "timeout killed $owned" (-not (Test-Alive $owned)) }
-            Assert-Contains 'timeout recorded' (Get-Content -LiteralPath (Join-Path $directory 'processes.log') -Raw) 'timed_out=True'
-        }
-    }
-}
-
 It "fast-invalid" {
     $result = Invoke-Runner -ArgumentList @("-Nope") -WaitMs 30000
     Assert-Exit $result 4
     Assert-Contains "token" $result.Stderr "error: invalid-argument"
-    Assert-Contains "source" $result.Stdout "source-link:"
+    Assert-Contains "test assembly" $result.Stdout "test-assembly:"
     Assert-Contains "coverage" $result.Stdout "not all repository validation"
 }
 
@@ -1121,11 +1006,11 @@ It "fixture-dedup" {
     ) -WaitMs 300000
     Assert-Exit $result 0
     $cases = Get-CaseLines $result.Stdout
-    Assert-Equal "dedup count" 5 $cases.Count
+    Assert-Equal "dedup count" 8 $cases.Count
     $shared = 0
     foreach ($case in $cases) { if ($case.Id -eq "Fixture.SharedRuleTests.Counts_once") { $shared++ } }
     Assert-Equal "shared once" 1 $shared
-    Assert-Contains "selected" $result.Stdout "SELECTED count=5"
+    Assert-Contains "selected" $result.Stdout "SELECTED count=8"
     $exact = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-List", "-Test", "Fixture.SharedRuleTests.Counts_once", "-Scope", "voxels", "-Scope", "content"
     ) -WaitMs 180000
@@ -1407,14 +1292,13 @@ function Invoke-NestedGit {
 }
 
 function New-BindingRepository {
-    param([string] $Name, [string] $Source, [string] $RunnerPath)
-    if (-not $RunnerPath) { $RunnerPath = $runner }
+    param([string] $Name, [string] $Source)
     $repo = Join-Path $evidence "git-binding/$Name"
     New-Item -ItemType Directory -Force -Path (Join-Path $repo "scripts") | Out-Null
     [System.IO.File]::WriteAllText((Join-Path $repo ".gitignore"), "bin/`nobj/`nTestResults/`n", $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "Binding.csproj"), $sdk, $utf8)
     [System.IO.File]::WriteAllText((Join-Path $repo "BindingTests.cs"), $Source, $utf8)
-    [System.IO.File]::Copy($RunnerPath, (Join-Path $repo "scripts/run-tests.ps1"), $true)
+    [System.IO.File]::Copy($runner, (Join-Path $repo "scripts/run-tests.ps1"), $true)
     $readerSource = Join-Path $PSScriptRoot "metadata-reader/TestMetadataReader.cs"
     $readerDir = Join-Path $repo "scripts/metadata-reader"
     New-Item -ItemType Directory -Force -Path $readerDir | Out-Null
@@ -1685,42 +1569,6 @@ Publish-Run -Preparation $preparation -Selection $selection -ExitCode 0 -Directo
     Note "EVIDENCE fixture-git-missing-start $directory"
 }
 
-It "fixture-git-status-before" {
-    $oldDir = Join-Path $evidence "git-status"
-    New-Item -ItemType Directory -Force -Path $oldDir | Out-Null
-    $oldRunner = Join-Path $oldDir "run-tests-6ab7e87.ps1"
-    $show = [System.Diagnostics.ProcessStartInfo]::new()
-    $show.FileName = (Get-Command git).Source
-    $show.UseShellExecute = $false
-    $show.RedirectStandardOutput = $true
-    $show.RedirectStandardError = $true
-    $show.StandardOutputEncoding = $utf8
-    foreach ($argument in @("-C", $root, "show", "6ab7e87:scripts/run-tests.ps1")) { [void] $show.ArgumentList.Add($argument) }
-    $showProcess = [System.Diagnostics.Process]::new()
-    $showProcess.StartInfo = $show
-    [void] $showProcess.Start()
-    $oldText = $showProcess.StandardOutput.ReadToEnd()
-    $showError = $showProcess.StandardError.ReadToEnd()
-    [void] $showProcess.WaitForExit()
-    if ($showProcess.ExitCode -ne 0 -or -not $oldText) { throw "git show 6ab7e87 failed $showError" }
-    [System.IO.File]::WriteAllText($oldRunner, $oldText, $utf8)
-    $repo = New-BindingRepository "status-before" $bindingSource $oldRunner
-    # 6ab7e87 loads scripts/TestMetadataReader.cs beside the runner. Current repos only keep scripts/metadata-reader.
-    $legacyReader = Join-Path $repo.Repo "scripts/TestMetadataReader.cs"
-    [System.IO.File]::Copy((Join-Path $PSScriptRoot "metadata-reader/TestMetadataReader.cs"), $legacyReader, $true)
-    $null = Invoke-NestedGit $repo.Repo @("add", "scripts/TestMetadataReader.cs")
-    $null = Invoke-NestedGit $repo.Repo @("commit", "-m", "historical reader path")
-    Break-NestedIndex $repo.Repo
-    $run = Invoke-CopiedBindingRunner $repo.Repo "git-status-before"
-    Assert-Exit $run 0
-    $summary = Read-Summary $run.Stdout
-    $passed = Find-Check (Get-Checks $summary) "BindingFixture.BindingTests.Runs_built_sources"
-    Assert-Equal "old runner still passed" "passed" $passed.outcome
-    Assert-Equal "old dirty false" $false ([bool] $summary.Json.dirty)
-    Assert-Equal "old proven" $true ([bool] $summary.Json.cleanCommitProven)
-    Note "EVIDENCE fixture-git-status-before $($summary.Directory)"
-}
-
 It "fixture-ctrl-c" {
     if (-not $IsWindows) { throw "blocked: Windows console Ctrl+C is unverified on this host" }
     Ensure-Sentinel
@@ -1752,7 +1600,7 @@ $ErrorActionPreference = "Stop"
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class Issue158CtrlInjector {
+public static class ConsoleCtrlInjector {
  [DllImport("kernel32.dll", SetLastError = true)] public static extern bool FreeConsole();
  [DllImport("kernel32.dll", SetLastError = true)] public static extern bool AttachConsole(uint processId);
  [DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetConsoleCtrlHandler(IntPtr handler, bool add);
@@ -1763,26 +1611,26 @@ function Write-InjectResult([int] $Code, [string] $Message) {
     Set-Content -LiteralPath $ResultPath -Value "code=$Code message=$Message" -Encoding ascii
     exit $Code
 }
-[Issue158CtrlInjector]::FreeConsole() | Out-Null
-if (-not [Issue158CtrlInjector]::AttachConsole([uint32] $TargetPid)) {
+[ConsoleCtrlInjector]::FreeConsole() | Out-Null
+if (-not [ConsoleCtrlInjector]::AttachConsole([uint32] $TargetPid)) {
     Write-InjectResult 2 ("AttachConsole " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
 }
-if (-not [Issue158CtrlInjector]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)) {
+if (-not [ConsoleCtrlInjector]::SetConsoleCtrlHandler([IntPtr]::Zero, $true)) {
     Write-InjectResult 1 ("SetConsoleCtrlHandler " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
 }
-if (-not [Issue158CtrlInjector]::GenerateConsoleCtrlEvent(0, 0)) {
+if (-not [ConsoleCtrlInjector]::GenerateConsoleCtrlEvent(0, 0)) {
     Write-InjectResult 1 ("GenerateConsoleCtrlEvent " + [System.Runtime.InteropServices.Marshal]::GetLastWin32Error())
 }
-# Stay attached until the target console observes the event.
+# 保持连接，直到目标控制台收到事件。
 Start-Sleep -Milliseconds 500
-[Issue158CtrlInjector]::FreeConsole() | Out-Null
+[ConsoleCtrlInjector]::FreeConsole() | Out-Null
 Write-InjectResult 0 "ok"
 '@ | Set-Content -LiteralPath $injectPath -Encoding utf8
-    if (-not ("Issue158HiddenConsole" -as [type])) {
+    if (-not ("HiddenConsoleProcess" -as [type])) {
         Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class Issue158HiddenConsole {
+public static class HiddenConsoleProcess {
     const uint CREATE_NEW_CONSOLE = 0x00000010;
     const int STARTF_USESHOWWINDOW = 0x00000001;
     const short SW_HIDE = 0;
@@ -1872,7 +1720,7 @@ public static class Issue158HiddenConsole {
                 return Start-Process -FilePath $pwsh -WorkingDirectory $root -WindowStyle Hidden -PassThru -ArgumentList $arguments
             }
             $command = @(Format-ProcessArgument $pwsh) + @($arguments | ForEach-Object { Format-ProcessArgument $_ })
-            $created = [Issue158HiddenConsole]::Start($pwsh, ($command -join " "), $root)
+            $created = [HiddenConsoleProcess]::Start($pwsh, ($command -join " "), $root)
             return Get-Process -Id $created
         }
         finally {
@@ -1901,7 +1749,7 @@ public static class Issue158HiddenConsole {
             if ($LASTEXITCODE -ne 0) { throw "inject failed for $method $inject" }
             if ($target.HasExited) { throw "ctrl-c target $targetId exited before it could be observed" }
             if (-not $target.WaitForExit(20000)) { throw "ctrl-c target still running after 20s" }
-            $nativeExit = if ($method -eq "shell") { [int] $target.ExitCode } else { [Issue158HiddenConsole]::QueryExit($targetId) }
+            $nativeExit = if ($method -eq "shell") { [int] $target.ExitCode } else { [HiddenConsoleProcess]::QueryExit($targetId) }
             Assert-Equal "ctrl-c exit" 3 $nativeExit
             $enableLog = [System.IO.File]::ReadAllText((Join-Path $probeDir "enable.log"))
             Assert-Contains "wrapper exit" $enableLog "EXIT=3"
@@ -1995,8 +1843,9 @@ It "real-help" {
     Assert-Exit $result 0
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
-        "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
-        "REGISTERED", "godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace",
+        "test-assembly:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
+        "REGISTERED", "godot.logging-smoke", "godot.content-smoke", "godot.main-menu",
+        "godot.content-export-smoke", "godot.mods-export-smoke",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
     )) {
@@ -2026,45 +1875,43 @@ It "real-list" {
     foreach ($case in $mstest) {
         $parts = $case.Id.Split(".")
         Assert-True "id shape $($case.Id)" ($parts.Length -ge 3)
-        $class = $parts[$parts.Length - 2]
-        Assert-True "known class $class" $expected.ContainsKey($class)
-        $classification = $expected[$class].Split("/")
-        Assert-Equal "$class family" $classification[0] $case.Family
+        $className = $parts[$parts.Length - 2]
+        $fullTypeName = ($parts[0..($parts.Length - 2)] -join ".")
+        $key = if ($expected.ContainsKey($fullTypeName)) { $fullTypeName } else { $className }
+        Assert-True "known class $fullTypeName" $expected.ContainsKey($key)
+        $classification = $expected[$key].Split("/")
+        Assert-Equal "$key family" $classification[0] $case.Family
         $expectedScopes = ($classification[1].Split(",") | Sort-Object) -join ","
         $actualScopes = ($case.Scopes.Split(",") | Sort-Object) -join ","
-        Assert-Equal "$class scopes" $expectedScopes $actualScopes
-        Assert-Equal "$class group" $classification[2] $case.Group
-        Assert-Equal "$class requirements" "none" $case.Requirements
-        $seen[$class] = $true
+        Assert-Equal "$key scopes" $expectedScopes $actualScopes
+        Assert-Equal "$key group" $classification[2] $case.Group
+        Assert-Equal "$key requirements" "none" $case.Requirements
+        $seen[$key] = $true
         Assert-True "family $($case.Family)" ($case.Family -eq "unit" -or $case.Family -eq "headless")
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 3 $external.Count
+    Assert-Equal "external count" 5 $external.Count
     $logging = $externalById["godot.logging-smoke"]
-    $authority = $externalById["godot.authority-checkpoint"]
-    $workspace = $externalById["godot.world-editor-workspace"]
-    Assert-True "workspace listed" ($null -ne $workspace)
-    Assert-Equal "workspace is headless" "headless" $workspace.Family
-    Assert-Equal "workspace scopes" "persistence,world-editor" (($workspace.Scopes.Split(",") | Sort-Object) -join ",")
-    Assert-Equal "workspace requirements" "godot,process" (($workspace.Requirements.Split(",") | Sort-Object) -join ",")
-    Assert-Equal "workspace group" "godot-workspace" $workspace.Group
+    $content = $externalById["godot.content-smoke"]
+    $menu = $externalById["godot.main-menu"]
+    $contentExport = $externalById["godot.content-export-smoke"]
+    $modsExport = $externalById["godot.mods-export-smoke"]
     Assert-True "logging listed" ($null -ne $logging)
-    Assert-True "authority listed" ($null -ne $authority)
+    Assert-True "content listed" ($null -ne $content)
+    Assert-True "menu listed" ($null -ne $menu)
+    Assert-True "content export listed" ($null -ne $contentExport)
+    Assert-True "mods export listed" ($null -ne $modsExport)
     Assert-Equal "logging is headless" "headless" $logging.Family
-    Assert-Equal "authority is headless" "headless" $authority.Family
     Assert-True "logging scope" (-not [string]::IsNullOrWhiteSpace([string] $logging.Scopes))
-    Assert-True "authority scope" (-not [string]::IsNullOrWhiteSpace([string] $authority.Scopes))
     Assert-Contains "logging needs godot" $logging.Requirements "godot"
     Assert-True "logging is one process" ([string] $logging.Requirements -notlike "*process*")
-    Assert-Contains "authority needs godot" $authority.Requirements "godot"
-    Assert-Contains "authority needs a process" $authority.Requirements "process"
     Assert-True "logging group" (-not [string]::IsNullOrWhiteSpace([string] $logging.Group))
-    Assert-True "authority group" (-not [string]::IsNullOrWhiteSpace([string] $authority.Group))
-    Assert-True "groups differ" ([string] $logging.Group -ne [string] $authority.Group)
     Assert-Contains "logging observes the engine" $logging.Claim "engine-observation"
-    Assert-Contains "authority restores" $authority.Claim "save-restore"
-    Assert-Contains "authority compares" $authority.Claim "authority-comparison"
+    Assert-Contains "content needs godot" $content.Requirements "godot"
+    Assert-Contains "menu needs godot" $menu.Requirements "godot"
+    Assert-Contains "content export requirement" $contentExport.Requirements "export"
+    Assert-Contains "mods export requirement" $modsExport.Requirements "export"
     foreach ($class in $expected.Keys) { Assert-True "missing class $class" $seen.ContainsKey($class) }
     $selected = [regex]::Match($result.Stdout, "SELECTED count=(\d+)")
     Assert-Equal "selected count" $cases.Count ([int] $selected.Groups[1].Value)
@@ -2131,21 +1978,30 @@ It "real-voxels" {
     Assert-CommonSummary $summary
     $checks = Get-Checks $summary
     Assert-True "voxel cases" ($checks.Count -ge 1)
+    $classes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($check in $checks) {
-        Assert-True "only cube $($check.id)" ([string]$check.id).StartsWith("Train.Tests.VoxelCubeUvTests.")
+        Assert-Equal "unit family $($check.id)" "unit" ([string] $check.family)
+        Assert-True "voxel scope $($check.id)" (@($check.scopes) -contains "voxels")
+        $id = [string] $check.id
+        $parts = $id.Split(".")
+        Assert-True "qualified id $id" ($parts.Count -ge 3)
+        [void] $classes.Add($parts[$parts.Count - 2])
         Assert-Equal "passed $($check.id)" "passed" $check.outcome
         Assert-True "duration $($check.id)" ([int]$check.durationMs -ge 0)
     }
+    Assert-True "cube UV contract selected" $classes.Contains("VoxelCubeUvTests")
+    Assert-True "collision definition contract selected" $classes.Contains("VoxelCollisionDefinitionTests")
     $trx = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter *.trx
     Assert-True "voxel trx" ($trx.Count -gt 0)
-    $trxText = [System.IO.File]::ReadAllText($trx[0].FullName)
-    Assert-Contains "voxel method" $trxText "VoxelCubeUvTests"
+    $trxText = (($trx | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n")
+    Assert-Contains "cube UV results" $trxText "VoxelCubeUvTests"
+    Assert-Contains "collision definition results" $trxText "VoxelCollisionDefinitionTests"
     Note "EVIDENCE real-voxels count=$($checks.Count) $($summary.Directory) $($result.DurationMs)ms"
 }
 
 It "real-headless" {
     $results = New-Results "real-headless"
-    $id = "Train.Tests.ConsoleCommandDispatchTests.Blank_input_is_ignored"
+    $id = "Train.Tests.Core.Console.ConsoleCommandDispatchTests.Blank_input_is_ignored"
     $result = Invoke-Runner -ArgumentList @("-Test", $id, "-ResultsRoot", $results) -WaitMs 600000
     Assert-Exit $result 0
     $summary = Read-Summary $result.Stdout
@@ -2167,12 +2023,12 @@ It "real-headless" {
 }
 
 It "real-zero-unknown" {
-    $zero = Invoke-Runner -ArgumentList @("-Family", "unit", "-Scope", "railway") -WaitMs 600000
+    $zero = Invoke-Runner -ArgumentList @("-Family", "unit", "-Scope", "saves") -WaitMs 600000
     Assert-Exit $zero 4
     Assert-Contains "zero" $zero.Stderr "error: zero-match"
-    $unknown = Invoke-Runner -ArgumentList @("-Scope", "buildings") -WaitMs 600000
+    $unknown = Invoke-Runner -ArgumentList @("-Scope", "railway") -WaitMs 600000
     Assert-Exit $unknown 4
-    Assert-Contains "buildings" $unknown.Stderr "error: unknown-name scope buildings"
+    Assert-Contains "railway" $unknown.Stderr "error: unknown-name scope railway"
 }
 
 It "real-correctness-list" {
@@ -2182,11 +2038,15 @@ It "real-correctness-list" {
     Assert-Exit $correctness 0
     $allCount = [regex]::Match($all.Stdout, "SELECTED count=(\d+)").Groups[1].Value
     $correctCount = [regex]::Match($correctness.Stdout, "SELECTED count=(\d+)").Groups[1].Value
-    Assert-Equal "correctness lists every discovered case" $allCount $correctCount
+    Assert-Equal "correctness excludes two export checks" ([int]$allCount - 2) ([int]$correctCount)
     Assert-Contains "boundary" $correctness.Stdout "not all repository validation"
-    foreach ($id in @("godot.logging-smoke", "godot.authority-checkpoint", "godot.world-editor-workspace")) {
+    foreach ($id in @("godot.logging-smoke", "godot.content-smoke", "godot.main-menu")) {
         Assert-Contains "all $id" $all.Stdout "CASE id=$id"
         Assert-Contains "correctness $id" $correctness.Stdout "CASE id=$id"
+    }
+    foreach ($id in @("godot.content-export-smoke", "godot.mods-export-smoke")) {
+        Assert-Contains "all $id" $all.Stdout "CASE id=$id"
+        Assert-True "correctness excludes $id" ($correctness.Stdout -notlike "*CASE id=$id *")
     }
     Note "EVIDENCE real-correctness-list count=$correctCount $($correctness.DurationMs)ms"
 }
@@ -2195,19 +2055,16 @@ It "fixture-no-repo-catalog" {
     $hidden = Invoke-Runner -ArgumentList @("-Project", $project, "-RunnerCatalog", "none", "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $hidden 0
     Assert-True "none stays local" ($hidden.Stdout -notlike "*godot.logging-smoke*")
-    Assert-True "none stays local authority" ($hidden.Stdout -notlike "*godot.authority-checkpoint*")
-    Assert-True "none stays local workspace" ($hidden.Stdout -notlike "*godot.world-editor-workspace*")
     $shown = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $shown 0
     Assert-Contains "default catalog is not tied to the project path" $shown.Stdout "godot.logging-smoke"
-    Assert-Contains "default catalog includes workspace" $shown.Stdout "godot.world-editor-workspace"
 }
 
 It "fixture-external-env-missing" {
     $results = New-Results "fixture-external-env"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.need-godot" -Group "a-godot" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot"))
+        (New-CheckSpec -Id "ext.need-godot" -Group "a-godot" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot"))
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
@@ -2231,7 +2088,7 @@ It "fixture-external-build-timeout" {
     $results = New-Results "fixture-external-build-timeout"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -NeedsGameBuild $true)
+        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -NeedsGameBuild $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe,
@@ -2258,7 +2115,7 @@ It "fixture-external-import-blocked" {
     $results = New-Results "fixture-external-import"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true)
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsImport $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
@@ -2276,13 +2133,17 @@ It "fixture-external-import-blocked" {
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
     Assert-True "import log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "import.log"))
+    $importStep = @($summary.Json.preparation.steps | Where-Object name -eq "import")[0]
+    Assert-True "import recovery mode" (@($importStep.command) -contains "--recovery-mode")
+    Assert-True "import explicit log" (@($importStep.command) -contains "--log-file")
+    Assert-True "import log path" (@($importStep.command) -contains (Join-Path $summary.Directory "engine/import/godot.log"))
 }
 
 It "fixture-external-import-timeout" {
     $results = New-Results "fixture-external-import-timeout"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true)
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsImport $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog, "-PrepTimeoutSeconds", "20",
@@ -2312,7 +2173,7 @@ It "fixture-prep-timeout-cleanup" {
     $pidFile = Join-Path $results "pids.txt"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsImport $true),
+        (New-CheckSpec -Id "ext.import" -Group "a-import" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsImport $true),
         (New-CheckSpec -Id "ext.hold" -Group "z-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30)
     )
     $result = Invoke-Runner -ArgumentList @(
@@ -2395,7 +2256,7 @@ It "fixture-assembly-built-this-run" {
     $results = New-Results "fixture-assembly-built"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.game" -Group "a-game" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -Requirements @("godot") -NeedsGameBuild $true -NeedsImport $true)
+        (New-CheckSpec -Id "ext.game" -Group "a-game" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -Requirements @("godot") -NeedsGameBuild $true -NeedsImport $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
@@ -2419,7 +2280,7 @@ It "fixture-external-build-blocked" {
     $results = New-Results "fixture-external-build"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{userData}") -NeedsGameBuild $true)
+        (New-CheckSpec -Id "ext.build" -Group "a-build" -ScriptPath $externalHost -Arguments @("-Mode", "marker", "-UserData", "{output}/user-data") -NeedsGameBuild $true)
     )
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe,
@@ -2473,20 +2334,130 @@ It "fixture-game-build-blocked" {
     Assert-Contains "build failure retained" (Get-Content (Join-Path $summary.Directory "game-build.log") -Raw) "fixture: game compilation failed"
 }
 
+It "fixture-shared-export" {
+    $results = New-Results "fixture-shared-export"
+    $catalog = Join-Path $results "catalog.json"
+    $exportLog = Join-Path $results "export.log"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.export-a" -Group "a-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true),
+        (New-CheckSpec -Id "ext.export-b" -Group "b-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.export-a", "-Test", "ext.export-b", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_EXPORT_LOG = $exportLog } -WaitMs 300000
+    Assert-Exit $result 0
+    $summary = Read-Summary $result.Stdout
+    $exportSteps = @($summary.Json.preparation.steps | Where-Object name -eq "windows-export")
+    Assert-Equal "one shared export" 1 $exportSteps.Count
+    $binary = Join-Path $summary.Directory "exports/windows/train.exe"
+    Assert-True "shared binary exists" (Test-Path -LiteralPath $binary -PathType Leaf)
+    $logs = @(Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log)
+    $text = (($logs | ForEach-Object { [System.IO.File]::ReadAllText($_.FullName) }) -join "`n")
+    Assert-Equal "both checks receive shared binary" 2 ([regex]::Matches($text, [regex]::Escape("EXPORT_BINARY=$binary")).Count)
+    $exportText = [System.IO.File]::ReadAllText($exportLog)
+    Assert-Equal "export invoked once" 1 ([regex]::Matches($exportText, "--export-release").Count)
+    Assert-Contains "export keeps real appdata" $exportText "APPDATA=$env:APPDATA"
+    Assert-Contains "export recovery mode" $exportText "--recovery-mode"
+    Assert-Contains "export explicit log" $exportText "--log-file"
+    Assert-Contains "export log stays in run" $exportText (Join-Path $summary.Directory "engine/export/godot.log")
+    Assert-True "export binary is final argument" ($exportText.TrimEnd().EndsWith($binary, [System.StringComparison]::Ordinal))
+}
+
+It "fixture-shared-export-failure" {
+    $results = New-Results "fixture-shared-export-failure"
+    $catalog = Join-Path $results "catalog.json"
+    $exportLog = Join-Path $results "export.log"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.export-a" -Group "a-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true),
+        (New-CheckSpec -Id "ext.export-b" -Group "b-export" -ScriptPath $externalHost -Arguments @("-Mode", "export-path", "-ExportBinary", "{exportBinary}") -Requirements @("godot", "export") -NeedsExport $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.export-a", "-Test", "ext.export-b", "-ResultsRoot", $results
+    ) -Environment @{ GODOT = $fakeExe; FAKE_ROLE = "godot"; FAKE_EXPORT = "fail"; FAKE_EXPORT_LOG = $exportLog } -WaitMs 300000
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    foreach ($id in @("ext.export-a", "ext.export-b")) {
+        $check = Find-Check (Get-Checks $summary) $id
+        Assert-Equal "$id blocked" "blocked" $check.outcome
+        Assert-Equal "$id export reason" "export" $check.reason
+    }
+    $exportSteps = @($summary.Json.preparation.steps | Where-Object name -eq "windows-export")
+    Assert-Equal "one failed export" 1 $exportSteps.Count
+    Assert-Equal "export preparation blocked" "blocked" $exportSteps[0].outcome
+    Assert-True "export log retained" (Test-Path -LiteralPath (Join-Path $summary.Directory "export-windows.log") -PathType Leaf)
+    $checkLogs = @(Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log -ErrorAction SilentlyContinue)
+    Assert-Equal "checks not started" 0 $checkLogs.Count
+    Assert-Equal "export invoked once" 1 ([regex]::Matches([System.IO.File]::ReadAllText($exportLog), "--export-release").Count)
+}
+
+It "fixture-content-input" {
+    $results = New-Results "fixture-content-input"
+    $catalog = Join-Path $results "catalog.json"
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.content-input" -Group "content-input" -ScriptPath $externalHost -Arguments @("-Mode", "content-input", "-UserData", "{output}") -NeedsContentInput $true)
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.content-input", "-ResultsRoot", $results
+    ) -WaitMs 300000
+    Assert-Exit $result 0
+    $summary = Read-Summary $result.Stdout
+    Assert-Equal "content input passed" "passed" (Find-Check (Get-Checks $summary) "ext.content-input").outcome
+    $input = Join-Path $summary.Directory "groups/content-input/ext.content-input/output/content-input"
+    Assert-True "input retained as artifact" (Test-Path -LiteralPath $input -PathType Container)
+}
+
+It "fixture-player-data-change" {
+    $results = New-Results "fixture-player-data-change"
+    $catalog = Join-Path $results "catalog.json"
+    $privateAppData = Join-Path $results "private-appdata"
+    New-Item -ItemType Directory -Force -Path $privateAppData | Out-Null
+    Write-ExternalCatalog $catalog @(
+        (New-CheckSpec -Id "ext.mutate-player-data" -Group "player-data" -ScriptPath $externalHost -Arguments @("-Mode", "mutate-player-data"))
+    )
+    $result = Invoke-Runner -ArgumentList @(
+        "-Project", $project, "-RunnerCatalog", $catalog,
+        "-Test", "ext.mutate-player-data", "-ResultsRoot", $results
+    ) -Environment @{ APPDATA = $privateAppData; LOCALAPPDATA = $privateAppData } -WaitMs 300000
+    Assert-Exit $result 2
+    $summary = Read-Summary $result.Stdout
+    Assert-Equal "check itself passed" "passed" (Find-Check (Get-Checks $summary) "ext.mutate-player-data").outcome
+    Assert-Equal "player data changed" $false ([bool] $summary.Json.environment.gameUserDataUnchanged)
+    $isolationStep = @($summary.Json.preparation.steps | Where-Object name -eq "player-user-data-isolation")
+    Assert-Equal "one isolation step" 1 $isolationStep.Count
+    Assert-Equal "isolation blocked" "blocked" $isolationStep[0].outcome
+    Assert-Equal "isolation reason" "user-data-changed" $isolationStep[0].reason
+    Assert-Contains "report isolation blocker" $summary.Report "player-user-data-isolation blocked user-data-changed"
+    Assert-True "private player data changed" (Test-Path -LiteralPath (Join-Path $privateAppData "Godot/app_userdata/Train/mutated.txt") -PathType Leaf)
+}
+
 It "fixture-external-timeout-tree" {
     Ensure-Sentinel
     $sentinelId = $script:sentinel.Id
     $results = New-Results "fixture-external-timeout"
     $pidFile = Join-Path $results "pids.txt"
-    $catalog = Join-Path $results "catalog.json"
-    Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "godot.authority-checkpoint" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
-        (New-CheckSpec -Id "godot.logging-smoke" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    $fixtureRepo = New-BindingRepository "timeout-inventory" $bindingSource
+    $catalog = Join-Path $fixtureRepo.Repo "scripts/runner-catalog.json"
+    $fixtureChecks = @(
+        (New-CheckSpec -Id "ext.timeout-hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
+        (New-CheckSpec -Id "ext.timeout-later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
     )
+    # 库存来自运行器所在仓库；在隔离仓库提供同名库存，不依赖生产登记项。
+    $fixtureInventory = foreach ($check in $fixtureChecks) {
+        @{
+            id = $check["id"]; entry = $externalHost
+            contract = "验证超时或成功后保留耗时状态。"; boundary = "仅运行测试假进程。"
+            destination = "测试编排摘要。"; status = "support-harness"
+            durationStatus = "unmeasured"; claim = "orchestration"; requirements = @()
+        }
+    }
+    Write-ExternalCatalog $catalog $fixtureChecks -Inventory $fixtureInventory
     $started = [DateTime]::UtcNow
-    $result = Invoke-Runner -ArgumentList @(
+    $result = Invoke-Runner -RunnerPath (Join-Path $fixtureRepo.Repo "scripts/run-tests.ps1") -WorkingDirectory $fixtureRepo.Repo -Unset $script:GitIsolation -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
-        "-Test", "godot.authority-checkpoint", "-Test", "godot.logging-smoke",
+        "-Test", "ext.timeout-hold", "-Test", "ext.timeout-later",
         "-TimeoutSeconds", "12", "-ResultsRoot", $results
     ) -WaitMs 180000
     $elapsed = ([DateTime]::UtcNow - $started).TotalSeconds
@@ -2494,13 +2465,13 @@ It "fixture-external-timeout-tree" {
     Assert-Exit $result 3
     $summary = Read-Summary $result.Stdout
     $checks = Get-Checks $summary
-    $hold = Find-Check $checks "godot.authority-checkpoint"
-    $later = Find-Check $checks "godot.logging-smoke"
+    $hold = Find-Check $checks "ext.timeout-hold"
+    $later = Find-Check $checks "ext.timeout-later"
     Assert-Equal "hold cancelled" "cancelled" $hold.outcome
     Assert-Equal "hold reason" "timeout" $hold.reason
     Assert-Equal "later passed" "passed" $later.outcome
-    $holdInventory = Find-Inventory $summary "godot.authority-checkpoint"
-    $laterInventory = Find-Inventory $summary "godot.logging-smoke"
+    $holdInventory = Find-Inventory $summary "ext.timeout-hold"
+    $laterInventory = Find-Inventory $summary "ext.timeout-later"
     Assert-Equal "cancelled inventory is partial" "partial" ([string] $holdInventory.durationStatus)
     Assert-True "partial duration kept" ([int] $holdInventory.durationMs -gt 0)
     Assert-Equal "partial duration matches the check" ([int] $hold.durationMs) ([int] $holdInventory.durationMs)
@@ -2608,13 +2579,13 @@ It "fixture-external-isolation" {
     $results = New-Results "fixture-external-isolation"
     $catalog = Join-Path $results "catalog.json"
     Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "ext.isolate" -Group "a-isolate" -ScriptPath $externalHost -Arguments @("-Mode", "isolate", "-UserData", "{userData}") -TimeoutSeconds 30)
+        (New-CheckSpec -Id "ext.isolate" -Group "a-isolate" -ScriptPath $externalHost -Arguments @("-Mode", "isolate", "-UserData", "{output}/user-data") -TimeoutSeconds 30)
     )
     $before = Get-AppDataStamp
     $result = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
         "-Test", "ext.isolate", "-ResultsRoot", $results
-    ) -Environment @{ TRAIN_VOXEL_SMOKE = "1"; TRAIN_CONTENT_SMOKE = "1" } -WaitMs 300000
+    ) -Environment @{ TRAIN_FIXTURE_INHERITED_SWITCH = "1" } -WaitMs 300000
     $after = Get-AppDataStamp
     Assert-Equal "appdata unchanged" $before $after
     Assert-Exit $result 0
@@ -2622,8 +2593,7 @@ It "fixture-external-isolation" {
     Assert-Equal "summary userdata" $true ([bool] $summary.Json.environment.gameUserDataUnchanged)
     $log = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter stdout.log | Select-Object -First 1
     $text = [System.IO.File]::ReadAllText($log.FullName)
-    Assert-Contains "voxel stripped" $text "VOXEL=empty"
-    Assert-Contains "content stripped" $text "CONTENT=empty"
+    Assert-Contains "inherited switch stripped" $text "INHERITED_SWITCH=empty"
     Assert-Contains "temp isolated" $text (Join-Path $summary.Directory "tmp")
     $markers = @(Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter marker.txt)
     Assert-Equal "one marker" 1 $markers.Count

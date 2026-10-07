@@ -1,2 +1,3 @@
 *.godot text eol=lf
 *.import text eol=lf
+.agents/setup text eol=lf
