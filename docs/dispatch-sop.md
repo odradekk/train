@@ -1,17 +1,15 @@
 # Dispatch Standard Operating Procedure
 
-Use this procedure as coordinator/reviewer for Issues in `odradekk/train`: prepare the worktree and implementation agent, hand the task to the developer, review and verify acceptance when the developer asks, and carry out the user-approved closeout. The implementation itself is pair programming between the developer and the agent under [implement-sop.md](implement-sop.md); the coordinator does not direct it. GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
+Use this procedure as coordinator/reviewer for Issues in `odradekk/train`: prepare the worktree and Godot MCP editor, hand the task to the developer, review and verify acceptance when the developer asks, and carry out the user-approved closeout. The implementation itself is pair programming between the developer and an agent that the developer creates and runs under [implement-sop.md](implement-sop.md); the coordinator does not create, prompt or direct the agent. GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
 
-Prepare workspaces and agents through **Paseo**. Use the `paseo` skill and available Paseo MCP tools; the Paseo CLI is an alternative interface. If Paseo is unavailable, report the blocker rather than switching launchers or worktree managers.
-
-Issue comments are the durable record of dispatch, design decisions made during implementation, and acceptance; the PR contains the code to review. Agent notifications and workspace titles do not replace either.
+Issue comments are the durable record of dispatch, design decisions made during implementation, and acceptance; the PR contains the code to review. Agent chat history does not replace either.
 
 When the coordinator performs Godot scene, resource, editor or runtime work, including independent review checks, follow [Godot MCP validation](implement-sop.md#godot-mcp-validation). Its MCP use, fallback, evidence and process-ownership rules apply to the coordinator as well as the implementation agent.
 
 ## Roles and authority
 
-- **Coordinator / reviewer**: prepares the worktree and agent for an Issue the developer selects, reviews the delivered PR and verifies Acceptance criteria when the developer asks, and requests the user's final approval.
-- **Developer**: works with the agent in pair programming: discusses and decides the design, supervises the implementation, and decides when the agent commits, pushes, opens the PR and posts Issue comments. The developer asks the coordinator for acceptance and drives fixes for review findings.
+- **Coordinator / reviewer**: prepares the worktree and Godot MCP editor for an Issue the developer selects, reviews the delivered PR and verifies Acceptance criteria when the developer asks, and requests the user's final approval.
+- **Developer**: creates and runs the implementation agent in the prepared worktree and works with it in pair programming: discusses and decides the design, supervises the implementation, and decides when the agent commits, pushes, opens the PR and posts Issue comments. The developer asks the coordinator for acceptance and drives fixes for review findings.
 - **Implementation agent**: works in its assigned worktree under the developer's direction.
 - **User**: gives final approval for the specific reviewed PR revision and proposed version change. Only then may the coordinator merge the PR, reclaim the worktree, close the Issue, and update the version. The developer and the user may be the same person.
 
@@ -23,12 +21,12 @@ Dispatch only the Issues the developer names, one at a time unless the developer
 
 When several tasks run at once:
 
-- Each Issue gets its own Paseo workspace, worktree, task branch, agent and dispatch comment, and goes through the steps below on its own. User approval, merge and the version increase remain per PR.
-- The MCP port is fixed, so at most one task can have an MCP editor. Give it to the task whose Acceptance criteria depend most on interactive editor or runtime observation. The other startup prompts state that MCP belongs to another worktree and that the agent uses the CLI fallback.
+- Each Issue gets its own worktree, task branch and dispatch comment, and goes through the steps below on its own; the developer runs a separate agent in each worktree. User approval, merge and the version increase remain per PR.
+- The MCP port is fixed, so at most one task can have an MCP editor. Give it to the task whose Acceptance criteria depend most on interactive editor or runtime observation. The other dispatch comments state that MCP belongs to another worktree and that the agent uses the CLI fallback.
 - After one PR merges, tell the developer that the remaining task branches must merge the updated base (no rebase or force-push), resolve conflicts and rerun the affected checks. Review the merge and the affected behavior again before acceptance; an acceptance written before the update does not cover the new head.
 - Parallel validation shares one machine. If a check times out while another task is validating, rerun it with no other validation running before reporting it as failed, and record both results.
 
-## 0. Prepare an independent worktree — coordinator
+## 0. Prepare the worktree and Godot MCP — coordinator
 
 Before dispatch, verify:
 
@@ -36,51 +34,24 @@ Before dispatch, verify:
 - The specification and Acceptance criteria are clear enough to start. Note open design questions for the developer; they are settled in the pair session, not by the coordinator.
 - The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
 - The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them first; report any required user action.
-- The requested Paseo provider is available and authenticated, setup succeeds, and required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](local-environment.md); check the SDK, script runtime, and target-platform requirements.
+- Required validation tools are located. Consult the checkout's `AGENTS.md` and [Local validation and Windows builds](local-environment.md); check the SDK, script runtime, and target-platform requirements.
 
-Use an independent top-level worktree from the repository's default base unless the developer selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
+Use an independent worktree from the repository's default base unless the developer selects another base or stacked work. Preserve uncommitted main-workspace changes; do not implicitly carry them into the task.
 
-Prepare it through Paseo:
+1. Check `git worktree list` and the existing branches first, so a resumed dispatch does not create a second worktree for the same Issue.
+2. Fetch, then create the worktree on a new task branch from an explicit base, normally `origin/<default-branch>`: `git worktree add -b <branch> ../train-worktrees/<slug> origin/master`. Keep worktrees outside the main checkout so that Godot and other tools working in the main checkout do not scan them. Verify the actual branch and baseline SHA in the new checkout.
+3. Run the repository setup checks in the new checkout, at least building `Train.csproj` and `Train.Tests/Train.Tests.csproj`, and wait for them to succeed.
+4. For Godot work, verify that the baseline contains `addons/godot_mcp/`, enables the plugin in `project.godot`, and has the project MCP configuration for the clients described in [godot-mcp.md](godot-mcp.md). Check the Godot executable in the worktree environment. For the task that gets MCP, confirm that no other task's editor holds the port, start the worktree's MCP editor as godot-mcp.md describes, and call `get_project_info` to verify that `project_path` is this worktree. Start it before the developer creates the agent, because the client connects at session start. This editor is task-owned. If a client must trust the project before it loads the project MCP configuration, tell the developer.
 
-1. Inspect existing workspaces and agents before creating anything, so a resumed dispatch does not create a second agent for the same Issue.
-2. Read `list_profiles`, including profile notes. Honor the developer's provider and model choices and select an applicable profile. If no profile fits, use `list_providers`, `list_models`, and `inspect_provider` to choose supported settings and report the selection. Record the actual provider, model, mode, and thinking settings used.
-3. Use `create_workspace` with `isolation: "worktree"`, `mode: "branch-off"`, the verified project/source checkout, a task branch name, and an explicit `baseBranch` resolving to the repository's default base, normally `origin/<default-branch>`. Copy the returned `workspaceId` and absolute `cwd`; verify the actual branch and baseline SHA in that checkout.
-4. Inspect configured setup scripts with `list_workspace_scripts` and run applicable ones with `start_workspace_script`. Run any remaining repository setup checks in the returned checkout and wait for them to succeed; workspace creation alone does not prove setup passed.
-5. For Godot work, verify that the selected baseline contains `addons/godot_mcp/`, enables the plugin in `project.godot`, and has the selected client's project MCP configuration as described in [godot-mcp.md](godot-mcp.md). Check the Godot executable in the worktree environment. For the task that gets MCP, confirm no other task's editor holds the port, then start the worktree's MCP editor before creating the agent, because the agent's client connects at session start. This editor is task-owned.
+**Complete when:** one valid Issue has one independent worktree with a self-contained baseline and successful setup checks, and any assigned MCP editor is running and verified against that worktree.
 
-**Complete when:** one valid Issue has one Paseo workspace owning an independent worktree, a self-contained baseline, successful setup, and a verified agent launch configuration.
+## 1. Record the dispatch and hand over — coordinator
 
-## 1. Create the agent and hand over — coordinator
+Post a dispatch comment on the Issue recording the absolute worktree path, task branch, baseline SHA, PR base, setup checks, the MCP assignment (editor process IDs, port and verified `project_path`; or CLI fallback because another task has MCP; or not applicable), and open design questions for the developer. The agent reads this comment when it starts, and the identifiers are needed for acceptance and recovery.
 
-Call Paseo `create_agent` with the prepared `workspaceId`, a descriptive title, the selected `provider/model`, applicable `settings`, and the startup prompt below as `initialPrompt`. Fill every placeholder. The prompt orients the agent and makes it wait for the developer; it is not an implementation brief.
+Report the handoff to the developer with the worktree path, branch, MCP status and open questions. The developer creates the agent in that worktree and points it at the Issue and [implement-sop.md](implement-sop.md). Then stop. Do not create, prompt or monitor agents, or start a review until the developer asks for acceptance.
 
-Confirm that the agent received the prompt and replied with its task summary, using `get_agent_activity`. A successful create response or `running` status alone is insufficient. Keep this check bounded; if startup fails or remains unconfirmed, report that state and inspect the existing session rather than creating a duplicate agent.
-
-Record the Issue, `workspaceId`, `agentId`, absolute worktree path, task branch, baseline SHA, PR base, launch settings, MCP assignment and startup evidence in a dispatch comment on the Issue. These identifiers are needed for acceptance and recovery.
-
-Report the handoff to the developer with what is needed to reach the agent, then stop. Do not send further prompts to the agent, monitor it, or start a review until the developer asks for acceptance.
-
-**Complete when:** the agent has started in the prepared worktree, the Issue has the dispatch record, and the developer has the handoff.
-
-### Startup prompt template
-
-```text
-GitHub Issue #<issue>: <title> — <issue-url>
-
-You are the implementation agent in a pair-programming session with the developer.
-Your worktree is <absolute-path> on task branch <branch>.
-Baseline: <sha>. Target repository: odradekk/train. PR base: <base-branch>.
-Work only in this worktree; preserve unrelated changes and keep archive/mvp read-only.
-
-Read AGENTS.md, docs/implement-sop.md, the full Issue body and comments,
-and the design docs/ADRs it references.
-Godot MCP: <the worktree's MCP editor is running / assigned to another task,
-use the CLI fallback / not applicable>.
-
-Then reply with a short summary of the task, the open questions you see,
-and a proposed approach, and wait for the developer. Do not start
-implementing until the developer agrees on the approach.
-```
+**Complete when:** the worktree and any assigned MCP editor are ready, the Issue has the dispatch record, and the developer has the handoff.
 
 ## 2. Review on the developer's request — coordinator / reviewer
 
@@ -118,13 +89,13 @@ Proceed only after the user has reviewed the acceptance result and explicitly ap
 
 1. Recheck that the PR head still matches the accepted revision, required checks pass, no unresolved review discussion remains, and the PR can merge. New commits require affected revalidation and renewed user approval. Preserve main-workspace changes.
 2. Merge the PR using the repository's configured policy or the user's selected method. Verify the remote merged state and merge commit; a local branch merge is not a substitute.
-3. Verify that the exact task worktree contains no unpreserved changes or unique commits. Account for squash/rebase merges when proving that work is retained. Archive the task's Paseo workspace with `archive_workspace` only after confirming it owns no unrelated active work; this archives its agents and terminals and removes a Paseo-owned worktree when its final active workspace reference is gone. Verify the actual workspace and Git worktree state, and remove the task branch only when safe. Do not equate archiving an agent with reclaiming its workspace, or assume a successful archive removed a worktree still referenced by another workspace.
+3. Verify that the exact task worktree contains no unpreserved changes or unique commits. Account for squash/rebase merges when proving that work is retained. Ask the developer to end the agent sessions and close the editors that use the worktree; on Windows, an editor's helper processes, such as language servers, can keep the directory locked after the folder is closed. Stop the task-owned MCP editor, then remove the worktree with `git worktree remove <path>`. Verify with `git worktree list` that it is gone and that the directory no longer exists. Delete the task branch locally and remotely only when its head is contained in the base branch.
 4. Add an Issue closure comment linking the merged PR, merge commit, and final acceptance comment, and report worktree cleanup. Close the Issue as completed.
 5. Read back PR/Issue state and confirm worktree removal, then continue to step 5.
 
 If merge fails, retain the worktree and Issue. If cleanup fails after merge, report that state and keep the Issue open until cleanup is resolved; do not rerun the merge or discard unpreserved work.
 
-Before archiving a worktree, retain required MCP logs and generated validation artifacts outside it, including evidence under ignored `.godot/validation/`, and record the retained location. Close only the task-owned Godot processes and editor windows; preserve unrelated sessions.
+Before removing a worktree, retain required MCP logs and generated validation artifacts outside it, including evidence under ignored `.godot/validation/`, and record the retained location. Close only the task-owned Godot processes and editor windows; preserve unrelated sessions.
 
 **Complete when:** the approved PR is remotely merged, the worktree is reclaimed without losing work, and the Issue is confirmed closed with its acceptance record intact.
 
@@ -153,8 +124,8 @@ Apply one increase per completed task, not per implementation commit, repair rou
 
 ## Recovery
 
-After interruption, read the latest Issue comments, PR head/checks, worktree state, and any recorded version commit before acting. Resolve the recorded Paseo `workspaceId` and `agentId` against `list_workspaces`, `list_agents`, and the relevant agent status/activity. Verify the actual checkout and branch; neither a workspace title nor an old `running` status proves that the intended agent is still active.
+After interruption, read the latest Issue comments (including the dispatch record), PR head/checks, `git worktree list`, the task worktree's Git state, whether the task-owned MCP editor is still running, and any recorded version commit before acting. Verify the actual checkout and branch.
 
-Resume the first incomplete step instead of recreating worktrees, creating duplicate agents, opening duplicate PRs, repeating completed merges, or incrementing a version twice. For an ambiguous create failure, inspect existing Paseo sessions and activity before retrying. If the agent must be replaced, agree with the developer first, confirm the old agent has stopped, preserve its changes, reuse the task workspace and branch where possible, and record the replacement agent ID in the Issue.
+Resume the first incomplete step instead of recreating worktrees, opening duplicate PRs, repeating completed merges, or incrementing a version twice. If the assigned MCP editor has stopped while the task is active, restart it for the same worktree, verify `project_path` again, and tell the developer that the agent session must reconnect.
 
 A newly discovered blocker, scope change, or changed PR head returns the task to the relevant earlier step. Never treat a stale acceptance comment as approval for unreviewed code.
