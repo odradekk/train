@@ -12,7 +12,7 @@ namespace Train.Tests.Core.Simulation;
 [TestCategory("scope:simulation")]
 public sealed class KeyedRandomTests
 {
-    // 参考算法：https://prng.di.unimi.it/splitmix64.c；组合协议见 Core/Simulation/DeterminismDesign.md。
+    // 参考算法：https://prng.di.unimi.it/splitmix64.c；键布局与组合协议见 KeyedRandom 的公开契约和实现。
     public static IEnumerable<object[]> Vectors()
     {
         yield return [new RandomKey(0, "fixture.empty", []),

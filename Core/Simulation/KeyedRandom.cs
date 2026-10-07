@@ -16,7 +16,10 @@ namespace Train.Core.Simulation;
 public sealed record RandomKey(ulong WorldSeed, string Purpose, ImmutableArray<ulong> Components);
 
 /// <summary>计算随机键的规范字节和无状态 64 位结果。</summary>
-/// <remarks>算法版本与完整字节布局见 DeterminismDesign.md；不使用运行时哈希。</remarks>
+/// <remarks>
+/// 算法 1 依次编码 TRNG 标记、UInt32 版本、UInt64 种子、UInt32 用途字节数及 UTF-8 用途、
+/// UInt32 分量数及各 UInt64 分量。整数使用小端序，不使用运行时哈希。
+/// </remarks>
 public static class KeyedRandom
 {
     /// <summary>基础键编码和组合算法的第一版；用途字段的语义另由用途契约解释。</summary>
