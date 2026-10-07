@@ -5,7 +5,7 @@ using Train.Core.Content.Voxels;
 using Godot;
 using Train.Core.Logging;
 
-namespace Train.Content;
+namespace Train.Content.Godot;
 
 /// <summary>通过 Godot 和物理文件系统发现内容包、读取资源并解码 PNG。</summary>
 /// <remarks>路径与日志依赖由宿主提供，构造时不访问目录；实例保留最近一次列包诊断，不提供并发同步。内容定义、引用及图片用途的校验由内容加载器负责。</remarks>
@@ -220,10 +220,10 @@ public sealed class GodotContentSource : IContentSource
         var virtualPath = package.ResourcesRoot.TrimEnd('/') + "/" + normalized;
         if (HasUnsafeLink(package.ResourcesRoot, virtualPath))
             return ContentBytesResult.Linked();
-        if (!Godot.FileAccess.FileExists(virtualPath))
+        if (!global::Godot.FileAccess.FileExists(virtualPath))
             return ContentBytesResult.Missing();
 
-        using var file = Godot.FileAccess.Open(virtualPath, Godot.FileAccess.ModeFlags.Read);
+        using var file = global::Godot.FileAccess.Open(virtualPath, global::Godot.FileAccess.ModeFlags.Read);
         if (file is null)
             return ContentBytesResult.Missing();
 

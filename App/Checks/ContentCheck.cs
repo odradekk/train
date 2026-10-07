@@ -2,7 +2,7 @@
 // 切换当前读取来源模拟新增与移除，检查本身不创建或改写内容文件。
 
 using Godot;
-using Train.Content;
+using Train.Content.Godot;
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 using Train.Core.Logging;
