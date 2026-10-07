@@ -43,17 +43,19 @@ try {
     $logging = New-FakeNativeProgram "app-check-logging" 0 @("[application][application_ready]", "smoke_worker_event", "SMOKE_PROCESS_DRAINED", "SMOKE_LOGGER_DISPOSED", "APP_CHECK_PASSED logging")
     $content = New-FakeNativeProgram "app-check-content" 0 @("CONTENT_FERROUS_ORE_LOADED", "CONTENT_PNG_DECODED", "CONTENT_INIT_OK", "CONTENT_RELOAD_ACTION_PRESENT", "CONTENT_VFS_JSON_READABLE", "CONTENT_VFS_PNG_READABLE", "CONTENT_SMOKE_RELOADED", "CONTENT_SMOKE_REMOVED", "APP_CHECK_PASSED content")
     $menu = New-FakeNativeProgram "app-check-menu" 0 @("MAIN_MENU_READY", "MAIN_MENU_QUIT_ONLY", "MAIN_MENU_QUIT_REQUESTED", "APP_CHECK_PASSED main-menu")
+    $simulation = New-FakeNativeProgram "app-check-simulation" 0 @("SIMULATION_NO_SESSION", "SIMULATION_SESSION_ATTACHED", "SIMULATION_MAIN_THREAD", "SIMULATION_AUTO_ADVANCED", "SIMULATION_PAUSED", "SIMULATION_CONSOLE_STEP", "SIMULATION_COMMAND_COMPLETED", "SIMULATION_CHECKPOINT", "SIMULATION_SNAPSHOT_STABLE", "SIMULATION_SESSION_DETACHED", "APP_CHECK_PASSED simulation-host")
     $contentExport = New-FakeNativeProgram "app-check-content-export" 0 @("CONTENT_EXPORT_FERROUS_ORE_LOADED", "CONTENT_EXPORT_PNG_DECODED", "CONTENT_EXPORT_INIT_OK", "CONTENT_EXPORT_JSON_READABLE", "CONTENT_EXPORT_PNG_READABLE", "CONTENT_EXPORT_JSONL_CREATED", "APP_CHECK_PASSED content-export")
     $modsExport = New-FakeNativeProgram "app-check-mods-export" 0 @("MODS_EXPORT_FERROUS_ORE_LOADED", "MODS_EXPORT_PNG_DECODED", "MODS_EXPORT_INIT_OK", "MODS_EXPORT_ROOT_EMPTY", "APP_CHECK_PASSED mods-export")
     $missing = New-FakeNativeProgram "app-check-missing" 0 @("APP_CHECK_PASSED logging")
     $missingReady = New-FakeNativeProgram "app-check-missing-ready" 0 @("smoke_worker_event", "SMOKE_PROCESS_DRAINED", "SMOKE_LOGGER_DISPOSED", "APP_CHECK_PASSED logging")
     $failedProgram = New-FakeNativeProgram "app-check-failed" 7 @("APP_CHECK_FAILED logging")
-    foreach ($path in @($logging, $content, $menu, $contentExport, $modsExport, $missing, $missingReady, $failedProgram)) { $owned.Add($path) }
+    foreach ($path in @($logging, $content, $menu, $simulation, $contentExport, $modsExport, $missing, $missingReady, $failedProgram)) { $owned.Add($path) }
 
     Assert-Exit "logging markers" 0 (Invoke-Check logging $logging)
     Assert-Exit "logging through supplied executable" 0 (Invoke-Check logging $logging -Export)
     Assert-Exit "content isolated input" 0 (Invoke-Check content $content -WithContent)
     Assert-Exit "main menu markers" 0 (Invoke-Check main-menu $menu)
+    Assert-Exit "simulation host markers" 0 (Invoke-Check simulation-host $simulation)
     Assert-Exit "content export markers and spaced paths" 0 (Invoke-Check content-export $contentExport -Export)
     Assert-Exit "mods export empty root" 0 (Invoke-Check mods-export $modsExport -Export)
     Assert-Exit "missing marker" 1 (Invoke-Check logging $missing)

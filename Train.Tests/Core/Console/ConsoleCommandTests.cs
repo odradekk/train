@@ -93,6 +93,27 @@ public sealed class ConsoleCommandDispatchTests
     }
 
     [TestMethod]
+    public void Simulation_command_is_listed_and_forwarded_only_when_host_provides_it()
+    {
+        using var available = DispatchHarness.Create(simulation: true);
+        available.Dispatcher.Execute("help");
+        StringAssert.Contains(
+            available.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId).Message,
+            "sim");
+
+        available.Dispatcher.Execute("SiM speed 4");
+        CollectionAssert.AreEqual(new[] { "speed", "4" }, available.SimulationArguments!.ToArray());
+
+        using var unavailable = DispatchHarness.Create(simulation: false);
+        unavailable.Dispatcher.Execute("help");
+        Assert.IsFalse(unavailable.ConsoleEvents.Single(e => e.EventId == ConsoleCommandDispatcher.HelpEventId)
+            .Message.Contains("sim", StringComparison.Ordinal));
+        unavailable.Dispatcher.Execute("sim status");
+        Assert.AreEqual(ConsoleCommandDispatcher.UnknownEventId,
+            unavailable.ConsoleEvents.Last().EventId);
+    }
+
+    [TestMethod]
     public void Loglevel_without_argument_reports_the_current_threshold()
     {
         using var harness = DispatchHarness.Create();
@@ -230,11 +251,12 @@ internal sealed class DispatchHarness : IDisposable
     public bool Cleared { get; private set; }
     public bool Quit { get; private set; }
     public bool Reloaded { get; private set; }
+    public IReadOnlyList<string>? SimulationArguments { get; private set; }
 
     public IReadOnlyList<LogEvent> ConsoleEvents =>
         _session.Memory.Snapshot().Where(e => e.Category == ConsoleCommandDispatcher.Category).ToArray();
 
-    private DispatchHarness(LoggerSession session, bool allowReload)
+    private DispatchHarness(LoggerSession session, bool allowReload, bool simulation)
     {
         _session = session;
         Dispatcher = new ConsoleCommandDispatcher(
@@ -242,17 +264,19 @@ internal sealed class DispatchHarness : IDisposable
             () => Cleared = true,
             () => Quit = true,
             () => Reloaded = true,
-            allowReload);
+            allowReload,
+            simulation ? arguments => SimulationArguments = arguments.ToArray() : null);
     }
 
-    public static DispatchHarness Create(bool allowReload = true) =>
-        new(LoggerSession.Create(), allowReload);
+    public static DispatchHarness Create(bool allowReload = true, bool simulation = false) =>
+        new(LoggerSession.Create(), allowReload, simulation);
 
     public void ResetActions()
     {
         Cleared = false;
         Quit = false;
         Reloaded = false;
+        SimulationArguments = null;
     }
 
     public void Dispose() => _session.Dispose();

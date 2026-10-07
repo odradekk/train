@@ -438,12 +438,23 @@ function Get-AppDataStamp {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
 }
 
-# Expected family / comma-separated scopes / group. The scope set and group are separate contracts.
+# Expected family / comma-separated scopes / group / optional comma-separated requirements.
+# Scope、分组和环境要求是彼此独立的清单契约。
 $expected = @{
     VoxelCubeUvTests = "unit/voxels,content/voxels"
     VoxelCollisionDefinitionTests = "unit/content,voxels/content"
     "Train.Tests.Core.Simulation.SplitMix64Tests" = "unit/simulation/simulation"
+    KeyedRandomTests = "unit/simulation/simulation"
+    SimulationCalculationTests = "unit/simulation/simulation"
+    SimulationCheckpointTests = "unit/simulation/simulation"
+    SimulationCommandEncodingTests = "unit/simulation/simulation"
+    SimulationCommandLogTests = "unit/simulation/simulation"
+    SimulationSessionLoggingTests = "headless/simulation/simulation"
+    SimulationDriverTests = "unit/simulation/simulation"
+    SimulationProcessTests = "headless/simulation/simulation/process"
     SimulationSchedulerTests = "unit/simulation/simulation"
+    SimulationSessionTests = "unit/simulation/simulation"
+    SimulationStateCodecTests = "unit/simulation/simulation"
     BlueprintSchemaTests = "unit/content/content"
     ModManifestTests = "unit/content/content"
     ModDiscoveryTests = "unit/content/content"
@@ -1844,7 +1855,7 @@ It "real-help" {
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
         "test-assembly:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
-        "REGISTERED", "godot.logging-smoke", "godot.content-smoke", "godot.main-menu",
+        "REGISTERED", "godot.logging-smoke", "godot.content-smoke", "godot.main-menu", "godot.simulation-host-smoke",
         "godot.content-export-smoke", "godot.mods-export-smoke",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
         "构建开始前", "不能证明结束时的干净提交已通过"
@@ -1885,21 +1896,26 @@ It "real-list" {
         $actualScopes = ($case.Scopes.Split(",") | Sort-Object) -join ","
         Assert-Equal "$key scopes" $expectedScopes $actualScopes
         Assert-Equal "$key group" $classification[2] $case.Group
-        Assert-Equal "$key requirements" "none" $case.Requirements
+        $expectedRequirements = if ($classification.Count -ge 4) { $classification[3] } else { "none" }
+        $actualRequirements = ($case.Requirements.Split(",") | Sort-Object) -join ","
+        $sortedExpectedRequirements = ($expectedRequirements.Split(",") | Sort-Object) -join ","
+        Assert-Equal "$key requirements" $sortedExpectedRequirements $actualRequirements
         $seen[$key] = $true
         Assert-True "family $($case.Family)" ($case.Family -eq "unit" -or $case.Family -eq "headless")
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 5 $external.Count
+    Assert-Equal "external count" 6 $external.Count
     $logging = $externalById["godot.logging-smoke"]
     $content = $externalById["godot.content-smoke"]
     $menu = $externalById["godot.main-menu"]
+    $simulation = $externalById["godot.simulation-host-smoke"]
     $contentExport = $externalById["godot.content-export-smoke"]
     $modsExport = $externalById["godot.mods-export-smoke"]
     Assert-True "logging listed" ($null -ne $logging)
     Assert-True "content listed" ($null -ne $content)
     Assert-True "menu listed" ($null -ne $menu)
+    Assert-True "simulation listed" ($null -ne $simulation)
     Assert-True "content export listed" ($null -ne $contentExport)
     Assert-True "mods export listed" ($null -ne $modsExport)
     Assert-Equal "logging is headless" "headless" $logging.Family
@@ -1910,6 +1926,11 @@ It "real-list" {
     Assert-Contains "logging observes the engine" $logging.Claim "engine-observation"
     Assert-Contains "content needs godot" $content.Requirements "godot"
     Assert-Contains "menu needs godot" $menu.Requirements "godot"
+    Assert-Equal "simulation is headless" "headless" $simulation.Family
+    Assert-Equal "simulation scope" "simulation" $simulation.Scopes
+    Assert-Equal "simulation group" "godot-simulation" $simulation.Group
+    Assert-Contains "simulation needs godot" $simulation.Requirements "godot"
+    Assert-Equal "simulation observes the engine" "engine-observation" $simulation.Claim
     Assert-Contains "content export requirement" $contentExport.Requirements "export"
     Assert-Contains "mods export requirement" $modsExport.Requirements "export"
     foreach ($class in $expected.Keys) { Assert-True "missing class $class" $seen.ContainsKey($class) }
@@ -2040,7 +2061,7 @@ It "real-correctness-list" {
     $correctCount = [regex]::Match($correctness.Stdout, "SELECTED count=(\d+)").Groups[1].Value
     Assert-Equal "correctness excludes two export checks" ([int]$allCount - 2) ([int]$correctCount)
     Assert-Contains "boundary" $correctness.Stdout "not all repository validation"
-    foreach ($id in @("godot.logging-smoke", "godot.content-smoke", "godot.main-menu")) {
+    foreach ($id in @("godot.logging-smoke", "godot.content-smoke", "godot.main-menu", "godot.simulation-host-smoke")) {
         Assert-Contains "all $id" $all.Stdout "CASE id=$id"
         Assert-Contains "correctness $id" $correctness.Stdout "CASE id=$id"
     }
