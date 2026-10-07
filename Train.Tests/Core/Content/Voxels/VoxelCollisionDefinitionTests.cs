@@ -2,6 +2,7 @@
 // 测试只使用内存内容源，不依赖 Godot、世界适配器或内置开发资源。
 using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Tests.Core.Logging;
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 

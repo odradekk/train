@@ -4,7 +4,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Logging;
 using Train.Core.Console;
-using Train.Tests;
+using Train.Tests.Core.Logging;
 
 namespace Train.Tests.Core.Console;
 

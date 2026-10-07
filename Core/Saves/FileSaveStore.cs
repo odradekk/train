@@ -115,7 +115,7 @@ public sealed class FileSaveStore : ISaveStore
         try
         {
             Directory.CreateDirectory(directory);
-            WriteCandidate(candidate, json, FileMode.Create);
+            WriteCandidate(candidate, json);
             File.Move(candidate, target, overwrite);
             return true;
         }
@@ -139,11 +139,10 @@ public sealed class FileSaveStore : ISaveStore
     /// <summary>以无 BOM 的 UTF-8 写入候选并刷新到磁盘；不创建父目录、不发布或清理文件。</summary>
     /// <param name="path">调用方选定的物理候选路径，不执行根目录包含检查。</param>
     /// <param name="json">要写入的完整文本；不校验文档内容。</param>
-    /// <param name="mode">打开文件的模式；Create 替换候选，CreateNew 拒绝已存在的候选。</param>
     /// <remarks>独占打开文件，先刷新文本编码缓冲，再调用 Flush(true)；路径、权限、写入或刷新异常原样传播，由发布流程转换为状态。</remarks>
-    internal static void WriteCandidate(string path, string json, FileMode mode)
+    private static void WriteCandidate(string path, string json)
     {
-        using var stream = new FileStream(path, mode, FileAccess.Write, FileShare.None);
+        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
         writer.Write(json);
         writer.Flush();

@@ -16,12 +16,4 @@
     <ProjectReference Include="../Core/Train.Core.csproj" />
     <ProjectReference Include="../Scenes/Train.Scenes.csproj" />
   </ItemGroup>
-  <ItemGroup>
-    <Compile Include="..\Domain\Behaviors\*.cs" Link="Domain\Behaviors\%(Filename)%(Extension)" />
-    <Compile Include="..\Domain\Commands\*.cs" Link="Domain\Commands\%(Filename)%(Extension)" />
-    <Compile Include="..\Domain\Composites\*.cs" Link="Domain\Composites\%(Filename)%(Extension)" />
-    <Compile Include="..\Domain\Rails\*.cs" Link="Domain\Rails\%(Filename)%(Extension)" />
-    <Compile Include="..\Domain\Voxels\*.cs" Link="Domain\Voxels\%(Filename)%(Extension)" />
-    <Compile Include="..\Domain\WorldEditor\*.cs" Link="Domain\WorldEditor\%(Filename)%(Extension)" />
-  </ItemGroup>
 </Project>

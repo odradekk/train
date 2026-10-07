@@ -4,7 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
-using Train.Tests;
+using Train.Tests.Core.Logging;
 
 namespace Train.Tests.Core.Content;
 

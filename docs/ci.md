@@ -8,7 +8,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -BuildGame
 
 统一入口负责发现、选择、测试工程构建和结果判定。`-BuildGame` 复用入口的游戏构建准备步骤编译 `Train.csproj`，只需要 SDK 和 NuGet；游戏构建失败使整次运行非成功，独立 unit 仍可执行并留下 TRX。常规运行不启动 Godot。YAML 不读取 TRX 或复制游戏断言，不推断路径影响。CI 不改变仓库设置、required checks 或分支保护。
 
-选择依据是 2026-09-30 在干净提交 `18435e1` 上的本机测量：`-Family unit` 运行 8 组、92 个用例，logging 为 10278ms，composites 2395ms、console 2306ms、content 2735ms、identity 2291ms、settlements 2332ms、voxels 2291ms、world-edit 2323ms。后 7 组合计 16673ms，因此常规集合包含全部 unit，增加约 17 秒即可覆盖这些独立契约。准备耗时另为 2417ms，游戏构建耗时另记；这些数字用于选择日常集合，不是性能门槛或全仓正确性证明。
+常规集合包含全部 `unit` 测试，并另外构建游戏工程。具体用例数和耗时随当前核心实现变化，以每次统一入口摘要为准；这些结果用于反馈和证据记录，不是性能门槛或全仓正确性证明。
 
 ## 显式较重运行
 
@@ -33,7 +33,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
 ```
 
-`correctness` 包含全部已登记 MSTest，以及 App 的日志、内容、启动到主菜单三项真实 Godot 检查，入口复用一次游戏构建和导入并串行运行。两项 Windows 导出运行时检查须另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。清单中的旧玩法脚本正在退役，不再作为当前应用的验证入口。
+`correctness` 包含全部已登记 MSTest，以及 App 的日志、内容、启动到主菜单三项真实 Godot 检查，入口复用一次游戏构建和导入并串行运行。两项 Windows 导出运行时检查须另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 

@@ -3,7 +3,6 @@ using System.Diagnostics;
 // 测试输入保持最小，并与旧世界运行态隔离。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
-using Train.Tests;
 
 namespace Train.Tests.Core.Content;
 

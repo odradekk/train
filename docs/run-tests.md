@@ -4,7 +4,7 @@ This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
-MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file inventories unconnected or retired legacy runners and support tools. 当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
+MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. 当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
 
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
@@ -13,8 +13,6 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.main-menu
 # 同次调用共享一次 Windows 导出，分别验证内容和空 Mod 根的真实运行行为。
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-export-smoke -Test godot.mods-export-smoke
 ```
-
-旧世界编辑器和权威检查点依赖旧启动入口，已从统一入口退役；其余旧脚本仍在清退过程中。
 
 `-Correctness` 选择 MSTest 与日志、内容、主菜单三项引擎检查，需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
 

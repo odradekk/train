@@ -134,7 +134,6 @@ function Get-HelpText {
   pwsh -NoProfile -File scripts/run-tests.ps1 -Family <unit|headless> [-Scope <范围>] [-Test <用例>]
   pwsh -NoProfile -File scripts/run-tests.ps1 -Correctness [-Scope <范围>]
   pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
-  pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.authority-checkpoint
       显式选择后执行。同维度多个取值取并集，类别与范围取交集，同一用例只保留一次。
       -Correctness 包含已登记的 Godot 检查，因此需要 GODOT，并会构建 Train.csproj 再导入。
 
@@ -165,10 +164,9 @@ function Get-HelpText {
   4 参数非法、未知名称或明确选择零匹配
 
 边界
-  source-link: Train.Tests links production source files and does not prove the deployed Godot assembly or scene wiring.
+  test-assembly: Train.Tests tests Core and Scenes through project references; this does not prove the deployed Godot assembly or scene wiring.
   coverage: registered MSTest, Godot, and cross-process checks are not all repository validation.
-  registered: godot.logging-smoke is a real headless engine observation. godot.authority-checkpoint is a real new-process authority comparison.
-  gap: unconnected legacy runners stay on their own scripts and are listed in the inventory.
+  registered: the logging, content, main-menu, content-export, and mods-export App checks run through the shared App check driver.
   ci: Windows CI calls this entry. See docs/ci.md.
   pending: benchmark, long, manual, and platform are not empty groups that pass.
   manual: inventoried manual entries are not automated passes.
@@ -952,9 +950,9 @@ function New-Summary {
     Add-Map $endingMap "identityKnown" $endKnown | Out-Null
     Add-Map $endingMap "identityReason" ([string] $Ending.IdentityReason) | Out-Null
     Add-Map $summary "gitAtEnd" $endingMap | Out-Null
-    Add-Map $summary "sourceLinkBoundary" "Train.Tests links production source files and does not prove the deployed Godot assembly or scene wiring." | Out-Null
+    Add-Map $summary "testAssemblyBoundary" "Train.Tests tests Core and Scenes through project references; this does not prove the deployed Godot assembly or scene wiring." | Out-Null
     $gaps = New-List
-    foreach ($gap in @("benchmark", "long", "platform", "unconnected-legacy-runners")) { $gaps.Add($gap) }
+    foreach ($gap in @("benchmark", "long", "platform")) { $gaps.Add($gap) }
     Add-Map $summary "migrationGaps" $gaps | Out-Null
     $runners = Get-RegisteredRunnerNames
     Add-Map $summary "registeredRunners" $runners | Out-Null
@@ -1008,7 +1006,7 @@ function New-Markdown {
         $lines.Add("工作区干净。提交 $($Summary["commit"])。")
     }
     $lines.Add("")
-    $lines.Add($Summary["sourceLinkBoundary"])
+    $lines.Add($Summary["testAssemblyBoundary"])
     $registeredNames = @($Summary["registeredRunners"] | ForEach-Object { [string] $_ })
     $registeredParts = [System.Collections.Generic.List[string]]::new()
     if ($registeredNames -contains "mstest") { $registeredParts.Add("MSTest") }
@@ -1094,9 +1092,7 @@ function New-Markdown {
     foreach ($item in @($Summary["inventory"])) {
         $measured = [string] $item["durationStatus"]
         if ($item.ContainsKey("durationMs")) { $measured = "$measured $($item["durationMs"])ms" }
-        $scene = ""
-        if ([bool] $item["fourScene"]) { $scene = " four-scene=$($item["followUp"])" }
-        $lines.Add("- $($item["status"]) $($item["id"]) $measured $($item["destination"])$scene")
+        $lines.Add("- $($item["status"]) $($item["id"]) $measured $($item["destination"])")
     }
     if (@($Summary["inventory"]).Count -eq 0) { $lines.Add("- 清单为空") }
     $lines.Add("")
@@ -1431,8 +1427,6 @@ function New-InventoryMaps {
         $inventoryRequirements = New-List
         foreach ($requirement in @($item.requirements)) { $inventoryRequirements.Add([string] $requirement) }
         Add-Map $map "requirements" $inventoryRequirements | Out-Null
-        Add-Map $map "fourScene" ([bool] $item.fourScene) | Out-Null
-        Add-Map $map "followUp" ([string] $item.followUp) | Out-Null
         $list.Add($map)
     }
     return ,$list
@@ -1750,7 +1744,7 @@ function Invoke-Main {
     }
     $selected = @($selectionResult.Cases)
     if ($parsed.List) {
-        [Console]::Out.WriteLine("source-link: Train.Tests links production source files and does not prove the deployed Godot assembly or scene wiring.")
+        [Console]::Out.WriteLine("test-assembly: Train.Tests tests Core and Scenes through project references; this does not prove the deployed Godot assembly or scene wiring.")
         [Console]::Out.WriteLine("coverage: registered MSTest, Godot, and cross-process checks are not all repository validation.")
         [Console]::Out.WriteLine($groupText)
         foreach ($case in $selected) { [Console]::Out.WriteLine((Format-CaseLine -Case $case)) }

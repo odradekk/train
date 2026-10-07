@@ -2,6 +2,7 @@
 // 未注册的尺寸档必须使所属内置包发布失败。
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Train.Tests.Core.Logging;
 using Train.Core.Content;
 
 namespace Train.Tests.Core.Content;

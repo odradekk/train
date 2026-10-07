@@ -304,11 +304,11 @@ function Get-GitFacts {
 function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
     Assert-True "includesAllRepositoryChecks false" ($Summary.Raw -match '"includesAllRepositoryChecks":\s*false')
     Assert-True "registered mstest" ($Summary.Raw -match '"mstest"')
-    Assert-Contains "source link" $Summary.Json.sourceLinkBoundary "does not prove the deployed Godot assembly"
+    Assert-Contains "test assembly boundary" $Summary.Json.testAssemblyBoundary "through project references"
     Assert-Contains "report source" $Summary.Report "does not prove the deployed Godot assembly"
     Assert-Contains "manual section" $Summary.Report "人工观察"
     $gaps = As-List $Summary.Json.migrationGaps
-    foreach ($gap in @("benchmark", "long", "platform", "unconnected-legacy-runners")) {
+    foreach ($gap in @("benchmark", "long", "platform")) {
         $found = $false
         foreach ($item in $gaps) { if ([string] $item -eq $gap) { $found = $true } }
         Assert-True "gap $gap" $found
@@ -329,7 +329,7 @@ function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
         Assert-True "duration status $($item.id)" (-not [string]::IsNullOrWhiteSpace([string] $item.durationStatus))
         if ([string] $item.durationStatus -eq "unmeasured") { $unmeasured++ }
     }
-    Assert-True "unmeasured legacy" ($unmeasured -ge 1)
+    Assert-True "unmeasured support inventory" ($unmeasured -ge 1)
     Assert-Contains "serial execution" $Summary.Report "串行执行"
     Assert-Contains "isolation policy" $Summary.Report "隔离策略是 per-check-appdata"
     $isolation = ""
@@ -414,14 +414,15 @@ function New-CheckSpec {
     return $map
 }
 
-function Write-ExternalCatalog([string] $Path, [object[]] $Checks) {
+# 将检查和可选库存写成 JSON；PowerShell 编码器能处理夹具中的哈希表及其包装对象。
+function Write-ExternalCatalog([string] $Path, [object[]] $Checks, [object[]] $Inventory = $null) {
     $list = [System.Collections.Generic.List[object]]::new()
     foreach ($check in @($Checks)) { $list.Add($check) }
     $root = [System.Collections.Generic.Dictionary[string, object]]::new()
     $root["checks"] = $list
-    $options = [System.Text.Json.JsonSerializerOptions]::new()
-    $options.WriteIndented = $true
-    $json = [System.Text.Json.JsonSerializer]::Serialize($root, $options)
+    $root["feedback"] = ""
+    if ($null -ne $Inventory) { $root["inventory"] = $Inventory }
+    $json = ConvertTo-Json -InputObject $root -Depth 10
     [System.IO.File]::WriteAllText($Path, $json)
 }
 
@@ -440,13 +441,10 @@ function Get-AppDataStamp {
 
 # Expected family / comma-separated scopes / group. The scope set and group are separate contracts.
 $expected = @{
-    WorldEditEncodingTests = "unit/world-edit/world-edit"
     VoxelCubeUvTests = "unit/voxels,content/voxels"
     VoxelCollisionDefinitionTests = "unit/content,voxels/content"
-    SplitMix64Tests = "unit/composites/composites"
     "Train.Tests.Core.Simulation.SplitMix64Tests" = "unit/simulation/simulation"
     SimulationSchedulerTests = "unit/simulation/simulation"
-    FragmentGridSnapTests = "unit/composites/composites"
     BlueprintSchemaTests = "unit/content/content"
     ModManifestTests = "unit/content/content"
     ModDiscoveryTests = "unit/content/content"
@@ -460,48 +458,10 @@ $expected = @{
     ConsoleCommandParseTests = "unit/console/console"
     VoxelIdentityTests = "unit/identity/identity"
     FileSaveStoreTests = "headless/saves/saves"
-    WorldSaveTests = "headless/persistence/persistence"
-    WorldEditPersistenceTests = "headless/persistence/persistence"
-    TrainPersistenceTests = "headless/persistence/persistence"
-    CompositeVehiclePersistenceTests = "headless/persistence/persistence"
-    CompositeReloadSaveRejectionTests = "headless/persistence/persistence"
-    WorldEditOrderingTests = "headless/world-edit/world-edit"
-    VoxelCellSetTests = "headless/world-edit/world-edit"
-    VoxelRegionTests = "headless/world-edit,world-editor/world-edit"
-    VoxelEditHistoryTests = "headless/world-edit,world-editor/world-edit"
-    VoxelWorldTests = "headless/voxels/voxels"
-    VoxelMultiChunkTests = "headless/voxels/voxels"
-    VoxelLocalBoxTests = "headless/voxels/voxels"
-    VoxelLiveReloadTests = "headless/voxels/voxels"
-    VoxelCollisionTests = "headless/voxels/voxels"
-    VehicleEnvelopeTests = "headless/composites/composites"
-    CompositeVehicleReloadTests = "headless/composites/composites"
-    CompositeRefitTests = "headless/composites/composites"
-    CompositeManufactureTests = "headless/composites/composites"
-    CompositeDamageTests = "headless/composites/composites"
     CompositeContentTests = "headless/composites/composites"
-    TrainTrackSafetyTests = "headless/railway/railway"
-    TrainMotionTests = "headless/railway/railway"
-    TrainDisplayPresentationTests = "headless/railway/railway"
-    TrainCouplerCoastTests = "headless/railway/railway"
-    StaticTrainAssemblyTests = "headless/railway/railway"
-    RailCommandTests = "headless/railway/railway"
-    PhysicalRailTests = "headless/railway/railway"
-    BlankWorldTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorWorkspaceTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorExampleTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorTransferTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorSaveAsTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorLeaveProtectionTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorVoxelDraftTests = "headless/world-editor,persistence/world-editor"
-    WorldEditorTests = "headless/world-editor/world-editor"
-    WorldEditorSaveSwitchTests = "headless/world-editor/world-editor"
-    WorldEditorObservationTests = "headless/world-editor/world-editor"
-    WorldEditorMultiSelectionTests = "headless/world-editor/world-editor"
     ModLoadingTests = "headless/content/content"
     ContentReloaderTests = "headless/content/content"
     ConsoleCommandDispatchTests = "headless/console/console"
-    AuthorityCheckpointTests = "headless/authority/authority"
 }
 
 function Write-Project([string] $Directory, [string] $Name, [string] $Csproj, [string] $Source) {
@@ -895,91 +855,6 @@ internal static class Program
         if (role == "godot")
         {
             string mode = Environment.GetEnvironmentVariable("FAKE_GODOT") ?? "";
-            if (mode.StartsWith("workspace-", StringComparison.Ordinal) && !joined.Contains("--version"))
-            {
-                string log = Environment.GetEnvironmentVariable("FAKE_WORKSPACE_LOG");
-                if (!string.IsNullOrEmpty(log)) File.AppendAllText(log, joined + Environment.NewLine);
-                if (mode == "workspace-hold")
-                {
-                    if (joined.Contains("--held-child")) { Thread.Sleep(60000); return 0; }
-                    var startChild = new ProcessStartInfo(Environment.ProcessPath) { UseShellExecute = false, CreateNoWindow = true };
-                    startChild.ArgumentList.Add("--held-child");
-                    using Process child = Process.Start(startChild);
-                    File.WriteAllText(Environment.GetEnvironmentVariable("FAKE_WORKSPACE_PIDS"), Environment.ProcessId + "," + child.Id);
-                    Console.WriteLine("held process started");
-                    Console.Out.Flush();
-                    Thread.Sleep(60000);
-                    return 0;
-                }
-                string leg = Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_LEG");
-                Console.WriteLine("WORKSPACE_MENU ready=true");
-                if (mode != "workspace-missing") Console.WriteLine("WORKSPACE_LIST_OPEN id=fixture");
-                if (leg == "save")
-                {
-                    Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=fixture status=UnknownConfiguration");
-                    Console.WriteLine("WORKSPACE_NO_WORLD_LEAVE completed=true");
-                    if (mode == "workspace-establish-fail")
-                        Console.WriteLine("WORLD_EDITOR_ESTABLISH_FAILED config=unexpected status=InitialStateRejected");
-                    Console.WriteLine("WORKSPACE_RETURN cancel=kept save_failure=kept discard=workspace");
-                    Console.WriteLine("WORKSPACE_LEAVE_PROTECTION routes=all cancel=preserved reload_failure=preserved save_as_reload=restored");
-                    Console.WriteLine("WORKSPACE_OPEN_FAILED fault=corrupt row_disabled=true");
-                    Console.WriteLine("WORKSPACE_SAVE_AS old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222 cancel=kept dirty=true original=kept");
-                    Console.WriteLine("WORKSPACE_EXPORTED path=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_EXPORT_PATH") + " status=Saved");
-                    Console.WriteLine("WORKSPACE_SAVE_CONTINUE id=22222222-2222-2222-2222-222222222222 voxels=3");
-                    Console.WriteLine("WORKSPACE_SAVED old=11111111-1111-1111-1111-111111111111 copy=22222222-2222-2222-2222-222222222222");
-                }
-                else if (leg == "import-new")
-                {
-                    Console.WriteLine("WORKSPACE_IMPORTED id=33333333-3333-3333-3333-333333333333 listed=true opened=true");
-                    Console.WriteLine("WORKSPACE_CONTINUED leg=import-new id=33333333-3333-3333-3333-333333333333 pending=0 paused=true");
-                }
-                else if (leg == "verify") Console.WriteLine("WORKSPACE_ISOLATED original_voxels=3 copy_voxels=5 imported_voxels=4 cross_edits=false pending=0");
-                else if (leg == "example-save")
-                {
-                    Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
-                    Console.WriteLine("WORKSPACE_EXAMPLE_SAVED id=44444444-4444-4444-4444-444444444444 original=55555555-5555-5555-5555-555555555555 voxels=5 pending=1 paused=true");
-                }
-                else if (leg == "example-verify")
-                {
-                    Console.WriteLine("WORKSPACE_EXAMPLE_COPY_OPEN id=44444444-4444-4444-4444-444444444444");
-                    Console.WriteLine("WORKSPACE_EXAMPLE_CREATED path=res://examples/basic-editing.world.json");
-                    Console.WriteLine("WORKSPACE_EXAMPLE_ISOLATED saved_copy=true leave_cancel=true leave_discard=true recreated_original=true step=1 voxels=3 pending=1 paused=true");
-                }
-                else if (leg == "cell-tool-save")
-                {
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_INPUT layer=3 exact_shared=true");
-                    Console.WriteLine("WORKSPACE_WORK_PLANES vertical_x=true vertical_z=true surface_outside=true operation_retarget=true removed_surface_invalid=true exact_shared=true draft_guard=true local_box_faces=true non_pickable=true");
-                    Console.WriteLine("WORKSPACE_VEHICLE_COORDINATES world=fixture local=fixture visible=true");
-                    Console.WriteLine("WORKSPACE_REGION_INPUT brush_cells=8 brush_release_one_edit=true no_plane_release_commit=true outside_motion_ignored=true focus_commit=true console_discard=true brush_draft_prompt=true brush_translate_undo=true brush_redraw_after_discard=true box_cells=16 box_draft_prompt=true shared_preview=true large_confirm_cancel=true large_confirm_commit=true large_undo_redo=true");
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_SAVED id=66666666-6666-6666-6666-666666666666 committed=true pending=1 draft=false pending_region_cells=2");
-                }
-                else if (leg == "cell-tool-resume")
-                {
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_OPEN id=66666666-6666-6666-6666-666666666666");
-                    Console.WriteLine("WORKSPACE_CELL_TOOL_CONTINUED committed=true pending_executed=true mouse_edit=true draft=false pending_region_cells=2 brush_restored=true box_restored=true");
-                }
-                else if (leg == "history-save")
-                {
-                    Console.WriteLine("WORKSPACE_HISTORY_SAVED id=77777777-7777-7777-7777-777777777777 voxels=2 durability=75 undo=1 redo=0 shortcuts=true line_edit=true shared=true prompt=true draft_only=true evictions=0");
-                }
-                else if (leg == "history-resume")
-                {
-                    Console.WriteLine("WORKSPACE_HISTORY_OPEN id=" + Environment.GetEnvironmentVariable("TRAIN_WORLD_EDITOR_WORKSPACE_HISTORY_SAVE_ID"));
-                    Console.WriteLine("WORKSPACE_HISTORY_RESUMED voxels=2 durability=75 undo=0 redo=0 no_history=true");
-                }
-                else if (leg == "multi-select")
-                {
-                    Console.WriteLine("WORKSPACE_MULTI_BOX types=vehicle,rail,cell camera_moved=false");
-                    Console.WriteLine("WORKSPACE_MULTI_OCCLUSION visible=true hidden=false camera_moved=false");
-                    Console.WriteLine("WORKSPACE_MULTI_LIST ctrl_add=true shift_range=true ctrl_remove=true cells_preserved=true camera_moved=false");
-                    Console.WriteLine("WORKSPACE_MULTI_BATCH targets=2 selection_changed=true edits=1 undo=1 committed=true");
-                    Console.WriteLine("WORKSPACE_MULTI_COST candidates=17 rays=4 truncated=false elapsed_ms=4.5");
-                    Console.WriteLine("WORKSPACE_MULTI_CAP samples=5000 in_rectangle=4200 candidates=4096 rays=4000 selected=300 truncated=true deterministic=true filter_before_cap=true elapsed_ms=12.5");
-                }
-                else Console.WriteLine("WORKSPACE_CONTINUED leg=" + leg + " id=fixture pending=0 paused=true");
-                Console.WriteLine("WORKSPACE_DONE leg=" + leg);
-                return mode == "workspace-fail" ? 7 : 0;
-            }
             if (mode == "version-sleep" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
             if (mode == "version-fail" && joined.IndexOf("--version", StringComparison.OrdinalIgnoreCase) >= 0) return 1;
             if (mode == "sleep" && joined.IndexOf("--import", StringComparison.OrdinalIgnoreCase) >= 0) { Thread.Sleep(60000); return 0; }
@@ -1017,48 +892,11 @@ if ($LASTEXITCODE -ne 0) { throw "fake tool build failed" }
 $fakeExe = Join-Path $fakeRoot "bin/Release/net10.0/fake-tool.exe"
 if (-not (Test-Path -LiteralPath $fakeExe)) { throw "fake tool exe missing" }
 
-It "fixture-workspace-script" {
-    # Fake programs test script orchestration only. The registered runner separately executes the real game.
-    $scriptPath = Join-Path $root 'scripts/run-godot-world-editor-cross-process.ps1'
-    foreach ($mode in @('pass', 'missing', 'fail', 'hold', 'establish-fail')) {
-        $directory = Join-Path $evidence "workspace-script-$mode"
-        $argumentsLog = Join-Path $evidence "workspace-$mode.arguments.log"
-        $pidFile = Join-Path $evidence "workspace-$mode.pids.log"
-        $result = Invoke-Runner -RunnerPath $scriptPath -ArgumentList @(
-            '-Workspace', '-OutputDirectory', $directory, '-LegTimeoutSeconds', '2'
-        ) -Environment @{
-            GODOT = $fakeExe; FAKE_ROLE = 'godot'; FAKE_GODOT = "workspace-$mode"
-            FAKE_WORKSPACE_LOG = $argumentsLog; FAKE_WORKSPACE_PIDS = $pidFile
-        } -WaitMs 30000
-        Assert-Exit $result $(if ($mode -eq 'pass') { 0 } else { 1 })
-        Assert-True "workspace $mode log retained" (Test-Path -LiteralPath (Join-Path $directory 'save.stdout.log'))
-        Assert-Contains "workspace arguments" (Get-Content -LiteralPath $argumentsLog -Raw) '--headless --path . --quit-after 3000'
-        if ($mode -eq 'pass') {
-            foreach ($leg in @('resume-old', 'resume-new', 'import-new', 'verify', 'example-save', 'example-verify',
-                'cell-tool-save', 'cell-tool-resume', 'history-save', 'history-resume', 'multi-select')) {
-                Assert-True "$leg process ran" (Test-Path -LiteralPath (Join-Path $directory "$leg.stdout.log"))
-            }
-            $report = Get-Content -LiteralPath (Join-Path $directory 'result.json') -Raw | ConvertFrom-Json
-            Assert-Equal 'reported box candidates' 17 ([int] $report.multiSelection.candidates)
-            Assert-Equal 'reported box rays' 4 ([int] $report.multiSelection.rays)
-            Assert-Equal 'reported box elapsed' 4.5 ([double] $report.multiSelection.elapsedMs)
-            Assert-Equal 'reported capped candidates' 4096 ([int] $report.boxCapacity.candidates)
-        } else {
-            Assert-True 'failed leg stopped resume' (-not (Test-Path -LiteralPath (Join-Path $directory 'resume-old.stdout.log')))
-            Assert-True 'failure reason retained' (Test-Path -LiteralPath (Join-Path $directory 'failure.txt'))
-        }
-        if ($mode -eq 'hold') {
-            foreach ($owned in (Read-PidFile $pidFile)) { Assert-True "timeout killed $owned" (-not (Test-Alive $owned)) }
-            Assert-Contains 'timeout recorded' (Get-Content -LiteralPath (Join-Path $directory 'processes.log') -Raw) 'timed_out=True'
-        }
-    }
-}
-
 It "fast-invalid" {
     $result = Invoke-Runner -ArgumentList @("-Nope") -WaitMs 30000
     Assert-Exit $result 4
     Assert-Contains "token" $result.Stderr "error: invalid-argument"
-    Assert-Contains "source" $result.Stdout "source-link:"
+    Assert-Contains "test assembly" $result.Stdout "test-assembly:"
     Assert-Contains "coverage" $result.Stdout "not all repository validation"
 }
 
@@ -2045,7 +1883,7 @@ It "real-help" {
     Assert-Exit $result 0
     foreach ($token in @(
         "GROUP family=unit", "GROUP family=headless", "GROUP scope=voxels",
-        "source-link:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
+        "test-assembly:", "not all repository validation", "ci: Windows CI", "pending: benchmark", "PENDING benchmark",
         "REGISTERED", "godot.logging-smoke", "godot.content-smoke", "godot.main-menu",
         "godot.content-export-smoke", "godot.mods-export-smoke",
         "-RunnerCatalog", "-PrepTimeoutSeconds", "-BuildGame", "See docs/ci.md.",
@@ -2225,12 +2063,12 @@ It "real-headless" {
 }
 
 It "real-zero-unknown" {
-    $zero = Invoke-Runner -ArgumentList @("-Family", "unit", "-Scope", "railway") -WaitMs 600000
+    $zero = Invoke-Runner -ArgumentList @("-Family", "unit", "-Scope", "saves") -WaitMs 600000
     Assert-Exit $zero 4
     Assert-Contains "zero" $zero.Stderr "error: zero-match"
-    $unknown = Invoke-Runner -ArgumentList @("-Scope", "buildings") -WaitMs 600000
+    $unknown = Invoke-Runner -ArgumentList @("-Scope", "railway") -WaitMs 600000
     Assert-Exit $unknown 4
-    Assert-Contains "buildings" $unknown.Stderr "error: unknown-name scope buildings"
+    Assert-Contains "railway" $unknown.Stderr "error: unknown-name scope railway"
 }
 
 It "real-correctness-list" {
@@ -2257,7 +2095,6 @@ It "fixture-no-repo-catalog" {
     $hidden = Invoke-Runner -ArgumentList @("-Project", $project, "-RunnerCatalog", "none", "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $hidden 0
     Assert-True "none stays local" ($hidden.Stdout -notlike "*godot.logging-smoke*")
-    Assert-True "none stays local authority" ($hidden.Stdout -notlike "*godot.authority-checkpoint*")
     $shown = Invoke-Runner -ArgumentList @("-Project", $project, "-List", "-Family", "headless") -WaitMs 300000
     Assert-Exit $shown 0
     Assert-Contains "default catalog is not tied to the project path" $shown.Stdout "godot.logging-smoke"
@@ -2641,15 +2478,26 @@ It "fixture-external-timeout-tree" {
     $sentinelId = $script:sentinel.Id
     $results = New-Results "fixture-external-timeout"
     $pidFile = Join-Path $results "pids.txt"
-    $catalog = Join-Path $results "catalog.json"
-    Write-ExternalCatalog $catalog @(
-        (New-CheckSpec -Id "godot.authority-checkpoint" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
-        (New-CheckSpec -Id "godot.logging-smoke" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
+    $fixtureRepo = New-BindingRepository "timeout-inventory" $bindingSource
+    $catalog = Join-Path $fixtureRepo.Repo "scripts/runner-catalog.json"
+    $fixtureChecks = @(
+        (New-CheckSpec -Id "ext.timeout-hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
+        (New-CheckSpec -Id "ext.timeout-later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
     )
+    # 库存来自运行器所在仓库；在隔离仓库提供同名库存，不依赖生产登记项。
+    $fixtureInventory = foreach ($check in $fixtureChecks) {
+        @{
+            id = $check["id"]; entry = $externalHost
+            contract = "验证超时或成功后保留耗时状态。"; boundary = "仅运行测试假进程。"
+            destination = "测试编排摘要。"; status = "support-harness"
+            durationStatus = "unmeasured"; claim = "orchestration"; requirements = @()
+        }
+    }
+    Write-ExternalCatalog $catalog $fixtureChecks -Inventory $fixtureInventory
     $started = [DateTime]::UtcNow
-    $result = Invoke-Runner -ArgumentList @(
+    $result = Invoke-Runner -RunnerPath (Join-Path $fixtureRepo.Repo "scripts/run-tests.ps1") -WorkingDirectory $fixtureRepo.Repo -Unset $script:GitIsolation -ArgumentList @(
         "-Project", $project, "-RunnerCatalog", $catalog,
-        "-Test", "godot.authority-checkpoint", "-Test", "godot.logging-smoke",
+        "-Test", "ext.timeout-hold", "-Test", "ext.timeout-later",
         "-TimeoutSeconds", "12", "-ResultsRoot", $results
     ) -WaitMs 180000
     $elapsed = ([DateTime]::UtcNow - $started).TotalSeconds
@@ -2657,13 +2505,13 @@ It "fixture-external-timeout-tree" {
     Assert-Exit $result 3
     $summary = Read-Summary $result.Stdout
     $checks = Get-Checks $summary
-    $hold = Find-Check $checks "godot.authority-checkpoint"
-    $later = Find-Check $checks "godot.logging-smoke"
+    $hold = Find-Check $checks "ext.timeout-hold"
+    $later = Find-Check $checks "ext.timeout-later"
     Assert-Equal "hold cancelled" "cancelled" $hold.outcome
     Assert-Equal "hold reason" "timeout" $hold.reason
     Assert-Equal "later passed" "passed" $later.outcome
-    $holdInventory = Find-Inventory $summary "godot.authority-checkpoint"
-    $laterInventory = Find-Inventory $summary "godot.logging-smoke"
+    $holdInventory = Find-Inventory $summary "ext.timeout-hold"
+    $laterInventory = Find-Inventory $summary "ext.timeout-later"
     Assert-Equal "cancelled inventory is partial" "partial" ([string] $holdInventory.durationStatus)
     Assert-True "partial duration kept" ([int] $holdInventory.durationMs -gt 0)
     Assert-Equal "partial duration matches the check" ([int] $hold.durationMs) ([int] $holdInventory.durationMs)
