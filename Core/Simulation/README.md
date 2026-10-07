@@ -1,5 +1,7 @@
 # 核心运行边界、模拟时间与随机算法
 
+确定性契约已按 design-recipe 完成数据定义、输入输出例子、结构模板与计算实现。[数据定义、方法清单和具体格式](DeterminismDesign.md)记录命令 v2、日志链、随机键、状态恢复及检查点比较的契约；测试使用独立固定向量和真实进程对照验证。
+
 本模块只依赖 .NET，不引用 Godot 或局部场景，提供定步长时间换算、无状态整数混合，以及不可变运行边界上的命令和完整模拟步事务。
 
 | 类型 | 职责 |
@@ -13,6 +15,11 @@
 | `TransactionContext`、`Transition` | 将事务身份作为输入，将完整候选状态和待发布事件作为输出。 |
 | `StepRequests`、`ResolvedStep`、`CoreCommand` | 声明领域数据的用途；具体字段由相应领域定义。 |
 | `CommandDecision`、`SubmissionResult`、`AdvanceResult` | 区分命令的计算结果、入口拒收与执行记录，以及批量推进实际完成的结果。 |
+| `SimulationCommandCodec`、`SimulationCommandLog` | 定义命令 v2 负载、最近 256 条执行记录和全历史链摘要。 |
+| `RandomKey`、`KeyedRandom` | 定义带用途和有序身份分量的完整随机键及无状态结果。 |
+| `SimulationStateCodec`、`CoreStateSnapshot` | 定义完整核心状态的捕获、载荷读取、起点校验与恢复；不组织玩家存档。 |
+| `SimulationCheckpoints`、`CheckpointTrace` | 定义规范权威文档及兼容输入下的首差异报告。 |
+| `DeterminismResult`、`DeterminismError` | 区分完整成功、未知格式、非法数据及不兼容上下文。 |
 
 时间换算实现[时间、命令与确定性：时钟与倍速](../../docs/design/04-deterministic-simulation.md#时钟与倍速)中的定步长部分。运行边界对应同文档的 [Tick 流水线](../../docs/design/04-deterministic-simulation.md#tick-流水线)、[命令](../../docs/design/04-deterministic-simulation.md#命令)、[Transaction](../../docs/design/04-deterministic-simulation.md#transaction) 和[运行时 ID](../../docs/design/04-deterministic-simulation.md#运行时-id)。通用整数变换遵循[随机性](../../docs/design/04-deterministic-simulation.md#随机性)和 [ADR 0003](../../docs/adr/0003-use-scalar-doubles-and-stateless-random-for-determinism.md)，具体用途的字段顺序、编码和版本由相应用途定义。项目依赖与不可变查询遵循 [ADR 0009](../../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)。
 
@@ -28,7 +35,11 @@
 
 不变量检查要求状态类型、世界种子和生成器版本保持一致，实体分配器非零且不后退；命令和模拟步分别满足自己的完整后继计数与上下文。领域扩展检查时须先执行基础检查，再检查业务字段。事件必须使用已初始化的不可变数组，无事件使用 `Empty`。
 
-构造器保存完整起点，初始领域数据的有效性由创建或恢复起点的调用方保证。运行边界还未接入 App；命令 v2 编码、命令日志、随机键、检查点、恢复及暂停倍速界面由后续步骤补齐。
+构造器接收完整起点、领域计算与命令格式，初始数据的有效性由创建或恢复起点的调用方保证。`CheckInitialState` 检查完整起点，`Restore` 只在验证成功后创建新会话，失败不改变已有会话；恢复保留故障冻结，日志从空链开始。
+
+`Submit` 在接受前编码命令，随后计算状态和执行日志候选，一次发布二者。查询在计算期间仍读取旧边界和旧日志。执行、预期拒绝和内部故障各产生一条记录，入口拒收不追加记录；故障日志保留尝试身份，权威计数仍回滚。内存保留最近 256 条，裁剪时推进窗口前摘要，链继续覆盖本次会话的全部命令历史。日志不进入恢复载荷或权威检查点。
+
+运行边界还未接入 App。暂停倍速界面已约定由 #223 在真实世界接入时完成。
 
 `SimulationScheduler` 应由单一宿主线程使用。暂停或无效帧间隔不会累积时间，也不会清除之前的余量；`Reset()` 才会丢弃余量。调用方应提供适合帧驱动的时间间隔，调度器不限制一次收集的步数。`DisplayAlpha` 只供显示插值使用，不进入核心状态。
 
@@ -58,4 +69,8 @@
 
 资源状态、请求、计划和领域计算实现只存在于[测试夹具](../../Train.Tests/Core/Simulation/SimulationExamples.cs)，不代表生产世界玩法已实现。多数运行边界测试用预设结果或异常隔离领域算法；另有真实资源计算经会话连续推进及命令执行的例子。测试同时覆盖普通异常的阶段定位、拒绝夹带修改、计数上限和重入回滚。
 
-在仓库根目录运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -Scope simulation -BuildGame` 执行本模块的单元测试和游戏构建；结果保存在统一入口生成的 `TestResults/` 目录。`-Family unit -BuildGame` 执行所有单元测试和游戏构建；这些检查不代替 Godot 运行或跨进程恢复验证。
+第二步的[命令编码](../../Train.Tests/Core/Simulation/SimulationCommandEncodingTests.cs)、[日志](../../Train.Tests/Core/Simulation/SimulationCommandLogTests.cs)、[随机键](../../Train.Tests/Core/Simulation/KeyedRandomTests.cs)、[状态](../../Train.Tests/Core/Simulation/SimulationStateCodecTests.cs)和[检查点](../../Train.Tests/Core/Simulation/SimulationCheckpointTests.cs)例子分别断言具体输入输出、版本拒绝、窗口锚点、不变量和首差异。规范文档与摘要有手写预期值；随机键使用独立参考程序计算的字节与 UInt64 向量。比较器从实际文档重算位置与摘要，并比较完整字段，调用方提供的相同摘要不能代替证据。
+
+[进程对照](../../Train.Tests/Core/Simulation/SimulationProcessTests.cs)启动真实 C# 子进程，分别重复运行、保存退出及在新进程恢复，变化帧预算、暂停与 1/2/4/8 倍速。它还独立断言恢复边界、期末业务状态、固定文档、身份计数和随机值；恢复后的新日志链单独验证。结果、载荷与 stdout/stderr 保留在本次测试目录。
+
+在仓库根目录运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -Family headless -Scope simulation -BuildGame` 执行本模块的单元、会话集成、跨进程测试和游戏构建；结果保存在统一入口生成的 `TestResults/` 目录。`-Family unit -BuildGame` 执行所有单元测试和游戏构建；这些检查不代替 Godot 运行。

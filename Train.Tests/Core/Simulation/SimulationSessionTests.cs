@@ -21,7 +21,7 @@ public sealed class SimulationSessionTests
         {
             CompletedSteps = 60, BoundarySequence = 2, NextCommandId = 3, TransactionCount = 62
         };
-        var session = new SimulationSession(before, new ScriptedCalculations());
+        var session = new SimulationSession(before, new ScriptedCalculations(), new ResourceCommandCodec());
         AssertState(before, session.GetState());
     }
 
@@ -32,7 +32,7 @@ public sealed class SimulationSessionTests
         var session = new SimulationSession(before, new ScriptedCalculations
         {
             Step = (_, _) => throw new InvalidOperationException("零步不应计算。")
-        });
+        }, new ResourceCommandCodec());
         var result = session.Advance(0);
 
         Assert.AreEqual(0UL, result.StepsAdvanced);
@@ -48,7 +48,7 @@ public sealed class SimulationSessionTests
         {
             CompletedSteps = 60, BoundarySequence = 2, NextCommandId = 3, TransactionCount = 62
         };
-        var session = new SimulationSession(before, new ScriptedCalculations());
+        var session = new SimulationSession(before, new ScriptedCalculations(), new ResourceCommandCodec());
         var result = session.Advance(1);
 
         Assert.AreEqual(1UL, result.StepsAdvanced);
@@ -77,7 +77,7 @@ public sealed class SimulationSessionTests
                 return new Transition(candidate, ImmutableArray.Create<DomainEvent>(new MarkerEvent(1)));
             }
         };
-        session = new SimulationSession(before, calculations);
+        session = new SimulationSession(before, calculations, new ResourceCommandCodec());
         var oldSnapshot = session.GetState();
         var result = session.Advance(1);
 
@@ -94,8 +94,8 @@ public sealed class SimulationSessionTests
     public void Batching_steps_and_advancing_individually_reach_the_same_expected_state()
     {
         var before = new ResourceState();
-        var batch = new SimulationSession(before, new ScriptedCalculations());
-        var individual = new SimulationSession(before, new ScriptedCalculations());
+        var batch = new SimulationSession(before, new ScriptedCalculations(), new ResourceCommandCodec());
+        var individual = new SimulationSession(before, new ScriptedCalculations(), new ResourceCommandCodec());
         var result = batch.Advance(3);
         individual.Advance(1);
         individual.Advance(1);
@@ -125,7 +125,7 @@ public sealed class SimulationSessionTests
                     Events = ImmutableArray.Create<DomainEvent>(new MarkerEvent(context.Position.CompletedSteps))
                 };
             }
-        });
+        }, new ResourceCommandCodec());
         var result = session.Advance(10);
 
         Assert.AreEqual(3UL, result.StepsAdvanced);
@@ -155,7 +155,7 @@ public sealed class SimulationSessionTests
                     Events = ImmutableArray.Create<DomainEvent>(new MarkerEvent(context.Position.CompletedSteps))
                 };
             }
-        });
+        }, new ResourceCommandCodec());
         var result = session.Advance(10);
 
         Assert.AreEqual(3UL, result.StepsAdvanced);
@@ -178,7 +178,7 @@ public sealed class SimulationSessionTests
         var session = new SimulationSession(before, new ScriptedCalculations
         {
             Step = (_, _) => throw new InvalidOperationException("冻结后不应计算。")
-        });
+        }, new ResourceCommandCodec());
         var advanced = session.Advance(1);
         var submitted = session.Submit(new NoChangeCommand(), CommandSource.Ui);
 
@@ -199,7 +199,7 @@ public sealed class SimulationSessionTests
         var events = ImmutableArray.Create<DomainEvent>(new MarkerEvent(1));
         var calculations = ScriptedCalculations.WithCommands(
             new CommandDecision.Execute(new Transition(candidate, events)));
-        var session = new SimulationSession(before, calculations);
+        var session = new SimulationSession(before, calculations, new ResourceCommandCodec());
         var result = (SubmissionResult.Completed)session.Submit(new NoChangeCommand(), source);
 
         Assert.AreEqual(new CommandExecution(1, new SimulationPosition(0, 1), 1, source, CommandOutcome.Executed),
@@ -233,7 +233,7 @@ public sealed class SimulationSessionTests
             new CommandDecision.Execute(new Transition(deleted, NoEvents)),
             new CommandDecision.Reject(new Transition(rejected, NoEvents), "target_missing"),
             new CommandDecision.Execute(new Transition(created, NoEvents)));
-        var session = new SimulationSession(before, calculations);
+        var session = new SimulationSession(before, calculations, new ResourceCommandCodec());
 
         var first = (SubmissionResult.Completed)session.Submit(new DeleteEntityCommand(10), CommandSource.Automation);
         var second = (SubmissionResult.Completed)session.Submit(new DeleteEntityCommand(10), CommandSource.Automation);
@@ -273,7 +273,7 @@ public sealed class SimulationSessionTests
             CompletedSteps = 61, BoundarySequence = 1, NextCommandId = 4, TransactionCount = 64
         };
         var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
-            new CommandDecision.Execute(new Transition(expected, NoEvents))));
+            new CommandDecision.Execute(new Transition(expected, NoEvents))), new ResourceCommandCodec());
         session.Advance(1);
         var result = (SubmissionResult.Completed)session.Submit(new NoChangeCommand(), CommandSource.Automation);
 
@@ -304,7 +304,7 @@ public sealed class SimulationSessionTests
         var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
             new CommandDecision.Execute(new Transition(created, NoEvents)),
             new CommandDecision.Execute(new Transition(deleted, NoEvents)),
-            new CommandDecision.Execute(new Transition(recreated, NoEvents))));
+            new CommandDecision.Execute(new Transition(recreated, NoEvents))), new ResourceCommandCodec());
 
         session.Submit(new CreateEntityCommand(), CommandSource.Automation);
         session.Submit(new DeleteEntityCommand(7), CommandSource.Automation);
@@ -320,7 +320,7 @@ public sealed class SimulationSessionTests
         var before = new ResourceState { NextEntityId = 7 };
         var expected = before with { NextCommandId = 2, BoundarySequence = 1, TransactionCount = 1 };
         var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
-            new CommandDecision.Reject(new Transition(expected, NoEvents), "requirements_not_met")));
+            new CommandDecision.Reject(new Transition(expected, NoEvents), "requirements_not_met")), new ResourceCommandCodec());
         var result = (SubmissionResult.Completed)session.Submit(new CreateThenRejectCommand(), CommandSource.Console);
 
         Assert.AreEqual(CommandOutcome.Rejected, result.Execution.Outcome);
@@ -341,7 +341,7 @@ public sealed class SimulationSessionTests
         var session = new SimulationSession(before, new ScriptedCalculations
         {
             Command = (_, _, _) => throw new InvalidOperationException("仅供诊断的异常消息。")
-        });
+        }, new ResourceCommandCodec());
         var result = (SubmissionResult.Completed)session.Submit(new CreateEntityCommand(), CommandSource.Console);
 
         Assert.AreEqual(CommandOutcome.Faulted, result.Execution.Outcome);
@@ -366,7 +366,7 @@ public sealed class SimulationSessionTests
             Stock = 0, NextEntityId = 0, NextCommandId = 2, BoundarySequence = 1, TransactionCount = 1
         };
         var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
-            new CommandDecision.Execute(new Transition(invalid, ImmutableArray.Create<DomainEvent>(new MarkerEvent(1))))));
+            new CommandDecision.Execute(new Transition(invalid, ImmutableArray.Create<DomainEvent>(new MarkerEvent(1))))), new ResourceCommandCodec());
         var result = (SubmissionResult.Completed)session.Submit(new InvalidCandidateCommand(), CommandSource.Automation);
 
         Assert.AreEqual(CommandOutcome.Faulted, result.Execution.Outcome);
@@ -388,7 +388,7 @@ public sealed class SimulationSessionTests
             "sequence" => new ResourceState { BoundarySequence = ulong.MaxValue },
             _ => new ResourceState { TransactionCount = ulong.MaxValue }
         };
-        var session = new SimulationSession(before, new ScriptedCalculations());
+        var session = new SimulationSession(before, new ScriptedCalculations(), new ResourceCommandCodec());
         var result = session.Submit(new NoChangeCommand(), CommandSource.Automation);
 
         Assert.IsInstanceOfType(result, typeof(SubmissionResult.NotAccepted));
@@ -403,7 +403,7 @@ public sealed class SimulationSessionTests
             EntityIds = ImmutableSortedSet.Create(10UL, 20UL), NextEntityId = 21,
             Demands = ImmutableArray.Create(new ResourceDemand(20, 1, 0, 4), new ResourceDemand(10, 1, 0, 3))
         };
-        var session = new SimulationSession(before, new ResourceCalculations());
+        var session = new SimulationSession(before, new ResourceCalculations(), new ResourceCommandCodec());
         var advanced = session.Advance(2);
         var first = (SubmissionResult.Completed)session.Submit(new CreateEntityCommand(), CommandSource.Ui);
         session.Submit(new DeleteEntityCommand(21), CommandSource.Ui);
@@ -432,7 +432,7 @@ public sealed class SimulationSessionTests
     public void An_unclassified_pipeline_exception_freezes_at_its_actual_phase(SimulationPhase phase)
     {
         var before = new ResourceState();
-        var session = new SimulationSession(before, new FailingPipeline(phase));
+        var session = new SimulationSession(before, new FailingPipeline(phase), new ResourceCommandCodec());
         var result = session.Advance(10);
 
         Assert.AreEqual(3UL, result.StepsAdvanced);
@@ -453,7 +453,7 @@ public sealed class SimulationSessionTests
     public void A_typed_pipeline_exception_preserves_its_code_and_entity_with_the_actual_phase(SimulationPhase phase)
     {
         var before = new ResourceState { NextEntityId = 8, EntityIds = ImmutableSortedSet.Create(7UL) };
-        var session = new SimulationSession(before, new FailingPipeline(phase, SimulationPhase.Boundary));
+        var session = new SimulationSession(before, new FailingPipeline(phase, SimulationPhase.Boundary), new ResourceCommandCodec());
         var result = session.Advance(10);
 
         Assert.AreEqual(3UL, result.StepsAdvanced);
@@ -476,7 +476,7 @@ public sealed class SimulationSessionTests
         {
             Command = (_, _, _) => throw new SimulationCalculationException(
                 "test_failure", SimulationPhase.Commit, 7, new InvalidOperationException("诊断消息。"))
-        });
+        }, new ResourceCommandCodec());
         var result = (SubmissionResult.Completed)session.Submit(new CreateEntityCommand(), CommandSource.Ui);
 
         Assert.AreEqual(CommandOutcome.Faulted, result.Execution.Outcome);
@@ -506,7 +506,7 @@ public sealed class SimulationSessionTests
         };
         var events = change == "events" ? ImmutableArray.Create<DomainEvent>(new MarkerEvent(1)) : NoEvents;
         var session = new SimulationSession(before, ScriptedCalculations.WithCommands(
-            new CommandDecision.Reject(new Transition(candidate, events), "requirements_not_met")));
+            new CommandDecision.Reject(new Transition(candidate, events), "requirements_not_met")), new ResourceCommandCodec());
         var result = (SubmissionResult.Completed)session.Submit(new CreateThenRejectCommand(), CommandSource.Ui);
 
         Assert.AreEqual(CommandOutcome.Faulted, result.Execution.Outcome);
@@ -524,7 +524,7 @@ public sealed class SimulationSessionTests
         var before = counter == "step"
             ? new ResourceState { CompletedSteps = ulong.MaxValue - 1 }
             : new ResourceState { TransactionCount = ulong.MaxValue - 1 };
-        var session = new SimulationSession(before, new ResourceCalculations());
+        var session = new SimulationSession(before, new ResourceCalculations(), new ResourceCommandCodec());
         var first = session.Advance(3);
         var next = session.Advance(1);
         var expected = counter == "step"
@@ -557,7 +557,7 @@ public sealed class SimulationSessionTests
             "sequence" => before with { NextCommandId = 2, BoundarySequence = ulong.MaxValue, TransactionCount = 1 },
             _ => before with { NextCommandId = 2, BoundarySequence = 1, TransactionCount = ulong.MaxValue }
         };
-        var session = new SimulationSession(before, new ResourceCalculations());
+        var session = new SimulationSession(before, new ResourceCalculations(), new ResourceCommandCodec());
         var first = (SubmissionResult.Completed)session.Submit(new NoChangeCommand(), CommandSource.Ui);
         var next = session.Submit(new NoChangeCommand(), CommandSource.Ui);
 
@@ -581,7 +581,7 @@ public sealed class SimulationSessionTests
             },
             Command = (_, _, _) => new CommandDecision.Execute(new Transition(
                 before with { NextCommandId = 2, BoundarySequence = 1, TransactionCount = 1 }, NoEvents))
-        });
+        }, new ResourceCommandCodec());
         var result = session.Advance(1);
 
         Assert.AreEqual(0UL, result.StepsAdvanced);

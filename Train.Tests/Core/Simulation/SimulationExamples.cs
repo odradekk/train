@@ -32,6 +32,23 @@ internal sealed record ResourcePlan(ImmutableArray<ResourceGrant> Grants) : Reso
 /// <summary>实现测试资源例子的请求、裁决、提交和命令计算。</summary>
 internal sealed class ResourceCalculations : SimulationCalculations
 {
+    public override InvariantViolation? CheckInitialState(SimulationState state)
+    {
+        var common = base.CheckInitialState(state);
+        if (common is not null)
+            return common;
+        var resources = (ResourceState)state;
+        if (resources.EntityIds.Any(id => id == 0 || id >= resources.NextEntityId))
+            return new("invalid_entity_id", nameof(ResourceState.EntityIds));
+        if (resources.Holdings.Keys.Any(id => !resources.EntityIds.Contains(id)))
+            return new("missing_entity_reference", nameof(ResourceState.Holdings));
+        if (resources.Demands.Any(demand => !resources.EntityIds.Contains(demand.EntityId)))
+            return new("missing_entity_reference", nameof(ResourceState.Demands));
+        if (resources.Demands.Select(demand => (demand.EntityId, demand.RequestId)).Distinct().Count() != resources.Demands.Length)
+            return new("duplicate_request_identity", nameof(ResourceState.Demands));
+        return null;
+    }
+
     public override StepRequests Evaluate(SimulationState before, TransactionContext context) =>
         new ResourceRequests(((ResourceState)before).Demands);
 

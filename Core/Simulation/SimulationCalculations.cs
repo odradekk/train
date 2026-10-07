@@ -20,6 +20,47 @@ public abstract record ResolvedStep;
 /// <example>同一完整起点执行三个单步或一次三步推进，最终边界应一致。</example>
 public abstract class SimulationCalculations
 {
+    /// <summary>计算一个完整创建或恢复起点的首个不变量错误。</summary>
+    /// <param name="state">完整候选起点，不是从 before 到 candidate 的后继。</param>
+    /// <returns>合法时为 null，否则为按固定检查顺序找到的首个字段错误。</returns>
+    /// <remarks>领域覆盖时先调用基础检查，再检查业务字段；不修改状态。Fault 的尝试身份须对应此边界下一次事务，不计入完成数。</remarks>
+    public virtual InvariantViolation? CheckInitialState(SimulationState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        if (state.NextCommandId == 0)
+            return new("invalid_command_id", nameof(state.NextCommandId));
+        if (state.NextEntityId == 0)
+            return new("invalid_entity_id", nameof(state.NextEntityId));
+        var commands = state.NextCommandId - 1;
+        if (state.BoundarySequence > commands)
+            return new("invalid_boundary_sequence", nameof(state.BoundarySequence));
+        if (state.CompletedSteps > ulong.MaxValue - commands || state.TransactionCount != state.CompletedSteps + commands)
+            return new("invalid_transaction_count", nameof(state.TransactionCount));
+        var fault = state.Fault;
+        if (fault is null)
+            return null;
+        if (string.IsNullOrEmpty(fault.Code) || !Enum.IsDefined(fault.Phase) || fault.EntityId == 0)
+            return new("invalid_fault", nameof(state.Fault));
+        return fault.Context is { } context ? CheckFaultContext(state, context) : null;
+    }
+
+    /// <summary>检查故障尝试身份与冻结前完整边界一致，不据故障阶段推断事务种类。</summary>
+    private static InvariantViolation? CheckFaultContext(SimulationState state, TransactionContext context)
+    {
+        if (state.TransactionCount == ulong.MaxValue || context.TransactionId != state.TransactionCount + 1)
+            return new("invalid_fault_context", nameof(state.Fault));
+        var validAttempt = context.Operation switch
+        {
+            SimulationOperation.Command => state.NextCommandId != ulong.MaxValue &&
+                state.BoundarySequence != ulong.MaxValue && context.CommandId == state.NextCommandId &&
+                context.Position == new SimulationPosition(state.CompletedSteps, state.BoundarySequence + 1),
+            SimulationOperation.Step => state.CompletedSteps != ulong.MaxValue && context.CommandId is null &&
+                context.Position == new SimulationPosition(state.CompletedSteps + 1, 0),
+            _ => false
+        };
+        return validAttempt ? null : new("invalid_fault_context", nameof(state.Fault));
+    }
+
     /// <summary>计算一个完整固定模拟步的候选状态与待发布事件。</summary>
     /// <param name="before">本步开始时的完整状态，各阶段读取同一已提交起点。</param>
     /// <param name="context">入口为本步计算的事务号和下一边界位置，Operation 必须为 Step。</param>
