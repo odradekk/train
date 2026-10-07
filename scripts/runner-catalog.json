@@ -1,5 +1,5 @@
 {
-  "feedback": "五项 App 检查在同一次调用里只构建一次游戏工程、只导入一次，选择导出检查时再共享一次 Windows 导出；各检查串行执行，并分别使用隔离的用户数据目录。",
+  "feedback": "已登记的 App 检查在同一次调用里只构建一次游戏工程、只导入一次，选择导出检查时再共享一次 Windows 导出；各检查串行执行，并分别使用隔离的用户数据目录。",
   "checks": [
     {
       "id": "godot.logging-smoke",
@@ -45,6 +45,20 @@
       "timeoutReason": "真实 Godot 验证主菜单仅有退出动作并通过实际信号退出；60 秒只作为冷启动卡住上限。"
     },
     {
+      "id": "godot.simulation-host-smoke",
+      "family": "headless",
+      "scopes": ["simulation"],
+      "requirements": ["godot"],
+      "group": "godot-simulation",
+      "script": "scripts/checks/run-app-check.ps1",
+      "arguments": ["-Check", "simulation-host", "-OutputDirectory", "{output}"],
+      "claim": "engine-observation",
+      "needsImport": true,
+      "needsGameBuild": true,
+      "timeoutSeconds": 60,
+      "timeoutReason": "真实 Godot 验证主线程模拟驱动、控制台命令和会话生命周期；60 秒只作为冷启动卡住上限。"
+    },
+    {
       "id": "godot.content-export-smoke",
       "family": "headless",
       "scopes": ["content"],
@@ -79,7 +93,7 @@
     {
       "id": "harness.app-check",
       "entry": "pwsh -NoProfile -File scripts/checks/run-app-check.tests.ps1",
-      "contract": "用假进程检查五项 App 自检的参数、标记、真实退出码、缺环境和带空格路径处理。不运行真实游戏，也不复制游戏断言。",
+      "contract": "用假进程检查已登记 App 自检的参数、标记、真实退出码、缺环境和带空格路径处理。不运行真实游戏，也不复制游戏断言。",
       "boundary": "PowerShell 7 和假的本机程序。真实 Godot、导出和 Windows 运行时由统一入口的对应检查证明。",
       "destination": "保留为统一 App 检查脚本的编排测试。",
       "status": "support-harness",
@@ -91,7 +105,7 @@
       "id": "harness.run-tests",
       "entry": "pwsh -NoProfile -File scripts/run-tests.tests.ps1",
       "contract": "验证统一入口的发现、选择、准备、隔离、报告和进程清理；同时对比真实 MSTest 元数据与执行结果。",
-      "boundary": "假宿主只证明编排。Ctrl+C 和进程树清理用例需要 Windows；真实 App 行为由五项已登记检查证明。",
+      "boundary": "假宿主只证明编排。Ctrl+C 和进程树清理用例需要 Windows；真实 App 行为由已登记的对应检查证明。",
       "destination": "保留为统一入口的契约测试，不登记为 App 检查。",
       "status": "support-harness",
       "durationStatus": "unmeasured",

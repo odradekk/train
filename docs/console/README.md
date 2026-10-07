@@ -1,6 +1,6 @@
 # 控制台命令手册
 
-本页记录当前基础控制台分发器提供的五个命令：
+本页记录当前基础控制台分发器提供的五个命令，以及 Debug 游戏宿主可选接入的模拟调试命令：
 
 | 命令 | 用途 |
 | --- | --- |
@@ -9,8 +9,9 @@
 | [quit](quit.md) | 委托宿主处理退出 |
 | [reload](reload.md) | 委托宿主重新加载内容 |
 | [loglevel](loglevel.md) | 查询或设置日志过滤等级 |
+| [sim](sim.md) | 查询或控制当前活动模拟会话（仅 Debug） |
 
-发布构建的 `help` 列表不包含 `reload`；Debug 构建列出全部五个基础命令。
+发布构建的 `help` 列表不包含 `reload` 或 `sim`；Debug 游戏宿主列出五个基础命令与 `sim`。
 
 ## 输入规则
 
@@ -24,4 +25,4 @@
 
 ## 实现依据
 
-基础分发器见 [`Core/Console/ConsoleCommands.cs`](../../Core/Console/ConsoleCommands.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏和内容重载回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。
+基础分发器见 [`Core/Console/ConsoleCommands.cs`](../../Core/Console/ConsoleCommands.cs)，模拟命令宿主处理见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。

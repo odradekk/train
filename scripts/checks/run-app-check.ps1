@@ -1,9 +1,9 @@
-# 统一运行 App 的五项只读自检，并验证进程退出状态与可观察标记。
+# 统一运行已登记的 App 自检，并验证进程退出状态与可观察标记。
 # 调用方负责提供隔离输出目录；导出检查还必须提供同一次 runner 准备的可执行文件。
 
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("logging", "content", "mods-export", "content-export", "main-menu")]
+    [ValidateSet("logging", "content", "mods-export", "content-export", "main-menu", "simulation-host")]
     [string] $Check,
     [Parameter(Mandatory = $true)]
     [string] $OutputDirectory,
@@ -85,6 +85,7 @@ $required = switch ($Check) {
     "mods-export" { @("MODS_EXPORT_FERROUS_ORE_LOADED", "MODS_EXPORT_PNG_DECODED", "MODS_EXPORT_INIT_OK") }
     "content-export" { @("CONTENT_EXPORT_FERROUS_ORE_LOADED", "CONTENT_EXPORT_PNG_DECODED", "CONTENT_EXPORT_INIT_OK", "CONTENT_EXPORT_JSON_READABLE", "CONTENT_EXPORT_PNG_READABLE", "CONTENT_EXPORT_JSONL_CREATED") }
     "main-menu" { @("MAIN_MENU_READY", "MAIN_MENU_QUIT_ONLY", "MAIN_MENU_QUIT_REQUESTED") }
+    "simulation-host" { @("SIMULATION_NO_SESSION", "SIMULATION_SESSION_ATTACHED", "SIMULATION_MAIN_THREAD", "SIMULATION_AUTO_ADVANCED", "SIMULATION_PAUSED", "SIMULATION_CONSOLE_STEP", "SIMULATION_COMMAND_COMPLETED", "SIMULATION_CHECKPOINT", "SIMULATION_SNAPSHOT_STABLE", "SIMULATION_SESSION_DETACHED", "SIMULATION_AUTO_FAULT_DIAGNOSTIC", "SIMULATION_MANUAL_FAULT_DIAGNOSTIC", "SIMULATION_COMMAND_FAULT_DIAGNOSTIC") }
 }
 $required += "APP_CHECK_PASSED $Check"
 $missing = @($required | Where-Object { $text.IndexOf($_, [StringComparison]::Ordinal) -lt 0 })

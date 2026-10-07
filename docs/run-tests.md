@@ -10,11 +10,12 @@ MSTest cases and classification come from test metadata. Other runners are regis
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-smoke
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.main-menu
+pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.simulation-host-smoke
 # 同次调用共享一次 Windows 导出，分别验证内容和空 Mod 根的真实运行行为。
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-export-smoke -Test godot.mods-export-smoke
 ```
 
-`-Correctness` 选择 MSTest 与日志、内容、主菜单三项引擎检查，需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
+`-Correctness` 选择 MSTest 与已登记的非导出引擎检查，需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
 
 content 的输入由运行器提前复制到输出目录的 `content-input/initial` 与 `content-input/added`，只包含必要定义和图片。检查切换两份读取来源，在同一个重载器上验证新增、移除；不写项目资源或输入文件。检查选择使用 `-- --check=<名称>`，不读取旧 TRAIN_* 检查开关。通过必须同时满足进程退出 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
 

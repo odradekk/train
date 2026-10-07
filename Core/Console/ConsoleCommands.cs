@@ -41,8 +41,8 @@ public sealed class ParsedConsoleCommand
     }
 }
 
-/// <summary>分发 help、clear、quit、reload 和 loglevel，将日志输出与宿主动作分开。</summary>
-/// <remarks>命令名不区分大小写；reload 的可用性由宿主在构造时指定。所有宿主动作同步执行，分发器不捕获回调异常，也不持有世界会话。</remarks>
+/// <summary>分发基础命令及宿主可选的模拟调试命令，将日志输出与宿主动作分开。</summary>
+/// <remarks>命令名不区分大小写；reload 与 sim 的可用性由宿主在构造时指定。所有宿主动作同步执行，分发器不捕获回调异常，也不持有世界会话。</remarks>
 /// <example>clear 先记录回显，再调用宿主清空缓冲；持久日志中的回显仍保留，见 <c>ConsoleCommandDispatchTests.Clear_echoes_then_empties_the_ring_buffer_but_keeps_persistent_echo</c>。</example>
 public sealed class ConsoleCommandDispatcher
 {
@@ -66,6 +66,7 @@ public sealed class ConsoleCommandDispatcher
     private readonly Action _quit;
     private readonly Action _reload;
     private readonly bool _allowReload;
+    private readonly Action<IReadOnlyList<string>>? _simulation;
 
     /// <summary>将基础命令绑定到共享日志和宿主提供的动作。</summary>
     /// <param name="logger">非 null 的共享日志；过滤等级决定回显和结果是否可见。</param>
@@ -73,9 +74,16 @@ public sealed class ConsoleCommandDispatcher
     /// <param name="quit">处理退出请求的非 null 回调；退出或存档确认由宿主负责。</param>
     /// <param name="reload">重载内容的非 null 回调；只在 allowReload 为 true 时执行。</param>
     /// <param name="allowReload">是否允许 reload 并将其列入 help；Godot 宿主使用构建类型决定此值。</param>
-    /// <exception cref="ArgumentNullException">任一日志或回调参数为 null。</exception>
+    /// <param name="simulation">可选的模拟调试命令回调；非 null 时接收 sim 后的只读参数并将 sim 列入 help。</param>
+    /// <exception cref="ArgumentNullException">必需的日志或基础回调为 null。</exception>
     /// <example>禁止 reload 时只记录警告，不调用回调；见 <c>ConsoleCommandDispatchTests.Reload_is_denied_outside_debug_and_unknown_commands_warn</c>。</example>
-    public ConsoleCommandDispatcher(TrainLogger logger, Action clear, Action quit, Action reload, bool allowReload)
+    public ConsoleCommandDispatcher(
+        TrainLogger logger,
+        Action clear,
+        Action quit,
+        Action reload,
+        bool allowReload,
+        Action<IReadOnlyList<string>>? simulation = null)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(clear);
@@ -86,6 +94,7 @@ public sealed class ConsoleCommandDispatcher
         _quit = quit;
         _reload = reload;
         _allowReload = allowReload;
+        _simulation = simulation;
     }
 
     /// <summary>解析一行输入，记录非空命令回显，再执行对应基础命令。</summary>
@@ -121,6 +130,9 @@ public sealed class ConsoleCommandDispatcher
             case "loglevel":
                 ApplyLogLevel(parsed.Arguments);
                 return;
+            case "sim" when _simulation is not null:
+                _simulation(parsed.Arguments);
+                return;
             default:
                 _logger.Warning(Category, UnknownEventId, $"Unknown command: {parsed.Name}");
                 return;
@@ -147,10 +159,12 @@ public sealed class ConsoleCommandDispatcher
         _logger.Warning(Category, LogLevelUsageEventId, "Usage: loglevel [debug|info|warning|error]");
     }
 
-    /// <summary>生成基础命令列表；只有允许重载时才列出 reload。</summary>
+    /// <summary>生成可用命令列表；按宿主能力决定是否列出 reload 与 sim。</summary>
     private string HelpMessage()
     {
         var commands = _allowReload ? "help, clear, quit, reload, loglevel" : "help, clear, quit, loglevel";
+        if (_simulation is not null)
+            commands += ", sim";
         return $"Available commands: {commands}.";
     }
 }

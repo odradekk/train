@@ -6,7 +6,7 @@ using Godot;
 namespace Train.App.Checks;
 
 /// <summary>保存本次只运行一项自检所需的名称和物理目录。</summary>
-/// <param name="Name">logging、content、mods-export、content-export 或 main-menu。</param>
+/// <param name="Name">已登记的 App 自检名称。</param>
 /// <param name="UserDataDirectory">日志与外部内容的物理用户根；未提供参数时使用 Godot 用户目录。</param>
 /// <param name="ContentRoot">initial 和 added 目录的父目录；未提供时为 null，仅 content 检查使用。</param>
 /// <example>--check=content --check-content-root=C:/run/content-input 读取两份预先准备好的内容，不改写输入。</example>
@@ -35,7 +35,8 @@ internal sealed record CheckArguments(string Name, string UserDataDirectory, str
                 throw new ArgumentException("Check directories require --check=<name>.");
             return null;
         }
-        if (name is not ("logging" or "content" or "mods-export" or "content-export" or "main-menu"))
+        if (name is not ("logging" or "content" or "mods-export" or "content-export" or "main-menu" or
+            "simulation-host"))
             throw new ArgumentException($"Unknown check: {name}");
         values.TryGetValue("--check-content-root", out var contentRoot);
         if (name == "content" && contentRoot is null)
