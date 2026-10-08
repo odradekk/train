@@ -784,9 +784,14 @@ switch ($Mode) {
     "content-input" {
         $content = Join-Path $UserData "content-input"
         $required = @(
-            "initial/voxels/ferrous-ore.voxels.json",
-            "initial/voxels/ferrous-ore/icon.png",
-            "added/voxels/ferrous-ore.voxels.json",
+            "initial/voxels/grain.voxels.json",
+            "initial/voxels/grain/placeholder.png",
+            "initial/markets/smoke.market-tables.json",
+            "initial/settlement-types/smoke.settlement-types.json",
+            "added/voxels/grain.voxels.json",
+            "added/voxels/grain/placeholder.png",
+            "added/markets/smoke.market-tables.json",
+            "added/settlement-types/smoke.settlement-types.json",
             "added/voxels/smoke-ore.voxels.json"
         )
         foreach ($relative in $required) {
@@ -794,6 +799,9 @@ switch ($Mode) {
         }
         if (Test-Path -LiteralPath (Join-Path $content "initial/devblueprints")) { exit 9 }
         if (Test-Path -LiteralPath (Join-Path $content "initial/fixtures")) { exit 9 }
+        $expected = @($required | ForEach-Object { [System.IO.Path]::GetFullPath((Join-Path $content $_)) })
+        $actual = @(Get-ChildItem -LiteralPath $content -Recurse -File | ForEach-Object { $_.FullName })
+        if ($actual.Count -ne $expected.Count -or @($actual | Where-Object { $_ -notin $expected }).Count -gt 0) { exit 9 }
         Write-Output "CONTENT_INPUT=$content"
         exit 0
     }

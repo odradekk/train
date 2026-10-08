@@ -1467,12 +1467,10 @@ function New-ContentCheckInput {
     foreach ($state in @("initial", "added")) {
         $resources = Join-Path $root $state
         $voxels = Join-Path $resources "voxels"
-        $images = Join-Path $voxels "ferrous-ore"
+        $images = Join-Path $voxels "grain"
         New-Item -ItemType Directory -Force -Path $images | Out-Null
-        Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/ferrous-ore.voxels.json") -Destination $voxels
-        foreach ($name in @("icon.png", "top.png", "side.png", "bottom.png")) {
-            Copy-Item -LiteralPath (Join-Path $sourceResources (Join-Path "voxels/ferrous-ore" $name)) -Destination $images
-        }
+        Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain.voxels.json") -Destination $voxels
+        Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain/placeholder.png") -Destination $images
         # 同一轮改变体素、价格表和类型规格，实际 App 检查断言它们只发布一个完整世代。
         $sensitivity = if ($state -eq "added") { 0.75 } else { 0.5 }
         $capacity = if ($state -eq "added") { 3 } else { 2 }
@@ -1480,14 +1478,14 @@ function New-ContentCheckInput {
             schema_version = 1
             market_tables = @([ordered]@{
                 id = "smoke-prices"
-                goods = @([ordered]@{ definition = "core:ferrous-ore"; sensitivity = $sensitivity; min_price = 1; max_price = 1000 })
+                goods = @([ordered]@{ definition = "core:grain"; sensitivity = $sensitivity; min_price = 1; max_price = 1000 })
             })
         }
         $settlement = [ordered]@{
             schema_version = 1
             settlement_types = @([ordered]@{
                 id = "smoke-settlement"; name = "Smoke settlement"
-                supply = @([ordered]@{ definition = "core:ferrous-ore"; capacity = $capacity; restore_per_tick = 1 })
+                supply = @([ordered]@{ definition = "core:grain"; capacity = $capacity; restore_per_tick = 1 })
                 demand = @(); preferred_terrain = @(); weight = 1
                 population_min = 1; population_max = 1; initial_platform_count = 0
             })
@@ -1498,7 +1496,7 @@ function New-ContentCheckInput {
         [System.IO.File]::WriteAllText((Join-Path $resources "markets/smoke.market-tables.json"), ($market | ConvertTo-Json -Depth 10), $script:Utf8)
         [System.IO.File]::WriteAllText((Join-Path $resources "settlement-types/smoke.settlement-types.json"), ($settlement | ConvertTo-Json -Depth 10), $script:Utf8)
     }
-    $sourceDefinition = Join-Path $sourceResources "voxels/ferrous-ore.voxels.json"
+    $sourceDefinition = Join-Path $sourceResources "voxels/grain.voxels.json"
     $probe = [System.IO.File]::ReadAllText($sourceDefinition) | ConvertFrom-Json
     $probe.voxels[0].id = "smoke-ore"
     $probe.voxels[0].name = "Smoke Ore"

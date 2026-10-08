@@ -9,7 +9,7 @@ namespace Train.App;
 
 /// <summary>通过 Godot 和物理文件系统发现内容包、读取资源并解码 PNG。</summary>
 /// <remarks>路径与日志依赖由宿主提供，构造时不访问目录；实例保留最近一次列包诊断，不提供并发同步。内容定义、引用及图片用途的校验由内容加载器负责。</remarks>
-/// <example>真实 Godot 中读取内置 JSON 并发布 core:ferrous-ore 的检查见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
+/// <example>真实 Godot 中读取内置 JSON 并发布 core:grain 的检查见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
 public sealed class GodotContentSource : IContentSource
 {
     /// <summary>内置资源的默认 Godot 路径，供编辑器和导出运行读取同一组资源。</summary>
@@ -68,7 +68,7 @@ public sealed class GodotContentSource : IContentSource
     /// 正常完成时替换最近一次扫描诊断，不冻结返回列表；未被转换的 Godot、路径或日志异常向上传播。
     /// 本方法不读取体素或蓝图定义正文，也不解码资源；目录可用标记不代替后续的链接与文件校验。
     /// </remarks>
-    /// <example>隔离用户目录中的 Mod 根为空或不可用时，内置 ferrous-ore 仍可发布；见 <c>scripts/checks/run-app-check.ps1</c> 的 mods-export 检查。</example>
+    /// <example>隔离用户目录中的 Mod 根为空或不可用时，内置 grain 仍可发布；见 <c>scripts/checks/run-app-check.ps1</c> 的 mods-export 检查。</example>
     public IReadOnlyList<ContentPackage> ListPackages()
     {
         bool available;
@@ -247,7 +247,7 @@ public sealed class GodotContentSource : IContentSource
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="rawBytes"/> 为 null。</exception>
     /// <exception cref="NullReferenceException"><paramref name="normalizedRelativePath"/> 为 null，且原始字节参数非 null。</exception>
-    /// <example>真实 Godot 内容检查通过 PNG 读取与加载流程发布 ferrous-ore；见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
+    /// <example>真实 Godot 内容检查通过 PNG 读取与加载流程发布 grain；四个表现绑定共用同一解码图片；见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes)
     {
         ArgumentNullException.ThrowIfNull(rawBytes);

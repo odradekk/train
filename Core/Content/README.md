@@ -2,7 +2,7 @@
 
 本模块负责发现内容包、校验定义及资产、计算修订并发布一个完整的不可变内容批次。
 
-内容加载按领域格式组织。体素、蓝图、市场表和聚居地类型共用发现、JSON 读取、身份冲突处理、整包隔离和发布流程；各自负责格式校验、表现资产或引用与属性计算。切片的预置身份、数量和目标值不进入加载架构，相关决定见 [#222 的重设计记录](https://github.com/odradekk/train/issues/222#issuecomment-6054190677)。
+内容加载按领域格式组织。体素、蓝图、市场表和聚居地类型共用发现、JSON 读取、身份冲突处理、整包隔离和发布流程；各自负责格式校验、表现资产或引用与属性计算。具体货物、市场表、聚居地类型、部件和蓝图内容另见 [#236](https://github.com/odradekk/train/issues/236)，不把具体预置数量写进加载架构。
 
 本模块依赖 .NET 和[日志模块](../Logging/README.md)，通过 `TrainLogger` 记录扫描与发布诊断。宿主通过 `IContentSource` 提供文件访问和图片解码；[App 模块的 GodotContentSource](../../App/GodotContentSource.cs) 负责 Godot 虚拟文件系统和 PNG 解码。程序集依赖方向见 [ADR 0009](../../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)。
 
@@ -22,7 +22,7 @@
 
 身份与版本规则的决策依据见 [ADR 0001](../../docs/adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md) 和 [ADR 0005](../../docs/adr/0005-resolve-current-definitions-and-separate-content-versions.md)。世界生成所需内容和开局地点的校验属于[世界生成流程](../../docs/design/05-world-graph-and-generation.md#世界生成流程)的职责。
 
-体素和蓝图文件只接受 `schema_version: 2`；旧版本明确拒绝，Mod manifest 仍使用 schema 1。蓝图保留 `id`、`name`、`description`、`size_class`、`voxels` 五个必填字段，删除 `archetypes`、`archetype` 和 `contacts`。布局必须非空、坐标唯一、引用候选目录中的体素，朝向须属于引用定义允许的集合。本步不检查六面连通或尺寸包络；五档尺寸声明仍保留。上述首个切片范围见 [#222](https://github.com/odradekk/train/issues/222)。
+体素和蓝图文件只接受 `schema_version: 2`；旧版本明确拒绝，Mod manifest 仍使用 schema 1。蓝图保留 `id`、`name`、`description`、`size_class`、`voxels` 五个必填字段，删除 `archetypes`、`archetype` 和 `contacts`。布局必须非空、坐标唯一、引用候选目录中的体素，朝向须属于引用定义允许的集合。本步不检查六面连通或尺寸包络；五档尺寸声明仍保留。这里记录的是 #222 确立的通用格式边界，具体内容接入见 [#236](https://github.com/odradekk/train/issues/236)。
 
 当前功能行为为 `propulsion`、`control`、`cargo`，每个体素可组合不同种类，每种最多声明一次。动力必须填写有限正数 `traction`（kN）、`rated_speed`（m/s）；控制没有参数；货舱必须填写整数 `capacity`（1 至 Int32.MaxValue 个货物单位）。旧 `track_contact` 和功率参数不再接受。
 
@@ -36,7 +36,7 @@
 
 市场表与聚居地类型使用强类型身份和不可变定义，已注册到 `ContentLoader`。两个格式在同批次体素上校验货物引用，随后与体素、蓝图一起冻结为四个索引。价格区间、供需上限和恢复量均为内容参数，不代表运行中的市场状态。
 
-两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。数据契约见 [#222 的确认记录](https://github.com/odradekk/train/issues/222#issuecomment-6055685440)。
+两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。数据契约沿用 #222 的确认记录；本步验证格式和计算，具体预置表与类型由 [#236](https://github.com/odradekk/train/issues/236) 接入。
 
 | 定义 | 字段与含义 |
 | --- | --- |
@@ -45,13 +45,13 @@
 | 供给与需求项 | `definition`、正 Int32 `capacity`、非负 Int32 `restore_per_tick`。两边分别按货物唯一，允许为空或引用同一种货物；恢复量可为零或大于容量，运行时恢复须截到上限。 |
 | 生成参数 | 地貌是规范身份字符串集合，空集合表示不限；尚无地貌定义目录，不检查外部地貌引用。权重为正 Int32；人口为正 Int32 闭区间；初始站台数为非负 Int32。 |
 
-货物引用必须指向同批次已有且不带 `scene_only` 的体素，不要求 `raw_good`。市场表只保存价格参数，不复制货物 Value；全局选表和每 3600 步恢复一次由后续世界/市场配置负责，类型不增加市场表引用。`initial_platform_count` 是临时生成参数，七种预置仍用已确认的 1 或 2；实际建筑接入后站台数量从完好建筑部件派生。
+货物引用必须指向同批次已有且不带 `scene_only` 的体素，不要求 `raw_good`。市场表只保存价格参数，不复制货物 Value；全局选表和每 3600 步恢复一次由后续世界/市场配置负责，类型不增加市场表引用。`initial_platform_count` 是临时生成参数；实际建筑接入后站台数量从完好建筑部件派生。具体预置数量不属于本步通用格式实现，见 [#236](https://github.com/odradekk/train/issues/236)。
 
 市场表语义修订包含自身身份和价格参数，其全部有效字段都属于语义，发布指纹直接复用语义修订；类型语义修订包含身份及全部非显示参数，发布指纹另包含名称。引用目标 Value 不进入它们自身的修订或条目副本，但体素更新仍发布整个新快照，消费者捕获一次快照读取新 Value。来源路径与 JSON 排序不改变有效内容。两类定义不添加需要存档的实例状态。
 
-各领域 Parser 返回不可变定义序列或 null，失败写入共享包诊断；ContentFormat 产生候选条目，再按同轮体素索引检查货物引用。它们都不执行 IO 或发布，查询与发布使用 `ContentReloader.Current`、`Reload()`、`Changed`。命名输入及人工预期见 `Train.Tests/Core/Content/MarketSettlementExamples.cs`；`MarketSettlementSchemaTests` 验证字段规则，`MarketSettlementPublicationTests` 验证完整快照、修订、包隔离及引用失败。真实 Godot 内容检查通过物理夹具验证新文件发现、参数重载和旧快照保留。
+各领域 Parser 返回不可变定义序列或 null，失败写入共享包诊断；ContentFormat 产生候选条目，再按同轮体素索引检查货物引用。它们都不执行 IO 或发布，查询与发布使用 `ContentReloader.Current`、`Reload()`、`Changed`。命名输入及人工预期见 `Train.Tests/Core/Content/MarketSettlementExamples.cs`；`MarketSettlementSchemaTests` 验证字段规则，`MarketSettlementPublicationTests` 验证完整快照、修订、包隔离及引用失败。真实 Godot 内容检查通过物理夹具验证新文件发现、参数重载和旧快照保留，并要求 `CONTENT_MARKET_SETTLEMENT_READY`。内容定义不进存档，设计属性和 BOM 在加载时重算；当前没有新增需要保存的核心实例状态。
 
-已实现并提交的内置内容仍是 schema 2 的 [`core:ferrous-ore`](../../builtin/core/resources/voxels/ferrous-ore.voxels.json) 及其四张 PNG；三种货物、车辆体素和预置蓝图在 #222 的后续步骤接入。各图片的 `.import` 使用 `importer=keep`，保留原始字节供 Godot 内容源和导出版本读取。Core 测试通过统一公开接口和最小内存包验证字段、引用、属性、失败保留旧快照、无变化不增加世代，以及重载互斥。
+当前内置资源目录保留最小的 schema 2 [`core:grain`](../../builtin/core/resources/voxels/grain.voxels.json) 占位定义和 [`voxels/grain/placeholder.png`](../../builtin/core/resources/voxels/grain/placeholder.png)。icon、top、side、bottom 四个绑定共用这张 PNG；其 `.import` 使用 `importer=keep`，保留原始字节供 Godot 内容源和导出版本读取。三种货物、具体市场表、七种类型、四类车辆部件及两种蓝图的设计与实现已拆到 [#236](https://github.com/odradekk/train/issues/236)。Core 测试通过统一公开接口和最小内存包验证字段、引用、属性、失败保留旧快照、无变化不增加世代，以及重载互斥。
 
 当前设计只发布内容；运行实例的引用校验和状态适配按[候选内容与运行中引用校验](../../docs/design/02-definitions-and-content.md#候选内容与运行中引用校验)在对应玩法中实现。
 

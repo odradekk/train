@@ -24,7 +24,7 @@ internal sealed class ContentCheck : IContentSource
     private ContentSnapshot? _initialSnapshot;
     /// <summary>运行器在 added 输入中追加的体素标识，用于观察新增与移除。</summary>
     private static readonly VoxelDefinitionId ProbeId = new("core", "smoke-ore");
-    private static readonly VoxelDefinitionId MarketGoodId = new("core", "ferrous-ore");
+    private static readonly VoxelDefinitionId MarketGoodId = StartupChecks.GrainId;
     private static readonly MarketTableDefinitionId MarketId = new("core", "smoke-prices");
     private static readonly SettlementTypeDefinitionId TypeId = new("core", "smoke-settlement");
 
