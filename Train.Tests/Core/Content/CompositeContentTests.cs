@@ -41,18 +41,29 @@ public sealed class CompositeContentTests
     [TestMethod]
     public void Unknown_fields_and_old_schema_reject_built_in_blueprints()
     {
-        var cases = new[]
+        var composite = CompositeFixtures.Composite();
+        var valid = CompositeFixtures.File(null, composite);
+        var cases = new (string Json, string Code, string Path)[]
         {
-            "{\"schema_version\":1,\"composites\":[]}",
-            "{\"schema_version\":2,\"archetypes\":[],\"composites\":[]}",
-            "{\"schema_version\":2,\"composites\":[],\"extra\":true}"
+            (valid.Replace("\"schema_version\":2", "\"schema_version\":1", StringComparison.Ordinal),
+                ContentDiagnosticCodes.SchemaVersionUnsupported, "/schema_version"),
+            (valid[..^1] + ",\"archetypes\":[]}", ContentDiagnosticCodes.UnknownField, "/archetypes"),
+            (valid[..^1] + ",\"extra\":true}", ContentDiagnosticCodes.UnknownField, "/extra"),
+            (CompositeFixtures.File(null, composite[..^1] + ",\"contacts\":[]}"),
+                ContentDiagnosticCodes.UnknownField, "/composites/0/contacts"),
+            (CompositeFixtures.File(null, composite[..^1] + ",\"archetype\":\"vehicle\"}"),
+                ContentDiagnosticCodes.UnknownField, "/composites/0/archetype")
         };
-        foreach (var json in cases)
+        foreach (var (json, code, path) in cases)
         {
             using var session = LoggerSession.Create();
-            var source = ContentFixtures.ValidFerrousOre();
-            source.AddDefinitionFile("core", "bad.composites.json", json);
-            Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status, json);
+            var source = CompositeFixtures.VehiclePackage();
+            const string file = "composites/dev-train.composites.json";
+            source.AddDefinitionFile("core", file, json);
+            var result = ContentFixtures.Create(source, session.Logger).Reload();
+            Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, json);
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code && item.Source == file && item.JsonPath == path),
+                string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
         }
     }
 
@@ -143,7 +154,15 @@ public sealed class CompositeContentTests
         {
             var voxelSnapshot = baseline.Current;
             var blueprintSnapshot = baseline.Current;
-            foreach (var field in new[] { "id", "name", "description", "size_class", "voxels" })
+            var cases = new[]
+            {
+                ("id", ContentDiagnosticCodes.LocalIdInvalid),
+                ("name", ContentDiagnosticCodes.NameInvalid),
+                ("description", ContentDiagnosticCodes.DescriptionInvalid),
+                ("size_class", ContentDiagnosticCodes.SizeClassInvalid),
+                ("voxels", ContentDiagnosticCodes.LayoutInvalid)
+            };
+            foreach (var (field, code) in cases)
             {
                 var source = CompositeFixtures.VehiclePackage();
                 source.AddDefinitionFile("core", "composites/dev-train.composites.json",
@@ -153,6 +172,9 @@ public sealed class CompositeContentTests
                 Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, field);
                 Assert.AreSame(voxelSnapshot, baseline.Current, field);
                 Assert.AreSame(blueprintSnapshot, baseline.Current, field);
+                Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code &&
+                    item.Source == "composites/dev-train.composites.json" && item.JsonPath == $"/composites/0/{field}"),
+                    string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
             }
         }
     }

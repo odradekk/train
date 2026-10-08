@@ -110,75 +110,85 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Strict_schema_violations_reject_the_package()
     {
-        var cases = new[]
+        var valid = ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明"));
+        var cases = new (string Json, string Code, string? Path)[]
         {
-            "{ /* comment */ \"schema_version\": 2, \"voxels\": [] }",
-            "{ \"schema_version\": 2, \"voxels\": [], }",
-            "{ \"schema_version\": 2, \"voxels\": [], \"extra\": 1 }",
-            "{ \"schema_version\": 2, \"schema_version\": 2, \"voxels\": [] }",
-            "{ \"Schema_version\": 2, \"voxels\": [] }",
-            "{ \"schema_version\": 1, \"voxels\": [] }",
-            "{ \"schema_version\": 1.5, \"voxels\": [] }",
-            "{ \"voxels\": [] }"
+            ("{ /* comment */ " + valid[1..], ContentDiagnosticCodes.InvalidJson, null),
+            (valid[..^1] + ",}", ContentDiagnosticCodes.InvalidJson, null),
+            (valid[..^1] + ",\"extra\":1}", ContentDiagnosticCodes.UnknownField, "/extra"),
+            (valid.Replace("\"schema_version\":2", "\"schema_version\":2,\"schema_version\":2", StringComparison.Ordinal),
+                ContentDiagnosticCodes.DuplicateProperty, "/schema_version"),
+            (valid.Replace("schema_version", "Schema_version", StringComparison.Ordinal),
+                ContentDiagnosticCodes.UnknownField, "/Schema_version"),
+            (valid.Replace("\"schema_version\":2", "\"schema_version\":1", StringComparison.Ordinal),
+                ContentDiagnosticCodes.SchemaVersionUnsupported, "/schema_version"),
+            (valid.Replace("\"schema_version\":2", "\"schema_version\":1.5", StringComparison.Ordinal),
+                ContentDiagnosticCodes.SchemaVersionUnsupported, "/schema_version"),
+            (valid.Replace("\"schema_version\":2,", "", StringComparison.Ordinal),
+                ContentDiagnosticCodes.SchemaVersionUnsupported, "/schema_version")
         };
 
-        foreach (var json in cases)
+        foreach (var (json, code, path) in cases)
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
             source.AddDefinitionFile("core", "bad.voxels.json", json);
+            ContentFixtures.AddSquareImages(source, "iron.png");
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, json);
             Assert.IsNull(reloader.Current);
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code && item.Source == "bad.voxels.json" && item.JsonPath == path),
+                string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
         }
     }
 
     [TestMethod]
     public void Field_and_value_rules_reject_invalid_definitions()
     {
-        var invalids = new[]
+        var invalids = new (string Json, string Code, string Path)[]
         {
-            ContentFixtures.Good("Iron-Ore", "铁矿", "说明"),
-            ContentFixtures.Good("_iron", "铁矿", "说明"),
-            ContentFixtures.Good(new string('a', 65), "铁矿", "说明"),
-            ContentFixtures.Good("iron", " ", "说明"),
-            ContentFixtures.Good("iron", "铁矿", ""),
-            ContentFixtures.Good("iron", "铁矿", "说明", value: 0),
-            ContentFixtures.Good("iron", "铁矿", "说明", value: 1_000_000_001),
-            ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Raw_Good\"]"),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: "[{\"type\":\"future\"}]"),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion"}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":0,"rated_speed":20}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":-1,"rated_speed":20}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1e309,"rated_speed":20}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":0}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":-1}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":1e309}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo"}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":0}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":2147483648}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"control"},{"type":"control"}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"control","capacity":1}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":4},{"type":"cargo","capacity":4}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"track_contact"}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", orientations: "free"),
-            ContentFixtures.Good("iron", "铁矿", "说明", mass: 0),
-            "{\"id\":\"iron\",\"name\":\"铁矿\",\"description\":\"说明\",\"value\":100}"
+            (ContentFixtures.Good("Iron-Ore", "铁矿", "说明"), ContentDiagnosticCodes.LocalIdInvalid, "/voxels/0/id"),
+            (ContentFixtures.Good("_iron", "铁矿", "说明"), ContentDiagnosticCodes.LocalIdInvalid, "/voxels/0/id"),
+            (ContentFixtures.Good(new string('a', 65), "铁矿", "说明"), ContentDiagnosticCodes.LocalIdInvalid, "/voxels/0/id"),
+            (ContentFixtures.Good("iron", " ", "说明"), ContentDiagnosticCodes.NameInvalid, "/voxels/0/name"),
+            (ContentFixtures.Good("iron", "铁矿", ""), ContentDiagnosticCodes.DescriptionInvalid, "/voxels/0/description"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", value: 0), ContentDiagnosticCodes.ValueInvalid, "/voxels/0/value"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", value: 1_000_000_001), ContentDiagnosticCodes.ValueInvalid, "/voxels/0/value"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Raw_Good\"]"), ContentDiagnosticCodes.TagInvalid, "/voxels/0/tags/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: "[{\"type\":\"future\"}]"), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/type"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion"}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":0,"rated_speed":20}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":-1,"rated_speed":20}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1e309,"rated_speed":20}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/traction"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":0}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":-1}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":1e309}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/rated_speed"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo"}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/capacity"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":0}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/capacity"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":2147483648}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/capacity"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"control"},{"type":"control"}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/1"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"control","capacity":1}]"""), ContentDiagnosticCodes.UnknownField, "/voxels/0/behaviors/0/capacity"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":4},{"type":"cargo","capacity":4}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/1"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"track_contact"}]"""), ContentDiagnosticCodes.BehaviorUnregistered, "/voxels/0/behaviors/0/type"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", orientations: "free"), ContentDiagnosticCodes.OrientationInvalid, "/voxels/0/allowed_orientations"),
+            (ContentFixtures.Good("iron", "铁矿", "说明", mass: 0), ContentDiagnosticCodes.MassInvalid, "/voxels/0/mass"),
+            (ContentFixtures.Good("iron", "铁矿", "说明").Replace("\"mass\":1,", "", StringComparison.Ordinal), ContentDiagnosticCodes.MassInvalid, "/voxels/0/mass")
         };
 
-        foreach (var good in invalids)
+        foreach (var (good, code, path) in invalids)
         {
             using var session = LoggerSession.Create();
-            var source = ContentFixtures.CorePackage();
+            var source = ContentFixtures.ValidFerrousOre();
             source.AddDefinitionFile("core", "bad.voxels.json", ContentFixtures.GoodsFile(good));
-            ContentFixtures.AddSquareImages(source, "iron.png");
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, good);
             Assert.IsNull(reloader.Current);
             Assert.IsNull(result.Snapshot);
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code && item.Source == "bad.voxels.json" && item.JsonPath == path),
+                string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
         }
     }
 
