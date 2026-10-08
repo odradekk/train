@@ -1,5 +1,5 @@
-// 市场表与聚居地类型的命名数据例子；这里只保存输入和人工给定的预期，不运行待实现函数。
-// 功能测试从这些输入与手算数据验证解析和完整快照发布。
+// 市场表与聚居地类型的命名数据例子；预期由输入和手算结果独立给定。
+// 功能测试比较解析与完整快照发布结果，不调用被测函数生成预期。
 using System.Text.Json.Nodes;
 using Train.Core.Content;
 using Train.Core.Content.Markets;

@@ -1472,6 +1472,7 @@ function New-ContentCheckInput {
         Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain.voxels.json") -Destination $voxels
         Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain/placeholder.png") -Destination $images
         # 同一轮改变体素、价格表和类型规格，实际 App 检查断言它们只发布一个完整世代。
+        # 两状态的敏感度和供给容量对应 App/Checks/ContentCheck.cs 的独立预期；调整夹具时同步核对。
         $sensitivity = if ($state -eq "added") { 0.75 } else { 0.5 }
         $capacity = if ($state -eq "added") { 3 } else { 2 }
         $market = [ordered]@{

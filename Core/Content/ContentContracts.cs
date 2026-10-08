@@ -168,7 +168,7 @@ public sealed class ContentDiagnostic
 
 /// <summary>表示定义所属的包命名空间和源文件。</summary>
 /// <remarks>命名空间按定义身份规则规范化；源文件路径只要求非空，路径安全性由发现和读取边界检查。</remarks>
-/// <example>内置 grain 定义的来源属于 core 包；相同包归属规则见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
+/// <example>内存夹具 core:ferrous-ore 的来源命名空间为 core，源文件为 voxels/ores.voxels.json；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
 public sealed class ContentOrigin
 {
     /// <summary>取得定义所属的规范包命名空间。</summary>

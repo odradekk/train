@@ -7,6 +7,9 @@ namespace Train.Core.Content.Settlements;
 /// <summary>解析 schema 1 聚居地类型的本地字段；合并后的货物引用由领域格式校验。</summary>
 internal static class SettlementTypesJsonParser
 {
+    /// <summary>聚居地类型文件唯一支持的 schema 版本；格式约定见内容模块 README。</summary>
+    private const int SchemaVersion = 1;
+
     /// <summary>将 UTF-8 文件解析成不可变类型序列；结构或字段无效时返回 null。</summary>
     /// <param name="utf8">原始 JSON；遵守共用大小及严格 JSON 约束。</param>
     /// <param name="packageNamespace">已校验的所属包命名空间，补全声明的局部 ID。</param>
@@ -17,7 +20,7 @@ internal static class SettlementTypesJsonParser
     public static IReadOnlyList<SettlementTypeDefinition>? Parse(
         byte[] utf8, string packageNamespace, string sourceFile, DiagnosticBag diagnostics)
     {
-        return ContentJson.ParseDefinitions(utf8, sourceFile, 1, "settlement_types", diagnostics,
+        return ContentJson.ParseDefinitions(utf8, sourceFile, SchemaVersion, "settlement_types", diagnostics,
             (element, path) => ParseDefinition(element, packageNamespace, path, diagnostics));
     }
 

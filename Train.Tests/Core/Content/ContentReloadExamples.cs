@@ -1,5 +1,5 @@
 // 统一内容发布的数据例子；功能断言位于 ContentPublicationTests。
-// 所有预期来自两格结构体素的手算结果，不调用待实现的重载器取得预期。
+// 预期由输入和两格结构体素的手算结果给定，不通过被测重载器计算。
 using Train.Core.Content;
 using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;

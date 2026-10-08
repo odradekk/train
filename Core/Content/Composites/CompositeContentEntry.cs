@@ -51,7 +51,8 @@ public sealed class CompositeContentEntry
 /// <summary>规范编码蓝图定义与发布属性；引用目标的修订不进入蓝图自身修订。</summary>
 internal static class CompositeRevisions
 {
-    /// <summary>规范编码版本；#222 删除接触点和 Archetype 后升级为 2，与文件 schema 独立。</summary>
+    /// <summary>蓝图语义编码版本，用于区分规范编码规则；与定义文件的 schema 版本独立管理。</summary>
+    /// <remarks>编码与修订约定见 Core/Content/README.md。</remarks>
     public const int SemanticEncodingVersion = 2;
 
     /// <summary>计算身份、尺寸档位及按坐标排序的布局的 SHA-256 修订。</summary>

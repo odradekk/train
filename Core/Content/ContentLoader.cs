@@ -145,7 +145,7 @@ internal sealed class ContentLoader
         return null;
     }
 
-    /// <summary>重新合并所有有效包，再查所有格式引用；直到没有新的包失效或必需包失败。</summary>
+    /// <summary>重新合并有效包并检查所有格式的引用，迭代直到不再新增失效包。</summary>
     private void ResolvePackages()
     {
         var invalidCount = -1;

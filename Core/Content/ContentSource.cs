@@ -218,8 +218,9 @@ public sealed class MemoryContentSource : IContentSource
     /// <param name="utf8Text">非 null 的文件文本，允许为空；登记时不解析 JSON。</param>
     /// <param name="resourcesRoot">用于区分同命名空间包的资源根；null 时取首个匹配包。</param>
     /// <remarks>效果：同一路径覆盖字节，首次登记时加入文件列表；内容格式由加载器识别。</remarks>
-    /// <exception cref="ArgumentNullException">utf8Text 为 null。</exception>
-    /// <exception cref="ArgumentException">路径或自动创建的包身份无效。</exception>
+    /// <exception cref="ArgumentNullException">utf8Text 为 null，或自动建包时 namespace 为 null。</exception>
+    /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
+    /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
     public void AddDefinitionFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null) =>
         AddDefinitionFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
 
@@ -229,8 +230,9 @@ public sealed class MemoryContentSource : IContentSource
     /// <param name="bytes">非 null 的文件字节，允许为空数组；保留引用，调用方在一次加载中须保持其稳定。</param>
     /// <param name="resourcesRoot">精确匹配的资源根；null 时取首个同命名空间包。</param>
     /// <remarks>效果：同一路径只列出一次，再次登记覆盖字节。未找到包时沿用 AddPackage 的内置包默认值。</remarks>
-    /// <exception cref="ArgumentNullException">bytes 为 null。</exception>
-    /// <exception cref="ArgumentException">路径或自动创建的包身份无效。</exception>
+    /// <exception cref="ArgumentNullException">bytes 为 null，或自动建包时 namespace 为 null。</exception>
+    /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
+    /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
     public void AddDefinitionFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
     {
         ArgumentNullException.ThrowIfNull(bytes);
