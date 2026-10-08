@@ -45,25 +45,6 @@ public sealed class ContentFileDiscovery
     public static ContentFileDiscovery Of(IReadOnlyList<string> files) =>
         new(files, Array.Empty<ContentDiagnostic>(), invalid: false);
 
-    /// <summary>按内容包身份筛选玩家蓝图文件，其他包的发现结果原样返回。</summary>
-    /// <param name="package">决定是否应用玩家蓝图身份规则的内容包。</param>
-    /// <param name="discovery">已经完成目录扫描的蓝图文件发现结果。</param>
-    /// <returns>玩家蓝图包仅保留与包命名空间加 .composites.json 完全相等的根级文件；其他包返回原结果。</returns>
-    /// <remarks>文件名按 Ordinal 比较；筛选保持原顺序，并原样保留诊断和无效标记。</remarks>
-    /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null，或筛选玩家蓝图包时 <paramref name="discovery"/> 为 null。</exception>
-    /// <example>命名空间为 cccccccc-dddd-4eee-8fff-000000000001 时，仅保留同名的 .composites.json 文件；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_display_name</c>。</example>
-    public static ContentFileDiscovery ForCompositePackage(
-        ContentPackage package,
-        ContentFileDiscovery discovery)
-    {
-        if (package.Kind != ContentPackageKind.PlayerBlueprint)
-            return discovery;
-        var expected = package.Namespace + ".composites.json";
-        return new ContentFileDiscovery(
-            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
-            discovery.Diagnostics,
-            discovery.Invalid);
-    }
 }
 
 /// <summary>在与存储实现无关的目录树上发现内容文件。</summary>

@@ -157,25 +157,16 @@ public sealed class GodotContentSource : IContentSource
     /// <remarks>下一次完成列包会替换引用；调用方应只读使用，不修改返回列表。</remarks>
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics;
 
-    /// <summary>发现包内以小写 .voxels.json 结尾的体素定义文件。</summary>
+    /// <summary>发现包内全部以小写 .json 结尾的定义文件。</summary>
     /// <param name="package">要扫描的内容包；内置包的访问方式由本实例构造参数确定。</param>
     /// <returns>规范化相对文件路径、发现诊断和包无效标记；无效结果仍可能保留部分文件。</returns>
-    /// <remarks>物理包交给 ExternalContent，虚拟内置包交给 Godot 目录遍历；只发现文件，不解析定义。</remarks>
+    /// <remarks>物理包交给 ExternalContent，虚拟内置包交给 Godot 目录遍历；只发现文件，不解析格式或玩家蓝图身份。</remarks>
     /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
-        ListDataFiles(package, ".voxels.json");
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) =>
+        ListDataFiles(package, ".json");
 
-    /// <summary>发现包内蓝图文件，并按玩家蓝图包身份筛选其文件。</summary>
-    /// <param name="package">要扫描的内容包；玩家蓝图的命名空间为文件 UUID。</param>
-    /// <returns>以小写 .composites.json 结尾的相对路径和发现状态；玩家蓝图包仅保留与其命名空间加后缀完全匹配的根目录文件。</returns>
-    /// <remarks>玩家文件名按 Ordinal 比较；筛选文件后仍保留整次发现的诊断和无效标记，不解析文件内显示名或定义。</remarks>
+    /// <summary>按包种类和内置访问方式分派全部定义文件的目录扫描。</summary>
     /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
-    public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
-        => ContentFileDiscovery.ForCompositePackage(
-            package,
-            ListDataFiles(package, ".composites.json"));
-
-    /// <summary>按包种类和内置访问方式分派目录扫描，并拒绝无法解析或链接的虚拟根。</summary>
     private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)
     {
         if (package.Kind is ContentPackageKind.Mod or ContentPackageKind.PlayerBlueprint || IsPhysicalBuiltIn(package))

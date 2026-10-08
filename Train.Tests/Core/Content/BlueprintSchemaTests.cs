@@ -16,7 +16,7 @@ public sealed class BlueprintSchemaTests
     {
         using var session = LoggerSession.Create();
         var source = CompositeFixtures.VehiclePackage();
-        source.AddCompositeFile("core", "composites/dev-train.composites.json",
+        source.AddDefinitionFile("core", "composites/dev-train.composites.json",
             CompositeFixtures.File(null, CompositeFixtures.Composite(size: "huge")));
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status);
     }
@@ -39,7 +39,7 @@ public sealed class BlueprintSchemaTests
         if (invalidCase == "orientation")
             CompositeFixtures.AddVoxel(source, CompositeFixtures.ControlId, "控制", 20, 2,
                 behaviorsJson: "[{\"type\":\"control\"}]", orientations: "four_way");
-        source.AddCompositeFile("core", "composites/dev-train.composites.json",
+        source.AddDefinitionFile("core", "composites/dev-train.composites.json",
             CompositeFixtures.File(null, CompositeFixtures.Composite(voxels: voxels)));
 
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status);

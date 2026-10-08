@@ -20,19 +20,18 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
                 """[{"type":"propulsion","traction":12.5,"rated_speed":20},{"type":"control"},{"type":"cargo","capacity":4}]""")));
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.IsTrue(reloader.Reload().IsCommitted);
-        var snapshot = reloader.Catalog.Current!;
-        var entry = snapshot.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
-        Assert.AreEqual("AAA1695D6269392A68578A7CBF15EDF5D4C086F3FDF26BF96B5344F8D733DDEA", entry.SemanticRevision);
+        var snapshot = reloader.Current!;
+        var entry = snapshot.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         CollectionAssert.AreEqual(
             new VoxelBehavior[] { new PropulsionBehavior(12.5, 20), new ControlBehavior(), new CargoBehavior(4) },
             entry.Definition.Behaviors.ToArray());
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
                 """[{"type":"propulsion","traction":12.5,"rated_speed":21},{"type":"control"},{"type":"cargo","capacity":4}]""")));
         var result = reloader.Reload();
@@ -40,14 +39,14 @@ public sealed class ContentReloaderTests
         Assert.IsTrue(result.IsCommitted);
         Assert.IsTrue(result.Changed);
         Assert.AreNotEqual(entry.SemanticRevision,
-            reloader.Catalog.Current!.Entries[entry.Definition.Id].SemanticRevision);
+            reloader.Current!.Voxels[entry.Definition.Id].SemanticRevision);
 
-        var revised = reloader.Catalog.Current.Entries[entry.Definition.Id];
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        var revised = reloader.Current.Voxels[entry.Definition.Id];
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
                 """[{"type":"cargo","capacity":4},{"type":"control"},{"type":"propulsion","traction":12.5,"rated_speed":21}]""")));
         Assert.IsTrue(reloader.Reload().Changed);
-        var reordered = reloader.Catalog.Current.Entries[entry.Definition.Id];
+        var reordered = reloader.Current.Voxels[entry.Definition.Id];
         Assert.AreNotEqual(revised.SemanticRevision, reordered.SemanticRevision);
         CollectionAssert.AreEqual(
             new VoxelBehavior[] { new CargoBehavior(4), new ControlBehavior(), new PropulsionBehavior(12.5, 21) },
@@ -59,7 +58,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("minimum", "最小", "说明", behaviorsJson:
                 """[{"type":"propulsion","traction":5E-324,"rated_speed":5E-324},{"type":"cargo","capacity":1}]"""),
             ContentFixtures.Good("maximum", "最大", "说明", icon: "max.png", voxel: "max.png", behaviorsJson:
@@ -71,9 +70,9 @@ public sealed class ContentReloaderTests
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.AreEqual(new CargoBehavior(1),
-            reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "minimum")].Definition.Behaviors.OfType<CargoBehavior>().Single());
+            reloader.Current!.Voxels[new VoxelDefinitionId("core", "minimum")].Definition.Behaviors.OfType<CargoBehavior>().Single());
         Assert.AreEqual(new CargoBehavior(int.MaxValue),
-            reloader.Catalog.Current.Entries[new VoxelDefinitionId("core", "maximum")].Definition.Behaviors.Single());
+            reloader.Current.Voxels[new VoxelDefinitionId("core", "maximum")].Definition.Behaviors.Single());
     }
 
     [TestMethod]
@@ -81,7 +80,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "Ferrous Ore 说明"),
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
@@ -91,11 +90,10 @@ public sealed class ContentReloaderTests
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(result.Changed);
-        Assert.AreEqual(1, result.CatalogVersion);
-        Assert.AreEqual(2, result.AcceptedDefinitionCount);
-        var snapshot = reloader.Catalog.Current!;
-        Assert.AreEqual(2, snapshot.Entries.Count);
-        Assert.IsTrue(snapshot.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out var iron));
+        Assert.AreEqual(1, result.Snapshot!.Generation);
+        var snapshot = reloader.Current!;
+        Assert.AreEqual(2, snapshot.Voxels.Count);
+        Assert.IsTrue(snapshot.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out var iron));
         Assert.AreEqual("Ferrous Ore", iron.Definition.Name);
         Assert.AreEqual("core", iron.Origin.Namespace);
         Assert.AreEqual("voxels/ores.voxels.json", iron.Origin.SourceFile);
@@ -103,10 +101,10 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(1, iron.Definition.Mass);
         Assert.AreEqual(100, iron.Definition.MaxDurability);
         Assert.IsTrue(iron.Definition.HasRawGoodTag);
-        var entries = (ICollection<KeyValuePair<VoxelDefinitionId, VoxelCatalogEntry>>)snapshot.Entries;
+        var entries = (ICollection<KeyValuePair<VoxelDefinitionId, VoxelContentEntry>>)snapshot.Voxels;
         Assert.IsTrue(entries.IsReadOnly);
         Assert.ThrowsException<NotSupportedException>(() =>
-            entries.Add(new KeyValuePair<VoxelDefinitionId, VoxelCatalogEntry>(new VoxelDefinitionId("core", "x"), iron)));
+            entries.Add(new KeyValuePair<VoxelDefinitionId, VoxelContentEntry>(new VoxelDefinitionId("core", "x"), iron)));
     }
 
     [TestMethod]
@@ -128,11 +126,11 @@ public sealed class ContentReloaderTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddVoxelFile("core", "bad.voxels.json", json);
+            source.AddDefinitionFile("core", "bad.voxels.json", json);
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, json);
-            Assert.IsNull(reloader.Catalog.Current);
+            Assert.IsNull(reloader.Current);
         }
     }
 
@@ -174,13 +172,13 @@ public sealed class ContentReloaderTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddVoxelFile("core", "bad.voxels.json", ContentFixtures.GoodsFile(good));
+            source.AddDefinitionFile("core", "bad.voxels.json", ContentFixtures.GoodsFile(good));
             ContentFixtures.AddSquareImages(source, "iron.png");
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, good);
-            Assert.IsNull(reloader.Catalog.Current);
-            Assert.IsTrue(reloader.InitializationFailed);
+            Assert.IsNull(reloader.Current);
+            Assert.IsNull(result.Snapshot);
         }
     }
 
@@ -189,14 +187,14 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("1ferrous-ore", "  铁矿  ", "  说明  ", value: 1),
             ContentFixtures.Good("coal", new string('名', 100), new string('说', 2000), value: 1_000_000_000, icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreEqual("铁矿", reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "1ferrous-ore")].Definition.Name);
-        Assert.AreEqual(1_000_000_000, reloader.Catalog.Current.Entries[new VoxelDefinitionId("core", "coal")].Definition.Value);
+        Assert.AreEqual("铁矿", reloader.Current!.Voxels[new VoxelDefinitionId("core", "1ferrous-ore")].Definition.Name);
+        Assert.AreEqual(1_000_000_000, reloader.Current.Voxels[new VoxelDefinitionId("core", "coal")].Definition.Value);
     }
 
     [TestMethod]
@@ -221,7 +219,7 @@ public sealed class ContentReloaderTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddVoxelFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
+            source.AddDefinitionFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("iron", "铁矿", "说明", icon: path, voxel: path.Length == 0 ? "iron.png" : path)));
             ContentFixtures.AddSquareImages(source, "iron.png");
             var result = ContentFixtures.Create(source, session.Logger).Reload();
@@ -241,12 +239,12 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(ContentReloadStatus.Rejected, ReloadWithFaces(session3, 16, 16, 32).Status);
         using var session4 = LoggerSession.Create();
         var missing = ContentFixtures.CorePackage();
-        missing.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        missing.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         missing.AddMissingImage("core", "iron.png");
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(missing, session4.Logger).Reload().Status);
         using var session5 = LoggerSession.Create();
         var huge = ContentFixtures.CorePackage();
-        huge.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        huge.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         huge.AddOversizedImageBytes("core", "iron.png");
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(huge, session5.Logger).Reload().Status);
     }
@@ -256,14 +254,14 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "a.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
-        source.AddVoxelFile("core", "b.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "另一铁矿", "说明")));
+        source.AddDefinitionFile("core", "a.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        source.AddDefinitionFile("core", "b.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "另一铁矿", "说明")));
         ContentFixtures.AddSquareImages(source, "iron.png");
         var reloader = ContentFixtures.Create(source, session.Logger);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.DuplicateLocalId));
-        Assert.IsNull(reloader.Catalog.Current);
+        Assert.IsNull(reloader.Current);
     }
 
     [TestMethod]
@@ -271,7 +269,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var oversizedFile = ContentFixtures.CorePackage();
-        oversizedFile.AddVoxelFile("core", "big.voxels.json", new byte[ContentLimits.JsonFileMaxBytes + 1]);
+        oversizedFile.AddDefinitionFile("core", "big.voxels.json", new byte[ContentLimits.JsonFileMaxBytes + 1]);
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(oversizedFile, session.Logger).Reload().Status);
 
         using var session2 = LoggerSession.Create();
@@ -280,7 +278,7 @@ public sealed class ContentReloaderTests
         for (var start = 1; start <= 10001; start += 1000)
         {
             var end = Math.Min(start + 999, 10001);
-            source.AddVoxelFile("core", $"batch-{start}.voxels.json", ContentFixtures.ManyGoods(start, end));
+            source.AddDefinitionFile("core", $"batch-{start}.voxels.json", ContentFixtures.ManyGoods(start, end));
         }
 
         var result = ContentFixtures.Create(source, session2.Logger).Reload();
@@ -295,7 +293,7 @@ public sealed class ContentReloaderTests
         var goods = string.Join(",", Enumerable.Range(0, 150).Select(i =>
             ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "many.voxels.json", $"{{\"schema_version\":2,\"voxels\":[{goods}]}}");
+        source.AddDefinitionFile("core", "many.voxels.json", $"{{\"schema_version\":2,\"voxels\":[{goods}]}}");
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count);
@@ -313,9 +311,8 @@ public sealed class ContentReloaderTests
 
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsFalse(result.IsCommitted);
-        Assert.AreEqual(0, result.CatalogVersion);
-        Assert.IsNull(reloader.Catalog.Current);
-        Assert.IsTrue(reloader.InitializationFailed);
+        Assert.IsNull(reloader.Current);
+        Assert.IsNull(result.Snapshot);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.Category == ContentLog.Category &&
             item.EventId == ContentLog.ReloadFailedEventId &&
@@ -326,21 +323,20 @@ public sealed class ContentReloaderTests
     public void Later_empty_reload_can_publish_when_a_catalog_already_exists()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidFerrousOre();
+        var source = new SwitchableContentSource(ContentFixtures.ValidFerrousOre());
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.IsNotNull(reloader.Catalog.Current);
+        Assert.IsNotNull(reloader.Current);
 
         var empty = ContentFixtures.CorePackage();
-        var later = ContentFixtures.Create(empty, session.Logger, catalog: reloader.Catalog);
-        var result = later.Reload();
+        source.Current = empty;
+        var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(result.Changed);
-        Assert.IsNotNull(later.Catalog.Current);
-        Assert.AreEqual(0, later.Catalog.Current.Entries.Count);
-        Assert.IsFalse(later.InitializationFailed);
-        Assert.IsTrue(result.Removed.Contains(new VoxelDefinitionId("core", "ferrous-ore")));
+        Assert.IsNotNull(reloader.Current);
+        Assert.AreEqual(0, reloader.Current.Voxels.Count);
+        Assert.AreEqual(2, reloader.Current.Generation);
     }
 
     [TestMethod]
@@ -350,26 +346,26 @@ public sealed class ContentReloaderTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.CorePackage();
-            source.AddVoxelFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
+            source.AddDefinitionFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("iron", "铁矿", "说明", icon: path, voxel: path)));
             ContentFixtures.AddSquareImages(source, "iron.png");
             var reloader = ContentFixtures.Create(source, session.Logger);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, path);
-            Assert.IsNull(reloader.Catalog.Current);
+            Assert.IsNull(reloader.Current);
             Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.PathInvalid), path);
         }
 
         using var ok = LoggerSession.Create();
         var valid = ContentFixtures.CorePackage();
-        valid.AddVoxelFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
+        valid.AddDefinitionFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron", "铁矿", "说明", icon: "voxels/iron.png", voxel: "voxels/iron.png")));
         ContentFixtures.AddSquareImages(valid, "voxels/iron.png");
         var validReloader = ContentFixtures.Create(valid, ok.Logger);
         var committed = validReloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, committed.Status);
-        Assert.IsNotNull(validReloader.Catalog.Current);
-        Assert.IsTrue(validReloader.Catalog.Current.TryGet(new VoxelDefinitionId("core", "iron"), out _));
+        Assert.IsNotNull(validReloader.Current);
+        Assert.IsTrue(validReloader.Current.Voxels.TryGetValue(new VoxelDefinitionId("core", "iron"), out _));
     }
 
     [TestMethod]
@@ -383,8 +379,8 @@ public sealed class ContentReloaderTests
 
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsFalse(result.IsCommitted);
-        Assert.IsNull(reloader.Catalog.Current);
-        Assert.IsTrue(reloader.InitializationFailed);
+        Assert.IsNull(reloader.Current);
+        Assert.IsNull(result.Snapshot);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsafeLinkedPath));
     }
 
@@ -396,8 +392,8 @@ public sealed class ContentReloaderTests
         var reloader = ContentFixtures.Create(source, session.Logger);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
-        Assert.IsNull(reloader.Catalog.Current);
-        Assert.IsTrue(reloader.InitializationFailed);
+        Assert.IsNull(reloader.Current);
+        Assert.IsNull(result.Snapshot);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.Category == ContentLog.Category &&
             item.EventId == ContentLog.ReloadFailedEventId &&
@@ -411,14 +407,14 @@ public sealed class ContentReloaderTests
         var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var previous = reloader.Catalog.Current!;
-        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
+        var previous = reloader.Current!;
+        source.AddDefinitionFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var rejected = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
-        Assert.AreSame(previous, reloader.Catalog.Current);
+        Assert.AreSame(previous, reloader.Current);
         Assert.AreEqual(1, previous.Generation);
-        Assert.IsTrue(previous.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
-        Assert.IsFalse(reloader.InitializationFailed);
+        Assert.IsTrue(previous.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.AreSame(previous, rejected.Snapshot);
     }
 
     [TestMethod]
@@ -429,7 +425,7 @@ public sealed class ContentReloaderTests
         var reloader = ContentFixtures.Create(source, session.Logger);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
     }
 
     [TestMethod]
@@ -454,7 +450,7 @@ public sealed class ContentReloaderTests
             Assert.IsTrue(worker.Wait(TimeSpan.FromSeconds(5)));
         }
         Assert.IsTrue(worker.Result.IsCommitted);
-        Assert.IsNotNull(reloader.Catalog.Current);
+        Assert.IsNotNull(reloader.Current);
     }
 
     [TestMethod]
@@ -464,14 +460,14 @@ public sealed class ContentReloaderTests
         var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         var first = reloader.Reload();
-        var snapshot = reloader.Catalog.Current;
+        var snapshot = reloader.Current;
         var notifications = 0;
-        reloader.Catalog.Changed += _ => notifications++;
+        reloader.Changed += _ => notifications++;
         var second = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, second.Status);
         Assert.IsFalse(second.Changed);
-        Assert.AreEqual(first.CatalogVersion, second.CatalogVersion);
-        Assert.AreSame(snapshot, reloader.Catalog.Current);
+        Assert.AreSame(first.Snapshot, second.Snapshot);
+        Assert.AreSame(snapshot, reloader.Current);
         Assert.AreEqual(0, notifications);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.ReloadSummaryEventId &&
@@ -485,76 +481,75 @@ public sealed class ContentReloaderTests
         var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var baseline = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var baseline = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         var baselineSemantic = baseline.SemanticRevision;
         var baselineAsset = baseline.AssetRevisions["iron.png"];
-        var baselineGeneration = reloader.Catalog.Current.Generation;
+        var baselineGeneration = reloader.Current.Generation;
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", """
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", """
             {"schema_version":2,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"kind":"full_box"},"description":"说明","id":"ferrous-ore","mass":1,"max_durability":100,"name":"Ferrous Ore","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":["raw_good"],"value":100}]}
             """);
-        var whitespace = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var whitespace = reloader.Reload();
         Assert.IsFalse(whitespace.Changed);
-        Assert.AreEqual(baselineGeneration, whitespace.CatalogVersion);
-        Assert.AreEqual(baselineSemantic, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")].SemanticRevision);
+        Assert.AreEqual(baselineGeneration, whitespace.Snapshot!.Generation);
+        Assert.AreEqual(baselineSemantic, reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].SemanticRevision);
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", tagsJson: "[\"raw_good\",\"stone\"]")));
-        var tagged = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var tagged = reloader.Reload();
         Assert.IsTrue(tagged.Changed);
-        var afterTags = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var afterTags = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreNotEqual(baselineSemantic, afterTags.SemanticRevision);
         var taggedSemantic = afterTags.SemanticRevision;
-        var taggedGeneration = reloader.Catalog.Current.Generation;
+        var taggedGeneration = reloader.Current.Generation;
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", tagsJson: "[\"stone\",\"raw_good\"]")));
-        var reorderedTags = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var reorderedTags = reloader.Reload();
         Assert.IsFalse(reorderedTags.Changed);
-        Assert.AreEqual(taggedSemantic, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")].SemanticRevision);
+        Assert.AreEqual(taggedSemantic, reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].SemanticRevision);
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", tagsJson: "[\"stone\",\"raw_good\"]")));
-        var display = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var display = reloader.Reload();
         Assert.IsTrue(display.Changed);
-        Assert.IsTrue(display.ChangedIds.Contains(new VoxelDefinitionId("core", "ferrous-ore")));
-        var afterDisplay = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var afterDisplay = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreEqual(taggedSemantic, afterDisplay.SemanticRevision);
         Assert.AreEqual("新亚铁矿", afterDisplay.Definition.Name);
-        Assert.AreNotEqual(taggedGeneration, display.CatalogVersion);
+        Assert.AreEqual(taggedGeneration + 1, display.Snapshot!.Generation);
 
         var sameBytes = new byte[] { 7, 7, 7, 7 };
         var expectedAsset = Convert.ToHexString(SHA256.HashData(sameBytes));
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", tagsJson: "[\"stone\",\"raw_good\"]", icon: "copy.png", voxel: "copy.png")));
         source.AddImage("core", "copy.png", ContentFixtures.Square(16), rawBytes: sameBytes);
         source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: sameBytes);
-        var rebound = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var rebound = reloader.Reload();
         Assert.IsTrue(rebound.Changed);
-        var afterBind = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var afterBind = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreEqual(taggedSemantic, afterBind.SemanticRevision);
         Assert.AreEqual(expectedAsset, afterBind.AssetRevisions["copy.png"]);
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", tagsJson: "[\"stone\",\"raw_good\"]")));
-        var reboundSameBytes = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var reboundSameBytes = reloader.Reload();
         Assert.IsTrue(reboundSameBytes.Changed);
-        var afterSameBytes = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var afterSameBytes = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreEqual(taggedSemantic, afterSameBytes.SemanticRevision);
         Assert.AreEqual(expectedAsset, afterSameBytes.AssetRevisions["iron.png"]);
 
         source.AddImage("core", "iron.png", ContentFixtures.Square(16, 9), rawBytes: new byte[] { 9, 9, 9, 9 });
-        var pixels = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+        var pixels = reloader.Reload();
         Assert.IsTrue(pixels.Changed);
-        var afterPixels = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var afterPixels = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreEqual(taggedSemantic, afterPixels.SemanticRevision);
         Assert.AreNotEqual(expectedAsset, afterPixels.AssetRevisions["iron.png"]);
         Assert.AreNotEqual(baselineAsset, afterPixels.AssetRevisions["iron.png"]);
 
         ContentReloadResult ReloadGood(string voxel)
         {
-            source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(voxel));
-            return ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
+            source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(voxel));
+            return reloader.Reload();
         }
 
         var previousSemantic = taggedSemantic;
@@ -563,13 +558,12 @@ public sealed class ContentReloaderTests
                      ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", value: 250, tagsJson: "[\"stone\",\"raw_good\"]"),
                      ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", value: 250, mass: 2, tagsJson: "[\"stone\",\"raw_good\"]"),
                      ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"raw_good\"]"),
-                     ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"raw_good\"]", orientations: "four_way"),
-                     ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"raw_good\"]", orientations: "four_way", collisionJson: "{\"kind\":\"none\"}")
+                     ContentFixtures.Good("ferrous-ore", "新亚铁矿", "新说明", value: 250, mass: 2, maxDurability: 80, tagsJson: "[\"stone\",\"raw_good\"]", orientations: "four_way")
                  })
         {
             var result = ReloadGood(voxel);
             Assert.IsTrue(result.Changed);
-            var currentSemantic = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")].SemanticRevision;
+            var currentSemantic = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].SemanticRevision;
             Assert.AreNotEqual(previousSemantic, currentSemantic);
             previousSemantic = currentSemantic;
         }
@@ -579,33 +573,32 @@ public sealed class ContentReloaderTests
     public void Successful_reload_reports_added_removed_and_pixel_changes()
     {
         using var session = LoggerSession.Create();
-        var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "coal.voxels.json", ContentFixtures.GoodsFile(
+        var initial = ContentFixtures.ValidFerrousOre();
+        initial.AddDefinitionFile("core", "coal.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
-        ContentFixtures.AddSquareImages(source, "coal.png");
+        ContentFixtures.AddSquareImages(initial, "coal.png");
+        var source = new SwitchableContentSource(initial);
         var reloader = ContentFixtures.Create(source, session.Logger);
         reloader.Reload();
 
-        var notifications = new List<VoxelCatalogChange>();
-        reloader.Catalog.Changed += notifications.Add;
-        var previous = reloader.Catalog.Current!;
-        source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "stone.voxels.json", ContentFixtures.GoodsFile(
+        var notifications = new List<ContentChange>();
+        reloader.Changed += notifications.Add;
+        var previous = reloader.Current!;
+        var updated = ContentFixtures.ValidFerrousOre();
+        updated.AddDefinitionFile("core", "stone.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("stone", "石", "石说明", icon: "stone.png", voxel: "stone.png")));
-        ContentFixtures.AddSquareImages(source, "stone.png");
-        source.AddImage("core", "iron.png", ContentFixtures.Square(16, 9));
-        var rebuilt = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog);
-        var result = rebuilt.Reload();
+        ContentFixtures.AddSquareImages(updated, "stone.png");
+        updated.AddImage("core", "iron.png", ContentFixtures.Square(16, 9));
+        source.Current = updated;
+        var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        CollectionAssert.AreEquivalent(new[] { new VoxelDefinitionId("core", "stone") }, result.Added.ToArray());
-        CollectionAssert.AreEquivalent(new[] { new VoxelDefinitionId("core", "coal") }, result.Removed.ToArray());
-        CollectionAssert.AreEquivalent(new[] { new VoxelDefinitionId("core", "ferrous-ore") }, result.ChangedIds.ToArray());
         Assert.AreEqual(1, notifications.Count);
-        Assert.AreEqual(result.CatalogVersion, notifications[0].Generation);
-        Assert.IsTrue(previous.TryGet(new VoxelDefinitionId("core", "coal"), out _));
-        Assert.IsFalse(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "coal"), out _));
-        Assert.AreNotSame(previous, reloader.Catalog.Current);
+        Assert.AreSame(previous, notifications[0].Previous);
+        Assert.AreSame(result.Snapshot, notifications[0].Current);
+        Assert.IsTrue(previous.Voxels.TryGetValue(new VoxelDefinitionId("core", "coal"), out _));
+        Assert.IsFalse(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "coal"), out _));
+        Assert.AreNotSame(previous, reloader.Current);
     }
 
     [TestMethod]
@@ -613,7 +606,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
+        source.AddDefinitionFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var reloader = ContentFixtures.Create(source, session.Logger);
         reloader.Reload();
 
@@ -636,26 +629,26 @@ public sealed class ContentReloaderTests
         var source = ContentFixtures.ValidFerrousOre();
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 101)));
         var secondSawCommit = false;
-        reloader.Catalog.Changed += _ => throw new InvalidOperationException("observer failure");
-        reloader.Catalog.Changed += _ => secondSawCommit = true;
+        reloader.Changed += _ => throw new InvalidOperationException("observer failure");
+        reloader.Changed += _ => secondSawCommit = true;
 
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(secondSawCommit);
-        Assert.AreEqual(101, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")].Definition.Value);
+        Assert.AreEqual(101, reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].Definition.Value);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.NotifyFailedEventId &&
             item.Level == LogLevel.Error));
 
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 102)));
         var later = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, later.Status);
-        Assert.AreEqual(102, reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")].Definition.Value);
+        Assert.AreEqual(102, reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].Definition.Value);
     }
 
     [TestMethod]
@@ -669,7 +662,7 @@ public sealed class ContentReloaderTests
         var first = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, first.Status);
-        var accepted = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")].AssetRevisions["iron.png"];
+        var accepted = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].AssetRevisions["iron.png"];
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(FlipAfterReadSource.GoodBytes)), accepted);
         Assert.AreNotEqual(Convert.ToHexString(SHA256.HashData(FlipAfterReadSource.BadBytes)), accepted);
 
@@ -687,14 +680,14 @@ public sealed class ContentReloaderTests
         source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: firstBytes);
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var baseline = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var baseline = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
 
         source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: secondBytes);
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(result.Changed);
-        var after = reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
+        var after = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         Assert.AreEqual(baseline.SemanticRevision, after.SemanticRevision);
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(firstBytes)), baseline.AssetRevisions["iron.png"]);
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(secondBytes)), after.AssetRevisions["iron.png"]);
@@ -704,7 +697,7 @@ public sealed class ContentReloaderTests
     private static ContentReloadResult ReloadWithImage(LoggerSession session, string path, DecodedImage image)
     {
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
+        source.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         source.AddImage("core", path, image);
         return ContentFixtures.Create(source, session.Logger).Reload();
     }
@@ -712,7 +705,7 @@ public sealed class ContentReloaderTests
     private static ContentReloadResult ReloadWithFaces(LoggerSession session, int top, int side, int bottom)
     {
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "n.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron", "铁矿", "说明", icon: "icon.png", voxel: null, top: "top.png", side: "side.png", bottom: "bottom.png")));
         source.AddImage("core", "icon.png", ContentFixtures.Square(16));
         source.AddImage("core", "top.png", ContentFixtures.Square(top, 2));
@@ -732,9 +725,9 @@ internal sealed class InvalidDiscoverySource : IContentSource
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _inner.ListScanDiagnostics();
 
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package)
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package)
     {
-        var inner = _inner.ListVoxelFiles(package);
+        var inner = _inner.ListDefinitionFiles(package);
         return new ContentFileDiscovery(
             inner.Files,
             new[] { ContentPackageWalk.LinkedPathDiagnostic("res://linked") },
@@ -766,7 +759,7 @@ internal sealed class FlipAfterReadSource : IContentSource
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _inner.ListScanDiagnostics();
 
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) => _inner.ListVoxelFiles(package);
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) => _inner.ListDefinitionFiles(package);
 
 
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes)
@@ -809,8 +802,7 @@ internal sealed class BlockingContentSource(
     }
 
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => inner.ListScanDiagnostics();
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) => inner.ListVoxelFiles(package);
-    public ContentFileDiscovery ListCompositeFiles(ContentPackage package) => inner.ListCompositeFiles(package);
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) => inner.ListDefinitionFiles(package);
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes) =>
         inner.ReadFile(package, normalizedRelativePath, maxBytes);
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath) =>

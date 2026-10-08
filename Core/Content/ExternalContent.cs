@@ -125,13 +125,9 @@ public static class ExternalContent
             ? children
             : Array.Empty<ModFolderCandidate>();
 
-    /// <summary>发现物理资源根中的体素定义文件。</summary><param name="resourcesRoot">资源根。</param><returns>发现结果。</returns>
-    public static ContentFileDiscovery ListVoxelFiles(string resourcesRoot) =>
-        ListDataFiles(resourcesRoot, ".voxels.json");
-
-    /// <summary>发现物理资源根中的组合定义文件。</summary><param name="resourcesRoot">资源根。</param><returns>发现结果。</returns>
-    public static ContentFileDiscovery ListCompositeFiles(string resourcesRoot) =>
-        ListDataFiles(resourcesRoot, ".composites.json");
+    /// <summary>发现物理资源根中的 JSON 数据文件；格式由加载器解释。</summary><param name="resourcesRoot">资源根。</param><returns>文件、发现诊断和包无效标记。</returns>
+    public static ContentFileDiscovery ListDefinitionFiles(string resourcesRoot) =>
+        ListDataFiles(resourcesRoot, ".json");
 
     /// <summary>安全列出玩家蓝图根目录中的直接 JSON 文件。</summary><param name="trustedUserDataRoot">可信用户数据根。</param><param name="blueprintsPath">蓝图物理根。</param><param name="files">成功时返回文件名与物理路径。</param><param name="error">失败原因。</param><returns>根目录可安全列举时为 <see langword="true"/>。</returns>
     public static bool TryListBlueprintFiles(

@@ -62,7 +62,7 @@ public sealed class ExternalPathTests
             Assert.AreEqual(1, scan.AcceptedCount);
             Assert.AreEqual(ModFixtures.SampleUuid, scan.Packages.Single().Namespace);
 
-            var discovery = ExternalContent.ListVoxelFiles(resources);
+            var discovery = ExternalContent.ListDefinitionFiles(resources);
             CollectionAssert.AreEqual(new[] { "copper.voxels.json" }, discovery.Files.ToArray());
             Assert.IsFalse(discovery.Invalid);
 
@@ -104,7 +104,7 @@ public sealed class ExternalPathTests
             Assert.IsTrue(ExternalPath.IsReparsePoint(junction));
             Assert.IsTrue(ExternalPath.IsUnsafe(resources, Path.Combine(junction, "hidden.voxels.json")));
 
-            var discovery = ExternalContent.ListVoxelFiles(resources);
+            var discovery = ExternalContent.ListDefinitionFiles(resources);
             Assert.IsTrue(discovery.Invalid);
             Assert.IsTrue(discovery.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnsafeLinkedPath));
             Assert.IsTrue(discovery.Files.Contains("safe.voxels.json"));

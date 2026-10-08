@@ -187,7 +187,7 @@ public sealed class ContentOrigin
 }
 
 /// <summary>表示解码后、与图像库无关的像素数据。</summary>
-/// <remarks>宽高和格式由解码器提供，本类型不验证尺寸、格式支持性或像素字节数。像素数组通过只读接口包装，调用方须保持原数组内容稳定。</remarks>
+/// <remarks>宽高和格式由解码器提供，本类型不验证尺寸、格式支持性或像素字节数。像素数组复制后通过只读接口提供，外部数组修改不会改变本图像。</remarks>
 /// <example>8×4 图像可以表示为解码结果，但内容加载器会根据表现规则拒绝不合要求的宽高；见 <c>ContentReloaderTests.Image_shape_and_size_rules_reject_incompatible_visuals</c>。</example>
 public sealed class DecodedImage
 {
@@ -197,14 +197,14 @@ public sealed class DecodedImage
     public int Height { get; }
     /// <summary>取得解码器提供的像素格式名称，原文保留，具体排列由解码器和消费方约定。</summary>
     public string Format { get; }
-    /// <summary>取得输入像素数组的只读包装；排列由 <see cref="Format"/> 定义，原数组的修改会反映到此视图。</summary>
+    /// <summary>取得不可修改的像素副本；排列由 <see cref="Format"/> 定义。</summary>
     public IReadOnlyList<byte> Pixels { get; }
 
-    /// <summary>保存解码图像的尺寸和格式，并通过只读集合包装像素数组。</summary>
+    /// <summary>保存解码图像的尺寸和格式，并复制像素数组为只读集合。</summary>
     /// <param name="width">调用方提供的图像宽度，单位为像素。</param>
     /// <param name="height">调用方提供的图像高度，单位为像素。</param>
     /// <param name="format">非空的像素格式名称。</param>
-    /// <param name="pixels">像素字节数组；不复制，允许空数组。</param>
+    /// <param name="pixels">像素字节数组；复制后保存，允许空数组。</param>
     /// <exception cref="ArgumentNullException">format 或 pixels 为 null。</exception>
     /// <exception cref="ArgumentException">format 为空字符串。</exception>
     public DecodedImage(int width, int height, string format, byte[] pixels)
@@ -214,7 +214,7 @@ public sealed class DecodedImage
         Width = width;
         Height = height;
         Format = format;
-        Pixels = new ReadOnlyCollection<byte>(pixels);
+        Pixels = new ReadOnlyCollection<byte>((byte[])pixels.Clone());
     }
 }
 

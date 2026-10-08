@@ -21,7 +21,7 @@ public sealed class CompositeContentTests
         var (reloader, logger) = CompositeFixtures.Load();
         using (logger)
         {
-            Assert.IsTrue(reloader.Composites.Current.TryGet(TestDefinitionId, out var entry));
+            Assert.IsTrue(reloader.Current!.Blueprints.TryGetValue(TestDefinitionId, out var entry));
             Assert.AreEqual(VehicleSizeClass.Small, entry.Definition.SizeClass);
             Assert.AreEqual(4, entry.Definition.Voxels.Count);
             Assert.AreEqual(10d, entry.Attributes.Mass);
@@ -51,7 +51,7 @@ public sealed class CompositeContentTests
         {
             using var session = LoggerSession.Create();
             var source = ContentFixtures.ValidFerrousOre();
-            source.AddCompositeFile("core", "bad.composites.json", json);
+            source.AddDefinitionFile("core", "bad.composites.json", json);
             Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status, json);
         }
     }
@@ -61,7 +61,7 @@ public sealed class CompositeContentTests
     {
         using var session = LoggerSession.Create();
         var source = CompositeFixtures.VehiclePackage();
-        source.AddCompositeFile("core", "other.composites.json", CompositeFixtures.File(null, CompositeFixtures.Composite()));
+        source.AddDefinitionFile("core", "other.composites.json", CompositeFixtures.File(null, CompositeFixtures.Composite()));
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status);
     }
 
@@ -72,13 +72,13 @@ public sealed class CompositeContentTests
         const string broken = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
         var source = CompositeFixtures.VehiclePackage();
         source.AddMod("broken", broken);
-        source.AddCompositeFile(broken, "composites/bad.composites.json",
+        source.AddDefinitionFile(broken, "composites/bad.composites.json",
             CompositeFixtures.File(null, CompositeFixtures.Composite(id: "bad", voxels: CompositeFixtures.Voxel(0, 0, 0, "missing-part"))),
             "memory://mods/broken/resources");
 
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.IsTrue(result.IsCommitted);
-        Assert.IsTrue(result.WarningCount > 0);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning));
     }
 
     [TestMethod]
@@ -90,21 +90,21 @@ public sealed class CompositeContentTests
         var source = CompositeFixtures.VehiclePackage();
         source.AddMod("broken", broken);
         source.AddMod("dependent", dependent);
-        source.AddVoxelFile(broken, "voxels/shared-part.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile(broken, "voxels/shared-part.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("shared-part", "共享部件", "说明", tagsJson: "[]")),
             "memory://mods/broken/resources");
         source.AddImage(broken, "iron.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/broken/resources");
-        source.AddCompositeFile(broken, "composites/bad.composites.json", "{\"schema_version\":2,\"extra\":true}",
+        source.AddDefinitionFile(broken, "composites/bad.composites.json", "{\"schema_version\":2,\"extra\":true}",
             "memory://mods/broken/resources");
-        source.AddCompositeFile(dependent, "composites/dependent.composites.json", CompositeFixtures.File(null,
+        source.AddDefinitionFile(dependent, "composites/dependent.composites.json", CompositeFixtures.File(null,
             CompositeFixtures.Composite(id: "dependent", voxels: CompositeFixtures.Voxel(0, 0, 0, broken + ":shared-part"))),
             "memory://mods/dependent/resources");
 
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.IsTrue(reloader.Reload().IsCommitted);
-        Assert.IsTrue(reloader.Composites.Current.TryGet(TestDefinitionId, out _));
-        Assert.IsFalse(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId(broken, "shared-part"), out _));
-        Assert.IsFalse(reloader.Composites.Current.TryGet(new CompositeDefinitionId(dependent, "dependent"), out _));
+        Assert.IsTrue(reloader.Current!.Blueprints.TryGetValue(TestDefinitionId, out _));
+        Assert.IsFalse(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId(broken, "shared-part"), out _));
+        Assert.IsFalse(reloader.Current.Blueprints.TryGetValue(new CompositeDefinitionId(dependent, "dependent"), out _));
     }
 
     [TestMethod]
@@ -118,32 +118,41 @@ public sealed class CompositeContentTests
             voxels: string.Join(",",
                 CompositeFixtures.Voxel(0, 0, 0, "core:vehicle-shell"),
                 CompositeFixtures.Voxel(1, 0, 0, "core:control-unit")))));
+        var playerPackage = source.ListPackages().Single(package => package.Kind == ContentPackageKind.PlayerBlueprint);
+        // 通用发现会列出这些文件，只有蓝图格式可以解释 UUID 同名的根级文档。
+        foreach (var ignored in new[] { "extra.voxels.json", "extra.composites.json", "nested/" + uuid + ".composites.json" })
+            source.AddDefinitionFile(uuid, ignored, "invalid JSON", playerPackage.ResourcesRoot);
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.IsTrue(reloader.Composites.Current.TryGet(new CompositeDefinitionId(uuid, "player-car"), out var entry));
+        Assert.IsTrue(reloader.Current!.Blueprints.TryGetValue(new CompositeDefinitionId(uuid, "player-car"), out var entry));
         Assert.AreEqual("我的手写蓝图", entry.FileDisplayName);
         Assert.AreEqual(3d, entry.Attributes.Mass);
         Assert.IsTrue(entry.Attributes.HasControl);
+        Assert.IsFalse(reloader.Current.Voxels.Keys.Any(id => id.Namespace == uuid));
     }
 
     [TestMethod]
     public void Missing_required_fields_reject_built_in_and_keep_both_snapshots()
     {
-        var (baseline, logger) = CompositeFixtures.Load();
+        var switchable = new SwitchableContentSource(CompositeFixtures.VehiclePackage());
+        using var logger = LoggerSession.Create();
+        var baseline = ContentFixtures.Create(switchable, logger.Logger);
+        Assert.IsTrue(baseline.Reload().IsCommitted);
         using (logger)
         {
-            var voxelSnapshot = baseline.Catalog.Current;
-            var blueprintSnapshot = baseline.Composites.Current;
+            var voxelSnapshot = baseline.Current;
+            var blueprintSnapshot = baseline.Current;
             foreach (var field in new[] { "id", "name", "description", "size_class", "voxels" })
             {
                 var source = CompositeFixtures.VehiclePackage();
-                source.AddCompositeFile("core", "composites/dev-train.composites.json",
+                source.AddDefinitionFile("core", "composites/dev-train.composites.json",
                     CompositeFixtures.File(null, CompositeWithout(field)));
-                var result = ContentFixtures.Create(source, logger.Logger, baseline.Catalog, baseline.Composites).Reload();
+                switchable.Current = source;
+                var result = baseline.Reload();
                 Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, field);
-                Assert.AreSame(voxelSnapshot, baseline.Catalog.Current, field);
-                Assert.AreSame(blueprintSnapshot, baseline.Composites.Current, field);
+                Assert.AreSame(voxelSnapshot, baseline.Current, field);
+                Assert.AreSame(blueprintSnapshot, baseline.Current, field);
             }
         }
     }
@@ -155,14 +164,14 @@ public sealed class CompositeContentTests
         var (reloader, logger) = CompositeFixtures.Load(source);
         using (logger)
         {
-            var before = reloader.Composites.Current.Composites[TestDefinitionId];
-            source.AddCompositeFile("core", "composites/dev-train.composites.json", CompositeFixtures.File(null,
+            var before = reloader.Current!.Blueprints[TestDefinitionId];
+            source.AddDefinitionFile("core", "composites/dev-train.composites.json", CompositeFixtures.File(null,
                 CompositeFixtures.Composite(voxels: string.Join(",",
                     CompositeFixtures.Voxel(0, 0, 0),
                     CompositeFixtures.Voxel(1, 0, 0, CompositeFixtures.ControlId)))));
 
             Assert.IsTrue(reloader.Reload().Changed);
-            var after = reloader.Composites.Current.Composites[TestDefinitionId];
+            var after = reloader.Current.Blueprints[TestDefinitionId];
             Assert.AreNotEqual(before.SemanticRevision, after.SemanticRevision);
             Assert.AreEqual(3d, after.Attributes.Mass);
             Assert.AreEqual(30L, after.Attributes.BomValue);
@@ -178,14 +187,14 @@ public sealed class CompositeContentTests
         var (reloader, logger) = CompositeFixtures.Load(source);
         using (logger)
         {
-            var before = reloader.Composites.Current.Composites[TestDefinitionId];
+            var before = reloader.Current!.Blueprints[TestDefinitionId];
             CompositeFixtures.AddVoxel(source, CompositeFixtures.PropulsionId, "动力", 35, 3.5,
                 behaviorsJson: "[{\"type\":\"propulsion\",\"traction\":25,\"rated_speed\":30}]");
             CompositeFixtures.AddVoxel(source, CompositeFixtures.CargoId, "货舱", 45, 4.5,
                 behaviorsJson: "[{\"type\":\"cargo\",\"capacity\":6}]");
 
             Assert.IsTrue(reloader.Reload().Changed);
-            var after = reloader.Composites.Current.Composites[TestDefinitionId];
+            var after = reloader.Current.Blueprints[TestDefinitionId];
             Assert.AreEqual(before.SemanticRevision, after.SemanticRevision);
             Assert.AreEqual(11d, after.Attributes.Mass);
             Assert.AreEqual(25d, after.Attributes.Traction);
@@ -202,18 +211,19 @@ public sealed class CompositeContentTests
         var (reloader, logger) = CompositeFixtures.Load(source);
         using (logger)
         {
-            var before = reloader.Composites.Current.Composites[TestDefinitionId];
-            source.AddCompositeFile("core", "composites/dev-train.composites.json",
+            var before = reloader.Current!.Blueprints[TestDefinitionId];
+            source.AddDefinitionFile("core", "composites/dev-train.composites.json",
                 CompositeFixtures.File("展示名", CompositeFixtures.Composite(name: "新名称", description: "新说明")));
             Assert.IsTrue(reloader.Reload().Changed);
-            var display = reloader.Composites.Current.Composites[TestDefinitionId];
+            var display = reloader.Current.Blueprints[TestDefinitionId];
             Assert.AreEqual(before.SemanticRevision, display.SemanticRevision);
             Assert.AreEqual(before.Attributes.BomValue, display.Attributes.BomValue);
 
-            var blueprintSnapshot = reloader.Composites.Current;
+            var blueprintSnapshot = reloader.Current;
             source.AddImage("core", "iron.png", ContentFixtures.Square(16, 9), rawBytes: new byte[] { 9, 9, 9 });
             Assert.IsTrue(reloader.Reload().Changed);
-            Assert.AreSame(blueprintSnapshot, reloader.Composites.Current);
+            Assert.AreNotSame(blueprintSnapshot, reloader.Current);
+            Assert.AreEqual(blueprintSnapshot.Generation + 1, reloader.Current!.Generation);
         }
     }
 
@@ -221,21 +231,21 @@ public sealed class CompositeContentTests
     public void Attribute_overflow_rejects_reload_and_keeps_both_snapshots()
     {
         var source = CompositeFixtures.VehiclePackage();
-        source.AddCompositeFile("core", "composites/dev-train.composites.json", CompositeFixtures.File(null,
+        source.AddDefinitionFile("core", "composites/dev-train.composites.json", CompositeFixtures.File(null,
             CompositeFixtures.Composite(voxels: string.Join(",",
                 CompositeFixtures.Voxel(0, 0, 0, CompositeFixtures.PropulsionId),
                 CompositeFixtures.Voxel(1, 0, 0, CompositeFixtures.PropulsionId)))));
         var (reloader, logger) = CompositeFixtures.Load(source);
         using (logger)
         {
-            var voxelSnapshot = reloader.Catalog.Current;
-            var blueprintSnapshot = reloader.Composites.Current;
+            var voxelSnapshot = reloader.Current;
+            var blueprintSnapshot = reloader.Current;
             CompositeFixtures.AddVoxel(source, CompositeFixtures.PropulsionId, "动力", 30, 3,
                 behaviorsJson: "[{\"type\":\"propulsion\",\"traction\":1.7976931348623157E+308,\"rated_speed\":20}]");
 
             Assert.AreEqual(ContentReloadStatus.Rejected, reloader.Reload().Status);
-            Assert.AreSame(voxelSnapshot, reloader.Catalog.Current);
-            Assert.AreSame(blueprintSnapshot, reloader.Composites.Current);
+            Assert.AreSame(voxelSnapshot, reloader.Current);
+            Assert.AreSame(blueprintSnapshot, reloader.Current);
         }
     }
 

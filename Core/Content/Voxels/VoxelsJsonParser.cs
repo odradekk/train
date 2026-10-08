@@ -3,9 +3,8 @@
 
 using System.Text.Json;
 using Train.Core.Content.Behaviors;
-using Train.Core.Content.Voxels;
 
-namespace Train.Core.Content;
+namespace Train.Core.Content.Voxels;
 
 /// <summary>暂存通过字段校验的体素定义及其源文件，等待包和图片校验。</summary>
 internal sealed class ParsedVoxel

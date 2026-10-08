@@ -1,7 +1,6 @@
 // Core 内容测试夹具：提供最小体素、Mod 与图片输入。
 // 通过内存内容源提供确定的文件字节和解码结果。
 using Train.Core.Content;
-using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 using Train.Core.Logging;
 
@@ -19,17 +18,12 @@ internal static class ContentFixtures
     public static MemoryContentSource ValidFerrousOre()
     {
         var source = CorePackage();
-        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", GoodsFile(Good("ferrous-ore", "Ferrous Ore", "说明")));
+        source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", GoodsFile(Good("ferrous-ore", "Ferrous Ore", "说明")));
         AddSquareImages(source, "iron.png");
         return source;
     }
 
-    public static ContentReloader Create(
-        IContentSource source,
-        TrainLogger logger,
-        VoxelCatalog? catalog = null,
-        CompositeCatalog? composites = null) =>
-        new(source, logger, catalog, composites);
+    public static ContentReloader Create(IContentSource source, TrainLogger logger) => new(source, logger);
 
     public static void AddSquareImages(MemoryContentSource source, params string[] paths)
     {
@@ -91,4 +85,15 @@ internal static class ContentFixtures
         var escaped = value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\0", "\\u0000");
         return $"\"{escaped}\"";
     }
+}
+
+internal sealed class SwitchableContentSource(IContentSource current) : IContentSource
+{
+    public IContentSource Current { get; set; } = current;
+    public IReadOnlyList<ContentPackage> ListPackages() => Current.ListPackages();
+    public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => Current.ListScanDiagnostics();
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) => Current.ListDefinitionFiles(package);
+    public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes) => Current.ReadFile(package, normalizedRelativePath, maxBytes);
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath) => Current.DecodePng(package, normalizedRelativePath);
+    public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes) => Current.DecodePng(package, normalizedRelativePath, rawBytes);
 }

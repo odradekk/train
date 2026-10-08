@@ -1,10 +1,9 @@
 // 属于内容层的蓝图定义解析模块。
 // 严格校验 schema 2 文件并创建不可变蓝图定义。
 using System.Text.Json;
-using Train.Core.Content.Composites;
 using Train.Core.Content.Voxels;
 
-namespace Train.Core.Content;
+namespace Train.Core.Content.Composites;
 
 /// <summary>表示一个蓝图文件解析后的可选显示名称和蓝图定义。</summary>
 /// <remarks>定义保持文件声明顺序；每个定义自身的体素布局按坐标排序。</remarks>

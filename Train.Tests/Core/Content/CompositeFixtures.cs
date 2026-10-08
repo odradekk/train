@@ -53,7 +53,7 @@ internal static class CompositeFixtures
         AddVoxel(source, CargoId, "货舱", 40, 4,
             behaviorsJson: "[{\"type\":\"cargo\",\"capacity\":4}]");
         ContentFixtures.AddSquareImages(source, "iron.png");
-        source.AddCompositeFile("core", "composites/dev-train.composites.json", File(null, Composite()));
+        source.AddDefinitionFile("core", "composites/dev-train.composites.json", File(null, Composite()));
         return source;
     }
 
@@ -67,7 +67,7 @@ internal static class CompositeFixtures
         int maxDurability = 100,
         string behaviorsJson = "[]",
         string orientations = "all_24") =>
-        source.AddVoxelFile("core", $"voxels/{id}.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", $"voxels/{id}.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good(id, name, name + "说明", value, mass, maxDurability,
                 tagsJson: "[]", behaviorsJson: behaviorsJson, orientations: orientations)));
 

@@ -38,7 +38,8 @@ internal static class StartupChecks
     /// <summary>验证已发布目录、导出包的原始 JSON/PNG 与本次日志文件均可读取。</summary>
     internal static bool ContentExport(ContentReloader reloader, ContentReloadResult loaded, TrainLogger logger)
     {
-        var ok = ReportCatalog(reloader, loaded, "CONTENT_EXPORT");
+        var snapshot = reloader.Current;
+        var ok = ReportCatalog(snapshot, loaded, "CONTENT_EXPORT");
         ok &= Report(CanReadResource(VoxelJson), "CONTENT_EXPORT_JSON_READABLE");
         var pngs = new[] { "icon", "top", "side", "bottom" };
         ok &= Report(pngs.All(name => CanReadResource($"res://builtin/core/resources/voxels/ferrous-ore/{name}.png")),
@@ -50,7 +51,8 @@ internal static class StartupChecks
     /// <summary>验证用户 Mod 根缺失或为空时，导出程序仍可加载内置内容。</summary>
     internal static bool ModsExport(ContentReloader reloader, ContentReloadResult loaded, string userData)
     {
-        var ok = ReportCatalog(reloader, loaded, "MODS_EXPORT");
+        var snapshot = reloader.Current;
+        var ok = ReportCatalog(snapshot, loaded, "MODS_EXPORT");
         var mods = Path.Combine(userData, "mods");
         if (!Directory.Exists(mods))
             return Report(true, "MODS_EXPORT_ROOT_UNAVAILABLE") && ok;
@@ -60,9 +62,9 @@ internal static class StartupChecks
     }
 
     /// <summary>报告已加载内置体素及表现资产的检查结果；任一条件不满足则返回 false。</summary>
-    internal static bool ReportCatalog(ContentReloader reloader, ContentReloadResult loaded, string prefix)
+    internal static bool ReportCatalog(ContentSnapshot? snapshot, ContentReloadResult loaded, string prefix)
     {
-        var found = reloader.Catalog.Current?.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _) == true;
+        var found = snapshot?.Voxels.ContainsKey(new VoxelDefinitionId("core", "ferrous-ore")) == true;
         var ok = Report(loaded.IsCommitted && found, $"{prefix}_FERROUS_ORE_LOADED");
         // 成功发布要求候选构建器已通过真实来源读取并解码全部引用图片。
         ok &= Report(loaded.IsCommitted && found, $"{prefix}_PNG_DECODED");

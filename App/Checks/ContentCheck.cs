@@ -18,8 +18,8 @@ internal sealed class ContentCheck : IContentSource
     private GodotContentSource _current;
     // false 表示初始校验尚未完成，true 表示已切换来源并等待宿主的输入重载结果。
     private bool _awaitingReload;
-    // 初始发布的目录代数，用于确认重载确实发布了新目录。
-    private long _initialGeneration;
+    // 初始发布的快照，用于和后续重载快照比较探针成员。
+    private ContentSnapshot? _initialSnapshot;
     /// <summary>运行器在 added 输入中追加的体素标识，用于观察新增与移除。</summary>
     private static readonly VoxelDefinitionId ProbeId = new("core", "smoke-ore");
 
@@ -43,13 +43,14 @@ internal sealed class ContentCheck : IContentSource
     {
         if (!_awaitingReload)
         {
-            var initialOk = StartupChecks.ReportCatalog(reloader, lastReload, "CONTENT");
+            var initialSnapshot = reloader.Current;
+            var initialOk = StartupChecks.ReportCatalog(initialSnapshot, lastReload, "CONTENT");
             initialOk &= StartupChecks.Report(InputMap.HasAction(App.ReloadContentAction), "CONTENT_RELOAD_ACTION_PRESENT");
             initialOk &= StartupChecks.Report(StartupChecks.CanReadResource(StartupChecks.VoxelJson), "CONTENT_VFS_JSON_READABLE");
             initialOk &= StartupChecks.Report(StartupChecks.CanReadResource(StartupChecks.IconPng), "CONTENT_VFS_PNG_READABLE");
-            if (!initialOk || reloader.Catalog.Current!.TryGet(ProbeId, out _))
+            if (!initialOk || initialSnapshot is null || initialSnapshot.Voxels.ContainsKey(ProbeId))
                 return false;
-            _initialGeneration = reloader.Catalog.Current.Generation;
+            _initialSnapshot = initialSnapshot;
             _current = _added;
             _awaitingReload = true;
             if (OS.IsDebugBuild())
@@ -63,23 +64,32 @@ internal sealed class ContentCheck : IContentSource
             return null;
         }
 
-        var added = lastReload.IsCommitted && lastReload.Added.Contains(ProbeId) &&
-            reloader.Catalog.Current is { } catalog && catalog.Generation > _initialGeneration &&
-            catalog.TryGet(ProbeId, out _);
+        var addedSnapshot = reloader.Current;
+        var added = lastReload.IsCommitted &&
+            _initialSnapshot is { } beforeAddition &&
+            addedSnapshot is { } currentSnapshot &&
+            currentSnapshot.Generation > beforeAddition.Generation &&
+            !beforeAddition.Voxels.ContainsKey(ProbeId) &&
+            currentSnapshot.Voxels.ContainsKey(ProbeId);
         if (!StartupChecks.Report(added, "CONTENT_SMOKE_RELOADED"))
             return false;
         if (OS.IsDebugBuild())
             GD.Print("CONTENT_SMOKE_INPUT_RELOADED");
         _current = _initial;
+        var beforeRemovalSnapshot = addedSnapshot;
         var removed = reloader.Reload();
-        return StartupChecks.Report(removed.IsCommitted && removed.Removed.Contains(ProbeId) &&
-            !reloader.Catalog.Current!.TryGet(ProbeId, out _), "CONTENT_SMOKE_REMOVED");
+        var afterRemovalSnapshot = reloader.Current;
+        return StartupChecks.Report(removed.IsCommitted &&
+            beforeRemovalSnapshot is { } before &&
+            afterRemovalSnapshot is { } after &&
+            after.Generation > before.Generation &&
+            before.Voxels.ContainsKey(ProbeId) &&
+            !after.Voxels.ContainsKey(ProbeId), "CONTENT_SMOKE_REMOVED");
     }
 
     public IReadOnlyList<ContentPackage> ListPackages() => _current.ListPackages();
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _current.ListScanDiagnostics();
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) => _current.ListVoxelFiles(package);
-    public ContentFileDiscovery ListCompositeFiles(ContentPackage package) => _current.ListCompositeFiles(package);
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) => _current.ListDefinitionFiles(package);
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes) =>
         _current.ReadFile(package, normalizedRelativePath, maxBytes);
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath) =>

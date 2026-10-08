@@ -26,7 +26,7 @@ public sealed class IsolatedBuiltInContentTests
         try
         {
             File.WriteAllText(Path.Combine(isolated, "ferrous-ore.voxels.json"), mutated);
-            var listed = ExternalContent.ListVoxelFiles(Path.Combine(root, "isolated"));
+            var listed = ExternalContent.ListDefinitionFiles(Path.Combine(root, "isolated"));
             Assert.IsFalse(listed.Invalid);
             Assert.IsTrue(listed.Files.Contains("voxels/ferrous-ore.voxels.json"));
             var read = ExternalContent.ReadFile(Path.Combine(root, "isolated"), "voxels/ferrous-ore.voxels.json", ContentLimits.JsonFileMaxBytes);

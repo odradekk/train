@@ -29,7 +29,7 @@ public sealed class VoxelCollisionDefinitionTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(Ledge, out var entry));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(Ledge, out var entry));
         Assert.AreEqual(VoxelCollisionKind.LocalBox, entry.Definition.Collision.Kind);
         Assert.AreEqual(0.125, entry.Definition.Collision.OffsetX);
         Assert.AreEqual(0, entry.Definition.Collision.OffsetY);
@@ -45,13 +45,13 @@ public sealed class VoxelCollisionDefinitionTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "voxels/hollow.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/hollow.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("hollow", "空心", "说明", tagsJson: "[]", collisionJson: "{\"kind\":\"none\"}")));
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var snapshot = reloader.Catalog.Current;
-        Assert.AreEqual(VoxelCollisionKind.FullBox, snapshot!.Entries[Iron].Definition.Collision.Kind);
-        Assert.AreEqual(VoxelCollisionKind.None, snapshot.Entries[Hollow].Definition.Collision.Kind);
+        var snapshot = reloader.Current;
+        Assert.AreEqual(VoxelCollisionKind.FullBox, snapshot!.Voxels[Iron].Definition.Collision.Kind);
+        Assert.AreEqual(VoxelCollisionKind.None, snapshot.Voxels[Hollow].Definition.Collision.Kind);
 
         foreach (var collision in new[]
                  {
@@ -60,13 +60,13 @@ public sealed class VoxelCollisionDefinitionTests
                      "{\"kind\":\"full_box\",\"extra\":1}"
                  })
         {
-            source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", collisionJson: collision)));
 
             var rejected = reloader.Reload();
 
             Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, collision);
-            Assert.AreSame(snapshot, reloader.Catalog.Current);
+            Assert.AreSame(snapshot, reloader.Current);
         }
     }
 
@@ -100,13 +100,13 @@ public sealed class VoxelCollisionDefinitionTests
             var rejected = reloader.Reload();
 
             Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, collision);
-            Assert.IsNull(reloader.Catalog.Current);
+            Assert.IsNull(reloader.Current);
         }
 
         using var modSession = LoggerSession.Create();
         var mixed = ModFixtures.CorePlusCopper();
         mixed.AddMod("broken-box", ModFixtures.OtherUuid);
-        mixed.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
+        mixed.AddDefinitionFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
                 collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0.8, sizeX: 0.3))));
         mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
@@ -115,8 +115,8 @@ public sealed class VoxelCollisionDefinitionTests
         var isolated = mods.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, isolated.Status);
-        Assert.IsTrue(mods.Catalog.Current!.TryGet(Iron, out _));
-        Assert.IsFalse(mods.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
+        Assert.IsTrue(mods.Current!.Voxels.TryGetValue(Iron, out _));
+        Assert.IsFalse(mods.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
     }
 
     [TestMethod]
@@ -135,13 +135,13 @@ public sealed class VoxelCollisionDefinitionTests
             var rejected = reloader.Reload();
 
             Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status, $"size.x={sizeX:G17}");
-            Assert.IsNull(reloader.Catalog.Current);
+            Assert.IsNull(reloader.Current);
         }
 
         using var modSession = LoggerSession.Create();
         var mixed = ModFixtures.CorePlusCopper();
         mixed.AddMod("thin-underflow", ModFixtures.OtherUuid);
-        mixed.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
+        mixed.AddDefinitionFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
                 collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-50))));
         mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
@@ -150,25 +150,25 @@ public sealed class VoxelCollisionDefinitionTests
         var isolated = mods.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, isolated.Status);
-        Assert.IsTrue(mods.Catalog.Current!.TryGet(Iron, out _));
-        Assert.IsFalse(mods.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
+        Assert.IsTrue(mods.Current!.Voxels.TryGetValue(Iron, out _));
+        Assert.IsFalse(mods.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.OtherUuid, "ledge"), out _));
     }
 
     [TestMethod]
-    public void Local_box_kind_and_geometry_enter_canonical_semantic_revision()
+    public void Collision_changes_publish_without_changing_semantic_revision()
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
         AddLedge(source);
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        var baseline = reloader.Catalog.Current!.Entries[Ledge].SemanticRevision;
+        var baseline = reloader.Current!.Voxels[Ledge].SemanticRevision;
 
-        source.AddVoxelFile("core", "voxels/ledge.voxels.json", """
+        source.AddDefinitionFile("core", "voxels/ledge.voxels.json", """
             {"schema_version":2,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"size":{"z":0.5,"y":0.875,"x":0.25},"kind":"local_box","offset":{"z":0.25,"y":0,"x":0.125}},"description":"说明","id":"ledge","mass":1,"max_durability":100,"name":"台沿","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":[],"value":10}]}
             """);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreEqual(baseline, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
+        Assert.AreEqual(baseline, reloader.Current!.Voxels[Ledge].SemanticRevision);
 
         var previousCulture = CultureInfo.CurrentCulture;
         CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
@@ -176,7 +176,7 @@ public sealed class VoxelCollisionDefinitionTests
         {
             AddLedge(source);
             Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-            Assert.AreEqual(baseline, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
+            Assert.AreEqual(baseline, reloader.Current!.Voxels[Ledge].SemanticRevision);
         }
         finally
         {
@@ -185,21 +185,25 @@ public sealed class VoxelCollisionDefinitionTests
 
         AddLedge(source, name: "新台沿", description: "新说明");
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreEqual(baseline, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
-        Assert.AreEqual("新台沿", reloader.Catalog.Current.Entries[Ledge].Definition.Name);
+        Assert.AreEqual(baseline, reloader.Current!.Voxels[Ledge].SemanticRevision);
+        Assert.AreEqual("新台沿", reloader.Current.Voxels[Ledge].Definition.Name);
 
         source.AddImage("core", "iron.png", ContentFixtures.Square(16, 7));
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreEqual(baseline, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
+        Assert.AreEqual(baseline, reloader.Current!.Voxels[Ledge].SemanticRevision);
 
         AddLedge(source, ContentFixtures.LocalBoxCollision(sizeX: 0.3), "新台沿", "新说明");
-        Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreNotEqual(baseline, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
+        var beforeGeometry = reloader.Current;
+        var geometry = reloader.Reload();
+        Assert.AreEqual(ContentReloadStatus.Committed, geometry.Status);
+        Assert.IsTrue(geometry.Changed);
+        Assert.AreEqual(beforeGeometry!.Generation + 1, geometry.Snapshot!.Generation);
+        Assert.AreEqual(baseline, reloader.Current!.Voxels[Ledge].SemanticRevision);
 
-        var afterGeometry = reloader.Catalog.Current.Entries[Ledge].SemanticRevision;
+        var afterGeometry = reloader.Current.Voxels[Ledge].SemanticRevision;
         AddLedge(source, "{\"kind\":\"full_box\"}", "新台沿", "新说明");
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.AreNotEqual(afterGeometry, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);
+        Assert.AreEqual(afterGeometry, reloader.Current!.Voxels[Ledge].SemanticRevision);
     }
 
     private static void AddLedge(
@@ -207,7 +211,7 @@ public sealed class VoxelCollisionDefinitionTests
         string? collision = null,
         string name = "台沿",
         string description = "说明") =>
-        source.AddVoxelFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile("core", "voxels/ledge.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good(
                 "ledge",
                 name,
