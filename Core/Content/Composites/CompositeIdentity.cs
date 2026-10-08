@@ -1,7 +1,5 @@
 // 属于内容层的蓝图定义模块。
 // 定义蓝图内容使用的局部坐标与稳定强类型身份。
-using Train.Core.Content.Voxels;
-
 namespace Train.Core.Content.Composites;
 
 /// <summary>表示蓝图布局中相对蓝图原点的整数体素格坐标。</summary>
@@ -37,8 +35,8 @@ public readonly record struct CompositeDefinitionId
     /// <summary>创建蓝图定义身份，并去除两部分首尾空白。</summary>
     public CompositeDefinitionId(string @namespace, string localId)
     {
-        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
-        LocalId = VoxelDefinitionId.NormalizePart(localId, nameof(localId));
+        Namespace = ContentIdentity.NormalizePart(@namespace, nameof(@namespace));
+        LocalId = ContentIdentity.NormalizePart(localId, nameof(localId));
     }
 
     /// <summary>获取 <c>namespace:local-id</c> 形式的完整身份。</summary>
@@ -49,11 +47,7 @@ public readonly record struct CompositeDefinitionId
     /// <summary>解析 <c>namespace:local-id</c> 形式的蓝图定义身份。</summary>
     public static CompositeDefinitionId Parse(string value)
     {
-        ArgumentNullException.ThrowIfNull(value);
-        var trimmed = value.Trim();
-        var separator = trimmed.IndexOf(':');
-        if (separator <= 0 || separator != trimmed.LastIndexOf(':') || separator == trimmed.Length - 1)
-            throw new ArgumentException("CompositeDefinitionId must have the form namespace:local-id.", nameof(value));
-        return new CompositeDefinitionId(trimmed[..separator], trimmed[(separator + 1)..]);
+        var (ns, localId) = ContentIdentity.Split(value, nameof(CompositeDefinitionId));
+        return new CompositeDefinitionId(ns, localId);
     }
 }

@@ -14,6 +14,8 @@ public static class VoxelTags
     public const string RawGood = "raw_good";
     /// <summary>标记蓝图身份保留规则要求的核心部件。</summary>
     public const string IdentityCore = "identity_core";
+    /// <summary>标记仅用于场景、不可库存或交易的体素。</summary>
+    public const string SceneOnly = "scene_only";
 }
 
 /// <summary>表示一个体素定义允许使用的离散朝向集合。</summary>

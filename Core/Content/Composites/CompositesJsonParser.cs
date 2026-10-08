@@ -174,7 +174,7 @@ internal static class CompositesJsonParser
             }
         }
 
-        if (localId is null || !VoxelDefinitionId.IsValidPart(localId))
+        if (localId is null || !ContentIdentity.IsValidPart(localId))
         {
             diagnostics.Warn(ContentDiagnosticCodes.LocalIdInvalid, "Local id is invalid.", jsonPath + "/id");
             return false;
@@ -301,7 +301,7 @@ internal static class CompositesJsonParser
             diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "Composite voxels require integer x, y, and z.", jsonPath);
             return false;
         }
-        if (definition is null || !TryResolveVoxelId(definition, packageNamespace, out var definitionId))
+        if (definition is null || !VoxelDefinitionId.TryResolve(definition, packageNamespace, out var definitionId))
         {
             diagnostics.Warn(ContentDiagnosticCodes.UnresolvedVoxelReference, "definition must be a local id or namespace:local-id.", jsonPath + "/definition");
             return false;
@@ -314,23 +314,6 @@ internal static class CompositesJsonParser
 
         spec = new CompositeVoxelSpec(new LocalVoxelCoord(x.Value, y.Value, z.Value), definitionId, orientation);
         return true;
-    }
-
-    /// <summary>解析局部或显式命名空间的体素定义引用。</summary>
-    public static bool TryResolveVoxelId(string raw, string packageNamespace, out VoxelDefinitionId id)
-    {
-        id = default;
-        try
-        {
-            id = raw.Contains(':', StringComparison.Ordinal)
-                ? VoxelDefinitionId.Parse(raw)
-                : new VoxelDefinitionId(packageNamespace, raw);
-            return true;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
     }
 
     /// <summary>读取可表示为 Int32 的 JSON 整数。</summary>

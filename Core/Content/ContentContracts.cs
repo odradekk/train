@@ -1,7 +1,6 @@
 // 属于内容模块。
 // 定义包、诊断、路径与资源数据在内容加载边界上的共享契约。
 using System.Collections.ObjectModel;
-using Train.Core.Content.Voxels;
 
 namespace Train.Core.Content;
 
@@ -35,6 +34,8 @@ public static class ContentDiagnosticCodes
     public const string DuplicateProperty = "duplicate_property";
     /// <summary>JSON 对象包含当前 schema 未声明的字段。</summary>
     public const string UnknownField = "unknown_field";
+    /// <summary>定义字段缺失、类型或数值范围无效，或集合含重复项。</summary>
+    public const string FieldInvalid = "field_invalid";
     /// <summary>文件声明的 schema 版本不受支持。</summary>
     public const string SchemaVersionUnsupported = "schema_version_unsupported";
     /// <summary>定义的包内本地标识无效。</summary>
@@ -83,6 +84,8 @@ public static class ContentDiagnosticCodes
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
     /// <summary>定义引用了候选目录中不存在的体素定义。</summary>
     public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
+    /// <summary>市场或供需引用了不可作为货物的 scene_only 体素。</summary>
+    public const string NonGoodsVoxelReference = "non_goods_voxel_reference";
     /// <summary>必需的内置内容包不可用。</summary>
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     /// <summary>首次加载没有产生任何体素定义。</summary>
@@ -180,7 +183,7 @@ public sealed class ContentOrigin
     /// <exception cref="ArgumentException">命名空间格式无效或 sourceFile 为空字符串。</exception>
     public ContentOrigin(string @namespace, string sourceFile)
     {
-        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
+        Namespace = ContentIdentity.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(sourceFile);
         SourceFile = sourceFile;
     }
@@ -296,7 +299,7 @@ public sealed class ContentPackage
         string? source = null,
         ModPackageMetadata? mod = null)
     {
-        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
+        Namespace = ContentIdentity.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(resourcesRoot);
         ResourcesRoot = resourcesRoot;
         Available = available;

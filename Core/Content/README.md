@@ -2,7 +2,7 @@
 
 本模块负责发现内容包、校验定义及资产、计算修订并发布一个完整的不可变内容批次。
 
-内容加载按领域格式组织。体素和蓝图共用发现、JSON 读取、身份冲突处理、整包隔离和发布流程；各自负责格式校验、表现资产或引用与属性计算。切片的预置身份、数量和目标值不进入加载架构，相关决定见 [#222 的重设计记录](https://github.com/odradekk/train/issues/222#issuecomment-6054190677)。
+内容加载按领域格式组织。体素、蓝图、市场表和聚居地类型共用发现、JSON 读取、身份冲突处理、整包隔离和发布流程；各自负责格式校验、表现资产或引用与属性计算。切片的预置身份、数量和目标值不进入加载架构，相关决定见 [#222 的重设计记录](https://github.com/odradekk/train/issues/222#issuecomment-6054190677)。
 
 本模块依赖 .NET 和[日志模块](../Logging/README.md)，通过 `TrainLogger` 记录扫描与发布诊断。宿主通过 `IContentSource` 提供文件访问和图片解码；[App 模块的 GodotContentSource](../../App/GodotContentSource.cs) 负责 Godot 虚拟文件系统和 PNG 解码。程序集依赖方向见 [ADR 0009](../../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)。
 
@@ -12,8 +12,10 @@
 | `ContentPackageWalk`、`ExternalPath`、`ExternalContent` | 稳定扫描内容包，检查路径包含关系和链接。 | [内容目录与格式](../../docs/design/02-definitions-and-content.md#内容目录与格式) |
 | `ModManifest`、`ModDiscovery` | 校验 manifest、版本与命名空间，隔离无效或重复的 Mod。 | [ID 与命名空间](../../docs/design/02-definitions-and-content.md#id-与命名空间)、[Mod 与热加载](../../docs/design/02-definitions-and-content.md#mod-与热加载) |
 | `Voxels/`、`Composites/`、`Behaviors/` | 表示体素、蓝图和类型化功能行为，汇总设计属性及 BOM。 | [体素定义](../../docs/design/02-definitions-and-content.md#体素定义)、[设计属性](../../docs/design/03-vehicles-buildings-and-designs.md#设计属性) |
-| `Voxels/`、`Composites/` 中的 Parser 和 ContentFormat | 严格解析各领域格式，校验资产、引用及派生数据，并参加共同加载流程。 | [内容目录与格式](../../docs/design/02-definitions-and-content.md#内容目录与格式)、[表现资产校验](../../docs/design/02-definitions-and-content.md#表现资产校验) |
-| `VoxelContentEntry`、`CompositeContentEntry` | 在各自领域保存已校验定义、修订、资产或派生属性；构造能力保留在内容模块内部。 | [语义哈希字段与规范化](../../docs/design/02-definitions-and-content.md#语义哈希字段与规范化) |
+| `Markets/`、`Settlements/` | 表示市场价格参数、聚居地供需上限和生成参数；不保存运行中的市场数量。 | [当前市场模型](../../docs/design/00-product-and-core-loop.md)、[聚居地类型](../../docs/design/16-settlements.md) |
+| 各领域的 Parser 和 ContentFormat | 严格解析各领域格式，校验资产、引用及派生数据，并参加共同加载流程。 | [内容目录与格式](../../docs/design/02-definitions-and-content.md#内容目录与格式)、[表现资产校验](../../docs/design/02-definitions-and-content.md#表现资产校验) |
+| 各领域的 ContentEntry | 保存已校验定义、修订、资产或派生属性；构造能力保留在内容模块内部。 | [语义哈希字段与规范化](../../docs/design/02-definitions-and-content.md#语义哈希字段与规范化) |
+| `ContentIdentity`、`ContentJson`、`ContentHash` | 共用身份规范、严格字段读取和规范 JSON 哈希；领域仍负责自己的结构与数值关系。 | [ID 与命名空间](../../docs/design/02-definitions-and-content.md#id-与命名空间)、[语义哈希字段与规范化](../../docs/design/02-definitions-and-content.md#语义哈希字段与规范化) |
 | `ContentSnapshot`、`ContentChange` | 查询同一世代的强类型索引；通知携带一次发布前后的完整快照。 | [三种内容版本](../../docs/design/02-definitions-and-content.md#三种内容版本) |
 | `ContentLoader`、`ContentFormat` | 组合当前领域格式，共用加载与身份处理；依据真实包归属迭代隔离失效包，冻结自洽候选。 | [候选内容与运行中引用校验](../../docs/design/02-definitions-and-content.md#候选内容与运行中引用校验) |
 | `ContentReloader` | 独占重载与发布权，一次替换完整快照并通知一次；拒绝并发及通知期间的重入。 | [Mod 与热加载](../../docs/design/02-definitions-and-content.md#mod-与热加载) |
@@ -26,11 +28,28 @@
 
 `ICoreVoxelDefinition` 只暴露身份、Value、质量、耐久上限、标签和功能行为。`DesignAttributeCalculator.Calculate` 通过该接口读取已解析的体素序列，不读取表现、碰撞或坐标：质量、牵引力和载量相加，额定速度取动力部件的最小值，无动力为 null；存在控制行为即具有控制能力。只有无功能行为的体素贡献结构耐久上限。BOM 按身份统计每格消耗，并累加总 Value；组合行为只计一次质量、价值和材料。`DesignAttributes` 和 BOM 不可变，不保存实例状态；汇总溢出拒绝候选。
 
-统一重载在发布前校验引用并重算设计属性，冻结后通过一个原子引用替换发布。调用方捕获一次 `Current`，从同一快照的 `Voxels` 和 `Blueprints` 查询；旧快照保持不可变。任何有效变化只增加一次完整内容世代，无变化保留同一个快照对象且不通知。无效必需包保留整个旧快照；可选包失败则移除该包的全部类型，再重查级联引用。必需性来自 `ContentPackage.IsRequired`，不从命名空间推断。订阅者异常记录日志并继续通知，不回滚已经发布的内容。
+统一重载在发布前校验引用并重算设计属性，冻结后通过一个原子引用替换发布。调用方捕获一次 `Current`，从同一快照的 `Voxels`、`Blueprints`、`MarketTables` 和 `SettlementTypes` 查询；旧快照保持不可变。任何有效变化只增加一次完整内容世代，无变化保留同一个快照对象且不通知。无效必需包保留整个旧快照；可选包失败则移除该包的全部类型，再重查级联引用。必需性来自 `ContentPackage.IsRequired`，不从命名空间推断。订阅者异常记录日志并继续通知，不回滚已经发布的内容。
 
 蓝图自身的语义修订只包含身份、尺寸档位和布局，不包含依赖体素的修订；设计属性参与发布指纹。只改体素数值会重算蓝图属性，仍保持蓝图语义修订。纯贴图或碰撞变化触发新的内容世代，但不改变蓝图属性及指纹。体素语义编码版本为 3：碰撞属于发布编码，与核心玩法语义分开；蓝图语义编码仍为 2。
 
 内容源统一发现 JSON，领域格式决定文件准入，继续忽略旧 `*.settlements.json`。玩家蓝图包只接受根级、与包 UUID 同名的 `.composites.json`，不接受体素声明。新增选定的领域格式时，在加载器中组合格式并在快照中增加强类型索引；包隔离、JSON 读取和发布机制无需按类型复制，也不增加内容源方法。
+
+市场表与聚居地类型使用强类型身份和不可变定义，已注册到 `ContentLoader`。两个格式在同批次体素上校验货物引用，随后与体素、蓝图一起冻结为四个索引。价格区间、供需上限和恢复量均为内容参数，不代表运行中的市场状态。
+
+两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。数据契约见 [#222 的确认记录](https://github.com/odradekk/train/issues/222#issuecomment-6055685440)。
+
+| 定义 | 字段与含义 |
+| --- | --- |
+| `MarketTableDefinition` | `id`、非空 `goods`。每种货物唯一，价格规则包含有限非负 `sensitivity` 和正 Int64 `min_price ≤ max_price`，不要求区间包含体素 Value。 |
+| `SettlementTypeDefinition` | `id`、`name`、`supply`、`demand`、`preferred_terrain`、`weight`、`population_min`、`population_max`、`initial_platform_count`，全部必填。 |
+| 供给与需求项 | `definition`、正 Int32 `capacity`、非负 Int32 `restore_per_tick`。两边分别按货物唯一，允许为空或引用同一种货物；恢复量可为零或大于容量，运行时恢复须截到上限。 |
+| 生成参数 | 地貌是规范身份字符串集合，空集合表示不限；尚无地貌定义目录，不检查外部地貌引用。权重为正 Int32；人口为正 Int32 闭区间；初始站台数为非负 Int32。 |
+
+货物引用必须指向同批次已有且不带 `scene_only` 的体素，不要求 `raw_good`。市场表只保存价格参数，不复制货物 Value；全局选表和每 3600 步恢复一次由后续世界/市场配置负责，类型不增加市场表引用。`initial_platform_count` 是临时生成参数，七种预置仍用已确认的 1 或 2；实际建筑接入后站台数量从完好建筑部件派生。
+
+市场表语义修订包含自身身份和价格参数，其全部有效字段都属于语义，发布指纹直接复用语义修订；类型语义修订包含身份及全部非显示参数，发布指纹另包含名称。引用目标 Value 不进入它们自身的修订或条目副本，但体素更新仍发布整个新快照，消费者捕获一次快照读取新 Value。来源路径与 JSON 排序不改变有效内容。两类定义不添加需要存档的实例状态。
+
+各领域 Parser 返回不可变定义序列或 null，失败写入共享包诊断；ContentFormat 产生候选条目，再按同轮体素索引检查货物引用。它们都不执行 IO 或发布，查询与发布使用 `ContentReloader.Current`、`Reload()`、`Changed`。命名输入及人工预期见 `Train.Tests/Core/Content/MarketSettlementExamples.cs`；`MarketSettlementSchemaTests` 验证字段规则，`MarketSettlementPublicationTests` 验证完整快照、修订、包隔离及引用失败。真实 Godot 内容检查通过物理夹具验证新文件发现、参数重载和旧快照保留。
 
 已实现并提交的内置内容仍是 schema 2 的 [`core:ferrous-ore`](../../builtin/core/resources/voxels/ferrous-ore.voxels.json) 及其四张 PNG；三种货物、车辆体素和预置蓝图在 #222 的后续步骤接入。各图片的 `.import` 使用 `importer=keep`，保留原始字节供 Godot 内容源和导出版本读取。Core 测试通过统一公开接口和最小内存包验证字段、引用、属性、失败保留旧快照、无变化不增加世代，以及重载互斥。
 

@@ -1,6 +1,8 @@
 // 属于内容加载模块。
 // 统一发现和读取文件、隔离整个包、重查级联引用，并准备一次完整发布。
 using Train.Core.Content.Composites;
+using Train.Core.Content.Markets;
+using Train.Core.Content.Settlements;
 using Train.Core.Content.Voxels;
 using Train.Core.Logging;
 
@@ -14,6 +16,8 @@ internal sealed class ContentLoader
     private readonly TrainLogger _logger;
     private readonly VoxelContentFormat _voxels = new();
     private readonly CompositeContentFormat _blueprints;
+    private readonly MarketTableContentFormat _marketTables;
+    private readonly SettlementTypeContentFormat _settlementTypes;
     private readonly ContentFormat[] _formats;
     private readonly DiagnosticBag _loadDiagnostics = new();
     private readonly List<ContentPackageLoad> _packages = new();
@@ -24,13 +28,15 @@ internal sealed class ContentLoader
     public IReadOnlyList<ContentDiagnostic> Diagnostics => _scanDiagnostics.Concat(_loadDiagnostics.Items)
         .Concat(_packages.SelectMany(package => package.Diagnostics.Items)).ToArray();
 
-    /// <summary>组合当前两种领域格式；具体格式只依赖所需的候选索引，不执行 IO。</summary>
+    /// <summary>组合当前四种领域格式；具体格式只依赖所需的候选索引，不执行 IO。</summary>
     public ContentLoader(IContentSource source, TrainLogger logger)
     {
         _source = source;
         _logger = logger;
         _blueprints = new CompositeContentFormat(_voxels.Entries);
-        _formats = [_voxels, _blueprints];
+        _marketTables = new MarketTableContentFormat(_voxels.Entries);
+        _settlementTypes = new SettlementTypeContentFormat(_voxels.Entries);
+        _formats = [_voxels, _blueprints, _marketTables, _settlementTypes];
     }
 
     /// <summary>发现、读取和校验全部包，并迭代隔离失效引用；返回候选是否允许发布。</summary>
@@ -52,7 +58,8 @@ internal sealed class ContentLoader
         previous is null || _formats.Any(format => format.HasChanges(previous));
 
     /// <summary>冻结校验完成的候选；这里是各领域索引组成完整快照的唯一位置。</summary>
-    public ContentSnapshot Freeze(long generation) => new(generation, _voxels.Entries, _blueprints.Entries);
+    public ContentSnapshot Freeze(long generation) => new(generation, _voxels.Entries, _blueprints.Entries,
+        _marketTables.Entries, _settlementTypes.Entries);
 
     /// <summary>读取包发现结果，检查必需包存在性，并使重复 UUID 的全部 Mod 无效。</summary>
     private void DiscoverPackages()

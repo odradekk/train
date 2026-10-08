@@ -7,9 +7,9 @@ namespace Train.Core.Content.Voxels;
 public readonly record struct VoxelDefinitionId
 {
     /// <summary>命名空间和局部 ID 的最少字符数。</summary>
-    public const int PartMinLength = 1;
+    public const int PartMinLength = ContentIdentity.PartMinLength;
     /// <summary>命名空间和局部 ID 的最多字符数。</summary>
-    public const int PartMaxLength = 64;
+    public const int PartMaxLength = ContentIdentity.PartMaxLength;
     /// <summary>内置内容固定使用的命名空间。</summary>
     public const string BuiltInNamespace = "core";
 
@@ -25,8 +25,8 @@ public readonly record struct VoxelDefinitionId
     /// <exception cref="ArgumentException">任一参数不符合小写 ASCII 身份规则。</exception>
     public VoxelDefinitionId(string @namespace, string localId)
     {
-        Namespace = NormalizePart(@namespace, nameof(@namespace));
-        LocalId = NormalizePart(localId, nameof(localId));
+        Namespace = ContentIdentity.NormalizePart(@namespace, nameof(@namespace));
+        LocalId = ContentIdentity.NormalizePart(localId, nameof(localId));
     }
 
     /// <summary>获取 <c>namespace:local-id</c> 形式的完整身份。</summary>
@@ -42,43 +42,28 @@ public readonly record struct VoxelDefinitionId
     /// <exception cref="ArgumentException">文本格式或任一身份部分无效。</exception>
     public static VoxelDefinitionId Parse(string value)
     {
-        ArgumentNullException.ThrowIfNull(value);
-        var trimmed = value.Trim();
-        var separator = trimmed.IndexOf(':');
-        if (separator <= 0 || separator != trimmed.LastIndexOf(':') || separator == trimmed.Length - 1)
-            throw new ArgumentException("VoxelDefinitionId must have the form namespace:local-id.", nameof(value));
-
-        return new VoxelDefinitionId(trimmed[..separator], trimmed[(separator + 1)..]);
+        var (ns, localId) = ContentIdentity.Split(value, nameof(VoxelDefinitionId));
+        return new VoxelDefinitionId(ns, localId);
     }
 
     /// <summary>检查一个未修剪字符串是否可用作命名空间或局部 ID。</summary>
     /// <param name="value">候选字符串；<see langword="null"/> 无效。</param>
     /// <returns>长度为 1–64，首字符为小写 ASCII 字母或数字，其余字符另可包含下划线和连字符时返回 <see langword="true"/>。</returns>
-    public static bool IsValidPart(string? value)
+    public static bool IsValidPart(string? value) => ContentIdentity.IsValidPart(value);
+
+    /// <summary>将局部或完整引用解析为体素身份；格式无效时返回 false。</summary>
+    internal static bool TryResolve(string raw, string packageNamespace, out VoxelDefinitionId id)
     {
-        if (value is null || value.Length is < PartMinLength or > PartMaxLength)
-            return false;
-        if (!IsStartChar(value[0]))
-            return false;
-        for (var i = 1; i < value.Length; i++)
+        id = default;
+        try
         {
-            if (!IsPartChar(value[i]))
-                return false;
+            id = raw.Contains(':', StringComparison.Ordinal)
+                ? Parse(raw) : new VoxelDefinitionId(packageNamespace, raw);
+            return true;
         }
-
-        return true;
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
-
-    internal static string NormalizePart(string value, string paramName)
-    {
-        ArgumentNullException.ThrowIfNull(value, paramName);
-        var trimmed = value.Trim();
-        if (!IsValidPart(trimmed))
-            throw new ArgumentException("Must be 1-64 lowercase ASCII letters, digits, underscores, or hyphens, starting with a letter or digit.", paramName);
-        return trimmed;
-    }
-
-    private static bool IsStartChar(char c) => c is (>= 'a' and <= 'z') or (>= '0' and <= '9');
-
-    private static bool IsPartChar(char c) => IsStartChar(c) || c is '_' or '-';
 }
