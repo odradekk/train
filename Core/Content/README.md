@@ -28,26 +28,28 @@
 
 体素和蓝图文件只接受 `schema_version: 2`；旧版本明确拒绝，Mod manifest 仍使用 schema 1。蓝图保留 `id`、`name`、`description`、`size_class`、`voxels` 五个必填字段，删除 `archetypes`、`archetype` 和 `contacts`。布局必须非空、坐标唯一、引用候选目录中的体素，朝向须属于引用定义允许的集合。本步不检查六面连通或尺寸包络；五档尺寸声明仍保留。这里记录的是 #222 确立的通用格式边界，具体内容接入见 [#236](https://github.com/odradekk/train/issues/236)。
 
-当前功能行为为 `propulsion`、`control`、`cargo`，每个体素可组合不同种类，每种最多声明一次。动力必须填写有限正数 `traction`（kN）、`rated_speed`（m/s）；控制没有参数；货舱必须填写整数 `capacity`（1 至 Int32.MaxValue 个货物单位）。旧 `track_contact` 和功率参数不再接受。
+当前功能行为为 `propulsion`、`control`、`cargo`，每个体素可组合不同种类，每种最多声明一次；声明顺序没有语义，规范编码按类型标记的 Ordinal 顺序排序。动力必须填写有限正数 `traction`（kN）、`rated_speed`（m/s）；控制没有参数；货舱必须填写整数 `capacity`（1 至 Int32.MaxValue 个货物单位）。旧 `track_contact` 和功率参数不再接受。
 
 `ICoreVoxelDefinition` 只暴露身份、Value、质量、耐久上限、标签和功能行为。`DesignAttributeCalculator.Calculate` 通过该接口读取已解析的体素序列，不读取表现、碰撞或坐标：质量、牵引力和载量相加，额定速度取动力部件的最小值，无动力为 null；存在控制行为即具有控制能力。只有无功能行为的体素贡献结构耐久上限。BOM 按身份统计每格消耗，并累加总 Value；组合行为只计一次质量、价值和材料。`DesignAttributes` 和 BOM 不可变，不保存实例状态；汇总溢出拒绝候选。
 
 统一重载在发布前校验引用并重算设计属性，冻结后通过一个原子引用替换发布。调用方捕获一次 `Current`，从同一快照的 `Voxels`、`Blueprints`、`MarketTables` 和 `SettlementTypes` 查询；旧快照保持不可变。任何有效变化只增加一次完整内容世代，无变化保留同一个快照对象且不通知。无效必需包保留整个旧快照；可选包失败则移除该包的全部类型，再重查级联引用。必需性来自 `ContentPackage.IsRequired`，不从命名空间推断。订阅者异常记录日志并继续通知，不回滚已经发布的内容。
 
-蓝图自身的语义修订只包含身份、尺寸档位和布局，不包含依赖体素的修订；设计属性参与发布指纹。只改体素数值会重算蓝图属性，仍保持蓝图语义修订。纯贴图或碰撞变化触发新的内容世代，但不改变蓝图属性及指纹。体素语义编码版本为 3：碰撞属于发布编码，与核心玩法语义分开；蓝图语义编码仍为 2。
+蓝图自身的语义修订只包含身份、尺寸档位和布局，不包含依赖体素的修订；设计属性参与发布指纹。只改体素数值会重算蓝图属性，仍保持蓝图语义修订。纯贴图或碰撞变化触发新的内容世代，但不改变蓝图属性及指纹。体素语义编码版本为 4：无序 Behavior 按类型标记稳定排序，碰撞仍属于发布编码；相对版本 3，已有体素修订和发布指纹统一变化，定义文件 schema 不变。蓝图语义编码仍为 2。
 
 内容源统一发现全部小写 `.json`；物理资源通过 `ExternalContent.ListDefinitionFiles` 扫描，虚拟资源通过显式传入 `.json` 的 `ContentPackageWalk.Discover` 扫描。加载器统一执行包准入和后缀分派，继续忽略旧 `*.settlements.json`。玩家蓝图包只读取根级、与包 UUID 同名的 `.composites.json`。新增选定的领域格式时，在加载器中组合格式并在快照中增加强类型索引；包隔离、JSON 读取和发布机制无需按类型复制，也不增加内容源方法。
 
 市场表与聚居地类型使用强类型身份和不可变定义，已注册到 `ContentLoader`。两个格式在同批次体素上校验货物引用，随后与体素、蓝图一起冻结为四个索引。价格区间、供需上限和恢复量均为内容参数，不代表运行中的市场状态。
 
-两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。数据契约沿用 #222 的确认记录；本步验证格式和计算，具体预置表与类型由 [#236](https://github.com/odradekk/train/issues/236) 接入。
+两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。四种定义格式的 `id` 均直接校验原文，首尾空白报 `local_id_invalid`；公开强类型 ID 的构造器保留去除首尾空白的契约。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。数据契约沿用 #222 的确认记录；本步验证格式和计算，具体预置表与类型由 [#236](https://github.com/odradekk/train/issues/236) 接入。
 
 | 定义 | 字段与含义 |
 | --- | --- |
 | `MarketTableDefinition` | `id`、非空 `goods`。每种货物唯一，价格规则包含有限非负 `sensitivity` 和正 Int64 `min_price ≤ max_price`，不要求区间包含体素 Value。 |
 | `SettlementTypeDefinition` | `id`、`name`、`supply`、`demand`、`preferred_terrain`、`weight`、`population_min`、`population_max`、`initial_platform_count`，全部必填。 |
 | 供给与需求项 | `definition`、正 Int32 `capacity`、非负 Int32 `restore_per_tick`。两边分别按货物唯一，允许为空或引用同一种货物；恢复量可为零或大于容量，运行时恢复须截到上限。 |
-| 生成参数 | 地貌是规范身份字符串集合，空集合表示不限；尚无地貌定义目录，不检查外部地貌引用。权重为正 Int32；人口为正 Int32 闭区间；初始站台数为非负 Int32。 |
+| 生成参数 | 地貌是完整规范身份字符串集合，例如 `core:plains`；不接受 `plains` 或带空白的身份，两部分各遵循 1–64 个小写 ASCII 字符的身份规则。空集合表示不限；尚无地貌定义目录，不检查外部地貌引用。权重为正 Int32；人口为正 Int32 闭区间；初始站台数为非负 Int32。 |
+
+不提供市场表时使用 `market_tables: []`；每张已声明市场表的 `goods` 必须至少包含一条价格规则。
 
 货物引用必须指向同批次已有且不带 `scene_only` 的体素，不要求 `raw_good`。市场表只保存价格参数，不复制货物 Value；全局选表和每 3600 步恢复一次由后续世界/市场配置负责，类型不增加市场表引用。`initial_platform_count` 是临时生成参数；实际建筑接入后站台数量从完好建筑部件派生。具体预置数量不属于本步通用格式实现，见 [#236](https://github.com/odradekk/train/issues/236)。
 

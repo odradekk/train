@@ -38,6 +38,13 @@ public sealed class MarketSettlementSchemaTests
     [DataRow(false, "/settlement_types/0/demand/0/restore_per_tick", "1.5", "field_invalid")]
     [DataRow(false, "/settlement_types/0/preferred_terrain", "\"plains\"", "field_invalid")]
     [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\"Plains\"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\"plains\"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\" core:plains\"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\"core:plains \"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\"core:Plains\"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\"core::plains\"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\":plains\"", "local_id_invalid")]
+    [DataRow(false, "/settlement_types/0/preferred_terrain/0", "\"core:\"", "local_id_invalid")]
     [DataRow(false, "/settlement_types/0/weight", "0", "field_invalid")]
     [DataRow(false, "/settlement_types/0/population_min", "0", "field_invalid")]
     [DataRow(false, "/settlement_types/0/population_max", "99", "field_invalid")]
@@ -57,6 +64,39 @@ public sealed class MarketSettlementSchemaTests
         Assert.IsNull(result.Snapshot);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == code && item.Source == file && item.JsonPath == pointer),
             string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
+    }
+
+    [TestMethod]
+    public void Complete_terrain_identities_preserve_namespaces_without_a_definition_catalog()
+    {
+        using var session = LoggerSession.Create();
+        var source = MarketSettlementFixtures.BaseSource();
+        var identities = new[] { "core:plains", "cccccccc-dddd-4eee-8fff-000000000003:plains", "a:b", new string('n', 64) + ":" + new string('t', 64) };
+        var terrainJson = System.Text.Json.JsonSerializer.Serialize(identities);
+        source.AddDefinitionFile("core", MarketSettlementFixtures.TypeFile,
+            MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile,
+                "/settlement_types/0/preferred_terrain", terrainJson));
+        var reloader = new ContentReloader(source, session.Logger);
+
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        CollectionAssert.AreEquivalent(identities,
+            reloader.Current!.SettlementTypes[MarketSettlementExamples.DepotId].Definition.PreferredTerrain.ToArray());
+    }
+
+    [TestMethod]
+    public void Duplicate_complete_terrain_identities_reject_at_the_second_item()
+    {
+        using var session = LoggerSession.Create();
+        var source = MarketSettlementFixtures.BaseSource();
+        source.AddDefinitionFile("core", MarketSettlementFixtures.TypeFile,
+            MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile,
+                "/settlement_types/0/preferred_terrain", "[\"core:plains\",\"core:plains\"]"));
+
+        var result = new ContentReloader(source, session.Logger).Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.FieldInvalid &&
+            item.Source == MarketSettlementFixtures.TypeFile && item.JsonPath == "/settlement_types/0/preferred_terrain/1"));
     }
 
     [DataTestMethod]

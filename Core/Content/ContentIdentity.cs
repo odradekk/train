@@ -23,6 +23,15 @@ internal static class ContentIdentity
         return true;
     }
 
+    /// <summary>检查未修剪的 namespace:local-id；两部分均须符合身份字符和长度规则。</summary>
+    public static bool IsValidFullId(string? value)
+    {
+        if (value is null)
+            return false;
+        var separator = value.IndexOf(':');
+        return separator > 0 && IsValidPart(value[..separator]) && IsValidPart(value[(separator + 1)..]);
+    }
+
     /// <summary>去除身份部分的首尾空白；无效部分抛出 ArgumentException，null 抛出 ArgumentNullException。</summary>
     public static string NormalizePart(string value, string paramName)
     {

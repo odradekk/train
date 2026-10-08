@@ -92,7 +92,8 @@ public sealed class SettlementPopulationRange
 /// <remarks>
 /// 数据种类：结构。Name 是去除首尾空白的 1–100 个 Unicode 标量值；Weight 是正 Int32 相对生成权重。
 /// Supply、Demand 各自是有限映射，允许为空；每项引用同批次的非 scene_only 体素，同一货物允许同时供给和收购。
-/// PreferredTerrain 是不重复的规范身份字符串集合，空集合表示不限地貌；当前没有地貌定义目录，不作外部引用校验。
+/// PreferredTerrain 是不重复的完整规范身份字符串集合，例如 core:plains；空集合表示不限地貌。
+/// 每个身份的两部分均遵循 1–64 个小写 ASCII 字符的身份规则；当前没有地貌定义目录，不作外部引用校验。
 /// InitialPlatformCount 是非负 Int32 初始生成参数；建筑接入后实际站台由完好建筑部件派生。
 /// 本定义不引用市场表、不包含当前供需、抽样人口、站台占用或布局实例。
 /// </remarks>
@@ -107,7 +108,7 @@ public sealed class SettlementTypeDefinition
     public IReadOnlyDictionary<VoxelDefinitionId, SettlementMarketQuantity> Supply { get; }
     /// <summary>获取按货物身份索引的需求上限与恢复量。</summary>
     public IReadOnlyDictionary<VoxelDefinitionId, SettlementMarketQuantity> Demand { get; }
-    /// <summary>获取地貌偏好标签；空集合表示不限。</summary>
+    /// <summary>获取地貌偏好的完整规范身份集合；空集合表示不限。</summary>
     public IReadOnlySet<string> PreferredTerrain { get; }
     /// <summary>获取相对生成权重。</summary>
     public int Weight { get; }
@@ -116,9 +117,9 @@ public sealed class SettlementTypeDefinition
     /// <summary>获取临时生成模型的初始站台数。</summary>
     public int InitialPlatformCount { get; }
 
-    /// <summary>创建聚居地类型，规范化显示名和地貌标签，并冻结各集合的副本。</summary>
+    /// <summary>创建聚居地类型，规范化显示名，校验完整地貌身份，并冻结各集合的副本。</summary>
     /// <exception cref="ArgumentNullException">必需引用参数或供需映射中的数量规格为 <see langword="null"/>。</exception>
-    /// <exception cref="ArgumentException">身份、显示名、供需货物身份或地貌标签无效。</exception>
+    /// <exception cref="ArgumentException">身份、显示名、供需货物身份或完整地貌身份无效。</exception>
     /// <exception cref="ArgumentOutOfRangeException">生成权重非正或初始站台数为负。</exception>
     internal SettlementTypeDefinition(
         SettlementTypeDefinitionId id, string name,
@@ -147,8 +148,12 @@ public sealed class SettlementTypeDefinition
             throw new ArgumentOutOfRangeException(nameof(initialPlatformCount), initialPlatformCount, "Initial platform count cannot be negative.");
 
         var terrain = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var label in preferredTerrain)
-            terrain.Add(ContentIdentity.NormalizePart(label, nameof(preferredTerrain)));
+        foreach (var identity in preferredTerrain)
+        {
+            if (!ContentIdentity.IsValidFullId(identity))
+                throw new ArgumentException("Terrain identities must be canonical namespace:local-id strings.", nameof(preferredTerrain));
+            terrain.Add(identity);
+        }
 
         Id = id;
         Name = VoxelDefinition.NormalizeDisplayText(

@@ -72,7 +72,7 @@ internal static class SettlementTypesJsonParser
         return quantities;
     }
 
-    /// <summary>读取地貌标签集合并规范化身份字符串；空集合表示不限。</summary>
+    /// <summary>读取完整规范地貌身份集合；空集合表示不限，不检查目标存在性。</summary>
     private static IReadOnlySet<string>? ParseTerrain(JsonElement element, string path, DiagnosticBag diagnostics)
     {
         var items = ContentJson.ReadArray(element, "preferred_terrain", path, diagnostics);
@@ -83,12 +83,12 @@ internal static class SettlementTypesJsonParser
         foreach (var item in items.Value.EnumerateArray())
         {
             var itemPath = $"{path}/preferred_terrain/{index++}";
-            var label = ContentJson.ReadIdentityPart(item, itemPath, diagnostics);
-            if (label is null)
+            var identity = ContentJson.ReadFullIdentity(item, itemPath, diagnostics);
+            if (identity is null)
                 return null;
-            if (!terrain.Add(label))
+            if (!terrain.Add(identity))
             {
-                diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, $"Duplicate terrain label '{label}'.", itemPath);
+                diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, $"Duplicate terrain identity '{identity}'.", itemPath);
                 return null;
             }
         }

@@ -76,7 +76,7 @@
 | 蓝图的体素布局（格、定义身份、朝向）与档位声明 | 蓝图的涂装；引用目标的 Revision |
 
 - 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
-- 对象字段和字符串键按 Ordinal 顺序编码。标签等无序集合稳定排序；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
+- 对象字段和字符串键按 Ordinal 顺序编码。标签和 Behavior 等无序集合稳定排序，Behavior 按类型标记的 Ordinal 顺序编码；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
 - 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
 - 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎牵引力会改变引擎 Revision，不改变引用它的车辆设计自身的 Revision；使用方仍必须根据当前引擎规格重算受影响能力。
 - 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。碰撞只在场景中使用，属于表现数据，不参与语义哈希；更换显示模型不自动改变碰撞形状。
@@ -108,7 +108,7 @@
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
 - 不同领域保持强类型 ID，例如体素定义标识和蓝图标识。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - Behavior 目前只能由代码注册，内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
-- ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。
+- ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
 - 用户蓝图的身份由系统基于 UUID 分配，沿用 `namespace:local-id` 和类型区分，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图产生新版本，身份不变；“复制为新蓝图”建立新身份。存档内嵌的蓝图版本按各存档隔离解析，另存为或导入不重编身份。
 
 ### Mod 与热加载

@@ -67,20 +67,20 @@ public sealed class VoxelContentEntry
 }
 
 /// <summary>把体素玩法数据和表现绑定分别编码为规范 UTF-8 JSON，并计算语义修订、资产修订和发布指纹。</summary>
-/// <remarks>编码使用固定字段顺序；标签按 Ordinal 排序，Behavior 保留定义中的顺序。显示文本、碰撞、表现配置及资产字节不参与语义修订。</remarks>
+/// <remarks>编码使用固定字段顺序；标签和 Behavior 类型标记按 Ordinal 排序。显示文本、碰撞、表现配置及资产字节不参与语义修订。</remarks>
 /// <example>标签顺序和 JSON 排版不改变修订，显示字段与图片变化影响发布；见 <c>ContentReloaderTests.Hash_matrix_separates_semantic_asset_and_catalog_generation</c>。</example>
 internal static class VoxelRevisions
 {
-    /// <summary>语义编码版本 3；碰撞移入发布编码，与核心玩法语义分开。</summary>
+    /// <summary>语义编码版本 4；按类型标记稳定排序无序 Behavior，碰撞仍只参与发布编码。</summary>
     /// <remarks>与定义文件的 schema_version 分开管理；改变编码规则时需同步调整。修订用途见 docs/adr/0005-resolve-current-definitions-and-separate-content-versions.md。</remarks>
-    public const int SemanticEncodingVersion = 3;
+    public const int SemanticEncodingVersion = 4;
     /// <summary>语义编码中 kind 字段的固定值 voxel，用于区分不同种类的内容。</summary>
     public const string VoxelKind = "voxel";
 
     /// <summary>计算体素定义的语义修订。</summary>
     /// <param name="definition">待编码的已规范化体素定义；不重新执行内容校验。</param>
     /// <returns>内容种类、编码版本、身份、Value、质量、耐久、标签、Behavior 参数和允许朝向的 SHA-256 修订。</returns>
-    /// <remarks>标签排序，Behavior 顺序原样保留；碰撞不参与本编码。</remarks>
+    /// <remarks>标签和 Behavior 类型标记稳定排序；碰撞不参与本编码。</remarks>
     /// <exception cref="ArgumentNullException"><paramref name="definition"/> 为 <see langword="null"/>。</exception>
     /// <example>将 value 从 100 改为 250 会改变语义修订，调整标签顺序不会；见 <c>ContentReloaderTests.Hash_matrix_separates_semantic_asset_and_catalog_generation</c>。</example>
     public static string ComputeSemanticRevision(VoxelDefinition definition)
@@ -120,7 +120,7 @@ internal static class VoxelRevisions
     /// <summary>按固定字段顺序编码体素玩法数据，并排序无序标签。</summary>
     /// <param name="definition">非 null 的已规范化体素定义。</param>
     /// <returns>不含缩进的 UTF-8 JSON 字节，供语义修订计算使用。</returns>
-    /// <remarks>数值使用定义模块的规范格式；行为按定义中的声明顺序编码。</remarks>
+    /// <remarks>数值使用定义模块的规范格式；行为按固定类型标记的 Ordinal 顺序编码。</remarks>
     private static byte[] EncodeSemantic(VoxelDefinition definition)
     {
         using var stream = new MemoryStream();
@@ -128,27 +128,23 @@ internal static class VoxelRevisions
         {
             writer.WriteStartObject();
             writer.WriteStartArray("behaviors");
-            foreach (var behavior in definition.Behaviors)
+            foreach (var behavior in definition.Behaviors.OrderBy(GetBehaviorType, StringComparer.Ordinal))
             {
                 writer.WriteStartObject();
+                writer.WriteString("type", GetBehaviorType(behavior));
                 switch (behavior)
                 {
                     case PropulsionBehavior propulsion:
-                        writer.WriteString("type", BehaviorTypes.Propulsion);
                         writer.WritePropertyName("traction");
                         writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.Traction));
                         writer.WritePropertyName("rated_speed");
                         writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.RatedSpeed));
                         break;
                     case ControlBehavior:
-                        writer.WriteString("type", BehaviorTypes.Control);
                         break;
                     case CargoBehavior cargo:
-                        writer.WriteString("type", BehaviorTypes.Cargo);
                         writer.WriteNumber("capacity", cargo.Capacity);
                         break;
-                    default:
-                        throw new InvalidOperationException($"Unsupported behavior type {behavior.GetType().Name}.");
                 }
                 writer.WriteEndObject();
             }
@@ -171,6 +167,15 @@ internal static class VoxelRevisions
 
         return stream.ToArray();
     }
+
+    /// <summary>取得行为在规范编码中使用的固定类型标记。</summary>
+    private static string GetBehaviorType(VoxelBehavior behavior) => behavior switch
+    {
+        PropulsionBehavior => BehaviorTypes.Propulsion,
+        ControlBehavior => BehaviorTypes.Control,
+        CargoBehavior => BehaviorTypes.Cargo,
+        _ => throw new InvalidOperationException($"Unsupported behavior type {behavior.GetType().Name}.")
+    };
 
     /// <summary>编码碰撞、显示文本、表现绑定、资产修订及语义修订组成的完整发布状态。</summary>
     /// <param name="definition">非 null 的已规范化体素定义。</param>

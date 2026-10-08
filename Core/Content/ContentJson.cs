@@ -108,22 +108,28 @@ internal static class ContentJson
             ? value : null;
     }
 
-    /// <summary>读取并规范化必填局部身份，不允许完整命名空间身份。</summary>
+    /// <summary>读取必填局部身份；原文必须合法，不修剪首尾空白，也不允许完整命名空间身份。</summary>
     public static string? ReadLocalId(JsonElement element, string name, string path, DiagnosticBag diagnostics)
     {
-        var field = ReadField(element, name, path, diagnostics, ContentDiagnosticCodes.LocalIdInvalid);
-        return field is null ? null : ReadIdentityPart(field.Value, FieldPath(path, name), diagnostics);
+        var value = ReadString(element, name, path, diagnostics, ContentDiagnosticCodes.LocalIdInvalid);
+        if (value is null)
+            return null;
+        if (ContentIdentity.IsValidPart(value))
+            return value;
+        diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid,
+            "Expected a 1-64 character lowercase ASCII local identity without whitespace.", FieldPath(path, name));
+        return null;
     }
 
-    /// <summary>读取一个身份部分字符串并规范化；用于局部 ID 与地貌标签。</summary>
-    public static string? ReadIdentityPart(JsonElement element, string path, DiagnosticBag diagnostics)
+    /// <summary>读取完整规范身份字符串；不补命名空间，也不修剪首尾空白。</summary>
+    public static string? ReadFullIdentity(JsonElement element, string path, DiagnosticBag diagnostics)
     {
         if (!StrictJson.TryGetString(element, diagnostics, path, ContentDiagnosticCodes.LocalIdInvalid, out var value))
             return null;
-        var normalized = value.Trim();
-        if (ContentIdentity.IsValidPart(normalized))
-            return normalized;
-        diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid, "Expected a 1-64 character lowercase ASCII identity part.", path);
+        if (ContentIdentity.IsValidFullId(value))
+            return value;
+        diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid,
+            "Expected a lowercase ASCII namespace:local-id identity without whitespace.", path);
         return null;
     }
 

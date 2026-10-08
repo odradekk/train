@@ -71,7 +71,7 @@ internal static class MarketSettlementExamples
               { "definition": "core:coal", "capacity": 6, "restore_per_tick": 1 },
               { "definition": "core:grain", "capacity": 3, "restore_per_tick": 1 }
             ],
-            "preferred_terrain": ["plains", "forest"], "weight": 2,
+            "preferred_terrain": ["core:plains", "core:forest"], "weight": 2,
             "population_min": 100, "population_max": 300, "initial_platform_count": 1
           }]
         }

@@ -54,7 +54,7 @@ public sealed class MarketSettlementPublicationTests
         AssertQuantity(MarketSettlementExamples.CoalDemand, depot.Demand[MarketSettlementExamples.CoalId]);
         Assert.AreEqual(MarketSettlementExamples.DepotPopulation.Min, depot.Population.Min);
         Assert.AreEqual(MarketSettlementExamples.DepotPopulation.Max, depot.Population.Max);
-        CollectionAssert.AreEquivalent(new[] { "forest", "plains" }, depot.PreferredTerrain.ToArray());
+        CollectionAssert.AreEquivalent(new[] { "core:forest", "core:plains" }, depot.PreferredTerrain.ToArray());
         Assert.AreEqual(2, depot.Weight);
         Assert.AreEqual(1, depot.InitialPlatformCount);
         var quiet = original.SettlementTypes[MarketSettlementExamples.QuietTypeId].Definition;
@@ -150,7 +150,7 @@ public sealed class MarketSettlementPublicationTests
             [{"definition":"coal","max_price":320,"min_price":120,"sensitivity":0.5},
              {"definition":"grain","max_price":180,"min_price":60,"sensitivity":0.6}]
             """);
-        var typeFile = MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile, "/settlement_types/0/preferred_terrain", "[\"forest\",\"plains\"]");
+        var typeFile = MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile, "/settlement_types/0/preferred_terrain", "[\"core:forest\",\"core:plains\"]");
         typeFile = MarketSettlementFixtures.Edit(typeFile, "/settlement_types/0/demand", """
             [{"definition":"grain","restore_per_tick":1,"capacity":3},
              {"definition":"coal","restore_per_tick":1,"capacity":6}]

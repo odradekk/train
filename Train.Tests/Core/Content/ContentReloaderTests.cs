@@ -1,6 +1,7 @@
 // Core 内容模块测试：验证体素内容解析、发布和热重载契约。
 // 通过最小内存内容包验证目录快照、诊断、通知和并发边界。
 using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Content;
 using Train.Core.Content.Behaviors;
@@ -15,6 +16,43 @@ namespace Train.Tests.Core.Content;
 [TestCategory("scope:content")]
 public sealed class ContentReloaderTests
 {
+    [DataTestMethod]
+    [DataRow("voxels")]
+    [DataRow("composites")]
+    [DataRow("market_tables")]
+    [DataRow("settlement_types")]
+    public void Definition_id_whitespace_rejects_every_format_and_preserves_the_snapshot(string format)
+    {
+        using var session = LoggerSession.Create();
+        var source = MarketSettlementFixtures.BaseSource();
+        var (file, json, _) = DefinitionFile(format);
+        if (format == "settlement_types")
+            json = MarketSettlementFixtures.Edit(json, "/settlement_types/0/preferred_terrain", "[]");
+        source.AddDefinitionFile("core", file, json);
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var previous = reloader.Current;
+        var notifications = 0;
+        reloader.Changed += _ => notifications++;
+        using var document = JsonDocument.Parse(json);
+        var localId = document.RootElement.GetProperty(format)[0].GetProperty("id").GetString()!;
+        var path = $"/{format}/0/id";
+        foreach (var invalidId in new[] { " " + localId, localId + "\t" })
+        {
+            source.AddDefinitionFile("core", file,
+                MarketSettlementFixtures.Edit(json, path, JsonSerializer.Serialize(invalidId)));
+
+            var result = reloader.Reload();
+
+            Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, invalidId);
+            Assert.IsFalse(result.Changed);
+            Assert.AreSame(previous, reloader.Current);
+            Assert.AreEqual(0, notifications);
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.LocalIdInvalid &&
+                item.Source == file && item.JsonPath == path), invalidId);
+        }
+    }
+
     [DataTestMethod]
     [DataRow("voxels", true)]
     [DataRow("voxels", false)]
@@ -170,15 +208,23 @@ public sealed class ContentReloaderTests
             reloader.Current!.Voxels[entry.Definition.Id].SemanticRevision);
 
         var revised = reloader.Current.Voxels[entry.Definition.Id];
+        var previous = reloader.Current;
+        var notifications = 0;
+        reloader.Changed += _ => notifications++;
         source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
                 """[{"type":"cargo","capacity":4},{"type":"control"},{"type":"propulsion","traction":12.5,"rated_speed":21}]""")));
-        Assert.IsTrue(reloader.Reload().Changed);
-        var reordered = reloader.Current.Voxels[entry.Definition.Id];
-        Assert.AreNotEqual(revised.SemanticRevision, reordered.SemanticRevision);
-        CollectionAssert.AreEqual(
-            new VoxelBehavior[] { new CargoBehavior(4), new ControlBehavior(), new PropulsionBehavior(12.5, 21) },
-            reordered.Definition.Behaviors.ToArray());
+        var reorder = reloader.Reload();
+        Assert.IsTrue(reorder.IsCommitted);
+        Assert.IsFalse(reorder.Changed);
+        Assert.AreSame(previous, reloader.Current);
+        Assert.AreEqual(0, notifications);
+
+        var fresh = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(fresh.Reload().IsCommitted);
+        var reordered = fresh.Current!.Voxels[entry.Definition.Id];
+        Assert.AreEqual(revised.SemanticRevision, reordered.SemanticRevision);
+        Assert.AreEqual(revised.PublicationFingerprint, reordered.PublicationFingerprint);
     }
 
     [TestMethod]
