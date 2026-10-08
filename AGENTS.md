@@ -38,6 +38,10 @@ Issues and specs are tracked in GitHub Issues for `odradekk/train`. See `docs/ag
 
 Use the five default canonical triage labels. See `docs/agents/triage-labels.md`.
 
+### Area and discipline labels
+
+创建或分诊 issue 时，按 `docs/agents/area-and-discipline-labels.md` 打 `area:` 和 `discipline:` 标签。
+
 ### Domain docs
 
 Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository root. See `docs/agents/domain.md`.
