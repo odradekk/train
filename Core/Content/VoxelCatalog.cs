@@ -199,16 +199,16 @@ public sealed class VoxelCatalog
 /// <example>标签顺序和 JSON 排版不改变修订，显示字段与图片变化影响发布；见 <c>ContentReloaderTests.Hash_matrix_separates_semantic_asset_and_catalog_generation</c>。</example>
 internal static class ContentRevisions
 {
-    /// <summary>语义编码中 encoding_version 的固定值；当前规范编码使用版本 1，版本值本身参与哈希。</summary>
+    /// <summary>语义编码中 encoding_version 的固定值；当前规范编码使用版本 2，版本值本身参与哈希。</summary>
     /// <remarks>与定义文件的 schema_version 分开管理；改变编码规则时需同步调整。修订用途见 docs/adr/0005-resolve-current-definitions-and-separate-content-versions.md。</remarks>
-    public const int SemanticEncodingVersion = 1;
+    public const int SemanticEncodingVersion = 2;
     /// <summary>语义编码中 kind 字段的固定值 voxel，用于区分不同种类的内容。</summary>
     public const string VoxelKind = "voxel";
 
     /// <summary>计算体素定义的语义修订。</summary>
     /// <param name="definition">待编码的已规范化体素定义；不重新执行内容校验。</param>
     /// <returns>内容种类、编码版本、身份、货币价值、质量、耐久上限、标签、Behavior 及其有效参数、允许朝向和碰撞数据的 SHA-256 大写十六进制字符串。</returns>
-    /// <remarks>标签排序，Behavior 顺序原样保留；推进和轨道接触参数仅在存在对应 Behavior 时参与编码，局部盒坐标仅在 LocalBox 时参与编码。</remarks>
+    /// <remarks>标签排序，Behavior 顺序原样保留；各类行为的参数随类型编码，局部盒坐标仅在 LocalBox 时参与编码。</remarks>
     /// <exception cref="ArgumentNullException"><paramref name="definition"/> 为 <see langword="null"/>。</exception>
     /// <example>将 value 从 100 改为 250 会改变语义修订，调整标签顺序不会；见 <c>ContentReloaderTests.Hash_matrix_separates_semantic_asset_and_catalog_generation</c>。</example>
     public static string ComputeSemanticRevision(VoxelDefinition definition)
@@ -248,7 +248,7 @@ internal static class ContentRevisions
     /// <summary>按固定字段顺序编码体素玩法数据，并排序无序标签。</summary>
     /// <param name="definition">非 null 的已规范化体素定义。</param>
     /// <returns>不含缩进的 UTF-8 JSON 字节，供语义修订计算使用。</returns>
-    /// <remarks>数值使用定义模块的规范格式；缺省 Behavior 参数采用其默认值，且仅随对应 Behavior 编码。</remarks>
+    /// <remarks>数值使用定义模块的规范格式；行为按定义中的声明顺序编码。</remarks>
     private static byte[] EncodeSemantic(VoxelDefinition definition)
     {
         using var stream = new MemoryStream();
@@ -257,22 +257,30 @@ internal static class ContentRevisions
             writer.WriteStartObject();
             writer.WriteStartArray("behaviors");
             foreach (var behavior in definition.Behaviors)
-                writer.WriteStringValue(behavior);
+            {
+                writer.WriteStartObject();
+                switch (behavior)
+                {
+                    case PropulsionBehavior propulsion:
+                        writer.WriteString("type", BehaviorTypes.Propulsion);
+                        writer.WritePropertyName("traction");
+                        writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.Traction));
+                        writer.WritePropertyName("rated_speed");
+                        writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.RatedSpeed));
+                        break;
+                    case ControlBehavior:
+                        writer.WriteString("type", BehaviorTypes.Control);
+                        break;
+                    case CargoBehavior cargo:
+                        writer.WriteString("type", BehaviorTypes.Cargo);
+                        writer.WriteNumber("capacity", cargo.Capacity);
+                        break;
+                    default:
+                        throw new InvalidOperationException($"Unsupported behavior type {behavior.GetType().Name}.");
+                }
+                writer.WriteEndObject();
+            }
             writer.WriteEndArray();
-            if (definition.Behaviors.Contains(BehaviorTypes.Propulsion))
-            {
-                var propulsion = definition.Propulsion ?? PropulsionParameters.Default;
-                writer.WritePropertyName("propulsion_target_speed");
-                writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.TargetSpeed));
-                writer.WritePropertyName("propulsion_acceleration");
-                writer.WriteRawValue(VoxelDefinition.FormatMass(propulsion.Acceleration));
-            }
-            if (definition.Behaviors.Contains(BehaviorTypes.TrackContact))
-            {
-                var trackContact = definition.TrackContact ?? TrackContactParameters.Default;
-                writer.WritePropertyName("track_contact_coast_deceleration");
-                writer.WriteRawValue(VoxelDefinition.FormatMass(trackContact.CoastDeceleration));
-            }
             writer.WriteStartObject("collision");
             writer.WriteString("kind", VoxelDefinition.ToWire(definition.Collision.Kind));
             if (definition.Collision.Kind == VoxelCollisionKind.LocalBox)

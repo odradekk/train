@@ -165,7 +165,7 @@ public sealed class VoxelCollisionDefinitionTests
         var baseline = reloader.Catalog.Current!.Entries[Ledge].SemanticRevision;
 
         source.AddVoxelFile("core", "voxels/ledge.voxels.json", """
-            {"schema_version":1,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"size":{"z":0.5,"y":0.875,"x":0.25},"kind":"local_box","offset":{"z":0.25,"y":0,"x":0.125}},"description":"说明","id":"ledge","mass":1,"max_durability":100,"name":"台沿","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":[],"value":10}]}
+            {"schema_version":2,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"size":{"z":0.5,"y":0.875,"x":0.25},"kind":"local_box","offset":{"z":0.25,"y":0,"x":0.125}},"description":"说明","id":"ledge","mass":1,"max_durability":100,"name":"台沿","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":[],"value":10}]}
             """);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         Assert.AreEqual(baseline, reloader.Catalog.Current!.Entries[Ledge].SemanticRevision);

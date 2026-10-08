@@ -44,7 +44,7 @@ internal static class ContentFixtures
         new(width, height, "rgba8", new byte[width * height * 4]);
 
     public static string GoodsFile(params string[] voxels) =>
-        $"{{\"schema_version\":1,\"voxels\":[{string.Join(",", voxels)}]}}";
+        $"{{\"schema_version\":2,\"voxels\":[{string.Join(",", voxels)}]}}";
 
     public static string Good(
         string id,

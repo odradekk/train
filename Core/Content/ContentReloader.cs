@@ -22,13 +22,13 @@ public enum ContentReloadStatus
 }
 
 /// <summary>一次内容扫描和发布的统计、诊断及体素定义变更集合。</summary>
-/// <remarks>蓝图或原型变化也会令 Changed 为 true；CatalogVersion 只表示体素目录代数。诊断通常复制为只读集合，输入已是 ReadOnlyCollection 时保留该集合；三个变更集合始终保留输入引用。构造时统计警告和错误，不根据这些数量推导发布状态。</remarks>
+/// <remarks>蓝图变化也会令 Changed 为 true；CatalogVersion 只表示体素目录代数。诊断通常复制为只读集合，输入已是 ReadOnlyCollection 时保留该集合；三个变更集合始终保留输入引用。构造时统计警告和错误，不根据这些数量推导发布状态。</remarks>
 /// <example>重复加载相同内容时 IsCommitted 为 true、Changed 为 false，目录代数不变；见 <c>ContentReloaderTests.Unchanged_reload_keeps_version_and_does_not_notify</c>。</example>
 public sealed class ContentReloadResult
 {
     /// <summary>获取本次发布状态。</summary>
     public ContentReloadStatus Status { get; }
-    /// <summary>获取体素、蓝图或原型目录是否发生可观察的发布变化。</summary>
+    /// <summary>获取体素或蓝图目录是否发生可观察的发布变化。</summary>
     public bool Changed { get; }
     /// <summary>获取发布后保留的体素目录代数；尚无有效目录时为零。</summary>
     public long CatalogVersion { get; }
@@ -101,7 +101,7 @@ public sealed class ContentReloader
 
     /// <summary>获取对外发布的体素目录。</summary>
     public VoxelCatalog Catalog { get; }
-    /// <summary>获取对外发布的蓝图与原型目录。</summary>
+    /// <summary>获取对外发布的蓝图目录。</summary>
     public CompositeCatalog Composites { get; }
     /// <summary>获取初始化失败标记；尚无体素快照时的显式校验拒绝将其置为 true，成功加载后清除。</summary>
     /// <remarks>并发拒绝不更改此标记；它记录已执行的校验或发布步骤，不表示本轮是否抛出异常。</remarks>
@@ -197,9 +197,8 @@ public sealed class ContentReloader
         }
 
         var entries = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>(candidate.Entries);
-        var archetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>(candidate.Archetypes);
         var composites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>(candidate.Composites);
-        var references = CompositeReferenceValidator.Filter(entries, archetypes, composites);
+        var references = CompositeReferenceValidator.Filter(entries, composites);
         diagnostics.AddRange(references.Diagnostics);
         if (!references.CanCommit)
         {
@@ -213,13 +212,12 @@ public sealed class ContentReloader
         var nextGeneration = (Catalog.Current?.Generation ?? 0) + 1;
         var snapshot = new VoxelCatalogSnapshot(nextGeneration, entries);
         var nextCompositeGeneration = Composites.Current.Generation + 1;
-        var compositeSnapshot = new CompositeCatalogSnapshot(nextCompositeGeneration, archetypes, composites);
+        var compositeSnapshot = new CompositeCatalogSnapshot(nextCompositeGeneration, composites);
 
         var change = CatalogDiff.Compute(snapshot.Generation, Catalog.Current, entries);
         var compositeChange = CompositeCatalogDiff.Compute(
             compositeSnapshot.Generation,
             Composites.Current.Generation == 0 ? null : Composites.Current,
-            archetypes,
             composites);
         var status = diagnostics.Any(item => item.Severity == ContentDiagnosticSeverity.Warning)
             ? ContentReloadStatus.CommittedWithWarnings
@@ -343,15 +341,13 @@ public sealed class ContentReloader
             });
 }
 
-/// <summary>一次扫描准备的体素、原型和蓝图候选及其校验状态。</summary>
+/// <summary>一次扫描准备的体素和蓝图候选及其校验状态。</summary>
 /// <remarks>构造函数直接保存集合引用，不保证集合冻结。此时尚未进行跨定义引用过滤；构建被拒绝时仍可能保留其他有效包的条目，使用方须先检查 CanCommit。</remarks>
-/// <example>无效 Mod 被隔离后仍可保留并发布内置内容；见 <c>CompositeContentTests.Illegal_mod_composites_are_isolated_without_rejecting_built_in</c>。</example>
+/// <example>无效 Mod 被隔离后仍可保留并发布内置内容；见 <c>CompositeContentTests.Invalid_mod_blueprint_is_isolated_without_rejecting_built_in</c>。</example>
 internal sealed class CatalogCandidate
 {
     /// <summary>获取已合并有效包的候选体素条目；字典键为完整定义标识。</summary>
     public IReadOnlyDictionary<VoxelDefinitionId, VoxelCatalogEntry> Entries { get; }
-    /// <summary>获取已合并有效包的候选原型条目；引用完整性留待后续检查。</summary>
-    public IReadOnlyDictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> Archetypes { get; }
     /// <summary>获取已合并有效包的候选蓝图条目；引用完整性留待后续检查。</summary>
     public IReadOnlyDictionary<CompositeDefinitionId, CompositeCatalogEntry> Composites { get; }
     /// <summary>获取扫描和包校验诊断的只读接口；直接保留输入集合引用。</summary>
@@ -365,7 +361,6 @@ internal sealed class CatalogCandidate
 
     /// <summary>保存候选集合、诊断和构建状态，不复制或校验输入。</summary>
     /// <param name="entries">已合并的候选体素条目。</param>
-    /// <param name="archetypes">已合并的候选原型条目。</param>
     /// <param name="composites">已合并的候选蓝图条目。</param>
     /// <param name="diagnostics">按报告顺序保存的扫描和包诊断。</param>
     /// <param name="scannedFileCount">已发现的 JSON 文件数，单位为文件。</param>
@@ -373,7 +368,6 @@ internal sealed class CatalogCandidate
     /// <param name="packagesInvalid">构建阶段是否记录必需包问题或全局体素超限。</param>
     public CatalogCandidate(
         IReadOnlyDictionary<VoxelDefinitionId, VoxelCatalogEntry> entries,
-        IReadOnlyDictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
         IReadOnlyDictionary<CompositeDefinitionId, CompositeCatalogEntry> composites,
         IReadOnlyList<ContentDiagnostic> diagnostics,
         int scannedFileCount,
@@ -381,7 +375,6 @@ internal sealed class CatalogCandidate
         bool packagesInvalid)
     {
         Entries = entries;
-        Archetypes = archetypes;
         Composites = composites;
         Diagnostics = diagnostics;
         ScannedFileCount = scannedFileCount;
@@ -409,7 +402,6 @@ internal static class CatalogCandidateBuilder
         var packages = source.ListPackages();
         var diagnostics = new List<ContentDiagnostic>();
         var accepted = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>();
-        var acceptedArchetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>();
         var acceptedComposites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>();
         var scanned = 0;
         var requiredInvalid = false;
@@ -428,7 +420,7 @@ internal static class CatalogCandidateBuilder
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.BuiltInPackageUnavailable,
                 "The built-in content package was not provided."));
-            return new CatalogCandidate(accepted, acceptedArchetypes, acceptedComposites, diagnostics, 0, false, true);
+            return new CatalogCandidate(accepted, acceptedComposites, diagnostics, 0, false, true);
         }
 
         var duplicateModIds = packages
@@ -461,7 +453,6 @@ internal static class CatalogCandidateBuilder
                 bag.Warn(ContentDiagnosticCodes.ModVoxelLimitExceeded, "A mod exceeds the 1000-voxel package limit.");
                 packageContent = new PackageContent(
                     new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>(),
-                    new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>(),
                     new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>());
             }
 
@@ -480,9 +471,7 @@ internal static class CatalogCandidateBuilder
             if (package.Kind == ContentPackageKind.Mod)
                 acceptedMods++;
 
-            if (packageContent.Voxels.Count == 0 &&
-                packageContent.Archetypes.Count == 0 &&
-                packageContent.Composites.Count == 0)
+            if (packageContent.Voxels.Count == 0 && packageContent.Composites.Count == 0)
             {
                 logger.Debug(
                     ContentLog.Category,
@@ -493,8 +482,6 @@ internal static class CatalogCandidateBuilder
 
             foreach (var (id, entry) in packageContent.Voxels)
                 accepted[id] = entry;
-            foreach (var (id, entry) in packageContent.Archetypes)
-                acceptedArchetypes[id] = entry;
             foreach (var (id, entry) in packageContent.Composites)
                 acceptedComposites[id] = entry;
         }
@@ -520,12 +507,11 @@ internal static class CatalogCandidateBuilder
                 ContentDiagnosticSeverity.Error,
                 ContentDiagnosticCodes.GlobalVoxelLimitExceeded,
                 "The catalog exceeds the global voxel limit."));
-            return new CatalogCandidate(accepted, acceptedArchetypes, acceptedComposites, diagnostics, scanned, false, true);
+            return new CatalogCandidate(accepted, acceptedComposites, diagnostics, scanned, false, true);
         }
 
         return new CatalogCandidate(
             accepted.ToFrozenDictionary(),
-            acceptedArchetypes,
             acceptedComposites,
             diagnostics,
             scanned,
@@ -534,28 +520,23 @@ internal static class CatalogCandidateBuilder
     }
 
     /// <summary>单个内容包中暂存的有效候选定义。</summary>
-    /// <remarks>三个可变字典均保留输入引用；其中的条目只完成当前包内校验。诊断容器已无效时仍可暂存部分条目，是否合并由 Build 按包决定。</remarks>
+    /// <remarks>两个可变字典均保留输入引用；其中的条目只完成当前包内校验。诊断容器已无效时仍可暂存部分条目，是否合并由 Build 按包决定。</remarks>
     /// <example>重复本地标识使整个包无效，即使其他条目可暂存也不会合并；见 <c>ContentReloaderTests.Duplicate_local_ids_invalidate_the_whole_package</c>。</example>
     private sealed class PackageContent
     {
         /// <summary>获取本包通过定义与资产校验的体素条目。</summary>
         public Dictionary<VoxelDefinitionId, VoxelCatalogEntry> Voxels { get; }
-        /// <summary>获取本包暂存的原型条目。</summary>
-        public Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> Archetypes { get; }
         /// <summary>获取本包暂存的蓝图条目，引用目标在后续候选校验阶段检查。</summary>
         public Dictionary<CompositeDefinitionId, CompositeCatalogEntry> Composites { get; }
 
-        /// <summary>保存单包构建的三类可变字典，不复制或冻结。</summary>
+        /// <summary>保存单包构建的两类可变字典，不复制或冻结。</summary>
         /// <param name="voxels">包内接受的体素条目。</param>
-        /// <param name="archetypes">包内接受的原型条目。</param>
         /// <param name="composites">包内接受的蓝图条目。</param>
         public PackageContent(
             Dictionary<VoxelDefinitionId, VoxelCatalogEntry> voxels,
-            Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
             Dictionary<CompositeDefinitionId, CompositeCatalogEntry> composites)
         {
             Voxels = voxels;
-            Archetypes = archetypes;
             Composites = composites;
         }
     }
@@ -566,7 +547,7 @@ internal static class CatalogCandidateBuilder
     /// <param name="bag">本包共用的诊断容器，保存无效状态；后续校验会更新 Source。</param>
     /// <param name="logger">记录定义接受及每个文件的扫描统计。</param>
     /// <param name="scanned">累计 JSON 文件数；本方法加上两类发现列表的项数，包括读取或解析失败的文件。</param>
-    /// <returns>单包暂存的体素、原型和蓝图集合；即使包无效也可能非空，调用方须依据 bag.Invalid 整包拒绝或隔离。</returns>
+    /// <returns>单包暂存的体素和蓝图集合；即使包无效也可能非空，调用方须依据 bag.Invalid 整包拒绝或隔离。</returns>
     /// <remarks>体素本地标识在整个包内按 Ordinal 查重，重复组全部排除。即使某阶段已使包无效，也继续检查其他条目和蓝图，以保留诊断及逐文件日志。</remarks>
     /// <example>拒绝的 JSON 文件也记录 accepted 为零的扫描事件；见 <c>ContentReloaderTests.Rejected_content_file_still_emits_a_zero_accept_scan_event</c>。</example>
     private static PackageContent BuildPackage(
@@ -577,7 +558,6 @@ internal static class CatalogCandidateBuilder
         ref int scanned)
     {
         var accepted = new Dictionary<VoxelDefinitionId, VoxelCatalogEntry>();
-        var archetypes = new Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry>();
         var composites = new Dictionary<CompositeDefinitionId, CompositeCatalogEntry>();
         if (!package.Available)
         {
@@ -585,7 +565,7 @@ internal static class CatalogCandidateBuilder
                 bag.Error(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package is unavailable.");
             else
                 bag.Warn(ContentDiagnosticCodes.PackageInvalid, "Mod package is unavailable.");
-            return new PackageContent(accepted, archetypes, composites);
+            return new PackageContent(accepted, composites);
         }
 
         var discovery = source.ListVoxelFiles(package);
@@ -656,8 +636,8 @@ internal static class CatalogCandidateBuilder
         foreach (var file in discovery.Files)
             LogFileScanned(logger, package, file, "voxels", acceptedByFile[file]);
 
-        AcceptComposites(source, package, compositeDiscovery, bag, logger, archetypes, composites);
-        return new PackageContent(accepted, archetypes, composites);
+        AcceptComposites(source, package, compositeDiscovery, bag, logger, composites);
+        return new PackageContent(accepted, composites);
     }
 
     /// <summary>解析蓝图文件，排除重复局部标识并计算发布指纹。</summary>
@@ -665,10 +645,9 @@ internal static class CatalogCandidateBuilder
     /// <param name="package">定义所属包，用于补全身份命名空间并区分必需包。</param>
     /// <param name="discovery">本包的蓝图文件发现结果；诊断和无效标记已由调用方并入 bag。</param>
     /// <param name="bag">共享包诊断容器；字段或文件失败可使整个包无效。</param>
-    /// <param name="logger">记录暂存定义和逐文件统计；蓝图文件的 accepted 同时计入原型与蓝图。</param>
-    /// <param name="archetypes">接收新原型条目的可变字典，按完整标识写入。</param>
+    /// <param name="logger">记录暂存定义和逐文件统计。</param>
     /// <param name="composites">接收新蓝图条目的可变字典，保留文件显示名称和发布指纹。</param>
-    /// <remarks>原型与蓝图分别在包内查重，同一本地标识跨两类使用不算重复。此处构造定义但不检查引用目标是否存在；包最终被隔离时，先前的接受日志仍可能已写出。</remarks>
+    /// <remarks>蓝图按完整身份在包内查重。此处不检查引用目标是否存在；包最终被隔离时，先前的接受日志仍可能已写出。</remarks>
     /// <example>重复蓝图标识使其所属包无效；见 <c>CompositeContentTests.Duplicate_composite_ids_invalidate_the_owning_package</c>。</example>
     private static void AcceptComposites(
         IContentSource source,
@@ -676,11 +655,9 @@ internal static class CatalogCandidateBuilder
         ContentFileDiscovery discovery,
         DiagnosticBag bag,
         TrainLogger logger,
-        Dictionary<CompositeArchetypeId, CompositeArchetypeCatalogEntry> archetypes,
         Dictionary<CompositeDefinitionId, CompositeCatalogEntry> composites)
     {
-        var parsedArchetypes = new List<ParsedCompositeArchetype>();
-        var parsedComposites = new List<(ParsedCompositeDefinition Parsed, string? DisplayName)>();
+        var parsedComposites = new List<(CompositeDefinition Definition, string SourceFile, string? DisplayName)>();
         var acceptedByFile = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var file in discovery.Files)
             acceptedByFile[file] = 0;
@@ -712,86 +689,40 @@ internal static class CatalogCandidateBuilder
             var document = CompositesJsonParser.Parse(read.Bytes, package.Namespace, file, bag);
             if (document is null)
                 continue;
-            foreach (var archetype in document.Archetypes)
-                parsedArchetypes.Add(archetype);
             foreach (var composite in document.Composites)
-                parsedComposites.Add((composite, document.DisplayName));
-        }
-
-        var duplicateArchetypes = parsedArchetypes
-            .GroupBy(item => item.LocalId, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1);
-        var duplicateArchetypeIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var group in duplicateArchetypes)
-        {
-            duplicateArchetypeIds.Add(group.Key);
-            bag.Source = group.First().SourceFile;
-            bag.Warn(ContentDiagnosticCodes.DuplicateLocalId, "Duplicate local id in the package.", group.Key);
+                parsedComposites.Add((composite, file, document.DisplayName));
         }
 
         var duplicateComposites = parsedComposites
-            .GroupBy(item => item.Parsed.LocalId, StringComparer.Ordinal)
+            .GroupBy(item => item.Definition.Id)
             .Where(group => group.Count() > 1);
-        var duplicateCompositeIds = new HashSet<string>(StringComparer.Ordinal);
+        var duplicateCompositeIds = new HashSet<CompositeDefinitionId>();
         foreach (var group in duplicateComposites)
         {
             duplicateCompositeIds.Add(group.Key);
-            bag.Source = group.First().Parsed.SourceFile;
-            bag.Warn(ContentDiagnosticCodes.DuplicateLocalId, "Duplicate local id in the package.", group.Key);
+            bag.Source = group.First().SourceFile;
+            bag.Warn(ContentDiagnosticCodes.DuplicateLocalId, "Duplicate local id in the package.", group.Key.Value);
         }
 
-        foreach (var parsed in parsedArchetypes)
+        foreach (var (definition, sourceFile, displayName) in parsedComposites)
         {
-            if (duplicateArchetypeIds.Contains(parsed.LocalId))
+            if (duplicateCompositeIds.Contains(definition.Id))
                 continue;
-            var id = new CompositeArchetypeId(package.Namespace, parsed.LocalId);
-            var archetype = new CompositeArchetype(id, parsed.Construction, parsed.IdentityRetention);
-            var semantic = CompositeRevisions.ComputeSemanticRevision(archetype);
-            archetypes[id] = new CompositeArchetypeCatalogEntry(
-                archetype,
-                new ContentOrigin(package.Namespace, parsed.SourceFile),
-                semantic,
-                CompositeRevisions.ComputePublicationFingerprint(archetype, semantic));
-            acceptedByFile[parsed.SourceFile] = acceptedByFile.GetValueOrDefault(parsed.SourceFile) + 1;
-            logger.Debug(
-                ContentLog.Category,
-                ContentLog.DefinitionAcceptedEventId,
-                "Accepted composite archetype.",
-                new Dictionary<string, object?>
-                {
-                    ["archetype_id"] = id.Value,
-                    ["source"] = parsed.SourceFile,
-                    ["semantic_revision"] = semantic
-                });
-        }
-
-        foreach (var (parsed, displayName) in parsedComposites)
-        {
-            if (duplicateCompositeIds.Contains(parsed.LocalId))
-                continue;
-            bag.Source = parsed.SourceFile;
-            var id = new CompositeDefinitionId(package.Namespace, parsed.LocalId);
-            var definition = new CompositeDefinition(
-                id,
-                parsed.Name,
-                parsed.Description,
-                CompositesJsonParser.ResolveArchetypeId(parsed.ArchetypeRaw, package.Namespace),
-                parsed.SizeClass,
-                parsed.Voxels,
-                parsed.Contacts);
-            var origin = new ContentOrigin(package.Namespace, parsed.SourceFile);
+            bag.Source = sourceFile;
+            var origin = new ContentOrigin(package.Namespace, sourceFile);
             var semantic = CompositeRevisions.ComputeSemanticRevision(definition);
-            var publication = CompositeRevisions.ComputePublicationFingerprint(definition, displayName, semantic);
-            composites[id] = new CompositeCatalogEntry(definition, origin, displayName, semantic, publication);
-            acceptedByFile[parsed.SourceFile] = acceptedByFile.GetValueOrDefault(parsed.SourceFile) + 1;
+            var attributes = DesignAttributes.Empty;
+            var publication = CompositeRevisions.ComputePublicationFingerprint(definition, displayName, semantic, attributes);
+            composites[definition.Id] = new CompositeCatalogEntry(definition, origin, displayName, semantic, publication, attributes);
+            acceptedByFile[sourceFile] = acceptedByFile.GetValueOrDefault(sourceFile) + 1;
             logger.Debug(
                 ContentLog.Category,
                 ContentLog.DefinitionAcceptedEventId,
                 "Accepted composite definition.",
                 new Dictionary<string, object?>
                 {
-                    ["composite_id"] = id.Value,
-                    ["source"] = parsed.SourceFile,
+                    ["composite_id"] = definition.Id.Value,
+                    ["source"] = sourceFile,
                     ["semantic_revision"] = semantic
                 });
         }
@@ -834,9 +765,7 @@ internal static class CatalogCandidateBuilder
             parsed.Behaviors,
             parsed.AllowedOrientations,
             parsed.Presentation,
-            parsed.Collision,
-            parsed.Propulsion,
-            parsed.TrackContact);
+            parsed.Collision);
         var origin = new ContentOrigin(package.Namespace, parsed.SourceFile);
         var semantic = ContentRevisions.ComputeSemanticRevision(definition);
         var publication = ContentRevisions.ComputePublicationFingerprint(definition, semantic, assetRevisions);
@@ -966,7 +895,7 @@ internal static class CatalogCandidateBuilder
     /// <param name="package">文件所属包，日志记录其命名空间。</param>
     /// <param name="source">包内文件路径。</param>
     /// <param name="kind">扫描的内容类别，如 voxels 或 composites。</param>
-    /// <param name="accepted">该文件成功暂存的定义数；蓝图文件同时统计原型和蓝图，失败文件可为零。</param>
+    /// <param name="accepted">该文件成功暂存的定义数；失败文件可为零。</param>
     private static void LogFileScanned(
         TrainLogger logger,
         ContentPackage package,

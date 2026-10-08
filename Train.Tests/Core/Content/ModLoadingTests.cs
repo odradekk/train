@@ -55,7 +55,7 @@ public sealed class ModLoadingTests
         using var session = LoggerSession.Create();
         var source = ModFixtures.CorePlusCopper();
         source.AddMod("broken", ModFixtures.OtherUuid);
-        source.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        source.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();
@@ -107,7 +107,7 @@ public sealed class ModLoadingTests
 
         var later = ContentFixtures.ValidFerrousOre();
         later.AddMod("broken", ModFixtures.SampleUuid);
-        later.AddVoxelFile(ModFixtures.SampleUuid, "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        later.AddVoxelFile(ModFixtures.SampleUuid, "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var rebuilt = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog);
         var result = rebuilt.Reload();
 
@@ -171,7 +171,7 @@ public sealed class ModLoadingTests
             ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("noisy", ModFixtures.SampleUuid);
-        source.AddVoxelFile(ModFixtures.SampleUuid, "many.voxels.json", $"{{\"schema_version\":1,\"voxels\":[{goods}]}}");
+        source.AddVoxelFile(ModFixtures.SampleUuid, "many.voxels.json", $"{{\"schema_version\":2,\"voxels\":[{goods}]}}");
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();
@@ -260,7 +260,7 @@ public sealed class ModLoadingTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         source.AddMod("ok", ModFixtures.SampleUuid);
         source.AddVoxelFile(ModFixtures.SampleUuid, "copper.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("copper", "铜", "铜说明", icon: "copper.png", voxel: "copper.png")));

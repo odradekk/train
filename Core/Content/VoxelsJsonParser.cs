@@ -17,9 +17,7 @@ internal sealed class ParsedVoxel
     public double Mass { get; }
     public int MaxDurability { get; }
     public IReadOnlyList<string> Tags { get; }
-    public IReadOnlyList<string> Behaviors { get; }
-    public PropulsionParameters? Propulsion { get; }
-    public TrackContactParameters? TrackContact { get; }
+    public IReadOnlyList<VoxelBehavior> Behaviors { get; }
     public VoxelOrientationConstraint AllowedOrientations { get; }
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
@@ -33,9 +31,7 @@ internal sealed class ParsedVoxel
         double mass,
         int maxDurability,
         IReadOnlyList<string> tags,
-        IReadOnlyList<string> behaviors,
-        PropulsionParameters? propulsion,
-        TrackContactParameters? trackContact,
+        IReadOnlyList<VoxelBehavior> behaviors,
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
         VoxelCollision collision,
@@ -49,8 +45,6 @@ internal sealed class ParsedVoxel
         MaxDurability = maxDurability;
         Tags = tags;
         Behaviors = behaviors;
-        Propulsion = propulsion;
-        TrackContact = trackContact;
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;
@@ -61,8 +55,8 @@ internal sealed class ParsedVoxel
 /// <summary>严格解析当前体素内容格式，将格式错误归入所属包的诊断。</summary>
 internal static class VoxelsJsonParser
 {
-    /// <summary>当前唯一支持的文件 schema 版本，固定为 1；格式约定见模块说明。</summary>
-    private const int SchemaVersion = 1;
+    /// <summary>当前唯一支持的文件 schema 版本，固定为 2；格式约定见模块说明。</summary>
+    private const int SchemaVersion = 2;
 
     /// <summary>解析 UTF-8 体素 JSON；结构或字段无效时记录诊断并返回未接受的定义列表。</summary>
     public static IReadOnlyList<ParsedVoxel> Parse(
@@ -125,7 +119,7 @@ internal static class VoxelsJsonParser
         {
             diagnostics.Warn(
                 ContentDiagnosticCodes.SchemaVersionUnsupported,
-                "Only schema_version 1 is supported.",
+                "Only schema_version 2 is supported.",
                 "/schema_version");
             return Array.Empty<ParsedVoxel>();
         }
@@ -171,9 +165,7 @@ internal static class VoxelsJsonParser
         double? mass = null;
         int? maxDurability = null;
         IReadOnlyList<string>? tags = null;
-        IReadOnlyList<string>? behaviors = null;
-        PropulsionParameters? propulsion = null;
-        TrackContactParameters? trackContact = null;
+        IReadOnlyList<VoxelBehavior>? behaviors = null;
         string? orientationsText = null;
         JsonElement? presentation = null;
         JsonElement? collision = null;
@@ -223,7 +215,7 @@ internal static class VoxelsJsonParser
                         return false;
                     break;
                 case "behaviors":
-                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors, out propulsion, out trackContact))
+                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors))
                         return false;
                     break;
                 case "allowed_orientations":
@@ -287,12 +279,6 @@ internal static class VoxelsJsonParser
             return false;
         }
 
-        if (behaviors.Any(behavior => !BehaviorRegistry.IsRegistered(behavior)))
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Unknown or unregistered behavior.", jsonPath + "/behaviors");
-            return false;
-        }
-
         if (!VoxelDefinition.TryParseOrientations(orientationsText, out var orientations))
         {
             diagnostics.Warn(ContentDiagnosticCodes.OrientationInvalid, "Unsupported orientation constraint.", jsonPath + "/allowed_orientations");
@@ -322,8 +308,6 @@ internal static class VoxelsJsonParser
             maxDurability.Value,
             tags,
             behaviors,
-            propulsion,
-            trackContact,
             orientations,
             parsedPresentation,
             parsedCollision,
@@ -377,25 +361,22 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>校验已注册行为及其当前参数格式，解析动力与轨道接触参数。</summary>
+    /// <summary>按行为种类校验字段和参数，返回保留声明顺序的类型化行为。</summary>
     private static bool TryParseBehaviors(
         JsonElement element,
         string jsonPath,
         DiagnosticBag diagnostics,
-        out IReadOnlyList<string> behaviors,
-        out PropulsionParameters? propulsion,
-        out TrackContactParameters? trackContact)
+        out IReadOnlyList<VoxelBehavior> behaviors)
     {
-        behaviors = Array.Empty<string>();
-        propulsion = null;
-        trackContact = null;
+        behaviors = Array.Empty<VoxelBehavior>();
         if (element.ValueKind != JsonValueKind.Array)
         {
             diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath);
             return false;
         }
 
-        var parsed = new List<string>();
+        var parsed = new List<VoxelBehavior>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var index = 0;
         foreach (var item in element.EnumerateArray())
         {
@@ -407,9 +388,9 @@ internal static class VoxelsJsonParser
             }
 
             string? type = null;
-            double? targetSpeed = null;
-            double? acceleration = null;
-            double? coastDeceleration = null;
+            double? traction = null;
+            double? ratedSpeed = null;
+            int? capacity = null;
             if (item.TryGetProperty("type", out var typeElement) &&
                 !StrictJson.TryGetString(typeElement, diagnostics, itemPath + "/type", ContentDiagnosticCodes.BehaviorUnregistered, out type))
                 return false;
@@ -419,27 +400,30 @@ internal static class VoxelsJsonParser
                 if (property.Name == "type")
                     continue;
 
-                if (type == BehaviorTypes.Propulsion && property.Name == "target_speed")
+                if (type == BehaviorTypes.Propulsion && property.Name == "traction")
                 {
-                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/target_speed", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedTarget))
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/traction", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedTraction))
                         return false;
-                    targetSpeed = parsedTarget;
+                    traction = parsedTraction;
                     continue;
                 }
 
-                if (type == BehaviorTypes.Propulsion && property.Name == "acceleration")
+                if (type == BehaviorTypes.Propulsion && property.Name == "rated_speed")
                 {
-                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/acceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedAcceleration))
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/rated_speed", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedRatedSpeed))
                         return false;
-                    acceleration = parsedAcceleration;
+                    ratedSpeed = parsedRatedSpeed;
                     continue;
                 }
 
-                if (type == BehaviorTypes.TrackContact && property.Name == "coast_deceleration")
+                if (type == BehaviorTypes.Cargo && property.Name == "capacity")
                 {
-                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/coast_deceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedCoast))
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var parsedCapacity))
+                    {
+                        diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Cargo capacity must be an integer.", itemPath + "/capacity");
                         return false;
-                    coastDeceleration = parsedCoast;
+                    }
+                    capacity = parsedCapacity;
                     continue;
                 }
 
@@ -453,51 +437,40 @@ internal static class VoxelsJsonParser
                 return false;
             }
 
-            if (type == BehaviorTypes.Propulsion)
+            if (!BehaviorRegistry.IsRegistered(type))
             {
-                if (propulsion is not null)
-                {
-                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Only one propulsion behavior is allowed.", itemPath);
-                    return false;
-                }
-
-                if (!BehaviorRegistry.TryNormalizePropulsion(targetSpeed, acceleration, out var parameters))
-                {
-                    diagnostics.Warn(
-                        ContentDiagnosticCodes.BehaviorUnregistered,
-                        "Propulsion parameters must be finite and strictly positive.",
-                        itemPath);
-                    return false;
-                }
-
-                propulsion = parameters;
+                diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Unknown or unregistered behavior.", itemPath + "/type");
+                return false;
             }
-            else if (type == BehaviorTypes.TrackContact)
+            if (!seen.Add(type))
             {
-                if (trackContact is not null)
-                {
-                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Only one track_contact behavior is allowed.", itemPath);
-                    return false;
-                }
-
-                if (!BehaviorRegistry.TryNormalizeTrackContact(coastDeceleration, out var parameters))
-                {
-                    diagnostics.Warn(
-                        ContentDiagnosticCodes.BehaviorUnregistered,
-                        "Track contact coast deceleration must be finite and strictly positive.",
-                        itemPath);
-                    return false;
-                }
-
-                trackContact = parameters;
-            }
-            else if (targetSpeed is not null || acceleration is not null || coastDeceleration is not null)
-            {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath);
+                diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Each behavior type may appear only once.", itemPath);
                 return false;
             }
 
-            parsed.Add(type);
+            VoxelBehavior behavior;
+            if (type == BehaviorTypes.Propulsion)
+            {
+                if (traction is null || ratedSpeed is null || traction <= 0 || ratedSpeed <= 0)
+                {
+                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Propulsion requires finite positive traction and rated_speed.", itemPath);
+                    return false;
+                }
+                behavior = new PropulsionBehavior(traction.Value, ratedSpeed.Value);
+            }
+            else if (type == BehaviorTypes.Cargo)
+            {
+                if (capacity is null or < 1)
+                {
+                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Cargo requires capacity from 1 through Int32.MaxValue.", itemPath + "/capacity");
+                    return false;
+                }
+                behavior = new CargoBehavior(capacity.Value);
+            }
+            else
+                behavior = new ControlBehavior();
+
+            parsed.Add(behavior);
             index++;
         }
 

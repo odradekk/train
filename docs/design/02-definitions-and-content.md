@@ -6,7 +6,7 @@
 
 ## 边界
 
-本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及库存中货物的表示。车辆与建筑、蓝图版本与 Archetype 见 [03](03-vehicles-buildings-and-designs.md)；存档中内嵌的内容见 [09](09-persistence.md#存档中的内容)；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)；节点资源、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
+本文定义"某种东西是什么"的数据、其版本与实例的关系、定义的来源、Mod 与热加载，以及库存中货物的表示。车辆与建筑、蓝图版本与设计合法性见 [03](03-vehicles-buildings-and-designs.md)；存档中内嵌的内容见 [09](09-persistence.md#存档中的内容)；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)；节点资源、Raw Good 与货物目录见 [10](10-resources-and-extraction.md)、[11](11-goods-and-production-network.md)；库存规则见 [12](12-inventory-and-storage.md)；经济价格属于市场上下文，规则留待后续扩充。
 
 ## 不变量
 
@@ -73,12 +73,12 @@
 | 定义类型、DefinitionId、哈希编码版本 | 名称、说明等显示文本 |
 | Value、耐久上限、Mass、Tags、允许朝向 | 图片、模型、材质、声音的内容与路径 |
 | Behavior 类型与参数 | 碰撞、纯视觉配置与资产绑定、编辑器排版等辅助信息 |
-| 蓝图的体素布局（格、定义身份、朝向）、Archetype 与档位声明 | 蓝图的涂装；引用目标的 Revision |
+| 蓝图的体素布局（格、定义身份、朝向）与档位声明 | 蓝图的涂装；引用目标的 Revision |
 
 - 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
 - 对象字段和字符串键按 Ordinal 顺序编码。标签等无序集合稳定排序；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
 - 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
-- 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎功率会改变引擎 Revision，不改变引用它的车辆设计自身的 Revision；使用方仍必须根据当前引擎规格重算受影响能力。
+- 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎牵引力会改变引擎 Revision，不改变引用它的车辆设计自身的 Revision；使用方仍必须根据当前引擎规格重算受影响能力。
 - 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。碰撞只在场景中使用，属于表现数据，不参与语义哈希；更换显示模型不自动改变碰撞形状。
 - 验收覆盖重新排版不变、更改有效语义字段产生变化、纯表现更新不改变语义 Revision、依赖更新生效但不改变引用方自身 Revision。
 
@@ -106,7 +106,7 @@
 ### ID 与命名空间
 
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
-- 不同领域保持强类型 ID：体素定义标识、蓝图标识、Archetype 标识等。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
+- 不同领域保持强类型 ID，例如体素定义标识和蓝图标识。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - Behavior 目前只能由代码注册，内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
 - ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。
 - 用户蓝图的身份由系统基于 UUID 分配，沿用 `namespace:local-id` 和类型区分，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图产生新版本，身份不变；“复制为新蓝图”建立新身份。存档内嵌的蓝图版本按各存档隔离解析，另存为或导入不重编身份。
@@ -115,13 +115,13 @@
 
 - **第一阶段 Data Mod**：支持新增体素定义、蓝图和 Layout（Layout 尚未实现），修改自有定义的数值、引用资产、组合已有 Behavior。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
-- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎功率产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 或碰撞更新 Asset Revision 和表现。蓝图更新产生新版本，不改变已有实例引用的版本。
+- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎牵引力产生新的 Semantic Revision；修改 Texture、Mesh、Material、Sound 或碰撞更新 Asset Revision 和表现。蓝图更新产生新版本，不改变已有实例引用的版本。
 
 ### 内容更新与实例状态
 
 - 读档和热重载都采用当前安装的外部定义，更新数值作用于已有车辆和建筑：实例保留引用的蓝图版本、部件耐久与运行状态，蓝图版本中的体素按定义身份采用当前定义，设计属性随之重算。
 - 状态保留绝对值，仅在超出新定义允许范围时修正，不按比例换算、不自动恢复。原耐久上限 100、当前耐久 80：新上限 150 时仍为 80，新上限 60 时截到 60。
-- 功率、质量等定义属性直接采用新值，并重算受影响的能力和派生状态。记录上次使用的 Revision 以识别变化，不借此保留旧外部规格。
+- 牵引力、质量等定义属性直接采用新值，并重算受影响的能力和派生状态。记录上次使用的 Revision 以识别变化，不借此保留旧外部规格。
 
 ### 候选内容与运行中引用校验
 

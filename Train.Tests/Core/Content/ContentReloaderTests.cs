@@ -16,32 +16,64 @@ namespace Train.Tests.Core.Content;
 public sealed class ContentReloaderTests
 {
     [TestMethod]
-    public void Omitted_behavior_parameters_and_explicit_defaults_share_a_semantic_revision()
+    public void Combined_behaviors_load_as_typed_data_and_affect_semantic_revision()
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
-                """[{"type":"propulsion"},{"type":"track_contact"}]""")));
+                """[{"type":"propulsion","traction":12.5,"rated_speed":20},{"type":"control"},{"type":"cargo","capacity":4}]""")));
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var snapshot = reloader.Catalog.Current!;
         var entry = snapshot.Entries[new VoxelDefinitionId("core", "ferrous-ore")];
-        Assert.AreEqual(new PropulsionParameters(4, 2), entry.Definition.Propulsion);
-        Assert.AreEqual(new TrackContactParameters(1), entry.Definition.TrackContact);
-        Assert.AreEqual(entry.Definition.Propulsion, PropulsionParameters.Default);
-        Assert.AreEqual(entry.Definition.TrackContact, TrackContactParameters.Default);
+        Assert.AreEqual("AAA1695D6269392A68578A7CBF15EDF5D4C086F3FDF26BF96B5344F8D733DDEA", entry.SemanticRevision);
+        CollectionAssert.AreEqual(
+            new VoxelBehavior[] { new PropulsionBehavior(12.5, 20), new ControlBehavior(), new CargoBehavior(4) },
+            entry.Definition.Behaviors.ToArray());
 
         source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
-                """[{"type":"propulsion","target_speed":4,"acceleration":2},{"type":"track_contact","coast_deceleration":1}]""")));
+                """[{"type":"propulsion","traction":12.5,"rated_speed":21},{"type":"control"},{"type":"cargo","capacity":4}]""")));
         var result = reloader.Reload();
 
         Assert.IsTrue(result.IsCommitted);
-        Assert.IsFalse(result.Changed);
-        Assert.AreSame(snapshot, reloader.Catalog.Current);
-        Assert.AreEqual(entry.SemanticRevision,
+        Assert.IsTrue(result.Changed);
+        Assert.AreNotEqual(entry.SemanticRevision,
             reloader.Catalog.Current!.Entries[entry.Definition.Id].SemanticRevision);
+
+        var revised = reloader.Catalog.Current.Entries[entry.Definition.Id];
+        source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
+                """[{"type":"cargo","capacity":4},{"type":"control"},{"type":"propulsion","traction":12.5,"rated_speed":21}]""")));
+        Assert.IsTrue(reloader.Reload().Changed);
+        var reordered = reloader.Catalog.Current.Entries[entry.Definition.Id];
+        Assert.AreNotEqual(revised.SemanticRevision, reordered.SemanticRevision);
+        CollectionAssert.AreEqual(
+            new VoxelBehavior[] { new CargoBehavior(4), new ControlBehavior(), new PropulsionBehavior(12.5, 21) },
+            reordered.Definition.Behaviors.ToArray());
+    }
+
+    [TestMethod]
+    public void Behavior_parameter_boundaries_are_accepted()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.CorePackage();
+        source.AddVoxelFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("minimum", "最小", "说明", behaviorsJson:
+                """[{"type":"propulsion","traction":5E-324,"rated_speed":5E-324},{"type":"cargo","capacity":1}]"""),
+            ContentFixtures.Good("maximum", "最大", "说明", icon: "max.png", voxel: "max.png", behaviorsJson:
+                """[{"type":"cargo","capacity":2147483647}]""")));
+        ContentFixtures.AddSquareImages(source, "iron.png", "max.png");
+
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
+        Assert.AreEqual(new CargoBehavior(1),
+            reloader.Catalog.Current!.Entries[new VoxelDefinitionId("core", "minimum")].Definition.Behaviors.OfType<CargoBehavior>().Single());
+        Assert.AreEqual(new CargoBehavior(int.MaxValue),
+            reloader.Catalog.Current.Entries[new VoxelDefinitionId("core", "maximum")].Definition.Behaviors.Single());
     }
 
     [TestMethod]
@@ -82,12 +114,12 @@ public sealed class ContentReloaderTests
     {
         var cases = new[]
         {
-            "{ /* comment */ \"schema_version\": 1, \"voxels\": [] }",
-            "{ \"schema_version\": 1, \"voxels\": [], }",
-            "{ \"schema_version\": 1, \"voxels\": [], \"extra\": 1 }",
-            "{ \"schema_version\": 1, \"schema_version\": 1, \"voxels\": [] }",
-            "{ \"Schema_version\": 1, \"voxels\": [] }",
-            "{ \"schema_version\": 2, \"voxels\": [] }",
+            "{ /* comment */ \"schema_version\": 2, \"voxels\": [] }",
+            "{ \"schema_version\": 2, \"voxels\": [], }",
+            "{ \"schema_version\": 2, \"voxels\": [], \"extra\": 1 }",
+            "{ \"schema_version\": 2, \"schema_version\": 2, \"voxels\": [] }",
+            "{ \"Schema_version\": 2, \"voxels\": [] }",
+            "{ \"schema_version\": 1, \"voxels\": [] }",
             "{ \"schema_version\": 1.5, \"voxels\": [] }",
             "{ \"voxels\": [] }"
         };
@@ -118,8 +150,21 @@ public sealed class ContentReloaderTests
             ContentFixtures.Good("iron", "铁矿", "说明", value: 1_000_000_001),
             ContentFixtures.Good("iron", "铁矿", "说明", tagsJson: "[\"Raw_Good\"]"),
             ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: "[{\"type\":\"future\"}]"),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","target_speed":0}]"""),
-            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"track_contact","coast_deceleration":0}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion"}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":0,"rated_speed":20}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":-1,"rated_speed":20}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1e309,"rated_speed":20}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":0}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":-1}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"propulsion","traction":1,"rated_speed":1e309}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo"}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":0}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":2147483648}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"control"},{"type":"control"}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"control","capacity":1}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"cargo","capacity":4},{"type":"cargo","capacity":4}]"""),
+            ContentFixtures.Good("iron", "铁矿", "说明", behaviorsJson: """[{"type":"track_contact"}]"""),
             ContentFixtures.Good("iron", "铁矿", "说明", orientations: "free"),
             ContentFixtures.Good("iron", "铁矿", "说明", mass: 0),
             "{\"id\":\"iron\",\"name\":\"铁矿\",\"description\":\"说明\",\"value\":100}"
@@ -250,7 +295,7 @@ public sealed class ContentReloaderTests
         var goods = string.Join(",", Enumerable.Range(0, 150).Select(i =>
             ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "many.voxels.json", $"{{\"schema_version\":1,\"voxels\":[{goods}]}}");
+        source.AddVoxelFile("core", "many.voxels.json", $"{{\"schema_version\":2,\"voxels\":[{goods}]}}");
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count);
@@ -367,7 +412,7 @@ public sealed class ContentReloaderTests
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var previous = reloader.Catalog.Current!;
-        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var rejected = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, rejected.Status);
         Assert.AreSame(previous, reloader.Catalog.Current);
@@ -446,7 +491,7 @@ public sealed class ContentReloaderTests
         var baselineGeneration = reloader.Catalog.Current.Generation;
 
         source.AddVoxelFile("core", "voxels/ferrous-ore.voxels.json", """
-            {"schema_version":1,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"kind":"full_box"},"description":"说明","id":"ferrous-ore","mass":1,"max_durability":100,"name":"Ferrous Ore","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":["raw_good"],"value":100}]}
+            {"schema_version":2,"voxels":[{"allowed_orientations":"all_24","behaviors":[],"collision":{"kind":"full_box"},"description":"说明","id":"ferrous-ore","mass":1,"max_durability":100,"name":"Ferrous Ore","presentation":{"icon":"iron.png","kind":"cube","voxel_bottom":"iron.png","voxel_side":"iron.png","voxel_top":"iron.png"},"tags":["raw_good"],"value":100}]}
             """);
         var whitespace = ContentFixtures.Create(source, session.Logger, catalog: reloader.Catalog).Reload();
         Assert.IsFalse(whitespace.Changed);
@@ -568,7 +613,7 @@ public sealed class ContentReloaderTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var reloader = ContentFixtures.Create(source, session.Logger);
         reloader.Reload();
 

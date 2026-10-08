@@ -103,14 +103,10 @@ public static class ContentDiagnosticCodes
     public const string ModVoxelLimitExceeded = "mod_voxel_limit_exceeded";
     /// <summary>Mod 根目录缺少 <c>mod.json</c>。</summary>
     public const string ModManifestMissing = "mod_manifest_missing";
-    /// <summary>组合定义引用了不存在的原型。</summary>
-    public const string UnresolvedArchetypeReference = "unresolved_archetype_reference";
     /// <summary>玩家蓝图根目录无法安全创建或列举。</summary>
     public const string BlueprintsRootUnavailable = "blueprints_root_unavailable";
     /// <summary>组合定义的尺寸等级无效。</summary>
     public const string SizeClassInvalid = "size_class_invalid";
-    /// <summary>组合定义的接触点声明无效。</summary>
-    public const string ContactInvalid = "contact_invalid";
     /// <summary>组合定义的体素布局违反当前 schema。</summary>
     public const string LayoutInvalid = "layout_invalid";
 }

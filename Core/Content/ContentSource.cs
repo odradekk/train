@@ -99,11 +99,11 @@ public interface IContentSource
     /// <remarks>只发现文件，不解析定义；无效发现结果仍可能含部分文件，加载器按包拒绝或隔离。</remarks>
     /// <example>初次发现 voxels/ores.voxels.json 后加载其中的 ferrous-ore 和 coal；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
     ContentFileDiscovery ListVoxelFiles(ContentPackage package);
-    /// <summary>发现一个包中的蓝图与原型定义 JSON 文件。</summary>
+    /// <summary>发现一个包中的蓝图定义 JSON 文件。</summary>
     /// <param name="package">待发现文件的内容包。</param>
     /// <returns>以小写 .composites.json 结尾的包内相对路径及发现状态；默认实现返回有效、无诊断的空集合。</returns>
     /// <remarks>默认实现不访问包；支持蓝图的内容源须实现此方法。</remarks>
-    /// <example>玩家蓝图文件以文件身份作为包命名空间；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
+    /// <example>玩家蓝图文件以文件身份作为包命名空间；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_display_name</c>。</example>
     ContentFileDiscovery ListCompositeFiles(ContentPackage package) => ContentFileDiscovery.Of(Array.Empty<string>());
     /// <summary>在调用方给出的字节上限内读取包内文件。</summary>
     /// <param name="package">文件所属内容包。</param>
@@ -347,13 +347,13 @@ public sealed class MemoryContentSource : IContentSource
     /// <returns>小写 .composites.json 后缀的路径快照；PlayerBlueprint 仅保留与 Namespace 加该后缀完全相等的根级文件名。</returns>
     /// <remarks>所有比较使用 Ordinal，保持登记顺序；不检查包可用性或读取字节，未匹配文件被忽略且不产生诊断。</remarks>
     /// <exception cref="NullReferenceException">package 为 null。</exception>
-    /// <example>玩家文件 cccccccc-dddd-4eee-8fff-000000000001.composites.json 与包命名空间一致；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
+    /// <example>玩家文件 cccccccc-dddd-4eee-8fff-000000000001.composites.json 与包命名空间一致；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_display_name</c>。</example>
     public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
         => ContentFileDiscovery.ForCompositePackage(
             package,
             ListDataFiles(package, ".composites.json"));
 
-    /// <summary>将文本编码为 UTF-8 字节，并登记蓝图与原型定义文件。</summary>
+    /// <summary>将文本编码为 UTF-8 字节，并登记蓝图定义文件。</summary>
     /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
     /// <param name="relativePath">须通过相对路径检查且以小写 .composites.json 结尾的路径。</param>
     /// <param name="utf8Text">非 null 的文件文本，允许为空；登记时不解析 JSON。</param>
@@ -361,11 +361,11 @@ public sealed class MemoryContentSource : IContentSource
     /// <exception cref="ArgumentNullException">utf8Text 或 namespace 为 null。</exception>
     /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
     /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
-    /// <example>登记含原型和蓝图的文件，再经既有重载流程发布；见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
+    /// <example>登记蓝图文件，再经既有重载流程发布；见 <c>CompositeContentTests.Built_in_blueprint_publishes_layout_and_hand_calculated_attributes</c>。</example>
     public void AddCompositeFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null) =>
         AddCompositeFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
 
-    /// <summary>保存原始字节引用，并登记或覆盖蓝图与原型定义文件。</summary>
+    /// <summary>保存原始字节引用，并登记或覆盖蓝图定义文件。</summary>
     /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
     /// <param name="relativePath">须通过相对路径检查且以小写 .composites.json 结尾的路径。</param>
     /// <param name="bytes">应为非 null 的文件字节，允许为空数组；不复制或解析。</param>
@@ -374,7 +374,7 @@ public sealed class MemoryContentSource : IContentSource
     /// <exception cref="ArgumentNullException">自动建包时 namespace 为 null。</exception>
     /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
     /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
-    /// <example>含 schema 字段错误的文件可先登记，随后由内容校验拒绝；见 <c>CompositeContentTests.Unknown_fields_and_schema_violations_reject_built_in_composites</c>。</example>
+    /// <example>含 schema 字段错误的文件可先登记，随后由内容校验拒绝；见 <c>CompositeContentTests.Unknown_fields_and_old_schema_reject_built_in_blueprints</c>。</example>
     public void AddCompositeFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null) =>
         AddDataFile(@namespace, relativePath, bytes, ".composites.json", "Composite files must use a safe relative *.composites.json path.", resourcesRoot);
 
@@ -385,7 +385,7 @@ public sealed class MemoryContentSource : IContentSource
     /// <exception cref="ArgumentNullException">uuid 或 utf8Text 为 null。</exception>
     /// <exception cref="ArgumentException">包命名空间或生成的相对路径无效。</exception>
     /// <exception cref="InvalidOperationException">登记包后无法按原输入身份精确定位，例如身份包含首尾空白。</exception>
-    /// <example>登记 cccccccc-dddd-4eee-8fff-000000000001 的玩家蓝图，并保留文件内显示名“我的手写蓝图”；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
+    /// <example>登记 cccccccc-dddd-4eee-8fff-000000000001 的玩家蓝图，并保留文件内显示名“我的手写蓝图”；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_display_name</c>。</example>
     public void AddBlueprint(string uuid, string utf8Text)
     {
         var file = uuid + ".composites.json";

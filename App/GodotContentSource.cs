@@ -165,7 +165,7 @@ public sealed class GodotContentSource : IContentSource
     public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
         ListDataFiles(package, ".voxels.json");
 
-    /// <summary>发现包内蓝图和 Archetype 文件，并按玩家蓝图包身份筛选其文件。</summary>
+    /// <summary>发现包内蓝图文件，并按玩家蓝图包身份筛选其文件。</summary>
     /// <param name="package">要扫描的内容包；玩家蓝图的命名空间为文件 UUID。</param>
     /// <returns>以小写 .composites.json 结尾的相对路径和发现状态；玩家蓝图包仅保留与其命名空间加后缀完全匹配的根目录文件。</returns>
     /// <remarks>玩家文件名按 Ordinal 比较；筛选文件后仍保留整次发现的诊断和无效标记，不解析文件内显示名或定义。</remarks>

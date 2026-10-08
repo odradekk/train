@@ -51,7 +51,7 @@ public sealed class ContentFileDiscovery
     /// <returns>玩家蓝图包仅保留与包命名空间加 .composites.json 完全相等的根级文件；其他包返回原结果。</returns>
     /// <remarks>文件名按 Ordinal 比较；筛选保持原顺序，并原样保留诊断和无效标记。</remarks>
     /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null，或筛选玩家蓝图包时 <paramref name="discovery"/> 为 null。</exception>
-    /// <example>命名空间为 cccccccc-dddd-4eee-8fff-000000000001 时，仅保留同名的 .composites.json 文件；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
+    /// <example>命名空间为 cccccccc-dddd-4eee-8fff-000000000001 时，仅保留同名的 .composites.json 文件；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_display_name</c>。</example>
     public static ContentFileDiscovery ForCompositePackage(
         ContentPackage package,
         ContentFileDiscovery discovery)
