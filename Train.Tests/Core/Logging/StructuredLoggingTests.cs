@@ -1,6 +1,7 @@
 // Core 日志模块测试。
 // 验证结构化日志的 JSONL 序列化、保留策略和文件生命周期。
 
+using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Logging;
@@ -343,6 +344,14 @@ public sealed class StructuredLoggingTests
         Assert.IsTrue(session.Overflow.ToString()!.Length > 0);
     }
 
+    [TestMethod]
+    public void Godot_queue_capacity_matches_the_documented_spec_limit()
+    {
+        // 生产队列容量是结构化日志规格固定的诊断上限。并发的淘汰/溢出用例注入较小容量以避免大量真实刷盘，
+        // 因此这里单独守住规格值，防止重构后默认容量被无声改小。
+        Assert.AreEqual(4096, TrainLogger.GodotQueueCapacity);
+    }
+
     private static JsonDocument ReadSingle(string path)
     {
         var line = File.ReadAllLines(path).Single(item => !string.IsNullOrWhiteSpace(item));
@@ -409,15 +418,18 @@ public sealed class StructuredLoggingConcurrencyTests
         CollectionAssert.AreEqual(sequences, parsed);
     }
 
+    // 测试注入的队列容量：足够小，使每个用例的真实持久刷盘次数可以忽略，同时仍能观察淘汰与溢出。
+    private const int TestQueueCapacity = 4;
+
     [TestMethod]
     public void Full_info_queue_rejects_incoming_debug_without_evicting_info()
     {
-        using var session = LoggerSession.Create();
-        EnqueueFromWorker(session.Logger, TrainLogger.GodotQueueCapacity, LogLevel.Info, "queued_info");
-        EnqueueFromWorker(session.Logger, 1, LogLevel.Debug, "incoming_debug");
+        using var session = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity);
+        RunOnWorker(session.Logger, TestQueueCapacity, LogLevel.Info, "queued_info");
+        RunOnWorker(session.Logger, 1, LogLevel.Debug, "incoming_debug");
         session.Logger.DrainGodotQueue();
 
-        Assert.AreEqual(TrainLogger.GodotQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_info"));
+        Assert.AreEqual(TestQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_info"));
         Assert.IsFalse(session.Godot.Events.Any(e => e.EventId == "incoming_debug"));
         Assert.IsTrue(session.Memory.Snapshot().Any(e => e.EventId == "incoming_debug"));
         Assert.AreEqual(1, session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
@@ -427,63 +439,144 @@ public sealed class StructuredLoggingConcurrencyTests
     [TestMethod]
     public void Full_godot_queue_drops_low_severity_first_and_summarizes_once()
     {
-        using var session = LoggerSession.Create();
-        EnqueueFromWorker(session.Logger, TrainLogger.GodotQueueCapacity, LogLevel.Debug, "queued_debug");
+        using var session = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity);
+        RunOnWorker(session.Logger, TestQueueCapacity, LogLevel.Debug, "queued_debug");
         var overflowBefore = session.Overflow.ToString()!.Length;
-        EnqueueFromWorker(session.Logger, 3, LogLevel.Debug, "extra_debug");
+        RunOnWorker(session.Logger, 3, LogLevel.Debug, "extra_debug");
         session.Logger.DrainGodotQueue();
 
         var dropped = session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId);
         Assert.AreEqual(LogLevel.Warning, dropped.Level);
         Assert.AreEqual(3, dropped.Attributes["count"]);
         Assert.AreEqual(1, session.Godot.Events.Count(e => e.EventId == TrainLogger.GodotEventsDroppedEventId));
-        Assert.AreEqual(TrainLogger.GodotQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_debug"));
+        Assert.AreEqual(TestQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_debug"));
         Assert.AreEqual(0, session.Godot.Events.Count(e => e.EventId == "extra_debug"));
         Assert.AreEqual(3, session.Memory.Snapshot().Count(e => e.EventId == "extra_debug"));
         Assert.AreEqual(overflowBefore, session.Overflow.ToString()!.Length);
     }
 
     [TestMethod]
-    public void Warnings_evict_debug_and_overflow_preserves_jsonl_for_undelivered_errors()
+    public void Warning_evicts_oldest_debug_from_full_queue()
     {
-        using var session = LoggerSession.Create();
-        EnqueueFromWorker(session.Logger, TrainLogger.GodotQueueCapacity, LogLevel.Debug, "queued_debug");
-        EnqueueFromWorker(session.Logger, 1, LogLevel.Warning, "evicting_warning");
+        using var session = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity);
+        RunOnWorker(session.Logger, TestQueueCapacity, LogLevel.Debug, "queued_debug");
+        RunOnWorker(session.Logger, 1, LogLevel.Warning, "evicting_warning");
         session.Logger.DrainGodotQueue();
+
         var afterEviction = session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId);
         Assert.AreEqual(1, afterEviction.Attributes["count"]);
-        Assert.AreEqual(TrainLogger.GodotQueueCapacity - 1, session.Godot.Events.Count(e => e.EventId == "queued_debug"));
+        var deliveredDebug = session.Godot.Events
+            .Where(e => e.EventId == "queued_debug")
+            .Select(e => e.Sequence)
+            .OrderBy(sequence => sequence)
+            .ToArray();
+        CollectionAssert.AreEqual(Enumerable.Range(2, TestQueueCapacity - 1).Select(v => (long)v).ToArray(), deliveredDebug);
         Assert.IsTrue(session.Godot.Events.Any(e => e.EventId == "evicting_warning"));
-
-        using var full = LoggerSession.Create();
-        EnqueueFromWorker(full.Logger, TrainLogger.GodotQueueCapacity, LogLevel.Warning, "queued_warning");
-        EnqueueFromWorker(full.Logger, 1, LogLevel.Warning, "overflow_warning");
-        Assert.IsTrue(full.Overflow.ToString()!.Length > 0);
-        full.Logger.DrainGodotQueue();
-        Assert.IsTrue(full.Memory.Snapshot().Any(e => e.EventId == "overflow_warning"));
-        Assert.IsFalse(full.Godot.Events.Any(e => e.EventId == "overflow_warning"));
-        Assert.AreEqual(1, full.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
-
-        full.DisposeLogger();
-        var jsonl = File.ReadAllText(full.JsonlPath!);
-        Assert.IsTrue(jsonl.Contains("\"event_id\":\"overflow_warning\"", StringComparison.Ordinal));
+        Assert.IsTrue(session.Memory.Snapshot().Any(e => e.EventId == "queued_debug" && e.Sequence == 1));
     }
 
-    private static void EnqueueFromWorker(TrainLogger logger, int count, LogLevel level, string eventId)
+    [TestMethod]
+    public void Full_warning_queue_keeps_existing_and_overflows_incoming_warning()
     {
-        var started = new ManualResetEventSlim(false);
-        var done = new ManualResetEventSlim(false);
+        using var session = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity);
+        RunOnWorker(session.Logger, TestQueueCapacity, LogLevel.Warning, "queued_warning");
+        RunOnWorker(session.Logger, 1, LogLevel.Warning, "overflow_warning");
+
+        Assert.IsTrue(session.Overflow.ToString()!.Length > 0);
+        session.Logger.DrainGodotQueue();
+
+        Assert.AreEqual(TestQueueCapacity, session.Godot.Events.Count(e => e.EventId == "queued_warning"));
+        Assert.IsFalse(session.Godot.Events.Any(e => e.EventId == "overflow_warning"));
+        Assert.IsTrue(session.Memory.Snapshot().Any(e => e.EventId == "overflow_warning"));
+        Assert.AreEqual(1, session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
+    }
+
+    [TestMethod]
+    public void Events_dropped_from_godot_queue_keep_complete_jsonl_records()
+    {
+        // 淘汰路径：满队列的 Debug 被 Warning 挤掉。被挤掉的事件不应出现在宿主输出，但必须保留完整 JSONL 记录。
+        using (var evicted = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity))
+        {
+            RunOnWorker(evicted.Logger, TestQueueCapacity, LogLevel.Debug, "queued_debug");
+            RunOnWorker(evicted.Logger, 1, LogLevel.Warning, "evicting_warning");
+            evicted.DisposeLogger();
+
+            Assert.IsFalse(evicted.Godot.Events.Any(e => e.EventId == "queued_debug" && e.Sequence == 1));
+            AssertJsonlHasCompleteRecords(evicted, "queued_debug", "evicting_warning");
+        }
+
+        // 溢出路径：满队列的 Warning 无法淘汰同级事件，新的 Warning 进入备用输出，但同样必须保留完整 JSONL 记录。
+        using (var overflowed = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity))
+        {
+            RunOnWorker(overflowed.Logger, TestQueueCapacity, LogLevel.Warning, "queued_warning");
+            RunOnWorker(overflowed.Logger, 1, LogLevel.Warning, "overflow_warning");
+            Assert.IsTrue(overflowed.Overflow.ToString()!.Length > 0);
+            overflowed.DisposeLogger();
+
+            Assert.IsFalse(overflowed.Godot.Events.Any(e => e.EventId == "overflow_warning"));
+            AssertJsonlHasCompleteRecords(overflowed, "queued_warning", "overflow_warning");
+        }
+    }
+
+    /// <summary>断言会话的 JSONL 文件与内存快照事件数一致、每行都是完整记录、序号连续，且包含指定事件标识。</summary>
+    private static void AssertJsonlHasCompleteRecords(LoggerSession session, params string[] expectedEventIds)
+    {
+        var lines = File.ReadAllLines(session.JsonlPath!);
+        Assert.AreEqual(session.Memory.Snapshot().Count, lines.Length);
+
+        var sequences = new List<long>();
+        foreach (var line in lines)
+        {
+            using var document = JsonDocument.Parse(line);
+            var root = document.RootElement;
+            Assert.AreNotEqual(string.Empty, root.GetProperty("event_id").GetString());
+            Assert.AreNotEqual(string.Empty, root.GetProperty("message").GetString());
+            sequences.Add(root.GetProperty("sequence").GetInt64());
+        }
+
+        sequences.Sort();
+        CollectionAssert.AreEqual(Enumerable.Range(1, lines.Length).Select(v => (long)v).ToArray(), sequences);
+        foreach (var eventId in expectedEventIds)
+        {
+            Assert.IsTrue(
+                lines.Any(line => line.Contains($"\"event_id\":\"{eventId}\"", StringComparison.Ordinal)),
+                $"JSONL should keep a record for {eventId}.");
+        }
+    }
+
+    /// <summary>在专用工作线程上按顺序记录若干事件，以线程结束作为完成信号；失败时先停止线程再抛出。</summary>
+    private static void RunOnWorker(TrainLogger logger, int count, LogLevel level, string eventId)
+    {
+        Exception? failure = null;
+        var stop = 0;
         var worker = new Thread(() =>
         {
-            started.Wait();
-            for (var i = 0; i < count; i++)
-                logger.Log(level, "test", eventId, "queued");
-            done.Set();
-        });
+            try
+            {
+                for (var i = 0; i < count && Volatile.Read(ref stop) == 0; i++)
+                    logger.Log(level, "test", eventId, "queued");
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        })
+        {
+            IsBackground = true
+        };
+
         worker.Start();
-        started.Set();
-        Assert.IsTrue(done.Wait(TimeSpan.FromSeconds(10)));
-        Assert.IsTrue(worker.Join(TimeSpan.FromSeconds(5)));
+        var finished = worker.Join(TimeSpan.FromMinutes(1));
+        if (!finished)
+        {
+            // 失败路径也必须先让线程停下，释放流程才能安全关闭日志器和测试临时目录。
+            Volatile.Write(ref stop, 1);
+            worker.Join();
+        }
+
+        if (failure is not null)
+            ExceptionDispatchInfo.Throw(failure);
+        Assert.IsTrue(finished, "The logging worker did not finish within the timeout.");
     }
 }
 
