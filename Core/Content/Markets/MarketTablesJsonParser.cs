@@ -42,7 +42,7 @@ internal static class MarketTablesJsonParser
             return null;
         if (items.Value.GetArrayLength() == 0)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "A market table must contain at least one good.", path + "/goods");
+            diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "A market table must contain at least one good.", path + "/goods");
             return null;
         }
         var goods = new Dictionary<VoxelDefinitionId, MarketPriceRule>();
@@ -53,21 +53,46 @@ internal static class MarketTablesJsonParser
             if (!ContentJson.CheckFields(item, itemPath, diagnostics, "definition", "sensitivity", "min_price", "max_price"))
                 return null;
             if (ContentJson.ReadVoxelReference(item, packageNamespace, itemPath, diagnostics) is not { } id ||
-                ContentJson.ReadSensitivity(item, itemPath, diagnostics) is not { } sensitivity ||
-                ContentJson.ReadPrice(item, "min_price", itemPath, diagnostics) is not { } min ||
-                ContentJson.ReadPrice(item, "max_price", itemPath, diagnostics) is not { } max)
+                ReadSensitivity(item, itemPath, diagnostics) is not { } sensitivity ||
+                ReadPrice(item, "min_price", itemPath, diagnostics) is not { } min ||
+                ReadPrice(item, "max_price", itemPath, diagnostics) is not { } max)
                 return null;
             if (max < min)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "max_price must be at least min_price.", itemPath + "/max_price");
+                diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "max_price must be at least min_price.", itemPath + "/max_price");
                 return null;
             }
             if (!goods.TryAdd(id, new MarketPriceRule(sensitivity, min, max)))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, $"Duplicate good '{id}'.", itemPath + "/definition");
+                diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, $"Duplicate good '{id}'.", itemPath + "/definition");
                 return null;
             }
         }
         return goods;
+    }
+
+    /// <summary>读取正 Int64 货币值。</summary>
+    private static long? ReadPrice(JsonElement element, string name, string path, DiagnosticBag diagnostics)
+    {
+        var field = ContentJson.ReadField(element, name, path, diagnostics);
+        if (field is null)
+            return null;
+        if (field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetInt64(out var value) && value > 0)
+            return value;
+        diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Expected a positive Int64 currency amount.", path + "/" + name);
+        return null;
+    }
+
+    /// <summary>读取有限非负敏感度，正零和负零规范化为同一数值。</summary>
+    private static double? ReadSensitivity(JsonElement element, string path, DiagnosticBag diagnostics)
+    {
+        var field = ContentJson.ReadField(element, "sensitivity", path, diagnostics);
+        if (field is null)
+            return null;
+        if (field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetDouble(out var value) &&
+            double.IsFinite(value) && value >= 0)
+            return value == 0 ? 0d : value;
+        diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Expected a finite nonnegative sensitivity.", path + "/sensitivity");
+        return null;
     }
 }

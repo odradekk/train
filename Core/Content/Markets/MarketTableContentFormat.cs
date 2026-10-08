@@ -7,18 +7,12 @@ namespace Train.Core.Content.Markets;
 /// <summary>一轮加载中的市场表格式；所需货物来自同轮体素候选，不单独执行 IO 或发布。</summary>
 internal sealed class MarketTableContentFormat : ContentFormat<MarketTableDefinitionId, MarketTableContentEntry>
 {
-    private readonly IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> _voxels;
-
-    /// <summary>保存本轮共享的体素候选；重合并后仍读取同一个索引对象。</summary>
-    public MarketTableContentFormat(IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels) => _voxels = voxels;
-
+    public IReadOnlyDictionary<MarketTableDefinitionId, MarketTableContentEntry> Entries => Candidates;
     public override string FileSuffix => ".market-tables.json";
     public override string LogKind => "market-tables";
-    public override bool Accepts(ContentPackage package, string file) =>
-        package.Kind != ContentPackageKind.PlayerBlueprint && base.Accepts(package, file);
     protected override MarketTableDefinitionId Identity(MarketTableContentEntry entry) => entry.Definition.Id;
-    protected override string Fingerprint(MarketTableContentEntry entry) => entry.PublicationFingerprint;
-    public override bool HasChanges(ContentSnapshot previous) => HasChanges(previous.MarketTables);
+    public override bool HasChanges(ContentSnapshot previous) =>
+        HasChanges(Entries, previous.MarketTables, static entry => entry.PublicationFingerprint);
 
     /// <summary>从已读取字节取得本文件的候选条目；解析失败归入 load 的共享包诊断。</summary>
     /// <remarks>效果：更新 load.Diagnostics；不修改已发布快照。</remarks>
@@ -33,13 +27,13 @@ internal sealed class MarketTableContentFormat : ContentFormat<MarketTableDefini
 
     /// <summary>检查 Entries 的每个货物引用在同轮体素候选中存在且非 scene_only。</summary>
     /// <remarks>效果：失败写入实际所属包的诊断并使整包无效；不替换任何已发布数据。</remarks>
-    public override void ResolveReferences()
+    public void ResolveReferences(IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels)
     {
         foreach (var (id, entry) in Entries)
         {
             var owner = Owners[id];
             if (!owner.Diagnostics.Invalid)
-                VoxelContentReferences.ValidateGoods(entry.Definition.Goods.Keys, _voxels, owner, entry.Origin.SourceFile);
+                VoxelContentReferences.ValidateGoods(entry.Definition.Goods.Keys, voxels, owner, entry.Origin.SourceFile);
         }
     }
 }

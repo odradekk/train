@@ -1,7 +1,6 @@
 // 属于内容层的体素定义模块。
 // 保存已校验体素的来源和表现资产，规范编码语义修订及发布指纹。
 using System.Collections.Frozen;
-using System.Security.Cryptography;
 using System.Text.Json;
 using Train.Core.Content.Behaviors;
 
@@ -87,7 +86,7 @@ internal static class VoxelRevisions
     public static string ComputeSemanticRevision(VoxelDefinition definition)
     {
         ArgumentNullException.ThrowIfNull(definition);
-        return Sha256Hex(EncodeSemantic(definition));
+        return ContentHash.FromBytes(EncodeSemantic(definition));
     }
 
     /// <summary>计算资产原始字节的修订。</summary>
@@ -95,7 +94,7 @@ internal static class VoxelRevisions
     /// <returns>原始字节的 SHA-256 大写十六进制字符串。</returns>
     /// <example>解码像素相同但原始 PNG 字节不同的资产具有不同修订；见 <c>ContentReloaderTests.Same_pixels_different_raw_png_bytes_change_only_the_asset_revision</c>。</example>
     public static string ComputeAssetRevision(ReadOnlySpan<byte> rawBytes) =>
-        Sha256Hex(rawBytes);
+        ContentHash.FromBytes(rawBytes);
 
     /// <summary>计算体素定义一次完整发布的指纹。</summary>
     /// <param name="definition">待编码的已规范化体素定义。</param>
@@ -115,7 +114,7 @@ internal static class VoxelRevisions
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrEmpty(semanticRevision);
         ArgumentNullException.ThrowIfNull(assetRevisions);
-        return Sha256Hex(EncodePublication(definition, semanticRevision, assetRevisions));
+        return ContentHash.FromBytes(EncodePublication(definition, semanticRevision, assetRevisions));
     }
 
     /// <summary>按固定字段顺序编码体素玩法数据，并排序无序标签。</summary>
@@ -237,15 +236,5 @@ internal static class VoxelRevisions
         }
 
         return stream.ToArray();
-    }
-
-    /// <summary>计算字节序列的 SHA-256，并返回大写十六进制文本。</summary>
-    /// <param name="bytes">要计算哈希的原始字节序列；允许为空。</param>
-    /// <returns>32 字节摘要对应的 64 个大写十六进制字符。</returns>
-    private static string Sha256Hex(ReadOnlySpan<byte> bytes)
-    {
-        Span<byte> hash = stackalloc byte[SHA256.HashSizeInBytes];
-        SHA256.HashData(bytes, hash);
-        return Convert.ToHexString(hash);
     }
 }

@@ -8,14 +8,15 @@ namespace Train.Core.Content;
 /// <summary>将 JSON 的对象、数组和原子值逐层转换为领域值；失败只写调用方的包诊断。</summary>
 internal static class ContentJson
 {
-    /// <summary>严格读取指定 schema 的定义数组；任一元素失败则返回 null，不保留部分文件。</summary>
-    public static IReadOnlyList<T>? ParseDefinitions<T>(byte[] utf8, string sourceFile, int schema,
-        string arrayName, DiagnosticBag diagnostics, Func<JsonElement, string, T?> parseDefinition) where T : class
+    /// <summary>严格读取 JSON 文档外层，并在根字段和 schema 通过后交给领域解析器。</summary>
+    public static T? ParseDocument<T>(byte[] utf8, string sourceFile, int schema,
+        IReadOnlyCollection<string> allowedRootFields, DiagnosticBag diagnostics,
+        Func<JsonElement, T?> parseRoot) where T : class
     {
         diagnostics.Source = sourceFile;
         if (utf8.Length > ContentLimits.JsonFileMaxBytes)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Definition JSON exceeds the 1 MiB limit.");
+            diagnostics.Reject(ContentDiagnosticCodes.FileTooLarge, "Definition JSON exceeds the 1 MiB limit.");
             return null;
         }
         if (StrictJson.HasDuplicateProperties(utf8, diagnostics, sourceFile))
@@ -27,20 +28,30 @@ internal static class ContentJson
         }
         catch (JsonException exception)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
+            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, exception.Message);
             return null;
         }
         using (document)
         {
             var root = document.RootElement;
-            if (!CheckFields(root, "", diagnostics, "schema_version", arrayName))
+            if (!CheckFields(root, "", diagnostics, allowedRootFields.ToArray()))
                 return null;
             if (!root.TryGetProperty("schema_version", out var version) ||
                 version.ValueKind != JsonValueKind.Number || !version.TryGetInt32(out var number) || number != schema)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.SchemaVersionUnsupported, $"Only schema_version {schema} is supported.", "/schema_version");
+                diagnostics.Reject(ContentDiagnosticCodes.SchemaVersionUnsupported, $"Only schema_version {schema} is supported.", "/schema_version");
                 return null;
             }
+            return parseRoot(root);
+        }
+    }
+
+    /// <summary>严格读取指定 schema 的定义数组；任一元素失败则返回 null，不保留部分文件。</summary>
+    public static IReadOnlyList<T>? ParseDefinitions<T>(byte[] utf8, string sourceFile, int schema,
+        string arrayName, DiagnosticBag diagnostics, Func<JsonElement, string, T?> parseDefinition) where T : class
+    {
+        return ParseDocument(utf8, sourceFile, schema, new[] { "schema_version", arrayName }, diagnostics, root =>
+        {
             var items = ReadArray(root, arrayName, "", diagnostics);
             if (items is null)
                 return null;
@@ -54,7 +65,7 @@ internal static class ContentJson
                 definitions.Add(definition);
             }
             return definitions.AsReadOnly();
-        }
+        });
     }
 
     /// <summary>检查对象形状及允许字段；缺失字段由实际读取该字段的函数报告。</summary>
@@ -62,14 +73,14 @@ internal static class ContentJson
     {
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "Expected an object.", path);
+            diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Expected an object.", path.Length == 0 ? "$" : path);
             return false;
         }
         foreach (var property in element.EnumerateObject())
         {
             if (!fields.Contains(property.Name, StringComparer.Ordinal))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, $"Unknown field '{property.Name}'.", FieldPath(path, property.Name));
+                diagnostics.Reject(ContentDiagnosticCodes.UnknownField, $"Unknown field '{property.Name}'.", FieldPath(path, property.Name));
                 return false;
             }
         }
@@ -84,7 +95,7 @@ internal static class ContentJson
             return null;
         if (field.Value.ValueKind == JsonValueKind.Array)
             return field;
-        diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "Expected an array.", FieldPath(path, name));
+        diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Expected an array.", FieldPath(path, name));
         return null;
     }
 
@@ -112,7 +123,7 @@ internal static class ContentJson
         var normalized = value.Trim();
         if (ContentIdentity.IsValidPart(normalized))
             return normalized;
-        diagnostics.Warn(ContentDiagnosticCodes.LocalIdInvalid, "Expected a 1-64 character lowercase ASCII identity part.", path);
+        diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid, "Expected a 1-64 character lowercase ASCII identity part.", path);
         return null;
     }
 
@@ -124,7 +135,7 @@ internal static class ContentJson
             return null;
         if (VoxelDefinitionId.TryResolve(raw, packageNamespace, out var id))
             return id;
-        diagnostics.Warn(ContentDiagnosticCodes.LocalIdInvalid, "Expected a local or namespace:local-id voxel reference.", FieldPath(path, "definition"));
+        diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid, "Expected a local or namespace:local-id voxel reference.", FieldPath(path, "definition"));
         return null;
     }
 
@@ -136,41 +147,17 @@ internal static class ContentJson
             return null;
         if (field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetInt32(out var value) && value >= min)
             return value;
-        diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, $"Expected an integer from {min} to Int32.MaxValue.", FieldPath(path, name));
-        return null;
-    }
-
-    /// <summary>读取正 Int64 货币值。</summary>
-    public static long? ReadPrice(JsonElement element, string name, string path, DiagnosticBag diagnostics)
-    {
-        var field = ReadField(element, name, path, diagnostics);
-        if (field is null)
-            return null;
-        if (field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetInt64(out var value) && value > 0)
-            return value;
-        diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "Expected a positive Int64 currency amount.", FieldPath(path, name));
-        return null;
-    }
-
-    /// <summary>读取有限非负敏感度，正零和负零规范化为同一数值。</summary>
-    public static double? ReadSensitivity(JsonElement element, string path, DiagnosticBag diagnostics)
-    {
-        var field = ReadField(element, "sensitivity", path, diagnostics);
-        if (field is null)
-            return null;
-        if (field.Value.ValueKind == JsonValueKind.Number && field.Value.TryGetDouble(out var value) && double.IsFinite(value) && value >= 0)
-            return value == 0 ? 0d : value;
-        diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "Expected a finite nonnegative sensitivity.", FieldPath(path, "sensitivity"));
+        diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, $"Expected an integer from {min} to Int32.MaxValue.", FieldPath(path, name));
         return null;
     }
 
     /// <summary>读取必填字段；缺失时报告该字段，不由后续类型检查重复报错。</summary>
-    private static JsonElement? ReadField(JsonElement element, string name, string path, DiagnosticBag diagnostics,
+    public static JsonElement? ReadField(JsonElement element, string name, string path, DiagnosticBag diagnostics,
         string code = ContentDiagnosticCodes.FieldInvalid)
     {
         if (element.TryGetProperty(name, out var value))
             return value;
-        diagnostics.Warn(code, $"Required field '{name}' is missing.", FieldPath(path, name));
+        diagnostics.Reject(code, $"Required field '{name}' is missing.", FieldPath(path, name));
         return null;
     }
 

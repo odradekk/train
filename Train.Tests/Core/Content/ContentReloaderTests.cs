@@ -15,6 +15,134 @@ namespace Train.Tests.Core.Content;
 [TestCategory("scope:content")]
 public sealed class ContentReloaderTests
 {
+    [DataTestMethod]
+    [DataRow("voxels", true)]
+    [DataRow("voxels", false)]
+    [DataRow("composites", true)]
+    [DataRow("composites", false)]
+    [DataRow("market_tables", true)]
+    [DataRow("market_tables", false)]
+    [DataRow("settlement_types", true)]
+    [DataRow("settlement_types", false)]
+    public void Definition_array_errors_report_the_field_path_in_every_format(string format, bool missing)
+    {
+        using var session = LoggerSession.Create();
+        var source = MarketSettlementFixtures.CompleteSource();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var previous = reloader.Current;
+        var (file, json, _) = DefinitionFile(format);
+        var path = "/" + format;
+        source.AddDefinitionFile("core", file, MarketSettlementFixtures.Edit(json, path, missing ? null : "null"));
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.AreSame(previous, reloader.Current);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.FieldInvalid &&
+            item.Source == file && item.JsonPath == path && item.Severity == ContentDiagnosticSeverity.Error));
+    }
+
+    [DataTestMethod]
+    [DataRow("voxels", true)]
+    [DataRow("voxels", false)]
+    [DataRow("composites", true)]
+    [DataRow("composites", false)]
+    [DataRow("market_tables", true)]
+    [DataRow("market_tables", false)]
+    [DataRow("settlement_types", true)]
+    [DataRow("settlement_types", false)]
+    public void Parse_rejection_severity_follows_the_package_requiredness(string format, bool required)
+    {
+        using var session = LoggerSession.Create();
+        var source = MarketSettlementFixtures.CompleteSource();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var previous = reloader.Current;
+        const string packageId = "cccccccc-dddd-4eee-8fff-000000000002";
+        const string resources = "memory://mods/incoming/resources";
+        if (required)
+            source.AddPackage(packageId, resources);
+        else
+            source.AddMod("incoming", packageId);
+        source.AddImage(packageId, "iron.png", ContentFixtures.Square(16), resourcesRoot: resources);
+        var (relativeFile, json, schema) = DefinitionFile(format);
+        var file = "incoming/" + relativeFile;
+        if (format is "market_tables" or "settlement_types")
+            json = json.Replace("\"grain\"", "\"core:grain\"", StringComparison.Ordinal)
+                .Replace("\"coal\"", "\"core:coal\"", StringComparison.Ordinal);
+        var cases = new (string Json, string Code, string? Path)[]
+        {
+            ("{/* comment */" + json[1..], ContentDiagnosticCodes.InvalidJson, null),
+            ($"{{\"schema_version\":{schema}," + json[1..], ContentDiagnosticCodes.DuplicateProperty, "/schema_version"),
+            (MarketSettlementFixtures.Edit(json, "/schema_version", "0"), ContentDiagnosticCodes.SchemaVersionUnsupported, "/schema_version"),
+            (MarketSettlementFixtures.Edit(json, "/extra", "true"), ContentDiagnosticCodes.UnknownField, "/extra")
+        };
+        foreach (var (invalid, code, path) in cases)
+        {
+            source.AddDefinitionFile(packageId, file, invalid, resources);
+            var result = reloader.Reload();
+            Assert.AreEqual(required ? ContentReloadStatus.Rejected : ContentReloadStatus.CommittedWithWarnings, result.Status, code);
+            Assert.AreSame(previous, reloader.Current, code);
+            var diagnostic = result.Diagnostics.Single(item => item.Code == code && item.Source == file && item.JsonPath == path);
+            Assert.AreEqual(required ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning, diagnostic.Severity, code);
+            var logged = session.Memory.Snapshot().Last(item => item.EventId == ContentLog.InvalidEventId &&
+                item.Attributes["code"] is string loggedCode && loggedCode == code && item.Attributes["source"] is string loggedFile && loggedFile == file);
+            Assert.AreEqual(required ? LogLevel.Error : LogLevel.Warning, logged.Level, code);
+        }
+    }
+
+    [DataTestMethod]
+    [DataRow("voxels", true)]
+    [DataRow("composites", false)]
+    [DataRow("market_tables", true)]
+    [DataRow("settlement_types", true)]
+    public void Empty_definition_arrays_preserve_each_formats_rule(string format, bool accepted)
+    {
+        using var session = LoggerSession.Create();
+        var source = MarketSettlementFixtures.CompleteSource();
+        var (file, _, schema) = DefinitionFile(format);
+        source.AddDefinitionFile("core", "empty/" + file, $"{{\"schema_version\":{schema},\"{format}\":[]}}");
+        var result = ContentFixtures.Create(source, session.Logger).Reload();
+        Assert.AreEqual(accepted, result.IsCommitted);
+        if (!accepted)
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.InvalidJson &&
+                item.Source == "empty/" + file && item.JsonPath == "/composites"));
+    }
+
+    [TestMethod]
+    public void Invalid_voxel_entry_rejects_the_entire_file_without_partial_acceptance()
+    {
+        using var session = LoggerSession.Create();
+        var source = ContentFixtures.ValidFerrousOre();
+        var reloader = ContentFixtures.Create(source, session.Logger);
+        Assert.IsTrue(reloader.Reload().IsCommitted);
+        var previous = reloader.Current;
+        const string file = "bad.voxels.json";
+        source.AddDefinitionFile("core", file, ContentFixtures.GoodsFile(
+            ContentFixtures.Good("first", "有效", "说明"), ContentFixtures.Good("second", " ", "说明")));
+
+        var result = reloader.Reload();
+
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.AreSame(previous, reloader.Current);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.NameInvalid &&
+            item.Source == file && item.JsonPath == "/voxels/1/name"));
+        var scanned = session.Memory.Snapshot().Single(item => item.EventId == ContentLog.FileScannedEventId &&
+            item.Attributes["source"] is string path && path == file);
+        Assert.AreEqual(0, scanned.Attributes["accepted"]);
+    }
+
+    private static (string File, string Json, int Schema) DefinitionFile(string format) => format switch
+    {
+        "voxels" => ("goods.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good("grain", "粮食", "说明"), ContentFixtures.Good("coal", "煤", "说明")), 2),
+        "composites" => ("pair.composites.json", ContentReloadExamples.BlueprintFile.Replace("core:structure", "core:grain", StringComparison.Ordinal), 2),
+        "market_tables" => (MarketSettlementFixtures.MarketFile, MarketSettlementExamples.PricesFile, 1),
+        "settlement_types" => (MarketSettlementFixtures.TypeFile, MarketSettlementExamples.DepotFile, 1),
+        _ => throw new ArgumentOutOfRangeException(nameof(format))
+    };
+
     [TestMethod]
     public void Combined_behaviors_load_as_typed_data_and_affect_semantic_revision()
     {
@@ -300,10 +428,10 @@ public sealed class ContentReloaderTests
     public void Diagnostics_are_capped_per_package_and_still_reject()
     {
         using var session = LoggerSession.Create();
-        var goods = string.Join(",", Enumerable.Range(0, 150).Select(i =>
-            ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.CorePackage();
-        source.AddDefinitionFile("core", "many.voxels.json", $"{{\"schema_version\":2,\"voxels\":[{goods}]}}");
+        for (var i = 0; i < ContentLimits.MaxDiagnosticsPerPackage + 1; i++)
+            source.AddDefinitionFile("core", $"bad-{i}.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good($"item-{i}", " ", "说明")));
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count);
@@ -629,7 +757,7 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(0, bad.Attributes["accepted"]);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.InvalidEventId &&
-            item.Level == LogLevel.Warning));
+            item.Level == LogLevel.Error));
     }
 
     [TestMethod]

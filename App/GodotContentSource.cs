@@ -162,15 +162,10 @@ public sealed class GodotContentSource : IContentSource
     /// <returns>规范化相对文件路径、发现诊断和包无效标记；无效结果仍可能保留部分文件。</returns>
     /// <remarks>物理包交给 ExternalContent，虚拟内置包交给 Godot 目录遍历；只发现文件，不解析格式或玩家蓝图身份。</remarks>
     /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
-    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) =>
-        ListDataFiles(package, ".json");
-
-    /// <summary>按包种类和内置访问方式分派全部定义文件的目录扫描。</summary>
-    /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
-    private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package)
     {
         if (package.Kind is ContentPackageKind.Mod or ContentPackageKind.PlayerBlueprint || IsPhysicalBuiltIn(package))
-            return ExternalContent.ListDataFiles(package.ResourcesRoot, fileSuffix);
+            return ExternalContent.ListDefinitionFiles(package.ResourcesRoot);
 
         if (IsLinkedOrUnresolved(package.ResourcesRoot))
             return new ContentFileDiscovery(
@@ -178,7 +173,7 @@ public sealed class GodotContentSource : IContentSource
                 new[] { ContentPackageWalk.LinkedPathDiagnostic(package.ResourcesRoot) },
                 invalid: true);
 
-        return ContentPackageWalk.Discover(package.ResourcesRoot, ListEntries, fileSuffix);
+        return ContentPackageWalk.Discover(package.ResourcesRoot, ListEntries, ".json");
     }
 
     /// <summary>在给定字节上限内读取一个包内文件，并检查其资源根与路径链。</summary>

@@ -27,6 +27,8 @@ public sealed class MarketSettlementPublicationTests
             Assert.AreSame(change.Current, reloader.Current);
             Assert.IsTrue(change.Current.MarketTables.ContainsKey(MarketSettlementExamples.PricesId));
             Assert.IsTrue(change.Current.SettlementTypes.ContainsKey(MarketSettlementExamples.DepotId));
+            Assert.AreEqual(200L, change.Current.Blueprints[ContentReloadExamples.BlueprintId].Attributes.BomValue);
+            Assert.AreEqual(10d, change.Current.Blueprints[ContentReloadExamples.BlueprintId].Attributes.Mass);
             changes.Add(change);
         };
 

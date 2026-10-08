@@ -26,7 +26,7 @@ public sealed class ContentPackageWalkTests
             ]
         };
 
-        var discovery = ContentPackageWalk.Discover("res://root", path => tree.GetValueOrDefault(path));
+        var discovery = ContentPackageWalk.Discover("res://root", path => tree.GetValueOrDefault(path), ".json");
 
         CollectionAssert.AreEqual(new[] { "safe.voxels.json" }, discovery.Files.ToArray());
         Assert.IsTrue(discovery.Invalid);
@@ -46,7 +46,7 @@ public sealed class ContentPackageWalkTests
             ]
         };
 
-        var discovery = ContentPackageWalk.Discover("res://root", path => tree.GetValueOrDefault(path));
+        var discovery = ContentPackageWalk.Discover("res://root", path => tree.GetValueOrDefault(path), ".json");
 
         CollectionAssert.AreEqual(new[] { "ok.voxels.json" }, discovery.Files.ToArray());
         Assert.IsTrue(discovery.Invalid);
@@ -67,12 +67,53 @@ public sealed class ContentPackageWalkTests
 
         var discovery = ContentPackageWalk.Discover(
             "res://root",
-            path => path == "res://root" ? tree[path] : null);
+            path => path == "res://root" ? tree[path] : null,
+            ".json");
 
         CollectionAssert.AreEqual(new[] { "visible.voxels.json" }, discovery.Files.ToArray());
         Assert.IsTrue(discovery.Invalid);
         Assert.IsTrue(discovery.Diagnostics.Any(item =>
             item.Code == ContentDiagnosticCodes.UnsafeLinkedPath &&
             item.JsonPath == "res://root/blocked"));
+    }
+
+    [TestMethod]
+    public void Json_discovery_collects_all_lowercase_formats_recursively_in_ordinal_order()
+    {
+        var tree = new Dictionary<string, ContentTreeEntry[]>(StringComparer.Ordinal)
+        {
+            ["res://root"] =
+            [
+                new("z.market-tables.json", IsDirectory: false, IsLink: false),
+                new("notes.json", IsDirectory: false, IsLink: false),
+                new("upper.JSON", IsDirectory: false, IsLink: false),
+                new("script.cs", IsDirectory: false, IsLink: false),
+                new("nested", IsDirectory: true, IsLink: false),
+                new("a.voxels.json", IsDirectory: false, IsLink: false)
+            ],
+            ["res://root/nested"] =
+            [
+                new("town.settlement-types.json", IsDirectory: false, IsLink: false),
+                new("blueprint.composites.json", IsDirectory: false, IsLink: false)
+            ]
+        };
+
+        var discovery = ContentPackageWalk.Discover(
+            "res://root",
+            path => tree.GetValueOrDefault(path),
+            ".json");
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "a.voxels.json",
+                "nested/blueprint.composites.json",
+                "nested/town.settlement-types.json",
+                "notes.json",
+                "z.market-tables.json"
+            },
+            discovery.Files.ToArray());
+        Assert.IsFalse(discovery.Invalid);
+        Assert.AreEqual(0, discovery.Diagnostics.Count);
     }
 }

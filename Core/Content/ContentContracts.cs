@@ -443,11 +443,14 @@ public static class ContentPath
 }
 
 /// <summary>收集有数量上限的内容诊断，并单独记录当前校验范围是否已无效。</summary>
-/// <remarks>诊断列表通过只读接口暴露，但随追加而变化。达到保留上限后继续更新无效状态，丢弃新的诊断条目。</remarks>
-/// <example>150 个非法名称只保留 100 条诊断，仍拒绝内置包；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
-internal sealed class DiagnosticBag
+/// <remarks>拒绝级别由所属校验范围提供；包诊断按必需性选择级别。达到保留上限后继续更新无效状态，丢弃新的诊断条目。</remarks>
+/// <example>多个无效文件超过包诊断额度后仍使包无效；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
+internal sealed class DiagnosticBag(ContentDiagnosticSeverity rejectionSeverity = ContentDiagnosticSeverity.Warning)
 {
     private readonly List<ContentDiagnostic> _items = new();
+
+    /// <summary>获取本校验范围拒绝内容时使用的诊断级别。</summary>
+    public ContentDiagnosticSeverity RejectionSeverity { get; } = rejectionSeverity;
 
     /// <summary>获取或设置后续追加诊断使用的来源路径；可以为 null，更改不会改写已记录条目的来源。</summary>
     public string? Source { get; set; }
@@ -478,6 +481,10 @@ internal sealed class DiagnosticBag
             return;
         _items.Add(new ContentDiagnostic(severity, code, message, Source, jsonPath));
     }
+
+    /// <summary>按所属范围的拒绝级别追加诊断，并将范围标记无效。</summary>
+    public void Reject(string code, string message, string? jsonPath = null) =>
+        Add(RejectionSeverity, code, message, jsonPath);
 
     /// <summary>将当前校验范围标记无效，不追加诊断条目。</summary>
     public void MarkInvalid() => Invalid = true;

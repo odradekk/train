@@ -55,7 +55,7 @@ public static class ContentPackageWalk
     /// <summary>递归收集指定后缀且路径格式有效的文件，遇到链接或不可列举目录时标记整个包无效。</summary>
     /// <param name="root">采用正斜杠、不带末尾斜杠的包资源根，例如 res://root；原样传给首次列举回调。</param>
     /// <param name="listChildren">同步列举指定目录直接子项的非 null 回调；空集合表示空目录，null 表示无法安全列举。须提供有限的目录树并正确标记链接。</param>
-    /// <param name="fileSuffix">按 Ordinal 区分大小写匹配的非 null 文件后缀，默认 .voxels.json；空字符串匹配所有普通文件。</param>
+    /// <param name="fileSuffix">由调用方显式指定、按 Ordinal 区分大小写匹配的非 null 文件后缀；空字符串匹配所有普通文件。</param>
     /// <returns>按 Ordinal 排序且不去重的正斜杠相对路径、按遍历顺序保留的诊断和无效标记；无效时仍保留其他子树已发现的文件。</returns>
     /// <remarks>
     /// 跳过 . 和 ..；其余子项只要标记为链接就使包无效，与目录标记和文件后缀无关。非链接目录递归列举，普通文件后缀不匹配或相对路径未通过 ContentPath.TryNormalize 时仅忽略该文件。
@@ -67,7 +67,7 @@ public static class ContentPackageWalk
     public static ContentFileDiscovery Discover(
         string root,
         Func<string, IReadOnlyList<ContentTreeEntry>?> listChildren,
-        string fileSuffix = ".voxels.json")
+        string fileSuffix)
     {
         var files = new List<string>();
         var bag = new DiagnosticBag();

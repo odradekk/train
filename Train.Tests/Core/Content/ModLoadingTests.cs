@@ -166,11 +166,11 @@ public sealed class ModLoadingTests
     public void Diagnostic_cap_still_isolates_an_invalid_mod()
     {
         using var session = LoggerSession.Create();
-        var goods = string.Join(",", Enumerable.Range(0, 150).Select(i =>
-            ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("noisy", ModFixtures.SampleUuid);
-        source.AddDefinitionFile(ModFixtures.SampleUuid, "many.voxels.json", $"{{\"schema_version\":2,\"voxels\":[{goods}]}}");
+        for (var i = 0; i < ContentLimits.MaxDiagnosticsPerPackage + 1; i++)
+            source.AddDefinitionFile(ModFixtures.SampleUuid, $"bad-{i}.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good($"item-{i}", " ", "说明")));
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();

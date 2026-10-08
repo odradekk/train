@@ -35,63 +35,17 @@ internal static class CompositesJsonParser
         string sourceFile,
         DiagnosticBag diagnostics)
     {
-        diagnostics.Source = sourceFile;
-        if (utf8.Length > ContentLimits.JsonFileMaxBytes)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Composite JSON exceeds the 1 MiB limit.");
-            return null;
-        }
-
-        if (StrictJson.HasDuplicateProperties(utf8, diagnostics, sourceFile))
-            return null;
-
-        JsonDocument document;
-        try
-        {
-            document = JsonDocument.Parse(utf8, StrictJson.DocumentOptions);
-        }
-        catch (JsonException exception)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
-            return null;
-        }
-
-        using (document)
-        {
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "Composite file must be a JSON object.", "$");
-                return null;
-            }
-
-            return ParseDocument(document.RootElement, packageNamespace, diagnostics);
-        }
+        return ContentJson.ParseDocument(utf8, sourceFile, SchemaVersion,
+            new[] { "schema_version", "display_name", "composites" }, diagnostics,
+            root => ParseRoot(root, packageNamespace, diagnostics));
     }
 
-    /// <summary>解析文件级版本、显示名和必填蓝图数组。</summary>
-    private static ParsedCompositeDocument? ParseDocument(
+    /// <summary>解析文件级显示名和非空蓝图数组。</summary>
+    private static ParsedCompositeDocument? ParseRoot(
         JsonElement root,
         string packageNamespace,
         DiagnosticBag diagnostics)
     {
-        foreach (var property in root.EnumerateObject())
-        {
-            if (property.Name is not "schema_version" and not "display_name" and not "composites")
-            {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", "/" + property.Name);
-                return null;
-            }
-        }
-
-        if (!root.TryGetProperty("schema_version", out var versionElement) ||
-            versionElement.ValueKind != JsonValueKind.Number ||
-            !versionElement.TryGetInt32(out var version) ||
-            version != SchemaVersion)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.SchemaVersionUnsupported, "Only schema_version 2 is supported.", "/schema_version");
-            return null;
-        }
-
         string? displayName = null;
         if (root.TryGetProperty("display_name", out var displayElement) &&
             (!StrictJson.TryGetString(displayElement, diagnostics, "/display_name", ContentDiagnosticCodes.NameInvalid, out var rawName) ||
@@ -99,15 +53,13 @@ internal static class CompositesJsonParser
                  diagnostics, "/display_name", ContentDiagnosticCodes.NameInvalid, out displayName)))
             return null;
 
-        if (!root.TryGetProperty("composites", out var compositesElement) || compositesElement.ValueKind != JsonValueKind.Array)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "composites is required and must be an array.", "/composites");
+        var compositesElement = ContentJson.ReadArray(root, "composites", "", diagnostics);
+        if (compositesElement is null)
             return null;
-        }
 
         var composites = new List<CompositeDefinition>();
         var index = 0;
-        foreach (var item in compositesElement.EnumerateArray())
+        foreach (var item in compositesElement.Value.EnumerateArray())
         {
             if (!TryParseComposite(item, packageNamespace, $"/composites/{index}", diagnostics, out var composite))
                 return null;
@@ -117,7 +69,7 @@ internal static class CompositesJsonParser
 
         if (composites.Count == 0)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "A composite file must declare at least one composite.", "/composites");
+            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, "A composite file must declare at least one composite.", "/composites");
             return null;
         }
 
@@ -135,7 +87,7 @@ internal static class CompositesJsonParser
         composite = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "Each composite must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, "Each composite must be an object.", jsonPath);
             return false;
         }
 
@@ -169,14 +121,14 @@ internal static class CompositesJsonParser
                     voxels = property.Value;
                     break;
                 default:
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
                     return false;
             }
         }
 
         if (localId is null || !ContentIdentity.IsValidPart(localId))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LocalIdInvalid, "Local id is invalid.", jsonPath + "/id");
+            diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid, "Local id is invalid.", jsonPath + "/id");
             return false;
         }
         if (!StrictJson.TryNormalizeText(name, VoxelDefinition.NameMinLength, VoxelDefinition.NameMaxLength,
@@ -186,12 +138,12 @@ internal static class CompositesJsonParser
             return false;
         if (sizeText is null || !VehicleSize.TryParse(sizeText, out var sizeClass))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.SizeClassInvalid, "Unknown vehicle size class.", jsonPath + "/size_class");
+            diagnostics.Reject(ContentDiagnosticCodes.SizeClassInvalid, "Unknown vehicle size class.", jsonPath + "/size_class");
             return false;
         }
         if (voxels is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "voxels is required.", jsonPath + "/voxels");
+            diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "voxels is required.", jsonPath + "/voxels");
             return false;
         }
         if (!TryParseVoxels(voxels.Value, packageNamespace, jsonPath + "/voxels", diagnostics, out var voxelSpecs))
@@ -217,7 +169,7 @@ internal static class CompositesJsonParser
         voxels = Array.Empty<CompositeVoxelSpec>();
         if (element.ValueKind != JsonValueKind.Array)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "voxels must be an array.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "voxels must be an array.", jsonPath);
             return false;
         }
 
@@ -230,7 +182,7 @@ internal static class CompositesJsonParser
                 return false;
             if (!occupied.Add(spec.Cell))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "Composite voxel coordinates must be unique.", $"{jsonPath}/{index}");
+                diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "Composite voxel coordinates must be unique.", $"{jsonPath}/{index}");
                 return false;
             }
             parsed.Add(spec);
@@ -239,7 +191,7 @@ internal static class CompositesJsonParser
 
         if (parsed.Count == 0)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "A composite layout must contain at least one voxel.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "A composite layout must contain at least one voxel.", jsonPath);
             return false;
         }
 
@@ -258,7 +210,7 @@ internal static class CompositesJsonParser
         spec = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "Each composite voxel must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "Each composite voxel must be an object.", jsonPath);
             return false;
         }
 
@@ -291,24 +243,24 @@ internal static class CompositesJsonParser
                         return false;
                     break;
                 default:
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
                     return false;
             }
         }
 
         if (x is null || y is null || z is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "Composite voxels require integer x, y, and z.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "Composite voxels require integer x, y, and z.", jsonPath);
             return false;
         }
         if (definition is null || !VoxelDefinitionId.TryResolve(definition, packageNamespace, out var definitionId))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.UnresolvedVoxelReference, "definition must be a local id or namespace:local-id.", jsonPath + "/definition");
+            diagnostics.Reject(ContentDiagnosticCodes.UnresolvedVoxelReference, "definition must be a local id or namespace:local-id.", jsonPath + "/definition");
             return false;
         }
         if (orientationText is null || !VoxelOrientation.TryParse(orientationText, out var orientation))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.OrientationInvalid, "orientation is not a valid orthogonal encoding.", jsonPath + "/orientation");
+            diagnostics.Reject(ContentDiagnosticCodes.OrientationInvalid, "orientation is not a valid orthogonal encoding.", jsonPath + "/orientation");
             return false;
         }
 
@@ -322,7 +274,7 @@ internal static class CompositesJsonParser
         value = 0;
         if (element.ValueKind != JsonValueKind.Number || !element.TryGetInt32(out value))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LayoutInvalid, "Expected an integer.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.LayoutInvalid, "Expected an integer.", jsonPath);
             return false;
         }
         return true;

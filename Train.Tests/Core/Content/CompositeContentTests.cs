@@ -130,8 +130,12 @@ public sealed class CompositeContentTests
                 CompositeFixtures.Voxel(0, 0, 0, "core:vehicle-shell"),
                 CompositeFixtures.Voxel(1, 0, 0, "core:control-unit")))));
         var playerPackage = source.ListPackages().Single(package => package.Kind == ContentPackageKind.PlayerBlueprint);
-        // 通用发现会列出这些文件，只有蓝图格式可以解释 UUID 同名的根级文档。
-        foreach (var ignored in new[] { "extra.voxels.json", "extra.composites.json", "nested/" + uuid + ".composites.json" })
+        // 通用发现会列出这些文件，加载器只读取 UUID 同名的根级蓝图。
+        foreach (var ignored in new[]
+                 {
+                     "extra.voxels.json", "extra.composites.json", "extra.market-tables.json",
+                     "extra.settlement-types.json", "nested/" + uuid + ".composites.json"
+                 })
             source.AddDefinitionFile(uuid, ignored, "invalid JSON", playerPackage.ResourcesRoot);
         var reloader = ContentFixtures.Create(source, session.Logger);
 
@@ -141,6 +145,10 @@ public sealed class CompositeContentTests
         Assert.AreEqual(3d, entry.Attributes.Mass);
         Assert.IsTrue(entry.Attributes.HasControl);
         Assert.IsFalse(reloader.Current.Voxels.Keys.Any(id => id.Namespace == uuid));
+        var scanned = session.Memory.Snapshot().Where(item => item.EventId == ContentLog.FileScannedEventId &&
+            item.Attributes["package"] is string packageId && packageId == uuid).ToArray();
+        Assert.AreEqual(1, scanned.Length);
+        Assert.AreEqual(uuid + ".composites.json", scanned.Single().Attributes["source"]);
     }
 
     [TestMethod]

@@ -52,6 +52,13 @@ public sealed class ExternalPathTests
             Directory.CreateDirectory(resources);
             File.WriteAllText(Path.Combine(packageRoot, ModDiscovery.ManifestFileName), ModFixtures.Manifest(ModFixtures.SampleUuid));
             File.WriteAllText(Path.Combine(resources, "copper.voxels.json"), ContentFixtures.GoodsFile());
+            var nested = Path.Combine(resources, "definitions");
+            Directory.CreateDirectory(nested);
+            File.WriteAllText(Path.Combine(nested, "train.composites.json"), "{}");
+            File.WriteAllText(Path.Combine(nested, "prices.market-tables.json"), "{}");
+            File.WriteAllText(Path.Combine(nested, "depot.settlement-types.json"), "{}");
+            File.WriteAllText(Path.Combine(resources, "metadata.json"), "{}");
+            File.WriteAllText(Path.Combine(resources, "ignored.JSON"), "{}");
             File.WriteAllBytes(Path.Combine(resources, "plugin.dll"), new byte[] { 0x4d, 0x5a });
             File.WriteAllText(Path.Combine(resources, "script.cs"), "class X {}");
             File.WriteAllText(Path.Combine(resources, "hook.gd"), "extends Node");
@@ -63,7 +70,16 @@ public sealed class ExternalPathTests
             Assert.AreEqual(ModFixtures.SampleUuid, scan.Packages.Single().Namespace);
 
             var discovery = ExternalContent.ListDefinitionFiles(resources);
-            CollectionAssert.AreEqual(new[] { "copper.voxels.json" }, discovery.Files.ToArray());
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "copper.voxels.json",
+                    "definitions/depot.settlement-types.json",
+                    "definitions/prices.market-tables.json",
+                    "definitions/train.composites.json",
+                    "metadata.json"
+                },
+                discovery.Files.ToArray());
             Assert.IsFalse(discovery.Invalid);
 
             Assert.IsNull(ExternalContent.ReadFile(resources, "plugin.dll", ContentLimits.JsonFileMaxBytes).Bytes);

@@ -4,62 +4,63 @@ using Train.Core.Content.Voxels;
 
 namespace Train.Core.Content.Composites;
 
+/// <summary>表示完成本地解析的蓝图布局、来源和语义修订；不含尚未计算的设计属性或发布指纹。</summary>
+internal sealed record CompositeCandidate(
+    CompositeDefinition Definition, ContentOrigin Origin, string? FileDisplayName, string SemanticRevision);
+
 /// <summary>一轮加载中的 schema 2 蓝图格式；引用解析始终使用同轮体素索引。</summary>
-internal sealed class CompositeContentFormat(IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels)
-    : ContentFormat<CompositeDefinitionId, CompositeContentEntry>
+internal sealed class CompositeContentFormat : ContentFormat<CompositeDefinitionId, CompositeCandidate>
 {
+    private readonly Dictionary<CompositeDefinitionId, CompositeContentEntry> _entries = new();
+
+    public IReadOnlyDictionary<CompositeDefinitionId, CompositeContentEntry> Entries => _entries;
     public override string FileSuffix => ".composites.json";
     public override string LogKind => "composites";
-    public override bool Accepts(ContentPackage package, string file) =>
-        base.Accepts(package, file) && (package.Kind != ContentPackageKind.PlayerBlueprint ||
-                                      file == package.Namespace + FileSuffix);
-    protected override CompositeDefinitionId Identity(CompositeContentEntry entry) => entry.Definition.Id;
-    protected override string Fingerprint(CompositeContentEntry entry) => entry.PublicationFingerprint;
-    public override bool HasChanges(ContentSnapshot previous) => HasChanges(previous.Blueprints);
+    protected override CompositeDefinitionId Identity(CompositeCandidate entry) => entry.Definition.Id;
+    public override bool HasChanges(ContentSnapshot previous) =>
+        HasChanges(Entries, previous.Blueprints, static entry => entry.PublicationFingerprint);
 
     /// <summary>严格解析布局；引用及派生属性留给合并后的候选检查。</summary>
-    protected override IReadOnlyList<CompositeContentEntry> Parse(
+    protected override IReadOnlyList<CompositeCandidate> Parse(
         IContentSource source, ContentPackageLoad load, string file, byte[] bytes)
     {
         var document = CompositesJsonParser.Parse(bytes, load.Package.Namespace, file, load.Diagnostics);
         if (document is null)
-            return Array.Empty<CompositeContentEntry>();
-        return document.Composites.Select(definition =>
-        {
-            var semantic = CompositeRevisions.ComputeSemanticRevision(definition);
-            return new CompositeContentEntry(definition, new ContentOrigin(load.Package.Namespace, file),
-                document.DisplayName, semantic, CompositeRevisions.ComputePublicationFingerprint(
-                    definition, document.DisplayName, semantic, DesignAttributes.Empty), DesignAttributes.Empty);
-        }).ToArray();
+            return Array.Empty<CompositeCandidate>();
+        return document.Composites.Select(definition => new CompositeCandidate(
+            definition, new ContentOrigin(load.Package.Namespace, file), document.DisplayName,
+            CompositeRevisions.ComputeSemanticRevision(definition))).ToArray();
     }
 
-    public override void ResolveReferences()
+    /// <summary>按已合并的体素索引校验候选布局并计算属性，只为成功候选建立完整蓝图条目。</summary>
+    /// <remarks>效果：重建本轮 Entries；失败使实际所属包无效，已发布快照不受影响。</remarks>
+    public void ResolveReferences(IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels)
     {
-        foreach (var (id, entry) in Entries.ToArray())
+        _entries.Clear();
+        foreach (var (id, candidate) in Candidates)
         {
             var owner = Owners[id];
-            if (owner.Diagnostics.Invalid || !TryCalculate(entry, owner, out var attributes))
+            if (owner.Diagnostics.Invalid || CalculateAttributes(candidate, voxels, owner) is not { } attributes)
                 continue;
-            Entries[id] = new CompositeContentEntry(entry.Definition, entry.Origin, entry.FileDisplayName,
-                entry.SemanticRevision, CompositeRevisions.ComputePublicationFingerprint(entry.Definition,
-                    entry.FileDisplayName, entry.SemanticRevision, attributes), attributes);
+            _entries.Add(id, new CompositeContentEntry(candidate.Definition, candidate.Origin, candidate.FileDisplayName,
+                candidate.SemanticRevision, CompositeRevisions.ComputePublicationFingerprint(candidate.Definition,
+                    candidate.FileDisplayName, candidate.SemanticRevision, attributes), attributes));
         }
     }
 
-    /// <summary>逐格解析引用和允许朝向，再汇总核心定义；任何失败记录到实际所属包。</summary>
-    private bool TryCalculate(CompositeContentEntry composite, ContentPackageLoad owner, out DesignAttributes attributes)
+    /// <summary>逐格校验引用和朝向并汇总核心定义；失败返回 null，原因记录到实际所属包。</summary>
+    private static DesignAttributes? CalculateAttributes(CompositeCandidate composite,
+        IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels, ContentPackageLoad owner)
     {
-        attributes = DesignAttributes.Empty;
         var bag = owner.Diagnostics;
         bag.Source = composite.Origin.SourceFile;
-        var severity = owner.Package.IsRequired ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning;
         var resolved = new List<ICoreVoxelDefinition>();
         var valid = true;
         foreach (var voxel in composite.Definition.Voxels)
         {
             if (!voxels.TryGetValue(voxel.DefinitionId, out var entry))
             {
-                bag.Add(severity, ContentDiagnosticCodes.UnresolvedVoxelReference,
+                bag.Reject(ContentDiagnosticCodes.UnresolvedVoxelReference,
                     "A blueprint references a voxel missing from the candidate content.", voxel.DefinitionId.Value);
                 valid = false;
                 continue;
@@ -73,24 +74,23 @@ internal sealed class CompositeContentFormat(IReadOnlyDictionary<VoxelDefinition
             };
             if (!allowed)
             {
-                bag.Add(severity, ContentDiagnosticCodes.OrientationInvalid,
+                bag.Reject(ContentDiagnosticCodes.OrientationInvalid,
                     "A blueprint voxel uses an orientation disallowed by its definition.", voxel.DefinitionId.Value);
                 valid = false;
             }
             resolved.Add(entry.Definition);
         }
         if (!valid)
-            return false;
+            return null;
         try
         {
-            attributes = DesignAttributeCalculator.Calculate(resolved);
-            return true;
+            return DesignAttributeCalculator.Calculate(resolved);
         }
         catch (OverflowException)
         {
-            bag.Add(severity, ContentDiagnosticCodes.LayoutInvalid,
+            bag.Reject(ContentDiagnosticCodes.LayoutInvalid,
                 "Blueprint design attributes exceed the representable range.", composite.Definition.Id.Value);
-            return false;
+            return null;
         }
     }
 }

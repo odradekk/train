@@ -65,7 +65,7 @@ internal static class SettlementTypesJsonParser
                 return null;
             if (!quantities.TryAdd(id, new SettlementMarketQuantity(capacity, restore)))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, $"Duplicate good '{id}'.", itemPath + "/definition");
+                diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, $"Duplicate good '{id}'.", itemPath + "/definition");
                 return null;
             }
         }
@@ -88,7 +88,7 @@ internal static class SettlementTypesJsonParser
                 return null;
             if (!terrain.Add(label))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, $"Duplicate terrain label '{label}'.", itemPath);
+                diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, $"Duplicate terrain label '{label}'.", itemPath);
                 return null;
             }
         }
@@ -103,7 +103,7 @@ internal static class SettlementTypesJsonParser
             return null;
         if (max >= min)
             return new SettlementPopulationRange(min, max);
-        diagnostics.Warn(ContentDiagnosticCodes.FieldInvalid, "population_max must be at least population_min.", path + "/population_max");
+        diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "population_max must be at least population_min.", path + "/population_max");
         return null;
     }
 }

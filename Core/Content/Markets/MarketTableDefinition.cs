@@ -36,7 +36,7 @@ public readonly record struct MarketTableDefinitionId
 }
 
 /// <summary>表示一种货物的价格敏感度和货币价格区间，不包含该货物的 Value 或运行时报价。</summary>
-/// <remarks>数据种类：结构。Sensitivity 为有限非负数；MinPrice、MaxPrice 是正 Int64 货币单位且 MinPrice ≤ MaxPrice。范围由解析器校验。</remarks>
+/// <remarks>数据种类：结构。Sensitivity 为有限非负数；MinPrice、MaxPrice 是正 Int64 货币单位且 MinPrice ≤ MaxPrice。</remarks>
 /// <example>粮食为敏感度 0.6、价格区间 60–180；见 MarketSettlementExamples.GrainPrice。</example>
 public sealed class MarketPriceRule
 {
@@ -47,10 +47,20 @@ public sealed class MarketPriceRule
     /// <summary>获取四舍五入后报价的货币上限。</summary>
     public long MaxPrice { get; }
 
-    /// <summary>保存解析器已校验的三个价格参数。</summary>
+    /// <summary>创建价格规则，并将正零和负零规范化为同一数值。</summary>
+    /// <exception cref="ArgumentOutOfRangeException">敏感度非有限或为负，价格非正，或者价格区间倒置。</exception>
     internal MarketPriceRule(double sensitivity, long minPrice, long maxPrice)
     {
-        Sensitivity = sensitivity;
+        if (!double.IsFinite(sensitivity) || sensitivity < 0)
+            throw new ArgumentOutOfRangeException(nameof(sensitivity), sensitivity, "Sensitivity must be finite and nonnegative.");
+        if (minPrice <= 0)
+            throw new ArgumentOutOfRangeException(nameof(minPrice), minPrice, "Minimum price must be positive.");
+        if (maxPrice <= 0)
+            throw new ArgumentOutOfRangeException(nameof(maxPrice), maxPrice, "Maximum price must be positive.");
+        if (minPrice > maxPrice)
+            throw new ArgumentOutOfRangeException(nameof(maxPrice), maxPrice, "Maximum price cannot be less than minimum price.");
+
+        Sensitivity = sensitivity == 0 ? 0d : sensitivity;
         MinPrice = minPrice;
         MaxPrice = maxPrice;
     }
@@ -71,10 +81,22 @@ public sealed class MarketTableDefinition
     /// <summary>获取按体素定义身份索引的只读价格规则副本。</summary>
     public IReadOnlyDictionary<VoxelDefinitionId, MarketPriceRule> Goods { get; }
 
-    /// <summary>保存已校验定义，并冻结价格规则映射。</summary>
+    /// <summary>创建市场表，并冻结价格规则映射的副本。</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="goods"/> 或其中的规则为 <see langword="null"/>。</exception>
+    /// <exception cref="ArgumentException">身份无效、货物映射为空或含无效货物身份。</exception>
     internal MarketTableDefinition(
         MarketTableDefinitionId id, IReadOnlyDictionary<VoxelDefinitionId, MarketPriceRule> goods)
     {
+        ArgumentNullException.ThrowIfNull(goods);
+        if (string.IsNullOrEmpty(id.Namespace) || string.IsNullOrEmpty(id.LocalId))
+            throw new ArgumentException("MarketTableDefinitionId cannot be blank.", nameof(id));
+        if (goods.Count == 0)
+            throw new ArgumentException("A market table must contain at least one good.", nameof(goods));
+        if (goods.Keys.Any(static key => string.IsNullOrEmpty(key.Namespace) || string.IsNullOrEmpty(key.LocalId)))
+            throw new ArgumentException("A market table cannot contain an invalid good identity.", nameof(goods));
+        if (goods.Values.Any(static rule => rule is null))
+            throw new ArgumentNullException(nameof(goods), "A market table cannot contain null price rules.");
+
         Id = id;
         Goods = goods.ToFrozenDictionary();
     }

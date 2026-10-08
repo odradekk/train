@@ -39,7 +39,6 @@ public readonly record struct SettlementTypeDefinitionId
 /// <remarks>
 /// 数据种类：结构。Capacity 是正 Int32；RestorePerTick 是非负 Int32，允许为零或超过上限。
 /// 运行时从满额开始；恢复时截到 Capacity。这里只保存规格，不保存当前数量或执行恢复。
-/// 范围由解析器校验。
 /// </remarks>
 /// <example>粮食供给上限 8、每刻恢复 1；零恢复例子见 MarketSettlementExamples.NoRecovery。</example>
 public sealed class SettlementMarketQuantity
@@ -49,16 +48,22 @@ public sealed class SettlementMarketQuantity
     /// <summary>获取每个全局市场刻补充的单位数。</summary>
     public int RestorePerTick { get; }
 
-    /// <summary>保存解析器已校验的容量和恢复量。</summary>
+    /// <summary>创建一种货物的供给或需求数量规格。</summary>
+    /// <exception cref="ArgumentOutOfRangeException">容量非正或每刻恢复量为负。</exception>
     internal SettlementMarketQuantity(int capacity, int restorePerTick)
     {
+        if (capacity <= 0)
+            throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.");
+        if (restorePerTick < 0)
+            throw new ArgumentOutOfRangeException(nameof(restorePerTick), restorePerTick, "Restore per tick cannot be negative.");
+
         Capacity = capacity;
         RestorePerTick = restorePerTick;
     }
 }
 
 /// <summary>表示生成初始常住人口时使用的闭区间。</summary>
-/// <remarks>数据种类：区间；Min、Max 均为正 Int32 人数，Min ≤ Max，允许两端相同。范围由解析器校验。</remarks>
+/// <remarks>数据种类：区间；Min、Max 均为正 Int32 人数，Min ≤ Max，允许两端相同。</remarks>
 /// <example>100–300 人和恰好 1 人；见 MarketSettlementExamples。</example>
 public sealed class SettlementPopulationRange
 {
@@ -67,9 +72,17 @@ public sealed class SettlementPopulationRange
     /// <summary>获取允许的最多人数，包含端点。</summary>
     public int Max { get; }
 
-    /// <summary>保存解析器已校验的初始人口闭区间。</summary>
+    /// <summary>创建初始人口闭区间。</summary>
+    /// <exception cref="ArgumentOutOfRangeException">任一端点非正，或者区间倒置。</exception>
     internal SettlementPopulationRange(int min, int max)
     {
+        if (min <= 0)
+            throw new ArgumentOutOfRangeException(nameof(min), min, "Minimum population must be positive.");
+        if (max <= 0)
+            throw new ArgumentOutOfRangeException(nameof(max), max, "Maximum population must be positive.");
+        if (min > max)
+            throw new ArgumentOutOfRangeException(nameof(max), max, "Maximum population cannot be less than minimum population.");
+
         Min = min;
         Max = max;
     }
@@ -103,7 +116,10 @@ public sealed class SettlementTypeDefinition
     /// <summary>获取临时生成模型的初始站台数。</summary>
     public int InitialPlatformCount { get; }
 
-    /// <summary>保存已校验的类型规格，并冻结各集合的副本。</summary>
+    /// <summary>创建聚居地类型，规范化显示名和地貌标签，并冻结各集合的副本。</summary>
+    /// <exception cref="ArgumentNullException">必需引用参数或供需映射中的数量规格为 <see langword="null"/>。</exception>
+    /// <exception cref="ArgumentException">身份、显示名、供需货物身份或地貌标签无效。</exception>
+    /// <exception cref="ArgumentOutOfRangeException">生成权重非正或初始站台数为负。</exception>
     internal SettlementTypeDefinition(
         SettlementTypeDefinitionId id, string name,
         IReadOnlyDictionary<VoxelDefinitionId, SettlementMarketQuantity> supply,
@@ -111,11 +127,35 @@ public sealed class SettlementTypeDefinition
         IEnumerable<string> preferredTerrain, int weight,
         SettlementPopulationRange population, int initialPlatformCount)
     {
+        ArgumentNullException.ThrowIfNull(supply);
+        ArgumentNullException.ThrowIfNull(demand);
+        ArgumentNullException.ThrowIfNull(preferredTerrain);
+        ArgumentNullException.ThrowIfNull(population);
+        if (string.IsNullOrEmpty(id.Namespace) || string.IsNullOrEmpty(id.LocalId))
+            throw new ArgumentException("SettlementTypeDefinitionId cannot be blank.", nameof(id));
+        if (supply.Keys.Any(static key => string.IsNullOrEmpty(key.Namespace) || string.IsNullOrEmpty(key.LocalId)))
+            throw new ArgumentException("Supply cannot contain an invalid good identity.", nameof(supply));
+        if (supply.Values.Any(static quantity => quantity is null))
+            throw new ArgumentNullException(nameof(supply), "Supply cannot contain null quantities.");
+        if (demand.Keys.Any(static key => string.IsNullOrEmpty(key.Namespace) || string.IsNullOrEmpty(key.LocalId)))
+            throw new ArgumentException("Demand cannot contain an invalid good identity.", nameof(demand));
+        if (demand.Values.Any(static quantity => quantity is null))
+            throw new ArgumentNullException(nameof(demand), "Demand cannot contain null quantities.");
+        if (weight <= 0)
+            throw new ArgumentOutOfRangeException(nameof(weight), weight, "Weight must be positive.");
+        if (initialPlatformCount < 0)
+            throw new ArgumentOutOfRangeException(nameof(initialPlatformCount), initialPlatformCount, "Initial platform count cannot be negative.");
+
+        var terrain = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var label in preferredTerrain)
+            terrain.Add(ContentIdentity.NormalizePart(label, nameof(preferredTerrain)));
+
         Id = id;
-        Name = name;
+        Name = VoxelDefinition.NormalizeDisplayText(
+            name, VoxelDefinition.NameMinLength, VoxelDefinition.NameMaxLength, nameof(name));
         Supply = supply.ToFrozenDictionary();
         Demand = demand.ToFrozenDictionary();
-        PreferredTerrain = preferredTerrain.ToFrozenSet(StringComparer.Ordinal);
+        PreferredTerrain = terrain.ToFrozenSet(StringComparer.Ordinal);
         Weight = weight;
         Population = population;
         InitialPlatformCount = initialPlatformCount;

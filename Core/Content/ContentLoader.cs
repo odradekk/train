@@ -15,9 +15,9 @@ internal sealed class ContentLoader
     private readonly IContentSource _source;
     private readonly TrainLogger _logger;
     private readonly VoxelContentFormat _voxels = new();
-    private readonly CompositeContentFormat _blueprints;
-    private readonly MarketTableContentFormat _marketTables;
-    private readonly SettlementTypeContentFormat _settlementTypes;
+    private readonly CompositeContentFormat _blueprints = new();
+    private readonly MarketTableContentFormat _marketTables = new();
+    private readonly SettlementTypeContentFormat _settlementTypes = new();
     private readonly ContentFormat[] _formats;
     private readonly DiagnosticBag _loadDiagnostics = new();
     private readonly List<ContentPackageLoad> _packages = new();
@@ -28,14 +28,11 @@ internal sealed class ContentLoader
     public IReadOnlyList<ContentDiagnostic> Diagnostics => _scanDiagnostics.Concat(_loadDiagnostics.Items)
         .Concat(_packages.SelectMany(package => package.Diagnostics.Items)).ToArray();
 
-    /// <summary>组合当前四种领域格式；具体格式只依赖所需的候选索引，不执行 IO。</summary>
+    /// <summary>初始化本轮内容来源、日志与四种领域格式。</summary>
     public ContentLoader(IContentSource source, TrainLogger logger)
     {
         _source = source;
         _logger = logger;
-        _blueprints = new CompositeContentFormat(_voxels.Entries);
-        _marketTables = new MarketTableContentFormat(_voxels.Entries);
-        _settlementTypes = new SettlementTypeContentFormat(_voxels.Entries);
         _formats = [_voxels, _blueprints, _marketTables, _settlementTypes];
     }
 
@@ -74,7 +71,7 @@ internal sealed class ContentLoader
             foreach (var package in duplicate)
             {
                 package.Diagnostics.Source = package.Package.Source ?? package.Package.ResourcesRoot;
-                package.Diagnostics.Warn(ContentDiagnosticCodes.DuplicateModUuid,
+                package.Diagnostics.Reject(ContentDiagnosticCodes.DuplicateModUuid,
                     $"Multiple Mod packages declare UUID '{duplicate.Key}'.");
             }
         }
@@ -90,7 +87,7 @@ internal sealed class ContentLoader
         bag.Source = package.ResourcesRoot;
         if (!package.Available)
         {
-            bag.Add(package.IsRequired ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning,
+            bag.Reject(
                 package.IsRequired ? ContentDiagnosticCodes.BuiltInPackageUnavailable : ContentDiagnosticCodes.PackageInvalid,
                 "The content package resources are unavailable.");
             return;
@@ -99,14 +96,17 @@ internal sealed class ContentLoader
         foreach (var diagnostic in discovery.Diagnostics)
         {
             bag.Source = diagnostic.Source;
-            bag.Add(package.IsRequired ? diagnostic.Severity : ContentDiagnosticSeverity.Warning,
+            bag.Add(discovery.Invalid ? bag.RejectionSeverity : diagnostic.Severity,
                 diagnostic.Code, diagnostic.Message, diagnostic.JsonPath, invalidate: false);
         }
         if (discovery.Invalid)
             bag.MarkInvalid();
         foreach (var file in discovery.Files)
         {
-            var format = _formats.FirstOrDefault(format => format.Accepts(package, file));
+            // 玩家包共用蓝图根目录，只能读取属于该包 UUID 的根级蓝图。
+            if (package.Kind == ContentPackageKind.PlayerBlueprint && file != package.Namespace + _blueprints.FileSuffix)
+                continue;
+            var format = _formats.FirstOrDefault(format => file.EndsWith(format.FileSuffix, StringComparison.Ordinal));
             if (format is null)
                 continue;
             ScannedFileCount++;
@@ -130,17 +130,16 @@ internal sealed class ContentLoader
     {
         if (!ContentPath.TryNormalize(file, out var path))
         {
-            bag.Warn(ContentDiagnosticCodes.PathInvalid, "A definition file path is unsafe.");
+            bag.Reject(ContentDiagnosticCodes.PathInvalid, "A definition file path is unsafe.");
             return null;
         }
         var read = _source.ReadFile(package, path, ContentLimits.JsonFileMaxBytes);
         if (read.UnsafeLink)
-            bag.Add(package.IsRequired ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning,
-                ContentDiagnosticCodes.UnsafeLinkedPath, "Linked definition files are not allowed.");
+            bag.Reject(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked definition files are not allowed.");
         else if (read.TooLarge || read.Bytes?.Length > ContentLimits.JsonFileMaxBytes)
-            bag.Warn(ContentDiagnosticCodes.FileTooLarge, "Definition JSON exceeds the 1 MiB limit.");
+            bag.Reject(ContentDiagnosticCodes.FileTooLarge, "Definition JSON exceeds the 1 MiB limit.");
         else if (read.Bytes is null)
-            bag.Warn(ContentDiagnosticCodes.InvalidJson, "Definition JSON could not be read.");
+            bag.Reject(ContentDiagnosticCodes.InvalidJson, "Definition JSON could not be read.");
         else
             return read.Bytes;
         return null;
@@ -158,8 +157,9 @@ internal sealed class ContentLoader
             // 后合并的格式可能隔离了前一个格式已有条目的包；引用只能看到有效包。
             if (invalidCount != _packages.Count(package => package.Diagnostics.Invalid))
                 continue;
-            foreach (var format in _formats)
-                format.ResolveReferences();
+            _blueprints.ResolveReferences(_voxels.Entries);
+            _marketTables.ResolveReferences(_voxels.Entries);
+            _settlementTypes.ResolveReferences(_voxels.Entries);
         }
     }
 

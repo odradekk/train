@@ -5,23 +5,22 @@ namespace Train.Core.Content.Voxels;
 /// <summary>一轮加载中的 schema 2 体素格式；不发布目录，也不决定其他格式的隔离。</summary>
 internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, VoxelContentEntry>
 {
+    public IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> Entries => Candidates;
     public override string FileSuffix => ".voxels.json";
     public override string LogKind => "voxels";
-    public override bool Accepts(ContentPackage package, string file) =>
-        package.Kind != ContentPackageKind.PlayerBlueprint && base.Accepts(package, file);
     protected override VoxelDefinitionId Identity(VoxelContentEntry entry) => entry.Definition.Id;
-    protected override string Fingerprint(VoxelContentEntry entry) => entry.PublicationFingerprint;
-    public override bool HasChanges(ContentSnapshot previous) => HasChanges(previous.Voxels);
-
-    /// <summary>体素当前没有跨定义引用；其字段和资产在解析时完成校验。</summary>
-    public override void ResolveReferences() { }
+    public override bool HasChanges(ContentSnapshot previous) =>
+        HasChanges(Entries, previous.Voxels, static entry => entry.PublicationFingerprint);
 
     /// <summary>严格解析文件，并用同一份已验证 PNG 字节计算资产修订。</summary>
     protected override IReadOnlyList<VoxelContentEntry> Parse(
         IContentSource source, ContentPackageLoad load, string file, byte[] bytes)
     {
         var entries = new List<VoxelContentEntry>();
-        foreach (var parsed in VoxelsJsonParser.Parse(bytes, file, load.Diagnostics))
+        var definitions = VoxelsJsonParser.Parse(bytes, file, load.Diagnostics);
+        if (definitions is null)
+            return entries;
+        foreach (var parsed in definitions)
         {
             if (!TryLoadImages(source, load, parsed.Presentation, out var images, out var assets))
                 continue;
@@ -34,7 +33,7 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
                 semantic, assets, VoxelRevisions.ComputePublicationFingerprint(definition, semantic, assets), images));
         }
         if (load.Package.Kind == ContentPackageKind.Mod && CountFor(load) + entries.Count > ContentLimits.MaxVoxelsPerMod)
-            load.Diagnostics.Warn(ContentDiagnosticCodes.ModVoxelLimitExceeded,
+            load.Diagnostics.Reject(ContentDiagnosticCodes.ModVoxelLimitExceeded,
                 "A Mod package exceeds the 1000 voxel definition limit.");
         return entries;
     }
@@ -72,14 +71,14 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
         var icon = images[presentation.IconPath];
         if (!IsSquare(icon))
         {
-            bag.Warn(ContentDiagnosticCodes.ImageInvalid, "Icons must be square.", presentation.IconPath);
+            bag.Reject(ContentDiagnosticCodes.ImageInvalid, "Icons must be square.", presentation.IconPath);
             valid = false;
         }
         var faces = new[] { images[presentation.TopPath], images[presentation.SidePath], images[presentation.BottomPath] };
         if (faces.Any(image => !IsSquare(image) || !IsPowerOfTwo(image.Width)) ||
             faces.Select(image => image.Width).Distinct().Count() != 1)
         {
-            bag.Warn(ContentDiagnosticCodes.ImageInvalid,
+            bag.Reject(ContentDiagnosticCodes.ImageInvalid,
                 "Voxel face images must be square, power-of-two, and have equal edge lengths.");
             valid = false;
         }
@@ -96,25 +95,23 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
         var package = load.Package;
         var bytes = source.ReadFile(package, path, ContentLimits.PngMaxBytes);
         if (bytes.UnsafeLink)
-            bag.Add(package.IsRequired ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning,
-                ContentDiagnosticCodes.UnsafeLinkedPath, "Linked images are not allowed.", path);
+            bag.Reject(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked images are not allowed.", path);
         else if (bytes.TooLarge || bytes.Bytes?.Length > ContentLimits.PngMaxBytes)
-            bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the 4 MiB limit.", path);
+            bag.Reject(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the 4 MiB limit.", path);
         else if (bytes.Bytes is null)
-            bag.Warn(ContentDiagnosticCodes.ImageInvalid, "PNG could not be read.", path);
+            bag.Reject(ContentDiagnosticCodes.ImageInvalid, "PNG could not be read.", path);
         else
         {
             var decoded = source.DecodePng(package, path, bytes.Bytes);
             if (decoded.UnsafeLink)
-                bag.Add(package.IsRequired ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning,
-                    ContentDiagnosticCodes.UnsafeLinkedPath, "Linked images are not allowed.", path);
+                bag.Reject(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked images are not allowed.", path);
             else if (decoded.TooLarge)
-                bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the 4 MiB limit.", path);
+                bag.Reject(ContentDiagnosticCodes.ImageTooLarge, "PNG exceeds the 4 MiB limit.", path);
             else if (decoded.Failed || decoded.Image is null)
-                bag.Warn(ContentDiagnosticCodes.ImageInvalid, "PNG could not be decoded.", path);
+                bag.Reject(ContentDiagnosticCodes.ImageInvalid, "PNG could not be decoded.", path);
             else if (decoded.Image.Width <= 0 || decoded.Image.Height <= 0 ||
                      decoded.Image.Width > ContentLimits.ImageMaxDimension || decoded.Image.Height > ContentLimits.ImageMaxDimension)
-                bag.Warn(ContentDiagnosticCodes.ImageTooLarge, "PNG dimensions are outside 1..4096.", path);
+                bag.Reject(ContentDiagnosticCodes.ImageTooLarge, "PNG dimensions are outside 1..4096.", path);
             else
             {
                 image = decoded.Image;

@@ -1,7 +1,5 @@
 // 属于内容层的蓝图定义模块。
 // 保存已校验蓝图的来源和设计属性，规范编码语义修订及发布指纹。
-using System.Security.Cryptography;
-using System.Text.Json;
 using Train.Core.Content.Voxels;
 
 namespace Train.Core.Content.Composites;
@@ -59,8 +57,7 @@ internal static class CompositeRevisions
     /// <summary>计算身份、尺寸档位及按坐标排序的布局的 SHA-256 修订。</summary>
     public static string ComputeSemanticRevision(CompositeDefinition definition)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        return ContentHash.FromCanonicalJson(writer =>
         {
             writer.WriteStartObject();
             writer.WriteNumber("encoding_version", SemanticEncodingVersion);
@@ -80,16 +77,14 @@ internal static class CompositeRevisions
             }
             writer.WriteEndArray();
             writer.WriteEndObject();
-        }
-        return Sha256Hex(stream.ToArray());
+        });
     }
 
     /// <summary>计算显示字段、设计属性和自身语义修订的发布指纹。</summary>
     public static string ComputePublicationFingerprint(CompositeDefinition definition, string? fileDisplayName,
         string semanticRevision, DesignAttributes attributes)
     {
-        using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        return ContentHash.FromCanonicalJson(writer =>
         {
             writer.WriteStartObject();
             writer.WriteStartObject("attributes");
@@ -113,10 +108,6 @@ internal static class CompositeRevisions
             writer.WriteString("name", definition.Name);
             writer.WriteString("semantic_revision", semanticRevision);
             writer.WriteEndObject();
-        }
-        return Sha256Hex(stream.ToArray());
+        });
     }
-
-    /// <summary>计算规范字节的 SHA-256 大写十六进制值。</summary>
-    private static string Sha256Hex(ReadOnlySpan<byte> bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 }
