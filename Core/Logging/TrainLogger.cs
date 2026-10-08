@@ -44,6 +44,8 @@ public sealed class TrainLogger : IDisposable
     // 统一保护阈值修改、事件序号分配、持久输出和队列修改，保证它们的顺序。
     private readonly object _gate = new();
     private readonly LinkedList<LogEvent> _godotQueue = new();
+    // 宿主输出队列的引用数上限；生产使用规格值 GodotQueueCapacity，测试可注入更小的容量。
+    private readonly int _godotQueueCapacity;
 
     private long _sequence;
     private int _disposed;
@@ -103,6 +105,31 @@ public sealed class TrainLogger : IDisposable
         string? levelOverride = null,
         TextWriter? overflowWriter = null,
         bool readEnvironmentVariable = true)
+        : this(
+            logDirectory,
+            buildDefaultThreshold,
+            godotOutput,
+            additionalSink,
+            levelOverride,
+            overflowWriter,
+            readEnvironmentVariable,
+            GodotQueueCapacity)
+    {
+    }
+
+    /// <summary>
+    /// 按显式宿主输出队列容量创建诊断日志会话，供测试缩小队列以避免大量真实持久刷盘主导耗时。
+    /// <paramref name="godotQueueCapacity"/> 是等待宿主输出的事件引用数上限，应传入正数；其余参数含义见公开构造函数。
+    /// </summary>
+    internal TrainLogger(
+        string logDirectory,
+        LogLevel buildDefaultThreshold,
+        IGodotLogOutput godotOutput,
+        ILogSink? additionalSink,
+        string? levelOverride,
+        TextWriter? overflowWriter,
+        bool readEnvironmentVariable,
+        int godotQueueCapacity)
     {
         ArgumentNullException.ThrowIfNull(logDirectory);
         ArgumentNullException.ThrowIfNull(godotOutput);
@@ -111,6 +138,7 @@ public sealed class TrainLogger : IDisposable
         _overflowWriter = overflowWriter ?? System.Console.Error;
         _additionalSink = additionalSink;
         _mainThread = Thread.CurrentThread;
+        _godotQueueCapacity = godotQueueCapacity;
         SessionId = Guid.NewGuid();
 
         var overrideValue = levelOverride;
@@ -472,7 +500,7 @@ public sealed class TrainLogger : IDisposable
             return;
         }
 
-        if (_godotQueue.Count < GodotQueueCapacity)
+        if (_godotQueue.Count < _godotQueueCapacity)
         {
             _godotQueue.AddLast(logEvent);
             return;

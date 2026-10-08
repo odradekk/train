@@ -7,4 +7,7 @@
     <LangVersion>12.0</LangVersion>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Train.Tests" />
+  </ItemGroup>
 </Project>

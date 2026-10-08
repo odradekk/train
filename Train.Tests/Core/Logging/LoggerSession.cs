@@ -35,19 +35,26 @@ internal sealed class LoggerSession : IDisposable
     /// <param name="buildDefault">未设置有效覆盖值时使用的最低日志级别。</param>
     /// <param name="levelOverride">日志级别覆盖文本；null 使用构建默认级别。</param>
     /// <param name="startApplication">是否通过 StartSession 记录应用启动事件。</param>
+    /// <param name="godotQueueCapacity">宿主输出队列引用数上限；null 使用生产规格值 <see cref="TrainLogger.GodotQueueCapacity"/>，测试可传入小容量；不能与 <paramref name="startApplication"/> 同时使用。</param>
     /// <returns>由调用者释放、拥有临时目录的测试会话。</returns>
     public static LoggerSession Create(
         LogLevel buildDefault = LogLevel.Debug,
         string? levelOverride = null,
-        bool startApplication = false)
+        bool startApplication = false,
+        int? godotQueueCapacity = null)
     {
+        if (godotQueueCapacity is not null && startApplication)
+            throw new ArgumentException("A session with the start event always uses the production capacity.", nameof(startApplication));
+
         var directory = Directory.CreateTempSubdirectory("train-log-").FullName;
         var memory = new MemoryLogSink();
         var godot = new RecordingGodotOutput();
         var overflow = new StringWriter();
-        TrainLogger logger = startApplication
-            ? TrainLogger.StartSession(directory, buildDefault, godot, memory, levelOverride, overflow, false)
-            : new TrainLogger(directory, buildDefault, godot, memory, levelOverride, overflow, false);
+        TrainLogger logger = godotQueueCapacity is int capacity
+            ? new TrainLogger(directory, buildDefault, godot, memory, levelOverride, overflow, false, capacity)
+            : startApplication
+                ? TrainLogger.StartSession(directory, buildDefault, godot, memory, levelOverride, overflow, false)
+                : new TrainLogger(directory, buildDefault, godot, memory, levelOverride, overflow, false);
         return new LoggerSession(directory, logger, memory, godot, overflow);
     }
 
