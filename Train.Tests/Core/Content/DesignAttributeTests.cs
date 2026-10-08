@@ -77,13 +77,15 @@ public sealed class DesignAttributeTests
         Assert.AreEqual(2, attributes.Bom[DesignAttributeExamples.Cargo.Id]);
     }
 
-    [TestMethod]
-    public void Composed_behaviors_share_one_material_cell_and_speed_uses_the_slowest_propulsion()
+    [DataTestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Composed_behaviors_share_one_material_cell_and_speed_uses_the_slowest_propulsion(bool slowFirst)
     {
-        var attributes = DesignAttributeCalculator.Calculate(new[]
-        {
-            DesignAttributeExamples.Propulsion, DesignAttributeExamples.Combined
-        });
+        var voxels = slowFirst
+            ? new[] { DesignAttributeExamples.Combined, DesignAttributeExamples.Propulsion }
+            : new[] { DesignAttributeExamples.Propulsion, DesignAttributeExamples.Combined };
+        var attributes = DesignAttributeCalculator.Calculate(voxels);
         Assert.AreEqual(9d, attributes.Mass);
         Assert.AreEqual(550L, attributes.BomValue);
         Assert.AreEqual(17.5, attributes.Traction);
