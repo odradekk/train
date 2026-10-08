@@ -350,7 +350,7 @@ public sealed class StructuredLoggingTests
         return JsonDocument.Parse(line);
     }
 
-    private static void TryDeleteDirectory(string path)
+    internal static void TryDeleteDirectory(string path)
     {
         try
         {
@@ -520,14 +520,7 @@ public sealed class StructuredLoggingConcurrencyTests
         }
         finally
         {
-            try
-            {
-                Directory.Delete(root, true);
-            }
-            catch
-            {
-                // Windows 仍占用临时目录时，尽力清理但不掩盖测试结果。
-            }
+            StructuredLoggingTests.TryDeleteDirectory(root);
         }
     }
 
@@ -541,7 +534,13 @@ public sealed class StructuredLoggingConcurrencyTests
             RunOnWorker(evicted.Logger, 1, LogLevel.Warning, "evicting_warning");
             evicted.DisposeLogger();
 
-            Assert.IsFalse(evicted.Godot.Events.Any(e => e.EventId == "queued_debug" && e.Sequence == 1));
+            // 被淘汰的应是最旧的一个 Debug；序号从内存快照推导，不依赖构造阶段不产生事件。
+            var evictedDebug = evicted.Memory.Snapshot()
+                .Where(e => e.EventId == "queued_debug")
+                .Select(e => e.Sequence)
+                .OrderBy(sequence => sequence)
+                .First();
+            Assert.IsFalse(evicted.Godot.Events.Any(e => e.EventId == "queued_debug" && e.Sequence == evictedDebug));
             AssertJsonlHasCompleteRecords(evicted, "queued_debug", "evicting_warning");
         }
 
