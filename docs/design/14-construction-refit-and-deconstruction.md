@@ -29,7 +29,7 @@
 ### BOM
 
 - BOM 完全从蓝图版本的体素布局派生。例如某车头的布局含 Structural Block ×120、Engine X ×2、Storage Equipment ×4，BOM 就是这些实际的 VoxelDefinitionId 和数量；不另设 `construction_cost` 作为第二份权威数据。
-- 档位、Archetype、连接器元数据等非体素信息不产生物料成本。
+- 档位等非体素信息不产生物料成本。
 - 官方预置型号与玩家自定义设计严格使用同一套成本规则。预置型号只是官方提供的蓝图，不享受隐藏折扣或手写成本；玩家把官方型号改动几格，成本随实际体素变化（资源转录 Q265）。
 - 车辆和建筑共用同一套建造规则与 BOM 派生，不分别设置车辆建造系统和建筑建造系统。玩家可以设计车辆和建筑（[00](00-product-and-core-loop.md#demo-范围)），资源规则相同（资源转录 Q254）。
 - BOM 要求确切的 VoxelDefinitionId，Tag 不允许自动替代：Basic Engine ≠ Advanced Engine。想换另一种设备，必须修改蓝图。

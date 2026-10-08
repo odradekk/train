@@ -84,8 +84,8 @@
 
 ### 车辆建造设施
 
-- 车辆建造设施的建筑 Archetype 声明它支持的最大车辆档位。建造、改装、修理车辆都受这个上限限制；实际施工能力仍来自 Construction Equipment 部件（[14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)）。
-- 档位越大的车辆建造设施，蓝图需要的地块也越大。
+- 车辆建造设施支持的最大车辆档位，由建筑中完好的 Construction Equipment 部件经 Behavior 提供的能力派生。建造、改装、修理车辆都受这个上限限制；施工能力同样来自这些完好部件（[14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)）。能力参数与多部件汇总规则在施工能力实现时确定。
+- 支持档位越大的车辆建造设施，蓝图需要的地块也越大。
 - 新建的车辆出现在建造它的聚居地。
 
 ### 车辆停放

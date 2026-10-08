@@ -14,7 +14,7 @@
 | `Checks/StartupChecks` | 检查主菜单退出连接和导出版本的内容访问。 |
 | `Checks/SimulationCheck` | 用检查专用领域验证实际帧推进、主线程、暂停边界、命令、控制台手动步进和检查点。 |
 
-日志器和 Godot 输出适配器在主线程创建、取出队列并释放。退出按钮、窗口关闭和控制台 quit 共用退出回调；控制台 clear 只清内存缓冲。Debug 构建保留 Ctrl+Shift+R 与 reload 命令的内容重载；发布构建不开放这些交互入口。当前重载只更新内容目录。
+日志器和 Godot 输出适配器在主线程创建、取出队列并释放。退出按钮、窗口关闭和控制台 quit 共用退出回调；控制台 clear 只清内存缓冲。Debug 构建保留 Ctrl+Shift+R 与 reload 命令的内容重载；发布构建不开放这些交互入口。当前重载原子发布包含体素、蓝图、市场表和聚居地类型的完整 `ContentSnapshot`；运行实例的引用校验与状态适配在对应玩法中实现。
 
 正常启动没有模拟会话。真实世界创建或恢复成功后调用 `AttachSession(session, states)`，App 在 `_Process` 中使用 Core 驱动推进。挂接默认未暂停、1×，新绑定重置宿主余量和采样，保留给定会话的完整状态和命令日志；首帧不累计会话挂接前的时间。`DetachSession()` 移除绑定，已取得的不可变快照仍有效。
 
@@ -28,6 +28,6 @@
 
 统一[测试入口](../docs/run-tests.md)为每项检查提供隔离用户目录，参数为 `--check-user-data=<物理路径>`；Godot 原生日志另由 `--log-file` 写入检查输出目录。content 还读取 `--check-content-root=<物理路径>` 下的 `initial/` 与 `added/` 两份资源，运行器只复制 grain 定义及其共用的 `voxels/grain/placeholder.png`，并生成 smoke 市场表、聚居地类型和 added 中的 smoke-ore 探针。检查只切换读取来源；PNG 解码、文件访问和发布仍经过 `GodotContentSource` 及同一个重载器。源码检查验证 Debug 快捷键，发布构建通过宿主回调验证重载。
 
-当前 Godot 内容检查的成功标记为 `CONTENT_GRAIN_LOADED`、`CONTENT_EXPORT_GRAIN_LOADED` 和 `MODS_EXPORT_GRAIN_LOADED`；`CONTENT_MARKET_SETTLEMENT_READY` 是 content 检查的必需标记。`*_PNG_DECODED` 同时确认 grain 的 icon、top、side、bottom 四个绑定都指向同一 PNG，且实际解码图片非空。三种货物、七种聚居地类型、四部件和两蓝图的具体内容属于 [#236](https://github.com/odradekk/train/issues/236)，不属于本步的完成边界。
+当前 Godot 内容检查的成功标记为 `CONTENT_GRAIN_LOADED`、`CONTENT_EXPORT_GRAIN_LOADED` 和 `MODS_EXPORT_GRAIN_LOADED`；`CONTENT_MARKET_SETTLEMENT_READY` 是 content 检查的必需标记。`*_PNG_DECODED` 同时确认 grain 的 icon、top、side、bottom 四个绑定都指向同一 PNG，且实际解码图片非空。三种货物、七种聚居地类型、四部件和两蓝图的具体内容见 [#236](https://github.com/odradekk/train/issues/236)。
 
 此边界遵循 [ADR 0009](../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)，启动界面按[窗口与界面规则](../docs/design/08-window-and-ui.md#规则)逐步开放；诊断接入见[调试模式](../docs/design/15-design-editor-and-tools.md#调试模式)，会话、队列和格式契约见[日志模块](../Core/Logging/README.md)。
