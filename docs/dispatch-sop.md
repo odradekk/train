@@ -57,7 +57,16 @@ Report the handoff to the developer with the worktree path, branch, MCP status a
 
 Start only when the developer asks for acceptance, normally after the PR exists and the agent has posted its completion comment on the Issue.
 
-Read the Issue body, the completion comment and all other comments, including design decisions recorded during the pair session. Inspect the PR's actual base/head and full relevant diff. Use `code-review` for Standards and Spec review; review test quality and independently run key risk-appropriate checks under [Testing standard](implement-sop.md#testing-standard). Reuse prior evidence only when it still applies to the reviewed revision. Judge scope against the Issue and the recorded decisions; a change outside both is a finding, even if it looks useful. Check the code against [Code comments](implement-sop.md#code-comments); missing required documentation and comments that contradict the behavior are findings.
+Read the Issue body, the completion comment and all other comments, including design decisions recorded during the pair session. Inspect the PR's actual base/head and full relevant diff, then review it from the four angles below. Run each angle in its own subagent, so that findings from one angle do not narrow the attention of another. Give each subagent the PR, base/head SHA, diff command, the Issue with its comments, and the sources for its angle; ask for concrete findings with file/line and the failure or maintenance cost each one causes.
+
+| Angle | What it checks | Sources |
+| --- | --- | --- |
+| Architecture and module design | Project and layer boundaries, dependency direction, where code lives, module responsibilities, public interfaces, duplication, and abstractions the task does not need | `AGENTS.md` source layout, `docs/adr/`, `docs/design/`, `CONTEXT.md` |
+| Code correctness | Logic errors, edge cases, error handling, state and determinism, and whether the tests can detect these defects | [Testing standard](implement-sop.md#testing-standard) |
+| Task fit | Every requirement and Acceptance criterion is implemented as specified; nothing outside the Issue and the recorded decisions was added, even if it looks useful; the implementation follows the design agreed in the pair session | The Issue body and comments |
+| Comment accuracy | Comments and documentation match the behavior; required documentation is present | [Code comments](implement-sop.md#code-comments), documentation changed or required by the change, such as `docs/console/` |
+
+Verify every reported finding against the code or a reproduction before posting it, and drop claims that do not hold. Run the key risk-appropriate checks under [Testing standard](implement-sop.md#testing-standard) yourself rather than in the subagents, so that parallel validation does not compete for the same machine. Reuse prior evidence only when it still applies to the reviewed revision.
 
 For MCP-assisted changes, inspect the saved scene/resource diff and runtime evidence, not just tool success messages. Apply the same required test, real Godot, cross-process, export, and user visual-acceptance requirements as the Issue specifies; an MCP launch or log capture only proves the behavior it actually exercised.
 
@@ -65,7 +74,7 @@ If review fails:
 
 1. Reply in an Issue comment identifying the PR/head SHA and each finding: severity, violated requirement, file/line or reproduction, observed versus expected result, and requested correction.
 2. Tell the developer that findings are posted. The developer works through them with the agent in the same worktree, branch and PR, and asks for re-review when ready. Do not send instructions to the agent.
-3. Re-review the new head and affected behavior when asked. Keep the Issue open and retain the worktree throughout this loop.
+3. Re-review the new head and affected behavior when asked, rerunning the angles whose findings were fixed and any other angle the fixes affect. Keep the Issue open and retain the worktree throughout this loop.
 
 **Complete when:** no unresolved review findings or required validation gaps remain for the identified PR head.
 
