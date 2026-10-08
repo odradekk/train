@@ -117,15 +117,10 @@ public sealed class TrainLogger : IDisposable
     {
     }
 
-    /// <summary>按显式宿主输出队列容量创建诊断日志会话，供测试缩小队列以避免大量真实持久刷盘主导耗时。</summary>
-    /// <param name="logDirectory">存放会话 JSONL 文件并清理匹配旧文件的目录。</param>
-    /// <param name="buildDefaultThreshold">未提供有效启动覆盖值时使用的最低日志级别。</param>
-    /// <param name="godotOutput">在创建日志器的线程或显式取出队列时调用的宿主输出。</param>
-    /// <param name="additionalSink">可选的同步接收器；null 表示持久输出仅使用 JSONL 接收器。</param>
-    /// <param name="levelOverride">显式启动级别；只要非 null 就优先于环境变量，包括空字符串和空白字符串。</param>
-    /// <param name="overflowWriter">用于无法排队的警告或错误、无效覆盖值和释放后日志的备用写入器；null 时使用 System.Console.Error。</param>
-    /// <param name="readEnvironmentVariable">显式覆盖值为 null 时，是否读取 TRAIN_LOG_LEVEL。</param>
-    /// <param name="godotQueueCapacity">等待宿主输出的事件引用数上限；应传入正数。</param>
+    /// <summary>
+    /// 按显式宿主输出队列容量创建诊断日志会话，供测试缩小队列以避免大量真实持久刷盘主导耗时。
+    /// <paramref name="godotQueueCapacity"/> 是等待宿主输出的事件引用数上限，应传入正数；其余参数含义见公开构造函数。
+    /// </summary>
     internal TrainLogger(
         string logDirectory,
         LogLevel buildDefaultThreshold,

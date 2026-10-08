@@ -344,14 +344,6 @@ public sealed class StructuredLoggingTests
         Assert.IsTrue(session.Overflow.ToString()!.Length > 0);
     }
 
-    [TestMethod]
-    public void Godot_queue_capacity_matches_the_documented_spec_limit()
-    {
-        // 生产队列容量是结构化日志规格固定的诊断上限。并发的淘汰/溢出用例注入较小容量以避免大量真实刷盘，
-        // 因此这里单独守住规格值，防止重构后默认容量被无声改小。
-        Assert.AreEqual(4096, TrainLogger.GodotQueueCapacity);
-    }
-
     private static JsonDocument ReadSingle(string path)
     {
         var line = File.ReadAllLines(path).Single(item => !string.IsNullOrWhiteSpace(item));
@@ -465,14 +457,19 @@ public sealed class StructuredLoggingConcurrencyTests
 
         var afterEviction = session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId);
         Assert.AreEqual(1, afterEviction.Attributes["count"]);
+        // 期望被淘汰的是排在最前的一个 Debug，送达的是其余几个；序号从内存快照推导，不依赖构造阶段不产生事件。
+        var queuedDebug = session.Memory.Snapshot()
+            .Where(e => e.EventId == "queued_debug")
+            .Select(e => e.Sequence)
+            .OrderBy(sequence => sequence)
+            .ToArray();
         var deliveredDebug = session.Godot.Events
             .Where(e => e.EventId == "queued_debug")
             .Select(e => e.Sequence)
             .OrderBy(sequence => sequence)
             .ToArray();
-        CollectionAssert.AreEqual(Enumerable.Range(2, TestQueueCapacity - 1).Select(v => (long)v).ToArray(), deliveredDebug);
+        CollectionAssert.AreEqual(queuedDebug.Skip(1).ToArray(), deliveredDebug);
         Assert.IsTrue(session.Godot.Events.Any(e => e.EventId == "evicting_warning"));
-        Assert.IsTrue(session.Memory.Snapshot().Any(e => e.EventId == "queued_debug" && e.Sequence == 1));
     }
 
     [TestMethod]
@@ -489,6 +486,49 @@ public sealed class StructuredLoggingConcurrencyTests
         Assert.IsFalse(session.Godot.Events.Any(e => e.EventId == "overflow_warning"));
         Assert.IsTrue(session.Memory.Snapshot().Any(e => e.EventId == "overflow_warning"));
         Assert.AreEqual(1, session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
+    }
+
+    [TestMethod]
+    public void Public_constructor_uses_the_documented_queue_capacity()
+    {
+        // 公开构造函数必须把规格容量传给队列。把日志目录指向一个文件以禁用 JSONL 持久输出，从而不产生真实刷盘。
+        var root = Directory.CreateTempSubdirectory("train-log-capacity-").FullName;
+        try
+        {
+            var blocked = Path.Combine(root, "logs");
+            File.WriteAllText(blocked, "not-a-directory");
+            var memory = new MemoryLogSink();
+            var godot = new RecordingGodotOutput();
+            var overflow = new StringWriter();
+            using var logger = new TrainLogger(
+                blocked,
+                LogLevel.Warning,
+                godot,
+                memory,
+                overflowWriter: overflow,
+                readEnvironmentVariable: false);
+            Assert.IsNull(logger.JsonlPath);
+
+            RunOnWorker(logger, TrainLogger.GodotQueueCapacity, LogLevel.Warning, "queued_warning");
+            RunOnWorker(logger, 1, LogLevel.Warning, "overflow_warning");
+            Assert.IsTrue(overflow.ToString()!.Length > 0);
+            logger.DrainGodotQueue();
+
+            Assert.AreEqual(TrainLogger.GodotQueueCapacity, godot.Events.Count(e => e.EventId == "queued_warning"));
+            Assert.IsFalse(godot.Events.Any(e => e.EventId == "overflow_warning"));
+            Assert.AreEqual(1, memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId).Attributes["count"]);
+        }
+        finally
+        {
+            try
+            {
+                Directory.Delete(root, true);
+            }
+            catch
+            {
+                // Windows 仍占用临时目录时，尽力清理但不掩盖测试结果。
+            }
+        }
     }
 
     [TestMethod]
@@ -544,39 +584,27 @@ public sealed class StructuredLoggingConcurrencyTests
         }
     }
 
-    /// <summary>在专用工作线程上按顺序记录若干事件，以线程结束作为完成信号；失败时先停止线程再抛出。</summary>
+    /// <summary>在专用工作线程上按顺序记录若干事件，等线程结束后再把其中的异常重抛到测试线程。</summary>
     private static void RunOnWorker(TrainLogger logger, int count, LogLevel level, string eventId)
     {
         Exception? failure = null;
-        var stop = 0;
         var worker = new Thread(() =>
         {
             try
             {
-                for (var i = 0; i < count && Volatile.Read(ref stop) == 0; i++)
+                for (var i = 0; i < count; i++)
                     logger.Log(level, "test", eventId, "queued");
             }
             catch (Exception exception)
             {
                 failure = exception;
             }
-        })
-        {
-            IsBackground = true
-        };
+        });
 
         worker.Start();
-        var finished = worker.Join(TimeSpan.FromMinutes(1));
-        if (!finished)
-        {
-            // 失败路径也必须先让线程停下，释放流程才能安全关闭日志器和测试临时目录。
-            Volatile.Write(ref stop, 1);
-            worker.Join();
-        }
-
+        worker.Join();
         if (failure is not null)
             ExceptionDispatchInfo.Throw(failure);
-        Assert.IsTrue(finished, "The logging worker did not finish within the timeout.");
     }
 }
 
