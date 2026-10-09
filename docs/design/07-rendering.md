@@ -25,6 +25,7 @@
 
 - Demo：Chunk → Face Culling → Chunk Surface Mesh，只生成未被视觉完全遮挡的面；是否占格或有碰撞盒不等于完全遮挡。非满格 Custom Mesh 和镂空材质默认不遮住整个邻面，不能从占格或碰撞盒推断视觉上完全遮挡。不使用 one MeshInstance per voxel。
 - 后期如果性能需要，Greedy Meshing 作为 ChunkMesher 的可替换优化；Greedy Meshing 不改变 World 与 Chunk 语义。
+- 面贴图：顶面、底面、四个侧面分别使用 `voxel_top`、`voxel_bottom`、`voxel_side`；体素的 Forward（局部 +Z）面有 `voxel_front` 时使用它。侧面图的上方朝体素的局部 +Y，顶面和底面图的上方朝 Forward；贴图随体素朝向一起转。平铺跨度 N 大于 1 时，一张图覆盖 N×N 格，位置按体素所在对象的网格坐标计算（车辆和建筑用自身网格，场景用场景网格），所以贴图随对象移动、相邻同种体素连续；正面图不平铺。采样在近处用线性过滤，远处用 Mipmap 加各向异性过滤。这些规则由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)于 2026-10-09 确认。
 
 ### Custom Static Mesh
 
