@@ -93,18 +93,14 @@ public interface IContentSource
     /// <summary>取得最近一次包发现阶段产生的诊断。</summary>
     /// <returns>非 null 的诊断集合；无问题时为空，诊断级别本身不直接决定整个候选是否允许发布。</returns>
     IReadOnlyList<ContentDiagnostic> ListScanDiagnostics();
-    /// <summary>发现一个包中的体素定义 JSON 文件。</summary>
+    /// <summary>发现一个包内的全部 JSON 文件，不解释定义类型。</summary>
     /// <param name="package">待发现文件的内容包。</param>
-    /// <returns>包内规范相对路径、发现诊断和包无效标记；文件路径应以小写 .voxels.json 结尾。</returns>
-    /// <remarks>只发现文件，不解析定义；无效发现结果仍可能含部分文件，加载器按包拒绝或隔离。</remarks>
-    /// <example>初次发现 voxels/ores.voxels.json 后加载其中的 ferrous-ore 和 coal；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
-    ContentFileDiscovery ListVoxelFiles(ContentPackage package);
-    /// <summary>发现一个包中的蓝图与原型定义 JSON 文件。</summary>
-    /// <param name="package">待发现文件的内容包。</param>
-    /// <returns>以小写 .composites.json 结尾的包内相对路径及发现状态；默认实现返回有效、无诊断的空集合。</returns>
-    /// <remarks>默认实现不访问包；支持蓝图的内容源须实现此方法。</remarks>
-    /// <example>玩家蓝图文件以文件身份作为包命名空间；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
-    ContentFileDiscovery ListCompositeFiles(ContentPackage package) => ContentFileDiscovery.Of(Array.Empty<string>());
+    /// <returns>以小写 .json 结尾的规范包内相对路径、发现诊断和包无效标记；无文件时返回空列表。</returns>
+    /// <remarks>
+    /// 结果是一次发现的列表快照；无效发现仍可包含部分文件，加载器按包处理失败。
+    /// 格式后缀、schema 和玩家蓝图的文件身份规则由加载器解释；内容源只负责资源根边界和安全访问。
+    /// </remarks>
+    ContentFileDiscovery ListDefinitionFiles(ContentPackage package);
     /// <summary>在调用方给出的字节上限内读取包内文件。</summary>
     /// <param name="package">文件所属内容包。</param>
     /// <param name="normalizedRelativePath">已通过 ContentPath.TryNormalize 的包内相对路径。</param>
@@ -216,66 +212,45 @@ public sealed class MemoryContentSource : IContentSource
         _scanDiagnostics.Add(diagnostic);
     }
 
-    /// <summary>将文本编码为 UTF-8 字节，并登记体素定义文件。</summary>
+    /// <summary>将文本编码为 UTF-8 字节，并登记一个 JSON 文件。</summary>
     /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
-    /// <param name="relativePath">须通过 ContentPath.TryNormalize 且以小写 .voxels.json 结尾的相对路径。</param>
+    /// <param name="relativePath">须通过 ContentPath.TryNormalize 且以小写 .json 结尾的相对路径。</param>
     /// <param name="utf8Text">非 null 的文件文本，允许为空；登记时不解析 JSON。</param>
     /// <param name="resourcesRoot">用于区分同命名空间包的资源根；null 时取首个匹配包。</param>
-    /// <exception cref="ArgumentNullException">utf8Text 或 namespace 为 null。</exception>
-    /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
-    /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位，例如输入包含首尾空白。</exception>
-    /// <example>包含不支持 schema_version 的 JSON 也能登记，随后由加载器拒绝；见 <c>ContentReloaderTests.Strict_schema_violations_reject_the_package</c>。</example>
-    public void AddVoxelFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null)
-    {
-        AddVoxelFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
-    }
-
-    /// <summary>保存原始字节引用，并登记或覆盖体素定义文件。</summary>
-    /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
-    /// <param name="relativePath">须通过相对路径检查且以小写 .voxels.json 结尾的路径。</param>
-    /// <param name="bytes">应为非 null 的文件字节，允许为空数组；不复制或解析。</param>
-    /// <param name="resourcesRoot">精确匹配的资源根；null 时取首个同命名空间包。</param>
-    /// <remarks>同一路径只登记一次，再次调用覆盖字节；不校验 bytes 为 null，错误值会在后续读取时失败。</remarks>
-    /// <exception cref="ArgumentNullException">自动建包时 namespace 为 null。</exception>
+    /// <remarks>效果：同一路径覆盖字节，首次登记时加入文件列表；内容格式由加载器识别。</remarks>
+    /// <exception cref="ArgumentNullException">utf8Text 为 null，或自动建包时 namespace 为 null。</exception>
     /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
     /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
-    /// <example>超过 1 MiB 的字节可以登记，加载器读取时得到超限结果；见 <c>ContentReloaderTests.File_and_global_limits_reject_oversized_candidates</c>。</example>
-    public void AddVoxelFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
-    {
-        AddDataFile(@namespace, relativePath, bytes, ".voxels.json", "Voxel files must use a safe relative *.voxels.json path.", resourcesRoot);
-    }
+    public void AddDefinitionFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null) =>
+        AddDefinitionFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
 
-    /// <summary>校验相对路径和指定后缀，定位或创建包，然后保留文件字节引用；同路径不重复列出。</summary>
-    /// <param name="namespace">已规范化、用于精确定位的包命名空间。</param>
-    /// <param name="relativePath">待登记的包内相对路径。</param>
-    /// <param name="bytes">直接保存的字节引用。</param>
-    /// <param name="suffix">按 Ordinal 匹配的文件后缀。</param>
-    /// <param name="error">路径检查失败时使用的异常说明。</param>
-    /// <param name="resourcesRoot">用于缩小包匹配范围的资源根，允许为 null。</param>
-    private void AddDataFile(
-        string @namespace,
-        string relativePath,
-        byte[] bytes,
-        string suffix,
-        string error,
-        string? resourcesRoot)
+    /// <summary>登记或覆盖一个安全路径下的 JSON 文件，保存其原始字节。</summary>
+    /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
+    /// <param name="relativePath">须通过相对路径检查且以小写 .json 结尾的路径。</param>
+    /// <param name="bytes">非 null 的文件字节，允许为空数组；保留引用，调用方在一次加载中须保持其稳定。</param>
+    /// <param name="resourcesRoot">精确匹配的资源根；null 时取首个同命名空间包。</param>
+    /// <remarks>效果：同一路径只列出一次，再次登记覆盖字节。未找到包时沿用 AddPackage 的内置包默认值。</remarks>
+    /// <exception cref="ArgumentNullException">bytes 为 null，或自动建包时 namespace 为 null。</exception>
+    /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
+    /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
+    public void AddDefinitionFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null)
     {
-        if (!ContentPath.TryNormalize(relativePath, out var normalized) || !normalized.EndsWith(suffix, StringComparison.Ordinal))
-            throw new ArgumentException(error, nameof(relativePath));
+        ArgumentNullException.ThrowIfNull(bytes);
+        if (!ContentPath.TryNormalize(relativePath, out var normalized) || !normalized.EndsWith(".json", StringComparison.Ordinal))
+            throw new ArgumentException("Definition files must use a safe relative JSON path.", nameof(relativePath));
         var package = EnsurePackage(@namespace, resourcesRoot);
         var files = _files[PackageKey(package)];
         if (!files.Contains(normalized, StringComparer.Ordinal))
             files.Add(normalized);
         _bytes[Key(package, normalized)] = bytes;
     }
-
     /// <summary>登记图像对象和对应测试字节，供内存读取及解码结果查询使用。</summary>
     /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
     /// <param name="relativePath">须通过相对路径检查且以小写 .png 结尾的路径。</param>
     /// <param name="image">应为非 null 的解码图像，保留对象引用；不检查尺寸、格式或像素数量。</param>
     /// <param name="rawBytes">对应字节数组，直接保留引用；null 时复制当前像素作为测试字节，不要求这些字节是 PNG 编码。</param>
     /// <param name="resourcesRoot">精确匹配的资源根；null 时取首个同命名空间包。</param>
-    /// <remarks>同路径覆盖解码结果和字节。省略 rawBytes 时的字节副本与原图像像素分开保存，原图像仍可反映其底层数组的变化。</remarks>
+    /// <remarks>同路径覆盖解码结果和字节。省略 rawBytes 时复制图像像素作为测试字节；图像本身拥有不可修改的像素副本。</remarks>
     /// <exception cref="ArgumentNullException">自动建包时 namespace 为 null。</exception>
     /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
     /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
@@ -333,50 +308,18 @@ public sealed class MemoryContentSource : IContentSource
     /// <returns>列表结构的数组副本，诊断对象保留引用；不会清空登记列表。</returns>
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics.ToArray();
 
-    /// <summary>返回指定资源键下登记的体素定义文件，保持登记顺序。</summary>
+    /// <summary>返回指定资源键下登记的全部 JSON 文件。</summary>
     /// <param name="package">以资源根和命名空间定位文件列表的包。</param>
-    /// <returns>小写 .voxels.json 后缀文件的数组快照，无诊断且 Invalid 为 false；没有登记列表时为空。</returns>
-    /// <remarks>不检查包是否仍在当前列表中、是否可用或对应字节是否存在。</remarks>
+    /// <returns>小写 .json 后缀文件的数组快照，无诊断且 Invalid 为 false；没有登记列表时为空。</returns>
+    /// <remarks>保持登记顺序；包种类、文件格式和玩家蓝图身份规则由加载器检查。</remarks>
     /// <exception cref="NullReferenceException">package 为 null。</exception>
-    /// <example>返回 voxels/ores.voxels.json 供加载器解析；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
-        ListDataFiles(package, ".voxels.json");
-
-    /// <summary>返回登记的蓝图文件，玩家蓝图包额外按其身份文件名过滤。</summary>
-    /// <param name="package">以资源根和命名空间定位文件的包，其 Kind 决定是否应用玩家文件名限制。</param>
-    /// <returns>小写 .composites.json 后缀的路径快照；PlayerBlueprint 仅保留与 Namespace 加该后缀完全相等的根级文件名。</returns>
-    /// <remarks>所有比较使用 Ordinal，保持登记顺序；不检查包可用性或读取字节，未匹配文件被忽略且不产生诊断。</remarks>
-    /// <exception cref="NullReferenceException">package 为 null。</exception>
-    /// <example>玩家文件 cccccccc-dddd-4eee-8fff-000000000001.composites.json 与包命名空间一致；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
-    public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
-        => ContentFileDiscovery.ForCompositePackage(
-            package,
-            ListDataFiles(package, ".composites.json"));
-
-    /// <summary>将文本编码为 UTF-8 字节，并登记蓝图与原型定义文件。</summary>
-    /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
-    /// <param name="relativePath">须通过相对路径检查且以小写 .composites.json 结尾的路径。</param>
-    /// <param name="utf8Text">非 null 的文件文本，允许为空；登记时不解析 JSON。</param>
-    /// <param name="resourcesRoot">精确匹配的资源根；null 时取首个同命名空间包。</param>
-    /// <exception cref="ArgumentNullException">utf8Text 或 namespace 为 null。</exception>
-    /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
-    /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
-    /// <example>登记含原型和蓝图的文件，再经既有重载流程发布；见 <c>CompositeContentTests.Builtin_style_composites_commit_through_the_existing_reloader</c>。</example>
-    public void AddCompositeFile(string @namespace, string relativePath, string utf8Text, string? resourcesRoot = null) =>
-        AddCompositeFile(@namespace, relativePath, System.Text.Encoding.UTF8.GetBytes(utf8Text), resourcesRoot);
-
-    /// <summary>保存原始字节引用，并登记或覆盖蓝图与原型定义文件。</summary>
-    /// <param name="namespace">已规范化的包命名空间，用于精确定位包。</param>
-    /// <param name="relativePath">须通过相对路径检查且以小写 .composites.json 结尾的路径。</param>
-    /// <param name="bytes">应为非 null 的文件字节，允许为空数组；不复制或解析。</param>
-    /// <param name="resourcesRoot">精确匹配的资源根；null 时取首个同命名空间包。</param>
-    /// <remarks>同路径只登记一次，再次调用覆盖字节；不校验 bytes 为 null，错误值会在后续读取时失败。</remarks>
-    /// <exception cref="ArgumentNullException">自动建包时 namespace 为 null。</exception>
-    /// <exception cref="ArgumentException">路径、自动建包的命名空间或资源根无效。</exception>
-    /// <exception cref="InvalidOperationException">自动建包后无法按原输入命名空间精确定位。</exception>
-    /// <example>含 schema 字段错误的文件可先登记，随后由内容校验拒绝；见 <c>CompositeContentTests.Unknown_fields_and_schema_violations_reject_built_in_composites</c>。</example>
-    public void AddCompositeFile(string @namespace, string relativePath, byte[] bytes, string? resourcesRoot = null) =>
-        AddDataFile(@namespace, relativePath, bytes, ".composites.json", "Composite files must use a safe relative *.composites.json path.", resourcesRoot);
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package)
+    {
+        var files = _files.TryGetValue(PackageKey(package), out var listed)
+            ? listed.Where(file => file.EndsWith(".json", StringComparison.Ordinal)).ToArray()
+            : Array.Empty<string>();
+        return ContentFileDiscovery.Of(files);
+    }
 
     /// <summary>以指定身份登记玩家蓝图包及同名蓝图文件。</summary>
     /// <param name="uuid">作为包命名空间和文件名的已规范化身份文本；调用方应按玩家蓝图约定提供 UUID。</param>
@@ -385,24 +328,12 @@ public sealed class MemoryContentSource : IContentSource
     /// <exception cref="ArgumentNullException">uuid 或 utf8Text 为 null。</exception>
     /// <exception cref="ArgumentException">包命名空间或生成的相对路径无效。</exception>
     /// <exception cref="InvalidOperationException">登记包后无法按原输入身份精确定位，例如身份包含首尾空白。</exception>
-    /// <example>登记 cccccccc-dddd-4eee-8fff-000000000001 的玩家蓝图，并保留文件内显示名“我的手写蓝图”；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
+    /// <example>登记 cccccccc-dddd-4eee-8fff-000000000001 的玩家蓝图，并保留文件内显示名“我的手写蓝图”；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_display_name</c>。</example>
     public void AddBlueprint(string uuid, string utf8Text)
     {
         var file = uuid + ".composites.json";
         AddPackage(uuid, "memory://blueprints/" + uuid, kind: ContentPackageKind.PlayerBlueprint, source: file);
-        AddCompositeFile(uuid, file, utf8Text, "memory://blueprints/" + uuid);
-    }
-
-    /// <summary>按资源键取得登记文件列表，以 Ordinal 后缀过滤并复制为保持登记顺序的有效发现结果。</summary>
-    /// <param name="package">以资源根和命名空间定位列表的包。</param>
-    /// <param name="suffix">需要匹配的小写文件后缀。</param>
-    /// <returns>无诊断且 Invalid 为 false 的路径快照；无登记列表时为空。</returns>
-    private ContentFileDiscovery ListDataFiles(ContentPackage package, string suffix)
-    {
-        var files = _files.TryGetValue(PackageKey(package), out var listed)
-            ? listed.Where(file => file.EndsWith(suffix, StringComparison.Ordinal)).ToArray()
-            : Array.Empty<string>();
-        return ContentFileDiscovery.Of(files);
+        AddDefinitionFile(uuid, file, utf8Text, "memory://blueprints/" + uuid);
     }
 
     /// <summary>按资源键返回已登记的 JSON 或 PNG 字节，并比较调用方提供的大小上限。</summary>

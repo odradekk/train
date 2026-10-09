@@ -64,6 +64,7 @@ public sealed class ModManifestTests
             Assert.IsFalse(ModManifest.TryParse(Utf8(json), "bad/mod.json", out var manifest, out var diagnostics), json);
             Assert.IsNull(manifest, json);
             Assert.IsTrue(diagnostics.Count > 0, json);
+            Assert.IsTrue(diagnostics.All(item => item.Severity == ContentDiagnosticSeverity.Warning), json);
         }
     }
 

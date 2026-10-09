@@ -14,7 +14,7 @@ internal static class ModFixtures
     {
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("pretty-name", SampleUuid);
-        source.AddVoxelFile(SampleUuid, "natural/copper.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile(SampleUuid, "natural/copper.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("copper", "铜", "铜说明", icon: "copper.png", voxel: "copper.png")));
         source.AddImage(SampleUuid, "copper.png", ContentFixtures.Square(16));
         return source;

@@ -1,69 +1,36 @@
 // 属于内容层的 Behavior 定义模块。
-// 识别当前可用于数据内容的 Behavior 类型并规范化其参数。
+// 识别当前可用于数据内容的 Behavior 类型。
 namespace Train.Core.Content.Behaviors;
 
 /// <summary>定义当前内容格式允许声明的 Behavior 类型标记。</summary>
-/// <example>推进部件在 JSON 中使用 <c>"type":"propulsion"</c>；见 <c>ContentReloaderTests.Omitted_behavior_parameters_and_explicit_defaults_share_a_semantic_revision</c>。</example>
+/// <example>推进部件在 JSON 中使用 <c>"type":"propulsion"</c>；见 <c>ContentReloaderTests.Combined_behaviors_load_as_typed_data_and_affect_semantic_revision</c>。</example>
 public static class BehaviorTypes
 {
     /// <summary>推进行为在 JSON <c>type</c> 字段中的固定值；内容解析与语义编码依赖精确值 <c>propulsion</c>。</summary>
     public const string Propulsion = "propulsion";
     /// <summary>列车控制行为在 JSON <c>type</c> 字段中的固定值；内容解析与语义编码依赖精确值 <c>control</c>。</summary>
     public const string Control = "control";
-    /// <summary>轨道接触行为在 JSON <c>type</c> 字段中的固定值；内容解析与语义编码依赖精确值 <c>track_contact</c>。</summary>
-    public const string TrackContact = "track_contact";
+    /// <summary>货舱行为在 JSON <c>type</c> 字段中的固定值；内容解析与语义编码依赖精确值 <c>cargo</c>。</summary>
+    public const string Cargo = "cargo";
 }
 
-/// <summary>识别已注册的 Behavior 类型，并把可省略的运动参数规范化为完整值。</summary>
-/// <example><c>TryNormalizePropulsion(null, null, out parameters)</c> 产生目标速度 <c>4</c>、加速度 <c>2</c> 的完整参数；见 <c>ContentReloaderTests.Omitted_behavior_parameters_and_explicit_defaults_share_a_semantic_revision</c>。</example>
+/// <summary>识别已注册的 Behavior 类型标记。</summary>
+/// <example><c>propulsion</c>、<c>control</c> 和 <c>cargo</c> 已注册；见 <c>ContentReloaderTests.Combined_behaviors_load_as_typed_data_and_affect_semantic_revision</c>。</example>
 public static class BehaviorRegistry
 {
+    /// <summary>取得已注册行为的固定类型标记；定义构造按它排列行为，规范编码用它写出 type 字段。</summary>
+    /// <exception cref="InvalidOperationException">行为不属于已注册的三种类型。</exception>
+    internal static string TypeOf(VoxelBehavior behavior) => behavior switch
+    {
+        PropulsionBehavior => BehaviorTypes.Propulsion,
+        ControlBehavior => BehaviorTypes.Control,
+        CargoBehavior => BehaviorTypes.Cargo,
+        _ => throw new InvalidOperationException($"Unsupported behavior type {behavior.GetType().Name}.")
+    };
+
     /// <summary>检查文本是否为当前已注册的 Behavior 类型标记。</summary>
     /// <param name="type">区分大小写且不修剪的类型标记；运行时传入 <see langword="null"/> 会判为未注册。</param>
-    /// <returns>值为 <c>propulsion</c>、<c>control</c> 或 <c>track_contact</c> 时返回 <see langword="true"/>。</returns>
+    /// <returns>值为 <c>propulsion</c>、<c>control</c> 或 <c>cargo</c> 时返回 <see langword="true"/>。</returns>
     public static bool IsRegistered(string type) =>
-        type is BehaviorTypes.Propulsion or BehaviorTypes.Control or BehaviorTypes.TrackContact;
-
-    /// <summary>用默认值补齐未指定的推进参数，并验证结果是否为有限正数。</summary>
-    /// <param name="targetSpeed">目标速度，单位为体素/秒；<see langword="null"/> 使用默认值 4。</param>
-    /// <param name="acceleration">加速度，单位为体素/秒²；<see langword="null"/> 使用默认值 2。</param>
-    /// <param name="parameters">成功时为补齐后的推进参数；失败时为完整的默认参数。</param>
-    /// <returns>补齐后的两个值均为有限正数时返回 <see langword="true"/>。</returns>
-    /// <example><c>TryNormalizePropulsion(null, null, out parameters)</c> 与显式传入 <c>4</c>、<c>2</c> 都返回默认参数；见 <c>ContentReloaderTests.Omitted_behavior_parameters_and_explicit_defaults_share_a_semantic_revision</c>。</example>
-    public static bool TryNormalizePropulsion(
-        double? targetSpeed,
-        double? acceleration,
-        out PropulsionParameters parameters)
-    {
-        var target = targetSpeed ?? PropulsionParameters.DefaultTargetSpeed;
-        var accel = acceleration ?? PropulsionParameters.DefaultAcceleration;
-        if (!PropulsionParameters.TryCreate(target, accel, out var created) || created is null)
-        {
-            parameters = PropulsionParameters.Default;
-            return false;
-        }
-
-        parameters = created;
-        return true;
-    }
-
-    /// <summary>用默认值补齐未指定的轨道接触参数，并验证结果是否为有限正数。</summary>
-    /// <param name="coastDeceleration">无动力滑行减速度，单位为体素/秒²；<see langword="null"/> 使用默认值 1。</param>
-    /// <param name="parameters">成功时为补齐后的轨道接触参数；失败时为完整的默认参数。</param>
-    /// <returns>补齐后的滑行减速度为有限正数时返回 <see langword="true"/>。</returns>
-    /// <example><c>TryNormalizeTrackContact(null, out parameters)</c> 与显式传入 <c>1</c> 都返回默认参数；见 <c>ContentReloaderTests.Omitted_behavior_parameters_and_explicit_defaults_share_a_semantic_revision</c>。</example>
-    public static bool TryNormalizeTrackContact(
-        double? coastDeceleration,
-        out TrackContactParameters parameters)
-    {
-        var deceleration = coastDeceleration ?? TrackContactParameters.DefaultCoastDeceleration;
-        if (!TrackContactParameters.TryCreate(deceleration, out var created) || created is null)
-        {
-            parameters = TrackContactParameters.Default;
-            return false;
-        }
-
-        parameters = created;
-        return true;
-    }
+        type is BehaviorTypes.Propulsion or BehaviorTypes.Control or BehaviorTypes.Cargo;
 }

@@ -14,6 +14,8 @@ public static class VoxelTags
     public const string RawGood = "raw_good";
     /// <summary>标记蓝图身份保留规则要求的核心部件。</summary>
     public const string IdentityCore = "identity_core";
+    /// <summary>标记仅用于场景、不可库存或交易的体素。</summary>
+    public const string SceneOnly = "scene_only";
 }
 
 /// <summary>表示一个体素定义允许使用的离散朝向集合。</summary>
@@ -199,7 +201,7 @@ public sealed class VoxelCollision
 
 /// <summary>表示某种体素及货物的不可变内容定义。</summary>
 /// <example>完整定义的加载、规范化和拒绝用例见 <c>ContentReloaderTests</c> 与 <c>ModLoadingTests</c>。</example>
-public sealed class VoxelDefinition
+public sealed class VoxelDefinition : ICoreVoxelDefinition
 {
     /// <summary>显示名称最少包含 1 个 Unicode 标量值。</summary>
     public const int NameMinLength = 1;
@@ -213,9 +215,9 @@ public sealed class VoxelDefinition
     public const long ValueMin = 1;
     /// <summary>基本货币价值上限，十亿个货币单位。</summary>
     public const long ValueMax = 1_000_000_000;
-    /// <summary>质量必须严格大于 0；单位为质量单位。</summary>
+    /// <summary>质量必须严格大于 0；单位为 t。</summary>
     public const double MassMinExclusive = 0;
-    /// <summary>单个体素质量上限，十亿个质量单位。</summary>
+    /// <summary>单个体素质量上限，十亿 t。</summary>
     public const double MassMax = 1_000_000_000;
     /// <summary>耐久上限字段的最小值 1。</summary>
     public const int MaxDurabilityMin = 1;
@@ -240,12 +242,8 @@ public sealed class VoxelDefinition
     public int MaxDurability { get; }
     /// <summary>获取按 Ordinal 比较的不可变标签集合。</summary>
     public IReadOnlySet<string> Tags { get; }
-    /// <summary>获取定义声明的已注册 Behavior 类型，保留输入顺序。</summary>
-    public IReadOnlyList<string> Behaviors { get; }
-    /// <summary>获取推进参数；未声明 propulsion Behavior 时为 <see langword="null"/>。</summary>
-    public PropulsionParameters? Propulsion { get; }
-    /// <summary>获取轨道接触参数；未声明 track_contact Behavior 时为 <see langword="null"/>。</summary>
-    public TrackContactParameters? TrackContact { get; }
+    /// <summary>获取定义声明的不可变功能行为；各种行为最多出现一次，按类型标记的 Ordinal 顺序排列，与声明顺序无关。</summary>
+    public IReadOnlyList<VoxelBehavior> Behaviors { get; }
     /// <summary>获取放入蓝图或场景时允许的离散朝向集合。</summary>
     public VoxelOrientationConstraint AllowedOrientations { get; }
     /// <summary>获取必需的表现绑定。</summary>
@@ -259,10 +257,9 @@ public sealed class VoxelDefinition
     /// <summary>规范化并创建一个不可变体素定义。</summary>
     /// <param name="id">非空稳定身份。</param><param name="name">1–100 个 Unicode 标量值的显示名称。</param>
     /// <param name="description">1–2000 个 Unicode 标量值的显示说明。</param><param name="value">1–1,000,000,000 个货币单位。</param>
-    /// <param name="mass">有限正质量，最多十亿个质量单位。</param><param name="maxDurability">1–1,000,000,000 的耐久上限。</param>
-    /// <param name="tags">待规范化的标签集合。</param><param name="behaviors">已注册 Behavior 类型序列。</param>
+    /// <param name="mass">有限正质量，最多十亿 t。</param><param name="maxDurability">1–1,000,000,000 的耐久上限。</param>
+    /// <param name="tags">待规范化的标签集合。</param><param name="behaviors">参数有效且种类不重复的 Behavior 序列。</param>
     /// <param name="allowedOrientations">允许朝向集合。</param><param name="presentation">非空表现绑定。</param><param name="collision">非空碰撞形状。</param>
-    /// <param name="propulsion">推进参数；声明 propulsion 且省略时使用默认值。</param><param name="trackContact">轨道接触参数；声明 track_contact 且省略时使用默认值。</param>
     /// <exception cref="ArgumentNullException">必需引用参数为 <see langword="null"/>。</exception>
     /// <exception cref="ArgumentOutOfRangeException">数值或枚举超出支持范围。</exception>
     /// <exception cref="ArgumentException">身份、文本、标签、Behavior 或 Behavior 参数组合无效。</exception>
@@ -274,12 +271,10 @@ public sealed class VoxelDefinition
         double mass,
         int maxDurability,
         IEnumerable<string> tags,
-        IEnumerable<string> behaviors,
+        IEnumerable<VoxelBehavior> behaviors,
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
-        VoxelCollision collision,
-        PropulsionParameters? propulsion = null,
-        TrackContactParameters? trackContact = null)
+        VoxelCollision collision)
     {
         if (string.IsNullOrEmpty(id.Namespace) || string.IsNullOrEmpty(id.LocalId))
             throw new ArgumentException("VoxelDefinitionId cannot be blank.", nameof(id));
@@ -304,8 +299,17 @@ public sealed class VoxelDefinition
         var normalizedDescription = NormalizeDisplayText(description, DescriptionMinLength, DescriptionMaxLength, nameof(description));
         var tagSet = NormalizeTags(tags);
         var behaviorList = behaviors.ToArray();
-        if (behaviorList.Any(behavior => !BehaviorRegistry.IsRegistered(behavior)))
-            throw new ArgumentException("Unknown or unregistered behavior.", nameof(behaviors));
+        if (behaviorList.Any(static behavior => behavior is null) ||
+            behaviorList.GroupBy(static behavior => behavior.GetType()).Any(static group => group.Count() > 1) ||
+            behaviorList.Any(static behavior => behavior switch
+            {
+                PropulsionBehavior propulsion => !double.IsFinite(propulsion.Traction) || propulsion.Traction <= 0 ||
+                    !double.IsFinite(propulsion.RatedSpeed) || propulsion.RatedSpeed <= 0,
+                CargoBehavior cargo => cargo.Capacity < 1,
+                ControlBehavior => false,
+                _ => true
+            }))
+            throw new ArgumentException("Behaviors must have unique registered types and valid parameters.", nameof(behaviors));
 
         Id = id;
         Name = normalizedName;
@@ -314,21 +318,8 @@ public sealed class VoxelDefinition
         Mass = mass;
         MaxDurability = maxDurability;
         Tags = tagSet;
-        Behaviors = new ReadOnlyCollection<string>(behaviorList);
-        var hasPropulsion = behaviorList.Contains(BehaviorTypes.Propulsion);
-        if (hasPropulsion)
-            Propulsion = propulsion ?? PropulsionParameters.Default;
-        else if (propulsion is not null)
-            throw new ArgumentException("Propulsion parameters require a registered propulsion behavior.", nameof(propulsion));
-        else
-            Propulsion = null;
-        var hasTrackContact = behaviorList.Contains(BehaviorTypes.TrackContact);
-        if (hasTrackContact)
-            TrackContact = trackContact ?? TrackContactParameters.Default;
-        else if (trackContact is not null)
-            throw new ArgumentException("Track contact parameters require a registered track_contact behavior.", nameof(trackContact));
-        else
-            TrackContact = null;
+        Behaviors = new ReadOnlyCollection<VoxelBehavior>(
+            behaviorList.OrderBy(BehaviorRegistry.TypeOf, StringComparer.Ordinal).ToArray());
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;

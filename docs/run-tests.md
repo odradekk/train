@@ -17,7 +17,9 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-export-smoke -Te
 
 `-Correctness` 选择 MSTest 与已登记的非导出引擎检查，需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
 
-content 的输入由运行器提前复制到输出目录的 `content-input/initial` 与 `content-input/added`，只包含必要定义和图片。检查切换两份读取来源，在同一个重载器上验证新增、移除；不写项目资源或输入文件。检查选择使用 `-- --check=<名称>`，不读取旧 TRAIN_* 检查开关。通过必须同时满足进程退出 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
+content 的输入由运行器提前复制到输出目录的 `content-input/initial` 与 `content-input/added`，两份都只包含 `voxels/grain.voxels.json`、四个绑定共用的 `voxels/grain/placeholder.png`，以及用于烟测的市场表和聚居地类型 JSON；`added` 另外生成 `smoke-ore` 体素探针。图片经物理内容根读取，不需要复制 Godot 导入配置。检查切换两份读取来源，在同一个重载器上验证新增、移除；不写项目资源或输入文件。检查选择使用 `-- --check=<名称>`，不读取旧 TRAIN_* 检查开关。通过必须同时满足进程退出 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
+
+导出过滤显式包含 `*.voxels.json`、`*.composites.json`、`*.market-tables.json`、`*.settlement-types.json` 和 `*.png`。内置 PNG 的 `.import` 使用 `importer=keep`，保证导出包中的原始字节可读。content 检查必须报告 `CONTENT_GRAIN_LOADED`、`CONTENT_PNG_DECODED`、`CONTENT_MARKET_SETTLEMENT_READY` 等初始标记，导出和空 Mod 根检查分别报告 `CONTENT_EXPORT_GRAIN_LOADED` 与 `MODS_EXPORT_GRAIN_LOADED`；PNG 标记还验证四个表现绑定共用同一张实际解码的非空图片。当前导出运行验证最小粮食内容，完整预置内容在 [#236](https://github.com/odradekk/train/issues/236) 接入后补充相应资源证据。
 
 Windows 上覆盖 APPDATA 不会改变 Godot 原生的默认 `user://` 路径。运行器为引擎日志传入运行目录内的 `--log-file`，导入和导出准备使用 `--recovery-mode` 跳过编辑器插件，防止插件设置写入正常用户目录。App 检查正常启动主场景；项目 MCP 在独立的编辑器验证中核验。正常用户目录的前后快照不一致时，整次运行以非零退出。
 

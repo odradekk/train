@@ -45,25 +45,6 @@ public sealed class ContentFileDiscovery
     public static ContentFileDiscovery Of(IReadOnlyList<string> files) =>
         new(files, Array.Empty<ContentDiagnostic>(), invalid: false);
 
-    /// <summary>按内容包身份筛选玩家蓝图文件，其他包的发现结果原样返回。</summary>
-    /// <param name="package">决定是否应用玩家蓝图身份规则的内容包。</param>
-    /// <param name="discovery">已经完成目录扫描的蓝图文件发现结果。</param>
-    /// <returns>玩家蓝图包仅保留与包命名空间加 .composites.json 完全相等的根级文件；其他包返回原结果。</returns>
-    /// <remarks>文件名按 Ordinal 比较；筛选保持原顺序，并原样保留诊断和无效标记。</remarks>
-    /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null，或筛选玩家蓝图包时 <paramref name="discovery"/> 为 null。</exception>
-    /// <example>命名空间为 cccccccc-dddd-4eee-8fff-000000000001 时，仅保留同名的 .composites.json 文件；见 <c>CompositeContentTests.Player_blueprint_uses_file_uuid_namespace_and_in_file_display_name</c>。</example>
-    public static ContentFileDiscovery ForCompositePackage(
-        ContentPackage package,
-        ContentFileDiscovery discovery)
-    {
-        if (package.Kind != ContentPackageKind.PlayerBlueprint)
-            return discovery;
-        var expected = package.Namespace + ".composites.json";
-        return new ContentFileDiscovery(
-            discovery.Files.Where(file => string.Equals(file, expected, StringComparison.Ordinal)).ToArray(),
-            discovery.Diagnostics,
-            discovery.Invalid);
-    }
 }
 
 /// <summary>在与存储实现无关的目录树上发现内容文件。</summary>
@@ -74,7 +55,7 @@ public static class ContentPackageWalk
     /// <summary>递归收集指定后缀且路径格式有效的文件，遇到链接或不可列举目录时标记整个包无效。</summary>
     /// <param name="root">采用正斜杠、不带末尾斜杠的包资源根，例如 res://root；原样传给首次列举回调。</param>
     /// <param name="listChildren">同步列举指定目录直接子项的非 null 回调；空集合表示空目录，null 表示无法安全列举。须提供有限的目录树并正确标记链接。</param>
-    /// <param name="fileSuffix">按 Ordinal 区分大小写匹配的非 null 文件后缀，默认 .voxels.json；空字符串匹配所有普通文件。</param>
+    /// <param name="fileSuffix">由调用方显式指定、按 Ordinal 区分大小写匹配的非 null 文件后缀；空字符串匹配所有普通文件。</param>
     /// <returns>按 Ordinal 排序且不去重的正斜杠相对路径、按遍历顺序保留的诊断和无效标记；无效时仍保留其他子树已发现的文件。</returns>
     /// <remarks>
     /// 跳过 . 和 ..；其余子项只要标记为链接就使包无效，与目录标记和文件后缀无关。非链接目录递归列举，普通文件后缀不匹配或相对路径未通过 ContentPath.TryNormalize 时仅忽略该文件。
@@ -86,10 +67,10 @@ public static class ContentPackageWalk
     public static ContentFileDiscovery Discover(
         string root,
         Func<string, IReadOnlyList<ContentTreeEntry>?> listChildren,
-        string fileSuffix = ".voxels.json")
+        string fileSuffix)
     {
         var files = new List<string>();
-        var bag = new DiagnosticBag();
+        var bag = new DiagnosticBag(ContentDiagnosticSeverity.Error);
         Collect(root, root, listChildren, files, bag, fileSuffix);
         files.Sort(StringComparer.Ordinal);
         return new ContentFileDiscovery(files, bag.Items.ToArray(), bag.Invalid);
@@ -154,6 +135,6 @@ public static class ContentPackageWalk
     private static void AddLinked(DiagnosticBag bag, string path)
     {
         var diagnostic = LinkedPathDiagnostic(path);
-        bag.Error(diagnostic.Code, diagnostic.Message, path);
+        bag.Reject(diagnostic.Code, diagnostic.Message, path);
     }
 }

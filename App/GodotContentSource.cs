@@ -9,7 +9,7 @@ namespace Train.App;
 
 /// <summary>通过 Godot 和物理文件系统发现内容包、读取资源并解码 PNG。</summary>
 /// <remarks>路径与日志依赖由宿主提供，构造时不访问目录；实例保留最近一次列包诊断，不提供并发同步。内容定义、引用及图片用途的校验由内容加载器负责。</remarks>
-/// <example>真实 Godot 中读取内置 JSON 并发布 core:ferrous-ore 的检查见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
+/// <example>真实 Godot 中读取内置 JSON 并发布 core:grain 的检查见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
 public sealed class GodotContentSource : IContentSource
 {
     /// <summary>内置资源的默认 Godot 路径，供编辑器和导出运行读取同一组资源。</summary>
@@ -68,7 +68,7 @@ public sealed class GodotContentSource : IContentSource
     /// 正常完成时替换最近一次扫描诊断，不冻结返回列表；未被转换的 Godot、路径或日志异常向上传播。
     /// 本方法不读取体素或蓝图定义正文，也不解码资源；目录可用标记不代替后续的链接与文件校验。
     /// </remarks>
-    /// <example>隔离用户目录中的 Mod 根为空或不可用时，内置 ferrous-ore 仍可发布；见 <c>scripts/checks/run-app-check.ps1</c> 的 mods-export 检查。</example>
+    /// <example>隔离用户目录中的 Mod 根为空或不可用时，内置 grain 仍可发布；见 <c>scripts/checks/run-app-check.ps1</c> 的 mods-export 检查。</example>
     public IReadOnlyList<ContentPackage> ListPackages()
     {
         bool available;
@@ -157,29 +157,15 @@ public sealed class GodotContentSource : IContentSource
     /// <remarks>下一次完成列包会替换引用；调用方应只读使用，不修改返回列表。</remarks>
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _scanDiagnostics;
 
-    /// <summary>发现包内以小写 .voxels.json 结尾的体素定义文件。</summary>
+    /// <summary>发现包内全部以小写 .json 结尾的定义文件。</summary>
     /// <param name="package">要扫描的内容包；内置包的访问方式由本实例构造参数确定。</param>
     /// <returns>规范化相对文件路径、发现诊断和包无效标记；无效结果仍可能保留部分文件。</returns>
-    /// <remarks>物理包交给 ExternalContent，虚拟内置包交给 Godot 目录遍历；只发现文件，不解析定义。</remarks>
+    /// <remarks>物理包交给 ExternalContent，虚拟内置包交给 Godot 目录遍历；只发现文件，不解析格式或玩家蓝图身份。</remarks>
     /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) =>
-        ListDataFiles(package, ".voxels.json");
-
-    /// <summary>发现包内蓝图和 Archetype 文件，并按玩家蓝图包身份筛选其文件。</summary>
-    /// <param name="package">要扫描的内容包；玩家蓝图的命名空间为文件 UUID。</param>
-    /// <returns>以小写 .composites.json 结尾的相对路径和发现状态；玩家蓝图包仅保留与其命名空间加后缀完全匹配的根目录文件。</returns>
-    /// <remarks>玩家文件名按 Ordinal 比较；筛选文件后仍保留整次发现的诊断和无效标记，不解析文件内显示名或定义。</remarks>
-    /// <exception cref="NullReferenceException"><paramref name="package"/> 为 null。</exception>
-    public ContentFileDiscovery ListCompositeFiles(ContentPackage package)
-        => ContentFileDiscovery.ForCompositePackage(
-            package,
-            ListDataFiles(package, ".composites.json"));
-
-    /// <summary>按包种类和内置访问方式分派目录扫描，并拒绝无法解析或链接的虚拟根。</summary>
-    private ContentFileDiscovery ListDataFiles(ContentPackage package, string fileSuffix)
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package)
     {
         if (package.Kind is ContentPackageKind.Mod or ContentPackageKind.PlayerBlueprint || IsPhysicalBuiltIn(package))
-            return ExternalContent.ListDataFiles(package.ResourcesRoot, fileSuffix);
+            return ExternalContent.ListDefinitionFiles(package.ResourcesRoot);
 
         if (IsLinkedOrUnresolved(package.ResourcesRoot))
             return new ContentFileDiscovery(
@@ -187,7 +173,7 @@ public sealed class GodotContentSource : IContentSource
                 new[] { ContentPackageWalk.LinkedPathDiagnostic(package.ResourcesRoot) },
                 invalid: true);
 
-        return ContentPackageWalk.Discover(package.ResourcesRoot, ListEntries, fileSuffix);
+        return ContentPackageWalk.Discover(package.ResourcesRoot, ListEntries, ".json");
     }
 
     /// <summary>在给定字节上限内读取一个包内文件，并检查其资源根与路径链。</summary>
@@ -256,7 +242,7 @@ public sealed class GodotContentSource : IContentSource
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="rawBytes"/> 为 null。</exception>
     /// <exception cref="NullReferenceException"><paramref name="normalizedRelativePath"/> 为 null，且原始字节参数非 null。</exception>
-    /// <example>真实 Godot 内容检查通过 PNG 读取与加载流程发布 ferrous-ore；见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
+    /// <example>真实 Godot 内容检查通过 PNG 读取与加载流程发布 grain；四个表现绑定共用同一解码图片；见 <c>scripts/checks/run-app-check.ps1</c> 的 content 检查。</example>
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath, byte[] rawBytes)
     {
         ArgumentNullException.ThrowIfNull(rawBytes);

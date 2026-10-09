@@ -10,13 +10,17 @@ using Train.Ui;
 namespace Train.App.Checks;
 
 /// <summary>提供无需逐帧等待的菜单与导出检查。</summary>
-/// <example>内容导出检查读取 ferrous-ore 的 JSON 和四张原始 PNG，并确认当前 JSONL 已创建。</example>
+/// <example>内容导出检查读取粮食的 JSON 和四个绑定共用的原始 PNG，并确认当前 JSONL 已创建。</example>
 internal static class StartupChecks
 {
-    /// <summary>内置体素烟测暂时使用的定义路径，与内容导出过滤规则共同验证。</summary>
-    internal const string VoxelJson = "res://builtin/core/resources/voxels/ferrous-ore.voxels.json";
+    /// <summary>三项内容检查共同使用的粮食定义身份。</summary>
+    internal static readonly VoxelDefinitionId GrainId = new("core", "grain");
+    /// <summary>粮食四个表现绑定共用的包内相对路径。</summary>
+    private const string GrainImagePath = "voxels/grain/placeholder.png";
+    /// <summary>内置粮食定义路径，与内容导出过滤规则共同验证。</summary>
+    internal const string VoxelJson = "res://builtin/core/resources/voxels/grain.voxels.json";
     /// <summary>内置体素烟测使用的图标原始字节路径。</summary>
-    internal const string IconPng = "res://builtin/core/resources/voxels/ferrous-ore/icon.png";
+    internal const string IconPng = "res://builtin/core/resources/" + GrainImagePath;
 
     /// <summary>验证主菜单只显示可用的退出按钮，并通过真实按钮信号请求宿主退出。</summary>
     /// <param name="menu">本次启动实际显示的主菜单。</param>
@@ -38,11 +42,10 @@ internal static class StartupChecks
     /// <summary>验证已发布目录、导出包的原始 JSON/PNG 与本次日志文件均可读取。</summary>
     internal static bool ContentExport(ContentReloader reloader, ContentReloadResult loaded, TrainLogger logger)
     {
-        var ok = ReportCatalog(reloader, loaded, "CONTENT_EXPORT");
+        var snapshot = reloader.Current;
+        var ok = ReportCatalog(snapshot, loaded, "CONTENT_EXPORT");
         ok &= Report(CanReadResource(VoxelJson), "CONTENT_EXPORT_JSON_READABLE");
-        var pngs = new[] { "icon", "top", "side", "bottom" };
-        ok &= Report(pngs.All(name => CanReadResource($"res://builtin/core/resources/voxels/ferrous-ore/{name}.png")),
-            "CONTENT_EXPORT_PNG_READABLE");
+        ok &= Report(CanReadResource(IconPng), "CONTENT_EXPORT_PNG_READABLE");
         ok &= Report(logger.JsonlPath is not null && File.Exists(logger.JsonlPath), "CONTENT_EXPORT_JSONL_CREATED");
         return ok;
     }
@@ -50,7 +53,8 @@ internal static class StartupChecks
     /// <summary>验证用户 Mod 根缺失或为空时，导出程序仍可加载内置内容。</summary>
     internal static bool ModsExport(ContentReloader reloader, ContentReloadResult loaded, string userData)
     {
-        var ok = ReportCatalog(reloader, loaded, "MODS_EXPORT");
+        var snapshot = reloader.Current;
+        var ok = ReportCatalog(snapshot, loaded, "MODS_EXPORT");
         var mods = Path.Combine(userData, "mods");
         if (!Directory.Exists(mods))
             return Report(true, "MODS_EXPORT_ROOT_UNAVAILABLE") && ok;
@@ -60,12 +64,17 @@ internal static class StartupChecks
     }
 
     /// <summary>报告已加载内置体素及表现资产的检查结果；任一条件不满足则返回 false。</summary>
-    internal static bool ReportCatalog(ContentReloader reloader, ContentReloadResult loaded, string prefix)
+    internal static bool ReportCatalog(ContentSnapshot? snapshot, ContentReloadResult loaded, string prefix)
     {
-        var found = reloader.Catalog.Current?.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _) == true;
-        var ok = Report(loaded.IsCommitted && found, $"{prefix}_FERROUS_ORE_LOADED");
-        // 成功发布要求候选构建器已通过真实来源读取并解码全部引用图片。
-        ok &= Report(loaded.IsCommitted && found, $"{prefix}_PNG_DECODED");
+        var grain = snapshot?.Voxels.GetValueOrDefault(GrainId);
+        var ok = Report(loaded.IsCommitted && grain is not null, $"{prefix}_GRAIN_LOADED");
+        var presentation = grain?.Definition.Presentation;
+        var decoded = loaded.IsCommitted && grain is not null && presentation is not null &&
+            presentation.IconPath == GrainImagePath && presentation.TopPath == GrainImagePath &&
+            presentation.SidePath == GrainImagePath && presentation.BottomPath == GrainImagePath &&
+            grain.PresentationImages.Count == 1 && grain.PresentationImages.TryGetValue(GrainImagePath, out var image) &&
+            image.Width > 0 && image.Height > 0;
+        ok &= Report(decoded, $"{prefix}_PNG_DECODED");
         ok &= Report(loaded.IsCommitted, $"{prefix}_INIT_OK");
         return ok;
     }

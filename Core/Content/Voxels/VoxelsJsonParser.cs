@@ -3,9 +3,8 @@
 
 using System.Text.Json;
 using Train.Core.Content.Behaviors;
-using Train.Core.Content.Voxels;
 
-namespace Train.Core.Content;
+namespace Train.Core.Content.Voxels;
 
 /// <summary>暂存通过字段校验的体素定义及其源文件，等待包和图片校验。</summary>
 internal sealed class ParsedVoxel
@@ -17,9 +16,7 @@ internal sealed class ParsedVoxel
     public double Mass { get; }
     public int MaxDurability { get; }
     public IReadOnlyList<string> Tags { get; }
-    public IReadOnlyList<string> Behaviors { get; }
-    public PropulsionParameters? Propulsion { get; }
-    public TrackContactParameters? TrackContact { get; }
+    public IReadOnlyList<VoxelBehavior> Behaviors { get; }
     public VoxelOrientationConstraint AllowedOrientations { get; }
     public VoxelPresentation Presentation { get; }
     public VoxelCollision Collision { get; }
@@ -33,9 +30,7 @@ internal sealed class ParsedVoxel
         double mass,
         int maxDurability,
         IReadOnlyList<string> tags,
-        IReadOnlyList<string> behaviors,
-        PropulsionParameters? propulsion,
-        TrackContactParameters? trackContact,
+        IReadOnlyList<VoxelBehavior> behaviors,
         VoxelOrientationConstraint allowedOrientations,
         VoxelPresentation presentation,
         VoxelCollision collision,
@@ -49,8 +44,6 @@ internal sealed class ParsedVoxel
         MaxDurability = maxDurability;
         Tags = tags;
         Behaviors = behaviors;
-        Propulsion = propulsion;
-        TrackContact = trackContact;
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;
@@ -61,92 +54,17 @@ internal sealed class ParsedVoxel
 /// <summary>严格解析当前体素内容格式，将格式错误归入所属包的诊断。</summary>
 internal static class VoxelsJsonParser
 {
-    /// <summary>当前唯一支持的文件 schema 版本，固定为 1；格式约定见模块说明。</summary>
-    private const int SchemaVersion = 1;
+    /// <summary>当前唯一支持的文件 schema 版本，固定为 2；格式约定见模块说明。</summary>
+    private const int SchemaVersion = 2;
 
-    /// <summary>解析 UTF-8 体素 JSON；结构或字段无效时记录诊断并返回未接受的定义列表。</summary>
-    public static IReadOnlyList<ParsedVoxel> Parse(
+    /// <summary>解析 UTF-8 体素 JSON；结构或字段无效时记录诊断并返回 null。</summary>
+    public static IReadOnlyList<ParsedVoxel>? Parse(
         byte[] utf8,
         string sourceFile,
         DiagnosticBag diagnostics)
     {
-        diagnostics.Source = sourceFile;
-        if (utf8.Length > ContentLimits.JsonFileMaxBytes)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Voxel JSON exceeds the 1 MiB limit.");
-            return Array.Empty<ParsedVoxel>();
-        }
-
-        if (StrictJson.HasDuplicateProperties(utf8, diagnostics, sourceFile))
-            return Array.Empty<ParsedVoxel>();
-
-        JsonDocument document;
-        try
-        {
-            document = JsonDocument.Parse(utf8, StrictJson.DocumentOptions);
-        }
-        catch (JsonException exception)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
-            return Array.Empty<ParsedVoxel>();
-        }
-
-        using (document)
-        {
-            if (document.RootElement.ValueKind != JsonValueKind.Object)
-            {
-                diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "Voxel file must be a JSON object.", "$");
-                return Array.Empty<ParsedVoxel>();
-            }
-
-            return ParseDocument(document.RootElement, sourceFile, diagnostics);
-        }
-    }
-
-    /// <summary>检查根字段和 schema 版本，再解析各体素定义。</summary>
-    private static IReadOnlyList<ParsedVoxel> ParseDocument(
-        JsonElement root,
-        string sourceFile,
-        DiagnosticBag diagnostics)
-    {
-        foreach (var property in root.EnumerateObject())
-        {
-            if (property.Name is not "schema_version" and not "voxels")
-            {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", "/" + property.Name);
-                return Array.Empty<ParsedVoxel>();
-            }
-        }
-
-        if (!root.TryGetProperty("schema_version", out var versionElement) ||
-            versionElement.ValueKind != JsonValueKind.Number ||
-            !versionElement.TryGetInt32(out var version) ||
-            version != SchemaVersion)
-        {
-            diagnostics.Warn(
-                ContentDiagnosticCodes.SchemaVersionUnsupported,
-                "Only schema_version 1 is supported.",
-                "/schema_version");
-            return Array.Empty<ParsedVoxel>();
-        }
-
-        if (!root.TryGetProperty("voxels", out var voxelsElement) || voxelsElement.ValueKind != JsonValueKind.Array)
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "voxels must be an array.", "/voxels");
-            return Array.Empty<ParsedVoxel>();
-        }
-
-        var voxels = new List<ParsedVoxel>();
-        var index = 0;
-        foreach (var item in voxelsElement.EnumerateArray())
-        {
-            var path = $"/voxels/{index}";
-            if (TryParseVoxel(item, sourceFile, path, diagnostics, out var voxel))
-                voxels.Add(voxel);
-            index++;
-        }
-
-        return voxels;
+        return ContentJson.ParseDefinitions(utf8, sourceFile, SchemaVersion, "voxels", diagnostics,
+            (element, path) => TryParseVoxel(element, sourceFile, path, diagnostics, out var voxel) ? voxel : null);
     }
 
     /// <summary>校验一个体素条目的身份、数值、标签、行为和表现字段。</summary>
@@ -160,7 +78,7 @@ internal static class VoxelsJsonParser
         voxel = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "Each voxel must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Each voxel must be an object.", jsonPath);
             return false;
         }
 
@@ -171,9 +89,7 @@ internal static class VoxelsJsonParser
         double? mass = null;
         int? maxDurability = null;
         IReadOnlyList<string>? tags = null;
-        IReadOnlyList<string>? behaviors = null;
-        PropulsionParameters? propulsion = null;
-        TrackContactParameters? trackContact = null;
+        IReadOnlyList<VoxelBehavior>? behaviors = null;
         string? orientationsText = null;
         JsonElement? presentation = null;
         JsonElement? collision = null;
@@ -198,7 +114,7 @@ internal static class VoxelsJsonParser
                 case "value":
                     if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt64(out var parsedValue))
                     {
-                        diagnostics.Warn(ContentDiagnosticCodes.ValueInvalid, "Value must be an integer.", fieldPath);
+                        diagnostics.Reject(ContentDiagnosticCodes.ValueInvalid, "Value must be an integer.", fieldPath);
                         return false;
                     }
 
@@ -212,7 +128,7 @@ internal static class VoxelsJsonParser
                 case "max_durability":
                     if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var parsedDurability))
                     {
-                        diagnostics.Warn(ContentDiagnosticCodes.MaxDurabilityInvalid, "Max durability must be an integer.", fieldPath);
+                        diagnostics.Reject(ContentDiagnosticCodes.MaxDurabilityInvalid, "Max durability must be an integer.", fieldPath);
                         return false;
                     }
 
@@ -223,7 +139,7 @@ internal static class VoxelsJsonParser
                         return false;
                     break;
                 case "behaviors":
-                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors, out propulsion, out trackContact))
+                    if (!TryParseBehaviors(property.Value, fieldPath, diagnostics, out behaviors))
                         return false;
                     break;
                 case "allowed_orientations":
@@ -237,14 +153,14 @@ internal static class VoxelsJsonParser
                     collision = property.Value;
                     break;
                 default:
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
                     return false;
             }
         }
 
         if (localId is null || !VoxelDefinitionId.IsValidPart(localId))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.LocalIdInvalid, "Local id is invalid.", jsonPath + "/id");
+            diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid, "Local id is invalid.", jsonPath + "/id");
             return false;
         }
 
@@ -255,7 +171,7 @@ internal static class VoxelsJsonParser
 
         if (value is null or < VoxelDefinition.ValueMin or > VoxelDefinition.ValueMax)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.ValueInvalid, "Value is out of range.", jsonPath + "/value");
+            diagnostics.Reject(ContentDiagnosticCodes.ValueInvalid, "Value is out of range.", jsonPath + "/value");
             return false;
         }
 
@@ -265,51 +181,45 @@ internal static class VoxelsJsonParser
             mass.Value <= VoxelDefinition.MassMinExclusive ||
             mass.Value > VoxelDefinition.MassMax)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.MassInvalid, "Mass is out of range.", jsonPath + "/mass");
+            diagnostics.Reject(ContentDiagnosticCodes.MassInvalid, "Mass is out of range.", jsonPath + "/mass");
             return false;
         }
 
         if (maxDurability is null or < VoxelDefinition.MaxDurabilityMin or > VoxelDefinition.MaxDurabilityMax)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.MaxDurabilityInvalid, "Max durability is out of range.", jsonPath + "/max_durability");
+            diagnostics.Reject(ContentDiagnosticCodes.MaxDurabilityInvalid, "Max durability is out of range.", jsonPath + "/max_durability");
             return false;
         }
 
         if (tags is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.TagInvalid, "tags must be an array.", jsonPath + "/tags");
+            diagnostics.Reject(ContentDiagnosticCodes.TagInvalid, "tags must be an array.", jsonPath + "/tags");
             return false;
         }
 
         if (behaviors is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath + "/behaviors");
-            return false;
-        }
-
-        if (behaviors.Any(behavior => !BehaviorRegistry.IsRegistered(behavior)))
-        {
-            diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Unknown or unregistered behavior.", jsonPath + "/behaviors");
+            diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath + "/behaviors");
             return false;
         }
 
         if (!VoxelDefinition.TryParseOrientations(orientationsText, out var orientations))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.OrientationInvalid, "Unsupported orientation constraint.", jsonPath + "/allowed_orientations");
+            diagnostics.Reject(ContentDiagnosticCodes.OrientationInvalid, "Unsupported orientation constraint.", jsonPath + "/allowed_orientations");
             return false;
         }
 
         if (presentation is null || !TryParsePresentation(presentation.Value, jsonPath + "/presentation", diagnostics, out var parsedPresentation))
         {
             if (presentation is null)
-                diagnostics.Warn(ContentDiagnosticCodes.PresentationRequired, "presentation is required.", jsonPath + "/presentation");
+                diagnostics.Reject(ContentDiagnosticCodes.PresentationRequired, "presentation is required.", jsonPath + "/presentation");
             return false;
         }
 
         if (collision is null || !TryParseCollision(collision.Value, jsonPath + "/collision", diagnostics, out var parsedCollision))
         {
             if (collision is null)
-                diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "collision is required.", jsonPath + "/collision");
+                diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "collision is required.", jsonPath + "/collision");
             return false;
         }
 
@@ -322,8 +232,6 @@ internal static class VoxelsJsonParser
             maxDurability.Value,
             tags,
             behaviors,
-            propulsion,
-            trackContact,
             orientations,
             parsedPresentation,
             parsedCollision,
@@ -341,7 +249,7 @@ internal static class VoxelsJsonParser
         tags = Array.Empty<string>();
         if (element.ValueKind != JsonValueKind.Array)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.TagInvalid, "tags must be an array.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.TagInvalid, "tags must be an array.", jsonPath);
             return false;
         }
 
@@ -358,7 +266,7 @@ internal static class VoxelsJsonParser
                 var tag = VoxelDefinition.NormalizeTag(raw, "tag");
                 if (!seen.Add(tag))
                 {
-                    diagnostics.Warn(ContentDiagnosticCodes.TagInvalid, "Duplicate tag.", itemPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.TagInvalid, "Duplicate tag.", itemPath);
                     return false;
                 }
 
@@ -366,7 +274,7 @@ internal static class VoxelsJsonParser
             }
             catch (ArgumentException)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.TagInvalid, "Tag is invalid.", itemPath);
+                diagnostics.Reject(ContentDiagnosticCodes.TagInvalid, "Tag is invalid.", itemPath);
                 return false;
             }
 
@@ -377,39 +285,36 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>校验已注册行为及其当前参数格式，解析动力与轨道接触参数。</summary>
+    /// <summary>按行为种类校验字段和参数，返回保留声明顺序的类型化行为。</summary>
     private static bool TryParseBehaviors(
         JsonElement element,
         string jsonPath,
         DiagnosticBag diagnostics,
-        out IReadOnlyList<string> behaviors,
-        out PropulsionParameters? propulsion,
-        out TrackContactParameters? trackContact)
+        out IReadOnlyList<VoxelBehavior> behaviors)
     {
-        behaviors = Array.Empty<string>();
-        propulsion = null;
-        trackContact = null;
+        behaviors = Array.Empty<VoxelBehavior>();
         if (element.ValueKind != JsonValueKind.Array)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "behaviors must be an array.", jsonPath);
             return false;
         }
 
-        var parsed = new List<string>();
+        var parsed = new List<VoxelBehavior>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var index = 0;
         foreach (var item in element.EnumerateArray())
         {
             var itemPath = $"{jsonPath}/{index}";
             if (item.ValueKind != JsonValueKind.Object)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Each behavior must be an object.", itemPath);
+                diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Each behavior must be an object.", itemPath);
                 return false;
             }
 
             string? type = null;
-            double? targetSpeed = null;
-            double? acceleration = null;
-            double? coastDeceleration = null;
+            double? traction = null;
+            double? ratedSpeed = null;
+            int? capacity = null;
             if (item.TryGetProperty("type", out var typeElement) &&
                 !StrictJson.TryGetString(typeElement, diagnostics, itemPath + "/type", ContentDiagnosticCodes.BehaviorUnregistered, out type))
                 return false;
@@ -419,85 +324,77 @@ internal static class VoxelsJsonParser
                 if (property.Name == "type")
                     continue;
 
-                if (type == BehaviorTypes.Propulsion && property.Name == "target_speed")
+                if (type == BehaviorTypes.Propulsion && property.Name == "traction")
                 {
-                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/target_speed", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedTarget))
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/traction", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedTraction))
                         return false;
-                    targetSpeed = parsedTarget;
+                    traction = parsedTraction;
                     continue;
                 }
 
-                if (type == BehaviorTypes.Propulsion && property.Name == "acceleration")
+                if (type == BehaviorTypes.Propulsion && property.Name == "rated_speed")
                 {
-                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/acceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedAcceleration))
+                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/rated_speed", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedRatedSpeed))
                         return false;
-                    acceleration = parsedAcceleration;
+                    ratedSpeed = parsedRatedSpeed;
                     continue;
                 }
 
-                if (type == BehaviorTypes.TrackContact && property.Name == "coast_deceleration")
+                if (type == BehaviorTypes.Cargo && property.Name == "capacity")
                 {
-                    if (!TryGetFiniteDouble(property.Value, diagnostics, itemPath + "/coast_deceleration", ContentDiagnosticCodes.BehaviorUnregistered, out var parsedCoast))
+                    if (property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var parsedCapacity))
+                    {
+                        diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Cargo capacity must be an integer.", itemPath + "/capacity");
                         return false;
-                    coastDeceleration = parsedCoast;
+                    }
+                    capacity = parsedCapacity;
                     continue;
                 }
 
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath + "/" + property.Name);
+                diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath + "/" + property.Name);
                 return false;
             }
 
             if (string.IsNullOrEmpty(type))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Behavior type is required.", itemPath + "/type");
+                diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Behavior type is required.", itemPath + "/type");
                 return false;
             }
 
+            if (!BehaviorRegistry.IsRegistered(type))
+            {
+                diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Unknown or unregistered behavior.", itemPath + "/type");
+                return false;
+            }
+            if (!seen.Add(type))
+            {
+                diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Each behavior type may appear only once.", itemPath);
+                return false;
+            }
+
+            VoxelBehavior behavior;
             if (type == BehaviorTypes.Propulsion)
             {
-                if (propulsion is not null)
+                if (traction is null || ratedSpeed is null || traction <= 0 || ratedSpeed <= 0)
                 {
-                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Only one propulsion behavior is allowed.", itemPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Propulsion requires finite positive traction and rated_speed.", itemPath);
                     return false;
                 }
-
-                if (!BehaviorRegistry.TryNormalizePropulsion(targetSpeed, acceleration, out var parameters))
-                {
-                    diagnostics.Warn(
-                        ContentDiagnosticCodes.BehaviorUnregistered,
-                        "Propulsion parameters must be finite and strictly positive.",
-                        itemPath);
-                    return false;
-                }
-
-                propulsion = parameters;
+                behavior = new PropulsionBehavior(traction.Value, ratedSpeed.Value);
             }
-            else if (type == BehaviorTypes.TrackContact)
+            else if (type == BehaviorTypes.Cargo)
             {
-                if (trackContact is not null)
+                if (capacity is null or < 1)
                 {
-                    diagnostics.Warn(ContentDiagnosticCodes.BehaviorUnregistered, "Only one track_contact behavior is allowed.", itemPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.BehaviorUnregistered, "Cargo requires capacity from 1 through Int32.MaxValue.", itemPath + "/capacity");
                     return false;
                 }
-
-                if (!BehaviorRegistry.TryNormalizeTrackContact(coastDeceleration, out var parameters))
-                {
-                    diagnostics.Warn(
-                        ContentDiagnosticCodes.BehaviorUnregistered,
-                        "Track contact coast deceleration must be finite and strictly positive.",
-                        itemPath);
-                    return false;
-                }
-
-                trackContact = parameters;
+                behavior = new CargoBehavior(capacity.Value);
             }
-            else if (targetSpeed is not null || acceleration is not null || coastDeceleration is not null)
-            {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", itemPath);
-                return false;
-            }
+            else
+                behavior = new ControlBehavior();
 
-            parsed.Add(type);
+            parsed.Add(behavior);
             index++;
         }
 
@@ -515,7 +412,7 @@ internal static class VoxelsJsonParser
         presentation = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.PresentationRequired, "presentation must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.PresentationRequired, "presentation must be an object.", jsonPath);
             return false;
         }
 
@@ -546,20 +443,20 @@ internal static class VoxelsJsonParser
                         return false;
                     break;
                 default:
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
                     return false;
             }
         }
 
         if (!VoxelDefinition.TryParsePresentationKind(kindText, out var kind))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.PresentationInvalid, "Unsupported presentation kind.", jsonPath + "/kind");
+            diagnostics.Reject(ContentDiagnosticCodes.PresentationInvalid, "Unsupported presentation kind.", jsonPath + "/kind");
             return false;
         }
 
         if (icon is null || top is null || side is null || bottom is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.PresentationRequired, "cube presentation requires icon, voxel_top, voxel_side, and voxel_bottom.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.PresentationRequired, "cube presentation requires icon, voxel_top, voxel_side, and voxel_bottom.", jsonPath);
             return false;
         }
 
@@ -577,7 +474,7 @@ internal static class VoxelsJsonParser
         collision = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "collision must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "collision must be an object.", jsonPath);
             return false;
         }
 
@@ -600,14 +497,14 @@ internal static class VoxelsJsonParser
                     size = property.Value;
                     break;
                 default:
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
                     return false;
             }
         }
 
         if (!VoxelDefinition.TryParseCollisionKind(kindText, out var kind))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "Unsupported collision kind.", jsonPath + "/kind");
+            diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "Unsupported collision kind.", jsonPath + "/kind");
             return false;
         }
 
@@ -615,7 +512,7 @@ internal static class VoxelsJsonParser
         {
             if (offset is not null || size is not null)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "none and full_box cannot include a local box.", jsonPath);
+                diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "none and full_box cannot include a local box.", jsonPath);
                 return false;
             }
 
@@ -625,7 +522,7 @@ internal static class VoxelsJsonParser
 
         if (offset is null || size is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "local_box requires offset and size.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "local_box requires offset and size.", jsonPath);
             return false;
         }
 
@@ -635,7 +532,7 @@ internal static class VoxelsJsonParser
 
         if (!VoxelCollision.TryCreateLocalBox(offsetX, offsetY, offsetZ, sizeX, sizeY, sizeZ, out collision))
         {
-            diagnostics.Warn(
+            diagnostics.Reject(
                 ContentDiagnosticCodes.CollisionInvalid,
                 "local_box must be finite, strictly positive, and a distinguishable interval inside the unit cell.",
                 jsonPath);
@@ -644,7 +541,7 @@ internal static class VoxelsJsonParser
 
         if (!VoxelCollisionValidation.CanDerivePositiveVolume(collision))
         {
-            diagnostics.Warn(
+            diagnostics.Reject(
                 ContentDiagnosticCodes.CollisionInvalid,
                 "local_box must keep a positive volume after the collision adapter conversion.",
                 jsonPath);
@@ -668,7 +565,7 @@ internal static class VoxelsJsonParser
         z = 0;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "Local box vector must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "Local box vector must be an object.", jsonPath);
             return false;
         }
 
@@ -694,14 +591,14 @@ internal static class VoxelsJsonParser
                     parsedZ = valueZ;
                     break;
                 default:
-                    diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
+                    diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", fieldPath);
                     return false;
             }
         }
 
         if (parsedX is null || parsedY is null || parsedZ is null)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.CollisionInvalid, "Local box vector requires x, y, and z.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.CollisionInvalid, "Local box vector requires x, y, and z.", jsonPath);
             return false;
         }
 
@@ -719,7 +616,7 @@ internal static class VoxelsJsonParser
             return false;
         if (!ContentPath.TryNormalize(raw, out var normalized) || !ContentPath.IsPngPath(normalized))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.PathInvalid, "Visual path is not a safe relative PNG path.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.PathInvalid, "Visual path is not a safe relative PNG path.", jsonPath);
             return false;
         }
 
@@ -741,13 +638,13 @@ internal static class VoxelsJsonParser
             : "Number must be finite.";
         if (element.ValueKind != JsonValueKind.Number)
         {
-            diagnostics.Warn(code, message, jsonPath);
+            diagnostics.Reject(code, message, jsonPath);
             return false;
         }
 
         if (!element.TryGetDouble(out value) || double.IsNaN(value) || double.IsInfinity(value))
         {
-            diagnostics.Warn(code, message, jsonPath);
+            diagnostics.Reject(code, message, jsonPath);
             return false;
         }
 

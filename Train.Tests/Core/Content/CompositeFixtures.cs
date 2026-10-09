@@ -1,72 +1,77 @@
 // Core 内容模块测试辅助。
-// 构造蓝图、Archetype、接触锚点及其引用体素的最小内存内容包。
+// 构造 schema 2 蓝图及其引用体素的最小内存内容包。
 using Train.Core.Content;
 using Train.Core.Content.Voxels;
 using Train.Tests.Core.Logging;
 
 namespace Train.Tests.Core.Content;
 
-/// <summary>提供蓝图解析和目录发布测试需要的 JSON 片段及内存内容源。</summary>
-/// <example>CompositeContentTests 用 VehiclePackage 构造三个体素和两个接触锚点，再通过 Load 验证定义发布。</example>
+/// <summary>提供蓝图解析、属性重算和目录发布测试需要的 JSON 片段及内存内容源。</summary>
 internal static class CompositeFixtures
 {
-    /// <summary>生成带构建约束及身份保留约束的 archetype JSON。</summary>
-    public static string Archetype(
-        string id = "dev-hollow-shell",
-        int contactCount = 2,
-        string coreTag = "identity_core") =>
-        $"{{\"id\":\"{id}\",\"construction\":{{\"require_nonempty_six_connected\":true,\"require_declared_size\":true,\"contact_anchor_count\":{contactCount},\"contacts_must_be_distinct\":true,\"contacts_must_bind_existing_parts\":true}},\"identity_retention\":{{\"require_core_tag\":\"{coreTag}\"}}}}";
-
-    /// <summary>生成以米为单位的位置及其绑定体素格坐标组成的接触锚点 JSON。</summary>
-    public static string Contact(double x, double y, double z, int cx, int cy, int cz) =>
-        $"{{\"x\":{VoxelDefinition.FormatMass(x)},\"y\":{VoxelDefinition.FormatMass(y)},\"z\":{VoxelDefinition.FormatMass(z)},\"cell\":{{\"x\":{cx},\"y\":{cy},\"z\":{cz}}}}}";
+    public const string StructureId = "vehicle-shell";
+    public const string PropulsionId = "propulsion-unit";
+    public const string ControlId = "control-unit";
+    public const string CargoId = "cargo-hold";
 
     /// <summary>生成蓝图中一个体素格、定义引用及朝向的 JSON。</summary>
-    public static string Voxel(int x, int y, int z, string definition = "vehicle-shell", string orientation = "px_py") =>
+    public static string Voxel(int x, int y, int z, string definition = StructureId, string orientation = "px_py") =>
         $"{{\"x\":{x},\"y\":{y},\"z\":{z},\"definition\":\"{definition}\",\"orientation\":\"{orientation}\"}}";
 
-    /// <summary>生成蓝图 JSON；未指定体素和锚点时使用三个相邻体素及两个独立锚点。</summary>
+    /// <summary>生成 schema 2 蓝图；未指定布局时使用四种最小部件各一格。</summary>
     public static string Composite(
-        string id = "dev-hollow-shell",
-        string name = "开发空心壳",
+        string id = "dev-train",
+        string name = "开发列车",
         string description = "测试车辆",
-        string archetype = "dev-hollow-shell",
         string size = "small",
-        string? voxels = null,
-        string? contacts = null)
+        string? voxels = null)
     {
         voxels ??= string.Join(",",
             Voxel(0, 0, 0),
-            Voxel(1, 0, 0, "identity-core"),
-            Voxel(2, 0, 0));
-        contacts ??= string.Join(",",
-            Contact(1, -0.75, 1.5, 1, 0, 0),
-            Contact(2, -0.75, 1.5, 2, 0, 0));
-        return $"{{\"id\":\"{id}\",\"name\":\"{name}\",\"description\":\"{description}\",\"archetype\":\"{archetype}\",\"size_class\":\"{size}\",\"voxels\":[{voxels}],\"contacts\":[{contacts}]}}";
+            Voxel(1, 0, 0, PropulsionId),
+            Voxel(2, 0, 0, ControlId),
+            Voxel(3, 0, 0, CargoId));
+        return $"{{\"id\":\"{id}\",\"name\":\"{name}\",\"description\":\"{description}\",\"size_class\":\"{size}\",\"voxels\":[{voxels}]}}";
     }
 
-    /// <summary>将 archetype 和蓝图片段包装成 schema 1 内容文件；null 表示省略显示名。</summary>
-    public static string File(string? displayName, string archetypes, string composites)
+    /// <summary>将蓝图片段包装成 schema 2 内容文件；null 表示省略文件显示名。</summary>
+    public static string File(string? displayName, string composites)
     {
         var display = displayName is null ? "" : $"\"display_name\":\"{displayName}\",";
-        return $"{{\"schema_version\":1,{display}\"archetypes\":[{archetypes}],\"composites\":[{composites}]}}";
+        return $"{{\"schema_version\":2,{display}\"composites\":[{composites}]}}";
     }
 
-    /// <summary>创建包含壳体、身份核心和最小蓝图的内存内容包，供引用与重载测试使用。</summary>
+    /// <summary>创建包含结构、动力、控制、货舱和最小蓝图的内存内容包。</summary>
     public static MemoryContentSource VehiclePackage()
     {
         var source = ContentFixtures.ValidFerrousOre();
-        source.AddVoxelFile("core", "voxels/vehicle-shell.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("vehicle-shell", "壳体", "壳体说明", value: 10, tagsJson: "[]")));
-        source.AddVoxelFile("core", "voxels/identity-core.voxels.json", ContentFixtures.GoodsFile(
-            ContentFixtures.Good("identity-core", "核心", "核心说明", value: 10, tagsJson: "[\"identity_core\"]")));
+        AddVoxel(source, StructureId, "壳体", 10, 1, 100);
+        AddVoxel(source, PropulsionId, "动力", 30, 3,
+            behaviorsJson: "[{\"type\":\"propulsion\",\"traction\":12.5,\"rated_speed\":20}]");
+        AddVoxel(source, ControlId, "控制", 20, 2,
+            behaviorsJson: "[{\"type\":\"control\"}]");
+        AddVoxel(source, CargoId, "货舱", 40, 4,
+            behaviorsJson: "[{\"type\":\"cargo\",\"capacity\":4}]");
         ContentFixtures.AddSquareImages(source, "iron.png");
-        source.AddCompositeFile("core", "composites/dev-hollow-shell.composites.json", File(null, Archetype(), Composite()));
+        source.AddDefinitionFile("core", "composites/dev-train.composites.json", File(null, Composite()));
         return source;
     }
 
-    /// <summary>加载指定的内存内容包并返回已发布的目录和日志会话；null 使用最小蓝图包。</summary>
-    /// <exception cref="InvalidOperationException">测试输入无法发布为有效内容目录。</exception>
+    /// <summary>向 core 包加入一个使用共享测试图片的体素定义。</summary>
+    public static void AddVoxel(
+        MemoryContentSource source,
+        string id,
+        string name,
+        long value,
+        double mass,
+        int maxDurability = 100,
+        string behaviorsJson = "[]",
+        string orientations = "all_24") =>
+        source.AddDefinitionFile("core", $"voxels/{id}.voxels.json", ContentFixtures.GoodsFile(
+            ContentFixtures.Good(id, name, name + "说明", value, mass, maxDurability,
+                tagsJson: "[]", behaviorsJson: behaviorsJson, orientations: orientations)));
+
+    /// <summary>加载指定内存内容包并返回已发布目录和日志会话；null 使用最小蓝图包。</summary>
     public static (ContentReloader Reloader, LoggerSession Logger) Load(MemoryContentSource? source = null)
     {
         var session = LoggerSession.Create();

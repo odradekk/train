@@ -125,14 +125,6 @@ public static class ExternalContent
             ? children
             : Array.Empty<ModFolderCandidate>();
 
-    /// <summary>发现物理资源根中的体素定义文件。</summary><param name="resourcesRoot">资源根。</param><returns>发现结果。</returns>
-    public static ContentFileDiscovery ListVoxelFiles(string resourcesRoot) =>
-        ListDataFiles(resourcesRoot, ".voxels.json");
-
-    /// <summary>发现物理资源根中的组合定义文件。</summary><param name="resourcesRoot">资源根。</param><returns>发现结果。</returns>
-    public static ContentFileDiscovery ListCompositeFiles(string resourcesRoot) =>
-        ListDataFiles(resourcesRoot, ".composites.json");
-
     /// <summary>安全列出玩家蓝图根目录中的直接 JSON 文件。</summary><param name="trustedUserDataRoot">可信用户数据根。</param><param name="blueprintsPath">蓝图物理根。</param><param name="files">成功时返回文件名与物理路径。</param><param name="error">失败原因。</param><returns>根目录可安全列举时为 <see langword="true"/>。</returns>
     public static bool TryListBlueprintFiles(
         string trustedUserDataRoot,
@@ -207,8 +199,8 @@ public static class ExternalContent
             message,
             source);
 
-    /// <summary>递归发现具有指定后缀的物理数据文件。</summary><param name="resourcesRoot">资源根。</param><param name="fileSuffix">区分大小写的文件后缀。</param><returns>安全相对路径及诊断。</returns>
-    public static ContentFileDiscovery ListDataFiles(string resourcesRoot, string fileSuffix)
+    /// <summary>递归发现物理资源根中的 JSON 数据文件；格式由加载器解释。</summary><param name="resourcesRoot">资源根。</param><returns>安全相对路径、发现诊断和包无效标记。</returns>
+    public static ContentFileDiscovery ListDefinitionFiles(string resourcesRoot)
     {
         if (!ExternalPath.TryStat(resourcesRoot, out var attributes, out var exists))
         {
@@ -231,7 +223,7 @@ public static class ExternalContent
         }
 
         var walkRoot = resourcesRoot.Replace('\\', '/');
-        return ContentPackageWalk.Discover(walkRoot, path => ListPhysicalEntries(path, resourcesRoot), fileSuffix);
+        return ContentPackageWalk.Discover(walkRoot, path => ListPhysicalEntries(path, resourcesRoot), ".json");
     }
 
     /// <summary>在上限内安全读取物理资源文件。</summary><param name="resourcesRoot">资源根。</param><param name="normalizedRelativePath">规范化相对路径。</param><param name="maxBytes">最大读取字节数。</param><returns>读取结果。</returns>

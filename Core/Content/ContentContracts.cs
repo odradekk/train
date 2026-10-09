@@ -1,7 +1,6 @@
 // 属于内容模块。
 // 定义包、诊断、路径与资源数据在内容加载边界上的共享契约。
 using System.Collections.ObjectModel;
-using Train.Core.Content.Voxels;
 
 namespace Train.Core.Content;
 
@@ -35,6 +34,8 @@ public static class ContentDiagnosticCodes
     public const string DuplicateProperty = "duplicate_property";
     /// <summary>JSON 对象包含当前 schema 未声明的字段。</summary>
     public const string UnknownField = "unknown_field";
+    /// <summary>定义字段缺失、类型或数值范围无效，或集合含重复项。</summary>
+    public const string FieldInvalid = "field_invalid";
     /// <summary>文件声明的 schema 版本不受支持。</summary>
     public const string SchemaVersionUnsupported = "schema_version_unsupported";
     /// <summary>定义的包内本地标识无效。</summary>
@@ -83,6 +84,8 @@ public static class ContentDiagnosticCodes
     public const string ReloadAlreadyInProgress = "reload_already_in_progress";
     /// <summary>定义引用了候选目录中不存在的体素定义。</summary>
     public const string UnresolvedVoxelReference = "unresolved_voxel_reference";
+    /// <summary>市场或供需引用了不可作为货物的 scene_only 体素。</summary>
+    public const string NonGoodsVoxelReference = "non_goods_voxel_reference";
     /// <summary>必需的内置内容包不可用。</summary>
     public const string BuiltInPackageUnavailable = "built_in_package_unavailable";
     /// <summary>首次加载没有产生任何体素定义。</summary>
@@ -103,21 +106,17 @@ public static class ContentDiagnosticCodes
     public const string ModVoxelLimitExceeded = "mod_voxel_limit_exceeded";
     /// <summary>Mod 根目录缺少 <c>mod.json</c>。</summary>
     public const string ModManifestMissing = "mod_manifest_missing";
-    /// <summary>组合定义引用了不存在的原型。</summary>
-    public const string UnresolvedArchetypeReference = "unresolved_archetype_reference";
     /// <summary>玩家蓝图根目录无法安全创建或列举。</summary>
     public const string BlueprintsRootUnavailable = "blueprints_root_unavailable";
     /// <summary>组合定义的尺寸等级无效。</summary>
     public const string SizeClassInvalid = "size_class_invalid";
-    /// <summary>组合定义的接触点声明无效。</summary>
-    public const string ContactInvalid = "contact_invalid";
     /// <summary>组合定义的体素布局违反当前 schema。</summary>
     public const string LayoutInvalid = "layout_invalid";
 }
 
 /// <summary>表示内容问题在诊断和日志中的严重程度。</summary>
 /// <remarks>严重程度与诊断容器的无效状态分别记录；警告也可以标记当前包无效。</remarks>
-/// <example>非法名称会产生警告级诊断并使内置内容被拒绝；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
+/// <example>内置包是必需包，其中的非法名称产生错误级诊断并使发布被拒绝；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
 public enum ContentDiagnosticSeverity
 {
     /// <summary>警告级问题；可用于报告被隔离的可选内容，也可伴随包无效状态。</summary>
@@ -169,7 +168,7 @@ public sealed class ContentDiagnostic
 
 /// <summary>表示定义所属的包命名空间和源文件。</summary>
 /// <remarks>命名空间按定义身份规则规范化；源文件路径只要求非空，路径安全性由发现和读取边界检查。</remarks>
-/// <example>内置 ferrous-ore 定义的来源属于 core 包；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
+/// <example>内存夹具 core:ferrous-ore 的来源命名空间为 core，源文件为 voxels/ores.voxels.json；见 <c>ContentReloaderTests.Initial_valid_voxel_catalog_commits</c>。</example>
 public sealed class ContentOrigin
 {
     /// <summary>取得定义所属的规范包命名空间。</summary>
@@ -184,14 +183,14 @@ public sealed class ContentOrigin
     /// <exception cref="ArgumentException">命名空间格式无效或 sourceFile 为空字符串。</exception>
     public ContentOrigin(string @namespace, string sourceFile)
     {
-        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
+        Namespace = ContentIdentity.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(sourceFile);
         SourceFile = sourceFile;
     }
 }
 
 /// <summary>表示解码后、与图像库无关的像素数据。</summary>
-/// <remarks>宽高和格式由解码器提供，本类型不验证尺寸、格式支持性或像素字节数。像素数组通过只读接口包装，调用方须保持原数组内容稳定。</remarks>
+/// <remarks>宽高和格式由解码器提供，本类型不验证尺寸、格式支持性或像素字节数。像素数组复制后通过只读接口提供，外部数组修改不会改变本图像。</remarks>
 /// <example>8×4 图像可以表示为解码结果，但内容加载器会根据表现规则拒绝不合要求的宽高；见 <c>ContentReloaderTests.Image_shape_and_size_rules_reject_incompatible_visuals</c>。</example>
 public sealed class DecodedImage
 {
@@ -201,14 +200,14 @@ public sealed class DecodedImage
     public int Height { get; }
     /// <summary>取得解码器提供的像素格式名称，原文保留，具体排列由解码器和消费方约定。</summary>
     public string Format { get; }
-    /// <summary>取得输入像素数组的只读包装；排列由 <see cref="Format"/> 定义，原数组的修改会反映到此视图。</summary>
+    /// <summary>取得不可修改的像素副本；排列由 <see cref="Format"/> 定义。</summary>
     public IReadOnlyList<byte> Pixels { get; }
 
-    /// <summary>保存解码图像的尺寸和格式，并通过只读集合包装像素数组。</summary>
+    /// <summary>保存解码图像的尺寸和格式，并复制像素数组为只读集合。</summary>
     /// <param name="width">调用方提供的图像宽度，单位为像素。</param>
     /// <param name="height">调用方提供的图像高度，单位为像素。</param>
     /// <param name="format">非空的像素格式名称。</param>
-    /// <param name="pixels">像素字节数组；不复制，允许空数组。</param>
+    /// <param name="pixels">像素字节数组；复制后保存，允许空数组。</param>
     /// <exception cref="ArgumentNullException">format 或 pixels 为 null。</exception>
     /// <exception cref="ArgumentException">format 为空字符串。</exception>
     public DecodedImage(int width, int height, string format, byte[] pixels)
@@ -218,7 +217,7 @@ public sealed class DecodedImage
         Width = width;
         Height = height;
         Format = format;
-        Pixels = new ReadOnlyCollection<byte>(pixels);
+        Pixels = new ReadOnlyCollection<byte>((byte[])pixels.Clone());
     }
 }
 
@@ -300,7 +299,7 @@ public sealed class ContentPackage
         string? source = null,
         ModPackageMetadata? mod = null)
     {
-        Namespace = VoxelDefinitionId.NormalizePart(@namespace, nameof(@namespace));
+        Namespace = ContentIdentity.NormalizePart(@namespace, nameof(@namespace));
         ArgumentException.ThrowIfNullOrEmpty(resourcesRoot);
         ResourcesRoot = resourcesRoot;
         Available = available;
@@ -444,11 +443,14 @@ public static class ContentPath
 }
 
 /// <summary>收集有数量上限的内容诊断，并单独记录当前校验范围是否已无效。</summary>
-/// <remarks>诊断列表通过只读接口暴露，但随追加而变化。达到保留上限后继续更新无效状态，丢弃新的诊断条目。</remarks>
-/// <example>150 个非法名称只保留 100 条诊断，仍拒绝内置包；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
-internal sealed class DiagnosticBag
+/// <remarks>拒绝级别由所属校验范围提供；包诊断按必需性选择级别。达到保留上限后继续更新无效状态，丢弃新的诊断条目。</remarks>
+/// <example>多个无效文件超过包诊断额度后仍使包无效；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
+internal sealed class DiagnosticBag(ContentDiagnosticSeverity rejectionSeverity)
 {
     private readonly List<ContentDiagnostic> _items = new();
+
+    /// <summary>获取本校验范围拒绝内容时使用的诊断级别。</summary>
+    public ContentDiagnosticSeverity RejectionSeverity { get; } = rejectionSeverity;
 
     /// <summary>获取或设置后续追加诊断使用的来源路径；可以为 null，更改不会改写已记录条目的来源。</summary>
     public string? Source { get; set; }
@@ -480,27 +482,10 @@ internal sealed class DiagnosticBag
         _items.Add(new ContentDiagnostic(severity, code, message, Source, jsonPath));
     }
 
+    /// <summary>按所属范围的拒绝级别追加诊断，并将范围标记无效。</summary>
+    public void Reject(string code, string message, string? jsonPath = null) =>
+        Add(RejectionSeverity, code, message, jsonPath);
+
     /// <summary>将当前校验范围标记无效，不追加诊断条目。</summary>
     public void MarkInvalid() => Invalid = true;
-}
-
-/// <summary>提供常用诊断级别及是否标记当前范围无效的追加方式。</summary>
-/// <remarks>Warn 和 Error 都标记无效；两者共用诊断容器的条目上限。</remarks>
-internal static class DiagnosticBagExtensions
-{
-    /// <summary>追加警告级诊断，并将当前校验范围标记无效。</summary>
-    /// <param name="bag">非空的诊断容器。</param>
-    /// <param name="code">非空诊断代码。</param>
-    /// <param name="message">非空引用的诊断说明。</param>
-    /// <param name="jsonPath">相关字段或路径；未提供时为 null。</param>
-    public static void Warn(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
-        bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath);
-
-    /// <summary>追加错误级诊断，并将当前校验范围标记无效。</summary>
-    /// <param name="bag">非空的诊断容器。</param>
-    /// <param name="code">非空诊断代码。</param>
-    /// <param name="message">非空引用的诊断说明。</param>
-    /// <param name="jsonPath">相关字段或路径；未提供时为 null。</param>
-    public static void Error(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
-        bag.Add(ContentDiagnosticSeverity.Error, code, message, jsonPath);
 }

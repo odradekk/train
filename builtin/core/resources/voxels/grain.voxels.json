@@ -1,0 +1,24 @@
+{
+  "schema_version": 2,
+  "voxels": [
+    {
+      "id": "grain",
+      "name": "粮食",
+      "description": "临时粮食，占位数据。",
+      "value": 100,
+      "mass": 5,
+      "max_durability": 100,
+      "tags": ["raw_good"],
+      "behaviors": [],
+      "allowed_orientations": "all_24",
+      "presentation": {
+        "kind": "cube",
+        "icon": "voxels/grain/placeholder.png",
+        "voxel_top": "voxels/grain/placeholder.png",
+        "voxel_side": "voxels/grain/placeholder.png",
+        "voxel_bottom": "voxels/grain/placeholder.png"
+      },
+      "collision": { "kind": "full_box" }
+    }
+  ]
+}

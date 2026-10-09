@@ -66,7 +66,7 @@ internal static class StrictJson
                         var name = reader.GetString()!;
                         if (stack.Count > 0 && !stack.Peek().Add(name))
                         {
-                            diagnostics.Warn(ContentDiagnosticCodes.DuplicateProperty, "Duplicate JSON property.", JsonPointer(path, name));
+                            diagnostics.Reject(ContentDiagnosticCodes.DuplicateProperty, "Duplicate JSON property.", JsonPointer(path, name));
                             return true;
                         }
 
@@ -85,7 +85,7 @@ internal static class StrictJson
         catch (JsonException exception)
         {
             diagnostics.Source = sourceFile;
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
+            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, exception.Message);
             return true;
         }
 
@@ -111,7 +111,7 @@ internal static class StrictJson
     {
         if (element.ValueKind != JsonValueKind.String)
         {
-            diagnostics.Warn(code, "Expected a string.", jsonPath);
+            diagnostics.Reject(code, "Expected a string.", jsonPath);
             value = "";
             return false;
         }
@@ -148,7 +148,7 @@ internal static class StrictJson
         }
         catch (ArgumentException)
         {
-            diagnostics.Warn(code, "Text is empty or outside the allowed length.", jsonPath);
+            diagnostics.Reject(code, "Text is empty or outside the allowed length.", jsonPath);
             normalized = "";
             return false;
         }

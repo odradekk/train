@@ -3,6 +3,8 @@
 
 using Godot;
 using Train.Core.Content;
+using Train.Core.Content.Markets;
+using Train.Core.Content.Settlements;
 using Train.Core.Content.Voxels;
 using Train.Core.Logging;
 
@@ -13,15 +15,26 @@ namespace Train.App.Checks;
 /// <example>added 中多一个 core:smoke-ore，重载后出现该定义，再切回 initial 后报告移除。</example>
 internal sealed class ContentCheck : IContentSource
 {
+    // 固定烟测参数对应 scripts/run-tests.ps1 的 New-ContentCheckInput 中 initial/added 两份输入。
+    // 敏感度无量纲，供给容量以货物单位计；两状态故意取不同值，验证完整快照重载时一起更新。
+    // 预期独立于实际读取结果，调整夹具时须同步核对这些值。
+    private const double InitialPriceSensitivity = 0.5;
+    private const double AddedPriceSensitivity = 0.75;
+    private const int InitialSupplyCapacity = 2;
+    private const int AddedSupplyCapacity = 3;
+
     private readonly GodotContentSource _initial;
     private readonly GodotContentSource _added;
     private GodotContentSource _current;
     // false 表示初始校验尚未完成，true 表示已切换来源并等待宿主的输入重载结果。
     private bool _awaitingReload;
-    // 初始发布的目录代数，用于确认重载确实发布了新目录。
-    private long _initialGeneration;
+    // 初始发布的快照，用于和后续重载快照比较探针成员。
+    private ContentSnapshot? _initialSnapshot;
     /// <summary>运行器在 added 输入中追加的体素标识，用于观察新增与移除。</summary>
     private static readonly VoxelDefinitionId ProbeId = new("core", "smoke-ore");
+    private static readonly VoxelDefinitionId MarketGoodId = StartupChecks.GrainId;
+    private static readonly MarketTableDefinitionId MarketId = new("core", "smoke-prices");
+    private static readonly SettlementTypeDefinitionId TypeId = new("core", "smoke-settlement");
 
     /// <summary>保存两份内容根；输入不存在或无效时，由真实扫描和加载结果报告失败。</summary>
     /// <param name="logger">主线程上的应用日志会话。</param>
@@ -43,13 +56,17 @@ internal sealed class ContentCheck : IContentSource
     {
         if (!_awaitingReload)
         {
-            var initialOk = StartupChecks.ReportCatalog(reloader, lastReload, "CONTENT");
+            var initialSnapshot = reloader.Current;
+            var initialOk = StartupChecks.ReportCatalog(initialSnapshot, lastReload, "CONTENT");
             initialOk &= StartupChecks.Report(InputMap.HasAction(App.ReloadContentAction), "CONTENT_RELOAD_ACTION_PRESENT");
             initialOk &= StartupChecks.Report(StartupChecks.CanReadResource(StartupChecks.VoxelJson), "CONTENT_VFS_JSON_READABLE");
             initialOk &= StartupChecks.Report(StartupChecks.CanReadResource(StartupChecks.IconPng), "CONTENT_VFS_PNG_READABLE");
-            if (!initialOk || reloader.Catalog.Current!.TryGet(ProbeId, out _))
+            initialOk &= StartupChecks.Report(
+                HasMarketAndTypeDefinitions(initialSnapshot, InitialPriceSensitivity, InitialSupplyCapacity),
+                "CONTENT_MARKET_SETTLEMENT_READY");
+            if (!initialOk || initialSnapshot is null || initialSnapshot.Voxels.ContainsKey(ProbeId))
                 return false;
-            _initialGeneration = reloader.Catalog.Current.Generation;
+            _initialSnapshot = initialSnapshot;
             _current = _added;
             _awaitingReload = true;
             if (OS.IsDebugBuild())
@@ -63,23 +80,48 @@ internal sealed class ContentCheck : IContentSource
             return null;
         }
 
-        var added = lastReload.IsCommitted && lastReload.Added.Contains(ProbeId) &&
-            reloader.Catalog.Current is { } catalog && catalog.Generation > _initialGeneration &&
-            catalog.TryGet(ProbeId, out _);
+        var addedSnapshot = reloader.Current;
+        var added = lastReload.IsCommitted &&
+            _initialSnapshot is { } beforeAddition &&
+            addedSnapshot is { } currentSnapshot &&
+            currentSnapshot.Generation == beforeAddition.Generation + 1 &&
+            !beforeAddition.Voxels.ContainsKey(ProbeId) &&
+            currentSnapshot.Voxels.ContainsKey(ProbeId) &&
+            HasMarketAndTypeDefinitions(beforeAddition, InitialPriceSensitivity, InitialSupplyCapacity) &&
+            HasMarketAndTypeDefinitions(currentSnapshot, AddedPriceSensitivity, AddedSupplyCapacity);
         if (!StartupChecks.Report(added, "CONTENT_SMOKE_RELOADED"))
             return false;
         if (OS.IsDebugBuild())
             GD.Print("CONTENT_SMOKE_INPUT_RELOADED");
         _current = _initial;
+        var beforeRemovalSnapshot = addedSnapshot;
         var removed = reloader.Reload();
-        return StartupChecks.Report(removed.IsCommitted && removed.Removed.Contains(ProbeId) &&
-            !reloader.Catalog.Current!.TryGet(ProbeId, out _), "CONTENT_SMOKE_REMOVED");
+        var afterRemovalSnapshot = reloader.Current;
+        return StartupChecks.Report(removed.IsCommitted &&
+            beforeRemovalSnapshot is { } before &&
+            afterRemovalSnapshot is { } after &&
+            after.Generation == before.Generation + 1 &&
+            before.Voxels.ContainsKey(ProbeId) &&
+            !after.Voxels.ContainsKey(ProbeId) &&
+            HasMarketAndTypeDefinitions(before, AddedPriceSensitivity, AddedSupplyCapacity) &&
+            HasMarketAndTypeDefinitions(after, InitialPriceSensitivity, InitialSupplyCapacity), "CONTENT_SMOKE_REMOVED");
     }
+
+    /// <summary>从一个完整快照读取物理夹具的价格和类型参数，确保新后缀经过真实内容源并一起发布。</summary>
+    private static bool HasMarketAndTypeDefinitions(ContentSnapshot? snapshot, double sensitivity, int capacity) =>
+        snapshot is not null && snapshot.MarketTables.Count == 1 && snapshot.SettlementTypes.Count == 1 &&
+        snapshot.MarketTables.TryGetValue(MarketId, out var market) && market.Definition.Goods.Count == 1 &&
+        market.Definition.Goods.TryGetValue(MarketGoodId, out var price) &&
+        price.Sensitivity == sensitivity && price.MinPrice == 1 && price.MaxPrice == 1000 &&
+        snapshot.SettlementTypes.TryGetValue(TypeId, out var type) && type.Definition.Supply.Count == 1 &&
+        type.Definition.Supply.TryGetValue(MarketGoodId, out var supply) &&
+        supply.Capacity == capacity && supply.RestorePerTick == 1 && type.Definition.Demand.Count == 0 &&
+        type.Definition.PreferredTerrain.Count == 0 && type.Definition.Weight == 1 &&
+        type.Definition.Population.Min == 1 && type.Definition.Population.Max == 1 && type.Definition.InitialPlatformCount == 0;
 
     public IReadOnlyList<ContentPackage> ListPackages() => _current.ListPackages();
     public IReadOnlyList<ContentDiagnostic> ListScanDiagnostics() => _current.ListScanDiagnostics();
-    public ContentFileDiscovery ListVoxelFiles(ContentPackage package) => _current.ListVoxelFiles(package);
-    public ContentFileDiscovery ListCompositeFiles(ContentPackage package) => _current.ListCompositeFiles(package);
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) => _current.ListDefinitionFiles(package);
     public ContentBytesResult ReadFile(ContentPackage package, string normalizedRelativePath, int maxBytes) =>
         _current.ReadFile(package, normalizedRelativePath, maxBytes);
     public ImageDecodeResult DecodePng(ContentPackage package, string normalizedRelativePath) =>

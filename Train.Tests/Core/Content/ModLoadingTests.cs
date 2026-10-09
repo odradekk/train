@@ -24,8 +24,8 @@ public sealed class ModLoadingTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
-        Assert.AreEqual(1, reloader.Catalog.Current.Entries.Count);
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.AreEqual(1, reloader.Current.Voxels.Count);
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.PackageEmptyEventId &&
             item.Level == LogLevel.Debug &&
@@ -42,11 +42,11 @@ public sealed class ModLoadingTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out var copper));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out var copper));
         Assert.AreEqual($"{ModFixtures.SampleUuid}:copper", copper.Definition.Id.Value);
         Assert.AreEqual(ModFixtures.SampleUuid, copper.Origin.Namespace);
-        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId("core", "copper"), out _));
-        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId("pretty-name", "copper"), out _));
+        Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId("core", "copper"), out _));
+        Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId("pretty-name", "copper"), out _));
     }
 
     [TestMethod]
@@ -55,15 +55,15 @@ public sealed class ModLoadingTests
         using var session = LoggerSession.Create();
         var source = ModFixtures.CorePlusCopper();
         source.AddMod("broken", ModFixtures.OtherUuid);
-        source.AddVoxelFile(ModFixtures.OtherUuid, "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        source.AddDefinitionFile(ModFixtures.OtherUuid, "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
-        Assert.IsTrue(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
-        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.OtherUuid, "copper"), out _));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.IsTrue(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.OtherUuid, "copper"), out _));
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.SchemaVersionUnsupported));
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.ModsScanSummaryEventId &&
@@ -76,12 +76,12 @@ public sealed class ModLoadingTests
         using var session = LoggerSession.Create();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("alpha", ModFixtures.SampleUuid);
-        source.AddVoxelFile(ModFixtures.SampleUuid, "a.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile(ModFixtures.SampleUuid, "a.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("copper", "铜", "铜说明", icon: "copper.png", voxel: "copper.png")),
             "memory://mods/alpha/resources");
         source.AddImage(ModFixtures.SampleUuid, "copper.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/alpha/resources");
         source.AddMod("beta", ModFixtures.SampleUuid);
-        source.AddVoxelFile(ModFixtures.SampleUuid, "b.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile(ModFixtures.SampleUuid, "b.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("tin", "锡", "锡说明", icon: "tin.png", voxel: "tin.png")),
             "memory://mods/beta/resources");
         source.AddImage(ModFixtures.SampleUuid, "tin.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/beta/resources");
@@ -90,9 +90,9 @@ public sealed class ModLoadingTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
-        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
-        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "tin"), out _));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "tin"), out _));
         Assert.AreEqual(2, result.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.DuplicateModUuid));
     }
 
@@ -100,21 +100,20 @@ public sealed class ModLoadingTests
     public void Successful_reload_removes_stale_definitions_from_missing_or_invalid_mods()
     {
         using var session = LoggerSession.Create();
-        var source = ModFixtures.CorePlusCopper();
+        var source = new SwitchableContentSource(ModFixtures.CorePlusCopper());
         var reloader = ContentFixtures.Create(source, session.Logger);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
 
         var later = ContentFixtures.ValidFerrousOre();
         later.AddMod("broken", ModFixtures.SampleUuid);
-        later.AddVoxelFile(ModFixtures.SampleUuid, "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
-        var rebuilt = ContentFixtures.Create(later, session.Logger, catalog: reloader.Catalog);
-        var result = rebuilt.Reload();
+        later.AddDefinitionFile(ModFixtures.SampleUuid, "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
+        source.Current = later;
+        var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(result.Removed.Contains(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper")));
-        Assert.IsFalse(reloader.Catalog.Current.TryGet(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
-        Assert.IsTrue(reloader.Catalog.Current.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
+        Assert.IsTrue(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
     }
 
     [TestMethod]
@@ -130,7 +129,7 @@ public sealed class ModLoadingTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.ModsRootUnavailable));
         Assert.IsTrue(session.Memory.Snapshot().Any(item =>
             item.EventId == ContentLog.InvalidEventId &&
@@ -147,7 +146,7 @@ public sealed class ModLoadingTests
         for (var start = 1; start <= 1001; start += 250)
         {
             var end = Math.Min(start + 249, 1001);
-            source.AddVoxelFile(
+            source.AddDefinitionFile(
                 ModFixtures.SampleUuid,
                 $"batch-{start}.voxels.json",
                 ContentFixtures.ManyGoods(start, end));
@@ -158,8 +157,8 @@ public sealed class ModLoadingTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
-        Assert.AreEqual(1, reloader.Catalog.Current.Entries.Count);
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.AreEqual(1, reloader.Current.Voxels.Count);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.ModVoxelLimitExceeded));
     }
 
@@ -167,19 +166,19 @@ public sealed class ModLoadingTests
     public void Diagnostic_cap_still_isolates_an_invalid_mod()
     {
         using var session = LoggerSession.Create();
-        var goods = string.Join(",", Enumerable.Range(0, 150).Select(i =>
-            ContentFixtures.Good($"item-{i}", " ", "说明")));
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("noisy", ModFixtures.SampleUuid);
-        source.AddVoxelFile(ModFixtures.SampleUuid, "many.voxels.json", $"{{\"schema_version\":1,\"voxels\":[{goods}]}}");
+        for (var i = 0; i < ContentLimits.MaxDiagnosticsPerPackage + 1; i++)
+            source.AddDefinitionFile(ModFixtures.SampleUuid, $"bad-{i}.voxels.json", ContentFixtures.GoodsFile(
+                ContentFixtures.Good($"item-{i}", " ", "说明")));
         var reloader = ContentFixtures.Create(source, session.Logger);
 
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
-        Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _));
+        Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.NameInvalid));
-        Assert.IsFalse(reloader.Catalog.Current.Entries.Keys.Any(id => id.Namespace == ModFixtures.SampleUuid));
+        Assert.IsFalse(reloader.Current.Voxels.Keys.Any(id => id.Namespace == ModFixtures.SampleUuid));
     }
 
     [TestMethod]
@@ -250,8 +249,8 @@ public sealed class ModLoadingTests
             Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status, json);
             Assert.AreEqual(0, scan.AcceptedCount, json);
             Assert.IsTrue(scan.Diagnostics.Any(item => item.Code == code && item.JsonPath == jsonPath), json);
-            Assert.IsTrue(reloader.Catalog.Current!.TryGet(new VoxelDefinitionId("core", "ferrous-ore"), out _), json);
-            Assert.IsFalse(reloader.Catalog.Current.Entries.Keys.Any(id => id.Namespace == ModFixtures.SampleUuid), json);
+            Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _), json);
+            Assert.IsFalse(reloader.Current.Voxels.Keys.Any(id => id.Namespace == ModFixtures.SampleUuid), json);
         }
     }
 
@@ -260,9 +259,9 @@ public sealed class ModLoadingTests
     {
         using var session = LoggerSession.Create();
         var source = ContentFixtures.CorePackage();
-        source.AddVoxelFile("core", "bad.voxels.json", "{ \"schema_version\": 2, \"voxels\": [] }");
+        source.AddDefinitionFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         source.AddMod("ok", ModFixtures.SampleUuid);
-        source.AddVoxelFile(ModFixtures.SampleUuid, "copper.voxels.json", ContentFixtures.GoodsFile(
+        source.AddDefinitionFile(ModFixtures.SampleUuid, "copper.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("copper", "铜", "铜说明", icon: "copper.png", voxel: "copper.png")));
         source.AddImage(ModFixtures.SampleUuid, "copper.png", ContentFixtures.Square(16));
         var reloader = ContentFixtures.Create(source, session.Logger);
@@ -270,7 +269,7 @@ public sealed class ModLoadingTests
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
-        Assert.IsNull(reloader.Catalog.Current);
-        Assert.IsTrue(reloader.InitializationFailed);
+        Assert.IsNull(reloader.Current);
+        Assert.IsNull(result.Snapshot);
     }
 }
