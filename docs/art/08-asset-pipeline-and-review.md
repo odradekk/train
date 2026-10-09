@@ -35,14 +35,14 @@
 
 ### 目录与命名
 
-- 每个体素一个文件夹 `resources/voxels/<local id>/`，图按面命名：`top.png`、`side.png`、`bottom.png`、`front.png`、`icon.png`。
+- 每个体素一个定义文件和一个同名文件夹（设计文档 [02 的内容目录与格式](../design/02-definitions-and-content.md#内容目录与格式)），文件夹 `resources/voxels/<local id>/` 里的图按面命名：`top.png`、`side.png`、`bottom.png`、`front.png`、`icon.png`。
 - 几个面用同一张图时，直接绑定同一个文件，不复制。例如底面同顶面，就都绑定 `top.png`。
 - 几个体素共用的图放在 `resources/voxels/shared/`，文件名写内容，例如 `vehicle-underside.png`。
 - local id 用英文小写，单词之间用连字符，例如 `dry-grass`、`ballast`（设计文档 [02 的 ID 与命名空间](../design/02-definitions-and-content.md#id-与命名空间)）。目录只用来组织文件，不决定身份。
 
 ```text
 builtin/core/resources/voxels/
-├── grain.voxels.json
+├── grain.voxel.json
 ├── grain/
 │   ├── top.png
 │   ├── side.png

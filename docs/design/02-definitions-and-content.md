@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。
 
 ## 边界
 
@@ -93,13 +93,15 @@
 
 | 来源 | 组织方式 |
 | --- | --- |
-| Built-in | `builtin/core/resources/` 下按内容类型分类 |
+| Built-in | `builtin/core/resources/` 下按内容类型分类；`core` 也是一个内容包，版本就是游戏版本 |
 | Mod | `user://mods` 中各包的 `resources/` 下沿用相同结构 |
 | 用户内容库 | 目标目录 `user://content-library/`，只保存玩家的蓝图；旧 `user://blueprints/` 读取／迁移单独落实 |
 | 本局蓝图库 | 存档的内嵌内容 |
 | 草稿（非有效来源） | `user://authoring-drafts/`，设计编辑器和创作模式的草稿，不参与有效内容扫描 |
 
-定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下：
+目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。具体后缀由三张格式票确定。
+
+定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
 
 | 定义类型 | 文件后缀 | `schema_version` |
 | --- | --- | --- |
@@ -122,6 +124,12 @@
 
 ### Mod 与热加载
 
+- **内容包与依赖**（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：
+  - 内容包是发布、启用和依赖的单位，内容定义是引用和热重载的单位，属于且只属于一个包。
+  - 包在 manifest 里声明依赖：包的 UUID 和最低版本；`core` 默认依赖。定义本身不声明依赖：引用了其他包的定义，那个包必须写在依赖里，否则这个包无效。
+  - 加载按依赖排序；处在依赖循环里的包都不加载。缺依赖、依赖版本太低或包内任何定义有错，整个包都不加载，依赖它的包也跟着不加载。
+  - 本局蓝图库和用户内容库的蓝图记下保存时用到的包（UUID、名称、版本），只用于显示；缺依赖时显示为不可用并列出缺了哪些包，不删除，也不能建造。
+  - 玩家构建在主菜单里启用或停用 Mod，下次读档时生效。定义改名用的迁移表放到 Demo 之后。
 - **第一阶段 Data Mod**：支持新增体素定义、蓝图、市场表和聚居地类型，以及修改自有定义的数值、引用资产、组合已有 Behavior；Layout 是目标格式，尚未实现。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
 - **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置不改变 Asset Revision。这两类有效变化都触发 Catalog 发布，不改变 Semantic Revision。蓝图更新不改变已有实例的设计。
@@ -137,8 +145,8 @@
 车辆和建筑的设计随存档保存。蓝图和聚居地模板的更新只影响以后的建造和改装，不改变已有实例的设计或已放置的聚居地。体素定义的数值、碰撞和表现更新作用于已有实例：重算设计属性，部件耐久保留绝对值并按新上限截断，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。实例的设计所需的体素定义，同样属于受影响的引用。
 
 - 新加载的定义必须引用有效内容，非法 Mod 整包排除；内置内容出错则拒绝发布。排除后的候选内容仍必须自洽，不能留下未解析引用。
-- 必须基于候选当前定义校验全部受影响的运行中引用与状态适配。缺失必需定义或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和世界状态；不能发布部分更新或留下部分修正后的实例。
-- 读档遇到相同问题时明确报告并失败。Demo 不自动替换体素、删除状态或回退到存档中的旧 Mod 定义。
+- 必须基于候选当前定义校验全部受影响的运行中引用与状态适配。缺失必需定义或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和世界状态；不能发布部分更新或留下部分修正后的实例。热重载移除一份定义时，运行中的世界必须已经不再引用它，否则拒绝并列出还有哪些地方在引用。
+- 读档遇到缺失的定义时，先列出缺失的包和定义，由玩家选择取消或继续。继续时缺失的东西用占位代替并保留原来的标识：设计里缺失的体素变成占位体素，算结构，没有质量、价值和能力；库存里缺失的货物保留为缺失货物，不能使用和交易；其他缺失的定义同样保留标识、功能失效。存档时写回原来的标识，内容装回后恢复（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）。不回退到存档中的旧定义，也不删除状态。
 - 全部校验与状态适配成功后再原子发布内容及相关实例更新。这替代 #31 曾确定的“保留旧 Revision 即可接受目录删除”规则。
 
 ### 表现资产校验

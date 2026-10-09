@@ -11,3 +11,5 @@ Duplicate mod UUIDs disable every package using that UUID, duplicate definitions
 [#35](https://github.com/odradekk/train/issues/35) replaces the earlier retained-revision rule: existing instances adopt currently installed definitions on both load and hot reload. All affected references and runtime states must be valid against the candidate content before definitions and state adaptations are published atomically. A missing required definition or incompatible state rejects the entire reload without changing content, Catalog Generation or world state; loading fails explicitly. No old external definition fallback is provided. See [ADR-0005](0005-resolve-current-definitions-and-separate-content-versions.md).
 
 Cross-package patches, mod dependencies, load-order overrides, code execution and enable-state management are deferred until a concrete gameplay need justifies reopening this boundary.
+
+2026-10-09，[内容包与依赖](https://github.com/odradekk/train/issues/262)加入包级依赖（UUID 加最低版本）和按依赖排序的加载，玩家构建可在主菜单启用或停用 Mod；读档缺内容改为玩家选择并用占位保留原始标识，见 [ADR-0015](0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md)。跨包覆盖、加载顺序覆盖和代码执行仍不允许。

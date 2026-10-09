@@ -26,6 +26,10 @@ Saves embed player-defined content and its required save-local definitions, whil
 
 2026-10-05，[编辑器的去向](https://github.com/odradekk/train/issues/211)取消了存档内定义：存档只内嵌引用到的蓝图版本和已有聚居地使用的布局，用户内容库只保存蓝图，其他内容由创作模式写入数据包。用户库中的蓝图版本可以随时删除，因为用到它的存档都有内嵌副本。见 [09](../design/09-persistence.md#存档中的内容) 和 [15](../design/15-design-editor-and-tools.md)。
 
+## 缺失内容修订
+
+2026-10-09，[内容包与依赖](https://github.com/odradekk/train/issues/262)把“读档缺失必需定义就失败”改为由玩家选择取消或继续，继续时用占位保留原始标识，存档写回原标识，见 [ADR-0015](0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md)。热重载缺失仍整轮拒绝；仍不回退到旧外部定义。
+
 ## 实例设计修订
 
 2026-10-09，[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)取消了蓝图版本：每个实例有自己的不可变设计，蓝图只是模板，不分版本；存档内嵌设计和本局蓝图库，不再内嵌蓝图版本。上文中实例引用蓝图版本、用户库保留全部版本、存档内嵌蓝图版本的部分由 [ADR-0012](0012-give-each-composite-instance-its-own-design-and-keep-blueprints-as-templates.md) 取代；当前外部定义适配和三种版本分离不变。
