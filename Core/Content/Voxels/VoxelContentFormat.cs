@@ -42,9 +42,9 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
     public void CheckGlobalLimits(DiagnosticBag diagnostics, bool initial)
     {
         if (Entries.Count > ContentLimits.MaxVoxels)
-            diagnostics.Error(ContentDiagnosticCodes.GlobalVoxelLimitExceeded, "Content exceeds the 10000 voxel definition limit.");
+            diagnostics.Reject(ContentDiagnosticCodes.GlobalVoxelLimitExceeded, "Content exceeds the 10000 voxel definition limit.");
         if (initial && Entries.Count == 0)
-            diagnostics.Error(ContentDiagnosticCodes.EmptyInitialCatalog, "The initial content must contain at least one voxel definition.");
+            diagnostics.Reject(ContentDiagnosticCodes.EmptyInitialCatalog, "The initial content must contain at least one voxel definition.");
     }
 
     /// <summary>读取四种绑定引用的去重 PNG，检查解码及尺寸；失败使整个所属包无效。</summary>

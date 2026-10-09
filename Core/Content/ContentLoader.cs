@@ -19,7 +19,7 @@ internal sealed class ContentLoader
     private readonly MarketTableContentFormat _marketTables = new();
     private readonly SettlementTypeContentFormat _settlementTypes = new();
     private readonly ContentFormat[] _formats;
-    private readonly DiagnosticBag _loadDiagnostics = new();
+    private readonly DiagnosticBag _loadDiagnostics = new(ContentDiagnosticSeverity.Error);
     private readonly List<ContentPackageLoad> _packages = new();
     private readonly List<ContentDiagnostic> _scanDiagnostics = new();
 
@@ -64,7 +64,7 @@ internal sealed class ContentLoader
         _packages.AddRange(_source.ListPackages().Select(package => new ContentPackageLoad(package)));
         _scanDiagnostics.AddRange(_source.ListScanDiagnostics());
         if (!_packages.Any(package => package.Package.IsRequired))
-            _loadDiagnostics.Error(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package was not provided.");
+            _loadDiagnostics.Reject(ContentDiagnosticCodes.BuiltInPackageUnavailable, "The built-in content package was not provided.");
         foreach (var duplicate in _packages.Where(package => package.Package.Kind == ContentPackageKind.Mod)
                      .GroupBy(package => package.Package.Namespace, StringComparer.Ordinal).Where(group => group.Count() > 1))
         {

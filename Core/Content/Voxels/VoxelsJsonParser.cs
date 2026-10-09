@@ -78,7 +78,7 @@ internal static class VoxelsJsonParser
         voxel = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, "Each voxel must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Each voxel must be an object.", jsonPath);
             return false;
         }
 

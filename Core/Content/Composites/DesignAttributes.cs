@@ -42,10 +42,6 @@ public sealed class DesignAttributes
     /// <summary>获取 BOM 中全部体素单位的基本货币价值之和；空 BOM 为 0。</summary>
     public long BomValue { get; }
 
-    /// <summary>获取空体素序列对应的零属性，是属性汇总的空数据示例。</summary>
-    public static DesignAttributes Empty { get; } = new(
-        0, 0, null, 0, 0, false, new Dictionary<VoxelDefinitionId, int>(), 0);
-
     /// <summary>保存内容层已经汇总的属性，并冻结 BOM 为只读映射。</summary>
     /// <param name="mass">全部体素的有限非负质量，单位为 t。</param>
     /// <param name="traction">全部动力行为的有限非负牵引力，单位为 kN。</param>

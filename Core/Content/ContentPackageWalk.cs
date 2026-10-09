@@ -70,7 +70,7 @@ public static class ContentPackageWalk
         string fileSuffix)
     {
         var files = new List<string>();
-        var bag = new DiagnosticBag();
+        var bag = new DiagnosticBag(ContentDiagnosticSeverity.Error);
         Collect(root, root, listChildren, files, bag, fileSuffix);
         files.Sort(StringComparer.Ordinal);
         return new ContentFileDiscovery(files, bag.Items.ToArray(), bag.Invalid);
@@ -135,6 +135,6 @@ public static class ContentPackageWalk
     private static void AddLinked(DiagnosticBag bag, string path)
     {
         var diagnostic = LinkedPathDiagnostic(path);
-        bag.Error(diagnostic.Code, diagnostic.Message, path);
+        bag.Reject(diagnostic.Code, diagnostic.Message, path);
     }
 }

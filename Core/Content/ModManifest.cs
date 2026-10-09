@@ -87,7 +87,7 @@ public sealed class ModManifest
         out ModManifest? manifest,
         out IReadOnlyList<ContentDiagnostic> diagnostics)
     {
-        var bag = new DiagnosticBag { Source = source };
+        var bag = new DiagnosticBag(ContentDiagnosticSeverity.Warning) { Source = source };
         manifest = Parse(utf8, source, bag);
         diagnostics = bag.Items;
         return manifest is not null && !bag.Invalid;

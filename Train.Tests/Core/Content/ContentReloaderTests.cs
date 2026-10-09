@@ -144,7 +144,7 @@ public sealed class ContentReloaderTests
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(accepted, result.IsCommitted);
         if (!accepted)
-            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.InvalidJson &&
+            Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.FieldInvalid &&
                 item.Source == "empty/" + file && item.JsonPath == "/composites"));
     }
 
@@ -194,7 +194,7 @@ public sealed class ContentReloaderTests
         var snapshot = reloader.Current!;
         var entry = snapshot.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         CollectionAssert.AreEqual(
-            new VoxelBehavior[] { new PropulsionBehavior(12.5, 20), new ControlBehavior(), new CargoBehavior(4) },
+            new VoxelBehavior[] { new CargoBehavior(4), new ControlBehavior(), new PropulsionBehavior(12.5, 20) },
             entry.Definition.Behaviors.ToArray());
 
         source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
@@ -225,6 +225,7 @@ public sealed class ContentReloaderTests
         var reordered = fresh.Current!.Voxels[entry.Definition.Id];
         Assert.AreEqual(revised.SemanticRevision, reordered.SemanticRevision);
         Assert.AreEqual(revised.PublicationFingerprint, reordered.PublicationFingerprint);
+        CollectionAssert.AreEqual(revised.Definition.Behaviors.ToArray(), reordered.Definition.Behaviors.ToArray());
     }
 
     [TestMethod]
@@ -481,7 +482,8 @@ public sealed class ContentReloaderTests
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count);
-        Assert.IsTrue(result.Diagnostics.All(item => item.Code == ContentDiagnosticCodes.NameInvalid));
+        Assert.IsTrue(result.Diagnostics.All(item => item.Code == ContentDiagnosticCodes.NameInvalid &&
+            item.Severity == ContentDiagnosticSeverity.Error));
     }
 
     [TestMethod]

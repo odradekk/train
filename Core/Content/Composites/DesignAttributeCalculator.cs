@@ -17,7 +17,7 @@ public static class DesignAttributeCalculator
     /// </param>
     /// <returns>
     /// 不可变的设计属性；牵引力和载量相加，额定速度取最小值，控制能力表示是否存在控制行为。
-    /// 仅无功能行为的体素贡献结构耐久。空序列返回 <see cref="DesignAttributes.Empty"/>。
+    /// 仅无功能行为的体素贡献结构耐久。空序列得到零质量、零 Value、空 BOM、无控制能力，额定速度为 null。
     /// </returns>
     /// <remarks>
     /// 本函数只读取核心字段，不改变输入或目录状态。

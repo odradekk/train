@@ -204,7 +204,7 @@ public static class ExternalContent
             source);
 
     /// <summary>递归发现具有指定后缀的物理数据文件。</summary><param name="resourcesRoot">资源根。</param><param name="fileSuffix">区分大小写的文件后缀。</param><returns>安全相对路径及诊断。</returns>
-    public static ContentFileDiscovery ListDataFiles(string resourcesRoot, string fileSuffix)
+    private static ContentFileDiscovery ListDataFiles(string resourcesRoot, string fileSuffix)
     {
         if (!ExternalPath.TryStat(resourcesRoot, out var attributes, out var exists))
         {

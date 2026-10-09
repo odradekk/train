@@ -242,7 +242,7 @@ public sealed class VoxelDefinition : ICoreVoxelDefinition
     public int MaxDurability { get; }
     /// <summary>获取按 Ordinal 比较的不可变标签集合。</summary>
     public IReadOnlySet<string> Tags { get; }
-    /// <summary>获取定义声明的不可变功能行为，保留输入顺序且各种行为最多出现一次。</summary>
+    /// <summary>获取定义声明的不可变功能行为；各种行为最多出现一次，按类型标记的 Ordinal 顺序排列，与声明顺序无关。</summary>
     public IReadOnlyList<VoxelBehavior> Behaviors { get; }
     /// <summary>获取放入蓝图或场景时允许的离散朝向集合。</summary>
     public VoxelOrientationConstraint AllowedOrientations { get; }
@@ -318,7 +318,8 @@ public sealed class VoxelDefinition : ICoreVoxelDefinition
         Mass = mass;
         MaxDurability = maxDurability;
         Tags = tagSet;
-        Behaviors = new ReadOnlyCollection<VoxelBehavior>(behaviorList);
+        Behaviors = new ReadOnlyCollection<VoxelBehavior>(
+            behaviorList.OrderBy(BehaviorRegistry.TypeOf, StringComparer.Ordinal).ToArray());
         AllowedOrientations = allowedOrientations;
         Presentation = presentation;
         Collision = collision;

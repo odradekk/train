@@ -38,6 +38,23 @@ public sealed class CompositeContentTests
         }
     }
 
+    [DataTestMethod]
+    [DataRow(" " + CompositeFixtures.StructureId)]
+    [DataRow("core:" + CompositeFixtures.StructureId + " ")]
+    public void Voxel_reference_whitespace_rejects_the_blueprint(string reference)
+    {
+        using var session = LoggerSession.Create();
+        var source = CompositeFixtures.VehiclePackage();
+        const string file = "composites/dev-train.composites.json";
+        source.AddDefinitionFile("core", file, CompositeFixtures.File(null,
+            CompositeFixtures.Composite(voxels: CompositeFixtures.Voxel(0, 0, 0, reference))));
+        var result = ContentFixtures.Create(source, session.Logger).Reload();
+        Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference &&
+                item.Source == file && item.JsonPath == "/composites/0/voxels/0/definition"),
+            string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
+    }
+
     [TestMethod]
     public void Unknown_fields_and_old_schema_reject_built_in_blueprints()
     {

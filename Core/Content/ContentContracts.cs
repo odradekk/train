@@ -116,7 +116,7 @@ public static class ContentDiagnosticCodes
 
 /// <summary>表示内容问题在诊断和日志中的严重程度。</summary>
 /// <remarks>严重程度与诊断容器的无效状态分别记录；警告也可以标记当前包无效。</remarks>
-/// <example>非法名称会产生警告级诊断并使内置内容被拒绝；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
+/// <example>内置包是必需包，其中的非法名称产生错误级诊断并使发布被拒绝；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
 public enum ContentDiagnosticSeverity
 {
     /// <summary>警告级问题；可用于报告被隔离的可选内容，也可伴随包无效状态。</summary>
@@ -445,7 +445,7 @@ public static class ContentPath
 /// <summary>收集有数量上限的内容诊断，并单独记录当前校验范围是否已无效。</summary>
 /// <remarks>拒绝级别由所属校验范围提供；包诊断按必需性选择级别。达到保留上限后继续更新无效状态，丢弃新的诊断条目。</remarks>
 /// <example>多个无效文件超过包诊断额度后仍使包无效；见 <c>ContentReloaderTests.Diagnostics_are_capped_per_package_and_still_reject</c>。</example>
-internal sealed class DiagnosticBag(ContentDiagnosticSeverity rejectionSeverity = ContentDiagnosticSeverity.Warning)
+internal sealed class DiagnosticBag(ContentDiagnosticSeverity rejectionSeverity)
 {
     private readonly List<ContentDiagnostic> _items = new();
 

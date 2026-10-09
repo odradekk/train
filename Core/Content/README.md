@@ -4,7 +4,7 @@
 
 内容加载按领域格式组织。体素、蓝图、市场表和聚居地类型共用发现、JSON 读取、身份冲突处理、整包隔离和发布流程；各自负责格式校验、表现资产或引用与属性计算。具体货物、市场表、聚居地类型、部件和蓝图内容另见 [#236](https://github.com/odradekk/train/issues/236)，不把具体预置数量写进加载架构。
 
-四种格式通过 `ContentJson` 共用严格 JSON 文档外层：字节上限、重复属性、语法、根对象、允许字段和 schema 版本检查。领域解析器保留自己的数组空性、显示信息和条目规则；任一条目失败则整份文件不返回部分定义。缺失或类型错误的根定义数组使用 `field_invalid` 并标出字段路径，JSON 语法错误使用 `invalid_json`。包拒绝诊断统一按真实所属包的必需性选择级别：必需包为 Error，可选包为 Warning；非失效的扫描告警保留其级别。`ContentHash` 只共用 SHA-256 和规范 JSON 写入机制，各领域决定编码字段、顺序及 writer 选项；复用机制不改变既有修订。
+四种格式通过 `ContentJson` 共用严格 JSON 文档外层：字节上限、重复属性、语法、根对象、允许字段和 schema 版本检查。领域解析器保留自己的数组空性、显示信息和条目规则；任一条目失败则整份文件不返回部分定义。缺失或类型错误的根定义数组使用 `field_invalid` 并标出字段路径，JSON 语法错误使用 `invalid_json`。包拒绝诊断统一按真实所属包的必需性选择级别：必需包为 Error，可选包为 Warning；非失效的扫描告警保留其级别。`ContentHash` 只共用 SHA-256 和规范 JSON 写入机制，各领域决定编码字段、顺序及 writer 选项。
 
 每轮先合并所有领域的有效包；合并使包失效时先重新合并，再由 `ContentLoader` 把本轮体素索引传入蓝图、市场表和聚居地类型的引用检查。格式不在构造时捕获其他格式的可变索引。蓝图候选只保存布局、来源、显示名和语义修订；引用与属性计算通过后才创建带发布指纹和设计属性的 `CompositeContentEntry`。市场与聚居地值对象的内部构造器保护本地数值、身份和集合不变量，解析器保留字段诊断，引用存在性留在合并后的检查中。
 
@@ -28,7 +28,7 @@
 
 体素和蓝图文件只接受 `schema_version: 2`；旧版本明确拒绝，Mod manifest 使用 schema 1。蓝图条目只接受 `id`、`name`、`description`、`size_class`、`voxels` 五个必填字段。布局必须非空、坐标唯一、引用候选目录中的体素，朝向须属于引用定义允许的集合；尺寸声明采用五档。当前不检查六面连通或尺寸包络，具体内容接入见 [#236](https://github.com/odradekk/train/issues/236)。
 
-当前功能行为为 `propulsion`、`control`、`cargo`，每个体素可组合不同种类，每种最多声明一次；声明顺序没有语义，规范编码按类型标记的 Ordinal 顺序排序。动力必须填写有限正数 `traction`（kN）、`rated_speed`（m/s）；控制没有参数；货舱必须填写整数 `capacity`（1 至 Int32.MaxValue 个货物单位）。其他行为类型或未知参数明确拒绝。
+当前功能行为为 `propulsion`、`control`、`cargo`，每个体素可组合不同种类，每种最多声明一次；声明顺序没有语义，定义按类型标记的 Ordinal 顺序保存行为，规范编码沿用这个顺序。动力必须填写有限正数 `traction`（kN）、`rated_speed`（m/s）；控制没有参数；货舱必须填写整数 `capacity`（1 至 Int32.MaxValue 个货物单位）。其他行为类型或未知参数明确拒绝。
 
 `ICoreVoxelDefinition` 只暴露身份、Value、质量、耐久上限、标签和功能行为。`DesignAttributeCalculator.Calculate` 通过该接口读取已解析的体素序列，不读取表现、碰撞或坐标：质量、牵引力和载量相加，额定速度取动力部件的最小值，无动力为 null；存在控制行为即具有控制能力。只有无功能行为的体素贡献结构耐久上限。BOM 按身份统计每格消耗，并累加总 Value；组合行为只计一次质量、价值和材料。`DesignAttributes` 和 BOM 不可变，不保存实例状态；汇总溢出拒绝候选。
 
@@ -40,7 +40,7 @@
 
 市场表与聚居地类型使用强类型身份和不可变定义，已注册到 `ContentLoader`。两个格式在同批次体素上校验货物引用，随后与体素、蓝图一起冻结为四个索引。价格区间、供需上限和恢复量均为内容参数，不代表运行中的市场状态。
 
-两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。四种定义格式的 `id` 均直接校验原文，首尾空白报 `local_id_invalid`；公开强类型 ID 的构造器保留去除首尾空白的契约。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。具体预置表与类型见 [#236](https://github.com/odradekk/train/issues/236)。
+两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。四种定义格式的 `id` 均直接校验原文，首尾空白报 `local_id_invalid`；货物引用和蓝图体素引用同样不修剪空白，分别报 `local_id_invalid` 和 `unresolved_voxel_reference`；公开强类型 ID 的构造器保留去除首尾空白的契约。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。具体预置表与类型见 [#236](https://github.com/odradekk/train/issues/236)。
 
 | 定义 | 字段与含义 |
 | --- | --- |

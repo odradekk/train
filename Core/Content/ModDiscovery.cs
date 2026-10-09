@@ -96,7 +96,7 @@ public static class ModDiscovery
 
             candidateCount++;
             var source = candidate.FolderName + "/" + ManifestFileName;
-            var bag = new DiagnosticBag { Source = source };
+            var bag = new DiagnosticBag(ContentDiagnosticSeverity.Warning) { Source = source };
 
             if (candidate.IsLink || candidate.PackageRootUnsafe)
             {

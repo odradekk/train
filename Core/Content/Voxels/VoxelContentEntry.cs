@@ -71,8 +71,8 @@ public sealed class VoxelContentEntry
 /// <example>标签顺序和 JSON 排版不改变修订，显示字段与图片变化影响发布；见 <c>ContentReloaderTests.Hash_matrix_separates_semantic_asset_and_catalog_generation</c>。</example>
 internal static class VoxelRevisions
 {
-    /// <summary>语义编码版本 4；按类型标记稳定排序无序 Behavior，碰撞仍只参与发布编码。</summary>
-    /// <remarks>与定义文件的 schema_version 分开管理；改变编码规则时需同步调整。修订用途见 docs/adr/0005-resolve-current-definitions-and-separate-content-versions.md。</remarks>
+    /// <summary>体素语义编码版本，用于区分规范编码规则；与定义文件的 schema 版本独立管理。</summary>
+    /// <remarks>改变编码规则时需同步调整。修订用途见 docs/adr/0005-resolve-current-definitions-and-separate-content-versions.md。</remarks>
     public const int SemanticEncodingVersion = 4;
     /// <summary>语义编码中 kind 字段的固定值 voxel，用于区分不同种类的内容。</summary>
     public const string VoxelKind = "voxel";
@@ -128,10 +128,10 @@ internal static class VoxelRevisions
         {
             writer.WriteStartObject();
             writer.WriteStartArray("behaviors");
-            foreach (var behavior in definition.Behaviors.OrderBy(GetBehaviorType, StringComparer.Ordinal))
+            foreach (var behavior in definition.Behaviors)
             {
                 writer.WriteStartObject();
-                writer.WriteString("type", GetBehaviorType(behavior));
+                writer.WriteString("type", BehaviorRegistry.TypeOf(behavior));
                 switch (behavior)
                 {
                     case PropulsionBehavior propulsion:
@@ -167,15 +167,6 @@ internal static class VoxelRevisions
 
         return stream.ToArray();
     }
-
-    /// <summary>取得行为在规范编码中使用的固定类型标记。</summary>
-    private static string GetBehaviorType(VoxelBehavior behavior) => behavior switch
-    {
-        PropulsionBehavior => BehaviorTypes.Propulsion,
-        ControlBehavior => BehaviorTypes.Control,
-        CargoBehavior => BehaviorTypes.Cargo,
-        _ => throw new InvalidOperationException($"Unsupported behavior type {behavior.GetType().Name}.")
-    };
 
     /// <summary>编码碰撞、显示文本、表现绑定、资产修订及语义修订组成的完整发布状态。</summary>
     /// <param name="definition">非 null 的已规范化体素定义。</param>

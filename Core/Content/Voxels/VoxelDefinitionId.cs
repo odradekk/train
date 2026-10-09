@@ -51,19 +51,18 @@ public readonly record struct VoxelDefinitionId
     /// <returns>长度为 1–64，首字符为小写 ASCII 字母或数字，其余字符另可包含下划线和连字符时返回 <see langword="true"/>。</returns>
     public static bool IsValidPart(string? value) => ContentIdentity.IsValidPart(value);
 
-    /// <summary>将局部或完整引用解析为体素身份；格式无效时返回 false。</summary>
+    /// <summary>将内容文件中的局部或完整引用解析为体素身份；与声明 ID 一样不修剪空白，格式无效时返回 false。</summary>
     internal static bool TryResolve(string raw, string packageNamespace, out VoxelDefinitionId id)
     {
-        id = default;
-        try
+        if (ContentIdentity.IsValidFullId(raw))
+            id = Parse(raw);
+        else if (ContentIdentity.IsValidPart(raw))
+            id = new VoxelDefinitionId(packageNamespace, raw);
+        else
         {
-            id = raw.Contains(':', StringComparison.Ordinal)
-                ? Parse(raw) : new VoxelDefinitionId(packageNamespace, raw);
-            return true;
-        }
-        catch (ArgumentException)
-        {
+            id = default;
             return false;
         }
+        return true;
     }
 }

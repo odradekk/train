@@ -69,7 +69,7 @@ internal static class CompositesJsonParser
 
         if (composites.Count == 0)
         {
-            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, "A composite file must declare at least one composite.", "/composites");
+            diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "A composite file must declare at least one composite.", "/composites");
             return null;
         }
 
@@ -87,7 +87,7 @@ internal static class CompositesJsonParser
         composite = null!;
         if (element.ValueKind != JsonValueKind.Object)
         {
-            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, "Each composite must be an object.", jsonPath);
+            diagnostics.Reject(ContentDiagnosticCodes.FieldInvalid, "Each composite must be an object.", jsonPath);
             return false;
         }
 
