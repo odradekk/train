@@ -1,6 +1,6 @@
 # 美术讨论决定记录：ART-Q180–ART-Q240
 
-> 来源：2026-10-08 的美术讨论。本文由[迁移美术初稿并建立 docs/art 骨架](https://github.com/odradekk/train/issues/240)从整理稿 `TRAIN-Art-Design-v1.0.html` 迁入，包括其附录 A（决定索引）、末轮记录和附录 B（架构衔接说明）。概念图、原型和验证报告见[美术参考与原型证据](../../archive/prototypes/art-reference-v1/README.md)。
+> 来源：2026-10-08 的美术讨论。本文由[迁移美术初稿并建立 docs/art 骨架](https://github.com/odradekk/train/issues/240)从整理稿 `TRAIN-Art-Design-v1.0.html` 迁入，包括其附录 A（决定索引）、末轮记录和附录 B（架构衔接说明）。整理稿的规则正文见[美术方向初稿](art-direction-draft-2026-10-08.md)，概念图、原型和验证报告见[美术参考与原型证据](../../archive/prototypes/art-reference-v1/README.md)。
 >
 > 本文是决定摘要，不是逐字转录：依据用户提交的各轮答案和明确修正整理，原讨论界面没有显示的提问细节没有补写成用户原话。
 >

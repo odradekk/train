@@ -1,6 +1,6 @@
 # 美术参考与原型证据（2026-10-08）
 
-本目录保存 2026-10-08 美术讨论留下的概念图、两个 Three.js 原型和原型验证报告，由[迁移美术初稿并建立 docs/art 骨架](https://github.com/odradekk/train/issues/240)从整理稿 `TRAIN-Art-Design-v1.0.html` 迁入。它们是讨论证据，不是正式资产、Godot 实现或验收结果。现行美术规则见[美术设计文档](../../../docs/art/README.md)，讨论中的决定见[美术讨论决定记录](../../../docs/research/art-grilling-decisions.md)。
+本目录保存 2026-10-08 美术讨论留下的概念图、两个 Three.js 原型和原型验证报告，由[迁移美术初稿并建立 docs/art 骨架](https://github.com/odradekk/train/issues/240)从整理稿 `TRAIN-Art-Design-v1.0.html` 迁入。它们是讨论证据，不是正式资产、Godot 实现或验收结果。现行美术规则见[美术设计文档](../../../docs/art/README.md)，讨论中的决定见[美术讨论决定记录](../../../docs/research/art-grilling-decisions.md)，当时的规则正文见[美术方向初稿](../../../docs/research/art-direction-draft-2026-10-08.md)。
 
 ## 三种资料的用途
 

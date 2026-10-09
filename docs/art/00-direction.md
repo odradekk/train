@@ -1,6 +1,6 @@
 # 00 视觉定位
 
-> 决策出处：美术 Q180、Q184、Q225、Q228，以及讨论中确认的八个关键词。由[迁移美术初稿并建立 docs/art 骨架](https://github.com/odradekk/train/issues/240)从整理稿第 1 节改写。
+> 决策出处：美术 Q180、Q184、Q225、Q228，以及讨论中确认的八个关键词。由[迁移美术初稿并建立 docs/art 骨架](https://github.com/odradekk/train/issues/240)从[美术方向初稿](../research/art-direction-draft-2026-10-08.md)第 1 节改写。
 
 ## 边界
 
