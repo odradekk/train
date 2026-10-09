@@ -64,4 +64,4 @@ Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、�
 
 - 地图迷雾（不立票）：未冻结参数：存储部件的容量。
 
-资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。
+库存与仓储属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。市场交易不再因本文的旧分期排除在 Demo 外，具体规则由[市场与交易：库存、定价与复合体买卖](https://github.com/odradekk/train/issues/281)补齐。

@@ -2,7 +2,7 @@
 
 聚居地类型是聚居地的玩法分类，例如农庄、城市。它决定名称、地图符号、生成权重、地貌偏好和人口范围；首个切片里还临时决定供需和站台数。文件名是 `<local id>.settlement-type.json`，放在 `resources/settlement-types/`，资产放在同名文件夹里。Schema 见 [schemas/settlement-type.schema.json](schemas/settlement-type.schema.json)，示例见 [examples/example-pack/resources/settlement-types/](examples/example-pack/resources/settlement-types/)。
 
-类型不列出自己有哪些模板，由模板声明自己属于哪个类型，见[聚居地模板](settlement-template.md)。规则的来由见设计文档 [16 的聚居地类型](../design/16-settlements.md#聚居地类型)和 [00 的临时规则](../design/00-product-and-core-loop.md#临时规则)。
+类型不列出自己有哪些模板，由模板声明自己属于哪个类型，见[聚居地模板](settlement-template.md)。规则的来由见设计文档 [16 的聚居地类型](../design/16-settlements.md#聚居地类型)。首切片临时供需和站台数字段不再作为完整 Demo 的实施依据，见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)；相关字段、Schema 和样例暂保留，待市场规则与内容契约确定后同步替换。
 
 ```json
 {

@@ -1,6 +1,6 @@
 # 市场表
 
-市场表是首个切片的临时格式：按货物给出价格对供需的敏感度和价格上下限，底价读取同一内容快照里体素的 Value。正式的市场规则确定后会被替换，见设计文档 [00 的临时规则](../design/00-product-and-core-loop.md#临时规则)。文件名是 `<local id>.market-table.json`，放在 `resources/markets/`。Schema 见 [schemas/market-table.schema.json](schemas/market-table.schema.json)，示例见 [examples/example-pack/resources/markets/](examples/example-pack/resources/markets/)。
+市场表是首个切片的临时格式：按货物给出价格对供需的敏感度和价格上下限，底价读取同一内容快照里体素的 Value。该临时模型不再作为完整 Demo 的实施依据，见设计文档 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)；替代规则由[市场与交易：库存、定价与复合体买卖](https://github.com/odradekk/train/issues/281)确定。本文、Schema 和样例暂保留记录原格式，不表示已经完成替换。文件名是 `<local id>.market-table.json`，放在 `resources/markets/`。Schema 见 [schemas/market-table.schema.json](schemas/market-table.schema.json)，示例见 [examples/example-pack/resources/markets/](examples/example-pack/resources/markets/)。
 
 市场表只有核心模拟层读取，只有 `simulation` 一节。全局用哪张表、多久恢复一次，属于世界和市场的配置，不写在这里。
 

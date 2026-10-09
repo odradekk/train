@@ -154,4 +154,4 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 - 地图迷雾（不立票）：未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数。
 - 燃料每单位提供多少电量写在哪里：燃料货物的定义上，还是 `power` 行为的参数里；一台发电设备能烧哪些燃料。体素定义的格式暂不包含这一项，`production`、`extraction`、`construction`、`power` 的参数也是初版，实现这些玩法时可以增删（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
-资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。
+资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口与劳动力的最小规则由[人口与劳动力：Demo 的最小规则](https://github.com/odradekk/train/issues/280)补齐，本文旧分期不能将它们整体推迟；生产与供能参数由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)明确。

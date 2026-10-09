@@ -7,7 +7,7 @@ issue 标签分四个维度，每个维度一个前缀，互不重叠：类型�
 - 创建或分诊 issue 时，打 1–2 个 `area:` 标签和 1 个 `discipline:` 标签。
 - `area:` 只选主要改动所在的系统，顺带触及的系统不打。需要 3 个以上 area，或主要产出同时有代码和美术资产时，把 issue 拆小。
 - 跟踪类 issue 不打这两类标签：`wayfinder:map`，以及只用来汇总子 issue 的父 issue。
-- 新系统或新工种出现第一张 issue 时再建标签，名称取自设计文档主题，并更新本文的表。尚未建标签的系统按 `production`（10–13）、`construction`（14）、`editor`（15）、`settlements`（16）、`combat`（17）命名。标签用 `gh label edit <旧名> --name <新名>` 改名，已打标签的 issue 会跟着更新。
+- 新系统或新工种出现第一张 issue 时再建标签，名称取自设计文档主题，并更新本文的表。尚未建标签的系统按 `construction`（14）、`combat`（17）命名。标签用 `gh label edit <旧名> --name <新名>` 改名，已打标签的 issue 会跟着更新。
 
 ## area：系统
 
@@ -21,6 +21,9 @@ issue 标签分四个维度，每个维度一个前缀，互不重叠：类型�
 | `area:railway` | 铁路与列车运行 | 06 | — |
 | `area:trade` | 市场、交易规则、资金、购买车辆 | 00 临时规则 | — |
 | `area:saves` | 存档格式、读档、示例存档 | 09 | `saves` |
+| `area:production` | 资源、开采、库存、生产流程与运行 | 10–13 | — |
+| `area:editor` | 设计编辑器、创作模式与调试模式 | 15 | — |
+| `area:settlements` | 聚居地、人口、劳动力与聚居地服务 | 16 | — |
 | `area:scenes` | 体素引擎层：区块、网格数据、拾取、线路场景、节点场景、场景切换 | 01 | — |
 | `area:rendering` | Godot 渲染：网格上传、相机、材质 | 07 | — |
 | `area:ui` | 窗口、宏观地图、面板、菜单 | 08 | — |

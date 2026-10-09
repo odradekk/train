@@ -184,4 +184,4 @@ Future Product Families 的具体产品与 Process；Window、Door、Armor Block
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
 - 地图迷雾（不立票）：Train Equipment 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
-资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。
+资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。本文旧分期中的市场与人口条目由相应决策票修订，不能据此排除完整 Demo 已纳入的规则；具体机制仍由对应票决定。
