@@ -33,7 +33,7 @@
 ### Paint 与货物身份
 
 - 纯表现差异不创建不同 Good Definition：不存在 Red Structural Block、Blue Structural Block 作为经济商品。
-- 涂装属于蓝图的表现设置。改变颜色不改变 VoxelDefinitionId、Value、生产配方或经济身份，也不改变蓝图版本的语义 Revision。
+- 涂装属于设计和蓝图的表现设置。改变颜色不改变 VoxelDefinitionId、Value、生产配方或经济身份；只改涂装立即生效，不需要改装，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。
 - 涂装不是需要随库存保留的游戏状态：部件拆回库存后不保留涂装，重新安装后可以重新涂装。
 
 ### Raw Goods

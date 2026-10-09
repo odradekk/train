@@ -70,7 +70,7 @@
 
 ### 建造与拆解
 
-- 只有玩家自己的聚居地可以建造和管理生产。玩家下命令“在地块 P 建造蓝图版本 V”，校验地块空闲、尺寸合适、建筑种类允许放在这类地块上，之后按 [14](14-construction-refit-and-deconstruction.md#construction-job) 的建造任务执行，需要当地有建造能力。
+- 只有玩家自己的聚居地可以建造和管理生产。玩家下命令“在地块 P 按蓝图 B 建造”，校验地块空闲、尺寸合适、建筑种类允许放在这类地块上，之后按 [14](14-construction-refit-and-deconstruction.md#construction-job) 的建造任务执行，需要当地有建造能力。
 - 施工期间地块标记为工地，不能另作他用；完工时建筑实例放进该地块。工地代替原先的空间预留。
 - 改装和修理在原地块上进行；拆解完成后地块空出。
 - Demo 中不会出现施工期间聚居地易主，见 [17](17-combat.md#聚居地关系与征服)。
@@ -113,7 +113,7 @@
 
 ### 节点场景
 
-- 节点场景展示：模板中的地形、道路和装饰；地块上的建筑，按蓝图版本构建，破损按 [01](01-voxel-engine-and-scenes.md#场景中的结构破损) 表现；施工中的地块（静态工地，脚手架与施工动画在 Demo 之后，见 [14](14-construction-refit-and-deconstruction.md#demo-之后)）；站点、站台上的列车和在节点等待的列车；正在运行的设施的简单活动效果，例如烟和灯光。
+- 节点场景展示：模板中的地形、道路和装饰；地块上的建筑，按各自的设计构建，破损按 [01](01-voxel-engine-and-scenes.md#场景中的结构破损) 表现；施工中的地块（静态工地，脚手架与施工动画在 Demo 之后，见 [14](14-construction-refit-and-deconstruction.md#demo-之后)）；站点、站台上的列车和在节点等待的列车；正在运行的设施的简单活动效果，例如烟和灯光。
 - 线路的进站区域、列车与停放车辆的摆放、节点资源的表现见 [01](01-voxel-engine-and-scenes.md#节点场景)。
 - 库存、人口、产量等数字只在窗口中显示，见 [08](08-window-and-ui.md#管理界面)。
 - 节点场景同样用于节点上的战斗，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)。
