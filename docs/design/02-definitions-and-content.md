@@ -116,7 +116,7 @@
 
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
 - 不同领域保持强类型 ID，例如体素定义标识和蓝图标识。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
-- Behavior 目前只能由代码注册，内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
+- Behavior 类型只能由游戏代码提供，内容只选类型、填参数，不能自带脚本；内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。内容里写了未知类型，整个包无效。Demo 的类型清单见 [03](03-vehicles-buildings-and-designs.md#behavior-组合)。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
 - ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 和定义之间的引用都直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
 - 用户蓝图的身份由系统基于 UUID 分配，沿用 `namespace:local-id` 和类型区分，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图时覆盖内容，身份不变；“复制为新蓝图”和在本局蓝图库、用户内容库之间复制都建立新身份。存档中的本局蓝图库按各存档隔离解析，另存为或导入不重编身份。
 

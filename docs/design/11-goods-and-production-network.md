@@ -124,7 +124,7 @@ Electronic Components + Electrical Components                    → Control Equ
 
 ### 武器
 
-- 武器是带 WeaponBehavior 的单格体素，属于部件；WeaponBehavior 的参数是每次伤害和射击间隔。战斗规则见 [17](17-combat.md#武器与防御建筑)，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。
+- 武器是带 `weapon` 行为的单格体素或功能复合体，属于部件；WeaponBehavior 的参数是每次伤害和射击间隔。战斗规则见 [17](17-combat.md#武器与防御建筑)，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。
 - 每种武器是一个货物，由普通 Production Process 制造，需要的 Recovery Process 按下文规则显式定义。武器的种类和配方在试玩后冻结；新增武器同样要通过 Gameplay Difference Test。
 - Demo 中武器不消耗弹药，所以没有弹药货物。
 
