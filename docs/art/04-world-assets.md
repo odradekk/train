@@ -116,7 +116,7 @@
 
 ## Demo 范围
 
-- 聚居地场景中的建筑和站点，按 [16](../design/16-settlements.md) 的布局；具体规格另定。
+- 聚居地场景中的建筑和站点，按 [16](../design/16-settlements.md) 的聚居地模板；具体规格另定。
 - 灌木、草丛、花等装饰。
 - 道路，规格随聚居地场景再定。
 - 施工中的地块显示为静态工地：围挡加材料堆，不搭脚手架（设计文档 [14](../design/14-construction-refit-and-deconstruction.md)、[16](../design/16-settlements.md#节点场景)）。

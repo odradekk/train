@@ -31,7 +31,7 @@
 
 ### Custom Static Mesh
 
-- Demo 的 Custom Static Mesh 支持静态模型、基础颜色与贴图、正常光照和阴影，以及不透明和镂空裁剪材质。资产原点、尺寸和方向须有统一约定，零件按定义允许的正交朝向放置。
+- Demo 的 Custom Static Mesh 支持静态模型、基础颜色与贴图、正常光照和阴影，以及不透明和镂空裁剪材质。资产原点、尺寸和方向须有统一约定，体素按定义允许的正交朝向放置。
 - Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
 - 标准形状和 Custom Mesh 必须完全位于自己的格内（严格内接）；以后加入模型内部动画时，会动部分的运动范围也必须在格内。需要真正跨格的视觉结构由多个体素组成，或进入 Specialized Renderer。
 - Custom Mesh 用模型自己的 UV 贴图，基础贴图密度 32 px/格；一个模型可以有几个表面，每个表面选一个表现材质类别，见[美术 02](../art/02-materials-and-textures.md#形状与自定义模型)。模型按原尺寸使用，不缩放或剪切。
