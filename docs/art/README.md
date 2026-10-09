@@ -17,7 +17,7 @@
 | `02-materials-and-textures.md` | 材质、贴图密度、映射、细节层次 | 由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)编写，[首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补“本阶段” |
 | `03-color-and-paint.md` | 默认色彩、玩家涂装 | [首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补“本阶段”；其余待拆票 |
 | `04-world-assets.md` | 建筑、地形、自然物、铁路 | 由[首个切片的场景美术规格](https://github.com/odradekk/train/issues/247)编写 |
-| `05-lighting-and-readability.md` | 光照、构图、可读性 | 由[Compatibility 渲染器下的画面目标](https://github.com/odradekk/train/issues/242)编写 |
+| [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性 | 已写 |
 | `06-wear-damage-and-motion.md` | 磨损、损伤、动画、特效 | 待拆票 |
 | `07-icons-and-ui.md` | 2D 图标、宏观地图、界面视觉 | 由[宏观地图、界面与图标的视觉风格](https://github.com/odradekk/train/issues/244)编写 |
 | `08-asset-pipeline-and-review.md` | 制作流程、交付物、样机与检查 | 待拆票 |

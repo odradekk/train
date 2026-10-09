@@ -17,7 +17,7 @@
 
 ### 核心定义
 
-游戏使用近未来工业的美术语言：体素网格和低面数几何决定构造方式，材质和光照追求物理上可信的质感（美术 Q225）；复杂的车辆、建筑和机械由一套可复用、在游戏中可获得、可改装的体素组合而成。写实做到什么程度，由[Compatibility 渲染器下的画面目标](https://github.com/odradekk/train/issues/242)决定。
+游戏使用近未来工业的美术语言：体素网格和低面数几何决定构造方式，材质和光照追求物理上可信的质感（美术 Q225），渲染器为 Forward+（[ADR-0010](../adr/0010-render-with-forward-plus.md)）；复杂的车辆、建筑和机械由一套可复用、在游戏中可获得、可改装的体素组合而成。光照与效果见 [05](05-lighting-and-readability.md)。
 
 ### 八个关键词
 
@@ -69,4 +69,4 @@
 
 ## 开放问题
 
-- 材质写实到什么程度、Compatibility 渲染器下保留哪些效果：[Compatibility 渲染器下的画面目标](https://github.com/odradekk/train/issues/242)。
+无。
