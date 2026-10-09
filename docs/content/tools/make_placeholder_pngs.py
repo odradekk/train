@@ -1,7 +1,9 @@
-"""为内容包里的体素定义生成占位 PNG。
+"""为内容包里的体素定义和聚居地类型生成占位 PNG。
 
 读取 <包>/resources/voxels/*.voxel.json，为每个引用到的 PNG 生成一张纯色占位图：
 颜色按材质类别区分，面图边长为 32 像素乘以平铺跨度，正面图 32 像素，图标 128 像素。
+读取 <包>/resources/settlement-types/*.settlement-type.json，为地图符号生成一张 48 像素、
+透明底的白色菱形。
 已存在的文件默认跳过，加 --force 才覆盖，避免冲掉正式素材。只用标准库。
 
 用法：python make_placeholder_pngs.py <包目录> [--force]
@@ -78,7 +80,7 @@ def main():
     force = "--force" in sys.argv[1:]
     voxels = os.path.join(args[0], "resources", "voxels")
     done = set()
-    for name in sorted(os.listdir(voxels)):
+    for name in sorted(os.listdir(voxels)) if os.path.isdir(voxels) else []:
         if not name.endswith(".voxel.json"):
             continue
         with open(os.path.join(voxels, name), encoding="utf-8") as f:
@@ -98,6 +100,19 @@ def main():
             done.add(path)
             write_png(path, size, pixel)
             print(os.path.relpath(path, args[0]))
+    types = os.path.join(args[0], "resources", "settlement-types")
+    for name in sorted(os.listdir(types)) if os.path.isdir(types) else []:
+        if not name.endswith(".settlement-type.json"):
+            continue
+        with open(os.path.join(types, name), encoding="utf-8") as f:
+            definition = json.load(f)
+        ref = definition["display"]["map_symbol"]
+        path = os.path.join(types, ref) if ref.startswith("shared/") else os.path.join(types, definition["id"], ref)
+        if os.path.exists(path) and not force:
+            continue
+        # 符号是单色图形，界面按关系色着色，所以只画白色和透明。
+        write_png(path, 48, lambda x, y: (255, 255, 255, 255) if abs(x - 23.5) + abs(y - 23.5) <= 18 else (0, 0, 0, 0))
+        print(os.path.relpath(path, args[0]))
 
 
 if __name__ == "__main__":

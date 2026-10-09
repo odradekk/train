@@ -97,7 +97,7 @@
 | `scene_model` | 没有这一节 | `flatten`，可选 | 场景体素 | 场景模型 |
 | `creature` | `behaviors`：`creature` 必填，`weapon` 可选 | 无 | 场景体素 | 无 |
 
-- `building_type` 和 `facility_tags` 的取值由代码提供，写错了整个包无效。清单随聚居地和生产的切片确定，Schema 暂时只有 `warehouse` 一种建筑类型，没有设施兼容标签。
+- `building_type` 和 `facility_tags` 的取值由代码提供，写错了整个包无效。清单随聚居地和生产的切片确定，Schema 暂时只有 `station` 和 `warehouse` 两种建筑类型，没有设施兼容标签。`plot_size` 为 `station` 的建筑必须是 `station` 类型，反过来也一样。
 - 各地块尺寸的格数在场景实测时确定，见[设计文档 16 的地块与建筑](../design/16-settlements.md#地块与建筑)。
 - `flatten`：`from`、`to` 是 `[x, z]`，两端都包括；`height` 是整数。放置场景模型时，这个矩形里 y 小于 `height` 的格是地面，以上清空。
 
@@ -119,7 +119,7 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 - `id` 和文件名一致；引用的体素存在，朝向是它允许的；类别用的体素种类正确（场景体素或货物体素）。
 - 嵌套最多 4 层，类别能装进去的组合正确，被嵌套的复合体和其他部分不重叠。
 - 车辆、建筑和大型设备的全部体素和被嵌套的复合体六面连成一体；场景模型和生物不要求。
-- 不超出车辆档位或地块尺寸的包络。
+- 不超出车辆档位或地块尺寸的包络；站点地块尺寸和站点建筑类型互相对应。
 - 转动扫过的格是空的，并且在宿主的包络之内。
 - 功能复合体的规则，以及玩家的蓝图不能带功能性行为。
 
@@ -140,6 +140,8 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 | `large-diesel-engine` 大型柴油机 | 大型设备 | 功能复合体：蓝图上带 `propulsion`，里面只有结构体素 | Demo |
 | `armed-locomotive` 武装车头 | 车辆 | 装了武器的车辆：嵌套机枪塔和换了涂装的大型柴油机；车轮、车头灯、斜面车鼻 | Demo |
 | `warehouse` 仓库 | 建筑 | `plot_size`、`building_type`；涂装的混凝土外墙加货舱 | Demo |
+| `small-station` 小站点 | 建筑 | 站点：`plot_size` 和 `building_type` 都是 `station`；带 `platform` 的站台控制台 | Demo |
+| `village-ground` 村落地面 | 场景模型 | 聚居地模板用的地面：草地加一个树丛，`flatten` | Demo |
 | `example-addon` 的 `armored-wagon` 装甲货车 | 车辆 | 第二个包：依赖 `example-pack`，用完整标识引用它的体素，嵌套的机枪塔副本换了涂装 | Demo |
 | `content-library/d1b6e8a2-….blueprint.json` 我的小型车头 | 车辆 | 玩家的蓝图：`id` 是 UUID，带 `used_packages`，引用写完整标识 | Demo |
 

@@ -82,7 +82,7 @@
                 "required": ["plot_size", "building_type"],
                 "properties": {
                   "plot_size": { "enum": ["small", "medium", "large", "station"] },
-                  "building_type": { "description": "取值由代码提供，清单随聚居地切片确定。", "enum": ["warehouse"] },
+                  "building_type": { "description": "取值由代码提供，清单随聚居地切片确定；plot_size 为 station 的建筑必须是 station，反过来也一样。", "enum": ["station", "warehouse"] },
                   "facility_tags": {
                     "description": "取值由代码提供，清单随生产切片确定。",
                     "type": "array",

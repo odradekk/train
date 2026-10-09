@@ -9,7 +9,8 @@
 | [manifest.md](manifest.md) | 内容包的 `mod.json` |
 | [voxel.md](voxel.md) | 体素定义 `<local id>.voxel.json` |
 | [blueprint.md](blueprint.md) | 蓝图 `<local id>.blueprint.json`，以及被嵌套的复合体和存档共用的设计对象 |
-| 聚居地模板 | 由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)补充 |
+| [settlement-type.md](settlement-type.md) | 聚居地类型 `<local id>.settlement-type.json` |
+| [settlement-template.md](settlement-template.md) | 聚居地模板 `<local id>.settlement-template.json`，以及从世界生成到聚居地出现在节点上的整条链 |
 | [schemas/](schemas/) | JSON Schema（draft 2020-12），一种文件一个，共用的类型在 `common.schema.json` |
 | [examples/](examples/) | 示例：内容包 `example-pack`、依赖它的 `example-addon`，以及用户内容库里的一个玩家蓝图 |
 | [tools/make_placeholder_pngs.py](tools/make_placeholder_pngs.py) | 按定义生成占位 PNG |
@@ -38,7 +39,7 @@
 
 - **一个文件一份定义**：文件名是 `<local id>.<种类>.json`，根对象就是这份定义。文件里的 `id` 必须和文件名一致，不一致就报错。
 - **严格 JSON**：未知字段、重复字段、注释和尾随逗号都无效。包里任何一份定义有错，整个包都不加载。
-- **`schema_version`**：每种文件各自编号。当前 manifest 是 2，体素定义和蓝图是 3。
+- **`schema_version`**：每种文件各自编号。当前 manifest 和聚居地类型是 2，体素定义和蓝图是 3，聚居地模板是 1。
 - **local id**：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头。约定用连字符分隔单词，例如 `diesel-engine`。
 - **引用**：同一个包里的定义直接写 local id；其他包的定义写 `<命名空间>:<local id>`，命名空间是 `core` 或那个包的 UUID，例如 `core:grain`。引用了其他包的定义，就必须在 manifest 里声明依赖那个包。
 - **资产路径**：
@@ -62,7 +63,7 @@ Schema 只检查单个文件的结构和取值范围。下面这些由加载器�
 ## 示例包
 
 - `example-pack` 依赖 `core`，所有定义都写在包里，不引用 `core` 的内容。
-- `example-addon` 依赖 `example-pack`，用完整标识引用它的体素，演示包依赖和跨包引用。
+- `example-addon` 依赖 `example-pack`，用完整标识引用它的体素、蓝图和聚居地类型，演示包依赖和跨包引用。
 - `content-library/` 是用户内容库里的一个玩家蓝图。
 
 数值只用来演示写法，不是正式设计。

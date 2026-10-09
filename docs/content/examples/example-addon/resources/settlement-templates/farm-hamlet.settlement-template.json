@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "farm-hamlet",
+  "settlement_type": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:farm",
+  "scene_model": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:village-ground",
+  "plots": [
+    {
+      "id": 1,
+      "size": "station",
+      "at": [0, 1, -10],
+      "orientation": "pz_py",
+      "building": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:small-station"
+    },
+    { "id": 2, "size": "small", "at": [6, 1, 0] }
+  ],
+  "founding": [
+    { "plot": 1, "building": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:small-station" }
+  ],
+  "display": { "name": "农庄小村", "description": "第二个包给示例内容包的农庄类型加的一份模板：只有一个站点和一块空地。" }
+}

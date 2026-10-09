@@ -59,6 +59,7 @@
 | `construction` | `work_rate`、`max_size_class` | 每秒的工作量，大于 0；车辆尺寸档位 `small`、`medium`、`large`、`extra_large`、`titan` | 工作量相加；档位取完好部件中最大的 | Demo |
 | `power` | `output` | 每秒的电量，大于 0 | 计入聚居地的电力池 | Demo |
 | `weapon` | `damage`、`interval` | 每次伤害，正整数；两次射击的间隔，秒，大于 0 | 逐个列出，不相加 | Demo |
+| `platform` | 无，写 `{}` | — | 每个完好的部件提供一个站台，按数量相加 | Demo |
 
 - 被毁的部件不计入汇总。
 - `production`、`extraction`、`construction`、`power` 四种的参数是初版，实现这些玩法时可以增删。燃料每单位提供多少电量还没定，见 [13 的开放问题](../design/13-production-runtime-and-facilities.md#开放问题)。
@@ -145,6 +146,7 @@
 | `drill-head` 钻头 | 部件 | `extraction` | Demo |
 | `crane` 吊机 | 部件 | `construction` 加表现行为 `light`（参数取默认值） | Demo |
 | `generator` 发电机 | 部件 | `power` | Demo |
+| `platform-desk` 站台控制台 | 部件 | `platform` | Demo |
 
 ## 和现有代码的差别
 

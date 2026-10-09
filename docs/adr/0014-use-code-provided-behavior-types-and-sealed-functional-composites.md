@@ -36,12 +36,13 @@
 ## Consequences
 
 - **Demo 的行为类型**：
-  - 功能性：`propulsion`、`control`、`storage`、`production`、`extraction`、`construction`、`power`、`weapon`；
+  - 功能性：`propulsion`、`control`、`storage`、`production`、`extraction`、`construction`、`power`、`weapon`、`platform`；
   - 生物：`creature`；
   - 只有表现：`rotation`、`wheelset`、`light`。
 
   各类型的参数由格式说明确定。
 - **修订**：2026-10-09，[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)把 `cargo` 并入 `storage`，列车和聚居地的库存容量都由它提供，Demo 的行为类型因此是 12 种。参数见 [docs/content/voxel.md](../content/voxel.md)。
+- **修订**：2026-10-09，[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)新增 `platform`：站点里的站台部件提供站台，每个完好的部件一个。Demo 的行为类型因此是 13 种。
 - **代码 Mod**：允许代码 Mod 注册新的行为类型放在 Demo 之后，只在启动时加载，届时修订 ADR-0002，类型标识加上命名空间。内容里写了未知类型，整个包无效。
 - **对 ADR-0013 的影响**：ADR-0013 中“被嵌套的复合体的部件就是宿主的部件”只适用于组装体。功能复合体作为一个整体的部件，在部件编号中占一个号。
 - **不变的部分**：标签只做被动分类，建筑蓝图上的设施兼容标签仍是标签。

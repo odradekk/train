@@ -1,0 +1,16 @@
+{
+  "schema_version": 2,
+  "id": "farm",
+  "simulation": {
+    "supply": [
+      { "voxel": "grain", "capacity": 200, "restore_per_tick": 2 }
+    ],
+    "demand": [],
+    "preferred_terrain": ["core:plains"],
+    "weight": 3,
+    "population_min": 50,
+    "population_max": 200,
+    "initial_platform_count": 1
+  },
+  "display": { "name": "农庄", "description": "以种粮为主的小聚居地，向外供应粮食。", "map_symbol": "symbol.png" }
+}

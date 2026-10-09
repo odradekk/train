@@ -103,6 +103,7 @@
         "interval": { "$ref": "#/$defs/positiveNumber" }
       }
     },
+    "platform": { "description": "没有参数；每个完好的部件提供一个站台。", "type": "object", "additionalProperties": false },
     "functionalBehaviors": {
       "description": "功能性行为的核心参数，以行为类型为键。体素和功能复合体共用。",
       "type": "object",
@@ -116,7 +117,8 @@
         "extraction": { "$ref": "#/$defs/extraction" },
         "construction": { "$ref": "#/$defs/construction" },
         "power": { "$ref": "#/$defs/power" },
-        "weapon": { "$ref": "#/$defs/weapon" }
+        "weapon": { "$ref": "#/$defs/weapon" },
+        "platform": { "$ref": "#/$defs/platform" }
       }
     }
   }

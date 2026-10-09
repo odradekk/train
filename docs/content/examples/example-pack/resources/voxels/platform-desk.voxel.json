@@ -1,0 +1,20 @@
+{
+  "schema_version": 3,
+  "id": "platform-desk",
+  "simulation": {
+    "value": 300,
+    "mass": 1,
+    "max_durability": 150,
+    "behaviors": {
+      "platform": {}
+    }
+  },
+  "appearance": {
+    "allowed_orientations": "four_way",
+    "presentation": {
+      "kind": "cube",
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png", "front": "front.png" }
+    }
+  },
+  "display": { "name": "站台控制台", "description": "站点里的站台部件：每个完好的控制台提供一个站台。", "icon": "icon.png" }
+}
