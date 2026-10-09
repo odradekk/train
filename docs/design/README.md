@@ -52,6 +52,8 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 用于讨论和参数取舍的独立 HTML 原型及原始测量统一保留在[设计原型归档](../../archive/prototypes/README.md)，不作为正式游戏实现或最终验收结果。
 
+美术风格和资产制作规则见[美术设计文档](../art/README.md)。它在本目录的技术规则之内规定画法和规格；美术规则需要改动技术规则时，同时修改本目录的对应章节。
+
 每份文档的固定小节：边界、不变量、规则、Demo 范围、Demo 之后、开放问题。Demo 指最终游戏完整可玩的最小集合；本阶段是 Demo 之前的开发里程碑，其范围只在 [00 的本阶段范围](00-product-and-core-loop.md#本阶段范围)中描述，详细分期见各实施 Issue。
 
 术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；Train Assembly 对应列车编组。Voxel、Revision，以及 Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
