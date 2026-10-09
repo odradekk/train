@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文规定车辆、建筑和设备的默认色彩与玩家涂装的视觉规则。材质类别和贴图画法见 [02](02-materials-and-textures.md)，磨损见 06，地形和自然物的颜色见 [04](04-world-assets.md)，宏观地图和界面的颜色见 [07](07-icons-and-ui.md)。涂装属于蓝图的表现设置（设计文档 [02](../design/02-definitions-and-content.md)、[11](../design/11-goods-and-production-network.md)），编辑器中的操作见设计文档 [15](../design/15-design-editor-and-tools.md#编辑)。
+本文规定车辆、建筑和设备的默认色彩与玩家涂装的视觉规则。材质类别和贴图画法见 [02](02-materials-and-textures.md)，磨损见 [06](06-wear-damage-and-motion.md)，地形和自然物的颜色见 [04](04-world-assets.md)，宏观地图和界面的颜色见 [07](07-icons-and-ui.md)。涂装属于蓝图的表现设置（设计文档 [02](../design/02-definitions-and-content.md)、[11](../design/11-goods-and-production-network.md)），编辑器中的操作见设计文档 [15](../design/15-design-editor-and-tools.md#编辑)。
 
 ## 不变量
 
@@ -49,7 +49,7 @@
 - 初期每个体素一个主色，支持批量操作（美术 Q208、Q218）。
 - 只有材质类别为 `painted_metal` 和 `concrete` 的表面可以涂装；`bare_metal`、`glass`、`stone_soil`、`polymer_rubber`、`organic` 保持原色（美术 Q222，类别见 [02](02-materials-and-textures.md#材质类别)）。
 - 涂装只换颜色，板缝、百叶、加强筋等图案和明暗保留。
-- 掉漆处露出的底材不随涂装变色；灰尘和油迹叠在涂装上面。磨损的程度和画法见 06。
+- 掉漆处露出的底材不随涂装变色；灰尘和油迹叠在涂装上面。磨损的程度和画法见 [06](06-wear-damage-and-motion.md#常态磨损)。
 - 选色器提供一组命名的推荐色卡，例如民用蓝灰、货运暗红、工程黄、军用橄榄、军用石墨、工业钢灰，玩家点选后涂到体素上（美术 Q229）。
 
 ## 本阶段

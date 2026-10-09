@@ -18,7 +18,7 @@
 | [03-color-and-paint.md](03-color-and-paint.md) | 默认色板、用途倾向、玩家涂装、首个切片的配色 | 已写 |
 | [04-world-assets.md](04-world-assets.md) | 地形、自然物、铁路、桥梁与隧道口、站台、水面与雾、建筑原则 | 已写 |
 | [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性 | 已写 |
-| `06-wear-damage-and-motion.md` | 磨损、损伤、动画、特效 | 待拆票 |
+| [06-wear-damage-and-motion.md](06-wear-damage-and-motion.md) | 常态磨损与磨损叠加、表面损伤、摧毁、铁轨断点与工地、特效与强度上限、动画与轮对、贴花 | 已写 |
 | [07-icons-and-ui.md](07-icons-and-ui.md) | 状态色、宏观地图、面板与字体、物品图标与外框、界面符号 | 已写 |
 | `08-asset-pipeline-and-review.md` | 制作流程、交付物、样机与检查 | 待拆票 |
 
@@ -71,6 +71,10 @@ _Avoid_: 整体染色
 **磨损（Wear）**：
 长期服役留下的痕迹，例如灰尘、雨痕、掉漆、油迹；纯表现，不代表剩余耐久。
 _Avoid_: 损伤、老化度
+
+**磨损叠加**：
+渲染时按部位叠加在贴图上的磨损：下部积灰、朝上的面落尘、外露棱边掉漆，以及打破平铺重复的杂色。平铺贴图本身只画均匀的颜色不均。
+_Avoid_: 磨损贴花、磨损层
 
 **损伤（Damage）**：
 按核心的耐久状态显示出来的缺口和破损，只能由真实状态驱动。

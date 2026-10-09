@@ -2,7 +2,7 @@
 
 > **所属层**：渲染层。
 
-> 决策出处：主窗口、宏观地图、场景切换、管理界面、通知、常驻控件和各视图的相机，由[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)于 2026-10-05 确认。它取代了桌面停靠（Bottom Dock、Windows AppBar、Floating）、辅助窗口等规则；桌面停靠已由[产品定位、玩法支柱与 Demo 范围](https://github.com/odradekk/train/issues/194)从产品规划中删除，[桌面停靠研究](../research/desktop-dock-window.md)只作历史资料。模拟与窗口状态解耦、最小化时停止渲染、渲染帧率上限、线路场景的相机跟随规则，沿用转录 Q154–Q165 与 [#30](https://github.com/odradekk/train/issues/30)。
+> 决策出处：主窗口、宏观地图、场景切换、管理界面、通知、常驻控件和各视图的相机，由[窗口与界面的设计和规划](https://github.com/odradekk/train/issues/207)于 2026-10-05 确认。它取代了桌面停靠（Bottom Dock、Windows AppBar、Floating）、辅助窗口等规则；桌面停靠已由[产品定位、玩法支柱与 Demo 范围](https://github.com/odradekk/train/issues/194)从产品规划中删除，[桌面停靠研究](../research/desktop-dock-window.md)只作历史资料。模拟与窗口状态解耦、最小化时停止渲染、渲染帧率上限、线路场景的相机跟随规则，沿用转录 Q154–Q165 与 [#30](https://github.com/odradekk/train/issues/30)。镜头抖动开关由[磨损、损伤、动画与特效](https://github.com/odradekk/train/issues/251)于 2026-10-09 确认。
 
 ## 边界
 
@@ -89,6 +89,7 @@
 - **战斗**：使用所在场景的相机，另外可以聚焦到某个单位。
 - **设计编辑器**：环绕设计物，可以按高度剖切显示，见 [15](15-design-editor-and-tools.md#设计编辑器)。
 - 透视相机的缩放只改变相机距离，FOV 基本固定。
+- 玩家正在看的对象被命中时，镜头小幅抖动。设置中提供“镜头抖动”开关，默认打开，见[美术 06](../art/06-wear-damage-and-motion.md#特效的强度上限)。
 
 ### 线路场景的相机跟随
 
