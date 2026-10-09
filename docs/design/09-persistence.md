@@ -49,7 +49,7 @@ Save
 - 存档中引用到的设计全部内嵌，相同内容只存一份。引用方包括实例、进行中任务的目标设计、委托和改装草稿。内容包和用户内容库中的蓝图不嵌入，它们被修改或删除后存档照常读取（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，ADR-0012）。
 - 本局蓝图库和改装草稿内嵌保存。
 - 已有聚居地使用的聚居地模板内嵌保存，建立聚居地时复制的场景模型设计也一起内嵌，相同内容只存一份。读档后不重新选择模板，也不按新发布的模板或蓝图调整地块和场景；节点场景使用这些副本（[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)）。
-- 其他内容，例如体素定义、生物的蓝图、生物聚落类型、聚居地类型、生产流程，只保存 DefinitionId 和上次使用的 Revision，后者用于识别变化。读档时按 ID 解析为当前安装的定义，不嵌入旧副本。严格复现使用复现包中的原内容，见 [04](04-deterministic-simulation.md#录制与复现)。
+- 其他内容，例如体素定义、生物的蓝图、生物聚落类型、聚居地类型、生产流程，只保存 DefinitionId 和上次使用的 Revision，后者用于识别变化。读档时按 ID 解析为当前安装的定义，不嵌入旧副本。生物个体只引用所属物种（生物蓝图），读档和热重载时使用当前定义，不复制设计；这是“每个复合体实例有自己的设计”（ADR-0012）的例外。严格复现使用复现包中的原内容，见 [04](04-deterministic-simulation.md#录制与复现)。
 - 设计只固定形状和对体素定义的引用，体素定义仍解析为当前值，所以 Mod 的平衡更新对已有车辆生效。当前规格变化时保留状态绝对值，只按新的允许范围修正：耐久上限升高不自动修复，降低时截断；相关能力重新计算。具体规则见 [02](02-definitions-and-content.md) 和 ADR-0005。
 - 缺失定义时，包括缺失 Mod 或必需资产导致内容包无法通过校验的情况，读档前列出缺失的包和定义，由玩家选择取消或继续；继续时用占位保留原来的标识，规则见 [02](02-definitions-and-content.md#候选内容与运行中引用校验)（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)）。无法解释保存的状态时，加载明确失败。不删除状态，也不回退到旧定义。Mod 数值更新后模拟结果不同，是预期行为，不属于无损往返失败。
 
@@ -97,7 +97,7 @@ Save
 
 - 任何一步失败，当前世界保持不变，并报告失败的阶段、对象和关系。
 - 断轨、被毁的部件、进行中的战斗、已投降的聚居地、暂时没有可达路径，都是合法的受损状态，不算坏档。
-- 内容更新可能让某份内嵌蓝图在新规则下不再合法。这时已有实例照常运行，只在建造和改装时重新校验。
+- 内容更新可能让某份内嵌的设计或本局蓝图库中的蓝图在新规则下不再合法。这时已有实例照常运行，只在建造和改装时重新校验。
 - 读档完成后，向玩家列出发生了适配的内容。游戏处于暂停状态，由玩家开始。
 - 严格复现核对原输入和状态；普通读档发生合法的内容适配时只记录变化，不要求适配后的结果与旧状态完全相同。
 
@@ -145,7 +145,7 @@ Save
 
 ### 资源与生产状态恢复
 
-资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、RepairJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderRepair / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
 
 ### 示例存档
 
@@ -164,11 +164,11 @@ Save
 
 ## Demo 范围
 
-完整核心状态存档与格式版本 6；内嵌设计、本局蓝图库与聚居地模板，外部定义按当前内容解析；恢复流程与一致性检查；`double` 无损往返；存档身份与另存为；自动存档；导入与导出；示例存档；Save → Quit → Load → Continue 及跨进程对照。录制与复现见 [04](04-deterministic-simulation.md#录制与复现)。
+完整核心状态存档与格式版本 6；内嵌设计、本局蓝图库与聚居地模板，外部定义按当前内容解析；读档缺内容时用占位继续（ADR-0015）；恢复流程与一致性检查；`double` 无损往返；存档身份与另存为；自动存档；导入与导出；示例存档；Save → Quit → Load → Continue 及跨进程对照。录制与复现见 [04](04-deterministic-simulation.md#录制与复现)。
 
 ## Demo 之后
 
-正式发行后的存档迁移（转录 Q42）；缺失 Mod 的兼容与回退；云同步与分享。
+正式发行后的存档迁移（转录 Q42）；定义改名的迁移表（ADR-0015）；云同步与分享。
 
 ## 开放问题
 

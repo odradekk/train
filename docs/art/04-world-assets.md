@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文规定局部场景中的地形、自然物、铁路（钢轨、轨枕、道床）、桥梁与隧道口、进站区域与站台、水面和远景的画法，以及建筑的造型原则。场景怎样生成、轨距、相邻铁轨的中心距和泰坦净空见设计文档 [01](../design/01-voxel-engine-and-scenes.md)，铁轨渲染见 [07](../design/07-rendering.md#铁轨渲染)，地貌概况见 [05](../design/05-world-graph-and-generation.md)，聚居地布局与站点见 [16](../design/16-settlements.md)；本文引用、不重述。贴图规则见 [02](02-materials-and-textures.md)，构造语言见 [01](01-construction-language.md)，光照、天空与雾见 [05](05-lighting-and-readability.md)，宏观地图的地貌色见 [07](07-icons-and-ui.md#宏观地图)。
+本文规定局部场景中的地形、自然物、铁路（钢轨、轨枕、道床）、桥梁与隧道口、进站区域与站台、水面和远景的画法，以及建筑的造型原则。场景怎样生成、轨距、相邻铁轨的中心距和泰坦净空见设计文档 [01](../design/01-voxel-engine-and-scenes.md)，铁轨渲染见 [07](../design/07-rendering.md#铁轨渲染)，地貌概况见 [05](../design/05-world-graph-and-generation.md)，聚居地模板与站点见 [16](../design/16-settlements.md)；本文引用、不重述。贴图规则见 [02](02-materials-and-textures.md)，构造语言见 [01](01-construction-language.md)，光照、天空与雾见 [05](05-lighting-and-readability.md)，宏观地图的地貌色见 [07](07-icons-and-ui.md#宏观地图)。
 
 ## 不变量
 

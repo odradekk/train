@@ -42,10 +42,10 @@
 | `value` | 整数 | 是 | — | 基本货币价值，1 到 10 亿 | 首个切片 |
 | `mass` | 数 | 是 | — | 一个单位的质量，单位吨；大于 0，不超过 10 亿 | 首个切片 |
 | `max_durability` | 整数 | 是 | — | 放进设计后这一格的耐久上限，1 到 10 亿 | 首个切片 |
-| `tags` | 字符串数组 | 否 | `[]` | 取值由代码提供，不能重复。Demo 只有 `raw_good`（初级货物，节点资源引用它） | 首个切片 |
+| `tags` | 字符串数组 | 否 | `[]` | 取值由代码提供，不能重复。目前只有 `raw_good`（初级货物，节点资源引用它） | 首个切片 |
 | `behaviors` | 对象 | 否 | `{}` | 功能性行为的核心参数，以行为类型为键，见下表 | 首个切片 |
 
-带功能性行为的体素是部件，其余是结构体素。
+带 `simulation` 一节的体素中，带功能性行为的是部件，其余是结构体素。
 
 ### 功能性行为的核心参数
 
@@ -91,7 +91,7 @@
 | `kind` | 字符串 | 是 | — | `cube` | 首个切片 |
 | `shape` | 字符串 | 否 | `cube` | 形状目录里的名字，由代码提供，每个标准变体是一个独立的名字。Demo 的取值：`cube`、`half`、`plate`、`wedge`、`corner-wedge`、`beam`、`cylinder`，见[美术 01 的形状](../art/01-construction-language.md#形状) | Demo |
 | `material` | 字符串 | 否 | `painted_metal` | 表现材质类别：`painted_metal`、`bare_metal`、`concrete`、`stone_soil`、`glass`、`polymer_rubber`、`organic`，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有 `painted_metal` 和 `concrete` 能涂装 | Demo |
-| `tile_span` | 整数 | 否 | 1 | 平铺跨度，1、2、4 或 8 | Demo |
+| `tile_span` | 整数 | 否 | 1 | 平铺跨度，1、2、4 或 8 | 首个切片 |
 | `faces.top`、`faces.side`、`faces.bottom` | 资产路径 | 是 | — | 顶面、侧面、底面的贴图。几个面用同一张图就写同一个文件 | 首个切片 |
 | `faces.front` | 资产路径 | 否 | 用侧面图 | 正面图，不平铺 | Demo |
 
@@ -111,7 +111,7 @@
 
 | 类型 | 参数 | 说明 | 阶段 |
 | --- | --- | --- | --- |
-| `wheelset` | 无，写 `{}` | 车轮按列车的显示速度绕自身左右轴转动，轮径取半格 | Demo |
+| `wheelset` | 无，写 `{}` | 挂在转向架体素上：渲染器在这里生成轮对，按列车的显示速度转动。轮对可以跨格，轮径和轴距随轨距在车辆内容切片确定，见[美术 06](../art/06-wear-damage-and-motion.md) | Demo |
 | `light` | `color`，默认 `#ffd9a0`；`range`，单位格，大于 0，默认 4 | 灯光。受损时闪烁、被毁后熄灭，由耐久决定，不是参数 | Demo |
 
 - 这两种只有表现，可以挂在货物上，也可以挂在场景体素上；不让体素成为部件。
@@ -139,7 +139,7 @@
 | `diesel-engine` 柴油机组 | 部件 | `propulsion` | 首个切片 |
 | `driver-cab` 驾驶台 | 部件 | `control` | 首个切片 |
 | `cargo-hold` 货舱 | 部件 | `storage` | 首个切片 |
-| `wheel` 车轮 | 结构体素 | 表现行为 `wheelset`；`bare_metal`；`shape: cylinder` | Demo |
+| `bogie` 转向架 | 结构体素 | 表现行为 `wheelset`；`bare_metal` | Demo |
 | `headlight` 车头灯 | 结构体素 | 货物带表现行为 `light` | Demo |
 | `machine-gun` 机枪 | 部件 | `weapon`；正面图 | Demo |
 | `machine-tool` 机床 | 部件 | `production` | Demo |

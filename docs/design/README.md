@@ -39,7 +39,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [17-combat.md](17-combat.md) | 战斗、世界生物与征服 |
 | 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |
 | 核心模拟层 | [09-persistence.md](09-persistence.md) | 存档 |
-| 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 资源源、开采与资源更新 |
+| 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 节点资源、开采与资源更新 |
 | 核心模拟层 | [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
 | 核心模拟层 | [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
 | 核心模拟层 | [13-production-runtime-and-facilities.md](13-production-runtime-and-facilities.md) | Process、生产运行时、设施与能力 |
@@ -63,6 +63,9 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 ```text
                 核心模拟层
    权威游戏状态；确定性；不涉及体素；不依赖 Godot
+        ▲ 只得到 simulation 一节和设计属性
+        │
+   内容层（Train.Content）：解析定义，算出设计属性和建造合法性
         │ 只读查询、领域事件              ▲ 命令
         ▼                                │
    体素引擎层：局部场景与设计编辑器          │
@@ -74,8 +77,8 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 - **核心模拟层是唯一的权威来源。** 它在抽象世界图上以同一精度模拟整个世界：节点、线路与铁轨、聚居地、列车、经济、战斗、世界生物、时钟与命令。存档只保存核心状态，世界生成只产生初始核心状态。它使用普通 C# 类型，不依赖 Godot、SceneTree 和体素引擎层。
 - **体素引擎层只构建局部场景。** 玩家进入某个地点时，体素引擎层构建线路场景或节点场景，离开时销毁；设计编辑器也由它构建。场景只由该地点的核心状态快照、内容定义，以及由 WorldSeed 和地点身份派生的无状态随机键生成，所以同一地点每次生成的结果相同。场景不保存状态，也不影响任何结果。同一时间只显示一个场景；跟随列车时最多在后台预建一个下一场景，使切换无缝。
 - **渲染层是 Godot。** 它负责渲染、相机、输入、音频、窗口和界面。宏观地图和管理界面通过核心模拟层的只读查询读取数据，不经过体素引擎层。Godot 节点、网格、碰撞形状和界面都不是游戏事实。
-- **接口与信息隐藏。** 依赖方向是渲染层 → 体素引擎层 → 核心模拟层，下层不知道上层的存在。各层只通过窄接口交互：核心模拟层对外只有命令入口、只读查询和供表现使用的领域事件；体素引擎层对外只有构建、更新、销毁场景，拾取，以及交给渲染层的场景数据。玩家在任何界面或场景中的操作，都作为命令提交给核心模拟层。
-- **内容是共用的只读数据。** 体素定义、蓝图等内容同时供核心模拟层和体素引擎层读取，核心模拟层只读取由设计派生出的属性。定义不直接依赖 Godot Resource，而是使用 AssetId，由渲染层在需要时解析。
+- **接口与信息隐藏。** 依赖方向是渲染层 → 体素引擎层 → 内容层 → 核心模拟层，下层不知道上层的存在。各层只通过窄接口交互：核心模拟层对外只有命令入口、只读查询和供表现使用的领域事件；体素引擎层对外只有构建、更新、销毁场景，拾取，以及交给渲染层的场景数据。玩家在任何界面或场景中的操作，都作为命令提交给核心模拟层。
+- **内容层单独成为项目。** 内容层解析定义，检查引用和资产，算出设计属性和建造合法性，再按读取方拆开交给各层；核心只得到 `simulation` 一节和设计属性（ADR-0011）。定义不直接依赖 Godot Resource，而是使用 AssetId，由渲染层在需要时解析。
 - **领域事件与 Godot Signal。** 核心模拟层使用普通 C# 领域事件；适配层可以把它们转换为 Godot Signal，领域类型不为此继承 GodotObject。
 
 这一决定记录为 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)，它取代了 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 对游戏状态范围的描述。出处为[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)；原架构的出处为转录 Q17、Q34、Q49、Q50、Q147。
@@ -102,7 +105,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 14. 世界图的节点和线路集合、节点位置、线路长度、地貌概况和铁轨上限在生成后固定；之后只有占据者、铁轨数、断点和资源会变化；节点资源的储量只由开采流程减少，由原地恢复或再生事件增加。
 15. 车辆和建筑实例有自己的设计，只保存设计引用、部件耐久、结构耐久等实例状态；设计属性由内容层从设计派生；蓝图只是模板。每座建筑占据聚居地的一个地块。
 16. 建造、改装、修理和损伤按事务原子结算；战斗按模拟步结算，同一步的全部命中作为一个伤害事件统一施加。
-17. 车辆和建筑只能由显式的建造、委托或世界生成产生。
+17. 车辆和建筑只能由显式的建造、购买、委托或世界生成产生。
 
 ### 内容
 
@@ -110,7 +113,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 19. Runtime State 不写回 Definition。
 20. Semantic Revision 与 Presentation Asset Revision 分离。
 21. Capability 必须来自真实的 Behavior；Facility Tag 只表达兼容性。
-22. BOM 由设计的体素布局派生；建造消费完成的货物，不递归展开配方。
+22. BOM 由设计派生：自己的体素逐格计数，被嵌套的大型设备按整件计数；建造消费完成的货物，不递归展开配方。
 23. 货物是带 `simulation` 一节的体素定义或能入库的复合体；车辆和建筑不是货物。核心模拟层只读取体素定义中的 `simulation` 一节。
 24. 库存中的货物只按种类和数量计数，没有个体身份或个体状态。
 
@@ -119,7 +122,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 25. 一个 Voxel = 一个 Cell；一个 Cell 最多一个 Voxel。
 26. Voxel Local Coordinate 永远为整数；Voxel Orientation 永远为正交方向。
 27. Voxel 同一时间只有一个 Owner。
-28. 新建及正常改装的设计要求六面连通。
+28. 车辆、建筑和大型设备要求全部体素和被嵌套的复合体六面连成一体；场景模型和生物不要求。
 
 ### 已废弃的条目
 

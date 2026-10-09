@@ -59,3 +59,6 @@
   - 存档由核心状态和内嵌内容（设计等）组成。核心状态中的实例只记三样：设计的引用、按部件编号记录的部件耐久、结构耐久。
   - 把两部分合成存档文件的代码放在 `Train.Content` 或 Godot 项目，具体位置随层间接口的设计确定。
 - **过渡**：代码搬迁由实施工单完成。在此之前，现有代码仍按 ADR-0009 的结构。
+- **修订**：2026-10-09，[ADR-0013](0013-nest-composites-by-copying-designs-and-treat-storable-composites-as-goods.md) 让能入库的复合体也成为货物，并规定了嵌套复合体的部件编号顺序；[ADR-0014](0014-use-code-provided-behavior-types-and-sealed-functional-composites.md) 规定一件功能复合体是一个部件，只占一个编号。
+- **修订**：2026-10-09，[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)确认聚居地模板不按读取方拆分：一块地块既有核心字段（标识、尺寸、建筑），也有场景字段（位置、朝向），所以模板是一个整体，各层读取自己需要的字段。
+- **修订**：2026-10-09，[内容定义标准的整体一致性检查](https://github.com/odradekk/train/issues/267)补充设计属性：车辆长度（单位为格，由内容层根据布局算出），以及建筑的地块尺寸、建筑类型和设施标签。核心要用它们计算跟车距离，检查地块和工序。

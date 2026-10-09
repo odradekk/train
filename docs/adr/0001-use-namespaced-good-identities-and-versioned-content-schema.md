@@ -24,6 +24,8 @@ Built-in and mod resources are organized under `voxels`, `composites` and `layou
 
 2026-10-09，[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)修订：能入库的复合体（例如大型设备）也是货物，库存按去掉涂装的设计计数，见 [ADR-0013](0013-nest-composites-by-copying-designs-and-treat-storable-composites-as-goods.md)。体素定义的命名空间身份规则不变。
 
+2026-10-09，[内容定义标准的整体一致性检查](https://github.com/odradekk/train/issues/267)修订：同日 [ADR-0011](0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md) 取消 `scene_only` 标签，没有 `simulation` 一节的体素定义就是场景体素。[ADR-0015](0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md) 改为一个文件一份定义（`<local id>.<种类>.json`，目录为 `voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`、`markets/`），取代上文的后缀和目录；Layout 由聚居地模板取代。
+
 ## 编辑器去向修订
 
 2026-10-05，[编辑器的去向](https://github.com/odradekk/train/issues/211)确认用户内容库只保存玩家发布的蓝图；体素定义、场景模型、布局等其他内容由开发构建中的创作模式写入数据包（`core` 或 Mod 包）。存档内定义与跨范围复制、依赖闭包的规则随之取消。用户蓝图仍由系统基于 UUID 分配身份，“复制为新蓝图”建立新身份。见 [15](../design/15-design-editor-and-tools.md)。

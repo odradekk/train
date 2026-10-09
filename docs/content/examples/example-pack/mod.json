@@ -6,6 +6,6 @@
   "authors": ["Train 开发组"],
   "description": "内容定义标准的示例包，覆盖体素、蓝图和聚居地模板的各种写法。只供阅读和测试，数值不是正式设计。",
   "dependencies": [
-    { "id": "core", "min_version": "0.1.0" }
+    { "id": "core", "min_version": "0.0.54" }
   ]
 }

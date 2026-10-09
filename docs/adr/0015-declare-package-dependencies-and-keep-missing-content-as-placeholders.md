@@ -2,7 +2,7 @@
 
 2026-10-09 经[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)确认，属于地图[内容定义标准：体素、复合体与聚居地模板的格式和样例](https://github.com/odradekk/train/issues/256)。
 
-**文件组成**：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`。它的资产放在同名文件夹里。文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。加入或移除一份定义，就是加入或删除一个文件和它的文件夹。
+**文件组成**：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`。它的资产放在同名文件夹里。文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`、`markets/`。加入或移除一份定义，就是加入或删除一个文件和它的文件夹。几份同类定义共用的资产放在该种类目录的 `shared/` 文件夹里，所以 `shared` 不能用作 local id。
 
 **内容包**是发布、启用和依赖的单位，有命名空间和版本：
 - 内置的 `core` 也是一个包，版本就是游戏版本；

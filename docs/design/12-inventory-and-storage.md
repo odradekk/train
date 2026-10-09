@@ -14,14 +14,14 @@
 - 普通 Goods 的 Storage Capacity 按 Quantity 计算：每 1 个 Goods unit 占 1 点容量；Mass 独立用于质量相关 Gameplay。
 - 没有全局玩家物质库存：Goods 必须属于明确地点的 Inventory。
 - 聚居地内部物流宏观化：同一聚居地使用统一逻辑库存池，不模拟仓库到工厂的内部搬运网络。
-- Storage Capability 来自真实 Storage Equipment 的 Behavior，不由建筑类型或聚居地凭空产生。
+- Storage Capability 来自任意车辆或建筑中完好的、带 `storage` 行为的部件，不由建筑类型或聚居地凭空产生。
 
 ## 规则
 
 ### 地点库存
 
 - 不存在全局 Player Inventory。资源系统至少区分 Settlement Inventory、Train Inventory、Facility OutputBuffer 与未来其他明确地点的 Inventory。
-- Train Inventory 与 Settlement Inventory 不自动合并，必须有显式 Transfer；生产 Facility 不能直接读取停靠列车货舱。唯一在此声明的例外是 [14 的 Construction / Refit 启动事务](14-construction-refit-and-deconstruction.md#construction-job)：在玩家自己的聚居地，可直接消费当前所在地可访问的玩家 Train Inventory 中的 BOM，并记录来源；它不合并库存、不允许生产或回收 Batch、发电等日常设施逻辑绕过 Transfer。Transfer 自动化规则以后可以设计，但必须仍是真实库存移动。
+- Train Inventory 与 Settlement Inventory 不自动合并，必须有显式 Transfer；生产 Facility 不能直接读取停靠列车货舱。唯一在此声明的例外是 [14 的 Construction / Refit / Repair 启动事务](14-construction-refit-and-deconstruction.md#construction-job)：在玩家自己的聚居地，可直接消费当前所在地可访问的玩家 Train Inventory 中的 BOM，并记录来源；它不合并库存、不允许生产或回收 Batch、发电等日常设施逻辑绕过 Transfer。Transfer 自动化规则以后可以设计，但必须仍是真实库存移动。
 - 未来市场出售的货物就是聚居地实际库存中的货物，不另设独立的 Market Supply 数量（资源转录 Q279）；出售策略与市场规则本身延后。
 
 ### Settlement Inventory
@@ -32,13 +32,13 @@
 ### Storage Capacity
 
 - `UsedCapacity = Σ Stack.Quantity`；每个货物单位占 1 点 Storage Capacity。
-- `TotalCargoMass = Σ Definition.Mass × quantity`，独立计算。
+- `TotalGoodsMass = Σ Definition.Mass × quantity`，独立计算。
 - Demo 不增加 Liquid-only capacity、Refrigerated capacity、Hazardous capacity 或 Cargo weight limit；Crude Oil 等仍作为普通标准库存 Goods。
 
 ### Storage Capability
 
 - Train：车辆中完好的存储部件 → StorageCapability → Train Inventory Capacity。
-- Settlement：仓库建筑中完好的存储部件 → StorageCapability → Settlement Inventory Capacity。表面上“建仓库增加容量”，底层事实仍由仓库设计中的存储部件提供；部件被毁时容量相应减少，见 [03 的设计属性](03-vehicles-buildings-and-designs.md#设计属性)。
+- Settlement：建筑中完好的存储部件 → StorageCapability → Settlement Inventory Capacity。表面上“建仓库增加容量”，底层事实仍由建筑设计中的存储部件提供，不限于仓库建筑；部件被毁时容量相应减少，见 [03 的设计属性](03-vehicles-buildings-and-designs.md#设计属性)。
 - Capability 由真实 Behavior 推导，Facility Tag 不能伪造 Storage Capability，见 [13](13-production-runtime-and-facilities.md)。
 
 ### Overcapacity
@@ -54,7 +54,7 @@
 
 ## Demo 范围
 
-Settlement Inventory、Train Inventory、显式 Train ↔ Settlement Transfer、按 Quantity 计数的 Storage Capacity 与独立 Mass、来自 Storage Equipment 的 Storage Capability、Overcapacity、只有 Stack 的库存。范围归属见 [10](10-resources-and-extraction.md)。
+Settlement Inventory、Train Inventory、显式 Train ↔ Settlement Transfer、按 Quantity 计数的 Storage Capacity 与独立 Mass、来自带 `storage` 行为的部件的 Storage Capability、Overcapacity、只有 Stack 的库存。范围归属见 [10](10-resources-and-extraction.md)。
 
 ## Demo 之后
 
@@ -62,6 +62,6 @@ Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、�
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：Storage Equipment capacity。
+- 地图迷雾（不立票）：未冻结参数：存储部件的容量。
 
 资源与生产在后续切片实现，见 [00 的后续切片](00-product-and-core-loop.md#后续切片暂定)。

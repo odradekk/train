@@ -1,12 +1,11 @@
 {
   "schema_version": 3,
-  "id": "wheel",
+  "id": "bogie",
   "simulation": { "value": 120, "mass": 1.5, "max_durability": 400 },
   "appearance": {
     "allowed_orientations": "four_way",
     "presentation": {
       "kind": "cube",
-      "shape": "cylinder",
       "material": "bare_metal",
       "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png" }
     },
@@ -14,5 +13,5 @@
       "wheelset": {}
     }
   },
-  "display": { "name": "车轮", "description": "车辆的车轮，行驶时转动；没有功能，算结构体素。", "icon": "icon.png" }
+  "display": { "name": "转向架", "description": "车体下的转向架；渲染器在这里生成会转动的轮对。没有功能，算结构体素。", "icon": "icon.png" }
 }

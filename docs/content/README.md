@@ -2,7 +2,7 @@
 
 这里是内容包和各种内容定义的格式标准：字段说明、JSON Schema 和一个示例内容包。规则的来由见设计文档 [02](../design/02-definitions-and-content.md)、[03](../design/03-vehicles-buildings-and-designs.md) 和 ADR-0011 到 ADR-0015；字段怎样写，以这里为准。
 
-现在的加载器还读不了这套格式，实施工单完成之前，示例只供阅读。实施工单的验收标准包括“加载器能完整加载全部示例，示例通过 Schema 校验”。
+现在的加载器还读不了这套格式，实施工单完成之前，示例只供阅读。实施工单的验收标准包括“加载器能完整加载示例，示例通过 Schema 校验”，按阶段验收：一个包里只要有一份定义读不了，整个包都无效，所以首个切片的测试只把标为首个切片的样例（`voxel.md` 等各篇“样例”表的阶段列）组成测试包来加载；到 Demo 时加载全部示例。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -10,6 +10,7 @@
 | [voxel.md](voxel.md) | 体素定义 `<local id>.voxel.json` |
 | [blueprint.md](blueprint.md) | 蓝图 `<local id>.blueprint.json`，以及被嵌套的复合体和存档共用的设计对象 |
 | [settlement-type.md](settlement-type.md) | 聚居地类型 `<local id>.settlement-type.json` |
+| [market-table.md](market-table.md) | 市场表 `<local id>.market-table.json`，首个切片的临时格式 |
 | [settlement-template.md](settlement-template.md) | 聚居地模板 `<local id>.settlement-template.json`，以及从世界生成到聚居地出现在节点上的整条链 |
 | [schemas/](schemas/) | JSON Schema（draft 2020-12），一种文件一个，共用的类型在 `common.schema.json` |
 | [examples/](examples/) | 示例：内容包 `example-pack`、依赖它的 `example-addon`，以及用户内容库里的一个玩家蓝图 |
@@ -29,7 +30,8 @@
     │   └── shared/                几份体素定义共用的资产
     ├── blueprints/
     ├── settlement-types/
-    └── settlement-templates/
+    ├── settlement-templates/
+    └── markets/
 ```
 
 - Mod 放在 `user://mods/<包目录>/`。内置的 `core` 包放在 `builtin/core/`，没有 `mod.json`，版本就是游戏版本。
@@ -39,9 +41,9 @@
 
 - **一个文件一份定义**：文件名是 `<local id>.<种类>.json`，根对象就是这份定义。文件里的 `id` 必须和文件名一致，不一致就报错。
 - **严格 JSON**：未知字段、重复字段、注释和尾随逗号都无效。包里任何一份定义有错，整个包都不加载。
-- **`schema_version`**：每种文件各自编号。当前 manifest 和聚居地类型是 2，体素定义和蓝图是 3，聚居地模板是 1。
-- **local id**：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头。约定用连字符分隔单词，例如 `diesel-engine`。
-- **引用**：同一个包里的定义直接写 local id；其他包的定义写 `<命名空间>:<local id>`，命名空间是 `core` 或那个包的 UUID，例如 `core:grain`。引用了其他包的定义，就必须在 manifest 里声明依赖那个包。
+- **`schema_version`**：每种文件各自编号。当前 manifest、聚居地类型和市场表是 2，体素定义和蓝图是 3，聚居地模板是 1。
+- **local id**：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头；不能是 `shared`，它是共用资产文件夹的名字。约定用连字符分隔单词，例如 `diesel-engine`。
+- **引用**：同一个包里的定义直接写 local id；其他包的定义写 `<命名空间>:<local id>`，命名空间是 `core` 或那个包的 UUID，例如 `core:grain`。引用了其他包的定义，就必须在 manifest 里声明依赖那个包。写本包自己的命名空间也可以，等同 local id。
 - **资产路径**：
   - 不带斜杠的文件名，指这份定义自己的同名文件夹，例如 `"top.png"`；
   - 以 `shared/` 开头的路径，指同类定义共用的文件夹，例如 `"shared/vehicle-underside.png"`；
@@ -62,7 +64,7 @@ Schema 只检查单个文件的结构和取值范围。下面这些由加载器�
 
 ## 示例包
 
-- `example-pack` 依赖 `core`，所有定义都写在包里，不引用 `core` 的内容。
+- `example-pack` 依赖 `core`，所有定义都写在包里；除了地貌类型 `core:plains`，不引用 `core` 的内容。
 - `example-addon` 依赖 `example-pack`，用完整标识引用它的体素、蓝图和聚居地类型，演示包依赖和跨包引用。
 - `content-library/` 是用户内容库里的一个玩家蓝图。
 

@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文规定车辆、建筑和设备的默认色彩与玩家涂装的视觉规则。材质类别和贴图画法见 [02](02-materials-and-textures.md)，磨损见 [06](06-wear-damage-and-motion.md)，地形和自然物的颜色见 [04](04-world-assets.md)，宏观地图和界面的颜色见 [07](07-icons-and-ui.md)。涂装属于蓝图的表现设置（设计文档 [02](../design/02-definitions-and-content.md)、[11](../design/11-goods-and-production-network.md)），编辑器中的操作见设计文档 [15](../design/15-design-editor-and-tools.md#编辑)。
+本文规定车辆、建筑和设备的默认色彩与玩家涂装的视觉规则。材质类别和贴图画法见 [02](02-materials-and-textures.md)，磨损见 [06](06-wear-damage-and-motion.md)，地形和自然物的颜色见 [04](04-world-assets.md)，宏观地图和界面的颜色见 [07](07-icons-and-ui.md)。涂装属于设计和蓝图的表现设置（设计文档 [02](../design/02-definitions-and-content.md)、[11](../design/11-goods-and-production-network.md)），编辑器中的操作见设计文档 [15](../design/15-design-editor-and-tools.md#编辑)。
 
 ## 不变量
 
@@ -89,4 +89,4 @@
 
 ## 开放问题
 
-- 地图迷雾（不立票）：涂装属于设计和蓝图的表现设置，不改变语义修订；只改涂装立即生效，不需要改装，修改蓝图的涂装不影响已建成的实例（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)）。这些已由设计文档 [02](../design/02-definitions-and-content.md#语义哈希字段与规范化)、[03](../design/03-vehicles-buildings-and-designs.md#车辆与建筑实例)、[11](../design/11-goods-and-production-network.md) 规定。还没定的是：涂装字段的格式，只有颜色贴图时可涂装区域怎样编码，首个切片中把默认色画在图里的贴图怎样接入涂装（按“保留明暗、换颜色”重新着色，或把可涂装部分重画成中性色）。设计编辑器切片临近时再定。
+- 地图迷雾（不立票）：涂装属于设计和蓝图的表现设置，不改变语义修订；只改涂装立即生效，不需要改装，修改蓝图的涂装不影响已建成的实例（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)）。这些已由设计文档 [02](../design/02-definitions-and-content.md#语义哈希字段与规范化)、[03](../design/03-vehicles-buildings-and-designs.md#车辆与建筑实例)、[11](../design/11-goods-and-production-network.md) 规定。还没定的是：只有颜色贴图时可涂装区域怎样编码，首个切片中把默认色画在图里的贴图怎样接入涂装（按“保留明暗、换颜色”重新着色，或把可涂装部分重画成中性色）。涂装字段见[蓝图的 layout](../content/blueprint.md#layout)。设计编辑器切片临近时再定。

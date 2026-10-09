@@ -55,4 +55,6 @@
 - **场景**：被嵌套的复合体在场景里是宿主的子对象，有自己的根变换，转动只改这个根变换。拾取命中设备里的某一格时，体素引擎层先换算成宿主的部件编号，再交给核心。
 - **修订**：2026-10-09，[ADR-0014](0014-use-code-provided-behavior-types-and-sealed-functional-composites.md) 引入功能复合体：上文“它的部件就是宿主的部件”只适用于组装体，功能复合体整件是宿主的一个部件。
 - **修订**：2026-10-09，[蓝图的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/265)取消“至少有一面贴着宿主的体素”这条单独的规则，改由类别的连通要求代替：车辆、建筑和大型设备要求全部体素和被嵌套的复合体六面连成一体；场景模型和生物不要求相贴，宿主可以只含复合体，例如由几棵树组成的树丛。
+- **修订**：2026-10-09，[ADR-0014](0014-use-code-provided-behavior-types-and-sealed-functional-composites.md) 规定功能复合体里不能再装复合体。
+- **修订**：2026-10-09，库存按去掉涂装的设计计数，但设计包括名称和说明（见 [ADR-0012](0012-give-each-composite-instance-its-own-design-and-keep-blueprints-as-templates.md) 的修订），所以名称不同的设计仍是不同的种类。
 - **之后再定的部分**：市场怎样收卖设备、价格怎样计算，以及车辆和建筑整体买卖的规则，由贸易和聚居地的设计确定。

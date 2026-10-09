@@ -4,14 +4,15 @@
   "title": "内容定义共用的类型",
   "$defs": {
     "localId": {
-      "description": "local id：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头。",
+      "description": "local id：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头；不能是 shared，它是共用资产文件夹的名字。",
       "type": "string",
-      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+      "not": { "const": "shared" }
     },
     "definitionRef": {
-      "description": "对另一份内容定义的引用：同一个包里写 local id，其他包写 `<命名空间>:<local id>`；命名空间是 `core` 或包的 UUID。",
+      "description": "对另一份内容定义的引用：同一个包里写 local id，其他包写 `<命名空间>:<local id>`；命名空间是 `core` 或包的 UUID。写本包的命名空间也可以，等同 local id。",
       "type": "string",
-      "pattern": "^([a-z0-9][a-z0-9_-]{0,63}:)?[a-z0-9][a-z0-9_-]{0,63}$"
+      "pattern": "^((core|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}):)?[a-z0-9][a-z0-9_-]{0,63}$"
     },
     "uuid": {
       "description": "小写、带连字符的 UUID。",

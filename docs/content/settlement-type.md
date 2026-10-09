@@ -31,7 +31,7 @@
 | `simulation.preferred_terrain` | 字符串数组 | 否 | `[]` | 偏好的地貌类型，写完整标识，例如 `core:plains`；空数组表示不限。地貌类型还没有定义目录，暂不检查是否存在 | 首个切片 |
 | `simulation.weight` | 整数 | 是 | — | 世界生成选类型时的权重，正整数 | 首个切片 |
 | `simulation.population_min`、`simulation.population_max` | 整数 | 是 | — | 常住人口范围，正整数，下限不大于上限。世界生成时在范围内取值；玩家建立的聚居地取下限 | 首个切片 |
-| `simulation.initial_platform_count` | 整数 | 否 | 0 | 临时规则：首个切片没有站点建筑时的站台数。有了站点以后去掉，站台改由站点里的 `platform` 部件提供 | 首个切片 |
+| `simulation.initial_platform_count` | 整数 | 否 | 0 | 临时规则：首个切片没有模板和站点建筑时的站台数。有模板的聚居地不读这个字段，站台由站点里的 `platform` 部件提供；Demo 时去掉 | 首个切片 |
 | `display.name` | 字符串 | 是 | — | 1–100 个字符 | 首个切片 |
 | `display.description` | 字符串 | 是 | — | 1–2000 个字符 | 首个切片 |
 | `display.map_symbol` | 资产路径 | 是 | — | 宏观地图上的类型符号：正方形 PNG，边长是 24 的整数倍；只画白色图形和透明底，界面按关系色着色，见[美术 07](../art/07-icons-and-ui.md) | 首个切片 |
@@ -46,6 +46,12 @@
 | `restore_per_tick` | 每次恢复的数量，非负整数；可以为 0，也可以大于上限，恢复时截到上限 |
 
 正式的市场和人口规则确定后，供需和临时站台数会被替换。
+
+## 加载器检查的规则
+
+- `id` 和文件名一致；`map_symbol` 指向的图片存在，是正方形，边长是 24 的整数倍。
+- 供给和需求里的引用存在并且是货物，同一边不重复。
+- `population_min` 不大于 `population_max`。
 
 ## 和现有代码的差别
 

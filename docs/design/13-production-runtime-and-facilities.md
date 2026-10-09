@@ -42,7 +42,7 @@
 - 节点资源、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由节点、建筑内设备与 Settlement Inventory 提供，不互相推导：农业聚居地没有任何节点资源也可以大量生产 Grain（资源转录 Q228，[05](05-world-graph-and-generation.md)）。
 - 建筑蓝图保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自部件 Behavior 的对应 Capability。
 - 例如 Smelter `facility_tags = [metallurgy]`，其中的 Industrial Machinery 提供实际 ProductionCapability；设备全部损坏时 facility tag 仍是 metallurgy，但 ProductionCapability = 0。
-- Demo 的 Facility 通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability；Power Equipment → PowerCapability。Propulsion Equipment 与 Control Equipment 也是 Demo 功能设备，但提供的是车辆的动力与控制能力（见 [03](03-vehicles-buildings-and-designs.md)），不是 Facility 能力；车头制造需要控制能力，因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，目录见 [11](11-goods-and-production-network.md)。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-vehicles-buildings-and-designs.md)。
+- Demo 的 Facility 通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability（任何车辆或建筑中完好的、带 `storage` 行为的部件都提供存储能力，不限于仓库建筑）；Power Equipment → PowerCapability。Propulsion Equipment 与 Control Equipment 也是 Demo 功能设备，但提供的是车辆的动力与控制能力（见 [03](03-vehicles-buildings-and-designs.md)），不是 Facility 能力；车头制造需要控制能力，因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，目录见 [11](11-goods-and-production-network.md)。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 ### Environmental Requirements
 
@@ -93,7 +93,7 @@
 ### 单 Facility 并行限制
 
 - 此处 Capability 的并行名额按设施建筑内的能力类型计算，不按每个设备部件分配；同类设备贡献合计执行能力，增加设备只提高产能，不增加 Job 名额。
-- Demo：一个 Production Capability 同时最多 1 个 Production 或 Recovery Batch；一个 Extraction Capability 最多 1 个开采 Batch；一个 Construction Capability 最多 1 个 Construction / Refit / Deconstruction Job。
+- Demo：一个 Production Capability 同时最多 1 个 Production 或 Recovery Batch；一个 Extraction Capability 最多 1 个开采 Batch；一个 Construction Capability 最多 1 个 Construction / Refit / Repair / Deconstruction Job。
 - 同一 Building 同时拥有不同 Capability 时，可以并行运行不同 Capability 的 Job，并共同竞争 Power / Labor。
 - 不允许在同一 Capability 内手工分配 40% Job A、30% Job B、30% Job C 之类的份额。
 
@@ -116,7 +116,7 @@
 - Recovery 只处理库存中的标准货物 Stack { DefinitionId, Quantity }，按完整标准状态执行；库存中没有受损或带状态的件，见 [12](12-inventory-and-storage.md#只有-stack)。
 - Recovery 总是以 ActiveBatch 运行，可以作为持续 Plan。
 - Recovery 必须由带兼容 Facility Tag 的真实 Facility 通过 Batch Runtime 执行，占用其 Production Capability 并经 Work / Power / Labor 与 OutputBuffer；复用 Industrial Machinery，不新增 Recycling Machinery，也不是库存菜单中的瞬时分解按钮（资源转录 Q346）。
-- 车辆和建筑不能直接 Recovery，必须先显式拆解（[14](14-construction-refit-and-deconstruction.md)）。
+- 车辆和建筑不能直接 Recovery，必须先显式拆解（[14](14-construction-refit-and-deconstruction.md)）。Demo 中 Recovery 只处理体素货物（按体素定义标识计数的 Stack）；库存中的大型设备不能回收，拆解入库的大型设备留到 Demo 之后。
 
 ### Job 与 Facility 生命周期
 
@@ -147,7 +147,7 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 
 ## Demo 之后
 
-多 Production Slot、机器邻接加成、规模经济、复杂效率曲线、连续工艺故障、半成品腐坏、Production Batch 主动 Cancel / Refund、特殊 Process 的连续运行失败规则；Facility destroyed 后自动回收；Settlement AI / Production Planning；人口增长、Labor 换算、职业、工资、疾病与医疗系统。
+多 Production Slot、拆解入库的大型设备、机器邻接加成、规模经济、复杂效率曲线、连续工艺故障、半成品腐坏、Production Batch 主动 Cancel / Refund、特殊 Process 的连续运行失败规则；Facility destroyed 后自动回收；Settlement AI / Production Planning；人口增长、Labor 换算、职业、工资、疾病与医疗系统。
 
 ## 开放问题
 

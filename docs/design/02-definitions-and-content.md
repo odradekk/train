@@ -22,7 +22,7 @@
 
 ### 体素定义
 
-- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按去掉涂装的设计计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。货物、库存、市场和贸易引用体素定义标识或设计哈希。TradeMetadata 的字段与实现随贸易接入时确定。
+- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按去掉涂装的设计计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。货物、库存、市场和贸易引用体素定义标识或去掉涂装后的设计哈希。TradeMetadata 的字段与实现随贸易接入时确定。
 - 定义文件按读取方分节，身份等共用字段写在顶层（[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)，2026-10-09）：
 
   | 节 | 读取方 | 字段 |
@@ -46,7 +46,7 @@
 
 ### 库存中的货物
 
-- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }，或 Stack { 炮塔的设计哈希, 数量 = 2 }。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
+- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }，或 Stack { 炮塔去掉涂装后的设计哈希, 数量 = 2 }。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
 - 货物在建造、改装、修理时被消耗，成为车辆或建筑设计中的体素或大型设备；拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还，见 [03](03-vehicles-buildings-and-designs.md#建造改装与修理) 和 [14](14-construction-refit-and-deconstruction.md)。
 
 ### Definition、Revision 与 Instance
@@ -73,12 +73,13 @@
 | 定义类型、DefinitionId、哈希编码版本 | 名称、说明等显示文本 |
 | Value、耐久上限、Mass、Tags、允许朝向 | 图片、模型、材质、声音的内容与路径 |
 | Behavior 类型与参数 | 碰撞、纯视觉配置与资产绑定、编辑器排版等辅助信息 |
-| 蓝图和设计的体素布局（格、定义身份、朝向）与档位声明 | 涂装（它参与设计哈希）；引用目标的 Revision |
+| 引用的 DefinitionId | 引用目标的 Revision |
 
 - 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
 - 对象字段和字符串键按 Ordinal 顺序编码。标签和 Behavior 等无序集合稳定排序，Behavior 按类型标记的 Ordinal 顺序编码；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
 - 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
-- 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎牵引力会改变引擎 Revision，不改变引用它的车辆设计自身的 Revision；使用方仍必须根据当前引擎规格重算受影响能力。
+- 蓝图和设计不是语义哈希的对象。蓝图的 Revision 就是它的设计对象的设计哈希（涂装参与设计哈希）。
+- 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎牵引力会改变引擎 Revision，不改变引用它的车辆设计的设计哈希；使用方仍必须根据当前引擎规格重算受影响能力。
 - 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。碰撞只在场景中使用，属于表现数据，不参与语义哈希；更换显示模型不自动改变碰撞形状。
 - 验收覆盖重新排版不变、更改有效语义字段产生变化、纯表现更新不改变语义 Revision、依赖更新生效但不改变引用方自身 Revision。
 
@@ -97,9 +98,9 @@
 | Mod | `user://mods` 中各包的 `resources/` 下沿用相同结构 |
 | 用户内容库 | 目标目录 `user://content-library/`，只保存玩家的蓝图，每个蓝图一个文件 `<UUID>.blueprint.json`；旧 `user://blueprints/` 读取／迁移单独落实 |
 | 本局蓝图库 | 存档的内嵌内容 |
-| 草稿（非有效来源） | `user://authoring-drafts/`，设计编辑器和创作模式的草稿，不参与有效内容扫描 |
+| 草稿（非有效来源） | 改装草稿和本局蓝图库的草稿存在存档里；用户内容库蓝图和创作模式的草稿在 `user://authoring-drafts/`；都不参与有效内容扫描 |
 
-目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`，manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
+目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`、`markets/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`；市场表是首个切片的临时格式，后缀是 `.market-table.json`。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
 定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
 
@@ -110,7 +111,7 @@
 | 市场表 | `.market-tables.json` | 1 |
 | 聚居地类型 | `.settlement-types.json` | 1 |
 
-- 聚居地模板的格式尚未实现，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)决定。场景模型和生物的蓝图、生物聚落类型的格式也尚未实现，见 [01](01-voxel-engine-and-scenes.md#场景模型) 和 [17](17-combat.md#世界生物)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
+- 聚居地模板、场景模型和生物蓝图的格式见[内容定义标准](../content/README.md)，代码尚未实现；生物聚落类型见 [17](17-combat.md#生物聚落)。旧过渡格式 `settlements/*.settlements.json` 已退役，内容加载不创建旧聚居地实例，也不要求首次目录包含聚居地。聚居地类型与模板见 [16](16-settlements.md)；世界生成在生成边界校验所需内容和开局地点，见 [05](05-world-graph-and-generation.md)。
 - 存档位于 `user://saves/<存档 UUID>/save.json`。内容文件按稳定身份组织，显示名称保存在文件内，重命名不改变身份和引用；路径不替代定义内部的 DefinitionId。旧蓝图文件形式为 `user://blueprints/<蓝图 UUID>.composites.json`，其身份与原文件保护遵守上文迁移要求。
 - 早期切片通过手写 JSON 和测试操作使用定义格式；设计编辑器与创作模式见 [15](15-design-editor-and-tools.md)。
 
@@ -120,7 +121,7 @@
 - 不同领域保持强类型 ID，例如体素定义标识和蓝图标识。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - Behavior 类型只能由游戏代码提供，内容只选类型、填参数，不能自带脚本；内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。内容里写了未知类型，整个包无效。Demo 的类型清单见 [03](03-vehicles-buildings-and-designs.md#behavior-组合)。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
 - ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 和定义之间的引用都直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
-- 用户蓝图的身份由系统基于 UUID 分配，沿用 `namespace:local-id` 和类型区分，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图时覆盖内容，身份不变；“复制为新蓝图”和在本局蓝图库、用户内容库之间复制都建立新身份。存档中的本局蓝图库按各存档隔离解析，另存为或导入不重编身份。
+- 用户蓝图的身份是系统分配的 UUID，写在 `id` 里，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图时覆盖内容，身份不变；“复制为新蓝图”和在本局蓝图库、用户内容库之间复制都建立新身份。存档中的本局蓝图库按各存档隔离解析，另存为或导入不重编身份。
 
 ### Mod 与热加载
 
@@ -130,9 +131,9 @@
   - 加载按依赖排序；处在依赖循环里的包都不加载。缺依赖、依赖版本太低或包内任何定义有错，整个包都不加载，依赖它的包也跟着不加载。
   - 本局蓝图库和用户内容库的蓝图记下保存时用到的包（UUID、名称、版本），只用于显示；缺依赖时显示为不可用并列出缺了哪些包，不删除，也不能建造。
   - 玩家构建在主菜单里启用或停用 Mod，下次读档时生效。定义改名用的迁移表放到 Demo 之后。
-- **第一阶段 Data Mod**：支持新增体素定义、蓝图、市场表和聚居地类型，以及修改自有定义的数值、引用资产、组合已有 Behavior；Layout 是目标格式，尚未实现。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增体素定义、蓝图、聚居地类型、聚居地模板和市场表，修改自有定义的数值和资产，选用已有行为类型并填参数。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
-- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置不改变 Asset Revision。这两类有效变化都触发 Catalog 发布，不改变 Semantic Revision。蓝图更新不改变已有实例的设计。
+- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior 或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置不改变 Asset Revision。这两类有效变化都触发 Catalog 发布，不改变 Semantic Revision。蓝图更新不改变已有实例的设计。
 
 ### 内容更新与实例状态
 

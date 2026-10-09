@@ -2,7 +2,7 @@
 
 2026-10-05 经[代码结构与旧代码去留](https://github.com/odradekk/train/issues/213)确认，属于地图[代码重构：为首个切片“宏观贸易”建立实施工单](https://github.com/odradekk/train/issues/218)。
 
-2026-10-09 起，内容层改为单独的项目 `Train.Content`，见 [ADR-0011](0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)；下文中内容层位于 `Train.Core`、以及放弃“内容层单独成为一个项目”的部分已被取代。
+2026-10-09 起，内容层改为单独的项目 `Train.Content`，见 [ADR-0011](0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)；下文中内容层位于 `Train.Core`、以及放弃“内容层单独成为一个项目”的部分已被取代。项目因此变为四个：`Train.Scenes` 另引用 `Train.Content`，Godot 项目引用三个库，`Content/` 从 `Core/` 移出。
 
 代码分成三个项目，依赖方向与 [ADR-0008](0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 的分层一致：
 
