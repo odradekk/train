@@ -56,7 +56,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 每份文档的固定小节：边界、不变量、规则、Demo 范围、Demo 之后、开放问题。Demo 指最终游戏完整可玩的最小集合；本阶段是 Demo 之前的开发里程碑，其范围只在 [00 的本阶段范围](00-product-and-core-loop.md#本阶段范围)中描述，详细分期见各实施 Issue。
 
-术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId 分别对应体素定义、体素定义标识，Value 即基本货币价值；Train Assembly 对应列车编组。Voxel、Revision，以及 Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId、Voxel、Cell 分别对应体素定义、体素定义标识、体素、体素格，Value 即基本货币价值；Train Assembly 对应列车编组。文中剩余的 Voxel、Cell 在各篇下次修订时改为中文。Revision，以及 Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
 
 ## 总体架构
 

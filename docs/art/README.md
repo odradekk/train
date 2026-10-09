@@ -13,7 +13,7 @@
 | 文件 | 内容 | 状态 |
 | --- | --- | --- |
 | [00-direction.md](00-direction.md) | 视觉基调、关键词、技术时代感、不采用的方向 | 已写 |
-| `01-construction-language.md` | 用途与造型、尺度与子网格、构件和 Shape、接缝与倒角 | 由[非立方体形状与构件语言](https://github.com/odradekk/train/issues/245)编写 |
+| `01-construction-language.md` | 用途与造型、尺度与子网格、形状与自定义模型、接缝与倒角 | 由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)编写 |
 | `02-materials-and-textures.md` | 材质、贴图密度、映射、细节层次 | 由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)编写，[首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补“本阶段” |
 | `03-color-and-paint.md` | 默认色彩、玩家涂装 | [首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补“本阶段”；其余待拆票 |
 | `04-world-assets.md` | 建筑、地形、自然物、铁路 | 由[首个切片的场景美术规格](https://github.com/odradekk/train/issues/247)编写 |
@@ -33,4 +33,80 @@
 
 ## 术语
 
-由[美术文档的术语](https://github.com/odradekk/train/issues/241)填写。在此之前沿用 [CONTEXT.md](../../CONTEXT.md) 和[设计文档](../design/README.md)的用词。设计文档和代码也会用到的词写进 CONTEXT.md；只在美术制作中使用的词在这里定义。
+> 决策出处：[美术文档的术语](https://github.com/odradekk/train/issues/241)。
+
+设计文档和代码也会用到的词以 [CONTEXT.md](../../CONTEXT.md) 为准，例如体素、体素格（简称格）、体素定义、结构体素、部件、蓝图、场景模型、涂装。本节只定义美术制作中使用的词。
+
+正文用中文术语，词条第一次出现时在括号里附英文。英文只保留在三种地方：代码标识（如 `scene_only`、`voxel_top`）；没有通行中文说法的技术名（如 PBR、UV、Mipmap、Triplanar）；[00](00-direction.md) 中八个关键词的原词。
+
+**形状（Shape）**：
+可复用的几何外形，例如楔形、半块、梁、圆柱；多种体素定义可以共用同一种形状。形状只决定外观，不带质量、耐久或能力。它能否进入内容格式，由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)决定。
+_Avoid_: 构件、造型块；碰撞用的一律写“碰撞形状”
+
+**标准变体**：
+同一种形状按固定比例做出的几种规格，例如 1、1/2、1/4、1/8 格厚。游戏中只使用标准变体，不任意缩放。
+_Avoid_: 自由缩放
+
+**自定义模型（Custom Mesh）**：
+为某一种体素定义单独制作的模型，对应 [07](../design/07-rendering.md) 的 Custom Mesh。
+_Avoid_: 专用件
+
+**子网格**：
+建模时参考的 1/8 格网格，用来确定外形比例和接口位置；不是新的占格单位。
+
+**严格内接**：
+模型完全位于自己所在的格内，不越出格的边界。
+
+**运动范围**：
+会动的部分（风扇、轴、炮塔）在整个动作过程中经过的全部空间。普通体素的运动范围也必须严格内接。
+_Avoid_: 扫掠包络
+
+**贴图密度**：
+每格边长对应的贴图像素数，例如 32 px/格。
+_Avoid_: 纹理密度
+
+**信息贴图**：
+铭牌、文字、编号、屏幕等需要清楚可读的贴图，可以不受基础贴图密度限制。
+_Avoid_: 信息纹理
+
+**微表面**：
+材质上细小的粗糙度和法线变化，用来增加质感，不承载需要读出的信息。
+
+**可涂装区域（Paint Mask）**：
+一个体素表面中能被涂装改色的部分；玻璃、裸金属、橡胶、灯具等保留各自的颜色和质感。
+_Avoid_: 整体染色
+
+**磨损（Wear）**：
+长期服役留下的痕迹，例如灰尘、雨痕、掉漆、油迹；纯表现，不代表剩余耐久。
+_Avoid_: 损伤、老化度
+
+**损伤（Damage）**：
+按核心的耐久状态显示出来的缺口和破损，只能由真实状态驱动。
+_Avoid_: 磨损、随机破坏
+
+**样机**：
+为验证美术规则而做的车辆或建筑，例如民用重载机车、军用重装车辆、工业维护建筑。
+_Avoid_: 原型（指车辆或建筑时）
+
+**原型**：
+可运行的实验程序，例如归档中的 HTML 原型。
+_Avoid_: 样机
+
+### 初稿用词对照
+
+[美术方向初稿](../research/art-direction-draft-2026-10-08.md)和[美术讨论决定记录](../research/art-grilling-decisions.md)保留了当时的用词，改写时按下表换成现行说法：
+
+| 初稿 | 现行说法 |
+| --- | --- |
+| 构件 | 指一块时说体素，指一种时说体素定义，指能用的全部时说可用的体素定义 |
+| 功能件 | 部件 |
+| 结构块、通用造型块 | 结构体素 |
+| 复合体、Composite、装配体 | 指实例时说车辆或建筑，指设计时说蓝图，指场景里的说场景模型 |
+| Shape、Shape Asset | 形状 |
+| 专用件 | 自定义模型 |
+| Voxel、Cell | 体素、格 |
+| 纹理 | 贴图 |
+| 扫掠包络 | 运动范围 |
+| Paint Mask | 可涂装区域 |
+| Wear、Damage | 磨损、损伤 |
+| Blueprint Stamp | 暂不命名，由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)决定是否保留 |
