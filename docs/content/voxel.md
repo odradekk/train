@@ -133,7 +133,7 @@
 | `hull-plate` 车体钢板 | 结构体素 | 底面引用共用的 `shared/vehicle-underside.png` | 首个切片 |
 | `hull-wedge` 斜面车体 | 结构体素 | `shape: wedge`，`all_24` 朝向 | Demo |
 | `concrete-block` 混凝土块 | 结构体素 | 材质 `concrete`，可以涂装 | Demo |
-| `grassland` 草地 | 场景体素 | 没有 `simulation` 一节；`tile_span: 4` | Demo |
+| `grassland` 草地 | 场景体素 | 没有 `simulation` 一节；`tile_span: 4` | 首个切片 |
 | `street-lamp` 路灯 | 场景体素 | 只有表现的行为 `light`；`local_box` 碰撞；`shape: beam` | Demo |
 | `tree-trunk` 树干、`foliage` 树冠 | 场景体素 | 场景模型 `tree` 用到的体素 | Demo |
 | `diesel-engine` 柴油机组 | 部件 | `propulsion` | 首个切片 |
