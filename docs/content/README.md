@@ -15,6 +15,7 @@
 | [schemas/](schemas/) | JSON Schema（draft 2020-12），一种文件一个，共用的类型在 `common.schema.json` |
 | [examples/](examples/) | 示例：内容包 `example-pack`、依赖它的 `example-addon`，以及用户内容库里的一个玩家蓝图 |
 | [tools/make_placeholder_pngs.py](tools/make_placeholder_pngs.py) | 按定义生成占位 PNG |
+| [tools/validate_examples.py](tools/validate_examples.py) | 用 Schema 校验全部示例，需要 Python 包 `jsonschema` |
 
 这个目录里有 `.gdignore`，Godot 编辑器不会导入这里的图片。
 
@@ -77,3 +78,11 @@ python docs/content/tools/make_placeholder_pngs.py docs/content/examples/example
 ```
 
 已有的图默认跳过，加 `--force` 才重新生成。
+
+改了 Schema 或示例后，校验一遍：
+
+```powershell
+python docs/content/tools/validate_examples.py
+```
+
+它只检查单个文件的结构；跨文件的引用和设计合法性由加载器和实施工单的测试检查。

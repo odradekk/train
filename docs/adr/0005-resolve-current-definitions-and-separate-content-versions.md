@@ -33,3 +33,5 @@ Saves embed player-defined content and its required save-local definitions, whil
 ## 实例设计修订
 
 2026-10-09，[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)取消了蓝图版本：每个实例有自己的不可变设计，蓝图只是模板，不分版本；存档内嵌设计和本局蓝图库，不再内嵌蓝图版本。上文中实例引用蓝图版本、用户库保留全部版本、存档内嵌蓝图版本的部分由 [ADR-0012](0012-give-each-composite-instance-its-own-design-and-keep-blueprints-as-templates.md) 取代；当前外部定义适配和三种版本分离不变。上文各节里指聚居地布局的“布局”，现在叫聚居地模板。
+
+2026-10-09，[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)修订上限变小时的处理：计算时取存档值和新上限中较小的一个，不改写存档里的耐久。上文“超出新上限的值截断”按此理解：没有改写，上限恢复后原值仍在。

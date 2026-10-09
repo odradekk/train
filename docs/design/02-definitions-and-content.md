@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。蓝图和设计对象的格式、设计包含名称和说明、嵌套不再单独要求贴着宿主，由[蓝图的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/265)于 2026-10-09 确认，格式写在 [docs/content/blueprint.md](../content/blueprint.md)。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。蓝图和设计对象的格式、设计包含名称和说明、嵌套不再单独要求贴着宿主，由[蓝图的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/265)于 2026-10-09 确认，格式写在 [docs/content/blueprint.md](../content/blueprint.md)。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
 
 ## 边界
 
@@ -22,7 +22,7 @@
 
 ### 体素定义
 
-- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按去掉涂装的设计计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。货物、库存、市场和贸易引用体素定义标识或去掉涂装后的设计哈希。TradeMetadata 的字段与实现随贸易接入时确定。
+- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按构成哈希计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。货物种类有三种：体素定义标识、功能复合体标识，或组装体（可编辑的大型设备，例如炮塔）的构成哈希。货物、库存、市场和贸易引用这三种标识（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。TradeMetadata 的字段与实现随贸易接入时确定。
 - 定义文件按读取方分节，身份等共用字段写在顶层（[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)，2026-10-09）：
 
   | 节 | 读取方 | 字段 |
@@ -46,7 +46,7 @@
 
 ### 库存中的货物
 
-- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }，或 Stack { 炮塔去掉涂装后的设计哈希, 数量 = 2 }。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
+- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }，或 Stack { 炮塔的构成哈希, 数量 = 2 }。功能复合体按它的标识计数，和体素货物一样。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
 - 货物在建造、改装、修理时被消耗，成为车辆或建筑设计中的体素或大型设备；拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还，见 [03](03-vehicles-buildings-and-designs.md#建造改装与修理) 和 [14](14-construction-refit-and-deconstruction.md)。
 
 ### Definition、Revision 与 Instance
@@ -78,7 +78,9 @@
 - 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
 - 对象字段和字符串键按 Ordinal 顺序编码。标签和 Behavior 等无序集合稳定排序，Behavior 按类型标记的 Ordinal 顺序编码；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
 - 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
-- 蓝图和设计不是语义哈希的对象。蓝图的 Revision 就是它的设计对象的设计哈希（涂装参与设计哈希）。
+- 蓝图和设计不是语义哈希的对象。蓝图的 Revision 就是它的设计对象的设计哈希；设计哈希包括名称、说明和涂装。
+- **构成哈希**是递归去掉名称、说明和涂装（包括功能复合体引用上的涂装）后的设计哈希，完整的设计哈希仍包含它们。组装体货物、BOM 中被嵌套的组装体和市场上的货物种类都用构成哈希：改名或重涂不改变货物种类，改变构成才改变。存档为每个构成哈希记一份显示名称和说明，取自第一次引入它的设计，之后不变；库存和市场显示这份名称。装在宿主上的设备用宿主设计自己的那份副本（它的名称和涂装），不受这份显示名称影响，见 [09](09-persistence.md#存档中的内容)（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。
+- 设计哈希、部件编号和改装时的部件对应使用同一种遍历顺序：先排宿主自己的体素，再按 `at` 排被嵌套的复合体，坐标按 x、y、z 从小到大，见 [03](03-vehicles-buildings-and-designs.md#部件与结构)。功能复合体的引用在设计哈希里只含引用本身，不含被引用的内容。
 - 语义引用记录目标 DefinitionId，不包含目标 Revision，也不递归哈希依赖内容。修改 Mod 引擎牵引力会改变引擎 Revision，不改变引用它的车辆设计的设计哈希；使用方仍必须根据当前引擎规格重算受影响能力。
 - 名称、说明与表现绑定作为按 DefinitionId 解析的当前显示信息处理，不因语义哈希相同而丢弃更新。碰撞只在场景中使用，属于表现数据，不参与语义哈希；更换显示模型不自动改变碰撞形状。
 - 验收覆盖重新排版不变、更改有效语义字段产生变化、纯表现更新不改变语义 Revision、依赖更新生效但不改变引用方自身 Revision。
@@ -138,16 +140,16 @@
 ### 内容更新与实例状态
 
 - 读档和热重载都采用当前安装的外部定义，更新数值作用于已有车辆和建筑：实例保留自己的设计、部件耐久与运行状态，设计中的体素按定义身份采用当前定义，设计属性随之重算。
-- 状态保留绝对值，仅在超出新定义允许范围时修正，不按比例换算、不自动恢复。原耐久上限 100、当前耐久 80：新上限 150 时仍为 80，新上限 60 时截到 60。
+- 状态保留绝对值，不按比例换算、不自动恢复。存档里的耐久值不因上限变小而改写；计算时取存档值和当前上限中较小的一个，伤害和修理按这个值结算并写回。例如上限 100、当前 80：上限降到 60 时按 60 计算，上限改回 100 又是 80（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。
 - 牵引力、质量等定义属性直接采用新值，并重算受影响的能力和派生状态。记录上次使用的 Revision 以识别变化，不借此保留旧外部规格。
 
 ### 候选内容与运行中引用校验
 
-车辆和建筑的设计随存档保存。蓝图和聚居地模板的更新只影响以后的建造和改装，不改变已有实例的设计或已放置的聚居地。体素定义的数值、碰撞和表现更新作用于已有实例：重算设计属性，部件耐久保留绝对值并按新上限截断，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。实例的设计所需的体素定义，同样属于受影响的引用。
+车辆和建筑的设计随存档保存。蓝图和聚居地模板的更新只影响以后的建造和改装，不改变已有实例的设计或已放置的聚居地。体素定义的数值、碰撞和表现更新作用于已有实例：重算设计属性，部件耐久保留绝对值，计算时取存档值和新上限中较小的一个，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。实例的设计所需的体素定义，同样属于受影响的引用。
 
 - 新加载的定义必须引用有效内容，非法 Mod 整包排除；内置内容出错则拒绝发布。排除后的候选内容仍必须自洽，不能留下未解析引用。
 - 必须基于候选当前定义校验全部受影响的运行中引用与状态适配。缺失必需定义或无法解释旧状态时，拒绝整次热重载，保留原定义、Catalog Generation 和世界状态；不能发布部分更新或留下部分修正后的实例。热重载移除一份定义时，运行中的世界必须已经不再引用它，否则拒绝并列出还有哪些地方在引用。
-- 读档遇到缺失的定义时，先列出缺失的包和定义，由玩家选择取消或继续。继续时缺失的东西用占位代替并保留原来的标识：设计里缺失的体素变成占位体素，算结构，没有质量、价值和能力；库存里缺失的货物保留为缺失货物，不能使用和交易；其他缺失的定义同样保留标识、功能失效。存档时写回原来的标识，内容装回后恢复（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）。不回退到存档中的旧定义，也不删除状态。
+- 读档遇到缺失的定义时，先列出缺失的包和定义，由玩家选择取消或继续。继续时缺失的东西用占位代替并保留原来的标识：设计里缺失的体素和功能复合体变成占位，没有能力、质量和价值，不计入结构耐久上限，也不受伤害；存档里它们的耐久记录按部件编号原样保留；库存里缺失的货物保留为缺失货物，不能使用和交易；其他缺失的定义同样保留标识、功能失效。存档时写回原来的标识，内容装回后恢复（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）。不回退到存档中的旧定义，也不删除状态。
 - 全部校验与状态适配成功后再原子发布内容及相关实例更新。这替代 #31 曾确定的“保留旧 Revision 即可接受目录删除”规则。
 
 ### 表现资产校验

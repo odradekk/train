@@ -35,7 +35,7 @@
 | `scene_model` | 引用 | 是 | — | 一个类别为场景模型的蓝图，提供地形整形、道路和装饰 | Demo |
 | `plots` | 对象数组 | 是 | — | 地块表，至少一个，见下表 | Demo |
 | `founding` | 对象数组 | 否 | `[]` | 玩家在空节点建立聚居地时建的起始建筑，每项是 `plot` 和 `building`；BOM 开工时从列车库存一次扣除 | Demo |
-| `inventory` | 对象数组 | 否 | `[]` | 开局库存，每项是 `{ "voxel": …, "quantity": … }`，或者大型设备的 `{ "blueprint": …, "quantity": … }`；数量是正整数 | Demo |
+| `inventory` | 对象数组 | 否 | `[]` | 开局库存，每项是 `{ "voxel": …, "quantity": … }`，或者大型设备的 `{ "blueprint": …, "quantity": … }`（功能复合体按标识入库，组装体按复制出的设计的构成哈希入库）；数量是正整数 | Demo |
 | `display.name`、`display.description` | 字符串 | 是 | — | 1–100 和 1–2000 个字符，创作模式和调试界面里显示 | Demo |
 
 地块表的每一项：

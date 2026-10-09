@@ -362,44 +362,7 @@
       [2, 4, 9, 6]
     ],
     "composites": [
-      {
-        "at": [0, 2, -6],
-        "design": {
-          "category": "large_equipment",
-          "simulation": {
-            "behaviors": {
-              "propulsion": { "traction": 200, "rated_speed": 22 }
-            }
-          },
-          "layout": {
-            "palette": [
-              { "voxel": "hull-plate", "paint": "#7e858b" },
-              { "voxel": "hull-wedge", "paint": "#7e858b" }
-            ],
-            "cells": [
-              [-1, 0, -1, 0],
-              [0, 0, -1, 0],
-              [1, 0, -1, 0],
-              [-1, 0, 0, 0],
-              [0, 0, 0, 0],
-              [1, 0, 0, 0],
-              [-1, 0, 1, 0],
-              [0, 0, 1, 0],
-              [1, 0, 1, 0],
-              [-1, 1, -1, 0],
-              [0, 1, -1, 0],
-              [1, 1, -1, 0],
-              [-1, 1, 0, 0],
-              [0, 1, 0, 0],
-              [1, 1, 0, 0],
-              [-1, 1, 1, 1],
-              [0, 1, 1, 1],
-              [1, 1, 1, 1]
-            ]
-          },
-          "display": { "name": "大型柴油机", "description": "功能复合体：整件提供牵引力，是宿主的一个部件；玩家不能改它的体素。" }
-        }
-      },
+      { "at": [0, 2, -6], "blueprint": "large-diesel-engine", "paint": "#7e858b" },
       {
         "at": [0, 5, 2],
         "design": {

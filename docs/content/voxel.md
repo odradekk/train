@@ -45,7 +45,7 @@
 | `tags` | 字符串数组 | 否 | `[]` | 取值由代码提供，不能重复。目前只有 `raw_good`（初级货物，节点资源引用它） | 首个切片 |
 | `behaviors` | 对象 | 否 | `{}` | 功能性行为的核心参数，以行为类型为键，见下表 | 首个切片 |
 
-带 `simulation` 一节的体素中，带功能性行为的是部件，其余是结构体素。
+带 `simulation` 一节的体素中，带功能性行为的是部件，其余是结构体素。部件有自己的耐久，还按代码常量“部件结构比例”把自身耐久上限的一部分计入整体的结构耐久，见设计文档 [03 的部件与结构](../design/03-vehicles-buildings-and-designs.md#部件与结构)（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。
 
 ### 功能性行为的核心参数
 
@@ -90,7 +90,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `kind` | 字符串 | 是 | — | `cube` | 首个切片 |
 | `shape` | 字符串 | 否 | `cube` | 形状目录里的名字，由代码提供，每个标准变体是一个独立的名字。Demo 的取值：`cube`、`half`、`plate`、`wedge`、`corner-wedge`、`beam`、`cylinder`，见[美术 01 的形状](../art/01-construction-language.md#形状) | Demo |
-| `material` | 字符串 | 否 | `painted_metal` | 表现材质类别：`painted_metal`、`bare_metal`、`concrete`、`stone_soil`、`glass`、`polymer_rubber`、`organic`，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有 `painted_metal` 和 `concrete` 能涂装 | Demo |
+| `material` | 字符串 | 否 | `painted_metal` | 表现材质类别：`painted_metal`、`bare_metal`、`concrete`、`stone_soil`、`glass`、`polymer_rubber`、`organic`，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有 `painted_metal` 和 `concrete` 能涂装 | 首个切片 |
 | `tile_span` | 整数 | 否 | 1 | 平铺跨度，1、2、4 或 8 | 首个切片 |
 | `faces.top`、`faces.side`、`faces.bottom` | 资产路径 | 是 | — | 顶面、侧面、底面的贴图。几个面用同一张图就写同一个文件 | 首个切片 |
 | `faces.front` | 资产路径 | 否 | 用侧面图 | 正面图，不平铺 | Demo |

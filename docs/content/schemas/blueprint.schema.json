@@ -258,14 +258,10 @@
       "maxItems": 4
     },
     "nested": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["at", "design"],
-      "properties": {
-        "at": { "$ref": "#/$defs/position" },
-        "orientation": { "$ref": "#/$defs/orientation" },
-        "design": { "$ref": "#/$defs/design" }
-      }
+      "oneOf": [
+        { "$ref": "#/$defs/nestedCopy" },
+        { "$ref": "#/$defs/nestedReference" }
+      ]
     },
     "display": {
       "type": "object",
@@ -326,6 +322,29 @@
       ],
       "minItems": 2,
       "maxItems": 2
+    },
+    "nestedCopy": {
+      "description": "组装体：复制一份完整的设计，不引用蓝图。复制的设计里任何一层都不能有功能性行为。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "design"],
+      "properties": {
+        "at": { "$ref": "#/$defs/position" },
+        "orientation": { "$ref": "#/$defs/orientation" },
+        "design": { "$ref": "#/$defs/design" }
+      }
+    },
+    "nestedReference": {
+      "description": "功能复合体：按身份引用，读档和热重载时用当前定义；整件只有一个涂装。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "blueprint"],
+      "properties": {
+        "at": { "$ref": "#/$defs/position" },
+        "orientation": { "$ref": "#/$defs/orientation" },
+        "blueprint": { "$ref": "common.schema.json#/$defs/definitionRef" },
+        "paint": { "$ref": "common.schema.json#/$defs/color" }
+      }
     }
   }
 }
