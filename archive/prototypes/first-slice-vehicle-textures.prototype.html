@@ -1,0 +1,336 @@
+<!doctype html>
+<!--
+  原型：首个切片车辆体素面贴图与配色比较（首个切片的体素面贴图规格，#246）。A 套配色已选定，保留供继续打磨；
+  规格以 docs/art/02、03 的“本阶段”为准，调整色值时与 03 一起改。
+  按 docs/art/01 本阶段的车头与货车布局，用对象网格平铺规则（32 px/格 × 平铺跨度）从程序生成的贴图中取样，
+  切换三套配色。贴图图案是示意，正式素材由 #234 绘制。坐标假设：长度方向以车的纵向中点为 0，高度从轨面起算。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>首个切片车辆贴图与配色样稿</title>
+<style>
+  :root { --bg:#d3d9de; --ink:#1e2328; --muted:#5b646d; --panel:rgba(24,28,33,0.92); --accent:#e0a22e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.5 "Noto Sans SC","Microsoft YaHei",sans-serif; padding:20px 24px 90px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  h2 { font-size:16px; margin:26px 0 8px; }
+  p.note { color:var(--muted); margin:4px 0 10px; max-width:1100px; }
+  .row { display:flex; gap:18px; align-items:flex-end; flex-wrap:wrap; }
+  figure { margin:0; }
+  figcaption { font-size:12px; color:var(--muted); margin-top:4px; }
+  canvas { display:block; image-rendering:auto; background:#c9d3db; }
+  canvas.fit { max-width:100%; height:auto; }
+  .swatches { display:grid; grid-template-columns:repeat(auto-fill,minmax(440px,1fr)); gap:14px; }
+  .sw { background:#e9edf0; border:1px solid #b9c1c8; border-radius:4px; padding:8px; }
+  .sw h3 { margin:0 0 6px; font-size:13px; }
+  .sw .faces { display:flex; gap:8px; align-items:flex-end; }
+  .sw .faces div { font-size:11px; color:var(--muted); text-align:center; }
+  table { border-collapse:collapse; font-size:13px; }
+  td, th { border:1px solid #b9c1c8; padding:4px 10px; text-align:left; }
+  .chip { display:inline-block; width:14px; height:14px; border:1px solid #0004; vertical-align:-2px; margin-right:6px; }
+  .bar { position:fixed; left:50%; bottom:16px; transform:translateX(-50%); background:var(--panel); color:#e6e9ec; border-radius:6px; padding:8px 12px; display:flex; gap:8px; align-items:center; box-shadow:0 4px 14px #0005; }
+  .bar button { background:transparent; color:#e6e9ec; border:1px solid #3b434d; border-radius:4px; padding:5px 12px; font:inherit; cursor:pointer; }
+  .bar button.on { background:var(--accent); color:#1a1a1a; border-color:var(--accent); }
+  .bar label { margin-left:10px; font-size:13px; }
+</style>
+</head>
+<body>
+<h1>首个切片车辆贴图与配色样稿</h1>
+<p class="note">按 <code>docs/art/01</code> 本阶段的布局绘制。每个可见的面按对象网格坐标从贴图中取 32×32 的一块（跨度 N 时一张图覆盖 N×N 格），所以图中出现的切开、错位和真实游戏一致。贴图只画固有色；“简单光照”只是把侧面和端面压暗，代替引擎光照，不代表最终画面。点击图可以在适应宽度和原尺寸（32 px/格）之间切换。</p>
+<p class="note" id="variantNote"></p>
+
+<h2>编组</h2>
+<canvas id="consist" class="fit"></canvas>
+
+<h2>车头</h2>
+<div class="row">
+  <figure><canvas id="locoSide" class="fit zoom"></canvas><figcaption>左侧视（左为前端）</figcaption></figure>
+</div>
+<div class="row" style="margin-top:12px">
+  <figure><canvas id="locoEnd" class="zoom"></canvas><figcaption>前端视</figcaption></figure>
+  <figure><canvas id="locoTop" class="fit zoom" style="max-width:860px"></canvas><figcaption>俯视（左为前端）</figcaption></figure>
+</div>
+
+<h2>货车</h2>
+<div class="row">
+  <figure><canvas id="wagonSide" class="fit zoom"></canvas><figcaption>左侧视</figcaption></figure>
+</div>
+<div class="row" style="margin-top:12px">
+  <figure><canvas id="wagonEnd" class="zoom"></canvas><figcaption>端视</figcaption></figure>
+</div>
+
+<h2>色值</h2>
+<table id="palette"></table>
+
+<h2>各体素的面贴图（原尺寸）</h2>
+<div class="swatches" id="swatches"></div>
+
+<div class="bar">
+  <span>配色</span>
+  <button data-v="A">A 蓝灰机车 + 暗红货车</button>
+  <button data-v="B">B 石墨灰 + 黄色前脸</button>
+  <button data-v="C">C 橄榄机车 + 钢灰货车</button>
+  <label><input type="checkbox" id="light" checked> 简单光照</label>
+</div>
+
+<script>
+const PX = 32; // 每格像素
+const VARIANTS = {
+  A: { name:'A 蓝灰机车 + 暗红货车', note:'车体结构和动力部件同为蓝灰；货舱暗红；转向架和车底石墨灰。车体结构也用于货车的底架和车顶。',
+       body:'#5a6b78', hood:'#5a6b78', glass:'#1e2830', cargo:'#7b3a2c', bogie:'#33373b', steel:'#8e9398', under:'#2b2e31', front:null },
+  B: { name:'B 石墨灰 + 黄色前脸', note:'全车石墨灰，货舱略浅；车体结构加一张正面图（黄黑斜纹），只在朝前且露在外面的面上出现。这需要首个切片使用正面图，与 Q4 的结论不同。',
+       body:'#3e4348', hood:'#3e4348', glass:'#1a2128', cargo:'#4c5359', bogie:'#2c2f32', steel:'#8e9398', under:'#25282a', front:{ a:'#d9a62b', b:'#1e1e1e' } },
+  C: { name:'C 橄榄机车 + 钢灰货车', note:'车体结构和动力部件同为低饱和橄榄色；货舱钢灰；转向架和车底石墨灰。',
+       body:'#626750', hood:'#626750', glass:'#1e2629', cargo:'#7e858b', bogie:'#33373b', steel:'#8e9398', under:'#2b2e31', front:null },
+};
+const TYPES = {
+  S:{ name:'车体结构', span:4, mat:'painted_metal' },
+  P:{ name:'动力部件', span:4, mat:'painted_metal' },
+  C:{ name:'控制部件', span:2, mat:'painted_metal' },
+  H:{ name:'货舱部件', span:4, mat:'painted_metal' },
+  B:{ name:'转向架',   span:2, mat:'painted_metal' },
+};
+const CARGO = {
+  grain:{ name:'粮食（麻袋）', span:1, mat:'organic' },
+  coal:{ name:'煤（散装）', span:2, mat:'stone_soil' },
+  produce:{ name:'经济作物（棉包）', span:1, mat:'organic' },
+};
+
+// ---------- 颜色与随机 ----------
+function hex2rgb(h){ const n=parseInt(h.slice(1),16); return [n>>16&255,n>>8&255,n&255]; }
+function rgb2hex(r,g,b){ return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function shade(h,f){ const [r,g,b]=hex2rgb(h); return rgb2hex(r*f,g*f,b*f); }
+function rng(seed){ let a=seed>>>0; return ()=>{ a=(a+0x6D2B79F5)>>>0; let t=a; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+function seedOf(s){ let h=2166136261; for(const c of s){ h^=c.charCodeAt(0); h=Math.imul(h,16777619); } return h>>>0; }
+function canvas(w,h){ const c=document.createElement('canvas'); c.width=w; c.height=h; return c; }
+function addNoise(ctx,w,h,amp,seed){
+  const r=rng(seed), img=ctx.getImageData(0,0,w,h), d=img.data;
+  for(let i=0;i<d.length;i+=4){ const n=(r()-0.5)*amp; d[i]+=n; d[i+1]+=n; d[i+2]+=n; }
+  ctx.putImageData(img,0,0);
+}
+// 可平铺的低频斑块：在四周重复绘制，保证接缝连续
+function blotches(ctx,w,h,color,count,rmin,rmax,alpha,seed){
+  const r=rng(seed); ctx.save(); ctx.globalAlpha=alpha; ctx.fillStyle=color;
+  for(let i=0;i<count;i++){ const x=r()*w, y=r()*h, rad=rmin+r()*(rmax-rmin);
+    for(const dx of [-w,0,w]) for(const dy of [-h,0,h]){ ctx.beginPath(); ctx.arc(x+dx,y+dy,rad,0,Math.PI*2); ctx.fill(); } }
+  ctx.restore();
+}
+
+// ---------- 贴图生成（只画固有色） ----------
+function makeTiles(v){
+  const P = VARIANTS[v], T = {};
+  const plate = (base, seed) => { const s=TYPES.S.span*PX, c=canvas(s,s), x=c.getContext('2d');
+    x.fillStyle=base; x.fillRect(0,0,s,s); blotches(x,s,s,shade(base,0.93),6,10,26,0.35,seed); addNoise(x,s,s,8,seed+1); return c; };
+
+  // 车体结构
+  { const s=4*PX, side=canvas(s,s), x=side.getContext('2d');
+    x.fillStyle=P.body; x.fillRect(0,0,s,s); blotches(x,s,s,shade(P.body,0.92),7,10,28,0.35,11);
+    x.fillStyle=shade(P.body,0.8); x.fillRect(0,0,s,2); x.fillRect(0,0,2,s);           // 板缝：每 2 米
+    x.fillStyle=shade(P.body,0.72); for(let i=0;i<s;i+=8){ x.fillRect(i+3,5,2,2); x.fillRect(5,i+3,2,2); } // 铆钉线
+    addNoise(x,s,s,9,12);
+    const top=canvas(s,s), t=top.getContext('2d');
+    t.fillStyle=shade(P.body,1.04); t.fillRect(0,0,s,s);
+    for(let j=0;j<s;j+=8) for(let i=0;i<s;i+=8){ const flip=((i+j)/8)%2===0;
+      t.fillStyle=shade(P.body,1.2); if(flip) t.fillRect(i+1,j+3,6,2); else t.fillRect(i+3,j+1,2,6);
+      t.fillStyle=shade(P.body,0.82); if(flip) t.fillRect(i+1,j+5,6,1); else t.fillRect(i+5,j+1,1,6); }
+    addNoise(t,s,s,7,13);
+    const bottom=canvas(s,s), b=bottom.getContext('2d'); b.fillStyle=P.under; b.fillRect(0,0,s,s); addNoise(b,s,s,12,14);
+    let front=null;
+    if(P.front){ front=canvas(PX,PX); const f=front.getContext('2d'), img=f.createImageData(PX,PX);
+      const A=hex2rgb(P.front.a), B=hex2rgb(P.front.b);
+      for(let j=0;j<PX;j++) for(let i=0;i<PX;i++){ const c=((i+j)%16)<8?A:B, k=(j*PX+i)*4; img.data[k]=c[0]; img.data[k+1]=c[1]; img.data[k+2]=c[2]; img.data[k+3]=255; }
+      f.putImageData(img,0,0); addNoise(f,PX,PX,8,15); }
+    T.S={ side, top, bottom, front };
+  }
+  // 动力部件：每 2 米一扇检修门，百叶上下贯通
+  { const s=4*PX, side=canvas(s,s), x=side.getContext('2d');
+    x.fillStyle=P.hood; x.fillRect(0,0,s,s);
+    x.fillStyle=shade(P.hood,0.62); x.fillRect(0,0,2,s);                // 门缝
+    x.fillStyle=shade(P.hood,1.12); x.fillRect(2,0,1,s);
+    for(let y=0;y<s;y+=8){ x.fillStyle=shade(P.hood,0.55); x.fillRect(22,y,84,3); x.fillStyle=shade(P.hood,1.14); x.fillRect(22,y+3,84,1); }
+    addNoise(x,s,s,8,21);
+    const top=canvas(s,s), t=top.getContext('2d');                     // 方格散热网，两个方向都均匀
+    t.fillStyle=shade(P.hood,0.5); t.fillRect(0,0,s,s);
+    t.fillStyle=shade(P.hood,0.95); for(let i=0;i<s;i+=8){ t.fillRect(i,0,2,s); t.fillRect(0,i,s,2); }
+    addNoise(t,s,s,7,22);
+    T.P={ side, top, bottom:T.S.bottom };
+  }
+  // 控制部件：连续窗带，每 1 米一根竖框，上下不画边框
+  { const s=2*PX, side=canvas(s,s), x=side.getContext('2d');
+    x.fillStyle=P.glass; x.fillRect(0,0,s,s);
+    x.fillStyle=shade(P.glass,1.25); x.fillRect(6,0,1,s);
+    x.fillStyle=P.body; x.fillRect(0,0,4,s);
+    x.fillStyle=shade(P.body,0.75); x.fillRect(4,0,1,s);
+    addNoise(x,s,s,5,31);
+    const top=canvas(s,s), t=top.getContext('2d'); t.drawImage(T.S.side,0,0,s,s,0,0,s,s);
+    T.C={ side, top, bottom:T.S.bottom };
+  }
+  // 货舱部件：棚车壁板，每 1 米一根竖向加强筋
+  { const s=4*PX, side=canvas(s,s), x=side.getContext('2d');
+    x.fillStyle=P.cargo; x.fillRect(0,0,s,s); blotches(x,s,s,shade(P.cargo,0.9),6,10,26,0.3,41);
+    for(const rx of [0,64]){ x.fillStyle=shade(P.cargo,0.74); x.fillRect(rx,0,6,s); x.fillStyle=shade(P.cargo,1.14); x.fillRect(rx+6,0,1,s); }
+    addNoise(x,s,s,8,42);
+    T.H={ side, top:plate(P.cargo,43), bottom:T.S.bottom };
+  }
+  // 转向架：每 2×2 格一个直径约 1 米的车轮，加一段侧架
+  { const s=2*PX, side=canvas(s,s), x=side.getContext('2d');
+    x.fillStyle=shade(P.bogie,0.62); x.fillRect(0,0,s,s);
+    const cx=32, cy=34;
+    x.fillStyle=P.steel; x.beginPath(); x.arc(cx,cy,29,0,Math.PI*2); x.fill();
+    x.fillStyle=shade(P.bogie,0.9); x.beginPath(); x.arc(cx,cy,25,0,Math.PI*2); x.fill();
+    x.fillStyle=shade(P.bogie,1.25); x.beginPath(); x.arc(cx,cy,6,0,Math.PI*2); x.fill();
+    x.fillStyle=shade(P.bogie,1.08); x.fillRect(0,9,s,11);              // 侧架，左右贯通
+    x.fillStyle=shade(P.bogie,0.8); x.fillRect(0,19,s,1);
+    x.fillStyle=shade(P.bogie,0.95); x.fillRect(24,18,16,14);           // 轴箱
+    addNoise(x,s,s,8,51);
+    const top=canvas(s,s), t=top.getContext('2d'); t.fillStyle=P.bogie; t.fillRect(0,0,s,s); addNoise(t,s,s,8,52);
+    T.B={ side, top, bottom:top };
+  }
+  return T;
+}
+
+function makeCargoTiles(){
+  const T={};
+  { const s=PX, side=canvas(s,s), x=side.getContext('2d');           // 麻袋垛：每格一只麻袋
+    x.fillStyle='#bfa676'; x.fillRect(0,0,s,s);
+    for(let j=0;j<s;j+=2){ x.fillStyle=j%4? '#c9b183':'#b39a6b'; x.fillRect(0,j,s,1); }
+    x.strokeStyle='#7f6a45'; x.lineWidth=1.5; x.beginPath(); x.roundRect(1.5,2.5,s-3,s-4,6); x.stroke();
+    x.fillStyle='#8a7550'; for(let i=4;i<s-4;i+=4) x.fillRect(i,6,2,1);
+    addNoise(x,s,s,10,61);
+    const top=canvas(s,s), t=top.getContext('2d'); t.drawImage(side,0,0);
+    t.fillStyle='#8f7a52'; t.beginPath(); t.arc(16,16,4,0,Math.PI*2); t.fill();
+    T.grain={ side, top, bottom:top };
+  }
+  { const s=2*PX, c=canvas(s,s), x=c.getContext('2d'), r=rng(71);    // 散装煤块，三面共用
+    x.fillStyle='#232321'; x.fillRect(0,0,s,s);
+    for(let i=0;i<70;i++){ const px=r()*s, py=r()*s, rad=3+r()*7, g=28+r()*36, n=5+Math.floor(r()*3), rot=r()*6;
+      x.fillStyle=rgb2hex(g,g,g-3);
+      for(const dx of [-s,0,s]) for(const dy of [-s,0,s]){ x.beginPath();
+        for(let k=0;k<n;k++){ const a=rot+k/n*Math.PI*2, rr=rad*(0.7+0.3*Math.sin(k*2.3+i)); x.lineTo(px+dx+Math.cos(a)*rr, py+dy+Math.sin(a)*rr); }
+        x.closePath(); x.fill(); } }
+    addNoise(x,s,s,8,72);
+    T.coal={ side:c, top:c, bottom:c };
+  }
+  { const s=PX, side=canvas(s,s), x=side.getContext('2d');           // 棉包：白色，两道钢捆带
+    x.fillStyle='#e2ddd0'; x.fillRect(0,0,s,s); blotches(x,s,s,'#f2efe7',10,2,5,0.6,81); addNoise(x,s,s,14,82);
+    x.fillStyle='#8d9296'; x.fillRect(0,9,s,2); x.fillRect(0,22,s,2);
+    const top=canvas(s,s), t=top.getContext('2d');
+    t.fillStyle='#e6e1d5'; t.fillRect(0,0,s,s); blotches(t,s,s,'#f4f1ea',12,2,5,0.6,83); addNoise(t,s,s,14,84);
+    t.fillStyle='#8d9296'; t.fillRect(9,0,2,s); t.fillRect(22,0,2,s);
+    T.produce={ side, top, bottom:top };
+  }
+  return T;
+}
+
+// ---------- 布局（docs/art/01 本阶段） ----------
+const L = 52, H = 9, Z = [-3,-2,-1,0,1,2,3];
+function loco(x,y,z){
+  if(y<=1) return ((x>=6&&x<=11)||(x>=40&&x<=45)) && Math.abs(z)<=2 ? 'B' : null;
+  if(y===2) return 'S';
+  if(x>=2&&x<=9) return y<=5 ? 'S' : y<=7 ? 'C' : 'S';
+  if(x>=10&&x<=49&&y<=7&&Math.abs(z)<=2) return 'P';
+  return null;
+}
+function wagon(x,y,z){
+  if(y<=1) return ((x>=6&&x<=11)||(x>=40&&x<=45)) && Math.abs(z)<=2 ? 'B' : null;
+  if(y===2) return 'S';
+  if(x>=1&&x<=50) return y<=7 ? 'H' : 'S';
+  return null;
+}
+const mod = (a,n) => ((a%n)+n)%n;
+
+// 从贴图中取对象网格坐标 (u, v) 所在的 32×32 一块；v 为图的“上”方向
+function blit(ctx, tile, span, u, v, dx, dy){
+  const sx = mod(u,span)*PX, sy = (span-1-mod(v,span))*PX;
+  ctx.drawImage(tile, sx, sy, PX, PX, dx, dy, PX, PX);
+}
+function darken(ctx, dx, dy, f){
+  if(f>=1) return;
+  ctx.save(); ctx.globalCompositeOperation='multiply'; const g=Math.round(255*f); ctx.fillStyle=`rgb(${g},${g},${g})`;
+  ctx.fillRect(dx,dy,PX,PX); ctx.restore();
+}
+
+function drawSide(cv, fn, T, lit){
+  cv.width=L*PX; cv.height=H*PX; const c=cv.getContext('2d');
+  c.fillStyle='#c9d3db'; c.fillRect(0,0,cv.width,cv.height);
+  for(let x=0;x<L;x++) for(let y=0;y<H;y++){
+    let t=null; for(const z of Z){ t=fn(x,y,z); if(t) break; }
+    if(!t) continue;
+    const dx=x*PX, dy=(H-1-y)*PX;
+    blit(c, T[t].side, TYPES[t].span, x-26, y, dx, dy);
+    if(lit) darken(c,dx,dy,0.8);
+  }
+}
+function drawEnd(cv, fn, T, lit){
+  cv.width=Z.length*PX; cv.height=H*PX; const c=cv.getContext('2d');
+  c.fillStyle='#c9d3db'; c.fillRect(0,0,cv.width,cv.height);
+  Z.forEach((z,i)=>{ for(let y=0;y<H;y++){
+    let t=null; for(let x=0;x<L;x++){ t=fn(x,y,z); if(t) break; }
+    if(!t) continue;
+    const dx=i*PX, dy=(H-1-y)*PX;
+    if(T[t].front) c.drawImage(T[t].front,0,0,PX,PX,dx,dy,PX,PX);
+    else blit(c, T[t].side, TYPES[t].span, z, y, dx, dy);
+    if(lit) darken(c,dx,dy,0.66);
+  } });
+}
+function drawTop(cv, fn, T, lit){
+  cv.width=L*PX; cv.height=Z.length*PX; const c=cv.getContext('2d');
+  c.fillStyle='#c9d3db'; c.fillRect(0,0,cv.width,cv.height);
+  for(let x=0;x<L;x++) Z.forEach((z,i)=>{
+    let t=null, top=0; for(let y=H-1;y>=0;y--){ t=fn(x,y,z); if(t){ top=y; break; } }
+    if(!t) return;
+    const dx=x*PX, dy=i*PX;
+    blit(c, T[t].top, TYPES[t].span, x-26, z, dx, dy);
+    if(lit) darken(c,dx,dy, 0.72+0.035*top);   // 越低越暗，示意高低
+  });
+}
+function drawConsist(cv, sides){
+  const gap=PX, w=sides.reduce((a,s)=>a+s.width,0)+gap*(sides.length-1), h=H*PX+3*PX;
+  cv.width=w; cv.height=h; const c=cv.getContext('2d');
+  c.fillStyle='#c9d3db'; c.fillRect(0,0,w,h);
+  c.fillStyle='#8c8a84'; c.fillRect(0,H*PX,w,3*PX);                       // 道床
+  c.fillStyle='#5b4a3c'; for(let x=0;x<w;x+=PX) c.fillRect(x+4,H*PX+4,PX-8,10);   // 轨枕
+  c.fillStyle='#7d8287'; c.fillRect(0,H*PX-2,w,4);                           // 钢轨
+  let x=0; for(const s of sides){ c.drawImage(s,x,0); x+=s.width+gap; }
+  c.fillStyle='#2a2d30'; x=0; for(let i=0;i<sides.length-1;i++){ x+=sides[i].width; c.fillRect(x-4,6.5*PX,gap+8,PX*0.4); x+=gap; } // 车钩示意
+}
+
+function swatch(title, tiles, span, mat){
+  const d=document.createElement('div'); d.className='sw';
+  d.innerHTML=`<h3>${title}</h3><div class="faces"></div><div style="font-size:11px;color:#5b646d;margin-top:4px">跨度 ${span}，图 ${span*PX}×${span*PX} px，<code>${mat}</code></div>`;
+  const f=d.querySelector('.faces');
+  for(const [k,label] of [['side','侧面'],['top','顶面'],['bottom','底面'],['front','正面']]){
+    const t=tiles[k]; if(!t) continue;
+    const box=document.createElement('div'); const cv=canvas(t.width,t.height);
+    cv.getContext('2d').drawImage(t,0,0); box.appendChild(cv); box.append(label); f.appendChild(box);
+  }
+  return d;
+}
+
+function render(){
+  const v = new URLSearchParams(location.search).get('v') || 'A';
+  const lit = document.getElementById('light').checked;
+  const P = VARIANTS[v], T = makeTiles(v), CT = makeCargoTiles();
+  document.querySelectorAll('.bar button').forEach(b=>b.classList.toggle('on', b.dataset.v===v));
+  document.getElementById('variantNote').textContent = P.name + '：' + P.note;
+  const ls=document.getElementById('locoSide'), ws=document.getElementById('wagonSide');
+  drawSide(ls, loco, T, lit); drawSide(ws, wagon, T, lit);
+  drawEnd(document.getElementById('locoEnd'), loco, T, lit);
+  drawEnd(document.getElementById('wagonEnd'), wagon, T, lit);
+  drawTop(document.getElementById('locoTop'), loco, T, lit);
+  drawConsist(document.getElementById('consist'), [ls, ws, ws]);
+  const rows=[['车体结构（含底架、驾驶室下部、车顶、货车顶）',P.body],['动力部件',P.hood],['车窗玻璃（画在控制部件上）',P.glass],['货舱部件',P.cargo],['转向架',P.bogie],['车轮踏面',P.steel],['车底',P.under]];
+  if(P.front) rows.push(['前脸斜纹（黄）',P.front.a],['前脸斜纹（黑）',P.front.b]);
+  document.getElementById('palette').innerHTML='<tr><th>用途</th><th>色值</th></tr>'+rows.map(([n,c])=>`<tr><td>${n}</td><td><span class="chip" style="background:${c}"></span>${c}</td></tr>`).join('');
+  const sw=document.getElementById('swatches'); sw.innerHTML='';
+  for(const k of Object.keys(TYPES)) sw.appendChild(swatch(TYPES[k].name, T[k], TYPES[k].span, TYPES[k].mat));
+  for(const k of Object.keys(CARGO)) sw.appendChild(swatch(CARGO[k].name, CT[k], CARGO[k].span, CARGO[k].mat));
+}
+document.querySelectorAll('.bar button').forEach(b=>b.onclick=()=>{ const u=new URL(location); u.searchParams.set('v',b.dataset.v); history.replaceState(null,'',u); render(); });
+document.getElementById('light').onchange=render;
+document.querySelectorAll('canvas.zoom').forEach(c=>c.onclick=()=>c.classList.toggle('fit'));
+render();
+</script>
+</body>
+</html>

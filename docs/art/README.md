@@ -14,8 +14,8 @@
 | --- | --- | --- |
 | [00-direction.md](00-direction.md) | 视觉基调、关键词、技术时代感、不采用的方向 | 已写 |
 | [01-construction-language.md](01-construction-language.md) | 用途与造型、重量感、尺度与子网格、形状、自定义模型、大型设备、接缝与倒角 | 已写 |
-| [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、贴图密度、采样 | 已写；“本阶段”由[首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补 |
-| `03-color-and-paint.md` | 默认色彩、玩家涂装 | [首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补“本阶段”；其余待拆票 |
+| [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、形状与自定义模型的贴图、贴图密度、采样、首个切片的面贴图规格 | 已写 |
+| [03-color-and-paint.md](03-color-and-paint.md) | 默认色彩、玩家涂装 | “本阶段”已写；其余由[默认色彩与玩家涂装](https://github.com/odradekk/train/issues/250)编写 |
 | `04-world-assets.md` | 建筑、地形、自然物、铁路 | 由[首个切片的场景美术规格](https://github.com/odradekk/train/issues/247)编写 |
 | [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性 | 已写 |
 | `06-wear-damage-and-motion.md` | 磨损、损伤、动画、特效 | 待拆票 |
