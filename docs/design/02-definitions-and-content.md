@@ -37,7 +37,7 @@
 - **Value** 即术语表的基本货币价值：定义中的固定基础价值，不随世界经济变化，但可随内容更新改变，是市场计算实际价格的基础。例如 Ferrous Ore 的 Value = 100。
 - **Price** 不属于体素定义。Price 是市场状态 × 体素定义产生的运行时报价，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
 - **Mass** 是一个单位的质量，用于车辆和建筑的设计质量，以及列车所载货物的质量，见 [06](06-railway.md#速度)。
-- **Material**：Demo 不建立通用 MaterialDefinition 系统。Cube 表现只选一个固定的表现材质类别，各类别的粗糙度和金属度由渲染层维护，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有当实际开发中大量体素重复相同材料规则时，再抽象 Material 层。
+- **Material**：Demo 不建立通用 MaterialDefinition 系统。Cube 表现选一个表现材质类别，Custom Mesh 的每个表面各选一个，各类别的粗糙度和金属度由渲染层维护，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有当实际开发中大量体素重复相同材料规则时，再抽象 Material 层。
 - **自然资源**：初级货物带 `raw_good` 标签，是普通可库存、可交易的体素定义。节点资源直接引用初级货物的体素定义标识，不设资源源体素、`resource_source` 标签或 ResourceSourceBehavior，见 [10](10-resources-and-extraction.md)（[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)，2026-10-05）。旧的“带 `natural_resource` 标签的体素自身就是货物”语义已废止。
 
 ### 迁移历史
@@ -145,6 +145,8 @@
 Cube、CustomStaticMesh 与领域专用表现共存（[07](07-rendering.md#总体策略)）；CustomStaticMesh 使用 LOD0 静态模型、基础颜色/贴图、光照/阴影和不透明或镂空裁剪材质。资产原点、尺寸、方向及适用表现绑定须有明确约定，具体文件格式和字段由实施规格记录；模型不能替代权威碰撞定义。
 
 Cube 表现绑定 `icon`、`voxel_top`、`voxel_side`、`voxel_bottom` 四张 PNG，可选 `voxel_front`；另可声明平铺跨度 `tile_span`（1、2、4、8，默认 1）和表现材质类别 `material`（7 种，默认 `painted_metal`，取值见[美术 02](../art/02-materials-and-textures.md#材质类别)）。图标为正方形；顶面、侧面、底面为边长相同的 2 的幂正方形；正面图为 2 的幂正方形，尺寸可以与其他面不同。贴图方向与平铺坐标见 [07](07-rendering.md#cube-voxel-rendering)。这些字段都是表现配置，修改时只触发 Catalog 发布，不改变 Semantic Revision。由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)于 2026-10-09 确认。
+
+Demo 中 Cube 表现可以再声明一个形状字段，从游戏内置的形状目录中选形状和标准变体，默认立方体；它同样是表现配置。表现不提供缩放和剪切参数，模型按原尺寸使用；要不同大小，就用不同的标准变体或不同的体素定义。加载 CustomStaticMesh 时检查模型的包围盒，超出所在的格（允许极小的容差）就明确诊断并拒绝。由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)于 2026-10-09 确认。
 
 模型、材质等必需资产缺失、损坏或不支持，以及专用渲染绑定不存在或不适用，均须明确诊断。首次加载沿用上文内容包校验与候选自洽规则；热重载失败保留旧 Catalog、世界及有效表现，不部分发布，也不以静默替换 Cube 或隐藏对象冒充成功。合法纯表现变化采用 Asset Revision/表现绑定及 Catalog 发布机制，更新受影响视觉，不改变 Semantic Revision、碰撞、身份、铁路连接或模拟结果。场景未打开不妨碍内容有效性校验，再次构建场景时使用当前有效内容。
 

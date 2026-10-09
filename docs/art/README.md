@@ -13,7 +13,7 @@
 | 文件 | 内容 | 状态 |
 | --- | --- | --- |
 | [00-direction.md](00-direction.md) | 视觉基调、关键词、技术时代感、不采用的方向 | 已写 |
-| `01-construction-language.md` | 用途与造型、尺度与子网格、形状与自定义模型、接缝与倒角 | 由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)编写 |
+| [01-construction-language.md](01-construction-language.md) | 用途与造型、重量感、尺度与子网格、形状、自定义模型、大型设备、接缝与倒角 | 已写 |
 | [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、贴图密度、采样 | 已写；“本阶段”由[首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补 |
 | `03-color-and-paint.md` | 默认色彩、玩家涂装 | [首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)补“本阶段”；其余待拆票 |
 | `04-world-assets.md` | 建筑、地形、自然物、铁路 | 由[首个切片的场景美术规格](https://github.com/odradekk/train/issues/247)编写 |
@@ -35,17 +35,9 @@
 
 > 决策出处：[美术文档的术语](https://github.com/odradekk/train/issues/241)。
 
-设计文档和代码也会用到的词以 [CONTEXT.md](../../CONTEXT.md) 为准，例如体素、体素格（简称格）、体素定义、结构体素、部件、蓝图、场景模型、涂装。本节只定义美术制作中使用的词。
+设计文档和代码也会用到的词以 [CONTEXT.md](../../CONTEXT.md) 为准，例如体素、体素格（简称格）、体素定义、结构体素、部件、复合体、大型设备、蓝图、场景模型、形状、标准变体、涂装。本节只定义美术制作中使用的词。
 
 正文用中文术语，词条第一次出现时在括号里附英文。英文只保留在三种地方：代码标识（如 `scene_only`、`voxel_top`）；没有通行中文说法的技术名（如 PBR、UV、Mipmap、Triplanar）；[00](00-direction.md) 中八个关键词的原词。
-
-**形状（Shape）**：
-可复用的几何外形，例如楔形、半块、梁、圆柱；多种体素定义可以共用同一种形状。形状只决定外观，不带质量、耐久或能力。它能否进入内容格式，由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)决定。
-_Avoid_: 构件、造型块；碰撞用的一律写“碰撞形状”
-
-**标准变体**：
-同一种形状按固定比例做出的几种规格，例如 1、1/2、1/4、1/8 格厚。游戏中只使用标准变体，不任意缩放。
-_Avoid_: 自由缩放
 
 **自定义模型（Custom Mesh）**：
 为某一种体素定义单独制作的模型，对应 [07](../design/07-rendering.md) 的 Custom Mesh。
@@ -101,7 +93,7 @@ _Avoid_: 样机
 | 构件 | 指一块时说体素，指一种时说体素定义，指能用的全部时说可用的体素定义 |
 | 功能件 | 部件 |
 | 结构块、通用造型块 | 结构体素 |
-| 复合体、Composite、装配体 | 指实例时说车辆或建筑，指设计时说蓝图，指场景里的说场景模型 |
+| 复合体、Composite、装配体 | 复合体是总称；具体时说车辆、建筑、大型设备、场景模型或生物，指设计时说蓝图 |
 | Shape、Shape Asset | 形状 |
 | 专用件 | 自定义模型 |
 | Voxel、Cell | 体素、格 |
@@ -109,4 +101,4 @@ _Avoid_: 样机
 | 扫掠包络 | 运动范围 |
 | Paint Mask | 可涂装区域 |
 | Wear、Damage | 磨损、损伤 |
-| Blueprint Stamp | 暂不命名，由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)决定是否保留 |
+| Blueprint Stamp | 不用；大型设备是复合体，整体装上，见[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249) |

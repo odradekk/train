@@ -2,7 +2,7 @@
 
 > **所属层**：体素引擎层与渲染层。
 
-> 决策出处：转录 Q126–Q143、Q179。线路分段、浮动原点、铁轨渲染、列车插值的位置来源、拾取与碰撞，由[局部场景的生成与表现](https://github.com/odradekk/train/issues/210)于 2026-10-05 确认，取代了视觉驻留、全局渲染原点、按物理轨段派生轨道网格和逐格碰撞的规则。
+> 决策出处：转录 Q126–Q143、Q179。线路分段、浮动原点、铁轨渲染、列车插值的位置来源、拾取与碰撞，由[局部场景的生成与表现](https://github.com/odradekk/train/issues/210)于 2026-10-05 确认，取代了视觉驻留、全局渲染原点、按物理轨段派生轨道网格和逐格碰撞的规则。标准形状、自定义模型的贴图和严格内接由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)于 2026-10-09 确认。
 
 ## 边界
 
@@ -19,19 +19,21 @@
 
 ### 总体策略
 
-领域世界和表现路径分开。Voxel Presentation 分为三路：Cube、CustomStaticMesh、Specialized。
+领域世界和表现路径分开。Voxel Presentation 分为三路：Cube（含内置的标准形状）、CustomStaticMesh、Specialized。
 
 ### Cube Voxel Rendering
 
 - Demo：Chunk → Face Culling → Chunk Surface Mesh，只生成未被视觉完全遮挡的面；是否占格或有碰撞盒不等于完全遮挡。非满格 Custom Mesh 和镂空材质默认不遮住整个邻面，不能从占格或碰撞盒推断视觉上完全遮挡。不使用 one MeshInstance per voxel。
 - 后期如果性能需要，Greedy Meshing 作为 ChunkMesher 的可替换优化；Greedy Meshing 不改变 World 与 Chunk 语义。
 - 面贴图：顶面、底面、四个侧面分别使用 `voxel_top`、`voxel_bottom`、`voxel_side`；体素的 Forward（局部 +Z）面有 `voxel_front` 时使用它。侧面图的上方朝体素的局部 +Y，顶面和底面图的上方朝 Forward；贴图随体素朝向一起转。平铺跨度 N 大于 1 时，一张图覆盖 N×N 格，位置按体素所在对象的网格坐标计算（车辆和建筑用自身网格，场景用场景网格），所以贴图随对象移动、相邻同种体素连续；正面图不平铺。采样在近处用线性过滤，远处用 Mipmap 加各向异性过滤。这些规则由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)于 2026-10-09 确认。
+- 标准形状：Cube 表现可以选游戏内置的一种形状及其标准变体（半块、楔形、梁、圆柱等，见[美术 01](../art/01-construction-language.md#形状)），不选时是立方体。形状沿用同一套面贴图、平铺跨度和材质类别，贴图按对象网格投影到形状表面，斜面按法线最接近的轴取图。每种形状记录它的哪几面完全盖住所在格的面，区块网格据此剔除面。首个切片只有立方体。
 
 ### Custom Static Mesh
 
 - Demo 的 Custom Static Mesh 支持静态模型、基础颜色与贴图、正常光照和阴影，以及不透明和镂空裁剪材质。资产原点、尺寸和方向须有统一约定，零件按定义允许的正交朝向放置。
 - Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
-- 普通 Custom Mesh 的视觉主体应基本限制在自己的 Cell 内；需要真正跨 Cell 的视觉结构进入 Specialized Renderer。
+- 标准形状和 Custom Mesh 必须完全位于自己的格内（严格内接）；以后加入模型内部动画时，会动部分的运动范围也必须在格内。需要真正跨格的视觉结构由多个体素组成，或进入 Specialized Renderer。
+- Custom Mesh 用模型自己的 UV 贴图，基础贴图密度 32 px/格；一个模型可以有几个表面，每个表面选一个表现材质类别，见[美术 02](../art/02-materials-and-textures.md#形状与自定义模型)。模型按原尺寸使用，不缩放或剪切。
 
 ### 铁轨渲染
 
@@ -78,7 +80,7 @@
 
 ## Demo 范围
 
-区块网格（遮面剔除）、Custom Static Mesh 批处理、AssetResolver、增量重建、TrackRenderer 与线路分段、对象渲染、列车插值、浮动原点、逐格拾取。
+区块网格（遮面剔除）、标准形状、Custom Static Mesh 批处理、AssetResolver、增量重建、TrackRenderer 与线路分段、对象渲染、列车插值、浮动原点、逐格拾取。
 
 ## Demo 之后
 
