@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。蓝图和设计对象的格式、设计包含名称和说明、嵌套不再单独要求贴着宿主，由[蓝图的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/265)于 2026-10-09 确认，格式写在 [docs/content/blueprint.md](../content/blueprint.md)。
 
 ## 边界
 
@@ -86,7 +86,7 @@
 
 - 有效来源：Built-in、Mod、用户内容库；读档后还有存档中的本局蓝图库。草稿不是有效内容来源。
 - 本局蓝图库和用户内容库只保存玩家在设计编辑器中保存的蓝图。体素定义、聚居地模板，以及场景模型、生物等不由玩家设计的蓝图，由创作模式写入数据包：开发时写入 `core`，Mod 作者写入自己的 Mod 包，见 [15](15-design-editor-and-tools.md#创作模式)。
-- 蓝图只是模板，不分版本，修改时覆盖。建造、购买或世界生成时，从蓝图复制一份设计给实例，之后二者无关（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，ADR-0012）。设计不可变，以设计哈希识别，即对设计全部内容（含涂装）的规范化编码计算的 SHA-256；存档内嵌实例、任务、委托和改装草稿用到的设计，相同内容只存一份；已有聚居地使用的聚居地模板同样内嵌，见 [09](09-persistence.md#存档中的内容)。所以玩家可以随时修改或删除库中的蓝图，不检查引用，见 [15](15-design-editor-and-tools.md#草稿与保存)。
+- 蓝图只是模板，不分版本，修改时覆盖。建造、购买或世界生成时，从蓝图复制一份设计给实例，之后二者无关（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)，ADR-0012）。设计不可变，以设计哈希识别，即对设计全部内容（含名称、说明和涂装）的规范化编码计算的 SHA-256；存档内嵌实例、任务、委托和改装草稿用到的设计，相同内容只存一份；已有聚居地使用的聚居地模板同样内嵌，见 [09](09-persistence.md#存档中的内容)。所以玩家可以随时修改或删除库中的蓝图，不检查引用，见 [15](15-design-editor-and-tools.md#草稿与保存)。
 - 体素定义等外部引用依赖当前安装的内容，保存时不会暗中嵌入外部旧定义以兜底。
 
 ### 内容目录与格式
@@ -95,11 +95,11 @@
 | --- | --- |
 | Built-in | `builtin/core/resources/` 下按内容类型分类；`core` 也是一个内容包，版本就是游戏版本 |
 | Mod | `user://mods` 中各包的 `resources/` 下沿用相同结构 |
-| 用户内容库 | 目标目录 `user://content-library/`，只保存玩家的蓝图；旧 `user://blueprints/` 读取／迁移单独落实 |
+| 用户内容库 | 目标目录 `user://content-library/`，只保存玩家的蓝图，每个蓝图一个文件 `<UUID>.blueprint.json`；旧 `user://blueprints/` 读取／迁移单独落实 |
 | 本局蓝图库 | 存档的内嵌内容 |
 | 草稿（非有效来源） | `user://authoring-drafts/`，设计编辑器和创作模式的草稿，不参与有效内容扫描 |
 
-目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义的后缀是 `.voxel.json`，manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
+目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义和蓝图的后缀是 `.voxel.json` 和 `.blueprint.json`，manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
 定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
 

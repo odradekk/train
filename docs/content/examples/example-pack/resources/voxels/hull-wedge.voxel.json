@@ -1,26 +1,14 @@
 {
   "schema_version": 3,
   "id": "hull-wedge",
-  "simulation": {
-    "value": 40,
-    "mass": 0.3,
-    "max_durability": 150
-  },
+  "simulation": { "value": 40, "mass": 0.3, "max_durability": 150 },
   "appearance": {
     "allowed_orientations": "all_24",
     "presentation": {
       "kind": "cube",
       "shape": "wedge",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "bottom.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png" }
     }
   },
-  "display": {
-    "name": "斜面车体",
-    "description": "楔形的车体结构块，用于车鼻、斜面和屋顶。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "斜面车体", "description": "楔形的车体结构块，用于车鼻、斜面和屋顶。", "icon": "icon.png" }
 }

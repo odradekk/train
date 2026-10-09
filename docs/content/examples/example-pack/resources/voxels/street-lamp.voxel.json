@@ -4,36 +4,17 @@
   "appearance": {
     "collision": {
       "kind": "local_box",
-      "offset": {
-        "x": 0.25,
-        "y": 0.5,
-        "z": 0.25
-      },
-      "size": {
-        "x": 0.5,
-        "y": 0.5,
-        "z": 0.5
-      }
+      "offset": { "x": 0.25, "y": 0.5, "z": 0.25 },
+      "size": { "x": 0.5, "y": 0.5, "z": 0.5 }
     },
     "presentation": {
       "kind": "cube",
       "shape": "beam",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "bottom.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png" }
     },
     "behaviors": {
-      "light": {
-        "color": "#ffd9a0",
-        "range": 6
-      }
+      "light": { "color": "#ffd9a0", "range": 6 }
     }
   },
-  "display": {
-    "name": "路灯",
-    "description": "路灯的灯头，只用于场景；灯杆由其他体素搭成。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "路灯", "description": "路灯的灯头，只用于场景；灯杆由其他体素搭成。", "icon": "icon.png" }
 }

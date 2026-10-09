@@ -18,7 +18,7 @@
     "allowed_orientations": "four_way",
     "presentation": {
       "kind": "cube",
-      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png", "front": "front.png" }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png" }
     }
   },
   "display": { "name": "柴油机组", "description": "单格柴油机组，为车辆提供牵引力。", "icon": "icon.png" }
@@ -131,17 +131,19 @@
 | `grain` 粮食 | 无行为的货物 | 只写必填字段，朝向和碰撞取默认值；`raw_good` 标签；底面复用顶面图 | 首个切片 |
 | `hull-plate` 车体钢板 | 结构体素 | 底面引用共用的 `shared/vehicle-underside.png` | 首个切片 |
 | `hull-wedge` 斜面车体 | 结构体素 | `shape: wedge`，`all_24` 朝向 | Demo |
+| `concrete-block` 混凝土块 | 结构体素 | 材质 `concrete`，可以涂装 | Demo |
 | `grassland` 草地 | 场景体素 | 没有 `simulation` 一节；`tile_span: 4` | Demo |
 | `street-lamp` 路灯 | 场景体素 | 只有表现的行为 `light`；`local_box` 碰撞；`shape: beam` | Demo |
-| `diesel-engine` 柴油机组 | 部件 | `propulsion`；正面图 | 首个切片 |
-| `driver-cab` 驾驶台 | 部件 | `control` 加表现行为 `light`（参数取默认值） | 首个切片 |
+| `tree-trunk` 树干、`foliage` 树冠 | 场景体素 | 场景模型 `tree` 用到的体素 | Demo |
+| `diesel-engine` 柴油机组 | 部件 | `propulsion` | 首个切片 |
+| `driver-cab` 驾驶台 | 部件 | `control` | 首个切片 |
 | `cargo-hold` 货舱 | 部件 | `storage` | 首个切片 |
 | `wheel` 车轮 | 结构体素 | 表现行为 `wheelset`；`bare_metal`；`shape: cylinder` | Demo |
 | `headlight` 车头灯 | 结构体素 | 货物带表现行为 `light` | Demo |
-| `machine-gun` 机枪 | 部件 | `weapon` | Demo |
+| `machine-gun` 机枪 | 部件 | `weapon`；正面图 | Demo |
 | `machine-tool` 机床 | 部件 | `production` | Demo |
 | `drill-head` 钻头 | 部件 | `extraction` | Demo |
-| `crane` 吊机 | 部件 | `construction` | Demo |
+| `crane` 吊机 | 部件 | `construction` 加表现行为 `light`（参数取默认值） | Demo |
 | `generator` 发电机 | 部件 | `power` | Demo |
 
 ## 和现有代码的差别

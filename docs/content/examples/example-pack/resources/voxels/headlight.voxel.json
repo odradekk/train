@@ -1,32 +1,16 @@
 {
   "schema_version": 3,
   "id": "headlight",
-  "simulation": {
-    "value": 60,
-    "mass": 0.1,
-    "max_durability": 50
-  },
+  "simulation": { "value": 60, "mass": 0.1, "max_durability": 50 },
   "appearance": {
     "allowed_orientations": "four_way",
     "presentation": {
       "kind": "cube",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "bottom.png",
-        "front": "front.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png", "front": "front.png" }
     },
     "behaviors": {
-      "light": {
-        "color": "#fff4e0",
-        "range": 12
-      }
+      "light": { "color": "#fff4e0", "range": 12 }
     }
   },
-  "display": {
-    "name": "车头灯",
-    "description": "装在车头前方的照明灯；没有功能，算结构体素。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "车头灯", "description": "装在车头前方的照明灯；没有功能，算结构体素。", "icon": "icon.png" }
 }

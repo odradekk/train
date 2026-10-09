@@ -13,20 +13,8 @@
     "allowed_orientations": "four_way",
     "presentation": {
       "kind": "cube",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "bottom.png",
-        "front": "front.png"
-      }
-    },
-    "behaviors": {
-      "light": {}
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png" }
     }
   },
-  "display": {
-    "name": "驾驶台",
-    "description": "司机操作列车的位置，带一盏照明灯。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "驾驶台", "description": "司机操作列车的位置。", "icon": "icon.png" }
 }

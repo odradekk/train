@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "id": "9c4d2b7e-1a3f-4e60-8b25-6f0e3d9a7c41",
+  "name": "示例扩展包",
+  "version": "0.1.0",
+  "authors": ["Train 开发组"],
+  "description": "演示包依赖和跨包引用：蓝图用到示例内容包的体素。",
+  "dependencies": [
+    { "id": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15", "name": "示例内容包", "min_version": "0.1.0" }
+  ]
+}

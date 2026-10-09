@@ -23,7 +23,7 @@
 | 立方体体素 | 各面 PNG，边长为 32 px × 平铺跨度；可选的正面图；`icon.png`，128×128（[07](07-icons-and-ui.md#物品图标)）；`.voxel.json` 中的表现字段：`faces`、`tile_span`、`material`，写法见[体素定义的格式](../content/voxel.md)；`.png.import`，导入方式改为 Keep File（`importer=keep`） |
 | 形状 | 内置目录随代码提供，不按体素交付文件；美术只检查贴图投影到形状上的效果（[01](01-construction-language.md#形状)） |
 | 自定义模型 | 源文件、导出的模型、模型贴图、每个表面的材质类别（[02](02-materials-and-textures.md#形状与自定义模型)）；格式和导入约定见开放问题 |
-| 场景模型、样机 | 内容文件：场景模型的格式和蓝图 `.composites.json`。设计编辑器和创作模式能用之前手写 |
+| 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。设计编辑器和创作模式能用之前手写 |
 | 检查记录 | 写在实施工单的完成评论里，见[检查人与记录](#检查人与记录) |
 
 ### 源文件

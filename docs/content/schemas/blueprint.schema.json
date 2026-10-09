@@ -1,0 +1,326 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/blueprint.schema.json",
+  "title": "蓝图（<local id>.blueprint.json）",
+  "description": "字段说明见 docs/content/blueprint.md。蓝图 = schema_version + id + 一份设计对象；被嵌套的复合体和存档里的设计用同一个设计对象。Schema 只检查单个文件的结构；引用、连通、包络、重叠、转动范围等由加载器检查。",
+  "$ref": "#/$defs/designBody",
+  "required": ["schema_version", "id"],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "id": { "$ref": "common.schema.json#/$defs/localId" },
+    "used_packages": {
+      "description": "只用于用户内容库和本局蓝图库的蓝图：保存时用到的内容包，只用于显示。",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "version"],
+        "properties": {
+          "id": {
+            "oneOf": [
+              { "const": "core" },
+              { "$ref": "common.schema.json#/$defs/uuid" }
+            ]
+          },
+          "name": { "$ref": "common.schema.json#/$defs/name" },
+          "version": { "$ref": "common.schema.json#/$defs/semver" }
+        }
+      }
+    }
+  },
+  "unevaluatedProperties": false,
+  "$defs": {
+    "design": {
+      "description": "一份设计：被嵌套的复合体、存档里的设计都用这个对象。",
+      "$ref": "#/$defs/designBody",
+      "unevaluatedProperties": false
+    },
+    "designBody": {
+      "type": "object",
+      "required": ["category", "layout", "display"],
+      "properties": {
+        "category": { "enum": ["vehicle", "building", "large_equipment", "scene_model", "creature"] },
+        "simulation": { "type": "object" },
+        "layout": { "$ref": "#/$defs/layout" },
+        "appearance": { "type": "object" },
+        "display": { "$ref": "#/$defs/display" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "category": { "const": "vehicle" }
+            }
+          },
+          "then": {
+            "required": ["simulation"],
+            "properties": {
+              "simulation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["size_class"],
+                "properties": {
+                  "size_class": { "$ref": "common.schema.json#/$defs/sizeClass" }
+                }
+              },
+              "appearance": { "$ref": "#/$defs/emptyAppearance" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "category": { "const": "building" }
+            }
+          },
+          "then": {
+            "required": ["simulation"],
+            "properties": {
+              "simulation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["plot_size", "building_type"],
+                "properties": {
+                  "plot_size": { "enum": ["small", "medium", "large", "station"] },
+                  "building_type": { "description": "取值由代码提供，清单随聚居地切片确定。", "enum": ["warehouse"] },
+                  "facility_tags": {
+                    "description": "取值由代码提供，清单随生产切片确定。",
+                    "type": "array",
+                    "uniqueItems": true,
+                    "default": [],
+                    "items": { "enum": [] }
+                  }
+                }
+              },
+              "appearance": { "$ref": "#/$defs/emptyAppearance" }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "category": { "const": "large_equipment" }
+            }
+          },
+          "then": {
+            "properties": {
+              "simulation": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "behaviors": { "$ref": "common.schema.json#/$defs/functionalBehaviors" }
+                }
+              },
+              "appearance": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "behaviors": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "rotation": { "$ref": "#/$defs/rotation" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "category": { "const": "scene_model" }
+            }
+          },
+          "then": {
+            "not": { "required": ["simulation"] },
+            "properties": {
+              "appearance": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "flatten": { "$ref": "#/$defs/flatten" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "category": { "const": "creature" }
+            }
+          },
+          "then": {
+            "required": ["simulation"],
+            "properties": {
+              "simulation": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["behaviors"],
+                "properties": {
+                  "behaviors": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["creature"],
+                    "properties": {
+                      "creature": { "$ref": "#/$defs/creature" },
+                      "weapon": { "$ref": "common.schema.json#/$defs/weapon" }
+                    }
+                  }
+                }
+              },
+              "appearance": { "$ref": "#/$defs/emptyAppearance" }
+            }
+          }
+        }
+      ]
+    },
+    "emptyAppearance": { "type": "object", "additionalProperties": false },
+    "layout": {
+      "description": "布局：自己的体素（调色板加格子）和被嵌套的复合体。至少有一格或一个被嵌套的复合体。",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "palette": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/paletteEntry" }
+        },
+        "cells": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/cell" }
+        },
+        "composites": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/nested" }
+        }
+      },
+      "anyOf": [
+        {
+          "required": ["cells"],
+          "properties": {
+            "cells": { "minItems": 1 }
+          }
+        },
+        {
+          "required": ["composites"],
+          "properties": {
+            "composites": { "minItems": 1 }
+          }
+        }
+      ]
+    },
+    "paletteEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["voxel"],
+      "properties": {
+        "voxel": { "$ref": "common.schema.json#/$defs/definitionRef" },
+        "orientation": { "$ref": "#/$defs/orientation" },
+        "paint": { "$ref": "common.schema.json#/$defs/color" }
+      }
+    },
+    "orientation": {
+      "description": "<right>_<up>：局部 +X 和局部 +Y 在宿主中的方向，局部 +Z = right × up。px_py 是默认朝向。",
+      "default": "px_py",
+      "enum": ["px_py", "px_ny", "px_pz", "px_nz", "nx_py", "nx_ny", "nx_pz", "nx_nz", "py_px", "py_nx", "py_pz", "py_nz", "ny_px", "ny_nx", "ny_pz", "ny_nz", "pz_px", "pz_nx", "pz_py", "pz_ny", "nz_px", "nz_nx", "nz_py", "nz_ny"]
+    },
+    "int32": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 },
+    "position": {
+      "type": "array",
+      "prefixItems": [
+        { "$ref": "#/$defs/int32" },
+        { "$ref": "#/$defs/int32" },
+        { "$ref": "#/$defs/int32" }
+      ],
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "cell": {
+      "description": "[x, y, z, 调色板序号]",
+      "type": "array",
+      "prefixItems": [
+        { "$ref": "#/$defs/int32" },
+        { "$ref": "#/$defs/int32" },
+        { "$ref": "#/$defs/int32" },
+        { "type": "integer", "minimum": 0 }
+      ],
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "nested": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["at", "design"],
+      "properties": {
+        "at": { "$ref": "#/$defs/position" },
+        "orientation": { "$ref": "#/$defs/orientation" },
+        "design": { "$ref": "#/$defs/design" }
+      }
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "description": { "$ref": "common.schema.json#/$defs/description" }
+      }
+    },
+    "rotation": {
+      "description": "只有表现：设备绕自身的一根轴转动。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["axis", "pivot", "range"],
+      "properties": {
+        "axis": { "enum": ["x", "y", "z"] },
+        "pivot": { "$ref": "#/$defs/position" },
+        "range": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "number", "minimum": -180, "maximum": 180 },
+            { "type": "number", "minimum": -180, "maximum": 180 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "speed": { "type": "number", "exclusiveMinimum": 0, "default": 90 }
+      }
+    },
+    "creature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hp", "speed", "retreat_threshold", "raid_duration"],
+      "properties": {
+        "hp": { "$ref": "common.schema.json#/$defs/positiveInt" },
+        "speed": { "$ref": "common.schema.json#/$defs/positiveNumber" },
+        "retreat_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "raid_duration": { "$ref": "common.schema.json#/$defs/positiveNumber" }
+      }
+    },
+    "flatten": {
+      "description": "场景模型下方的地面整平：x、z 闭区间内，y 小于 height 的格是地面，以上清空。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to", "height"],
+      "properties": {
+        "from": { "$ref": "#/$defs/xz" },
+        "to": { "$ref": "#/$defs/xz" },
+        "height": { "$ref": "#/$defs/int32" }
+      }
+    },
+    "xz": {
+      "type": "array",
+      "prefixItems": [
+        { "$ref": "#/$defs/int32" },
+        { "$ref": "#/$defs/int32" }
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    }
+  }
+}

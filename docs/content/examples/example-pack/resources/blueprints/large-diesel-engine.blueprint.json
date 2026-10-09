@@ -1,0 +1,37 @@
+{
+  "schema_version": 3,
+  "id": "large-diesel-engine",
+  "category": "large_equipment",
+  "simulation": {
+    "behaviors": {
+      "propulsion": { "traction": 200, "rated_speed": 22 }
+    }
+  },
+  "layout": {
+    "palette": [
+      { "voxel": "hull-plate" },
+      { "voxel": "hull-wedge" }
+    ],
+    "cells": [
+      [-1, 0, -1, 0],
+      [0, 0, -1, 0],
+      [1, 0, -1, 0],
+      [-1, 0, 0, 0],
+      [0, 0, 0, 0],
+      [1, 0, 0, 0],
+      [-1, 0, 1, 0],
+      [0, 0, 1, 0],
+      [1, 0, 1, 0],
+      [-1, 1, -1, 0],
+      [0, 1, -1, 0],
+      [1, 1, -1, 0],
+      [-1, 1, 0, 0],
+      [0, 1, 0, 0],
+      [1, 1, 0, 0],
+      [-1, 1, 1, 1],
+      [0, 1, 1, 1],
+      [1, 1, 1, 1]
+    ]
+  },
+  "display": { "name": "大型柴油机", "description": "功能复合体：整件提供牵引力，是宿主的一个部件；玩家不能改它的体素。" }
+}

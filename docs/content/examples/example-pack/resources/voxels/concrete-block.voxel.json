@@ -1,0 +1,13 @@
+{
+  "schema_version": 3,
+  "id": "concrete-block",
+  "simulation": { "value": 30, "mass": 1.2, "max_durability": 250 },
+  "appearance": {
+    "presentation": {
+      "kind": "cube",
+      "material": "concrete",
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "top.png" }
+    }
+  },
+  "display": { "name": "混凝土块", "description": "建筑的墙体和地基，可以涂装。", "icon": "icon.png" }
+}

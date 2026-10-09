@@ -33,39 +33,91 @@
       "type": "string",
       "pattern": "^(shared/)?[a-z0-9][a-z0-9_-]*\\.glb$"
     },
-    "name": {
-      "description": "显示名称，去掉首尾空白后 1–100 个字符。",
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 100
-    },
-    "description": {
-      "description": "说明，去掉首尾空白后 1–2000 个字符。",
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 2000
-    },
-    "color": {
-      "description": "sRGB 颜色，小写十六进制。",
-      "type": "string",
-      "pattern": "^#[0-9a-f]{6}$"
-    },
-    "sizeClass": {
-      "description": "车辆尺寸档位。",
-      "enum": ["small", "medium", "large", "extra_large", "titan"]
-    },
+    "name": { "description": "显示名称，去掉首尾空白后 1–100 个字符。", "type": "string", "minLength": 1, "maxLength": 100 },
+    "description": { "description": "说明，去掉首尾空白后 1–2000 个字符。", "type": "string", "minLength": 1, "maxLength": 2000 },
+    "color": { "description": "sRGB 颜色，小写十六进制。", "type": "string", "pattern": "^#[0-9a-f]{6}$" },
+    "sizeClass": { "description": "车辆尺寸档位。", "enum": ["small", "medium", "large", "extra_large", "titan"] },
     "material": {
       "description": "表现材质类别，见美术 02。",
       "enum": ["painted_metal", "bare_metal", "concrete", "stone_soil", "glass", "polymer_rubber", "organic"]
     },
-    "positiveNumber": {
-      "type": "number",
-      "exclusiveMinimum": 0
+    "positiveNumber": { "type": "number", "exclusiveMinimum": 0 },
+    "positiveInt": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
+    "propulsion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["traction", "rated_speed"],
+      "properties": {
+        "traction": { "$ref": "#/$defs/positiveNumber" },
+        "rated_speed": { "$ref": "#/$defs/positiveNumber" }
+      }
     },
-    "positiveInt": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 2147483647
+    "control": { "type": "object", "additionalProperties": false },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capacity"],
+      "properties": {
+        "capacity": { "$ref": "#/$defs/positiveInt" }
+      }
+    },
+    "production": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_rate"],
+      "properties": {
+        "work_rate": { "$ref": "#/$defs/positiveNumber" }
+      }
+    },
+    "extraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_rate"],
+      "properties": {
+        "work_rate": { "$ref": "#/$defs/positiveNumber" }
+      }
+    },
+    "construction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_rate", "max_size_class"],
+      "properties": {
+        "work_rate": { "$ref": "#/$defs/positiveNumber" },
+        "max_size_class": { "$ref": "#/$defs/sizeClass" }
+      }
+    },
+    "power": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["output"],
+      "properties": {
+        "output": { "$ref": "#/$defs/positiveNumber" }
+      }
+    },
+    "weapon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["damage", "interval"],
+      "properties": {
+        "damage": { "$ref": "#/$defs/positiveInt" },
+        "interval": { "$ref": "#/$defs/positiveNumber" }
+      }
+    },
+    "functionalBehaviors": {
+      "description": "功能性行为的核心参数，以行为类型为键。体素和功能复合体共用。",
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "propulsion": { "$ref": "#/$defs/propulsion" },
+        "control": { "$ref": "#/$defs/control" },
+        "storage": { "$ref": "#/$defs/storage" },
+        "production": { "$ref": "#/$defs/production" },
+        "extraction": { "$ref": "#/$defs/extraction" },
+        "construction": { "$ref": "#/$defs/construction" },
+        "power": { "$ref": "#/$defs/power" },
+        "weapon": { "$ref": "#/$defs/weapon" }
+      }
     }
   }
 }

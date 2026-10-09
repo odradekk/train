@@ -6,26 +6,15 @@
     "mass": 7,
     "max_durability": 300,
     "behaviors": {
-      "power": {
-        "output": 50
-      }
+      "power": { "output": 50 }
     }
   },
   "appearance": {
     "allowed_orientations": "four_way",
     "presentation": {
       "kind": "cube",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "bottom.png",
-        "front": "front.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png", "front": "front.png" }
     }
   },
-  "display": {
-    "name": "发电机",
-    "description": "发电设备，消耗燃料为聚居地的电力池供电。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "发电机", "description": "发电设备，消耗燃料为聚居地的电力池供电。", "icon": "icon.png" }
 }

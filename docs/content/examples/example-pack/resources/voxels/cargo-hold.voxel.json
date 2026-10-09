@@ -6,24 +6,14 @@
     "mass": 1,
     "max_durability": 150,
     "behaviors": {
-      "storage": {
-        "capacity": 1
-      }
+      "storage": { "capacity": 1 }
     }
   },
   "appearance": {
     "presentation": {
       "kind": "cube",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "shared/vehicle-underside.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "shared/vehicle-underside.png" }
     }
   },
-  "display": {
-    "name": "货舱",
-    "description": "存放货物的车厢舱段，每格装 1 个货物单位。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "货舱", "description": "存放货物的车厢舱段，每格装 1 个货物单位。", "icon": "icon.png" }
 }

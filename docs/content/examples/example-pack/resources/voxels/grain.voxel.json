@@ -1,28 +1,13 @@
 {
   "schema_version": 3,
   "id": "grain",
-  "simulation": {
-    "value": 100,
-    "mass": 5,
-    "max_durability": 100,
-    "tags": [
-      "raw_good"
-    ]
-  },
+  "simulation": { "value": 100, "mass": 5, "max_durability": 100, "tags": ["raw_good"] },
   "appearance": {
     "presentation": {
       "kind": "cube",
       "material": "organic",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "top.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "top.png" }
     }
   },
-  "display": {
-    "name": "粮食",
-    "description": "谷物和豆类，聚居地的基本口粮。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "粮食", "description": "谷物和豆类，聚居地的基本口粮。", "icon": "icon.png" }
 }

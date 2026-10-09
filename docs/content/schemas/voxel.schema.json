@@ -29,72 +29,7 @@
           "default": [],
           "items": { "enum": ["raw_good"] }
         },
-        "behaviors": { "$ref": "#/$defs/simulationBehaviors" }
-      }
-    },
-    "simulationBehaviors": {
-      "description": "功能性行为的核心参数，以行为类型为键。",
-      "type": "object",
-      "additionalProperties": false,
-      "default": {},
-      "properties": {
-        "propulsion": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["traction", "rated_speed"],
-          "properties": {
-            "traction": { "$ref": "common.schema.json#/$defs/positiveNumber" },
-            "rated_speed": { "$ref": "common.schema.json#/$defs/positiveNumber" }
-          }
-        },
-        "control": {
-          "type": "object",
-          "additionalProperties": false
-        },
-        "storage": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["capacity"],
-          "properties": {
-            "capacity": { "$ref": "common.schema.json#/$defs/positiveInt" }
-          }
-        },
-        "production": { "$ref": "#/$defs/workRate" },
-        "extraction": { "$ref": "#/$defs/workRate" },
-        "construction": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["work_rate", "max_size_class"],
-          "properties": {
-            "work_rate": { "$ref": "common.schema.json#/$defs/positiveNumber" },
-            "max_size_class": { "$ref": "common.schema.json#/$defs/sizeClass" }
-          }
-        },
-        "power": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["output"],
-          "properties": {
-            "output": { "$ref": "common.schema.json#/$defs/positiveNumber" }
-          }
-        },
-        "weapon": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["damage", "interval"],
-          "properties": {
-            "damage": { "$ref": "common.schema.json#/$defs/positiveInt" },
-            "interval": { "$ref": "common.schema.json#/$defs/positiveNumber" }
-          }
-        }
-      }
-    },
-    "workRate": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["work_rate"],
-      "properties": {
-        "work_rate": { "$ref": "common.schema.json#/$defs/positiveNumber" }
+        "behaviors": { "$ref": "common.schema.json#/$defs/functionalBehaviors" }
       }
     },
     "appearance": {
@@ -116,7 +51,9 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["kind"],
-          "properties": { "kind": { "enum": ["none", "full_box"] } }
+          "properties": {
+            "kind": { "enum": ["none", "full_box"] }
+          }
         },
         {
           "type": "object",
@@ -203,10 +140,7 @@
       "additionalProperties": false,
       "default": {},
       "properties": {
-        "wheelset": {
-          "type": "object",
-          "additionalProperties": false
-        },
+        "wheelset": { "type": "object", "additionalProperties": false },
         "light": {
           "type": "object",
           "additionalProperties": false,

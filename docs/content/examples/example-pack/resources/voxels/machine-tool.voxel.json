@@ -6,26 +6,15 @@
     "mass": 6,
     "max_durability": 250,
     "behaviors": {
-      "production": {
-        "work_rate": 1
-      }
+      "production": { "work_rate": 1 }
     }
   },
   "appearance": {
     "allowed_orientations": "four_way",
     "presentation": {
       "kind": "cube",
-      "faces": {
-        "top": "top.png",
-        "side": "side.png",
-        "bottom": "bottom.png",
-        "front": "front.png"
-      }
+      "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png", "front": "front.png" }
     }
   },
-  "display": {
-    "name": "机床",
-    "description": "工业设备，为生产提供工作能力。",
-    "icon": "icon.png"
-  }
+  "display": { "name": "机床", "description": "工业设备，为生产提供工作能力。", "icon": "icon.png" }
 }
