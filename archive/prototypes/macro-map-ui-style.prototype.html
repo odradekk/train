@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<!--
+  PROTOTYPE · 宏观地图与界面风格样稿，不是游戏实现。
+  内容是“宏观地图、界面与图标的视觉风格”（#244）讨论结果的统一版本，供以后继续打磨。
+  规则以 docs/art/07-icons-and-ui.md 为准；这里的物品图标是 SVG 占位图，正式素材是手工绘制的 icon.png。
+  修改样稿里的色值或尺寸后，同步修改 07 篇。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PROTOTYPE · 宏观地图与界面风格</title>
+<style>
+  :root {
+    --font: "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif;
+    --panel: rgba(24,28,33,0.90); --topbar: rgba(24,28,33,0.92); --line: #3b434d; --rowLine: #2c333b;
+    --text: #e6e9ec; --muted: #9aa3ad; --accent: #e0a22e; --accentText: #1a1a1a;
+    --ok: #2f9e5c; --danger: #c9423a; --radius: 4px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--font); background: #111; color: #ddd; }
+  .num { font-variant-numeric: tabular-nums; }
+  #screen { position: relative; width: 1600px; height: 900px; margin: 16px auto 0; overflow: hidden; border: 1px solid #333; }
+  #map { position: absolute; inset: 0; }
+  .topbar { position: absolute; left: 0; right: 0; top: 0; height: 44px; display: flex; align-items: center; gap: 18px; padding: 0 16px; background: var(--topbar); color: var(--text); border-bottom: 1px solid var(--line); }
+  .speed { display: flex; gap: 4px; }
+  .speed button { font: inherit; border: 1px solid var(--line); background: transparent; color: var(--text); min-width: 40px; height: 28px; border-radius: var(--radius); }
+  .speed button.on { background: var(--accent); color: var(--accentText); border-color: var(--accent); font-weight: 700; }
+  .tb-item { display: flex; align-items: baseline; gap: 6px; }
+  .tb-label { color: var(--muted); font-size: 12px; }
+  .tb-value { font-size: 16px; font-weight: 700; }
+  .panel { position: absolute; right: 16px; top: 60px; width: 360px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); color: var(--text); }
+  .panel h2 { margin: 0; font-size: 16px; padding: 10px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  .panel .sub { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: auto; }
+  .panel table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .panel td, .panel th { padding: 0 14px; height: 34px; text-align: left; }
+  .panel th { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .panel td.r, .panel th.r { text-align: right; }
+  .panel tr + tr td { border-top: 1px solid var(--rowLine); }
+  .panel .foot { padding: 10px 14px; display: flex; gap: 8px; border-top: 1px solid var(--line); }
+  .panel .btn { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: var(--radius); border: 1px solid var(--line); background: transparent; color: var(--text); }
+  .panel .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accentText); font-weight: 700; }
+  .good { display: flex; align-items: center; gap: 8px; }
+  .up { color: var(--ok); } .down { color: var(--danger); }
+  .toast { position: absolute; left: 16px; bottom: 16px; width: 380px; display: flex; flex-direction: column; gap: 8px; }
+  .toast div { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid; padding: 8px 12px; border-radius: var(--radius); font-size: 14px; color: var(--text); display: flex; gap: 8px; align-items: center; }
+  .toast b { font-size: 12px; padding: 1px 6px; border-radius: 3px; color: #111; }
+  .ledger { width: 1600px; margin: 16px auto 40px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #1b1d20; border: 1px solid #333; padding: 14px 16px; border-radius: 6px; }
+  .card.wide { grid-column: 1 / -1; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; color: #fff; }
+  .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+  .sw { display: flex; align-items: center; gap: 8px; font-size: 13px; min-width: 210px; }
+  .sw i { width: 28px; height: 20px; border-radius: 3px; border: 1px solid #0006; display: inline-block; }
+  .sw code { color: #9ab; font-size: 12px; }
+  .row { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; padding: 10px; background: var(--panel); border-radius: 4px; margin: 6px 0; }
+  .cell { display: flex; gap: 6px; align-items: flex-end; }
+  .cap { font-size: 12px; color: #999; text-align: center; margin-top: 4px; }
+  .sym { display: flex; flex-wrap: wrap; gap: 14px; }
+  .sym .s { text-align: center; font-size: 12px; color: #bbb; width: 64px; }
+  .sym svg { width: 32px; height: 32px; display: block; margin: 0 auto 4px; }
+  .note { width: 1600px; margin: 8px auto 0; font-size: 13px; color: #999; }
+</style>
+</head>
+<body>
+<div class="note">PROTOTYPE · 按 1600×900 绘制；地图为示意，节点、线路和数值都是假数据；物品图标是占位图。规则见 docs/art/07-icons-and-ui.md。</div>
+<div id="screen">
+  <svg id="map" viewBox="0 0 1600 900"></svg>
+  <div class="topbar" id="topbar"></div>
+  <div class="panel" id="panel"></div>
+  <div class="toast" id="toast"></div>
+</div>
+<div class="ledger">
+  <div class="card"><h3>状态色</h3><div class="swatches" id="swatches"></div></div>
+  <div class="card"><h3>地貌底色与地图元素</h3><div class="swatches" id="terrainSw"></div></div>
+  <div class="card wide"><h3>物品图标：icon.png（占位图）+ 程序生成的外框，显示尺寸 64 / 48 / 32 px</h3><div id="frames"></div></div>
+  <div class="card"><h3>外框状态与数量（程序叠加）</h3><div id="states"></div></div>
+  <div class="card"><h3>地图与界面符号：单色，可按状态色着色</h3><div class="sym" id="symbols"></div></div>
+</div>
+
+<script>
+// ---------- 当前规则（与 07 篇一致） ----------
+const V = {
+  base: '#b7c4a6',
+  terrain: { 平原: '#bccf93', 丘陵: '#cbb37e', 森林: '#7aa06a', 荒漠: '#e5cf95', 山地: '#a69d92' },
+  regionStroke: '#00000022',
+  track: '#2a2a2a', trackCase: '#ffffff',
+  own: '#2b77d0', neutral: '#7f8893', hostile: '#c9423a',
+  run: '#2f9e5c', load: '#2aa3b3', wait: '#d8962a', fault: '#c9423a',
+  info: '#7f8fa3', okN: '#2f9e5c', warn: '#d8962a', severe: '#c9423a',
+  accent: '#e0a22e', panel: 'rgba(24,28,33,0.90)', text: '#e6e9ec', muted: '#9aa3ad',
+  label: '#1e1e1e', labelHalo: '#ffffffdd',
+};
+const FRAME = { rx: 14, stops: ['#e3e7ea', '#c2c9d0'], stroke: '#6b7580', sw: 4, hover: '#3f4751', selected: '#e0a22e', art: 0.78 };
+
+// ---------- 假数据 ----------
+const NODES = [
+  { x: 220, y: 210, t: '平原', occ: '农庄', rel: 'own', name: '东坡农庄' },
+  { x: 470, y: 150, t: '丘陵', occ: '村镇', rel: 'own', name: '石桥村' },
+  { x: 760, y: 230, t: '平原', occ: '城市', rel: 'own', name: '北港' },
+  { x: 1040, y: 160, t: '山地', occ: '煤矿', rel: 'neutral', name: '黑岩煤矿' },
+  { x: 1290, y: 300, t: '山地', occ: '工业镇', rel: 'neutral', name: '铁砧镇' },
+  { x: 330, y: 470, t: '森林', occ: null },
+  { x: 610, y: 470, t: '平原', occ: '市镇', rel: 'neutral', name: '河湾市' },
+  { x: 900, y: 520, t: '丘陵', occ: null },
+  { x: 1150, y: 600, t: '荒漠', occ: '种植园', rel: 'hostile', name: '赤沙种植园' },
+  { x: 400, y: 730, t: '森林', occ: '农庄', rel: 'neutral', name: '林间农庄' },
+  { x: 760, y: 760, t: '荒漠', occ: '村镇', rel: 'hostile', name: '旱井村' },
+  { x: 1420, y: 700, t: '荒漠', occ: null },
+];
+const EDGES = [ // [a, b, 铁轨数, 状态]
+  [0, 1, 1], [1, 2, 2], [2, 3, 1], [3, 4, 1], [0, 5, 1], [5, 6, 1], [6, 2, 2], [6, 7, 1, 'broken'],
+  [7, 4, 1], [7, 8, 1], [8, 11, 1, 'building'], [5, 9, 1], [9, 10, 1], [10, 7, 1], [4, 11, 1],
+];
+const TRAINS = [[1, 0.35, 'run', 1], [6, 0.6, 'run', -1], [2, 0.92, 'load', 1], [3, 0.4, 'wait', 1], [9, 0.5, 'fault', 1]];
+
+// ---------- Voronoi（半平面裁剪） ----------
+function clip(poly, a, b) {
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, nx = b.x - a.x, ny = b.y - a.y;
+  const d = p => (p[0] - mx) * nx + (p[1] - my) * ny, out = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length], dp = d(p), dq = d(q);
+    if (dp <= 0) out.push(p);
+    if ((dp <= 0) !== (dq <= 0)) { const t = dp / (dp - dq); out.push([p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t]); }
+  }
+  return out;
+}
+const CELLS = NODES.map(a => NODES.reduce((poly, b) => b === a ? poly : clip(poly, a, b), [[0, 0], [1600, 0], [1600, 900], [0, 900]]));
+
+// ---------- 单色符号（24×24） ----------
+const GLYPH = {
+  农庄: 'M12 3v18M12 7c-3 0-4-2-4-4 3 0 4 2 4 4zm0 0c3 0 4-2 4-4-3 0-4 2-4 4zM12 12c-3 0-4-2-4-4 3 0 4 2 4 4zm0 0c3 0 4-2 4-4-3 0-4 2-4 4zM12 17c-3 0-4-2-4-4 3 0 4 2 4 4zm0 0c3 0 4-2 4-4-3 0-4 2-4 4z',
+  煤矿: 'M4 20l9-9M11 5c4-1 7 1 8 3l-3 1c-1-1-3-2-5-1zM14 8l2 2',
+  种植园: 'M12 21V10M12 10c0-4 3-7 7-7 0 4-3 7-7 7zM12 14c0-3-2-5-6-5 0 3 2 5 6 5z',
+  村镇: 'M4 20V11l8-6 8 6v9zM10 20v-5h4v5',
+  工业镇: 'M3 20V11l5 3v-3l5 3V6h3v-2h2v16z',
+  市镇: 'M3 20V9h7v11zM12 20V5h9v15zM5 12h3M5 15h3M14 8h5M14 11h5M14 14h5',
+  城市: 'M2 20V12h4V7h4v13zM11 20V3h5v17zM17 20V9h5v11z',
+  列车: 'M6 4h12a2 2 0 0 1 2 2v10H4V6a2 2 0 0 1 2-2zM4 11h16M8 20l2-4M16 20l-2-4M8 14h.01M16 14h.01',
+  战斗: 'M4 4l16 16M20 4L4 20M4 4l4 1-1 3M20 4l-4 1 1 3',
+  暂停: 'M8 5v14M16 5v14',
+  播放: 'M7 4l12 8-12 8z',
+  警告: 'M12 3l10 18H2zM12 10v5M12 18h.01',
+  断点: 'M3 12h6M15 12h6M10 7l4 10',
+  施工: 'M3 20h18M6 20V9l6-4 6 4v11M9 13h6',
+};
+const glyph = (k, color, w = 2) => `<path d="${GLYPH[k]}" fill="none" stroke="${color}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+
+// ---------- 物品图标占位（正式素材为手工绘制的 icon.png） ----------
+const GOODS = {
+  粮食: `<path d="M32 46c-14 2-20 18-16 40 3 18 20 26 48 26s45-8 48-26c4-22-2-38-16-40z" fill="#d4b47c" stroke="#6e5230" stroke-width="3"/>
+    <path d="M40 46c6-6 42-6 48 0" fill="none" stroke="#6e5230" stroke-width="4"/><g stroke="#7a5a1e" stroke-width="2"><path d="M52 44l-6-26M64 44V14M76 44l6-26"/></g>
+    <g fill="#e6b93c" stroke="#9a7420" stroke-width="1.5"><ellipse cx="45" cy="20" rx="4" ry="8" transform="rotate(-14 45 20)"/><ellipse cx="64" cy="14" rx="4" ry="8"/><ellipse cx="83" cy="20" rx="4" ry="8" transform="rotate(14 83 20)"/><ellipse cx="49" cy="30" rx="3.5" ry="7" transform="rotate(-14 49 30)"/><ellipse cx="64" cy="26" rx="3.5" ry="7"/><ellipse cx="79" cy="30" rx="3.5" ry="7" transform="rotate(14 79 30)"/></g>`,
+  煤: `<path d="M14 104l18-40 22-14 26 6 24 22 10 26z" fill="#2a2d31" stroke="#121315" stroke-width="3"/><path d="M32 64l22-14 8 26-30 10z" fill="#4a5058"/><path d="M62 76l18-20 24 22-20 12z" fill="#3b4047"/>
+    <path d="M54 50l26 6-18 20z" fill="#5d6570"/><path d="M28 96l20-12 18 18z" fill="#3e434a"/><path d="M70 98l24-8 16 14z" fill="#2f3337"/><path d="M58 54l10 4" stroke="#9fb0c2" stroke-width="3" stroke-linecap="round"/>`,
+  经济作物: `<path d="M18 62h92l-8 50H26z" fill="#a8743f" stroke="#5e3d1c" stroke-width="3"/><path d="M22 80h84M24 96h80" stroke="#5e3d1c" stroke-width="2.5"/>
+    <g stroke="#2f5d2a" stroke-width="2"><path d="M36 64c-6-18 2-30 14-34-2 14-6 24-14 34z" fill="#5f9a4c"/><path d="M64 62c-4-22 4-38 18-44 0 18-6 32-18 44z" fill="#4f8a40"/><path d="M92 64c4-16-2-26-14-30 0 12 4 22 14 30z" fill="#6aa856"/></g>
+    <circle cx="50" cy="58" r="8" fill="#f2f2ee" stroke="#a9a99a" stroke-width="2"/><circle cx="76" cy="56" r="9" fill="#f6f6f2" stroke="#a9a99a" stroke-width="2"/><circle cx="62" cy="50" r="7" fill="#ffffff" stroke="#a9a99a" stroke-width="2"/>`,
+  车体结构: `<path d="M14 92l40-22 60 18-40 24z" fill="#8a96a3" stroke="#3c444d" stroke-width="3"/><path d="M14 92v-12l40-22v12z" fill="#b5c0cb" stroke="#3c444d" stroke-width="3"/><path d="M54 58l60 18v12L54 70z" fill="#6c7782" stroke="#3c444d" stroke-width="3"/>
+    <path d="M34 82l20-11M74 93l20-11" stroke="#3c444d" stroke-width="2"/>`,
+  动力: `<path d="M20 44l44-20 46 18v44l-44 22-46-18z" fill="#56708a" stroke="#22313f" stroke-width="3"/><path d="M20 44l44-20 46 18-44 20z" fill="#7d97b0" stroke="#22313f" stroke-width="3"/><path d="M66 62v46" stroke="#22313f" stroke-width="3"/>
+    <path d="M60 30l-10 16h12l-8 14" fill="none" stroke="#ffd34d" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/><g stroke="#22313f" stroke-width="2"><path d="M74 70l28-12M74 80l28-12M74 90l28-12"/></g>`,
+  控制: `<path d="M16 100l20-50 64 0 16 50z" fill="#4c5560" stroke="#23282e" stroke-width="3"/><path d="M36 50l8-26h44l12 26z" fill="#6b7682" stroke="#23282e" stroke-width="3"/>
+    <path d="M46 28h38l7 18H41z" fill="#2fd0c0" stroke="#145e57" stroke-width="2"/><circle cx="46" cy="74" r="6" fill="#e0a22e" stroke="#23282e" stroke-width="2"/><circle cx="66" cy="74" r="6" fill="#c9423a" stroke="#23282e" stroke-width="2"/><path d="M88 66v18" stroke="#23282e" stroke-width="5" stroke-linecap="round"/>`,
+  货舱: `<path d="M14 46l50-20 50 20v50l-50 22-50-22z" fill="#a05a32" stroke="#4a2814" stroke-width="3"/><path d="M14 46l50-20 50 20-50 22z" fill="#c27846" stroke="#4a2814" stroke-width="3"/><path d="M64 68v50" stroke="#4a2814" stroke-width="3"/>
+    <g stroke="#4a2814" stroke-width="2"><path d="M24 56v40M34 60v40M44 64v40M54 66v40M76 66v40M88 61v40M100 56v40"/></g>`,
+};
+let frameSeq = 0;
+// state：normal 常态 | hover 悬停 | selected 选中 | unavailable 不可用；qty：右下角数量
+function framedIcon(k, size, state = 'normal', qty = null) {
+  const id = 'fr' + (frameSeq++), F = FRAME;
+  const stroke = state === 'hover' ? F.hover : state === 'selected' ? F.selected : F.stroke;
+  const sw = state === 'selected' ? 8 : F.sw, inset = (1 - F.art) * 64;
+  const dim = state === 'unavailable' ? `filter="url(#g${id})" opacity="0.45"` : '';
+  const q = qty == null ? '' : `<text x="118" y="118" text-anchor="end" font-size="34" font-weight="700" fill="#1a1d21" stroke="#ffffffdd" stroke-width="6" paint-order="stroke" style="font-family:var(--font);font-variant-numeric:tabular-nums">${qty}</text>`;
+  return `<svg viewBox="0 0 128 128" width="${size}" height="${size}"><defs>
+    <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${F.stops[0]}"/><stop offset="1" stop-color="${F.stops[1]}"/></linearGradient>
+    <filter id="g${id}"><feColorMatrix type="saturate" values="0"/></filter></defs>
+    <g ${dim}><rect x="${sw / 2}" y="${sw / 2}" width="${128 - sw}" height="${128 - sw}" rx="${F.rx}" fill="url(#${id})" stroke="${stroke}" stroke-width="${sw}"/>
+    <g transform="translate(${inset},${inset}) scale(${F.art})">${GOODS[k]}</g></g>${q}</svg>`;
+}
+
+// ---------- 地图 ----------
+function renderMap() {
+  let s = `<rect width="1600" height="900" fill="${V.base}"/>`;
+  CELLS.forEach((c, i) => { s += `<polygon points="${c.map(p => p.join(',')).join(' ')}" fill="${V.terrain[NODES[i].t]}" stroke="${V.regionStroke}" stroke-width="1"/>`; });
+  EDGES.forEach(([a, b, n, st]) => {
+    const A = NODES[a], B = NODES[b], dx = B.x - A.x, dy = B.y - A.y, L = Math.hypot(dx, dy), ox = -dy / L, oy = dx / L;
+    const col = st === 'building' ? V.warn : V.track, dash = st === 'building' ? 'stroke-dasharray="12 8"' : '';
+    s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="${V.trackCase}" stroke-width="${n === 2 ? 11 : 7}" stroke-linecap="round"/>`;
+    (n === 2 ? [-2.5, 2.5] : [0]).forEach(o => { s += `<line x1="${A.x + ox * o}" y1="${A.y + oy * o}" x2="${B.x + ox * o}" y2="${B.y + oy * o}" stroke="${col}" stroke-width="2" ${dash}/>`; });
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+    if (st === 'broken') s += `<circle cx="${mx}" cy="${my}" r="13" fill="${V.base}" stroke="${V.severe}" stroke-width="3"/><g transform="translate(${mx - 9},${my - 9}) scale(0.75)">${glyph('断点', V.severe, 3)}</g>`;
+    if (st === 'building') s += `<circle cx="${mx}" cy="${my}" r="13" fill="${V.panel}" stroke="${V.warn}" stroke-width="2"/><g transform="translate(${mx - 9},${my - 9}) scale(0.75)">${glyph('施工', V.warn, 2.5)}</g>`;
+  });
+  NODES.forEach(n => {
+    if (!n.occ) { s += `<circle cx="${n.x}" cy="${n.y}" r="6" fill="${V.base}" stroke="${V.track}" stroke-width="3"/>`; return; }
+    const c = V[n.rel], r = n.occ === '城市' ? 20 : 16;
+    s += `<circle cx="${n.x}" cy="${n.y}" r="${r}" fill="#ffffff" stroke="${c}" stroke-width="3"/>`;
+    if (n.rel === 'hostile') s += `<circle cx="${n.x}" cy="${n.y}" r="${r + 5}" fill="none" stroke="${c}" stroke-width="2" stroke-dasharray="4 3"/>`;
+    s += `<g transform="translate(${n.x - r * 0.62},${n.y - r * 0.62}) scale(${r / 19.5})">${glyph(n.occ, c, 2.2)}</g>`;
+    s += `<text x="${n.x}" y="${n.y + r + 18}" text-anchor="middle" font-size="15" font-weight="700" fill="${V.label}" stroke="${V.labelHalo}" stroke-width="4" paint-order="stroke" style="font-family:var(--font)">${n.name}</text>`;
+  });
+  TRAINS.forEach(([e, t, st, dir]) => {
+    const [a, b] = EDGES[e], A = NODES[a], B = NODES[b];
+    const x = A.x + (B.x - A.x) * t, y = A.y + (B.y - A.y) * t, ang = Math.atan2(B.y - A.y, B.x - A.x) * 180 / Math.PI + (dir < 0 ? 180 : 0);
+    s += `<g transform="translate(${x},${y}) rotate(${ang})"><rect x="-14" y="-7" width="28" height="14" rx="7" fill="${V[st]}" stroke="#1e1e1e" stroke-width="2"/><path d="M6 -4 L12 0 L6 4" fill="none" stroke="#fff" stroke-width="2"/></g>`;
+    if (st === 'fault') s += `<g transform="translate(${x + 10},${y - 30}) scale(0.8)">${glyph('警告', V.fault, 2.5)}</g>`;
+  });
+  s += `<g transform="translate(1110,540)"><circle r="17" fill="${V.panel}" stroke="${V.hostile}" stroke-width="3"/><g transform="translate(-12,-12)">${glyph('战斗', V.hostile, 2.6)}</g></g>`;
+  document.getElementById('map').innerHTML = s;
+}
+
+// ---------- 界面 ----------
+function renderUi() {
+  document.getElementById('topbar').innerHTML = `<div class="speed">${['❚❚', '1×', '2×', '4×', '8×'].map((l, i) => `<button class="${i === 3 ? 'on' : ''}">${l}</button>`).join('')}</div>
+    <div class="tb-item"><span class="tb-label">实际速度</span><span class="tb-value num">3.8×</span></div>
+    <div class="tb-item"><span class="tb-label">时间</span><span class="tb-value num">第 3 天 14:25</span></div>
+    <div class="tb-item" style="margin-left:auto"><span class="tb-label">资金</span><span class="tb-value num">12,480</span></div>`;
+  const rows = [['粮食', 18, '+6%', 'up', 240], ['煤', 31, '−4%', 'down', 120], ['经济作物', 47, '+12%', 'up', 60]];
+  document.getElementById('panel').innerHTML = `<h2><svg viewBox="0 0 24 24" width="20" height="20">${glyph('城市', V.own, 2)}</svg>北港<span class="sub">城市 · 自有</span></h2>
+    <table><tr><th>货物</th><th class="r">价格</th><th class="r">变化</th><th class="r">库存</th></tr>
+    ${rows.map(([g, p, d, cls, st]) => `<tr><td><span class="good">${framedIcon(g, 28)}${g}</span></td><td class="r num">${p}</td><td class="r num ${cls}">${d}</td><td class="r num">${st}</td></tr>`).join('')}</table>
+    <div class="foot"><button class="btn primary">购买车辆</button><button class="btn">交易规则</button></div>`;
+  const toasts = [['info', '信息', '2 号列车抵达北港'], ['okN', '完成', '东坡农庄的粮食已装车 40 单位'], ['warn', '警告', '3 号列车在黑岩煤矿等待站台'], ['severe', '严重', '河湾市—丘陵线路出现断点']];
+  document.getElementById('toast').innerHTML = toasts.map(([k, l, t]) => `<div style="border-left-color:${V[k]}"><b style="background:${V[k]}">${l}</b>${t}</div>`).join('');
+}
+
+// ---------- 资料区 ----------
+function renderLedger() {
+  const sw = (label, c) => `<span class="sw"><i style="background:${c}"></i>${label} <code>${c}</code></span>`;
+  document.getElementById('swatches').innerHTML = [
+    ['关系：自有', V.own], ['关系：非敌对', V.neutral], ['关系：敌对', V.hostile],
+    ['列车：运行', V.run], ['列车：装卸', V.load], ['列车：等待', V.wait], ['列车：故障', V.fault],
+    ['通知：信息', V.info], ['通知：完成', V.okN], ['通知：警告', V.warn], ['通知：严重', V.severe],
+    ['强调色', V.accent], ['面板底色', V.panel], ['正文', V.text], ['次要文字', V.muted],
+  ].map(([l, c]) => sw(l, c)).join('');
+  document.getElementById('terrainSw').innerHTML = Object.entries(V.terrain).map(([k, c]) => sw(k, c)).join('')
+    + sw('地图底色', V.base) + sw('铁轨', V.track) + sw('铁轨衬边', V.trackCase) + sw('地名文字', V.label);
+  document.getElementById('frames').innerHTML = `<div class="row">${Object.keys(GOODS).map(k => `<div><div class="cell">${[64, 48, 32].map(z => framedIcon(k, z)).join('')}</div><div class="cap">${k}</div></div>`).join('')}</div>`;
+  document.getElementById('states').innerHTML = `<div class="row">${[['normal', '常态'], ['hover', '悬停'], ['selected', '选中'], ['unavailable', '不可用']].map(([st, l]) => `<div><div class="cell">${framedIcon('煤', 64, st, 120)}${framedIcon('粮食', 48, st, 40)}</div><div class="cap">${l}</div></div>`).join('')}</div>`;
+  const syms = ['农庄', '煤矿', '种植园', '村镇', '工业镇', '市镇', '城市', '列车', '战斗', '暂停', '播放', '警告', '断点', '施工'];
+  document.getElementById('symbols').innerHTML = syms.map((k, i) => `<div class="s"><svg viewBox="0 0 24 24">${glyph(k, i % 3 === 0 ? V.own : i % 3 === 1 ? V.text : V.accent)}</svg>${k}</div>`).join('');
+}
+
+renderMap(); renderUi(); renderLedger();
+</script>
+</body>
+</html>

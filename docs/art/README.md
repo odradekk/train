@@ -19,7 +19,7 @@
 | `04-world-assets.md` | 建筑、地形、自然物、铁路 | 由[首个切片的场景美术规格](https://github.com/odradekk/train/issues/247)编写 |
 | [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性 | 已写 |
 | `06-wear-damage-and-motion.md` | 磨损、损伤、动画、特效 | 待拆票 |
-| `07-icons-and-ui.md` | 2D 图标、宏观地图、界面视觉 | 由[宏观地图、界面与图标的视觉风格](https://github.com/odradekk/train/issues/244)编写 |
+| [07-icons-and-ui.md](07-icons-and-ui.md) | 状态色、宏观地图、面板与字体、物品图标与外框、界面符号 | 已写 |
 | `08-asset-pipeline-and-review.md` | 制作流程、交付物、样机与检查 | 待拆票 |
 
 每篇的固定小节：边界、不变量、规则、本阶段、Demo 范围、Demo 之后、开放问题；没有内容的小节写“无”。“本阶段”写首个切片可以直接制作的规格，首个切片的范围见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)。
