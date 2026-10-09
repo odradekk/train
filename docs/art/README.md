@@ -12,15 +12,15 @@
 
 | 文件 | 内容 | 状态 |
 | --- | --- | --- |
-| [00-direction.md](00-direction.md) | 视觉基调、关键词、技术时代感、不采用的方向 | 已写 |
+| [00-direction.md](00-direction.md) | 视觉基调、关键词、技术时代感、自然环境、不采用的方向、参考图 | 已写 |
 | [01-construction-language.md](01-construction-language.md) | 用途与造型、重量感、尺度与子网格、形状、自定义模型、大型设备、接缝与倒角 | 已写 |
-| [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、形状与自定义模型的贴图、贴图密度、采样、首个切片的面贴图规格 | 已写 |
+| [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、形状与自定义模型的贴图、贴图密度、采样、细节层次、首个切片的面贴图规格 | 已写 |
 | [03-color-and-paint.md](03-color-and-paint.md) | 默认色板、用途倾向、玩家涂装、首个切片的配色 | 已写 |
 | [04-world-assets.md](04-world-assets.md) | 地形、自然物、铁路、桥梁与隧道口、站台、水面与雾、建筑原则 | 已写 |
-| [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性 | 已写 |
+| [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性、检查光照 | 已写 |
 | [06-wear-damage-and-motion.md](06-wear-damage-and-motion.md) | 常态磨损与磨损叠加、表面损伤、摧毁、铁轨断点与工地、特效与强度上限、动画与轮对、贴花 | 已写 |
 | [07-icons-and-ui.md](07-icons-and-ui.md) | 状态色、宏观地图、面板与字体、物品图标与外框、界面符号 | 已写 |
-| [08-asset-pipeline-and-review.md](08-asset-pipeline-and-review.md) | 交付物、源文件、目录与命名、制作顺序、检查清单、检查人与记录、样机 | 已写 |
+| [08-asset-pipeline-and-review.md](08-asset-pipeline-and-review.md) | 交付物、源文件、目录与命名、制作顺序、检查清单、检查地点与检查光照、检查人与记录、样机 | 已写 |
 
 每篇的固定小节：边界、不变量、规则、本阶段、Demo 范围、Demo 之后、开放问题；没有内容的小节写“无”。“本阶段”写首个切片可以直接制作的规格，首个切片的范围见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)。
 
@@ -40,7 +40,7 @@
 正文用中文术语，词条第一次出现时在括号里附英文。英文只保留在三种地方：代码标识（如 `scene_only`、`voxel_top`）；没有通行中文说法的技术名（如 PBR、UV、Mipmap、Triplanar）；[00](00-direction.md) 中八个关键词的原词。
 
 **自定义模型（Custom Mesh）**：
-为某一种体素定义单独制作的模型，对应 [07](../design/07-rendering.md) 的 Custom Mesh。
+为某一种体素定义单独制作的模型，对应设计文档 [07](../design/07-rendering.md) 的 Custom Mesh。
 _Avoid_: 专用件
 
 **子网格**：
@@ -87,6 +87,10 @@ _Avoid_: 原型（指车辆或建筑时）
 **原型**：
 可运行的实验程序，例如归档中的 HTML 原型。
 _Avoid_: 样机
+
+**样稿**：
+用来定色值和画法的 HTML 原型，可以在页面上调整；首个切片的两个样稿也用来导出 PNG。
+_Avoid_: 样机、素材
 
 ### 初稿用词对照
 
