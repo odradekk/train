@@ -108,7 +108,7 @@ public sealed class ModManifest
         diagnostics.Source = source;
         if (utf8.Length > ContentLimits.JsonFileMaxBytes)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.FileTooLarge, "Mod manifest exceeds the 1 MiB limit.");
+            diagnostics.Reject(ContentDiagnosticCodes.FileTooLarge, "Mod manifest exceeds the 1 MiB limit.");
             return ModManifestRead.None;
         }
 
@@ -122,7 +122,7 @@ public sealed class ModManifest
         }
         catch (JsonException exception)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, exception.Message);
+            diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, exception.Message);
             return ModManifestRead.None;
         }
 
@@ -130,7 +130,7 @@ public sealed class ModManifest
         {
             if (document.RootElement.ValueKind != JsonValueKind.Object)
             {
-                diagnostics.Warn(ContentDiagnosticCodes.InvalidJson, "Mod manifest must be a JSON object.", "$");
+                diagnostics.Reject(ContentDiagnosticCodes.InvalidJson, "Mod manifest must be a JSON object.", "$");
                 return ModManifestRead.None;
             }
 
@@ -146,7 +146,7 @@ public sealed class ModManifest
             if (property.Name is not "schema_version" and not "id" and not "name" and not "version"
                 and not "authors" and not "description")
             {
-                diagnostics.Warn(ContentDiagnosticCodes.UnknownField, "Unknown field.", "/" + property.Name);
+                diagnostics.Reject(ContentDiagnosticCodes.UnknownField, "Unknown field.", "/" + property.Name);
             }
         }
 
@@ -155,7 +155,7 @@ public sealed class ModManifest
             !versionElement.TryGetInt32(out var schemaVersion) ||
             schemaVersion != SchemaVersion)
         {
-            diagnostics.Warn(
+            diagnostics.Reject(
                 ContentDiagnosticCodes.SchemaVersionUnsupported,
                 "Only schema_version 1 is supported.",
                 "/schema_version");
@@ -178,7 +178,7 @@ public sealed class ModManifest
         id = null;
         if (!root.TryGetProperty("id", out var idElement))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.UuidInvalid, "id is required.", "/id");
+            diagnostics.Reject(ContentDiagnosticCodes.UuidInvalid, "id is required.", "/id");
             return false;
         }
 
@@ -186,7 +186,7 @@ public sealed class ModManifest
             !TryCanonicalUuid(rawId, out var canonical))
         {
             if (!diagnostics.Items.Any(item => item.Code == ContentDiagnosticCodes.UuidInvalid && item.JsonPath == "/id"))
-                diagnostics.Warn(ContentDiagnosticCodes.UuidInvalid, "Mod id must be a canonical lowercase non-nil UUID.", "/id");
+                diagnostics.Reject(ContentDiagnosticCodes.UuidInvalid, "Mod id must be a canonical lowercase non-nil UUID.", "/id");
             return false;
         }
 
@@ -200,7 +200,7 @@ public sealed class ModManifest
         name = "";
         if (!root.TryGetProperty("name", out var nameElement))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.NameInvalid, "name is required.", "/name");
+            diagnostics.Reject(ContentDiagnosticCodes.NameInvalid, "name is required.", "/name");
             return false;
         }
 
@@ -221,7 +221,7 @@ public sealed class ModManifest
         version = "";
         if (!root.TryGetProperty("version", out var versionElement))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.VersionInvalid, "version is required.", "/version");
+            diagnostics.Reject(ContentDiagnosticCodes.VersionInvalid, "version is required.", "/version");
             return false;
         }
 
@@ -229,7 +229,7 @@ public sealed class ModManifest
             !SemVer.IsValid(rawVersion))
         {
             if (!diagnostics.Items.Any(item => item.Code == ContentDiagnosticCodes.VersionInvalid && item.JsonPath == "/version"))
-                diagnostics.Warn(ContentDiagnosticCodes.VersionInvalid, "version must be a SemVer 2.0 string.", "/version");
+                diagnostics.Reject(ContentDiagnosticCodes.VersionInvalid, "version must be a SemVer 2.0 string.", "/version");
             return false;
         }
 
@@ -243,7 +243,7 @@ public sealed class ModManifest
         authors = Array.Empty<string>();
         if (!root.TryGetProperty("authors", out var authorsElement))
         {
-            diagnostics.Warn(ContentDiagnosticCodes.AuthorsInvalid, "authors is required.", "/authors");
+            diagnostics.Reject(ContentDiagnosticCodes.AuthorsInvalid, "authors is required.", "/authors");
             return false;
         }
 
@@ -282,7 +282,7 @@ public sealed class ModManifest
         authors = Array.Empty<string>();
         if (element.ValueKind != JsonValueKind.Array)
         {
-            diagnostics.Warn(ContentDiagnosticCodes.AuthorsInvalid, "authors must be an array.", "/authors");
+            diagnostics.Reject(ContentDiagnosticCodes.AuthorsInvalid, "authors must be an array.", "/authors");
             return false;
         }
 
@@ -307,7 +307,7 @@ public sealed class ModManifest
 
             if (!seen.Add(author))
             {
-                diagnostics.Warn(ContentDiagnosticCodes.AuthorsInvalid, "authors must be unique after trimming.", path);
+                diagnostics.Reject(ContentDiagnosticCodes.AuthorsInvalid, "authors must be unique after trimming.", path);
                 return false;
             }
 
@@ -317,7 +317,7 @@ public sealed class ModManifest
 
         if (parsed.Count is < AuthorsMinCount or > AuthorsMaxCount)
         {
-            diagnostics.Warn(
+            diagnostics.Reject(
                 ContentDiagnosticCodes.AuthorsInvalid,
                 "authors must contain 1 to 16 unique names.",
                 "/authors");

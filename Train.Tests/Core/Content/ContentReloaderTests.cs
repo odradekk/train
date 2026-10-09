@@ -291,6 +291,7 @@ public sealed class ContentReloaderTests
             ("{ /* comment */ " + valid[1..], ContentDiagnosticCodes.InvalidJson, null),
             (valid[..^1] + ",}", ContentDiagnosticCodes.InvalidJson, null),
             (valid[..^1] + ",\"extra\":1}", ContentDiagnosticCodes.UnknownField, "/extra"),
+            ("{\"schema_version\":2,\"voxels\":[1]}", ContentDiagnosticCodes.FieldInvalid, "/voxels/0"),
             (valid.Replace("\"schema_version\":2", "\"schema_version\":2,\"schema_version\":2", StringComparison.Ordinal),
                 ContentDiagnosticCodes.DuplicateProperty, "/schema_version"),
             (valid.Replace("schema_version", "Schema_version", StringComparison.Ordinal),
@@ -468,7 +469,8 @@ public sealed class ContentReloaderTests
 
         var result = ContentFixtures.Create(source, session2.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
-        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.GlobalVoxelLimitExceeded));
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.GlobalVoxelLimitExceeded &&
+            item.Severity == ContentDiagnosticSeverity.Error));
     }
 
     [TestMethod]

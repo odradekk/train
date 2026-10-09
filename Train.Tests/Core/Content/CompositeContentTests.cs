@@ -50,7 +50,7 @@ public sealed class CompositeContentTests
             CompositeFixtures.Composite(voxels: CompositeFixtures.Voxel(0, 0, 0, reference))));
         var result = ContentFixtures.Create(source, session.Logger).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
-        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.UnresolvedVoxelReference &&
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.LocalIdInvalid &&
                 item.Source == file && item.JsonPath == "/composites/0/voxels/0/definition"),
             string.Join(Environment.NewLine, result.Diagnostics.Select(item => $"{item.Code} {item.JsonPath}: {item.Message}")));
     }
@@ -66,6 +66,7 @@ public sealed class CompositeContentTests
                 ContentDiagnosticCodes.SchemaVersionUnsupported, "/schema_version"),
             (valid[..^1] + ",\"archetypes\":[]}", ContentDiagnosticCodes.UnknownField, "/archetypes"),
             (valid[..^1] + ",\"extra\":true}", ContentDiagnosticCodes.UnknownField, "/extra"),
+            ("{\"schema_version\":2,\"composites\":[1]}", ContentDiagnosticCodes.FieldInvalid, "/composites/0"),
             (CompositeFixtures.File(null, composite[..^1] + ",\"contacts\":[]}"),
                 ContentDiagnosticCodes.UnknownField, "/composites/0/contacts"),
             (CompositeFixtures.File(null, composite[..^1] + ",\"archetype\":\"vehicle\"}"),

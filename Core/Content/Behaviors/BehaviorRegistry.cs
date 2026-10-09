@@ -18,7 +18,7 @@ public static class BehaviorTypes
 /// <example><c>propulsion</c>、<c>control</c> 和 <c>cargo</c> 已注册；见 <c>ContentReloaderTests.Combined_behaviors_load_as_typed_data_and_affect_semantic_revision</c>。</example>
 public static class BehaviorRegistry
 {
-    /// <summary>取得已注册行为的固定类型标记；定义构造与规范编码都按它排列行为。</summary>
+    /// <summary>取得已注册行为的固定类型标记；定义构造按它排列行为，规范编码用它写出 type 字段。</summary>
     /// <exception cref="InvalidOperationException">行为不属于已注册的三种类型。</exception>
     internal static string TypeOf(VoxelBehavior behavior) => behavior switch
     {

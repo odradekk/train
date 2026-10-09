@@ -28,6 +28,6 @@ public interface ICoreVoxelDefinition
     /// <summary>获取按 Ordinal 比较且不可变的规范化标签集合。</summary>
     IReadOnlySet<string> Tags { get; }
 
-    /// <summary>获取不可变的功能行为列表；为空时该体素属于结构，各种行为最多出现一次。</summary>
+    /// <summary>获取不可变的功能行为列表；为空时该体素属于结构，各种行为最多出现一次，顺序没有语义。</summary>
     IReadOnlyList<VoxelBehavior> Behaviors { get; }
 }

@@ -120,7 +120,7 @@ internal static class VoxelRevisions
     /// <summary>按固定字段顺序编码体素玩法数据，并排序无序标签。</summary>
     /// <param name="definition">非 null 的已规范化体素定义。</param>
     /// <returns>不含缩进的 UTF-8 JSON 字节，供语义修订计算使用。</returns>
-    /// <remarks>数值使用定义模块的规范格式；行为按固定类型标记的 Ordinal 顺序编码。</remarks>
+    /// <remarks>数值使用定义模块的规范格式；行为沿用定义中按类型标记 Ordinal 排好的顺序编码。</remarks>
     private static byte[] EncodeSemantic(VoxelDefinition definition)
     {
         using var stream = new MemoryStream();

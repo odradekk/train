@@ -100,21 +100,21 @@ public static class ModDiscovery
 
             if (candidate.IsLink || candidate.PackageRootUnsafe)
             {
-                bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.");
+                bag.Reject(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.");
                 diagnostics.AddRange(bag.Items);
                 continue;
             }
 
             if (candidate.ManifestUnsafe)
             {
-                bag.Warn(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.");
+                bag.Reject(ContentDiagnosticCodes.UnsafeLinkedPath, "Linked or reparse-point content is not allowed.");
                 diagnostics.AddRange(bag.Items);
                 continue;
             }
 
             if (candidate.ManifestMissing || candidate.ManifestBytes is null)
             {
-                bag.Warn(ContentDiagnosticCodes.ModManifestMissing, "Mod directories must contain a root mod.json.");
+                bag.Reject(ContentDiagnosticCodes.ModManifestMissing, "Mod directories must contain a root mod.json.");
                 diagnostics.AddRange(bag.Items);
                 continue;
             }
@@ -134,7 +134,7 @@ public static class ModDiscovery
         {
             if (item.CanonicalId is not null && duplicateIds.Contains(item.CanonicalId))
             {
-                item.Bag.Warn(
+                item.Bag.Reject(
                     ContentDiagnosticCodes.DuplicateModUuid,
                     "Duplicate mod UUID disables every package using that UUID.",
                     item.CanonicalId);

@@ -235,7 +235,7 @@ internal static class CompositesJsonParser
                     z = parsedZ;
                     break;
                 case "definition":
-                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.UnresolvedVoxelReference, out definition))
+                    if (!StrictJson.TryGetString(property.Value, diagnostics, fieldPath, ContentDiagnosticCodes.LocalIdInvalid, out definition))
                         return false;
                     break;
                 case "orientation":
@@ -255,7 +255,7 @@ internal static class CompositesJsonParser
         }
         if (definition is null || !VoxelDefinitionId.TryResolve(definition, packageNamespace, out var definitionId))
         {
-            diagnostics.Reject(ContentDiagnosticCodes.UnresolvedVoxelReference, "definition must be a local id or namespace:local-id.", jsonPath + "/definition");
+            diagnostics.Reject(ContentDiagnosticCodes.LocalIdInvalid, "definition must be a local id or namespace:local-id.", jsonPath + "/definition");
             return false;
         }
         if (orientationText is null || !VoxelOrientation.TryParse(orientationText, out var orientation))

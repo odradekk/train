@@ -489,24 +489,3 @@ internal sealed class DiagnosticBag(ContentDiagnosticSeverity rejectionSeverity)
     /// <summary>将当前校验范围标记无效，不追加诊断条目。</summary>
     public void MarkInvalid() => Invalid = true;
 }
-
-/// <summary>提供常用诊断级别及是否标记当前范围无效的追加方式。</summary>
-/// <remarks>Warn 和 Error 都标记无效；两者共用诊断容器的条目上限。</remarks>
-internal static class DiagnosticBagExtensions
-{
-    /// <summary>追加警告级诊断，并将当前校验范围标记无效。</summary>
-    /// <param name="bag">非空的诊断容器。</param>
-    /// <param name="code">非空诊断代码。</param>
-    /// <param name="message">非空引用的诊断说明。</param>
-    /// <param name="jsonPath">相关字段或路径；未提供时为 null。</param>
-    public static void Warn(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
-        bag.Add(ContentDiagnosticSeverity.Warning, code, message, jsonPath);
-
-    /// <summary>追加错误级诊断，并将当前校验范围标记无效。</summary>
-    /// <param name="bag">非空的诊断容器。</param>
-    /// <param name="code">非空诊断代码。</param>
-    /// <param name="message">非空引用的诊断说明。</param>
-    /// <param name="jsonPath">相关字段或路径；未提供时为 null。</param>
-    public static void Error(this DiagnosticBag bag, string code, string message, string? jsonPath = null) =>
-        bag.Add(ContentDiagnosticSeverity.Error, code, message, jsonPath);
-}

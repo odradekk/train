@@ -74,6 +74,7 @@ public sealed class ContentPackageWalkTests
         Assert.IsTrue(discovery.Invalid);
         Assert.IsTrue(discovery.Diagnostics.Any(item =>
             item.Code == ContentDiagnosticCodes.UnsafeLinkedPath &&
+            item.Severity == ContentDiagnosticSeverity.Error &&
             item.JsonPath == "res://root/blocked"));
     }
 

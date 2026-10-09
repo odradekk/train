@@ -62,7 +62,10 @@ public sealed class ContentPublicationTests
     {
         using var session = LoggerSession.Create();
         var reloader = new ContentReloader(new MemoryContentSource(), session.Logger);
-        AssertResult(ContentReloadExamples.InitialRejected, reloader.Reload());
+        var result = reloader.Reload();
+        AssertResult(ContentReloadExamples.InitialRejected, result);
+        Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.BuiltInPackageUnavailable &&
+            item.Severity == ContentDiagnosticSeverity.Error));
         Assert.IsNull(reloader.Current);
     }
 

@@ -40,7 +40,7 @@
 
 市场表与聚居地类型使用强类型身份和不可变定义，已注册到 `ContentLoader`。两个格式在同批次体素上校验货物引用，随后与体素、蓝图一起冻结为四个索引。价格区间、供需上限和恢复量均为内容参数，不代表运行中的市场状态。
 
-两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。四种定义格式的 `id` 均直接校验原文，首尾空白报 `local_id_invalid`；货物引用和蓝图体素引用同样不修剪空白，分别报 `local_id_invalid` 和 `unresolved_voxel_reference`；公开强类型 ID 的构造器保留去除首尾空白的契约。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。具体预置表与类型见 [#236](https://github.com/odradekk/train/issues/236)。
+两个格式各使用 schema 1，声明只填写局部 ID，货物引用支持同包局部 ID 或完整体素身份。四种定义格式的 `id` 均直接校验原文，首尾空白报 `local_id_invalid`；货物引用和蓝图体素引用同样不修剪空白，格式无效时报 `local_id_invalid`，目标不存在时报 `unresolved_voxel_reference`；公开强类型 ID 的构造器保留去除首尾空白的契约。文件放在 `resources/markets/*.market-tables.json`、`resources/settlement-types/*.settlement-types.json`。根对象分别只含 `schema_version` 与 `market_tables` / `settlement_types`，数组允许为空；未知字段、重复字段或无效定义使所在包无效。具体预置表与类型见 [#236](https://github.com/odradekk/train/issues/236)。
 
 | 定义 | 字段与含义 |
 | --- | --- |

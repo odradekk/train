@@ -43,7 +43,7 @@
 ### 聚居地类型
 
 - 聚居地类型在生成时按节点的地貌概况和配置权重选择，见 [05](05-world-graph-and-generation.md)。
-- 类型决定候选布局（因而决定地块和初始建筑）和初始人口范围。市场需求、消费等经济行为，在市场规则确定时再加到类型上。
+- 类型决定候选布局（因而决定地块和初始建筑）和初始人口范围，并声明各货物的供给、需求上限与恢复量，由[首个切片的内容数据与预置蓝图](https://github.com/odradekk/train/issues/222)于 2026-10-08 确认。价格和消费的运行规则在市场规则确定时再加入。
 
 ### 布局
 
@@ -84,7 +84,7 @@
 
 ### 车辆建造设施
 
-- 车辆建造设施支持的最大车辆档位，由建筑中完好的 Construction Equipment 部件经 Behavior 提供的能力派生。建造、改装、修理车辆都受这个上限限制；施工能力同样来自这些完好部件（[14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)）。能力参数与多部件汇总规则在施工能力实现时确定。这条规则在建筑不再携带 Archetype 时修订，见[首个切片的内容数据与预置蓝图](https://github.com/odradekk/train/issues/222#issuecomment-6065446105)。
+- 车辆建造设施支持的最大车辆档位，由建筑中完好的 Construction Equipment 部件经 Behavior 提供的能力派生。建造、改装、修理车辆都受这个上限限制；施工能力同样来自这些完好部件（[14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)）。能力参数与多部件汇总规则在施工能力实现时确定。档位上限不由建筑类型声明，由[首个切片的内容数据与预置蓝图](https://github.com/odradekk/train/issues/222)于 2026-10-08 确认。
 - 支持档位越大的车辆建造设施，蓝图需要的地块也越大。
 - 新建的车辆出现在建造它的聚居地。
 
