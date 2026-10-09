@@ -116,14 +116,14 @@
 - 继续采用稳定的 namespaced identity：`namespace:local-id`，例如 `core:ferrous-ore`、`mod-namespace:titanium-engine`。文件路径不是 Definition 身份。
 - 不同领域保持强类型 ID，例如体素定义标识和蓝图标识。它们共享 Namespace 规则、Parser、Normalize、Validation，但不统一成一个完全无类型的 DefinitionId。
 - Behavior 目前只能由代码注册，内置 Behavior 类型标识是不带命名空间的字符串，例如 `propulsion`。带命名空间的强类型 BehaviorTypeId 在第二阶段 Code Mod 允许注册新 Behavior 时引入。
-- ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
+- ADR-0001 的规则沿用：built-in 使用 `core` 命名空间，Mod 命名空间来自 manifest UUID，定义文件只含 local id。定义声明的 `id` 和定义之间的引用都直接校验原文，首尾空白无效；强类型 ID 构造器仍按其公开契约规范化输入。
 - 用户蓝图的身份由系统基于 UUID 分配，沿用 `namespace:local-id` 和类型区分，不由显示名推导，也不要求用户填写命名空间。修改自己的蓝图产生新版本，身份不变；“复制为新蓝图”建立新身份。存档内嵌的蓝图版本按各存档隔离解析，另存为或导入不重编身份。
 
 ### Mod 与热加载
 
 - **第一阶段 Data Mod**：支持新增体素定义、蓝图、市场表和聚居地类型，以及修改自有定义的数值、引用资产、组合已有 Behavior；Layout 是目标格式，尚未实现。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
-- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置更新发布指纹。资产字节和这些配置的有效变化均触发 Catalog 发布，不改变 Semantic Revision。蓝图更新产生新版本，不改变已有实例引用的版本。
+- **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior、布局或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置不改变 Asset Revision。这两类有效变化都触发 Catalog 发布，不改变 Semantic Revision。蓝图更新产生新版本，不改变已有实例引用的版本。
 
 ### 内容更新与实例状态
 
