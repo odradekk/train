@@ -1,0 +1,294 @@
+<!doctype html>
+<!--
+  原型：首个切片场景资产的色值与观感（首个切片的场景美术规格，#247）。
+  一小块地形依次排开平原、丘陵、森林、荒漠、山地五种地貌；铁轨从站台出发，过河上桥，经弯道进入山地切口。
+  地形、道床、站台、桥梁和树按体素生成，面贴图按对象网格平铺（32 px/格 × 跨度）；钢轨和轨枕沿中心线生成网格。
+  光照按 docs/art/05：固定白天、太阳高度角约 40°、AgX 色调映射、雾色取地平线天空色。贴图图案是示意。
+  依赖 jsDelivr 上的 three@0.170.0。1 个单位 = 1 格 = 0.5 米。保留供继续打磨，规则以 docs/art/04 为准，调色值时与 04 一起改。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>首个切片场景资产样稿</title>
+<style>
+  html, body { margin:0; height:100%; overflow:hidden; background:#c9d6e0; font:13px/1.5 "Noto Sans SC","Microsoft YaHei",sans-serif; color:#e6e9ec; }
+  canvas { display:block; }
+  .panel { position:absolute; background:rgba(24,28,33,0.90); border:1px solid #3b434d; border-radius:4px; padding:10px 12px; }
+  #info { left:12px; top:12px; width:360px; }
+  #info h1 { font-size:15px; margin:0 0 4px; }
+  #info p { margin:4px 0; color:#9aa3ad; font-size:12px; }
+  #colors { right:12px; top:12px; width:280px; max-height:calc(100% - 40px); overflow:auto; }
+  #colors h2 { font-size:13px; margin:0 0 6px; }
+  .c { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  .c input { width:34px; height:22px; border:0; padding:0; background:none; }
+  .c span { flex:1; }
+  .c code { color:#9aa3ad; font-size:12px; }
+  textarea { width:100%; height:120px; margin-top:8px; background:#14181c; color:#e6e9ec; border:1px solid #3b434d; font:11px monospace; }
+  button { background:transparent; color:#e6e9ec; border:1px solid #3b434d; border-radius:4px; padding:4px 10px; font:inherit; cursor:pointer; margin-top:6px; }
+</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }</script>
+</head>
+<body>
+<div id="info" class="panel">
+  <h1>首个切片场景资产样稿</h1>
+  <p>从左到右：平原（车站、河与桥）、丘陵、森林、荒漠、山地（切口）。站台边缘按泰坦净空放在距中心 8 米处，站台上停着小型车头作尺度参照。</p>
+  <p>拖动旋转，右键平移，滚轮缩放。右侧调色值后贴图立即重画，下方文本框可复制当前色值。</p>
+  <button id="reset">重置视角</button> <button id="near">站台近景</button> <button id="curve">弯道近景</button>
+</div>
+<div id="colors" class="panel"><h2>色值</h2><div id="list"></div><textarea id="out" readonly></textarea></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const PX = 32;
+const COLORS = {
+  grass:['草地',"#6f8f4a"], dryGrass:['干草地',"#a39a5c"], forestFloor:['林地',"#55683a"], soil:['土',"#76593f"],
+  rock:['灰岩',"#7f7c76"], sand:['沙',"#d4be8c"], sandstone:['砂岩',"#b88c60"], scree:['碎石',"#8d8880"],
+  ballast:['道床碎石',"#8a8782"], concrete:['混凝土（桥、站台）',"#a8a59e"], edgeLine:['站台安全线',"#e0b02a"],
+  bark:['树皮',"#5b4632"], leaves:['树叶',"#46663a"], water:['水面',"#2f6b6a"], sleeper:['混凝土轨枕',"#9d9a93"],
+  railHead:['轨头顶面',"#b9bcbf"], railSide:['钢轨两侧与轨底',"#5e4434"], horizon:['地平线天空与雾',"#c9d6e0"],
+};
+const col = k => COLORS[k][1];
+
+// ---------- 工具 ----------
+function hex2rgb(h){ const n=parseInt(h.slice(1),16); return [n>>16&255,n>>8&255,n&255]; }
+function rgb2hex(r,g,b){ return '#'+[r,g,b].map(v=>Math.max(0,Math.min(255,Math.round(v))).toString(16).padStart(2,'0')).join(''); }
+function shade(h,f){ const [r,g,b]=hex2rgb(h); return rgb2hex(r*f,g*f,b*f); }
+function mix(a,b,t){ const A=hex2rgb(a),B=hex2rgb(b); return rgb2hex(A[0]+(B[0]-A[0])*t,A[1]+(B[1]-A[1])*t,A[2]+(B[2]-A[2])*t); }
+function rng(seed){ let a=seed>>>0; return ()=>{ a=(a+0x6D2B79F5)>>>0; let t=a; t=Math.imul(t^t>>>15,t|1); t^=t+Math.imul(t^t>>>7,t|61); return ((t^t>>>14)>>>0)/4294967296; }; }
+function cv(s){ const c=document.createElement('canvas'); c.width=c.height=s; return c; }
+function noise(x,s,amp,seed){ const r=rng(seed), img=x.getImageData(0,0,s,s), d=img.data; for(let i=0;i<d.length;i+=4){ const n=(r()-0.5)*amp; d[i]+=n; d[i+1]+=n; d[i+2]+=n; } x.putImageData(img,0,0); }
+function wrapDraw(s, fn){ for(const dx of [-s,0,s]) for(const dy of [-s,0,s]) fn(dx,dy); }
+function blot(x,s,color,count,rmin,rmax,alpha,seed){ const r=rng(seed); x.save(); x.globalAlpha=alpha; x.fillStyle=color;
+  for(let i=0;i<count;i++){ const px=r()*s, py=r()*s, rad=rmin+r()*(rmax-rmin); wrapDraw(s,(dx,dy)=>{ x.beginPath(); x.arc(px+dx,py+dy,rad,0,Math.PI*2); x.fill(); }); } x.restore(); }
+function specks(x,s,colors,count,size,seed){ const r=rng(seed); for(let i=0;i<count;i++){ x.fillStyle=colors[Math.floor(r()*colors.length)]; x.fillRect(Math.floor(r()*s),Math.floor(r()*s),size,size); } }
+function stones(x,s,base,count,rmin,rmax,seed){ const r=rng(seed);
+  for(let i=0;i<count;i++){ const px=r()*s, py=r()*s, rad=rmin+r()*(rmax-rmin), f=0.75+r()*0.5, n=5+Math.floor(r()*3), rot=r()*6; x.fillStyle=shade(base,f);
+    wrapDraw(s,(dx,dy)=>{ x.beginPath(); for(let k=0;k<n;k++){ const a=rot+k/n*Math.PI*2, rr=rad*(0.7+0.3*Math.sin(k*2.1+i)); x.lineTo(px+dx+Math.cos(a)*rr,py+dy+Math.sin(a)*rr); } x.closePath(); x.fill(); }); } }
+// 竖向条纹：上下均匀，平铺切开不穿帮
+function streaks(x,s,a,b,ratio,seed){ const r=rng(seed); x.fillStyle=a; x.fillRect(0,0,s,s); for(let i=0;i<s;i++){ if(r()<ratio){ x.fillStyle=shade(b,0.85+r()*0.3); x.fillRect(i,0,1,s); } } }
+
+// ---------- 贴图（只画固有色） ----------
+function painter(kind, face, s){
+  const c=cv(s), x=c.getContext('2d'), K=col;
+  const fill=(h)=>{ x.fillStyle=h; x.fillRect(0,0,s,s); };
+  const groundTop=(base,seed,extra)=>{ fill(base); blot(x,s,shade(base,0.88),10,8,22,0.4,seed); blot(x,s,shade(base,1.1),8,6,18,0.3,seed+1);
+    specks(x,s,[shade(base,0.72),shade(base,1.22)],s*s/10,1,seed+2); if(extra) extra(); noise(x,s,10,seed+3); };
+  const groundSide=(base,seed)=>{ streaks(x,s,K('soil'),base,0.55,seed); specks(x,s,[shade(K('soil'),0.7)],s*s/30,2,seed+1); noise(x,s,10,seed+2); };
+  switch(kind){
+    case 'grass': if(face==='top') groundTop(K('grass'),11); else if(face==='side') groundSide(K('grass'),12); else return painter('soil','top',s); break;
+    case 'dryGrass': if(face==='top') groundTop(K('dryGrass'),21); else if(face==='side') groundSide(K('dryGrass'),22); else return painter('soil','top',s); break;
+    case 'forestFloor': if(face==='top') groundTop(K('forestFloor'),31,()=>specks(x,s,['#6b5236','#7a6040','#5a4430'],s*s/14,2,34)); else if(face==='side') groundSide(K('forestFloor'),32); else return painter('soil','top',s); break;
+    case 'soil': fill(K('soil')); blot(x,s,shade(K('soil'),0.85),10,6,18,0.4,41); stones(x,s,K('rock'),s/6,1,2.5,42); noise(x,s,12,43); break;
+    case 'rock': { fill(K('rock')); blot(x,s,shade(K('rock'),0.82),9,10,28,0.45,51); blot(x,s,shade(K('rock'),1.12),7,8,20,0.35,52);
+      const r=rng(53); x.strokeStyle=shade(K('rock'),0.6); x.lineWidth=1;
+      for(let i=0;i<10;i++){ let px=r()*s, py=r()*s; wrapDraw(s,(dx,dy)=>{ x.beginPath(); x.moveTo(px+dx,py+dy); let qx=px, qy=py; for(let k=0;k<4;k++){ qx+=(r()-0.5)*18; qy+=(r()-0.5)*18; x.lineTo(qx+dx,qy+dy); } x.stroke(); }); }
+      noise(x,s,10,54); break; }
+    case 'sand': fill(K('sand')); blot(x,s,shade(K('sand'),0.94),10,8,24,0.4,61); specks(x,s,[shade(K('sand'),0.85),shade(K('sand'),1.08)],s*s/8,1,62); noise(x,s,7,63); break;
+    case 'sandstone': fill(K('sandstone'));
+      if(face==='side'){ for(let y=0;y<s;y++){ const t=0.5+0.5*Math.sin(y/s*Math.PI*2*3)+0.25*Math.sin(y/s*Math.PI*2*7); x.fillStyle=shade(K('sandstone'),0.86+0.18*t); x.fillRect(0,y,s,1); } }
+      else blot(x,s,shade(K('sandstone'),0.9),10,8,22,0.4,71);
+      noise(x,s,9,72); break;
+    case 'scree': fill(shade(K('scree'),0.8)); stones(x,s,K('scree'),s*1.2,2,6,81); noise(x,s,9,82); break;
+    case 'ballast': fill(shade(K('ballast'),0.7)); stones(x,s,K('ballast'),s*2.2,1.5,3.5,91); noise(x,s,8,92); break;
+    case 'concrete': fill(K('concrete')); blot(x,s,shade(K('concrete'),0.94),10,10,26,0.35,101); x.fillStyle=shade(K('concrete'),0.9); x.fillRect(0,0,s,1); x.fillRect(0,s/2,s,1); noise(x,s,6,102); break;
+    case 'edge': fill(K('concrete')); noise(x,s,6,111); if(face==='top'){ x.fillStyle=K('edgeLine'); x.fillRect(0,s-9,s,6); noise(x,s,5,112); } break;
+    case 'bark': fill(K('bark')); { const r=rng(121); for(let i=0;i<s;i+=2){ x.fillStyle=shade(K('bark'),0.7+r()*0.5); x.fillRect(i,0,1,s); } } noise(x,s,10,122); break;
+    case 'leaves': fill(shade(K('leaves'),0.8)); blot(x,s,K('leaves'),40,3,7,0.9,131); blot(x,s,shade(K('leaves'),1.2),20,2,5,0.6,132); noise(x,s,10,133); break;
+    default: { fill(kind); noise(x,s,6,141); }
+  }
+  return c;
+}
+
+// 体素种类：id → { 贴图种类、跨度、粗糙度、金属度 }
+const TYPES = [null,
+  { k:'grass', span:4, rough:0.95 }, { k:'dryGrass', span:4, rough:0.95 }, { k:'forestFloor', span:4, rough:0.95 },
+  { k:'soil', span:4, rough:0.95 }, { k:'rock', span:4, rough:0.9 }, { k:'sand', span:4, rough:0.95 },
+  { k:'sandstone', span:4, rough:0.9 }, { k:'scree', span:4, rough:0.9 }, { k:'ballast', span:2, rough:0.9 },
+  { k:'concrete', span:4, rough:0.85 }, { k:'edge', span:1, rough:0.85 }, { k:'bark', span:1, rough:0.95 }, { k:'leaves', span:2, rough:0.95 },
+  // 车辆（小型车头），按 art 03 的 A 套配色，只用纯色
+  { k:'#5a6b78', span:1, rough:0.55, metal:0.3 }, { k:'#1e2830', span:1, rough:0.3, metal:0.2 }, { k:'#33373b', span:1, rough:0.6, metal:0.3 },
+];
+const T = Object.fromEntries(['GRASS','DRY','FOREST','SOIL','ROCK','SAND','SANDSTONE','SCREE','BALLAST','CONCRETE','EDGE','BARK','LEAVES','V_BODY','V_GLASS','V_BOGIE'].map((n,i)=>[n,i+1]));
+
+// ---------- 地形与线路 ----------
+const X=176, Y=48, Z=72;
+const grid = new Uint8Array(X*Y*Z);
+const idx=(x,y,z)=>(y*Z+z)*X+x;
+const get=(x,y,z)=> (x<0||y<0||z<0||x>=X||y>=Y||z>=Z) ? 0 : grid[idx(x,y,z)];
+const set=(x,y,z,t)=>{ if(x>=0&&y>=0&&z>=0&&x<X&&y<Y&&z<Z) grid[idx(x,y,z)]=t; };
+
+const R=rng(7); const perm=new Float32Array(4096).map(()=>R());
+const hash=(i,j)=>perm[((i*73856093)^(j*19349663))&4095];
+function vnoise(x,z,sc){ const fx=x/sc, fz=z/sc, i=Math.floor(fx), j=Math.floor(fz), u=fx-i, v=fz-j, su=u*u*(3-2*u), sv=v*v*(3-2*v);
+  const a=hash(i,j), b=hash(i+1,j), c=hash(i,j+1), d=hash(i+1,j+1); return a+(b-a)*su+(c-a)*sv+(a-b-c+d)*su*sv; }
+const fbm=(x,z,sc)=>vnoise(x,z,sc)*0.6+vnoise(x,z,sc/2)*0.3+vnoise(x,z,sc/4)*0.1;
+
+const zc = x => x<74 ? 40.5 : x>150 ? 26.5 : 40.5-14*(1-Math.cos(Math.PI*(x-74)/76))/2;
+const dz = x => x<74||x>150 ? 0 : -14*Math.PI/76*Math.sin(Math.PI*(x-74)/76)/2;
+const dist = (x,z) => (z-zc(x))/Math.sqrt(1+dz(x)**2);       // 到中心线的有符号距离（格）
+const ZONES=[[0,'plain'],[72,'hill'],[100,'forest'],[128,'desert'],[150,'mountain']];
+const zoneAt = x => { let z='plain'; for(const [x0,n] of ZONES) if(x>=x0) z=n; return z; };
+const AMP={ plain:1.5, hill:7, forest:3, desert:3.5, mountain:26 };
+const SURF={ plain:[T.GRASS,T.SOIL,T.ROCK], hill:[T.DRY,T.SOIL,T.ROCK], forest:[T.FOREST,T.SOIL,T.ROCK], desert:[T.SAND,T.SAND,T.SANDSTONE], mountain:[T.SCREE,T.ROCK,T.ROCK] };
+function ampAt(x){ let a=AMP.plain; for(const [x0,n] of ZONES){ const t=Math.min(1,Math.max(0,(x-x0+6)/12)); a=a+(AMP[n]-a)*t; } return a; }
+const RIVER=[62,69], ROAD=8, BRIDGE=[60,71], STATION=[0,56];
+function natural(x,z){
+  const zone=zoneAt(x);
+  let h = zone==='mountain' ? 9+ampAt(x)*Math.pow(fbm(x,z,22),1.3)*1.6 : zone==='desert' ? 9+ampAt(x)*(0.5+0.5*Math.sin(x*0.35+fbm(x,z,16)*4))*fbm(x,z,20) : 9+ampAt(x)*fbm(x,z,18);
+  const rd=Math.max(RIVER[0]-x, x-RIVER[1], 0);
+  if(rd<4) h = h + (5 - h)*(1-rd/4);
+  return Math.max(3, Math.min(Y-12, Math.round(h)));
+}
+
+const surfaceTop = new Int16Array(X*Z);
+for(let x=0;x<X;x++) for(let z=0;z<Z;z++){
+  const d=Math.abs(dist(x+0.5,z+0.5)), inRiver=x>=RIVER[0]&&x<=RIVER[1], onBridge=x>=BRIDGE[0]&&x<=BRIDGE[1];
+  let h=natural(x,z);
+  if(!onBridge){ if(d<=12.5) h=ROAD; else if(d<=18.5) h=Math.round(ROAD+(h-ROAD)*(d-12.5)/6); }
+  const jitter=Math.round((vnoise(x,z,6)-0.5)*6), zone=zoneAt(x+jitter), [top,mid,deep]=SURF[zone];
+  const bed = inRiver || (Math.max(RIVER[0]-x,x-RIVER[1],0)<2 && h<7);
+  for(let y=0;y<=h;y++) set(x,y,z, y===h ? (bed?T.SAND:top) : y>=h-2 ? (bed?T.SAND:mid) : deep);
+  surfaceTop[z*X+x]=h;
+  // 道床：下层 21 格，上层 19 格
+  if(d<=10.5) set(x,ROAD+1,z,T.BALLAST);
+  if(d<=9.5)  set(x,ROAD+2,z,T.BALLAST);
+  if(onBridge){
+    if(d<=10.5) set(x,ROAD,z,T.CONCRETE);
+    if(d>10.5&&d<=11.5) set(x,ROAD+1,z,T.CONCRETE);                 // 矮护栏
+    if(x>=65&&x<=66&&d<=8) for(let y=Math.max(0,h+1);y<ROAD;y++) set(x,y,z,T.CONCRETE);  // 桥墩
+  }
+  // 站台：顶面比道床顶高 2 格，宽 8 格，边缘距中心 8 米（16 格）
+  if(x>=STATION[0]&&x<STATION[1]&&d>15.5&&d<=23.5&&dist(x+0.5,z+0.5)>0){
+    for(let y=ROAD+1;y<=ROAD+4;y++) set(x,y,z, y===ROAD+4 && d<=16.5 ? T.EDGE : T.CONCRETE);
+  }
+}
+// 树：森林里 2–3 种大小
+{ const r=rng(301); let n=0;
+  while(n<16){ const x=100+Math.floor(r()*28), z=2+Math.floor(r()*(Z-4)); if(Math.abs(dist(x+0.5,z+0.5))<16) continue;
+    const h=surfaceTop[z*X+x], th=5+Math.floor(r()*5), cr=2+Math.floor(r()*2);
+    for(let y=h+1;y<=h+th;y++) set(x,y,z,T.BARK);
+    const cy=h+th+1; for(let dx=-cr;dx<=cr;dx++) for(let dy=-cr;dy<=cr+1;dy++) for(let dz2=-cr;dz2<=cr;dz2++)
+      if(dx*dx+dy*dy*0.8+dz2*dz2<=cr*cr+1 && !get(x+dx,cy+dy,z+dz2)) set(x+dx,cy+dy,z+dz2,T.LEAVES);
+    n++; } }
+// 露头岩块：丘陵和山地
+{ const r=rng(311); let n=0;
+  while(n<14){ const x=72+Math.floor(r()*(X-72)), z=2+Math.floor(r()*(Z-4)); const zone=zoneAt(x); if(zone==='forest'||zone==='desert'||Math.abs(dist(x+0.5,z+0.5))<16) continue;
+    const h=surfaceTop[z*X+x], rad=1+Math.floor(r()*2);
+    for(let dx=-rad;dx<=rad;dx++) for(let dz2=-rad;dz2<=rad;dz2++) for(let dy=0;dy<=rad;dy++) if(dx*dx+dz2*dz2+dy*dy<=rad*rad+1) set(x+dx,h+1+dy,z+dz2,T.ROCK);
+    n++; } }
+
+// ---------- 网格（只生成露在外面的面，按对象网格算 UV） ----------
+const DIRS=[ {n:[1,0,0],a:[0,1,0],b:[0,0,1],f:'side'}, {n:[-1,0,0],a:[0,0,1],b:[0,1,0],f:'side'},
+             {n:[0,1,0],a:[0,0,1],b:[1,0,0],f:'top'},  {n:[0,-1,0],a:[1,0,0],b:[0,0,1],f:'bottom'},
+             {n:[0,0,1],a:[1,0,0],b:[0,1,0],f:'side'}, {n:[0,0,-1],a:[0,1,0],b:[1,0,0],f:'side'} ];
+function uvOf(n,p,span){ return n[0]!==0 ? [p[2]/span,p[1]/span] : n[2]!==0 ? [p[0]/span,p[1]/span] : [p[0]/span,p[2]/span]; }
+function mesh(getV, sx, sy, sz, offset=[0,0,0]){
+  const buckets={};
+  for(let y=0;y<sy;y++) for(let z=0;z<sz;z++) for(let x=0;x<sx;x++){ const t=getV(x,y,z); if(!t) continue;
+    for(const D of DIRS){ if(getV(x+D.n[0],y+D.n[1],z+D.n[2])) continue;
+      const key=t+':'+D.f, B=buckets[key]||(buckets[key]={t,f:D.f,pos:[],nrm:[],uv:[],idx:[]});
+      const base=[x+Math.max(0,D.n[0]), y+Math.max(0,D.n[1]), z+Math.max(0,D.n[2])], start=B.pos.length/3;
+      for(const [ca,cb] of [[0,0],[1,0],[1,1],[0,1]]){ const p=[base[0]+D.a[0]*ca+D.b[0]*cb, base[1]+D.a[1]*ca+D.b[1]*cb, base[2]+D.a[2]*ca+D.b[2]*cb];
+        B.pos.push(p[0]+offset[0],p[1]+offset[1],p[2]+offset[2]); B.nrm.push(...D.n); B.uv.push(...uvOf(D.n,p,TYPES[t].span)); }
+      B.idx.push(start,start+1,start+2,start,start+2,start+3); } }
+  return Object.values(buckets);
+}
+
+// ---------- 场景 ----------
+const renderer = new THREE.WebGLRenderer({ antialias:true, preserveDrawingBuffer:true });
+renderer.setPixelRatio(Math.min(2,devicePixelRatio)); renderer.setSize(innerWidth,innerHeight);
+renderer.toneMapping = THREE.AgXToneMapping; renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.5, 1200);
+const controls = new OrbitControls(camera, renderer.domElement);
+const VIEWS = { reset:[[48,118,196],[96,4,34]], near:[[14,18,64],[30,12,44]], curve:[[150,26,70],[112,10,32]] };
+function view(k){ camera.position.set(...VIEWS[k][0]); controls.target.set(...VIEWS[k][1]); controls.update(); }
+view('reset');
+
+const sun = new THREE.DirectionalLight(0xfff4e6, 3.0);
+sun.position.set(88-90, 95, 36+60); sun.target.position.set(88,0,36); scene.add(sun, sun.target);
+Object.assign(sun.shadow.camera, { left:-130, right:130, top:130, bottom:-130, near:1, far:400 });
+sun.shadow.mapSize.set(4096,4096); sun.shadow.bias=-0.0004; sun.shadow.normalBias=0.04; sun.castShadow=true;
+const hemi = new THREE.HemisphereLight(0xbcd3ea, 0x6b5e4a, 1.1); scene.add(hemi);
+
+const aniso = renderer.capabilities.getMaxAnisotropy();
+const texCache = {};
+function tex(kind, face, span){ const key=kind+face+span; const c=painter(kind,face,span*PX); const t=texCache[key] || (texCache[key]=new THREE.CanvasTexture(c));
+  t.image=c; t.wrapS=t.wrapT=THREE.RepeatWrapping; t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=aniso; t.needsUpdate=true; return t; }
+const mats = {};
+function matFor(t,f){ const key=t+':'+f, d=TYPES[t];
+  if(!mats[key]) mats[key]=new THREE.MeshStandardMaterial({ roughness:d.rough, metalness:d.metal||0 });
+  mats[key].map=tex(d.k,f,d.span); mats[key].needsUpdate=true; return mats[key]; }
+function addBuckets(buckets, parent){ for(const B of buckets){ const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(B.pos,3)); g.setAttribute('normal',new THREE.Float32BufferAttribute(B.nrm,3)); g.setAttribute('uv',new THREE.Float32BufferAttribute(B.uv,2)); g.setIndex(B.idx);
+  const m=new THREE.Mesh(g, matFor(B.t,B.f)); m.castShadow=m.receiveShadow=true; m.userData.key=[B.t,B.f]; parent.add(m); } }
+const world=new THREE.Group(); scene.add(world);
+addBuckets(mesh(get,X,Y,Z), world);
+
+// 水面
+const waterMat = new THREE.MeshStandardMaterial({ color:col('water'), transparent:true, opacity:0.8, roughness:0.12, metalness:0 });
+const water = new THREE.Mesh(new THREE.PlaneGeometry(RIVER[1]-RIVER[0]+3, Z), waterMat);
+water.rotation.x=-Math.PI/2; water.position.set((RIVER[0]+RIVER[1]+1)/2, 6.7, Z/2); water.receiveShadow=true; scene.add(water);
+
+// 轨枕与钢轨：沿中心线生成
+const BALLAST_TOP = ROAD+3, SLEEPER_H=0.4;
+const sleeperMat = new THREE.MeshStandardMaterial({ color:col('sleeper'), roughness:0.85 });
+const pts=[]; { let s=0, last=null; for(let x=0;x<=X;x+=0.05){ const p=new THREE.Vector3(x,0,zc(x)); if(last) s+=p.distanceTo(last); last=p; pts.push({x,s}); } }
+const sleeperGeo = new THREE.BoxGeometry(0.6, SLEEPER_H, 17);
+const sleepers = new THREE.InstancedMesh(sleeperGeo, sleeperMat, Math.ceil(pts.at(-1).s/1.5)+2);
+{ let n=0, next=0; const m=new THREE.Matrix4(), up=new THREE.Vector3(0,1,0);
+  for(const p of pts){ if(p.s<next) continue; next+=1.5;
+    const t=new THREE.Vector3(1,0,dz(p.x)).normalize(), side=new THREE.Vector3().crossVectors(t,up);
+    m.makeBasis(t,up,side).setPosition(p.x, BALLAST_TOP+SLEEPER_H/2, zc(p.x)); sleepers.setMatrixAt(n++,m); }
+  sleepers.count=n; sleepers.castShadow=sleepers.receiveShadow=true; scene.add(sleepers); }
+const railMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.45, metalness:0.55 });
+function railProfile(H){ const w=H*0.85; return [[-0.75*w,0],[0.75*w,0],[0.75*w,0.15*H],[0.15*w,0.25*H],[0.15*w,0.7*H],[0.4*w,0.75*H],[0.4*w,H],[-0.4*w,H],[-0.4*w,0.75*H],[-0.15*w,0.7*H],[-0.15*w,0.25*H],[-0.75*w,0.15*H]]; }
+function railGeo(offset,H){ const prof=railProfile(H), pos=[], colr=[], head=new THREE.Color(col('railHead')), side=new THREE.Color(col('railSide'));
+  const ring=x=>{ const t=new THREE.Vector3(1,0,dz(x)).normalize(), s=new THREE.Vector3(-t.z,0,t.x); const c=new THREE.Vector3(x,BALLAST_TOP+SLEEPER_H,zc(x)).addScaledVector(s,offset);
+    return prof.map(([a,h])=>c.clone().addScaledVector(s,a).add(new THREE.Vector3(0,h,0))); };
+  let prev=ring(0); for(let x=0.5;x<=X;x+=0.5){ const cur=ring(x);
+    for(let i=0;i<prof.length;i++){ const j=(i+1)%prof.length, c=(i===6)?head:side; for(const v of [prev[i],cur[i],cur[j],prev[i],cur[j],prev[j]]){ pos.push(v.x,v.y,v.z); colr.push(c.r,c.g,c.b); } }
+    prev=cur; }
+  const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('color',new THREE.Float32BufferAttribute(colr,3)); g.computeVertexNormals(); return g; }
+const rails=new THREE.Group(); scene.add(rails);
+function buildRails(){ rails.clear(); for(const [g,H] of [[3,0.3],[7,0.4],[15,0.6]]) for(const sgn of [-1,1]){ const m=new THREE.Mesh(railGeo(sgn*g/2,H),railMat); m.castShadow=m.receiveShadow=true; rails.add(m); } }
+buildRails();
+
+// 小型车头（art 01 本阶段的布局），站在标准轨距的钢轨上
+{ const L=52, W=7, Hh=9;
+  const v=(x,y,z)=>{ if(x<0||y<0||z<0||x>=L||y>=Hh||z>=W) return 0; const az=Math.abs(z-3);
+    if(y<=1) return ((x>=6&&x<=11)||(x>=40&&x<=45))&&az<=2 ? T.V_BOGIE : 0;
+    if(y===2) return T.V_BODY;
+    if(x>=2&&x<=9) return y===6||y===7 ? T.V_GLASS : T.V_BODY;
+    if(x>=10&&x<=49&&y<=7&&az<=2) return T.V_BODY; return 0; };
+  const g=new THREE.Group(); addBuckets(mesh(v,L,Hh,W),g); g.position.set(2, BALLAST_TOP+SLEEPER_H+0.3, 40.5-3.5); scene.add(g); }
+
+// ---------- 雾与天空 ----------
+function applySky(){ const h=new THREE.Color(col('horizon')); scene.background=h; scene.fog=new THREE.Fog(h, 120, 420); }
+applySky();
+
+// ---------- 调色 ----------
+function refresh(key){
+  if(key==='water'){ waterMat.color.set(col('water')); }
+  else if(key==='sleeper'){ sleeperMat.color.set(col('sleeper')); }
+  else if(key==='railHead'||key==='railSide'){ buildRails(); }
+  else if(key==='horizon'){ applySky(); }
+  else scene.traverse(o=>{ if(o.isMesh&&o.userData.key) matFor(...o.userData.key); });
+  document.getElementById('out').value=Object.entries(COLORS).map(([k,[n,c]])=>`${n}\t${c}`).join('\n');
+}
+const list=document.getElementById('list');
+for(const [k,[name,c]] of Object.entries(COLORS)){ const row=document.createElement('label'); row.className='c';
+  row.innerHTML=`<input type="color" value="${c}"><span>${name}</span><code>${c}</code>`;
+  const inp=row.querySelector('input'), code=row.querySelector('code');
+  inp.oninput=()=>{ COLORS[k][1]=inp.value; code.textContent=inp.value; refresh(k); }; list.appendChild(row); }
+refresh('none');
+for(const k of Object.keys(VIEWS)) document.getElementById(k).onclick=()=>view(k);
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+renderer.setAnimationLoop(()=>{ controls.update(); renderer.render(scene,camera); });
+renderer.render(scene,camera);
+const v=new URLSearchParams(location.search).get('view'); if(v&&VIEWS[v]) { view(v); renderer.render(scene,camera); }
+</script>
+</body>
+</html>
