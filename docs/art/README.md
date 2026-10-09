@@ -109,4 +109,4 @@ _Avoid_: 样机、素材
 | 扫掠包络 | 运动范围 |
 | Paint Mask | 可涂装区域 |
 | Wear、Damage | 磨损、损伤 |
-| Blueprint Stamp | 不用；大型设备是复合体，整体装上，见[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249) |
+| Blueprint Stamp | 不用；大型设备是复合体，整体装上，见设计文档 [03 的复合体嵌套](../design/03-vehicles-buildings-and-designs.md#复合体嵌套) |

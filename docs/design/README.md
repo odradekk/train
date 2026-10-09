@@ -111,7 +111,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 20. Semantic Revision 与 Presentation Asset Revision 分离。
 21. Capability 必须来自真实的 Behavior；Facility Tag 只表达兼容性。
 22. BOM 由设计的体素布局派生；建造消费完成的货物，不递归展开配方。
-23. 每种货物都是一个体素定义；车辆和建筑不是货物。核心模拟层只读取体素定义中的核心字段。
+23. 货物是带 `simulation` 一节的体素定义或能入库的复合体；车辆和建筑不是货物。核心模拟层只读取体素定义中的 `simulation` 一节。
 24. 库存中的货物只按种类和数量计数，没有个体身份或个体状态。
 
 ### 体素引擎层（只在局部场景和设计编辑器中成立）

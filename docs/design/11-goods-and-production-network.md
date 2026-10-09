@@ -10,9 +10,9 @@
 
 ## 不变量
 
-- 每种货物都是一个体素定义（[02](02-definitions-and-content.md#体素定义)，[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认）。不建立独立的 GoodDefinition、MaterialDefinition 或 ComponentDefinition 体系；金属、能源、生物、食品原料等大类只是内容组织，不建立 ResourceCategory、RawGoodCategory 之类的强类型领域层（资源转录 Q211）。
+- 货物是带 `simulation` 一节的体素定义（[02](02-definitions-and-content.md#体素定义)，[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认），或能入库的复合体，例如大型设备（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，2026-10-09）。不建立独立的 GoodDefinition、MaterialDefinition 或 ComponentDefinition 体系；金属、能源、生物、食品原料等大类只是内容组织，不建立 ResourceCategory、RawGoodCategory 之类的强类型领域层（资源转录 Q211）。
 - 资源网络中的对象必须是物质性、可库存、标准化且原则上可交易的实物；Crew、Power、Labor、Time 不属于 Goods。
-- 车辆和建筑不是货物：未来可以参与资产所有权交易，但不进入库存或 Production DAG。
+- 车辆和建筑不是货物：能整体买卖，但不进入库存或 Production DAG。大型设备由建造设施按蓝图建造后入库，不经过 Production DAG，见 [14](14-construction-refit-and-deconstruction.md#construction-job)。
 - Production DAG 与 Recovery DAG 分离，且各自都是有向无环图。
 - 不存在生产 Tier：Raw、Material、Component、Finished 只是内容语义或 Tag，不构成合法性层级。
 - Gameplay Difference Test 决定是否拆分商品；现实中存在差异，不等于游戏中需要独立 Definition。

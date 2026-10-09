@@ -49,7 +49,7 @@
 
 ### 只有 Stack
 
-- 库存只有 Stack { 体素定义标识, 数量 }，没有 ItemInstance。拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还（[03](03-vehicles-buildings-and-designs.md#建造改装与修理)、[14](14-construction-refit-and-deconstruction.md)），所以库存中不会出现受损或带状态的件。
+- 库存只有 Stack { 货物种类, 数量 }，没有 ItemInstance。货物种类是体素定义标识，或复合体货物去掉涂装后的设计哈希（ADR-0013）。拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还（[03](03-vehicles-buildings-and-designs.md#建造改装与修理)、[14](14-construction-refit-and-deconstruction.md)），所以库存中不会出现受损或带状态的件。大型设备整体拆下时同样先修好再入库。
 - 建造、改装与修理按 BOM 自动消费 Stack，不需要玩家挑选具体的件。
 
 ## Demo 范围

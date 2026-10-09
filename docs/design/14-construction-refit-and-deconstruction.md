@@ -3,7 +3,7 @@
 > **所属层**：核心模拟层。
 
 
-> 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）；Demo 只为 Deconstruction 提供主动 Pause / Resume、Construction / Refit 主动暂停延后，依据 [#85](https://github.com/odradekk/train/issues/85)。实例引用固定的蓝图版本、部件不在实例之外保留个体身份、新增修理任务，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确认。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见 ADR-0012。
+> 决策出处：资源转录 Q252–Q254、Q256–Q260、Q263–Q265、Q268、Q336–Q342、Q347–Q356、Q398–Q405、Q420–Q422、Q425（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）；Demo 只为 Deconstruction 提供主动 Pause / Resume、Construction / Refit 主动暂停延后，依据 [#85](https://github.com/odradekk/train/issues/85)。实例引用固定的蓝图版本、部件不在实例之外保留个体身份、新增修理任务，由[列车与建筑在核心模拟层的表示](https://github.com/odradekk/train/issues/201)于 2026-10-05 确认。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见 ADR-0012。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。
 
 ## 边界
 
@@ -29,6 +29,7 @@
 ### BOM
 
 - BOM 完全从设计的体素布局派生。例如某车头的布局含 Structural Block ×120、Engine X ×2、Storage Equipment ×4，BOM 就是这些实际的 VoxelDefinitionId 和数量；不另设 `construction_cost` 作为第二份权威数据。
+- 设计中装着大型设备时，BOM 列出整件设备（按去掉涂装的设计），不展开成其中的体素，与“不自动展开配方”一致（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。
 - 档位等非体素信息不产生物料成本。
 - 官方预置型号与玩家自定义设计严格使用同一套成本规则。预置型号只是官方提供的蓝图，不享受隐藏折扣或手写成本；玩家把官方型号改动几格，成本随实际体素变化（资源转录 Q265）。
 - 车辆和建筑共用同一套建造规则与 BOM 派生，不分别设置车辆建造系统和建筑建造系统。玩家可以设计车辆和建筑（[00](00-product-and-core-loop.md#demo-范围)），资源规则相同（资源转录 Q254）。
@@ -39,7 +40,7 @@
 ### Construction Job
 
 - 正式玩法中的建造是耗时任务。建造期间不存在半成品实例，进度到 100% 时原子地生成实例。表现层以后可以加脚手架、施工动画等，但它们不是权威状态。
-- 启动时依次：从选定的蓝图复制设计并校验 → 校验目标（建筑校验目标地块空闲、尺寸合适、建筑种类允许；车辆校验车辆建造设施支持的档位，见 [16](16-settlements.md)）→ 派生精确的 BOM → 校验可访问的库存 → 校验 Construction Capability → 原子消费完整 BOM → 建筑的目标地块标记为工地 → 创建 ConstructionJob。完工的车辆停放在该聚居地。BOM 在启动时一次消耗完；Demo 不提供主动取消，也不提供取消后的退款。
+- 启动时依次：从选定的蓝图复制设计并校验 → 校验目标（建筑校验目标地块空闲、尺寸合适、建筑种类允许；车辆校验车辆建造设施支持的档位，见 [16](16-settlements.md)）→ 派生精确的 BOM → 校验可访问的库存 → 校验 Construction Capability → 原子消费完整 BOM → 建筑的目标地块标记为工地 → 创建 ConstructionJob。完工的车辆停放在该聚居地。大型设备也按蓝图建造，完工后放进该聚居地的库存，不生成实例，不占地块。BOM 在启动时一次消耗完；Demo 不提供主动取消，也不提供取消后的退款。
 - 在玩家自己的聚居地施工时，可以同时使用该聚居地的库存和当地可访问的玩家列车库存；二者仍是两个独立的库存。这是 [12 的显式转移规则](12-inventory-and-storage.md#地点库存)的限定例外，只供建造、改装、修理启动时消费 BOM，不让生产、回收或发电设施直接读取列车货舱。启动事务必须记录实际的消费来源，按稳定顺序或显式选择消费；Demo 默认先用聚居地库存，再用列车库存，以后的界面可以让玩家指定来源。
 
 ### 地块预留
@@ -64,6 +65,7 @@
 - 调试模式和控制台的改装命令（[15](15-design-editor-and-tools.md#调试命令)）提供瞬时的原子改装，用于创建和验证修改，不代表正式玩法零耗时。正式玩法中，改装是把实例从当前设计切换到目标设计的耗时任务：校验目标设计 → 派生差额 BOM → 消费新增的货物 → 为返还的货物预留库存容量 → 创建 RefitJob → 完成时原子提交。中间的非法结构不暴露给模拟。
 - 差额 BOM 按体素位置和定义对比两份设计：
   - 位置和定义都不变的体素保持原样，部件保留耐久，不消耗也不返还货物。
+  - 装上、拆下、更换大型设备都按整件计算：装上消耗库存中的这件设备，拆下时先修好、再整件返还入库。
   - 新增或替换进去的体素消耗对应的货物。例如从 100 Structural Block + 2 Engine 改为 105 Structural Block + 2 同款 Engine + 1 Storage Equipment，需要 Structural Block ×5 和 Storage Equipment ×1。
   - 拆下的完好部件返还为普通货物。拆下的受损部件先修好再返还，修理的工作量计入本次任务。被毁的部件不返还。
   - 拆下的结构体素按结构耐久比例返还：每种结构体素返还“拆下数量 × 当前结构耐久比例”向下取整。

@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。
 
 ## 边界
 
@@ -13,7 +13,7 @@
 - Definition 是不可变数据；Runtime State 不写回 Definition。
 - Semantic Revision 与 Presentation Asset Revision 分离。
 - Price 属于 Market Context，不属于 Voxel。
-- 每种货物都是一个体素定义；车辆和建筑不是货物。
+- 货物是带 `simulation` 一节的体素定义，或能入库的复合体；车辆和建筑不是货物。
 - 核心模拟层只读取体素定义中的 `simulation` 一节。
 - 库存中的货物只按种类和数量计数，没有个体身份或个体状态。
 - Capability 不允许在 Mod JSON 中伪造，由实际注册的 Behavior 推导（[03](03-vehicles-buildings-and-designs.md)）。
@@ -22,7 +22,7 @@
 
 ### 体素定义
 
-- 每种货物都是一个体素定义。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义；货物、库存、市场和贸易都引用体素定义标识（转录 Q176）。TradeMetadata 的字段与实现随贸易接入时确定。
+- 带 `simulation` 一节的体素定义都是货物。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义（转录 Q176）。能入库的复合体，例如大型设备，也是货物，按去掉涂装的设计计数，见 [03 的复合体嵌套](03-vehicles-buildings-and-designs.md#复合体嵌套)（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，ADR-0013）。货物、库存、市场和贸易引用体素定义标识或设计哈希。TradeMetadata 的字段与实现随贸易接入时确定。
 - 定义文件按读取方分节，身份等共用字段写在顶层（[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)，2026-10-09）：
 
   | 节 | 读取方 | 字段 |
@@ -46,8 +46,8 @@
 
 ### 库存中的货物
 
-- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
-- 货物在建造、改装、修理时被消耗，成为车辆或建筑设计中的体素；拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还，见 [03](03-vehicles-buildings-and-designs.md#建造改装与修理) 和 [14](14-construction-refit-and-deconstruction.md)。
+- 库存中的货物只按种类和数量计数，例如 Stack { 体素定义标识 = `core:ferrous-ore`, 数量 = 500 }，或 Stack { 炮塔的设计哈希, 数量 = 2 }。货物没有个体身份，也没有耐久等个体状态；库存规则见 [12](12-inventory-and-storage.md)。
+- 货物在建造、改装、修理时被消耗，成为车辆或建筑设计中的体素或大型设备；拆下的完好部件变回普通货物，受损的修好后返还，被毁的不返还，见 [03](03-vehicles-buildings-and-designs.md#建造改装与修理) 和 [14](14-construction-refit-and-deconstruction.md)。
 
 ### Definition、Revision 与 Instance
 
@@ -153,7 +153,7 @@ Demo 中 Cube 表现可以再声明一个形状字段，从游戏内置的形状
 
 ## Demo 范围
 
-体素定义（每种货物都是体素定义）；JSON/Data Mod；Definition、Revision、Instance 三分；蓝图和设计的加载、校验、建造与改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。面向玩家的设计编辑器属于 Demo；创作模式只在开发构建中提供，见 [15](15-design-editor-and-tools.md)。手写 JSON 与独立自动测试仍可用于验证。车辆与建筑的规则见 [03](03-vehicles-buildings-and-designs.md)。
+体素定义；货物是带 `simulation` 的体素定义或能入库的复合体；JSON/Data Mod；Definition、Revision、Instance 三分；蓝图和设计的加载、校验、建造与改装；TradeMetadata 随贸易核心循环接入时确定字段与实现。面向玩家的设计编辑器属于 Demo；创作模式只在开发构建中提供，见 [15](15-design-editor-and-tools.md)。手写 JSON 与独立自动测试仍可用于验证。车辆与建筑的规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 ## Demo 之后
 

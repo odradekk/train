@@ -4,7 +4,7 @@
 
 ## 边界
 
-本文规定车辆、建筑和大型设备怎样由体素组成：用途与造型、重量感、尺度与子网格、形状、自定义模型、大型设备、接缝与倒角。占格、朝向和六面连通见设计文档 [01](../design/01-voxel-engine-and-scenes.md)，表现格式与校验见 [02](../design/02-definitions-and-content.md#表现资产校验)，档位尺寸、部件与结构见 [03](../design/03-vehicles-buildings-and-designs.md)，渲染路径和遮面见 [07](../design/07-rendering.md)，复合体嵌套的规则见[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)；本文引用、不重述。贴图见 [02](02-materials-and-textures.md)，光照与可读性见 [05](05-lighting-and-readability.md)，地形、建筑和铁路的具体规格见 [04](04-world-assets.md)。
+本文规定车辆、建筑和大型设备怎样由体素组成：用途与造型、重量感、尺度与子网格、形状、自定义模型、大型设备、接缝与倒角。占格、朝向和六面连通见设计文档 [01](../design/01-voxel-engine-and-scenes.md)，表现格式与校验见 [02](../design/02-definitions-and-content.md#表现资产校验)，档位尺寸、部件与结构见 [03](../design/03-vehicles-buildings-and-designs.md)，渲染路径和遮面见 [07](../design/07-rendering.md)，复合体嵌套的规则见设计文档 [03 的复合体嵌套](../design/03-vehicles-buildings-and-designs.md#复合体嵌套)；本文引用、不重述。贴图见 [02](02-materials-and-textures.md)，光照与可读性见 [05](05-lighting-and-readability.md)，地形、建筑和铁路的具体规格见 [04](04-world-assets.md)。
 
 ## 不变量
 
@@ -89,7 +89,7 @@
 
 ### 大型设备
 
-- 跨多格的大型雷达、多格炮塔、发电舱和大型安装架是大型设备。大型设备是复合体，由多个体素组成，有自己的蓝图，装在车辆或建筑上，装上后仍是独立的设备。嵌套、损伤、拆装和编辑器操作的规则见[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)。
+- 跨多格的大型雷达、多格炮塔、发电舱和大型安装架是大型设备。大型设备是复合体，由多个体素组成，有自己的蓝图，装在车辆、建筑或另一件大型设备上，可以整体转动和替换，拆下后可以入库。嵌套、转动、拆装和编辑器操作的规则见设计文档 [03 的复合体嵌套](../design/03-vehicles-buildings-and-designs.md#复合体嵌套)。
 - 安装座、支架和接口要标准化、看得出来；这不引入新的物理接口系统（美术 Q199）。
 - 复杂外形优先由简单、清楚的大形组合出来，不靠把每个螺丝做成体素，也不靠单个超复杂的整体模型（美术 Q200）。
 - 大型设备的能力仍由其中的单格部件相加（设计文档 [03](../design/03-vehicles-buildings-and-designs.md#部件与结构)），外观上的大型装置不带来隐藏的多格功能规则。
@@ -155,7 +155,7 @@
 ## Demo 范围
 
 - P0 形状和自定义模型进入内容与渲染（设计文档 [02](../design/02-definitions-and-content.md#表现资产校验)、[07](../design/07-rendering.md#demo-范围)）；P1、P2 按样机需要增加。
-- 大型设备按[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)的结论制作。
+- 大型设备按设计文档 [03 的复合体嵌套](../design/03-vehicles-buildings-and-designs.md#复合体嵌套)制作。
 - 按现行五档尺寸重做三台样机，见 [08](08-asset-pipeline-and-review.md#demo-范围)。
 
 ## Demo 之后
@@ -165,4 +165,3 @@
 ## 开放问题
 
 - 自定义模型的导入约定和三台样机的规格，见 [08 的开放问题](08-asset-pipeline-and-review.md#开放问题)。
-- 复合体嵌套的规则，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)决定。
