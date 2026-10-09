@@ -20,7 +20,7 @@
 | [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性 | 已写 |
 | [06-wear-damage-and-motion.md](06-wear-damage-and-motion.md) | 常态磨损与磨损叠加、表面损伤、摧毁、铁轨断点与工地、特效与强度上限、动画与轮对、贴花 | 已写 |
 | [07-icons-and-ui.md](07-icons-and-ui.md) | 状态色、宏观地图、面板与字体、物品图标与外框、界面符号 | 已写 |
-| `08-asset-pipeline-and-review.md` | 制作流程、交付物、样机与检查 | 待拆票 |
+| [08-asset-pipeline-and-review.md](08-asset-pipeline-and-review.md) | 交付物、源文件、目录与命名、制作顺序、检查清单、检查人与记录、样机 | 已写 |
 
 每篇的固定小节：边界、不变量、规则、本阶段、Demo 范围、Demo 之后、开放问题；没有内容的小节写“无”。“本阶段”写首个切片可以直接制作的规格，首个切片的范围见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)。
 

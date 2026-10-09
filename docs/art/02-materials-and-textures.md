@@ -74,7 +74,7 @@
 
 ## 本阶段
 
-首个切片的三种货物和五种车辆体素按下面的规格制作，素材由[补齐首个切片的货物与车辆体素素材](https://github.com/odradekk/train/issues/234)绘制，格式改动由[体素表现：正面图、平铺跨度、材质类别与贴图方向](https://github.com/odradekk/train/issues/248)实现。色值见 [03 的本阶段](03-color-and-paint.md#本阶段)，车头和货车的外形见 [01 的本阶段](01-construction-language.md#本阶段)。[首个切片车辆贴图样稿](../../archive/prototypes/first-slice-vehicle-textures.prototype.html)按平铺规则画出了整车效果，其中的图案只是示意。
+首个切片的三种货物和五种车辆体素按下面的规格制作，素材由[补齐首个切片的货物与车辆体素素材](https://github.com/odradekk/train/issues/234)绘制，格式改动由[体素表现：正面图、平铺跨度、材质类别与贴图方向](https://github.com/odradekk/train/issues/248)实现。色值见 [03 的本阶段](03-color-and-paint.md#本阶段)，车头和货车的外形见 [01 的本阶段](01-construction-language.md#本阶段)。[首个切片车辆贴图样稿](../../archive/prototypes/first-slice-vehicle-textures.prototype.html)按平铺规则画出了整车效果；正式的 PNG 从样稿导出，图案在导出前按本节打磨，交付和检查见 [08 的本阶段](08-asset-pipeline-and-review.md#本阶段)。
 
 ### 车辆体素
 

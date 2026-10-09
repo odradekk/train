@@ -64,7 +64,7 @@
 
 ## 本阶段
 
-首个切片的线路场景（[线路场景](https://github.com/odradekk/train/issues/229)）和最小节点场景（[最小节点场景与跟随时的无缝切换](https://github.com/odradekk/train/issues/230)）按下面的规格制作。首个切片没有聚居地建筑和生物。
+首个切片的线路场景（[线路场景](https://github.com/odradekk/train/issues/229)）和最小节点场景（[最小节点场景与跟随时的无缝切换](https://github.com/odradekk/train/issues/230)）按下面的规格制作。首个切片没有聚居地建筑和生物。体素贴图从[首个切片场景资产样稿](../../archive/prototypes/first-slice-scene-assets.prototype.html)导出，交付和检查见 [08 的本阶段](08-asset-pipeline-and-review.md#本阶段)。
 
 ### 地形体素
 
