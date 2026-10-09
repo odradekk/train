@@ -1,0 +1,32 @@
+{
+  "schema_version": 3,
+  "id": "driver-cab",
+  "simulation": {
+    "value": 600,
+    "mass": 2,
+    "max_durability": 200,
+    "behaviors": {
+      "control": {}
+    }
+  },
+  "appearance": {
+    "allowed_orientations": "four_way",
+    "presentation": {
+      "kind": "cube",
+      "faces": {
+        "top": "top.png",
+        "side": "side.png",
+        "bottom": "bottom.png",
+        "front": "front.png"
+      }
+    },
+    "behaviors": {
+      "light": {}
+    }
+  },
+  "display": {
+    "name": "驾驶台",
+    "description": "司机操作列车的位置，带一盏照明灯。",
+    "icon": "icon.png"
+  }
+}

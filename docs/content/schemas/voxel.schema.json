@@ -1,0 +1,232 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/voxel.schema.json",
+  "title": "体素定义（<local id>.voxel.json）",
+  "description": "字段说明见 docs/content/voxel.md。Schema 只检查单个文件的结构；id 与文件名一致、引用存在、资产文件存在和图片尺寸等由加载器检查。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "appearance", "display"],
+  "properties": {
+    "schema_version": { "const": 3 },
+    "id": { "$ref": "common.schema.json#/$defs/localId" },
+    "simulation": { "$ref": "#/$defs/simulation" },
+    "appearance": { "$ref": "#/$defs/appearance" },
+    "display": { "$ref": "#/$defs/display" }
+  },
+  "$defs": {
+    "simulation": {
+      "description": "核心模拟层读取的一节。没有这一节的体素定义是场景体素。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "mass", "max_durability"],
+      "properties": {
+        "value": { "type": "integer", "minimum": 1, "maximum": 1000000000 },
+        "mass": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000000000 },
+        "max_durability": { "type": "integer", "minimum": 1, "maximum": 1000000000 },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "default": [],
+          "items": { "enum": ["raw_good"] }
+        },
+        "behaviors": { "$ref": "#/$defs/simulationBehaviors" }
+      }
+    },
+    "simulationBehaviors": {
+      "description": "功能性行为的核心参数，以行为类型为键。",
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "propulsion": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["traction", "rated_speed"],
+          "properties": {
+            "traction": { "$ref": "common.schema.json#/$defs/positiveNumber" },
+            "rated_speed": { "$ref": "common.schema.json#/$defs/positiveNumber" }
+          }
+        },
+        "control": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["capacity"],
+          "properties": {
+            "capacity": { "$ref": "common.schema.json#/$defs/positiveInt" }
+          }
+        },
+        "production": { "$ref": "#/$defs/workRate" },
+        "extraction": { "$ref": "#/$defs/workRate" },
+        "construction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["work_rate", "max_size_class"],
+          "properties": {
+            "work_rate": { "$ref": "common.schema.json#/$defs/positiveNumber" },
+            "max_size_class": { "$ref": "common.schema.json#/$defs/sizeClass" }
+          }
+        },
+        "power": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["output"],
+          "properties": {
+            "output": { "$ref": "common.schema.json#/$defs/positiveNumber" }
+          }
+        },
+        "weapon": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["damage", "interval"],
+          "properties": {
+            "damage": { "$ref": "common.schema.json#/$defs/positiveInt" },
+            "interval": { "$ref": "common.schema.json#/$defs/positiveNumber" }
+          }
+        }
+      }
+    },
+    "workRate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["work_rate"],
+      "properties": {
+        "work_rate": { "$ref": "common.schema.json#/$defs/positiveNumber" }
+      }
+    },
+    "appearance": {
+      "description": "体素引擎层和渲染层读取的一节。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["presentation"],
+      "properties": {
+        "allowed_orientations": { "enum": ["none", "four_way", "all_24"], "default": "none" },
+        "collision": { "$ref": "#/$defs/collision" },
+        "presentation": { "$ref": "#/$defs/presentation" },
+        "behaviors": { "$ref": "#/$defs/appearanceBehaviors" }
+      }
+    },
+    "collision": {
+      "default": { "kind": "full_box" },
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": { "kind": { "enum": ["none", "full_box"] } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "offset", "size"],
+          "properties": {
+            "kind": { "const": "local_box" },
+            "offset": { "$ref": "#/$defs/unitVector" },
+            "size": { "$ref": "#/$defs/unitSize" }
+          }
+        }
+      ]
+    },
+    "unitVector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number", "minimum": 0, "maximum": 1 },
+        "y": { "type": "number", "minimum": 0, "maximum": 1 },
+        "z": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    },
+    "unitSize": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "z"],
+      "properties": {
+        "x": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "y": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "z": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+      }
+    },
+    "presentation": {
+      "oneOf": [
+        { "$ref": "#/$defs/cubePresentation" },
+        { "$ref": "#/$defs/meshPresentation" }
+      ]
+    },
+    "cubePresentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "faces"],
+      "properties": {
+        "kind": { "const": "cube" },
+        "shape": {
+          "description": "代码提供的形状目录中的名字；这里列出 Demo 的取值。",
+          "enum": ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"],
+          "default": "cube"
+        },
+        "material": { "$ref": "common.schema.json#/$defs/material", "default": "painted_metal" },
+        "tile_span": { "enum": [1, 2, 4, 8], "default": 1 },
+        "faces": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["top", "side", "bottom"],
+          "properties": {
+            "top": { "$ref": "common.schema.json#/$defs/pngPath" },
+            "side": { "$ref": "common.schema.json#/$defs/pngPath" },
+            "bottom": { "$ref": "common.schema.json#/$defs/pngPath" },
+            "front": { "$ref": "common.schema.json#/$defs/pngPath" }
+          }
+        }
+      }
+    },
+    "meshPresentation": {
+      "description": "自定义模型，从 Demo 开始。模型格式暂定为 .glb，随第一个自定义模型的导入约定确定。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "model", "surface_materials"],
+      "properties": {
+        "kind": { "const": "mesh" },
+        "model": { "$ref": "common.schema.json#/$defs/glbPath" },
+        "surface_materials": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "common.schema.json#/$defs/material" }
+        }
+      }
+    },
+    "appearanceBehaviors": {
+      "description": "行为的表现参数，以行为类型为键。当前只有只含表现的类型；功能性类型需要表现参数时再加。",
+      "type": "object",
+      "additionalProperties": false,
+      "default": {},
+      "properties": {
+        "wheelset": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "light": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "color": { "$ref": "common.schema.json#/$defs/color", "default": "#ffd9a0" },
+            "range": { "type": "number", "exclusiveMinimum": 0, "default": 4 }
+          }
+        }
+      }
+    },
+    "display": {
+      "description": "界面读取的一节。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "icon"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "description": { "$ref": "common.schema.json#/$defs/description" },
+        "icon": { "$ref": "common.schema.json#/$defs/pngPath" }
+      }
+    }
+  }
+}

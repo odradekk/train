@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/common.schema.json",
+  "title": "内容定义共用的类型",
+  "$defs": {
+    "localId": {
+      "description": "local id：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头。",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "definitionRef": {
+      "description": "对另一份内容定义的引用：同一个包里写 local id，其他包写 `<命名空间>:<local id>`；命名空间是 `core` 或包的 UUID。",
+      "type": "string",
+      "pattern": "^([a-z0-9][a-z0-9_-]{0,63}:)?[a-z0-9][a-z0-9_-]{0,63}$"
+    },
+    "uuid": {
+      "description": "小写、带连字符的 UUID。",
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "semver": {
+      "description": "SemVer 2.0 版本号。",
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "pngPath": {
+      "description": "PNG 资产路径。不带斜杠的文件名指定义自己的同名文件夹；以 `shared/` 开头的指同类定义共用的文件夹。",
+      "type": "string",
+      "pattern": "^(shared/)?[a-z0-9][a-z0-9_-]*\\.png$"
+    },
+    "glbPath": {
+      "description": "glTF 二进制模型路径，规则同 pngPath。格式暂定。",
+      "type": "string",
+      "pattern": "^(shared/)?[a-z0-9][a-z0-9_-]*\\.glb$"
+    },
+    "name": {
+      "description": "显示名称，去掉首尾空白后 1–100 个字符。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "description": {
+      "description": "说明，去掉首尾空白后 1–2000 个字符。",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "color": {
+      "description": "sRGB 颜色，小写十六进制。",
+      "type": "string",
+      "pattern": "^#[0-9a-f]{6}$"
+    },
+    "sizeClass": {
+      "description": "车辆尺寸档位。",
+      "enum": ["small", "medium", "large", "extra_large", "titan"]
+    },
+    "material": {
+      "description": "表现材质类别，见美术 02。",
+      "enum": ["painted_metal", "bare_metal", "concrete", "stone_soil", "glass", "polymer_rubber", "organic"]
+    },
+    "positiveNumber": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "positiveInt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "id": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15",
+  "name": "示例内容包",
+  "version": "0.1.0",
+  "authors": ["Train 开发组"],
+  "description": "内容定义标准的示例包，覆盖体素、蓝图和聚居地模板的各种写法。只供阅读和测试，数值不是正式设计。",
+  "dependencies": [
+    { "id": "core", "min_version": "0.1.0" }
+  ]
+}

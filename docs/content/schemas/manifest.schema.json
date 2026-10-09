@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/manifest.schema.json",
+  "title": "内容包 manifest（mod.json）",
+  "description": "字段说明见 docs/content/manifest.md。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "name", "version", "authors"],
+  "properties": {
+    "schema_version": { "const": 2 },
+    "id": { "$ref": "common.schema.json#/$defs/uuid" },
+    "name": { "$ref": "common.schema.json#/$defs/name" },
+    "version": { "$ref": "common.schema.json#/$defs/semver" },
+    "authors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 100 }
+    },
+    "description": { "type": "string", "maxLength": 4000 },
+    "dependencies": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "min_version"],
+        "properties": {
+          "id": {
+            "oneOf": [
+              { "const": "core" },
+              { "$ref": "common.schema.json#/$defs/uuid" }
+            ]
+          },
+          "name": { "$ref": "common.schema.json#/$defs/name" },
+          "min_version": { "$ref": "common.schema.json#/$defs/semver" }
+        }
+      }
+    }
+  }
+}

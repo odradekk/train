@@ -1,0 +1,33 @@
+# 内容包 manifest
+
+每个 Mod 的包目录下有一个 `mod.json`，声明包的身份、版本和依赖。Schema 见 [schemas/manifest.schema.json](schemas/manifest.schema.json)，示例见 [examples/example-pack/mod.json](examples/example-pack/mod.json)。规则的来由见 [ADR-0015](../adr/0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md)。
+
+内置的 `core` 包没有 manifest。
+
+## 字段
+
+| 字段 | 类型 | 必填 | 默认值 | 说明与校验 | 阶段 |
+| --- | --- | --- | --- | --- | --- |
+| `schema_version` | 整数 | 是 | — | 固定为 2 | 首个切片 |
+| `id` | 字符串 | 是 | — | 小写、带连字符的 UUID。它也是这个包的命名空间，其他包用 `<UUID>:<local id>` 引用这个包的定义。两个包的 UUID 相同，两个都不加载 | 首个切片 |
+| `name` | 字符串 | 是 | — | 显示名称，去掉首尾空白后 1–100 个字符 | 首个切片 |
+| `version` | 字符串 | 是 | — | SemVer 2.0 版本号 | 首个切片 |
+| `authors` | 字符串数组 | 是 | — | 1–16 个作者，每个去掉首尾空白后 1–100 个字符，不能重复 | 首个切片 |
+| `description` | 字符串 | 否 | 空字符串 | 去掉首尾空白后最多 4000 个字符 | 首个切片 |
+| `dependencies` | 对象数组 | 否 | `[]` | 依赖的包，见下表 | Demo |
+
+### `dependencies` 的每一项
+
+| 字段 | 类型 | 必填 | 说明与校验 |
+| --- | --- | --- | --- |
+| `id` | 字符串 | 是 | 依赖的包的 UUID，或者 `core`。同一个包只能写一次，不能写自己 |
+| `name` | 字符串 | 否 | 那个包的显示名称，1–100 个字符。只在缺少这个依赖时用来告诉玩家缺了什么 |
+| `min_version` | 字符串 | 是 | 要求的最低版本，SemVer 2.0；按 SemVer 的规则比较 |
+
+- 不写 `core` 时，默认依赖任意版本的 `core`；写了 `core`，就能要求最低游戏版本。
+- 加载按依赖排序。缺依赖、依赖版本太低，或者处在依赖循环里，这个包都不加载，依赖它的包也跟着不加载。
+- 定义本身不声明依赖。包里的定义引用了其他包，那个包必须写在这里，否则这个包无效。
+
+## 和现有代码的差别
+
+现在的代码只接受 `schema_version: 1`，没有 `dependencies`。改成本格式由实施工单完成。

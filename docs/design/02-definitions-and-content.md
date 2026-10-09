@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。复合体嵌套与能入库的复合体作为货物，由[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)于 2026-10-09 确认，见 ADR-0013。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。体素定义和 manifest 的格式、`cargo` 并入 `storage`，由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。
 
 ## 边界
 
@@ -31,7 +31,7 @@
   | `appearance` | 体素引擎层与渲染层 | 允许朝向、表现、碰撞 |
   | `display` | 界面 | 名称、说明、图标 |
 
-- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层。核心模拟层所在的项目不引用内容层，看不到其他各节，见 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。各节的具体字段由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)确定。
+- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层。核心模拟层所在的项目不引用内容层，看不到其他各节，见 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。各节的字段见[体素定义的格式](../content/voxel.md)。
 - 允许朝向默认只有默认朝向，碰撞默认是整格方块；不放进设计的货物（例如矿石）不必填写这两项。表现必须填写；物品图标属于 `display` 一节，是单独绘制的一张图，只画物品本身，外框、底色、数量和状态由界面统一绘制，见[美术 07](../art/07-icons-and-ui.md#物品图标)。
 - 没有 `simulation` 一节的体素定义是场景体素，只供场景使用，例如地形和装饰。它们不是货物，核心模拟层看不到它们，不能库存、交易，也不能放进车辆、建筑和大型设备的设计；具体内容见 [01](01-voxel-engine-and-scenes.md#场景中的内容)。其余体素定义都是货物，可以库存和交易；设计中每放一格消耗一个单位的该货物，见 [14](14-construction-refit-and-deconstruction.md)。
 - **Value** 即术语表的基本货币价值：定义中的固定基础价值，不随世界经济变化，但可随内容更新改变，是市场计算实际价格的基础。例如 Ferrous Ore 的 Value = 100。
@@ -99,7 +99,7 @@
 | 本局蓝图库 | 存档的内嵌内容 |
 | 草稿（非有效来源） | `user://authoring-drafts/`，设计编辑器和创作模式的草稿，不参与有效内容扫描 |
 
-目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。具体后缀由三张格式票确定。
+目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`settlement-types/`、`settlement-templates/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义的后缀是 `.voxel.json`，manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
 定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
 
@@ -153,7 +153,7 @@
 
 Cube、CustomStaticMesh 与领域专用表现共存（[07](07-rendering.md#总体策略)）；CustomStaticMesh 使用 LOD0 静态模型、基础颜色/贴图、光照/阴影和不透明或镂空裁剪材质。资产原点、尺寸、方向及适用表现绑定须有明确约定，具体文件格式和字段由实施规格记录；模型不能替代权威碰撞定义。
 
-Cube 表现绑定 `icon`、`voxel_top`、`voxel_side`、`voxel_bottom` 四张 PNG，可选 `voxel_front`；另可声明平铺跨度 `tile_span`（1、2、4、8，默认 1）和表现材质类别 `material`（7 种，默认 `painted_metal`，取值见[美术 02](../art/02-materials-and-textures.md#材质类别)）。图标为正方形；顶面、侧面、底面为边长相同的 2 的幂正方形；正面图为 2 的幂正方形，尺寸可以与其他面不同。贴图方向与平铺坐标见 [07](07-rendering.md#cube-voxel-rendering)。这些字段都是表现配置，修改时只触发 Catalog 发布，不改变 Semantic Revision。由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)于 2026-10-09 确认。
+Cube 表现绑定顶面、侧面、底面三张 PNG，可选正面图，物品图标写在 `display` 一节，字段写法见[体素定义的格式](../content/voxel.md#presentation立方体)；另可声明平铺跨度 `tile_span`（1、2、4、8，默认 1）和表现材质类别 `material`（7 种，默认 `painted_metal`，取值见[美术 02](../art/02-materials-and-textures.md#材质类别)）。图标为正方形；顶面、侧面、底面为边长相同的 2 的幂正方形；正面图为 2 的幂正方形，尺寸可以与其他面不同。贴图方向与平铺坐标见 [07](07-rendering.md#cube-voxel-rendering)。这些字段都是表现配置，修改时只触发 Catalog 发布，不改变 Semantic Revision。由[立方体体素的面贴图形式](https://github.com/odradekk/train/issues/243)于 2026-10-09 确认。
 
 Demo 中 Cube 表现可以再声明一个形状字段，从游戏内置的形状目录中选形状和标准变体，默认立方体；它同样是表现配置。表现不提供缩放和剪切参数，模型按原尺寸使用；要不同大小，就用不同的标准变体或不同的体素定义。加载 CustomStaticMesh 时检查模型的包围盒，超出所在的格（允许极小的容差）就明确诊断并拒绝。由[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)于 2026-10-09 确认。
 
@@ -165,7 +165,7 @@ Demo 中 Cube 表现可以再声明一个形状字段，从游戏内置的形状
 
 ## Demo 之后
 
-Code Mod API、通用 Material System；跨包覆盖与 patch、Mod 依赖、加载顺序覆盖、启用状态管理（ADR-0002）。
+Code Mod API、通用 Material System；跨包覆盖与 patch、加载顺序覆盖（ADR-0002）；定义改名用的迁移表（ADR-0015）。
 
 ## 开放问题
 

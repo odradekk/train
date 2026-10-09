@@ -1,0 +1,32 @@
+{
+  "schema_version": 3,
+  "id": "machine-gun",
+  "simulation": {
+    "value": 500,
+    "mass": 0.4,
+    "max_durability": 120,
+    "behaviors": {
+      "weapon": {
+        "damage": 8,
+        "interval": 0.25
+      }
+    }
+  },
+  "appearance": {
+    "allowed_orientations": "four_way",
+    "presentation": {
+      "kind": "cube",
+      "faces": {
+        "top": "top.png",
+        "side": "side.png",
+        "bottom": "bottom.png",
+        "front": "front.png"
+      }
+    }
+  },
+  "display": {
+    "name": "机枪",
+    "description": "单格武器，向来袭的生物射击。",
+    "icon": "icon.png"
+  }
+}

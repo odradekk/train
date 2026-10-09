@@ -1,0 +1,31 @@
+{
+  "schema_version": 3,
+  "id": "crane",
+  "simulation": {
+    "value": 900,
+    "mass": 8,
+    "max_durability": 300,
+    "behaviors": {
+      "construction": {
+        "work_rate": 1,
+        "max_size_class": "medium"
+      }
+    }
+  },
+  "appearance": {
+    "allowed_orientations": "four_way",
+    "presentation": {
+      "kind": "cube",
+      "faces": {
+        "top": "top.png",
+        "side": "side.png",
+        "bottom": "bottom.png"
+      }
+    }
+  },
+  "display": {
+    "name": "吊机",
+    "description": "施工设备，提供施工能力，最多能建造中型车辆。",
+    "icon": "icon.png"
+  }
+}

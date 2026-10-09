@@ -1,0 +1,32 @@
+{
+  "schema_version": 3,
+  "id": "diesel-engine",
+  "simulation": {
+    "value": 800,
+    "mass": 4,
+    "max_durability": 300,
+    "behaviors": {
+      "propulsion": {
+        "traction": 25,
+        "rated_speed": 20
+      }
+    }
+  },
+  "appearance": {
+    "allowed_orientations": "four_way",
+    "presentation": {
+      "kind": "cube",
+      "faces": {
+        "top": "top.png",
+        "side": "side.png",
+        "bottom": "bottom.png",
+        "front": "front.png"
+      }
+    }
+  },
+  "display": {
+    "name": "柴油机组",
+    "description": "单格柴油机组，为车辆提供牵引力。",
+    "icon": "icon.png"
+  }
+}

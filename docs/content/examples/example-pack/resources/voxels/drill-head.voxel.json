@@ -1,0 +1,32 @@
+{
+  "schema_version": 3,
+  "id": "drill-head",
+  "simulation": {
+    "value": 650,
+    "mass": 5,
+    "max_durability": 300,
+    "behaviors": {
+      "extraction": {
+        "work_rate": 1
+      }
+    }
+  },
+  "appearance": {
+    "allowed_orientations": "all_24",
+    "presentation": {
+      "kind": "cube",
+      "material": "bare_metal",
+      "faces": {
+        "top": "top.png",
+        "side": "side.png",
+        "bottom": "bottom.png",
+        "front": "front.png"
+      }
+    }
+  },
+  "display": {
+    "name": "钻头",
+    "description": "开采设备，从节点资源中采出初级货物。",
+    "icon": "icon.png"
+  }
+}

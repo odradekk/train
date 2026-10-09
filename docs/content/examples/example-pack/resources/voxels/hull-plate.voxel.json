@@ -1,0 +1,24 @@
+{
+  "schema_version": 3,
+  "id": "hull-plate",
+  "simulation": {
+    "value": 50,
+    "mass": 0.5,
+    "max_durability": 200
+  },
+  "appearance": {
+    "presentation": {
+      "kind": "cube",
+      "faces": {
+        "top": "top.png",
+        "side": "side.png",
+        "bottom": "shared/vehicle-underside.png"
+      }
+    }
+  },
+  "display": {
+    "name": "车体钢板",
+    "description": "车体的基本结构块，没有功能，只提供结构耐久。",
+    "icon": "icon.png"
+  }
+}
