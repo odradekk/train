@@ -2,7 +2,7 @@
 
 > **所属层**：内容。
 
-> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。
+> 决策出处：转录 Q53–Q62、Q86–Q88、Q176；2026-09-05 [#31](https://github.com/odradekk/train/issues/31) 确认迁移与内容格式，随后 [#35](https://github.com/odradekk/train/issues/35) 将读档及热重载修订为采用当前外部定义，并确定版本、哈希与存档规则。见 [ADR-0001](../adr/0001-use-namespaced-good-identities-and-versioned-content-schema.md)、[ADR-0002](../adr/0002-limit-mods-to-data-packages-and-isolate-package-failures.md)、[ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。Good 并入体素定义的代码与内容迁移已由 [#43](https://github.com/odradekk/train/issues/43) 完成。每种货物仍是体素定义、字段按层划分、删除 ItemInstance、碰撞移出语义字段、蓝图版本的保存，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。内容来源、用户库只放蓝图、其他内容写入数据包，由[编辑器的去向](https://github.com/odradekk/train/issues/211)于 2026-10-05 确认，取代了存档内定义与跨范围复制的规则。定义按读取方分节、内容层单独成为项目、场景体素取代 `scene_only` 标签，由[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)于 2026-10-09 确认，见 ADR-0011。
 
 ## 边界
 
@@ -14,7 +14,7 @@
 - Semantic Revision 与 Presentation Asset Revision 分离。
 - Price 属于 Market Context，不属于 Voxel。
 - 每种货物都是一个体素定义；车辆和建筑不是货物。
-- 核心模拟层只读取体素定义中的核心字段。
+- 核心模拟层只读取体素定义中的 `simulation` 一节。
 - 库存中的货物只按种类和数量计数，没有个体身份或个体状态。
 - Capability 不允许在 Mod JSON 中伪造，由实际注册的 Behavior 推导（[03](03-vehicles-buildings-and-designs.md)）。
 
@@ -23,17 +23,17 @@
 ### 体素定义
 
 - 每种货物都是一个体素定义。游戏中所有物品的外观和图标都用体素块表现，所以货物不另设定义；货物、库存、市场和贸易都引用体素定义标识（转录 Q176）。TradeMetadata 的字段与实现随贸易接入时确定。
-- 字段按读取方分为三组：
+- 定义文件按读取方分节，身份等共用字段写在顶层（[定义按层划分：核心、体素层和显示各读哪些数据](https://github.com/odradekk/train/issues/259)，2026-10-09）：
 
-  | 读取方 | 字段 |
-  | --- | --- |
-  | 核心模拟层（直接读取，或经内容层派生的设计属性读取） | 身份、Value、Mass、Tags、耐久上限、Behaviors |
-  | 体素引擎层与渲染层 | 允许朝向、表现、碰撞 |
-  | 显示 | 名称、说明 |
+  | 节 | 读取方 | 字段 |
+  | --- | --- | --- |
+  | `simulation` | 核心模拟层（直接读取，或经内容层算出的设计属性读取） | Value、Mass、Tags、耐久上限、Behaviors 的核心参数 |
+  | `appearance` | 体素引擎层与渲染层 | 允许朝向、表现、碰撞 |
+  | `display` | 界面 | 名称、说明、图标 |
 
-- 核心模拟层通过只暴露第一组字段的接口读取体素定义，不接触体素字段。
-- 允许朝向默认只有默认朝向，碰撞默认是整格方块；不放进设计的货物（例如矿石）不必填写这两项。表现必须填写；物品图标是表现中单独绘制的一张图，只画物品本身，外框、底色、数量和状态由界面统一绘制，见[美术 07](../art/07-icons-and-ui.md#物品图标)。
-- 带 `scene_only` 标签的体素定义只供场景生成使用，例如地形和装饰。它们不是货物，不能库存、交易，也不能放进设计；具体内容见 [01](01-voxel-engine-and-scenes.md#场景中的内容)。其余体素定义都是货物，可以库存和交易；设计中每放一格消耗一个单位的该货物，见 [14](14-construction-refit-and-deconstruction.md)。
+- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层。核心模拟层所在的项目不引用内容层，看不到其他各节，见 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。各节的具体字段由[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)确定。
+- 允许朝向默认只有默认朝向，碰撞默认是整格方块；不放进设计的货物（例如矿石）不必填写这两项。表现必须填写；物品图标属于 `display` 一节，是单独绘制的一张图，只画物品本身，外框、底色、数量和状态由界面统一绘制，见[美术 07](../art/07-icons-and-ui.md#物品图标)。
+- 没有 `simulation` 一节的体素定义是场景体素，只供场景使用，例如地形和装饰。它们不是货物，核心模拟层看不到它们，不能库存、交易，也不能放进车辆、建筑和大型设备的设计；具体内容见 [01](01-voxel-engine-and-scenes.md#场景中的内容)。其余体素定义都是货物，可以库存和交易；设计中每放一格消耗一个单位的该货物，见 [14](14-construction-refit-and-deconstruction.md)。
 - **Value** 即术语表的基本货币价值：定义中的固定基础价值，不随世界经济变化，但可随内容更新改变，是市场计算实际价格的基础。例如 Ferrous Ore 的 Value = 100。
 - **Price** 不属于体素定义。Price 是市场状态 × 体素定义产生的运行时报价，例如 Mining Town 的 Ferrous Ore = 70，Capital 的 Ferrous Ore = 135。
 - **Mass** 是一个单位的质量，用于车辆和建筑的设计质量，以及列车所载货物的质量，见 [06](06-railway.md#速度)。
@@ -86,7 +86,7 @@
 
 - 三类有效来源：Built-in、Mod、用户内容库。草稿不是有效内容来源。
 - 用户内容库只保存玩家在设计编辑器中发布的蓝图。体素定义、聚居地模板，以及场景模型、生物等不由玩家设计的蓝图，由创作模式写入数据包：开发时写入 `core`，Mod 作者写入自己的 Mod 包，见 [15](15-design-editor-and-tools.md#创作模式)。
-- 蓝图每次发布产生一个不可变的版本，以语义 Revision 识别。用户内容库保留所有已发布的版本；存档内嵌所有被引用的蓝图版本，不论来自内置、Mod 还是用户库，即使来源中已删除也能读档；已有聚居地使用的布局同样内嵌，见 [09](09-persistence.md#存档中的内容)。所以玩家可以随时删除库中的旧版本，不检查引用，见 [15](15-design-editor-and-tools.md#草稿与发布)。
+- 蓝图每次发布产生一个不可变的版本，以语义 Revision 识别。用户内容库保留所有已发布的版本；存档内嵌所有被引用的蓝图版本，不论来自内置、Mod 还是用户库，即使来源中已删除也能读档；已有聚居地使用的聚居地模板同样内嵌，见 [09](09-persistence.md#存档中的内容)。所以玩家可以随时删除库中的旧版本，不检查引用，见 [15](15-design-editor-and-tools.md#草稿与发布)。
 - 体素定义等外部引用依赖当前安装的内容，保存时不会暗中嵌入外部旧定义以兜底。
 
 ### 内容目录与格式

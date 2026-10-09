@@ -37,7 +37,7 @@
 
 设计文档和代码也会用到的词以 [CONTEXT.md](../../CONTEXT.md) 为准，例如体素、体素格（简称格）、体素定义、结构体素、部件、复合体、大型设备、蓝图、场景模型、形状、标准变体、涂装。本节只定义美术制作中使用的词。
 
-正文用中文术语，词条第一次出现时在括号里附英文。英文只保留在三种地方：代码标识（如 `scene_only`、`voxel_top`）；没有通行中文说法的技术名（如 PBR、UV、Mipmap、Triplanar）；[00](00-direction.md) 中八个关键词的原词。
+正文用中文术语，词条第一次出现时在括号里附英文。英文只保留在三种地方：代码标识（如 `tile_span`、`voxel_top`）；没有通行中文说法的技术名（如 PBR、UV、Mipmap、Triplanar）；[00](00-direction.md) 中八个关键词的原词。
 
 **自定义模型（Custom Mesh）**：
 为某一种体素定义单独制作的模型，对应设计文档 [07](../design/07-rendering.md) 的 Custom Mesh。

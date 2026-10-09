@@ -23,7 +23,7 @@
   - 同一时间只显示一个场景。跟随列车时，最多在后台预建一个下一场景，使切换无缝；这一修订由[实施工单的拆分、顺序与写法](https://github.com/odradekk/train/issues/217)于 2026-10-06 确认，原文为“同一时间只构建一个场景”。
 - **与观察无关**：模拟结果与帧率、相机、窗口状态无关，也与场景是否打开、打开的是哪一个无关。核心模拟层不按距离、视野或观察情况降低精度。战斗进行时世界不暂停。
 - **确定性、复现与存档**：ADR-0003 的确定性契约只覆盖核心模拟层。场景可以使用 Godot 物理等不确定的表现手段。录制和故障复现包只包含核心模拟层的输入。存档只保存核心状态，场景打开时也可以存档。
-- **内容**：体素定义、蓝图等内容是核心模拟层和体素引擎层共用的只读数据。核心模拟层只读取由设计派生出的属性。
+- **内容**：体素定义、蓝图等内容是核心模拟层和体素引擎层共用的只读数据。核心模拟层只读取由设计派生出的属性。2026-10-09 起改为：内容层把每份定义按读取方拆开，分别交给各层，核心模拟层只得到 `simulation` 一节和设计属性，见 [ADR-0011](0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。
 - **对其他 ADR 的影响**：
   - 本决定取代 [ADR-0004](0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 中关于游戏状态范围的描述（体素、Composite、铁路网络都是游戏状态）。ADR-0004 中"领域不依赖 Godot，Godot 是派生适配层"的结论仍然有效。
   - [ADR-0006](0006-preserve-physical-rail-geometry-and-local-breaks.md) 和 [ADR-0007](0007-drive-connected-assemblies-from-physical-rail-positions.md) 以物理轨道作为铁路的事实来源，将由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)取代。
