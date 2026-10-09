@@ -67,6 +67,8 @@ public sealed class CompositeContentTests
             (valid[..^1] + ",\"archetypes\":[]}", ContentDiagnosticCodes.UnknownField, "/archetypes"),
             (valid[..^1] + ",\"extra\":true}", ContentDiagnosticCodes.UnknownField, "/extra"),
             ("{\"schema_version\":2,\"composites\":[1]}", ContentDiagnosticCodes.FieldInvalid, "/composites/0"),
+            (CompositeFixtures.File(null, CompositeFixtures.Composite(voxels: "{\"x\":0,\"y\":0,\"z\":0,\"definition\":1,\"orientation\":\"px_py\"}")),
+                ContentDiagnosticCodes.LocalIdInvalid, "/composites/0/voxels/0/definition"),
             (CompositeFixtures.File(null, composite[..^1] + ",\"contacts\":[]}"),
                 ContentDiagnosticCodes.UnknownField, "/composites/0/contacts"),
             (CompositeFixtures.File(null, composite[..^1] + ",\"archetype\":\"vehicle\"}"),

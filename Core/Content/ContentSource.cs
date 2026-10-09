@@ -313,7 +313,13 @@ public sealed class MemoryContentSource : IContentSource
     /// <returns>小写 .json 后缀文件的数组快照，无诊断且 Invalid 为 false；没有登记列表时为空。</returns>
     /// <remarks>保持登记顺序；包种类、文件格式和玩家蓝图身份规则由加载器检查。</remarks>
     /// <exception cref="NullReferenceException">package 为 null。</exception>
-    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package) => ListDataFiles(package, ".json");
+    public ContentFileDiscovery ListDefinitionFiles(ContentPackage package)
+    {
+        var files = _files.TryGetValue(PackageKey(package), out var listed)
+            ? listed.Where(file => file.EndsWith(".json", StringComparison.Ordinal)).ToArray()
+            : Array.Empty<string>();
+        return ContentFileDiscovery.Of(files);
+    }
 
     /// <summary>以指定身份登记玩家蓝图包及同名蓝图文件。</summary>
     /// <param name="uuid">作为包命名空间和文件名的已规范化身份文本；调用方应按玩家蓝图约定提供 UUID。</param>
@@ -328,18 +334,6 @@ public sealed class MemoryContentSource : IContentSource
         var file = uuid + ".composites.json";
         AddPackage(uuid, "memory://blueprints/" + uuid, kind: ContentPackageKind.PlayerBlueprint, source: file);
         AddDefinitionFile(uuid, file, utf8Text, "memory://blueprints/" + uuid);
-    }
-
-    /// <summary>按资源键取得登记文件列表，以 Ordinal 后缀过滤并复制为保持登记顺序的有效发现结果。</summary>
-    /// <param name="package">以资源根和命名空间定位列表的包。</param>
-    /// <param name="suffix">需要匹配的小写文件后缀。</param>
-    /// <returns>无诊断且 Invalid 为 false 的路径快照；无登记列表时为空。</returns>
-    private ContentFileDiscovery ListDataFiles(ContentPackage package, string suffix)
-    {
-        var files = _files.TryGetValue(PackageKey(package), out var listed)
-            ? listed.Where(file => file.EndsWith(suffix, StringComparison.Ordinal)).ToArray()
-            : Array.Empty<string>();
-        return ContentFileDiscovery.Of(files);
     }
 
     /// <summary>按资源键返回已登记的 JSON 或 PNG 字节，并比较调用方提供的大小上限。</summary>

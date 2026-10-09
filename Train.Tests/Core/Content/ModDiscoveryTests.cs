@@ -61,7 +61,8 @@ public sealed class ModDiscoveryTests
         Assert.AreEqual(3, scan.CandidateCount);
         Assert.AreEqual(1, scan.AcceptedCount);
         Assert.AreEqual(ModFixtures.OtherUuid, scan.Packages.Single().Namespace);
-        Assert.AreEqual(2, scan.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.DuplicateModUuid));
+        Assert.AreEqual(2, scan.Diagnostics.Count(item => item.Code == ContentDiagnosticCodes.DuplicateModUuid &&
+            item.Severity == ContentDiagnosticSeverity.Warning));
         Assert.IsFalse(scan.Packages.Any(package => package.Namespace == ModFixtures.SampleUuid));
     }
 
