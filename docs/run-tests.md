@@ -2,6 +2,8 @@
 
 This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which checks a change needs is decided by the [Testing standard](implement-sop.md#testing-standard); [Windows CI](ci.md) calls the same entry.
 
+四模块测试拆分、模块选择、共享契约用例与实际隔离检查的已确认目标方案见[独立构建与契约验证](contracts/testing.md)。这些扩展尚未实现，本页以下命令和行为描述现有入口；不能把当前运行结果当作目标方案已通过的证据。
+
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
 MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. `scripts/` 顶层保留统一入口、入口测试和登记表；具体检查、检查测试及其专用进程助手放在 `scripts/checks/`，MSTest 元数据读取器放在 `scripts/metadata-reader/`。当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：

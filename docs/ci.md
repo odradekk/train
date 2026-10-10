@@ -1,5 +1,7 @@
 # Windows CI
 
+四模块契约验证的目标增量见[CI 与交付时机](contracts/testing.md#ci-与交付时机)：常规 CI 增加结构检查和三个无引擎模块的隔离契约测试，显式较重检查增加真实 Godot 隔离测试。这些扩展尚未实现；以下仍描述当前工作流的实际选择。
+
 `.github/workflows/windows-checks.yml` 在发往 `master` 的 PR 创建、更新和重新打开时运行固定轻量集合：
 
 ```powershell

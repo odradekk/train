@@ -15,7 +15,7 @@
 | 体素引擎层 | `scenes.md` | [体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289) |
 | Godot 层 | `godot.md` | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
 
-验证的组织与工具由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定；[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与最终联调流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
+验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；工具尚未实现。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与最终联调流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
 
 ## 目标项目布局
 
@@ -31,7 +31,7 @@
 | `Scenes/` | `Train.Scenes` | 体素实现 |
 | 根目录 | `Train` | Godot 项目；源码仍按 `App/`、`Rendering/`、`Ui/` 划分 |
 
-契约项目沿用 .NET 10、C# 12，不引用 Godot。命名空间沿用“项目名.项目内目录名”。新增项目时隔离源码编译范围，不能让根项目或实现项目再次编译契约源码。测试项目的拆分由独立构建与测试票确定。
+契约项目沿用 .NET 10、C# 12，不引用 Godot。命名空间沿用“项目名.项目内目录名”。新增项目时隔离源码编译范围，不能让根项目或实现项目再次编译契约源码。测试项目按模块拆分，目标入口及允许依赖见[测试组织](testing.md#模块测试的组织与入口)，当前尚未迁移。
 
 ## 依赖与装配
 
