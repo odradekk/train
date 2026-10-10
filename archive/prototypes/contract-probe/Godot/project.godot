@@ -1,0 +1,10 @@
+config_version=5
+[application]
+config/name="ContractProbe292"
+run/main_scene="res://Probe.tscn"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="ContractProbe292"
+[dotnet]
+project/assembly_name="Probe"
+[rendering]
+renderer/rendering_method="gl_compatibility"

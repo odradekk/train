@@ -1,9 +1,10 @@
-# 体素引擎与 Playground 设计原型归档
+# 设计与契约原型归档
 
 本目录保存规划阶段使用的独立原型与原始测量资料，不属于正式游戏实现，也不是正式引擎、生成器或性能验收结果。例外是首个切片车辆贴图和首个切片场景资产两个样稿：它们也是首个切片 PNG 的生成器，见[美术 08 的本阶段](../../docs/art/08-asset-pipeline-and-review.md#本阶段)。原型文件按原始内容归档，后续领域规则以已确认的[设计文档](../../docs/design/README.md)和[分期规格](../../docs/design/voxel-engine-stage-spec.md)为准。
 
 | 资料 | 用途 | 原始提交与决策 |
 | --- | --- | --- |
+| [四模块契约调用原型](contract-probe/README.md) | 隔离调用与有限情景替身、五类违规检出、真实文件与 Godot 源运行／Windows 导出检查；不代表生产实现、完整联调或性能验收 | [契约原型结论](https://github.com/odradekk/train/issues/292#issuecomment-6098600280)；公开契约输入为 `8636b68` |
 | [铁路几何比较](rail-geometry.prototype.html) | 早期二维线路与几何取舍 | `b7a8391`；[铁路几何决策](https://github.com/odradekk/train/issues/32) |
 | [车辆包络](rail-envelope.prototype.html) | 五档车辆尺寸与早期包络观感 | `b7a8391`；[铁路几何决策](https://github.com/odradekk/train/issues/32) |
 | [Three.js 三维铁路](rail-3d.prototype.html) | 早期简单体素三维观感 | `b7a8391`；[铁路几何决策](https://github.com/odradekk/train/issues/32) |
