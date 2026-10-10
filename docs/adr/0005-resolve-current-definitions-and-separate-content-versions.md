@@ -35,3 +35,9 @@ Saves embed player-defined content and its required save-local definitions, whil
 2026-10-09，[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)取消了蓝图版本：每个实例有自己的不可变设计，蓝图只是模板，不分版本；存档内嵌设计和本局蓝图库，不再内嵌蓝图版本。上文中实例引用蓝图版本、用户库保留全部版本、存档内嵌蓝图版本的部分由 [ADR-0012](0012-give-each-composite-instance-its-own-design-and-keep-blueprints-as-templates.md) 取代；当前外部定义适配和三种版本分离不变。上文各节里指聚居地布局的“布局”，现在叫聚居地模板。
 
 2026-10-09，[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)修订上限变小时的处理：计算时取存档值和新上限中较小的一个，不改写存档里的耐久。上文“超出新上限的值截断”按此理解：没有改写，上限恢复后原值仍在。
+
+## 跨层发布与有限执行参数修订
+
+2026-10-10，[存档、内容发布与会话切换的跨层事务](https://github.com/odradekk/train/issues/284)确认[统一准备与提交协议](../contracts/transactions.md)，不采用各模块先发布再逐个回滚。核心输入或引用身份变化才进入核心命令全序；纯表现发布不改变核心检查点，混合变更仍整体处理。文件发布后崩溃不承诺撤销磁盘结果，具体持久发布限制见该协议。
+
+外部定义按当前内容解析不变，但已经开始的人口统计期与既有生产批次一样，保留完成这一期所需的有限执行参数。相比重算未完成统计或按新周期缩放进度，这一选择保留已经发生的消费与满足量，代价是新参数延迟到下一期。规则见 [18](../design/18-population-and-labor.md#内容缺失与更新)；缺当前规则或本期必需引用仍停用，不使用执行参数作为缺失定义的兜底。已确认占位的热重载保留和恢复例外见 [ADR-0015](0015-declare-package-dependencies-and-keep-missing-content-as-placeholders.md#跨层确认与已有占位的修订)。
