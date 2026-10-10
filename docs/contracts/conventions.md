@@ -1,6 +1,6 @@
 # 公开契约的公共约定
 
-本页与[契约索引](README.md)一起定义四模块的共同规则，依据[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)。目前是目标规范；已有声明的范围与证据见[核心契约](core.md)、[内容契约](content.md)和[体素契约](scenes.md)，不表示整组检查工具或模块隔离测试已经实现。
+本页与[契约索引](README.md)一起定义四模块的共同规则，依据[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)。目前是目标规范；已有声明与接入样例的范围和证据见[核心契约](core.md)、[内容契约](content.md)、[体素契约](scenes.md)及[Godot 契约](godot.md)，不表示整组检查工具或模块隔离测试已经实现。
 
 ## 各种资料的权威范围
 

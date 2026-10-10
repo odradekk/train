@@ -157,6 +157,6 @@
 
 ## 后续接口的交付边界
 
-[核心契约](https://github.com/odradekk/train/issues/287)与[内容契约](https://github.com/odradekk/train/issues/288)提供候选、引用声明、捕获、适配结果和记录的可编译公开操作；[体素契约](https://github.com/odradekk/train/issues/289)与[Godot 契约](https://github.com/odradekk/train/issues/290)落实版本配对、结果适用性、线程与资源交接。它们须实现本协议的语义，而不是要求宿主自行拼接模块内部事务。
+[核心契约](core.md)与[内容契约](content.md)提供候选、引用声明、捕获、适配结果和记录的可编译公开操作；[体素契约](scenes.md)与[Godot 契约](godot.md)落实版本配对、结果适用性、线程与资源交接。文档与消费样例不表示生产迁移或行为验证已经完成；实施须兑现本协议，不要求宿主自行拼接模块内部事务。
 
 具体签名、冻结状态编码、整包持久发布方案与调用样例由所属模块交付，再由[契约原型](https://github.com/odradekk/train/issues/292)验证；后续发现协议冲突须按受控变更流程确认，不能由单个模块自行解释。新局和建城须在提交前准备实例持有的模板副本，核心业务数据与内容布局通过聚居地身份配对，见[模板副本](content.md#聚居地自己的模板副本)。

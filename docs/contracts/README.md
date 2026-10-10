@@ -4,20 +4,20 @@
 
 ## 状态与后续交付
 
-当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明及消费样例已创建，Godot 接入、生产代码迁移和完整独立检查仍待后续工作；本页不是这些检查已经通过的证据，也不是整组契约基线。
+当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明，以及四模块消费样例已创建；Godot 接入规范已明确，生产代码迁移和完整独立检查仍待后续工作。本页不是这些检查已经通过的证据，也不是整组契约基线。
 
-四份模块文档按下表归档。核心、内容与体素已提供声明与样例，Godot 票补齐对应产物和本模块约束，再由契约原型验证；尚未创建的文档保留为预定路径。
+四份模块文档按下表归档。前三个模块提供各自的公开声明，Godot 文档定义宿主适配和接入；可编译调用样例随后由契约原型补充行为验证，不为对称增设 Godot 契约程序集。
 
 存档、内容发布和会话切换的身份、时序、失败与资源责任已由[跨层事务决策](https://github.com/odradekk/train/issues/284)确定，见[跨层协议](transactions.md)。模块接口须落实该协议，不另建相互冲突的提交规则；具体签名与验证证据见各模块文档。
 
 编辑会话、显式保存草稿、设计校验和实例命令，以及开发创作模式的整包发布与恢复，由[编辑器接口决策](https://github.com/odradekk/train/issues/285)确定，见[编辑协议](editing.md)。普通保存蓝图与整包发布是不同路径；具体声明仍由下表各模块接口交付。
 
-| 模块 | 预定文档 | 负责决策 |
+| 模块 | 接口文档 | 负责决策 |
 | --- | --- | --- |
 | 核心模拟层 | [core.md](core.md) | [核心模拟层公开契约：命令、查询、事件与复现](https://github.com/odradekk/train/issues/287) |
 | 内容层 | [content.md](content.md) | [内容层公开契约：加载、投影、设计计算与发布](https://github.com/odradekk/train/issues/288) |
 | 体素引擎层 | [scenes.md](scenes.md) | [体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289) |
-| Godot 层 | `godot.md` | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
+| Godot 层 | [godot.md](godot.md) | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
 
 验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；工具尚未实现。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与最终联调流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
 

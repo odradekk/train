@@ -27,7 +27,8 @@ public sealed class TemplateConsumer(IScenesFactory factory, ISceneDisplay displ
         SettlementTemplateDraft draft, EditRevision revision)
     {
         var result = factory.PreviewTemplate(content, draft, revision);
-        if (result is SceneResult<ITemplatePreview>.Success success && display.TryDisplay(success.Value.Frame))
+        if (result is SceneResult<ITemplatePreview>.Success success
+            && success.Value.Frame.Readiness != SceneReadiness.Failed && display.TryDisplay(success.Value.Frame))
             displayedPreview = success.Value;
         return result;
     }
@@ -50,6 +51,15 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
     public SceneResult<SceneRequestId> RequestView(WorldSceneTarget target)
         => session.RequestView(target);
 
+    /// <summary>仅用于节点自由环绕；当前焦点与请求均属于实际显示帧，无范围时保持焦点。</summary>
+    public Vector3 ConstrainNodeFocus(Vector3 currentFocus, Vector3 requestedFocus)
+    {
+        if (displayedFrame?.NodePanBounds is not { } bounds)
+            return currentFocus;
+        return new Vector3(Math.Clamp(requestedFocus.X, bounds.Minimum.X, bounds.Maximum.X),
+            requestedFocus.Y, Math.Clamp(requestedFocus.Z, bounds.Minimum.Y, bounds.Maximum.Y));
+    }
+
     /// <summary>新事件仅交一次；相机焦点来自当前实际显示帧的空间。</summary>
     public SceneResult<ISceneFrame> Update(SceneWorldSnapshot snapshot,
         ImmutableArray<EventEnvelope> newEvents, double interpolation,
@@ -62,7 +72,8 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
             return new SceneResult<ISceneFrame>.Faulted(faulted.Problem);
         var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus);
         var presented = session.Present(new SceneFrameRequest(interpolation, camera, debugLayers), displayedFrame);
-        if (presented is SceneResult<ISceneFrame>.Success success && display.TryDisplay(success.Value))
+        if (presented is SceneResult<ISceneFrame>.Success success
+            && success.Value.Readiness != SceneReadiness.Failed && display.TryDisplay(success.Value))
             displayedFrame = success.Value;
         return presented;
     }
@@ -151,7 +162,8 @@ public sealed class EditorConsumer(IDesignEditSession session, ISceneDisplay dis
     public SceneResult<ISceneFrame> Present(EditViewOptions options)
     {
         var presented = session.Present(options, displayedFrame);
-        if (presented is SceneResult<ISceneFrame>.Success success && display.TryDisplay(success.Value))
+        if (presented is SceneResult<ISceneFrame>.Success success
+            && success.Value.Readiness != SceneReadiness.Failed && display.TryDisplay(success.Value))
             displayedFrame = success.Value;
         return presented;
     }

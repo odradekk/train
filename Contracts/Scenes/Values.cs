@@ -21,6 +21,8 @@ public readonly record struct ScenePoint(double X, double Y, double Z);
 /// <summary>位置单位格；单位四元数；父对象存在时相对父对象，否则相对本帧浮动原点。</summary>
 public sealed record ScenePose(Vector3 Position, Quaternion Rotation);
 public sealed record SceneBounds(Vector3 Minimum, Vector3 Maximum);
+/// <summary>节点相机焦点的水平矩形，分量为本帧根空间 X、Z，单位格；有限且 Minimum 不大于 Maximum。</summary>
+public sealed record ScenePanBounds(Vector2 Minimum, Vector2 Maximum);
 /// <summary>同一帧空间内的有限射线；Direction 为单位向量，最大距离为正数格。</summary>
 public sealed record SceneRay(Vector3 Origin, Vector3 Direction, double MaximumDistanceCells);
 /// <summary>帧身份仅在本次运行有效；Space 在节点、线路或编辑场景更换时改变。</summary>

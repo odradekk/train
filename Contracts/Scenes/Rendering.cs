@@ -74,6 +74,8 @@ public interface ISceneFrame
 {
     SceneFrameStamp Stamp { get; }
     ScenePoint Origin { get; }
+    /// <summary>节点场景的完整相机平移范围；尚未确定或非节点场景时为 null，不能从部分网格推断。</summary>
+    ScenePanBounds? NodePanBounds { get; }
     SceneReadiness Readiness { get; }
     double SimulationSeconds { get; }
     SceneUpdate Update { get; }
