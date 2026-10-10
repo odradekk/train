@@ -27,3 +27,7 @@
 - **对其他 ADR 的影响**：
   - 本决定取代 [ADR-0004](0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 中关于游戏状态范围的描述（体素、Composite、铁路网络都是游戏状态）。ADR-0004 中"领域不依赖 Godot，Godot 是派生适配层"的结论仍然有效。
   - [ADR-0006](0006-preserve-physical-rail-geometry-and-local-breaks.md) 和 [ADR-0007](0007-drive-connected-assemblies-from-physical-rail-positions.md) 以物理轨道作为铁路的事实来源，将由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)取代。
+
+## 2026-10-09 契约与宿主职责修订
+
+[ADR-0016](0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)保留核心权威与场景只作表现，明确模块只依赖公开契约，Godot 只在装配入口创建真实实现。原文“不向下层提供接口”改为：Godot 实现下层契约声明的宿主接口，下层不引用 Godot；完整存档包含核心状态与内嵌内容，由宿主组合，场景状态仍不保存。依赖和责任的现行规范见[契约索引](../contracts/README.md)。

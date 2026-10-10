@@ -141,7 +141,7 @@ Comments let a reader understand the code without re-deriving it from the implem
 
 ### What to document
 
-- **Module overview**: each implemented top-level module in `Core/` and `Scenes/`, and each Godot module such as `App/` and `Ui/`, has a short `README.md`. It states what the module is responsible for, its main types and their roles, what it depends on, and the design-doc sections it implements. Update it in the same change when the module's main types or responsibilities change.
+- **Module overview**: each implemented top-level module in `Core/`, `Content/` and `Scenes/`, and each Godot module such as `App/` and `Ui/`, has a short `README.md`. It states what the module is responsible for, its main types and their roles, what it depends on, and the design-doc sections it implements. Update it in the same change when the module's main types or responsibilities change. Public contracts under `Contracts/`, their creation factories and cross-module calling rules follow [the contract index](contracts/README.md) and its documentation ownership rules; module overviews link those rules rather than copying them. This is the target layout, not a claim that the migration is complete.
 - **File header**: two or three lines at the top of each source file stating which module the file belongs to and its role there. Do not list the file's members; the code and the IDE outline already show them.
 - **Types (data definitions)**: `<summary>` states what the type represents in the domain, using the term from [CONTEXT.md](../CONTEXT.md). Document every field or property whose meaning is not obvious from its name and type: its unit (metres, seconds, tonnes, kN, simulation steps), valid range, and what special values such as `null` or `0` mean. State the invariants that always hold. Give one concrete example in `<example>`.
 - **Members (signature and purpose)**: `<summary>` is a one-sentence purpose statement: what the member computes or changes. `<param>` and `<returns>` state what the values represent, not their types. Document rejected inputs and thrown exceptions with `<exception>`. For members with business rules, give a concrete example in `<example>`, using the same values as a test; for complex behavior, point to the test instead of writing a long example.
@@ -152,7 +152,7 @@ Comments let a reader understand the code without re-deriving it from the implem
 
 | Code | Documentation |
 | --- | --- |
-| Types and members that cross a layer or module boundary (the public API of `Train.Core` and `Train.Scenes`, the queries and commands the render layer uses), data types, and members with business rules | Full documentation as above |
+| Types and members that cross a layer or module boundary (module contracts, public creation factories, host adapters, queries and commands), data types, and members with business rules | Full documentation as above |
 | Other non-trivial members | One-line purpose statement; units and special values where they are not obvious |
 | Trivial properties, forwarders, and members whose name and signature say everything | None |
 

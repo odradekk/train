@@ -31,7 +31,7 @@
   | `appearance` | 体素引擎层与渲染层 | 允许朝向、表现、碰撞 |
   | `display` | 界面 | 名称、说明、图标 |
 
-- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层。核心模拟层所在的项目不引用内容层，看不到其他各节，见 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。各节的字段见[体素定义的格式](../content/voxel.md)。
+- 内容层读取各节，只把 `simulation` 一节和由它算出的数据交给核心模拟层，沿用 [ADR-0011](../adr/0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)。核心所需的输入类型归核心契约，由内容实现填充；核心不引用内容契约或实现，看不到其他各节，依赖规则见[契约索引](../contracts/README.md#依赖与装配)。各节的字段见[体素定义的格式](../content/voxel.md)。
 - 允许朝向默认只有默认朝向，碰撞默认是整格方块；不放进设计的货物（例如矿石）不必填写这两项。表现必须填写；物品图标属于 `display` 一节，是单独绘制的一张图，只画物品本身，外框、底色、数量和状态由界面统一绘制，见[美术 07](../art/07-icons-and-ui.md#物品图标)。
 - 没有 `simulation` 一节的体素定义是场景体素，只供场景使用，例如地形和装饰。它们不是货物，核心模拟层看不到它们，不能库存、交易，也不能放进车辆、建筑和大型设备的设计；具体内容见 [01](01-voxel-engine-and-scenes.md#场景中的内容)。其余体素定义都是货物，可以库存和交易；设计中每放一格消耗一个单位的该货物，见 [14](14-construction-refit-and-deconstruction.md)。
 - **Value** 即术语表的基本货币价值：定义中的固定基础价值，不随世界经济变化，但可随内容更新改变，是市场计算实际价格的基础。例如 Ferrous Ore 的 Value = 100。

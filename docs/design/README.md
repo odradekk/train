@@ -1,6 +1,6 @@
 # 设计文档集：列车放置经营游戏
 
-本目录是项目唯一且权威的设计契约。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。2026-10 的架构调整由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)推进，此后的决定引用该地图中对应票的名称和链接；仍然有效的旧规则保留原来的转录出处。被废弃的规则直接从文档删除，历史只保留在 git、已关闭的票和 `docs/research` 的转录中；ADR 不删除，被取代时在末尾注明。
+本目录是玩法与系统规则的权威来源，模块调用契约见[四模块契约规范](../contracts/README.md)，各种资料的权威范围见[公共约定](../contracts/conventions.md#各种资料的权威范围)。每条决定的出处以"转录 Qn"引用 `docs/research/gdd-grilling-transcript.md`（Q1–Q180），以"资源转录 Qn"引用资源与生产系统 grilling 的 `docs/research/resources-and-production-grilling-transcript.md`（Q180–Q428）；两份转录的编号在 Q180 重叠，引用必须带前缀。[00](00-product-and-core-loop.md)–[09](09-persistence.md) 由 v0.1 原稿拆分而来，原稿只作留底（提交 `6576bf6`），不再作为依据；[10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 由资源与生产系统设计稿拆分而来。2026-10 的架构调整由地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)推进，此后的决定引用该地图中对应票的名称和链接；仍然有效的旧规则保留原来的转录出处。被废弃的规则直接从文档删除，历史只保留在 git、已关闭的票和 `docs/research` 的转录中；ADR 不删除，被取代时在末尾注明。
 
 **文档内明确为规则的内容是当前设计基线。** 未定项在各篇“开放问题”小节标明状态，已登记的候选方向与未冻结参数不构成实施承诺；基于实现验证修订设计时，同步受影响章节。
 
@@ -40,7 +40,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [06-railway.md](06-railway.md) | 铁路与列车运行 |
 | 核心模拟层 | [17-combat.md](17-combat.md) | 战斗、世界生物与征服 |
 | 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |
-| 核心模拟层 | [09-persistence.md](09-persistence.md) | 存档 |
+| 核心模拟层、内容、Godot 宿主 | [09-persistence.md](09-persistence.md) | 存档 |
 | 核心模拟层 | [10-resources-and-extraction.md](10-resources-and-extraction.md) | 节点资源、开采与资源更新 |
 | 核心模拟层 | [11-goods-and-production-network.md](11-goods-and-production-network.md) | 货物目录、生产网络与回收网络 |
 | 核心模拟层 | [12-inventory-and-storage.md](12-inventory-and-storage.md) | 库存与仓储 |
@@ -62,28 +62,16 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 ## 总体架构
 
-```text
-                核心模拟层
-   权威游戏状态；确定性；不涉及体素；不依赖 Godot
-        ▲ 只得到 simulation 一节和设计属性
-        │
-   内容层（Train.Content）：解析定义，算出设计属性和建造合法性
-        │ 只读查询、领域事件              ▲ 命令
-        ▼                                │
-   体素引擎层：局部场景与设计编辑器          │
-        │ 场景数据                         │
-        ▼                                │
-   渲染层：Godot（渲染、相机、输入、音频、窗口、界面）
-```
+四个逻辑模块不等于四个程序集。核心、内容、体素分别拆分契约与实现，Godot 负责装配和适配；目标项目布局与引用允许范围统一见[契约索引](../contracts/README.md#依赖与装配)。这仍是目标结构，生产代码尚未迁移。
 
-- **核心模拟层是唯一的权威来源。** 它在抽象世界图上以同一精度模拟整个世界：节点、线路与铁轨、聚居地、列车、经济、战斗、世界生物、时钟与命令。存档只保存核心状态，世界生成只产生初始核心状态。它使用普通 C# 类型，不依赖 Godot、SceneTree 和体素引擎层。
+- **核心模拟层是唯一的权威来源。** 它在抽象世界图上以同一精度模拟整个世界：节点、线路与铁轨、聚居地、列车、经济、战斗、世界生物、时钟与命令。运行状态只保存核心状态；完整存档另含内嵌内容，不保存场景和界面状态。世界生成只产生初始核心状态。它使用普通 C# 类型，不依赖 Godot、SceneTree 和体素引擎层。
 - **体素引擎层只构建局部场景。** 玩家进入某个地点时，体素引擎层构建线路场景或节点场景，离开时销毁；设计编辑器也由它构建。场景只由该地点的核心状态快照、内容定义，以及由 WorldSeed 和地点身份派生的无状态随机键生成，所以同一地点每次生成的结果相同。场景不保存状态，也不影响任何结果。同一时间只显示一个场景；跟随列车时最多在后台预建一个下一场景，使切换无缝。
-- **渲染层是 Godot。** 它负责渲染、相机、输入、音频、窗口和界面。宏观地图和管理界面通过核心模拟层的只读查询读取数据，不经过体素引擎层。Godot 节点、网格、碰撞形状和界面都不是游戏事实。
-- **接口与信息隐藏。** 依赖方向是渲染层 → 体素引擎层 → 内容层 → 核心模拟层，下层不知道上层的存在。各层只通过窄接口交互：核心模拟层对外只有命令入口、只读查询和供表现使用的领域事件；体素引擎层对外只有构建、更新、销毁场景，拾取，以及交给渲染层的场景数据。玩家在任何界面或场景中的操作，都作为命令提交给核心模拟层。
-- **内容层单独成为项目。** 内容层解析定义，检查引用和资产，算出设计属性和建造合法性，再按读取方拆开交给各层；核心只得到 `simulation` 一节和设计属性（ADR-0011）。定义不直接依赖 Godot Resource，而是使用 AssetId，由渲染层在需要时解析。
+- **Godot 负责表现与宿主服务。** 它负责渲染、相机、输入、音频、窗口和界面，以及装配、诊断日志、控制台文本分发、完整存档和复现包组织。宏观地图和管理界面直接使用核心查询，不经过体素引擎层；宿主只通过公开契约组合工作，不复制核心或内容规则。Godot 节点、网格、碰撞形状和界面都不是游戏事实。
+- **接口与信息隐藏。** 各模块依赖其他模块的契约，不引用其实现。Godot 仅在 `App/Composition/` 调用真实创建工厂，其他代码接收契约接口；下层所需的宿主接口由下层声明，Godot 实现。玩家和调试工具改变核心状态的操作都作为核心命令提交，查询、场景和编辑会话的其他工作按各自公开接口执行。
+- **内容层按读取方投影。** 内容层解析定义，检查引用和资产，算出设计属性和建造合法性，再按读取方拆开交给各层；核心只得到 `simulation` 一节和设计属性（ADR-0011）。设计属性的类型归核心契约，计算仍归内容实现。定义不直接依赖 Godot Resource，而是使用资产身份，由宿主按公开契约接入。
 - **领域事件与 Godot Signal。** 核心模拟层使用普通 C# 领域事件；适配层可以把它们转换为 Godot Signal，领域类型不为此继承 GodotObject。
 
-这一决定记录为 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)，它取代了 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 对游戏状态范围的描述。出处为[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)；原架构的出处为转录 Q17、Q34、Q49、Q50、Q147。
+权威状态和场景职责记录为 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md)，它取代了 [ADR-0004](../adr/0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 对游戏状态范围的描述，出处为[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)。契约拆分与宿主职责由 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)修订；原架构的出处为转录 Q17、Q34、Q49、Q50、Q147。
 
 ## 核心不变量汇总
 
@@ -92,7 +80,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 ### 核心模拟层
 
 1. 核心模拟层是唯一的权威游戏状态；局部场景、渲染、碰撞和界面都是派生结果。
-2. 核心模拟层不依赖 Godot、SceneTree 和体素引擎层；三层只通过公开接口交互。
+2. 核心模拟层不依赖 Godot、SceneTree 和体素引擎层；四模块只通过公开契约交互。
 3. 模拟结果与帧率、相机、窗口状态、倍速和暂停时机无关，也与局部场景是否打开、打开的是哪一个无关；核心模拟层对整个世界使用同一精度，从不等待玩家，只有玩家暂停和内部故障能让时钟停下。
 4. 局部场景不保存状态，不影响模拟结果；场景中的操作只能通过命令改变世界。每条命令在确定的模拟位置执行一次，作为一个事务原子结算；存档中没有待执行命令。
 5. 列车在世界图上的位置是权威位置，场景中的位置由它派生；同一条铁轨上同一时间只有一个方向的列车；除断轨和线路上的战斗外，列车只在节点等待。

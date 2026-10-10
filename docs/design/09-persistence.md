@@ -1,12 +1,14 @@
 # 09 存档
 
-> **所属层**：核心模拟层。
+> **所属层**：核心模拟层、内容层与 Godot 宿主；数据归各模块，完整容器与流程组织归宿主。
 
 > 决策出处：存档组成、不保存的状态、存档中的内容、文件与身份、自动存档、导入与导出、恢复流程、示例存档与存档兼容，由[存档：核心状态的保存、恢复与兼容](https://github.com/odradekk/train/issues/209)于 2026-10-05 确认。它取代了生成基底加 Runtime Delta、基底指纹与候选基底重建、视觉驻留与渲染原点的存档规则。保存边界由[核心模拟层的时间、命令与复现](https://github.com/odradekk/train/issues/202)、列车状态恢复由[列车在图上的运行与调度](https://github.com/odradekk/train/issues/203)、聚居地与建筑状态恢复由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)、战斗与世界生物状态恢复由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)确定；离开保护、删除世界编辑器存档工作流由[编辑器的去向](https://github.com/odradekk/train/issues/211)确定。格式版本字段、ID 计数与浮点往返沿用转录 Q29、Q42 和 #34；外部定义绑定沿用 [#35](https://github.com/odradekk/train/issues/35) 与 [ADR-0005](../adr/0005-resolve-current-definitions-and-separate-content-versions.md)。实例有自己的设计、蓝图只是模板、改装草稿与本局蓝图库，由[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)于 2026-10-09 确认，见 ADR-0012。内容包、依赖声明和读档缺内容时的占位，由[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)于 2026-10-09 确认，见 ADR-0015。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
 
 ## 边界
 
 本文定义存档保存什么、怎样写入和恢复、存档身份、自动存档、导入与导出、示例存档和兼容策略。存档中的内容来源规则见 [02](02-definitions-and-content.md)；命令、运行时 ID 以及录制与复现见 [04](04-deterministic-simulation.md)；世界生成的输入见 [05](05-world-graph-and-generation.md#复现输入与输出)；资源与生产系统各 Job 的语义见 [10](10-resources-and-extraction.md)、[13](13-production-runtime-and-facilities.md)、[14](14-construction-refit-and-deconstruction.md)。
+
+模块责任由 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)确定，统一见[跨层工作的责任](../contracts/README.md#跨层工作的责任)。宿主通过核心与内容的公开契约组合存档和切换会话，不读取内部结构或重算设计属性；准备、提交与回滚的接口协议留给[存档、内容发布与会话切换的跨层事务](https://github.com/odradekk/train/issues/284)。本次只确定责任，代码尚未迁移。
 
 ## 不变量
 
