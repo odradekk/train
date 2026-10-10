@@ -123,7 +123,7 @@ public sealed record NestedObjectProjection(ImmutableArray<int> NestedItemIndice
 /// OccupancyComplete=false 时 OccupiedBounds 只涵盖已知占格，不能用于宣布冲突检查完成。
 /// 根对象自身的转动或平整声明见 RootRotation/RootFlatten。
 /// </summary>
-public sealed record DesignSceneProjection(DesignHash Design,
+public sealed record DesignSceneProjection(DesignHash? Design,
     GridBounds? OccupiedBounds, GridBounds? AllowedEnvelope, bool OccupancyComplete,
     RotationAppearance? RootRotation, FlattenRegion? RootFlatten,
     ImmutableArray<SceneVoxelProjection> Voxels,
@@ -135,19 +135,17 @@ public sealed record DesignSceneProjection(DesignHash Design,
 public abstract record DesignEvaluation
 {
     private DesignEvaluation() { }
-    /// <summary>场景模型与生物没有核心 DesignProjection；其他类别必须提供。完整结果仍可不合法。</summary>
+    /// <summary>场景模型与生物没有核心 DesignInput；其他类别必须提供。完整结果仍可不合法，Scene.Design 必须等于 Design。</summary>
     public sealed record Complete(DesignHash Design, CompositionHash Composition,
-        DesignDraft Definition, DesignProjection? Core, DesignSceneProjection Scene,
+        DesignDraft Definition, DesignInput? Core, DesignSceneProjection Scene,
         bool IsValid, ImmutableArray<ContentDiagnostic> Diagnostics) : DesignEvaluation;
     /// <summary>
     /// CorePlaceholder 仅供恢复既有缺失设计，不能成为建造或编辑提交目标。
-    /// 缺失定义但结构可编码时 Scene 提供已知布局和占位；无法取得规范设计身份时为空。
+    /// Scene 始终提供已知布局、元素与锁；无法取得规范设计身份时仅 Scene.Design 为空。
     /// </summary>
     public sealed record Partial(DesignDraft Definition, PartialDesignMetrics Metrics,
         KnownDesignSubtotal KnownSubtotal, DesignProjection? CorePlaceholder,
-        DesignSceneProjection? Scene,
-        ImmutableArray<DesignElementProjection> Elements,
-        ImmutableArray<DesignEditLock> EditLocks,
+        DesignSceneProjection Scene,
         ImmutableArray<ContentDiagnostic> Diagnostics) : DesignEvaluation;
     public sealed record Failed(ImmutableArray<ContentDiagnostic> Diagnostics) : DesignEvaluation;
 }

@@ -8,6 +8,7 @@ namespace Train.Scenes.Contracts;
 
 /// <summary>宿主为运行会话与有效内容绑定分配的身份；不是存档 UUID 或确定性状态。</summary>
 public readonly record struct SceneBinding(Guid Value);
+/// <summary>体素创建的一次会话身份；同一绑定可关闭后重开，得到不同会话身份。</summary>
 public readonly record struct SceneSessionId(Guid Value);
 public readonly record struct SceneRequestId(ulong Value);
 public readonly record struct SceneSpaceId(ulong Value);

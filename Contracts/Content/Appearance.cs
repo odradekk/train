@@ -49,7 +49,7 @@ public sealed record CreatureBehavior(long HitPoints, double SpeedMetersPerSecon
     double RetreatThreshold, double RaidDurationSeconds);
 
 public sealed record SceneModelProjection(DesignHash Design, DesignSceneProjection Scene,
-    FlattenRegion? Flatten, DisplayText Display);
+    DisplayText Display);
 /// <summary>个体使用当前种类投影；不在生物实例上复制设计。</summary>
 public sealed record CreatureAppearanceProjection(CreatureDefinitionId Definition,
     DesignSceneProjection Scene, DisplayText Display);

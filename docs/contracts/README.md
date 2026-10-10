@@ -1,6 +1,7 @@
 # 四模块公开契约
 
 本目录记录完整 Demo 的模块接口，不记录模块内部类图。[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)已确认以下规范，取舍见 [ADR-0016](../adr/0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)。接口的公共语义和变更流程见[公共约定](conventions.md)，玩法规则仍以[设计文档](../design/README.md)为准。
+本页的命令提交、业务输入身份与创作写入边界按[契约审计修订：设计输入、同步提交与公开面收缩](https://github.com/odradekk/train/issues/296)调整；保留上述历史决策出处，以下协议为当前约定。
 
 ## 状态与后续交付
 
@@ -10,7 +11,7 @@
 
 存档、内容发布和会话切换的身份、时序、失败与资源责任已由[跨层事务决策](https://github.com/odradekk/train/issues/284)确定，见[跨层协议](transactions.md)。模块接口须落实该协议，不另建相互冲突的提交规则；具体签名与验证证据见各模块文档。
 
-编辑会话、显式保存草稿、设计校验和实例命令，以及开发创作模式的整包发布与恢复，由[编辑器接口决策](https://github.com/odradekk/train/issues/285)确定，见[编辑协议](editing.md)。普通保存蓝图与整包发布是不同路径；具体声明仍由下表各模块接口交付。
+编辑会话、显式保存草稿、设计校验和实例命令由[编辑器接口决策](https://github.com/odradekk/train/issues/285)确定；开发创作模式按上述审计修订改为逐文件补丁写入与普通重载，见[编辑协议](editing.md)。玩家单文件保存与开发创作多文件写入是不同路径；具体声明仍由下表各模块接口交付。
 
 | 模块 | 接口文档 | 负责决策 |
 | --- | --- | --- |
@@ -20,6 +21,8 @@
 | Godot 层 | [godot.md](godot.md) | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
 
 验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；工具尚未实现。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与最终联调流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
+
+宿主帧驱动、暂停来源记账、Godot API 调度和保存路径等内部方案见[宿主设计](../godot-host-design.md)，不纳入公开契约基线。
 
 ## 目标项目布局
 
@@ -86,7 +89,7 @@ Godot 只有 `App/Composition/` 可以调用真实创建工厂；其他宿主流
 | 诊断日志 | Godot 宿主负责输出、文件保留和展示；其他模块通过自己的结果、事件或必要的诊断接口报告，不依赖日志实现 |
 | 控制台 | Godot 宿主解析文本并分发已解析命令，与界面、自动测试使用同一核心命令入口；核心命令记录、确定性摘要和稳定故障信息仍归核心 |
 
-宿主内部的纯 .NET 代码可以独立测试；涉及引擎的行为仍用真实 Godot 验证。日志搬迁不等于立即重写实现。存档、录制和内容发布统一按[跨层协议](transactions.md)准备、提交或放弃；不能把所有故障都理解成回滚。数据和玩法规则仍见[存档](../design/09-persistence.md)、[录制与复现](../design/04-deterministic-simulation.md#录制与复现)。
+宿主内部的纯 .NET 代码可以独立测试；涉及引擎的行为仍用真实 Godot 验证。日志搬迁不等于立即重写实现。新局／读档使用候选激活，核心命令同步提交，保存与录制使用一致捕获；时序见[跨层协议](transactions.md)；不能把所有故障都理解成回滚。数据和玩法规则仍见[存档](../design/09-persistence.md)、[录制与复现](../design/04-deterministic-simulation.md#录制与复现)。
 
 ## 表现资产的交接
 

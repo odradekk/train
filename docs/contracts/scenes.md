@@ -14,7 +14,7 @@
 | [World.cs](../../Contracts/Scenes/World.cs) | 工厂、世界快照、观察目标与场景会话 |
 | [Rendering.cs](../../Contracts/Scenes/Rendering.cs) | 不可变显示帧、增量、网格、实例和特效 |
 | [Editing.cs](../../Contracts/Scenes/Editing.cs) | 编辑修订、操作、预览、选取、撤销与固定快照 |
-| [Authoring.cs](../../Contracts/Scenes/Authoring.cs) | 固定聚居地模板的空间预览与地块拾取 |
+| [Authoring.cs](../../Contracts/Scenes/Authoring.cs) | 只读设计预览、固定聚居地模板的空间预览与地块拾取 |
 
 未来实现程序集只在装配处公开 `Train.Scenes.ScenesFactory.Create()`，返回 `IScenesFactory`；当前不创建空实现冒充交付。Godot 的 `App/Composition/` 调用真实工厂，其他代码只接收契约。体素实现负责地形与铁路生成、网格与遮面、对象姿态、逐格拾取、编辑动作及内部任务；不把区块、中心线算法、重建队列、线程池或缓存策略交给宿主配置。
 
@@ -25,17 +25,17 @@
 - 场景以格为单位，一格 0.5 米、一个 Godot 单位；`+X` 右、`+Y` 上、`+Z` 前。核心长度仍是米，换算只发生在表现边界。格 `(x,y,z)` 占据 `[x,x+1] × [y,y+1] × [z,z+1]`；正交朝向绕格中心旋转。
 - `ScenePoint` 为当前节点或线路空间中尚未减浮动原点的双精度坐标，不是宏观地图坐标。`ISceneFrame.Origin` 与单精度显示坐标相加才得到该空间内的位置。不同 `Space` 不能直接相减。
 - `ScenePose` 为单位四元数及平移，无缩放或剪切；根相对该帧浮动原点，子对象相对父对象。所有向量和标量有限；射线方向归一化，长度为正；集合不可为 default。
-- `SceneBinding` 由宿主在运行会话或有效内容更换时重新分配，不是存档 UUID。`SceneSessionId` 由体素创建，`SceneRequestId` 区分显式观察请求，`SceneSpaceId` 区分节点、线路及编辑空间；这些都是运行身份，不入权威存档。
+- `SceneBinding` 由宿主在运行会话或有效内容更换时重新分配，不是存档 UUID。`SceneSessionId` 由体素创建；同一绑定可以关闭后重开场景，产生新的会话身份，二者不是一一对应。`SceneRequestId` 区分显式观察请求，`SceneSpaceId` 区分节点、线路及编辑空间；这些都是运行身份，不入权威存档。
 - 帧修订在会话内单调增加；对象、效果身份在会话内不复用。稳定对象更新继续使用原 ID，不以重建批次冒充业务身份。`WorldObjectId`、设计、部件及内容身份沿用各自契约。
 
-宿主传入的 `SceneWorldSnapshot` 来自同一完整边界，核心 `InputIdentity` 与内容 `Core.Identity` 相同。同一有效世代中，本局已保存草稿或新聚居地模板副本可以增加 `PersistentRevision`；只要业务输入及世代仍匹配，就能交入新的固定视图。体素不得把不同边界查询拼成一次快照。
+宿主传入的 `SceneWorldSnapshot` 来自同一完整边界，核心 `InputIdentity` 与内容 `Core.Identity` 相同。同一有效世代中，本局已保存草稿或新聚居地模板副本可以增加 `PersistentRevision`；只要业务输入及世代仍匹配，就能交入新的固定视图。体素不得把不同边界查询拼成一次快照。OpenWorld 在创建前检查初始核心视图与内容业务输入身份，不匹配时抛 ArgumentException，不创建会话。
 
 ## 世界场景会话
 
 一次调用顺序如下：
 
 1. `OpenWorld(binding, snapshot)` 轻量创建，不等待场景生成。随后 `RequestView` 选择地点、指定列车中的车辆或战斗。地点可含线路弧长，用作初始观察中心；不是要求生成一个单独世界位置。跟随车辆必须属于指定列车。
-2. 宿主在命令或模拟完成后串行 `Observe(snapshot, newEvents)`，交入本次新事件。它不触发同步大场景构建，也不接受倒退的模拟位置。一次 Observe 失败时保留原输入。事件必须有序、不重复，且不晚于输入边界。
+2. 宿主在命令或模拟完成后串行 `Observe(snapshot, newEvents)`，交入本次新事件。它不触发同步大场景构建，也不接受倒退的模拟位置。事件必须有序、不重复，且不晚于输入边界。绑定、内容世代或业务输入身份不匹配、模拟位置倒退以及事件乱序、重复或超出边界均违反接口前提，必须在接入前检查并抛出 ArgumentException，保留原输入，不返回业务失败码。
 3. 体素自行安排首次构建、线路分段与至多一个下一场景预建。宿主逐显示帧调用 `Present`，取得当前可显示部分、加载状态与诊断；核心继续推进，不等待构建。
 4. Godot 准备本帧需要的资产与资源，在帧之间完整应用 `Update`，成功后才把它记为实际显示帧。相机、拾取和下一次 `Present` 都使用这份帧。
 5. 观察目标切换调用 `RequestView`。新目标无效时返回 Failure，旧请求保持；成功产生新身份，即便目标值相同也使旧请求失去接入资格。跟随中的边、节点切换由体素处理，不要求宿主发区块命令。
@@ -93,7 +93,7 @@ Base 不匹配、资源尚未准备好或适配失败时，不部分应用更新
 
 ## 设计编辑会话
 
-`OpenEditor` 接收固定有效内容与 Complete 或 Partial 评估；宿主保证初始评估由这份内容产生。无需合法设计，也不要求 Partial 一定具有规范哈希或 Scene 投影。Failed 没有可解释草稿则拒绝。打开时建立自己的工作副本，初始无未保存修改；新建草稿是否需要先提示命名由宿主决定。一个会话始终使用该份有效内容，[结束编辑后再发布](editing.md#编辑会话与保存边界)，不提供会话内内容重绑定。
+`OpenEditor` 接收固定有效内容与 Complete 或 Partial 评估；宿主保证初始评估由这份内容产生。无需合法设计，Partial 始终具有承载已知布局、元素和锁的 Scene，但 Scene.Design 可以没有规范哈希。Failed 没有可解释草稿则拒绝。打开时建立自己的工作副本，初始无未保存修改；新建草稿是否需要先提示命名由宿主决定。一个会话始终使用该份有效内容，[结束编辑后再发布](editing.md#编辑会话与保存边界)，不提供会话内内容重绑定。
 
 `Read` 返回不可变 EditState，`Capture` 返回整份固定草稿与 EditStamp；后续修改不影响它们。Elements 是当前固定修订的可定位元素清单，内部 ID 跨不改身份的操作保持，删除后不复用；诊断路径和数组下标只对应本修订。体素实现按原缺失引用维护锁，不等待迟到的完整内容评估才执行锁定。
 
@@ -115,11 +115,19 @@ Conflicts 提供具体格或元素及原因。HighlightCells 在当前进入对�
 
 ### 校验与保存完成
 
-宿主 Capture 后把 Draft 交给固定内容的 EvaluateDesign，可在后台运行；回到协调线程调用 AcceptEvaluation。宿主负责把原请求标识与结果成对保留，并保证计算使用的内容世代等于 EditStamp.Content；DesignEvaluation 本身不携带来源证明，不能把另一份内容的结果重新贴上当前标识。会话核对请求中的会话、修订、内容世代及结果草稿与当前值相符才接入，返回 true；迟到或关闭返回 false，不覆盖当前诊断、缺失锁或按钮状态。每次草稿变化后 CurrentEvaluation=null，原结果不能冒充当前结果；旧内容评估故障按原请求报告，不污染新请求。
+宿主 Capture 后把 Draft 交给固定内容的 EvaluateDesign，可在后台运行；回到协调线程调用 AcceptEvaluation。宿主负责把原请求标识与结果成对保留，并保证计算使用的内容世代等于 EditStamp.Content；DesignEvaluation 本身不携带来源证明，不能把另一份内容的结果重新贴上当前标识。会话核对请求中的会话、修订、内容世代及结果草稿与当前值相符才接入，返回 true。草稿匹配必须递归比较全部字段及集合中的内容，不能用默认 record 的 == 或 Equals 代替深层内容比较；迟到或关闭返回 false，不覆盖当前诊断、缺失锁或按钮状态。每次草稿变化后 CurrentEvaluation=null，原结果不能冒充当前结果；旧内容评估故障按原请求报告，不污染新请求。
 
 MarkSaved 只在对应保存目标成功后调用：本局草稿内容记录已提交就成功，用户/包草稿须写盘成功。它确认捕获版本，而不是宣布游戏已经存盘；期间新增修改仍脏，旧会话通知返回 false。撤销恢复到已确认保存的同一工作值时可以清除编辑脏标记，不依赖业务设计哈希。保存失败不调用它，保留活动草稿和旧记录。
 
 设计保存、蓝图发布及核心提交由内容/Godot 负责，体素没有文件写入或核心提交方法。关闭前的保存/放弃/取消由宿主执行；Dispose 不自动保存，立即使预览、校验接入及修改入口失效，重复 Dispose 无副作用，保留的快照和帧仍不可变。
+
+## 只读设计预览
+
+图标与设计缩略图使用 `PreviewDesign(content, initial)`，无需打开编辑会话。宿主保证评估来自这份固定内容；与 OpenEditor 一样，Complete 或 Partial 可以预览，Failed 没有可解释草稿则拒绝。返回 `IDesignPreview`，只提供内容世代、`Present` 和 `Dispose`，不建立撤销、编辑修订、选区或脏状态。
+
+`Present` 使用与世界、编辑及模板预览相同的体素网格生成规则，返回时间为零的完整替换帧。缺失引用保留已知部分和明确诊断，不把预览成功当成设计合法。这个入口只承诺固定设计显示，不新增通用预览框架；网格、材质引用、坐标和不可变值责任沿用本页的显示契约。调用同步完成，不启动需要宿主轮询的后台任务。Dispose 结束预览资格，重复关闭无副作用，关闭后的 Present 抛 ObjectDisposedException；已返回帧仍可保留，Godot 自行持有和释放渲染资源。
+
+货物图标按 `FindGood(good)` 的 `DisplayDesign` 调用 `FindDesign`，再创建只读预览并 `Present`。宿主无需读取布局或重新选择同构成的设计；无显示设计的货物走其已有图标入口。可编译调用见消费样例的 `DesignIconConsumer`。
 
 ## 开发模板预览
 
@@ -133,9 +141,9 @@ ITemplatePreview.Frame 是完整替换帧；Plots 提供地块局部范围及在
 
 SceneResult.Success 表示本次操作正常完成，包括仍在加载的帧和含无效设计的编辑状态。Failure 表示预期拒绝，至少一条 SceneProblem；Faulted 表示体素内部故障，宿主报告并停止故障会话的可变调用，不影响核心。缺失内容本身是诊断和占位，不强制变成整个场景故障。正常输入的生成算法失败必须报告，不能偷偷换种子或篡改核心长度。
 
-稳定错误码至少覆盖 `binding_mismatch`、`input_mismatch`、`stale_position`、`target_missing`、`stale_request`、`stale_hit`、`content_missing`、`build_failed`、`edit_locked`、`invalid_operation`、`region_limit`、`occupancy_conflict`、`stale_preview`、`confirmation_required`、`scene_internal_fault`。Godot 不解析 Detail 分支；SceneProblem.Content 和 Package 保留引用及已知来源包，内容提供了来源时不得丢弃，确实未知时 Package 为空。宿主据此同时在界面与控制台显示缺失资料，不按设计哈希猜包名。default 集合/非有限数/无效枚举等编程前提错误可抛 ArgumentException；关闭后的修改调用抛 ObjectDisposedException，AcceptEvaluation/MarkSaved 则按约定返回 false。
+稳定错误码至少覆盖 `target_missing`、`stale_request`、`stale_hit`、`content_missing`、`build_failed`、`edit_locked`、`invalid_operation`、`region_limit`、`occupancy_conflict`、`stale_preview`、`confirmation_required`、`scene_internal_fault`。Godot 不解析 Detail 分支；SceneProblem.Content 和 Package 保留引用及已知来源包，内容提供了来源时不得丢弃，确实未知时 Package 为空。宿主据此同时在界面与控制台显示缺失资料，不按设计哈希猜包名。绑定、内容世代或业务输入身份不匹配、Observe 位置倒退及事件顺序或重复错误属于接口前提违反，抛 ArgumentException，接入前仍须检查；真实交互过期继续返回 stale_hit、stale_request 或 stale_preview。default 集合/非有限数/无效枚举等编程前提错误抛 ArgumentException；关闭后的修改调用抛 ObjectDisposedException，AcceptEvaluation/MarkSaved 则按约定返回 false。
 
-工厂无可变调用会话状态，可独立创建多个候选；世界和编辑会话的变更只在各自协调线程串行执行。固定帧、输入快照与模板预览可并发只读。体素背景线程不调用 Godot 或内容加载器，不读文件、不回调宿主；内部任务完成状态只经 Present 暴露。
+工厂无可变调用会话状态，可独立创建多个候选；世界和编辑会话的变更只在各自协调线程串行执行。只读设计预览的 Present 和 Dispose 在调用方协调线程串行调用。固定帧、输入快照与模板预览可并发只读。体素背景线程不调用 Godot 或内容加载器，不读文件、不回调宿主；内部任务完成状态只经 Present 暴露。
 
 [消费样例](../../prototypes/scenes-contract/README.md)证明公开面可调用，不提供生产算法或复制业务规则的替身。后续共享契约用例须对真实实现及有限情景替身分别执行：
 

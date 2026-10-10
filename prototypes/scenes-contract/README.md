@@ -10,6 +10,8 @@
 
 显示调用成功但返回 `Readiness.Failed` 仍是构建失败，不能接入该帧。调用方收到调用失败、Failed 帧或资源故障后立即禁止旧帧交互，并按 [Godot 故障入口](../../docs/contracts/godot.md#界面命令与诊断)处理；这里没有实现完整宿主的返回地图或保留编辑草稿流程。
 
+`DesignIconConsumer` 先读取货物的显示设计，再调用 `FindDesign`、`PreviewDesign` 和 `Present`；只读预览通过 `using` 释放，不创建编辑或撤销状态。没有显示设计的货物交由已有图标入口处理。该样例只证明调用可组合，不验证网格算法。
+
 `TemplateConsumer` 把固定模板草稿交给 `PreviewTemplate`，完整接入后才记为实际显示预览。拾取同时核对内容世代及表单修订，再使用返回的草稿数组下标；表单修改后不能把旧预览下标解释为新条目。
 
 节点自由环绕用 `ConstrainNodeFocus` 读取实际显示帧的 `NodePanBounds` 限制水平焦点；还没有范围时保持当前焦点。调用方先按浮动原点变化转换焦点，不能把别的帧坐标传入，也不能从已生成的部分网格估算完整范围。

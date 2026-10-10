@@ -15,9 +15,6 @@ public interface ICoreFactory
     /// <summary>按当前内容适配普通读档，保留无法解析的合法占位及冻结执行资料。</summary>
     CoreResult<ICoreSessionCandidate> PrepareRestore(ICoreCapture saved,
         CoreContentProjection content, CoreSessionOptions options);
-    /// <summary>仅使用固定基准计算待提交结果；建城预留最终聚居地身份并冻结模板业务数据，引用包含该所有者。</summary>
-    IPreparedCoreCommand PrepareCommand(ICoreCommandBasis basis, CoreCommand command,
-        CommandSource source, CoreContentProjection? candidateContent);
     /// <summary>检查原构建、环境、配置和内容身份；严格重放不做普通读档适配。</summary>
     CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment,
         ImmutableArray<CoreContentProjection> contentHistory);
@@ -46,15 +43,10 @@ public interface ICoreSession : IDisposable
 {
     /// <summary>固定当前完整边界；返回值可在其他线程查询并在会话关闭后保留。</summary>
     ICoreReadView Read();
-    /// <summary>立即裁决普通命令；PublishContent 与 FoundSettlement 必须使用准备入口。</summary>
-    /// <exception cref="ArgumentException">命令为必须经过准备入口的 PublishContent 或 FoundSettlement。</exception>
+    /// <summary>在协调线程同步裁决全部命令并完成记录；返回后才分发事件。内部候选不公开。</summary>
     SubmissionResult Submit(CoreCommand command, CommandSource source);
     /// <summary>逐步原子推进，首个内部故障即停；已完成步骤不回滚。steps 必须大于零。</summary>
     AdvanceResult Advance(uint steps);
-    /// <summary>固定用于命令或内容适配的不可变基准，不取得命令编号。</summary>
-    ICoreCommandBasis CaptureCommandBasis();
-    /// <summary>一次落实预备结果或取消；已发现的内部故障即使取消也须落实冻结。</summary>
-    PreparedCompletion CompletePrepared(IPreparedCoreCommand prepared, PreparedDisposition disposition);
     /// <summary>普通保存拒绝冻结会话；诊断捕获仍可用。捕获不推进模拟。</summary>
     CoreResult<ICoreCapture> Capture(CapturePurpose purpose);
     /// <summary>读取当前核心证据窗口；对应内容由宿主持有。</summary>
@@ -73,33 +65,6 @@ public sealed record CoreFault(string Code, SimulationPosition Position, string 
     string Field, WorldObjectId? Subject);
 /// <summary>本次新故障的诊断输出，不进入权威摘要；堆栈可能为空。</summary>
 public sealed record CoreDiagnostic(string Message, string? StackTrace);
-
-/// <summary>不透明、不可变的准备输入；不得由宿主拆解成世界状态。</summary>
-public interface ICoreCommandBasis
-{
-    SimulationPosition Position { get; }
-    CoreRevision Revision { get; }
-    CoreInputId InputIdentity { get; }
-}
-public enum PreparedDecision { Execute, Reject, Fault }
-public enum PreparedDisposition { Commit, Cancel }
-/// <summary>单次、绑定基准的核心候选；内部故障必须交回原会话处理。</summary>
-public interface IPreparedCoreCommand
-{
-    ICoreCommandBasis Basis { get; }
-    CoreCommand Command { get; }
-    PreparedDecision Decision { get; }
-    ImmutableArray<CoreProblem> Problems { get; }
-    CoreFault? Fault { get; }
-    CoreReferenceManifest RequiredReferences { get; }
-}
-public abstract record PreparedCompletion
-{
-    private PreparedCompletion() { }
-    public sealed record Completed(SubmissionResult.Completed Result) : PreparedCompletion;
-    public sealed record Cancelled : PreparedCompletion;
-    public sealed record NotAccepted(CoreProblem Reason) : PreparedCompletion;
-}
 
 public enum CapturePurpose { Save, Diagnostic }
 /// <summary>一致捕获的不可变核心载荷；可在后台编码并长期保留。</summary>

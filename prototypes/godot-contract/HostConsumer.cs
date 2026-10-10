@@ -32,10 +32,11 @@ public static class HostConsumer
         return (view.World, view.FindTrain(train), view.QuoteTrade(quote));
     }
 
-    public static SubmissionResult Submit(ICoreSession session, CoreCommand command,
+    // 仅示范不需内容交接的停车命令；建城、设计和重载见内容消费样例。
+    public static SubmissionResult StopTrain(ICoreSession session, TrainId train,
         Action<ImmutableArray<EventEnvelope>> dispatch)
     {
-        var result = session.Submit(command, CommandSource.UserInterface);
+        var result = session.Submit(new CoreCommand.StopTrain(train), CommandSource.UserInterface);
         if (result is SubmissionResult.Completed completed)
             dispatch(completed.Events);
         return result;

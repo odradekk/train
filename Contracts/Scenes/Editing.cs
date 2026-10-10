@@ -94,7 +94,8 @@ public interface IDesignEditSession : IDisposable
     SceneResult<EditState> Undo();
     SceneResult<EditState> Redo();
     /// <summary>
-    /// 宿主保证 result 来自 requested 对应的固定内容和草稿；会话核对修订及草稿是否仍相符。
+    /// 宿主成对保留请求与结果，保证 result 来自 requested.Content 的固定内容和草稿。
+    /// 会话核对修订，并递归比较草稿全部字段和集合内容，不能以默认 record 相等替代完整内容比较。
     /// 迟到返回 false，不覆盖提示或变更编辑锁；requested 不是对错误来源结果的验证凭证。
     /// </summary>
     bool AcceptEvaluation(EditStamp requested, DesignEvaluation result);

@@ -19,6 +19,39 @@ public interface IContentCommit
     bool TryCommit(IContentCandidate candidate);
 }
 
+public static class DesignIconConsumer
+{
+    /// <summary>货物显示设计按内容提供的身份读取；图标生成无需打开编辑器。</summary>
+    public static void Present(IScenesFactory factory, IContentView content,
+        GoodId good, ISceneDisplay display, Action<object> report)
+    {
+        var presentation = content.FindGood(good);
+        if (presentation is not ContentLookup<GoodPresentation>.Found { Value.DisplayDesign: { } hash })
+        {
+            report(presentation);
+            return;
+        }
+        var design = content.FindDesign(hash);
+        if (design is not ContentLookup<DesignEvaluation>.Found found)
+        {
+            report(design);
+            return;
+        }
+        var opened = factory.PreviewDesign(content, found.Value);
+        if (opened is not SceneResult<IDesignPreview>.Success success)
+        {
+            report(opened);
+            return;
+        }
+        using var preview = success.Value;
+        var presented = preview.Present();
+        report(presented);
+        if (presented is SceneResult<ISceneFrame>.Success frame
+            && frame.Value.Readiness != SceneReadiness.Failed)
+            display.TryDisplay(frame.Value);
+    }
+}
+
 public sealed class TemplateConsumer(IScenesFactory factory, ISceneDisplay display)
 {
     private ITemplatePreview? displayedPreview;

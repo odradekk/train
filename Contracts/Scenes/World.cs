@@ -9,9 +9,12 @@ namespace Train.Scenes.Contracts;
 public interface IScenesFactory
 {
     /// <summary>轻量创建，不等待完整场景；绑定更换后创建新会话，旧会话不再接收输入。</summary>
+    /// <exception cref="ArgumentException">初始核心视图与内容业务输入身份不匹配。</exception>
     SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial);
     /// <summary>宿主保证 initial 由 content 评估而来；Complete 或 Partial 可以编辑，Failed 明确拒绝。</summary>
     SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial);
+    /// <summary>固定设计的只读显示入口；initial 来自 content，Complete 或 Partial 可预览，Failed 拒绝；不建立编辑、撤销或保存状态。</summary>
+    SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial);
     /// <summary>开发工具的固定模板预览，不修改表单草稿；缺失引用返回已知部分和诊断。</summary>
     SceneResult<ITemplatePreview> PreviewTemplate(IContentView content,
         SettlementTemplateDraft draft, EditRevision revision);
@@ -36,7 +39,8 @@ public interface IWorldSceneSession : IAsyncDisposable
     SceneBinding Binding { get; }
     /// <summary>显式切换观察目标；相同目标再次请求也得到新请求身份，取消先前目标的后台接入资格。</summary>
     SceneResult<SceneRequestId> RequestView(WorldSceneTarget target);
-    /// <summary>串行交入非递减的完整边界及本次新事件，不执行场景构建；不接收跨绑定或跨世代输入。</summary>
+    /// <summary>串行交入非递减的完整边界及本次新事件，不执行场景构建。</summary>
+    /// <exception cref="ArgumentException">输入不匹配绑定、世代或业务身份，位置倒退，事件乱序、重复或晚于输入边界。</exception>
     SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events);
     /// <summary>
     /// 接入后台完成结果、补齐当前状态并生成帧；首次和分段构建不阻塞本调用。

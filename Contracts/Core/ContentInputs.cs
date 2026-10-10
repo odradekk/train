@@ -34,11 +34,12 @@ public abstract record CoreDefinitionReference
     public sealed record Lair(LairTypeId Id) : CoreDefinitionReference;
 }
 
-/// <summary>不可变核心业务投影；集合不为 default，身份唯一，不含布局或显示资料。</summary>
+/// <summary>固定外部定义与恢复资料；Identity 不包含 Designs/DesignGoods 或派生 MissingReferences；设计目录不是玩家蓝图库。</summary>
 public sealed record CoreContentProjection(
     CoreInputId Identity,
     ImmutableArray<GoodDefinitionProjection> Goods,
     ImmutableArray<DesignProjection> Designs,
+    ImmutableArray<GoodDefinitionProjection> DesignGoods,
     ImmutableArray<ProcessProjection> Processes,
     ImmutableArray<PopulationRuleProjection> PopulationRules,
     ImmutableArray<MarketRuleProjection> MarketRules,
@@ -51,11 +52,13 @@ public sealed record CoreContentProjection(
     ImmutableArray<LairTypeProjection> LairTypes,
     ImmutableArray<MissingCoreReference> MissingReferences);
 
-/// <summary>质量以吨计且为有限正数；价值为正；燃料电量为空表示不是燃料，否则为有限正数。</summary>
+/// <summary>
+/// 质量为有限正吨数，价值为正；燃料电量为空表示非燃料，否则为有限正数。
+/// 定义型复合体 Revision 覆盖全部核心语义及依赖，包括能力、耐久和返还规格，而不只此记录中的属性。
+/// </summary>
 public sealed record GoodDefinitionProjection(GoodId Good, SemanticRevision Revision,
     Money BaseValue, double MassTons, bool RawGood, double? FuelEnergyPerUnit);
 
-public enum DesignCategory { Vehicle, Building, LargeEquipment }
 public enum PlotSize { Small, Medium, Large, Station }
 public enum BuildingKind { Production, Warehouse, Power, Construction, Station, Defense }
 public enum FacilityTag
@@ -64,17 +67,32 @@ public enum FacilityTag
     Chemical, FoodProcessing, Assembly, Electronics, Recovery
 }
 
+/// <summary>类别专属资料；公共质量、部件与 BOM 不随类别重复声明。</summary>
+public abstract record DesignKind
+{
+    private DesignKind() { }
+    public sealed record Vehicle(SizeClass Size, int LengthCells) : DesignKind;
+    public sealed record Building(PlotSize PlotSize, BuildingKind Type,
+        ImmutableArray<FacilityTag> FacilityTags) : DesignKind;
+    public sealed record LargeEquipment(GoodId ManufacturedGood) : DesignKind;
+}
+
 /// <summary>由内容计算；缺失格不计质量、价值、能力、耐久上限或命中权重。BOM 数量为正整数件。</summary>
 public sealed record DesignProjection(DesignHash Design, CompositionHash Composition,
-    DesignCategory Category, GoodId? ManufacturedEquipmentGood,
-    SizeClass? VehicleSize, int? VehicleLengthCells,
-    PlotSize? BuildingPlotSize, BuildingKind? BuildingType,
-    ImmutableArray<FacilityTag> FacilityTags, ImmutableArray<PartProjection> Parts,
+    DesignKind Kind, ImmutableArray<PartProjection> Parts,
     long MaxStructureDurability, long StructureHitWeight, double MassTons,
     Money StructuralBaseValue, ImmutableArray<GoodsQuantity> StructuralGoods,
     ImmutableArray<GoodsQuantity> BillOfMaterials, long BillOfMaterialsItemCount,
     ImmutableArray<DesignReturnUnit> ReturnUnits,
     bool CanConstruct, ImmutableArray<MissingCoreReference> MissingReferences);
+
+/// <summary>
+/// 设计命令的固定输入；InputIdentity 必须匹配当前外部定义。
+/// AssemblyGoods 包含本设计及嵌套设备的全部衍生组装体货物，不能覆盖同身份的不同规格。
+/// 完整布局不进入核心；命令录制与核心状态保留实际使用的业务资料。
+/// </summary>
+public sealed record DesignInput(CoreInputId InputIdentity, DesignProjection Design,
+    ImmutableArray<GoodDefinitionProjection> AssemblyGoods);
 
 /// <summary>
 /// 拆解返还的非重叠单元：直接结构体素可按货物合并；功能部件与嵌套设备各自一件。
@@ -112,8 +130,8 @@ public abstract record PartCapability
 
 public sealed record PartCorrespondence(PartId Before, PartId After);
 /// <summary>构成差异由内容计算；新增、移除、替换各算一个改动单位，不由核心读取布局。</summary>
-public sealed record DesignChangeProjection(DesignHash Before, DesignHash After,
-    CompositionHash BeforeComposition, CompositionHash AfterComposition,
+public sealed record DesignChangeProjection(DesignHash Before, CompositionHash BeforeComposition,
+    DesignInput Target,
     ImmutableArray<PartCorrespondence> RetainedParts,
     ImmutableArray<GoodsQuantity> AddedGoods,
     ImmutableArray<DesignReturnUnit> RemovedItems, long ChangedItemCount);

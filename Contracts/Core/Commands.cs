@@ -17,9 +17,16 @@ public abstract record CoreCommand
     public sealed record RepairRail(EdgeId Edge, BreakId Break, SettlementId MaterialSource) : CoreCommand;
     public sealed record SetAutomaticRailRepair(EdgeId Edge, SettlementId? MaterialSource) : CoreCommand;
 
-    /// <summary>手动足量交易或免费转移；买入限总付款，卖出限总收款，转移不带价格条件。</summary>
-    public sealed record ExecuteGoodsTrade(TradeQuoteRequest Request,
-        Money? MaximumPayment, Money? MinimumReceipt) : CoreCommand;
+    /// <summary>手动足量买入；限价约束整单付款。</summary>
+    public sealed record BuyGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory,
+        GoodId Good, long Quantity, Money MaximumPayment) : CoreCommand;
+    /// <summary>手动足量卖出；限价约束整单收款。</summary>
+    public sealed record SellGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory,
+        GoodId Good, long Quantity, Money MinimumReceipt) : CoreCommand;
+    public sealed record LoadGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory,
+        GoodId Good, long Quantity) : CoreCommand;
+    public sealed record UnloadGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory,
+        GoodId Good, long Quantity) : CoreCommand;
     public sealed record BuyVehicle(SettlementId Seller, VehicleId Vehicle, Money MaximumPayment) : CoreCommand;
     public sealed record SellVehicle(SettlementId Buyer, VehicleId Vehicle, Money MinimumReceipt) : CoreCommand;
     public sealed record AcquireLease(LeaseRequest Request, Money MaximumPayment) : CoreCommand;
@@ -42,8 +49,8 @@ public abstract record CoreCommand
     public sealed record Retreat(TrainId Train) : CoreCommand;
     public sealed record FocusFire(CombatId Combat, CombatController Controller, WorldObjectId Target) : CoreCommand;
 
-    /// <summary>只可与固定的候选投影一起准备；不是让核心重新扫描文件。</summary>
-    public sealed record PublishContent(CoreInputId Target) : CoreCommand;
+    /// <summary>同步适配固定候选；拒绝保留旧业务内容，核心不扫描文件。</summary>
+    public sealed record PublishContent(CoreContentProjection Content) : CoreCommand;
     /// <summary>开发入口制造真实断点，仍经过普通命令记录和原子结算。</summary>
     public sealed record DebugAddRailBreak(EdgeId Edge, int Track, double DistanceMeters) : CoreCommand;
 }
@@ -68,11 +75,11 @@ public abstract record LeaseRequest
 public abstract record JobRequest
 {
     private JobRequest() { }
-    public sealed record BuildVehicle(FacilityKey Facility, DesignHash Design,
+    public sealed record BuildVehicle(FacilityKey Facility, DesignInput Design,
         ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
-    public sealed record BuildBuilding(FacilityKey Facility, PlotId Plot, DesignHash Design,
+    public sealed record BuildBuilding(FacilityKey Facility, PlotId Plot, DesignInput Design,
         ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
-    public sealed record BuildEquipment(FacilityKey Facility, DesignHash Design,
+    public sealed record BuildEquipment(FacilityKey Facility, DesignInput Design,
         ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
     public sealed record Refit(FacilityKey Facility, InstanceId Instance, DesignChangeProjection Change,
         ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
@@ -83,12 +90,20 @@ public abstract record JobRequest
 
 public enum JobFunding { OwnInventory, NpcCommission }
 public enum CommandSource { UserInterface, Console, AutomationTest }
-public enum CommandOutcome { Accepted, Rejected, Faulted }
+/// <summary>命令结果与各自资料同属一个变体，不能同时表示接受和故障。</summary>
+public abstract record CommandDecision
+{
+    private CommandDecision() { }
+    /// <summary>SettlementCopies 声明本次创建或建城预留的模板所有者；其他命令返回空数组。</summary>
+    public sealed record Accepted(ImmutableArray<WorldObjectId> Created,
+        ImmutableArray<OwnedSettlementTemplateReference> SettlementCopies) : CommandDecision;
+    public sealed record Rejected(ImmutableArray<CoreProblem> Problems) : CommandDecision;
+    public sealed record Faulted(CoreFault Fault) : CommandDecision;
+}
 
-/// <summary>命令前后位置及稳定结果；新建身份通过 Created 返回，无需搜索世界猜测。</summary>
+/// <summary>命令前后位置及稳定裁决；新建身份和模板来源由接受结果返回。</summary>
 public sealed record CommandReceipt(ulong Number, SimulationPosition Before, SimulationPosition After,
-    CommandOutcome Outcome, ImmutableArray<CoreProblem> Problems,
-    ImmutableArray<WorldObjectId> Created);
+    CommandDecision Decision);
 
 /// <summary>尚未接入的请求不取得命令编号；正常拒绝属于 Completed。</summary>
 public abstract record SubmissionResult
@@ -96,5 +111,5 @@ public abstract record SubmissionResult
     private SubmissionResult() { }
     public sealed record NotAccepted(CoreProblem Reason) : SubmissionResult;
     public sealed record Completed(CommandReceipt Receipt, ImmutableArray<EventEnvelope> Events,
-        CoreFault? Fault, CoreDiagnostic? Diagnostic) : SubmissionResult;
+        CoreDiagnostic? Diagnostic) : SubmissionResult;
 }

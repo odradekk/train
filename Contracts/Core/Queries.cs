@@ -119,21 +119,28 @@ public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity
     ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond,
     double LengthMeters, double MassTons, double TractionKilonewtons, double Acceleration,
     double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps,
-    ulong RemainingTradeEvaluationSteps, bool TradeEvaluationFrozen, TrainEngagementRules Engagement,
+    TrainEngagementRules Engagement,
     ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports,
     NodeTransitView? NodeTransit, TrainOrderFacing OrderFacing);
 
 /// <summary>实例锁定种类，可组合施工锁和战斗锁；施工期间仍可受攻击。</summary>
 [System.Flags]
 public enum InstanceLock { None = 0, UnderRefit = 1, UnderRepair = 2, UnderDeconstruction = 4, Combat = 8 }
-/// <summary>历史绝对耐久与当前有效上限；显示完好比例须使用 EffectiveCurrent / Maximum。</summary>
-public sealed record DurabilityView(long StoredCurrent, long EffectiveCurrent, long Maximum);
+/// <summary>当前有效耐久与上限；显示完好比例须使用 EffectiveCurrent / Maximum。</summary>
+public sealed record DurabilityView(long EffectiveCurrent, long Maximum);
 /// <summary>部件持续损伤；缺定义状态与被毁状态分开。</summary>
 public sealed record PartDamageView(PartId Part, DurabilityView Durability, bool DefinitionMissing, bool Destroyed);
-/// <summary>实例设计引用及持续损伤，不含布局；车辆 Train 为空表示停放。</summary>
+/// <summary>实例类别资料；车辆与建筑互斥，车辆 Train 为空表示停放。</summary>
+public abstract record InstanceDetails
+{
+    private InstanceDetails() { }
+    public sealed record Vehicle(SizeClass Size, TrainId? Train) : InstanceDetails;
+    public sealed record Building(PlotId Plot, PlotSize Size) : InstanceDetails;
+}
+/// <summary>实例共享的设计引用及持续损伤，不含布局。</summary>
 public sealed record InstanceView(InstanceId Id, DesignHash Design, CompositionHash Composition,
-    WorldLocation Location, SettlementRelation Ownership, TrainId? Train, PlotId? Plot,
-    SizeClass? VehicleSize, PlotSize? BuildingPlotSize, InstanceLock Lock, DurabilityView Structure, ImmutableArray<PartDamageView> Parts,
+    WorldLocation Location, SettlementRelation Ownership, InstanceDetails Details,
+    InstanceLock Lock, DurabilityView Structure, ImmutableArray<PartDamageView> Parts,
     ImmutableArray<CoreProblem> MissingContent);
 /// <summary>聚居地详情；统一库存与各设施均使用同一快照。</summary>
 public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementTypeId Type,
@@ -195,8 +202,8 @@ public sealed record FacilityView(FacilityKey Key, ProcessRef? Process, bool Ena
 public sealed record GoodsRateView(GoodId Good, double UnitsPerSecond);
 /// <summary>批次冻结规格；进度工作量可有小数，总工作量为正整数。</summary>
 public sealed record ActiveBatchView(ProcessRef Process, SemanticRevision StartedFromRevision,
-    long FrozenWorkRequired, double ProgressWork, double Progress, double FrozenPowerPerWork,
-    double FrozenLaborPerWork, ImmutableArray<GoodsQuantity> FrozenOutputs, bool CurrentSpecificationDiffers);
+    long FrozenWorkRequired, double ProgressWork, double Progress,
+    ImmutableArray<GoodsQuantity> FrozenOutputs, bool CurrentSpecificationDiffers);
 /// <summary>聚居地电力池，功率为电量/秒，燃料余量为电量。</summary>
 public sealed record PowerPoolView(double GenerationCapacity, double Demand, double ActualSupply, double FuelEnergyRemaining);
 /// <summary>资源恢复种类，不可再生资源没有伪造的零恢复参数。</summary>
@@ -214,11 +221,9 @@ public sealed record RuleStatusView(RuleDefinitionId Rule, SemanticRevision? Pub
 /// <summary>各需求累计与当前速率；满足率在没有应需时为空，不伪装成零。</summary>
 public sealed record PopulationNeedView(PopulationNeed Kind, double RequiredPerSecond,
     double AccumulatedRequired, double AccumulatedSatisfied, double? SatisfactionRatio);
-/// <summary>按货物保留的消费剩余量，非可交易库存。</summary>
-public sealed record ConsumptionRemainderView(GoodId Good, double Quantity);
-/// <summary>已开始统计期采用的版本和冻结参数，独立于当前发布规则。</summary>
-public sealed record PopulationPeriodView(PopulationRuleProjection FrozenRule, ulong PeriodSteps,
-    ulong ElapsedEffectiveSteps, ulong ConsumptionIntervalSteps, ulong RemainingConsumptionSteps,
+/// <summary>已开始统计期的执行规则身份、版本与需求进度，独立于当前发布规则。</summary>
+public sealed record PopulationPeriodView(RuleDefinitionId ExecutionRule, SemanticRevision ExecutionRevision,
+    ulong PeriodSteps, ulong ElapsedEffectiveSteps,
     ImmutableArray<PopulationNeedView> Needs, double? BasicSatisfaction, double? ImprovementSatisfaction);
 /// <summary>人口趋势是核心计算结果，不由界面根据人数猜测。</summary>
 public enum PopulationTrend { Growing, Stable, Declining, AtMinimum }
@@ -236,10 +241,9 @@ public enum PopulationSettlementReason { Growth, ShortageLoss, Stable, MinimumRe
 public sealed record PopulationSettlementReport(SimulationPosition Position, SemanticRevision ExecutionRevision,
     long Before, long After, long Change, double BasicSatisfaction, double ImprovementSatisfaction,
     PopulationSettlementReason Reason);
-/// <summary>人口、余量与真实劳动力分配；LastSettlement 为空表示尚未完成任何统计期。</summary>
-public sealed record PopulationView(RuleStatusView CurrentRule, long Residents, double PopulationChangeRemainder,
+/// <summary>人口与真实劳动力分配；LastSettlement 为空表示尚未完成任何统计期。</summary>
+public sealed record PopulationView(RuleStatusView CurrentRule, long Residents,
     double AvailableLabor, double AllocatedLabor, double IdleLabor, PopulationExecution Execution,
-    ImmutableArray<ConsumptionRemainderView> ConsumptionRemainders,
     PopulationSettlementReport? LastSettlement, ImmutableArray<PopulationSettlementReport> RecentSettlements);
 /// <summary>建城前人口及生活需求预览。</summary>
 public sealed record SettlementFoundingPreview(NodeId Node, long InitialResidents,
@@ -273,11 +277,11 @@ public abstract record ConstructionTarget
     public sealed record NewAssembly(DesignHash Design, CompositionHash Composition, InventoryId Destination) : ConstructionTarget;
     public sealed record Existing(InstanceId Instance, DesignHash TargetDesign) : ConstructionTarget;
 }
-/// <summary>任务冻结工作量与系数；Progress 为 0 至 1，工作速率为工作量/秒。</summary>
+/// <summary>任务冻结工作量及执行进度；Progress 为 0 至 1，工作速率为工作量/秒。</summary>
 public sealed record ConstructionJobView(JobId Id, ConstructionKind Kind, SettlementId Settlement,
     FacilityKey Facility, ConstructionTarget Target, ConstructionState State, int Priority,
-    long FrozenTotalWork, double ProgressWork, double Progress, double FrozenPowerPerWork,
-    double FrozenLaborPerWork, double ActualWorkPerSecond, ImmutableArray<WorkLimit> Limits,
+    long FrozenTotalWork, double ProgressWork, double Progress,
+    double ActualWorkPerSecond, ImmutableArray<WorkLimit> Limits,
     ImmutableArray<GoodsQuantity> InvestedGoods, ImmutableArray<CoreProblem> Blockers);
 
 /// <summary>战斗单位身份。</summary>

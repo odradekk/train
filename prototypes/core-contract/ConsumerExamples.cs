@@ -17,19 +17,13 @@ public static class ConsumerExamples
 
     /// <summary>调用方直接给出报价请求和可接受总额，核心再次裁决而非凭报价成交。</summary>
     public static SubmissionResult BuyGoods(ICoreSession session, TradeQuoteRequest request, Money maximum)
-        => session.Submit(new CoreCommand.ExecuteGoodsTrade(request, maximum, null), CommandSource.UserInterface);
+        => session.Submit(new CoreCommand.BuyGoods(request.Train, request.Settlement,
+            request.LocalInventory, request.Good, request.Quantity, maximum), CommandSource.UserInterface);
 
-    /// <summary>固定基准供后台准备；本函数调用期间活动会话不再推进或接收修改。</summary>
-    public static IPreparedCoreCommand PrepareAppearanceChange(ICoreFactory factory, ICoreSession session,
-        InstanceId instance, DesignChangeProjection change, CoreContentProjection candidate)
-        => factory.PrepareCommand(session.CaptureCommandBasis(),
-            new CoreCommand.ApplyInstanceDesign(instance, change), CommandSource.UserInterface, candidate);
-
-    /// <summary>协调线程处理取消或核心结果；返回 Execute 成功后宿主才切换已准备内容并通知。</summary>
-    public static PreparedCompletion CompletePrepared(ICoreSession session, IPreparedCoreCommand prepared,
-        bool cancelled)
-        => session.CompletePrepared(prepared,
-            cancelled ? PreparedDisposition.Cancel : PreparedDisposition.Commit);
+    /// <summary>协调线程同步提交固定设计差额；宿主按回执裁决切换对应内容。</summary>
+    public static SubmissionResult ApplyAppearanceChange(ICoreSession session,
+        InstanceId instance, DesignChangeProjection change)
+        => session.Submit(new CoreCommand.ApplyInstanceDesign(instance, change), CommandSource.UserInterface);
 
     /// <summary>编码固定捕获值；后台不能再从活动会话取状态拼接同一存档。</summary>
     public static CoreResult<string> CaptureSave(ICoreSession session)

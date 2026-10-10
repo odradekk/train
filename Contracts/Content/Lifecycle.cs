@@ -19,9 +19,13 @@ public interface IContentFactory
         DesignHash current, DesignDraft target);
     /// <summary>准备本局草稿、蓝图库或实例目标变更；外部写入计划须先由宿主成功发布。</summary>
     ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);
-    /// <summary>新局或建城的核心准备已选定模板及最终身份；复制各新所有者的完整模板，已有副本保持原值。</summary>
-    ContentResult<IContentCandidate> PrepareSettlementCopies(IContentView basis,
-        CoreReferenceManifest preparedReferences);
+    /// <summary>
+    /// 从同一固定视图中已完整校验的源模板复制并关联新所有者；只构造内存值，不再做 I/O 或合法性裁决。
+    /// 核心候选或已接受建城回执提供 copies；来源或地块不配对属于调用前提错误。已有副本保持原值。
+    /// </summary>
+    /// <exception cref="ArgumentException">来源不属于 basis 的同一输入，或已有所有者/地块对应冲突。</exception>
+    IContentView WithSettlementCopies(IContentView basis,
+        ImmutableArray<OwnedSettlementTemplateReference> copies);
     /// <summary>选定配置并注入种子和宿主生成器版本；默认值与蓝图引用已由内容解析。</summary>
     ContentResult<WorldGenerationInput> CreateWorldInput(IContentView content,
         GenerationProfileId profile, ulong seed, string generatorVersion);
@@ -38,7 +42,7 @@ public interface IContentFactory
     /// <summary>输入端口必须对应宿主已经固定的完整源包；源基准由宿主保管并在发布前复核。</summary>
     ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source,
         PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
-    /// <summary>只编码指定变更，不抹掉未编辑文件；暂存整包还必须经过 PrepareLoad 和核心准备。</summary>
+    /// <summary>只编码指定变更，不抹掉未编辑文件；宿主逐文件写入后另行普通重载。</summary>
     ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis,
         ImmutableArray<PackageEdit> edits);
 }
@@ -113,7 +117,9 @@ public abstract record ContentEdit
     /// <summary>New 的身份由内容分配；覆盖必须指定已有目标，不能覆盖包蓝图。</summary>
     public sealed record SaveBlueprint(BlueprintSaveTarget Target, DesignDraft Draft) : ContentEdit;
     public sealed record DeleteBlueprint(BlueprintAddress Target) : ContentEdit;
-    /// <summary>为一次核心操作加入固定合法设计；不夹带其他定义更新。失败时不能提前留进本局记录。</summary>
+    /// <summary>为建造准备固定合法设计及嵌套依赖；不改变 CoreInputId，核心接受前不激活。</summary>
+    public sealed record ConstructionTarget(DesignDraft Target) : ContentEdit;
+    /// <summary>为立即应用或改装准备固定合法设计；失败不激活本局记录，录制仍可保留候选依赖。</summary>
     public sealed record InstanceTarget(DesignHash Current, DesignDraft Target) : ContentEdit;
 }
 public abstract record BlueprintSaveTarget
@@ -129,6 +135,7 @@ public abstract record PreparedContentEdit
     public sealed record DraftDeleted(DraftId Draft) : PreparedContentEdit;
     public sealed record BlueprintSaved(BlueprintAddress Blueprint, DesignHash Design) : PreparedContentEdit;
     public sealed record BlueprintDeleted(BlueprintAddress Blueprint) : PreparedContentEdit;
+    public sealed record ConstructionTarget(DesignInput Design) : PreparedContentEdit;
     public sealed record InstanceTarget(DesignHash Design, DesignChangeEvaluation Difference) : PreparedContentEdit;
 }
 /// <summary>外部文件写入只针对用户蓝图库；null 字节表示删除，空字节为实际空文件。</summary>
