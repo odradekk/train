@@ -10,7 +10,7 @@
   "layout": {
     "palette": [
       { "voxel": "hull-plate" },
-      { "voxel": "hull-wedge" }
+      { "voxel": "hull-plate", "shape": "wedge" }
     ],
     "cells": [
       [-1, 0, -1, 0],

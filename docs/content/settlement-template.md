@@ -70,7 +70,7 @@
 
 玩家在空节点建立聚居地时，第 1、2 步相同；之后只建 `founding` 里的起始建筑，不建 `building` 里的预建建筑，开局库存为空，常住人口取类型的下限。
 
-世界生成还可产生有限的初始待售车辆，见 [19](../design/19-markets-and-trading.md#现车交易与估值)；车辆不是上面的 `inventory` 货物。其初始化格式由[内容契约](https://github.com/odradekk/train/issues/288)确定，默认现车、生产计划与开局库存由[Demo 内容清单](https://github.com/odradekk/train/issues/283)配平，本文与现有 Schema 尚未表达这些新增输入。
+世界生成还可产生有限的初始待售车辆，见 [19](../design/19-markets-and-trading.md#现车交易与估值)；车辆不是上面的 `inventory` 货物。其初始化格式由[内容契约](https://github.com/odradekk/train/issues/288)确定，默认现车、生产计划与开局库存的规则见[Demo 内容与资产清单](demo-catalog.md#npc-的初始库存与现车)，本文与现有 Schema 尚未表达这些新增输入。
 
 ## 样例
 

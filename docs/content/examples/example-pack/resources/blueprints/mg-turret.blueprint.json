@@ -6,7 +6,7 @@
     "palette": [
       { "voxel": "hull-plate", "paint": "#626750" },
       { "voxel": "machine-gun", "paint": "#626750" },
-      { "voxel": "hull-wedge", "paint": "#626750" }
+      { "voxel": "hull-plate", "shape": "wedge", "paint": "#626750" }
     ],
     "cells": [
       [-1, 0, -1, 0],

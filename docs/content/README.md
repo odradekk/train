@@ -8,6 +8,7 @@
 
 | 文件 | 内容 |
 | --- | --- |
+| [demo-catalog.md](demo-catalog.md) | 完整 Demo 要制作的正式内容、测试用内容和美术资产清单 |
 | [manifest.md](manifest.md) | 内容包的 `mod.json` |
 | [voxel.md](voxel.md) | 体素定义 `<local id>.voxel.json` |
 | [blueprint.md](blueprint.md) | 蓝图 `<local id>.blueprint.json`，以及被嵌套的复合体和存档共用的设计对象 |

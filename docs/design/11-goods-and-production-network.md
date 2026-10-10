@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层。
 
-> 决策出处：资源转录 Q183–Q186、Q188、Q190–Q195、Q201–Q202、Q211–Q216、Q223–Q225、Q229–Q253、Q255–Q259、Q269–Q276、Q285–Q292、Q376–Q397、Q415（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。
+> 决策出处：资源转录 Q183–Q186、Q188、Q190–Q195、Q201–Q202、Q211–Q216、Q223–Q225、Q229–Q253、Q255–Q259、Q269–Q276、Q285–Q292、Q376–Q397、Q415（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。新增转向架、站台设备和灯具三种部件，Demo 的初始武器，以及形状不改变货物身份，由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)于 2026-10-10 确认，完整内容清单见[Demo 内容与资产清单](../content/demo-catalog.md)。
 
 ## 边界
 
@@ -33,6 +33,7 @@
 ### Paint 与货物身份
 
 - 纯表现差异不创建不同 Good Definition：不存在 Red Structural Block、Blue Structural Block 作为经济商品。
+- 形状同样不创建不同货物：体素定义只列出允许的形状，设计中逐格选择；楔形和立方体的 Structural Block 是同一种货物，BOM 每格计一件，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。
 - 涂装属于设计和蓝图的表现设置。改变颜色不改变 VoxelDefinitionId、Value、生产配方或经济身份；只改涂装立即生效，不需要改装，见 [03](03-vehicles-buildings-and-designs.md#车辆与建筑实例)。
 - 涂装不是需要随库存保留的游戏状态：部件拆回库存后不保留涂装，重新安装后可以重新涂装。
 
@@ -122,10 +123,26 @@ Structural Metal + Mechanical Components + Electrical Components → Propulsion 
 Electronic Components + Electrical Components                    → Control Equipment
 ```
 
+### 部件
+
+Demo 另有三种部件。转向架和站台设备是机制需要的：轮对按转向架的位置生成，站台由带 `platform` 行为的部件提供；灯具是设计中放置灯光的唯一途径。三者都在带 `assembly` Facility Tag 的设施中生产。
+
+```text
+Structural Metal + Mechanical Components → Bogie
+Structural Metal + Electrical Components → Platform Equipment
+Electrical Components + Glass            → Lamp
+```
+
 ### 武器
 
 - 武器是带 `weapon` 行为的单格体素或功能复合体，属于部件；WeaponBehavior 的参数是每次伤害和射击间隔。战斗规则见 [17](17-combat.md#武器与防御建筑)，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。
 - 单格武器是货物，由普通 Production Process 制造；多格武器是大型设备，在建造设施中按蓝图建造，见 [14](14-construction-refit-and-deconstruction.md)。需要的 Recovery Process 按下文规则显式定义。武器的种类和配方在试玩后冻结；新增武器同样要通过 Gameplay Difference Test。
+- Demo 的初始武器是两种单格武器和一种多格武器：Machine Gun 伤害低、射速高，Cannon 伤害高、射速低，二者在带 `assembly` Facility Tag 的设施中生产；重炮塔是功能复合体，见 [Demo 内容与资产清单](../content/demo-catalog.md#大型设备)。
+
+```text
+Structural Metal + Mechanical Components                         → Machine Gun
+Structural Metal + Mechanical Components + Electrical Components → Cannon
+```
 - Demo 中武器不消耗弹药，所以没有弹药货物。
 
 ### Future Product Families
@@ -137,7 +154,7 @@ Train Equipment 仅作为设计占位，不创建万能 VoxelDefinition。对应
 - Forward Production DAG：Natural / Primary → Materials → Components → Goods / Equipment。Recovery DAG：Durable Goods / Equipment → Components / Materials → Materials。二者分别无环。
 - 只有存在明确 RecoveryProcessDefinition 的 Goods 才可回收；系统不自动推导“所有东西都能拆”，Recovery 也不从 Production Recipe 自动反推。
 - 允许多阶段 Recovery：Equipment → Components → Materials，不要求一步还原到底层资源。Recovery 只输出已经存在于 Forward Goods Catalog 中的 Goods，不为回收单独创建另一棵废品资源树；Demo 没有 Scrap、Waste、Broken Electronics 等通用回收中间品。若未来废料运输本身成为有价值的物流 Gameplay，再设计具体废料 Good。
-- Demo 覆盖 Construction Goods、Components、Functional Equipment。默认不为 Raw Goods、Basic Materials、Food、Fuel、Chemical Feedstock、Clothing、Medical Supplies 与普通民用消费品建立 Recovery，未来按 Gameplay 需要显式增加。
+- Demo 覆盖 Construction Goods、Components、Functional Equipment、Bogie、Platform Equipment 与单格武器；Lamp 价值低，不回收。默认不为 Raw Goods、Basic Materials、Food、Fuel、Chemical Feedstock、Clothing、Medical Supplies 与普通民用消费品建立 Recovery，未来按 Gameplay 需要显式增加。
 - Recovery 明确不保证还原所有 Production Inputs；具体数量后续平衡。执行语义见 [13](13-production-runtime-and-facilities.md)。
 
 首批 Recovery Skeleton：
@@ -156,6 +173,10 @@ Extraction Equipment   → Mechanical Components + Electrical Components + Struc
 Construction Equipment → Mechanical Components + Electrical Components + Structural Metal
 Propulsion Equipment   → Mechanical Components + Electrical Components + Structural Metal
 Control Equipment      → Electronic Components + Electrical Components
+Bogie                  → Structural Metal + Mechanical Components
+Platform Equipment     → Structural Metal + Electrical Components
+Machine Gun            → Structural Metal + Mechanical Components
+Cannon                 → Structural Metal + Mechanical Components
 ```
 
 ### Demo 货物目录
@@ -168,7 +189,8 @@ Control Equipment      → Electronic Components + Electrical Components
 | Civilian / Consumable Goods（6） | Staple Food、Prepared Food、Clothing、Consumer Goods、Consumer Electronics、Medical Supplies |
 | Construction Goods（3） | Structural Block、Construction Block、Rail |
 | Functional Equipment（7） | Industrial Machinery、Storage Equipment、Power Equipment、Extraction Equipment、Construction Equipment、Propulsion Equipment、Control Equipment |
-| Weapons | 若干种武器，种类在试玩后冻结 |
+| Parts（3） | Bogie、Platform Equipment、Lamp |
+| Weapons（2） | Machine Gun、Cannon；多格的重炮塔是功能复合体，不在本表；种类在试玩后冻结 |
 | Future Product Families | Train Equipment（仅占位） |
 
 ## Demo 范围

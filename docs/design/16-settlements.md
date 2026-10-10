@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层；聚居地的体素表现属于节点场景。
 
-> 决策出处：地块、NPC 聚居地的规则、节点场景展示的内容、建筑被摧毁、布局与聚居地类型、站点与站台、地块尺寸、建造流程与地块预留、建立聚居地、车辆建造设施、委托与仓库租用、车辆停放，由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)于 2026-10-05 确认。它取代了三维体素锚点、Layout 四向放置与 Site Preparation、RailSocket、世界网格占格与铁路净空、建筑断裂失效与修复目标等规则。地块的做法参考了[研究：《大航海家》的城镇视图与建设](https://github.com/odradekk/train/issues/196)。聚居地不是建筑、Faction 不在 Demo 内，沿用转录 Q89–Q95 与 #30。士气、宣战后的租用库存、施工期间易主，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。聚居地布局改称聚居地模板，即创建一个聚居地所用的初始状态，聚居地类型保留为玩法分类，由[内容模型与术语：定义、模板、蓝图和实例的关系](https://github.com/odradekk/train/issues/257)于 2026-10-09 确认；模板包含哪些初始状态，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)决定。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。
+> 决策出处：地块、NPC 聚居地的规则、节点场景展示的内容、建筑被摧毁、布局与聚居地类型、站点与站台、地块尺寸、建造流程与地块预留、建立聚居地、车辆建造设施、委托与仓库租用、车辆停放，由[聚居地的经营、建设与场景](https://github.com/odradekk/train/issues/206)于 2026-10-05 确认。它取代了三维体素锚点、Layout 四向放置与 Site Preparation、RailSocket、世界网格占格与铁路净空、建筑断裂失效与修复目标等规则。地块的做法参考了[研究：《大航海家》的城镇视图与建设](https://github.com/odradekk/train/issues/196)。聚居地不是建筑、Faction 不在 Demo 内，沿用转录 Q89–Q95 与 #30。士气、宣战后的租用库存、施工期间易主，由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。聚居地布局改称聚居地模板，即创建一个聚居地所用的初始状态，聚居地类型保留为玩法分类，由[内容模型与术语：定义、模板、蓝图和实例的关系](https://github.com/odradekk/train/issues/257)于 2026-10-09 确认；模板包含哪些初始状态，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)决定。聚居地类型和模板的格式、模板声明所属类型、起始建筑放进模板、建立聚居地时复制设计，由[聚居地模板：初始状态、格式说明、Schema 与样例](https://github.com/odradekk/train/issues/266)于 2026-10-09 确认，格式写在 [docs/content/](../content/README.md)。Demo 的聚居地类型、模板和建筑蓝图由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)于 2026-10-10 确认。
 
 ## 边界
 
@@ -137,4 +137,5 @@ Faction；NPC 聚居地的建设 AI；扩建地块；与数量对应的行人、
 
 ## 开放问题
 
-- 各地块尺寸的格数、起始建筑、建立聚居地的工期、委托工钱与租金费率、可租容量比例，都是内容数值，在试玩后冻结。
+- Demo 的聚居地类型、模板和建筑蓝图见[Demo 内容与资产清单](../content/demo-catalog.md#聚居地类型与模板)；各模板的起始建筑是小站点和基础工棚。
+- 各地块尺寸的格数、建立聚居地的工期、委托工钱与租金费率、可租容量比例，都是内容数值，在试玩后冻结。

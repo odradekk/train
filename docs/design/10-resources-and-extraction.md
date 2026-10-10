@@ -65,7 +65,7 @@
 
 - 开采是普通的生产流程（Production Process），由 [13](13-production-runtime-and-facilities.md) 的 Batch 运行时执行。开采流程的输入包括本节点某种资源的储量，储量与产出 1:1，例如“消耗 10 单位 Ferrous Ore 储量 → 产出 10 Ferrous Ore”。
 - 储量和库存输入一样，在 Batch 启动时扣除。同一节点上多个设施争用同一项储量时，由 Resolver 仲裁，见 [04](04-deterministic-simulation.md#resolver)。
-- 开采必须由真实设施提供：带 `mining`、`oil_extraction` 或 `forestry` 标签的设施，加上提供 ExtractionCapability 的 Extraction Equipment。Demo 只有一种通用的 Extraction Equipment，不拆分钻机、伐木机、油泵。Facility Tag 只表达兼容性，见 [13](13-production-runtime-and-facilities.md)。
+- 开采必须由真实设施提供：带 `extraction` 标签的设施（全部开采流程共用这一个标签，见[Demo 内容与资产清单](../content/demo-catalog.md#流程与设施兼容标签)），加上提供 ExtractionCapability 的 Extraction Equipment。Demo 只有一种通用的 Extraction Equipment，不拆分钻机、伐木机、油泵。Facility Tag 只表达兼容性，见 [13](13-production-runtime-and-facilities.md)。
 - 开采流程是种类为 `extraction` 的生产流程，例如 `core:ferrous-mining`：用 `extracts` 写每批扣除的储量，产出隐含为同一种货物、同样数量，使用 Extraction Capability。格式见[流程的格式](../content/process.md)，ID 与 Revision 规则见 [02](02-definitions-and-content.md)（[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)）。
 - 储量耗尽后，节点上的开采设施保留，流程因缺少输入而等待，与缺料相同。设施不会自动拆除，也不会自动改用其他流程。
 - NPC 聚居地开采时同样消耗节点储量。NPC 聚居地是否运行完整的生产模拟，见 [16](16-settlements.md)。

@@ -2,7 +2,7 @@
 
 > **所属层**：核心模拟层；战斗的体素表现属于局部场景。
 
-> 决策出处：本文的规则由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。战斗由核心模拟层结算、场景只作表现，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 和[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)。外部做法参考了[研究：大地图与局部战斗场景的衔接](https://github.com/odradekk/train/issues/195)。生物种类改由蓝图定义（蓝图类别为生物），由[内容模型与术语：定义、模板、蓝图和实例的关系](https://github.com/odradekk/train/issues/257)于 2026-10-09 确认。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。
+> 决策出处：本文的规则由[战斗、征服与世界生物在核心模拟层中的表示](https://github.com/odradekk/train/issues/208)于 2026-10-05 确认。战斗由核心模拟层结算、场景只作表现，见 [ADR-0008](../adr/0008-simulate-the-world-in-a-voxel-free-core-and-build-voxel-scenes-as-presentation.md) 和[分层架构与局部场景的权威边界](https://github.com/odradekk/train/issues/198)。外部做法参考了[研究：大地图与局部战斗场景的衔接](https://github.com/odradekk/train/issues/195)。生物种类改由蓝图定义（蓝图类别为生物），由[内容模型与术语：定义、模板、蓝图和实例的关系](https://github.com/odradekk/train/issues/257)于 2026-10-09 确认。功能复合体按身份引用、读档缺内容时的状态保留、部件计入结构耐久与伤害结算、嵌套顺序和构成哈希，由[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)于 2026-10-09 确认。Demo 的初始武器、生物种类和聚落类型由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)于 2026-10-10 确认。
 
 ## 边界
 
@@ -166,4 +166,5 @@
 
 ## 开放问题
 
+- Demo 的初始种类见[Demo 内容与资产清单](../content/demo-catalog.md#战斗)：机枪、火炮两种单格武器和多格的重炮塔，3 种生物，2 种生物聚落类型。
 - 武器种类、伤害与射击间隔，生物种类与聚落类型，脱离时间、袭击工作时间、士气系数、投降阈值与恢复速度、新聚落频率和清剿奖励，都是内容数值，在试玩后冻结。

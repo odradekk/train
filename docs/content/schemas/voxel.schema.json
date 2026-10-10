@@ -105,10 +105,13 @@
       "required": ["kind", "faces"],
       "properties": {
         "kind": { "const": "cube" },
-        "shape": {
-          "description": "代码提供的形状目录中的名字；这里列出 Demo 的取值。",
-          "enum": ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"],
-          "default": "cube"
+        "shapes": {
+          "description": "允许放置时选用的形状，取自代码提供的形状目录；这里列出 Demo 的取值。设计里的格子不写形状时用第一项。",
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"] },
+          "default": ["cube"]
         },
         "material": { "$ref": "common.schema.json#/$defs/material", "default": "painted_metal" },
         "tile_span": { "enum": [1, 2, 4, 8], "default": 1 },

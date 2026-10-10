@@ -9,7 +9,7 @@
     },
     "presentation": {
       "kind": "cube",
-      "shape": "beam",
+      "shapes": ["beam"],
       "faces": { "top": "top.png", "side": "side.png", "bottom": "bottom.png" }
     },
     "behaviors": {

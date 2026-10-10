@@ -84,7 +84,7 @@
                   "plot_size": { "enum": ["small", "medium", "large", "station"] },
                   "building_type": {
                     "description": "取值由代码提供，清单随聚居地切片确定；plot_size 为 station 的建筑必须是 station，反过来也一样。",
-                    "enum": ["station", "warehouse"]
+                    "enum": ["production", "warehouse", "power", "construction", "station", "defense"]
                   },
                   "facility_tags": {
                     "description": "取值由代码提供；流程要求的标签在其中，这座建筑才兼容该流程。",
@@ -226,6 +226,10 @@
       "properties": {
         "voxel": { "$ref": "common.schema.json#/$defs/definitionRef" },
         "orientation": { "$ref": "#/$defs/orientation" },
+        "shape": {
+          "description": "必须在体素定义的 shapes 里；不写就是 shapes 的第一项。自定义模型体素不能写。",
+          "enum": ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"]
+        },
         "paint": { "$ref": "common.schema.json#/$defs/color" }
       }
     },

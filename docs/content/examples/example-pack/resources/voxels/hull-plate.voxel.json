@@ -3,8 +3,10 @@
   "id": "hull-plate",
   "simulation": { "value": 50, "mass": 0.5, "max_durability": 200 },
   "appearance": {
+    "allowed_orientations": "all_24",
     "presentation": {
       "kind": "cube",
+      "shapes": ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"],
       "faces": { "top": "top.png", "side": "side.png", "bottom": "shared/vehicle-underside.png" }
     }
   },

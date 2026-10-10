@@ -3,7 +3,7 @@
 > **所属层**：核心模拟层。
 
 
-> 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance 回收、剩余燃料改由聚居地电力池共用，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。流程的三种类型与格式、设施兼容标签的匹配、环境要求、每种能力一份计划、单位与联合分配、燃料、建筑锁定期间的能力、对外可见的运行状态、备货用的潜在消耗和内容更新规则，由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)于 2026-10-10 确认。
+> 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance 回收、剩余燃料改由聚居地电力池共用，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。流程的三种类型与格式、设施兼容标签的匹配、环境要求、每种能力一份计划、单位与联合分配、燃料、建筑锁定期间的能力、对外可见的运行状态、备货用的潜在消耗和内容更新规则，由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)于 2026-10-10 确认。Demo 设施兼容标签的完整清单由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)于 2026-10-10 确认。
 
 ## 边界
 
@@ -41,8 +41,8 @@
 
 - Settlement 不直接拥有 IndustrialCapacity、MiningCapacity、StorageCapacity 等无来源的抽象事实；能力来自建筑设计属性中完好部件提供的能力，见 [03 的设计属性](03-vehicles-buildings-and-designs.md#设计属性)。生产设施是聚居地拥有的 Building Composite，其产出进入该聚居地的 Settlement Inventory（资源转录 Q226）。
 - 节点资源、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由节点、建筑内设备与 Settlement Inventory 提供，不互相推导：农业聚居地没有任何节点资源也可以大量生产 Grain（资源转录 Q228，[05](05-world-graph-and-generation.md)）。
-- 建筑蓝图保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自部件 Behavior 的对应 Capability。
-- 每个流程恰好要求一个 Tag；建筑可以有多个 Tag，包含流程要求的 Tag 即兼容。Tag 是由代码提供的封闭清单，Demo 的完整清单由[Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)确定。
+- 建筑蓝图保存 Facility compatibility tags。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自部件 Behavior 的对应 Capability。
+- 每个流程恰好要求一个 Tag；建筑可以有多个 Tag，包含流程要求的 Tag 即兼容。Tag 是由代码提供的封闭清单。Demo 共 10 个：`agriculture`、`extraction`、`metallurgy`、`building_materials`、`light_industry`、`chemical`、`food_processing`、`assembly`、`electronics`、`recovery`；全部 8 种开采共用 `extraction`，各流程使用哪个 Tag 见 [Demo 内容与资产清单](../content/demo-catalog.md#流程与设施兼容标签)（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10）。
 - 例如 Smelter `facility_tags = [metallurgy]`，其中的 Industrial Machinery 提供实际 ProductionCapability；设备全部损坏时 facility tag 仍是 metallurgy，但 ProductionCapability = 0。
 - Demo 的 Facility 通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability（任何车辆或建筑中完好的、带 `storage` 行为的部件都提供存储能力，不限于仓库建筑）；Power Equipment → PowerCapability。Propulsion Equipment 与 Control Equipment 也是 Demo 功能设备，但提供的是车辆的动力与控制能力（见 [03](03-vehicles-buildings-and-designs.md)），不是 Facility 能力；车头制造需要控制能力，因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，目录见 [11](11-goods-and-production-network.md)。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-vehicles-buildings-and-designs.md)。
 
@@ -215,6 +215,6 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结的数值：各流程的 WorkRequired、PowerPerWork、LaborPerWork，各设备的 `work_rate` 与 `output`，Fuel 的 `fuel_energy`，Primary Production 的地貌条件，Plan 与施工任务 Priority 的默认值。它们由 [Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)配置，再由实施与试玩配平。
+- 地图迷雾（不立票）：未冻结的数值：各流程的 WorkRequired、PowerPerWork、LaborPerWork，各设备的 `work_rate` 与 `output`，Fuel 的 `fuel_energy`，Primary Production 的地貌条件，Plan 与施工任务 Priority 的默认值。它们第一版由内容层工作线给出并经配平脚本检查，见[数值的初值与配平](../content/demo-catalog.md#数值的初值与配平)，再由试玩确认。
 
 资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口与劳动力的规则已确定，见 [18](18-population-and-labor.md)；生产与供能的内容参数和运行规则由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)确定，公开类型与查询由[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)和[内容层公开契约](https://github.com/odradekk/train/issues/288)交付。

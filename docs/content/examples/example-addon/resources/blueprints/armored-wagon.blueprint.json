@@ -365,7 +365,7 @@
             "palette": [
               { "voxel": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:hull-plate", "paint": "#33373b" },
               { "voxel": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:machine-gun", "paint": "#33373b" },
-              { "voxel": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:hull-wedge", "paint": "#33373b" }
+              { "voxel": "5e1f0c3a-7b2d-4c8e-9a61-0d4b7f2e8c15:hull-plate", "shape": "wedge", "paint": "#33373b" }
             ],
             "cells": [
               [-1, 0, -1, 0],

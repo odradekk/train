@@ -2,7 +2,7 @@
 
 > 决策出处：美术 Q220、Q230、Q239、Q240。交付物、源文件、目录与命名、制作顺序、检查清单、检查地点与检查光照、检查人与记录、样机的作用和各阶段范围，由[资产制作流程、交付物与检查](https://github.com/odradekk/train/issues/252)于 2026-10-09 确认；自定义模型的交付物、导入约定和源文件位置由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)于 2026-10-10 确认；制作顺序和检查条件从[美术方向初稿](../research/art-direction-draft-2026-10-08.md)第 11–12 节改写。
 
-> **修订中**：当前里程碑是完整 Demo。下文“本阶段”的首切片资产清单与实施票仅保留历史，待[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)和[按四模块重组现有工单并补齐 Demo 实施工单](https://github.com/odradekk/train/issues/294)更新，不能据此开工。大尺寸与拥挤场景专项已由[完整 Demo 的开局、目标、结束与验收](https://github.com/odradekk/train/issues/278)提前纳入 Demo；其余制作与画面检查规则仍有效。
+> **修订中**：当前里程碑是完整 Demo。Demo 的资产清单、三台样机、专项样例规格和占位资产的使用范围已由[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)于 2026-10-10 确定，见[Demo 内容与资产清单](../content/demo-catalog.md)。下文“本阶段”的首切片资产清单与实施票仅保留历史，待[按四模块重组现有工单并补齐 Demo 实施工单](https://github.com/odradekk/train/issues/294)更新，不能据此开工。大尺寸与拥挤场景专项已由[完整 Demo 的开局、目标、结束与验收](https://github.com/odradekk/train/issues/278)提前纳入 Demo；其余制作与画面检查规则仍有效。
 
 ## 边界
 
@@ -122,10 +122,11 @@ builtin/core/resources/voxels/
 
 - 检查光照命令（[检查光照：Debug 构建切换三种检查光照](https://github.com/odradekk/train/issues/255)）。
 - 在设计编辑器里检查单个体素和组装。
-- 按现行尺寸重做民用重载机车、军用重装车辆、工业维护建筑三台样机，规格见开放问题。
+- 按现行尺寸重做三台样机：民用重载机车是大型机车，军用重装车辆是泰坦档位的武装重型车辆，工业维护建筑是重型车辆工厂；三者都是正式预置蓝图，见[Demo 内容与资产清单](../content/demo-catalog.md#预置蓝图)。
+- 占位资产只用于不看画面的检查；美术检查、人工验收、正式性能测量和完整窗口长测必须用正式资产，见[Demo 内容与资产清单](../content/demo-catalog.md#占位资产的使用范围)。
 - 涂装、磨损叠加和损伤的检查。
 - 自定义模型的交付与检查。
-- 大尺寸设计与拥挤场景专项，覆盖泰坦车辆、长编组、拥挤站点、繁忙战斗和编辑器；样例规格由内容票确定，性能验收遵循 [00](../design/00-product-and-core-loop.md#大尺寸与拥挤场景专项)，不以美术检查替代性能证据。
+- 大尺寸设计与拥挤场景专项，覆盖泰坦车辆、长编组、拥挤站点、繁忙战斗和编辑器；样例规格见[Demo 内容与资产清单](../content/demo-catalog.md#大尺寸与拥挤场景专项样例)，性能验收遵循 [00](../design/00-product-and-core-loop.md#大尺寸与拥挤场景专项)，不以美术检查替代性能证据。
 
 ## Demo 之后
 
@@ -133,4 +134,4 @@ builtin/core/resources/voxels/
 
 ## 开放问题
 
-- 近期决策：[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)确定三台样机按现行尺寸重做的规格，以及大尺寸与拥挤场景专项的占用格数、部件数、嵌套情况、同屏数量和性能保证覆盖范围。
+- 已决定：[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)于 2026-10-10 确定三台样机对应的预置蓝图，以及大尺寸与拥挤场景专项的占用格数、部件数、嵌套情况、同屏数量和性能保证覆盖范围，见[Demo 内容与资产清单](../content/demo-catalog.md)。三台样机的外观细节在制作时按本文的检查流程确定。

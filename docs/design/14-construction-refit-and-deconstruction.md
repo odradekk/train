@@ -125,7 +125,7 @@ ConstructionJob、RefitJob、RepairJob、DeconstructionJob、地块预留、库�
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结的数值，包括施工规则中的各项工作量与系数，以及 Construction Equipment 的 `work_rate`；由 [Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)配置，再由实施与试玩配平。
+- 地图迷雾（不立票）：未冻结的数值，包括施工规则中的各项工作量与系数，以及 Construction Equipment 的 `work_rate`；第一版由内容层工作线给出并经配平脚本检查，见[数值的初值与配平](../content/demo-catalog.md#数值的初值与配平)，再由试玩确认。
 - 地图迷雾（不立票）：建造、改装、修理的主动 Pause / Resume，以及四类任务的主动取消与退款，有待后续设计；Demo 只采用上文已明确的暂停与失败结算规则。
 
 建造、改装、修理与拆解属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)，实施工单在四模块契约验证后重组，不再作为宏观贸易首切片之后的暂定范围。

@@ -44,7 +44,7 @@
     },
     "facilityTag": {
       "description": "设施兼容标签，取值由代码提供。暂时只列出示例用到的标签，Demo 的完整清单由 Demo 内容与资产清单（issue #283）确定。",
-      "enum": ["agriculture", "mining", "metallurgy", "recovery"]
+      "enum": ["agriculture", "extraction", "metallurgy", "building_materials", "light_industry", "chemical", "food_processing", "assembly", "electronics", "recovery"]
     },
     "positiveNumber": { "type": "number", "exclusiveMinimum": 0 },
     "positiveInt": { "type": "integer", "minimum": 1, "maximum": 2147483647 },

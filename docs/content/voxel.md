@@ -90,11 +90,13 @@
 | 字段 | 类型 | 必填 | 默认值 | 说明与校验 | 阶段 |
 | --- | --- | --- | --- | --- | --- |
 | `kind` | 字符串 | 是 | — | `cube` | 首个切片 |
-| `shape` | 字符串 | 否 | `cube` | 形状目录里的名字，由代码提供，每个标准变体是一个独立的名字。Demo 的取值：`cube`、`half`、`plate`、`wedge`、`corner-wedge`、`beam`、`cylinder`，见[美术 01 的形状](../art/01-construction-language.md#形状) | Demo |
+| `shapes` | 字符串数组 | 否 | `["cube"]` | 允许放置时选用的形状，取自形状目录，由代码提供，每个标准变体是一个独立的名字；不能为空，不能重复。Demo 的取值：`cube`、`half`、`plate`、`wedge`、`corner-wedge`、`beam`、`cylinder`，见[美术 01 的形状](../art/01-construction-language.md#形状)。设计里的格子不写形状时用第一项，格子写的形状必须在这个列表里，见[蓝图的调色板](blueprint.md#layout)。形状只是外观：不参与语义哈希，不影响货物身份、价值、质量、耐久、能力和 BOM，同一种体素放成楔形或立方体是同一种货物 | Demo |
 | `material` | 字符串 | 否 | `painted_metal` | 表现材质类别：`painted_metal`、`bare_metal`、`concrete`、`stone_soil`、`glass`、`polymer_rubber`、`organic`，见[美术 02](../art/02-materials-and-textures.md#材质类别)。只有 `painted_metal` 和 `concrete` 能涂装 | 首个切片 |
 | `tile_span` | 整数 | 否 | 1 | 平铺跨度，1、2、4 或 8 | 首个切片 |
 | `faces.top`、`faces.side`、`faces.bottom` | 资产路径 | 是 | — | 顶面、侧面、底面的贴图。几个面用同一张图就写同一个文件 | 首个切片 |
 | `faces.front` | 资产路径 | 否 | 用侧面图 | 正面图，不平铺 | Demo |
+
+形状由放置时选择，不由体素定义固定：这一处只列出允许的形状，每一格用哪种写在蓝图的调色板里（[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)，2026-10-10；它只取代[非立方体形状与构造语言](https://github.com/odradekk/train/issues/245)中把形状写在定义上的部分，取舍见 [ADR-0018](../adr/0018-choose-voxel-shapes-per-placement-so-shapes-never-create-goods.md)）。
 
 加载器检查图片：顶面、侧面、底面是边长相同的 2 的幂正方形；正面图是 2 的幂正方形，尺寸可以不同。边长是否等于 32 像素乘以平铺跨度，由美术检查。
 
@@ -105,6 +107,8 @@
 | `kind` | 字符串 | 是 | `mesh` | Demo |
 | `model` | 资产路径 | 是 | glTF 二进制模型 `.glb`，不超过 4 MiB，约定见下文。模型按原尺寸使用，包围盒超出所在的格就拒绝 | Demo |
 | `surface_materials` | 字符串数组 | 是 | 每个表面一个材质类别，按模型里表面的顺序，数量和表面数相同 | Demo |
+
+自定义模型没有 `shapes`，蓝图里放置它的格子也不能写 `shape`。
 
 #### 模型文件的约定
 
@@ -145,12 +149,11 @@
 | `grain` 粮食 | 无行为的货物 | 只写必填字段，朝向和碰撞取默认值；`raw_good` 标签；底面复用顶面图 | 首个切片 |
 | `ferrous-ore` 铁矿石 | 无行为的货物 | `raw_good` 标签，开采流程引用它；三个面用同一张图 | Demo |
 | `fuel` 燃料 | 无行为的货物 | `fuel_energy` | Demo |
-| `hull-plate` 车体钢板 | 结构体素 | 底面引用共用的 `shared/vehicle-underside.png` | 首个切片 |
-| `hull-wedge` 斜面车体 | 结构体素 | `shape: wedge`，`all_24` 朝向 | Demo |
+| `hull-plate` 车体钢板 | 结构体素 | 底面引用共用的 `shared/vehicle-underside.png`；`shapes` 列出全部 7 种形状，`all_24` 朝向 | Demo |
 | `concrete-block` 混凝土块 | 结构体素 | 材质 `concrete`，可以涂装 | Demo |
 | `grassland` 草地 | 场景体素 | 没有 `simulation` 一节；`tile_span: 4` | 首个切片 |
-| `street-lamp` 路灯 | 场景体素 | 只有表现的行为 `light`；`local_box` 碰撞；`shape: beam` | Demo |
-| `tree-trunk` 树干、`foliage` 树冠 | 场景体素 | 场景模型 `tree` 用到的体素 | Demo |
+| `street-lamp` 路灯 | 场景体素 | 只有表现的行为 `light`；`local_box` 碰撞；`shapes: ["beam"]` | Demo |
+| `tree-trunk` 树干、`foliage` 树冠 | 场景体素 | 场景模型 `tree` 用到的体素；树干 `shapes: ["cylinder"]` | Demo |
 | `diesel-engine` 柴油机组 | 部件 | `propulsion` | 首个切片 |
 | `driver-cab` 驾驶台 | 部件 | `control` | 首个切片 |
 | `cargo-hold` 货舱 | 部件 | `storage` | 首个切片 |
