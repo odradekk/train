@@ -83,6 +83,8 @@ public interface IContentView
     ContentRevision PersistentRevision { get; }
     CoreContentProjection Core { get; }
     ImmutableArray<PackageStatus> Packages { get; }
+    /// <summary>固定世代内身份唯一的已接受可放置体素；不含缺失占位，显示与外观按身份查询。</summary>
+    ImmutableArray<VoxelCatalogEntry> Voxels { get; }
     ImmutableArray<BlueprintSummary> Blueprints { get; }
     ImmutableArray<SavedContentDraft> LocalDrafts { get; }
     ImmutableArray<GenerationProfileSummary> GenerationProfiles { get; }

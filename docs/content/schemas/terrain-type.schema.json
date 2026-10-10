@@ -9,6 +9,7 @@
     "id",
     "display",
     "surface_voxel",
+    "subsurface_voxel",
     "rock_voxel",
     "local_height_noise",
     "decorations",
@@ -35,6 +36,9 @@
       "$ref": "common.schema.json#/$defs/definitionRef"
     },
     "rock_voxel": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
+    "subsurface_voxel": {
       "$ref": "common.schema.json#/$defs/definitionRef"
     },
     "local_height_noise": {

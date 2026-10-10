@@ -36,8 +36,9 @@ public interface ICoreReadView
     CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node);
 }
 
-/// <summary>宏观地图摘要；距离为米，所有集合均属于本视图。</summary>
-public sealed record WorldSummary(double WidthMeters, double HeightMeters,
+/// <summary>宏观地图摘要；世界种子读档后保留，供场景稳定生成使用；距离为米，所有集合均属于本视图。</summary>
+public sealed record WorldSummary(ulong WorldSeed, RuleDefinitionId RailwayRule,
+    double WidthMeters, double HeightMeters,
     ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
     ImmutableArray<TrainMapItem> Trains, ImmutableArray<CreatureGroupMapItem> CreatureGroups,
     ImmutableArray<CombatMapItem> Combats);
@@ -106,13 +107,21 @@ public sealed record TrainEngagementRules(TargetPriority Priority, TargetScope S
     EncounterAction Encounter, double RetreatStructureRatio);
 /// <summary>聚居地防御规则。</summary>
 public sealed record SettlementEngagementRules(TargetPriority Priority, TargetScope Scope);
+/// <summary>
+/// 节点列车的实际进入线路与核心已决定的下一线路；没有进入历史或尚未决定时分别为空。
+/// 进入线路随存档保留；下一线路不预留铁轨，也不保证之后不会被核心重新裁定。
+/// </summary>
+public sealed record NodeTransitView(EdgeId? EnteredFrom, EdgeId? NextEdge);
+/// <summary>车辆列表哪一端沿最近实际行驶方向在前；只供恢复排列与车体朝向，不参与牵引、选路或战斗规则。</summary>
+public enum TrainOrderFacing { FirstEndLeading, LastEndLeading }
 /// <summary>列车详情；速度米/秒，长度米，质量吨，牵引力千牛，加速度米/秒²。</summary>
 public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity Activity,
     ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond,
     double LengthMeters, double MassTons, double TractionKilonewtons, double Acceleration,
     double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps,
     ulong RemainingTradeEvaluationSteps, bool TradeEvaluationFrozen, TrainEngagementRules Engagement,
-    ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports);
+    ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports,
+    NodeTransitView? NodeTransit, TrainOrderFacing OrderFacing);
 
 /// <summary>实例锁定种类，可组合施工锁和战斗锁；施工期间仍可受攻击。</summary>
 [System.Flags]

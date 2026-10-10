@@ -32,6 +32,13 @@ public readonly record struct SimulationPosition(ulong CompletedSteps, ulong Seq
 public readonly record struct CoreRevision(ulong Value);
 public readonly record struct RecordingPointId(ulong Value);
 
+/// <summary>游戏构建固定的模拟时间单位；宿主倍速只改变实际推进步数，不改变本常量。</summary>
+public static class SimulationTime
+{
+    public const int StepsPerSecond = 60;
+    public const double StepSeconds = 1.0 / StepsPerSecond;
+}
+
 /// <summary>最小货币单位的非负整数；不表示带有小数的中间估值。</summary>
 public readonly record struct Money(long Value);
 /// <summary>整数万分比；10000 表示 1 倍。具体字段另有限定范围。</summary>
@@ -89,6 +96,7 @@ public abstract record TrainPosition
 {
     private TrainPosition() { }
     public sealed record Node(NodeId Id) : TrainPosition;
+    /// <summary>DistanceMeters 为整列长度中心到线路起点的正向距离，范围为 [0, 线路长度]；倒车不改变中心。</summary>
     public sealed record Edge(EdgeId Id, int Track, TravelDirection Direction,
         double DistanceMeters) : TrainPosition;
 }

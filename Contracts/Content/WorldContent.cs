@@ -11,7 +11,7 @@ public sealed record TerrainDecoration(DesignHash SceneModel, int Weight);
 public sealed record RailwaySceneModels(int Tracks, DesignHash Bridge, DesignHash TunnelPortal);
 /// <summary>噪声尺度为米、振幅有限非负；装饰密度为件/平方米；采样算法由体素层实现。</summary>
 public sealed record TerrainAppearanceProjection(TerrainTypeId Id,
-    VoxelDefinitionId SurfaceVoxel, VoxelDefinitionId RockVoxel,
+    VoxelDefinitionId SurfaceVoxel, VoxelDefinitionId SubsurfaceVoxel, VoxelDefinitionId RockVoxel,
     ImmutableArray<NoiseOctave> LocalHeightNoise,
     ImmutableArray<TerrainDecoration> Decorations, double DecorationTargetPerSquareMeter,
     ImmutableArray<RailwaySceneModels> RailwayModels, DisplayText Display);

@@ -11,6 +11,10 @@ public sealed record FoundingCandidates(IPreparedCoreCommand Core, IContentCandi
 
 public static class ConsumerExamples
 {
+    /// <summary>玩家体素栏读取 Good 的质量与价值；场景体素栏以 Good 为 null 筛选同一固定目录。</summary>
+    public static ImmutableArray<VoxelCatalogEntry> ReadVoxelPalette(IContentView content, bool scene)
+        => content.Voxels.Where(entry => (entry.Good is null) == scene).ToImmutableArray();
+
     /// <summary>核心选定聚居地后，内容在同一个固定候选上准备每实例模板，再交宿主统一激活。</summary>
     public static NewGameCandidates? PrepareNew(IContentFactory contentFactory, ICoreFactory coreFactory,
         ContentInstallation installation, IContentFiles files, IAssetInspector assets,

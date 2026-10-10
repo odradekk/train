@@ -35,6 +35,8 @@ public sealed record VoxelAppearanceProjection(VoxelDefinitionId Definition,
     VoxelPresentation Presentation, VoxelAppearanceBehaviors Behaviors);
 public sealed record VoxelDisplayProjection(VoxelDefinitionId Definition,
     DisplayText Display, AssetRevision Icon);
+/// <summary>Good 为 null 表示场景体素；否则为同 Definition 的 GoodId.Voxel 投影。</summary>
+public sealed record VoxelCatalogEntry(VoxelDefinitionId Definition, GoodDefinitionProjection? Good);
 
 public enum RotationAxis { X, Y, Z }
 /// <summary>轴为设备自身轴，枢轴经过指定格中心；角度为度，速度为度/秒。</summary>

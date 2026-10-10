@@ -3,6 +3,7 @@
   "id": "plains",
   "display": {"name": "平原", "description": "开阔的平原地貌。"},
   "surface_voxel": "grassland",
+  "subsurface_voxel": "tree-trunk",
   "rock_voxel": "tree-trunk",
   "local_height_noise": [
     {
