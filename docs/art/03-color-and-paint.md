@@ -1,6 +1,6 @@
 # 03 色彩与涂装
 
-> 决策出处：美术 Q189、Q208、Q218、Q222、Q228、Q229。默认色板的色值、可涂装的材质类别、涂装怎样改变外观、推荐色卡和各阶段范围，由[默认色彩与玩家涂装](https://github.com/odradekk/train/issues/250)于 2026-10-09 确认；“本阶段”由[首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)于同日确认，色值来自[首个切片车辆贴图样稿](../../archive/prototypes/first-slice-vehicle-textures.prototype.html)的 A 套配色，调整时样稿与本文一起改。
+> 决策出处：美术 Q189、Q208、Q218、Q222、Q228、Q229。默认色板的色值、可涂装的材质类别、涂装怎样改变外观、推荐色卡和各阶段范围，由[默认色彩与玩家涂装](https://github.com/odradekk/train/issues/250)于 2026-10-09 确认；“本阶段”由[首个切片的体素面贴图规格](https://github.com/odradekk/train/issues/246)于同日确认，色值来自[首个切片车辆贴图样稿](../../archive/prototypes/first-slice-vehicle-textures.prototype.html)的 A 套配色，这些值是历史样稿的初值；调整时同步本文和该批资产的唯一源。
 
 ## 边界
 
@@ -54,7 +54,9 @@
 
 ## 本阶段
 
-首个切片没有涂装，颜色直接画在贴图里。下表是各贴图的基色，板缝、百叶、加强筋等图案在基色上加深或提亮。
+第一阶段用下表的历史配色作为样稿初值；第三阶段验证三台样机的涂装和六张推荐色卡，第六阶段完成正式资产。可涂装区域编码及旧默认色贴图迁移方式由第三阶段设计任务确定，未决定前不固定遮罩或重着色方案。
+
+下表来自首个切片，当时颜色直接画在贴图里；它不是“Demo 没有涂装”的限制。板缝、百叶、加强筋等图案在基色上加深或提亮。
 
 ### 车辆：蓝灰车头、暗红货车
 
@@ -89,4 +91,4 @@
 
 ## 开放问题
 
-- 地图迷雾（不立票）：涂装属于设计和蓝图的表现设置，不改变语义修订；只改涂装立即生效，不需要改装，修改蓝图的涂装不影响已建成的实例（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)）。这些已由设计文档 [02](../design/02-definitions-and-content.md#语义哈希字段与规范化)、[03](../design/03-vehicles-buildings-and-designs.md#车辆与建筑实例)、[11](../design/11-goods-and-production-network.md) 规定。还没定的是：只有颜色贴图时可涂装区域怎样编码，首个切片中把默认色画在图里的贴图怎样接入涂装（按“保留明暗、换颜色”重新着色，或把可涂装部分重画成中性色）。涂装字段见[蓝图的 layout](../content/blueprint.md#layout)。设计编辑器切片临近时再定。
+- 涂装属于设计和蓝图的表现设置，不改变语义修订；只改涂装立即生效，不需要改装，修改蓝图的涂装不影响已建成的实例（[实例与蓝图：实例保存自己的设计，模板的存放与改装目标](https://github.com/odradekk/train/issues/260)）。这些已由设计文档 [02](../design/02-definitions-and-content.md#语义哈希字段与规范化)、[03](../design/03-vehicles-buildings-and-designs.md#车辆与建筑实例)、[11](../design/11-goods-and-production-network.md) 规定。还没定的是：只有颜色贴图时可涂装区域怎样编码，首个切片中把默认色画在图里的贴图怎样接入涂装（按“保留明暗、换颜色”重新着色，或把可涂装部分重画成中性色）。涂装字段见[蓝图的 layout](../content/blueprint.md#layout)。由[确定涂装编码并验证材质样例](https://github.com/odradekk/train/issues/338)经用户决定。

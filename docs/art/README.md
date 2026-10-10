@@ -14,15 +14,15 @@
 | --- | --- | --- |
 | [00-direction.md](00-direction.md) | 视觉基调、关键词、技术时代感、自然环境、不采用的方向、参考图 | 已写 |
 | [01-construction-language.md](01-construction-language.md) | 用途与造型、重量感、尺度与子网格、形状、自定义模型、大型设备、接缝与倒角 | 已写 |
-| [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、形状与自定义模型的贴图、贴图密度、采样、细节层次、首个切片的面贴图规格 | 已写 |
-| [03-color-and-paint.md](03-color-and-paint.md) | 默认色板、用途倾向、玩家涂装、首个切片的配色 | 已写 |
+| [02-materials-and-textures.md](02-materials-and-textures.md) | 材质类别、贴图画法、面与方向、平铺、形状与自定义模型的贴图、贴图密度、采样、细节层次、面贴图规格与历史样稿 | 已写 |
+| [03-color-and-paint.md](03-color-and-paint.md) | 默认色板、用途倾向、玩家涂装、配色初值与涂装分期 | 已写 |
 | [04-world-assets.md](04-world-assets.md) | 地形、自然物、铁路、桥梁与隧道口、站台、水面与雾、建筑原则 | 已写 |
 | [05-lighting-and-readability.md](05-lighting-and-readability.md) | 光照、天空与雾、效果清单、色调映射、可读性、检查光照 | 已写 |
 | [06-wear-damage-and-motion.md](06-wear-damage-and-motion.md) | 常态磨损与磨损叠加、表面损伤、摧毁、铁轨断点与工地、特效与强度上限、动画与轮对、贴花 | 已写 |
 | [07-icons-and-ui.md](07-icons-and-ui.md) | 状态色、宏观地图、面板与字体、物品图标与外框、界面符号 | 已写 |
 | [08-asset-pipeline-and-review.md](08-asset-pipeline-and-review.md) | 交付物、源文件、目录与命名、制作顺序、检查清单、检查地点与检查光照、检查人与记录、样机 | 已写 |
 
-每篇的固定小节：边界、不变量、规则、本阶段、Demo 范围、Demo 之后、开放问题；没有内容的小节写“无”。“本阶段”写首个切片可以直接制作的规格，首个切片的范围见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)。
+每篇的固定小节：边界、不变量、规则、本阶段、Demo 范围、Demo 之后、开放问题；没有内容的小节写“无”。“本阶段”按六阶段交付说明当前制作责任。当前按[完整 Demo 清单](../content/demo-catalog.md)和[六阶段工单重组](https://github.com/odradekk/train/issues/294)推进，各阶段分别联调验收。第一阶段验证基础场景与小型列车样稿，第三阶段验证三台样机、模型与涂装，第五阶段验证战斗视觉样稿，第六阶段分批补齐全部正式资产。功能试玩可使用其余占位资产；正式性能测量、完整窗口长测和最终人工验收须使用全部正式资产。
 
 ## 出处
 
@@ -89,7 +89,7 @@ _Avoid_: 原型（指车辆或建筑时）
 _Avoid_: 样机
 
 **样稿**：
-用来定色值和画法的 HTML 原型，可以在页面上调整；首个切片的两个样稿也用来导出 PNG。
+用来验证色值和画法的制作样例；历史 HTML 样稿可以在页面上调整，也曾用于首个切片导出 PNG。是否作为新批次的生成源，由该批次明确。
 _Avoid_: 样机、素材
 
 ### 初稿用词对照

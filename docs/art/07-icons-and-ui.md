@@ -1,6 +1,6 @@
 # 07 图标与界面
 
-> 决策出处：由[宏观地图、界面与图标的视觉风格](https://github.com/odradekk/train/issues/244)于 2026-10-09 确认。色值和尺寸来自[宏观地图与界面风格样稿](../../archive/prototypes/macro-map-ui-style.prototype.html)，调整时样稿与本文一起改。
+> 决策出处：由[宏观地图、界面与图标的视觉风格](https://github.com/odradekk/train/issues/244)于 2026-10-09 确认。色值和尺寸来自[宏观地图与界面风格样稿](../../archive/prototypes/macro-map-ui-style.prototype.html)，这些值是历史样稿的初值；调整时同步本文和该批资产的唯一源。
 
 ## 边界
 
@@ -96,16 +96,11 @@
 
 ## 本阶段
 
-首个切片的宏观地图（[世界生成与宏观地图](https://github.com/odradekk/train/issues/223)）和市场面板（[贸易、市场与购买车辆](https://github.com/odradekk/train/issues/226)）直接按本文实现，不另做占位画面：
-
-- 字体打包随宏观地图工单。
-- 物品图标外框随贸易工单。
-- 地图与界面符号（列车、断点、施工等）由[世界生成与宏观地图](https://github.com/odradekk/train/issues/223)照样稿的画法实现；聚居地类型的符号照样稿画成 PNG，放在各类型的文件夹里。
-- 首个切片货物和车辆体素的 icon.png 由[补齐首个切片的货物与车辆体素素材](https://github.com/odradekk/train/issues/234)按本文规则绘制。
+字体、外框和地图交互随各阶段界面任务接入；物品图标由美术制作，复合体自动图标由 Godot 实现，不重复手绘。第六阶段完成全量符号与整体视觉检查，见[工单重组](https://github.com/odradekk/train/issues/294)。早期功能试玩可使用占位资产。
 
 ## Demo 范围
 
-同规则。列车增加“战斗”状态（含撤退），颜色随战斗切片定。其余管理面板的布局在设计文档 [08](../design/08-window-and-ui.md#开放问题) 的流程原型之后确定，视觉沿用本文。
+按[完整 Demo 清单](../content/demo-catalog.md)制作 46 种货物图标、5 种聚居地类型符号、1 种生物聚落符号、列车 6 种状态与 4 级通知符号；节点资源复用对应初级货物图标。3 种大型设备图标由游戏自动渲染。列车战斗状态（含撤退）随第五阶段接入，视觉沿用本文。
 
 ## Demo 之后
 

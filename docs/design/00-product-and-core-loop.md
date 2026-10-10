@@ -2,7 +2,7 @@
 
 > **所属层**：产品。
 
-> **当前里程碑**：完整 Demo。开局、开放沙盒规则、测试负载和验收由[完整 Demo 的开局、目标、结束与验收](https://github.com/odradekk/train/issues/278)确认，取代首个切片的阶段范围和验收；这些是产品要求，不是已通过的测试。地图[完整 Demo：四模块公开接口、契约验证与并行开发规划](https://github.com/odradekk/train/issues/277)继续确定并验证四模块契约。受影响实施票仍暂停，契约验证后由[按四模块重组现有工单并补齐 Demo 实施工单](https://github.com/odradekk/train/issues/294)更新，不能以旧票或旧临时规则开工。
+> **当前里程碑**：完整 Demo。开局、开放沙盒规则、测试负载和验收由[完整 Demo 的开局、目标、结束与验收](https://github.com/odradekk/train/issues/278)确认，取代首个切片的阶段范围和验收；这些是产品要求，不是已通过的测试。地图[完整 Demo：四模块公开接口、契约验证与并行开发规划](https://github.com/odradekk/train/issues/277)继续确定并验证四模块契约。[工单重组](https://github.com/odradekk/train/issues/294)已确认[完整 Demo：六阶段交付与联调验收](https://github.com/odradekk/train/issues/297)下的 102 张任务与阶段验收票方案；准备任务通过契约及最终一致性检查后，按阶段门禁实施，不能以旧票或旧临时规则开工。
 
 > 决策出处：[产品定位、玩法支柱与 Demo 范围](https://github.com/odradekk/train/issues/194)（2026-10-04）重新确定了产品定位、核心循环、体素的作用和 Demo 范围，取代此前依据转录 Q2、Q8、Q109 确定的定位，以及“桌面底部常驻 3D 条形窗口”的产品形态。架构调整见地图[体素引擎改作局部场景：设计文档与 open issue 全面修订](https://github.com/odradekk/train/issues/193)。`CONTEXT.md` 与历史 [MVP 规格](https://github.com/odradekk/train/blob/eb6a502329a1830a51c5da62e2c24545f34c9a46/docs/specs/mvp.md) 描述的 MVP 已验证贸易循环，是经济主循环的基础。[完整 Demo 的开局、目标、结束与验收](https://github.com/odradekk/train/issues/278)于 2026-10-09 确认本阶段规则，保留[新阶段：下一个里程碑的范围与验收](https://github.com/odradekk/train/issues/212)的目标硬件、60 FPS 和 8× 目标，替换其首切片范围、临时规则和验收负载。
 
@@ -83,11 +83,11 @@
 
 地图[完整 Demo：四模块公开接口、契约验证与并行开发规划](https://github.com/odradekk/train/issues/277)先交付并验证核心模拟层、内容层、体素引擎层和 Godot 层的公开契约，再重组实施工单。每阶段内四模块并行开发、独立测试，开发期间持续检查契约兼容性；本阶段联调通过后才能开始下一阶段开发。完整 Demo 仍须执行完整游戏联调、完整正确性回归和人工验收。模块内部仍用小任务迭代；地图完成只表示可以开始实施，不表示 Demo 已完成。
 
-旧首切片的临时供需市场、按 BOM 总 Value 立即购买预置车辆、全体聚居地非敌对、限定三种货物与两种小型车辆等，不再作为 Demo 的规则或内容范围。历史保留在[首个切片：宏观贸易](https://github.com/odradekk/train/issues/219)及相关已记录决定中；替代规则和内容由本地图的对应票明确，实施票在契约验证后统一重组。
+旧首切片的临时供需市场、按 BOM 总 Value 立即购买预置车辆、全体聚居地非敌对、限定三种货物与两种小型车辆等，不再作为 Demo 的规则或内容范围。历史保留在[首个切片：宏观贸易](https://github.com/odradekk/train/issues/219)及相关已记录决定中；替代规则和内容由本地图的对应票明确，实施范围与依赖按[工单重组](https://github.com/odradekk/train/issues/294)获准方案交付。
 
 ### 开发阶段
 
-经[并行开发与阶段性联调的交付、变更和验收流程](https://github.com/odradekk/train/issues/293)的 Q1–Q6 确认，完整 Demo 按下表推进。每阶段内部按模块拆成小任务；本阶段联调通过并经用户确认后，才能开始下一阶段开发。任务和原生依赖由[工单重组](https://github.com/odradekk/train/issues/294)落实。
+经[并行开发与阶段性联调的交付、变更和验收流程](https://github.com/odradekk/train/issues/293)的 Q1–Q6 确认，完整 Demo 按下表推进。每阶段内部按模块拆成小任务；本阶段联调通过并经用户确认后，才能开始下一阶段开发。[工单重组](https://github.com/odradekk/train/issues/294)已确认[完整 Demo：六阶段交付与联调验收](https://github.com/odradekk/train/issues/297)、96 张准备／实施／制作／测量任务和 6 张阶段验收票。第二至第六阶段的每张任务都直接依赖前阶段验收；父子关系只用于组织，不代替放行证据。
 
 | 顺序 | 阶段 | 本阶段贯通的能力 |
 | --- | --- | --- |
@@ -99,6 +99,8 @@
 | 6 | 完整 Demo 验收 | 正常新局的连续人工路径、全部正式内容和美术、分支补测、专项样例、完整回归、长测及目标硬件验收。 |
 
 基础贯通使用明确标记的小型联调配置，证明技术链路成立，不代表默认开局可玩性或完整 Demo 已通过。经济运输阶段所需建筑设计、设施能力和模板由真实内容计算提供；编辑器尚未完成时沿用[脚本制作途径](../content/demo-catalog.md#制作途径与分工)，不能以临时市场规则或替身填补。
+
+美术按[制作清单](../content/demo-catalog.md#制作途径与分工)分期：第一阶段验证基础场景和小型列车样稿，第三阶段验证三台样机、模型与涂装，第五阶段验证战斗视觉样稿，第六阶段补齐全部正式资产。早期人工功能试玩可使用占位美术，只确认流程与交互，不能据此通过美术、正式性能或完整窗口长测。
 
 各阶段所需的内容、诊断、开发工具和验证配方随功能交付。联调使用本阶段必需的真实实现，验证新增路径并回归此前通过的路径；尚未开发的功能明确保留待验证。每阶段的证据要求见[阶段性联调的验收](../contracts/testing.md#阶段性联调的验收)，派发、交付与放行见[调度 SOP](../dispatch-sop.md#stage-integration)。最后阶段仍须满足下文全部验收要求，不能把前期的局部通过记录当作完整 Demo 通过。
 

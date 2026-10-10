@@ -42,7 +42,7 @@
 
 | 字段 | 类型 | 必填 | 说明与校验 | 阶段 |
 | --- | --- | --- | --- | --- |
-| `category` | 字符串 | 是 | 蓝图类别，由代码提供：`vehicle`、`building`、`large_equipment`、`scene_model`、`creature` | 首个切片只有 `vehicle` |
+| `category` | 字符串 | 是 | 蓝图类别，由代码提供：`vehicle`、`building`、`large_equipment`、`scene_model`、`creature` | Demo；历史首切片仅有 `vehicle` |
 | `simulation` | 对象 | 看类别 | 核心模拟层读取的字段，见[各类别的字段](#各类别的字段) | 首个切片 |
 | `layout` | 对象 | 是 | 布局：自己的体素和被嵌套的复合体，至少有一格或一个被嵌套的复合体 | 首个切片 |
 | `appearance` | 对象 | 否 | 体素引擎层读取的字段，见[各类别的字段](#各类别的字段) | Demo |
@@ -153,7 +153,7 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 | `example-pack` 的 `tree` 树 | 场景模型 | 无行为，只含体素 | Demo |
 | `grove` 树丛 | 场景模型 | 无行为，只含复合体：3 棵朝向不同的树 | Demo |
 | `park` 街心花园 | 场景模型 | 无行为，两者都含：草地加一个树丛和一棵树，嵌套 3 层；`flatten` | Demo |
-| `small-locomotive` 小型车头 | 车辆 | 动力和控制体素；只用首个切片支持的字段 | 首个切片 |
+| `small-locomotive` 小型车头 | 车辆 | 动力和控制体素的基础写法；不代表 Demo 仅支持这些字段 | 历史首切片样例 |
 | `mg-turret` 机枪塔 | 大型设备 | 组装的武器设备：底座加两挺机枪；`rotation`；涂装；调色板里用 `shape: wedge` | Demo |
 | `large-diesel-engine` 大型柴油机 | 大型设备 | 功能复合体：蓝图上带 `propulsion`，里面只有结构体素 | Demo |
 | `armed-locomotive` 武装车头 | 车辆 | 装了武器的车辆：复制的机枪塔，加按身份引用并整件涂装的大型柴油机；转向架、车头灯、楔形车鼻 | Demo |
