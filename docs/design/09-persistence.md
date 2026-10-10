@@ -24,11 +24,12 @@
 
 ```text
 Save
-├─ Header：SaveFormatVersion、显示名称、保存时的真实时间、游戏内时间、资金、依赖的 Mod 列表
+├─ Header：SaveFormatVersion、显示名称、保存时的真实时间、游戏内时间与资金摘要、依赖的 Mod 列表
 ├─ World Source：生成器版本、完整生效生成配置、内容指纹
 ├─ Core State
 │  ├─ WorldSeed
 │  ├─ 模拟步、步内序号、Next Command ID、Next Transaction ID、Next Entity ID
+│  ├─ 全局玩家资金、人口与市场规则引用
 │  ├─ 世界图：节点（位置、地貌概况、占据者、资源）与线路（长度、地貌概况、铁轨上限、铁轨数、断点）
 │  └─ 列车、聚居地、资源与生产、战斗与世界生物等状态，见下文各节
 ├─ Embedded Content：引用到的设计、本局蓝图库、改装草稿、已有聚居地使用的聚居地模板
@@ -36,6 +37,7 @@ Save
 ```
 
 - 上图是逻辑组成，具体字段编码在代码重构时确定。
+- 资金的唯一权威值在核心状态中，头部只供列表快速显示保存边界的摘要，不能作为第二份余额使用。
 - WorldSeed 是核心状态，战斗、生物行动和场景生成的带键随机都使用它。
 - 世界来源只用于诊断，以及“用同样设置再生成一个新世界”，读档时不使用。生成输入的内容见 [05](05-world-graph-and-generation.md#复现输入与输出)。
 - 连续量以可无损往返的 JSON 数值保存，使用与文化无关的 round-trip 表示，恢复相同的 `double` 值；不截断小数位，不允许非有限值。在有效语义内容相同的前提下，验收须比较中途保存恢复与不中断运行的结果，见 [04](04-deterministic-simulation.md#确定性验收)。
@@ -44,7 +46,7 @@ Save
 ### 不保存的状态
 
 - 设计属性、当前能力和运营状态、建筑数量、选路缓存和各种查询索引：读档时由内容和核心状态重新计算。
-- 场景、通知、战报、面板布局等界面状态。
+- 场景、通知、战报、面板布局等界面状态；核心经营统计及近期运行报告不是此处的 UI 历史，按下文保存。
 
 ### 存档中的内容
 
@@ -154,6 +156,14 @@ Save
 ### 资源与生产状态恢复
 
 资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、RepairJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderRepair / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+
+### 交易与运行报告恢复
+
+依据 [19](19-markets-and-trading.md)，以下属于核心状态：全局玩家资金、本局市场规则引用、现车实例及归属和损伤、显式排序的自动交易规则及其评估进度、当前运行累计与有上限的近期报告。租约、到期后的货物占位和冻结权限沿用聚居地状态；容量划分按 [12](12-inventory-and-storage.md#租用库存与共有容量)恢复，不因重新载入多出一份仓储。
+
+余额与实际收付款按最小货币单位的 64 位整数保存，不转成浮点数。库存、人口、设施与租约派生的补货目标、可交易量、剩余现车收购名额和即时价格不是另一份权威市场库存；读档重新推导，不凭空补货、刷新现车或清空留货。
+
+普通停车不结束运行累计，读档不重复记账或再次生成同一圈的报告。规则合法更新不重算历史成交和已付费委托；缺市场规则时保留相关状态，停用市场与自动交易/装卸，合法手动自有转移及仍有效的人口、生产系统不因此停用。精确价格参数的编码及跨层适配由[核心契约](https://github.com/odradekk/train/issues/287)、[内容契约](https://github.com/odradekk/train/issues/288)和[跨层事务](https://github.com/odradekk/train/issues/284)落实，不从 UI 通知或未保存的命令日志重建账目。
 
 ### 示例存档
 

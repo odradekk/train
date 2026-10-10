@@ -6,7 +6,7 @@
 
 ## 边界
 
-本文定义 Goods 在哪里存放以及如何计数：地点库存、Settlement Inventory、Train Inventory、Transfer、Storage Capacity 与 Storage Capability、Overcapacity，以及库存只有 Stack 的规则。Facility OutputBuffer 见 [13](13-production-runtime-and-facilities.md)；货物与体素定义的关系见 [02](02-definitions-and-content.md#库存中的货物)；Storage Equipment 的生产见 [11](11-goods-and-production-network.md)。市场交易与自动 Transfer 策略不在本文。
+本文定义 Goods 在哪里存放以及如何计数：地点库存、Settlement Inventory、Train Inventory、Transfer、Storage Capacity 与 Storage Capability、Overcapacity，以及库存只有 Stack 的规则。Facility OutputBuffer 见 [13](13-production-runtime-and-facilities.md)；货物与体素定义的关系见 [02](02-definitions-and-content.md#库存中的货物)；Storage Equipment 的生产见 [11](11-goods-and-production-network.md)。市场交易与自动 Transfer 策略见 [19](19-markets-and-trading.md)。
 
 ## 不变量
 
@@ -21,8 +21,8 @@
 ### 地点库存
 
 - 不存在全局 Player Inventory。资源系统至少区分 Settlement Inventory、Train Inventory、Facility OutputBuffer 与未来其他明确地点的 Inventory。
-- Train Inventory 与 Settlement Inventory 不自动合并，必须有显式 Transfer；生产 Facility 不能直接读取停靠列车货舱。唯一在此声明的例外是 [14 的 Construction / Refit / Repair 启动事务](14-construction-refit-and-deconstruction.md#construction-job)：在玩家自己的聚居地，可直接消费当前所在地可访问的玩家 Train Inventory 中的 BOM，并记录来源；它不合并库存、不允许生产或回收 Batch、发电等日常设施逻辑绕过 Transfer。Transfer 自动化规则以后可以设计，但必须仍是真实库存移动。
-- 未来市场出售的货物就是聚居地实际库存中的货物，不另设独立的 Market Supply 数量（资源转录 Q279）；出售策略与市场规则本身延后。
+- Train Inventory 与 Settlement Inventory 不自动合并，必须有显式 Transfer；生产 Facility 不能直接读取停靠列车货舱。[14 的 Construction / Refit / Repair 启动事务](14-construction-refit-and-deconstruction.md#construction-job)在玩家自己的聚居地可直接消费当前所在地可访问的玩家 Train Inventory 中的 BOM，并记录来源；NPC 委托按 [19](19-markets-and-trading.md#委托材料采购)使用玩家显式选择的当地列车、租用库存与合法市场补购。两者都不合并库存，不允许生产或回收 Batch、发电等日常设施逻辑绕过 Transfer。自动装卸仍是真实库存移动。
+- 市场出售的货物就是聚居地实际库存中的货物，不另设独立的 Market Supply 数量；留货与采购目标见 [19](19-markets-and-trading.md#补货目标与出售保留量)。
 
 ### Settlement Inventory
 
@@ -35,6 +35,19 @@
 - `UsedCapacity = Σ Stack.Quantity`；每个货物单位占 1 点 Storage Capacity。
 - `TotalGoodsMass = Σ Definition.Mass × quantity`，独立计算。
 - Demo 不增加 Liquid-only capacity、Refrigerated capacity、Hazardous capacity 或 Cargo weight limit；Crude Oil 等仍作为普通标准库存 Goods。
+
+### 租用库存与共有容量
+
+由[市场与交易](https://github.com/odradekk/train/issues/281) Q28 确认：租用库存与 NPC 库存所有权分开，但从同一份真实存储能力划分空间，不能重复承诺容量。
+
+- 可出租额度仍受 [16](16-settlements.md#仓库租用)的比例限制；新租只使用没有被现有库存、有效存储预留或其他租约占用的空间。未出租的比例额度不预先从 NPC 容量中扣除。
+- 有效租期内，完整租出额度从 NPC 库存容量与市场备货预算扣除，无论租户是否存满。租出额度已经包含其中的货物占位，不能再重复扣一次租户现有货物。
+- 到期后只取不存；现有租用货物继续占实际空间，未使用额度释放给聚居地，之后取走货物再释放对应空间。续租重新检查可取得的容量，不保证到期后还能租回原额度；已经保留的空间不能在续租时再算成新增占位。
+- 每次入库同时检查目标库存的额度、全城实际容量和有效存储预留。NPC 与租户均不能借另一种库存名义绕过检查；新的预留也不能重复占用已出租空间。
+- 损伤或能力下降不删除双方货物；超容时禁止会突破入库约束的新货物，合法取出仍允许。NPC 容量扣减到零以下时按零使用，不形成负容量或强制清仓。
+- 此处不改变访问权：敌对冻结仍禁止存取；征服后租用货物并入当地库存，租约结束，规则见 [16](16-settlements.md#仓库租用)。
+
+例如总容量 100、有效租出 20 时，NPC 可用容量为 80。租约到期时租户尚存 7 件，则保留 7 点占位、释放空余的 13 点，NPC 可用容量变为 93；不是立即恢复 100。若 NPC 已经占满 100，不能凭“可租比例”另出租 20。数字只是计量示例，不是内容参数。
 
 ### Storage Capability
 
@@ -59,10 +72,10 @@ Settlement Inventory、Train Inventory、显式 Train ↔ Settlement Transfer、
 
 ## Demo 之后
 
-Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、危险品、重量容量双限制；Transfer 自动化；事故散落 Goods；市场交易。
+Settlement 内部物流网络、Conveyor、Truck；专用液体罐、冷藏、危险品、重量容量双限制；事故散落 Goods。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：未冻结参数：存储部件的容量。
 
-库存与仓储属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。市场交易不再因本文的旧分期排除在 Demo 外，具体规则由[市场与交易：库存、定价与复合体买卖](https://github.com/odradekk/train/issues/281)补齐。
+库存、租用容量划分、市场交易与显式规则的自动装卸属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)，交易语义见 [19](19-markets-and-trading.md)。

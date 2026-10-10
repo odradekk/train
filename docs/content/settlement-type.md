@@ -2,7 +2,7 @@
 
 聚居地类型是聚居地的玩法分类，例如农庄、城市。它决定名称、地图符号、生成权重、地貌偏好和初始人口范围；首个切片里还临时决定供需和站台数。文件名是 `<local id>.settlement-type.json`，放在 `resources/settlement-types/`，资产放在同名文件夹里。Schema 见 [schemas/settlement-type.schema.json](schemas/settlement-type.schema.json)，示例见 [examples/example-pack/resources/settlement-types/](examples/example-pack/resources/settlement-types/)。
 
-类型不列出自己有哪些模板，由模板声明自己属于哪个类型，见[聚居地模板](settlement-template.md)。规则的来由见设计文档 [16 的聚居地类型](../design/16-settlements.md#聚居地类型)。首切片临时供需和站台数字段不再作为完整 Demo 的实施依据，见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)；相关字段、Schema 和样例暂保留，待市场规则与内容契约确定后同步替换。
+类型不列出自己有哪些模板，由模板声明自己属于哪个类型，见[聚居地模板](settlement-template.md)。规则的来由见设计文档 [16 的聚居地类型](../design/16-settlements.md#聚居地类型)。首切片临时供需和站台数字段不再作为完整 Demo 的实施依据：供需由 [19](../design/19-markets-and-trading.md)规定的真实库存、人口与启用的生产计划派生，不按类型配置虚构供需列表。相关字段、Schema 和样例暂保留，替代格式由[内容契约](https://github.com/odradekk/train/issues/288)交付。
 
 Demo 的全部聚居地共用一套独立的人口规则内容数据，见 [18](../design/18-population-and-labor.md#一局共用的人口规则)。类型不提供不同的消费率、劳动比例或人口变化规则；新数据的文件格式与投影由[内容契约票](https://github.com/odradekk/train/issues/288)交付，本文和现有 Schema 尚未包含它。
 
@@ -47,7 +47,7 @@ Demo 的全部聚居地共用一套独立的人口规则内容数据，见 [18](
 | `capacity` | 上限，正整数 |
 | `restore_per_tick` | 每次恢复的数量，非负整数；可以为 0，也可以大于上限，恢复时截到上限 |
 
-人口规则已由 [18](../design/18-population-and-labor.md)确定；待市场规则和内容契约落定后，统一替换临时供需和站台数字段，不把居民需求率当成固定市场收购量。
+人口规则已由 [18](../design/18-population-and-labor.md)确定，市场规则已由 [19](../design/19-markets-and-trading.md)确定；内容契约统一替换临时供需和站台数字段，不把居民需求率当成固定市场收购量。
 
 ## 加载器检查的规则
 
@@ -57,4 +57,4 @@ Demo 的全部聚居地共用一套独立的人口规则内容数据，见 [18](
 
 ## 和现有代码的差别
 
-现在的代码读 `schema_version: 1` 的 `.settlement-types.json`：一个文件多份类型，字段不分节，货物引用写作 `definition`，所有字段必填，没有说明、地图符号和 `major`。改成本格式由实施工单完成。
+现在的代码读 `schema_version: 1` 的 `.settlement-types.json`：一个文件多份类型，字段不分节，货物引用写作 `definition`，所有字段必填，没有说明、地图符号和 `major`。后续实施采用内容契约更新后的格式，不重新实现本文保留的临时供需与站台数字段。

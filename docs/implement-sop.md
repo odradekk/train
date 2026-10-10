@@ -171,14 +171,12 @@ A comment that no longer matches the behavior is a defect. Update comments in th
 
 ```csharp
 /// <summary>
-/// 计算聚居地在当前市场刻对某种货物的报价。
+/// 查询库存当前还能接纳多少个单位的指定货物。
 /// </summary>
-/// <param name="value">货物的基本货币价值，即供需平衡时的价格。</param>
-/// <param name="slot">该聚居地这种货物当前的供给量和需求量。</param>
-/// <returns>以货币单位计的价格：四舍五入（0.5 远离零）后，限制在市场表的价格上下限内。</returns>
+/// <param name="good">要入库的货物种类。</param>
+/// <returns>考虑已有货物与有效存储预留后的非负整数数量；查询不预留空间。</returns>
 /// <example>
-/// 粮食（Value 100，敏感度 0.6，价格范围 60–180）在供给满、没有需求的农庄：
-/// 100 ×（1 + 0.6 ×（0 − 1））= 40，限制到下限 60。
+/// 可用容量为 7，每单位货物占用 3，只能再接纳 2 个单位。
 /// </example>
 ```
 

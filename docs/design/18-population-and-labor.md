@@ -8,7 +8,7 @@
 
 本文定义聚居地常住人口怎样消费、增长和减少，怎样提供劳动力，以及初始化、征服、保存恢复、内容缺失时的行为。只模拟聚居地总量，不模拟个人、年龄、职业、工资、疾病，也不追踪逐人的出生、死亡或城际迁移。
 
-相关规则见[聚居地](16-settlements.md)、[货物目录](11-goods-and-production-network.md)、[库存](12-inventory-and-storage.md)、[生产与资源仲裁](13-production-runtime-and-facilities.md)、[确定性](04-deterministic-simulation.md)和[存档](09-persistence.md)。市场报价、收购、贸易留货和 NPC 如何采购不在本文，由[市场与交易](https://github.com/odradekk/train/issues/281)确定；不能把“可从外部购买”当成已经存在无限货源或自动进口。
+相关规则见[聚居地](16-settlements.md)、[货物目录](11-goods-and-production-network.md)、[库存](12-inventory-and-storage.md)、[生产与资源仲裁](13-production-runtime-and-facilities.md)、[确定性](04-deterministic-simulation.md)和[存档](09-persistence.md)。市场报价、收购、贸易留货和 NPC 如何采购见 [19](19-markets-and-trading.md)；外部供货依靠玩家运输，不存在无限货源、后台 NPC 贸易或免费补货。
 
 本文是已确认的玩法规范，不是实现或测试通过记录。可编译接口及具体调用时序仍由[核心契约](https://github.com/odradekk/train/issues/287)、[内容契约](https://github.com/odradekk/train/issues/288)和[跨层事务](https://github.com/odradekk/train/issues/284)交付。
 
@@ -73,7 +73,7 @@
 2. 生产、开采、供能等设施请求；设施之间沿用[生产优先级与确定性排序](13-production-runtime-and-facilities.md#shared-resource-resolver)。
 3. 改善生活消费；先前为基本需求消费加工食品所产生的改善满足量不得丢失或再次扣货。
 
-这是资源仲裁规则，不是靠系统调用先后来实现的优先级。它不越过已提交事务，不撤销已经卖出的货物，也不自动预留未来几天的口粮；贸易留货由市场票确定。消费使用的库存边界与 [04 的 Tick Barrier](04-deterministic-simulation.md#resolver)、[12 的库存规则](12-inventory-and-storage.md)一致。
+这是资源仲裁规则，不是靠系统调用先后来实现的优先级。它不越过已提交事务，不撤销已经卖出的货物，也不自动预留未来几天的口粮；贸易留货遵循 [19 的补货目标](19-markets-and-trading.md#补货目标与出售保留量)，不阻止消费使用库存。消费使用的库存边界与 [04 的 Tick Barrier](04-deterministic-simulation.md#resolver)、[12 的库存规则](12-inventory-and-storage.md)一致。
 
 ### 消费周期与需求满足率
 
@@ -182,7 +182,6 @@ Demo 不新增配给、消费开关、招募、人口搬迁或单独工人调配
 
 ## 开放问题
 
-- [市场与交易](https://github.com/odradekk/train/issues/281)确定人口需求如何进入采购、价格与贸易留货，不能把本文的消费优先级扩大成未来库存预留或自动进口。
 - [存档、内容发布与会话切换的跨层事务](https://github.com/odradekk/train/issues/284)明确人口规则变更，特别是结算周期变化时的未完成统计期、余量与进度适配，以及失败保持原状态。
 - [核心契约](https://github.com/odradekk/train/issues/287)和[内容契约](https://github.com/odradekk/train/issues/288)交付具体声明、输入投影、内容格式、边界时序和验证入口；本票不以文字规则冒充可编译接口。
 - 人均消费率、权重、食品换算、劳动比例、增长与流失率、两个周期在[Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)中配置，并由后续实施与试玩配平。尚无数值测量和真实运行证据，不预先宣称反馈稳定或验收通过。

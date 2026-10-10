@@ -25,7 +25,7 @@
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
 7. Deterministic Simulation 是整个项目的基础架构原则。
 
-Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；市场与价格的具体规则待定，战斗与征服见 [17](17-combat.md)，人口、消费与劳动力见 [18](18-population-and-labor.md)。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实施任务纳入本次 Demo 工单重组。AI 势力、自动贸易策略和复杂调度在 Demo 之后扩充。
+Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；战斗与征服见 [17](17-combat.md)，人口、消费与劳动力见 [18](18-population-and-labor.md)，市场、显式自动交易规则与运行报告见 [19](19-markets-and-trading.md)。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实施任务纳入本次 Demo 工单重组。AI 势力、自主制定贸易策略和复杂调度在 Demo 之后扩充，不包括 Demo 已有的玩家规则自动执行。
 
 ## 文档地图
 
@@ -38,6 +38,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
 | 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
 | 核心模拟层 | [18-population-and-labor.md](18-population-and-labor.md) | 人口变化、居民消费与劳动力 |
+| 核心模拟层 | [19-markets-and-trading.md](19-markets-and-trading.md) | 真实库存市场、精确定价、现车、自动交易与运行报告 |
 | 核心模拟层 | [06-railway.md](06-railway.md) | 铁路与列车运行 |
 | 核心模拟层 | [17-combat.md](17-combat.md) | 战斗、世界生物与征服 |
 | 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |
@@ -59,7 +60,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 
 每份文档的固定小节：边界、不变量、规则、Demo 范围、Demo 之后、开放问题。Demo 指最终游戏完整可玩的最小集合，也是当前开发里程碑；范围与验收统一记在 [00](00-product-and-core-loop.md)，接口确定后由各实施 Issue 描述模块内的小任务和联调要求。
 
-术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId、Voxel、Cell 分别对应体素定义、体素定义标识、体素、体素格，Value 即基本货币价值；Train Assembly 对应列车编组。文中剩余的 Voxel、Cell 在各篇下次修订时改为中文。Revision，以及 Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进，与术语表的市场刻不是同一概念。
+术语以仓库根目录 `CONTEXT.md` 为准。VoxelDefinition、VoxelDefinitionId、Voxel、Cell 分别对应体素定义、体素定义标识、体素、体素格，Value 即基本货币价值；Train Assembly 对应列车编组。文中剩余的 Voxel、Cell 在各篇下次修订时改为中文。Revision，以及 Raw Good、Extraction、Process、Batch、OutputBuffer、Stack 等尚未进入术语表的概念沿用英文，待对应票落定后再收入。文中的 Simulation Tick 指模拟步进；Demo 不再有恢复供需的市场刻。
 
 ## 总体架构
 
@@ -96,7 +97,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 14. 世界图的节点和线路集合、节点位置、线路长度、地貌概况和铁轨上限在生成后固定；之后只有占据者、铁轨数、断点和资源会变化；节点资源的储量只由开采流程减少，由原地恢复或再生事件增加。
 15. 车辆和建筑实例有自己的设计，只保存设计引用、部件耐久、结构耐久等实例状态；设计属性由内容层从设计派生；蓝图只是模板。每座建筑占据聚居地的一个地块。
 16. 建造、改装、修理和损伤按事务原子结算；战斗按模拟步结算，同一步的全部命中作为一个伤害事件统一施加。
-17. 车辆和建筑只能由显式的建造、购买、委托或世界生成产生。
+17. 车辆和建筑只能由显式的建造、委托或世界生成产生；现车买卖只转移原实例，建筑不单独交易。
 
 ### 内容
 

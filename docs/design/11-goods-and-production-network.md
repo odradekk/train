@@ -6,13 +6,13 @@
 
 ## 边界
 
-本文定义哪些东西进入资源与货物体系、货物拆分与多输出的内容设计原则、Demo 的 Raw Goods 与 Primary Production、Forward Production DAG 与 Recovery DAG 的内容骨架、Paint 与货物身份。节点资源与开采见 [10](10-resources-and-extraction.md)；Process Definition 的结构与执行见 [13](13-production-runtime-and-facilities.md)；库存见 [12](12-inventory-and-storage.md)；车辆与建筑使用货物建造见 [14](14-construction-refit-and-deconstruction.md)。市场 Supply / Demand、Price、Treasury、人口消费与具体装备玩法不在本文；未来经济系统以本文与 [12](12-inventory-and-storage.md)、[13](13-production-runtime-and-facilities.md) 产生和消耗的真实 Goods、Inventory、Production Capability 为事实基础。
+本文定义哪些东西进入资源与货物体系、货物拆分与多输出的内容设计原则、Demo 的 Raw Goods 与 Primary Production、Forward Production DAG 与 Recovery DAG 的内容骨架、Paint 与货物身份。节点资源与开采见 [10](10-resources-and-extraction.md)；Process Definition 的结构与执行见 [13](13-production-runtime-and-facilities.md)；库存见 [12](12-inventory-and-storage.md)；车辆与建筑使用货物建造见 [14](14-construction-refit-and-deconstruction.md)。人口消费见 [18](18-population-and-labor.md)，供需、价格、资金与交易见 [19](19-markets-and-trading.md)；它们以本文与库存、生产规则产生和消耗的真实货物为事实基础。
 
 ## 不变量
 
 - 货物是带 `simulation` 一节的体素定义（[02](02-definitions-and-content.md#体素定义)，[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认），或能入库的复合体，例如大型设备（[复合体嵌套：大型设备装到车辆和建筑上](https://github.com/odradekk/train/issues/249)，2026-10-09）。不建立独立的 GoodDefinition、MaterialDefinition 或 ComponentDefinition 体系；金属、能源、生物、食品原料等大类只是内容组织，不建立 ResourceCategory、RawGoodCategory 之类的强类型领域层（资源转录 Q211）。
 - 资源网络中的对象必须是物质性、可库存、标准化且原则上可交易的实物；Crew、Power、Labor、Time 不属于 Goods。
-- 车辆和建筑不是货物：能整体买卖，但不进入库存或 Production DAG。大型设备由建造设施按蓝图建造后入库，不经过 Production DAG，见 [14](14-construction-refit-and-deconstruction.md#construction-job)。
+- 车辆和建筑不是货物，不进入库存或 Production DAG。车辆可以整体交易；Demo 中建筑不单独买卖，随聚居地取得，或在自有聚居地建造，见 [19](19-markets-and-trading.md)。大型设备由建造设施按蓝图建造后入库，不经过 Production DAG，见 [14](14-construction-refit-and-deconstruction.md#construction-job)。
 - Production DAG 与 Recovery DAG 分离，且各自都是有向无环图。
 - 不存在生产 Tier：Raw、Material、Component、Finished 只是内容语义或 Tag，不构成合法性层级。
 - Gameplay Difference Test 决定是否拆分商品；现实中存在差异，不等于游戏中需要独立 Definition。
@@ -177,11 +177,11 @@ Control Equipment      → Electronic Components + Electrical Components
 
 ## Demo 之后
 
-Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；具体 Train Equipment 玩法与医疗效果；弹药。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
+Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；贸易税与 NPC 经济规划；具体 Train Equipment 玩法与医疗效果；弹药。供需、价格曲线、玩家资金、买卖价差和真实库存市场已纳入 Demo，见 [19](19-markets-and-trading.md)。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
 - 地图迷雾（不立票）：Train Equipment 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
-资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口消费已确定并纳入 Demo，见 [18](18-population-and-labor.md)；本文旧分期中的市场条目由[市场与交易](https://github.com/odradekk/train/issues/281)修订，不能据此排除完整 Demo 已纳入的规则。
+资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口消费见 [18](18-population-and-labor.md)，市场与交易见 [19](19-markets-and-trading.md)，均已纳入 Demo；不能用资源转录的旧分期排除这些规则。
