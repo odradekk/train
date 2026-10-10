@@ -1,6 +1,6 @@
 # 世界生成配置
 
-文件为 `resources/generation-profiles/<local id>.generation-profile.json`，`schema_version` 为 1。遵循 [通用规则](README.md)：一文件一份定义、严格 JSON、命名空间引用和包依赖。Schema 见 [对应 Schema](schemas/generation-profile.schema.json)。样例只展示格式，不冻结配平数值。
+文件为 `resources/generation-profiles/<local id>.generation-profile.json`，`schema_version` 为 2。新版增加必填的全局再生触发比例，不接受缺少该输入的旧版配置。遵循 [通用规则](README.md)：一文件一份定义、严格 JSON、命名空间引用和包依赖。Schema 见 [对应 Schema](schemas/generation-profile.schema.json)。样例只展示格式，不冻结配平数值。
 
 配置具有包命名空间加 local id 的稳定身份。WorldSeed 与 GeneratorVersion 由宿主传入，不写在此文件；内容解析配置、引用与默认值，返回核心 `ResolvedGenerationConfiguration`、`NewGameStartInput` 及生成内容语义修订，组成 `WorldGenerationInput`。作者只填蓝图引用，所有 DesignHash 由内容计算。生成预算计数语义归 GeneratorVersion。宿主不读取 JSON 或内部索引。
 
@@ -41,7 +41,9 @@
 | `start_constraints` | 默认开局检查参数，见下文 |
 | `rules` | `population`、`market`、`construction`、`railway`、`combat` 分别引用对应规则，投影为核心 RuleSelection。选中的规则必须存在且类别正确 |
 
-每个资源条目包括：`good` 是 Raw Good 体素引用；`allowed_terrain_types` 是允许的地貌引用数组；`probability` 在 [0,1]；`minimum_reserve`、`maximum_reserve` 是非负 Int64 件数，最小不大于最大；`renewable` 是布尔值；`recovery_units_per_second` 是非负件/模拟秒；`regeneration_interval_seconds` 是正数模拟秒。资源货物不重复、地貌引用不重复。非可再生资源仍显式填写两个恢复字段，但核心不执行恢复；可再生资源的参数供运行中的再生使用，不由内容执行再生。
+每个资源条目包括：`good` 是 Raw Good 体素引用；`allowed_terrain_types` 是允许的地貌引用数组；`probability` 在 [0,1]；`minimum_reserve`、`maximum_reserve` 是非负 Int64 件数，最小不大于最大；`renewable` 是布尔值；`recovery_units_per_second` 是非负件/模拟秒；`regeneration_interval_seconds` 是正数模拟秒；`global_regeneration_remaining_reserve_ratio` 是 [0,1] 的全局再生触发比例。以上字段均必填，所有连续值有限。资源货物不重复、地貌引用不重复。
+
+`renewable=true` 时，核心使用 `recovery_units_per_second` 原地恢复至该项生成时的初始储量上限，不执行全局新增；`renewable=false` 时，不执行原地恢复，按 `regeneration_interval_seconds` 周期检查该货物在全世界的剩余总储量，低于初始总量乘 `global_regeneration_remaining_reserve_ratio` 时，在合适节点新增该资源，储量沿用 `minimum_reserve`、`maximum_reserve` 范围。候选和随机规则见[资源与开采](../design/10-resources-and-extraction.md#再生事件)。内容只交出参数，不执行恢复或再生；样例中的触发比例只是格式示例，不冻结配平值。
 
 `npc_initialization` 全部字段：`fill_inputs_and_living_targets` 决定是否按核心规则补输入原料与生活物资目标；`output_reserve_hours` 是非负模拟小时的潜在产量预存时长；`minimum_for_sale_vehicles`、`maximum_for_sale_vehicles` 是非负 Int32 数量范围，最小不大于最大；`for_sale_vehicle_candidates` 是不重复的车辆蓝图引用数组，内容计算 DesignHash，初始化由核心按车间档位筛选。需要现车时数组不能为空。内容不推算库存目标、产能或车辆名额。
 

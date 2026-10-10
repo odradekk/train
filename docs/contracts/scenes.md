@@ -30,6 +30,8 @@
 
 宿主传入的 `SceneWorldSnapshot` 来自同一完整边界，核心 `InputIdentity` 与内容 `Core.Identity` 相同。同一有效世代中，本局已保存草稿或新聚居地模板副本可以增加 `PersistentRevision`；只要业务输入及世代仍匹配，就能交入新的固定视图。体素不得把不同边界查询拼成一次快照。OpenWorld 在创建前检查初始核心视图与内容业务输入身份，不匹配时抛 ArgumentException，不创建会话。
 
+生物按核心查询或本次事件的 `Definition`，从配对固定内容视图的 `FindCreature` 取得当前种类外观；核心不提供生物设计哈希。生物死亡后的瞬时表现也按事件保留的种类解释，不要求死亡个体仍在查询结果中。车辆和建筑仍按实例或事件中的设计身份取得对应布局。
+
 ## 世界场景会话
 
 一次调用顺序如下：
@@ -107,7 +109,9 @@ Base 不匹配、资源尚未准备好或适配失败时，不部分应用更新
 
 `Preview` 固定操作、选区、当前进入对象和 EditStamp，不修改草稿。区域覆盖去重、上限、确认门槛沿用[编辑规则](../design/15-design-editor-and-tools.md#编辑)。CoveredCells 是覆盖格数，AffectedCells 是实际将改变的格数，SkippedCells 是空格或无变化等不适用格数，不能把冲突计为跳过后部分提交。未知占格时 OccupancyComplete=false，不能声称已完成完整冲突检查。
 
-Conflicts 提供具体格或元素及原因。HighlightCells 在当前进入对象坐标中表示旋转扫过范围、放置/替换/移动/复制的目标覆盖，其余为操作范围；Godot 画覆盖层，不自行算扫掠。工作平面与包络分别来自 EditViewOptions 和内容评估，Godot 可按这些公开几何值画线框。体素只做动作约束，内容诊断负责完整设计合法性；草稿暂时不连通或不合法仍可保存。
+Conflicts 提供具体格或元素及原因。HighlightCells 在当前进入对象坐标中表示 RotateSelection 离散 90° 编辑动作的扫过范围、放置/替换/移动/复制的目标覆盖，其余为操作范围；Godot 画覆盖层，不自行算扫掠。工作平面与包络分别来自 EditViewOptions 和内容评估，Godot 可按这些公开几何值画线框。体素只做动作约束，内容诊断负责完整设计合法性；草稿暂时不连通或不合法仍可保存。
+
+设备 rotation 行为的全角度范围与冲突格读取当前评估的 Scene.RotationSweeps，不能用 HighlightCells 代替。按 NestedItemIndices 匹配选中对象（空路径为根），体素用已有层级放置与本帧原点变换生成覆盖线框，经 Present 返回帧的 DebugLines 交出；这些编辑线框不要求开启开发调试图层。Godot 直接绘制帧中线框，不转换嵌套设计坐标或重算内容合法性几何。SweptCells 与 ConflictCells 的 Known/Unknown 分别显示，未知提示读取 CurrentEvaluation，不能将未知冲突显示为完整无冲突。AcceptEvaluation 拒绝的迟到结果不能更新这些覆盖层；草稿改变后随 CurrentEvaluation 清空，不能保留旧范围冒充当前结果。
 
 `Apply` 只接受本会话产生的当前预览。新预览、切换进入对象、草稿改变或关闭后旧预览失效；选择改变不重定向已固定的预览。RequiresConfirmation=true 时必须显式 confirmed=true；否则返回 confirmation_required。已知冲突导致整笔拒绝，草稿、修订与撤销不变。未知引用保留并锁定，父级、选区、移动、旋转、复制、替换等均不能间接改变它；允许编辑其他已知部分不意味着未知处被推定为空。
 

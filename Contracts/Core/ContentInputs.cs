@@ -242,11 +242,15 @@ public sealed record TerrainGenerationBand(TerrainTypeId Terrain, double Minimum
     double MaximumElevation, double MinimumMoisture, double MaximumMoisture,
     double MaximumRelief, double DetourMultiplier, int MaximumTracks);
 public sealed record LairGenerationWeight(LairTypeId Type, int Weight);
-/// <summary>储量为非负整数件；概率 [0,1]；可再生资源恢复速率为有限非负件/模拟秒。</summary>
+/// <summary>
+/// 储量为非负整数件；概率及全局再生触发比例在 [0,1]，全部连续值有限。
+/// 可再生资源按有限非负件/模拟秒原地恢复；不可再生资源按正模拟秒周期检查，
+/// 全世界剩余量低于初始总量乘触发比例时新增节点资源，储量沿用生成范围。
+/// </summary>
 public sealed record ResourceGenerationEntry(VoxelDefinitionId Good,
     ImmutableArray<TerrainTypeId> AllowedTerrainTypes, double Probability,
     long MinimumReserve, long MaximumReserve, bool Renewable, double RecoveryUnitsPerSecond,
-    double RegenerationIntervalSeconds);
+    double RegenerationIntervalSeconds, double GlobalRegenerationRemainingReserveRatio);
 public sealed record InitialRailwayConfiguration(int MaximumTracks, int MinimumInitialTracks,
     int MaximumInitialTracks, int AdditionalCycleEdges);
 public sealed record GenerationBudget(int MaximumStageRetries, int MaximumWorldRetries,

@@ -126,6 +126,14 @@ public abstract record NestedObjectDetails
 public sealed record NestedObjectProjection(ImmutableArray<int> NestedItemIndices,
     GridPosition At, VoxelOrientation Orientation, NestedObjectDetails Details);
 /// <summary>
+/// 对象路径沿用 NestedObjectProjection.NestedItemIndices，空路径为根。
+/// 两组格均在最外层设计坐标中；内容按 rotation 全角度范围及嵌套转动计算，包含自身占格的扫过范围不把自身判为冲突。
+/// 缺失占格或转动资料时，相应结果为 Unknown，不以已知格子或空集合冒充完整结果。
+/// </summary>
+public sealed record RotationSweepProjection(ImmutableArray<int> NestedItemIndices,
+    ComputedValue<ImmutableArray<GridPosition>> SweptCells,
+    ComputedValue<ImmutableArray<GridPosition>> ConflictCells);
+/// <summary>
 /// Voxels 包含已知格及缺失单格占位；缺失功能复合体见 NestedObjects/Elements，不能按一格补齐。
 /// OccupancyComplete=false 时 OccupiedBounds 只涵盖已知占格，不能用于宣布冲突检查完成。
 /// 根对象自身的转动或平整声明见 RootRotation/RootFlatten。
@@ -136,6 +144,7 @@ public sealed record DesignSceneProjection(DesignHash? Design,
     ImmutableArray<SceneVoxelProjection> Voxels,
     ImmutableArray<DesignElementProjection> Elements,
     ImmutableArray<NestedObjectProjection> NestedObjects,
+    ImmutableArray<RotationSweepProjection> RotationSweeps,
     ImmutableArray<DesignEditLock> EditLocks);
 
 /// <summary>完整、部分和失败明确区分；计算结果只适用于请求固定的草稿及内容世代。</summary>

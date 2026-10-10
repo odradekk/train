@@ -167,7 +167,7 @@
   - 任务期间实例被锁定，完成时原子地换成目标设计。
 - **修理**：把实例恢复到它自己的设计：补回被毁部件，把受损部件和结构耐久恢复到上限。
 - 部件不在车辆或建筑之外保留个体身份。Demo 中列车不消耗燃料，武器不消耗弹药；燃料只由聚居地电力池消耗，见 [13](13-production-runtime-and-facilities.md#power-与-fuel)（[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)）。
-- 成本、工作量、锁定与失败规则见 [14](14-construction-refit-and-deconstruction.md)。调试模式和控制台的瞬时原子改装保留为调试命令，见 [15](15-design-editor-and-tools.md#调试命令)。
+- 成本、工作量、锁定与失败规则见 [14](14-construction-refit-and-deconstruction.md)。Demo 的调试验证也使用正式改装及[运行到条件](15-design-editor-and-tools.md#运行控制)，瞬时调试改装不在本轮范围内。
 
 ### Tag、Behavior、Capability
 

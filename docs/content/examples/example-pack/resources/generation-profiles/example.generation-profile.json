@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "example",
   "display": {"name": "示例世界", "description": "用于展示内容格式的最小世界生成配置。"},
   "configuration": {
@@ -60,7 +60,8 @@
         "maximum_reserve": 1000,
         "renewable": true,
         "recovery_units_per_second": 1,
-        "regeneration_interval_seconds": 600
+        "regeneration_interval_seconds": 600,
+        "global_regeneration_remaining_reserve_ratio": 0.2
       }
     ],
     "initial_railway": {

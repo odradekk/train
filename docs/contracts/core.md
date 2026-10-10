@@ -46,6 +46,8 @@
 
 `ProcessProjection` 共享版本、工作量、电力与劳动力系数、设施标签和地貌要求；`ProcessDetails` 将生产、开采、回收的强类型身份及货物资料分别封闭。开采只有 `Extracts`，其产出隐含为同种货物、同样数量；生产和回收分别持有输入输出。三种流程均可要求地貌，`AllowedTerrainTypes` 为空表示没有地貌要求。
 
+`ResourceGenerationEntry` 保持扁平配置。`Renewable=true` 使用 `RecoveryUnitsPerSecond` 原地恢复至该项生成时的初始储量上限；不可再生资源按 `RegenerationIntervalSeconds` 检查全世界该货物的剩余总储量，低于初始总量乘 `GlobalRegenerationRemainingReserveRatio` 时新增节点资源。触发比例为有限 `double`，范围 [0,1]；新增储量沿用 `MinimumReserve`、`MaximumReserve`，候选与随机规则遵循[资源与开采](../design/10-resources-and-extraction.md#再生事件)。参数由内容提供，不在契约中冻结配平值。
+
 `SettlementTemplates` 是按外部定义身份唯一的当前源目录。世界生成或建城选定模板后，核心在聚居地或建城任务内部直接保存自己的模板业务数据，包含地块、起始建筑、库存及生产计划，不公开全模板或全局副本哈希目录。内容按聚居地实例身份保存对应场景模型设计和地块布局副本；外部模板更新不改已有聚居地或进行中的建城任务。`SettlementView.SourceTemplateId` 仅用于可选来源追溯；`FoundingJobView` 返回预留的最终 `ReservedSettlementId` 与 `SourceTemplateId`。`PlotView.TemplatePlotNumber` 对应内容副本的本地地块号，不能从运行时 `PlotId` 或数组顺序猜测布局。
 
 总工作量与工作系数为整数，进行中的 `ProgressWork` 保留小数。工钱费率是整数金额/工作量；租金费率是整数金额/容量/模拟小时，期限用模拟步。逐件货物、整车、服务费的结算以及两轮备货算法统一见[市场规则](../design/19-markets-and-trading.md)和[潜在消耗](../design/13-production-runtime-and-facilities.md#备货用的潜在消耗)，调用方不得复算。
@@ -92,7 +94,7 @@
 
 `Submit` 和 `Advance` 返回本次产生的 `EventEnvelope`，按 `Position`、该位置内的 `Ordinal` 排列。宿主在完整边界之后分发；核心不提供回调、消费者游标、补发窗口或另一个订阅系统。正常拒绝和故障回滚不返回未提交的业务事件；多步调用仍返回此前已经完成步骤的事件。
 
-事件用于通知和瞬时表现。射击与命中事件保存武器部件、目标部件/生物、当时设计和地点，即使对象在同一步被删除也能解释；持续损伤、人员和库存以查询为准。后来打开场景只重建当前状态，不补演遗漏的射击。战报由宿主按[界面规则](../design/08-window-and-ui.md)保留，不等于核心录制或存档。
+事件用于通知和瞬时表现。射击与命中事件保存武器部件、目标部件/生物及地点；实例表现引用保留当时设计，即使对象在同一步被删除也能解释。生物查询和表现引用保留种类身份 `Definition`，不保存设计；体素通过与核心视图或事件配对的固定内容视图调用 `FindCreature(Definition)` 取得当前种类外观。持续损伤、人员和库存以查询为准。后来打开场景只重建当前状态，不补演遗漏的射击。战报由宿主按[界面规则](../design/08-window-and-ui.md)保留，不等于核心录制或存档。
 
 ## 命令与执行
 

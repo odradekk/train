@@ -13,7 +13,7 @@
   ],
   "properties": {
     "schema_version": {
-      "const": 1
+      "const": 2
     },
     "id": {
       "$ref": "common.schema.json#/$defs/localId"
@@ -241,7 +241,8 @@
               "maximum_reserve",
               "renewable",
               "recovery_units_per_second",
-              "regeneration_interval_seconds"
+              "regeneration_interval_seconds",
+              "global_regeneration_remaining_reserve_ratio"
             ],
             "properties": {
               "good": {
@@ -278,6 +279,11 @@
               "regeneration_interval_seconds": {
                 "type": "number",
                 "exclusiveMinimum": 0
+              },
+              "global_regeneration_remaining_reserve_ratio": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
               }
             }
           }

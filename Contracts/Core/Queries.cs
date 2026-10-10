@@ -314,8 +314,8 @@ public sealed record CombatView(CombatId Id, WorldLocation Location, ulong Start
     ImmutableArray<CombatParticipantView> Participants);
 /// <summary>生物群当前活动。</summary>
 public enum CreatureActivity { Guarding, Wandering, RaidingSettlement, RaidingRailway, Combat, Retreating }
-/// <summary>生物个体设计及生命值，无部件。</summary>
-public sealed record CreatureView(CreatureId Id, CreatureDefinitionId Definition, DesignHash Design, long Health, long MaximumHealth);
+/// <summary>生物个体种类及生命值，无部件；外观由配对固定内容视图按种类取得。</summary>
+public sealed record CreatureView(CreatureId Id, CreatureDefinitionId Definition, long Health, long MaximumHealth);
 /// <summary>生物群持续状态；Home 为空表示聚落已被清剿。</summary>
 public sealed record CreatureGroupView(CreatureGroupId Id, LairId? Home, WorldLocation Location,
     TravelDirection? Direction, CreatureActivity Activity, double SpeedMetersPerSecond, ImmutableArray<CreatureView> Creatures);

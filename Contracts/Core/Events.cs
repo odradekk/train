@@ -116,9 +116,9 @@ public abstract record CoreEvent
 
 /// <summary>瞬时表现所需实例设计和地点，删除后仍是有效值。</summary>
 public sealed record InstancePresentationRef(InstanceId Instance, DesignHash Design, WorldLocation Location);
-/// <summary>瞬时表现所需生物定义、设计、个体和群身份。</summary>
+/// <summary>瞬时表现所需生物定义、个体、群身份和地点；外观由配对固定内容视图按定义取得。</summary>
 public sealed record CreaturePresentationRef(CreatureGroupId Group, CreatureId Creature,
-    CreatureDefinitionId Definition, DesignHash Design, WorldLocation Location);
+    CreatureDefinitionId Definition, WorldLocation Location);
 /// <summary>射击者精确到武器部件或生物个体。</summary>
 public abstract record AttackSource
 {

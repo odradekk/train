@@ -73,7 +73,7 @@ public interface IEditPreview
     bool CanApply { get; }
     bool RequiresConfirmation { get; }
     ImmutableArray<EditConflict> Conflicts { get; }
-    /// <summary>当前进入对象的格坐标；旋转为扫过范围，放置、替换、移动和复制为目标覆盖，其余为操作范围。</summary>
+    /// <summary>当前进入对象的格坐标；RotateSelection 为离散编辑动作扫过范围，放置、替换、移动和复制为目标覆盖，其余为操作范围；设备行为的全转动范围来自内容评估。</summary>
     ImmutableArray<GridPosition> HighlightCells { get; }
 }
 public interface IDesignEditSession : IDisposable

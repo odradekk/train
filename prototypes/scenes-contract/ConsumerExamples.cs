@@ -137,6 +137,19 @@ public sealed class EditorConsumer(IDesignEditSession session, ISceneDisplay dis
 {
     private ISceneFrame? displayedFrame;
 
+    /// <summary>同步读取当前评估的转动元数据；null 表示无当前评估。正式覆盖线框经 Present 返回帧交出，此处不示范坐标转换或绘制。</summary>
+    public void ReadRotationMetadata(Action<EditStamp, ImmutableArray<RotationSweepProjection>?> consume)
+    {
+        var state = session.Read();
+        var scene = state.CurrentEvaluation switch
+        {
+            DesignEvaluation.Complete complete => complete.Scene,
+            DesignEvaluation.Partial partial => partial.Scene,
+            _ => null
+        };
+        consume(state.Snapshot.Stamp, scene?.RotationSweeps);
+    }
+
     public static SceneResult<IDesignEditSession> Open(IScenesFactory factory,
         IContentView content, DesignEvaluation initial) => factory.OpenEditor(content, initial);
 

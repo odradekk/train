@@ -81,6 +81,12 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 
 `TerrainAppearanceProjection` 分别提供地表、下层与岩层的场景体素引用，对应地貌格式的 `surface_voxel`、`subsurface_voxel` 和 `rock_voxel`；具体分层生成算法仍归体素模块。体素目录与下层引用由[体素公开契约](https://github.com/odradekk/train/issues/289)补齐，不新增格式版本或模拟规则。
 
+`DesignSceneProjection.RotationSweeps` 是内容合法性计算的设备转动几何交接，只在 Scene 中保存一份。每个已知声明 `rotation` 的根或嵌套对象恰有一项；`NestedItemIndices` 与 `NestedObjectProjection` 使用同一对象路径，空路径表示根。缺失功能复合体也保留该路径的一项，两组结果均为 `Unknown`，不能因无法取得转动声明而将它当作没有转动行为。确定没有转动的对象不产生条目。
+
+`SweptCells` 包含对象在行为全角度范围内扫过的全部格（含自身占格）；`ConflictCells` 是内容依照设计 03 判定其中与宿主其他占格冲突或超出适用包络的格，不把对象自身占格当障碍。内容负责嵌套转动组合与排除自身的规则。两组格均为最外层设计坐标，格不重复、集合不可为 default；根没有宿主时不虚构宿主障碍或包络。两组结果分别复用 `ComputedValue<T>`：例如范围可算出但宿主存在未知占格时，范围可为 `Known`，冲突必须为 `Unknown`。只有 `Known` 空冲突集合才表示该项完整检查没有冲突；`Unknown` 携带原因，不能用已知子集或空集合冒充完整结果，也不能据此判定设计合法。
+
+体素按选中对象路径读取当前评估条目，利用已有层级放置与本帧原点变换生成覆盖线框，随 `Present` 返回的 `ISceneFrame.DebugLines` 交出；Godot 直接绘制帧中的线框，不从 `RotationAppearance` 重算合法性几何。该结果随整份 `DesignEvaluation` 经 `AcceptEvaluation` 接入，迟到结果不能更新范围、冲突或未知提示；离散 90° 编辑动作的 `HighlightCells` 仍是另外的动作预览。
+
 ## 聚居地自己的模板副本
 
 每个聚居地直接持有建立时复制的模板，不增加模板哈希、共享副本目录或模板哈希校验。核心内部保存该实例的地块等业务字段；内容按相同 `SettlementId` 保存布局、固定场景模型设计和来源追溯。模板里的体素、功能复合体等外部引用仍按正常规则解析；复制模板不等于冻结全部外部定义。

@@ -8,6 +8,8 @@
 
 `ISceneDisplay` 和 `IContentCommit` 只有边界声明，没有实现。实际适配器必须兑现注释中的成功语义；不能用恒定返回 `true` 验证契约。保存目标成功与随后 `MarkSaved` 接受是两个结果；方法返回 `false` 不表示目标一定未提交。
 
+`ReadRotationMetadata` 只示范同步读取会话当前评估中的设备转动元数据，保留修订和已知／未知区别；null 表示没有当前评估。正式覆盖线框由体素通过既有 `Present → ISceneFrame.DebugLines` 交出，Godot 直接绘制。这个读取样例不实现选区匹配、坐标转换或绘制，也不证明嵌套转动和实际覆盖层正确。
+
 显示调用成功但返回 `Readiness.Failed` 仍是构建失败，不能接入该帧。调用方收到调用失败、Failed 帧或资源故障后立即禁止旧帧交互，并按 [Godot 故障入口](../../docs/contracts/godot.md#界面命令与诊断)处理；这里没有实现完整宿主的返回地图或保留编辑草稿流程。
 
 `DesignIconConsumer` 先读取货物的显示设计，再调用 `FindDesign`、`PreviewDesign` 和 `Present`；只读预览通过 `using` 释放，不创建编辑或撤销状态。没有显示设计的货物交由已有图标入口处理。该样例只证明调用可组合，不验证网格算法。
