@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "id": "example",
+  "display": {"name": "示例世界", "description": "用于展示内容格式的最小世界生成配置。"},
+  "configuration": {
+    "width_meters": 20000,
+    "height_meters": 20000,
+    "minimum_node_spacing_meters": 2000,
+    "candidate_probability": 0.5,
+    "elevation_noise": [
+      {
+        "scale_meters": 5000,
+        "amplitude": 1
+      }
+    ],
+    "moisture_noise": [
+      {
+        "scale_meters": 5000,
+        "amplitude": 1
+      }
+    ],
+    "river_noise": [
+      {
+        "scale_meters": 3000,
+        "amplitude": 1
+      }
+    ],
+    "lake_elevation_threshold": 0.1,
+    "river_band_half_width": 0.05,
+    "terrain_bands": [
+      {
+        "terrain": "plains",
+        "minimum_elevation": 0,
+        "maximum_elevation": 1,
+        "minimum_moisture": 0,
+        "maximum_moisture": 1,
+        "maximum_relief": 1,
+        "detour_multiplier": 1.1,
+        "maximum_tracks": 3
+      }
+    ],
+    "terrain_sample_spacing_meters": 100,
+    "settlement_ratio": 0.5,
+    "lair_ratio": 0.1,
+    "hostile_settlement_ratio": 0.2,
+    "lair_weights": [
+      {
+        "type": "small-nest",
+        "weight": 1
+      }
+    ],
+    "resources": [
+      {
+        "good": "grain",
+        "allowed_terrain_types": [
+          "plains"
+        ],
+        "probability": 0.5,
+        "minimum_reserve": 100,
+        "maximum_reserve": 1000,
+        "renewable": true,
+        "recovery_units_per_second": 1,
+        "regeneration_interval_seconds": 600
+      }
+    ],
+    "initial_railway": {
+      "maximum_tracks": 3,
+      "minimum_initial_tracks": 1,
+      "maximum_initial_tracks": 2,
+      "additional_cycle_edges": 2
+    },
+    "budget": {
+      "maximum_stage_retries": 3,
+      "maximum_world_retries": 3,
+      "maximum_candidates": 10000,
+      "maximum_search_work": 100000
+    },
+    "npc_initialization": {
+      "fill_inputs_and_living_targets": true,
+      "output_reserve_hours": 2,
+      "minimum_for_sale_vehicles": 1,
+      "maximum_for_sale_vehicles": 2,
+      "for_sale_vehicle_candidates": [
+        "small-locomotive"
+      ]
+    },
+    "start_constraints": {
+      "minimum_reachable_non_hostile_settlements": 2,
+      "minimum_reachable_empty_nodes": 1,
+      "require_station": true,
+      "exclude_adjacent_lairs": true,
+      "fully_loaded_purchase_rounds_per_train": 1,
+      "required_affordable_commission_design": "small-locomotive"
+    },
+    "rules": {
+      "population": "demo-population",
+      "market": "demo-market",
+      "construction": "demo-construction",
+      "railway": "basic",
+      "combat": "basic"
+    }
+  },
+  "start": {
+    "initial_money": 10000,
+    "trains": [
+      {
+        "vehicles": [
+          "small-locomotive"
+        ],
+        "inventory": []
+      }
+    ]
+  }
+}

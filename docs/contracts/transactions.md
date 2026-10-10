@@ -2,7 +2,7 @@
 
 本协议由[存档、内容发布与会话切换的跨层事务](https://github.com/odradekk/train/issues/284)的 Q1–Q25 确认，落实[模块责任与类型归属](README.md)。它规定调用方可依赖的时序、身份、所有权和失败结果，不规定模块内部状态布局，也不新增通用事务框架。
 
-这是目标契约，尚无对应的可编译声明或产品实现。四份模块接口、调用原型、独立模块测试、真实文件与 Godot 验证仍由后续任务交付；本文的时序和算例不是这些测试已经通过的证据。
+这是目标契约；核心与内容的可编译声明及调用样例已交付，见[核心契约](core.md)和[内容契约](content.md)。其余模块接口、行为原型、独立模块测试、真实文件与 Godot 验证仍由后续任务交付；本文的时序和算例不是这些测试已经通过的证据。
 
 业务规则的唯一来源仍是[内容](../design/02-definitions-and-content.md)、[确定性与录制](../design/04-deterministic-simulation.md)、[存档](../design/09-persistence.md)、[人口](../design/18-population-and-labor.md#内容缺失与更新)和[市场](../design/19-markets-and-trading.md#内容更新与恢复)。本页引用规则，不重新定义消费、定价、设计计算或生产算法。
 
@@ -157,4 +157,4 @@
 
 [核心契约](https://github.com/odradekk/train/issues/287)与[内容契约](https://github.com/odradekk/train/issues/288)提供候选、引用声明、捕获、适配结果和记录的可编译公开操作；[体素契约](https://github.com/odradekk/train/issues/289)与[Godot 契约](https://github.com/odradekk/train/issues/290)落实版本配对、结果适用性、线程与资源交接。它们须实现本协议的语义，而不是要求宿主自行拼接模块内部事务。
 
-本票不先造一套占位 C# 接口冒充成熟声明，不改变已确认的契约项目依赖。具体签名、冻结状态编码、整包持久发布方案与调用样例仍须在所属票解决，再由[契约原型](https://github.com/odradekk/train/issues/292)验证；后续发现协议冲突须按受控变更流程确认，不能由单个模块自行解释。
+具体签名、冻结状态编码、整包持久发布方案与调用样例由所属模块交付，再由[契约原型](https://github.com/odradekk/train/issues/292)验证；后续发现协议冲突须按受控变更流程确认，不能由单个模块自行解释。新局和建城须在提交前准备实例持有的模板副本，核心业务数据与内容布局通过聚居地身份配对，见[模板副本](content.md#聚居地自己的模板副本)。

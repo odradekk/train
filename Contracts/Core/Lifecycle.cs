@@ -7,7 +7,7 @@ namespace Train.Core.Contracts;
 /// <summary>装配处取得的核心工厂；实现程序集的创建函数只返回此接口。</summary>
 public interface ICoreFactory
 {
-    /// <summary>在独立状态中生成新局；失败不会改变另一活动会话。</summary>
+    /// <summary>在独立状态中生成新局；候选引用列出全部聚居地副本所有者，失败不会改变另一活动会话。</summary>
     CoreResult<ICoreSessionCandidate> PrepareNew(WorldGenerationInput input,
         CoreContentProjection content, CoreSessionOptions options);
     /// <summary>解析当前格式并公开引用清单，不要求宿主解析核心 JSON。</summary>
@@ -15,7 +15,7 @@ public interface ICoreFactory
     /// <summary>按当前内容适配普通读档，保留无法解析的合法占位及冻结执行资料。</summary>
     CoreResult<ICoreSessionCandidate> PrepareRestore(ICoreCapture saved,
         CoreContentProjection content, CoreSessionOptions options);
-    /// <summary>仅使用固定基准计算待提交结果；可由宿主在后台调用，不接触活动会话。</summary>
+    /// <summary>仅使用固定基准计算待提交结果；建城预留最终聚居地身份并冻结模板业务数据，引用包含该所有者。</summary>
     IPreparedCoreCommand PrepareCommand(ICoreCommandBasis basis, CoreCommand command,
         CommandSource source, CoreContentProjection? candidateContent);
     /// <summary>检查原构建、环境、配置和内容身份；严格重放不做普通读档适配。</summary>
@@ -46,7 +46,8 @@ public interface ICoreSession : IDisposable
 {
     /// <summary>固定当前完整边界；返回值可在其他线程查询并在会话关闭后保留。</summary>
     ICoreReadView Read();
-    /// <summary>立即裁决普通命令；PublishContent 必须使用准备入口。</summary>
+    /// <summary>立即裁决普通命令；PublishContent 与 FoundSettlement 必须使用准备入口。</summary>
+    /// <exception cref="ArgumentException">命令为必须经过准备入口的 PublishContent 或 FoundSettlement。</exception>
     SubmissionResult Submit(CoreCommand command, CommandSource source);
     /// <summary>逐步原子推进，首个内部故障即停；已完成步骤不回滚。steps 必须大于零。</summary>
     AdvanceResult Advance(uint steps);
@@ -112,9 +113,15 @@ public interface ICoreCapture
     string Encode();
 }
 
-/// <summary>引用包括当前对象和已冻结批次、任务、人口统计期所需的历史身份。</summary>
+/// <summary>引用包括当前对象和已冻结批次、任务、人口统计期所需的历史身份；Templates 按实例所有者保留副本。</summary>
 public sealed record CoreReferenceManifest(ImmutableArray<DesignHash> Designs,
+    ImmutableArray<OwnedSettlementTemplateReference> Templates,
     ImmutableArray<RequiredDefinition> Definitions, ImmutableArray<CoreInputId> Inputs);
+/// <summary>聚居地或建城任务预留的最终实例身份拥有模板副本；来源身份仅用于追溯。</summary>
+public sealed record OwnedSettlementTemplateReference(SettlementId Owner,
+    SettlementTemplateId SourceTemplate, ImmutableArray<TemplatePlotReference> Plots);
+/// <summary>供内容验证实例业务地块与内嵌布局配对；不携带位置或朝向。</summary>
+public sealed record TemplatePlotReference(int Number, PlotSize Size);
 public sealed record RequiredDefinition(CoreDefinitionReference Definition,
     SemanticRevision? FrozenRevision, string Field, bool WasMissing);
 /// <summary>规范文本及摘要由核心生成；调用方比较或导出，不解析为业务状态。</summary>

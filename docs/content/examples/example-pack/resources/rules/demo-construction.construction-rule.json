@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "demo-construction",
+  "simulation": {
+    "founding_duration_ticks": 3600,
+    "construction_work_per_item": 10,
+    "refit_work_per_changed_item": 10,
+    "deconstruction_work_per_item": 5,
+    "repair_work_per_damaged_part": 5,
+    "power_per_work": 1,
+    "labor_per_work": 1
+  }
+}

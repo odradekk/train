@@ -5,59 +5,75 @@
   "description": "字段说明见 docs/content/settlement-type.md。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "simulation", "display"],
+  "required": [
+    "schema_version",
+    "id",
+    "simulation",
+    "display"
+  ],
   "properties": {
-    "schema_version": { "const": 2 },
-    "id": { "$ref": "common.schema.json#/$defs/localId" },
+    "schema_version": {
+      "const": 3
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
     "simulation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["weight", "population_min", "population_max"],
+      "required": [
+        "weight",
+        "population_min",
+        "population_max"
+      ],
       "properties": {
-        "supply": {
-          "type": "array",
-          "default": [],
-          "items": { "$ref": "#/$defs/marketEntry" }
-        },
-        "demand": {
-          "type": "array",
-          "default": [],
-          "items": { "$ref": "#/$defs/marketEntry" }
-        },
         "preferred_terrain": {
           "description": "完整的地貌类型标识，空数组表示不限。",
           "type": "array",
           "uniqueItems": true,
           "default": [],
-          "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9_-]{0,63}$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,63}:[a-z0-9][a-z0-9_-]{0,63}$"
+          }
         },
-        "weight": { "$ref": "common.schema.json#/$defs/positiveInt" },
-        "population_min": { "$ref": "common.schema.json#/$defs/positiveInt" },
-        "population_max": { "$ref": "common.schema.json#/$defs/positiveInt" },
-        "initial_platform_count": { "type": "integer", "minimum": 0, "maximum": 2147483647, "default": 0 }
+        "weight": {
+          "$ref": "common.schema.json#/$defs/positiveInt"
+        },
+        "population_min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "population_max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        }
       }
     },
     "display": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "description", "map_symbol"],
+      "required": [
+        "name",
+        "description",
+        "map_symbol"
+      ],
       "properties": {
-        "name": { "$ref": "common.schema.json#/$defs/name" },
-        "description": { "$ref": "common.schema.json#/$defs/description" },
-        "map_symbol": { "$ref": "common.schema.json#/$defs/pngPath" },
-        "major": { "type": "boolean", "default": false }
-      }
-    }
-  },
-  "$defs": {
-    "marketEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["voxel", "capacity", "restore_per_tick"],
-      "properties": {
-        "voxel": { "$ref": "common.schema.json#/$defs/definitionRef" },
-        "capacity": { "$ref": "common.schema.json#/$defs/positiveInt" },
-        "restore_per_tick": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+        "name": {
+          "$ref": "common.schema.json#/$defs/name"
+        },
+        "description": {
+          "$ref": "common.schema.json#/$defs/description"
+        },
+        "map_symbol": {
+          "$ref": "common.schema.json#/$defs/pngPath"
+        },
+        "major": {
+          "type": "boolean",
+          "default": false
+        }
       }
     }
   }

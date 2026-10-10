@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "small-nest",
+  "display": {"name": "小型巢穴", "description": "小型生物聚落。"},
+  "generation_weight": 1,
+  "members": [
+    {
+      "creature": "small-creature",
+      "weight": 1
+    }
+  ],
+  "maximum_members": 10,
+  "spawn_interval_seconds": 60,
+  "raid_interval_seconds": 600,
+  "roaming_radius_hops": 2,
+  "raid_radius_hops": 2,
+  "rail_damage_work_seconds": 30,
+  "clearance_reward": 100,
+  "scene_model": "grove"
+}

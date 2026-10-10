@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/railway-rule.schema.json",
+  "title": "railway-rule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "braking_deceleration",
+    "minimum_acceleration",
+    "minimum_gap_meters",
+    "rail_units_per_meter",
+    "build_seconds_per_meter",
+    "repair_seconds_per_break",
+    "rail_good",
+    "repair_rail_units_per_break",
+    "appearance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
+    "braking_deceleration": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "minimum_acceleration": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "minimum_gap_meters": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "rail_units_per_meter": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "build_seconds_per_meter": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "repair_seconds_per_break": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "rail_good": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
+    "repair_rail_units_per_break": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
+    "appearance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_curve_radius_meters",
+        "maximum_grade"
+      ],
+      "properties": {
+        "minimum_curve_radius_meters": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "maximum_grade": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    }
+  }
+}

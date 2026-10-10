@@ -128,6 +128,7 @@ public sealed record InstanceView(InstanceId Id, DesignHash Design, CompositionH
     ImmutableArray<CoreProblem> MissingContent);
 /// <summary>聚居地详情；统一库存与各设施均使用同一快照。</summary>
 public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementTypeId Type,
+    SettlementTemplateId? SourceTemplateId,
     SettlementRelation Relation, InventoryId Inventory, ImmutableArray<PlotView> Plots,
     ImmutableArray<VehicleId> ParkedVehicles, int ParkingCapacity, int Platforms, int OccupiedPlatforms,
     ImmutableArray<VehicleId> VehiclesForSale, ImmutableArray<VehiclePurchaseCapacity> VehiclePurchaseCapacities,
@@ -142,8 +143,9 @@ public abstract record PlotOccupant
     public sealed record Building(BuildingId Id) : PlotOccupant;
     public sealed record Construction(JobId Id) : PlotOccupant;
 }
-/// <summary>地块身份、尺寸及内容声明的建筑种类限制。</summary>
-public sealed record PlotView(PlotId Id, PlotSize Size, ImmutableArray<BuildingKind> AllowedBuildingKinds, PlotOccupant Occupant);
+/// <summary>地块身份、模板内正整数地块号、尺寸及内容声明的建筑种类限制。</summary>
+public sealed record PlotView(PlotId Id, int TemplatePlotNumber, PlotSize Size,
+    ImmutableArray<BuildingKind> AllowedBuildingKinds, PlotOccupant Occupant);
 /// <summary>当前分档现车收购容量；待售数可超过新上限，剩余名额最低为零。</summary>
 public sealed record VehiclePurchaseCapacity(SizeClass Size, int ForSale, int Limit, int Available);
 /// <summary>库存归属，租用库存不与 NPC 库存合并。</summary>
@@ -246,7 +248,8 @@ public abstract record JobView
 
 /// <summary>建城使用冻结的固定工期，不消耗设施工作速率；材料在开始时已投入。</summary>
 public sealed record FoundingJobView(JobId Id, NodeId Node, ulong FrozenDurationTicks,
-    ulong ElapsedTicks, ImmutableArray<GoodsQuantity> InvestedGoods);
+    ulong ElapsedTicks, SettlementId ReservedSettlementId, SettlementTemplateId SourceTemplateId,
+    ImmutableArray<GoodsQuantity> InvestedGoods);
 
 /// <summary>四类实例或货物施工任务。</summary>
 public enum ConstructionKind { Construction, Refit, Repair, Deconstruction }

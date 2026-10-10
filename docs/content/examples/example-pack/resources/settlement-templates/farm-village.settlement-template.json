@@ -1,19 +1,56 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "id": "farm-village",
   "settlement_type": "farm",
   "weight": 2,
   "scene_model": "village-ground",
   "plots": [
-    { "id": 1, "size": "station", "at": [0, 1, -10], "orientation": "pz_py", "building": "small-station" },
-    { "id": 2, "size": "small", "at": [-6, 1, 2], "building": "warehouse" },
-    { "id": 3, "size": "medium", "at": [6, 1, 0] }
+    {
+      "id": 1,
+      "size": "station",
+      "at": [
+        0,
+        1,
+        -10
+      ],
+      "orientation": "pz_py",
+      "building": "small-station"
+    },
+    {
+      "id": 2,
+      "size": "small",
+      "at": [
+        -6,
+        1,
+        2
+      ],
+      "building": "warehouse"
+    },
+    {
+      "id": 3,
+      "size": "medium",
+      "at": [
+        6,
+        1,
+        0
+      ]
+    }
   ],
   "founding": [
-    { "plot": 1, "building": "small-station" }
+    {
+      "plot": 1,
+      "building": "small-station"
+    }
   ],
   "inventory": [
-    { "voxel": "grain", "quantity": 40 }
+    {
+      "voxel": "grain",
+      "quantity": 40
+    }
   ],
-  "display": { "name": "农庄村落", "description": "一个站点、一座仓库和一块空着的中地块；开局存有 40 份粮食。" }
+  "display": {
+    "name": "农庄村落",
+    "description": "一个站点、一座仓库和一块空着的中地块；开局存有 40 份粮食。"
+  },
+  "production_plans": []
 }

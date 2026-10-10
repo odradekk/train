@@ -1,0 +1,69 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "simulation"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
+    "simulation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "founding_duration_ticks",
+        "construction_work_per_item",
+        "refit_work_per_changed_item",
+        "deconstruction_work_per_item",
+        "repair_work_per_damaged_part",
+        "power_per_work",
+        "labor_per_work"
+      ],
+      "properties": {
+        "founding_duration_ticks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 18446744073709551615
+        },
+        "construction_work_per_item": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "refit_work_per_changed_item": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "deconstruction_work_per_item": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "repair_work_per_damaged_part": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9223372036854775807
+        },
+        "power_per_work": {
+          "type": "number",
+          "minimum": 0
+        },
+        "labor_per_work": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/construction-rule.schema.json",
+  "title": "construction rule",
+  "description": "字段说明见 docs/content/construction-rule.md。"
+}

@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/terrain-type.schema.json",
+  "title": "地貌类型",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "display",
+    "surface_voxel",
+    "rock_voxel",
+    "local_height_noise",
+    "decorations",
+    "decoration_target_per_square_meter",
+    "railway_models"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "description": { "$ref": "common.schema.json#/$defs/description" }
+      }
+    },
+    "surface_voxel": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
+    "rock_voxel": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
+    "local_height_noise": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scale_meters",
+          "amplitude"
+        ],
+        "properties": {
+          "scale_meters": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "amplitude": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "decorations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scene_model",
+          "weight"
+        ],
+        "properties": {
+          "scene_model": {
+            "$ref": "common.schema.json#/$defs/definitionRef"
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          }
+        }
+      }
+    },
+    "decoration_target_per_square_meter": {
+      "type": "number",
+      "minimum": 0
+    },
+    "railway_models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tracks",
+          "bridge",
+          "tunnel_portal"
+        ],
+        "properties": {
+          "tracks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "bridge": {
+            "$ref": "common.schema.json#/$defs/definitionRef"
+          },
+          "tunnel_portal": {
+            "$ref": "common.schema.json#/$defs/definitionRef"
+          }
+        }
+      }
+    }
+  }
+}

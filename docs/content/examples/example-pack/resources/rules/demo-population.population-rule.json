@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "id": "demo-population",
+  "simulation": {
+    "needs": {
+      "food": {
+        "class": "basic",
+        "amount_per_person_second": 0.001,
+        "weight": 1
+      },
+      "clothing": {
+        "class": "basic",
+        "amount_per_person_second": 0.001,
+        "weight": 1
+      },
+      "improved_diet": {
+        "class": "improvement",
+        "amount_per_person_second": 0.001,
+        "weight": 1
+      },
+      "consumer_goods": {
+        "class": "improvement",
+        "amount_per_person_second": 0.001,
+        "weight": 1
+      },
+      "consumer_electronics": {
+        "class": "improvement",
+        "amount_per_person_second": 0.001,
+        "weight": 1
+      },
+      "medical_supplies": {
+        "class": "improvement",
+        "amount_per_person_second": 0.001,
+        "weight": 1
+      }
+    },
+    "consumption_goods": [
+      {
+        "good": "staple-food",
+        "satisfies": [
+          {
+            "need": "food",
+            "amount_per_good_unit": 1
+          }
+        ],
+        "selection_order": 0
+      },
+      {
+        "good": "clothing",
+        "satisfies": [
+          {
+            "need": "clothing",
+            "amount_per_good_unit": 1
+          }
+        ],
+        "selection_order": 1
+      },
+      {
+        "good": "prepared-food",
+        "satisfies": [
+          {
+            "need": "improved_diet",
+            "amount_per_good_unit": 1
+          },
+          {
+            "need": "food",
+            "amount_per_good_unit": 1
+          }
+        ],
+        "selection_order": 2
+      },
+      {
+        "good": "consumer-goods",
+        "satisfies": [
+          {
+            "need": "consumer_goods",
+            "amount_per_good_unit": 1
+          }
+        ],
+        "selection_order": 3
+      },
+      {
+        "good": "consumer-electronics",
+        "satisfies": [
+          {
+            "need": "consumer_electronics",
+            "amount_per_good_unit": 1
+          }
+        ],
+        "selection_order": 4
+      },
+      {
+        "good": "medical-supplies",
+        "satisfies": [
+          {
+            "need": "medical_supplies",
+            "amount_per_good_unit": 1
+          }
+        ],
+        "selection_order": 5
+      }
+    ],
+    "labor_ratio": 0.5,
+    "consumption_interval_ticks": 60,
+    "statistics_period_ticks": 600,
+    "base_growth_per_second": 1e-06,
+    "improvement_growth_per_second": 1e-06,
+    "maximum_loss_per_second": 1e-05
+  }
+}

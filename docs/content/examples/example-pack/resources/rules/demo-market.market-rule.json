@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "id": "demo-market",
+  "simulation": {
+    "basic_reserve_hours": 1,
+    "production_reserve_hours": 1,
+    "improvement_reserve_hours": 0.5,
+    "default_goods_prices": {
+      "sensitivity_basis_points": 5000,
+      "minimum_multiplier_basis_points": 5000,
+      "maximum_multiplier_basis_points": 20000,
+      "spread_basis_points": 1000
+    },
+    "good_prices": [
+      {
+        "good": "staple-food",
+        "parameters": {
+          "sensitivity_basis_points": 4000,
+          "minimum_multiplier_basis_points": 5000,
+          "maximum_multiplier_basis_points": 20000,
+          "spread_basis_points": 1000
+        }
+      }
+    ],
+    "vehicle_buy_multiplier_basis_points": 11000,
+    "vehicle_sell_multiplier_basis_points": 9000,
+    "vehicle_purchase_limits": [
+      {
+        "size": "small",
+        "maximum_for_sale": 2
+      },
+      {
+        "size": "medium",
+        "maximum_for_sale": 2
+      },
+      {
+        "size": "large",
+        "maximum_for_sale": 2
+      },
+      {
+        "size": "extra_large",
+        "maximum_for_sale": 2
+      },
+      {
+        "size": "titan",
+        "maximum_for_sale": 2
+      }
+    ],
+    "automatic_evaluation_interval_ticks": 60,
+    "recent_report_limit": 20,
+    "commission_money_per_work": 5,
+    "rent_money_per_capacity_hour": 5,
+    "rentable_capacity_ratio_basis_points": 2000,
+    "lease_duration_ticks": 108000
+  }
+}

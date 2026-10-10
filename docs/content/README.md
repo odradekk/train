@@ -2,7 +2,7 @@
 
 这里是内容包和各种内容定义的格式标准：字段说明、JSON Schema 和一个示例内容包。规则的来由见设计文档 [02](../design/02-definitions-and-content.md)、[03](../design/03-vehicles-buildings-and-designs.md) 和 ADR-0011 到 ADR-0015；字段怎样写，以这里为准。
 
-现在的加载器还读不了这套格式，实施工单完成之前，示例只供阅读。当前目标已改为完整 Demo；[人口规则](../design/18-population-and-labor.md)与[市场规则](../design/19-markets-and-trading.md)新增的格式、投影和临时字段替代，由[内容契约](https://github.com/odradekk/train/issues/288)交付。保留的临时市场表、类型供需及其 Schema、样例是历史记录，不是 Demo 目标。
+现在的加载器还读不了这套格式，实施工单完成之前，示例只供阅读。当前目标已改为完整 Demo；人口、市场、施工、铁路与战斗规则，以及生物聚落、地貌和世界生成配置的规划格式已补齐；聚居地类型版本 3 已移除临时供需、恢复量和站台数。保留的临时市场表及其 Schema、样例仅是历史记录，不是 Demo 目标。
 
 实施验收仍要求加载器能完整加载更新后的 Demo 示例，且示例通过对应 Schema 校验；一个包里只要有一份定义无效，整个包都无效。不能以加载旧的首切片子集或让临时样例通过 Schema 代替完整 Demo 内容验收。
 
@@ -13,6 +13,14 @@
 | [voxel.md](voxel.md) | 体素定义 `<local id>.voxel.json` |
 | [blueprint.md](blueprint.md) | 蓝图 `<local id>.blueprint.json`，以及被嵌套的复合体和存档共用的设计对象 |
 | [settlement-type.md](settlement-type.md) | 聚居地类型 `<local id>.settlement-type.json` |
+| [population-rule.md](population-rule.md) | 人口规则 `<local id>.population-rule.json` |
+| [market-rule.md](market-rule.md) | 市场规则 `<local id>.market-rule.json` |
+| [construction-rule.md](construction-rule.md) | 施工规则 `<local id>.construction-rule.json` |
+| [railway-rule.md](railway-rule.md) | 铁路规则 `<local id>.railway-rule.json` |
+| [combat-rule.md](combat-rule.md) | 战斗规则 `<local id>.combat-rule.json` |
+| [lair-type.md](lair-type.md) | 生物聚落类型 `<local id>.lair-type.json` |
+| [generation-profile.md](generation-profile.md) | 世界生成配置 `<local id>.generation-profile.json` |
+| [terrain-type.md](terrain-type.md) | 地貌类型 `<local id>.terrain-type.json` |
 | [market-table.md](market-table.md) | 市场表 `<local id>.market-table.json`，首个切片的临时格式 |
 | [process.md](process.md) | 流程 `<local id>.process.json`：生产、开采、回收 |
 | [settlement-template.md](settlement-template.md) | 聚居地模板 `<local id>.settlement-template.json`，以及从世界生成到聚居地出现在节点上的整条链 |
@@ -37,7 +45,13 @@
     ├── processes/
     ├── settlement-types/
     ├── settlement-templates/
-    └── markets/
+    ├── rules/
+    ├── railway-rules/
+    ├── combat-rules/
+    ├── lair-types/
+    ├── generation-profiles/
+    ├── terrain-types/
+    └── markets/                历史临时市场表
 ```
 
 - Mod 放在 `user://mods/<包目录>/`。内置的 `core` 包放在 `builtin/core/`，没有 `mod.json`，版本就是游戏版本。
@@ -47,7 +61,7 @@
 
 - **一个文件一份定义**：文件名是 `<local id>.<种类>.json`，根对象就是这份定义。文件里的 `id` 必须和文件名一致，不一致就报错。
 - **严格 JSON**：未知字段、重复字段、注释和尾随逗号都无效。包里任何一份定义有错，整个包都不加载。
-- **`schema_version`**：每种文件各自编号。当前 manifest、聚居地类型和市场表是 2，体素定义和蓝图是 3，聚居地模板和流程是 1。
+- **`schema_version`**：每种文件各自编号。当前 manifest、聚居地模板和历史市场表是 2，聚居地类型、体素定义和蓝图是 3，流程、人口/市场/施工/铁路/战斗规则、生物聚落类型、世界生成配置与地貌类型是 1。
 - **local id**：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头；不能是 `shared`，它是共用资产文件夹的名字。约定用连字符分隔单词，例如 `diesel-engine`。
 - **引用**：同一个包里的定义直接写 local id；其他包的定义写 `<命名空间>:<local id>`，命名空间是 `core` 或那个包的 UUID，例如 `core:grain`。引用了其他包的定义，就必须在 manifest 里声明依赖那个包。写本包自己的命名空间也可以，等同 local id。
 - **资产路径**：
@@ -71,11 +85,11 @@ Schema 只检查单个文件的结构和取值范围。下面这些由加载器�
 
 ## 示例包
 
-- `example-pack` 依赖 `core`，所有定义都写在包里；除了地貌类型 `core:plains`，不引用 `core` 的内容。
+- `example-pack` 依赖 `core`，示例引用的定义都写在包里，不依赖尚未制作的正式内置定义。
 - `example-addon` 依赖 `example-pack`，用完整标识引用它的体素、蓝图和聚居地类型，演示包依赖和跨包引用。
 - `content-library/` 是用户内容库里的一个玩家蓝图。
 
-数值只用来演示写法，不是正式设计。
+新增的六份生活货物供人口规则引用，使用已有共享占位贴图；不是完整食品生产链或正式美术。数值只用来演示写法，不是正式设计。
 
 改了示例里的定义后，补齐缺少的占位图：
 

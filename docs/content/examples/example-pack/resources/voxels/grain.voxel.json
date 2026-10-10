@@ -9,5 +9,5 @@
       "faces": { "top": "top.png", "side": "side.png", "bottom": "top.png" }
     }
   },
-  "display": { "name": "粮食", "description": "谷物和豆类，聚居地的基本口粮。", "icon": "icon.png" }
+  "display": { "name": "粮食", "description": "谷物和豆类，供食品加工使用，不直接充当居民口粮。", "icon": "icon.png" }
 }

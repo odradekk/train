@@ -128,7 +128,7 @@ public sealed record ProcessProjection(ProcessRef Id, SemanticRevision Revision,
 
 public enum PopulationNeed { Food, Clothing, ImprovedDiet, ConsumerGoods, ConsumerElectronics, MedicalSupplies }
 public enum PopulationNeedClass { Basic, Improvement }
-/// <summary>人均率为需求量/人/模拟秒；权重为有限正数。</summary>
+/// <summary>六项人均率均为有限正数，单位为需求量/人/模拟秒；权重为有限正数。</summary>
 public sealed record PopulationNeedProjection(PopulationNeed Need, PopulationNeedClass Class,
     double AmountPerPersonSecond, double Weight);
 /// <summary>同一货物可同时满足不同需求；换算为需求量/货物单位，有限正数。顺序显式表达食品优先选择。</summary>
@@ -180,7 +180,7 @@ public sealed record TemplatePlotProjection(int Number, PlotSize Size, DesignHas
 public sealed record FoundingBuildingProjection(int PlotNumber, DesignHash Design);
 public sealed record TemplateProductionPlan(int PlotNumber, CapabilityKind Capability,
     ProcessRef Process, bool Enabled, int Priority);
-/// <summary>模板只投影本地地块号和设计引用；场景模型、位置、朝向归内容与体素层。</summary>
+/// <summary>当前源模板的业务投影；选定后核心在实例或建城任务内保存自己的业务副本。</summary>
 public sealed record SettlementTemplateProjection(SettlementTemplateId Id,
     SettlementTypeId Type, int Weight, ImmutableArray<TemplatePlotProjection> Plots,
     ImmutableArray<FoundingBuildingProjection> FoundingBuildings,

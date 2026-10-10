@@ -1,0 +1,532 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/generation-profile.schema.json",
+  "title": "generation-profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "display",
+    "configuration",
+    "start"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
+    "display": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "$ref": "common.schema.json#/$defs/name" },
+        "description": { "$ref": "common.schema.json#/$defs/description" }
+      }
+    },
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "width_meters",
+        "height_meters",
+        "minimum_node_spacing_meters",
+        "candidate_probability",
+        "elevation_noise",
+        "moisture_noise",
+        "river_noise",
+        "lake_elevation_threshold",
+        "river_band_half_width",
+        "terrain_bands",
+        "terrain_sample_spacing_meters",
+        "settlement_ratio",
+        "lair_ratio",
+        "hostile_settlement_ratio",
+        "lair_weights",
+        "resources",
+        "initial_railway",
+        "budget",
+        "npc_initialization",
+        "start_constraints",
+        "rules"
+      ],
+      "properties": {
+        "width_meters": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "height_meters": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "minimum_node_spacing_meters": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "candidate_probability": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "elevation_noise": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scale_meters",
+              "amplitude"
+            ],
+            "properties": {
+              "scale_meters": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "amplitude": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "moisture_noise": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scale_meters",
+              "amplitude"
+            ],
+            "properties": {
+              "scale_meters": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "amplitude": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "river_noise": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "scale_meters",
+              "amplitude"
+            ],
+            "properties": {
+              "scale_meters": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              },
+              "amplitude": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "lake_elevation_threshold": {
+          "type": "number"
+        },
+        "river_band_half_width": {
+          "type": "number",
+          "minimum": 0
+        },
+        "terrain_bands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "terrain",
+              "minimum_elevation",
+              "maximum_elevation",
+              "minimum_moisture",
+              "maximum_moisture",
+              "maximum_relief",
+              "detour_multiplier",
+              "maximum_tracks"
+            ],
+            "properties": {
+              "terrain": {
+                "$ref": "common.schema.json#/$defs/definitionRef"
+              },
+              "minimum_elevation": {
+                "type": "number"
+              },
+              "maximum_elevation": {
+                "type": "number"
+              },
+              "minimum_moisture": {
+                "type": "number"
+              },
+              "maximum_moisture": {
+                "type": "number"
+              },
+              "maximum_relief": {
+                "type": "number",
+                "minimum": 0
+              },
+              "detour_multiplier": {
+                "type": "number",
+                "minimum": 1
+              },
+              "maximum_tracks": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            }
+          }
+        },
+        "terrain_sample_spacing_meters": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "settlement_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lair_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "hostile_settlement_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "lair_weights": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type",
+              "weight"
+            ],
+            "properties": {
+              "type": {
+                "$ref": "common.schema.json#/$defs/definitionRef"
+              },
+              "weight": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647
+              }
+            }
+          }
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "good",
+              "allowed_terrain_types",
+              "probability",
+              "minimum_reserve",
+              "maximum_reserve",
+              "renewable",
+              "recovery_units_per_second",
+              "regeneration_interval_seconds"
+            ],
+            "properties": {
+              "good": {
+                "$ref": "common.schema.json#/$defs/definitionRef"
+              },
+              "allowed_terrain_types": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/definitionRef"
+                }
+              },
+              "probability": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "minimum_reserve": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "maximum_reserve": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "renewable": {
+                "type": "boolean"
+              },
+              "recovery_units_per_second": {
+                "type": "number",
+                "minimum": 0
+              },
+              "regeneration_interval_seconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          }
+        },
+        "initial_railway": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum_tracks",
+            "minimum_initial_tracks",
+            "maximum_initial_tracks",
+            "additional_cycle_edges"
+          ],
+          "properties": {
+            "maximum_tracks": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "minimum_initial_tracks": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "maximum_initial_tracks": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "additional_cycle_edges": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            }
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "maximum_stage_retries",
+            "maximum_world_retries",
+            "maximum_candidates",
+            "maximum_search_work"
+          ],
+          "properties": {
+            "maximum_stage_retries": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "maximum_world_retries": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "maximum_candidates": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            },
+            "maximum_search_work": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9223372036854775807
+            }
+          }
+        },
+        "npc_initialization": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fill_inputs_and_living_targets",
+            "output_reserve_hours",
+            "minimum_for_sale_vehicles",
+            "maximum_for_sale_vehicles",
+            "for_sale_vehicle_candidates"
+          ],
+          "properties": {
+            "fill_inputs_and_living_targets": {
+              "type": "boolean"
+            },
+            "output_reserve_hours": {
+              "type": "number",
+              "minimum": 0
+            },
+            "minimum_for_sale_vehicles": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "maximum_for_sale_vehicles": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "for_sale_vehicle_candidates": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/definitionRef"
+              }
+            }
+          }
+        },
+        "start_constraints": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "minimum_reachable_non_hostile_settlements",
+            "minimum_reachable_empty_nodes",
+            "require_station",
+            "exclude_adjacent_lairs",
+            "fully_loaded_purchase_rounds_per_train",
+            "required_affordable_commission_design"
+          ],
+          "properties": {
+            "minimum_reachable_non_hostile_settlements": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "minimum_reachable_empty_nodes": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "require_station": {
+              "type": "boolean"
+            },
+            "exclude_adjacent_lairs": {
+              "type": "boolean"
+            },
+            "fully_loaded_purchase_rounds_per_train": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2147483647
+            },
+            "required_affordable_commission_design": {
+              "$ref": "common.schema.json#/$defs/definitionRef"
+            }
+          }
+        },
+        "rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "population",
+            "market",
+            "construction",
+            "railway",
+            "combat"
+          ],
+          "properties": {
+            "population": {
+              "$ref": "common.schema.json#/$defs/definitionRef"
+            },
+            "market": {
+              "$ref": "common.schema.json#/$defs/definitionRef"
+            },
+            "construction": {
+              "$ref": "common.schema.json#/$defs/definitionRef"
+            },
+            "railway": {
+              "$ref": "common.schema.json#/$defs/definitionRef"
+            },
+            "combat": {
+              "$ref": "common.schema.json#/$defs/definitionRef"
+            }
+          }
+        }
+      }
+    },
+    "start": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initial_money",
+        "trains"
+      ],
+      "properties": {
+        "initial_money": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "trains": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "vehicles",
+              "inventory"
+            ],
+            "properties": {
+              "vehicles": {
+                "type": "array",
+                "items": {
+                  "$ref": "common.schema.json#/$defs/definitionRef"
+                },
+                "minItems": 1
+              },
+              "inventory": {
+                "type": "array",
+                "items": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "voxel",
+                        "quantity"
+                      ],
+                      "properties": {
+                        "voxel": {
+                          "$ref": "common.schema.json#/$defs/definitionRef"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9223372036854775807
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "blueprint",
+                        "quantity"
+                      ],
+                      "properties": {
+                        "blueprint": {
+                          "$ref": "common.schema.json#/$defs/definitionRef"
+                        },
+                        "quantity": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9223372036854775807
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

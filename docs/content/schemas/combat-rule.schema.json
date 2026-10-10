@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/odradekk/train/master/docs/content/schemas/combat-rule.schema.json",
+  "title": "combat-rule",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "id",
+    "retreat_seconds",
+    "morale_damage_coefficient",
+    "weapon_destroyed_morale_loss",
+    "morale_recovery_per_second",
+    "surrender_threshold",
+    "new_lair_interval_seconds"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
+    "retreat_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "morale_damage_coefficient": {
+      "type": "number",
+      "minimum": 0
+    },
+    "weapon_destroyed_morale_loss": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "morale_recovery_per_second": {
+      "type": "number",
+      "minimum": 0
+    },
+    "surrender_threshold": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "new_lair_interval_seconds": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    }
+  }
+}

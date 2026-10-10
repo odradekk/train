@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "id": "plains",
+  "display": {"name": "平原", "description": "开阔的平原地貌。"},
+  "surface_voxel": "grassland",
+  "rock_voxel": "tree-trunk",
+  "local_height_noise": [
+    {
+      "scale_meters": 20,
+      "amplitude": 1
+    }
+  ],
+  "decorations": [
+    {
+      "scene_model": "tree",
+      "weight": 1
+    }
+  ],
+  "decoration_target_per_square_meter": 0.001,
+  "railway_models": [
+    {
+      "tracks": 1,
+      "bridge": "grove",
+      "tunnel_portal": "grove"
+    },
+    {
+      "tracks": 2,
+      "bridge": "grove",
+      "tunnel_portal": "grove"
+    },
+    {
+      "tracks": 3,
+      "bridge": "grove",
+      "tunnel_portal": "grove"
+    }
+  ]
+}

@@ -8,7 +8,7 @@
     "power_per_work": 0,
     "labor_per_work": 4,
     "facility_tag": "agriculture",
-    "environment": { "terrain_types": ["core:plains"] }
+    "environment": { "terrain_types": ["plains"] }
   },
   "display": { "name": "谷物种植", "description": "在平原上种植谷物。" }
 }

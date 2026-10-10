@@ -5,17 +5,37 @@
   "description": "字段说明见 docs/content/settlement-template.md。引用的类别、建筑能否放进地块、地块编号等由加载器检查。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "id", "settlement_type", "scene_model", "plots", "display"],
+  "required": [
+    "schema_version",
+    "id",
+    "settlement_type",
+    "scene_model",
+    "plots",
+    "display"
+  ],
   "properties": {
-    "schema_version": { "const": 1 },
-    "id": { "$ref": "common.schema.json#/$defs/localId" },
-    "settlement_type": { "$ref": "common.schema.json#/$defs/definitionRef" },
-    "weight": { "$ref": "common.schema.json#/$defs/positiveInt", "default": 1 },
-    "scene_model": { "$ref": "common.schema.json#/$defs/definitionRef" },
+    "schema_version": {
+      "const": 2
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/localId"
+    },
+    "settlement_type": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
+    "weight": {
+      "$ref": "common.schema.json#/$defs/positiveInt",
+      "default": 1
+    },
+    "scene_model": {
+      "$ref": "common.schema.json#/$defs/definitionRef"
+    },
     "plots": {
       "type": "array",
       "minItems": 1,
-      "items": { "$ref": "#/$defs/plot" }
+      "items": {
+        "$ref": "#/$defs/plot"
+      }
     },
     "founding": {
       "type": "array",
@@ -23,10 +43,17 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["plot", "building"],
+        "required": [
+          "plot",
+          "building"
+        ],
         "properties": {
-          "plot": { "$ref": "common.schema.json#/$defs/positiveInt" },
-          "building": { "$ref": "common.schema.json#/$defs/definitionRef" }
+          "plot": {
+            "$ref": "common.schema.json#/$defs/positiveInt"
+          },
+          "building": {
+            "$ref": "common.schema.json#/$defs/definitionRef"
+          }
         }
       }
     },
@@ -38,19 +65,33 @@
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["voxel", "quantity"],
+            "required": [
+              "voxel",
+              "quantity"
+            ],
             "properties": {
-              "voxel": { "$ref": "common.schema.json#/$defs/definitionRef" },
-              "quantity": { "$ref": "common.schema.json#/$defs/positiveInt" }
+              "voxel": {
+                "$ref": "common.schema.json#/$defs/definitionRef"
+              },
+              "quantity": {
+                "$ref": "common.schema.json#/$defs/positiveInt"
+              }
             }
           },
           {
             "type": "object",
             "additionalProperties": false,
-            "required": ["blueprint", "quantity"],
+            "required": [
+              "blueprint",
+              "quantity"
+            ],
             "properties": {
-              "blueprint": { "$ref": "common.schema.json#/$defs/definitionRef" },
-              "quantity": { "$ref": "common.schema.json#/$defs/positiveInt" }
+              "blueprint": {
+                "$ref": "common.schema.json#/$defs/definitionRef"
+              },
+              "quantity": {
+                "$ref": "common.schema.json#/$defs/positiveInt"
+              }
             }
           }
         ]
@@ -59,24 +100,95 @@
     "display": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "description"],
+      "required": [
+        "name",
+        "description"
+      ],
       "properties": {
-        "name": { "$ref": "common.schema.json#/$defs/name" },
-        "description": { "$ref": "common.schema.json#/$defs/description" }
+        "name": {
+          "$ref": "common.schema.json#/$defs/name"
+        },
+        "description": {
+          "$ref": "common.schema.json#/$defs/description"
+        }
       }
+    },
+    "production_plans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "plot",
+          "capability",
+          "process",
+          "enabled",
+          "priority"
+        ],
+        "properties": {
+          "plot": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647
+          },
+          "capability": {
+            "enum": [
+              "production",
+              "extraction"
+            ]
+          },
+          "process": {
+            "$ref": "common.schema.json#/$defs/definitionRef"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": -2147483648,
+            "maximum": 2147483647
+          }
+        }
+      },
+      "default": []
     }
   },
   "$defs": {
     "plot": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "size", "at"],
+      "required": [
+        "id",
+        "size",
+        "at"
+      ],
       "properties": {
-        "id": { "$ref": "common.schema.json#/$defs/positiveInt" },
-        "size": { "enum": ["small", "medium", "large", "station"] },
-        "at": { "$ref": "blueprint.schema.json#/$defs/position" },
-        "orientation": { "enum": ["px_py", "pz_py", "nx_py", "nz_py"], "default": "px_py" },
-        "building": { "$ref": "common.schema.json#/$defs/definitionRef" }
+        "id": {
+          "$ref": "common.schema.json#/$defs/positiveInt"
+        },
+        "size": {
+          "enum": [
+            "small",
+            "medium",
+            "large",
+            "station"
+          ]
+        },
+        "at": {
+          "$ref": "blueprint.schema.json#/$defs/position"
+        },
+        "orientation": {
+          "enum": [
+            "px_py",
+            "pz_py",
+            "nx_py",
+            "nz_py"
+          ],
+          "default": "px_py"
+        },
+        "building": {
+          "$ref": "common.schema.json#/$defs/definitionRef"
+        }
       }
     }
   }

@@ -1,0 +1,38 @@
+{
+  "schema_version": 3,
+  "id": "small-creature",
+  "category": "creature",
+  "simulation": {
+    "behaviors": {
+      "creature": {
+        "hp": 10,
+        "speed": 2,
+        "retreat_threshold": 0.5,
+        "raid_duration": 60
+      },
+      "weapon": {
+        "damage": 1,
+        "interval": 1
+      }
+    }
+  },
+  "layout": {
+    "palette": [
+      {
+        "voxel": "tree-trunk"
+      }
+    ],
+    "cells": [
+      [
+        0,
+        0,
+        0,
+        0
+      ]
+    ]
+  },
+  "display": {
+    "name": "小型生物格式样例",
+    "description": "用既有场景体素展示生物蓝图字段，不作为正式美术。"
+  }
+}

@@ -78,7 +78,7 @@
 - 先解析并校验为领域值，再生成规范化编码；不对原始 JSON 文本直接哈希。采用字段边界明确的规范化 JSON、UTF-8 编码，固定字段顺序；空白与源文件字段书写顺序不影响结果。
 - 对象字段和字符串键按 Ordinal 顺序编码。标签和 Behavior 等无序集合稳定排序，Behavior 按类型标记的 Ordinal 顺序编码；体素布局按整数坐标稳定排序；有顺序含义的列表保留顺序。
 - 数字按实际领域类型统一编码；`double` 使用与文化无关的无损往返表示，不截断或舍入到显示精度。有效数据不含 `NaN` 或无穷值。
-- 货币定价是 [19](19-markets-and-trading.md#货物的边际价格)明确的局部精确计算例外：价格参数不能先经过 `double` 再转分数。整数分子/分母的领域表示、规范编码和投影由[内容契约](https://github.com/odradekk/train/issues/288)与[核心契约](https://github.com/odradekk/train/issues/287)共同交付，本文不擅自新增 JSON 字段或迁移现有格式。
+- 货币定价是 [19](19-markets-and-trading.md#货物的边际价格)明确的局部精确计算例外：价格参数不能先经过 `double` 再转分数。基础价格和费率用整数金额，倍率、敏感度和价差用万分比整数（1 倍 = 10000）；JSON 直接使用整数，公开类型不引入通用分数框架。核心内部用标准整数类型保留中间计算的精确性，到已定结算边界才取整，见[市场规则格式](../content/market-rule.md)和[公共数值约定](../contracts/conventions.md#身份数值和单位)。
 - 蓝图和设计不是语义哈希的对象。蓝图的 Revision 就是它的设计对象的设计哈希；设计哈希包括名称、说明、形状和涂装。
 - **构成哈希**是递归去掉名称、说明、形状和涂装（包括功能复合体引用上的涂装）后的设计哈希，完整的设计哈希仍包含它们。组装体货物、BOM 中被嵌套的组装体和市场上的货物种类都用构成哈希：改名、改形状或重涂不改变货物种类，改变构成才改变。存档为每个构成哈希记一份显示名称、说明和形状，取自第一次引入它的设计，之后不变；库存和市场显示这份名称，入库的组装体沿用这份形状。装在宿主上的设备用宿主设计自己的那份副本（它的名称、形状和涂装），不受这份显示名称和形状影响，见 [09](09-persistence.md#存档中的内容)（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)；形状见[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)（2026-10-10））。
 - 设计哈希、部件编号和改装时的部件对应使用同一种遍历顺序：先排宿主自己的体素，再按 `at` 排被嵌套的复合体，坐标按 x、y、z 从小到大，见 [03](03-vehicles-buildings-and-designs.md#部件与结构)。功能复合体的引用在设计哈希里只含引用本身，不含被引用的内容。
@@ -103,7 +103,7 @@
 | 本局蓝图库 | 存档的内嵌内容 |
 | 草稿（非有效来源） | 已明确保存的改装草稿和本局蓝图库草稿存在存档里；用户内容库蓝图和创作模式的草稿在 `user://authoring-drafts/`；未保存的编辑修改不自动入档，都不参与有效内容扫描 |
 
-目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`markets/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，具体文件格式由内容契约交付。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
+目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`markets/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，具体字段与新增规则目录见[市场规则格式](../content/market-rule.md)及内容定义标准。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
 定义文件带明确的 `schema_version`，各内容类型独立管理格式与版本。目录用于组织文件，不决定定义身份。当前已实现的格式如下，一个文件可以写多份定义，将由实施工单改成目标结构：
 
@@ -134,7 +134,7 @@
   - 加载按依赖排序；处在依赖循环里的包都不加载。缺依赖、依赖版本太低或包内任何定义有错，整个包都不加载，依赖它的包也跟着不加载。
   - 本局蓝图库和用户内容库的蓝图记下保存时用到的包（UUID、名称、版本），只用于显示；缺依赖时显示为不可用并列出缺了哪些包，不删除，也不能建造。
   - 玩家构建在主菜单里启用或停用 Mod，下次读档时生效。定义改名用的迁移表放到 Demo 之后。
-- **第一阶段 Data Mod**：支持新增体素定义、蓝图、流程、聚居地类型、聚居地模板、人口规则和市场规则，修改自有定义的数值和资产，选用已有行为类型并填参数。人口与市场的新格式仍待内容契约及实施工单交付，不能直接套用临时市场表。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
+- **第一阶段 Data Mod**：支持新增体素定义、蓝图、流程、聚居地类型、聚居地模板、人口/市场/施工/铁路/战斗规则、生物聚落类型、地貌和世界生成配置，修改自有定义的数值和资产，选用已有行为类型并填参数。格式、Schema、示例与投影已由[内容契约](../contracts/content.md)交付；加载器与模拟的接入仍待实施，不能直接套用临时市场表。Demo 不允许覆盖或 patch 内置及其他 Mod 的定义，重复定义继续报错；不能直接注入任意 C# 代码（ADR-0002）。
 - **第二阶段 Code Mod**：等游戏规则和公开 API 足够稳定后，再考虑 C# 插件、注册新 Behavior、注册新 System、公共 Mod API。
 - **Hot Reload**：发布新的不可变定义快照，运行中实例立即解析并采用当前规格。修改耐久上限、Behavior 或引擎牵引力产生新的 Semantic Revision。修改 Texture、Mesh、Material 或 Sound 的文件字节更新相应的 Asset Revision；修改碰撞、资产绑定或纯表现配置不改变 Asset Revision。这两类有效变化都触发 Catalog 发布，不改变 Semantic Revision。蓝图更新不改变已有实例的设计。
 
@@ -188,4 +188,4 @@ Code Mod API、通用 Material System；跨包覆盖与 patch、加载顺序覆�
 
 ## 开放问题
 
-- [内容契约](https://github.com/odradekk/train/issues/288)落实人口与市场规则格式、精确价格参数和设计价值投影，并同步 Schema、样例及临时字段的替代；[核心契约](https://github.com/odradekk/train/issues/287)落实消费者所需的公开类型与金额边界。业务规则见 [18](18-population-and-labor.md)和 [19](19-markets-and-trading.md)，不留待各实现自行解释。
+- [内容契约](../contracts/content.md)与[核心契约](../contracts/core.md)已明确规则格式、投影和金额边界；独立行为验证、生产代码迁移与正式内容制作仍待后续任务，不能以 Schema 或声明编译通过代替加载、模拟和完整 Demo 验收。

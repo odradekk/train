@@ -20,6 +20,14 @@ SCHEMA_BY_SUFFIX = {
     ".settlement-template.json": "settlement-template.schema.json",
     ".market-table.json": "market-table.schema.json",
     ".process.json": "process.schema.json",
+    ".population-rule.json": "population-rule.schema.json",
+    ".market-rule.json": "market-rule.schema.json",
+    ".construction-rule.json": "construction-rule.schema.json",
+    ".railway-rule.json": "railway-rule.schema.json",
+    ".combat-rule.json": "combat-rule.schema.json",
+    ".lair-type.json": "lair-type.schema.json",
+    ".generation-profile.json": "generation-profile.schema.json",
+    ".terrain-type.json": "terrain-type.schema.json",
 }
 
 

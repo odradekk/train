@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "basic",
+  "braking_deceleration": 1,
+  "minimum_acceleration": 1,
+  "minimum_gap_meters": 1,
+  "rail_units_per_meter": 1,
+  "build_seconds_per_meter": 1,
+  "repair_seconds_per_break": 1,
+  "rail_good": "hull-plate",
+  "repair_rail_units_per_break": 1,
+  "appearance": {
+    "minimum_curve_radius_meters": 100,
+    "maximum_grade": 0.05
+  }
+}
