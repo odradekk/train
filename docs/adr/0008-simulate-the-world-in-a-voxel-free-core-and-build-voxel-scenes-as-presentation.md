@@ -31,3 +31,5 @@
 ## 2026-10-09 契约与宿主职责修订
 
 [ADR-0016](0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)保留核心权威与场景只作表现，明确模块只依赖公开契约，Godot 只在装配入口创建真实实现。原文“不向下层提供接口”改为：Godot 实现下层契约声明的宿主接口，下层不引用 Godot；完整存档包含核心状态与内嵌内容，由宿主组合，场景状态仍不保存。依赖和责任的现行规范见[契约索引](../contracts/README.md)。
+
+2026-10-10 的[编辑器接口决策](https://github.com/odradekk/train/issues/285)明确：进入设计编辑器时宿主暂停世界，退出恢复原运行设置；“与观察无关”仍约束模拟计算，不禁止宿主为编辑暂停驱动。活动草稿归体素，已保存草稿归内容，均不直接改变核心状态。

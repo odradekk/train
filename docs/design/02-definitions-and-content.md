@@ -101,7 +101,7 @@
 | Mod | `user://mods` 中各包的 `resources/` 下沿用相同结构 |
 | 用户内容库 | 目标目录 `user://content-library/`，只保存玩家的蓝图，每个蓝图一个文件 `<UUID>.blueprint.json`；旧 `user://blueprints/` 读取／迁移单独落实 |
 | 本局蓝图库 | 存档的内嵌内容 |
-| 草稿（非有效来源） | 改装草稿和本局蓝图库的草稿存在存档里；用户内容库蓝图和创作模式的草稿在 `user://authoring-drafts/`；都不参与有效内容扫描 |
+| 草稿（非有效来源） | 已明确保存的改装草稿和本局蓝图库草稿存在存档里；用户内容库蓝图和创作模式的草稿在 `user://authoring-drafts/`；未保存的编辑修改不自动入档，都不参与有效内容扫描 |
 
 目标结构（[内容包与依赖：内容定义的文件组成、依赖声明、缺依赖处理与热插拔](https://github.com/odradekk/train/issues/262)，ADR-0015）：一个文件只写一份内容定义，文件名是 `<local id>.<种类>.json`，资产放在同名文件夹里，几个定义共用的资产放在 `shared/`；文件按种类分目录：`voxels/`、`blueprints/`、`processes/`、`settlement-types/`、`settlement-templates/`、`markets/`。字段写法、Schema 和示例包见[内容定义标准](../content/README.md)；体素定义、蓝图、聚居地类型和聚居地模板的后缀是 `.voxel.json`、`.blueprint.json`、`.settlement-type.json` 和 `.settlement-template.json`。首切片临时 `.market-table.json` 只保留为格式记录，Demo 改用 [19 的共用市场规则](19-markets-and-trading.md#一局共用的市场规则)，具体文件格式由内容契约交付。manifest 加入 `dependencies`（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
