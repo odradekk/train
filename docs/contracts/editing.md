@@ -2,7 +2,7 @@
 
 本协议依据[设计编辑器的草稿、校验、发布与改装接口](https://github.com/odradekk/train/issues/285)的 Q1–Q8，补充[公共约定](conventions.md)和[跨层事务](transactions.md)。玩法规则以[设计编辑器](../design/15-design-editor-and-tools.md)、[设计合法性](../design/03-vehicles-buildings-and-designs.md#设计合法性)及[改装](../design/14-construction-refit-and-deconstruction.md#refit-job)为准，本页规定模块怎样交接这些操作。
 
-这是目标协议，尚无对应可编译声明或产品实现。四份模块契约须给出声明、可编译调用样例和测试；本文不表示编辑器、包恢复或独立验证已经实现。
+这是目标协议；核心侧的可编译声明与调用样例见[核心契约](core.md)，其他模块继续补齐声明和测试。本文不表示编辑器、包恢复或独立验证已经实现。
 
 ## 四种操作的边界
 

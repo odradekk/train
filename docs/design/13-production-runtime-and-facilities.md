@@ -95,7 +95,7 @@
 
 | 量 | 单位 | 来源 |
 | --- | --- | --- |
-| 工作量 | 抽象单位 | 流程的 `work_required`；施工任务的工作量见 [14](14-construction-refit-and-deconstruction.md#construction-capability-与-work) |
+| 总工作量 | 整数抽象单位 | 流程的 `work_required`；施工任务的工作量见 [14](14-construction-refit-and-deconstruction.md#construction-capability-与-work) |
 | 工作速率 | 工作量/秒 | `production`、`extraction`、`construction` 行为的 `work_rate`，同类完好部件相加 |
 | 电量 | 抽象单位 | 燃料的 `fuel_energy`（电量/燃料单位）；电力池的燃料能量余量 |
 | 功率 | 电量/秒 | `power` 行为的 `output` |
@@ -103,6 +103,7 @@
 | 劳动力 | 与 [18](18-population-and-labor.md#劳动力与玩家操作) 的可用劳动力相同 | 人口与劳动比例 |
 | LaborPerWork | 劳动力/(工作量/秒) | 流程的 `labor_per_work`：以 1 工作量/秒运行时占用的劳动力 |
 
+- 流程与施工总工作量用整数；按件数推导施工总量的工作量系数也用整数，PowerPerWork 与 LaborPerWork 仍用 `double`；进度、速率、电量与劳动力保持 `double`。依据[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)，这是规划约定，尚非运行实现。
 - 实际工作速率 = min（能力速率，分到的功率 ÷ PowerPerWork，分到的劳动力 ÷ LaborPerWork）；系数为 0 的一项不构成限制。每 Tick 推进“实际工作速率 × Tick 时长”的工作量。
 - 运行中的任务（生产、开采、回收的 ActiveBatch 与 [14](14-construction-refit-and-deconstruction.md) 的施工任务）按 Priority，再按稳定的设施身份和能力种类排序，逐个联合分配：按该任务能达到的速率同时扣除功率和劳动力，不让任务占着劳动力却因缺电用不上。施工任务同样带 Priority。
 
@@ -188,9 +189,11 @@
   - 每秒批次数 = 潜在速率 ÷ WorkRequired；
   - 每种 Input 的需求速率 = 每秒批次数 × 每批数量；开采没有货物 Input；
   - 燃料的需求速率 = Σ（潜在速率 × PowerPerWork）÷ 所用燃料的 `fuel_energy`。
-- 目标 = 需求速率 × 备货时长。每个 Plan 至少能凑出一个完整批次的 Input 与燃料（一批燃料 = WorkRequired × PowerPerWork ÷ `fuel_energy`），按优先级先凑。燃料需求扣除电力池的燃料能量余量；已投入批次的 Input 不再计入；未完成的产物不抵扣。
+- 时长目标仍按需求速率 × 备货时长推导。最低组合先保证当前 ActiveBatch 完成：Input 已经支付，不重复备料；燃料按该批次冻结的规格和剩余工作量计算。没有 ActiveBatch 时，最低组合保证下一整批的 Input 与燃料。第二轮额外储备只补时长目标超过已安排最低组合的部分，不把完整时长目标再加一遍；后续批次采用当前定义。未完成的产物不抵扣。
+- 全城共享的燃料能量余量只抵扣一次；为最低组合购入整件燃料后留下的富余能量，可以供后续计划使用，不能为每个计划重复抵扣原余量。
+- 按既有优先级分两轮安排：第一轮尝试每个计划的最低完整组合，放不下就跳过并继续后项，失败试算不消耗容量预算或燃料余量。只有最低组合满足的计划参加第二轮额外储备，仍按同一优先级顺序；单个计划内的容量不足时，按 [19](19-markets-and-trading.md#替代食品与容量预算)的整数目标同比分配，额外储备可以不足一批。
 - 短时缺 Input、缺燃料、出料阻塞不减少需求；设备受损、发电能力不足、人口少等长期限制会减少需求。
-- 容量预算见 19；取整与整数分配由[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确定。
+- 容量预算和整数分配见 [19](19-markets-and-trading.md#替代食品与容量预算)，上述边界经[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确认；尚未代表实际备货系统实现或验证。
 
 ### 内容更新与热重载
 

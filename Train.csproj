@@ -12,6 +12,12 @@
     <ProjectReference Include="Scenes/Train.Scenes.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Remove="Contracts/**" />
+    <EmbeddedResource Remove="Contracts/**" />
+    <None Remove="Contracts/**" />
+    <Compile Remove="prototypes/**" />
+    <EmbeddedResource Remove="prototypes/**" />
+    <None Remove="prototypes/**" />
     <Compile Remove="Core/**" />
     <EmbeddedResource Remove="Core/**" />
     <None Remove="Core/**" />

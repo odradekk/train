@@ -40,7 +40,7 @@
         "inputs": { "$ref": "#/$defs/goods" },
         "outputs": { "$ref": "#/$defs/goods" },
         "extracts": { "$ref": "#/$defs/good" },
-        "work_required": { "$ref": "common.schema.json#/$defs/positiveNumber" },
+        "work_required": { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 },
         "power_per_work": { "type": "number", "minimum": 0 },
         "labor_per_work": { "type": "number", "minimum": 0 },
         "facility_tag": { "$ref": "common.schema.json#/$defs/facilityTag" },
