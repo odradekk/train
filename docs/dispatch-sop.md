@@ -26,11 +26,25 @@ When several tasks run at once:
 - After one PR merges, tell the developer that the remaining task branches must merge the updated base (no rebase or force-push), resolve conflicts and rerun the affected checks. Review the merge and the affected behavior again before acceptance; an acceptance written before the update does not cover the new head.
 - Parallel validation shares one machine. If a check times out while another task is validating, rerun it with no other validation running before reporting it as failed, and record both results.
 
+## Stage integration
+
+The full Demo uses the six [development stages](design/00-product-and-core-loop.md#开发阶段) confirmed in [the staged delivery decision](https://github.com/odradekk/train/issues/293). Within a stage, the four modules work in parallel on small Issues. Integration verifies the stage's new end-to-end paths and regressions in previously accepted paths. Features outside the current stage remain unverified; doubles cannot replace real implementations required by the stage. Required evidence and its owners follow [stage acceptance](contracts/testing.md#阶段性联调的验收).
+
+Each implementation Issue keeps its own worktree, branch, PR and user-approved merge under this SOP. Merge accepted tasks into the main branch, then validate an identified main-branch commit for stage acceptance; do not create permanent module branches or a separate stage integration branch. Completing or merging the module tasks does not establish stage acceptance.
+
+Each stage has a separate integration and acceptance Issue. It records the stage scope, Acceptance criteria, tested commit, technical evidence and required manual checks. The coordinator reports the evidence and gaps; only the user's confirmation that the stage passed authorizes closing that Issue as completed. Automated checks alone do not authorize the next stage.
+
+Every development Issue in the next stage must have the preceding stage's acceptance Issue as a native blocker. Until that stage passes, continue only the current stage's work and repairs; do not dispatch or begin the next stage. The task reorganization records the actual stage membership and dependency edges.
+
+The first stage begins with shared project/test preparation and the [initial contract baseline](contracts/conventions.md#契约基线与受控变更), before the four module workstreams start in parallel. Each dispatch records its stage and baseline. Shared-contract changes follow the coordinated PR and branch-update procedure in that section; routine module changes remain in their own task PRs.
+
+A stage acceptance Issue records the tested main-branch commit and does not need an empty PR. Apply the implementation-task merge, worktree cleanup and version steps to actual implementation PRs; stage confirmation does not itself authorize an additional milestone version change. If fixes are needed, deliver them through current-stage task PRs and keep the stage Issue open until the required revalidation and user confirmation.
+
 ## 0. Prepare the worktree and Godot MCP — coordinator
 
 Before dispatch, verify:
 
-- The Issue is open, labelled `ready-for-agent`, not superseded, and has no open native blockers.
+- The Issue is open, labelled `ready-for-agent`, not superseded, and has no open native blockers. For staged work, verify its stage and the preceding stage's user-confirmed acceptance; a missing dependency edge does not authorize early dispatch.
 - The specification and Acceptance criteria are clear enough to start. Note open design questions for the developer; they are settled in the pair session, not by the coordinator.
 - The selected baseline contains the required code and docs and is available to the eventual PR base; local-only baseline commits must not leave the PR missing prerequisites.
 - The target repository, PR base branch, task branch, and authenticated push/PR access are known. If configuration or permissions are missing, resolve them first; report any required user action.
@@ -40,14 +54,14 @@ Use an independent worktree from the repository's default base unless the develo
 
 1. Check `git worktree list` and the existing branches first, so a resumed dispatch does not create a second worktree for the same Issue.
 2. Fetch, then create the worktree on a new task branch from an explicit base, normally `origin/<default-branch>`: `git worktree add -b <branch> ../train-worktrees/<slug> origin/master`. Keep worktrees outside the main checkout so that Godot and other tools working in the main checkout do not scan them. Verify the actual branch and baseline SHA in the new checkout.
-3. Run the repository setup checks in the new checkout, at least building `Train.csproj` and `Train.Tests/Train.Tests.csproj`, and wait for them to succeed.
+3. Run the repository setup checks in the new checkout for the assigned task's production and test targets, and wait for them to succeed. Use the module-specific build/test targets after migration rather than requiring another module's implementation to build; until then, the existing targets are `Train.csproj` and `Train.Tests/Train.Tests.csproj`. Record the actual targets and any production checks still pending migration under [test organization](contracts/testing.md#模块测试的组织与入口).
 4. For Godot work, verify that the baseline contains `addons/godot_mcp/`, enables the plugin in `project.godot`, and has the project MCP configuration for the clients described in [godot-mcp.md](godot-mcp.md). Check the Godot executable in the worktree environment. For the task that gets MCP, confirm that no other task's editor holds the port, start the worktree's MCP editor as godot-mcp.md describes, and call `get_project_info` to verify that `project_path` is this worktree. Start it before the developer creates the agent, because the client connects at session start. This editor is task-owned. If a client must trust the project before it loads the project MCP configuration, tell the developer.
 
 **Complete when:** one valid Issue has one independent worktree with a self-contained baseline and successful setup checks, and any assigned MCP editor is running and verified against that worktree.
 
 ## 1. Record the dispatch and hand over — coordinator
 
-Post a dispatch comment on the Issue recording the absolute worktree path, task branch, baseline SHA, PR base, setup checks, the MCP assignment (editor process IDs, port and verified `project_path`; or CLI fallback because another task has MCP; or not applicable), and open design questions for the developer. The agent reads this comment when it starts, and the identifiers are needed for acceptance and recovery.
+Post a dispatch comment on the Issue recording the absolute worktree path, task branch, baseline SHA, PR base, setup checks, the MCP assignment (editor process IDs, port and verified `project_path`; or CLI fallback because another task has MCP; or not applicable), and open design questions for the developer. For staged work, include the stage acceptance Issue, contract baseline and prerequisite stage's acceptance record. The agent reads this comment when it starts, and the identifiers are needed for acceptance and recovery.
 
 Report the handoff to the developer with the worktree path, branch, MCP status and open questions. The developer creates the agent in that worktree and points it at the Issue and [implement-sop.md](implement-sop.md). Then stop. Do not create, prompt or monitor agents, or start a review until the developer asks for acceptance.
 

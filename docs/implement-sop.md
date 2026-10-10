@@ -10,7 +10,7 @@ For Godot scene, resource, editor or runtime work, use the project's Godot MCP N
 
 ## 0. Prepare
 
-Read the Issue body and discussion, including the coordinator's dispatch comment, `AGENTS.md`, the referenced design docs/ADRs and the [Testing standard](#testing-standard). Verify the absolute worktree, task branch, baseline, PR base and Godot MCP assignment recorded in the dispatch comment, preserving unrelated changes. Before environment setup, validation or export, consult [Local validation and Windows builds](local-environment.md).
+Read the Issue body and discussion, including the coordinator's dispatch comment, `AGENTS.md`, the referenced design docs/ADRs and the [Testing standard](#testing-standard). Verify the absolute worktree, task branch, baseline, PR base and Godot MCP assignment recorded in the dispatch comment, preserving unrelated changes. For staged work, verify the assigned stage and its prerequisites under [Stage integration](dispatch-sop.md#stage-integration); do not begin a later stage before the preceding stage has passed. Before environment setup, validation or export, consult [Local validation and Windows builds](local-environment.md).
 
 Reply to the developer with a short summary of the task, the open questions you see, and a proposed approach. Then wait; do not start implementing before the developer agrees.
 
@@ -51,6 +51,7 @@ The developer then asks the coordinator for acceptance. If implementation or val
 
 - PR URL, base branch and tested head SHA.
 - What changed and which Acceptance criteria it covers; links to the decisions recorded during the session.
+- For staged work, the stage acceptance Issue and the real integration paths this task enables. Distinguish module-level evidence from stage integration evidence; delivery of this PR does not authorize the next stage.
 - Selected validation scope; exact commands, results, test-group durations, unified-entry summary paths and anything not run; host OS and tool versions where relevant. Identify reused evidence and why intervening changes do not invalidate it. For Windows builds, include the export path and report export and Windows runtime validation separately.
 - For Godot MCP validation: plugin source commit, MCP port, actual project/worktree path, tool calls and relevant arguments, observed results, retained log/artifact paths, and any fallback or unverified coverage, tied to the tested head SHA.
 - Manual and visual checks, listed separately from automated results.

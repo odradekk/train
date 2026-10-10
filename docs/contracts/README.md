@@ -7,6 +7,8 @@
 
 当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明，以及四模块消费样例已创建；Godot 接入规范已明确，生产代码迁移和完整独立检查仍待后续工作。本页不是这些检查已经通过的证据，也不是整组契约基线。
 
+实施按[六个开发阶段](../design/00-product-and-core-loop.md#开发阶段)推进；第一阶段的准备任务交付[共享骨架与初始契约基线](conventions.md#契约基线与受控变更)，再开展模块并行开发。真实生产行为按阶段验证，阶段票的通过记录不代替完整 Demo 验收。
+
 四份模块文档按下表归档。前三个模块提供各自的公开声明，Godot 文档定义宿主适配和接入；可编译调用样例随后由契约原型补充行为验证，不为对称增设 Godot 契约程序集。
 
 存档、内容发布和会话切换的身份、时序、失败与资源责任已由[跨层事务决策](https://github.com/odradekk/train/issues/284)确定，见[跨层协议](transactions.md)。模块接口须落实该协议，不另建相互冲突的提交规则；具体签名与验证证据见各模块文档。
@@ -20,7 +22,7 @@
 | 体素引擎层 | [scenes.md](scenes.md) | [体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289) |
 | Godot 层 | [godot.md](godot.md) | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
 
-验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；工具尚未实现。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与最终联调流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
+验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；工具尚未实现。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与阶段性联调的交付、变更和验收流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。每阶段联调通过后，才能开始下一阶段开发；完整 Demo 仍须满足全部完成标准。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
 
 宿主帧驱动、暂停来源记账、Godot API 调度和保存路径等内部方案见[宿主设计](../godot-host-design.md)，不纳入公开契约基线。
 
