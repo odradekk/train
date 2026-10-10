@@ -25,7 +25,7 @@
 6. 领域模型与 Godot SceneTree、渲染、UI 等表现层严格分离。
 7. Deterministic Simulation 是整个项目的基础架构原则。
 
-Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；市场与价格、人口的具体规则待定，战斗与征服见 [17](17-combat.md)。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实施任务纳入本次 Demo 工单重组。AI 势力、自动贸易策略和复杂调度在 Demo 之后扩充。
+Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设、战斗三个并列的主循环，包括面向玩家的设计编辑器、战斗和聚居地取得；市场与价格的具体规则待定，战斗与征服见 [17](17-combat.md)，人口、消费与劳动力见 [18](18-population-and-labor.md)。资源与生产系统已在 [10](10-resources-and-extraction.md)–[14](14-construction-refit-and-deconstruction.md) 定义，其中依赖体素世界的部分随架构调整改写，实施任务纳入本次 Demo 工单重组。AI 势力、自动贸易策略和复杂调度在 Demo 之后扩充。
 
 ## 文档地图
 
@@ -37,6 +37,7 @@ Demo 范围见 [00](00-product-and-core-loop.md#demo-范围)：经济、建设�
 | 核心模拟层 | [04-deterministic-simulation.md](04-deterministic-simulation.md) | 时间、命令与确定性 |
 | 核心模拟层 | [05-world-graph-and-generation.md](05-world-graph-and-generation.md) | 世界图与世界生成 |
 | 核心模拟层 | [16-settlements.md](16-settlements.md) | 聚居地 |
+| 核心模拟层 | [18-population-and-labor.md](18-population-and-labor.md) | 人口变化、居民消费与劳动力 |
 | 核心模拟层 | [06-railway.md](06-railway.md) | 铁路与列车运行 |
 | 核心模拟层 | [17-combat.md](17-combat.md) | 战斗、世界生物与征服 |
 | 核心模拟层 | [03-vehicles-buildings-and-designs.md](03-vehicles-buildings-and-designs.md) | 车辆、建筑与设计属性 |

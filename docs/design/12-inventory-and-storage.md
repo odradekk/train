@@ -28,6 +28,7 @@
 
 - 同一 Settlement 使用统一逻辑库存池。Facility 直接从 Settlement Inventory 取 Inputs、把 Outputs 放回 Settlement Inventory。
 - 不模拟 Factory input buffer、Conveyor、Warehouse-to-factory truck 或 Settlement 内部物流路径。
+- 居民也从这个真实库存整单位取用生活物资，按 [18](18-population-and-labor.md#取得物资与消费剩余量)逐步消费；取出后尚未用完的消费剩余量不是库存，不能交易或供生产使用。与设施争抢库存的顺序见 [18](18-population-and-labor.md#同步竞争的顺序)。
 
 ### Storage Capacity
 

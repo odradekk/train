@@ -7,7 +7,7 @@
 
 ## 边界
 
-本文定义 Production Process 与 Recovery Process 的 Definition、Facility 的兼容性与 Capability 分层、Production Plan 与 ActiveBatch、Work / Power / Labor 等 Production Factors、共享资源 Resolver、Facility-local OutputBuffer、Recovery 的执行、Job 的失败与暂停、内容热更新对运行中 Job 的影响。生产网络的内容见 [11](11-goods-and-production-network.md)；节点资源与开采见 [10](10-resources-and-extraction.md)；库存见 [12](12-inventory-and-storage.md)；Construction / Refit / Deconstruction Job 见 [14](14-construction-refit-and-deconstruction.md)；Tick 流水线与 Resolver 的通用规则见 [04](04-deterministic-simulation.md)。人口如何换算 Labor、Settlement AI 与生产规划策略不在本文。
+本文定义 Production Process 与 Recovery Process 的 Definition、Facility 的兼容性与 Capability 分层、Production Plan 与 ActiveBatch、Work / Power / Labor 等 Production Factors、共享资源 Resolver、Facility-local OutputBuffer、Recovery 的执行、Job 的失败与暂停、内容热更新对运行中 Job 的影响。生产网络的内容见 [11](11-goods-and-production-network.md)；节点资源与开采见 [10](10-resources-and-extraction.md)；库存见 [12](12-inventory-and-storage.md)；Construction / Refit / Deconstruction Job 见 [14](14-construction-refit-and-deconstruction.md)；Tick 流水线与 Resolver 的通用规则见 [04](04-deterministic-simulation.md)。人口与劳动力供给见 [18](18-population-and-labor.md)；Settlement AI 与生产规划策略不在本文。
 
 ## 不变量
 
@@ -76,8 +76,8 @@
 
 ### Labor
 
-- Labor 不属于 Goods，不可库存、不被正常生产“消耗”。Settlement 的外部人口系统未来提供 AvailableLaborCapacity；生产只是占用 AllocatedLabor，停止生产后释放。
-- 人口死亡、迁移、增长等规则不在本文设计，本文只要求未来人口系统能够提供 Settlement Labor Capacity。
+- Labor 不属于 Goods，不可库存、不被正常生产“消耗”。核心的人口模拟提供 AvailableLaborCapacity；生产只是占用 AllocatedLabor，停止生产后释放。
+- 人口换算、短缺反馈与人口规则缺失时的行为统一见 [18 的劳动力规则](18-population-and-labor.md#劳动力与玩家操作)及[内容缺失规则](18-population-and-labor.md#内容缺失与更新)，不是由 Godot 或内容层计算的外部供给。人口增长与 Labor 换算已经纳入 Demo。
 
 ### Factor Intensity
 
@@ -89,6 +89,7 @@
 - 多个 Facility 竞争同一库存 Input、Power、Labor、Storage Capacity 时，必须通过 Resolver：explicit Production Priority → stable deterministic fallback。
 - Input 竞争按完整 Batch grant；Power / Labor 允许部分分配。
 - 不得使用 Dictionary iteration order、System registration order、Thread completion order 作为 Gameplay priority；通用规则见 [04](04-deterministic-simulation.md)。
+- 居民与设施在同一步竞争库存时，按 [18 的消费仲裁顺序](18-population-and-labor.md#同步竞争的顺序)执行；这不允许人口系统取回已投入批次的原料，也不改变设施间的既有排序。
 
 ### 单 Facility 并行限制
 
@@ -147,11 +148,11 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 
 ## Demo 之后
 
-多 Production Slot、拆解入库的大型设备、机器邻接加成、规模经济、复杂效率曲线、连续工艺故障、半成品腐坏、Production Batch 主动 Cancel / Refund、特殊 Process 的连续运行失败规则；Facility destroyed 后自动回收；Settlement AI / Production Planning；人口增长、Labor 换算、职业、工资、疾病与医疗系统。
+多 Production Slot、拆解入库的大型设备、机器邻接加成、规模经济、复杂效率曲线、连续工艺故障、半成品腐坏、Production Batch 主动 Cancel / Refund、特殊 Process 的连续运行失败规则；Facility destroyed 后自动回收；Settlement AI / Production Planning；职业、工资、疾病与医疗系统。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数。
 - 燃料每单位提供多少电量写在哪里：燃料货物的定义上，还是 `power` 行为的参数里；一台发电设备能烧哪些燃料。体素定义的格式暂不包含这一项，`production`、`extraction`、`construction`、`power` 的参数也是初版，实现这些玩法时可以增删（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
 
-资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口与劳动力的最小规则由[人口与劳动力：Demo 的最小规则](https://github.com/odradekk/train/issues/280)补齐，本文旧分期不能将它们整体推迟；生产与供能参数由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)明确。
+资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口与劳动力的规则已确定，见 [18](18-population-and-labor.md)；生产与供能参数由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)明确。

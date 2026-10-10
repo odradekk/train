@@ -91,7 +91,7 @@ Conductive Metal + Structural Metal                           → Electrical Com
 Electrical Components + Specialty Material + Glass + Polymer  → Electronic Components
 ```
 
-Civilian Goods：Medical Supplies 是消耗性 Goods，不是永久安装设备；具体人口 / 乘员如何消耗留待人口与乘员系统设计。
+Civilian Goods：Medical Supplies 是消耗性 Goods，不是永久安装设备；居民消费、基本与改善需求及食品替代统一见 [18](18-population-and-labor.md#基本与改善需求)。Demo 不模拟乘员消费或医疗治疗。
 
 ```text
 Grain                                             → Staple Food
@@ -177,11 +177,11 @@ Control Equipment      → Electronic Components + Electrical Components
 
 ## Demo 之后
 
-Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；人口消费率；具体 Train Equipment 玩法与医疗效果；弹药。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
+Future Product Families 的具体产品与 Process；Window、Door、Armor Block、Decoration Goods；Seed、Water、Fertilizer、Sapling、Feed；Scrap / Waste 经济与废旧电子产业；Supply、Demand、Price curve、Treasury、Buy / Sell spread、Trade fee / tax、Settlement MarketState、AI economic planning；具体 Train Equipment 玩法与医疗效果；弹药。现有 `VoxelDefinition.Value` 与“Price 属于 Market Context”的既有边界继续保留，Price 规则不在本文扩展。资源转录 Q357–Q366 的市场分支已在对话中作废，不构成决定。
 
 ## 开放问题
 
 - 地图迷雾（不立票）：未冻结参数：每个 Production Recipe 的整数 Input / Output 数量、Recovery BaseOutput 数量。
 - 地图迷雾（不立票）：Train Equipment 的具体 Gameplay 功能与商品拆分尚待对应系统设计；新增 Goods / Process 须通过 Gameplay Difference Test。
 
-资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。本文旧分期中的市场与人口条目由相应决策票修订，不能据此排除完整 Demo 已纳入的规则；具体机制仍由对应票决定。
+资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口消费已确定并纳入 Demo，见 [18](18-population-and-labor.md)；本文旧分期中的市场条目由[市场与交易](https://github.com/odradekk/train/issues/281)修订，不能据此排除完整 Demo 已纳入的规则。

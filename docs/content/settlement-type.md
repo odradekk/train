@@ -1,8 +1,10 @@
 # 聚居地类型
 
-聚居地类型是聚居地的玩法分类，例如农庄、城市。它决定名称、地图符号、生成权重、地貌偏好和人口范围；首个切片里还临时决定供需和站台数。文件名是 `<local id>.settlement-type.json`，放在 `resources/settlement-types/`，资产放在同名文件夹里。Schema 见 [schemas/settlement-type.schema.json](schemas/settlement-type.schema.json)，示例见 [examples/example-pack/resources/settlement-types/](examples/example-pack/resources/settlement-types/)。
+聚居地类型是聚居地的玩法分类，例如农庄、城市。它决定名称、地图符号、生成权重、地貌偏好和初始人口范围；首个切片里还临时决定供需和站台数。文件名是 `<local id>.settlement-type.json`，放在 `resources/settlement-types/`，资产放在同名文件夹里。Schema 见 [schemas/settlement-type.schema.json](schemas/settlement-type.schema.json)，示例见 [examples/example-pack/resources/settlement-types/](examples/example-pack/resources/settlement-types/)。
 
 类型不列出自己有哪些模板，由模板声明自己属于哪个类型，见[聚居地模板](settlement-template.md)。规则的来由见设计文档 [16 的聚居地类型](../design/16-settlements.md#聚居地类型)。首切片临时供需和站台数字段不再作为完整 Demo 的实施依据，见 [00 的本阶段范围](../design/00-product-and-core-loop.md#本阶段范围)；相关字段、Schema 和样例暂保留，待市场规则与内容契约确定后同步替换。
+
+Demo 的全部聚居地共用一套独立的人口规则内容数据，见 [18](../design/18-population-and-labor.md#一局共用的人口规则)。类型不提供不同的消费率、劳动比例或人口变化规则；新数据的文件格式与投影由[内容契约票](https://github.com/odradekk/train/issues/288)交付，本文和现有 Schema 尚未包含它。
 
 ```json
 {
@@ -30,7 +32,7 @@
 | `simulation.demand` | 对象数组 | 否 | `[]` | 临时规则：各货物的需求上限，写法同上 | 首个切片 |
 | `simulation.preferred_terrain` | 字符串数组 | 否 | `[]` | 偏好的地貌类型，写完整标识，例如 `core:plains`；空数组表示不限。地貌类型还没有定义目录，暂不检查是否存在 | 首个切片 |
 | `simulation.weight` | 整数 | 是 | — | 世界生成选类型时的权重，正整数 | 首个切片 |
-| `simulation.population_min`、`simulation.population_max` | 整数 | 是 | — | 常住人口范围，正整数，下限不大于上限。世界生成时在范围内取值；玩家建立的聚居地取下限 | 首个切片 |
+| `simulation.population_min`、`simulation.population_max` | 整数 | 是 | — | 初始常住人口范围，正整数，下限不大于上限。世界生成时在范围内取值；玩家建立的聚居地取下限。不是运行中的人口上限或保底人数 | 首个切片 |
 | `simulation.initial_platform_count` | 整数 | 否 | 0 | 临时规则：首个切片没有模板和站点建筑时的站台数。有模板的聚居地不读这个字段，站台由站点里的 `platform` 部件提供；Demo 时去掉 | 首个切片 |
 | `display.name` | 字符串 | 是 | — | 1–100 个字符 | 首个切片 |
 | `display.description` | 字符串 | 是 | — | 1–2000 个字符 | 首个切片 |
@@ -45,7 +47,7 @@
 | `capacity` | 上限，正整数 |
 | `restore_per_tick` | 每次恢复的数量，非负整数；可以为 0，也可以大于上限，恢复时截到上限 |
 
-正式的市场和人口规则确定后，供需和临时站台数会被替换。
+人口规则已由 [18](../design/18-population-and-labor.md)确定；待市场规则和内容契约落定后，统一替换临时供需和站台数字段，不把居民需求率当成固定市场收购量。
 
 ## 加载器检查的规则
 
