@@ -21,6 +21,8 @@
 
 领域世界和表现路径分开。Voxel Presentation 分为三路：Cube（含内置的标准形状）、CustomStaticMesh、Specialized。
 
+体素引擎层交出的网格数据只用 Asset Revision 引用贴图和模型，另带材质类别和涂装颜色，不含像素。Godot 的 AssetResolver 把 Asset Revision 换成纹理、模型和材质，怎样打包（纹理数组、图集、按材质分批）由 Godot 决定；资产怎样从内容层交到 Godot 见 [02 的资产的交接](02-definitions-and-content.md#资产的交接)。由场景数据算出的几何（标准形状、钢轨和轨枕、轮对的位置）由体素引擎层算成纯数据；着色器、材质类别的视觉参数、磨损和损伤图案、粒子、天空、轮对模型和缺失内容的占位外观属于 Godot 项目本身，不在内容包里，Mod 不能修改，也不随内容热重载更新。
+
 ### Cube Voxel Rendering
 
 - Demo：Chunk → Face Culling → Chunk Surface Mesh，只生成未被视觉完全遮挡的面；是否占格或有碰撞盒不等于完全遮挡。非满格 Custom Mesh 和镂空材质默认不遮住整个邻面，不能从占格或碰撞盒推断视觉上完全遮挡。不使用 one MeshInstance per voxel。
@@ -31,8 +33,8 @@
 
 ### Custom Static Mesh
 
-- Demo 的 Custom Static Mesh 支持静态模型、基础颜色与贴图、正常光照和阴影，以及不透明和镂空裁剪材质。资产原点、尺寸和方向须有统一约定，体素按定义允许的正交朝向放置。
-- Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
+- Demo 的 Custom Static Mesh 支持静态模型、基础颜色与贴图、正常光照和阴影，以及不透明和镂空裁剪材质。模型是 `.glb`，单位为米，原点在格的底面中心，+Y 向上、正面朝 +Z，见[体素定义的格式](../content/voxel.md#模型文件的约定)；体素按定义允许的正交朝向放置，24 个朝向都绕格中心旋转。
+- Custom Mesh Voxel 按 Chunk + Mesh + Material 进行局部批处理或实例化。体素引擎层只交出模型实例的列表（模型的 Asset Revision、所在格和朝向），不读取模型几何；Godot 解析模型并决定怎样批处理。Demo 只要求 LOD0；未来 Custom Mesh LOD 属于 Presentation Asset Metadata，而不属于 Gameplay Definition。
 - 标准形状和 Custom Mesh 必须完全位于自己的格内（严格内接）；以后加入模型内部动画时，会动部分的运动范围也必须在格内。需要真正跨格的视觉结构由多个体素组成，或进入 Specialized Renderer。
 - Custom Mesh 用模型自己的 UV 贴图，基础贴图密度 32 px/格；一个模型可以有几个表面，每个表面选一个表现材质类别，见[美术 02](../art/02-materials-and-textures.md#形状与自定义模型)。模型按原尺寸使用，不缩放或剪切。
 

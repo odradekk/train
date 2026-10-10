@@ -126,7 +126,7 @@
       }
     },
     "meshPresentation": {
-      "description": "自定义模型，从 Demo 开始。模型格式暂定为 .glb，随第一个自定义模型的导入约定确定。",
+      "description": "自定义模型，从 Demo 开始。模型是 .glb，单位、原点、轴和文件内容的限制见 voxel.md 的模型文件的约定。",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "model", "surface_materials"],

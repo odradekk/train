@@ -30,7 +30,7 @@
       "pattern": "^(shared/)?[a-z0-9][a-z0-9_-]*\\.png$"
     },
     "glbPath": {
-      "description": "glTF 二进制模型路径，规则同 pngPath。格式暂定。",
+      "description": "glTF 二进制模型路径，规则同 pngPath。模型文件的约定见 voxel.md。",
       "type": "string",
       "pattern": "^(shared/)?[a-z0-9][a-z0-9_-]*\\.glb$"
     },

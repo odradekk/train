@@ -65,3 +65,4 @@
 - **修订**：2026-10-09，[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)规定部件表里的定义可以是体素定义，也可以是功能复合体标识；结构耐久上限还包括各部件自身耐久上限的一部分。
 - **修订**：2026-10-09，聚居地模板文件虽然不按读取方拆分，但内容层交给核心的数据里仍然不含坐标、朝向、场景模型和显示字段。
 - **修订**：2026-10-09，[ADR-0016](0016-separate-module-contracts-and-limit-implementation-access-to-composition.md)保留按读取方投影，取代上文的实现项目引用和日志、控制台归属。核心需要的输入类型归核心契约，由内容实现计算；完整存档与复现包组装确定归 Godot 宿主。具体项目布局、依赖、类型及职责见[契约索引](../contracts/README.md)，代码迁移和隔离验证仍待后续任务。
+- **修订**：2026-10-10，[ADR-0017](0017-hand-off-presentation-assets-as-raw-bytes-keyed-by-asset-revision.md)把 Godot 向内容层提供的 PNG 解码改为资产检查（PNG 和 `.glb`），只返回元数据；内容层保存原始字节，不再保存解码后的像素。

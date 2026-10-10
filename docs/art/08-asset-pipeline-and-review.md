@@ -1,6 +1,6 @@
 # 08 资产制作流程与检查
 
-> 决策出处：美术 Q220、Q230、Q239、Q240。交付物、源文件、目录与命名、制作顺序、检查清单、检查地点与检查光照、检查人与记录、样机的作用和各阶段范围，由[资产制作流程、交付物与检查](https://github.com/odradekk/train/issues/252)于 2026-10-09 确认；制作顺序和检查条件从[美术方向初稿](../research/art-direction-draft-2026-10-08.md)第 11–12 节改写。
+> 决策出处：美术 Q220、Q230、Q239、Q240。交付物、源文件、目录与命名、制作顺序、检查清单、检查地点与检查光照、检查人与记录、样机的作用和各阶段范围，由[资产制作流程、交付物与检查](https://github.com/odradekk/train/issues/252)于 2026-10-09 确认；自定义模型的交付物、导入约定和源文件位置由[资产访问与导入：内容、体素和 Godot 的交接契约](https://github.com/odradekk/train/issues/286)于 2026-10-10 确认；制作顺序和检查条件从[美术方向初稿](../research/art-direction-draft-2026-10-08.md)第 11–12 节改写。
 
 > **修订中**：当前里程碑是完整 Demo。下文“本阶段”的首切片资产清单与实施票仅保留历史，待[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)和[按四模块重组现有工单并补齐 Demo 实施工单](https://github.com/odradekk/train/issues/294)更新，不能据此开工。大尺寸与拥挤场景专项已由[完整 Demo 的开局、目标、结束与验收](https://github.com/odradekk/train/issues/278)提前纳入 Demo；其余制作与画面检查规则仍有效。
 
@@ -24,7 +24,7 @@
 | --- | --- |
 | 立方体体素 | 各面 PNG，边长为 32 px × 平铺跨度；可选的正面图；`icon.png`，128×128（[07](07-icons-and-ui.md#物品图标)）；`.voxel.json` 中的表现字段：`faces`、`tile_span`、`material`，写法见[体素定义的格式](../content/voxel.md)；`.png.import`，导入方式改为 Keep File（`importer=keep`） |
 | 形状 | 内置目录随代码提供，不按体素交付文件；美术只检查贴图投影到形状上的效果（[01](01-construction-language.md#形状)） |
-| 自定义模型 | 源文件、导出的模型、模型贴图、每个表面的材质类别（[02](02-materials-and-textures.md#形状与自定义模型)）；格式和导入约定见开放问题 |
+| 自定义模型 | 源文件 `.blend`；导出的 `model.glb`，贴图嵌在文件里；每个表面的材质类别（[02](02-materials-and-textures.md#形状与自定义模型)）；`.glb.import`，导入方式改为 Keep File（`importer=keep`）。单位、原点、轴和文件内容的限制见[模型文件的约定](../content/voxel.md#模型文件的约定) |
 | 场景模型、样机 | 内容文件：场景模型和样机都是蓝图 `.blueprint.json`，写法见[蓝图的格式](../content/blueprint.md)。设计编辑器和创作模式能用之前手写 |
 | 检查记录 | 写在实施工单的完成评论里，见[检查人与记录](#检查人与记录) |
 
@@ -32,12 +32,12 @@
 
 - 手绘的贴图和图标，源文件就是 PNG 本身。贴图每格 32 px，最大的平铺图 256×256，直接改 PNG，不另存分层文件。
 - 用工具或样稿生成的图，生成它的工具就是源文件，留在仓库里，并在检查记录中写明。改色值时，样稿和对应的美术文档一起改。
-- 自定义模型的 `.blend` 等源文件要保留，放在哪里随 Blender 到 Godot 的导入流程一起定。
+- 自定义模型的 `.blend` 等源文件要保留。内置内容的源文件放在仓库根目录的 `art-source/`，按包和定义分目录，例如 `art-source/core/voxels/<local id>/model.blend`；目录里放 `.gdignore`，Godot 编辑器不会自动导入 `.blend`，导出包也不含它。源文件不放进内容包，Mod 作者自己保管源文件。
 - 暂不使用 Git LFS。
 
 ### 目录与命名
 
-- 每个体素一个定义文件和一个同名文件夹（设计文档 [02 的内容目录与格式](../design/02-definitions-and-content.md#内容目录与格式)），文件夹 `resources/voxels/<local id>/` 里的图按面命名：`top.png`、`side.png`、`bottom.png`、`front.png`、`icon.png`。
+- 每个体素一个定义文件和一个同名文件夹（设计文档 [02 的内容目录与格式](../design/02-definitions-and-content.md#内容目录与格式)），文件夹 `resources/voxels/<local id>/` 里的图按面命名：`top.png`、`side.png`、`bottom.png`、`front.png`、`icon.png`；自定义模型叫 `model.glb`。
 - 几个面用同一张图时，直接绑定同一个文件，不复制。例如底面同顶面，就都绑定 `top.png`。
 - 几个体素共用的图放在 `resources/voxels/shared/`，文件名写内容，例如 `vehicle-underside.png`。
 - local id 用英文小写，单词之间用连字符，例如 `dry-grass`、`ballast`（设计文档 [02 的 ID 与命名空间](../design/02-definitions-and-content.md#id-与命名空间)）。目录只用来组织文件，不决定身份。
@@ -67,8 +67,8 @@ builtin/core/resources/voxels/
 
 **单个体素**（做完就查）：
 
-- 自动检查通过：内容校验（正方形、2 的幂、三面同尺寸、大小上限）和内容冒烟检查。
-- `.png.import` 是 `importer=keep`，人工核对。
+- 自动检查通过：内容校验（正方形、2 的幂、三面同尺寸、大小上限）和内容冒烟检查。自定义模型另查包围盒在格内、表面数和材质类别数一致、没有骨骼和动画等不支持的内容（[模型文件的约定](../content/voxel.md#模型文件的约定)）。
+- `.png.import` 和 `.glb.import` 是 `importer=keep`，人工核对。
 - 方向正确：侧面图的上方朝上；正面图在体素前方（局部 +Z）的那一面。
 - 平铺：同种体素铺成至少 3 倍跨度宽的一片，看不出接缝；在任意位置切开，图案仍然均匀（[02 的贴图画法](02-materials-and-textures.md#贴图画法)）。
 - 像素大小和相邻体素一致（32 px/格）。
@@ -133,5 +133,4 @@ builtin/core/resources/voxels/
 
 ## 开放问题
 
-- 地图迷雾（不立票）：Blender 到 Godot 的导入流程、原点与轴的约定、资产元数据，以及 `.blend` 源文件放在哪里，导入第一个自定义模型时再定。
 - 近期决策：[Demo 内容与资产清单：覆盖场景与制作验收](https://github.com/odradekk/train/issues/283)确定三台样机按现行尺寸重做的规格，以及大尺寸与拥挤场景专项的占用格数、部件数、嵌套情况、同屏数量和性能保证覆盖范围。

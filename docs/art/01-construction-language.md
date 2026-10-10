@@ -164,4 +164,4 @@
 
 ## 开放问题
 
-- 自定义模型的导入约定和三台样机的规格，见 [08 的开放问题](08-asset-pipeline-and-review.md#开放问题)。
+- 三台样机的规格，见 [08 的开放问题](08-asset-pipeline-and-review.md#开放问题)。自定义模型的导入约定已在 [08 的交付物](08-asset-pipeline-and-review.md#交付物)和[模型文件的约定](../content/voxel.md#模型文件的约定)中确定。
