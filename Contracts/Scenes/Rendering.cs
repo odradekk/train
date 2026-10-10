@@ -59,9 +59,9 @@ public sealed record TerrainCollisionPatch(SceneObjectId Id, Vector3 Origin,
     int Width, int Depth, double SpacingCells, ImmutableArray<float> Heights);
 public sealed record SceneEnvironment(ImmutableArray<SceneBounds> FoggedRegions,
     ImmutableArray<TerrainCollisionPatch> TerrainCollision);
-/// <summary>一次完整显示更新；Base 不匹配时不得逐项尝试应用，须请求完整替换。</summary>
+/// <summary>Base 为 null 表示完整替换，否则为增量更新的实际显示帧身份；Base 不匹配时不得逐项应用。</summary>
 public sealed record SceneUpdate(SceneFrameStamp? Base, SceneFrameStamp Frame,
-    bool ReplaceAll, Vector3 ShiftExistingRoots, ImmutableArray<SceneObject> Upserts,
+    Vector3 ShiftExistingRoots, ImmutableArray<SceneObject> Upserts,
     ImmutableArray<SceneObjectId> Removed, SceneEnvironment Environment,
     ImmutableArray<SceneEffectCue> Effects);
 public enum SceneReadiness { Loading, Partial, Ready, Failed }
@@ -72,7 +72,6 @@ public sealed record SceneDebugLine(Vector3 From, Vector3 To, Vector4 Color);
 /// <summary>不可变显示帧；会话关闭后仍可保留作为历史值，不使其重新获得当前交互资格。</summary>
 public interface ISceneFrame
 {
-    SceneFrameStamp Stamp { get; }
     ScenePoint Origin { get; }
     /// <summary>节点场景的完整相机平移范围；尚未确定或非节点场景时为 null，不能从部分网格推断。</summary>
     ScenePanBounds? NodePanBounds { get; }

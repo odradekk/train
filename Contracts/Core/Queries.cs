@@ -89,13 +89,28 @@ public sealed record LocationView(WorldLocation Location, ImmutableArray<TrainId
 public enum TrainActivity { Stopped, Running, Servicing, Waiting, NoRoute, Combat, Retreating }
 /// <summary>有序运行计划；单次或循环。</summary>
 public sealed record RunPlan(bool Loop, ImmutableArray<PlanStop> Stops);
-/// <summary>停靠或途经点；仅停靠点使用停留步数及按数组顺序执行的货物规则。</summary>
-public sealed record PlanStop(NodeId Node, bool Stop, ulong DwellSteps, ImmutableArray<AutomaticGoodsRule> GoodsRules);
+/// <summary>运行计划节点；途经点只经过，停靠站按数组顺序执行货物规则。</summary>
+public abstract record PlanStop
+{
+    private PlanStop() { }
+    public sealed record Waypoint(NodeId Node) : PlanStop;
+    public sealed record Station(NodeId Node, ulong DwellSteps,
+        ImmutableArray<AutomaticGoodsRule> GoodsRules) : PlanStop;
+}
 /// <summary>玩家视角的买卖或免费装卸方向。</summary>
 public enum TradeAction { Buy, Sell, Load, Unload }
-/// <summary>达到列车库存目标；买卖限价为逐件限价，装卸不使用限价。</summary>
-public sealed record AutomaticGoodsRule(TradeAction Action, GoodId Good, InventoryId LocalInventory,
-    long TargetQuantity, Money? UnitPriceLimit);
+/// <summary>自动买卖可选逐件限价；空值表示无限价，免费装卸没有价格条件。</summary>
+public abstract record AutomaticGoodsAction
+{
+    private AutomaticGoodsAction() { }
+    public sealed record Buy(Money? MaximumUnitPrice) : AutomaticGoodsAction;
+    public sealed record Sell(Money? MinimumUnitPrice) : AutomaticGoodsAction;
+    public sealed record Load : AutomaticGoodsAction;
+    public sealed record Unload : AutomaticGoodsAction;
+}
+/// <summary>达到列车库存目标；规则的库存、货物和目标数量由各动作共用。</summary>
+public sealed record AutomaticGoodsRule(AutomaticGoodsAction Action, GoodId Good, InventoryId LocalInventory,
+    long TargetQuantity);
 /// <summary>交战目标优先级。</summary>
 public enum TargetPriority { ArmedFirst, LowestDurability, HighestDurability }
 /// <summary>允许攻击的目标范围。</summary>

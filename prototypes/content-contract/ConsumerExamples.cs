@@ -15,6 +15,15 @@ public static class ConsumerExamples
     public static ImmutableArray<VoxelCatalogEntry> ReadVoxelPalette(IContentView content, bool scene)
         => content.Voxels.Where(entry => (entry.Good is null) == scene).ToImmutableArray();
 
+    /// <summary>缺失复合体从放置点定位；不要求转动参数，也不把未知占格当成一格。</summary>
+    public static void LocateMissingComposites(DesignSceneProjection scene,
+        Action<CompositeDefinitionId, PartId, GridPosition> showDiagnostic)
+    {
+        foreach (var item in scene.NestedObjects)
+            if (item.Details is NestedObjectDetails.MissingFunctionalComposite missing)
+                showDiagnostic(missing.Definition, missing.Number, item.At);
+    }
+
     /// <summary>核心选定聚居地后，内容在同一个固定候选上准备每实例模板，再交宿主统一激活。</summary>
     public static NewGameCandidates? PrepareNew(IContentFactory contentFactory, ICoreFactory coreFactory,
         ContentInstallation installation, IContentFiles files, IAssetInspector assets,

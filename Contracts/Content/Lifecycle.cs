@@ -136,7 +136,8 @@ public abstract record PreparedContentEdit
     public sealed record BlueprintSaved(BlueprintAddress Blueprint, DesignHash Design) : PreparedContentEdit;
     public sealed record BlueprintDeleted(BlueprintAddress Blueprint) : PreparedContentEdit;
     public sealed record ConstructionTarget(DesignInput Design) : PreparedContentEdit;
-    public sealed record InstanceTarget(DesignHash Design, DesignChangeEvaluation Difference) : PreparedContentEdit;
+    /// <summary>目标设计身份只从 Difference.Core.Target.Design.Design 读取。</summary>
+    public sealed record InstanceTarget(DesignChangeEvaluation Difference) : PreparedContentEdit;
 }
 /// <summary>外部文件写入只针对用户蓝图库；null 字节表示删除，空字节为实际空文件。</summary>
 public sealed record ExternalContentWrite(BlueprintId Blueprint, ImmutableArray<byte>? Bytes);

@@ -49,7 +49,7 @@
 
 ## 显示更新与资源
 
-`ISceneFrame` 是可保留的不可变显示边界，包含同一时刻的姿态、拾取、空间映射和显示更新。`Present` 的 `displayedFrame` 必须是已经完整接入 Godot 的最后一帧；不能传仅计算或准备过的帧。首次、传 null 或空间变更时 `ReplaceAll=true`、Base=null，并返回该帧的全部对象。否则 Base 必须等于实际显示帧的 Stamp。
+`ISceneFrame` 是可保留的不可变显示边界，包含同一时刻的姿态、拾取、空间映射和显示更新。帧身份统一使用 `Update.Frame`。`Present` 的 `displayedFrame` 必须是已经完整接入 Godot 的最后一帧；不能传仅计算或准备过的帧。`Update.Base=null` 唯一表示完整替换：首次、传 null 或空间变更时返回该帧的全部对象。增量更新的 Base 必须等于实际显示帧的 `Update.Frame`。
 
 Godot 按以下顺序准备并一次接入：完整替换时移除旧场景；增量时先给所有现存根加 `ShiftExistingRoots`，再删除 Removed、加入或替换 Upserts，最后替换 Environment。Upserts、Environment、效果和调试线已经使用新原点；父子关系无环，每个存活对象的父对象必须存在。移除包含不再存在的子对象，Godot 不猜测级联业务语义。同一更新内 ID 不重复且不同时出现在删除与更新中。
 

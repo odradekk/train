@@ -136,11 +136,18 @@ public sealed record DesignChangeProjection(DesignHash Before, CompositionHash B
     ImmutableArray<GoodsQuantity> AddedGoods,
     ImmutableArray<DesignReturnUnit> RemovedItems, long ChangedItemCount);
 
-public enum ProcessKind { Production, Extraction, Recovery }
-/// <summary>工作总量为正整数；电量/工作量与劳动力/(工作量/秒)均有限非负。开采只写 Extracts。</summary>
-public sealed record ProcessProjection(ProcessRef Id, SemanticRevision Revision,
-    ProcessKind Kind, ImmutableArray<GoodsQuantity> Inputs,
-    ImmutableArray<GoodsQuantity> Outputs, GoodsQuantity? Extracts,
+/// <summary>流程类别、强类型身份与每批货物；开采产出隐含为 Extracts 的同种货物及数量。</summary>
+public abstract record ProcessDetails
+{
+    private ProcessDetails() { }
+    public sealed record Production(ProductionProcessDefinitionId Id,
+        ImmutableArray<GoodsQuantity> Inputs, ImmutableArray<GoodsQuantity> Outputs) : ProcessDetails;
+    public sealed record Extraction(ProductionProcessDefinitionId Id, GoodsQuantity Extracts) : ProcessDetails;
+    public sealed record Recovery(RecoveryProcessDefinitionId Id,
+        ImmutableArray<GoodsQuantity> Inputs, ImmutableArray<GoodsQuantity> Outputs) : ProcessDetails;
+}
+/// <summary>工作总量为正整数；电量/工作量与劳动力/(工作量/秒)均有限非负；所有类别都可要求地貌，空数组表示无要求。</summary>
+public sealed record ProcessProjection(ProcessDetails Details, SemanticRevision Revision,
     long WorkRequired, double PowerPerWork, double LaborPerWork,
     FacilityTag RequiredFacilityTag, ImmutableArray<TerrainTypeId> AllowedTerrainTypes);
 

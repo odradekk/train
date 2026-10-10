@@ -36,7 +36,7 @@ public static class ResourceConsumer
     // 使用内容已固定并检查的字节，不用资源路径重新读取；纹理由调用方持有和释放。
     public static ImageTexture CreatePngTexture(ContentAsset asset)
     {
-        if (asset.Kind != AssetKind.Png)
+        if (asset.Metadata is not AssetMetadata.Png)
             throw new ArgumentException("需要 PNG 资产。", nameof(asset));
         using var image = new Image();
         var error = image.LoadPngFromBuffer(asset.Bytes.ToArray());

@@ -104,9 +104,18 @@ public sealed class WorldConsumer(IWorldSceneSession session, ISceneDisplay disp
         if (observed is SceneResult<SimulationPosition>.Faulted faulted)
             return new SceneResult<ISceneFrame>.Faulted(faulted.Problem);
         var camera = displayedFrame is null ? null : new SceneCameraSample(displayedFrame, cameraFocus);
-        var presented = session.Present(new SceneFrameRequest(interpolation, camera, debugLayers), displayedFrame);
+        var request = new SceneFrameRequest(interpolation, camera, debugLayers);
+        var presented = session.Present(request, displayedFrame);
+        if (presented is SceneResult<ISceneFrame>.Success candidate
+            && candidate.Value.Readiness != SceneReadiness.Failed
+            && candidate.Value.Update.Base is { } basis
+            && basis != displayedFrame?.Update.Frame)
+            presented = session.Present(request, null);
         if (presented is SceneResult<ISceneFrame>.Success success
-            && success.Value.Readiness != SceneReadiness.Failed && display.TryDisplay(success.Value))
+            && success.Value.Readiness != SceneReadiness.Failed
+            && (success.Value.Update.Base is null
+                || success.Value.Update.Base == displayedFrame?.Update.Frame)
+            && display.TryDisplay(success.Value))
             displayedFrame = success.Value;
         return presented;
     }

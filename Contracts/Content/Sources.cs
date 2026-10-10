@@ -48,8 +48,8 @@ public interface IAssetInspector
     /// <summary>检查给定原字节；不重读路径，不回传像素/模型几何，返回后不再使用调用方资源。</summary>
     AssetInspection Inspect(AssetKind kind, AssetRevision revision, ImmutableArray<byte> bytes);
 }
-/// <summary>检查通过的同一份原始字节和元数据；来源可有多个，修订仅取决于字节。</summary>
-public sealed record ContentAsset(AssetRevision Revision, AssetKind Kind,
+/// <summary>检查通过的同一份原始字节和元数据；种类由 Metadata 的变体表示，来源可有多个，修订仅取决于字节。</summary>
+public sealed record ContentAsset(AssetRevision Revision,
     ImmutableArray<byte> Bytes, AssetMetadata Metadata, ImmutableArray<ContentSourceLocation> Sources);
 /// <summary>启用列表只选 Mod，core 必需；用户库可不提供，草稿目录不参与有效内容扫描。</summary>
 public sealed record ContentInstallation(ContentRoot BuiltIn, ContentRoot Mods,

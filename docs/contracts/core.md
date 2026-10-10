@@ -44,6 +44,8 @@
 
 `DesignKind` 分为车辆、建筑、大型设备，公共质量、部件和 BOM 不重复。`InstanceDetails` 分为车辆与建筑；车辆未编组时其 Train 可空。类别不再由一组可空字段推断。
 
+`ProcessProjection` 共享版本、工作量、电力与劳动力系数、设施标签和地貌要求；`ProcessDetails` 将生产、开采、回收的强类型身份及货物资料分别封闭。开采只有 `Extracts`，其产出隐含为同种货物、同样数量；生产和回收分别持有输入输出。三种流程均可要求地貌，`AllowedTerrainTypes` 为空表示没有地貌要求。
+
 `SettlementTemplates` 是按外部定义身份唯一的当前源目录。世界生成或建城选定模板后，核心在聚居地或建城任务内部直接保存自己的模板业务数据，包含地块、起始建筑、库存及生产计划，不公开全模板或全局副本哈希目录。内容按聚居地实例身份保存对应场景模型设计和地块布局副本；外部模板更新不改已有聚居地或进行中的建城任务。`SettlementView.SourceTemplateId` 仅用于可选来源追溯；`FoundingJobView` 返回预留的最终 `ReservedSettlementId` 与 `SourceTemplateId`。`PlotView.TemplatePlotNumber` 对应内容副本的本地地块号，不能从运行时 `PlotId` 或数组顺序猜测布局。
 
 总工作量与工作系数为整数，进行中的 `ProgressWork` 保留小数。工钱费率是整数金额/工作量；租金费率是整数金额/容量/模拟小时，期限用模拟步。逐件货物、整车、服务费的结算以及两轮备货算法统一见[市场规则](../design/19-markets-and-trading.md)和[潜在消耗](../design/13-production-runtime-and-facilities.md#备货用的潜在消耗)，调用方不得复算。
@@ -96,6 +98,8 @@
 
 命令输入是封闭的类型目录，不提供字符串路由加任意 JSON 的扩展口。全部命令在协调线程同步 `Submit`，包括 `FoundSettlement` 和携带完整固定投影的 `PublishContent`；核心可以在内部使用候选保证原子性，不公开命令准备对象或另一个完成入口。控制台先在宿主解析参数，再调用相同命令，不访问核心实现。
 
+运行计划的 `PlanStop.Waypoint` 只有途经节点；`PlanStop.Station` 才携带停留步数及有序货物规则。`AutomaticGoodsRule` 共用货物、库存和目标数量，`AutomaticGoodsAction.Buy`／`Sell` 分别携带可选逐件付款上限／收款下限，空值表示无限价；`Load`／`Unload` 不携带价格条件。成交结果和报价方向继续使用 `TradeAction`。
+
 | 领域 | 公开命令及限定 |
 | --- | --- |
 | 铁路 | 编组/解编、有序运行计划、启动/停车、现有线路加轨、断点修理、自动修理来源；没有新建任意图边或拆轨命令 |
@@ -141,6 +145,8 @@
 录制的设计命令负载保留完整 DesignInput 与差额，起点保留实际采用的设计／衍生货物；设计哈希与 CoreInputId 不能代替这些业务资料。引用清单覆盖保留窗口内的全部命令，包括被拒绝和故障命令的目标设计；宿主持有对应未激活候选的固定内容依赖，普通存档不把它们误算作成功修改。
 
 核心保管命令、检查点和故障片段；宿主按 `RequiredReferences` 保管对应内容并写文件。`ReadRecording` 给出截止位置，因而没有命令的运行区间也可以准确导出。`CaptureRecordingStart` 建立待写起点；宿主仅在起点和全部依赖已经发布后，以原起点标识调用 `ConfirmRecordingStart(PublishedWithDependencies)`。
+
+`RecordedCommand` 的命令编号与前后位置统一由 `Result` 中的 `CommandReceipt` 提供，不另外保存可矛盾的编号或前置位置。此结构调整不改变既定命令线格式的编号、位置与结果语义。
 
 `CoreReferenceManifest.Templates` 列出当前聚居地、冻结建城任务及保留录制所需的实例副本引用，按 `Owner` 排序且所有者唯一。内容捕获、普通读档和严格复现须保留这些所有者对应的固定副本；来源定义身份仅作来源说明，不能用同身份的当前模板替换已有副本。恢复时缺少所声明所有者的内容副本是载荷不一致，不用当前源模板兜底。副本引用及其固定场景模型设计由内容展开，宿主不自行遍历模板字段。
 

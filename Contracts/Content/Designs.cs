@@ -107,17 +107,24 @@ public sealed record SceneVoxelProjection(GridPosition At, VoxelDefinitionId Vox
     PartId Number, DesignElementPath Element,
     ImmutableArray<int> ObjectPath, GridPosition LocalAt,
     VoxelOrientation LocalOrientation, bool Missing);
-public enum NestedObjectRole { Assembly, FunctionalComposite, SceneModel }
+/// <summary>对象种类与专属资料一同表达；缺失复合体只保留原引用和整件编号，不伪造转动参数。</summary>
+public abstract record NestedObjectDetails
+{
+    private NestedObjectDetails() { }
+    public sealed record Assembly(RotationAppearance? Rotation) : NestedObjectDetails;
+    public sealed record FunctionalComposite(CompositeDefinitionId Definition, PartId Number,
+        RotationAppearance? Rotation) : NestedObjectDetails;
+    public sealed record MissingFunctionalComposite(CompositeDefinitionId Definition, PartId Number)
+        : NestedObjectDetails;
+    public sealed record SceneModel(FlattenRegion? Flatten) : NestedObjectDetails;
+}
 /// <summary>
 /// 路径去掉最后一项即父对象路径，空路径表示最外层对象；At/Orientation 相对父对象。
-/// Rotation/Pivot 与 Flatten 均使用对象自身坐标，不能把子对象烘焙成不随父对象转动的根对象。
+/// Details 中的 Rotation/Pivot 与 Flatten 均使用对象自身坐标，不能把子对象烘焙成不随父对象转动的根对象。
 /// 功能复合体提供整件编号和原引用；缺失时仍有放置变换，但不宣称其占格已知。
 /// </summary>
 public sealed record NestedObjectProjection(ImmutableArray<int> NestedItemIndices,
-    GridPosition At, VoxelOrientation Orientation, NestedObjectRole Role,
-    RotationAppearance? Rotation, FlattenRegion? Flatten,
-    CompositeDefinitionId? FunctionalReference, PartId? FunctionalCompositeNumber,
-    bool Missing);
+    GridPosition At, VoxelOrientation Orientation, NestedObjectDetails Details);
 /// <summary>
 /// Voxels 包含已知格及缺失单格占位；缺失功能复合体见 NestedObjects/Elements，不能按一格补齐。
 /// OccupancyComplete=false 时 OccupiedBounds 只涵盖已知占格，不能用于宣布冲突检查完成。

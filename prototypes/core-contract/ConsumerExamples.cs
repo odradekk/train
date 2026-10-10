@@ -7,6 +7,26 @@ namespace Train.Core.ContractSamples;
 
 public static class ConsumerExamples
 {
+    /// <summary>先途经指定节点，再停站补足库存；免费装载无需提供价格条件。</summary>
+    public static SubmissionResult SetLoadingRoute(ICoreSession session, TrainId train,
+        NodeId waypoint, NodeId station, ulong dwellSteps, InventoryId localInventory,
+        GoodId good, long targetQuantity)
+        => session.Submit(new CoreCommand.ReplaceRunPlan(train, new RunPlan(false,
+            ImmutableArray.Create<PlanStop>(new PlanStop.Waypoint(waypoint),
+                new PlanStop.Station(station, dwellSteps, ImmutableArray.Create(
+                    new AutomaticGoodsRule(new AutomaticGoodsAction.Load(), good,
+                        localInventory, targetQuantity)))))), CommandSource.UserInterface);
+
+    /// <summary>设施面板展示每批预期产出；开采产出与扣除的资源储量相同。</summary>
+    public static ImmutableArray<GoodsQuantity> ReadBatchOutputs(ProcessProjection process)
+        => process.Details switch
+        {
+            ProcessDetails.Production production => production.Outputs,
+            ProcessDetails.Extraction extraction => ImmutableArray.Create(extraction.Extracts),
+            ProcessDetails.Recovery recovery => recovery.Outputs,
+            _ => throw new InvalidOperationException("未知的流程类别。")
+        };
+
     /// <summary>地图、地点与面板使用同一边界；随后推进不改变这些已取得的结果。</summary>
     public static (WorldSummary Map, Lookup<LocationView> Scene, Lookup<TrainView> Panel)
         ReadSameBoundary(ICoreSession session, TrainId train, WorldLocation location)

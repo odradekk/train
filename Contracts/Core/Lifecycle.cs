@@ -92,8 +92,8 @@ public sealed record RequiredDefinition(CoreDefinitionReference Definition,
 /// <summary>规范文本及摘要由核心生成；调用方比较或导出，不解析为业务状态。</summary>
 public sealed record CoreCheckpoint(SimulationPosition Position, string CanonicalText, string Sha256);
 
-public sealed record RecordedCommand(ulong Number, SimulationPosition Before,
-    CommandSource Source, string CanonicalPayload, CommandReceipt Result,
+/// <summary>编号及前后模拟位置只从 Result 读取；不另存可与回执冲突的副本。</summary>
+public sealed record RecordedCommand(CommandSource Source, string CanonicalPayload, CommandReceipt Result,
     CoreInputId InputBefore, CoreInputId InputAfter);
 public sealed record RecordingStart(RecordingPointId Id, ICoreCapture State);
 public sealed record RecordingGap(SimulationPosition From, SimulationPosition? Until, string Code);
