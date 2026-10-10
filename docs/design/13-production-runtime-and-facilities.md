@@ -3,7 +3,7 @@
 > **所属层**：核心模拟层。
 
 
-> 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance 回收、剩余燃料改由聚居地电力池共用，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。
+> 决策出处：资源转录 Q182、Q190、Q224–Q228、Q280–Q281、Q284、Q295–Q299、Q301–Q335、Q343–Q346、Q372–Q374、Q408–Q413、Q418–Q419、Q423、Q426–Q428（“资源转录 Qn”指 [`docs/research/resources-and-production-grilling-transcript.md`](../research/resources-and-production-grilling-transcript.md)）。资源与生产系统的总体边界见 [10](10-resources-and-extraction.md)。删除 ItemInstance 回收、剩余燃料改由聚居地电力池共用，由[货物与内容定义是否继续绑定体素定义](https://github.com/odradekk/train/issues/204)于 2026-10-05 确认。流程的三种类型与格式、设施兼容标签的匹配、环境要求、每种能力一份计划、单位与联合分配、燃料、建筑锁定期间的能力、对外可见的运行状态、备货用的潜在消耗和内容更新规则，由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)于 2026-10-10 确认。
 
 ## 边界
 
@@ -31,7 +31,8 @@
 ### Process Definition
 
 - Process 是正式内容 Definition，使用强类型、namespaced ID：ProductionProcessDefinitionId、RecoveryProcessDefinitionId，例如 `core:ferrous-refining`、`core:mechanical-components`、`core:recover-power-equipment`。显示名称、文件路径不是身份。ID 与 Semantic Revision 规则沿用 [02](02-definitions-and-content.md)。
-- ProductionProcessDefinition { ProductionProcessDefinitionId, Inputs, Outputs, WorkRequired, PowerPerWork, LaborPerWork, RequiredFacilityTags, EnvironmentalRequirements }。所有 Goods Input / Output Quantity 为正整数。
+- 流程分三种：`production`（加工与初级生产）、`extraction`（开采）、`recovery`（回收）。前两种使用 ProductionProcessDefinitionId，回收使用 RecoveryProcessDefinitionId。使用哪种能力由种类决定：生产与回收用 Production Capability，开采用 Extraction Capability。
+- 流程的字段：种类、Inputs、Outputs、WorkRequired、PowerPerWork、LaborPerWork、一个 RequiredFacilityTag、可选的 EnvironmentalRequirements。开采流程不写 Inputs、Outputs，改写一项储量输入 `extracts`，产出隐含为同一种货物、同样数量，见 [10](10-resources-and-extraction.md#开采)。所有 Goods Input / Output Quantity 为正整数；Demo 的流程只处理体素货物。字段写法见[流程的格式](../content/process.md)。
 - Process 可以多输入、多输出、跨所谓“加工层级”直接引用已有 Goods、与同一 Output 的其他显式替代 Process 并存。Process 不允许隐式 Tag 替代 Input，也不允许 `any metal` 之类自动配方替换；同一 Product 的两种路线必须是两个显式 ProcessDefinition。
 - RecoveryProcessDefinition 使用单独 Definition 类型和 DAG，Runtime 复用 Production Batch Framework。Recovery 输入是库存中的标准货物；Recovery 不从 Production Recipe 自动反推。内容覆盖范围见 [11](11-goods-and-production-network.md)。
 - Production Plan 与 ActiveBatch 通过带类型的 ProcessRef 引用 Process：它指向一个 ProductionProcessDefinitionId 或一个 RecoveryProcessDefinitionId，两类 ID 仍各自强类型，不合并为无类型的 ProcessDefinitionId（2026-10-01 设计讨论）。
@@ -41,18 +42,21 @@
 - Settlement 不直接拥有 IndustrialCapacity、MiningCapacity、StorageCapacity 等无来源的抽象事实；能力来自建筑设计属性中完好部件提供的能力，见 [03 的设计属性](03-vehicles-buildings-and-designs.md#设计属性)。生产设施是聚居地拥有的 Building Composite，其产出进入该聚居地的 Settlement Inventory（资源转录 Q226）。
 - 节点资源、当前 Production Capabilities 与当前 Goods Supply 是三份独立事实，分别由节点、建筑内设备与 Settlement Inventory 提供，不互相推导：农业聚居地没有任何节点资源也可以大量生产 Grain（资源转录 Q228，[05](05-world-graph-and-generation.md)）。
 - 建筑蓝图保存 Facility compatibility tags，例如 metallurgy、assembly、textile、food_processing、agriculture、recovery、mining、forestry、oil_extraction。Tag 只表示“此 Facility 允许执行某类 Process”；实际执行还必须拥有来自部件 Behavior 的对应 Capability。
+- 每个流程恰好要求一个 Tag；建筑可以有多个 Tag，包含流程要求的 Tag 即兼容。Tag 是由代码提供的封闭清单，Demo 的完整清单由[Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)确定。
 - 例如 Smelter `facility_tags = [metallurgy]`，其中的 Industrial Machinery 提供实际 ProductionCapability；设备全部损坏时 facility tag 仍是 metallurgy，但 ProductionCapability = 0。
 - Demo 的 Facility 通用能力设备：Industrial Machinery → ProductionCapability；Extraction Equipment → ExtractionCapability；Construction Equipment → ConstructionCapability；Storage Equipment → StorageCapability（任何车辆或建筑中完好的、带 `storage` 行为的部件都提供存储能力，不限于仓库建筑）；Power Equipment → PowerCapability。Propulsion Equipment 与 Control Equipment 也是 Demo 功能设备，但提供的是车辆的动力与控制能力（见 [03](03-vehicles-buildings-and-designs.md)），不是 Facility 能力；车头制造需要控制能力，因此 2026-10-01 设计讨论撤销了 [#85](https://github.com/odradekk/train/issues/85) 将 Control Equipment 移出货物目录的修订，目录见 [11](11-goods-and-production-network.md)。Tag、Behavior、Capability 三层分离的通用规则见 [03](03-vehicles-buildings-and-designs.md)。
 
 ### Environmental Requirements
 
 - Site / Environmental Requirements 属于 Process，而不是硬编码在 Building 类型中。同一个 Agricultural Facility 可以兼容 Grain Farming 和 Produce Farming，但不同 Process 可以拥有不同环境要求。
-- 环境要求是对聚居地所在节点地貌概况（地貌类型、起伏、地形特征）的条件，例如 Grain Farming 要求平原。地貌在生成后固定（[05](05-world-graph-and-generation.md)），所以只在建造设施或启动流程时检查，不需要运行时反复计算（[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)，2026-10-05）。
+- 环境要求是对聚居地所在节点地貌概况的条件，例如 Grain Farming 要求平原。Demo 只支持“允许的地貌类型”一项，起伏程度、地形特征等到有流程需要时再加。
+- 地貌在生成后固定（[05](05-world-graph-and-generation.md)，[资源与开采改为节点属性](https://github.com/odradekk/train/issues/205)），但内容更新可能改变流程的要求，所以每次 Batch 启动时检查；设置或启用 Plan 时只用于提示。建造建筑时不检查，因为建筑本身不绑定流程。
 - 开采流程另外要求本节点有对应资源的储量，并在 Batch 启动时扣除储量，见 [10](10-resources-and-extraction.md#开采)。
 
 ### Production Plan
 
 - 底层 Production Plan 只表达 { ProcessRef, Enabled, Priority }。Enabled 时 Facility 持续尝试执行该 Process。Stack Good 的 Recovery 同样可以作为持续 Plan。
+- 一个设施的每种能力（Production、Extraction）至多一份 Plan；更换流程就是修改这份 Plan。Priority 是这份 Plan 在争用库存 Input、Power、Labor 与入库时的排序。
 - 底层系统不负责自动判断最赚钱商品、自动维持目标库存、自动决定生产多少 Batch；这些属于未来 Player Policy / Settlement AI / Economy 层。
 - 缺 Input 时 Enabled = true、ActiveBatch = none、WaitingForInputs；新 Input 到达后自动继续尝试。
 - Plan 只保存稳定的 ProcessRef。
@@ -73,6 +77,9 @@
 - Power 不是 Goods，不可库存。Settlement 使用统一 Power Pool：所有 active Power Equipment → Settlement Power Pool；不模拟内部 Cable、Substation、Grid topology。
 - Power Equipment 消耗 Settlement Inventory 中的 Fuel。采用 demand-driven 发电：actual delivered Power → proportional FuelEnergy consumption；闲置 Power Equipment 不按额定功率白白消耗燃料。
 - Fuel Inventory Quantity 仍是整数。聚居地电力池保存一份 `CurrentFuelEnergyRemaining : double`：剩余能量不足时从 Settlement Inventory 取出一个完整 Fuel unit，实际发电持续扣减。它属于电力池，不属于单台 Power Equipment，设备拆下或被毁都不影响它，随存档保存。它不是可库存的 Power。
+- Fuel 是体素定义 `simulation` 中写有 `fuel_energy`（每单位电量）的货物，Demo 只有 Fuel 一种。因为余量属于电力池，任何 Power Equipment 都可以使用任何燃料；多种燃料并存时按规范化 VoxelDefinitionId 的 Ordinal 顺序取用。
+- 聚居地的发电能力是完好 Power Equipment 的 `output` 之和。可用功率同时受燃料余量和库存燃料能提供的电量限制。
+- Demo 中列车不消耗燃料，燃料只由聚居地电力池消耗。
 
 ### Labor
 
@@ -83,6 +90,21 @@
 
 - Process 使用 PowerPerWork、LaborPerWork；实际执行 Work 与 Factor 消耗成比例。
 - Factor 不足时实际 Work 降低或为零，Progress 不损失。
+
+### 单位与实际速率
+
+| 量 | 单位 | 来源 |
+| --- | --- | --- |
+| 工作量 | 抽象单位 | 流程的 `work_required`；施工任务的工作量见 [14](14-construction-refit-and-deconstruction.md#construction-capability-与-work) |
+| 工作速率 | 工作量/秒 | `production`、`extraction`、`construction` 行为的 `work_rate`，同类完好部件相加 |
+| 电量 | 抽象单位 | 燃料的 `fuel_energy`（电量/燃料单位）；电力池的燃料能量余量 |
+| 功率 | 电量/秒 | `power` 行为的 `output` |
+| PowerPerWork | 电量/工作量 | 流程的 `power_per_work`；施工任务的系数见 [14](14-construction-refit-and-deconstruction.md#construction-capability-与-work) |
+| 劳动力 | 与 [18](18-population-and-labor.md#劳动力与玩家操作) 的可用劳动力相同 | 人口与劳动比例 |
+| LaborPerWork | 劳动力/(工作量/秒) | 流程的 `labor_per_work`：以 1 工作量/秒运行时占用的劳动力 |
+
+- 实际工作速率 = min（能力速率，分到的功率 ÷ PowerPerWork，分到的劳动力 ÷ LaborPerWork）；系数为 0 的一项不构成限制。每 Tick 推进“实际工作速率 × Tick 时长”的工作量。
+- 运行中的任务（生产、开采、回收的 ActiveBatch 与 [14](14-construction-refit-and-deconstruction.md) 的施工任务）按 Priority，再按稳定的设施身份和能力种类排序，逐个联合分配：按该任务能达到的速率同时扣除功率和劳动力，不让任务占着劳动力却因缺电用不上。施工任务同样带 Priority。
 
 ### Shared Resource Resolver
 
@@ -123,6 +145,7 @@
 
 - 存在 ActiveBatch（包括 Recovery Batch）或非空 OutputBuffer 时，Facility 不允许直接进入 Refit / Deconstruction。
 - 持续 Production Plan 应先 Enabled = false → 当前 Batch 自然完成 → OutputBuffer 清空 → facility idle → 开始 Refit / Deconstruction。施工系统不隐式 Cancel 生产事务。
+- 建筑处于 UnderRefit、UnderRepair、UnderDeconstruction 时，不提供 Production、Extraction、Construction 与 Power Capability，其 Plan 处于“锁定”状态；Storage Capability 保留，避免库存无故超容。设施不能用自己的 Construction Capability 改装、修理或拆解自己。
 
 ### 失败与暂停
 
@@ -131,11 +154,51 @@
 - Facility destroyed：ActiveBatch 丢失、Inputs 不返还、OutputBuffer Goods 丢失。
 - 开采按本文的 Batch 规则执行，见 [10](10-resources-and-extraction.md)；Construction / Refit / Deconstruction 见 [14](14-construction-refit-and-deconstruction.md)。
 
+### 对外可见的运行状态
+
+界面、市场备货和测试使用同一套状态，由核心给出，不由界面或其他模块各自推断。每个设施每种能力上的 Plan，任何时刻只处于下列一种状态：
+
+| 状态 | 含义 | 计入备货 |
+| --- | --- | --- |
+| 停用 | 没有 Plan，或 Plan 未启用 | 否 |
+| 运行中 | 附实际速率、能力速率和限制因素（能力、电力或劳动力） | 是 |
+| 等待原料 | 缺少完整一批的 Input；开采表示储量不足 | 是 |
+| 出料阻塞 | OutputBuffer 非空 | 是 |
+| 能力为零 | 对应的设备全部被毁 | 否 |
+| 不满足条件 | 设施的 Tag 或节点地貌不满足当前流程定义 | 否 |
+| 锁定 | 建筑处于改装、修理或拆解中 | 否 |
+| 流程缺失 | 读档时缺少引用的流程定义 | 否 |
+
+其他对外可见的信息：
+
+- **批次**：流程、StartedFromRevision、进度（ProgressWork ÷ 冻结的 WorkRequired）、冻结的产出，以及当前定义是否已与冻结的规格不同。
+- **库存**：容量、已用、已预留、可用，可用 = 容量 − 已用 − 已预留。每项预留对应一个改装或拆解任务，列出预计返还的货物，见 [14](14-construction-refit-and-deconstruction.md)。生产没有预留，Input 在 Batch 启动时就扣除。
+- **电力池**：发电能力、需求功率、实际供电和燃料能量余量。
+- **节点资源**：每项的货物、储量和是否可再生；可再生的还有上限和恢复速率。耗尽和再生事件见 [10](10-resources-and-extraction.md)。
+
+状态、事件和查询的具体类型由[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确定。
+
+### 备货用的潜在消耗
+
+[19 的补货目标](19-markets-and-trading.md#补货目标与出售保留量)需要生产在正常供料下的潜在消耗。它由核心计算，市场和界面读取同一结果：
+
+- 只计入状态为运行中、等待原料或出料阻塞的 Plan。施工任务不计入。
+- 潜在速率按上文同一套联合分配计算，并假设：计入的 Plan 都在运行，Input 与燃料齐全，出料不阻塞。功率取完好 Power Equipment 的 `output` 之和，劳动力取当前可用劳动力。
+- 换算：
+  - 每秒批次数 = 潜在速率 ÷ WorkRequired；
+  - 每种 Input 的需求速率 = 每秒批次数 × 每批数量；开采没有货物 Input；
+  - 燃料的需求速率 = Σ（潜在速率 × PowerPerWork）÷ 所用燃料的 `fuel_energy`。
+- 目标 = 需求速率 × 备货时长。每个 Plan 至少能凑出一个完整批次的 Input 与燃料（一批燃料 = WorkRequired × PowerPerWork ÷ `fuel_energy`），按优先级先凑。燃料需求扣除电力池的燃料能量余量；已投入批次的 Input 不再计入；未完成的产物不抵扣。
+- 短时缺 Input、缺燃料、出料阻塞不减少需求；设备受损、发电能力不足、人口少等长期限制会减少需求。
+- 容量预算见 19；取整与整数分配由[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)确定。
+
 ### 内容更新与热重载
 
 - ProductionProcessDefinition 与 RecoveryProcessDefinition 使用稳定 ID 和 Semantic Revision。
 - Batch 启动时冻结执行契约：ProcessRef、StartedFromRevision、Frozen Outputs、Frozen WorkRequired、Frozen factor intensities、ProgressWork；Inputs 已在启动时消费。当前 Batch 按启动时 snapshot 完成，下一 Batch 按 ProcessRef 解析当前 Definition 并使用当前规格。因此 Process 热更新不会出现“按旧 Inputs 启动、按新 Outputs 完成”。
-- 若更新删除仍被 Plan / ActiveBatch 的 ProcessRef 引用的 Process Definition，拒绝整次内容发布，不静默关闭工厂；与 [02](02-definitions-and-content.md) 的候选内容校验一致。
+- 若更新删除仍被 Plan / ActiveBatch 的 ProcessRef 引用的 Process Definition，拒绝整次内容发布，不静默关闭工厂；与 [02](02-definitions-and-content.md) 的候选内容校验一致。改动流程的种类视为删除旧流程、新建流程，同样适用这条规则。
+- 更新后流程要求的 Tag 或环境不再被当前设施满足时，不拒绝发布：当前 Batch 按冻结的规格完成，Plan 保留，状态变为“不满足条件”，停止对应的备货。
+- 燃料的 `fuel_energy` 改变或被删除时，电力池的余量以电量计，不受影响；之后取用燃料按新值计算，不再是燃料的货物不再被取用。
 - Job 不冻结执行能力：每 Tick 读取当前 Capability、Power、Labor、Facility operational state；设备受损、修复或内容规格更新可以自然改变执行速度。
 
 ### 存档
@@ -152,7 +215,6 @@ ProductionProcessDefinition 与 RecoveryProcessDefinition 及稳定 ID、Facilit
 
 ## 开放问题
 
-- 地图迷雾（不立票）：未冻结参数：WorkRequired、PowerPerWork、LaborPerWork、Industrial Machinery base capability、Construction Equipment base capability、FuelEnergyPerUnit、Power Equipment output capability、Primary Production Site 条件阈值、Facility Priority 默认值、Simulation 中各 Resolver 的具体调度参数。
-- 燃料每单位提供多少电量写在哪里：燃料货物的定义上，还是 `power` 行为的参数里；一台发电设备能烧哪些燃料。体素定义的格式暂不包含这一项，`production`、`extraction`、`construction`、`power` 的参数也是初版，实现这些玩法时可以增删（[体素定义的格式说明、Schema 与样例](https://github.com/odradekk/train/issues/264)）。
+- 地图迷雾（不立票）：未冻结的数值：各流程的 WorkRequired、PowerPerWork、LaborPerWork，各设备的 `work_rate` 与 `output`，Fuel 的 `fuel_energy`，Primary Production 的地貌条件，Plan 与施工任务 Priority 的默认值。它们由 [Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)配置，再由实施与试玩配平。
 
-资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口与劳动力的规则已确定，见 [18](18-population-and-labor.md)；生产与供能参数由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)明确。
+资源与生产属于当前完整 Demo，范围与验收统一见 [00](00-product-and-core-loop.md#本阶段范围)。人口与劳动力的规则已确定，见 [18](18-population-and-labor.md)；生产与供能的内容参数和运行规则由[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)确定，公开类型与查询由[核心模拟层公开契约](https://github.com/odradekk/train/issues/287)和[内容层公开契约](https://github.com/odradekk/train/issues/288)交付。

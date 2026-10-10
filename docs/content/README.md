@@ -13,6 +13,7 @@
 | [blueprint.md](blueprint.md) | 蓝图 `<local id>.blueprint.json`，以及被嵌套的复合体和存档共用的设计对象 |
 | [settlement-type.md](settlement-type.md) | 聚居地类型 `<local id>.settlement-type.json` |
 | [market-table.md](market-table.md) | 市场表 `<local id>.market-table.json`，首个切片的临时格式 |
+| [process.md](process.md) | 流程 `<local id>.process.json`：生产、开采、回收 |
 | [settlement-template.md](settlement-template.md) | 聚居地模板 `<local id>.settlement-template.json`，以及从世界生成到聚居地出现在节点上的整条链 |
 | [schemas/](schemas/) | JSON Schema（draft 2020-12），一种文件一个，共用的类型在 `common.schema.json` |
 | [examples/](examples/) | 示例：内容包 `example-pack`、依赖它的 `example-addon`，以及用户内容库里的一个玩家蓝图 |
@@ -32,6 +33,7 @@
     │   ├── <local id>/            这份定义自己的资产
     │   └── shared/                几份体素定义共用的资产
     ├── blueprints/
+    ├── processes/
     ├── settlement-types/
     ├── settlement-templates/
     └── markets/
@@ -44,7 +46,7 @@
 
 - **一个文件一份定义**：文件名是 `<local id>.<种类>.json`，根对象就是这份定义。文件里的 `id` 必须和文件名一致，不一致就报错。
 - **严格 JSON**：未知字段、重复字段、注释和尾随逗号都无效。包里任何一份定义有错，整个包都不加载。
-- **`schema_version`**：每种文件各自编号。当前 manifest、聚居地类型和市场表是 2，体素定义和蓝图是 3，聚居地模板是 1。
+- **`schema_version`**：每种文件各自编号。当前 manifest、聚居地类型和市场表是 2，体素定义和蓝图是 3，聚居地模板和流程是 1。
 - **local id**：1–64 个字符，只用小写英文字母、数字、下划线和连字符，以字母或数字开头；不能是 `shared`，它是共用资产文件夹的名字。约定用连字符分隔单词，例如 `diesel-engine`。
 - **引用**：同一个包里的定义直接写 local id；其他包的定义写 `<命名空间>:<local id>`，命名空间是 `core` 或那个包的 UUID，例如 `core:grain`。引用了其他包的定义，就必须在 manifest 里声明依赖那个包。写本包自己的命名空间也可以，等同 local id。
 - **资产路径**：

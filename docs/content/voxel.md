@@ -43,6 +43,7 @@
 | `mass` | 数 | 是 | — | 一个单位的质量，单位吨；大于 0，不超过 10 亿 | 首个切片 |
 | `max_durability` | 整数 | 是 | — | 放进设计后这一格的耐久上限，1 到 10 亿 | 首个切片 |
 | `tags` | 字符串数组 | 否 | `[]` | 取值由代码提供，不能重复。目前只有 `raw_good`（初级货物，节点资源引用它） | 首个切片 |
+| `fuel_energy` | 数 | 否 | — | 每单位燃料提供的电量，大于 0，不超过 10 亿。写了就是燃料，任何发电设备都能使用，见设计文档 [13 的 Power 与 Fuel](../design/13-production-runtime-and-facilities.md#power-与-fuel) | Demo |
 | `behaviors` | 对象 | 否 | `{}` | 功能性行为的核心参数，以行为类型为键，见下表 | 首个切片 |
 
 带 `simulation` 一节的体素中，带功能性行为的是部件，其余是结构体素。部件有自己的耐久，还按代码常量“部件结构比例”把自身耐久上限的一部分计入整体的结构耐久，见设计文档 [03 的部件与结构](../design/03-vehicles-buildings-and-designs.md#部件与结构)（[功能复合体的来源、缺失内容的状态、结构耐久下限与嵌套排序](https://github.com/odradekk/train/issues/269)）。
@@ -57,12 +58,12 @@
 | `production` | `work_rate` | 每秒的工作量，大于 0 | 相加 | Demo |
 | `extraction` | `work_rate` | 每秒的工作量，大于 0 | 相加 | Demo |
 | `construction` | `work_rate`、`max_size_class` | 每秒的工作量，大于 0；车辆尺寸档位 `small`、`medium`、`large`、`extra_large`、`titan` | 工作量相加；档位取完好部件中最大的 | Demo |
-| `power` | `output` | 每秒的电量，大于 0 | 计入聚居地的电力池 | Demo |
+| `power` | `output` | 功率，每秒的电量，大于 0 | 相加，计入聚居地的电力池 | Demo |
 | `weapon` | `damage`、`interval` | 每次伤害，正整数；两次射击的间隔，秒，大于 0 | 逐个列出，不相加 | Demo |
 | `platform` | 无，写 `{}` | — | 每个完好的部件提供一个站台，按数量相加 | Demo |
 
 - 被毁的部件不计入汇总。
-- `production`、`extraction`、`construction`、`power` 四种的参数是初版，实现这些玩法时可以增删。燃料每单位提供多少电量还没定，见 [13 的开放问题](../design/13-production-runtime-and-facilities.md#开放问题)。
+- `production`、`extraction`、`construction`、`power` 的单位和运行时的用法见设计文档 [13 的单位与实际速率](../design/13-production-runtime-and-facilities.md#单位与实际速率)；流程见[流程的格式](process.md)。
 - 武器射程放在 Demo 之后。
 
 ## `appearance`
@@ -130,6 +131,8 @@
 | 文件 | 类别 | 展示的写法 | 阶段 |
 | --- | --- | --- | --- |
 | `grain` 粮食 | 无行为的货物 | 只写必填字段，朝向和碰撞取默认值；`raw_good` 标签；底面复用顶面图 | 首个切片 |
+| `ferrous-ore` 铁矿石 | 无行为的货物 | `raw_good` 标签，开采流程引用它；三个面用同一张图 | Demo |
+| `fuel` 燃料 | 无行为的货物 | `fuel_energy` | Demo |
 | `hull-plate` 车体钢板 | 结构体素 | 底面引用共用的 `shared/vehicle-underside.png` | 首个切片 |
 | `hull-wedge` 斜面车体 | 结构体素 | `shape: wedge`，`all_24` 朝向 | Demo |
 | `concrete-block` 混凝土块 | 结构体素 | 材质 `concrete`，可以涂装 | Demo |

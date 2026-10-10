@@ -107,7 +107,8 @@
 | `scene_model` | 没有这一节 | `flatten`，可选 | 场景体素 | 场景模型 |
 | `creature` | `behaviors`：`creature` 必填，`weapon` 可选 | 无 | 场景体素 | 无 |
 
-- `building_type` 和 `facility_tags` 的取值由代码提供，写错了整个包无效。清单随聚居地和生产的切片确定，Schema 暂时只有 `station` 和 `warehouse` 两种建筑类型，没有设施兼容标签。`plot_size` 为 `station` 的建筑必须是 `station` 类型，反过来也一样。
+- `building_type` 和 `facility_tags` 的取值由代码提供，写错了整个包无效。Schema 暂时只有 `station` 和 `warehouse` 两种建筑类型，以及示例流程用到的设施兼容标签；建筑类型的清单随聚居地的内容确定，设施兼容标签的完整清单由[Demo 内容与资产清单](https://github.com/odradekk/train/issues/283)确定。
+- 每个流程要求一个设施兼容标签，建筑的 `facility_tags` 包含它，这座建筑才兼容该流程；标签不提供能力，见[流程的格式](process.md)。`plot_size` 为 `station` 的建筑必须是 `station` 类型，反过来也一样。
 - 各地块尺寸的格数在场景实测时确定，见[设计文档 16 的地块与建筑](../design/16-settlements.md#地块与建筑)。
 - `flatten`：`from`、`to` 是 `[x, z]`，两端都包括；`height` 是整数。放置场景模型时，这个矩形里 y 小于 `height` 的格是地面，以上清空。
 

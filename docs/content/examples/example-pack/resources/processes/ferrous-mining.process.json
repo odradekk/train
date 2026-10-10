@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "ferrous-mining",
+  "simulation": {
+    "kind": "extraction",
+    "extracts": { "voxel": "ferrous-ore", "quantity": 10 },
+    "work_required": 200,
+    "power_per_work": 8,
+    "labor_per_work": 3,
+    "facility_tag": "mining"
+  },
+  "display": { "name": "铁矿开采", "description": "从本节点的铁矿储量中开采铁矿石。" }
+}

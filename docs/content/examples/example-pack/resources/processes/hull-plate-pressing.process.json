@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "hull-plate-pressing",
+  "simulation": {
+    "kind": "production",
+    "inputs": [{ "voxel": "ferrous-ore", "quantity": 4 }],
+    "outputs": [{ "voxel": "hull-plate", "quantity": 2 }],
+    "work_required": 120,
+    "power_per_work": 5,
+    "labor_per_work": 2,
+    "facility_tag": "metallurgy"
+  },
+  "display": { "name": "冲压车体钢板", "description": "把铁矿石冲压成车体钢板。" }
+}

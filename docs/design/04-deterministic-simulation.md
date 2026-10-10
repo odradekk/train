@@ -135,7 +135,7 @@
 
 ### Resolver
 
-多个行为竞争共享资源时：Request → Resolver → Commit。例如 Engine A 与 Engine B 同时 RequestFuel，Resolver 采用 Explicit Gameplay Priority → Deterministic Fallback，而不是“谁先执行谁得到”。Facility 对库存 Input、Power、Labor 与 Storage Capacity 的竞争同样经 Resolver，Input 按完整 Batch 授予，Power / Labor 允许部分分配，见 [13](13-production-runtime-and-facilities.md)。生产、开采与施工 Job 严格遵守 Tick Barrier：本 Tick 提交的状态变化下一 Tick 才参与评估。
+多个行为竞争共享资源时：Request → Resolver → Commit。例如 Facility A 与 Facility B 同时请求同一份库存 Input，Resolver 采用 Explicit Gameplay Priority → Deterministic Fallback，而不是“谁先执行谁得到”。Facility 对库存 Input、Power、Labor 与 Storage Capacity 的竞争都经 Resolver，Input 按完整 Batch 授予，Power 与 Labor 按任务联合分配、允许部分分配，见 [13](13-production-runtime-and-facilities.md#单位与实际速率)。生产、开采与施工 Job 严格遵守 Tick Barrier：本 Tick 提交的状态变化下一 Tick 才参与评估。
 
 多列车通行使用同一确定性仲裁边界：结果不能由列车的遍历先后决定，平局按稳定身份裁决。具体规则见 [06](06-railway.md)。
 

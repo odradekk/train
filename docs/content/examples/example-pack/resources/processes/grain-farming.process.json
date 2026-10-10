@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "grain-farming",
+  "simulation": {
+    "kind": "production",
+    "outputs": [{ "voxel": "grain", "quantity": 10 }],
+    "work_required": 300,
+    "power_per_work": 0,
+    "labor_per_work": 4,
+    "facility_tag": "agriculture",
+    "environment": { "terrain_types": ["core:plains"] }
+  },
+  "display": { "name": "谷物种植", "description": "在平原上种植谷物。" }
+}

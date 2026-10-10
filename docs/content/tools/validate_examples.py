@@ -19,6 +19,7 @@ SCHEMA_BY_SUFFIX = {
     ".settlement-type.json": "settlement-type.schema.json",
     ".settlement-template.json": "settlement-template.schema.json",
     ".market-table.json": "market-table.schema.json",
+    ".process.json": "process.schema.json",
 }
 
 

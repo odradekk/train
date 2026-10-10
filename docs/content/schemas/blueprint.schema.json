@@ -87,11 +87,11 @@
                     "enum": ["station", "warehouse"]
                   },
                   "facility_tags": {
-                    "description": "取值由代码提供，清单随生产切片确定。",
+                    "description": "取值由代码提供；流程要求的标签在其中，这座建筑才兼容该流程。",
                     "type": "array",
                     "uniqueItems": true,
                     "default": [],
-                    "items": { "enum": [] }
+                    "items": { "$ref": "common.schema.json#/$defs/facilityTag" }
                   }
                 }
               },

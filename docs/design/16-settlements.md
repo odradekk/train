@@ -75,7 +75,7 @@
 
 ### 建造与拆解
 
-- 只有玩家自己的聚居地可以建造和管理生产。玩家下命令“在地块 P 按蓝图 B 建造”，校验地块空闲、尺寸合适、建筑种类允许放在这类地块上，之后按 [14](14-construction-refit-and-deconstruction.md#construction-job) 的建造任务执行，需要当地有建造能力。
+- 只有玩家自己的聚居地可以建造和管理生产。玩家下命令“在地块 P 按蓝图 B 建造”，校验地块空闲、尺寸合适、建筑种类允许放在这类地块上，之后按 [14](14-construction-refit-and-deconstruction.md#construction-job) 的建造任务执行，需要指定当地一个有施工能力的设施。
 - 施工期间地块标记为工地，不能另作他用；完工时建筑实例放进该地块。工地代替原先的空间预留。
 - 改装和修理在原地块上进行；拆解完成后地块空出。
 - Demo 中不会出现施工期间聚居地易主，见 [17](17-combat.md#聚居地关系与征服)。
@@ -90,7 +90,7 @@
 
 ### 车辆建造设施
 
-- 车辆建造设施支持的最大车辆档位，由建筑中完好的 Construction Equipment 部件经 Behavior 提供的能力派生。建造、改装、修理车辆都受这个上限限制；施工能力同样来自这些完好部件（[14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)）。能力参数与多部件汇总规则在施工能力实现时确定。档位上限不由建筑类型声明，由[首个切片的内容数据与预置蓝图](https://github.com/odradekk/train/issues/222)于 2026-10-09 确认。
+- 车辆建造设施支持的最大车辆档位，由建筑中完好的 Construction Equipment 部件经 Behavior 提供的能力派生。建造、改装、修理车辆都受这个上限限制；施工能力同样来自这些完好部件（[14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)）。最大档位取完好部件中最大的 `max_size_class`，见[体素定义的功能性行为](../content/voxel.md#功能性行为的核心参数)；执行设施由玩家的命令显式指定，见 [14](14-construction-refit-and-deconstruction.md#construction-job)（[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)）。档位上限不由建筑类型声明，由[首个切片的内容数据与预置蓝图](https://github.com/odradekk/train/issues/222)于 2026-10-09 确认。
 - 支持档位越大的车辆建造设施，蓝图需要的地块也越大。
 - 新建的车辆出现在建造它的聚居地。
 

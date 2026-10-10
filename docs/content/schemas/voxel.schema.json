@@ -29,6 +29,12 @@
           "default": [],
           "items": { "enum": ["raw_good"] }
         },
+        "fuel_energy": {
+          "description": "每单位燃料提供的电量；写了就是燃料，任何发电设备都能使用。",
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000
+        },
         "behaviors": { "$ref": "common.schema.json#/$defs/functionalBehaviors" }
       }
     },

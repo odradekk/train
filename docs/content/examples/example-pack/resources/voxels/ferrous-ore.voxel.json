@@ -1,0 +1,13 @@
+{
+  "schema_version": 3,
+  "id": "ferrous-ore",
+  "simulation": { "value": 60, "mass": 8, "max_durability": 100, "tags": ["raw_good"] },
+  "appearance": {
+    "presentation": {
+      "kind": "cube",
+      "material": "stone_soil",
+      "faces": { "top": "top.png", "side": "top.png", "bottom": "top.png" }
+    }
+  },
+  "display": { "name": "铁矿石", "description": "含铁的矿石，冶炼金属的原料。", "icon": "icon.png" }
+}

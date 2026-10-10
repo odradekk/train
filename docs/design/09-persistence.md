@@ -155,7 +155,7 @@ Save
 
 ### 资源与生产状态恢复
 
-资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、RepairJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderRepair / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
+资源与生产系统的以下状态都是核心状态，不是渲染缓存，也不能读档后重置：Production Plans、ActiveBatch（含所引用的 Production 或 Recovery Process、FrozenExecutionSnapshot 与 StartedFromRevision）、Facility OutputBuffer、各节点资源的储量、各资源的初始总量与再生事件序号、ConstructionJob、RefitJob、RepairJob、DeconstructionJob、Deconstruction 的主动暂停状态、UnderRefit / UnderRepair / UnderDeconstruction 锁定、地块预留、Storage Reservations、聚居地电力池的 CurrentFuelEnergyRemaining、库存中各 Stack 的数量、各 Job 的 ProgressWork 与 priorities、施工任务冻结的总工作量与系数。Save → Load → Continue 必须与不中断运行在相同语义内容和命令输入下产生一致结果；Batch 的冻结执行契约随存档恢复，外部 Definition 仍按 DefinitionId 解析当前定义。资源系统实现切片接入存档时纳入这些状态。
 
 ### 交易与运行报告恢复
 

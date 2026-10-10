@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "recover-machine-tool",
+  "simulation": {
+    "kind": "recovery",
+    "inputs": [{ "voxel": "machine-tool", "quantity": 1 }],
+    "outputs": [{ "voxel": "hull-plate", "quantity": 3 }],
+    "work_required": 60,
+    "power_per_work": 5,
+    "labor_per_work": 1,
+    "facility_tag": "recovery"
+  },
+  "display": { "name": "回收机床", "description": "把旧机床拆解回收为车体钢板。" }
+}

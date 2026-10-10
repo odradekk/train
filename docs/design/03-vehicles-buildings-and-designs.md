@@ -66,7 +66,7 @@
   - 部件经 Behavior 提供的各项能力，例如动力、库存容量（列车的载量）、武器参数、生产能力；
   - 结构耐久上限，包含部件按比例贡献的部分；
   - 总质量，等于全部体素质量之和；
-  - BOM 和各类任务的工作量，见 [14](14-construction-refit-and-deconstruction.md)；
+  - BOM 和施工计数：BOM 件数，以及改装时与目标设计的差额；工作量由核心按施工规则计算，见 [14](14-construction-refit-and-deconstruction.md#construction-capability-与-work)（[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)）；
   - 建造合法性的结果。
 - 核心模拟层不读取坐标、朝向、形状、碰撞、贴图、显示文本和涂装，见 ADR-0011。
 - 设计属性在发布内容或加载存档时计算一次，外部体素定义变化时重算。
@@ -166,7 +166,7 @@
   - 拆下的完好部件变回普通货物；受损的部件先修好再拆下，修理计入本次任务；被毁的部件不返还。
   - 任务期间实例被锁定，完成时原子地换成目标设计。
 - **修理**：把实例恢复到它自己的设计：补回被毁部件，把受损部件和结构耐久恢复到上限。
-- 部件不在车辆或建筑之外保留个体身份。燃料、弹药等消耗品放在车辆的库存里，不记在单个部件上。
+- 部件不在车辆或建筑之外保留个体身份。Demo 中列车不消耗燃料，武器不消耗弹药；燃料只由聚居地电力池消耗，见 [13](13-production-runtime-and-facilities.md#power-与-fuel)（[生产与供能：Demo 的内容参数和运行契约](https://github.com/odradekk/train/issues/282)）。
 - 成本、工作量、锁定与失败规则见 [14](14-construction-refit-and-deconstruction.md)。调试模式和控制台的瞬时原子改装保留为调试命令，见 [15](15-design-editor-and-tools.md#调试命令)。
 
 ### Tag、Behavior、Capability
