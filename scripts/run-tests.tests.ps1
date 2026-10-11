@@ -2026,7 +2026,7 @@ It "real-list" {
 
 It "real-voxels" {
     $results = New-Results "real-voxels"
-    $result = Invoke-Runner -ArgumentList @("-Family", "unit", "-Scope", "voxels", "-ResultsRoot", $results) -WaitMs 600000
+    $result = Invoke-Runner -ArgumentList @("-Module", "content", "-Family", "unit", "-Scope", "voxels", "-ResultsRoot", $results) -WaitMs 600000
     Assert-Exit $result 0
     $summary = Read-Summary $result.Stdout
     Assert-CommonSummary $summary
@@ -2034,6 +2034,7 @@ It "real-voxels" {
     Assert-True "voxel cases" ($checks.Count -ge 1)
     $classes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     foreach ($check in $checks) {
+        Assert-Equal "content module $($check.id)" "content" ([string] $check.module)
         Assert-Equal "unit family $($check.id)" "unit" ([string] $check.family)
         Assert-True "voxel scope $($check.id)" (@($check.scopes) -contains "voxels")
         $id = [string] $check.id
