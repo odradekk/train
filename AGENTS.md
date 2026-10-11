@@ -13,12 +13,13 @@ Current version: `0.0.54`.
 
 ## Source layout
 
-- 当前游戏按 [ADR-0009](docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md) 分成三个项目，在仓库根目录开发：
+- 当前生产代码按 [ADR-0009](docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md) 分成三个项目，在仓库根目录开发：
   - `Core/Train.Core.csproj`：内容、核心模拟、存档，以及日志和控制台分发；当前模块为 `Content/`、`Simulation/`、`Saves/`、`Logging/`、`Console/`。不引用 Godot 或 `Train.Scenes`。
   - `Scenes/Train.Scenes.csproj`：体素引擎层，引用 `Train.Core`，不引用 Godot；当前尚无生产代码。
   - 根目录 `Train.csproj`：Godot 项目，引用两个库；源码按 `App/`、`Rendering/`、`Ui/` 划分，启动、服务接入和内容适配器放在 `App/`，渲染代码放在 `Rendering/`，界面放在 `Ui/`。渲染层当前尚未实现。
+- `Contracts/Core/`、`Contracts/Content/`、`Contracts/Scenes/` 是三个独立契约项目；`prototypes/*-contract/` 是四组可编译调用样例，不是生产实现。范围见[候选清单](docs/contracts/baseline-candidate.md#候选范围)。
 - `Train.Tests` 通过项目引用测试两个库，测试按 `Core/`、`Scenes/` 组织；当前用例位于 `Core/`。
-- `Tests/ContractSupport/` 放按接口所有者拆分的共享情景、断言与有限情景替身类库，以及独立自检测试项目。目标模块测试项目位于 `Tests/Core/Train.Core.Tests.csproj`、`Tests/Content/Train.Content.Tests.csproj`、`Tests/Scenes/Train.Scenes.Tests.csproj`，尚未建立；Godot 沿用根项目与 `scripts/runner-catalog.json` 的真实引擎 runner。入口及迁移状态见[候选清单](docs/contracts/baseline-candidate.md#目标模块测试入口)。
+- `Tests/ContractSupport/` 放按接口所有者拆分的共享情景、断言与有限情景替身类库，自检项目位于 `Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj`。目标模块测试项目为 `Tests/Core/Train.Core.Tests.csproj`、`Tests/Content/Train.Content.Tests.csproj`、`Tests/Scenes/Train.Scenes.Tests.csproj`；Godot 目标入口使用根项目的隔离测试装配与真实引擎 runner。这些目标入口尚未建立，现有 App runner 不证明模块隔离。入口及迁移状态见[候选清单](docs/contracts/baseline-candidate.md#目标模块测试入口)。
 - 设计或修改模块接口、项目引用、跨层类型和宿主装配时，先读[四模块契约规范](docs/contracts/README.md)及其公共约定。它规定目标结构；上述当前代码结构尚未迁移，不能把规范当作已完成实现或独立测试证据。
 - 命名空间等于“项目名.目录名”，更深的目录结构按当前任务的职责划分。
 - Treat `archive/mvp/` as read-only validation evidence. Reuse an archived implementation only by deliberately moving or rewriting the necessary code into the root project; do not continue product development inside the archive.

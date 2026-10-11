@@ -5,7 +5,7 @@ using Train.Content.Contracts;
 
 namespace Train.Content.ContractSupport;
 
-/// <summary>每项配置只读取一次，调用顺序不限；拒绝超过请求上限的成功结果。</summary>
+/// <summary>每项读取配置只使用一次，调用顺序不限；不同请求可表示文件变化，成功字节不得超出上限。</summary>
 public sealed class ScriptedContentFiles : IContentFiles
 {
     public sealed record ReadCall(ContentPath Path, long MaximumBytes,
@@ -20,7 +20,8 @@ public sealed class ScriptedContentFiles : IContentFiles
             if (read.Result is ContentIoResult<ImmutableArray<byte>>.Success success &&
                 success.Value.Length > read.MaximumBytes)
                 throw new ArgumentException("成功结果不能超过配置的字节上限。", nameof(reads));
-            _reads.Add((read.Path, read.MaximumBytes), read.Result);
+            if (!_reads.TryAdd((read.Path, read.MaximumBytes), read.Result))
+                throw new ArgumentException("重复配置相同的路径和字节上限。", nameof(reads));
         }
     }
 
@@ -37,6 +38,6 @@ public sealed class ScriptedContentFiles : IContentFiles
     public void AssertComplete()
     {
         if (_reads.Count != 0)
-            throw new InvalidOperationException("UNCONFIGURED: 仍有配置的读取未发生。");
+            throw new InvalidOperationException("INCOMPLETE: 仍有配置的读取未发生。");
     }
 }

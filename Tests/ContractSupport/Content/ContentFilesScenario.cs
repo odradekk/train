@@ -6,7 +6,7 @@ using Train.Content.Contracts;
 
 namespace Train.Content.ContractSupport;
 
-/// <summary>核对两个文件的固定字节、结果不可变性与超限失败；调用方提供端口及独立的期望字节。</summary>
+/// <summary>核对两个等长文件的固定字节、结果不可变性与超限失败；调用方提供端口及独立的期望字节。</summary>
 public static class ContentFilesScenario
 {
     public static void AssertFixedReadAndLimit(IContentFiles files, ContentPath path,
@@ -15,6 +15,8 @@ public static class ContentFilesScenario
         Assert.IsFalse(expected.IsDefaultOrEmpty, "情景需要非空字节以产生超限请求。");
         Assert.AreNotEqual(path, otherPath, "情景需要两个不同路径。");
         Assert.IsFalse(otherExpected.IsDefaultOrEmpty, "第二个路径需要非空字节。");
+        Assert.AreEqual(expected.Length, otherExpected.Length,
+            "情景需要两个文件字节等长，才能检出同长度缓冲区复用。");
         Assert.IsFalse(expected.SequenceEqual(otherExpected), "两个路径需要不同字节以检出缓冲区复用。");
         var first = files.Read(path, expected.Length);
         Assert.IsInstanceOfType<ContentIoResult<ImmutableArray<byte>>.Success>(first);

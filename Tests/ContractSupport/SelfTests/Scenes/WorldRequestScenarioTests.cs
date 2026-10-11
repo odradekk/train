@@ -1,3 +1,5 @@
+// 体素契约支持自检：验证请求身份情景及有限替身的行为。
+// 相同目标和不同目标分别运行共享断言，并验证未配置调用失败。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Scenes.Contracts;
 using Train.Scenes.ContractSupport;

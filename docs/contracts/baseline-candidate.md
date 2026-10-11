@@ -32,7 +32,7 @@
 | `core` | `Tests/Core/Train.Core.Tests.csproj` | 核心 | 在真实核心会话上运行捕获情景；项目与真实工厂均未接入 |
 | `content` | `Tests/Content/Train.Content.Tests.csproj` | 内容、核心 | 使用文件端口替身验证真实内容加载；真实内容的解析、投影及设计计算情景随实施补齐。文件端口的真实读取由 Godot 侧验证；项目与真实实现均不存在 |
 | `scenes` | `Tests/Scenes/Train.Scenes.Tests.csproj` | 体素、内容、核心 | 在真实体素会话上运行观察请求失效情景；项目与真实工厂均未接入 |
-| `godot` | 根 `Train.csproj` 的隔离装配；`scripts/runner-catalog.json` 登记真实引擎 runner，宿主检查位于 `App/Checks/` | 三个契约 | 真实文件适配器运行文件读取共享断言，并验证自身引擎/I/O 责任；已有 App runner 尚非目标隔离入口 |
+| `godot` | 根 `Train.csproj` 的隔离装配；`scripts/runner-catalog.json` 登记真实引擎 runner | 三个契约 | 测试专用程序集或隔离测试装配对真实文件适配器运行共享断言，并验证自身引擎/I/O 责任；共享支持和 MSTest 不编入生产 `App/Checks/` 或游戏导出；目标入口尚未建立 |
 
 目标命令均以 `pwsh -NoProfile -File scripts/run-tests.ps1` 开头，参数如下；模块选择当前不可执行，不能当作通过证据。
 
@@ -45,16 +45,16 @@
 
 日常入口只运行已登记的单元测试；正确性入口承担模块正确性与隔离检查。Godot 的正确性检查使用真实引擎，单元测试不能替代它。
 
-共享支持分别位于 `Tests/ContractSupport/Core/Train.Core.ContractSupport.csproj`、`Tests/ContractSupport/Content/Train.Content.ContractSupport.csproj`、`Tests/ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj`，允许的契约分别与上表对应模块一致。模块测试最多引用本模块的一个真实实现，并按需要引用允许的支持库；这些普通类库不发现或执行测试。`Tests/ContractSupport/Train.ContractSupport.Tests.csproj` 只负责支持库自检，可引用全部三个支持库，不作为独立模块验证入口。
+共享支持分别位于 `Tests/ContractSupport/Core/Train.Core.ContractSupport.csproj`、`Tests/ContractSupport/Content/Train.Content.ContractSupport.csproj`、`Tests/ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj`，允许的契约分别与上表对应模块一致。模块测试最多引用本模块的一个真实实现，并按需要引用允许的支持库。这些普通类库不含测试，测试入口不会从中发现或执行用例。`Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj` 只负责支持库自检，可引用全部三个支持库，不作为独立模块验证入口。
 
 ## 共享情景和证据边界
 
-接口所属模块维护输入、操作顺序、预期结果、共享断言与有限情景替身。`Tests/ContractSupport/` 目前提供三个可执行情景；它们的断言接收公开接口，替身只保存情景所需的状态、返回固定结果，未配置调用明确失败。当前自检入口是 `pwsh -NoProfile -File scripts/run-tests.ps1 -Project Tests/ContractSupport/Train.ContractSupport.Tests.csproj -RunnerCatalog none -Family unit`。该项目尚未纳入默认入口、CI 或 VS Code 的 `test` 任务，必须显式传 `-Project`。报告仍写死“Train.Tests tests Core and Scenes through project references”，不适用于此自检项目；其实际边界是三个支持库及允许的契约，不是生产实现，#304 须修正报告。情景通过只能证明这些断言与替身可用，不能代替缺失的真实生产者或消费方验证。
+接口所属模块维护输入、操作顺序、预期结果、共享断言与有限情景替身。`Tests/ContractSupport/` 目前提供三个可执行情景；它们的断言接收公开接口，替身只保存情景所需的状态、返回固定结果，未配置调用明确失败。当前自检入口是 `pwsh -NoProfile -File scripts/run-tests.ps1 -Project Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj -RunnerCatalog none -Family unit`。该项目尚未纳入默认入口、CI 或 VS Code 的 `test` 任务，必须显式传 `-Project`。报告仍写死“Train.Tests tests Core and Scenes through project references”，不适用于此自检项目；其实际边界是三个支持库及允许的契约，不是生产实现，#304 须修正报告。情景通过只能证明这些断言与替身可用，不能代替缺失的真实生产者或消费方验证。
 
 | 所属接口 | 本次可执行的固定情景 | 尚需真实验证的责任 |
 | --- | --- | --- |
-| 核心 | 保存捕获后推进一次，旧捕获的输入身份、引用和嵌套模板地块在推进与会话关闭后保留 | 核心计算、规范编码、真实保存与严格重放 |
-| 内容 | 两个不同路径的固定字节读取、超限失败及旧字节保留；截断成功和复用缓冲区的反例会被断言发现 | Godot 文件端口的真实 I/O、内容解析、投影和资产规则 |
+| 核心 | 保存捕获后推进一次，旧捕获的输入身份、引用和嵌套模板地块在推进与会话释放后保留；只有调用方提供的两份预期引用不同时，才证明引用变化后的保留性 | 核心计算、规范编码、真实保存与严格重放 |
+| 内容 | 两个不同路径、等长且不同的固定字节读取，超限失败及旧字节保留；截断成功和同长度复用缓冲区的反例会被断言发现 | Godot 文件端口的真实 I/O、内容解析、投影和资产规则 |
 | 体素 | 同一会话发出新观察请求（包括目标相同）后，旧命中返回 `stale_request` | 真实场景生成、拾取、帧更新与 Godot 显示 |
 
 [验证矩阵](testing.md#最小调用原型的验证矩阵)还列出“内容投影 → 核心输入”、“核心命令、查询、事件 → 体素场景”、“场景数据 → Godot”、“编辑草稿 → 设计校验与提交”、“读档、内容发布、会话切换”、“异步结果返回”六条跨层路径。现有四组样例只提供其中部分接口的可编译调用；未在上表执行的共享行为断言、真实生产者及消费方检查保持**待验证**。剩余共享断言由接口所属模块在对应真实实施任务中补齐；#304 接入已有及届时适用情景的检查入口，不承担提前实现后续模块行为的责任。后续阶段任务验证真实模块联调。宿主能力接口的共享断言仍由定义接口的模块维护，真实 Godot/I/O 由宿主验证。
@@ -65,6 +65,7 @@
 | --- | --- |
 | `Core/Content/` 尚在 `Train.Core`；`Core/Saves/FileSaveStore.cs` 使用其中的 `ExternalPath` | 内容项目成立时消除核心对内容实现的反向依赖，并保持文件路径行为等效 |
 | 内容加载/重载依赖现有 `Core/Logging/`；App 和内容测试使用旧 `Train.Core.Content` 类型 | 按目标宿主日志与内容接口迁移，随迁移同步 App、测试与必要调用点 |
+| `Core/Logging/`、`Core/Console/` 仍编入 `Train.Core`，控制台分发依赖日志实现 | 日志输出与文本解析、分发迁到 Godot 宿主，并同步调用方和测试；核心命令记录、确定性摘要与稳定故障信息仍留在核心 |
 | `App/App.cs`、`App/SimulationConsoleCommands.cs`、`App/Checks/SimulationCheck.cs` 直接使用 `Train.Core.Simulation`、`Train.Core.Console` 或 `Train.Core.Logging`；内容/日志/启动检查及 `GodotContentSource`、`GodotLogOutput` 也使用旧日志类型 | 迁移为核心契约和宿主日志、控制台接口，经 `App/Composition/` 装配；同步检查与适配器调用方 |
 | `Ui/GameConsole.cs` 使用 `Train.Core.Console` 和 `Train.Core.Logging` | 界面接收宿主控制台与日志接口，经 `App/Composition/` 装配，消除对核心实现类型的直接依赖 |
 | `Scenes/Train.Scenes.csproj` 引用 `Train.Core`；根项目引用现有实现，尚无 `App/Composition/` | 真实体素与宿主装配建立时改为允许的契约方向，并验证实际程序集依赖及工厂调用位置 |
@@ -75,12 +76,12 @@
 
 ## 移交 #304 的检查机制
 
-#302 可构建声明、样例与有限情景替身自检，并继续运行现有游戏与测试入口。#304 的完整责任以[自动检查要求](conventions.md#自动检查要求)、[结构检查表](testing.md#实际隔离与结构检查)及其验收条件为准；当前尚缺：
+#302 可构建声明和样例、运行有限情景替身自检，并继续运行现有游戏与测试入口。#304 的完整责任以[自动检查要求](conventions.md#自动检查要求)、[结构检查表](testing.md#实际隔离与结构检查)及其验收条件为准；当前尚缺：
 
-- 模块选择、目标项目发现与临时目录实际隔离，以及真实 Godot 隔离装配。
-- 求值后项目引用和实际程序集依赖检查、公开面差异及公开签名泄露实现类型检查、解析真实工厂符号后的调用位置检查。
-- 测试支持不得引入对方实现、反射构造、友元访问或链接对方生产源码的检查，以及适用机制的故意破坏验证。
+- 按模块选择目标项目，并在临时目录隔离构建和运行；Godot 使用测试专用装配及真实引擎 runner，将共享断言失败报告为检查失败。
+- 检查求值后的项目引用和实际程序集依赖，报告公开面差异及签名泄露的实现类型，并按真实工厂符号核对调用位置。
+- 检查测试支持是否引入对方实现、反射构造、友元访问或链接对方生产源码，并通过故意破坏验证这些检查能发现问题。
 - 契约、四组调用样例、支持库自检及目标模块检查的统一 CI 汇总；四组样例当前也未纳入 CI。
 - 按实际项目和 runner 修正报告的测试边界描述，并保持默认入口和 VS Code 任务与已接入范围一致。
 
-#304 区分机制通过与生产行为待验证，再提交正式整组基线供用户确认。旧 `Train.Tests` 和游戏构建继续保留，直到替代入口证明等效。
+#304 分开记录检查机制已通过的部分和生产行为仍待验证的部分，再提交正式整组基线供用户确认。旧 `Train.Tests` 和游戏构建继续保留，直到替代入口证明等效。

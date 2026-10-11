@@ -16,7 +16,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train.Content.Contracts", "
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train.Scenes.Contracts", "Contracts\Scenes\Train.Scenes.Contracts.csproj", "{46525C45-2E5D-4742-85C9-42A26D91CE35}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train.ContractSupport.Tests", "Tests\ContractSupport\Train.ContractSupport.Tests.csproj", "{DB586ABB-9898-45DB-8C46-6DF389096694}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train.ContractSupport.Tests", "Tests\ContractSupport\SelfTests\Train.ContractSupport.Tests.csproj", "{DB586ABB-9898-45DB-8C46-6DF389096694}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Train.Core.ContractSupport", "Tests\ContractSupport\Core\Train.Core.ContractSupport.csproj", "{129CD27C-D4DD-4875-9D39-1C6FC8711297}"
 EndProject

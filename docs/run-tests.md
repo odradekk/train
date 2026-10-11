@@ -6,6 +6,8 @@ This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
+`-Project <路径>` 指定本次发现和运行的 MSTest 项目，默认是 `Train.Tests/Train.Tests.csproj`，不会自动发现其他测试项目。支持库自检须显式运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Project Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj -RunnerCatalog none -Family unit`。
+
 MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. `scripts/` 顶层保留统一入口、入口测试和登记表；具体检查、检查测试及其专用进程助手放在 `scripts/checks/`，MSTest 元数据读取器放在 `scripts/metadata-reader/`。当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
 
 ```powershell

@@ -1,3 +1,5 @@
+// 体素契约测试支持：为请求身份情景提供有限会话替身。
+// 只处理固定命中和一次配置的观察请求，未配置调用立即失败。
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;

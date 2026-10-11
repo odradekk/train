@@ -40,7 +40,8 @@ public sealed class ContentFilesScenarioTests
         AssertUnconfigured(() => files.Enumerate(Path));
         AssertUnconfigured(() => files.Read(Path, 0));
         AssertUnconfigured(() => files.Read(OtherPath, 1));
-        AssertUnconfigured(() => files.AssertComplete());
+        var incomplete = Assert.ThrowsException<InvalidOperationException>(() => files.AssertComplete());
+        StringAssert.StartsWith(incomplete.Message, "INCOMPLETE:");
         files.Read(Path, 1);
         files.AssertComplete();
         AssertUnconfigured(() => files.Read(Path, 1));

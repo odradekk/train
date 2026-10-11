@@ -18,6 +18,13 @@ public sealed class CaptureScenarioTests
             CaptureSessionDouble.AdvancedReferences);
 
     [TestMethod]
+    public void UnchangedReferencesRemainValidAcrossAdvance()
+        => CaptureScenario.AssertContract(
+            new CaptureSessionDouble(addTemplateOnAdvance: false),
+            CaptureSessionDouble.Input, CaptureSessionDouble.InitialReferences,
+            CaptureSessionDouble.InitialReferences);
+
+    [TestMethod]
     public void FiniteDoubleRejectsUnsupportedInputAndSequence()
     {
         using var session = new CaptureSessionDouble();
