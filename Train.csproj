@@ -30,6 +30,9 @@
     <Compile Remove="Train.Tests/**" />
     <EmbeddedResource Remove="Train.Tests/**" />
     <None Remove="Train.Tests/**" />
+    <Compile Remove="Tests/**" />
+    <EmbeddedResource Remove="Tests/**" />
+    <None Remove="Tests/**" />
     <Compile Remove="TestResults/**" />
     <EmbeddedResource Remove="TestResults/**" />
     <None Remove="TestResults/**" />

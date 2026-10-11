@@ -136,6 +136,10 @@ function Get-HelpText {
       显式选择后执行。同维度多个取值取并集，类别与范围取交集，同一用例只保留一次。
       -Correctness 包含已登记的 Godot 检查，因此需要 GODOT，并会构建 Train.csproj 再导入。
 
+  -Project <路径>
+      指定本次发现和运行的 MSTest 项目，默认 Train.Tests/Train.Tests.csproj。
+      不自动发现其他项目；支持库自检使用 Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj。
+
   -RunnerCatalog <路径|none>
       默认读取 scripts/runner-catalog.json。none 只跑 MSTest。
       路径替换本次可运行的外部检查。清单仍来自仓库里的目录文件。
