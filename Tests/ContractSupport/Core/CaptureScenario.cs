@@ -63,7 +63,7 @@ public static class CaptureScenario
     }
 }
 
-/// <summary>只支持 Save 捕获及一次 Advance(1)，按推进状态返回固定引用清单，不计算模拟。</summary>
+/// <summary>只支持 Save 捕获及一次 Advance(1)，不计算模拟；startBatchOnAdvance 为 true（默认）时，推进后的捕获返回 AdvancedReferences，否则仍返回 InitialReferences。</summary>
 public sealed class CaptureSessionDouble : ICoreSession
 {
     public static CoreInputId Input => new(new string('A', 64));
