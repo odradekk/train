@@ -4,6 +4,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Globalization;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length != 4 || args[0] is not ("snapshot" or "verify"))
@@ -15,9 +16,11 @@ if (args.Length != 4 || args[0] is not ("snapshot" or "verify"))
 var root = Path.GetFullPath(args[1]);
 var configuration = args[2];
 var baseline = Path.GetFullPath(args[3]);
-var contractProjects = new[] { "Core", "Content", "Scenes" };
-var paths = contractProjects.Select(module => Path.Combine(root, "Contracts", module, "bin",
-    configuration, "net10.0", $"Train.{module}.Contracts.dll")).ToArray();
+using var rules = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "scripts", "checks", "project-boundaries.json")));
+var projects = rules.RootElement.GetProperty("projects").EnumerateObject()
+    .ToDictionary(project => project.Name, project => project.Value, StringComparer.Ordinal);
+var contractProjects = projects.Keys.Where(name => name.EndsWith(".Contracts", StringComparison.Ordinal)).ToArray();
+var paths = contractProjects.Select(name => AssemblyPath(name)).ToArray();
 if (paths.Any(path => !File.Exists(path)))
 {
     foreach (var path in paths.Where(path => !File.Exists(path))) Console.Error.WriteLine($"missing assembly: {path}");
@@ -25,8 +28,8 @@ if (paths.Any(path => !File.Exists(path)))
 }
 
 var platform = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
-var implementations = contractProjects.Select(module => Path.Combine(root, module, "bin", configuration,
-    "net10.0", $"Train.{module}.dll")).Where(File.Exists);
+var implementations = contractProjects.Select(name => name[..^".Contracts".Length])
+    .Where(projects.ContainsKey).Select(name => AssemblyPath(name)).Where(File.Exists);
 var references = platform.Concat(paths).Concat(implementations).Distinct()
     .Select(path => MetadataReference.CreateFromFile(path)).ToArray();
 var compilation = CSharpCompilation.Create("ContractSurface", references: references);
@@ -45,10 +48,9 @@ var lines = new SortedSet<string>(StringComparer.Ordinal);
 var failures = new List<string>();
 
 // 源码声明保留参数名、默认值和 using；元数据补充实际类型所有权与枚举数值。
-foreach (var module in contractProjects)
+foreach (var owner in contractProjects)
 {
-    var owner = $"Train.{module}.Contracts";
-    var trees = Directory.GetFiles(Path.Combine(root, "Contracts", module), "*.cs", SearchOption.AllDirectories)
+    var trees = Directory.GetFiles(Path.GetDirectoryName(Path.Combine(root, projects[owner].GetProperty("path").GetString()!))!, "*.cs", SearchOption.AllDirectories)
         .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
                        !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
         .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path)).ToArray();
@@ -105,24 +107,25 @@ foreach (var path in paths)
     var reference = references.Single(item => item.FilePath == path);
     var assembly = (IAssemblySymbol)compilation.GetAssemblyOrModuleSymbol(reference)!;
     var owner = assembly.Name;
-    var allowed = owner switch
-    {
-        "Train.Core.Contracts" => new[] { owner },
-        "Train.Content.Contracts" => new[] { owner, "Train.Core.Contracts" },
-        "Train.Scenes.Contracts" => new[] { owner, "Train.Core.Contracts", "Train.Content.Contracts" },
-        _ => throw new InvalidOperationException($"Unexpected contract assembly: {owner}")
-    };
+    var allowed = new HashSet<string>(StringComparer.Ordinal);
+    AddAllowed(owner);
     Visit(assembly.GlobalNamespace);
 
-    // 只走调用方可见成员，忽略 record 的合成方法，保留真实签名中的类型引用。
+    void AddAllowed(string name)
+    {
+        if (!allowed.Add(name)) return;
+        foreach (var dependency in projects[name].GetProperty("references").EnumerateArray())
+            AddAllowed(dependency.GetString()!);
+    }
+
+    // 只走调用方可见成员，保留显式签名及位置 record 属性中的类型引用。
     void Visit(INamespaceOrTypeSymbol container)
     {
         foreach (var member in container.GetMembers())
         {
             if (member is INamespaceSymbol ns) { Visit(ns); continue; }
             if (member.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal)) continue;
-            // Positional record properties represent authored constructor parameters. Other synthesized
-            // record methods add thousands of lines without adding independent contract decisions.
+            // 位置 record 的合成属性承载显式参数类型；其他合成成员不重复检查。
             if (member.IsImplicitlyDeclared && member is not IPropertySymbol) continue;
             var signature = member.ToDisplayString(format);
             foreach (var type in SignatureTypes(member)) CheckType(type, signature);
@@ -145,7 +148,7 @@ foreach (var path in paths)
             case INamedTypeSymbol named:
                 var source = named.ContainingAssembly?.Name;
                 if (source is not null && source.StartsWith("Train.", StringComparison.Ordinal) &&
-                    !allowed.Contains(source, StringComparer.Ordinal))
+                    !allowed.Contains(source))
                     failures.Add($"type leak: {owner}: {signature} uses {source}");
                 foreach (var argument in named.TypeArguments) CheckType(argument, signature);
                 break;
@@ -172,6 +175,10 @@ else
 foreach (var failure in failures) Console.Error.WriteLine(failure);
 Console.WriteLine($"contract surface: declarations={lines.Count}, errors={failures.Count}");
 return failures.Count == 0 ? 0 : 1;
+
+string AssemblyPath(string name) => Path.Combine(root,
+    Path.GetDirectoryName(projects[name].GetProperty("path").GetString()!)!,
+    "bin", configuration, "net10.0", $"{name}.dll");
 
 // 外层 internal 类型中的 public 成员不属于调用方可见的公开表面。
 static bool VisibleSymbol(ISymbol? symbol)

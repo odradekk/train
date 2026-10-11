@@ -4,6 +4,8 @@
 bin/
 obj/
 builds/
+TestResults/
+!/TestResults/
 /TestResults/*
 !/TestResults/.gdignore
 *.user

@@ -6,6 +6,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'common-checks.ps1')
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $root 'TestResults/contract-checks' }
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
@@ -17,6 +18,8 @@ $failures = [Collections.Generic.List[string]]::new()
 $matrix = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
 $projects = [ordered]@{}
 $direct = @{}
+$expectedFriends = @{ 'Train.Core' = 'Train.Core.Tests'; 'Train.Content' = 'Train.Content.Tests'; 'Train' = 'Train.Godot.Tests' }
+$godotProjects = @('Train', 'Train.Godot.Tests', 'Train.Godot.ContractSamples')
 foreach ($name in $matrix.projects.Keys) {
     $projects[$name] = $matrix.projects[$name].path
     $direct[$name] = @($matrix.projects[$name].references)
@@ -53,7 +56,8 @@ try {
     $trackedProjects = @(& git ls-files --cached --others --exclude-standard -- '*.csproj' | Where-Object { $_ -notlike 'archive/*' })
     if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('blocked project inventory'); exit 2 }
     foreach ($path in $trackedProjects) {
-        if ($path -ne 'Tests/ContractChecks/Train.ContractChecks.csproj' -and $path -ne 'scripts/metadata-reader/MetadataReader.csproj' -and $path -notin $projects.Values) {
+        # 元数据检查工具不属于模块图；它只读取待检查程序集，没有产品项目引用。
+        if ($path -ne 'Tests/ContractChecks/Train.ContractChecks.csproj' -and $path -notin $projects.Values) {
             Add-Failure "unregistered project: $path"
         }
     }
@@ -64,8 +68,7 @@ try {
         if ($LASTEXITCODE -ne 0) {
             # 只把可辨认的工具/环境缺失记为阻塞，其余构建错误属于仓库失败。
             $buildOutput = Get-Content -LiteralPath $log -Raw
-            if ($buildOutput -match 'error (NU\d+|NETSDK1045|NETSDK1141|MSB4236|MSB4019)' -or
-                $buildOutput -match 'compatible .NET SDK was not found|No .NET SDKs were found') {
+            if ((Get-BuildFailureKind $buildOutput) -eq 'blocked') {
                 [Console]::Error.WriteLine("blocked build: $build; log=$log")
                 exit 2
             }
@@ -77,7 +80,9 @@ try {
         $name = [string] $entry.Key
         $project = [IO.Path]::GetFullPath((Join-Path $root $entry.Value))
         $errorLog = Join-Path $OutputDirectory "$name.msbuild-errors.log"
-        $raw = & dotnet msbuild $project -property:Configuration=$Configuration -target:ResolveReferences '-getItem:ProjectReference,ReferencePath,Compile,InternalsVisibleTo' -getProperty:TargetPath 2> $errorLog
+        # Train.sln 的 Release|Any CPU 将 Godot 主项目映射到 ExportRelease。
+        $projectConfiguration = if ($name -eq 'Train' -and $Configuration -eq 'Release') { 'ExportRelease' } else { $Configuration }
+        $raw = & dotnet msbuild $project -property:Configuration=$projectConfiguration -target:ResolveReferences '-getItem:ProjectReference,ReferencePath,Compile,InternalsVisibleTo' -getProperty:TargetPath 2> $errorLog
         if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine("blocked evaluation: $name; log=$errorLog"); exit 2 }
         $data = $raw | ConvertFrom-Json
         $closure = @(Get-AllowedClosure $name)
@@ -95,7 +100,7 @@ try {
         }
         foreach ($item in @($data.Items.ReferencePath)) {
             $target = [string] $item.Filename
-            if ($name -notin @('Train', 'Train.Godot.Tests', 'Train.Godot.ContractSamples') -and $target -like 'GodotSharp*') {
+            if ($name -notin $godotProjects -and $target -like 'GodotSharp*') {
                 Add-Failure "forbidden Godot assembly: $name -> $target ($($item.FullPath))"
             }
             if (-not ($target -eq 'Train' -or $target.StartsWith('Train.', [StringComparison]::Ordinal))) { continue }
@@ -117,7 +122,7 @@ try {
             $record.compile += $path
             $owner = Split-Path -Parent $project
             # Test SDK 注入的 Program.cs 在 NuGet 缓存内，不属于仓库的生产源码。
-            if ($path -match '[\\/]microsoft.net.test.sdk[\\/][^\\/]+[\\/]build[\\/]netcoreapp3.1[\\/]Microsoft.NET.Test.Sdk.Program.cs$') { continue }
+            if (Test-TestSdkCompileSource $path) { continue }
             if (-not (Test-ChildPath $path $owner)) { Add-Failure "linked source outside owner: $name ($path)" }
             if ($name -eq 'Train' -and -not ([IO.Path]::GetRelativePath($root, $path) -match '^(App|Ui|Rendering)[\\/]|^\.godot[\\/]mono[\\/]temp[\\/]obj[\\/]')) {
                 Add-Failure "host compiles foreign source: $path"
@@ -126,13 +131,7 @@ try {
         foreach ($item in @($data.Items.InternalsVisibleTo)) {
             $friend = [string] $item.Identity
             $record.friends += $friend
-            $expected = switch ($name) {
-                'Train.Core' { 'Train.Core.Tests' }
-                'Train.Content' { 'Train.Content.Tests' }
-                'Train' { 'Train.Godot.Tests' }
-                default { '' }
-            }
-            if ($friend -ne $expected) { Add-Failure "forbidden friend assembly: $name -> $friend" }
+            if ($friend -ne $expectedFriends[$name]) { Add-Failure "forbidden friend assembly: $name -> $friend" }
         }
         $assembly = [string] $data.Properties.TargetPath
         if (-not (Test-Path -LiteralPath $assembly)) { [Console]::Error.WriteLine("blocked output missing: $assembly"); exit 2 }
@@ -155,20 +154,14 @@ try {
                 $friend = $blob.ReadSerializedString()
                 if ($friend -notin $record.friends) {
                     $record.friends += $friend
-                    $expected = switch ($name) {
-                        'Train.Core' { 'Train.Core.Tests' }
-                        'Train.Content' { 'Train.Content.Tests' }
-                        'Train' { 'Train.Godot.Tests' }
-                        default { '' }
-                    }
-                    if ($friend -ne $expected) { Add-Failure "forbidden output friend assembly: $name -> $friend" }
+                    if ($friend -ne $expectedFriends[$name]) { Add-Failure "forbidden output friend assembly: $name -> $friend" }
                 }
             }
         }
         finally { $pe.Dispose(); $stream.Dispose() }
         foreach ($reference in $outputAssembly.GetReferencedAssemblies()) {
             $target = [string] $reference.Name
-            if ($name -notin @('Train', 'Train.Godot.Tests', 'Train.Godot.ContractSamples') -and $target -like 'GodotSharp*') {
+            if ($name -notin $godotProjects -and $target -like 'GodotSharp*') {
                 Add-Failure "forbidden output Godot reference: $name -> $target"
             }
             if (-not ($target -eq 'Train' -or $target.StartsWith('Train.', [StringComparison]::Ordinal))) { continue }
@@ -179,7 +172,12 @@ try {
     }
     $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'references.json') -Encoding utf8
     & dotnet build Tests/ContractChecks/Train.ContractChecks.csproj -c $Configuration --nologo *> (Join-Path $OutputDirectory 'contract-surface.build.log')
-    if ($LASTEXITCODE -ne 0) { Add-Failure 'failed contract surface tool build'; exit 1 }
+    if ($LASTEXITCODE -ne 0) {
+        $kind = Get-BuildFailureKind (Get-Content -LiteralPath (Join-Path $OutputDirectory 'contract-surface.build.log') -Raw)
+        Add-Failure "$kind contract surface tool build"
+        if ($kind -eq 'blocked') { exit 2 }
+        exit 1
+    }
     $tool = Join-Path $root "Tests/ContractChecks/bin/$Configuration/net10.0/Train.ContractChecks.dll"
     $baseline = Join-Path $root 'docs/contracts/public-api.txt'
     & dotnet $tool verify $root $Configuration $baseline

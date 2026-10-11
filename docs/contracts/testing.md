@@ -90,7 +90,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 
 ### 公开面基线更新
 
-先按[受控变更流程](conventions.md#契约基线与受控变更)确认接口和行为变更，更新受影响文档、共享用例及调用样例，取得用户对整组新基线的确认。然后运行 `dotnet run --project Tests/ContractChecks/Train.ContractChecks.csproj -- snapshot . Debug docs/contracts/public-api.txt` 生成 `docs/contracts/public-api.txt`，逐项审查 diff，再运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Test contracts.structure`。`snapshot` 会直接覆盖文件，不能把生成成功当成用户确认。记录承载新基线的提交和 `git rev-parse <提交>:docs/contracts/public-api.txt` 返回的 blob 身份，并在 Issue 中保留确认与验证结果。
+先按[受控变更流程](conventions.md#契约基线与受控变更)确认接口和行为变更，更新受影响文档、共享用例及调用样例，取得用户对整组新基线的确认。然后先在仓库根目录运行 `dotnet build Train.sln -c Debug` 构建契约程序集，再运行 `dotnet run --project Tests/ContractChecks/Train.ContractChecks.csproj -- snapshot . Debug docs/contracts/public-api.txt` 生成 `docs/contracts/public-api.txt`，逐项审查 diff，再运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Test contracts.structure`。`snapshot` 会直接覆盖文件，不能把生成成功当成用户确认。记录承载新基线的提交和 `git rev-parse <提交>:docs/contracts/public-api.txt` 返回的 blob 身份，并在 Issue 中保留确认与验证结果。
 
 当前提取器保留源码声明中的 `using` 指令、表达式体和初始值文本，因此这些文本变化也会产生差异；审查时需判断其是否改变可观察契约，不把所有差异自动视为签名变化。
 

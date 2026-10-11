@@ -36,7 +36,7 @@ VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test`
 
 `scripts/checks/run-app-check.tests.ps1` 使用当前 PowerShell 7 和同目录的测试进程夹具，验证自检脚本的参数、标记及退出码；Windows GUI 进程捕获用例只在 Windows 执行。`scripts/run-tests.tests.ps1` 另外验证统一入口的选择、隔离和导出准备。这些脚本测试与真实 Godot 检查分别报告。
 
-当前格式内容示例的 Schema 检查还需要可通过 `python` 调用的 Python 3 与 `jsonschema`。CI 使用 Python 3.11 和 `jsonschema==4.25.1`；本地可用 `python -m pip install jsonschema==4.25.1` 安装，并用 `python -c "import jsonschema"` 验证。`-Correctness` 包含此检查；缺少工具或包时报告环境阻塞。
+当前格式内容示例的 Schema 检查还需要可通过 `python` 调用的 Python 3 与 `jsonschema`。CI 使用 Python 3.11 和 `jsonschema==4.25.1`；本地可用 `python -m pip install jsonschema==4.25.1` 安装，并用 `python -c "import jsonschema, referencing"` 验证。`-Correctness` 包含此检查；缺少工具或包时报告环境阻塞。
 
 ## Windows export and runtime validation
 

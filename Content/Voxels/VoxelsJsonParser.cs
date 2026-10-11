@@ -1,4 +1,4 @@
-// Core.Content 校验外部定义的严格 JSON 格式。
+// Content 校验外部定义的严格 JSON 格式。
 // 本文件解析体素字段和图片绑定，候选引用与图片检查由目录构建阶段完成。
 
 using System.Text.Json;
