@@ -1,5 +1,5 @@
 // 核心捕获情景的有限情景替身检查。
-// 未配置操作必须明确失败，活引用反例必须被共享断言检出。
+// 未配置操作必须明确失败；读取会话当前引用的捕获必须被共享断言发现。
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

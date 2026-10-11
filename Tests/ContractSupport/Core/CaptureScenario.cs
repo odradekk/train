@@ -63,27 +63,35 @@ public static class CaptureScenario
     }
 }
 
-/// <summary>只支持 Save 捕获及一次 Advance(1)；可选择推进后开始生产批次，不计算模拟或引用。</summary>
+/// <summary>只支持 Save 捕获及一次 Advance(1)，按推进状态返回固定引用清单，不计算模拟。</summary>
 public sealed class CaptureSessionDouble : ICoreSession
 {
     public static CoreInputId Input => new(new string('A', 64));
-    public static CoreReferenceManifest InitialReferences { get; } = new(
+    public static CoreReferenceManifest InitialReferences => new(
         [new(new string('B', 64))],
         [new(new(1), new("fixture:template"), [new(7, PlotSize.Small)]),
             new(new(2), new("fixture:second-template"), [new(3, PlotSize.Small)])],
         [new(new CoreDefinitionReference.Terrain(new("fixture:terrain")),
-                new(new string('C', 64)), "world.nodes[0].terrain", false),
+                null, "world.nodes[0].terrain", false),
             new(new CoreDefinitionReference.Process(
                     new ProcessRef.Production(new("fixture:process"))),
                 null, "settlements[1].facilities[1].plan.process", false)],
         [Input]);
-    public static CoreReferenceManifest AdvancedReferences { get; } = InitialReferences with
+    /// <summary>保留原模板副本，并追加推进中启动的生产批次所需、带 FrozenRevision 的流程引用。</summary>
+    public static CoreReferenceManifest AdvancedReferences
     {
-        Definitions = InitialReferences.Definitions.Add(
-            new(new CoreDefinitionReference.Process(
-                    new ProcessRef.Production(new("fixture:process"))),
-                new(new string('D', 64)), "settlements[1].facilities[1].activeBatch.process", false))
-    };
+        get
+        {
+            var initial = InitialReferences;
+            return initial with
+            {
+                Definitions = initial.Definitions.Add(
+                    new(new CoreDefinitionReference.Process(
+                            new ProcessRef.Production(new("fixture:process"))),
+                        new(new string('D', 64)), "settlements[1].facilities[1].activeBatch.process", false))
+            };
+        }
+    }
 
     private readonly bool startBatchOnAdvance;
     private bool advanced;

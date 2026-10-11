@@ -1,5 +1,5 @@
 // 体素契约测试支持：提供观察请求身份的共享断言。
-// 静态 Hit 只用于有限替身，真实会话由调用方提供当前可解析的命中。
+// 调用方提供会话与命中，情景核对新请求后旧命中失效。
 using System.Collections.Immutable;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
