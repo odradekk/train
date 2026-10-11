@@ -1368,7 +1368,8 @@ function Get-ExitCode {
             "not-executed" { $notExecuted = $true }
         }
     }
-    if ($failed) { return 1 }
+    # 必需构建失败与清理受阻同时发生时按失败报告；取消优先级另行保留。
+    if ($failed -or ($RequiredBuildFailed -and $CleanupFailed)) { return 1 }
     if ($CleanupFailed) { return 2 }
     if ($UserCancel -or $cancelled -or $PrepTimedOut) { return 3 }
     if ($RequiredBuildFailed) { return 1 }

@@ -2412,6 +2412,35 @@ It "fixture-game-build-failed" {
     Assert-Contains "build failure retained" (Get-Content (Join-Path $summary.Directory "game-build.log") -Raw) "error CS1002"
 }
 
+It "fixture-game-build-priority" {
+    Ensure-Sentinel
+    foreach ($mode in @("cleanup", "timeout")) {
+        $results = New-Results "fixture-game-build-$mode"
+        $pidFile = Join-Path $results "pids.txt"
+        $catalog = Join-Path $results "catalog.json"
+        Write-ExternalCatalog $catalog @(
+            (New-CheckSpec -Id "ext.hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30)
+        )
+        $environment = @{ FAKE_GAME_BUILD = "fail" }
+        if ($mode -eq "cleanup") { $environment.TRAIN_RUN_TESTS_FAULT = "cleanup-kill" }
+        $result = Invoke-Runner -ArgumentList @(
+            "-Project", $project, "-RunnerCatalog", $catalog, "-DotnetPath", $fakeExe, "-BuildGame",
+            "-TestHostPath", $hostPath, "-Test", "ext.hold", "-TimeoutSeconds", "12", "-ResultsRoot", $results
+        ) -Environment $environment -WaitMs 180000
+        $ownedPids = @(Read-PidFile $pidFile)
+        try {
+            Assert-True "$mode host started" ($ownedPids.Count -gt 0)
+            $summary = Assert-FinalResult $result $(if ($mode -eq "cleanup") { 1 } else { 3 })
+            Assert-Equal "$mode preparation failed" "failed" $summary.Json.preparation.outcome
+            $hold = Find-Check (Get-Checks $summary) "ext.hold"
+            Assert-Equal "$mode reason retained" $mode $hold.reason
+            Assert-Equal "$mode outcome retained" $(if ($mode -eq "cleanup") { "blocked" } else { "cancelled" }) $hold.outcome
+            Assert-True "$mode sentinel preserved" (Test-Alive $script:sentinel.Id)
+        }
+        finally { foreach ($owned in $ownedPids) { Stop-Tree $owned } }
+    }
+}
+
 It "fixture-shared-export" {
     $results = New-Results "fixture-shared-export"
     $catalog = Join-Path $results "catalog.json"
