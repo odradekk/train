@@ -63,32 +63,34 @@ public static class CaptureScenario
     }
 }
 
-/// <summary>只支持 Save 捕获及一次 Advance(1)；可选择推进后新增模板所有者，不计算模拟或引用。</summary>
+/// <summary>只支持 Save 捕获及一次 Advance(1)；可选择推进后开始生产批次，不计算模拟或引用。</summary>
 public sealed class CaptureSessionDouble : ICoreSession
 {
     public static CoreInputId Input => new(new string('A', 64));
-    public static CoreReferenceManifest InitialReferences => new(
+    public static CoreReferenceManifest InitialReferences { get; } = new(
         [new(new string('B', 64))],
         [new(new(1), new("fixture:template"), [new(7, PlotSize.Small)]),
             new(new(2), new("fixture:second-template"), [new(3, PlotSize.Small)])],
         [new(new CoreDefinitionReference.Terrain(new("fixture:terrain")),
-            new(new string('C', 64)), "world.nodes[0].terrain", false)],
+                new(new string('C', 64)), "world.nodes[0].terrain", false),
+            new(new CoreDefinitionReference.Process(
+                    new ProcessRef.Production(new("fixture:process"))),
+                null, "settlements[1].facilities[1].plan.process", false)],
         [Input]);
-    public static CoreReferenceManifest AdvancedReferences => new(
-        [new(new string('B', 64))],
-        [new(new(1), new("fixture:template"), [new(7, PlotSize.Small)]),
-            new(new(2), new("fixture:second-template"), [new(3, PlotSize.Small)]),
-            new(new(3), new("fixture:new-template"), [new(9, PlotSize.Small)])],
-        [new(new CoreDefinitionReference.Terrain(new("fixture:terrain")),
-            new(new string('C', 64)), "world.nodes[0].terrain", false)],
-        [Input]);
+    public static CoreReferenceManifest AdvancedReferences { get; } = InitialReferences with
+    {
+        Definitions = InitialReferences.Definitions.Add(
+            new(new CoreDefinitionReference.Process(
+                    new ProcessRef.Production(new("fixture:process"))),
+                new(new string('D', 64)), "settlements[1].facilities[1].activeBatch.process", false))
+    };
 
-    private readonly bool addTemplateOnAdvance;
+    private readonly bool startBatchOnAdvance;
     private bool advanced;
     private bool disposed;
 
-    public CaptureSessionDouble(bool addTemplateOnAdvance = true)
-        => this.addTemplateOnAdvance = addTemplateOnAdvance;
+    public CaptureSessionDouble(bool startBatchOnAdvance = true)
+        => this.startBatchOnAdvance = startBatchOnAdvance;
 
     public CoreResult<ICoreCapture> Capture(CapturePurpose purpose)
     {
@@ -97,7 +99,7 @@ public sealed class CaptureSessionDouble : ICoreSession
             throw Unconfigured(nameof(Capture));
         return new CoreResult<ICoreCapture>.Success(new FixedCapture(
             advanced ? new(1, 0) : new(0, 0), advanced ? new(2) : new(1),
-            advanced && addTemplateOnAdvance ? AdvancedReferences : InitialReferences));
+            advanced && startBatchOnAdvance ? AdvancedReferences : InitialReferences));
     }
 
     public AdvanceResult Advance(uint steps)

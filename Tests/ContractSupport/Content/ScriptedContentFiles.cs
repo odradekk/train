@@ -5,7 +5,7 @@ using Train.Content.Contracts;
 
 namespace Train.Content.ContractSupport;
 
-/// <summary>每项读取配置只使用一次，调用顺序不限；不同请求可表示文件变化，成功字节不得超出上限。</summary>
+/// <summary>每项配置只使用一次，调用顺序不限；同一路径在不同字节上限下可配置不同结果，表示两次读取之间的文件变化，成功字节不得超出该项上限。</summary>
 public sealed class ScriptedContentFiles : IContentFiles
 {
     public sealed record ReadCall(ContentPath Path, long MaximumBytes,

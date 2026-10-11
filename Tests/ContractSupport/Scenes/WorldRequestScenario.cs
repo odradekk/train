@@ -1,5 +1,5 @@
 // 体素契约测试支持：提供观察请求身份的共享断言。
-// 静态输入用于有限替身，真实会话由调用方提供当前命中。
+// 静态 Hit 只用于有限替身，真实会话由调用方提供当前可解析的命中。
 using System.Collections.Immutable;
 using System.Numerics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -16,7 +16,7 @@ public static class WorldRequestScenario
         new WorldSceneTarget.Location(new WorldLocation.Node(new NodeId(1)));
     public static WorldSceneTarget NextTarget { get; } =
         new WorldSceneTarget.Location(new WorldLocation.Node(new NodeId(2)));
-    /// <summary>替身对 InitialTarget 发出请求 1 后的命中，不用于真实会话。</summary>
+    /// <summary>表示对 InitialTarget 发出请求 1 后的命中；替身以此为初始状态，不用于真实会话。</summary>
     public static SceneHit Hit { get; } = new(
         new SceneFrameStamp(new SceneSessionId(Guid.Parse("00000000-0000-0000-0000-000000000302")),
             new SceneRequestId(1), new SceneSpaceId(1), 1),
