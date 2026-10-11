@@ -2029,7 +2029,11 @@ It "real-voxels" {
     $result = Invoke-Runner -ArgumentList @("-Module", "content", "-Family", "unit", "-Scope", "voxels", "-ResultsRoot", $results) -WaitMs 600000
     Assert-Exit $result 0
     $summary = Read-Summary $result.Stdout
-    Assert-CommonSummary $summary
+    Assert-CommonSummary $summary -PrepCount 2
+    $builds = @($summary.Json.preparation.steps | Where-Object name -EQ 'build')
+    foreach ($preparedProject in @('Tests/Content/Train.Content.Tests.csproj', 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj')) {
+        Assert-Equal "prepared $preparedProject" 1 @($builds | Where-Object { $_.command -contains (Join-Path $root $preparedProject) }).Count
+    }
     $checks = Get-Checks $summary
     Assert-True "voxel cases" ($checks.Count -ge 1)
     $classes = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
