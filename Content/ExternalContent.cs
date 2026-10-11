@@ -1,4 +1,4 @@
-// Train.Core 内容基础设施模块。
+// Train.Content 内容基础设施模块。
 // 访问用户目录中的 Mod、蓝图及其数据文件，同时执行路径安全检查。
 namespace Train.Content;
 

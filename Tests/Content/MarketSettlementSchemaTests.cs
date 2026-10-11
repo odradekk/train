@@ -55,12 +55,12 @@ public sealed class MarketSettlementSchemaTests
     [DataRow(false, "/settlement_types/0/platform_count", "1", "unknown_field")]
     public void Invalid_fields_reject_with_the_source_and_exact_field_path(bool market, string pointer, string? replacement, string code)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.BaseSource();
         var file = market ? MarketSettlementFixtures.MarketFile : MarketSettlementFixtures.TypeFile;
         var json = market ? MarketSettlementExamples.PricesFile : MarketSettlementExamples.DepotFile;
         source.AddDefinitionFile("core", file, MarketSettlementFixtures.Edit(json, pointer, replacement));
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsNull(result.Snapshot);
@@ -71,14 +71,14 @@ public sealed class MarketSettlementSchemaTests
     [TestMethod]
     public void Complete_terrain_identities_preserve_namespaces_without_a_definition_catalog()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.BaseSource();
         var identities = new[] { "core:plains", "cccccccc-dddd-4eee-8fff-000000000003:plains", "a:b", new string('n', 64) + ":" + new string('t', 64) };
         var terrainJson = System.Text.Json.JsonSerializer.Serialize(identities);
         source.AddDefinitionFile("core", MarketSettlementFixtures.TypeFile,
             MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile,
                 "/settlement_types/0/preferred_terrain", terrainJson));
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
 
         Assert.IsTrue(reloader.Reload().IsCommitted);
         CollectionAssert.AreEquivalent(identities,
@@ -88,13 +88,13 @@ public sealed class MarketSettlementSchemaTests
     [TestMethod]
     public void Duplicate_complete_terrain_identities_reject_at_the_second_item()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.BaseSource();
         source.AddDefinitionFile("core", MarketSettlementFixtures.TypeFile,
             MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile,
                 "/settlement_types/0/preferred_terrain", "[\"core:plains\",\"core:plains\"]"));
 
-        var result = new ContentReloader(source, session.Logger).Reload();
+        var result = new ContentReloader(source, session).Reload();
 
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.FieldInvalid &&
@@ -106,19 +106,19 @@ public sealed class MarketSettlementSchemaTests
     [DataRow(false)]
     public void Duplicate_json_properties_and_duplicate_goods_are_rejected(bool market)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var file = market ? MarketSettlementFixtures.MarketFile : MarketSettlementFixtures.TypeFile;
         var json = market ? MarketSettlementExamples.PricesFile : MarketSettlementExamples.DepotFile;
         var source = MarketSettlementFixtures.BaseSource();
         source.AddDefinitionFile("core", file, json.Replace("\"schema_version\": 1", "\"schema_version\": 1, \"schema_version\": 1", StringComparison.Ordinal));
-        var duplicateProperty = new ContentReloader(source, session.Logger).Reload();
+        var duplicateProperty = new ContentReloader(source, session).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, duplicateProperty.Status);
         Assert.IsTrue(duplicateProperty.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.DuplicateProperty));
 
         var pointer = market ? "/market_tables/0/goods/1/definition" : "/settlement_types/0/demand/1/definition";
         var repeatedId = market ? "\"grain\"" : "\"coal\"";
         source.AddDefinitionFile("core", file, MarketSettlementFixtures.Edit(json, pointer, repeatedId));
-        var duplicateGoods = new ContentReloader(source, session.Logger).Reload();
+        var duplicateGoods = new ContentReloader(source, session).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, duplicateGoods.Status);
         Assert.IsTrue(duplicateGoods.Diagnostics.Any(item => item.Code == "field_invalid" && item.JsonPath == pointer));
     }
@@ -126,10 +126,10 @@ public sealed class MarketSettlementSchemaTests
     [TestMethod]
     public void Zero_sensitivity_fixed_price_and_Int64_price_limit_are_valid()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.BaseSource();
         source.AddDefinitionFile("core", MarketSettlementFixtures.MarketFile, MarketSettlementExamples.ConstantPriceFile);
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var rule = reloader.Current!.MarketTables[MarketSettlementExamples.PricesId].Definition.Goods[MarketSettlementExamples.GrainId];
         Assert.AreEqual(MarketSettlementExamples.ConstantPrice.Sensitivity, rule.Sensitivity);
@@ -148,9 +148,9 @@ public sealed class MarketSettlementSchemaTests
     [TestMethod]
     public void Zero_or_excess_recovery_and_Int32_generation_limits_are_valid_specs()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.BaseSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         source.AddDefinitionFile("core", MarketSettlementFixtures.TypeFile, MarketSettlementExamples.NoRecoveryFile);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         Assert.AreEqual(MarketSettlementExamples.NoRecovery.RestorePerTick,

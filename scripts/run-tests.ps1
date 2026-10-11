@@ -171,7 +171,7 @@ function Get-HelpText {
   4 参数非法、未知名称或明确选择零匹配
 
 边界
-  test-assembly: MSTest checks do not prove module isolation or real Godot engine behavior.
+  test-assembly: Core/Content 的 -Correctness 另行隔离构建；普通 MSTest 不证明 Godot 引擎或隔离装配行为。
   coverage: registered MSTest, Godot, and cross-process checks are not all repository validation.
   registered: the logging, content, main-menu, simulation, content-export, and mods-export App checks run through the shared App check driver.
   ci: Windows CI calls this entry. See docs/ci.md.
@@ -313,46 +313,70 @@ function Resolve-ExistingPath {
 function Copy-IsolatedProject {
     param($Project, [string] $RunDirectory)
     $module = [string] $Project.Module
-    $owner = (Get-Culture).TextInfo.ToTitleCase($module)
-    $isolationRoot = Join-Path $RunDirectory "isolation/$module"
+    $isolationRoot = Join-Path ([IO.Path]::GetTempPath()) ("train-isolation-$([Guid]::NewGuid().ToString('N'))-$module")
+    $evidenceRoot = Join-Path $RunDirectory "isolation/$module"
     New-Item -ItemType Directory -Force -Path $isolationRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null
     $inputs = [System.Collections.Generic.List[object]]::new()
+    $boundary = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'checks/project-boundaries.json') -Raw | ConvertFrom-Json
+    $projectName = "Train.$((Get-Culture).TextInfo.ToTitleCase($module)).Tests"
+    $allowed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $pending = [Collections.Generic.Queue[string]]::new()
+    $pending.Enqueue($projectName)
+    while ($pending.Count -gt 0) {
+        $name = $pending.Dequeue()
+        if (-not $allowed.Add($name)) { continue }
+        $spec = $boundary.projects.PSObject.Properties[$name].Value
+        if ($null -eq $spec) { throw "unknown isolated project $name" }
+        foreach ($reference in @($spec.references)) { $pending.Enqueue([string] $reference) }
+    }
+    $directories = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $allowed) {
+        $relativeProject = [string] $boundary.projects.PSObject.Properties[$name].Value.path
+        [void] $directories.Add(([IO.Path]::GetDirectoryName($relativeProject)).Replace('\', '/'))
+    }
     foreach ($relative in @('global.json')) {
         $source = Join-Path $script:Root $relative
         $destination = Join-Path $isolationRoot $relative
         Copy-Item -LiteralPath $source -Destination $destination
         $inputs.Add(@{ path = $relative; sha256 = (Get-Sha256File $source) })
     }
-    foreach ($directory in @($owner, "Tests/$owner")) {
+    foreach ($directory in $directories) {
         $sourceRoot = Join-Path $script:Root $directory
+        if (-not (Test-Path -LiteralPath $sourceRoot)) { throw "missing isolated input $directory" }
         foreach ($file in @(Get-ChildItem -LiteralPath $sourceRoot -Recurse -File)) {
             $relative = [IO.Path]::GetRelativePath($script:Root, $file.FullName).Replace('\', '/')
-            if ($relative -match '/(bin|obj|TestResults)/' -or $file.Extension -notin @('.cs', '.csproj', '.py')) { continue }
+            if ($relative -match '/(bin|obj|TestResults)/' -or $file.Extension -notin @('.cs', '.csproj', '.py', '.json', '.txt')) { continue }
             $destination = Join-Path $isolationRoot $relative
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $destination) | Out-Null
             Copy-Item -LiteralPath $file.FullName -Destination $destination
             $inputs.Add(@{ path = $relative; sha256 = (Get-Sha256File $file.FullName) })
         }
     }
-    $inputs | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $isolationRoot 'inputs.json') -Encoding utf8
+    foreach ($filename in @('Directory.Build.props', 'Directory.Build.targets')) {
+        [IO.File]::WriteAllText((Join-Path $isolationRoot $filename), '<Project />', $script:Utf8)
+    }
+    $inputs | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $evidenceRoot 'inputs.json') -Encoding utf8
     $relativeProject = [IO.Path]::GetRelativePath($script:Root, $Project.Path)
-    return [pscustomobject]@{ Root = $isolationRoot; Project = (Join-Path $isolationRoot $relativeProject) }
+    return [pscustomobject]@{ Root = $isolationRoot; Evidence = $evidenceRoot; Project = (Join-Path $isolationRoot $relativeProject); Allowed = @($allowed) }
 }
 
 function Test-IsolatedReferences {
-    param([string] $ProjectPath, [string] $IsolationRoot, [string] $Module, [string] $Dotnet, [string] $TempDirectory, [string] $CancelFile, [int] $TimeoutSeconds)
-    $arguments = @('msbuild', $ProjectPath, '-target:ResolveReferences', '-getItem:ProjectReference,ReferencePath', '-getProperty:TargetPath')
-    $log = Join-Path $IsolationRoot 'references.log'
+    param([string] $ProjectPath, [string] $IsolationRoot, [string] $EvidenceRoot, [string[]] $Allowed, [string] $Dotnet, [string] $TempDirectory, [string] $CancelFile, [int] $TimeoutSeconds)
+    $arguments = @('msbuild', $ProjectPath, "-property:Configuration=$($script:Parsed.Configuration)", '-target:ResolveReferences', '-getItem:ProjectReference,ReferencePath,Compile', '-getProperty:TargetPath,MSBuildAllProjects')
+    $log = Join-Path $EvidenceRoot 'references.log'
     $run = Invoke-OwnedProcess -FileName $Dotnet -Arguments $arguments -WorkingDirectory $IsolationRoot -TempDirectory $TempDirectory -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $log
     $disposition = Get-ProcessDisposition $run
     if ($disposition.Kind -ne 'exit' -or $run.ExitCode -ne 0) { return "msbuild:$($disposition.Kind):$($run.ExitCode)" }
-    try { $resolved = $run.Output | ConvertFrom-Json }
+    # MSBuild can append MSB9008 after its JSON when a forbidden project is absent from the isolated copy.
+    $jsonStart = $run.Output.IndexOf('{')
+    $jsonEnd = $run.Output.LastIndexOf('}')
+    try { $resolved = $run.Output.Substring($jsonStart, $jsonEnd - $jsonStart + 1) | ConvertFrom-Json }
     catch { return 'msbuild-output-invalid' }
-    $allowed = "Train.$((Get-Culture).TextInfo.ToTitleCase($Module))"
     $inside = $IsolationRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     $firstParty = [System.Collections.Generic.List[object]]::new()
     foreach ($item in @($resolved.Items.ProjectReference)) {
-        if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase) -or [string] $item.Filename -ne $allowed) {
+        if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase) -or [string] $item.Filename -notin $Allowed) {
             return "project-reference:$($item.FullPath)"
         }
         $firstParty.Add(@{ kind = 'project'; name = [string] $item.Filename; path = [string] $item.FullPath })
@@ -360,24 +384,61 @@ function Test-IsolatedReferences {
     foreach ($item in @($resolved.Items.ReferencePath)) {
         $name = [string] $item.Filename
         if (-not $name.StartsWith('Train.', [StringComparison]::Ordinal)) { continue }
-        if ($name -ne $allowed -or -not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
+        if ($name -notin $Allowed -or -not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
             return "assembly-reference:$($item.FullPath)"
         }
         $firstParty.Add(@{ kind = 'resolved'; name = $name; path = [string] $item.FullPath })
     }
+    foreach ($item in @($resolved.Items.Compile)) {
+        if ([string] $item.FullPath -match '[\\/]microsoft\.net\.test\.sdk[\\/][^\\/]+[\\/]build[\\/]netcoreapp3\.1[\\/]Microsoft\.NET\.Test\.Sdk\.Program\.cs$') { continue }
+        if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
+            return "compile-source:$($item.FullPath)"
+        }
+    }
+    foreach ($import in @(([string] $resolved.Properties.MSBuildAllProjects) -split ';')) {
+        if ($import -and [IO.Path]::IsPathRooted($import) -and ([IO.Path]::GetFullPath($import)).StartsWith(($script:Root.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
+            return "imported-project:$import"
+        }
+    }
+    $boundary = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'checks/project-boundaries.json') -Raw | ConvertFrom-Json
+    foreach ($name in $Allowed) {
+        $relativeProject = [string] $boundary.projects.PSObject.Properties[$name].Value.path
+        $candidate = Join-Path $IsolationRoot $relativeProject
+        if ([IO.Path]::GetFullPath($candidate).Equals([IO.Path]::GetFullPath($ProjectPath), [StringComparison]::OrdinalIgnoreCase)) { continue }
+        $sourceArguments = @('msbuild', $candidate, "-property:Configuration=$($script:Parsed.Configuration)", '-getItem:Compile', '-getProperty:MSBuildAllProjects')
+        $sourceLog = Join-Path $EvidenceRoot "compile-$name.log"
+        $sourceRun = Invoke-OwnedProcess -FileName $Dotnet -Arguments $sourceArguments -WorkingDirectory $IsolationRoot -TempDirectory $TempDirectory -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $sourceLog
+        $sourceDisposition = Get-ProcessDisposition $sourceRun
+        if ($sourceDisposition.Kind -ne 'exit' -or $sourceRun.ExitCode -ne 0) { return "msbuild-source:${name}:$($sourceDisposition.Kind):$($sourceRun.ExitCode)" }
+        $sourceStart = $sourceRun.Output.IndexOf('{')
+        $sourceEnd = $sourceRun.Output.LastIndexOf('}')
+        try { $source = $sourceRun.Output.Substring($sourceStart, $sourceEnd - $sourceStart + 1) | ConvertFrom-Json }
+        catch { return "msbuild-source-output-invalid:$name" }
+        foreach ($item in @($source.Items.Compile)) {
+            if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
+                return "compile-source:${name}:$($item.FullPath)"
+            }
+        }
+        foreach ($import in @(([string] $source.Properties.MSBuildAllProjects) -split ';')) {
+            if ($import -and [IO.Path]::IsPathRooted($import) -and ([IO.Path]::GetFullPath($import)).StartsWith(($script:Root.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)) {
+                return "imported-project:${name}:$import"
+            }
+        }
+        $firstParty.Add(@{ kind = 'source-evaluation'; name = $name; path = $candidate })
+    }
     $assembly = Get-ProjectAssemblyPath -ProjectPath $ProjectPath -Configuration $script:Parsed.Configuration
     $outputDirectory = Split-Path -Parent $assembly
     foreach ($file in @(Get-ChildItem -LiteralPath $outputDirectory -Filter 'Train.*.dll' -File)) {
-        if ($file.BaseName -notin @($allowed, "$allowed.Tests")) { return "output-assembly:$($file.FullName)" }
+        if ($file.BaseName -notin $Allowed) { return "output-assembly:$($file.FullName)" }
         $references = [Reflection.Assembly]::LoadFile($file.FullName).GetReferencedAssemblies()
         foreach ($reference in $references) {
-            if ($reference.Name.StartsWith('Train.', [StringComparison]::Ordinal) -and $reference.Name -ne $allowed) {
+            if ($reference.Name.StartsWith('Train.', [StringComparison]::Ordinal) -and $reference.Name -notin $Allowed) {
                 return "metadata-reference:$($file.Name):$($reference.Name)"
             }
         }
         $firstParty.Add(@{ kind = 'output'; name = $file.BaseName; path = $file.FullName })
     }
-    $firstParty | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $IsolationRoot 'references.json') -Encoding utf8
+    $firstParty | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $EvidenceRoot 'references.json') -Encoding utf8
     return ''
 }
 
@@ -492,6 +553,10 @@ function Convert-Catalog {
         foreach ($requirement in $item.Requirements) { [void] $requirements.Add([string] $requirement) }
         $group = ""
         if ($scopes.Count -gt 0) { $group = [string] $scopes[0] }
+        $caseModule = $Module
+        if ($Module -eq 'contract-support' -and [string] $item.Id -match '^Train\.ContractSupport\.Tests\.(Core|Content|Scenes)\.') {
+            $caseModule = $Matches[1].ToLowerInvariant()
+        }
         $cases.Add([pscustomobject]@{
             Id = [string] $item.Id
             Family = [string] $item.Family
@@ -500,7 +565,7 @@ function Convert-Catalog {
             Group = $group
             Kind = "mstest"
             Project = $ProjectPath
-            Module = $Module
+            Module = $caseModule
             Claim = ""
             Script = ""
             Arguments = [System.Collections.Generic.List[string]]::new()
@@ -696,6 +761,12 @@ function Test-RequirementAvailable {
         "godot" { return [bool] ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) }
         "process" { return $true }
         "export" { return [bool] ($env:GODOT -and (Test-Path -LiteralPath $env:GODOT)) }
+        "python" { return $null -ne (Get-Command python -ErrorAction SilentlyContinue) }
+        "jsonschema" {
+            if (-not (Get-Command python -ErrorAction SilentlyContinue)) { return $false }
+            & python -c 'import jsonschema' *> $null
+            return $LASTEXITCODE -eq 0
+        }
         default { return $false }
     }
 }
@@ -1029,9 +1100,9 @@ function New-Summary {
     Add-Map $endingMap "identityKnown" $endKnown | Out-Null
     Add-Map $endingMap "identityReason" ([string] $Ending.IdentityReason) | Out-Null
     Add-Map $summary "gitAtEnd" $endingMap | Out-Null
-    Add-Map $summary "testAssemblyBoundary" "MSTest checks do not prove module isolation or real Godot engine behavior." | Out-Null
+    Add-Map $summary "testAssemblyBoundary" "Core/Content 的 -Correctness 另行隔离构建；普通 MSTest 不证明 Godot 引擎或隔离装配行为。" | Out-Null
     $gaps = New-List
-    foreach ($gap in @("benchmark", "long", "platform")) { $gaps.Add($gap) }
+    foreach ($gap in @("benchmark", "long", "platform", "scenes-module-tests", "godot-isolated-composition", "real-factory-call-locations")) { $gaps.Add($gap) }
     Add-Map $summary "migrationGaps" $gaps | Out-Null
     $runners = Get-RegisteredRunnerNames
     Add-Map $summary "registeredRunners" $runners | Out-Null
@@ -1086,6 +1157,7 @@ function New-Markdown {
     }
     $lines.Add("")
     $lines.Add($Summary["testAssemblyBoundary"])
+    $lines.Add("待验证：$(@($Summary["migrationGaps"]) -join '、')。这些项目不计入通过数。")
     $registeredNames = @($Summary["registeredRunners"] | ForEach-Object { [string] $_ })
     $registeredParts = [System.Collections.Generic.List[string]]::new()
     if ($registeredNames -contains "mstest") { $registeredParts.Add("MSTest") }
@@ -1436,8 +1508,17 @@ function Add-ExternalCases {
     if ($null -eq $Catalog -or $null -eq $Catalog.checks) { return }
     foreach ($item in @($Catalog.checks)) {
         $case = Convert-ExternalCase $item
-        if (@($Modules).Count -eq 0 -or @($Modules) -contains $case.Module) { $Cases.Add($case) }
+        if (@($Modules).Count -eq 0 -or $case.Module -eq 'all' -or @($Modules) -contains $case.Module) { $Cases.Add($case) }
     }
+}
+
+function Test-MSTestProject {
+    param([string] $Path)
+    [xml] $projectXml = Get-Content -LiteralPath $Path -Raw
+    foreach ($package in @($projectXml.SelectNodes('/Project/ItemGroup/PackageReference'))) {
+        if ([string] $package.Include -in @('MSTest', 'MSTest.TestAdapter')) { return $true }
+    }
+    return $false
 }
 
 function Get-Sha256File {
@@ -1611,7 +1692,7 @@ function Invoke-ExternalCheck {
     $arguments = [System.Collections.Generic.List[string]]::new()
     foreach ($argument in @($Case.Arguments)) {
         $text = [string] $argument
-        $text = $text.Replace("{output}", $output).Replace("{exportBinary}", $ExportBinary)
+        $text = $text.Replace("{output}", $output).Replace("{exportBinary}", $ExportBinary).Replace("{configuration}", $script:Parsed.Configuration)
         $arguments.Add($text)
     }
     $empty = [pscustomobject]@{
@@ -1715,10 +1796,18 @@ function Invoke-Main {
                 $module = if (@("core", "content", "scenes", "godot") -contains $owner) { $owner }
                     elseif ($relative.StartsWith("ContractSupport/SelfTests/")) { "contract-support" }
                     else { "legacy" }
-                if ($parsed.Modules.Count -gt 0 -and $parsed.Modules -notcontains $module) { continue }
-                [xml] $projectXml = Get-Content -LiteralPath $file.FullName -Raw
-                if ($null -eq $projectXml.SelectSingleNode('/Project/ItemGroup/PackageReference[@Include="MSTest.TestAdapter"]')) { continue }
+                if ($parsed.Modules.Count -gt 0 -and $parsed.Modules -notcontains $module -and
+                    -not ($parsed.Correctness -and $module -eq 'contract-support' -and @($parsed.Modules | Where-Object { $_ -in @('core', 'content', 'scenes') }).Count -gt 0)) { continue }
+                if (-not (Test-MSTestProject $file.FullName)) { continue }
                 $projects.Add([pscustomobject]@{ Module = $module; Path = $file.FullName })
+            }
+        }
+        if ($parsed.Correctness -and $parsed.Modules.Count -eq 0 -and (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'checks/project-boundaries.json'))) {
+            foreach ($module in @('core', 'content', 'godot')) {
+                if (@($projects | Where-Object Module -EQ $module).Count -eq 0) {
+                    [Console]::Error.WriteLine("error: blocked module-entry-missing $module")
+                    return 2
+                }
             }
         }
         foreach ($module in $parsed.Modules) {
@@ -1801,11 +1890,15 @@ function Invoke-Main {
     foreach ($project in $projects) {
         $sourceProject = $project.Path
         $isolationRoot = ''
+        $isolationEvidence = ''
+        $isolationAllowed = @()
         if ($executing -and $parsed.Correctness -and -not $parsed.Project -and $project.Module -in @('core', 'content')) {
             try {
                 $isolated = Copy-IsolatedProject -Project $project -RunDirectory $runDirectory
                 $project.Path = $isolated.Project
                 $isolationRoot = $isolated.Root
+                $isolationEvidence = $isolated.Evidence
+                $isolationAllowed = @($isolated.Allowed)
                 Add-PrepStep -Preparation $preparation -Name "isolation-inputs-$($project.Module)" -Outcome 'passed' -Reason 'copied' -DurationMs 0 -Command $null
             }
             catch {
@@ -1836,7 +1929,14 @@ function Invoke-Main {
         $buildReason = "reused-for-groups"
         $buildDisposition = Get-ProcessDisposition $build
         if ($buildDisposition.Kind -eq "exit") {
-            if ($build.ExitCode -ne 0) { $buildOutcome = "blocked"; $buildReason = "build" }
+            if ($build.ExitCode -ne 0) {
+                $buildOutcome = "blocked"
+                $buildReason = "build"
+                if ($isolationRoot -and -not ((Get-Content -LiteralPath $buildLog -Raw) -match 'error (NU\d+|NETSDK1045|NETSDK1141|MSB4236|MSB4019)')) {
+                    $buildOutcome = "failed"
+                    $buildReason = "isolated-build"
+                }
+            }
         }
         else {
             $buildOutcome = [string] $buildDisposition.Outcome
@@ -1859,6 +1959,11 @@ function Invoke-Main {
             return 3
         }
         if ($build.ExitCode -ne 0) {
+            if ($buildOutcome -eq 'failed') {
+                [Console]::Error.WriteLine("error: failed isolated build")
+                Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 1 -Directory $runDirectory
+                return 1
+            }
             [Console]::Error.WriteLine("error: blocked build")
             if ($parsed.Help -or $parsed.List) { return 2 }
             Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 2 -Directory $runDirectory
@@ -1866,12 +1971,14 @@ function Invoke-Main {
         }
 
         if ($isolationRoot) {
-            $referenceError = Test-IsolatedReferences -ProjectPath $projectPath -IsolationRoot $isolationRoot -Module $project.Module -Dotnet $dotnet -TempDirectory $tempForBuild -CancelFile $cancelFile -TimeoutSeconds $prepTimeout
+            $referenceError = Test-IsolatedReferences -ProjectPath $projectPath -IsolationRoot $isolationRoot -EvidenceRoot $isolationEvidence -Allowed $isolationAllowed -Dotnet $dotnet -TempDirectory $tempForBuild -CancelFile $cancelFile -TimeoutSeconds $prepTimeout
             if ($referenceError) {
-                [Console]::Error.WriteLine("error: blocked isolation references $($project.Module): $referenceError")
-                Add-PrepStep -Preparation $preparation -Name "isolation-references-$($project.Module)" -Outcome 'blocked' -Reason $referenceError -DurationMs 0 -Command $null
-                Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 2 -Directory $runDirectory
-                return 2
+                $outcome = if ($referenceError -like 'msbuild*') { 'blocked' } else { 'failed' }
+                $exitCode = if ($outcome -eq 'failed') { 1 } else { 2 }
+                [Console]::Error.WriteLine("error: $outcome isolation references $($project.Module): $referenceError")
+                Add-PrepStep -Preparation $preparation -Name "isolation-references-$($project.Module)" -Outcome $outcome -Reason $referenceError -DurationMs 0 -Command $null
+                Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode $exitCode -Directory $runDirectory
+                return $exitCode
             }
             Add-PrepStep -Preparation $preparation -Name "isolation-references-$($project.Module)" -Outcome 'passed' -Reason 'resolved-and-output' -DurationMs 0 -Command $null
         }
@@ -1885,7 +1992,9 @@ function Invoke-Main {
             return 2
         }
         $projectCatalog = Convert-Catalog (Read-TestCatalog -AssemblyPath $assemblyPath) -ProjectPath $projectPath -Module $project.Module
-        foreach ($case in $projectCatalog.Cases) { $catalog.Cases.Add($case) }
+        foreach ($case in $projectCatalog.Cases) {
+            if ($parsed.Modules.Count -eq 0 -or $parsed.Modules -contains $case.Module) { $catalog.Cases.Add($case) }
+        }
         foreach ($errorItem in $projectCatalog.Errors) { $catalog.Errors.Add($errorItem) }
         $projectEvidence.Add(@{ module = $project.Module; sourceProject = $sourceProject; project = $projectPath; isolationRoot = $isolationRoot; assembly = $assemblyPath; sha256 = (Get-Sha256File $assemblyPath) })
         if (@($catalog.Errors).Count -gt 0) {
@@ -1923,7 +2032,7 @@ function Invoke-Main {
     }
     $selected = @($selectionResult.Cases)
     if ($parsed.List) {
-        [Console]::Out.WriteLine("test-assembly: MSTest checks do not prove module isolation or real Godot engine behavior.")
+        [Console]::Out.WriteLine("test-assembly: Core/Content 的 -Correctness 另行隔离构建；普通 MSTest 不证明 Godot 引擎或隔离装配行为。")
         [Console]::Out.WriteLine("coverage: registered MSTest, Godot, and cross-process checks are not all repository validation.")
         [Console]::Out.WriteLine($groupText)
         foreach ($case in $selected) { [Console]::Out.WriteLine((Format-CaseLine -Case $case)) }
@@ -1941,6 +2050,11 @@ function Invoke-Main {
 
     $checks = New-List
     $groupReports = New-List
+    if ($parsed.Correctness -and $parsed.Modules -contains 'godot') {
+        $pending = [pscustomobject]@{ Id = 'godot.isolated-composition'; Kind = 'external'; Module = 'godot'; Family = 'headless'; Scopes = @('contracts'); Requirements = @(); Claim = 'isolation'; Project = '' }
+        $checks.Add((New-Check -Case $pending -Outcome 'blocked' -Reason 'not-implemented' -DurationMs 0 -Group 'godot-isolation'))
+        $groupReports.Add((New-GroupReport -Name 'godot-isolation' -Outcome 'blocked' -DurationMs 0))
+    }
     $byGroup = @{}
     foreach ($case in $selected) {
         if (-not $byGroup.ContainsKey($case.Group)) { $byGroup[$case.Group] = [System.Collections.Generic.List[object]]::new() }
@@ -2323,9 +2437,6 @@ function Invoke-Main {
     Add-Map $environment "powershell" $PSVersionTable.PSVersion.ToString() | Out-Null
     Add-Map $environment "configuration" $parsed.Configuration | Out-Null
     Add-Map $environment "projects" $projectEvidence | Out-Null
-    Add-Map $environment "project" $projectPath | Out-Null
-    Add-Map $environment "assembly" $assemblyPath | Out-Null
-    Add-Map $environment "testAssemblySha256" (Get-Sha256File $assemblyPath) | Out-Null
     Add-Map $environment "godot" $godotState | Out-Null
     Add-Map $environment "godotVersion" $godotVersion | Out-Null
     Add-Map $environment "contentVersion" $contentIdentity.Version | Out-Null

@@ -1,4 +1,4 @@
-// Core 内容测试验证蓝图尺寸档和布局的 schema 边界。
+// Content 内容测试验证蓝图尺寸档和布局的 schema 边界。
 // 无效内置蓝图必须拒绝整次发布。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
@@ -14,11 +14,11 @@ public sealed class BlueprintSchemaTests
     [TestMethod]
     public void Unknown_size_class_is_rejected_by_the_parser()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = CompositeFixtures.VehiclePackage();
         source.AddDefinitionFile("core", "composites/dev-train.composites.json",
             CompositeFixtures.File(null, CompositeFixtures.Composite(size: "huge")));
-        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session).Reload().Status);
     }
 
     [DataTestMethod]
@@ -27,7 +27,7 @@ public sealed class BlueprintSchemaTests
     [DataRow("orientation")]
     public void Invalid_layout_rejects_the_built_in_catalog(string invalidCase)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = CompositeFixtures.VehiclePackage();
         var voxels = invalidCase switch
         {
@@ -42,6 +42,6 @@ public sealed class BlueprintSchemaTests
         source.AddDefinitionFile("core", "composites/dev-train.composites.json",
             CompositeFixtures.File(null, CompositeFixtures.Composite(voxels: voxels)));
 
-        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session.Logger).Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session).Reload().Status);
     }
 }

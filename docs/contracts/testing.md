@@ -45,7 +45,7 @@
 | 体素引擎层 | `Scenes/Train.Scenes.csproj` 与独立的 `Train.Scenes.Tests` | 体素、内容、核心契约 | 用核心查询和内容访问替身供给情景；真实体素实现生成场景数据、拾取及编辑结果，不依赖 Godot |
 | Godot 层 | 根 `Train.csproj` 的隔离装配与本模块真实引擎 runner | 三个契约 | 替换核心、内容和体素实现；真实宿主执行启动、交互、资源及文件适配。普通 .NET 测试可补充纯逻辑检查，不能替代引擎 runner |
 
-Core 和 Content 测试已各自引用一个实现；原聚合项目的 492 个用例拆为 Core 249、Content 196、宿主 47，单独运行均通过。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台和物理存档，不提供真实引擎或隔离装配证据。Scenes 尚无可运行实现与用例。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
+Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次报告中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台和物理存档，不提供真实引擎或隔离装配证据。Scenes 尚无可运行实现与用例。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
 
 ## 共享用例、样例与替身
 
@@ -86,7 +86,13 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 
 公开面不变不能证明语义兼容。行为变化仍按[受控变更流程](conventions.md#契约基线与受控变更)更新文档、用例及受影响调用方，经用户确认后才记录整组新基线。提取器和构建脚本是检查工具，不在生产契约中引入检查框架。
 
-当前 `contracts.structure` 检查 18 个已存在项目的求值引用、解析路径、输出程序集、源码归属和友元声明，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的程序集检查跨契约类型归属与枚举实际值。用户于 2026-10-11 确认这 1,163 条声明为 #304 的初始公开面基线；文件 SHA256 为 `8B23EAB5586CDB42BA530E998663C4953AFF162C204534F8E8DBBBA37415F33C`。整组基线仍需记录提交，真实工厂建立后再把其公开面纳入检查。Core/Content 的 `-Correctness` 另在只复制本模块源码与测试的目录构建并运行；Scenes 真实行为和 Godot 隔离装配保持待验证。
+当前 `contracts.structure` 检查 18 个已登记项目的求值引用、解析路径、输出程序集、源码归属和友元声明，发现未登记的新项目会失败，并编译四组调用样例。公开声明比较使用 [public-api.txt](public-api.txt)：Roslyn 从契约源码提取开发者声明的类型、成员、record 参数、可空性和常量，并从构建后的程序集检查跨契约类型归属与枚举实际值。用户于 2026-10-11 确认这 1,163 条声明为 #304 的初始公开面基线；文件身份为提交 `152e29f1b1828d59b55d49f4959a1727541fa4a5` 中的 Git blob `fd242242187e4a8e1124befcdc1cc4705789d681`，不使用受工作区换行转换影响的文件散列。声明、文档、样例、共享情景与检查入口组成的整组语义基线仍待确认并记录提交；真实工厂建立后再把其公开面纳入检查。Core/Content 的 `-Correctness` 另按本模块实现、测试及允许依赖闭包的输入清单在系统临时目录构建并运行；Scenes 真实行为和 Godot 隔离装配保持待验证。
+
+### 公开面基线更新
+
+先按[受控变更流程](conventions.md#契约基线与受控变更)确认接口和行为变更，更新受影响文档、共享用例及调用样例，取得用户对整组新基线的确认。然后运行 `dotnet run --project Tests/ContractChecks/Train.ContractChecks.csproj -- snapshot . Debug docs/contracts/public-api.txt` 生成 `docs/contracts/public-api.txt`，逐项审查 diff，再运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Test contracts.structure`。`snapshot` 会直接覆盖文件，不能把生成成功当成用户确认。记录承载新基线的提交和 `git rev-parse <提交>:docs/contracts/public-api.txt` 返回的 blob 身份，并在 Issue 中保留确认与验证结果。
+
+当前提取器保留源码声明中的 `using` 指令、表达式体和初始值文本，因此这些文本变化也会产生差异；审查时需判断其是否改变可观察契约，不把所有差异自动视为签名变化。
 
 ## 最小调用原型的验证矩阵
 

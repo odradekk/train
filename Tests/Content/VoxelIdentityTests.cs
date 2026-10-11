@@ -1,4 +1,4 @@
-// Core 内容模块测试。
+// Content 内容模块测试。
 // 验证体素定义标识的空白、格式、长度和大小写契约。
 
 using Train.Content.Voxels;

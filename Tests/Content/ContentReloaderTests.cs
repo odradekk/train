@@ -1,4 +1,4 @@
-// Core 内容模块测试：验证体素内容解析、发布和热重载契约。
+// Content 内容模块测试：验证体素内容解析、发布和热重载契约。
 // 通过最小内存内容包验证目录快照、诊断、通知和并发边界。
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -23,13 +23,13 @@ public sealed class ContentReloaderTests
     [DataRow("settlement_types")]
     public void Definition_id_whitespace_rejects_every_format_and_preserves_the_snapshot(string format)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.BaseSource();
         var (file, json, _) = DefinitionFile(format);
         if (format == "settlement_types")
             json = MarketSettlementFixtures.Edit(json, "/settlement_types/0/preferred_terrain", "[]");
         source.AddDefinitionFile("core", file, json);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         var notifications = 0;
@@ -64,9 +64,9 @@ public sealed class ContentReloaderTests
     [DataRow("settlement_types", false)]
     public void Definition_array_errors_report_the_field_path_in_every_format(string format, bool missing)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         var (file, json, _) = DefinitionFile(format);
@@ -92,9 +92,9 @@ public sealed class ContentReloaderTests
     [DataRow("settlement_types", false)]
     public void Parse_rejection_severity_follows_the_package_requiredness(string format, bool required)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         const string packageId = "cccccccc-dddd-4eee-8fff-000000000002";
@@ -124,7 +124,7 @@ public sealed class ContentReloaderTests
             Assert.AreSame(previous, reloader.Current, code);
             var diagnostic = result.Diagnostics.Single(item => item.Code == code && item.Source == file && item.JsonPath == path);
             Assert.AreEqual(required ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning, diagnostic.Severity, code);
-            var logged = session.Memory.Snapshot().Last(item => item.EventId == ContentLog.InvalidEventId &&
+            var logged = session.Snapshot().Last(item => item.EventId == ContentLog.InvalidEventId &&
                 item.Attributes["code"] is string loggedCode && loggedCode == code && item.Attributes["source"] is string loggedFile && loggedFile == file);
             Assert.AreEqual(required ? LogLevel.Error : LogLevel.Warning, logged.Level, code);
         }
@@ -137,11 +137,11 @@ public sealed class ContentReloaderTests
     [DataRow("settlement_types", true)]
     public void Empty_definition_arrays_preserve_each_formats_rule(string format, bool accepted)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
         var (file, _, schema) = DefinitionFile(format);
         source.AddDefinitionFile("core", "empty/" + file, $"{{\"schema_version\":{schema},\"{format}\":[]}}");
-        var result = ContentFixtures.Create(source, session.Logger).Reload();
+        var result = ContentFixtures.Create(source, session).Reload();
         Assert.AreEqual(accepted, result.IsCommitted);
         if (!accepted)
             Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.FieldInvalid &&
@@ -151,9 +151,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Invalid_voxel_entry_rejects_the_entire_file_without_partial_acceptance()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         const string file = "bad.voxels.json";
@@ -166,7 +166,7 @@ public sealed class ContentReloaderTests
         Assert.AreSame(previous, reloader.Current);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.NameInvalid &&
             item.Source == file && item.JsonPath == "/voxels/1/name"));
-        var scanned = session.Memory.Snapshot().Single(item => item.EventId == ContentLog.FileScannedEventId &&
+        var scanned = session.Snapshot().Single(item => item.EventId == ContentLog.FileScannedEventId &&
             item.Attributes["source"] is string path && path == file);
         Assert.AreEqual(0, scanned.Attributes["accepted"]);
     }
@@ -184,12 +184,12 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Combined_behaviors_load_as_typed_data_and_affect_semantic_revision()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", behaviorsJson:
                 """[{"type":"propulsion","traction":12.5,"rated_speed":20},{"type":"control"},{"type":"cargo","capacity":4}]""")));
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var snapshot = reloader.Current!;
         var entry = snapshot.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
@@ -220,7 +220,7 @@ public sealed class ContentReloaderTests
         Assert.AreSame(previous, reloader.Current);
         Assert.AreEqual(0, notifications);
 
-        var fresh = ContentFixtures.Create(source, session.Logger);
+        var fresh = ContentFixtures.Create(source, session);
         Assert.IsTrue(fresh.Reload().IsCommitted);
         var reordered = fresh.Current!.Voxels[entry.Definition.Id];
         Assert.AreEqual(revised.SemanticRevision, reordered.SemanticRevision);
@@ -231,7 +231,7 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Behavior_parameter_boundaries_are_accepted()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("minimum", "最小", "说明", behaviorsJson:
@@ -240,7 +240,7 @@ public sealed class ContentReloaderTests
                 """[{"type":"cargo","capacity":2147483647}]""")));
         ContentFixtures.AddSquareImages(source, "iron.png", "max.png");
 
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
@@ -253,13 +253,13 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Initial_valid_voxel_catalog_commits()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "Ferrous Ore 说明"),
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -306,11 +306,11 @@ public sealed class ContentReloaderTests
 
         foreach (var (json, code, path) in cases)
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.CorePackage();
             source.AddDefinitionFile("core", "bad.voxels.json", json);
             ContentFixtures.AddSquareImages(source, "iron.png");
-            var reloader = ContentFixtures.Create(source, session.Logger);
+            var reloader = ContentFixtures.Create(source, session);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, json);
             Assert.IsNull(reloader.Current);
@@ -355,10 +355,10 @@ public sealed class ContentReloaderTests
 
         foreach (var (good, code, path) in invalids)
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.ValidFerrousOre();
             source.AddDefinitionFile("core", "bad.voxels.json", ContentFixtures.GoodsFile(good));
-            var reloader = ContentFixtures.Create(source, session.Logger);
+            var reloader = ContentFixtures.Create(source, session);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, good);
             Assert.IsNull(reloader.Current);
@@ -371,13 +371,13 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Text_is_trimmed_and_boundaries_are_accepted()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "bounds.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("1ferrous-ore", "  铁矿  ", "  说明  ", value: 1),
             ContentFixtures.Good("coal", new string('名', 100), new string('说', 2000), value: 1_000_000_000, icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(source, "iron.png", "coal.png");
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         Assert.AreEqual("铁矿", reloader.Current!.Voxels[new VoxelDefinitionId("core", "1ferrous-ore")].Definition.Name);
         Assert.AreEqual(1_000_000_000, reloader.Current.Voxels[new VoxelDefinitionId("core", "coal")].Definition.Value);
@@ -403,12 +403,12 @@ public sealed class ContentReloaderTests
 
         foreach (var path in paths)
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.CorePackage();
             source.AddDefinitionFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("iron", "铁矿", "说明", icon: path, voxel: path.Length == 0 ? "iron.png" : path)));
             ContentFixtures.AddSquareImages(source, "iron.png");
-            var result = ContentFixtures.Create(source, session.Logger).Reload();
+            var result = ContentFixtures.Create(source, session).Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, path);
             Assert.IsTrue(result.Diagnostics.Any(item => item.Code is ContentDiagnosticCodes.PathInvalid or ContentDiagnosticCodes.PresentationRequired), path);
         }
@@ -417,33 +417,33 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Image_shape_and_size_rules_reject_incompatible_visuals()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         Assert.AreEqual(ContentReloadStatus.Rejected, ReloadWithImage(session, "icon.png", ContentFixtures.Rectangle(8, 4)).Status);
-        using var session2 = LoggerSession.Create();
+        var session2 = new RecordingContentLogger();
         Assert.AreEqual(ContentReloadStatus.Rejected, ReloadWithFaces(session2, 6, 6, 6).Status);
-        using var session3 = LoggerSession.Create();
+        var session3 = new RecordingContentLogger();
         Assert.AreEqual(ContentReloadStatus.Rejected, ReloadWithFaces(session3, 16, 16, 32).Status);
-        using var session4 = LoggerSession.Create();
+        var session4 = new RecordingContentLogger();
         var missing = ContentFixtures.CorePackage();
         missing.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         missing.AddMissingImage("core", "iron.png");
-        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(missing, session4.Logger).Reload().Status);
-        using var session5 = LoggerSession.Create();
+        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(missing, session4).Reload().Status);
+        var session5 = new RecordingContentLogger();
         var huge = ContentFixtures.CorePackage();
         huge.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         huge.AddOversizedImageBytes("core", "iron.png");
-        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(huge, session5.Logger).Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(huge, session5).Reload().Status);
     }
 
     [TestMethod]
     public void Duplicate_local_ids_invalidate_the_whole_package()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "a.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         source.AddDefinitionFile("core", "b.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "另一铁矿", "说明")));
         ContentFixtures.AddSquareImages(source, "iron.png");
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.DuplicateLocalId));
@@ -453,12 +453,12 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void File_and_global_limits_reject_oversized_candidates()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var oversizedFile = ContentFixtures.CorePackage();
         oversizedFile.AddDefinitionFile("core", "big.voxels.json", new byte[ContentLimits.JsonFileMaxBytes + 1]);
-        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(oversizedFile, session.Logger).Reload().Status);
+        Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(oversizedFile, session).Reload().Status);
 
-        using var session2 = LoggerSession.Create();
+        var session2 = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         ContentFixtures.AddSquareImages(source, "iron.png");
         for (var start = 1; start <= 10001; start += 1000)
@@ -467,7 +467,7 @@ public sealed class ContentReloaderTests
             source.AddDefinitionFile("core", $"batch-{start}.voxels.json", ContentFixtures.ManyGoods(start, end));
         }
 
-        var result = ContentFixtures.Create(source, session2.Logger).Reload();
+        var result = ContentFixtures.Create(source, session2).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.GlobalVoxelLimitExceeded &&
             item.Severity == ContentDiagnosticSeverity.Error));
@@ -476,12 +476,12 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Diagnostics_are_capped_per_package_and_still_reject()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         for (var i = 0; i < ContentLimits.MaxDiagnosticsPerPackage + 1; i++)
             source.AddDefinitionFile("core", $"bad-{i}.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good($"item-{i}", " ", "说明")));
-        var result = ContentFixtures.Create(source, session.Logger).Reload();
+        var result = ContentFixtures.Create(source, session).Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.AreEqual(ContentLimits.MaxDiagnosticsPerPackage, result.Diagnostics.Count);
         Assert.IsTrue(result.Diagnostics.All(item => item.Code == ContentDiagnosticCodes.NameInvalid &&
@@ -491,9 +491,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Initial_empty_available_package_fails_initialization()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -501,7 +501,7 @@ public sealed class ContentReloaderTests
         Assert.IsFalse(result.IsCommitted);
         Assert.IsNull(reloader.Current);
         Assert.IsNull(result.Snapshot);
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.Category == ContentLog.Category &&
             item.EventId == ContentLog.ReloadFailedEventId &&
             item.Level == LogLevel.Error));
@@ -510,9 +510,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Later_empty_reload_can_publish_when_a_catalog_already_exists()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = new SwitchableContentSource(ContentFixtures.ValidFerrousOre());
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         Assert.IsNotNull(reloader.Current);
 
@@ -532,24 +532,24 @@ public sealed class ContentReloaderTests
     {
         foreach (var path in new[] { "file:secret.png", "https:secret.png" })
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.CorePackage();
             source.AddDefinitionFile("core", "path.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good("iron", "铁矿", "说明", icon: path, voxel: path)));
             ContentFixtures.AddSquareImages(source, "iron.png");
-            var reloader = ContentFixtures.Create(source, session.Logger);
+            var reloader = ContentFixtures.Create(source, session);
             var result = reloader.Reload();
             Assert.AreEqual(ContentReloadStatus.Rejected, result.Status, path);
             Assert.IsNull(reloader.Current);
             Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.PathInvalid), path);
         }
 
-        using var ok = LoggerSession.Create();
+        var ok = new RecordingContentLogger();
         var valid = ContentFixtures.CorePackage();
         valid.AddDefinitionFile("core", "voxels/ores.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("iron", "铁矿", "说明", icon: "voxels/iron.png", voxel: "voxels/iron.png")));
         ContentFixtures.AddSquareImages(valid, "voxels/iron.png");
-        var validReloader = ContentFixtures.Create(valid, ok.Logger);
+        var validReloader = ContentFixtures.Create(valid, ok);
         var committed = validReloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, committed.Status);
         Assert.IsNotNull(validReloader.Current);
@@ -559,9 +559,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Invalid_discovery_rejects_instead_of_committing_partial_files()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = new InvalidDiscoverySource(ContentFixtures.ValidFerrousOre());
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
 
         var result = reloader.Reload();
 
@@ -575,14 +575,14 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Initial_failure_does_not_publish_an_empty_catalog()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage(available: false);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Rejected, result.Status);
         Assert.IsNull(reloader.Current);
         Assert.IsNull(result.Snapshot);
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.Category == ContentLog.Category &&
             item.EventId == ContentLog.ReloadFailedEventId &&
             item.Level == LogLevel.Error));
@@ -591,9 +591,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Rejection_keeps_the_previous_snapshot()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var previous = reloader.Current!;
         source.AddDefinitionFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
@@ -608,9 +608,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Shared_voxel_faces_can_commit()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
@@ -619,11 +619,11 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Concurrent_reload_is_rejected_immediately()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         using var entered = new ManualResetEventSlim(false);
         using var release = new ManualResetEventSlim(false);
         var source = new BlockingContentSource(ContentFixtures.ValidFerrousOre(), entered, release);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var worker = Task.Run(reloader.Reload);
         try
         {
@@ -644,9 +644,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Unchanged_reload_keeps_version_and_does_not_notify()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var first = reloader.Reload();
         var snapshot = reloader.Current;
         var notifications = 0;
@@ -657,7 +657,7 @@ public sealed class ContentReloaderTests
         Assert.AreSame(first.Snapshot, second.Snapshot);
         Assert.AreSame(snapshot, reloader.Current);
         Assert.AreEqual(0, notifications);
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.EventId == ContentLog.ReloadSummaryEventId &&
             item.Attributes["changed"] is false));
     }
@@ -665,9 +665,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Hash_matrix_separates_semantic_asset_and_catalog_generation()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var baseline = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
         var baselineSemantic = baseline.SemanticRevision;
@@ -760,13 +760,13 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Successful_reload_reports_added_removed_and_pixel_changes()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var initial = ContentFixtures.ValidFerrousOre();
         initial.AddDefinitionFile("core", "coal.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("coal", "煤", "煤说明", icon: "coal.png", voxel: "coal.png")));
         ContentFixtures.AddSquareImages(initial, "coal.png");
         var source = new SwitchableContentSource(initial);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         reloader.Reload();
 
         var notifications = new List<ContentChange>();
@@ -792,20 +792,20 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Rejected_content_file_still_emits_a_zero_accept_scan_event()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddDefinitionFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         reloader.Reload();
 
-        var bad = session.Memory.Snapshot().Single(item =>
+        var bad = session.Snapshot().Single(item =>
             item.EventId == ContentLog.FileScannedEventId &&
             item.Attributes["source"] is "bad.voxels.json");
         Assert.AreEqual(LogLevel.Debug, bad.Level);
         Assert.AreEqual("voxels", bad.Attributes["kind"]);
         Assert.AreEqual("core", bad.Attributes["package"]);
         Assert.AreEqual(0, bad.Attributes["accepted"]);
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.EventId == ContentLog.InvalidEventId &&
             item.Level == LogLevel.Error));
     }
@@ -813,9 +813,9 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Notify_exception_keeps_the_commit_and_allows_a_later_reload()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         source.AddDefinitionFile("core", "voxels/ferrous-ore.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ferrous-ore", "Ferrous Ore", "说明", value: 101)));
@@ -828,7 +828,7 @@ public sealed class ContentReloaderTests
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(secondSawCommit);
         Assert.AreEqual(101, reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")].Definition.Value);
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.EventId == ContentLog.NotifyFailedEventId &&
             item.Level == LogLevel.Error));
 
@@ -842,10 +842,10 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Asset_hash_uses_the_same_bytes_that_passed_png_validation()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var inner = ContentFixtures.ValidFerrousOre();
         var source = new FlipAfterReadSource(inner);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var first = reloader.Reload();
 
@@ -861,12 +861,12 @@ public sealed class ContentReloaderTests
     [TestMethod]
     public void Same_pixels_different_raw_png_bytes_change_only_the_asset_revision()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var firstBytes = new byte[] { 1, 2, 3, 4 };
         var secondBytes = new byte[] { 9, 8, 7, 6 };
         var source = ContentFixtures.ValidFerrousOre();
         source.AddImage("core", "iron.png", ContentFixtures.Square(16), rawBytes: firstBytes);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var baseline = reloader.Current!.Voxels[new VoxelDefinitionId("core", "ferrous-ore")];
 
@@ -882,15 +882,15 @@ public sealed class ContentReloaderTests
         Assert.AreNotEqual(baseline.AssetRevisions["iron.png"], after.AssetRevisions["iron.png"]);
     }
 
-    private static ContentReloadResult ReloadWithImage(LoggerSession session, string path, DecodedImage image)
+    private static ContentReloadResult ReloadWithImage(RecordingContentLogger session, string path, DecodedImage image)
     {
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(ContentFixtures.Good("iron", "铁矿", "说明")));
         source.AddImage("core", path, image);
-        return ContentFixtures.Create(source, session.Logger).Reload();
+        return ContentFixtures.Create(source, session).Reload();
     }
 
-    private static ContentReloadResult ReloadWithFaces(LoggerSession session, int top, int side, int bottom)
+    private static ContentReloadResult ReloadWithFaces(RecordingContentLogger session, int top, int side, int bottom)
     {
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "n.voxels.json", ContentFixtures.GoodsFile(
@@ -899,7 +899,7 @@ public sealed class ContentReloaderTests
         source.AddImage("core", "top.png", ContentFixtures.Square(top, 2));
         source.AddImage("core", "side.png", ContentFixtures.Square(side, 3));
         source.AddImage("core", "bottom.png", ContentFixtures.Square(bottom, 4));
-        return ContentFixtures.Create(source, session.Logger).Reload();
+        return ContentFixtures.Create(source, session).Reload();
     }
 }
 

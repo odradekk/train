@@ -6,7 +6,7 @@ This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
-默认从 `Tests/` 下发现显式引用 MSTest 适配器的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属；Core/Content 的 `-Correctness` 在隔离目录重建并运行，普通单元测试不证明隔离。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
+默认从 `Tests/` 下发现引用 `MSTest.TestAdapter` 或 `MSTest` 的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。未指定模块的 `-Correctness` 还要求 Core、Content、Godot 三个现有入口都可发现，缺失时报告阻塞。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。模块正确性选择还包含 `contracts.structure` 和该模块所属的契约支持自检；Godot 隔离装配不存在时，`-Module godot -Correctness` 明确报告阻塞，当前引擎检查仍分别执行并报告。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属；Core/Content 的 `-Correctness` 在系统临时目录按允许依赖闭包重建并运行，输入及引用清单留在本次报告目录；`TestResults/.gdignore` 阻止 Godot 扫描留存的报告与旧隔离产物。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
 
 `-Test content.examples-schema` 调用现有 JSON Schema 校验器检查 `docs/content/examples/` 的全部当前格式示例及 Schema 自身；需要 Python 和 `jsonschema` 包。示例为空、格式不符或工具缺失都不能通过。此项不验证跨文件引用或生产加载器行为。
 
@@ -21,7 +21,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.simulation-host-smoke
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-export-smoke -Test godot.mods-export-smoke
 ```
 
-`-Correctness` 选择 MSTest 与已登记的非导出引擎检查，需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
+`-Correctness` 选择 MSTest、结构与公开面、内容示例 Schema 和已登记的非导出引擎检查；Schema 检查需要 Python 3 与 `jsonschema`（CI 为 Python 3.11、`jsonschema==4.25.1`），引擎检查需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
 
 content 的输入由运行器提前复制到输出目录的 `content-input/initial` 与 `content-input/added`，两份都只包含 `voxels/grain.voxels.json`、四个绑定共用的 `voxels/grain/placeholder.png`，以及用于烟测的市场表和聚居地类型 JSON；`added` 另外生成 `smoke-ore` 体素探针。图片经物理内容根读取，不需要复制 Godot 导入配置。检查切换两份读取来源，在同一个重载器上验证新增、移除；不写项目资源或输入文件。检查选择使用 `-- --check=<名称>`，不读取旧 TRAIN_* 检查开关。通过必须同时满足进程退出 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
 

@@ -1,3 +1,5 @@
+// Content 测试辅助：记录内容诊断事件，供断言观察。
+// 属性在写入时复制，快照不暴露记录集合。
 using Train.Content;
 
 namespace Train.Content.Tests;
@@ -8,13 +10,9 @@ internal sealed record LoggedContentEvent(
     LogLevel Level, string Category, string EventId, string Message,
     IReadOnlyDictionary<string, object?> Attributes);
 
-internal sealed class LoggerSession : IContentLogger, IDisposable
+internal sealed class RecordingContentLogger : IContentLogger
 {
     private readonly List<LoggedContentEvent> _events = new();
-
-    public static LoggerSession Create() => new();
-    public IContentLogger Logger => this;
-    public LoggerSession Memory => this;
 
     public IReadOnlyList<LoggedContentEvent> Snapshot()
     {
@@ -42,5 +40,4 @@ internal sealed class LoggerSession : IContentLogger, IDisposable
             _events.Add(entry);
     }
 
-    public void Dispose() { }
 }

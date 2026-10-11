@@ -1,4 +1,4 @@
-// Train.Core 内容基础设施模块。
+// Train.Content 内容基础设施模块。
 // 从 Mod 根目录候选中发现、隔离并规范化可加载包。
 namespace Train.Content;
 

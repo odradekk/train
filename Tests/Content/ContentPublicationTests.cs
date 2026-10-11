@@ -1,4 +1,4 @@
-// Core 内容发布的功能例子：从两格蓝图的输入验证一个完整批次。
+// Content 内容发布的功能例子：从两格蓝图的输入验证一个完整批次。
 // 预期属性来自 ContentReloadExamples 的手算数据。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
@@ -15,9 +15,9 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Publication_updates_dependencies_together_and_preserves_captured_snapshots()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = PairSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         var changes = new List<ContentChange>();
         reloader.Changed += change =>
         {
@@ -60,8 +60,8 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Missing_required_package_rejects_without_a_first_snapshot()
     {
-        using var session = LoggerSession.Create();
-        var reloader = new ContentReloader(new MemoryContentSource(), session.Logger);
+        var session = new RecordingContentLogger();
+        var reloader = new ContentReloader(new MemoryContentSource(), session);
         var result = reloader.Reload();
         AssertResult(ContentReloadExamples.InitialRejected, result);
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.BuiltInPackageUnavailable &&
@@ -72,9 +72,9 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Removing_all_files_publishes_one_empty_batch_after_initialization()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = new SwitchableContentSource(PairSource());
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         AssertResult(ContentReloadExamples.FirstPublish, reloader.Reload());
         source.Current = ContentFixtures.CorePackage();
 
@@ -86,9 +86,9 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Collision_changes_publish_without_changing_core_semantics_or_blueprint_attributes()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = PairSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         AssertResult(ContentReloadExamples.FirstPublish, reloader.Reload());
         var before = reloader.Current!;
         source.AddDefinitionFile("core", "structure.voxels.json", ContentReloadExamples.CollisionStructureFile);
@@ -109,7 +109,7 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Invalid_optional_package_is_removed_as_a_whole()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         const string mod = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
         const string root = "memory://mods/broken/resources";
         var source = PairSource();
@@ -117,7 +117,7 @@ public sealed class ContentPublicationTests
         source.AddDefinitionFile(mod, "bad.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("bad", "无效", "无效质量", mass: 0)), root);
         source.AddDefinitionFile(mod, "valid.composites.json", ContentReloadExamples.BlueprintFile, root);
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
 
         AssertResult(ContentReloadExamples.OptionalPackageIsolated, reloader.Reload());
         Assert.IsFalse(reloader.Current!.Blueprints.Keys.Any(id => id.Namespace == mod));
@@ -126,9 +126,9 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Required_package_failure_is_determined_by_ownership_instead_of_namespace()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = PairSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         AssertResult(ContentReloadExamples.FirstPublish, reloader.Reload());
         var previous = reloader.Current;
         const string requiredNamespace = "additional-builtin";
@@ -148,8 +148,8 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Reload_during_publication_notification_is_rejected_with_the_published_snapshot()
     {
-        using var session = LoggerSession.Create();
-        var reloader = new ContentReloader(PairSource(), session.Logger);
+        var session = new RecordingContentLogger();
+        var reloader = new ContentReloader(PairSource(), session);
         ContentReloadResult? reentrant = null;
         reloader.Changed += _ => reentrant = reloader.Reload();
 
@@ -166,9 +166,9 @@ public sealed class ContentPublicationTests
     [TestMethod]
     public void Unexpected_source_exception_preserves_content_and_releases_reload_ownership()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = new SwitchableContentSource(PairSource());
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         AssertResult(ContentReloadExamples.FirstPublish, reloader.Reload());
         var previous = reloader.Current;
         source.Current = new ThrowingContentSource();

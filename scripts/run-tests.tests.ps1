@@ -2779,6 +2779,7 @@ namespace MODULE;
 public sealed class RuleTests {
     [TestMethod] public void Passes() { Assert.AreEqual(2, 1 + 1); }
 }
+
 '@
     foreach ($module in @("Core", "Content")) {
         Write-Project (Join-Path $repo "Tests/$module") "$module.Tests" $sdk ($source.Replace("MODULE", $module))
@@ -2801,6 +2802,22 @@ public sealed class RuleTests {
     $missing = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @("-Module", "scenes", "-List") -WaitMs 30000
     Assert-Exit $missing 2
     Assert-Contains "missing module blocked" $missing.Stderr "module-entry-missing scenes"
+    $checksDir = Join-Path $scriptDir 'checks'
+    New-Item -ItemType Directory -Force -Path $checksDir | Out-Null
+    Set-Content -LiteralPath (Join-Path $checksDir 'project-boundaries.json') -Value '{}' -Encoding utf8
+    $default = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @('-Correctness', '-List') -WaitMs 30000
+    Assert-Exit $default 2
+    Assert-Contains 'missing default project blocked' $default.Stderr 'module-entry-missing godot'
+}
+
+It "real-module-contract-selection" {
+    foreach ($module in @('core', 'content')) {
+        $result = Invoke-Runner -ArgumentList @('-Module', $module, '-Correctness', '-List') -WaitMs 300000
+        Assert-Exit $result 0
+        Assert-Contains "$module structure" $result.Stdout 'CASE id=contracts.structure '
+        Assert-Contains "$module support" $result.Stdout "module=$module"
+        Assert-Contains "$module support group" $result.Stdout "scopes=$module-contract-support"
+    }
 }
 
 try {

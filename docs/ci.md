@@ -6,9 +6,11 @@
 
 ```powershell
 pwsh -NoProfile -File scripts/run-tests.ps1 -Correctness -RunnerCatalog none -BuildGame
+pwsh -NoProfile -File scripts/run-tests.ps1 -Test content.examples-schema
+pwsh -NoProfile -File scripts/run-tests.ps1 -Test contracts.structure
 ```
 
-统一入口负责发现、选择、测试工程构建和结果判定。`-Correctness -RunnerCatalog none` 在隔离目录重建并运行 Core、Content 的测试，同时运行其余已登记的 MSTest；`-BuildGame` 编译 `Train.csproj`。这些步骤只需要 SDK 和 NuGet；游戏构建失败使整次运行非成功，独立检查仍可执行并留下 TRX。常规运行不启动 Godot。YAML 不读取 TRX 或复制游戏断言，不推断路径影响。CI 不改变仓库设置、required checks 或分支保护。
+统一入口负责发现、选择、测试工程构建和结果判定。`-Correctness -RunnerCatalog none` 在隔离目录重建并运行 Core、Content 的测试，同时运行其余已登记的 MSTest；`-BuildGame` 编译 `Train.csproj`。MSTest 与游戏构建需要 SDK 和 NuGet；Schema 步骤另由工作流准备 Python 3.11 与 `jsonschema==4.25.1`；游戏构建失败使整次运行非成功，独立检查仍可执行并留下 TRX。常规运行不启动 Godot。YAML 不读取 TRX 或复制游戏断言，不推断路径影响。CI 不改变仓库设置、required checks 或分支保护。
 
 常规集合通过统一入口发现 Core、Content、Godot 宿主和 ContractSupport 自检项目的已登记 MSTest 用例，隔离验证 Core、Content，并另外构建游戏工程；它还运行 `content.examples-schema` 和 `contracts.structure`，检查当前格式示例、18 个项目的引用和[初始公开面基线](contracts/public-api.txt)。Godot 宿主的普通 .NET 用例不启动引擎。具体用例数和耗时以每次统一入口摘要为准；这些结果用于反馈和证据记录，不是性能门槛或全仓正确性证明。
 
@@ -35,7 +37,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
 ```
 
-`correctness` 运行四个现有 MSTest 项目及已登记的非导出 App 真实 Godot 检查。入口复用一次游戏构建和导入并串行运行。两项 Windows 导出运行时检查须另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
+`correctness` 运行四个现有 MSTest 项目、结构与公开面、内容示例 Schema 及已登记的非导出 App 真实 Godot 检查。入口复用一次游戏构建和导入并串行运行。两项 Windows 导出运行时检查须另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 

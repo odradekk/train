@@ -21,10 +21,10 @@ public sealed class VoxelCollisionDefinitionTests
     [TestMethod]
     public void Formal_loader_accepts_the_built_in_eccentric_ledge_example()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         AddLedge(source);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -43,11 +43,11 @@ public sealed class VoxelCollisionDefinitionTests
     [TestMethod]
     public void None_and_full_box_keep_working_and_reject_local_box_fields()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddDefinitionFile("core", "voxels/hollow.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("hollow", "空心", "说明", tagsJson: "[]", collisionJson: "{\"kind\":\"none\"}")));
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var snapshot = reloader.Current;
         Assert.AreEqual(VoxelCollisionKind.FullBox, snapshot!.Voxels[Iron].Definition.Collision.Kind);
@@ -92,10 +92,10 @@ public sealed class VoxelCollisionDefinitionTests
 
         foreach (var collision in invalids)
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.ValidFerrousOre();
             AddLedge(source, collision);
-            var reloader = ContentFixtures.Create(source, session.Logger);
+            var reloader = ContentFixtures.Create(source, session);
 
             var rejected = reloader.Reload();
 
@@ -103,14 +103,14 @@ public sealed class VoxelCollisionDefinitionTests
             Assert.IsNull(reloader.Current);
         }
 
-        using var modSession = LoggerSession.Create();
+        var modSession = new RecordingContentLogger();
         var mixed = ModFixtures.CorePlusCopper();
         mixed.AddMod("broken-box", ModFixtures.OtherUuid);
         mixed.AddDefinitionFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
                 collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0.8, sizeX: 0.3))));
         mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
-        var mods = ContentFixtures.Create(mixed, modSession.Logger);
+        var mods = ContentFixtures.Create(mixed, modSession);
 
         var isolated = mods.Reload();
 
@@ -127,10 +127,10 @@ public sealed class VoxelCollisionDefinitionTests
 
         foreach (var sizeX in new[] { 1e-50, double.Epsilon })
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.ValidFerrousOre();
             AddLedge(source, ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: sizeX));
-            var reloader = ContentFixtures.Create(source, session.Logger);
+            var reloader = ContentFixtures.Create(source, session);
 
             var rejected = reloader.Reload();
 
@@ -138,14 +138,14 @@ public sealed class VoxelCollisionDefinitionTests
             Assert.IsNull(reloader.Current);
         }
 
-        using var modSession = LoggerSession.Create();
+        var modSession = new RecordingContentLogger();
         var mixed = ModFixtures.CorePlusCopper();
         mixed.AddMod("thin-underflow", ModFixtures.OtherUuid);
         mixed.AddDefinitionFile(ModFixtures.OtherUuid, "bad.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("ledge", "台沿", "说明", tagsJson: "[]", icon: "box.png", voxel: "box.png",
                 collisionJson: ContentFixtures.LocalBoxCollision(offsetX: 0, sizeX: 1e-50))));
         mixed.AddImage(ModFixtures.OtherUuid, "box.png", ContentFixtures.Square(16));
-        var mods = ContentFixtures.Create(mixed, modSession.Logger);
+        var mods = ContentFixtures.Create(mixed, modSession);
 
         var isolated = mods.Reload();
 
@@ -157,10 +157,10 @@ public sealed class VoxelCollisionDefinitionTests
     [TestMethod]
     public void Collision_changes_publish_without_changing_semantic_revision()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         AddLedge(source);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         var baseline = reloader.Current!.Voxels[Ledge].SemanticRevision;
 

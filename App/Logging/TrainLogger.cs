@@ -41,7 +41,7 @@ public sealed class TrainLogger : IContentLogger, IDisposable
     private readonly TextWriter _overflowWriter;
     private readonly JsonlLogSink _jsonl;
     private readonly ILogSink? _additionalSink;
-    // 创建时记录宿主线程，使 Core 无需引用引擎即可判断输出是否需要排队。
+    // 创建时记录宿主线程，后台调用据此决定是否将宿主输出排队。
     private readonly Thread _mainThread;
     // 统一保护阈值修改、事件序号分配、持久输出和队列修改，保证它们的顺序。
     private readonly object _gate = new();

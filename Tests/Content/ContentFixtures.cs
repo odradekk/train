@@ -1,4 +1,4 @@
-// Core 内容测试夹具：提供最小体素、Mod 与图片输入。
+// Content 内容测试夹具：提供最小体素、Mod 与图片输入。
 // 通过内存内容源提供确定的文件字节和解码结果。
 using Train.Content;
 using Train.Content.Voxels;

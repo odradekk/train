@@ -1,4 +1,4 @@
-// Core 内容图像契约：输入像素的所有权在构造时交给不可变图像。
+// Content 内容图像契约：输入像素的所有权在构造时交给不可变图像。
 // 预期像素直接来自数据例子，不经解码或修订函数取得。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;

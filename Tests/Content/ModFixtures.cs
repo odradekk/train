@@ -1,5 +1,5 @@
-// Core 内容测试夹具：提供最小 Mod 清单和体素包输入。
-// 供当前 Core 内容测试共用，不读取玩家目录中的外部 Mod。
+// Content 内容测试夹具：提供最小 Mod 清单和体素包输入。
+// 供当前 Content 内容测试共用，不读取玩家目录中的外部 Mod。
 using Train.Content;
 using Train.Content.Voxels;
 

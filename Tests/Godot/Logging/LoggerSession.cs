@@ -1,4 +1,4 @@
-// Core 日志测试辅助：为测试提供独立日志目录和可观察的输出。
+// Godot 宿主 日志测试辅助：为测试提供独立日志目录和可观察的输出。
 // 会话释放时关闭日志器，并尝试清理测试创建的临时文件。
 using Train.App.Logging;
 
@@ -31,7 +31,7 @@ internal sealed class LoggerSession : IDisposable
         Overflow = overflow;
     }
 
-    /// <summary>在独立临时目录创建日志器及其输出记录器，供日志、控制台和内容测试使用。</summary>
+    /// <summary>在独立临时目录创建日志器及其输出记录器，供宿主日志和控制台测试使用。</summary>
     /// <param name="buildDefault">未设置有效覆盖值时使用的最低日志级别。</param>
     /// <param name="levelOverride">日志级别覆盖文本；null 使用构建默认级别。</param>
     /// <param name="startApplication">是否通过 StartSession 记录应用启动事件。</param>

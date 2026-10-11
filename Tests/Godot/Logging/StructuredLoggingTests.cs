@@ -1,4 +1,4 @@
-// Core 日志模块测试。
+// Godot 宿主 日志模块测试。
 // 验证结构化日志的 JSONL 序列化、保留策略和文件生命周期。
 
 using System.Runtime.ExceptionServices;

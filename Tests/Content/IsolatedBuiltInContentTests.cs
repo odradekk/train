@@ -1,4 +1,4 @@
-// Core 内容模块测试。
+// Content 内容模块测试。
 // 验证隔离内容根的读取不会改动另一个物理内容根。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;

@@ -1,4 +1,4 @@
-// Core 内容模块测试。
+// Content 内容模块测试。
 // 验证外部内容路径的词法包含、可信路径链和 Mod 根发现边界。
 
 using System.Diagnostics;

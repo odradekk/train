@@ -1,0 +1,131 @@
+{
+  "projects": {
+    "Train.Core.Contracts": {
+      "path": "Contracts/Core/Train.Core.Contracts.csproj",
+      "references": []
+    },
+    "Train.Content.Contracts": {
+      "path": "Contracts/Content/Train.Content.Contracts.csproj",
+      "references": [
+        "Train.Core.Contracts"
+      ]
+    },
+    "Train.Scenes.Contracts": {
+      "path": "Contracts/Scenes/Train.Scenes.Contracts.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts"
+      ]
+    },
+    "Train.Core": {
+      "path": "Core/Train.Core.csproj",
+      "references": [
+        "Train.Core.Contracts"
+      ]
+    },
+    "Train.Content": {
+      "path": "Content/Train.Content.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts"
+      ]
+    },
+    "Train.Scenes": {
+      "path": "Scenes/Train.Scenes.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts",
+        "Train.Scenes.Contracts"
+      ]
+    },
+    "Train": {
+      "path": "Train.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts",
+        "Train.Scenes.Contracts",
+        "Train.Core",
+        "Train.Content",
+        "Train.Scenes"
+      ]
+    },
+    "Train.Core.ContractSupport": {
+      "path": "Tests/ContractSupport/Core/Train.Core.ContractSupport.csproj",
+      "references": [
+        "Train.Core.Contracts"
+      ]
+    },
+    "Train.Content.ContractSupport": {
+      "path": "Tests/ContractSupport/Content/Train.Content.ContractSupport.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts"
+      ]
+    },
+    "Train.Scenes.ContractSupport": {
+      "path": "Tests/ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts",
+        "Train.Scenes.Contracts"
+      ]
+    },
+    "Train.ContractSupport.Tests": {
+      "path": "Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj",
+      "references": [
+        "Train.Core.ContractSupport",
+        "Train.Content.ContractSupport",
+        "Train.Scenes.ContractSupport"
+      ]
+    },
+    "Train.Core.Tests": {
+      "path": "Tests/Core/Train.Core.Tests.csproj",
+      "references": [
+        "Train.Core",
+        "Train.Core.Contracts",
+        "Train.Core.ContractSupport"
+      ]
+    },
+    "Train.Content.Tests": {
+      "path": "Tests/Content/Train.Content.Tests.csproj",
+      "references": [
+        "Train.Content",
+        "Train.Core.Contracts",
+        "Train.Content.Contracts",
+        "Train.Content.ContractSupport"
+      ]
+    },
+    "Train.Godot.Tests": {
+      "path": "Tests/Godot/Train.Godot.Tests.csproj",
+      "references": [
+        "Train"
+      ]
+    },
+    "Train.Core.ContractSamples": {
+      "path": "prototypes/core-contract/Train.Core.ContractSamples.csproj",
+      "references": [
+        "Train.Core.Contracts"
+      ]
+    },
+    "Train.Content.ContractSamples": {
+      "path": "prototypes/content-contract/Train.Content.ContractSamples.csproj",
+      "references": [
+        "Train.Content.Contracts"
+      ]
+    },
+    "Train.Scenes.ContractSamples": {
+      "path": "prototypes/scenes-contract/Train.Scenes.ContractSamples.csproj",
+      "references": [
+        "Train.Scenes.Contracts"
+      ]
+    },
+    "Train.Godot.ContractSamples": {
+      "path": "prototypes/godot-contract/Train.Godot.ContractSamples.csproj",
+      "references": [
+        "Train.Core.Contracts",
+        "Train.Content.Contracts",
+        "Train.Scenes.Contracts"
+      ]
+    }
+  }
+}

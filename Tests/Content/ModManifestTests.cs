@@ -1,4 +1,4 @@
-// Core 内容模块测试。
+// Content 内容模块测试。
 // 验证 Mod 清单的严格 schema、身份、版本和文本边界。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;

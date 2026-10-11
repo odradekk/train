@@ -1,4 +1,4 @@
-// Core 内容模块测试。
+// Content 内容模块测试。
 // 验证 Mod 的隔离、命名空间、内容限制和重载回滚契约。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
@@ -16,17 +16,17 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Valid_zero_goods_mod_commits_with_built_in_content()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("empty-mod", ModFixtures.SampleUuid);
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
         Assert.AreEqual(1, reloader.Current.Voxels.Count);
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.EventId == ContentLog.PackageEmptyEventId &&
             item.Level == LogLevel.Debug &&
             item.Attributes["package"] as string == ModFixtures.SampleUuid));
@@ -35,9 +35,9 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Local_ids_expand_to_the_mod_uuid_namespace()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ModFixtures.CorePlusCopper();
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -52,11 +52,11 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Invalid_mod_is_isolated_while_unrelated_valid_packages_commit()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ModFixtures.CorePlusCopper();
         source.AddMod("broken", ModFixtures.OtherUuid);
         source.AddDefinitionFile(ModFixtures.OtherUuid, "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -65,7 +65,7 @@ public sealed class ModLoadingTests
         Assert.IsTrue(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
         Assert.IsFalse(reloader.Current.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.OtherUuid, "copper"), out _));
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.SchemaVersionUnsupported));
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.EventId == ContentLog.ModsScanSummaryEventId &&
             item.Level == LogLevel.Info));
     }
@@ -73,7 +73,7 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Duplicate_mod_uuids_are_all_disabled_without_choosing_a_winner()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("alpha", ModFixtures.SampleUuid);
         source.AddDefinitionFile(ModFixtures.SampleUuid, "a.voxels.json", ContentFixtures.GoodsFile(
@@ -85,7 +85,7 @@ public sealed class ModLoadingTests
             ContentFixtures.Good("tin", "锡", "锡说明", icon: "tin.png", voxel: "tin.png")),
             "memory://mods/beta/resources");
         source.AddImage(ModFixtures.SampleUuid, "tin.png", ContentFixtures.Square(16), resourcesRoot: "memory://mods/beta/resources");
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -99,9 +99,9 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Successful_reload_removes_stale_definitions_from_missing_or_invalid_mods()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = new SwitchableContentSource(ModFixtures.CorePlusCopper());
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         Assert.AreEqual(ContentReloadStatus.Committed, reloader.Reload().Status);
         Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId(ModFixtures.SampleUuid, "copper"), out _));
 
@@ -119,19 +119,19 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Mods_root_failure_does_not_fail_built_in_content()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddScanDiagnostic(ExternalContent.ModsRootUnavailable(
             ExternalContent.ModsGodotPath,
             "Mods directory could not be created."));
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
         Assert.IsTrue(reloader.Current!.Voxels.TryGetValue(new VoxelDefinitionId("core", "ferrous-ore"), out _));
         Assert.IsTrue(result.Diagnostics.Any(item => item.Code == ContentDiagnosticCodes.ModsRootUnavailable));
-        Assert.IsTrue(session.Memory.Snapshot().Any(item =>
+        Assert.IsTrue(session.Snapshot().Any(item =>
             item.EventId == ContentLog.InvalidEventId &&
             item.Level == LogLevel.Warning &&
             item.Attributes["code"] as string == ContentDiagnosticCodes.ModsRootUnavailable));
@@ -140,7 +140,7 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Per_mod_good_limit_isolates_only_that_package()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("huge", ModFixtures.SampleUuid);
         for (var start = 1; start <= 1001; start += 250)
@@ -153,7 +153,7 @@ public sealed class ModLoadingTests
         }
 
         source.AddImage(ModFixtures.SampleUuid, "iron.png", ContentFixtures.Square(16));
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
         var result = reloader.Reload();
 
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
@@ -165,13 +165,13 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Diagnostic_cap_still_isolates_an_invalid_mod()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.ValidFerrousOre();
         source.AddMod("noisy", ModFixtures.SampleUuid);
         for (var i = 0; i < ContentLimits.MaxDiagnosticsPerPackage + 1; i++)
             source.AddDefinitionFile(ModFixtures.SampleUuid, $"bad-{i}.voxels.json", ContentFixtures.GoodsFile(
                 ContentFixtures.Good($"item-{i}", " ", "说明")));
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 
@@ -230,7 +230,7 @@ public sealed class ModLoadingTests
 
         foreach (var (json, code, jsonPath) in cases)
         {
-            using var session = LoggerSession.Create();
+            var session = new RecordingContentLogger();
             var source = ContentFixtures.ValidFerrousOre();
             var scan = ModDiscovery.Scan(new[]
             {
@@ -242,7 +242,7 @@ public sealed class ModLoadingTests
             });
             foreach (var diagnostic in scan.Diagnostics)
                 source.AddScanDiagnostic(diagnostic);
-            var reloader = ContentFixtures.Create(source, session.Logger);
+            var reloader = ContentFixtures.Create(source, session);
 
             var result = reloader.Reload();
 
@@ -257,14 +257,14 @@ public sealed class ModLoadingTests
     [TestMethod]
     public void Invalid_built_in_package_still_rejects_even_when_a_mod_is_valid()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = ContentFixtures.CorePackage();
         source.AddDefinitionFile("core", "bad.voxels.json", "{ \"schema_version\": 3, \"voxels\": [] }");
         source.AddMod("ok", ModFixtures.SampleUuid);
         source.AddDefinitionFile(ModFixtures.SampleUuid, "copper.voxels.json", ContentFixtures.GoodsFile(
             ContentFixtures.Good("copper", "铜", "铜说明", icon: "copper.png", voxel: "copper.png")));
         source.AddImage(ModFixtures.SampleUuid, "copper.png", ContentFixtures.Square(16));
-        var reloader = ContentFixtures.Create(source, session.Logger);
+        var reloader = ContentFixtures.Create(source, session);
 
         var result = reloader.Reload();
 

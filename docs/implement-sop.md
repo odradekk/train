@@ -166,7 +166,7 @@ Comments let a reader understand the code without re-deriving it from the implem
 
 ### Keep comments true
 
-A comment that no longer matches the behavior is a defect. Update comments in the same commit as the code they describe. `Train.Core` and `Train.Scenes` build with `GenerateDocumentationFile` enabled, so a public member without documentation produces compiler warning CS1591; resolve these warnings instead of suppressing them. Reviewers check comments against the behavior and this section.
+A comment that no longer matches the behavior is a defect. Update comments in the same commit as the code they describe. `Train.Core`, `Train.Content` and `Train.Scenes` build with `GenerateDocumentationFile` enabled, so a public member without documentation produces compiler warning CS1591; resolve these warnings instead of suppressing them. Reviewers check comments against the behavior and this section.
 
 ### Example
 

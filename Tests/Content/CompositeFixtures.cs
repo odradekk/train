@@ -1,4 +1,4 @@
-// Core 内容模块测试辅助。
+// Content 内容模块测试辅助。
 // 构造 schema 2 蓝图及其引用体素的最小内存内容包。
 using Train.Content;
 using Train.Content.Voxels;
@@ -71,11 +71,11 @@ internal static class CompositeFixtures
             ContentFixtures.Good(id, name, name + "说明", value, mass, maxDurability,
                 tagsJson: "[]", behaviorsJson: behaviorsJson, orientations: orientations)));
 
-    /// <summary>加载指定内存内容包并返回已发布目录和日志会话；null 使用最小蓝图包。</summary>
-    public static (ContentReloader Reloader, LoggerSession Logger) Load(MemoryContentSource? source = null)
+    /// <summary>加载指定内存内容包并返回已发布目录和诊断记录器；null 使用最小蓝图包。</summary>
+    public static (ContentReloader Reloader, RecordingContentLogger Logger) Load(MemoryContentSource? source = null)
     {
-        var session = LoggerSession.Create();
-        var reloader = ContentFixtures.Create(source ?? VehiclePackage(), session.Logger);
+        var session = new RecordingContentLogger();
+        var reloader = ContentFixtures.Create(source ?? VehiclePackage(), session);
         var result = reloader.Reload();
         if (!result.IsCommitted)
             throw new InvalidOperationException("Composite fixture catalog failed to commit.");

@@ -1,4 +1,4 @@
-// Train.Core 内容基础设施模块。
+// Train.Content 内容基础设施模块。
 // 提供禁止注释、尾随逗号与重复属性的严格 JSON 读取辅助逻辑。
 using System.Text.Json;
 

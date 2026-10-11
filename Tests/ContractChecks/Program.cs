@@ -1,3 +1,5 @@
+// 契约公开面检查工具：从源码声明与编译产物提取调用方可见的形状。
+// 与已确认基线比较，并检查公开签名是否泄露其他实现模块的类型。
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -42,19 +44,31 @@ var format = SymbolDisplayFormat.FullyQualifiedFormat
 var lines = new SortedSet<string>(StringComparer.Ordinal);
 var failures = new List<string>();
 
+// 源码声明保留参数名、默认值和 using；元数据补充实际类型所有权与枚举数值。
 foreach (var module in contractProjects)
 {
     var owner = $"Train.{module}.Contracts";
-    foreach (var path in Directory.GetFiles(Path.Combine(root, "Contracts", module), "*.cs", SearchOption.AllDirectories)
+    var trees = Directory.GetFiles(Path.Combine(root, "Contracts", module), "*.cs", SearchOption.AllDirectories)
         .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}") &&
-                       !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}")))
+                       !path.Contains($"{Path.DirectorySeparatorChar}bin{Path.DirectorySeparatorChar}"))
+        .Select(path => CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path)).ToArray();
+    // 符号合并 partial 的可见性；单个声明可以省略 public，仍然属于公开类型。
+    var sourceCompilation = CSharpCompilation.Create(owner, trees,
+        references.Where(reference => Path.GetFileNameWithoutExtension(reference.FilePath) != owner));
+    foreach (var tree in trees)
     {
-        var syntax = CSharpSyntaxTree.ParseText(File.ReadAllText(path)).GetRoot();
+        var syntax = tree.GetRoot();
+        var model = sourceCompilation.GetSemanticModel(tree);
         foreach (var directive in syntax.DescendantNodes().OfType<UsingDirectiveSyntax>())
             lines.Add($"{owner}|using|{Normalize(directive.ToString())}");
+        foreach (var declaration in syntax.DescendantNodes().OfType<DelegateDeclarationSyntax>())
+        {
+            if (!VisibleSymbol(model.GetDeclaredSymbol(declaration))) continue;
+            lines.Add($"{owner}|delegate|{Scope(declaration)}|{Normalize(declaration.ToString())}");
+        }
         foreach (var type in syntax.DescendantNodes().OfType<BaseTypeDeclarationSyntax>())
         {
-            if (!Visible(type.Modifiers)) continue;
+            if (!VisibleSymbol(model.GetDeclaredSymbol(type))) continue;
             var scope = Scope(type);
             var declaration = type.OpenBraceToken.IsKind(SyntaxKind.OpenBraceToken)
                 ? type.ToString()[..(type.OpenBraceToken.SpanStart - type.SpanStart)]
@@ -100,6 +114,7 @@ foreach (var path in paths)
     };
     Visit(assembly.GlobalNamespace);
 
+    // 只走调用方可见成员，忽略 record 的合成方法，保留真实签名中的类型引用。
     void Visit(INamespaceOrTypeSymbol container)
     {
         foreach (var member in container.GetMembers())
@@ -120,6 +135,7 @@ foreach (var path in paths)
         }
     }
 
+    // 递归检查组合类型，使数组、泛型和约束不能藏入其他实现模块的类型。
     void CheckType(ITypeSymbol type, string signature)
     {
         switch (type)
@@ -157,23 +173,43 @@ foreach (var failure in failures) Console.Error.WriteLine(failure);
 Console.WriteLine($"contract surface: declarations={lines.Count}, errors={failures.Count}");
 return failures.Count == 0 ? 0 : 1;
 
+// 外层 internal 类型中的 public 成员不属于调用方可见的公开表面。
+static bool VisibleSymbol(ISymbol? symbol)
+{
+    for (var current = symbol; current is not null && current is not INamespaceSymbol; current = current.ContainingType)
+        if (current.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal))
+            return false;
+    return symbol is not null;
+}
+
 static bool Visible(SyntaxTokenList modifiers) => modifiers.Any(token =>
     token.IsKind(SyntaxKind.PublicKeyword) || token.IsKind(SyntaxKind.ProtectedKeyword));
 
-static string Scope(BaseTypeDeclarationSyntax type)
+// 声明的范围包含命名空间和所有外层类型，避免不同嵌套位置的声明相互抵消。
+static string Scope(SyntaxNode declaration)
 {
-    var namespaces = type.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().Reverse().Select(item => item.Name.ToString());
-    var types = type.Ancestors().OfType<BaseTypeDeclarationSyntax>().Reverse().Append(type).Select(item => item.Identifier.ValueText);
-    return string.Join(".", namespaces.Concat(types));
+    var namespaces = declaration.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().Reverse().Select(item => item.Name.ToString());
+    var types = declaration.Ancestors().OfType<BaseTypeDeclarationSyntax>().Reverse().Select(item => item.Identifier.ValueText);
+    var name = declaration switch
+    {
+        BaseTypeDeclarationSyntax type => type.Identifier.ValueText,
+        DelegateDeclarationSyntax @delegate => @delegate.Identifier.ValueText,
+        _ => throw new ArgumentException("Expected a type or delegate declaration", nameof(declaration))
+    };
+    return string.Join(".", namespaces.Concat(types).Append(name));
 }
 
 static string Normalize(string text) => Regex.Replace(text.Trim(), @"\s+", " ");
 
+// 枚举调用方签名中可见的类型位置，包括泛型约束和继承关系。
 static IEnumerable<ITypeSymbol> SignatureTypes(ISymbol symbol)
 {
     switch (symbol)
     {
         case INamedTypeSymbol type:
+            // 委托 Invoke 是编译器生成的，但其参数和返回类型就是委托的公开契约。
+            if (type.DelegateInvokeMethod is { } invoke)
+                foreach (var item in SignatureTypes(invoke)) yield return item;
             if (type.BaseType is not null) yield return type.BaseType;
             foreach (var item in type.Interfaces) yield return item;
             foreach (var parameter in type.TypeParameters)

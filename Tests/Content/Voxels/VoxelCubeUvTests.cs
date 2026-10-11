@@ -1,4 +1,4 @@
-// Core 内容测试验证方块面的朝向和 UV 映射契约。
+// Content 内容测试验证方块面的朝向和 UV 映射契约。
 // 使用正交朝向和固定面顶点，无需世界或引擎。
 
 using Train.Content.Voxels;

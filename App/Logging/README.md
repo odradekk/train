@@ -1,6 +1,6 @@
 # 日志
 
-本模块提供结构化诊断日志事件、会话级阈值过滤、日志保存和共享的可读格式。它只依赖 .NET 库，不引用 Godot SDK；[GodotLogOutput](../../App/GodotLogOutput.cs) 实现宿主输出接口，将事件交给 Godot。
+本模块提供结构化诊断日志事件、会话级阈值过滤、日志保存和共享的可读格式。代码使用 .NET 库，编入引用 Godot SDK 的宿主项目；[GodotLogOutput](../../App/GodotLogOutput.cs) 实现宿主输出接口，将事件交给 Godot。
 
 | 类型 | 职责 |
 | --- | --- |
@@ -13,7 +13,7 @@
 
 应在宿主输出线程创建 `TrainLogger`，并在同一线程调用 `DrainGodotQueue()` 和 `Dispose()`。持久输出是同步的，与序号分配在同一锁内按顺序进行。队列不等待空位，但文件或备用写入器的 I/O 仍可能阻塞。队列溢出只影响宿主输出副本。日志器负责释放自身的 JSONL 接收器，传入的输出对象仍由调用方管理。
 
-本模块为[调试模式](../../docs/design/15-design-editor-and-tools.md#调试模式)中的诊断工具提供支持，包括现有的 [loglevel](../../docs/console/loglevel.md) 和 [clear](../../docs/console/clear.md) 命令。它遵循 [ADR 0009](../../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md) 对不依赖 Godot 的库的边界要求；设计中的录制和重放等工具尚未由本模块实现。
+本模块为[调试模式](../../docs/design/15-design-editor-and-tools.md#调试模式)中的诊断工具提供支持，包括现有的 [loglevel](../../docs/console/loglevel.md) 和 [clear](../../docs/console/clear.md) 命令。模块归属遵循[四模块契约](../../docs/contracts/README.md)；设计中的录制和重放等工具尚未由本模块实现。
 
 ## 限制
 
@@ -46,4 +46,4 @@
 
 XML 文档中的具体示例使用[可读格式测试](../../Tests/Godot/Logging/HumanLogFormatTests.cs)、[环形缓冲测试](../../Tests/Godot/Logging/RingBufferLogSinkTests.cs)和[结构化日志测试](../../Tests/Godot/Logging/StructuredLoggingTests.cs)中的输入。结构化日志测试还覆盖阈值修改、属性复制、异常捕获、队列优先级、并发取出队列和关闭。
 
-在仓库根目录运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -Scope logging -BuildGame` 可执行日志相关检查。Core 和 Scenes 在构建时生成 XML 文档，公开 API 缺少注释会产生 CS1591 警告。
+在仓库根目录运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -Scope logging -BuildGame` 可执行日志相关检查。宿主项目未开启 XML 文档生成；日志注释由代码审查核对。

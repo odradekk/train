@@ -1,3 +1,5 @@
+// Content 内容诊断边界：将加载和发布事件交给宿主。
+// 内容实现只依赖此接口，不依赖宿主日志实现。
 namespace Train.Content;
 
 /// <summary>将内容扫描与发布诊断交给宿主记录。</summary>

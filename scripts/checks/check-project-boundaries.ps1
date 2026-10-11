@@ -1,3 +1,5 @@
+# 检查项目引用、源码归属、友元程序集、公开面与调用样例。
+# 允许依赖读取 project-boundaries.json；检查结果保存在本次运行目录。
 param(
     [ValidateSet('Debug', 'Release')][string] $Configuration = 'Debug',
     [string] $OutputDirectory = ''
@@ -10,48 +12,17 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $report = [Collections.Generic.List[object]]::new()
 $failures = [Collections.Generic.List[string]]::new()
 
-$projects = [ordered]@{
-    'Train.Core.Contracts' = 'Contracts/Core/Train.Core.Contracts.csproj'
-    'Train.Content.Contracts' = 'Contracts/Content/Train.Content.Contracts.csproj'
-    'Train.Scenes.Contracts' = 'Contracts/Scenes/Train.Scenes.Contracts.csproj'
-    'Train.Core' = 'Core/Train.Core.csproj'
-    'Train.Content' = 'Content/Train.Content.csproj'
-    'Train.Scenes' = 'Scenes/Train.Scenes.csproj'
-    'Train' = 'Train.csproj'
-    'Train.Core.ContractSupport' = 'Tests/ContractSupport/Core/Train.Core.ContractSupport.csproj'
-    'Train.Content.ContractSupport' = 'Tests/ContractSupport/Content/Train.Content.ContractSupport.csproj'
-    'Train.Scenes.ContractSupport' = 'Tests/ContractSupport/Scenes/Train.Scenes.ContractSupport.csproj'
-    'Train.ContractSupport.Tests' = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'
-    'Train.Core.Tests' = 'Tests/Core/Train.Core.Tests.csproj'
-    'Train.Content.Tests' = 'Tests/Content/Train.Content.Tests.csproj'
-    'Train.Godot.Tests' = 'Tests/Godot/Train.Godot.Tests.csproj'
-    'Train.Core.ContractSamples' = 'prototypes/core-contract/Train.Core.ContractSamples.csproj'
-    'Train.Content.ContractSamples' = 'prototypes/content-contract/Train.Content.ContractSamples.csproj'
-    'Train.Scenes.ContractSamples' = 'prototypes/scenes-contract/Train.Scenes.ContractSamples.csproj'
-    'Train.Godot.ContractSamples' = 'prototypes/godot-contract/Train.Godot.ContractSamples.csproj'
+# 结构检查与隔离构建共享同一份允许依赖，避免两个入口各自放宽模块边界。
+# Train 是当前组合入口，可直接引用三个实现；真实工厂的调用位置仍待建立后检查。
+$matrix = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
+$projects = [ordered]@{}
+$direct = @{}
+foreach ($name in $matrix.projects.Keys) {
+    $projects[$name] = $matrix.projects[$name].path
+    $direct[$name] = @($matrix.projects[$name].references)
 }
 
-$direct = @{
-    'Train.Core.Contracts' = @()
-    'Train.Content.Contracts' = @('Train.Core.Contracts')
-    'Train.Scenes.Contracts' = @('Train.Core.Contracts', 'Train.Content.Contracts')
-    'Train.Core' = @('Train.Core.Contracts')
-    'Train.Content' = @('Train.Core.Contracts', 'Train.Content.Contracts')
-    'Train.Scenes' = @('Train.Core.Contracts', 'Train.Content.Contracts', 'Train.Scenes.Contracts')
-    'Train' = @('Train.Core.Contracts', 'Train.Content.Contracts', 'Train.Scenes.Contracts', 'Train.Core', 'Train.Content', 'Train.Scenes')
-    'Train.Core.ContractSupport' = @('Train.Core.Contracts')
-    'Train.Content.ContractSupport' = @('Train.Core.Contracts', 'Train.Content.Contracts')
-    'Train.Scenes.ContractSupport' = @('Train.Core.Contracts', 'Train.Content.Contracts', 'Train.Scenes.Contracts')
-    'Train.ContractSupport.Tests' = @('Train.Core.ContractSupport', 'Train.Content.ContractSupport', 'Train.Scenes.ContractSupport')
-    'Train.Core.Tests' = @('Train.Core', 'Train.Core.Contracts', 'Train.Core.ContractSupport')
-    'Train.Content.Tests' = @('Train.Content', 'Train.Core.Contracts', 'Train.Content.Contracts', 'Train.Content.ContractSupport')
-    'Train.Godot.Tests' = @('Train')
-    'Train.Core.ContractSamples' = @('Train.Core.Contracts')
-    'Train.Content.ContractSamples' = @('Train.Content.Contracts')
-    'Train.Scenes.ContractSamples' = @('Train.Scenes.Contracts')
-    'Train.Godot.ContractSamples' = @('Train.Core.Contracts', 'Train.Content.Contracts', 'Train.Scenes.Contracts')
-}
-
+# 传递引用只能来自允许的直接边，不能用实际项目图反向批准越界引用。
 function Get-AllowedClosure([string] $name) {
     $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     $pending = [Collections.Generic.Queue[string]]::new()
@@ -64,6 +35,7 @@ function Get-AllowedClosure([string] $name) {
     return @($seen)
 }
 
+# 使用目录分隔符限定前缀，避免同名前缀目录被当成项目所有者。
 function Test-ChildPath([string] $child, [string] $parent) {
     $resolved = [IO.Path]::GetFullPath($child)
     $prefix = [IO.Path]::GetFullPath($parent).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -77,13 +49,28 @@ function Add-Failure([string] $message) {
 
 Push-Location $root
 try {
+    # 从版本控制清单检查未登记项目，防止新项目绕过固定矩阵；归档不属于当前产品。
+    $trackedProjects = @(& git ls-files --cached --others --exclude-standard -- '*.csproj' | Where-Object { $_ -notlike 'archive/*' })
+    if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('blocked project inventory'); exit 2 }
+    foreach ($path in $trackedProjects) {
+        if ($path -ne 'Tests/ContractChecks/Train.ContractChecks.csproj' -and $path -ne 'scripts/metadata-reader/MetadataReader.csproj' -and $path -notin $projects.Values) {
+            Add-Failure "unregistered project: $path"
+        }
+    }
     $builds = @('Train.sln') + @($projects.Values | Where-Object { $_ -like 'prototypes/*' })
     foreach ($build in $builds) {
         $log = Join-Path $OutputDirectory ((Split-Path -Leaf $build) + '.build.log')
         & dotnet build $build -c $Configuration --nologo *> $log
         if ($LASTEXITCODE -ne 0) {
-            [Console]::Error.WriteLine("blocked build: $build; log=$log")
-            exit 2
+            # 只把可辨认的工具/环境缺失记为阻塞，其余构建错误属于仓库失败。
+            $buildOutput = Get-Content -LiteralPath $log -Raw
+            if ($buildOutput -match 'error (NU\d+|NETSDK1045|NETSDK1141|MSB4236|MSB4019)' -or
+                $buildOutput -match 'compatible .NET SDK was not found|No .NET SDKs were found') {
+                [Console]::Error.WriteLine("blocked build: $build; log=$log")
+                exit 2
+            }
+            Add-Failure "failed build: $build; log=$log"
+            exit 1
         }
     }
     foreach ($entry in $projects.GetEnumerator()) {
@@ -99,6 +86,7 @@ try {
             $target = [string] $item.Filename
             $path = [string] $item.FullPath
             $record.projectReferences += @{ name = $target; path = $path }
+            # 导入的项目引用不按本项目直接边判断，解析后的程序集仍受闭包检查。
             if ([string] $item.DefiningProjectFullPath -ne $project) { continue }
             if (-not $projects.Contains($target) -or $target -notin $direct[$name] -or
                 -not [IO.Path]::GetFullPath($path).Equals([IO.Path]::GetFullPath((Join-Path $root $projects[$target])), [StringComparison]::OrdinalIgnoreCase)) {
@@ -128,9 +116,10 @@ try {
             $path = [string] $item.FullPath
             $record.compile += $path
             $owner = Split-Path -Parent $project
+            # Test SDK 注入的 Program.cs 在 NuGet 缓存内，不属于仓库的生产源码。
             if ($path -match '[\\/]microsoft.net.test.sdk[\\/][^\\/]+[\\/]build[\\/]netcoreapp3.1[\\/]Microsoft.NET.Test.Sdk.Program.cs$') { continue }
             if (-not (Test-ChildPath $path $owner)) { Add-Failure "linked source outside owner: $name ($path)" }
-            if ($name -eq 'Train' -and -not ($path -match '[\\/](App|Ui|Rendering|obj)[\\/]')) {
+            if ($name -eq 'Train' -and -not ([IO.Path]::GetRelativePath($root, $path) -match '^(App|Ui|Rendering)[\\/]|^\.godot[\\/]mono[\\/]temp[\\/]obj[\\/]')) {
                 Add-Failure "host compiles foreign source: $path"
             }
         }
@@ -147,7 +136,37 @@ try {
         }
         $assembly = [string] $data.Properties.TargetPath
         if (-not (Test-Path -LiteralPath $assembly)) { [Console]::Error.WriteLine("blocked output missing: $assembly"); exit 2 }
-        foreach ($reference in [Reflection.Assembly]::LoadFile($assembly).GetReferencedAssemblies()) {
+        # 直接读取 PE 元数据，避免加载 Godot 或其他实现依赖；覆盖手写友元属性。
+        $outputAssembly = [Reflection.Assembly]::LoadFile($assembly)
+        $stream = [IO.File]::OpenRead($assembly)
+        $pe = [Reflection.PortableExecutable.PEReader]::new($stream)
+        try {
+            $metadata = [Reflection.Metadata.PEReaderExtensions]::GetMetadataReader($pe)
+            foreach ($handle in $metadata.GetAssemblyDefinition().GetCustomAttributes()) {
+                $attribute = $metadata.GetCustomAttribute($handle)
+                if ($attribute.Constructor.Kind -ne [Reflection.Metadata.HandleKind]::MemberReference) { continue }
+                $constructor = $metadata.GetMemberReference([Reflection.Metadata.MemberReferenceHandle] $attribute.Constructor)
+                if ($constructor.Parent.Kind -ne [Reflection.Metadata.HandleKind]::TypeReference) { continue }
+                $type = $metadata.GetTypeReference([Reflection.Metadata.TypeReferenceHandle] $constructor.Parent)
+                if ($metadata.GetString($type.Namespace) -ne 'System.Runtime.CompilerServices' -or
+                    $metadata.GetString($type.Name) -ne 'InternalsVisibleToAttribute') { continue }
+                $blob = $metadata.GetBlobReader($attribute.Value)
+                $null = $blob.ReadUInt16()
+                $friend = $blob.ReadSerializedString()
+                if ($friend -notin $record.friends) {
+                    $record.friends += $friend
+                    $expected = switch ($name) {
+                        'Train.Core' { 'Train.Core.Tests' }
+                        'Train.Content' { 'Train.Content.Tests' }
+                        'Train' { 'Train.Godot.Tests' }
+                        default { '' }
+                    }
+                    if ($friend -ne $expected) { Add-Failure "forbidden output friend assembly: $name -> $friend" }
+                }
+            }
+        }
+        finally { $pe.Dispose(); $stream.Dispose() }
+        foreach ($reference in $outputAssembly.GetReferencedAssemblies()) {
             $target = [string] $reference.Name
             if ($name -notin @('Train', 'Train.Godot.Tests', 'Train.Godot.ContractSamples') -and $target -like 'GodotSharp*') {
                 Add-Failure "forbidden output Godot reference: $name -> $target"
@@ -160,7 +179,7 @@ try {
     }
     $report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDirectory 'references.json') -Encoding utf8
     & dotnet build Tests/ContractChecks/Train.ContractChecks.csproj -c $Configuration --nologo *> (Join-Path $OutputDirectory 'contract-surface.build.log')
-    if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('blocked contract surface tool build'); exit 2 }
+    if ($LASTEXITCODE -ne 0) { Add-Failure 'failed contract surface tool build'; exit 1 }
     $tool = Join-Path $root "Tests/ContractChecks/bin/$Configuration/net10.0/Train.ContractChecks.dll"
     $baseline = Join-Path $root 'docs/contracts/public-api.txt'
     & dotnet $tool verify $root $Configuration $baseline

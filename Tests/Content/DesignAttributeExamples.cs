@@ -1,4 +1,4 @@
-// Core 内容模块的数据示例。
+// Content 内容模块的数据示例。
 // 为设计属性的函数示例准备结构、功能部件、组合行为和空序列，不依赖表现资产。
 
 using System.Collections.Frozen;

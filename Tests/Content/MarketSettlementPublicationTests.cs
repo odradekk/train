@@ -18,9 +18,9 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void All_four_domains_publish_together_and_captured_definitions_stay_unchanged()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         var changes = new List<ContentChange>();
         reloader.Changed += change =>
         {
@@ -86,9 +86,9 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void Voxel_value_updates_the_complete_snapshot_without_revising_price_or_type_specs()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current!;
         source.AddDefinitionFile("core", "goods.voxels.json", ContentFixtures.GoodsFile(
@@ -113,9 +113,9 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void Display_name_updates_publication_while_quantity_changes_update_type_semantics()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current!.SettlementTypes[MarketSettlementExamples.DepotId];
         var renamed = MarketSettlementFixtures.Edit(MarketSettlementExamples.DepotFile, "/settlement_types/0/name", "\"新货站\"");
@@ -138,9 +138,9 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void Array_order_whitespace_and_source_paths_do_not_publish_another_generation()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var input = new SwitchableContentSource(MarketSettlementFixtures.CompleteSource());
-        var reloader = new ContentReloader(input, session.Logger);
+        var reloader = new ContentReloader(input, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         Assert.AreEqual(1, previous!.MarketTables.Count);
@@ -174,9 +174,9 @@ public sealed class MarketSettlementPublicationTests
     [DataRow(false, true)]
     public void Invalid_goods_references_retain_every_previous_index(bool market, bool sceneOnly)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         var notifications = 0;
@@ -204,7 +204,7 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void Optional_package_failure_removes_all_its_domains_and_cascading_dependants()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
         const string failed = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
         const string dependant = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee";
@@ -216,7 +216,7 @@ public sealed class MarketSettlementPublicationTests
         source.AddDefinitionFile(failed, "prices.market-tables.json", MarketSettlementExamples.ConstantPriceFile.Replace("\"grain\"", "\"core:missing\"", StringComparison.Ordinal));
         source.AddDefinitionFile(failed, "depot.settlement-types.json", MarketSettlementExamples.DepotFile);
         source.AddDefinitionFile(dependant, "depot.settlement-types.json", MarketSettlementExamples.DepotFile.Replace("core:grain", failed + ":grain", StringComparison.Ordinal));
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
 
         var result = reloader.Reload();
         Assert.AreEqual(ContentReloadStatus.CommittedWithWarnings, result.Status);
@@ -235,7 +235,7 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void Mod_local_goods_resolve_in_the_owning_namespace_without_colliding_with_core_ids()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
         const string mod = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
         source.AddMod("valid", mod);
@@ -243,7 +243,7 @@ public sealed class MarketSettlementPublicationTests
         source.AddImage(mod, "iron.png", ContentFixtures.Square(16));
         source.AddDefinitionFile(mod, "prices.market-tables.json", MarketSettlementExamples.ConstantPriceFile);
         source.AddDefinitionFile(mod, "depot.settlement-types.json", MarketSettlementExamples.DepotFile.Replace("core:grain", "grain", StringComparison.Ordinal));
-        var result = new ContentReloader(source, session.Logger).Reload();
+        var result = new ContentReloader(source, session).Reload();
         Assert.AreEqual(ContentReloadStatus.Committed, result.Status);
         var snapshot = result.Snapshot!;
         var localGood = new VoxelDefinitionId(mod, "grain");
@@ -260,9 +260,9 @@ public sealed class MarketSettlementPublicationTests
     [DataRow(false)]
     public void Required_reference_failure_uses_package_ownership_for_a_non_core_namespace(bool market)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         const string owner = "additional-builtin";
@@ -282,9 +282,9 @@ public sealed class MarketSettlementPublicationTests
     [TestMethod]
     public void Removing_both_new_domains_publishes_once_and_does_not_require_market_bindings()
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var input = new SwitchableContentSource(MarketSettlementFixtures.CompleteSource());
-        var reloader = new ContentReloader(input, session.Logger);
+        var reloader = new ContentReloader(input, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current!;
         var empty = MarketSettlementFixtures.BaseSource();
@@ -311,9 +311,9 @@ public sealed class MarketSettlementPublicationTests
     [DataRow(false)]
     public void Duplicate_definition_identity_rejects_the_entire_required_batch(bool market)
     {
-        using var session = LoggerSession.Create();
+        var session = new RecordingContentLogger();
         var source = MarketSettlementFixtures.CompleteSource();
-        var reloader = new ContentReloader(source, session.Logger);
+        var reloader = new ContentReloader(source, session);
         Assert.IsTrue(reloader.Reload().IsCommitted);
         var previous = reloader.Current;
         source.AddDefinitionFile("core", market ? "duplicate.market-tables.json" : "duplicate.settlement-types.json",
