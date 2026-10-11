@@ -1,4 +1,4 @@
-工作语言为中文。
+The working language is Chinese.
 
 ## Current phase: core gameplay development
 
@@ -11,25 +11,36 @@ Current version: `0.0.55`.
 - Stop each iteration when there is enough evidence to choose the next small step.
 - Keep future systems and content ideas in the issue tracker or roadmap until they are selected for the current slice; a proposed direction is not an implementation commitment.
 
+## Code taste and design principles
+
+Apply these when implementing, reviewing, and writing docs. Every piece of added complexity must name the current problem it solves.
+
+- **Less is more.** Finish the task with the fewest lines, files, types, and concepts. First decide whether the change is needed at all; then reuse existing repository code, the .NET standard library, or built-in Godot features before writing new code. Delete or inline helpers, wrappers, and settings that have no current use.
+- **KISS.** Write plain code a reader understands in one pass. Ordinary methods, data types, and explicit branches come before reflection, code generation, generic frameworks, or clever tricks.
+- **Composition over inheritance.** Build behaviour by holding or receiving collaborators, and express module boundaries as interfaces. Abstract records model closed variant sets such as results, commands, and reference kinds; share code through composition rather than base classes or inheritance chains. Godot node scripts inherit node types as the engine requires; plain .NET types stay independent of `GodotObject`.
+- **Information hiding** keeps modules decoupled. Each module exposes the smallest contract its callers need and keeps internal state, data structures, and algorithms `internal` or `private`. Callers depend on contracts rather than implementations, and pass other modules' opaque data, such as save payloads, through unread. A change to one module's internals should leave other modules untouched; when it does not, the contract exposes too much, so fix the contract.
+- **YAGNI: spend no complexity on features nobody needs yet.** Implement only the behaviour the current issue and slice require. Add parameters, switches, extension points, and compatibility layers when a real need arrives. Optimise performance on profiling evidence.
+- **Avoid over-engineering.** Keep indirection to what the current design needs, without generic frameworks or catch-all base classes. Use interfaces for module contracts and for boundaries whose implementation must be swappable, such as host ports and test doubles; a class with one implementation and no need to swap it stays concrete. The project's named anti-patterns are listed under [设计指导思想](docs/design/README.md#设计指导思想).
+
 ## Source layout
 
-- 当前生产代码按 [ADR-0009](docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md) 分成三个项目，在仓库根目录开发：
-  - `Core/Train.Core.csproj`：内容、核心模拟、存档，以及日志和控制台分发；当前模块为 `Content/`、`Simulation/`、`Saves/`、`Logging/`、`Console/`。不引用 Godot 或 `Train.Scenes`。
-  - `Scenes/Train.Scenes.csproj`：体素引擎层，引用 `Train.Core`，不引用 Godot；当前尚无生产代码。
-  - 根目录 `Train.csproj`：Godot 项目，引用两个库；源码按 `App/`、`Rendering/`、`Ui/` 划分，启动、服务接入和内容适配器放在 `App/`，渲染代码放在 `Rendering/`，界面放在 `Ui/`。渲染层当前尚未实现。
-- `Contracts/Core/`、`Contracts/Content/`、`Contracts/Scenes/` 是三个独立契约项目；`prototypes/*-contract/` 是四组可编译调用样例，不是生产实现。范围见[候选清单](docs/contracts/baseline-candidate.md#候选范围)。
-- `Train.Tests` 通过项目引用测试两个库，测试按 `Core/`、`Scenes/` 组织；当前用例位于 `Core/`。
-- `Tests/ContractSupport/` 放按接口所有者拆分的共享情景、断言与有限情景替身类库，自检项目位于 `Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj`。目标模块测试项目为 `Tests/Core/Train.Core.Tests.csproj`、`Tests/Content/Train.Content.Tests.csproj`、`Tests/Scenes/Train.Scenes.Tests.csproj`；Godot 目标入口使用根项目的隔离装配与真实引擎 runner。这些目标入口尚未建立，现有 App runner 不证明模块隔离。入口及迁移状态见[候选清单](docs/contracts/baseline-candidate.md#目标模块测试入口)。
-- 设计或修改模块接口、项目引用、跨层类型和宿主装配时，先读[四模块契约规范](docs/contracts/README.md)及其公共约定。它规定目标结构；上述当前代码结构尚未迁移，不能把规范当作已完成实现或独立测试证据。
-- 命名空间等于“项目名.目录名”，更深的目录结构按当前任务的职责划分。
+- Production code is split into three projects per [ADR-0009](docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md), developed at the repository root:
+  - `Core/Train.Core.csproj`: content, core simulation, saves, logging, and console dispatch. References neither Godot nor `Train.Scenes`.
+  - `Scenes/Train.Scenes.csproj`: the voxel engine layer. References `Train.Core`, not Godot; it has no production code yet.
+  - Root `Train.csproj`: the Godot project, referencing both libraries. Startup, service composition, and content adapters go in `App/`, rendering code in `Rendering/`, and UI in `Ui/`. The rendering layer is not implemented yet.
+- `Contracts/Core/`, `Contracts/Content/`, and `Contracts/Scenes/` are three separate contract projects. `prototypes/*-contract/` holds four sets of compilable call samples, not production code. Scope: [baseline candidate](docs/contracts/baseline-candidate.md#候选范围).
+- `Train.Tests` tests both libraries through project references, organised under `Core/` and `Scenes/`.
+- `Tests/ContractSupport/` holds class libraries, split by interface owner, with shared scenarios, assertions, and finite-scenario test doubles; their self-tests are in `Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj`. The target module test projects are `Tests/Core/Train.Core.Tests.csproj`, `Tests/Content/Train.Content.Tests.csproj`, and `Tests/Scenes/Train.Scenes.Tests.csproj`; the Godot target entry uses the root project's isolated composition and a real-engine runner. These target entries do not exist yet, and the existing App runner does not prove module isolation. Entry and migration status: [baseline candidate](docs/contracts/baseline-candidate.md#目标模块测试入口).
+- Before designing or changing module interfaces, project references, cross-layer types, or host composition, read the [four-module contract specification](docs/contracts/README.md) and its shared conventions. It specifies the target structure, which the code above has not migrated to yet; it is neither a finished implementation nor independent test evidence.
+- Namespaces follow the project name plus the directory path, e.g. `Train.Core.Content.Behaviors`. Divide deeper directories by the responsibilities of the current task.
 - Treat `archive/mvp/` as read-only validation evidence. Reuse an archived implementation only by deliberately moving or rewriting the necessary code into the root project; do not continue product development inside the archive.
 - Keep generated Godot state, build outputs, and restored packages out of the archive; regenerate them only when reproducing an MVP result.
 
 ## Local development environment
 
-- 当前开发环境为 Windows，验证脚本使用 PowerShell 7（`pwsh`）。在项目目录执行 `dotnet --version`，确认使用 `global.json` 锁定的 SDK。
-- 本机 Godot .NET 位于 `D:\Godot_v4.7.2-stable_mono_win64\`。`GODOT` 环境变量应指向其中的 `Godot_v4.7.2-stable_mono_win64_console.exe`，不包含参数；无界面检查使用 `& $env:GODOT --headless`。
-- 配置新终端、运行验证或导出 Windows 构建前，阅读 [Local validation and Windows builds](docs/local-environment.md)。
+- Development runs on Windows; validation scripts use PowerShell 7 (`pwsh`). Run `dotnet --version` in the project directory to confirm the SDK pinned by `global.json`.
+- Godot .NET is installed at `D:\Godot_v4.7.2-stable_mono_win64\`. The `GODOT` environment variable points to `Godot_v4.7.2-stable_mono_win64_console.exe` in that directory, with no arguments; run headless checks with `& $env:GODOT --headless`.
+- Before configuring a new terminal, running validation, or exporting a Windows build, read [Local validation and Windows builds](docs/local-environment.md).
 
 ## Agent skills
 
@@ -43,7 +54,7 @@ Use the five default canonical triage labels. See `docs/agents/triage-labels.md`
 
 ### Area and discipline labels
 
-创建或分诊 issue 时，按 `docs/agents/area-and-discipline-labels.md` 打 `area:` 和 `discipline:` 标签。
+When creating or triaging an issue, apply `area:` and `discipline:` labels per `docs/agents/area-and-discipline-labels.md`.
 
 ### Domain docs
 
@@ -58,4 +69,4 @@ The two SOPs define the standard workflow; an individual task's scope and Accept
 
 ### Console command documentation
 
-使用或审查控制台命令时，从 `docs/console/README.md` 查阅手册；新增、修改或移除命令时，按一命令一文件同步维护 `docs/console/` 中的对应文档及索引。
+When using or reviewing console commands, start from the manual at `docs/console/README.md`. When adding, changing, or removing a command, update its page in `docs/console/` (one file per command) and the index.
