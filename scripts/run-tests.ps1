@@ -322,6 +322,8 @@ function Copy-IsolatedProject {
     New-Item -ItemType Directory -Force -Path $isolationRoot | Out-Null
     $script:IsolationRoots.Add($isolationRoot)
     New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null
+    # 输入复制失败时也保留本次目录身份，供运行结束后核对清理。
+    [IO.File]::WriteAllText((Join-Path $evidenceRoot 'root.txt'), $isolationRoot, $script:Utf8)
     $inputs = [System.Collections.Generic.List[object]]::new()
     $boundary = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'checks/project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
     if ($null -eq $boundary.projects) { throw [IO.InvalidDataException]::new('missing project-boundaries.json projects') }

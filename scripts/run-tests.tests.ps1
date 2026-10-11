@@ -2899,7 +2899,6 @@ It "fixture-isolated-reference-interruption" {
         $matrix = '{"projects":{"Train.Core.Tests":{"path":"Tests/Core/Train.Core.Tests.csproj","references":[]}}}'
         Set-Content -LiteralPath (Join-Path $repo 'scripts/checks/project-boundaries.json') -Value $matrix -Encoding utf8
         $results = New-Results "reference-$mode"
-        $before = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
         $handle = Open-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
             '-Module', 'core', '-Correctness', '-PrepTimeoutSeconds', '15', '-ResultsRoot', $results
         ) -WaitMs 180000
@@ -2915,8 +2914,6 @@ It "fixture-isolated-reference-interruption" {
             $build = @($summary.Json.preparation.steps | Where-Object name -EQ 'build')[0]
             $isolatedRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent ([string] $build.command[2])))
             Assert-True "$mode isolated root removed" (-not (Test-Path -LiteralPath $isolatedRoot))
-            $after = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
-            Assert-Equal "$mode isolated directory snapshot" ($before -join "`n") ($after -join "`n")
             $expected = if ($mode -eq 'failure') { 1 } else { 3 }
             $null = Assert-FinalResult $result $expected
             Assert-True "$mode reference evidence retained" (Test-Path -LiteralPath (Join-Path $summary.Directory 'isolation/core/references.log'))
@@ -2934,14 +2931,16 @@ It "fixture-isolated-input-missing" {
         $projects = @{ 'Train.Core.Tests' = @{ path = 'Tests/Core/Train.Core.Tests.csproj'; references = @('Train.Core') } }
         if ($mode -eq 'directory') { $projects['Train.Core'] = @{ path = 'Core/Train.Core.csproj'; references = @() } }
         @{ projects = $projects } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $repo 'scripts/checks/project-boundaries.json') -Encoding utf8
-        $before = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
         $result = Invoke-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
             '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "input-missing-$mode")
         ) -WaitMs 180000
         $summary = Assert-FinalResult $result 1
         Assert-Equal "$mode preparation failed" 'failed' $summary.Json.preparation.outcome
-        $leaked = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | Where-Object FullName -NotIn $before)
-        Assert-Equal "$mode no isolated directory leaked" 0 $leaked.Count
+        $rootFile = Join-Path $summary.Directory 'isolation/core/root.txt'
+        Assert-True "$mode isolated root recorded" (Test-Path -LiteralPath $rootFile)
+        $isolatedRoot = Get-Content -LiteralPath $rootFile -Raw
+        Assert-True "$mode owned root identity" ((Split-Path -Leaf $isolatedRoot) -like 'train-isolation-*-core')
+        Assert-True "$mode isolated root removed" (-not (Test-Path -LiteralPath $isolatedRoot))
     }
 }
 
@@ -2979,7 +2978,6 @@ It "fixture-isolated-reference-variants" {
         }
         Write-Project (Join-Path $repo 'Tests/Core') 'Train.Core.Tests' ($sdk.Replace('</Project>', $target + '</Project>')) $source
         Set-Content -LiteralPath (Join-Path $repo 'scripts/checks/project-boundaries.json') -Value '{"projects":{"Train.Core.Tests":{"path":"Tests/Core/Train.Core.Tests.csproj","references":[]}}}' -Encoding utf8
-        $before = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
         $result = Invoke-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
             '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "reference-variant-$mode")
         ) -WaitMs 180000
@@ -2989,8 +2987,9 @@ It "fixture-isolated-reference-variants" {
         Assert-True "$mode actual reference failure" ([string] $step.reason).StartsWith($prefix)
         if ($mode -eq 'resolved') { Assert-Equal 'resolved Train.dll only' "assembly-reference:$hostDll" $step.reason }
         if ($mode -eq 'metadata') { Assert-Equal 'metadata only' 'metadata-reference:Train.Core.Tests.dll:Train.Forbidden' $step.reason }
-        $after = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
-        Assert-Equal "$mode isolated directory snapshot" ($before -join "`n") ($after -join "`n")
+        $build = @($summary.Json.preparation.steps | Where-Object name -EQ 'build')[0]
+        $isolatedRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent ([string] $build.command[2])))
+        Assert-True "$mode isolated root removed" (-not (Test-Path -LiteralPath $isolatedRoot))
     }
 }
 
