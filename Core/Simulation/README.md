@@ -63,26 +63,26 @@
 
 ## 示例与验证
 
-[调度器测试](../../Train.Tests/Core/Simulation/SimulationSchedulerTests.cs)覆盖 0.4 步与 0.7 步的累计、暂停和无效间隔、重置，以及 30／60／144 帧每秒下相同的步数。[混合算法测试](../../Train.Tests/Core/Simulation/SplitMix64Tests.cs)使用独立按参考算法计算的六组固定向量，覆盖普通输入和无符号溢出。
+[调度器测试](../../Tests/Core/Simulation/SimulationSchedulerTests.cs)覆盖 0.4 步与 0.7 步的累计、暂停和无效间隔、重置，以及 30／60／144 帧每秒下相同的步数。[混合算法测试](../../Tests/Core/Simulation/SplitMix64Tests.cs)使用独立按参考算法计算的六组固定向量，覆盖普通输入和无符号溢出。
 
-[驱动测试](../../Train.Tests/Core/Simulation/SimulationDriverTests.cs)使用可控单调时间，验证 1/2/4/8 档位、完整步预算、整步额度放弃、实际速度、暂停命令与手动步进、余量保留、故障停止和线程限制。例如四步加半步需求、每步 3 ms、预算 5 ms 时完成两步、放弃两步额度并保留半步余量；一个步骤耗时 6 ms 时仍完整完成该步。测试覆盖过载后 8× 切到 1×、长帧后不追赶旧额度。
+[驱动测试](../../Tests/Core/Simulation/SimulationDriverTests.cs)使用可控单调时间，验证 1/2/4/8 档位、完整步预算、整步额度放弃、实际速度、暂停命令与手动步进、余量保留、故障停止和线程限制。例如四步加半步需求、每步 3 ms、预算 5 ms 时完成两步、放弃两步额度并保留半步余量；一个步骤耗时 6 ms 时仍完整完成该步。测试覆盖过载后 8× 切到 1×、长帧后不追赶旧额度。
 
-[驱动确定性对照](../../Train.Tests/Core/Simulation/SimulationDriverDeterminismTests.cs)将同一起点和同一命令脚本交给实际 `SimulationDriver`，改变目标倍速、帧间隔、预算和计算耗时，覆盖暂停期间的执行、拒绝和后续命令；在 (0, 2)、(4, 3)、(8, 1)、(12, 0) 比较权威检查点及命令链。
+[驱动确定性对照](../../Tests/Core/Simulation/SimulationDriverDeterminismTests.cs)将同一起点和同一命令脚本交给实际 `SimulationDriver`，改变目标倍速、帧间隔、预算和计算耗时，覆盖暂停期间的执行、拒绝和后续命令；在 (0, 2)、(4, 3)、(8, 1)、(12, 0) 比较权威检查点及命令链。
 
 运行边界与计算例子直接断言实际用途的预期输出：
 
 | 例子 | 输入与预期输出 |
 | --- | --- |
-| [运行边界测试](../../Train.Tests/Core/Simulation/SimulationSessionTests.cs) | 零步不变；(60, 2) 推进到 (61, 0)；单步和批量同结果；第 4 步故障保留前三步及事件；候选发布前查询仍得到旧状态。 |
+| [运行边界测试](../../Tests/Core/Simulation/SimulationSessionTests.cs) | 零步不变；(60, 2) 推进到 (61, 0)；单步和批量同结果；第 4 步故障保留前三步及事件；候选发布前查询仍得到旧状态。 |
 | 同文件的命令序列 | 暂停边界上成功、目标消失拒绝、成功；三条占连续位置，拒绝不撤销此前成功、不换目标、不重试，后续命令继续。 |
 | 同文件的故障与上限 | 非法候选或内部异常回滚并冻结；冻结和身份耗尽不接受新命令；新故障只返回一次诊断，异常详情不改变检查点或命令链。 |
-| [计算例子](../../Train.Tests/Core/Simulation/SimulationCalculationTests.cs) | 库存 5，请求 3、4，同优先级按身份获准 3、2；反向枚举仍同结果；业务优先级优先；完整批次不可部分授予；Commit 保留未使用库存。 |
+| [计算例子](../../Tests/Core/Simulation/SimulationCalculationTests.cs) | 库存 5，请求 3、4，同优先级按身份获准 3、2；反向枚举仍同结果；业务优先级优先；完整批次不可部分授予；Commit 保留未使用库存。 |
 | 同文件的基础计算 | ID 7 分配为 7、候选下一值 8；耗尽不绕回；非法 NextEntityId 被检查拒绝；故障只附加到完整起点。 |
 
-资源状态、请求、计划和领域计算实现只存在于[测试夹具](../../Train.Tests/Core/Simulation/SimulationExamples.cs)，不代表生产世界玩法已实现。多数运行边界测试用预设结果或异常隔离领域算法；另有真实资源计算经会话连续推进及命令执行的例子。测试同时覆盖普通异常的阶段定位、拒绝夹带修改、计数上限和重入回滚。
+资源状态、请求、计划和领域计算实现只存在于[测试夹具](../../Tests/Core/Simulation/SimulationExamples.cs)，不代表生产世界玩法已实现。多数运行边界测试用预设结果或异常隔离领域算法；另有真实资源计算经会话连续推进及命令执行的例子。测试同时覆盖普通异常的阶段定位、拒绝夹带修改、计数上限和重入回滚。
 
-[命令编码](../../Train.Tests/Core/Simulation/SimulationCommandEncodingTests.cs)、[日志](../../Train.Tests/Core/Simulation/SimulationCommandLogTests.cs)、[随机键](../../Train.Tests/Core/Simulation/KeyedRandomTests.cs)、[状态](../../Train.Tests/Core/Simulation/SimulationStateCodecTests.cs)和[检查点](../../Train.Tests/Core/Simulation/SimulationCheckpointTests.cs)例子分别断言具体输入输出、版本拒绝、窗口锚点、不变量和首差异。规范文档与摘要有手写预期值；随机键使用[独立 Python 参考程序](../../Train.Tests/Core/Simulation/ReferenceVectors.py)计算字节与 UInt64 向量。比较器从实际文档重算位置与摘要，并比较完整字段，调用方提供的相同摘要不能代替证据。
+[命令编码](../../Tests/Core/Simulation/SimulationCommandEncodingTests.cs)、[日志](../../Tests/Core/Simulation/SimulationCommandLogTests.cs)、[随机键](../../Tests/Core/Simulation/KeyedRandomTests.cs)、[状态](../../Tests/Core/Simulation/SimulationStateCodecTests.cs)和[检查点](../../Tests/Core/Simulation/SimulationCheckpointTests.cs)例子分别断言具体输入输出、版本拒绝、窗口锚点、不变量和首差异。规范文档与摘要有手写预期值；随机键使用[独立 Python 参考程序](../../Tests/Core/Simulation/ReferenceVectors.py)计算字节与 UInt64 向量。比较器从实际文档重算位置与摘要，并比较完整字段，调用方提供的相同摘要不能代替证据。
 
-[进程对照](../../Train.Tests/Core/Simulation/SimulationProcessTests.cs)启动真实 C# 子进程，分别重复运行、保存退出及在新进程恢复，变化帧预算、暂停与 1/2/4/8 倍速。它还独立断言恢复边界、期末业务状态、固定文档、身份计数和随机值；恢复后的新日志链单独验证。结果、载荷与 stdout/stderr 保留在本次测试目录。
+[进程对照](../../Tests/Core/Simulation/SimulationProcessTests.cs)启动真实 C# 子进程，分别重复运行、保存退出及在新进程恢复，变化帧预算、暂停与 1/2/4/8 倍速。它还独立断言恢复边界、期末业务状态、固定文档、身份计数和随机值；恢复后的新日志链单独验证。结果、载荷与 stdout/stderr 保留在本次测试目录。
 
 在仓库根目录运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit -Family headless -Scope simulation -BuildGame` 执行本模块的单元、会话集成、跨进程测试、游戏构建及真实 Godot 的 `simulation-host` 检查；结果保存在统一入口生成的 `TestResults/` 目录。`-Family unit -BuildGame` 执行所有单元测试和游戏构建，不运行 Godot 检查。

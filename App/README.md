@@ -1,6 +1,6 @@
 # 应用适配
 
-本模块将 Core 的内容、模拟、诊断和控制台服务接入 Godot。`App.tscn` 是项目主场景，包含主菜单；`App` 负责这些服务的生命周期，并运行隔离自检。模块依赖 Godot、`Train.Core` 和 `Ui`。
+本模块将 Core 模拟、Content 内容和宿主的日志、控制台服务接入 Godot。`App.tscn` 是项目主场景，包含主菜单；`App` 负责这些服务的生命周期，并运行现有引擎检查。根项目当前引用 Core、Content、Scenes 与 Godot。
 
 | 类型 | 职责 |
 | --- | --- |
@@ -30,4 +30,4 @@
 
 当前 Godot 内容检查的成功标记为 `CONTENT_GRAIN_LOADED`、`CONTENT_EXPORT_GRAIN_LOADED` 和 `MODS_EXPORT_GRAIN_LOADED`；`CONTENT_MARKET_SETTLEMENT_READY` 是 content 检查的必需标记。`*_PNG_DECODED` 同时确认 grain 的 icon、top、side、bottom 四个绑定都指向同一 PNG，且实际解码图片非空。三种货物、七种聚居地类型、四部件和两蓝图的具体内容见 [#236](https://github.com/odradekk/train/issues/236)。
 
-此边界遵循 [ADR 0009](../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)，启动界面按[窗口与界面规则](../docs/design/08-window-and-ui.md#规则)逐步开放；诊断接入见[调试模式](../docs/design/15-design-editor-and-tools.md#调试模式)，会话、队列和格式契约见[日志模块](../Core/Logging/README.md)。
+此边界遵循 [ADR 0009](../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)，启动界面按[窗口与界面规则](../docs/design/08-window-and-ui.md#规则)逐步开放；诊断接入见[调试模式](../docs/design/15-design-editor-and-tools.md#调试模式)，会话、队列和格式契约见[日志模块](Logging/README.md)。

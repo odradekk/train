@@ -4,7 +4,7 @@
 
 ## 状态与入口
 
-[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。它是规划声明，现有 `Core/Content/` 尚未迁移，不代表新加载器、设计计算、包发布或完整 Demo 已实现。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。现有内容加载器已迁至 `Content/Train.Content.csproj`；这些契约仍是后续完整 Demo 的规划声明，旧加载器迁移不代表新设计计算、包发布或完整 Demo 已实现。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |

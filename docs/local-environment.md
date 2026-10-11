@@ -28,7 +28,7 @@ For a fresh checkout or after an SDK change, build and import before Godot check
 ```powershell
 dotnet build Train.csproj
 & $env:GODOT --headless --path . --editor --import
-dotnet test Train.Tests/Train.Tests.csproj
+pwsh -NoProfile -File scripts/run-tests.ps1 -Family unit
 & $env:GODOT --path . --editor   # open the editor after a successful build/import
 ```
 

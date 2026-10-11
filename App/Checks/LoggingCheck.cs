@@ -2,7 +2,7 @@
 // 检查主线程逐帧取出队列，持久日志的释放仍由应用生命周期完成。
 
 using Godot;
-using Train.Core.Logging;
+using Train.App.Logging;
 
 namespace Train.App.Checks;
 

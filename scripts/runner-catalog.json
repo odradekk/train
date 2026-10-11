@@ -2,6 +2,36 @@
   "feedback": "已登记的 App 检查在同一次调用里只构建一次游戏工程、只导入一次，选择导出检查时再共享一次 Windows 导出；各检查串行执行，并分别使用隔离的用户数据目录。",
   "checks": [
     {
+      "id": "contracts.structure",
+      "module": "all",
+      "family": "headless",
+      "scopes": ["contracts"],
+      "requirements": [],
+      "group": "contract-structure",
+      "script": "scripts/checks/check-project-boundaries.ps1",
+      "arguments": ["-OutputDirectory", "{output}"],
+      "claim": "structure-and-public-surface",
+      "needsImport": false,
+      "needsGameBuild": false,
+      "timeoutSeconds": 180,
+      "timeoutReason": "构建项目后检查实际依赖与公开声明；180 秒限制工具卡住。"
+    },
+    {
+      "id": "content.examples-schema",
+      "module": "content",
+      "family": "headless",
+      "scopes": ["content"],
+      "requirements": [],
+      "group": "content-examples-schema",
+      "script": "scripts/checks/validate-content-examples.ps1",
+      "arguments": [],
+      "claim": "schema-validation",
+      "needsImport": false,
+      "needsGameBuild": false,
+      "timeoutSeconds": 60,
+      "timeoutReason": "校验全部当前格式示例及其 JSON Schema；60 秒只限制工具卡住。"
+    },
+    {
       "id": "godot.logging-smoke",
       "family": "headless",
       "scopes": ["logging"],

@@ -211,14 +211,15 @@ function Find-Inventory($Summary, [string] $Id) {
 
 function Get-CaseLines([string] $Stdout) {
     $list = [System.Collections.Generic.List[object]]::new()
-    foreach ($match in [regex]::Matches($Stdout, "(?m)^CASE id=(\S+) family=(\S+) scopes=(\S+) requirements=(\S+) group=(\S+)(?: claim=(\S+))?\s*$")) {
+    foreach ($match in [regex]::Matches($Stdout, "(?m)^CASE id=(\S+) family=(\S+) scopes=(\S+) requirements=(\S+) group=(\S+)(?: module=(\S+))?(?: claim=(\S+))?\s*$")) {
         $list.Add([pscustomobject]@{
             Id = $match.Groups[1].Value
             Family = $match.Groups[2].Value
             Scopes = $match.Groups[3].Value
             Requirements = $match.Groups[4].Value
             Group = $match.Groups[5].Value
-            Claim = $match.Groups[6].Value
+            Module = $match.Groups[6].Value
+            Claim = $match.Groups[7].Value
         })
     }
     return $list
@@ -303,8 +304,8 @@ function Get-GitFacts {
 function Assert-CommonSummary($Summary, [int] $PrepCount = 1) {
     Assert-True "includesAllRepositoryChecks false" ($Summary.Raw -match '"includesAllRepositoryChecks":\s*false')
     Assert-True "registered mstest" ($Summary.Raw -match '"mstest"')
-    Assert-Contains "test assembly boundary" $Summary.Json.testAssemblyBoundary "through project references"
-    Assert-Contains "report source" $Summary.Report "does not prove the deployed Godot assembly"
+    Assert-True "test assembly boundary present" (-not [string]::IsNullOrWhiteSpace($Summary.Json.testAssemblyBoundary))
+    Assert-Contains "report source" $Summary.Report $Summary.Json.testAssemblyBoundary
     Assert-Contains "manual section" $Summary.Report "人工观察"
     $gaps = As-List $Summary.Json.migrationGaps
     foreach ($gap in @("benchmark", "long", "platform")) {
@@ -443,7 +444,7 @@ function Get-AppDataStamp {
 $expected = @{
     VoxelCubeUvTests = "unit/voxels,content/voxels"
     VoxelCollisionDefinitionTests = "unit/content,voxels/content"
-    "Train.Tests.Core.Simulation.SplitMix64Tests" = "unit/simulation/simulation"
+    "Train.Core.Tests.Simulation.SplitMix64Tests" = "unit/simulation/simulation"
     KeyedRandomTests = "unit/simulation/simulation"
     SimulationCalculationTests = "unit/simulation/simulation"
     SimulationCheckpointTests = "unit/simulation/simulation"
@@ -939,6 +940,18 @@ It "fast-explicit" {
     Assert-Contains "build is not a selection" $result.Stderr "explicit selection is required"
 }
 
+It "fast-module" {
+    $invalid = Invoke-Runner -ArgumentList @("-Module", "unknown", "-List") -WaitMs 30000
+    Assert-Exit $invalid 4
+    Assert-Contains "invalid module" $invalid.Stderr "unknown-name module unknown"
+    $conflict = Invoke-Runner -ArgumentList @("-Module", "core", "-Project", $project, "-List") -WaitMs 30000
+    Assert-Exit $conflict 4
+    Assert-Contains "project module conflict" $conflict.Stderr "cannot be combined"
+    $missingValue = Invoke-Runner -ArgumentList @("-Module") -WaitMs 30000
+    Assert-Exit $missingValue 4
+    Assert-Contains "module missing value" $missingValue.Stderr "missing value"
+}
+
 It "fast-timeout-value" {
     foreach ($value in @("-1", "abc", "0")) {
         $result = Invoke-Runner -ArgumentList @("-TimeoutSeconds", $value) -WaitMs 30000
@@ -1027,15 +1040,15 @@ It "fixture-godot-blocked" {
 It "fixture-dedup" {
     $results = New-Results "fixture-dedup"
     $result = Invoke-Runner -ArgumentList @(
-        "-Project", $project, "-List", "-Scope", "voxels", "-Scope", "content", "-ResultsRoot", $results
+        "-Project", $project, "-RunnerCatalog", "none", "-List", "-Scope", "voxels", "-Scope", "content", "-ResultsRoot", $results
     ) -WaitMs 300000
     Assert-Exit $result 0
     $cases = Get-CaseLines $result.Stdout
-    Assert-Equal "dedup count" 8 $cases.Count
+    Assert-Equal "dedup count" 5 $cases.Count
     $shared = 0
     foreach ($case in $cases) { if ($case.Id -eq "Fixture.SharedRuleTests.Counts_once") { $shared++ } }
     Assert-Equal "shared once" 1 $shared
-    Assert-Contains "selected" $result.Stdout "SELECTED count=8"
+    Assert-Contains "selected" $result.Stdout "SELECTED count=5"
     $exact = Invoke-Runner -ArgumentList @(
         "-Project", $project, "-List", "-Test", "Fixture.SharedRuleTests.Counts_once", "-Scope", "voxels", "-Scope", "content"
     ) -WaitMs 180000
@@ -1893,7 +1906,8 @@ It "real-list" {
     $mstest = [System.Collections.Generic.List[object]]::new()
     $external = [System.Collections.Generic.List[object]]::new()
     foreach ($case in $cases) {
-        if ($case.Id.StartsWith("Train.Tests.")) { $mstest.Add($case) }
+        if ($case.Id.StartsWith("Train.ContractSupport.Tests.")) { continue }
+        if ($case.Id.StartsWith("Train.Core.Tests.") -or $case.Id.StartsWith("Train.Content.Tests.") -or $case.Id.StartsWith("Train.Godot.Tests.")) { $mstest.Add($case) }
         else { $external.Add($case) }
     }
     $seen = @{}
@@ -1919,7 +1933,9 @@ It "real-list" {
     }
     $externalById = @{}
     foreach ($case in $external) { $externalById[$case.Id] = $case }
-    Assert-Equal "external count" 6 $external.Count
+    Assert-Equal "external count" 8 $external.Count
+    Assert-Equal "structure module" "all" $externalById["contracts.structure"].Module
+    Assert-Equal "schema module" "content" $externalById["content.examples-schema"].Module
     $logging = $externalById["godot.logging-smoke"]
     $content = $externalById["godot.content-smoke"]
     $menu = $externalById["godot.main-menu"]
@@ -1958,7 +1974,7 @@ It "real-list" {
     $psi.RedirectStandardError = $true
     $psi.StandardOutputEncoding = $utf8
     $psi.StandardErrorEncoding = $utf8
-    foreach ($argument in @("test", "Train.Tests/Train.Tests.csproj", "-c", "Debug", "--no-build", "--no-restore", "--nologo", "--list-tests")) {
+    foreach ($argument in @("test", "Train.sln", "-c", "Debug", "--no-build", "--no-restore", "--nologo", "--list-tests")) {
         [void] $psi.ArgumentList.Add($argument)
     }
     $process = [System.Diagnostics.Process]::new()
@@ -1975,7 +1991,7 @@ It "real-list" {
     $dataMethods = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
     foreach ($line in ($listText -split "\r?\n")) {
         $trimmed = $line.Trim()
-        if ($trimmed -match "^Train\.Tests\.\S+$") { $nativeIds.Add($trimmed) }
+        if ($trimmed -match "^Train\.(Core|Content|Godot|ContractSupport)\.Tests\.\S+$") { $nativeIds.Add($trimmed) }
         elseif ($trimmed -match "^[A-Za-z_][A-Za-z0-9_]+$") { $nativeNames.Add($trimmed) }
         elseif ($trimmed -match "^([A-Za-z_][A-Za-z0-9_]+) \(.+\)$") {
             # MSTest lists each DataRow; the entry discovers the declaring method once.
@@ -1984,13 +2000,16 @@ It "real-list" {
     }
     if ($nativeIds.Count -gt 0) {
         $ours = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
-        foreach ($case in $mstest) { [void] $ours.Add($case.Id) }
+        foreach ($case in $cases) {
+            if ($case.Id.StartsWith("Train.")) { [void] $ours.Add($case.Id) }
+        }
         Assert-Equal "list size" $nativeIds.Count $ours.Count
         foreach ($id in $nativeIds) { Assert-True "missing from runner $id" $ours.Contains($id) }
     }
     elseif ($nativeNames.Count -gt 0) {
         $ours = [System.Collections.Generic.List[string]]::new()
-        foreach ($case in $mstest) {
+        foreach ($case in $cases) {
+            if (-not $case.Id.StartsWith("Train.")) { continue }
             $dot = $case.Id.LastIndexOf(".")
             $ours.Add($case.Id.Substring($dot + 1))
         }
@@ -2036,7 +2055,7 @@ It "real-voxels" {
 
 It "real-headless" {
     $results = New-Results "real-headless"
-    $id = "Train.Tests.Core.Console.ConsoleCommandDispatchTests.Blank_input_is_ignored"
+    $id = "Train.Godot.Tests.Console.ConsoleCommandDispatchTests.Blank_input_is_ignored"
     $result = Invoke-Runner -ArgumentList @("-Test", $id, "-ResultsRoot", $results) -WaitMs 600000
     Assert-Exit $result 0
     $summary = Read-Summary $result.Stdout
@@ -2744,6 +2763,43 @@ It "fixture-isolation-cancel" {
         if ($handle) { Close-Runner $handle | Out-Null }
         foreach ($owned in (Read-PidFile $pidFile)) { Stop-Tree $owned }
     }
+}
+
+It "fixture-multi-project-module" {
+    $repo = Join-Path $evidence "multi-project"
+    $scriptDir = Join-Path $repo "scripts"
+    New-Item -ItemType Directory -Force -Path $scriptDir | Out-Null
+    Copy-Item -LiteralPath $runner -Destination (Join-Path $scriptDir "run-tests.ps1")
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot "metadata-reader") -Destination $scriptDir -Recurse
+    $source = @'
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+namespace MODULE;
+[TestClass, TestCategory("family:unit"), TestCategory("scope:shared")]
+public sealed class RuleTests {
+    [TestMethod] public void Passes() { Assert.AreEqual(2, 1 + 1); }
+}
+'@
+    foreach ($module in @("Core", "Content")) {
+        Write-Project (Join-Path $repo "Tests/$module") "$module.Tests" $sdk ($source.Replace("MODULE", $module))
+    }
+    $repoRunner = Join-Path $scriptDir "run-tests.ps1"
+    $all = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @("-Family", "unit") -WaitMs 300000
+    Assert-Exit $all 0
+    $summary = Read-Summary $all.Stdout
+    $checks = @(Get-Checks $summary)
+    Assert-Equal "both projects executed" 2 $checks.Count
+    Assert-Equal "one core" 1 @($checks | Where-Object module -EQ core).Count
+    Assert-Equal "one content" 1 @($checks | Where-Object module -EQ content).Count
+    Assert-Equal "both identities" 2 @($summary.Json.environment.projects).Count
+    Assert-Equal "core identity" 1 @($summary.Json.environment.projects | Where-Object module -EQ core).Count
+    Assert-Equal "content identity" 1 @($summary.Json.environment.projects | Where-Object module -EQ content).Count
+    Add-Content -LiteralPath (Join-Path $repo "Tests/Content/Content.Tests.cs") -Value "broken syntax"
+    $core = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @("-Module", "core", "-Family", "unit") -WaitMs 300000
+    Assert-Exit $core 0
+    Assert-Equal "core selected once" 1 @(Get-Checks (Read-Summary $core.Stdout)).Count
+    $missing = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @("-Module", "scenes", "-List") -WaitMs 30000
+    Assert-Exit $missing 2
+    Assert-Contains "missing module blocked" $missing.Stderr "module-entry-missing scenes"
 }
 
 try {

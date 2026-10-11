@@ -2,8 +2,8 @@
 // 提供控制台输入、开关与日志显示，命令动作由宿主注入的基础分发器处理。
 
 using Godot;
-using Train.Core.Console;
-using Train.Core.Logging;
+using Train.App.Console;
+using Train.App.Logging;
 
 namespace Train.Ui;
 

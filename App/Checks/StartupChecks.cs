@@ -2,9 +2,9 @@
 // 检查只观察已加载目录、原始资源与宿主日志，不创建玩法状态或用户内容。
 
 using Godot;
-using Train.Core.Content;
-using Train.Core.Content.Voxels;
-using Train.Core.Logging;
+using Train.Content;
+using Train.Content.Voxels;
+using Train.App.Logging;
 using Train.Ui;
 
 namespace Train.App.Checks;

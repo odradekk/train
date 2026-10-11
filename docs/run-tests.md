@@ -2,11 +2,13 @@
 
 This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which checks a change needs is decided by the [Testing standard](implement-sop.md#testing-standard); [Windows CI](ci.md) calls the same entry.
 
-四模块测试拆分、模块选择、共享契约用例与实际隔离检查的已确认目标方案见[独立构建与契约验证](contracts/testing.md)。这些扩展尚未实现，本页以下命令和行为描述现有入口；不能把当前运行结果当作目标方案已通过的证据。
+四模块测试与隔离验证的目标见[独立构建与契约验证](contracts/testing.md)。模块项目拆分、多项目选择、Core/Content 实际隔离构建和项目依赖检查已接入。真实工厂契约与 Godot 隔离装配仍待生产入口建立，不能由现有普通 C# 测试推断通过。
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
-`-Project <路径>` 指定本次发现和运行的 MSTest 项目，默认是 `Train.Tests/Train.Tests.csproj`，不会自动发现其他测试项目。支持库自检须显式运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Project Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj -RunnerCatalog none -Family unit`。
+默认从 `Tests/` 下发现显式引用 MSTest 适配器的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属；Core/Content 的 `-Correctness` 在隔离目录重建并运行，普通单元测试不证明隔离。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
+
+`-Test content.examples-schema` 调用现有 JSON Schema 校验器检查 `docs/content/examples/` 的全部当前格式示例及 Schema 自身；需要 Python 和 `jsonschema` 包。示例为空、格式不符或工具缺失都不能通过。此项不验证跨文件引用或生产加载器行为。
 
 MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. `scripts/` 顶层保留统一入口、入口测试和登记表；具体检查、检查测试及其专用进程助手放在 `scripts/checks/`，MSTest 元数据读取器放在 `scripts/metadata-reader/`。当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
 

@@ -2,7 +2,7 @@
 // 此适配器使用共享的可读格式，并选择相应的引擎输出通道。
 
 using Godot;
-using Train.Core.Logging;
+using Train.App.Logging;
 
 namespace Train.App;
 

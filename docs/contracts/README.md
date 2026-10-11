@@ -5,7 +5,7 @@
 
 ## 状态与后续交付
 
-当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明，以及四模块消费样例已创建；Godot 接入规范已明确，生产代码迁移和完整独立检查仍待后续工作。本页不是这些检查已经通过的证据，也不是整组契约基线。
+当前已确定模块职责、类型归属、目标项目布局和契约管理规则。核心、内容与体素契约声明，以及四模块消费样例已创建；Godot 接入规范已明确。现有内容、日志和控制台代码已按模块归属迁移，Core/Content 隔离检查和[初始公开面基线](public-api.txt)检查已接入。真实工厂、Godot 隔离装配和整组基线提交仍待完成；本页不是这些检查已经通过的证据。
 
 [#302 初始基线候选清单](baseline-candidate.md)列明当前纳入的声明、样例、共享情景、真实工厂状态和移交 #304 的检查缺口。
 
@@ -24,7 +24,7 @@
 | 体素引擎层 | [scenes.md](scenes.md) | [体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289) |
 | Godot 层 | [godot.md](godot.md) | [Godot 层公开契约：宿主适配、资源与交互接入](https://github.com/odradekk/train/issues/290) |
 
-验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；工具尚未实现。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与阶段性联调的交付、变更和验收流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。每阶段联调通过后，才能开始下一阶段开发；完整 Demo 仍须满足全部完成标准。实际生产代码迁移留给[工单重组](https://github.com/odradekk/train/issues/294)后的实施任务。
+验证的组织、替身责任、检查入口与原型矩阵已由[四模块独立构建、测试替身与契约一致性检查](https://github.com/odradekk/train/issues/291)确定，见[独立构建与契约验证](testing.md)；已接入范围以实际报告为准。[契约原型](https://github.com/odradekk/train/issues/292)验证独立调用与替换；[并行开发与阶段性联调的交付、变更和验收流程](https://github.com/odradekk/train/issues/293)确定交付流程及必要 SOP 调整。每阶段联调通过后，才能开始下一阶段开发；完整 Demo 仍须满足全部完成标准。当前生产迁移由扩大的 #304 范围承担，后续行为仍归对应实施任务。
 
 宿主帧驱动、暂停来源记账、Godot API 调度和保存路径等内部方案见[宿主设计](../godot-host-design.md)，不纳入公开契约基线。
 
@@ -42,7 +42,7 @@
 | `Scenes/` | `Train.Scenes` | 体素实现 |
 | 根目录 | `Train` | Godot 项目；源码仍按 `App/`、`Rendering/`、`Ui/` 划分 |
 
-契约项目沿用 .NET 10、C# 12，不引用 Godot。命名空间沿用“项目名.项目内目录名”。新增项目时隔离源码编译范围，不能让根项目或实现项目再次编译契约源码。测试项目按模块拆分，目标入口及允许依赖见[测试组织](testing.md#模块测试的组织与入口)，当前尚未迁移。
+契约项目沿用 .NET 10、C# 12，不引用 Godot。命名空间沿用“项目名.项目内目录名”。新增项目时隔离源码编译范围，不能让根项目或实现项目再次编译契约源码。现有测试项目已按 Core、Content、Godot 宿主拆分；目标入口及允许依赖见[测试组织](testing.md#模块测试的组织与入口)。
 
 ## 依赖与装配
 

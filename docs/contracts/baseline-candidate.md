@@ -2,6 +2,8 @@
 
 本页是 [#302](https://github.com/odradekk/train/issues/302) 交给 [#304](https://github.com/odradekk/train/issues/304) 的候选清单，不是正式基线或生产行为通过记录。规划依据是提交 `c8a959923e0d12172a2513d7ed11496827137777` 及 [#302 范围决定](https://github.com/odradekk/train/issues/302#issuecomment-6105295990)。候选以验收时的 PR head 为准，提交号和检查结果记在 Issue 评论中。
 
+以下“当前状态”记录 #302 移交时的快照。#304 中的代码与测试入口进度以[测试组织](testing.md#模块测试的组织与入口)和实际项目文件为准；经用户确认的初始公开声明见 [public-api.txt](public-api.txt)。
+
 ## 候选范围
 
 | 内容 | 本次纳入的路径 | 当前状态 |

@@ -2,11 +2,11 @@
 // 切换当前读取来源模拟新增与移除，检查本身不创建或改写内容文件。
 
 using Godot;
-using Train.Core.Content;
-using Train.Core.Content.Markets;
-using Train.Core.Content.Settlements;
-using Train.Core.Content.Voxels;
-using Train.Core.Logging;
+using Train.Content;
+using Train.Content.Markets;
+using Train.Content.Settlements;
+using Train.Content.Voxels;
+using Train.App.Logging;
 
 namespace Train.App.Checks;
 

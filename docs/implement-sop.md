@@ -82,7 +82,7 @@ This section is the single source of testing policy; inventories, commands and h
 
 Graphical interaction, visual quality, export/platform behavior and target-hardware experience receive supplementary checks when affected or required by a stage gate, not in every quick run. A headless run cannot establish visual quality or real-window responsiveness.
 
-Classify by the behavior actually exercised, not by framework or filename. `Train.Tests` references `Train.Core` and the currently empty `Train.Scenes` project; its current cases exercise Core, so passing results alone do not verify the deployed Godot assembly or scene/resource wiring. Script harnesses using fake programs validate orchestration such as arguments, exit propagation, timeout, cancellation and owned-process cleanup; they do not run the real game or copy its assertions. Startup markers and screenshots prove only what their accompanying assertions or observation check.
+Classify by the behavior actually exercised, not by framework or filename. `Train.Core.Tests` and `Train.Content.Tests` exercise their own implementations; `Train.Godot.Tests` exercises pure host code through a project reference and does not prove scene/resource wiring. Real Godot checks provide engine evidence. Script harnesses using fake programs validate orchestration such as arguments, exit propagation, timeout, cancellation and owned-process cleanup; they do not run the real game or copy its assertions. Startup markers and screenshots prove only what their accompanying assertions or observation check.
 
 ### Choose checks from the change
 
