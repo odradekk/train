@@ -1,36 +1,42 @@
-// 内容文件端口的有限替身；只回放配置好的请求和结果。
+// 内容文件端口的有限情景替身；按路径和字节上限回放配置好的请求和结果。
 // 不实现路径安全、实际读取或内容规则。
 using System.Collections.Immutable;
 using Train.Content.Contracts;
 
-namespace Train.ContractSupport.Tests.Content;
+namespace Train.Content.ContractSupport;
 
-/// <summary>仅回放明确配置的读取，不执行 I/O、路径规则或超限计算。</summary>
-public sealed class ScriptedContentFiles(params ScriptedContentFiles.ReadCall[] reads) : IContentFiles
+/// <summary>每项配置只读取一次，调用顺序不限；拒绝超过请求上限的成功结果。</summary>
+public sealed class ScriptedContentFiles : IContentFiles
 {
     public sealed record ReadCall(ContentPath Path, long MaximumBytes,
         ContentIoResult<ImmutableArray<byte>> Result);
 
-    private readonly ReadCall[] _reads = (ReadCall[])reads.Clone();
-    private int _next;
+    private readonly Dictionary<(ContentPath Path, long MaximumBytes), ContentIoResult<ImmutableArray<byte>>> _reads = new();
+
+    public ScriptedContentFiles(params ReadCall[] reads)
+    {
+        foreach (var read in reads)
+        {
+            if (read.Result is ContentIoResult<ImmutableArray<byte>>.Success success &&
+                success.Value.Length > read.MaximumBytes)
+                throw new ArgumentException("成功结果不能超过配置的字节上限。", nameof(reads));
+            _reads.Add((read.Path, read.MaximumBytes), read.Result);
+        }
+    }
 
     public ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory) =>
-        throw new InvalidOperationException("未配置目录枚举。");
+        throw new InvalidOperationException("UNCONFIGURED: 目录枚举未配置。");
 
     public ContentIoResult<ImmutableArray<byte>> Read(ContentPath file, long maximumBytes)
     {
-        if (_next == _reads.Length)
-            throw new InvalidOperationException("未配置后续读取。");
-        var expected = _reads[_next];
-        if (file != expected.Path || maximumBytes != expected.MaximumBytes)
-            throw new InvalidOperationException("读取输入或调用顺序与配置不符。");
-        _next++;
-        return expected.Result;
+        if (!_reads.Remove((file, maximumBytes), out var result))
+            throw new InvalidOperationException("UNCONFIGURED: 路径和字节上限未配置，或配置已使用。");
+        return result;
     }
 
     public void AssertComplete()
     {
-        if (_next != _reads.Length)
-            throw new InvalidOperationException("仍有配置的读取未发生。");
+        if (_reads.Count != 0)
+            throw new InvalidOperationException("UNCONFIGURED: 仍有配置的读取未发生。");
     }
 }

@@ -1,41 +1,44 @@
 // 核心契约的固定捕获情景，断言只依赖公开接口和公开值。
-// 有限替身不计算模拟、存档编码或引用清单。
+// 有限情景替身不计算模拟、存档编码或引用清单。
 using Train.Core.Contracts;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
-namespace Train.ContractSupport.Tests.Core;
+namespace Train.Core.ContractSupport;
 
-/// <summary>固定捕获交接情景；真实实现须通过公开入口准备相同边界后运行断言。</summary>
+/// <summary>核对捕获跨一步推进及会话关闭后的保留性；调用方准备推进前后引用不同的会话。</summary>
 public static class CaptureScenario
 {
-    /// <summary>消费固定捕获，不解析编码；推进与关闭不能改变已经交出的值。</summary>
+    /// <summary>依次保存捕获、推进一步、再次捕获并关闭会话；输入身份和两份预期引用由调用方独立提供。</summary>
     public static void AssertContract(ICoreSession session, CoreInputId expectedInput,
-        CoreReferenceManifest expectedReferences)
+        CoreReferenceManifest initialReferences, CoreReferenceManifest advancedReferences)
     {
+        Assert.IsFalse(SameReferences(initialReferences, advancedReferences),
+            "情景需要推进后引用发生变化，才能验证旧捕获的保留性。");
         var captured = session.Capture(CapturePurpose.Save);
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(captured);
         var retained = ((CoreResult<ICoreCapture>.Success)captured).Value;
+        var initialPosition = retained.Position;
         var initialRevision = retained.Revision;
         var initialCheckpoint = retained.Checkpoint;
-        AssertCapture(retained, new(0, 0), expectedInput, expectedReferences);
+        AssertCapture(retained, initialPosition, expectedInput, initialReferences);
         var payload = retained.Encode();
         Assert.IsFalse(string.IsNullOrEmpty(payload));
 
         var advanced = session.Advance(1);
         Assert.AreEqual(1u, advanced.CompletedSteps);
-        Assert.AreEqual(new SimulationPosition(1, 0), advanced.Position);
+        Assert.AreEqual(initialPosition.CompletedSteps + 1, advanced.Position.CompletedSteps);
         Assert.IsNull(advanced.Fault);
         var currentResult = session.Capture(CapturePurpose.Save);
         Assert.IsInstanceOfType<CoreResult<ICoreCapture>.Success>(currentResult);
         var current = ((CoreResult<ICoreCapture>.Success)currentResult).Value;
-        AssertCapture(current, new(1, 0), expectedInput, expectedReferences);
-        AssertCapture(retained, new(0, 0), expectedInput, expectedReferences);
+        AssertCapture(current, advanced.Position, expectedInput, advancedReferences);
+        AssertCapture(retained, initialPosition, expectedInput, initialReferences);
         Assert.AreEqual(initialRevision, retained.Revision);
         Assert.AreEqual(initialCheckpoint, retained.Checkpoint);
         Assert.AreEqual(payload, retained.Encode());
 
         session.Dispose();
-        AssertCapture(retained, new(0, 0), expectedInput, expectedReferences);
+        AssertCapture(retained, initialPosition, expectedInput, initialReferences);
         Assert.AreEqual(initialRevision, retained.Revision);
         Assert.AreEqual(initialCheckpoint, retained.Checkpoint);
         Assert.AreEqual(payload, retained.Encode());
@@ -50,11 +53,33 @@ public static class CaptureScenario
         CollectionAssert.AreEqual(expectedReferences.Designs.ToArray(), capture.References.Designs.ToArray());
         CollectionAssert.AreEqual(expectedReferences.Inputs.ToArray(), capture.References.Inputs.ToArray());
         CollectionAssert.AreEqual(expectedReferences.Definitions.ToArray(), capture.References.Definitions.ToArray());
-        Assert.AreEqual(1, capture.References.Templates.Length);
-        var template = capture.References.Templates[0];
-        Assert.AreEqual(expectedReferences.Templates[0].Owner, template.Owner);
-        Assert.AreEqual(expectedReferences.Templates[0].SourceTemplate, template.SourceTemplate);
-        CollectionAssert.AreEqual(expectedReferences.Templates[0].Plots.ToArray(), template.Plots.ToArray());
+        Assert.AreEqual(expectedReferences.Templates.Length, capture.References.Templates.Length);
+        for (var i = 0; i < expectedReferences.Templates.Length; i++)
+        {
+            var expected = expectedReferences.Templates[i];
+            var actual = capture.References.Templates[i];
+            Assert.AreEqual(expected.Owner, actual.Owner);
+            Assert.AreEqual(expected.SourceTemplate, actual.SourceTemplate);
+            CollectionAssert.AreEqual(expected.Plots.ToArray(), actual.Plots.ToArray());
+        }
+    }
+
+    private static bool SameReferences(CoreReferenceManifest first, CoreReferenceManifest second)
+    {
+        if (!first.Designs.SequenceEqual(second.Designs) ||
+            !first.Inputs.SequenceEqual(second.Inputs) ||
+            !first.Definitions.SequenceEqual(second.Definitions) ||
+            first.Templates.Length != second.Templates.Length)
+            return false;
+        for (var i = 0; i < first.Templates.Length; i++)
+        {
+            var left = first.Templates[i];
+            var right = second.Templates[i];
+            if (left.Owner != right.Owner || left.SourceTemplate != right.SourceTemplate ||
+                !left.Plots.SequenceEqual(right.Plots))
+                return false;
+        }
+        return true;
     }
 }
 
@@ -62,9 +87,18 @@ public static class CaptureScenario
 public sealed class CaptureSessionDouble : ICoreSession
 {
     public static CoreInputId Input => new(new string('A', 64));
-    public static CoreReferenceManifest References => new(
+    public static CoreReferenceManifest InitialReferences => new(
         [new(new string('B', 64))],
-        [new(new(1), new("fixture:template"), [new(7, PlotSize.Small)])],
+        [new(new(1), new("fixture:template"), [new(7, PlotSize.Small)]),
+            new(new(2), new("fixture:second-template"), [new(3, PlotSize.Small)])],
+        [new(new CoreDefinitionReference.Terrain(new("fixture:terrain")),
+            new(new string('C', 64)), "world.nodes[0].terrain", false)],
+        [Input]);
+    public static CoreReferenceManifest AdvancedReferences => new(
+        [new(new string('B', 64))],
+        [new(new(1), new("fixture:template"),
+                [new(7, PlotSize.Small), new(8, PlotSize.Small)]),
+            new(new(2), new("fixture:second-template"), [new(3, PlotSize.Small)])],
         [new(new CoreDefinitionReference.Terrain(new("fixture:terrain")),
             new(new string('C', 64)), "world.nodes[0].terrain", false)],
         [Input]);
@@ -78,7 +112,8 @@ public sealed class CaptureSessionDouble : ICoreSession
         if (purpose != CapturePurpose.Save)
             throw Unconfigured(nameof(Capture));
         return new CoreResult<ICoreCapture>.Success(new FixedCapture(
-            advanced ? new(1, 0) : new(0, 0), advanced ? new(2) : new(1)));
+            advanced ? new(1, 0) : new(0, 0), advanced ? new(2) : new(1),
+            advanced ? AdvancedReferences : InitialReferences));
     }
 
     public AdvanceResult Advance(uint steps)
@@ -101,12 +136,13 @@ public sealed class CaptureSessionDouble : ICoreSession
     private static InvalidOperationException Unconfigured(string operation)
         => new($"UNCONFIGURED: capture scenario does not support {operation} input or sequence.");
 
-    private sealed class FixedCapture(SimulationPosition position, CoreRevision revision) : ICoreCapture
+    private sealed class FixedCapture(SimulationPosition position, CoreRevision revision,
+        CoreReferenceManifest references) : ICoreCapture
     {
         public SimulationPosition Position => position;
         public CoreRevision Revision => revision;
         public CoreInputId InputIdentity => Input;
-        public CoreReferenceManifest References { get; } = CaptureSessionDouble.References;
+        public CoreReferenceManifest References { get; } = references;
         public CoreCheckpoint Checkpoint { get; } = CreateCheckpoint(position, revision);
         public string Encode() => $"opaque fixture capture {position.CompletedSteps}:{revision.Value}";
 

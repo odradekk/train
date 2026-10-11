@@ -1,6 +1,7 @@
-// 核心捕获情景的有限替身检查；真实生产核心尚未接入。
+// 核心捕获情景的有限情景替身检查。
 // 未配置操作必须明确失败，避免替身默认成功。
 using Train.Core.Contracts;
+using Train.Core.ContractSupport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Train.ContractSupport.Tests.Core;
@@ -13,7 +14,8 @@ public sealed class CaptureScenarioTests
     [TestMethod]
     public void FiniteDoubleSatisfiesCaptureContract()
         => CaptureScenario.AssertContract(new CaptureSessionDouble(),
-            CaptureSessionDouble.Input, CaptureSessionDouble.References);
+            CaptureSessionDouble.Input, CaptureSessionDouble.InitialReferences,
+            CaptureSessionDouble.AdvancedReferences);
 
     [TestMethod]
     public void FiniteDoubleRejectsUnsupportedInputAndSequence()

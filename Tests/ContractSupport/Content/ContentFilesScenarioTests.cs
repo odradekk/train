@@ -1,8 +1,10 @@
 // 内容文件端口情景的执行与反例检查。
-// 这里只验证共享断言和有限替身，真实宿主 I/O 留给后续验证。
+// 验证共享断言和合规有限情景替身；违规实现只存在于反例测试中。
 using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
+using Train.Content.ContractSupport;
 
 namespace Train.ContractSupport.Tests.Content;
 
@@ -12,19 +14,20 @@ namespace Train.ContractSupport.Tests.Content;
 public sealed class ContentFilesScenarioTests
 {
     private static readonly ContentPath Path = new(new ContentRoot("fixture"), "asset.bin");
+    private static readonly ContentPath OtherPath = new(Path.Root, "other.bin");
+    private static readonly ImmutableArray<byte> Bytes = ImmutableArray.Create<byte>(0, 127, 255);
+    private static readonly ImmutableArray<byte> OtherBytes = ImmutableArray.Create<byte>(1, 2, 3);
 
     [TestMethod]
-    public void FixedReadAndLimitScenarioAcceptsConfiguredResponses()
+    public void FixedReadAndLimitScenarioAcceptsConfiguredResponsesInAnyOrder()
     {
-        var bytes = ImmutableArray.Create<byte>(0, 127, 255);
-        var success = new ContentIoResult<ImmutableArray<byte>>.Success(bytes);
         var files = new ScriptedContentFiles(
-            new(Path, 3, success),
             new(Path, 2, new ContentIoResult<ImmutableArray<byte>>.Failure(
                 ContentIoFailure.LimitExceeded, "configured limit")),
-            new(Path, 3, success));
+            new(OtherPath, 3, new ContentIoResult<ImmutableArray<byte>>.Success(ImmutableArray.Create<byte>(1, 2, 3))),
+            new(Path, 3, new ContentIoResult<ImmutableArray<byte>>.Success(ImmutableArray.Create<byte>(0, 127, 255))));
 
-        ContentFilesScenario.AssertFixedReadAndLimit(files, Path, bytes);
+        ContentFilesScenario.AssertFixedReadAndLimit(files, Path, Bytes, OtherPath, OtherBytes);
         files.AssertComplete();
     }
 
@@ -34,26 +37,69 @@ public sealed class ContentFilesScenarioTests
         var files = new ScriptedContentFiles(new ScriptedContentFiles.ReadCall(Path, 1,
             new ContentIoResult<ImmutableArray<byte>>.Success(ImmutableArray.Create<byte>(42))));
 
-        Assert.ThrowsException<InvalidOperationException>(() => files.Enumerate(Path));
-        Assert.ThrowsException<InvalidOperationException>(() => files.Read(Path, 0));
-        Assert.ThrowsException<InvalidOperationException>(() =>
-            files.Read(new ContentPath(Path.Root, "other.bin"), 1));
-        Assert.ThrowsException<InvalidOperationException>(() => files.AssertComplete());
+        AssertUnconfigured(() => files.Enumerate(Path));
+        AssertUnconfigured(() => files.Read(Path, 0));
+        AssertUnconfigured(() => files.Read(OtherPath, 1));
+        AssertUnconfigured(() => files.AssertComplete());
         files.Read(Path, 1);
         files.AssertComplete();
-        Assert.ThrowsException<InvalidOperationException>(() => files.Read(Path, 1));
+        AssertUnconfigured(() => files.Read(Path, 1));
+    }
+
+    [TestMethod]
+    public void ScriptRejectsSuccessLargerThanConfiguredLimit()
+    {
+        Assert.ThrowsException<ArgumentException>(() => new ScriptedContentFiles(
+            new ScriptedContentFiles.ReadCall(Path, 2,
+                new ContentIoResult<ImmutableArray<byte>>.Success(Bytes))));
     }
 
     [TestMethod]
     public void ScenarioRejectsTruncatedSuccessForAnOverLimitRead()
     {
-        var bytes = ImmutableArray.Create<byte>(1, 2);
-        var files = new ScriptedContentFiles(
-            new(Path, 2, new ContentIoResult<ImmutableArray<byte>>.Success(bytes)),
-            new(Path, 1, new ContentIoResult<ImmutableArray<byte>>.Success(ImmutableArray.Create<byte>(1))));
-
         Assert.ThrowsException<AssertFailedException>(() =>
-            ContentFilesScenario.AssertFixedReadAndLimit(files, Path, bytes));
-        files.AssertComplete();
+            ContentFilesScenario.AssertFixedReadAndLimit(new ViolatingContentFiles(false),
+                Path, Bytes, OtherPath, OtherBytes));
+    }
+
+    [TestMethod]
+    public void ScenarioRejectsReusedReadBuffer()
+    {
+        Assert.ThrowsException<AssertFailedException>(() =>
+            ContentFilesScenario.AssertFixedReadAndLimit(new ViolatingContentFiles(true),
+                Path, Bytes, OtherPath, OtherBytes));
+    }
+
+    private static void AssertUnconfigured(Action operation)
+    {
+        var error = Assert.ThrowsException<InvalidOperationException>(operation);
+        StringAssert.StartsWith(error.Message, "UNCONFIGURED:");
+    }
+
+    private sealed class ViolatingContentFiles(bool reuseBuffer) : IContentFiles
+    {
+        private readonly byte[] _buffer = new byte[Bytes.Length];
+
+        public ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory) =>
+            throw new InvalidOperationException("反例不使用枚举。");
+
+        public ContentIoResult<ImmutableArray<byte>> Read(ContentPath file, long maximumBytes)
+        {
+            var bytes = file == Path ? Bytes : OtherBytes;
+            if (bytes.Length > maximumBytes)
+            {
+                if (reuseBuffer)
+                    return new ContentIoResult<ImmutableArray<byte>>.Failure(
+                        ContentIoFailure.LimitExceeded, "configured limit");
+                return new ContentIoResult<ImmutableArray<byte>>.Success(
+                    bytes.Take((int)maximumBytes).ToImmutableArray());
+            }
+            if (!reuseBuffer)
+                return new ContentIoResult<ImmutableArray<byte>>.Success(bytes);
+            bytes.CopyTo(_buffer);
+            // 故意把可写数组暴露成不可变结果，模拟宿主复用缓冲区的契约违规。
+            return new ContentIoResult<ImmutableArray<byte>>.Success(
+                ImmutableCollectionsMarshal.AsImmutableArray(_buffer));
+        }
     }
 }
