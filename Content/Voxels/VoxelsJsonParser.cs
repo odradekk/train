@@ -1,5 +1,5 @@
-// Content 校验外部定义的严格 JSON 格式。
-// 本文件解析体素字段和图片绑定，候选引用与图片检查由目录构建阶段完成。
+// Content 模块的体素 JSON 定义解析器。
+// 解析字段和图片绑定；候选引用与图片检查由目录构建阶段完成。
 
 using System.Text.Json;
 using Train.Content.Behaviors;

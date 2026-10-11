@@ -238,6 +238,14 @@ function Stop-Tree([int] $ProcessId) {
     & taskkill.exe /PID $ProcessId /T /F 1>$null 2>$null
 }
 
+function Assert-FinalResult($Result, [int] $Expected) {
+    Assert-Exit $Result $Expected
+    $summary = Read-Summary $Result.Stdout
+    Assert-Equal "JSON final exit" $Expected ([int] $summary.Json.exitCode)
+    Assert-Contains "Markdown final exit" $summary.Report "- 退出码 $Expected"
+    return $summary
+}
+
 function Test-Alive([int] $ProcessId) {
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
@@ -1966,26 +1974,31 @@ It "real-list" {
     foreach ($class in $expected.Keys) { Assert-True "missing class $class" $seen.ContainsKey($class) }
     $selected = [regex]::Match($result.Stdout, "SELECTED count=(\d+)")
     Assert-Equal "selected count" $cases.Count ([int] $selected.Groups[1].Value)
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = "dotnet"
-    $psi.WorkingDirectory = $root
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.StandardOutputEncoding = $utf8
-    $psi.StandardErrorEncoding = $utf8
-    foreach ($argument in @("test", "Train.sln", "-c", "Debug", "--no-build", "--no-restore", "--nologo", "--list-tests")) {
-        [void] $psi.ArgumentList.Add($argument)
+    $listText = ''
+    $listError = ''
+    # Query each project separately because solution-level list-tests aggregates concurrent output unreliably.
+    foreach ($project in @('Tests/Core/Train.Core.Tests.csproj', 'Tests/Content/Train.Content.Tests.csproj', 'Tests/Godot/Train.Godot.Tests.csproj', 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj')) {
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName = "dotnet"
+        $psi.WorkingDirectory = $root
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.StandardOutputEncoding = $utf8
+        $psi.StandardErrorEncoding = $utf8
+        foreach ($argument in @("test", $project, "-c", "Debug", "--no-build", "--no-restore", "--nologo", "--list-tests")) {
+            [void] $psi.ArgumentList.Add($argument)
+        }
+        $process = [System.Diagnostics.Process]::new()
+        $process.StartInfo = $psi
+        [void] $process.Start()
+        $listed = $process.StandardOutput.ReadToEndAsync()
+        $listErr = $process.StandardError.ReadToEndAsync()
+        Assert-True "list-tests finished $project" $process.WaitForExit(180000)
+        $listText += [string] $listed.Result + "`n"
+        $listError += [string] $listErr.Result + "`n"
+        Assert-Equal "list-tests exit $project" 0 $process.ExitCode
     }
-    $process = [System.Diagnostics.Process]::new()
-    $process.StartInfo = $psi
-    [void] $process.Start()
-    $listed = $process.StandardOutput.ReadToEndAsync()
-    $listErr = $process.StandardError.ReadToEndAsync()
-    Assert-True "list-tests finished" $process.WaitForExit(180000)
-    $listText = [string] $listed.Result
-    $listError = [string] $listErr.Result
-    Assert-Equal "list-tests exit" 0 $process.ExitCode
     $nativeIds = [System.Collections.Generic.List[string]]::new()
     $nativeNames = [System.Collections.Generic.List[string]]::new()
     $dataMethods = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -2168,6 +2181,11 @@ It "fixture-external-build-timeout" {
     $started = Get-ChildItem -LiteralPath $summary.Directory -Recurse -Filter started.txt -ErrorAction SilentlyContinue
     Assert-Equal "script not started" 0 @($started).Count
     Assert-True "game build log kept" (Test-Path -LiteralPath (Join-Path $summary.Directory "game-build.log"))
+    $only = Invoke-Runner -ArgumentList @(
+        '-Project', $project, '-RunnerCatalog', $catalog, '-DotnetPath', $fakeExe,
+        '-Test', 'ext.build', '-ResultsRoot', (New-Results 'fixture-external-build-only')
+    ) -Environment @{ FAKE_GAME_BUILD = 'fail' } -WaitMs 300000
+    $null = Assert-FinalResult $only 1
 }
 
 It "fixture-external-import-blocked" {
@@ -2387,7 +2405,7 @@ It "fixture-game-build-failed" {
         "-Test", "Fixture.PersistPassTests.Restores_marker", "-ResultsRoot", $results
     ) -Environment @{ FAKE_GAME_BUILD = "fail" } -Unset @("GODOT") -WaitMs 300000
     Assert-Exit $result 1
-    $summary = Read-Summary $result.Stdout
+    $summary = Assert-FinalResult $result 1
     Assert-Equal "required preparation failed" "failed" $summary.Json.preparation.outcome
     Assert-Equal "failed build remains non-success" 1 $summary.Json.exitCode
     Assert-Equal "independent unit still passed" "passed" (Find-Check (Get-Checks $summary) "Fixture.PersistPassTests.Restores_marker").outcome
@@ -2809,9 +2827,6 @@ public sealed class RuleTests {
     $missing = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @("-Module", "scenes", "-List") -WaitMs 30000
     Assert-Exit $missing 2
     Assert-Contains "missing module blocked" $missing.Stderr "module-entry-missing scenes"
-    $checksDir = Join-Path $scriptDir 'checks'
-    New-Item -ItemType Directory -Force -Path $checksDir | Out-Null
-    Set-Content -LiteralPath (Join-Path $checksDir 'project-boundaries.json') -Value '{}' -Encoding utf8
     $default = Invoke-Runner -RunnerPath $repoRunner -WorkingDirectory $repo -ArgumentList @('-Correctness', '-List') -WaitMs 30000
     Assert-Exit $default 2
     Assert-Contains 'missing default project blocked' $default.Stderr 'module-entry-missing godot'
@@ -2840,6 +2855,143 @@ It "fixture-sdk-blocked" {
     $summary = Read-Summary $result.Stdout
     Assert-Equal "missing SDK blocked" "blocked" $summary.Json.preparation.outcome
     Assert-Equal "no checks executed" 0 (Get-Checks $summary).Count
+}
+
+It "fixture-build-failure-classification" {
+    . (Join-Path $PSScriptRoot "checks/common-checks.ps1")
+    foreach ($code in @('NU1605', 'NU1201', 'NU1101', 'MSB4019')) {
+        Assert-Equal "$code repository failure" 'failed' (Get-BuildFailureKind "error ${code}: fixture failure")
+    }
+    foreach ($message in @('error NU1301: service index unavailable', 'No .NET SDKs were found', 'error MSB3027: Could not copy file because it is being used by another process')) {
+        Assert-Equal "$message environment failure" 'blocked' (Get-BuildFailureKind $message)
+    }
+    Assert-Equal 'repository error takes precedence' 'failed' (Get-BuildFailureKind "error NU1301: service index unavailable`nerror NU1605: package downgrade")
+    foreach ($code in @('NU1101', 'NU1301')) {
+        $fixture = New-BindingRepository "classification-$code" $bindingSource
+        $projectPath = Join-Path $fixture.Repo 'Binding.csproj'
+        $xml = $sdk.Replace('</Project>', "<Target Name=`"FixtureFailure`" BeforeTargets=`"Build`"><Error Code=`"$code`" Text=`"fixture failure`" /></Target></Project>")
+        Set-Content -LiteralPath $projectPath -Value $xml -Encoding utf8
+        $result = Invoke-Runner -RunnerPath (Join-Path $fixture.Repo 'scripts/run-tests.ps1') -WorkingDirectory $fixture.Repo -Unset $script:GitIsolation -ArgumentList @(
+            '-Project', $projectPath, '-Family', 'unit', '-ResultsRoot', (New-Results "classification-$code")
+        ) -WaitMs 180000
+        $expected = if ($code -eq 'NU1101') { 1 } else { 2 }
+        $summary = Assert-FinalResult $result $expected
+        Assert-Equal "$code preparation" $(if ($expected -eq 1) { 'failed' } else { 'blocked' }) $summary.Json.preparation.outcome
+    }
+}
+
+It "fixture-isolated-reference-interruption" {
+    foreach ($mode in @('failure', 'timeout', 'cancel')) {
+        $fixture = New-BindingRepository "reference-$mode" $bindingSource
+        $repo = $fixture.Repo
+        Copy-Item -LiteralPath (Join-Path $root 'global.json') -Destination $repo
+        $ready = Join-Path $repo 'reference.ready'
+        $target = @'
+  <Target Name="FixtureBuilt" AfterTargets="Build"><WriteLinesToFile File="$(MSBuildProjectDirectory)/bin/built.ready" Lines="ready" /></Target>
+  <Target Name="FixtureReference" BeforeTargets="ResolveReferences" Condition="Exists('$(MSBuildProjectDirectory)/bin/built.ready')">
+    <WriteLinesToFile File="READY" Lines="ready" />
+    ACTION
+  </Target>
+'@
+        $action = if ($mode -eq 'failure') { '<Error Code="NU1101" Text="reference fixture failure" />' } else { '<Exec Command="pwsh -NoProfile -Command &quot;Start-Sleep -Seconds 90&quot;" />' }
+        $xml = $sdk.Replace('</Project>', $target.Replace('READY', $ready).Replace('ACTION', $action) + '</Project>')
+        Write-Project (Join-Path $repo 'Tests/Core') 'Train.Core.Tests' $xml $bindingSource
+        $matrix = '{"projects":{"Train.Core.Tests":{"path":"Tests/Core/Train.Core.Tests.csproj","references":[]}}}'
+        Set-Content -LiteralPath (Join-Path $repo 'scripts/checks/project-boundaries.json') -Value $matrix -Encoding utf8
+        $results = New-Results "reference-$mode"
+        $before = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
+        $handle = Open-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
+            '-Module', 'core', '-Correctness', '-PrepTimeoutSeconds', '15', '-ResultsRoot', $results
+        ) -WaitMs 180000
+        try {
+            if ($mode -eq 'cancel') {
+                Assert-True 'reference phase reached' (Wait-PidFile $ready 90)
+                $run = Wait-RunDirectory $results 5
+                Set-Content -LiteralPath (Join-Path $run 'cancel.request') -Value 'cancel'
+            }
+            $result = Close-Runner $handle
+            $handle = $null
+            $summary = Read-Summary $result.Stdout
+            $build = @($summary.Json.preparation.steps | Where-Object name -EQ 'build')[0]
+            $isolatedRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent ([string] $build.command[2])))
+            Assert-True "$mode isolated root removed" (-not (Test-Path -LiteralPath $isolatedRoot))
+            $after = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
+            Assert-Equal "$mode isolated directory snapshot" ($before -join "`n") ($after -join "`n")
+            $expected = if ($mode -eq 'failure') { 1 } else { 3 }
+            $null = Assert-FinalResult $result $expected
+            Assert-True "$mode reference evidence retained" (Test-Path -LiteralPath (Join-Path $summary.Directory 'isolation/core/references.log'))
+        }
+        finally { if ($handle) { Close-Runner $handle | Out-Null } }
+    }
+}
+
+It "fixture-isolated-input-missing" {
+    foreach ($mode in @('matrix-project', 'directory')) {
+        $fixture = New-BindingRepository "input-missing-$mode" $bindingSource
+        $repo = $fixture.Repo
+        Copy-Item -LiteralPath (Join-Path $root 'global.json') -Destination $repo
+        Write-Project (Join-Path $repo 'Tests/Core') 'Train.Core.Tests' $sdk $bindingSource
+        $projects = @{ 'Train.Core.Tests' = @{ path = 'Tests/Core/Train.Core.Tests.csproj'; references = @('Train.Core') } }
+        if ($mode -eq 'directory') { $projects['Train.Core'] = @{ path = 'Core/Train.Core.csproj'; references = @() } }
+        @{ projects = $projects } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $repo 'scripts/checks/project-boundaries.json') -Encoding utf8
+        $before = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
+        $result = Invoke-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
+            '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "input-missing-$mode")
+        ) -WaitMs 180000
+        $summary = Assert-FinalResult $result 1
+        Assert-Equal "$mode preparation failed" 'failed' $summary.Json.preparation.outcome
+        $leaked = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | Where-Object FullName -NotIn $before)
+        Assert-Equal "$mode no isolated directory leaked" 0 $leaked.Count
+    }
+}
+
+It "fixture-isolated-reference-variants" {
+    $foreignDir = Join-Path $evidence 'reference-foreign'
+    Write-Project $foreignDir 'Train.Forbidden' '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>' 'public static class Forbidden { public static string Value() => "BINDING_VALUE"; }'
+    $buildOutput = & dotnet build (Join-Path $foreignDir 'Train.Forbidden.csproj') --nologo -p:UseSharedCompilation=false 2>&1 | Out-String
+    Assert-Equal "foreign assembly built: $buildOutput" 0 $LASTEXITCODE
+    $foreignDll = Join-Path $foreignDir 'bin/Debug/net10.0/Train.Forbidden.dll'
+    $hostDll = Join-Path $foreignDir 'Train.dll'
+    Copy-Item -LiteralPath $foreignDll -Destination $hostDll
+    foreach ($mode in @('project', 'resolved', 'output', 'metadata')) {
+        $fixture = New-BindingRepository "reference-variant-$mode" $bindingSource
+        $repo = $fixture.Repo
+        Copy-Item -LiteralPath (Join-Path $root 'global.json') -Destination $repo
+        $source = $bindingSource
+        $extra = switch ($mode) {
+            'project' { '<ItemGroup><ProjectReference Include="FOREIGN/Train.Forbidden.csproj" /></ItemGroup>' }
+            'resolved' { "<ItemGroup><ReferencePath Include=`"$hostDll`" /></ItemGroup>" }
+            'output' { '<Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TargetDir)Train.Forbidden.dll" />' }
+            'metadata' { '<ItemGroup><ReferencePath Remove="DLL" /></ItemGroup>' }
+        }
+        $extra = $extra.Replace('FOREIGN', $foreignDir).Replace('DLL', $foreignDll)
+        if ($mode -eq 'output') { $target = "<Target Name=`"FixtureOutput`" AfterTargets=`"Build`">$extra</Target>" }
+        else {
+            $target = @'
+<Target Name="FixtureBuilt" AfterTargets="Build"><WriteLinesToFile File="$(MSBuildProjectDirectory)/bin/built.ready" Lines="ready" /></Target>
+<Target Name="FixtureReference" AfterTargets="ResolveReferences" Condition="Exists('$(MSBuildProjectDirectory)/bin/built.ready')">EXTRA</Target>
+'@
+            $target = $target.Replace('EXTRA', $extra)
+        }
+        if ($mode -eq 'metadata') {
+            $target += "<ItemGroup><Reference Include=`"Train.Forbidden`"><HintPath>$foreignDll</HintPath><Private>false</Private></Reference></ItemGroup>"
+            $source = $source.Replace('Assert.AreEqual("BINDING_VALUE", VersionValue);', 'Assert.AreEqual("BINDING_VALUE", Forbidden.Value());')
+        }
+        Write-Project (Join-Path $repo 'Tests/Core') 'Train.Core.Tests' ($sdk.Replace('</Project>', $target + '</Project>')) $source
+        Set-Content -LiteralPath (Join-Path $repo 'scripts/checks/project-boundaries.json') -Value '{"projects":{"Train.Core.Tests":{"path":"Tests/Core/Train.Core.Tests.csproj","references":[]}}}' -Encoding utf8
+        $before = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
+        $result = Invoke-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
+            '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "reference-variant-$mode")
+        ) -WaitMs 180000
+        $summary = Assert-FinalResult $result 1
+        $step = @($summary.Json.preparation.steps | Where-Object name -EQ 'isolation-references-core')[0]
+        $prefix = switch ($mode) { 'project' { 'project-reference:' }; 'resolved' { 'assembly-reference:' }; 'output' { 'output-assembly:' }; 'metadata' { 'metadata-reference:' } }
+        Assert-True "$mode actual reference failure" ([string] $step.reason).StartsWith($prefix)
+        if ($mode -eq 'resolved') { Assert-Equal 'resolved Train.dll only' "assembly-reference:$hostDll" $step.reason }
+        if ($mode -eq 'metadata') { Assert-Equal 'metadata only' 'metadata-reference:Train.Core.Tests.dll:Train.Forbidden' $step.reason }
+        $after = @(Get-ChildItem -LiteralPath ([IO.Path]::GetTempPath()) -Directory -Filter 'train-isolation-*-core' | ForEach-Object FullName)
+        Assert-Equal "$mode isolated directory snapshot" ($before -join "`n") ($after -join "`n")
+    }
 }
 
 It "fixture-isolated-build-cleanup" {

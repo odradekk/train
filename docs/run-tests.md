@@ -39,11 +39,11 @@ Show the selected cases and prerequisites before execution; combine family/scope
 
 ## Execution and isolation
 
-Each run gets a fresh result directory with isolated saves, mutable content and user data. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
+Each run gets a fresh result directory for its reports and owned outputs. Core/Content `-Correctness` projects are rebuilt and run in temporary isolation; Scenes will follow the same rule when its test project exists. Other MSTest selections, including explicit `-Project`, build and run in the working tree and provide no module isolation evidence. Godot checks isolate application logs, external content, and user data, but do not yet isolate the game assembly from other implementation modules. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
 
 Process checks use measured, bounded timeouts. Cancellation or timeout preserves available evidence and terminates only this run's owned process tree; if cleanup cannot establish isolation, dispatch stops and the blocker is reported. Other worktrees' processes and ordinary game saves are left untouched.
 
-After an ordinary assertion failure, other independent, safe groups continue and all results are kept. A failed build/import blocks its dependent groups, cancellation stops dispatch, and serious state corruption stops that case at the first evidence. The exit is non-success whenever a selected required check fails, is blocked or does not finish. The report distinguishes failed, blocked, cancelled and not-executed outcomes; later passes never overwrite earlier failures.
+After an ordinary assertion failure, other independent, safe groups continue and all results are kept. A test assembly build or metadata read needed for discovery stops the run. A game build, import, or export failure after discovery blocks its dependent groups while independent groups continue. Cancellation stops dispatch, and serious state corruption stops that case at the first evidence. The exit is non-success whenever a selected required check fails, is blocked or does not finish. The report distinguishes failed, blocked, cancelled and not-executed outcomes; later passes never overwrite earlier failures.
 
 ## Results and evidence
 

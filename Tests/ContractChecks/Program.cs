@@ -1,5 +1,5 @@
 // 契约公开面检查工具：从源码声明与编译产物提取调用方可见的形状。
-// 与已确认基线比较，并检查公开签名是否泄露其他实现模块的类型。
+// 与已确认基线比较，并检查公开签名中的 Train 类型是否属于允许的契约依赖闭包。
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
