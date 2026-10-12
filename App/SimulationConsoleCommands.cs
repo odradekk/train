@@ -1,7 +1,7 @@
 
 using System.Globalization;
 using Train.App.Logging;
-using Train.Core.Simulation;
+using Train.Core.Contracts;
 
 namespace Train.App;
 
@@ -18,19 +18,21 @@ internal sealed class SimulationConsoleCommands
     internal const string SessionUnavailableEventId = "simulation_session_unavailable";
     internal const string RequiresPauseEventId = "simulation_requires_pause";
     internal const string FrozenEventId = "simulation_frozen";
+    internal const string BusyEventId = "simulation_busy";
+    internal const string CheckpointFailedEventId = "simulation_checkpoint_failed";
 
     private const string Usage =
         "用法: sim [status|pause|resume|speed 1|2|4|8|step [N]|checkpoint]";
 
-    private readonly App _app;
-    private readonly TrainLogger _logger;
+    private readonly HostCoordinator _host;
+    private readonly Action<LogLevel, string, string, string, IReadOnlyDictionary<string, object?>?, Exception?> _write;
 
-    internal SimulationConsoleCommands(App app, TrainLogger logger)
+    internal SimulationConsoleCommands(HostCoordinator host, Action<LogLevel, string, string, string, IReadOnlyDictionary<string, object?>?, Exception?> write)
     {
-        ArgumentNullException.ThrowIfNull(app);
-        ArgumentNullException.ThrowIfNull(logger);
-        _app = app;
-        _logger = logger;
+        ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(write);
+        _host = host;
+        _write = write;
     }
 
     internal void Execute(IReadOnlyList<string> arguments)
@@ -50,7 +52,7 @@ internal sealed class SimulationConsoleCommands
                 SetPaused(true);
                 return;
             case "resume" when arguments.Count == 1:
-                Resume();
+                SetPaused(false);
                 return;
             case "speed" when arguments.Count == 2 && TryParseSpeed(arguments[1], out var speed):
                 SetSpeed(speed);
@@ -62,143 +64,123 @@ internal sealed class SimulationConsoleCommands
                 ReportCheckpoint();
                 return;
             default:
-                _logger.Warning(Category, UsageEventId, Usage);
+                Log(LogLevel.Warning, UsageEventId, Usage);
                 return;
         }
     }
 
     private void ReportStatus()
     {
-        var status = _app.GetSimulationStatus();
+        var status = _host.GetStatus();
         if (status is null)
         {
             SessionUnavailable();
             return;
         }
 
-        var state = status.State;
+        var state = status.View;
         var fault = state.Fault is null
             ? "无"
-            : $"{state.Fault.Code}/{state.Fault.Phase}";
-        _logger.Info(Category, StatusEventId,
-            $"模拟位置={state.CompletedSteps}:{state.BoundarySequence}，模拟秒={Number(status.SimulationSeconds)}，" +
+            : $"{state.Fault.Code}/{state.Fault.Operation}/{state.Fault.Field}";
+        Log(LogLevel.Info, StatusEventId,
+            $"模拟位置={state.Position.CompletedSteps}:{state.Position.Sequence}，模拟秒={Number(status.SimulationSeconds)}，" +
             $"暂停={status.IsPaused}，设定倍速={(int)status.Speed}，实际倍速={Number(status.ActualSpeed)}，" +
-            $"待处理步数={status.PendingSteps}，帧余量秒={Number(status.Remainder)}，故障={fault}。");
+            $"玩家暂停={status.PlayerPaused}，失焦暂停={status.FocusPaused}，操作锁={status.OperationLocked}，" +
+            $"帧余量秒={Number(status.Remainder)}，故障={fault}。");
     }
 
     private void SetPaused(bool paused)
     {
-        if (!_app.SetSimulationPaused(paused))
+        if (_host.SetPaused(paused) is { } problem)
         {
-            SessionUnavailable();
+            ReportProblem(problem);
             return;
         }
 
-        _logger.Info(Category, paused ? PausedEventId : ResumedEventId,
-            paused ? "模拟已暂停。" : "模拟已继续运行。");
-    }
-
-    private void Resume()
-    {
-        var status = _app.GetSimulationStatus();
-        if (status is null)
-        {
-            SessionUnavailable();
-            return;
-        }
-        if (status.State.Fault is not null)
-        {
-            Frozen(status.State.Fault, "模拟已冻结，不能继续运行");
-            return;
-        }
-
-        SetPaused(false);
+        Log(LogLevel.Info, paused ? PausedEventId : ResumedEventId,
+            paused ? "玩家暂停已启用。" : _host.GetStatus()!.IsPaused
+                ? "玩家暂停已解除；其他暂停来源仍有效，模拟保持暂停。"
+                : "玩家暂停已解除，模拟已继续运行。");
     }
 
     private void SetSpeed(SimulationSpeed speed)
     {
-        if (!_app.SetSimulationSpeed(speed))
+        if (_host.SetSpeed(speed) is { } problem)
         {
-            SessionUnavailable();
+            ReportProblem(problem);
             return;
         }
 
-        _logger.Info(Category, SpeedChangedEventId,
+        Log(LogLevel.Info, SpeedChangedEventId,
             $"模拟倍速已设为 {(int)speed}。",
             new Dictionary<string, object?> { ["speed"] = (int)speed });
     }
 
     private void Step(ulong steps)
     {
-        var status = _app.GetSimulationStatus();
-        if (status is null)
+        var result = _host.Step(steps);
+        if (result.Problem is { } problem)
         {
-            SessionUnavailable();
+            ReportProblem(problem, $"请求推进 {steps} 步，实际推进 {result.Completed} 步。");
             return;
         }
-        if (status.State.Fault is not null)
-        {
-            Frozen(status.State.Fault, "模拟已冻结，不能手动推进");
-            return;
-        }
-        if (!status.IsPaused)
-        {
-            _logger.Warning(Category, RequiresPauseEventId, "手动推进前必须先暂停模拟。");
-            return;
-        }
-
-        var result = _app.StepSimulation(steps);
-        if (result is null)
-        {
-            SessionUnavailable();
-            return;
-        }
-        if (result.StateAfter.Fault is { } fault)
-        {
-            Frozen(fault, $"模拟推进 {result.StepsAdvanced} 步后冻结");
-            return;
-        }
-
-        _logger.Info(Category, SteppedEventId,
-            $"模拟已手动推进 {result.StepsAdvanced} 步，当前位置={result.StateAfter.CompletedSteps}:{result.StateAfter.BoundarySequence}。",
+        var position = _host.GetStatus()!.View.Position;
+        Log(LogLevel.Info, SteppedEventId,
+            $"请求推进 {steps} 步，实际推进 {result.Completed} 步，当前位置={position.CompletedSteps}:{position.Sequence}。",
             new Dictionary<string, object?>
             {
-                ["requested_steps"] = steps,
-                ["steps_advanced"] = result.StepsAdvanced,
-                ["completed_steps"] = result.StateAfter.CompletedSteps
+                ["requested_steps"] = steps, ["steps_advanced"] = result.Completed,
+                ["completed_steps"] = position.CompletedSteps
             });
     }
 
     private void ReportCheckpoint()
     {
-        var checkpoint = _app.CreateSimulationCheckpoint();
-        if (checkpoint is null)
+        switch (_host.CaptureCheckpoint())
         {
-            SessionUnavailable();
-            return;
+            case CoreResult<CoreCheckpoint>.Success success:
+                var checkpoint = success.Value;
+                Log(LogLevel.Info, CheckpointEventId,
+                    $"模拟检查点位置={checkpoint.Position.CompletedSteps}:{checkpoint.Position.Sequence}，SHA-256={checkpoint.Sha256}。",
+                    new Dictionary<string, object?>
+                    {
+                        ["completed_steps"] = checkpoint.Position.CompletedSteps,
+                        ["sequence"] = checkpoint.Position.Sequence, ["sha256"] = checkpoint.Sha256
+                    });
+                return;
+            case CoreResult<CoreCheckpoint>.Failure failure:
+                foreach (var problem in failure.Problems) ReportProblem(problem);
+                return;
+            case CoreResult<CoreCheckpoint>.Faulted faulted:
+                Log(LogLevel.Warning, CheckpointFailedEventId,
+                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。");
+                return;
         }
-
-        _logger.Info(Category, CheckpointEventId,
-            $"模拟检查点位置={checkpoint.Position.CompletedSteps}:{checkpoint.Position.Sequence}，SHA-256={checkpoint.Sha256}。",
-            new Dictionary<string, object?>
-            {
-                ["completed_steps"] = checkpoint.Position.CompletedSteps,
-                ["sequence"] = checkpoint.Position.Sequence,
-                ["sha256"] = checkpoint.Sha256
-            });
     }
 
     private void SessionUnavailable() =>
-        _logger.Warning(Category, SessionUnavailableEventId, "没有活动模拟会话。");
+        Log(LogLevel.Warning, SessionUnavailableEventId, "没有活动模拟会话。");
 
-    private void Frozen(SimulationFault fault, string message) =>
-        _logger.Warning(Category, FrozenEventId, $"{message}：{fault.Code}/{fault.Phase}。",
-            new Dictionary<string, object?>
-            {
-                ["fault_code"] = fault.Code,
-                ["fault_phase"] = fault.Phase.ToString()
-            });
+    private void ReportProblem(CoreProblem problem, string prefix = "")
+    {
+        var eventId = problem.Code switch
+        {
+            "simulation_session_unavailable" => SessionUnavailableEventId,
+            "simulation_requires_pause" => RequiresPauseEventId,
+            "busy" => BusyEventId,
+            "frozen" => FrozenEventId,
+            _ => CheckpointFailedEventId
+        };
+        var fault = problem.Code == "frozen" ? _host.GetStatus()?.View.Fault : null;
+        var detail = fault is null ? $"{problem.Code}/{problem.Field}" :
+            $"{fault.Code}/{fault.Operation}/{fault.Field}";
+        Log(LogLevel.Warning, eventId, $"{prefix}模拟操作未完成：{detail}。",
+            new Dictionary<string, object?> { ["problem_code"] = problem.Code, ["problem_field"] = problem.Field });
+    }
 
+    private void Log(LogLevel level, string eventId, string message,
+        IReadOnlyDictionary<string, object?>? attributes = null) =>
+        _write(level, Category, eventId, message, attributes, null);
     private static bool TryParseSpeed(string text, out SimulationSpeed speed)
     {
         speed = text switch

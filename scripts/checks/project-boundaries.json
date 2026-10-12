@@ -98,12 +98,14 @@
     "Train.Godot.Tests": {
       "path": "Tests/Godot/Train.Godot.Tests.csproj",
       "references": [
-        "Train"
+        "Train",
+        "Train.Core.ContractSupport",
+        "Train.Content.ContractSupport"
       ]
     },
     "Train.Engine.Tests": {
       "path": "Tests/Engine/Train.Engine.Tests.csproj",
-      "references": ["Train"]
+      "references": ["Train", "Train.Core.ContractSupport", "Train.Content.ContractSupport"]
     },
     "Train.Core.ContractSamples": {
       "path": "prototypes/core-contract/Train.Core.ContractSamples.csproj",

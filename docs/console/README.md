@@ -13,6 +13,8 @@
 
 发布构建的 `help` 列表不包含 `reload` 或 `sim`；Debug 游戏宿主列出五个基础命令与 `sim`。
 
+当前处于 #317 的生产切换前阶段：默认 App 仍使用旧模拟和内容加载入口；新 `HostCoordinator` 与契约命令通过实例级 `CreateHost` 测试装配委托接入，尚未连接真实工厂。[批准计划](https://github.com/odradekk/train/issues/317#issuecomment-6132109006)要求 #306、#308、#318 合入后再切换生产路径并删除旧入口。两条路径的差异见 [`sim`](sim.md) 和 [`reload`](reload.md)。
+
 ## 输入规则
 
 - 按反引号键（通常与 `~` 共用）打开控制台；打开后按 `Esc` 关闭，按 `Enter` 执行当前行。
@@ -25,4 +27,4 @@
 
 ## 实现依据
 
-基础分发器见 [`App/Console/ConsoleCommands.cs`](../../App/Console/ConsoleCommands.cs)，模拟命令宿主处理见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。
+基础分发器见 [`App/Console/ConsoleCommands.cs`](../../App/Console/ConsoleCommands.cs)，默认旧路径的模拟命令见 [`App/LegacySimulationConsoleCommands.cs`](../../App/LegacySimulationConsoleCommands.cs)，新契约路径见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs) 与 [`App/HostCoordinator.cs`](../../App/HostCoordinator.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。
