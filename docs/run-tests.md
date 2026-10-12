@@ -5,27 +5,47 @@
 ## 选择
 
 ```powershell
-# 默认快速层
+# 首次运行或工具清单更新后
+dotnet tool restore
+# 默认受影响项目的快速层
 pwsh -NoProfile -File scripts/test.ps1
-# 交付前和常规 CI
+# 交付前和常规 CI：受影响项目
 pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
-# 快速、集成和引擎三层，不含导出
-pwsh -NoProfile -File scripts/test.ps1 -Layer all
+# 全部项目及独立检查的快速、集成层
+pwsh -NoProfile -File scripts/test.ps1 -All -Layer fast,integration
+# 全部正确性检查，含引擎、不含导出
+pwsh -NoProfile -File scripts/test.ps1 -All -Layer all
+# 只比较当前工作区改动
+pwsh -NoProfile -File scripts/test.ps1 -BaseRef HEAD
 # 只选择 MSTest 项目
 pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration -Project core,content
 # 引擎层与两项 Windows 导出运行检查
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 ```
 
-`-Layer` 接受 `fast`、`integration`、`engine` 的一个或多个值；`all` 等于三者，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-Project` 接受 `core`、`content`、`godot`、`contract-support` 的一个或多个值，只筛选四个 MSTest 项目；指定它后不执行契约结构、内容 Schema 或引擎检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用。无效选择、整层实际执行零个用例、必需工具缺失或最低用例数不足均不能通过。最低用例数表位于 `scripts/test.ps1` 的 `$projects`；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
+`-Layer` 接受 `fast`、`integration`、`engine` 的一个或多个值；`all` 等于三者，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`godot`、`contract-support` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构、内容 Schema 和引擎检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用。
 
-快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例。无 `-Project` 的集成层还检查项目边界、契约公开面、调用样例和内容示例 Schema。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
+无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
+
+快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
 引擎层经 `scripts/checks/run-app-check.ps1` 执行 logging、content、main-menu 和 simulation-host 四项当前 App 检查，需要 `GODOT`。[#405](https://github.com/odradekk/train/issues/405)将改用引擎内运行器，命令行保持不变。显式导出选择另外运行 content-export、mods-export，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
+## 按改动选择
+
+默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从四个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。显式引擎层照常执行。
+
+以下共享文件改动选择全部 MSTest 项目：`Contracts/**`、任意层级的 `Directory.Build.*`、`global.json`、`docs/content/schemas/**`、`Tests/ContractSupport/**`、`Train.sln`、`.config/dotnet-tools.json`、`scripts/test.ps1`、`scripts/checks/**`。工作流 YAML 不在共享列表中。
+
+集成层的契约结构、公开面和调用样例检查，在 `Contracts/**`、任意 `*.csproj`、任意层级的 `Directory.Build.*`、`Train.sln`、`prototypes/**`、`Tests/ContractChecks/**` 或 `docs/contracts/public-api.txt` 改动时进入默认选择。内容示例 Schema 检查只在 `docs/content/**` 改动时进入默认选择。`-All` 选择两项独立检查。
+
+dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、120 秒分析超时或进程清理失败均使入口失败。工具输出写入本次运行目录。仓库路径使用 Git 返回的实际拼写，避免工具区分大小写的路径匹配漏选。
+
+摘要的 `selection` 保存基准引用、共同祖先 SHA、改动文件、共享规则、工具输出项目集合和最终选择。每个文件的 `project` 是包含它的最近项目目录对应的项目，嵌套项目优先；仅当该项目也在工具输出集合中时记录，否则为 `null`。此对应只作解释，选择仍由工具结果及共享规则决定。
+
 ## 执行与边界
 
-入口构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。项目边界检查跳过重复解决方案构建，仍构建不在解决方案中的调用样例和检查工具。Core/Content 的隔离重建已暂停，由 [#406](https://github.com/odradekk/train/issues/406)恢复；当前通过不证明隔离构建。
+入口有待运行检查时构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。项目边界检查跳过重复解决方案构建，仍构建不在解决方案中的调用样例和检查工具。Core/Content 的隔离重建已暂停，由 [#406](https://github.com/odradekk/train/issues/406)恢复；当前通过不证明隔离构建。
 
 各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一层内选中的 MSTest 项目并行运行，每个项目保留各自的最低用例数、TRX、超时和挂起转储；其他检查串行执行。同一工作树不允许并发运行入口。
 
