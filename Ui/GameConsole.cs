@@ -13,6 +13,7 @@ public partial class GameConsole : CanvasLayer
     private RichTextLabel _output = null!;
     private LineEdit _input = null!;
     public bool IsOpen => _open;
+    internal IReadOnlyList<LogEvent> LogEvents => _buffer.Snapshot();
 
     private bool _open;
     private int _renderedCount = -1;

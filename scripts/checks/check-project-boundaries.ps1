@@ -14,8 +14,8 @@ $failures = [Collections.Generic.List[string]]::new()
 
 $matrix = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
 $projects = [ordered]@{}
-$expectedFriends = @{ 'Train.Core' = 'Train.Core.Tests'; 'Train.Content' = 'Train.Content.Tests'; 'Train' = 'Train.Godot.Tests' }
-$godotProjects = @('Train', 'Train.Godot.Tests', 'Train.Godot.ContractSamples')
+$expectedFriends = @{ 'Train.Core' = @('Train.Core.Tests'); 'Train.Content' = @('Train.Content.Tests'); 'Train' = @('Train.Godot.Tests', 'Train.Engine.Tests') }
+$godotProjects = @('Train', 'Train.Godot.Tests', 'Train.Engine.Tests', 'Train.Godot.ContractSamples')
 foreach ($name in $matrix.projects.Keys) {
     $projects[$name] = $matrix.projects[$name].path
 }
@@ -112,14 +112,16 @@ try {
             # Microsoft.NET.Test.Sdk 注入的 Program.cs 在 NuGet 缓存内，不属于仓库的生产源码。
             if (Test-TestSdkCompileSource $path) { continue }
             if (-not (Test-ChildPath $path $owner)) { Add-Failure "linked source outside owner: $name ($path)" }
-            if ($name -eq 'Train' -and -not ([IO.Path]::GetRelativePath($root, $path) -match '^(App|Ui|Rendering)[\\/]|^\.godot[\\/]mono[\\/]temp[\\/]obj[\\/]')) {
+            $hostPath = [IO.Path]::GetRelativePath($root, $path)
+            if ($name -eq 'Train' -and -not ($hostPath -match '^(App|Ui|Rendering)[\\/]|^\.godot[\\/]mono[\\/]temp[\\/]obj[\\/]' -or
+                ($projectConfiguration -eq 'Debug' -and $hostPath -match '^Tests[\\/]Engine[\\/]Bootstrap[\\/]'))) {
                 Add-Failure "host compiles foreign source: $path"
             }
         }
         foreach ($item in @($data.Items.InternalsVisibleTo)) {
             $friend = [string] $item.Identity
             $record.friends += $friend
-            if ($friend -ne $expectedFriends[$name]) { Add-Failure "forbidden friend assembly: $name -> $friend" }
+            if ($friend -notin $expectedFriends[$name]) { Add-Failure "forbidden friend assembly: $name -> $friend" }
         }
         $assembly = [string] $data.Properties.TargetPath
         if (-not (Test-Path -LiteralPath $assembly)) { [Console]::Error.WriteLine("failed output missing: $assembly"); exit 1 }
@@ -140,7 +142,7 @@ try {
                 $friend = $blob.ReadSerializedString()
                 if ($friend -notin $record.friends) {
                     $record.friends += $friend
-                    if ($friend -ne $expectedFriends[$name]) { Add-Failure "forbidden output friend assembly: $name -> $friend" }
+                    if ($friend -notin $expectedFriends[$name]) { Add-Failure "forbidden output friend assembly: $name -> $friend" }
                 }
             }
             foreach ($target in @(Get-AssemblyReferenceNames $metadata)) {

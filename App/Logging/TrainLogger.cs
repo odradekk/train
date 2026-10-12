@@ -48,6 +48,10 @@ public sealed class TrainLogger : IContentLogger, IDisposable
     }
 
     public string? JsonlPath => _jsonl.FilePath;
+    internal int PendingGodotEventCount
+    {
+        get { lock (_gate) return _godotQueue.Count; }
+    }
 
     public TrainLogger(
         string logDirectory,
