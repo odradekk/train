@@ -14,7 +14,7 @@ $failures = [Collections.Generic.List[string]]::new()
 
 $matrix = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
 $projects = [ordered]@{}
-$expectedFriends = @{ 'Train.Core' = @('Train.Core.Tests'); 'Train.Content' = @('Train.Content.Tests'); 'Train' = @('Train.Godot.Tests', 'Train.Engine.Tests') }
+$expectedFriends = @{ 'Train.Core' = @('Train.Core.Tests'); 'Train.Content' = @('Train.Content.Tests'); 'Train.Scenes' = @('Train.Scenes.Tests'); 'Train' = @('Train.Godot.Tests', 'Train.Engine.Tests') }
 $godotProjects = @('Train', 'Train.Godot.Tests', 'Train.Engine.Tests', 'Train.Godot.ContractSamples')
 foreach ($name in $matrix.projects.Keys) {
     $projects[$name] = $matrix.projects[$name].path

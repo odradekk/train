@@ -95,6 +95,15 @@
         "Train.Content.ContractSupport"
       ]
     },
+    "Train.Scenes.Tests": {
+      "path": "Tests/Scenes/Train.Scenes.Tests.csproj",
+      "references": [
+        "Train.Scenes",
+        "Train.Core.ContractSupport",
+        "Train.Content.ContractSupport",
+        "Train.Scenes.ContractSupport"
+      ]
+    },
     "Train.Godot.Tests": {
       "path": "Tests/Godot/Train.Godot.Tests.csproj",
       "references": [
