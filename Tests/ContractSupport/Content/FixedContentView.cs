@@ -13,12 +13,7 @@ public sealed class FixedContentView : IContentView
         init => generation = value;
     }
 
-    private ContentRevision? persistentRevision;
-    public ContentRevision PersistentRevision
-    {
-        get => persistentRevision ?? throw Unconfigured(nameof(PersistentRevision));
-        init => persistentRevision = value;
-    }
+    public ContentRevision PersistentRevision => throw Unconfigured(nameof(PersistentRevision));
 
     private CoreContentProjection? core;
     public CoreContentProjection Core
@@ -27,48 +22,17 @@ public sealed class FixedContentView : IContentView
         init => core = value;
     }
 
-    private ImmutableArray<PackageStatus>? packages;
-    public ImmutableArray<PackageStatus> Packages
-    {
-        get => packages ?? throw Unconfigured(nameof(Packages));
-        init => packages = value;
-    }
+    public ImmutableArray<PackageStatus> Packages => throw Unconfigured(nameof(Packages));
 
-    private ImmutableArray<VoxelCatalogEntry>? voxels;
-    public ImmutableArray<VoxelCatalogEntry> Voxels
-    {
-        get => voxels ?? throw Unconfigured(nameof(Voxels));
-        init => voxels = value;
-    }
+    public ImmutableArray<VoxelCatalogEntry> Voxels => throw Unconfigured(nameof(Voxels));
 
-    private ImmutableArray<BlueprintSummary>? blueprints;
-    public ImmutableArray<BlueprintSummary> Blueprints
-    {
-        get => blueprints ?? throw Unconfigured(nameof(Blueprints));
-        init => blueprints = value;
-    }
+    public ImmutableArray<BlueprintSummary> Blueprints => throw Unconfigured(nameof(Blueprints));
 
-    private ImmutableArray<SavedContentDraft>? localDrafts;
-    public ImmutableArray<SavedContentDraft> LocalDrafts
-    {
-        get => localDrafts ?? throw Unconfigured(nameof(LocalDrafts));
-        init => localDrafts = value;
-    }
+    public ImmutableArray<SavedContentDraft> LocalDrafts => throw Unconfigured(nameof(LocalDrafts));
 
-    private ImmutableArray<GenerationProfileSummary>? generationProfiles;
-    public ImmutableArray<GenerationProfileSummary> GenerationProfiles
-    {
-        get => generationProfiles ?? throw Unconfigured(nameof(GenerationProfiles));
-        init => generationProfiles = value;
-    }
+    public ImmutableArray<GenerationProfileSummary> GenerationProfiles => throw Unconfigured(nameof(GenerationProfiles));
 
-    private ImmutableDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>> blueprintRecords = ImmutableDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>>.Empty;
-    public IReadOnlyDictionary<BlueprintAddress, ContentLookup<BlueprintRecord>> BlueprintRecords
-    {
-        init => blueprintRecords = value.ToImmutableDictionary();
-    }
-    public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address)
-        => blueprintRecords.TryGetValue(address, out var result) ? result : throw Unconfigured(nameof(FindBlueprint));
+    public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address) => throw Unconfigured(nameof(FindBlueprint));
 
     private ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>> designs = ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>>.Empty;
     public IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>> Designs
@@ -86,77 +50,23 @@ public sealed class FixedContentView : IContentView
     public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
         => voxelAppearances.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindVoxelAppearance));
 
-    private ImmutableDictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>> voxelDisplays = ImmutableDictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>>.Empty;
-    public IReadOnlyDictionary<VoxelDefinitionId, ContentLookup<VoxelDisplayProjection>> VoxelDisplays
-    {
-        init => voxelDisplays = value.ToImmutableDictionary();
-    }
-    public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id)
-        => voxelDisplays.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindVoxelDisplay));
+    public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => throw Unconfigured(nameof(FindVoxelDisplay));
 
-    private ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> definitionDisplays = ImmutableDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>>.Empty;
-    public IReadOnlyDictionary<CoreDefinitionReference, ContentLookup<ContentDisplay>> DefinitionDisplays
-    {
-        init => definitionDisplays = value.ToImmutableDictionary();
-    }
-    public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id)
-        => definitionDisplays.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindDefinitionDisplay));
+    public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id) => throw Unconfigured(nameof(FindDefinitionDisplay));
 
-    private ImmutableDictionary<GoodId, ContentLookup<GoodPresentation>> goods = ImmutableDictionary<GoodId, ContentLookup<GoodPresentation>>.Empty;
-    public IReadOnlyDictionary<GoodId, ContentLookup<GoodPresentation>> Goods
-    {
-        init => goods = value.ToImmutableDictionary();
-    }
-    public ContentLookup<GoodPresentation> FindGood(GoodId id)
-        => goods.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindGood));
+    public ContentLookup<GoodPresentation> FindGood(GoodId id) => throw Unconfigured(nameof(FindGood));
 
-    private ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>> assets = ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>>.Empty;
-    public IReadOnlyDictionary<AssetRevision, ContentLookup<ContentAsset>> Assets
-    {
-        init => assets = value.ToImmutableDictionary();
-    }
-    public ContentLookup<ContentAsset> FindAsset(AssetRevision id)
-        => assets.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindAsset));
+    public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => throw Unconfigured(nameof(FindAsset));
 
-    private ImmutableDictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> settlementLayouts = ImmutableDictionary<SettlementId, ContentLookup<SettlementLayoutProjection>>.Empty;
-    public IReadOnlyDictionary<SettlementId, ContentLookup<SettlementLayoutProjection>> SettlementLayouts
-    {
-        init => settlementLayouts = value.ToImmutableDictionary();
-    }
-    public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id)
-        => settlementLayouts.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindSettlementLayout));
+    public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => throw Unconfigured(nameof(FindSettlementLayout));
 
-    private ImmutableDictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>> creatures = ImmutableDictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>>.Empty;
-    public IReadOnlyDictionary<CreatureDefinitionId, ContentLookup<CreatureAppearanceProjection>> Creatures
-    {
-        init => creatures = value.ToImmutableDictionary();
-    }
-    public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id)
-        => creatures.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindCreature));
+    public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => throw Unconfigured(nameof(FindCreature));
 
-    private ImmutableDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>> lairs = ImmutableDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>>.Empty;
-    public IReadOnlyDictionary<LairTypeId, ContentLookup<LairAppearanceProjection>> Lairs
-    {
-        init => lairs = value.ToImmutableDictionary();
-    }
-    public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id)
-        => lairs.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindLair));
+    public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => throw Unconfigured(nameof(FindLair));
 
-    private ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> terrains = ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>.Empty;
-    public IReadOnlyDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> Terrains
-    {
-        init => terrains = value.ToImmutableDictionary();
-    }
-    public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id)
-        => terrains.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindTerrain));
+    public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => throw Unconfigured(nameof(FindTerrain));
 
-    private ImmutableDictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> railwayAppearances = ImmutableDictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>.Empty;
-    public IReadOnlyDictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> RailwayAppearances
-    {
-        init => railwayAppearances = value.ToImmutableDictionary();
-    }
-    public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id)
-        => railwayAppearances.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindRailwayAppearance));
+    public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => throw Unconfigured(nameof(FindRailwayAppearance));
 
 
     private static InvalidOperationException Unconfigured(string member)

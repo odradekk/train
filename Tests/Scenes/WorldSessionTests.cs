@@ -26,7 +26,7 @@ public sealed class WorldSessionTests
     private static SceneWorldSnapshot Snapshot(ulong steps = 0, ulong sequence = 0,
         InstanceView? instance = null, bool removed = false, IContentView? content = null) => new(new FixedCoreReadView
     {
-        Position = new(steps, sequence), InputIdentity = new("scenes-test"), Revision = new(sequence),
+        Position = new(steps, sequence), InputIdentity = new("scenes-test"),
         Nodes = new Dictionary<NodeId, Lookup<NodeView>>
         {
             [new(1)] = new Lookup<NodeView>.Found(Node(1)), [new(2)] = new Lookup<NodeView>.Found(Node(2)),

@@ -18,7 +18,7 @@ internal static class SceneFixtures
             new("tile"), new("tile"), new("tile"), new("tile")), new(false, null));
     internal static FixedContentView Content(DesignEvaluation? evaluation = null) => new()
     {
-        Generation = new(1), PersistentRevision = new(1),
+        Generation = new(1),
         Core = new(new("scenes-test"), [], [], [], [], [], [], [], [], [], [], [], [], [], []),
         Designs = evaluation is null ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>() :
             new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) },

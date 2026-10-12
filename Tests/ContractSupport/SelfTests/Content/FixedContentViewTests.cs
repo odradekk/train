@@ -11,9 +11,10 @@ public sealed class FixedContentViewTests
     [TestMethod]
     public void ExplicitDefaultValueIsConfigured()
     {
-        var view = new FixedContentView { Generation = new ContentGeneration(0) };
+        var core = new CoreContentProjection(new("input"), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        var view = new FixedContentView { Generation = new ContentGeneration(0), Core = core };
         Assert.AreEqual(new ContentGeneration(0), view.Generation);
-        Assert.AreEqual(view.Generation, view.Generation);
+        Assert.AreSame(core, view.Core);
     }
 
     [TestMethod]
@@ -21,37 +22,41 @@ public sealed class FixedContentViewTests
     {
         var view = new FixedContentView();
         AssertUnconfigured(() => _ = view.Generation);
+        AssertUnconfigured(() => _ = view.Core);
+        AssertUnconfigured(() => view.FindDesign(new DesignHash("design")));
+        AssertUnconfigured(() => view.FindVoxelAppearance(new VoxelDefinitionId("voxel")));
+        AssertUnconfigured(() => _ = view.PersistentRevision);
+        AssertUnconfigured(() => _ = view.Packages);
         AssertUnconfigured(() => view.FindAsset(new AssetRevision("asset")));
     }
 
     [TestMethod]
     public void ExplicitMissingIsRetainedAndConfigurationIsCopied()
     {
-        var id = new AssetRevision("asset");
-        var missing = new ContentLookup<ContentAsset>.Missing([]);
-        var entries = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> { [id] = missing };
-        var view = new FixedContentView { Assets = entries };
+        var id = new DesignHash("design");
+        var missing = new ContentLookup<DesignEvaluation>.Missing([]);
+        var entries = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [id] = missing };
+        var view = new FixedContentView { Designs = entries };
         entries.Clear();
-        Assert.AreSame(missing, view.FindAsset(id));
-        Assert.AreSame(missing, view.FindAsset(id));
-        AssertUnconfigured(() => view.FindAsset(new AssetRevision("other")));
+        Assert.AreSame(missing, view.FindDesign(id));
+        Assert.AreSame(missing, view.FindDesign(id));
+        AssertUnconfigured(() => view.FindDesign(new DesignHash("other")));
     }
 
     [TestMethod]
-    public void FoundAssetReturnsFixedObject()
+    public void FoundVoxelAppearanceReturnsFixedObject()
     {
-        var id = new AssetRevision("png");
-        var asset = new ContentAsset(id, [1, 2], new AssetMetadata.Png(1, 1), []);
-        var found = new ContentLookup<ContentAsset>.Found(asset);
+        var id = new VoxelDefinitionId("voxel");
+        var appearance = new VoxelAppearanceProjection(id, AllowedVoxelOrientations.All24,
+            new VoxelCollision.None(), new VoxelPresentation.Mesh(new("mesh"), []), new(false, null));
+        var found = new ContentLookup<VoxelAppearanceProjection>.Found(appearance);
         var view = new FixedContentView
         {
-            Assets = new Dictionary<AssetRevision, ContentLookup<ContentAsset>> { [id] = found },
-            Packages = []
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [id] = found }
         };
-        Assert.AreSame(found, view.FindAsset(id));
-        Assert.AreSame(asset, ((ContentLookup<ContentAsset>.Found)view.FindAsset(id)).Value);
-        Assert.IsTrue(view.Packages.IsEmpty);
-        AssertUnconfigured(() => _ = new FixedContentView().Packages);
+        Assert.AreSame(found, view.FindVoxelAppearance(id));
+        Assert.AreSame(appearance, ((ContentLookup<VoxelAppearanceProjection>.Found)view.FindVoxelAppearance(id)).Value);
+        AssertUnconfigured(() => view.FindVoxelAppearance(new("other")));
     }
 
     private static void AssertUnconfigured(Action operation)
