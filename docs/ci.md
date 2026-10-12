@@ -2,13 +2,13 @@
 
 四模块契约验证的目标增量见[CI 与交付时机](contracts/testing.md#ci-与交付时机)。以下描述工作流的实际选择；各次结构检查结果以统一入口的摘要为准。
 
-`.github/workflows/windows-checks.yml` 在发往 `master` 的 PR 创建、更新和重新打开时运行固定轻量集合：
+`.github/workflows/windows-checks.yml` 在发往 `master` 的 PR 创建、更新和重新打开时运行受影响项目的快速与集成层：
 
 ```powershell
 pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 ```
 
-入口构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行 Core、Content、Godot 宿主和 ContractSupport 四个 MSTest 项目的快速与集成用例，并检查结构、公开面、调用样例和内容示例 Schema。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建已暂停，由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
+工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行所选测试项目；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建已暂停，由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
@@ -17,7 +17,7 @@ YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断
 合并前可在 PR 上添加 `ci:correctness` 标签，请求对**添加标签时的 PR head**执行一次：
 
 ```powershell
-pwsh -NoProfile -File scripts/test.ps1 -Layer all
+pwsh -NoProfile -File scripts/test.ps1 -All -Layer all
 ```
 
 标签只响应 `labeled` 事件。保留标签后继续推送仍只跑轻量集合；要重新请求，先移除再添加。仓库已有该标签；若被删除，可先用下面的 `gh label create` 重建，再请求运行：
@@ -40,6 +40,8 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 
 两种执行选择分别生成 `Windows routine`、`Windows correctness` 检查。其他标签的 run 名为 `Windows unrelated-label`，job 在分配 runner 前跳过；GitHub 的 Checks API 会保留该 job 名的未求值表达式，与已执行的常规或正确性检查不同名。
+
+在 `master` 上手动运行 `routine` 时，默认基准与 HEAD 相同，得到空选择并成功退出，不构建；需要完整回归时选择 `correctness`。
 
 ## 环境与证据
 
