@@ -6,7 +6,7 @@ Use this procedure as the worker of one Issue. The worker implements, tests and 
 
 Work only in the assigned worktree, branch and Issue scope. You may commit, push the task branch with `git push -u origin <branch>`, open and update the PR, and post Issue comments. Do not push to master, merge, force-push, rebase a pushed branch, close Issues, check Acceptance criteria or change their wording.
 
-You talk only to your reviewer. Each of your turns ends with a reply to the reviewer whose last line is one of:
+You talk only to your reviewer. Ask questions only by ending your turn with `WORKER: question`, not with interactive input tools. Each of your turns ends with a reply to the reviewer whose last line is exactly one of:
 
 - `WORKER: plan` — your plan is ready for approval.
 - `WORKER: question` — you need a decision before continuing.
@@ -14,6 +14,8 @@ You talk only to your reviewer. Each of your turns ends with a reply to the revi
 - `WORKER: blocked` — you cannot continue; say why and what is needed.
 
 The reviewer decides design choices the docs leave open. Do not make such choices silently or widen the scope; ask instead.
+
+Ignored leftovers inside the worktree, such as old build outputs, go away with the worktree; do not spend work on deleting them.
 
 For Godot scene, resource, editor or runtime work, use the project's Godot MCP Native plugin (`addons/godot_mcp/`) under [Godot MCP validation](#godot-mcp-validation).
 

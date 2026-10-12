@@ -38,10 +38,10 @@ The current stage is the lowest-numbered open [stage acceptance Issue](#stage-in
 1. Verify the candidate's Acceptance criteria are clear enough to start. If not, comment the gap, label it `needs-info`, and pick another candidate.
 2. Create the workspace with Paseo `create_workspace`: `isolation: worktree`, `mode: branch-off`, `branchName: issue-<n>-<slug>`, `baseBranch: origin/master`, `title: #<n> <module>`. Verify the branch and baseline SHA in the checkout. If the branch tracks `origin/master`, run `git branch --unset-upstream` so a bare `git push` cannot target master.
 3. If the Issue needs Godot, start the worktree's editor on its port and verify that `get_project_info` returns this worktree as `project_path` ([godot-mcp.md](godot-mcp.md)). If it needs Blender, start a Blender instance on its port ([blender-mcp.md](blender-mcp.md)). Point the worktree's `.mcp.json` and `.codex/config.toml` at these ports and run `git update-index --skip-worktree .mcp.json .codex/config.toml`. Do this before creating the reviewer, because clients connect at session start.
-4. Post the dispatch comment: worktree path, task branch, baseline SHA, PR base `master`, module, stage acceptance Issue, contract baseline, MCP ports (Godot with its verified path, Blender) or not applicable, and the Paseo workspace ID.
+4. Post the dispatch comment: worktree path, task branch, baseline SHA, PR base `master`, module, stage acceptance Issue, contract baseline, MCP ports (Godot with its verified path, Blender) or not applicable, the Paseo workspace ID, and your own Paseo agent ID for the reviewer's report.
 5. Create the reviewer with `create_agent` in that workspace (`provider: claude/claude-opus-5-5`, `settings: { modeId: bypassPermissions, thinkingOptionId: xhigh }`, title `review #<n>`) and this initial prompt:
 
-   > You are the reviewer for Issue #\<n\> in this worktree. Follow docs/review-sop.md. The dispatch comment on the Issue has your worktree, branch, MCP assignment and stage. Create the worker, run the plan and delivery reviews, and end your final message with a `PAIR-RESULT:` line.
+   > You are the reviewer for Issue #\<n\> in this worktree. Follow docs/review-sop.md. The dispatch comment on the Issue has your worktree, branch, MCP assignment and stage. Create the worker, run the plan and delivery reviews, end your final message with a `PAIR-RESULT:` line, and send that line to the coordinator agent named in the dispatch comment.
 
 6. Add the Paseo workspace and reviewer agent IDs to the dispatch comment and update the [progress record](#progress-record).
 
@@ -51,7 +51,7 @@ The current stage is the lowest-numbered open [stage acceptance Issue](#stage-in
 
 Do not prompt the worker or join the review. Act only on:
 
-- **A reviewer notification whose last line is `PAIR-RESULT:`.** `accepted` goes to [step 3](#3-merge-and-close--coordinator); `blocked` goes to [step 2](#2-blocked-pairs--coordinator). Notifications without that line are intermediate turns; ignore them.
+- **A `PAIR-RESULT:` line from a reviewer.** The reviewer sends it to you with `send_agent_prompt`; finish notifications are not enough, because Paseo notifies you only about turns you started. `accepted` goes to [step 3](#3-merge-and-close--coordinator); `blocked` goes to [step 2](#2-blocked-pairs--coordinator). Notifications without that line are intermediate turns; ignore them.
 - **The heartbeat.** Create one Paseo heartbeat for yourself, about every 30 minutes. On each heartbeat:
   - A reviewer that stopped with a model-capacity or transient error gets a short continue prompt on the same model.
   - A pair where both agents are idle and no `PAIR-RESULT:` arrived gets a prompt asking the reviewer to continue or report.
