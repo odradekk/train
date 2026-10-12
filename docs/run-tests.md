@@ -6,7 +6,9 @@ This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
-默认从 `Tests/` 下发现引用 `MSTest.TestAdapter` 或 `MSTest` 的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。未指定模块的 `-Correctness` 还要求 Core、Content、Godot 三个现有入口都可发现，缺失时报告阻塞。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。模块选择包含相应的契约支持自检；模块正确性选择还包含 `contracts.structure`。Godot 隔离装配不存在时，`-Module godot -Correctness` 将待实现项加入所选用例并明确报告阻塞；`-Family` 和 `-Test` 继续对它筛选。当前引擎检查仍分别执行并报告。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属；Core/Content 的 `-Correctness` 在系统临时目录按允许依赖闭包重建并运行，未来的 Scenes 项目也按相同规则处理。临时目录在运行结束后清理，输入及引用清单留在本次报告目录；`TestResults/.gdignore` 阻止 Godot 扫描报告。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
+默认从 `Tests/` 下发现引用 `MSTest.TestAdapter` 或 `MSTest` 的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。未指定模块的 `-Correctness` 还要求 Core、Content、Godot 三个现有入口都可发现，缺失时报告阻塞。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。模块选择包含相应的契约支持自检；模块正确性选择还包含 `contracts.structure`。Godot 隔离装配不存在时，`-Module godot -Correctness` 将待实现项加入所选用例并明确报告阻塞；`-Family` 和 `-Test` 继续对它筛选。当前引擎检查仍分别执行并报告。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
+
+未指定 `-Project` 时，Core/Content 的 `-Correctness` 在系统临时目录按允许依赖闭包重建并运行，未来的 Scenes 项目也按相同规则处理。其他 MSTest 选择在工作树中构建并运行，包括 `-Correctness` 配合 `-Project` 的调用，不能证明模块隔离；普通 MSTest 也不能证明引擎隔离。临时目录在运行结束后清理，输入及引用清单留在本次报告目录；`TestResults/.gdignore` 阻止 Godot 扫描报告。Godot 检查隔离应用日志、外部内容和用户数据，但尚未将游戏程序集与其他实现模块隔离。
 
 `-Test content.examples-schema` 调用现有 JSON Schema 校验器检查 `docs/content/examples/` 的全部当前格式示例及 Schema 自身；需要 Python 和 `jsonschema` 包。示例为空、格式不符或工具缺失都不能通过。此项不验证跨文件引用或生产加载器行为。
 
@@ -39,7 +41,7 @@ Show the selected cases and prerequisites before execution; combine family/scope
 
 ## Execution and isolation
 
-Each run gets a fresh result directory for its reports and owned outputs. Core/Content `-Correctness` projects are rebuilt and run in temporary isolation; Scenes will follow the same rule when its test project exists. Other MSTest selections, including explicit `-Project`, build and run in the working tree and provide no module isolation evidence. Godot checks isolate application logs, external content, and user data, but do not yet isolate the game assembly from other implementation modules. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
+Each run gets a fresh result directory for its reports and owned outputs. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
 
 Process checks use measured, bounded timeouts. Cancellation or timeout preserves available evidence and terminates only this run's owned process tree; if cleanup cannot establish isolation, dispatch stops and the blocker is reported. Other worktrees' processes and ordinary game saves are left untouched.
 

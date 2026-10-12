@@ -1,9 +1,13 @@
 # 统一入口与结构检查共用构建失败分类、允许依赖闭包与元数据读取。
 # 仓库错误不能被同时出现的环境错误遮蔽。
 function Get-BuildFailureKind([string] $Output) {
-    if ($Output -match '(?im)\berror\s+(?:CS(?!2012)\d+|NU(?!1301)\d+|MSB4019|NETSDK1045|NETSDK1141)\b') { return 'failed' }
-    if ($Output -match '(?im)\berror\s+(?:NU1301|MSB4236|CS2012|MSB3027)\b' -or
-        $Output -match 'compatible .NET SDK was not found|No .NET SDKs were found|Unable to load the service index') {
+    # 警告不决定失败分类；任一仓库错误优先于同时出现的环境错误。
+    $diagnostics = ($Output -split '\r?\n' | Where-Object { $_ -notmatch '\bwarning(?:\s+[A-Z]+\d+)?\s*:' }) -join "`n"
+    $errors = [regex]::Matches($diagnostics, '(?im)\berror\s+([A-Z]+\d+)\b')
+    foreach ($diagnosticError in $errors) {
+        if ($diagnosticError.Groups[1].Value -notmatch '^(NU1301|NETSDK1141|MSB4236|CS2012|MSB3027)$') { return 'failed' }
+    }
+    if ($errors.Count -gt 0 -or $diagnostics -match 'compatible .NET SDK was not found|No .NET SDKs were found') {
         return 'blocked'
     }
     return 'failed'

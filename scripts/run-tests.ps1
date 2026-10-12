@@ -2,12 +2,13 @@
 # MSTest 分类来自 TestCategory；App 检查由 runner-catalog.json 登记，断言留在各自实现中。
 # Windows CI 与本地验证使用同一入口。
 #
-# Exit codes:
-#   0 selected required checks passed
-#   1 a check, build, repository input, or runner failed
-#   2 blocked (missing environment, discovery, cleanup, pending work)
-#   3 cancelled or timed out
-#   4 invalid arguments, unknown names, or an explicit selection that matches nothing
+# 退出码：
+#   0 所选必需检查都通过
+#   1 检查、构建、仓库输入或入口自身失败
+#   2 阻塞（环境不可用、发现失败、清理失败、玩家用户目录变化、待实现的检查）
+#   3 取消或超时
+#   4 参数非法、未知名称或明确选择零匹配
+# 有效运行按失败、清理失败、取消/超时、其他阻塞/未完成、通过的顺序合并结果。
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
@@ -37,7 +38,7 @@ $script:OverrideCfg = $null
 $script:PerCheckAppDataUsed = $false
 $script:IsolationRoots = [System.Collections.Generic.List[string]]::new()
 $script:IsolatedModules = @('core', 'content', 'scenes')
-$script:TestAssemblyBoundary = 'Core/Content 的 -Correctness 另行隔离构建；Scenes 测试入口建立后沿用此规则。普通 MSTest 不证明 Godot 引擎或隔离装配行为。'
+$script:TestAssemblyBoundary = '未指定 -Project 时，Core/Content 的 -Correctness 另行隔离构建；Scenes 测试入口建立后沿用此规则。指定 -Project 时在工作树构建，不证明模块隔离。普通 MSTest 不证明 Godot 引擎或隔离装配行为。'
 . (Join-Path $PSScriptRoot 'checks/common-checks.ps1')
 
 function Protect-StandardHandles {
@@ -170,9 +171,10 @@ function Get-HelpText {
 退出码
   0 所选必需检查都通过
   1 检查、构建、项目输入或入口自身失败
-  2 阻塞（环境、发现、清理未确认、待实现的检查）
+  2 阻塞（环境不可用、发现失败、清理失败、玩家用户目录变化、待实现的检查）
   3 取消或超时
   4 参数非法、未知名称或明确选择零匹配
+  有效运行按失败、清理失败、取消/超时、其他阻塞/未完成、通过的顺序合并结果。
 
 边界
   test-assembly: $($script:TestAssemblyBoundary)
@@ -380,15 +382,15 @@ function Remove-IsolatedProjects {
     return $errors.ToArray()
 }
 
-function New-IsolatedReferenceFailure([string] $Reason, [string] $Outcome = 'failed') {
-    return [pscustomobject]@{ Reason = $Reason; Outcome = $Outcome }
+function New-IsolatedReferenceFailure([string] $Reason, [string] $Outcome = 'failed', [string] $LogPath = '') {
+    return [pscustomobject]@{ Reason = $Reason; Outcome = $Outcome; LogPath = $LogPath }
 }
 
-function New-IsolatedProcessFailure($Run, $Disposition, [string] $Reason) {
+function New-IsolatedProcessFailure($Run, $Disposition, [string] $Reason, [string] $LogPath) {
     $outcome = if ($Disposition.Kind -eq 'exit') { Get-BuildFailureKind $Run.Output }
         elseif ($Disposition.Kind -in @('timeout', 'cancel')) { 'cancelled' }
         else { 'blocked' }
-    return (New-IsolatedReferenceFailure -Reason "${Reason}:$($Disposition.Kind):$($Run.ExitCode)" -Outcome $outcome)
+    return (New-IsolatedReferenceFailure -Reason "${Reason}:$($Disposition.Kind):$($Run.ExitCode)" -Outcome $outcome -LogPath $LogPath)
 }
 
 function Test-IsolatedReferences {
@@ -397,17 +399,17 @@ function Test-IsolatedReferences {
     $log = Join-Path $EvidenceRoot 'references.log'
     $run = Invoke-OwnedProcess -FileName $Dotnet -Arguments $arguments -WorkingDirectory $IsolationRoot -TempDirectory $TempDirectory -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $log
     $disposition = Get-ProcessDisposition $run
-    if ($disposition.Kind -ne 'exit' -or $run.ExitCode -ne 0) { return (New-IsolatedProcessFailure -Run $run -Disposition $disposition -Reason 'msbuild') }
+    if ($disposition.Kind -ne 'exit' -or $run.ExitCode -ne 0) { return (New-IsolatedProcessFailure -Run $run -Disposition $disposition -Reason 'msbuild' -LogPath $log) }
     # MSBuild can append MSB9008 after its JSON when a forbidden project is absent from the isolated copy.
     $jsonStart = $run.Output.IndexOf('{')
     $jsonEnd = $run.Output.LastIndexOf('}')
     try { $resolved = $run.Output.Substring($jsonStart, $jsonEnd - $jsonStart + 1) | ConvertFrom-Json }
-    catch { return (New-IsolatedReferenceFailure 'msbuild-output-invalid') }
+    catch { return (New-IsolatedReferenceFailure 'msbuild-output-invalid' -LogPath $log) }
     $inside = $IsolationRoot.TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
     $firstParty = [System.Collections.Generic.List[object]]::new()
     foreach ($item in @($resolved.Items.ProjectReference)) {
         if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase) -or [string] $item.Filename -notin $Allowed) {
-            return (New-IsolatedReferenceFailure "project-reference:$($item.FullPath)")
+            return (New-IsolatedReferenceFailure "project-reference:$($item.FullPath)" -LogPath $log)
         }
         $firstParty.Add(@{ kind = 'project'; name = [string] $item.Filename; path = [string] $item.FullPath })
     }
@@ -415,14 +417,14 @@ function Test-IsolatedReferences {
         $name = [string] $item.Filename
         if ($name -ne 'Train' -and -not $name.StartsWith('Train.', [StringComparison]::Ordinal)) { continue }
         if ($name -notin $Allowed -or -not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
-            return (New-IsolatedReferenceFailure "assembly-reference:$($item.FullPath)")
+            return (New-IsolatedReferenceFailure "assembly-reference:$($item.FullPath)" -LogPath $log)
         }
         $firstParty.Add(@{ kind = 'resolved'; name = $name; path = [string] $item.FullPath })
     }
     foreach ($item in @($resolved.Items.Compile)) {
         if (Test-TestSdkCompileSource ([string] $item.FullPath)) { continue }
         if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
-            return (New-IsolatedReferenceFailure "compile-source:$($item.FullPath)")
+            return (New-IsolatedReferenceFailure "compile-source:$($item.FullPath)" -LogPath $log)
         }
     }
     foreach ($name in $Allowed) {
@@ -433,14 +435,14 @@ function Test-IsolatedReferences {
         $sourceLog = Join-Path $EvidenceRoot "compile-$name.log"
         $sourceRun = Invoke-OwnedProcess -FileName $Dotnet -Arguments $sourceArguments -WorkingDirectory $IsolationRoot -TempDirectory $TempDirectory -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $sourceLog
         $sourceDisposition = Get-ProcessDisposition $sourceRun
-        if ($sourceDisposition.Kind -ne 'exit' -or $sourceRun.ExitCode -ne 0) { return (New-IsolatedProcessFailure -Run $sourceRun -Disposition $sourceDisposition -Reason "msbuild-source:$name") }
+        if ($sourceDisposition.Kind -ne 'exit' -or $sourceRun.ExitCode -ne 0) { return (New-IsolatedProcessFailure -Run $sourceRun -Disposition $sourceDisposition -Reason "msbuild-source:$name" -LogPath $sourceLog) }
         $sourceStart = $sourceRun.Output.IndexOf('{')
         $sourceEnd = $sourceRun.Output.LastIndexOf('}')
         try { $source = $sourceRun.Output.Substring($sourceStart, $sourceEnd - $sourceStart + 1) | ConvertFrom-Json }
-        catch { return (New-IsolatedReferenceFailure "msbuild-source-output-invalid:$name") }
+        catch { return (New-IsolatedReferenceFailure "msbuild-source-output-invalid:$name" -LogPath $sourceLog) }
         foreach ($item in @($source.Items.Compile)) {
             if (-not ([string] $item.FullPath).StartsWith($inside, [StringComparison]::OrdinalIgnoreCase)) {
-                return (New-IsolatedReferenceFailure "compile-source:${name}:$($item.FullPath)")
+                return (New-IsolatedReferenceFailure "compile-source:${name}:$($item.FullPath)" -LogPath $sourceLog)
             }
         }
         $firstParty.Add(@{ kind = 'source-evaluation'; name = $name; path = $candidate })
@@ -449,7 +451,7 @@ function Test-IsolatedReferences {
     $outputDirectory = Split-Path -Parent $assembly
     foreach ($file in @(Get-ChildItem -LiteralPath $outputDirectory -Filter 'Train*.dll' -File)) {
         if ($file.BaseName -ne 'Train' -and -not $file.BaseName.StartsWith('Train.', [StringComparison]::Ordinal)) { continue }
-        if ($file.BaseName -notin $Allowed) { return (New-IsolatedReferenceFailure "output-assembly:$($file.FullName)") }
+        if ($file.BaseName -notin $Allowed) { return (New-IsolatedReferenceFailure "output-assembly:$($file.FullName)" -LogPath $log) }
         $stream = [IO.File]::OpenRead($file.FullName)
         try {
             $pe = [System.Reflection.PortableExecutable.PEReader]::new($stream)
@@ -457,7 +459,7 @@ function Test-IsolatedReferences {
                 $metadata = [Reflection.Metadata.PEReaderExtensions]::GetMetadataReader($pe)
                 foreach ($referenceName in @(Get-AssemblyReferenceNames $metadata)) {
                     if (($referenceName -eq 'Train' -or $referenceName.StartsWith('Train.', [StringComparison]::Ordinal)) -and $referenceName -notin $Allowed) {
-                        return (New-IsolatedReferenceFailure "metadata-reference:$($file.Name):$referenceName")
+                        return (New-IsolatedReferenceFailure "metadata-reference:$($file.Name):$referenceName" -LogPath $log)
                     }
                 }
             }
@@ -1235,11 +1237,11 @@ function New-Markdown {
             foreach ($project in @($environment["projects"])) {
                 $lines.Add("- testAssembly $($project.module) $($project.sha256) $($project.assembly) source=$($project.sourceProject)")
             }
-            if (@($environment["projects"] | Where-Object { $_.isolationRoot }).Count -gt 0) {
-                $lines.Add("隔离程序集路径用于标识本次构建；运行结束后临时目录会被清理。")
-            }
         }
         if ($environment.ContainsKey("isolationCleanupErrors")) { $lines.Add("隔离目录清理失败，保留路径见 isolation/cleanup.log。") }
+        elseif ($environment.ContainsKey("projects") -and @($environment["projects"] | Where-Object { $_.isolationRoot }).Count -gt 0) {
+            $lines.Add("隔离程序集路径用于标识本次构建；运行结束后临时目录会被清理。")
+        }
         if ($environment.ContainsKey("gameUserDataUnchanged")) { $lines.Add("- gameUserDataUnchanged $($environment["gameUserDataUnchanged"])") }
         if ($environment.ContainsKey("engineIsolation") -and $environment["engineIsolation"]) { $lines.Add("- engineIsolation $($environment["engineIsolation"])") }
         if ($environment.ContainsKey("overrideCfgPresent")) {
@@ -1355,12 +1357,14 @@ function Publish-Run {
 }
 
 function Get-ExitCode {
-    param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked, [switch] $RequiredBuildFailed, [switch] $IsolationFailed)
+    param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked, [switch] $RequiredBuildFailed, [switch] $IsolationFailed, [int] $PriorExitCode = 0)
+    # 清理后的重算保留此前结果分类；参数选择错误不属于执行结果合并。
+    if ($PriorExitCode -eq 4) { return 4 }
     $failed = $false
     $blocked = $false
     $cancelled = $false
     $notExecuted = $false
-    foreach ($check in @($Checks)) {
+    foreach ($check in $Checks) {
         switch ([string] $check["outcome"]) {
             "failed" { $failed = $true }
             "blocked" { $blocked = $true }
@@ -1368,12 +1372,10 @@ function Get-ExitCode {
             "not-executed" { $notExecuted = $true }
         }
     }
-    # 必需构建失败与清理受阻同时发生时按失败报告；取消优先级另行保留。
-    if ($failed -or ($RequiredBuildFailed -and $CleanupFailed)) { return 1 }
+    if ($failed -or $RequiredBuildFailed -or $PriorExitCode -eq 1) { return 1 }
     if ($CleanupFailed) { return 2 }
-    if ($UserCancel -or $cancelled -or $PrepTimedOut) { return 3 }
-    if ($RequiredBuildFailed) { return 1 }
-    if ($blocked -or $notExecuted -or $RequiredBuildBlocked -or $IsolationFailed) { return 2 }
+    if ($UserCancel -or $cancelled -or $PrepTimedOut -or $PriorExitCode -eq 3) { return 3 }
+    if ($blocked -or $notExecuted -or $RequiredBuildBlocked -or $IsolationFailed -or $PriorExitCode -eq 2) { return 2 }
     return 0
 }
 
@@ -1942,7 +1944,11 @@ function Invoke-Main {
                 Add-PrepStep -Preparation $preparation -Name "isolation-inputs-$($project.Module)" -Outcome 'passed' -Reason 'copied' -DurationMs 0 -Command $null
             }
             catch {
-                $inputOutcome = if ($_.Exception -is [IO.InvalidDataException] -or $_.Exception -is [IO.DirectoryNotFoundException]) { 'failed' } else { 'blocked' }
+                # 缺失源文件/目录和配置错误属于仓库输入；其余 IO、权限问题才是环境阻塞。
+                $inputException = $_.Exception.GetBaseException()
+                $environmentFailure = $inputException -is [UnauthorizedAccessException] -or
+                    ($inputException -is [IO.IOException] -and $inputException -isnot [IO.FileNotFoundException] -and $inputException -isnot [IO.DirectoryNotFoundException])
+                $inputOutcome = if ($environmentFailure) { 'blocked' } else { 'failed' }
                 $inputExitCode = if ($inputOutcome -eq 'failed') { 1 } else { 2 }
                 [Console]::Error.WriteLine("error: $inputOutcome isolation inputs $($project.Module): $_")
                 Add-PrepStep -Preparation $preparation -Name "isolation-inputs-$($project.Module)" -Outcome $inputOutcome -Reason $_.Exception.Message -DurationMs 0 -Command $null
@@ -1998,11 +2004,11 @@ function Invoke-Main {
         }
         if ($build.ExitCode -ne 0) {
             if ($buildOutcome -eq 'failed') {
-                [Console]::Error.WriteLine("error: failed $buildReason project=$projectPath; log=$buildLog")
+                [Console]::Error.WriteLine("error: failed $buildReason sourceProject=$sourceProject; project=$projectPath; log=$buildLog")
                 Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 1 -Directory $runDirectory
                 return 1
             }
-            [Console]::Error.WriteLine("error: blocked build project=$projectPath; log=$buildLog")
+            [Console]::Error.WriteLine("error: blocked build sourceProject=$sourceProject; project=$projectPath; log=$buildLog")
             if ($parsed.Help -or $parsed.List) { return 2 }
             Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 2 -Directory $runDirectory
             return 2
@@ -2013,7 +2019,7 @@ function Invoke-Main {
             if ($referenceFailure) {
                 $outcome = [string] $referenceFailure.Outcome
                 $exitCode = switch ($outcome) { 'failed' { 1 } 'cancelled' { 3 } default { 2 } }
-                [Console]::Error.WriteLine("error: $outcome isolation references $($project.Module): $($referenceFailure.Reason); log=$isolationEvidence/references.log")
+                [Console]::Error.WriteLine("error: $outcome isolation references $($project.Module): $($referenceFailure.Reason); sourceProject=$sourceProject; project=$projectPath; log=$($referenceFailure.LogPath)")
                 Add-PrepStep -Preparation $preparation -Name "isolation-references-$($project.Module)" -Outcome $outcome -Reason $referenceFailure.Reason -DurationMs 0 -Command $null
                 Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode $exitCode -Directory $runDirectory
                 return $exitCode
@@ -2556,7 +2562,7 @@ finally {
 }
 if ($cleanupErrors.Count -gt 0) {
     foreach ($cleanupError in $cleanupErrors) { [Console]::Error.WriteLine("error: isolation cleanup $cleanupError") }
-    if ($exitCode -eq 0) { $exitCode = 2 }
+    $exitCode = Get-ExitCode -Checks $script:RunChecks -CleanupFailed -PriorExitCode $exitCode
     if ($script:RunDirectory) {
         $logPath = Join-Path $script:RunDirectory 'isolation/cleanup.log'
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logPath) | Out-Null

@@ -138,7 +138,7 @@ foreach (var path in paths)
         }
     }
 
-    // 递归检查组合类型，使数组、泛型和约束不能藏入其他实现模块的类型。
+    // 递归检查组合类型，使数组、泛型和约束不能藏入允许依赖闭包之外的 Train.* 程序集类型，包括契约程序集。
     void CheckType(ITypeSymbol type, string signature)
     {
         switch (type)

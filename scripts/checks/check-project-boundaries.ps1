@@ -35,13 +35,19 @@ function Add-Failure([string] $message) {
     [Console]::Error.WriteLine($message)
 }
 
+# 保留已发现的仓库失败，避免后续环境阻塞改变整次结构检查的分类。
+function Get-StructureFailureExitCode([string] $Kind) {
+    if ($Kind -eq 'failed' -or $failures.Count -gt 0) { return 1 }
+    return 2
+}
+
 Push-Location $root
 try {
     # 从版本控制清单检查未登记项目，防止新项目绕过固定矩阵；归档不属于当前产品。
     $trackedProjects = @(& git ls-files --cached --others --exclude-standard -- '*.csproj' | Where-Object { $_ -notlike 'archive/*' })
     if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('blocked project inventory'); exit 2 }
     foreach ($path in $trackedProjects) {
-        # 公开面检查工具不属于模块图；它读取源码和允许依赖矩阵，没有产品项目引用。
+        # 公开面工具不属于模块图，没有产品项目引用；它读取源码、依赖矩阵、契约及实现程序集和基线。
         if ($path -ne 'Tests/ContractChecks/Train.ContractChecks.csproj' -and $path -notin $projects.Values) {
             Add-Failure "unregistered project: $path"
         }
@@ -51,16 +57,14 @@ try {
         $log = Join-Path $OutputDirectory ((Split-Path -Leaf $build) + '.build.log')
         & dotnet build $build -c $Configuration --nologo *> $log
         if ($LASTEXITCODE -ne 0) {
-            # 只把可辨认的工具/环境缺失记为阻塞，其余构建错误属于仓库失败。
+            # 明确的 SDK/工具不可用、包源不可达和文件占用属于环境阻塞，其余构建错误属于仓库失败。
             $buildOutput = Get-Content -LiteralPath $log -Raw
             $kind = Get-BuildFailureKind $buildOutput
             if ($kind -eq 'blocked') {
                 [Console]::Error.WriteLine("blocked build: $build; log=$log")
-                if ($failures.Count -eq 0) { exit 2 }
-                exit 1
             }
-            Add-Failure "failed build: $build; log=$log"
-            exit 1
+            else { Add-Failure "failed build: $build; log=$log" }
+            exit (Get-StructureFailureExitCode $kind)
         }
     }
     foreach ($entry in $projects.GetEnumerator()) {
@@ -74,8 +78,7 @@ try {
             $evaluationOutput = (@($raw) -join "`n") + (Get-Content -LiteralPath $errorLog -Raw)
             $kind = Get-BuildFailureKind $evaluationOutput
             [Console]::Error.WriteLine("$kind evaluation: $name; log=$errorLog")
-            if ($kind -eq 'failed' -or $failures.Count -gt 0) { exit 1 }
-            exit 2
+            exit (Get-StructureFailureExitCode $kind)
         }
         $data = $raw | ConvertFrom-Json
         $closure = @(Get-AllowedProjectClosure -Projects $matrix.projects -Name $name)
@@ -167,11 +170,9 @@ try {
         $kind = Get-BuildFailureKind (Get-Content -LiteralPath (Join-Path $OutputDirectory 'contract-surface.build.log') -Raw)
         if ($kind -eq 'blocked') {
             [Console]::Error.WriteLine("blocked contract surface tool build; log=$(Join-Path $OutputDirectory 'contract-surface.build.log')")
-            if ($failures.Count -eq 0) { exit 2 }
-            exit 1
         }
-        Add-Failure "failed contract surface tool build; log=$(Join-Path $OutputDirectory 'contract-surface.build.log')"
-        exit 1
+        else { Add-Failure "failed contract surface tool build; log=$(Join-Path $OutputDirectory 'contract-surface.build.log')" }
+        exit (Get-StructureFailureExitCode $kind)
     }
     $tool = Join-Path $root "Tests/ContractChecks/bin/$Configuration/net10.0/Train.ContractChecks.dll"
     $baseline = Join-Path $root 'docs/contracts/public-api.txt'
