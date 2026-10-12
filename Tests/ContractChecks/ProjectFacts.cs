@@ -7,10 +7,12 @@ public sealed class ProjectFacts : Microsoft.Build.Utilities.Task
 {
     [Required] public string OutputFile { get; set; } = "";
     [Required] public string TargetPath { get; set; } = "";
+    [Required] public string Root { get; set; } = "";
     public ITaskItem[]? ProjectReference { get; set; }
     public ITaskItem[]? ReferencePath { get; set; }
     public ITaskItem[]? Compile { get; set; }
     public ITaskItem[]? InternalsVisibleTo { get; set; }
+    [Output] public ITaskItem[] ReferencedProjects { get; set; } = [];
 
     public override bool Execute()
     {
@@ -24,6 +26,9 @@ public sealed class ProjectFacts : Microsoft.Build.Utilities.Task
                 Compile = Items(Compile), InternalsVisibleTo = Items(InternalsVisibleTo)
             }
         }));
+        ReferencedProjects = (ProjectReference ?? []).Select(item => item.GetMetadata("FullPath"))
+            .Where(path => File.Exists(path) && ProjectAnalysis.IsChildPath(path, Root))
+            .Select(path => (ITaskItem)new Microsoft.Build.Utilities.TaskItem(path)).ToArray();
         return true;
     }
 

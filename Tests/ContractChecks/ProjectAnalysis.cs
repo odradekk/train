@@ -51,21 +51,26 @@ internal static class ProjectAnalysis
     {
         var failures = new List<string>();
         var reports = new List<object>();
-        var requested = names.SelectMany(name => Closure(projects, name)).Distinct(StringComparer.Ordinal).ToArray();
+        var requested = names.Distinct(StringComparer.Ordinal).ToArray();
         var facts = await QueryProjects(root, configuration, output, projects, requested, isolated);
-        foreach (var name in requested)
+        var pending = new Queue<string>(requested);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        while (failures.Count == 0 && pending.TryDequeue(out var name))
         {
+            if (!seen.Add(name)) continue;
             var result = Inspect(name);
             failures.AddRange(result.Failures);
             reports.Add(result.Report);
+            foreach (var dependency in result.Dependencies) pending.Enqueue(dependency);
         }
         await File.WriteAllTextAsync(Path.Combine(output, "references.json"), JsonSerializer.Serialize(reports,
             new JsonSerializerOptions { WriteIndented = true }));
         return failures;
 
-        (List<string> Failures, object Report) Inspect(string name)
+        (List<string> Failures, object Report, List<string> Dependencies) Inspect(string name)
         {
             var projectFailures = new List<string>();
+            var dependencies = new List<string>();
             var rule = projects[name];
             var project = Path.GetFullPath(Path.Combine(root, rule.Path));
             var owner = Path.GetDirectoryName(project)!;
@@ -84,6 +89,7 @@ internal static class ProjectAnalysis
                     !Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, targetRule.Path)), PathComparison))
                     projectFailures.Add($"forbidden project reference: {name} -> {target} ({path})");
                 if (isolated && !IsChildPath(path, root)) projectFailures.Add($"project reference outside isolation: {name} ({path})");
+                if (projects.ContainsKey(target) && IsChildPath(path, root)) dependencies.Add(target);
             }
             foreach (var item in items.GetProperty("ReferencePath").EnumerateArray())
             {
@@ -144,7 +150,7 @@ internal static class ProjectAnalysis
                     projectFailures.Add($"forbidden {kind}: {name} -> {target}");
                 if (IsFirstParty(target) && !closure.Contains(target)) projectFailures.Add($"forbidden {kind}: {name} -> {target}");
             }
-            return (projectFailures, report);
+            return (projectFailures, report, dependencies);
         }
     }
 
@@ -154,13 +160,13 @@ internal static class ProjectAnalysis
         Directory.CreateDirectory(output);
         var assembly = typeof(ProjectAnalysis).Assembly.Location;
         var targets = Path.Combine(Path.GetDirectoryName(assembly)!, "ProjectFacts.targets");
-        var properties = $"CustomAfterMicrosoftCommonTargets={targets};ContractChecksAssembly={assembly};UseSharedCompilation=false;BuildProjectReferences=false;RestoreRecursive=false";
+        var properties = $"CustomAfterMicrosoftCommonTargets={targets};ContractChecksAssembly={assembly};ContractRoot={root};ContractFactsDirectory={output};ContractCollectReferences={isolated.ToString().ToLowerInvariant()};UseSharedCompilation=false;BuildProjectReferences=false;RestoreRecursive=false";
         var projectItems = names.Select(name =>
         {
             var sample = !isolated && projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal);
             var config = name == "Train" && configuration == "Release" ? "ExportRelease" : configuration;
             return new XElement("ContractProject", new XAttribute("Include", Path.Combine(root, projects[name].Path)),
-                new XElement("AdditionalProperties", $"Configuration={config};ContractFactsFile={Path.Combine(output, name + ".facts.json")};ContractBuildSample={sample.ToString().ToLowerInvariant()}"),
+                new XElement("AdditionalProperties", $"Configuration={config};ContractBuildSample={sample.ToString().ToLowerInvariant()}"),
                 new XElement("Sample", sample.ToString().ToLowerInvariant()));
         }).ToArray();
         var sampleItems = projectItems.Where(item => item.Element("Sample")!.Value == "true").Select(item =>
@@ -182,9 +188,11 @@ internal static class ProjectAnalysis
         await ToolProcess.Run("dotnet", ["msbuild", traversalPath, "-target:CollectAll", "-maxCpuCount:1", "-nodeReuse:false", "-verbosity:quiet"],
             root, Path.Combine(output, "query.log"), 300);
         var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
-        foreach (var name in names)
+        foreach (var name in projects.Keys)
         {
-            using var data = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output, name + ".facts.json")));
+            var file = Path.Combine(output, name + ".facts.json");
+            if (!File.Exists(file)) continue;
+            using var data = JsonDocument.Parse(await File.ReadAllTextAsync(file));
             result.Add(name, data.RootElement.Clone());
         }
         return result;

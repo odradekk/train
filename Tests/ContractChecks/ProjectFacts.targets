@@ -5,8 +5,13 @@
     <ContractFactsDependencies Condition="'$(ContractBuildSample)' == 'true'">Build</ContractFactsDependencies>
   </PropertyGroup>
   <Target Name="CollectContractFacts" DependsOnTargets="$(ContractFactsDependencies)">
-    <Train.ContractChecks.ProjectFacts OutputFile="$(ContractFactsFile)" TargetPath="$(TargetPath)"
+    <Train.ContractChecks.ProjectFacts OutputFile="$(ContractFactsDirectory)/$(MSBuildProjectName).facts.json"
+      TargetPath="$(TargetPath)" Root="$(ContractRoot)"
       ProjectReference="@(ProjectReference)" ReferencePath="@(ReferencePath)" Compile="@(Compile)"
-      InternalsVisibleTo="@(InternalsVisibleTo)" />
+      InternalsVisibleTo="@(InternalsVisibleTo)">
+      <Output TaskParameter="ReferencedProjects" ItemName="_ContractReferencedProjects" />
+    </Train.ContractChecks.ProjectFacts>
+    <MSBuild Condition="'$(ContractCollectReferences)' == 'true'" Projects="@(_ContractReferencedProjects)"
+      Targets="CollectContractFacts" BuildInParallel="false" />
   </Target>
 </Project>
