@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 验证定步长调度器的纯 C# 时间契约。
-// 测试仅累计宿主帧间隔，不构造列车、世界或 Godot 场景。
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Simulation;

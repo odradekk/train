@@ -1,5 +1,3 @@
-// Train.App.Checks 在真实 Godot 主线程验证模拟宿主与控制台接线。
-// 文件内的计数领域只属于自检，不作为玩家世界或生产内容入口。
 
 using System.Collections.Immutable;
 using System.Text.Json;
@@ -10,7 +8,6 @@ using Train.Ui;
 
 namespace Train.App.Checks;
 
-/// <summary>跨真实引擎帧验证一个临时模拟会话的自动推进、控制台操作和解绑。</summary>
 internal sealed class SimulationCheck
 {
     private readonly App _app;
@@ -31,7 +28,6 @@ internal sealed class SimulationCheck
     private SimulationState? _automaticFaultState;
     private int _faultLogsAtStart;
 
-    /// <summary>验证无会话查询后，建立并挂接只供本次检查使用的已校验会话。</summary>
     internal SimulationCheck(App app, GameConsole console, TrainLogger logger, RingBufferLogSink buffer)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -60,8 +56,6 @@ internal sealed class SimulationCheck
         Mark("SIMULATION_SESSION_ATTACHED");
     }
 
-    /// <summary>先验证自动推进并暂停，下一帧确认零步与状态不变，再验证命令、手动步和解绑。</summary>
-    /// <returns>尚需下一帧时为 null；完成时返回全部断言是否通过。</returns>
     internal bool? ObserveFrame(double delta)
     {
         if (_finished)
@@ -176,7 +170,6 @@ internal sealed class SimulationCheck
         }
     }
 
-    /// <summary>累计实际自动推进的完整事件，或保留暂停后的首个帧结果供下一帧断言。</summary>
     private void ObserveAdvance(AdvanceResult result)
     {
         if (_pausedState is not null)
@@ -194,7 +187,6 @@ internal sealed class SimulationCheck
     private SimulationStatus RequireStatus() =>
         _app.GetSimulationStatus() ?? throw new InvalidOperationException("预期存在活动模拟会话。");
 
-    /// <summary>经真实控制台验证运行中手动步、倍速和非法参数不会越过各自边界。</summary>
     private void VerifyRunningConsoleCommands(SimulationStatus running)
     {
         var authoritative = running.State;
@@ -241,7 +233,6 @@ internal sealed class SimulationCheck
         }
     }
 
-    /// <summary>在已证明暂停帧为零步后，经真实控制台继续并再次暂停同一完整状态。</summary>
     private void VerifyResumeAndPause(SimulationState expected)
     {
         _console.SubmitLine("sim resume");
@@ -254,7 +245,6 @@ internal sealed class SimulationCheck
             "再次 sim pause 没有保持同一完整状态。");
     }
 
-    /// <summary>用独立领域计算验证起点，并返回可整体重新挂接的新会话。</summary>
     private SimulationSession CreateValidatedSession(ProbeState initial, ProbeCalculations? calculations = null)
     {
         var restored = _states.Restore(_states.Capture(initial), calculations ?? new ProbeCalculations(), new ProbeCommandCodec());
@@ -268,7 +258,6 @@ internal sealed class SimulationCheck
     private int CountLogs(string eventId) => _buffer.Snapshot().Count(item =>
         item.Category == SimulationConsoleCommands.Category && item.EventId == eventId);
 
-    /// <summary>跨两个真实帧验证自动故障只记录一次，再验证手动步和命令的故障诊断与持久输出。</summary>
     private bool? ObserveFaults()
     {
         var state = RequireStatus().State;
@@ -328,7 +317,6 @@ internal sealed class SimulationCheck
         return true;
     }
 
-    /// <summary>验证当前新增的唯一错误日志含事务尝试位置及原始异常消息、调用栈和内部异常。</summary>
     private void VerifyFaultLog(int added, SimulationPhase phase, SimulationOperation operation, string message)
     {
         var errors = _buffer.Snapshot().Where(item => item.Category == SimulationConsoleCommands.Category &&

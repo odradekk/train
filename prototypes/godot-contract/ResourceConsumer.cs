@@ -11,8 +11,6 @@ public static class ResourceConsumer
     public static Vector3 CellPosition(System.Numerics.Vector3 value) => new(value.X, value.Y, value.Z);
     public static Vector3 ModelMetersToCells(Vector3 meters) => meters * 2;
 
-    // 只示范普通顶点、法线、UV 与索引；材质、磨损及其余通道由完整宿主接入。
-    // 按宿主规范在 Godot 主线程调用；返回资源由调用方持有并释放。
     public static ArrayMesh CreateMesh(SceneMesh source)
     {
         var vertices = source.Vertices.Select(v => CellPosition(v.Position)).ToArray();
@@ -33,7 +31,6 @@ public static class ResourceConsumer
         return mesh;
     }
 
-    // 使用内容已固定并检查的字节，不用资源路径重新读取；纹理由调用方持有和释放。
     public static ImageTexture CreatePngTexture(ContentAsset asset)
     {
         if (asset.Metadata is not AssetMetadata.Png)

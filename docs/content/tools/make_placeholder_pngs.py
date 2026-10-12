@@ -62,7 +62,6 @@ def face_pixel(color, size, front):
 
 
 def icon_pixel(color):
-    # 图标透明底，物品画在中间约 100×100 的安全区内（美术 07）。
     edge = shade(color, 0.6) + (255,)
     fill = color + (255,)
 

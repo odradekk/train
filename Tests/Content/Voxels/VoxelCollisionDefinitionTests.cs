@@ -1,5 +1,3 @@
-// 体素碰撞定义的纯内容契约：覆盖严格解析、发布校验与语义修订。
-// 测试只使用内存内容源，不依赖 Godot、世界适配器或内置开发资源。
 using System.Globalization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Tests;

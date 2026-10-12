@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 验证命令 v2 的规范文本、摘要和严格读取契约。
-// 预期 JSON 是手写协议向量；摘要仅由标准 SHA-256 对这些字面文本计算。
 
 using System.Collections.Immutable;
 using System.Security.Cryptography;

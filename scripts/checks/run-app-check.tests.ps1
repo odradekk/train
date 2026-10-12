@@ -1,5 +1,3 @@
-# 以假的本机进程验证统一 App 检查脚本的参数、标记和退出码编排。
-# 本文件不启动 Godot，也不证明游戏内断言或 Windows 导出本身。
 
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "ProcessFixtures.ps1")

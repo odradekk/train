@@ -6,7 +6,6 @@ using Train.Scenes.Contracts;
 
 namespace Train.Godot.ContractSamples;
 
-// 装配方传入真实工厂或替身；样例不引用实现项目，不创建第四个契约程序集。
 public sealed record HostComposition(ICoreFactory Core, IContentFactory Content,
     IScenesFactory Scenes, IContentFiles Files, IAssetInspector Assets);
 
@@ -24,7 +23,6 @@ public static class HostConsumer
         SceneBinding binding, ICoreReadView view, IContentView content)
         => composition.Scenes.OpenWorld(binding, new SceneWorldSnapshot(view, content));
 
-    // 地图、详情和报价由同一不可变视图取得；提交仍由核心重新裁决。
     public static (WorldSummary Map, Lookup<TrainView> Panel, CoreResult<TradeQuote> Quote)
         ReadUi(ICoreSession session, TrainId train, TradeQuoteRequest quote)
     {
@@ -32,7 +30,6 @@ public static class HostConsumer
         return (view.World, view.FindTrain(train), view.QuoteTrade(quote));
     }
 
-    // 仅示范不需内容交接的停车命令；建城、设计和重载见内容消费样例。
     public static SubmissionResult StopTrain(ICoreSession session, TrainId train,
         Action<ImmutableArray<EventEnvelope>> dispatch)
     {
@@ -52,8 +49,6 @@ public static class HostConsumer
     }
 }
 
-// 仅样例内宿主边界，无实现。成功必须表示资源已准备且整帧已在帧间接入；
-// false 保持上一帧完整可用，不能在部分应用后返回 false。
 public interface IFrameDisplay
 {
     bool TryInstall(ISceneFrame frame, IContentView content);
@@ -83,13 +78,11 @@ public sealed class WorldDisplayConsumer(IWorldSceneSession scene, IFrameDisplay
             _displayed = null;
             throw;
         }
-        // Failure/Faulted、Success 中的 Failed 帧或接入异常交回宿主：世界返回地图。
         return result;
     }
 
     public Lookup<ScenePose>? CameraPose(WorldObjectId subject) => _displayed?.FindPose(subject);
 
-    // ray 属于实际显示帧空间；历史命中不能直接用于当前核心命令。
     public SceneResult<PickSubject>? Pick(SceneRay ray)
         => _displayed?.Pick(ray) is ScenePick.Hit hit ? scene.Resolve(hit.Value) : null;
 }

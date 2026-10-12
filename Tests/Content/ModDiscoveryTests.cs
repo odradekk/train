@@ -1,5 +1,3 @@
-// Content 内容模块测试。
-// 验证 Mod 候选筛选、清单身份、冲突隔离和扫描计数。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 

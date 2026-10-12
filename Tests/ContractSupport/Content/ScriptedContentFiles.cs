@@ -1,11 +1,8 @@
-// 内容文件端口的有限情景替身；按路径和字节上限回放配置好的请求和结果。
-// 不实现路径安全、实际读取或内容规则。
 using System.Collections.Immutable;
 using Train.Content.Contracts;
 
 namespace Train.Content.ContractSupport;
 
-/// <summary>每项配置只使用一次，调用顺序不限；同一路径在不同字节上限下的配置互不约束，可表示同一文件的超限失败与成功读取，也可表示两次读取之间文件已变化；成功字节不得超出该项上限。</summary>
 public sealed class ScriptedContentFiles : IContentFiles
 {
     public sealed record ReadCall(ContentPath Path, long MaximumBytes,

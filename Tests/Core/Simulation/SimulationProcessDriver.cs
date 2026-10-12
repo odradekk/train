@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 在独立进程中运行固定确定性场景。
-// 驱动只编排真实会话、调度器、载荷文件和可供父进程核验的证据。
 
 using System.Collections.Immutable;
 using System.Reflection;
@@ -240,15 +238,15 @@ internal sealed class ProcessHost
 {
     private static readonly (double Speed, bool Paused)[] SteadyFrames =
     [
-        (1, true), (1, false), (2, false), (1, false), // step 1
-        (4, false),                                    // step 2
-        (8, false)                                     // steps 3-4 in one budget
+        (1, true), (1, false), (2, false), (1, false),
+        (4, false),
+        (8, false)
     ];
     private static readonly (double Speed, bool Paused)[] BurstyFrames =
     [
-        (8, true), (4, false),                         // step 1
-        (2, false), (1, false), (1, false),           // step 2
-        (1, true), (8, false)                         // steps 3-4 in one budget
+        (8, true), (4, false),
+        (2, false), (1, false), (1, false),
+        (1, true), (8, false)
     ];
 
     private readonly SimulationScheduler _scheduler = new();

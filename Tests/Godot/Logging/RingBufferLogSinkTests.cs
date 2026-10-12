@@ -1,5 +1,3 @@
-// Godot 宿主 日志模块测试。
-// 验证环形缓冲的顺序、容量淘汰、清空和参数校验。
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Logging;

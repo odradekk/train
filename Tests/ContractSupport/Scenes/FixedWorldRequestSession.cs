@@ -1,12 +1,9 @@
-// 体素契约测试支持：为请求身份情景提供有限情景替身。
-// 只处理固定命中和一次配置的观察请求，未配置调用立即失败。
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.Scenes.ContractSupport;
 
-/// <summary>只支持固定命中的解析及一次指定目标请求；不执行场景构建。</summary>
 public sealed class FixedWorldRequestSession(WorldSceneTarget nextTarget) : IWorldSceneSession
 {
     private SceneRequestId request = WorldRequestScenario.Hit.Frame.Request;

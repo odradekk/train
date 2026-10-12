@@ -1,5 +1,3 @@
-// Godot 宿主的文件存档测试。
-// 在独立临时目录中验证真实文件读写、发布失败保护与候选清理，不依赖世界模型。
 
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -19,7 +17,6 @@ public sealed class FileSaveStoreTests
         var id = Guid.Parse("12345678-abcd-4321-abcd-123456789abc");
         var target = Path.Combine(files.Root, "saves", "12345678-abcd-4321-abcd-123456789abc", "save.json");
         const string original = "{\"name\":\"中文存档 🚂\"}\n";
-        // 文件层保存不透明文本，文档解析和校验由调用方负责。
         const string replacement = "不是 JSON\r\n第二行";
 
         Assert.IsTrue(files.Store.TryWrite(id, original, out var writeStatus));
@@ -107,7 +104,6 @@ public sealed class FileSaveStoreTests
     {
         using var files = new SaveFiles();
         var id = Guid.NewGuid();
-        // 候选可以写入；目标路径是目录，使最终发布操作失败。
         Directory.CreateDirectory(files.Store.PathFor(id));
         var marker = Path.Combine(files.Store.PathFor(id), "existing.txt");
         File.WriteAllText(marker, "保留目录中的文件");
@@ -156,7 +152,6 @@ public sealed class FileSaveStoreTests
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Store.PathFor(id)));
     }
 
-    /// <summary>持有本用例创建的临时目录与文件存储；释放时仅删除此目录。</summary>
     private sealed class SaveFiles : IDisposable
     {
         public string Root { get; } = Directory.CreateTempSubdirectory("train-save-store-").FullName;

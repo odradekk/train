@@ -1,20 +1,13 @@
-// 属于内容层的蓝图定义解析模块。
-// 严格校验 schema 2 文件并创建不可变蓝图定义。
 using System.Text.Json;
 using Train.Content.Voxels;
 
 namespace Train.Content.Composites;
 
-/// <summary>表示一个蓝图文件解析后的可选显示名称和蓝图定义。</summary>
-/// <remarks>定义保持文件声明顺序；每个定义自身的体素布局按坐标排序。</remarks>
 internal sealed class ParsedCompositeDocument
 {
-    /// <summary>获取去除首尾空白后的文件显示名；未声明时为 null。</summary>
     public string? DisplayName { get; }
-    /// <summary>获取按文件声明顺序保存的蓝图定义。</summary>
     public IReadOnlyList<CompositeDefinition> Composites { get; }
 
-    /// <summary>保存已经校验的文件级显示信息和蓝图定义。</summary>
     public ParsedCompositeDocument(string? displayName, IReadOnlyList<CompositeDefinition> composites)
     {
         DisplayName = displayName;
@@ -22,13 +15,10 @@ internal sealed class ParsedCompositeDocument
     }
 }
 
-/// <summary>严格解析 schema 2 蓝图 JSON，并补全包内局部引用的命名空间。</summary>
-/// <remarks>本层校验字段、身份、非空布局、坐标唯一性和朝向编码；目录候选校验引用存在性和定义允许的朝向。</remarks>
 internal static class CompositesJsonParser
 {
     private const int SchemaVersion = 2;
 
-    /// <summary>解析 UTF-8 蓝图文件；结构或字段无效时记录确定路径的诊断并返回 null。</summary>
     public static ParsedCompositeDocument? Parse(
         byte[] utf8,
         string packageNamespace,
@@ -40,7 +30,6 @@ internal static class CompositesJsonParser
             root => ParseRoot(root, packageNamespace, diagnostics));
     }
 
-    /// <summary>解析文件级显示名和非空蓝图数组。</summary>
     private static ParsedCompositeDocument? ParseRoot(
         JsonElement root,
         string packageNamespace,
@@ -76,7 +65,6 @@ internal static class CompositesJsonParser
         return new ParsedCompositeDocument(displayName, composites);
     }
 
-    /// <summary>解析蓝图的五个必填字段，并创建已校验定义。</summary>
     private static bool TryParseComposite(
         JsonElement element,
         string packageNamespace,
@@ -158,7 +146,6 @@ internal static class CompositesJsonParser
         return true;
     }
 
-    /// <summary>解析非空体素数组，并拒绝重复局部坐标。</summary>
     private static bool TryParseVoxels(
         JsonElement element,
         string packageNamespace,
@@ -199,7 +186,6 @@ internal static class CompositesJsonParser
         return true;
     }
 
-    /// <summary>解析单个体素的整数坐标、定义引用和正交朝向。</summary>
     private static bool TryParseVoxel(
         JsonElement element,
         string packageNamespace,
@@ -268,7 +254,6 @@ internal static class CompositesJsonParser
         return true;
     }
 
-    /// <summary>读取可表示为 Int32 的 JSON 整数。</summary>
     private static bool TryGetInt(JsonElement element, DiagnosticBag diagnostics, string jsonPath, out int value)
     {
         value = 0;

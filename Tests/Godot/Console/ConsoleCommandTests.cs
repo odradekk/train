@@ -1,5 +1,3 @@
-// Godot 宿主 控制台模块测试。
-// 验证空白分词、基础分发、宿主回调与共享日志的真实持久回显。
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Logging;

@@ -1,5 +1,3 @@
-// Train.App 在 Godot 主线程执行模拟调试命令，并通过共享日志返回结果。
-// 查询与操作都作用于已挂接会话，无会话时只报告状态，不建立模拟世界。
 
 using System.Globalization;
 using Train.App.Logging;
@@ -7,8 +5,6 @@ using Train.Core.Simulation;
 
 namespace Train.App;
 
-/// <summary>解析 sim 子命令，并调用应用宿主的模拟查询与控制入口。</summary>
-/// <remarks>实例由 Debug 宿主创建，Execute 必须在 Godot 主线程同步调用；本类型不创建模拟会话。</remarks>
 internal sealed class SimulationConsoleCommands
 {
     internal const string Category = "simulation";
@@ -29,7 +25,6 @@ internal sealed class SimulationConsoleCommands
     private readonly App _app;
     private readonly TrainLogger _logger;
 
-    /// <summary>绑定应用宿主与其共享日志。</summary>
     internal SimulationConsoleCommands(App app, TrainLogger logger)
     {
         ArgumentNullException.ThrowIfNull(app);
@@ -38,7 +33,6 @@ internal sealed class SimulationConsoleCommands
         _logger = logger;
     }
 
-    /// <summary>执行 sim 后的参数；参数形状无效时不查询或修改会话。</summary>
     internal void Execute(IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(arguments);
@@ -73,7 +67,6 @@ internal sealed class SimulationConsoleCommands
         }
     }
 
-    /// <summary>从同一完整边界输出核心位置、宿主时钟观察值及冻结原因。</summary>
     private void ReportStatus()
     {
         var status = _app.GetSimulationStatus();
@@ -105,7 +98,6 @@ internal sealed class SimulationConsoleCommands
             paused ? "模拟已暂停。" : "模拟已继续运行。");
     }
 
-    /// <summary>检查活动会话尚未冻结后取消宿主暂停。</summary>
     private void Resume()
     {
         var status = _app.GetSimulationStatus();
@@ -136,7 +128,6 @@ internal sealed class SimulationConsoleCommands
             new Dictionary<string, object?> { ["speed"] = (int)speed });
     }
 
-    /// <summary>验证活动会话已经暂停且未冻结，再同步推进并报告实际完成步数。</summary>
     private void Step(ulong steps)
     {
         var status = _app.GetSimulationStatus();
@@ -221,7 +212,6 @@ internal sealed class SimulationConsoleCommands
         return text is "1" or "2" or "4" or "8";
     }
 
-    /// <summary>将省略的步数解析为一步，或接受唯一的正 UInt64 十进制参数。</summary>
     private static bool TryParseStepCount(IReadOnlyList<string> arguments, out ulong steps)
     {
         steps = 1;

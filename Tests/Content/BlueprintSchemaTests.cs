@@ -1,5 +1,3 @@
-// Content 内容测试验证蓝图尺寸档和布局的 schema 边界。
-// 无效内置蓝图必须拒绝整次发布。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Content.Tests;

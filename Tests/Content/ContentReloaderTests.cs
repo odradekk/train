@@ -1,5 +1,3 @@
-// Content 内容模块测试：验证体素内容解析、发布和热重载契约。
-// 通过最小内存内容包验证目录快照、诊断、通知和并发边界。
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -975,13 +973,11 @@ internal sealed class FlipAfterReadSource : IContentSource
     }
 }
 
-/// <summary>在列包阶段暂停重载，供测试协调两个并发调用。</summary>
 internal sealed class BlockingContentSource(
     IContentSource inner,
     ManualResetEventSlim entered,
     ManualResetEventSlim release) : IContentSource
 {
-    /// <summary>报告列包已开始，等待测试允许继续后返回原内容包。</summary>
     public IReadOnlyList<ContentPackage> ListPackages()
     {
         entered.Set();

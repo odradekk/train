@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 描述核心状态捕获、规范载荷和原子恢复的函数例子。
-// 所有公共格式预期均来自独立字面，不由被测编码器生成。
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 验证会话的完整边界、身份分配与原子发布契约。
-// 领域计算使用预设结果或异常；期望值独立写出，不执行真实世界、存档或 Godot。
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -608,7 +606,6 @@ public sealed class SimulationSessionTests
         Assert.IsTrue(result.Events.IsEmpty);
     }
 
-    /// <summary>使用真实共享流水线，在第 4 步的指定阶段抛出普通异常或带错误码的内部异常。</summary>
     private sealed class FailingPipeline(SimulationPhase failingPhase, SimulationPhase? reportedPhase = null)
         : SimulationCalculations
     {

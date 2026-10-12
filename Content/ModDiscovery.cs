@@ -1,30 +1,16 @@
-// Train.Content 内容基础设施模块。
-// 从 Mod 根目录候选中发现、隔离并规范化可加载包。
 namespace Train.Content;
 
-/// <summary>表示 Mod 根目录中的一个直接子项及其已读取的清单状态。</summary>
-/// <example><c>readme.txt</c> 可表示不参与扫描计数的文件候选；<c>pretty-name</c> 可表示带有清单字节的目录候选，见 <c>ModDiscoveryTests.Direct_child_directories_are_candidates_and_files_are_ignored</c>。</example>
 public sealed class ModFolderCandidate
 {
-    /// <summary>取得 Mod 根下的直接子目录名称。</summary>
     public string FolderName { get; }
-    /// <summary>取得候选包的物理根路径。</summary>
     public string PackageRoot { get; }
-    /// <summary>取得候选是否为目录；文件候选不会参与扫描计数。</summary>
     public bool IsDirectory { get; }
-    /// <summary>取得候选本身是否为链接或重解析点。</summary>
     public bool IsLink { get; }
-    /// <summary>取得候选包根的可信路径链是否已判定为不安全。</summary>
     public bool PackageRootUnsafe { get; }
-    /// <summary>取得根清单是否缺失。</summary>
     public bool ManifestMissing { get; }
-    /// <summary>取得根清单路径是否经过链接或重解析点。</summary>
     public bool ManifestUnsafe { get; }
-    /// <summary>取得清单原始字节；未读取或缺失时为 <see langword="null"/>。</summary>
     public byte[]? ManifestBytes { get; }
 
-    /// <summary>创建 Mod 文件夹候选。</summary>
-    /// <param name="folderName">直接子目录名称。</param><param name="packageRoot">包的物理根路径。</param><param name="isDirectory">候选是否为目录。</param><param name="isLink">候选是否为链接或重解析点。</param><param name="packageRootUnsafe">包根链是否不安全。</param><param name="manifestMissing">根清单是否缺失。</param><param name="manifestUnsafe">清单路径是否不安全。</param><param name="manifestBytes">清单原始字节；未读取时为 <see langword="null"/>。</param>
     public ModFolderCandidate(
         string folderName,
         string packageRoot,
@@ -46,20 +32,13 @@ public sealed class ModFolderCandidate
     }
 }
 
-/// <summary>表示一次 Mod 根目录扫描的包与诊断快照。</summary>
-/// <example>一个文件候选和一个有效目录候选产生 CandidateCount 为 1、AcceptedCount 为 1 的结果，见 <c>ModDiscoveryTests.Direct_child_directories_are_candidates_and_files_are_ignored</c>。</example>
 public sealed class ModScanResult
 {
-    /// <summary>取得接受的 Mod 包快照。</summary>
     public IReadOnlyList<ContentPackage> Packages { get; }
-    /// <summary>取得所有候选产生的诊断快照。</summary>
     public IReadOnlyList<ContentDiagnostic> Diagnostics { get; }
-    /// <summary>取得参与扫描的直接子目录数；普通文件不计入。</summary>
     public int CandidateCount { get; }
-    /// <summary>取得成功接受的包数。</summary>
     public int AcceptedCount { get; }
 
-    /// <summary>创建 Mod 扫描结果。</summary><param name="packages">接受的包。</param><param name="diagnostics">扫描诊断。</param><param name="candidateCount">参与扫描的直接子目录数。</param><param name="acceptedCount">成功接受的包数。</param>
     public ModScanResult(
         IReadOnlyList<ContentPackage> packages,
         IReadOnlyList<ContentDiagnostic> diagnostics,
@@ -73,15 +52,11 @@ public sealed class ModScanResult
     }
 }
 
-/// <summary>从直接子目录候选中发现数据 Mod，并隔离不安全或冲突的包。</summary>
 public static class ModDiscovery
 {
-    /// <summary>Mod 根清单文件名；由当前内容 schema 约定。</summary>
     public const string ManifestFileName = "mod.json";
-    /// <summary>Mod 数据资源目录名；由当前内容 schema 约定。</summary>
     public const string ResourcesDirectoryName = "resources";
 
-    /// <summary>扫描候选，严格解析清单，并禁用共享同一 UUID 的所有声明。</summary><param name="candidates">Mod 根目录的直接子项。</param><returns>接受的包与有界诊断。</returns>
     public static ModScanResult Scan(IEnumerable<ModFolderCandidate> candidates)
     {
         var packages = new List<ContentPackage>();
@@ -158,7 +133,6 @@ public static class ModDiscovery
         return new ModScanResult(packages, diagnostics, candidateCount, packages.Count);
     }
 
-    /// <summary>计算 Mod 包根下的资源目录路径。</summary><param name="packageRoot">Mod 包根路径。</param><returns>使用正斜杠连接的资源目录路径。</returns>
     public static string ResourcesRoot(string packageRoot)
     {
         var trimmed = packageRoot.TrimEnd('/', '\\');

@@ -1,4 +1,3 @@
-// 从 schema 契约选择缺失、类型、范围和重复项的功能例子；通过真实共同加载入口观察结果。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Content.Tests;

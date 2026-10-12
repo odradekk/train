@@ -1,5 +1,3 @@
-// Godot 宿主 日志模块测试。
-// 验证结构化日志的 JSONL 序列化、保留策略和文件生命周期。
 
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
@@ -410,7 +408,6 @@ public sealed class StructuredLoggingConcurrencyTests
         CollectionAssert.AreEqual(sequences, parsed);
     }
 
-    // 测试注入的队列容量：足够小，使每个用例的真实持久刷盘次数可以忽略，同时仍能观察淘汰与溢出。
     private const int TestQueueCapacity = 4;
 
     [TestMethod]
@@ -457,7 +454,6 @@ public sealed class StructuredLoggingConcurrencyTests
 
         var afterEviction = session.Memory.Snapshot().Single(e => e.EventId == TrainLogger.GodotEventsDroppedEventId);
         Assert.AreEqual(1, afterEviction.Attributes["count"]);
-        // 期望被淘汰的是排在最前的一个 Debug，送达的是其余几个；序号从内存快照推导，不依赖构造阶段不产生事件。
         var queuedDebug = session.Memory.Snapshot()
             .Where(e => e.EventId == "queued_debug")
             .Select(e => e.Sequence)
@@ -527,14 +523,12 @@ public sealed class StructuredLoggingConcurrencyTests
     [TestMethod]
     public void Events_dropped_from_godot_queue_keep_complete_jsonl_records()
     {
-        // 淘汰路径：满队列的 Debug 被 Warning 挤掉。被挤掉的事件不应出现在宿主输出，但必须保留完整 JSONL 记录。
         using (var evicted = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity))
         {
             RunOnWorker(evicted.Logger, TestQueueCapacity, LogLevel.Debug, "queued_debug");
             RunOnWorker(evicted.Logger, 1, LogLevel.Warning, "evicting_warning");
             evicted.DisposeLogger();
 
-            // 被淘汰的应是最旧的一个 Debug；序号从内存快照推导，不依赖构造阶段不产生事件。
             var evictedDebug = evicted.Memory.Snapshot()
                 .Where(e => e.EventId == "queued_debug")
                 .Select(e => e.Sequence)
@@ -544,7 +538,6 @@ public sealed class StructuredLoggingConcurrencyTests
             AssertJsonlHasCompleteRecords(evicted, "queued_debug", "evicting_warning");
         }
 
-        // 溢出路径：满队列的 Warning 无法淘汰同级事件，新的 Warning 进入备用输出，但同样必须保留完整 JSONL 记录。
         using (var overflowed = LoggerSession.Create(godotQueueCapacity: TestQueueCapacity))
         {
             RunOnWorker(overflowed.Logger, TestQueueCapacity, LogLevel.Warning, "queued_warning");
@@ -557,7 +550,6 @@ public sealed class StructuredLoggingConcurrencyTests
         }
     }
 
-    /// <summary>断言会话的 JSONL 文件与内存快照事件数一致、每行都是完整记录、序号连续，且包含指定事件标识。</summary>
     private static void AssertJsonlHasCompleteRecords(LoggerSession session, params string[] expectedEventIds)
     {
         var lines = File.ReadAllLines(session.JsonlPath!);
@@ -583,7 +575,6 @@ public sealed class StructuredLoggingConcurrencyTests
         }
     }
 
-    /// <summary>在专用工作线程上按顺序记录若干事件，等线程结束后再把其中的异常重抛到测试线程。</summary>
     private static void RunOnWorker(TrainLogger logger, int count, LogLevel level, string eventId)
     {
         Exception? failure = null;

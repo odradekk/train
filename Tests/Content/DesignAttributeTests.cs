@@ -1,5 +1,3 @@
-// Content 内容模块的设计属性函数示例。
-// 用手算结果检验结构、组合部件、BOM、额定速度与不可表示的输入。
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Behaviors;

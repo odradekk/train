@@ -1,5 +1,3 @@
-// 属于内容加载模块。
-// 统一发现和读取文件、隔离整个包、重查级联引用，并准备一次完整发布。
 using Train.Content.Composites;
 using Train.Content.Markets;
 using Train.Content.Settlements;
@@ -7,8 +5,6 @@ using Train.Content.Voxels;
 
 namespace Train.Content;
 
-/// <summary>保存一轮加载的格式、包和诊断；候选只在本轮使用，不是可供外部查询的目录。</summary>
-/// <remarks>包失败是单调状态；每轮引用检查若发现失败，至少隔离一个包，因包数有限而终止。</remarks>
 internal sealed class ContentLoader
 {
     private readonly IContentSource _source;
@@ -27,7 +23,6 @@ internal sealed class ContentLoader
     public IReadOnlyList<ContentDiagnostic> Diagnostics => _scanDiagnostics.Concat(_loadDiagnostics.Items)
         .Concat(_packages.SelectMany(package => package.Diagnostics.Items)).ToArray();
 
-    /// <summary>初始化本轮内容来源、日志与四种领域格式。</summary>
     public ContentLoader(IContentSource source, IContentLogger logger)
     {
         _source = source;
@@ -35,7 +30,6 @@ internal sealed class ContentLoader
         _formats = [_voxels, _blueprints, _marketTables, _settlementTypes];
     }
 
-    /// <summary>发现、读取和校验全部包，并迭代隔离失效引用；返回候选是否允许发布。</summary>
     public bool Load(bool initial)
     {
         DiscoverPackages();
@@ -49,15 +43,12 @@ internal sealed class ContentLoader
         return !_loadDiagnostics.Invalid && !_packages.Any(package => package.Package.IsRequired && package.Diagnostics.Invalid);
     }
 
-    /// <summary>判断所有格式的有效内容是否发生变化；首次发布一定有变化。</summary>
     public bool HasChanges(ContentSnapshot? previous) =>
         previous is null || _formats.Any(format => format.HasChanges(previous));
 
-    /// <summary>冻结校验完成的候选；这里是各领域索引组成完整快照的唯一位置。</summary>
     public ContentSnapshot Freeze(long generation) => new(generation, _voxels.Entries, _blueprints.Entries,
         _marketTables.Entries, _settlementTypes.Entries);
 
-    /// <summary>读取包发现结果，检查必需包存在性，并使重复 UUID 的全部 Mod 无效。</summary>
     private void DiscoverPackages()
     {
         _packages.AddRange(_source.ListPackages().Select(package => new ContentPackageLoad(package)));
@@ -76,7 +67,6 @@ internal sealed class ContentLoader
         }
     }
 
-    /// <summary>发现一个包的通用 JSON 文件，路由已支持的格式并记录每个实际读取文件的结果。</summary>
     private void ReadPackage(ContentPackageLoad load)
     {
         var package = load.Package;
@@ -102,7 +92,6 @@ internal sealed class ContentLoader
             bag.MarkInvalid();
         foreach (var file in discovery.Files)
         {
-            // 玩家包共用蓝图根目录，只能读取属于该包 UUID 的根级蓝图。
             if (package.Kind == ContentPackageKind.PlayerBlueprint && file != package.Namespace + _blueprints.FileSuffix)
                 continue;
             var format = _formats.FirstOrDefault(format => file.EndsWith(format.FileSuffix, StringComparison.Ordinal));
@@ -124,7 +113,6 @@ internal sealed class ContentLoader
                 new Dictionary<string, object?> { ["package"] = package.Namespace });
     }
 
-    /// <summary>共用 JSON 路径、链接与字节上限检查；失败保留所在文件的诊断。</summary>
     private byte[]? ReadJson(ContentPackage package, string file, DiagnosticBag bag)
     {
         if (!ContentPath.TryNormalize(file, out var path))
@@ -144,7 +132,6 @@ internal sealed class ContentLoader
         return null;
     }
 
-    /// <summary>重新合并有效包并检查所有格式的引用，迭代直到不再新增失效包。</summary>
     private void ResolvePackages()
     {
         var invalidCount = -1;
@@ -162,7 +149,6 @@ internal sealed class ContentLoader
         }
     }
 
-    /// <summary>将发现及领域校验的所有保留诊断写入同一结构化日志类别。</summary>
     private void LogDiagnostics()
     {
         foreach (var diagnostic in Diagnostics)
@@ -178,7 +164,6 @@ internal sealed class ContentLoader
         }
     }
 
-    /// <summary>记录进入加载器的 Mod 包数及最终接受、隔离数；不作为发布结果的公共字段。</summary>
     private void LogModSummary()
     {
         var mods = _packages.Where(package => package.Package.Kind == ContentPackageKind.Mod).ToArray();

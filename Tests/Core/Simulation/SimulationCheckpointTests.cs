@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 描述规范检查点文档和首差异比较的函数例子。
-// 文档及 SHA-256 预期均为独立字面，比较例子不信任调用方摘要。
 
 using System.Collections.Immutable;
 using System.Security.Cryptography;

@@ -1,48 +1,26 @@
-// Train.Core.Simulation 将宿主时间换算为同一会话的完整模拟步。
-// 暂停、倍速、工作预算和速度测量属于宿主，不进入权威状态或检查点。
 
 using System.Collections.Immutable;
 using System.Diagnostics;
 
 namespace Train.Core.Simulation;
 
-/// <summary>表示主机每秒真实时间希望推进的模拟秒数，不改变 1/60 秒步长。</summary>
-/// <seealso href="../../docs/design/04-deterministic-simulation.md#时钟与倍速"/>
-/// <example>Two 将 1/30 秒真实间隔换算为四个完整模拟步。</example>
 public enum SimulationSpeed
 {
-    /// <summary>每秒真实时间推进一个模拟秒。</summary>
     One = 1,
-    /// <summary>每秒真实时间推进两个模拟秒。</summary>
     Two = 2,
-    /// <summary>每秒真实时间推进四个模拟秒。</summary>
     Four = 4,
-    /// <summary>暂定最高档为每秒真实时间推进八个模拟秒，须经性能实测确认；实际速度取决于工作预算。</summary>
     Eight = 8
 }
 
-/// <summary>表示同一会话在完整边界上的只读核心状态及宿主观察值。</summary>
-/// <param name="State">最后完整的不可变权威状态；故障保留在该状态中。</param>
-/// <param name="IsPaused">主机是否暂停自动推进，不禁止核心命令。</param>
-/// <param name="Speed">目标倍速，保持 1/2/4/8 的固定档位。</param>
-/// <param name="ActualSpeed">最近采样窗口内自动完成的模拟秒除以真实秒；暂停或冻结时为零。</param>
-/// <param name="PendingSteps">当前自动推进调用尚未完成的整步额度；调用结束后为零，不跨帧积压。</param>
-/// <param name="Remainder">不足一个模拟步的剩余模拟秒，不受暂停或切换倍速清除。</param>
-/// <example>完成 120 步的状态对应 2 个模拟秒；目标 8× 不保证测得速度为 8×。</example>
 public sealed record SimulationStatus(
     SimulationState State, bool IsPaused, SimulationSpeed Speed,
     double ActualSpeed, ulong PendingSteps, double Remainder)
 {
-    /// <summary>由已完成步数换算的模拟秒，不使用墙钟推算权威进度。</summary>
     public double SimulationSeconds => State.CompletedSteps / SimulationClock.StepsPerSecond;
 }
 
-/// <summary>在创建它的宿主线程上驱动一个已验证会话，并返回完整结果。</summary>
-/// <remarks>只拥有主机设置、调度余量和测量值；会话与状态格式必须属于同一领域。调用方负责消费返回的已提交事件。</remarks>
-/// <example>应推进四步，每步耗时 3 ms、帧预算 5 ms 时完成两步，余下两步额度在帧结束时放弃。</example>
 public sealed class SimulationDriver
 {
-    /// <summary>实际速度的暂定采样窗口，单位真实秒；满一秒后在帧结束时重置，不参与模拟计算。</summary>
     private const double SpeedSampleSeconds = 1;
     private readonly SimulationSession _session;
     private readonly SimulationStateCodec _states;
@@ -57,11 +35,6 @@ public sealed class SimulationDriver
     private double _actualSpeed;
     private bool _isExecuting;
 
-    /// <summary>为已经创建或恢复成功的完整会话建立新的主机驱动。</summary>
-    /// <param name="session">已检查起点不变量的会话，不在此重建或清空命令日志。</param>
-    /// <param name="states">该会话领域的状态和检查点格式。</param>
-    /// <param name="getRealSeconds">可选的有限单调真实秒来源；默认使用 Stopwatch，测试可提供可控时间。</param>
-    /// <exception cref="ArgumentNullException">会话或格式为空。</exception>
     public SimulationDriver(SimulationSession session, SimulationStateCodec states, Func<double>? getRealSeconds = null)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -72,8 +45,6 @@ public sealed class SimulationDriver
         _sampleStartedAt = _getRealSeconds();
     }
 
-    /// <summary>读取完整核心状态与主机观察值，不推进模拟或修改采样。</summary>
-    /// <returns>同一完整边界的状态快照与当前宿主设置、余量和测量值。</returns>
     public SimulationStatus GetStatus()
     {
         EnsureOwnerThread();
@@ -82,8 +53,6 @@ public sealed class SimulationDriver
             _pendingSteps, _scheduler.Remainder);
     }
 
-    /// <summary>设置主机暂停状态，保留不足一步的余量；切换时重新开始速度采样。</summary>
-    /// <param name="paused">true 停止自动推进，核心命令仍可以执行。</param>
     public void SetPaused(bool paused)
     {
         EnsureMutable();
@@ -93,9 +62,6 @@ public sealed class SimulationDriver
         ResetSpeedSample();
     }
 
-    /// <summary>设置目标倍速并重新采样，不改变已有权威状态或累计余量。</summary>
-    /// <param name="speed">One、Two、Four 或 Eight。</param>
-    /// <exception cref="ArgumentOutOfRangeException">不是约定档位。</exception>
     public void SetSpeed(SimulationSpeed speed)
     {
         EnsureMutable();
@@ -107,12 +73,6 @@ public sealed class SimulationDriver
         ResetSpeedSample();
     }
 
-    /// <summary>累计帧间隔，在工作预算内发布完整模拟步并返回全部已提交事件。</summary>
-    /// <param name="realDelta">真实帧间隔，单位秒；非正或非有限值不新增时间，也不推进。</param>
-    /// <param name="budgetSeconds">正且有限的工作预算，单位真实秒；只在完整步之间检查。</param>
-    /// <returns>实际完成步数、最后完整状态、按步骤排列的已提交事件及本次新故障的诊断。</returns>
-    /// <remarks>有整步额度时至少尝试一个完整步，不截断事务。预算不足时放弃本帧未执行的整步额度，只保留不足一步的余量；暂停、冻结及计数耗尽时不继续累计。</remarks>
-    /// <exception cref="ArgumentOutOfRangeException">预算非正或非有限。</exception>
     public AdvanceResult AdvanceFrame(double realDelta, double budgetSeconds)
     {
         EnsureMutable();
@@ -158,10 +118,6 @@ public sealed class SimulationDriver
         }
     }
 
-    /// <summary>在主机暂停时同步推进指定完整步数，不消费自动推进余量或计入实际速度。</summary>
-    /// <param name="steps">请求完整步数；零沿用会话的无事务行为。</param>
-    /// <returns>同一会话的实际完成结果，故障或计数耗尽时可以少于请求步数。</returns>
-    /// <exception cref="InvalidOperationException">主机尚未暂停。</exception>
     public AdvanceResult Step(ulong steps)
     {
         EnsureMutable();
@@ -172,10 +128,6 @@ public sealed class SimulationDriver
         finally { _isExecuting = false; }
     }
 
-    /// <summary>在同一会话当前边界提交一条核心命令，主机暂停不改变接受规则。</summary>
-    /// <param name="command">已经解析的领域命令。</param>
-    /// <param name="source">原始输入来源，保留在执行日志中。</param>
-    /// <returns>同一会话的入口拒收或完整执行记录，保留命令的执行、拒绝和故障语义。</returns>
     public SubmissionResult SubmitCommand(CoreCommand command, CommandSource source)
     {
         EnsureMutable();
@@ -184,15 +136,12 @@ public sealed class SimulationDriver
         finally { _isExecuting = false; }
     }
 
-    /// <summary>从同一会话最后完整状态生成权威检查点，不包含主机设置或速度采样。</summary>
-    /// <returns>由领域格式编码的规范权威文档、位置和 SHA-256 摘要。</returns>
     public AuthoritativeCheckpoint CreateCheckpoint()
     {
         EnsureOwnerThread();
         return _states.CreateCheckpoint(_session.GetState());
     }
 
-    /// <summary>将自动完成的模拟时间除以单调真实耗时，更新当前观察段的实际速度。</summary>
     private void ObserveSpeed(ulong steps, double now)
     {
         _sampleSteps = checked(_sampleSteps + steps);
@@ -205,7 +154,6 @@ public sealed class SimulationDriver
         }
     }
 
-    /// <summary>从设置切换后的真实时刻开始观察，不混入暂停期间或旧档位的耗时。</summary>
     private void ResetSpeedSample()
     {
         _sampleStartedAt = _getRealSeconds();
@@ -213,21 +161,17 @@ public sealed class SimulationDriver
         _actualSpeed = 0;
     }
 
-    /// <summary>返回当前完整状态，表示本次调用没有发布模拟步或事件。</summary>
     private AdvanceResult NoAdvance() => new(0, _session.GetState(), ImmutableArray<DomainEvent>.Empty);
 
-    /// <summary>判断冻结或计数耗尽是否已使该会话无法继续自动推进。</summary>
     private static bool IsStopped(SimulationState state) =>
         state.Fault is not null || state.CompletedSteps == ulong.MaxValue || state.TransactionCount == ulong.MaxValue;
 
-    /// <summary>禁止另一线程读取或改变该驱动的主机设置和测量值。</summary>
     private void EnsureOwnerThread()
     {
         if (Environment.CurrentManagedThreadId != _ownerThread)
             throw new InvalidOperationException("模拟驱动只能由创建它的宿主线程调用。");
     }
 
-    /// <summary>禁止计算期间重入修改主机设置或再次推进，查询仍可读取最后完整状态。</summary>
     private void EnsureMutable()
     {
         EnsureOwnerThread();

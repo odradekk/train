@@ -1,9 +1,5 @@
-// 属于内容加载模块。
-// 共用定义收集、身份冲突、包归属和发布比较，具体格式负责解析与引用规则。
 namespace Train.Content;
 
-/// <summary>表示一次加载中一个包及其有上限的诊断；Invalid 是整个包的隔离标记。</summary>
-/// <remarks>同一包的所有格式共用诊断容器，条目的归属始终指向本对象，而非仅用命名空间推断。</remarks>
 internal sealed class ContentPackageLoad(ContentPackage package)
 {
     public ContentPackage Package { get; } = package;
@@ -11,25 +7,19 @@ internal sealed class ContentPackageLoad(ContentPackage package)
         package.IsRequired ? ContentDiagnosticSeverity.Error : ContentDiagnosticSeverity.Warning);
 }
 
-/// <summary>内容格式参加共同加载流程所需的内部操作；不向调用方开放注册或扩展。</summary>
 internal abstract class ContentFormat
 {
     public abstract string FileSuffix { get; }
     public abstract string LogKind { get; }
     public abstract int CountFor(ContentPackageLoad package);
 
-    /// <summary>解析一份已读取的 JSON，保存候选条目及真实所属包，返回本文件接受的条目数。</summary>
     public abstract int ReadFile(IContentSource source, ContentPackageLoad package, string file, byte[] bytes);
 
-    /// <summary>合并仍有效的包；相同身份的全部声明使其所属包无效，不选择覆盖者。</summary>
     public abstract void Merge();
 
-    /// <summary>按完整发布指纹判断本格式是否与已发布快照不同。</summary>
     public abstract bool HasChanges(ContentSnapshot previous);
 }
 
-/// <summary>按强类型身份收集一种格式的有限条目，并共用整包隔离与指纹比较。</summary>
-/// <remarks>解析结果保留包归属；Candidates 和 Owners 只包含尚有效包的合并结果，每次隔离后一起重建。候选可以尚未完成跨定义引用或派生计算。</remarks>
 internal abstract class ContentFormat<TId, TCandidate> : ContentFormat
     where TId : notnull
     where TCandidate : class
@@ -40,7 +30,6 @@ internal abstract class ContentFormat<TId, TCandidate> : ContentFormat
 
     protected abstract TId Identity(TCandidate entry);
 
-    /// <summary>解析并校验本格式的文件；失败归入该包的共享诊断。</summary>
     protected abstract IReadOnlyList<TCandidate> Parse(
         IContentSource source, ContentPackageLoad package, string file, byte[] bytes);
 
@@ -85,7 +74,6 @@ internal abstract class ContentFormat<TId, TCandidate> : ContentFormat
         }
     }
 
-    /// <summary>比较强类型身份和发布指纹；来源位置与遍历顺序不影响有效内容。</summary>
     protected static bool HasChanges<TEntry>(
         IReadOnlyDictionary<TId, TEntry> entries, IReadOnlyDictionary<TId, TEntry> previous,
         Func<TEntry, string> fingerprint) =>

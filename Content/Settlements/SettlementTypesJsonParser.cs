@@ -1,22 +1,11 @@
-// 属于内容层的聚居地类型解析模块。
-// 严格读取生成参数与供需规格，本地校验后交给共同流程检查货物引用。
 using System.Text.Json;
 using Train.Content.Voxels;
 namespace Train.Content.Settlements;
 
-/// <summary>解析 schema 1 聚居地类型的本地字段；合并后的货物引用由领域格式校验。</summary>
 internal static class SettlementTypesJsonParser
 {
-    /// <summary>聚居地类型文件唯一支持的 schema 版本；格式约定见内容模块 README。</summary>
     private const int SchemaVersion = 1;
 
-    /// <summary>将 UTF-8 文件解析成不可变类型序列；结构或字段无效时返回 null。</summary>
-    /// <param name="utf8">原始 JSON；遵守共用大小及严格 JSON 约束。</param>
-    /// <param name="packageNamespace">已校验的所属包命名空间，补全声明的局部 ID。</param>
-    /// <param name="sourceFile">包内源文件路径，仅作来源和诊断。</param>
-    /// <param name="diagnostics">共享包诊断容器；失败写入原因及 JSON 路径并使整包无效。</param>
-    /// <returns>类型序列，允许为空；文件无效为 null，不返回部分成功结果。</returns>
-    /// <remarks>效果：更新 diagnostics；不抽样世界状态，不恢复供需，不发布快照。</remarks>
     public static IReadOnlyList<SettlementTypeDefinition>? Parse(
         byte[] utf8, string packageNamespace, string sourceFile, DiagnosticBag diagnostics)
     {
@@ -24,7 +13,6 @@ internal static class SettlementTypesJsonParser
             (element, path) => ParseDefinition(element, packageNamespace, path, diagnostics));
     }
 
-    /// <summary>读取一个类型的身份、显示名、两种数量映射与生成参数。</summary>
     private static SettlementTypeDefinition? ParseDefinition(JsonElement element, string packageNamespace, string path, DiagnosticBag diagnostics)
     {
         if (!ContentJson.CheckFields(element, path, diagnostics, "id", "name", "supply", "demand", "preferred_terrain",
@@ -48,7 +36,6 @@ internal static class SettlementTypesJsonParser
             supply, demand, terrain, weight.Value, population, platforms.Value);
     }
 
-    /// <summary>读取一边供需的有限货物映射，允许为空，拒绝同一边的重复货物。</summary>
     private static IReadOnlyDictionary<VoxelDefinitionId, SettlementMarketQuantity>? ParseQuantities(JsonElement element,
         string name, string packageNamespace, string path, DiagnosticBag diagnostics)
     {
@@ -75,7 +62,6 @@ internal static class SettlementTypesJsonParser
         return quantities;
     }
 
-    /// <summary>读取完整规范地貌身份集合；空集合表示不限，不检查目标存在性。</summary>
     private static IReadOnlySet<string>? ParseTerrain(JsonElement element, string path, DiagnosticBag diagnostics)
     {
         var items = ContentJson.ReadArray(element, "preferred_terrain", path, diagnostics);
@@ -98,7 +84,6 @@ internal static class SettlementTypesJsonParser
         return terrain;
     }
 
-    /// <summary>读取正人口闭区间，拒绝上限小于下限。</summary>
     private static SettlementPopulationRange? ParsePopulation(JsonElement element, string path, DiagnosticBag diagnostics)
     {
         if (ContentJson.ReadInt32(element, "population_min", 1, path, diagnostics) is not { } min ||

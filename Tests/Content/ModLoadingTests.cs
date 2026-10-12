@@ -1,5 +1,3 @@
-// Content 内容模块测试。
-// 验证 Mod 的隔离、命名空间、内容限制和重载回滚契约。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Content.Voxels;

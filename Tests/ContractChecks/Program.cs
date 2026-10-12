@@ -1,5 +1,3 @@
-// 契约公开面检查工具：从源码声明与编译产物提取调用方可见的形状。
-// 与已确认基线比较，并检查公开签名中的 Train 类型是否属于允许的契约依赖闭包。
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -47,7 +45,6 @@ var format = SymbolDisplayFormat.FullyQualifiedFormat
 var lines = new SortedSet<string>(StringComparer.Ordinal);
 var failures = new List<string>();
 
-// 源码声明保留参数名、默认值和 using；元数据补充实际类型所有权与枚举数值。
 foreach (var owner in contractProjects)
 {
     var trees = Directory.GetFiles(Path.GetDirectoryName(Path.Combine(root, projects[owner].GetProperty("path").GetString()!))!, "*.cs", SearchOption.AllDirectories)
@@ -118,7 +115,6 @@ foreach (var path in paths)
             AddAllowed(dependency.GetString()!);
     }
 
-    // 只走调用方可见成员，保留显式签名及位置 record 属性中的类型引用。
     void Visit(INamespaceOrTypeSymbol container)
     {
         foreach (var member in container.GetMembers())
@@ -138,7 +134,6 @@ foreach (var path in paths)
         }
     }
 
-    // 递归检查组合类型，使数组、泛型和约束不能藏入允许依赖闭包之外的 Train.* 程序集类型，包括契约程序集。
     void CheckType(ITypeSymbol type, string signature)
     {
         switch (type)
@@ -180,7 +175,6 @@ string AssemblyPath(string name) => Path.Combine(root,
     Path.GetDirectoryName(projects[name].GetProperty("path").GetString()!)!,
     "bin", configuration, "net10.0", $"{name}.dll");
 
-// 外层 internal 类型中的 public 成员不属于调用方可见的公开表面。
 static bool VisibleSymbol(ISymbol? symbol)
 {
     for (var current = symbol; current is not null && current is not INamespaceSymbol; current = current.ContainingType)
@@ -192,7 +186,6 @@ static bool VisibleSymbol(ISymbol? symbol)
 static bool Visible(SyntaxTokenList modifiers) => modifiers.Any(token =>
     token.IsKind(SyntaxKind.PublicKeyword) || token.IsKind(SyntaxKind.ProtectedKeyword));
 
-// 声明的范围包含命名空间和所有外层类型，避免不同嵌套位置的声明相互抵消。
 static string Scope(SyntaxNode declaration)
 {
     var namespaces = declaration.Ancestors().OfType<BaseNamespaceDeclarationSyntax>().Reverse().Select(item => item.Name.ToString());
@@ -208,7 +201,6 @@ static string Scope(SyntaxNode declaration)
 
 static string Normalize(string text) => Regex.Replace(text.Trim(), @"\s+", " ");
 
-// 枚举调用方签名中可见的类型位置，包括泛型约束和继承关系。
 static IEnumerable<ITypeSymbol> SignatureTypes(ISymbol symbol)
 {
     switch (symbol)
