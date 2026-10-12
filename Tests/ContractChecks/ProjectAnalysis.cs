@@ -52,10 +52,33 @@ internal static class ProjectAnalysis
         var reports = new List<object>();
         var pending = new Queue<string>(names);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        while (pending.TryDequeue(out var name))
+        while (pending.Count != 0 && failures.Count == 0)
         {
-            if (failures.Count != 0) break;
-            if (!seen.Add(name)) continue;
+            var batch = new List<string>();
+            while (pending.TryPeek(out var next) && batch.Count < (isolated ? 1 : 4))
+            {
+                // 调用样例会构建共享契约，逐个执行；其余只读取已构建的项目。
+                if (batch.Count != 0 && (IsSample(next) || IsSample(batch[0]))) break;
+                pending.Dequeue();
+                if (seen.Add(next)) batch.Add(next);
+            }
+            foreach (var result in await Task.WhenAll(batch.Select(Inspect)))
+            {
+                failures.AddRange(result.Failures);
+                reports.Add(result.Report);
+                foreach (var dependency in result.Dependencies) pending.Enqueue(dependency);
+            }
+        }
+        await File.WriteAllTextAsync(Path.Combine(output, "references.json"), JsonSerializer.Serialize(reports,
+            new JsonSerializerOptions { WriteIndented = true }));
+        return failures;
+
+        bool IsSample(string name) => projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal);
+
+        async Task<(List<string> Failures, object Report, List<string> Dependencies)> Inspect(string name)
+        {
+            var projectFailures = new List<string>();
+            var dependencies = new List<string>();
             var rule = projects[name];
             var project = Path.GetFullPath(Path.Combine(root, rule.Path));
             var owner = Path.GetDirectoryName(project)!;
@@ -63,7 +86,7 @@ internal static class ProjectAnalysis
             var arguments = new List<string> { "msbuild", project, "-nodeReuse:false", "-property:UseSharedCompilation=false",
                 "-property:Configuration=" + projectConfiguration, "-verbosity:quiet",
                 "-getItem:ProjectReference,ReferencePath,Compile,InternalsVisibleTo", "-getProperty:TargetPath" };
-            if (!isolated && rule.Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal))
+            if (!isolated && IsSample(name))
                 arguments.AddRange(["-restore", "-target:Build"]);
             else arguments.AddRange(["-target:ResolveReferences", "-property:BuildProjectReferences=false"]);
             var raw = await ToolProcess.Run("dotnet", arguments, owner, Path.Combine(output, name + ".msbuild.log"));
@@ -79,9 +102,9 @@ internal static class ProjectAnalysis
                 // SDK 把传递项目引用加入求值集合，因此按允许闭包核对。
                 if (!projects.TryGetValue(target, out var targetRule) || !closure.Contains(target) ||
                     !Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, targetRule.Path)), PathComparison))
-                    failures.Add($"forbidden project reference: {name} -> {target} ({path})");
-                if (isolated && !IsChildPath(path, root)) failures.Add($"project reference outside isolation: {name} ({path})");
-                if (projects.ContainsKey(target) && IsChildPath(path, root)) pending.Enqueue(target);
+                    projectFailures.Add($"forbidden project reference: {name} -> {target} ({path})");
+                if (isolated && !IsChildPath(path, root)) projectFailures.Add($"project reference outside isolation: {name} ({path})");
+                if (projects.ContainsKey(target) && IsChildPath(path, root)) dependencies.Add(target);
             }
             foreach (var item in items.GetProperty("ReferencePath").EnumerateArray())
             {
@@ -89,27 +112,27 @@ internal static class ProjectAnalysis
                 var path = item.GetProperty("FullPath").GetString()!;
                 CheckDependency(target, "resolved assembly");
                 if (!IsFirstParty(target)) continue;
-                if (isolated && !IsChildPath(path, root)) failures.Add($"assembly resolved outside isolation: {name} -> {target} ({path})");
+                if (isolated && !IsChildPath(path, root)) projectFailures.Add($"assembly resolved outside isolation: {name} -> {target} ({path})");
                 if (projects.TryGetValue(target, out var targetRule) &&
                     !IsChildPath(path, Path.GetDirectoryName(Path.Combine(root, targetRule.Path))!))
-                    failures.Add($"assembly resolved outside owner: {name} -> {target} ({path})");
+                    projectFailures.Add($"assembly resolved outside owner: {name} -> {target} ({path})");
             }
             foreach (var item in items.GetProperty("Compile").EnumerateArray())
             {
                 var path = item.GetProperty("FullPath").GetString()!;
-                if (!IsChildPath(path, owner)) failures.Add($"linked source outside owner: {name} ({path})");
-                if (isolated && !IsChildPath(path, root)) failures.Add($"compile source outside isolation: {name} ({path})");
+                if (!IsChildPath(path, owner)) projectFailures.Add($"linked source outside owner: {name} ({path})");
+                if (isolated && !IsChildPath(path, root)) projectFailures.Add($"compile source outside isolation: {name} ({path})");
                 if (name == "Train")
                 {
                     var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
                     if (!new[] { "App/", "Ui/", "Rendering/", ".godot/mono/temp/obj/" }.Any(relative.StartsWith))
-                        failures.Add("host compiles foreign source: " + path);
+                        projectFailures.Add("host compiles foreign source: " + path);
                 }
             }
             var friends = new HashSet<string>(StringComparer.Ordinal);
             foreach (var item in items.GetProperty("InternalsVisibleTo").EnumerateArray())
                 friends.Add(item.GetProperty("Identity").GetString()!);
-            if (isolated && !IsChildPath(assembly, root)) failures.Add($"output outside isolation: {name} ({assembly})");
+            if (isolated && !IsChildPath(assembly, root)) projectFailures.Add($"output outside isolation: {name} ({assembly})");
             using var stream = File.OpenRead(assembly);
             using var pe = new PEReader(stream);
             var metadata = pe.GetMetadataReader();
@@ -130,19 +153,17 @@ internal static class ProjectAnalysis
                 friends.Add(blob.ReadSerializedString()!);
             }
             foreach (var friend in friends)
-                if (!(rule.Friends ?? []).Contains(friend)) failures.Add($"forbidden friend assembly: {name} -> {friend}");
-            reports.Add(new { name, project, assembly, items = items.Clone(), assemblyReferences, friends,
-                assemblySha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assembly))) });
+                if (!(rule.Friends ?? []).Contains(friend)) projectFailures.Add($"forbidden friend assembly: {name} -> {friend}");
+            var report = new { name, project, assembly, items = items.Clone(), assemblyReferences, friends,
+                assemblySha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assembly))) };
 
             void CheckDependency(string target, string kind)
             {
                 if (name is not ("Train" or "Train.Godot.Tests" or "Train.Godot.ContractSamples") && target.StartsWith("GodotSharp", StringComparison.Ordinal))
-                    failures.Add($"forbidden {kind}: {name} -> {target}");
-                if (IsFirstParty(target) && !closure.Contains(target)) failures.Add($"forbidden {kind}: {name} -> {target}");
+                    projectFailures.Add($"forbidden {kind}: {name} -> {target}");
+                if (IsFirstParty(target) && !closure.Contains(target)) projectFailures.Add($"forbidden {kind}: {name} -> {target}");
             }
+            return (projectFailures, report, dependencies);
         }
-        await File.WriteAllTextAsync(Path.Combine(output, "references.json"), JsonSerializer.Serialize(reports,
-            new JsonSerializerOptions { WriteIndented = true }));
-        return failures;
     }
 }
