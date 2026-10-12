@@ -4,7 +4,7 @@
 
 ## 交付状态与入口
 
-已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。这是待原型验证的契约草案，不是整组基线；现有 `Core/`、`App/`、`Scenes/` 尚未迁移，也没有完整 Demo 核心实现。声明编译通过只证明结构可用，不证明真实模拟、共享用例、隔离替换或性能通过。
+已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂对象、内部候选与会话生命周期、同步内容发布、逐步位置推进和四字段不可变读视图；世界生成及其他领域行为尚未实现。声明编译通过只证明结构可用，模块测试不代表公开新局、共享契约用例、真实四模块联调或完整 Demo 已通过。
 
 | 声明 | 调用方使用的内容 |
 | --- | --- |
@@ -15,7 +15,25 @@
 | [Events.cs](../../Contracts/Core/Events.cs) | 本次调用的有序领域事件和删除后仍可用的表现资料 |
 | [Lifecycle.cs](../../Contracts/Core/Lifecycle.cs) | 工厂、会话、内容候选、捕获、录制与严格重放 |
 
-实现程序集未来只在装配入口公开 `Train.Core.CoreFactory.Create()`，返回 `ICoreFactory`；其余实现类型不公开。该工厂不接收计算阶段、系统注册表或外部状态编码器。工厂的确切公开面与实际迁移一起接入基线，当前没有制造会抛 `NotImplementedException` 的假工厂。宿主的 `App/Composition/` 调用工厂，其余代码只接收契约接口。
+新入口为 [Train.Core.CoreFactory.Create()](../../Core/CoreFactory.cs)，返回 `ICoreFactory`；新实现类型均为 `internal`，不接收外部计算阶段、规则、随机源或编码器，也不引用旧通用模拟框架。工厂公开面与调用位置的自动检查尚未接入，归 #406 和宿主切换；[公开面基线](public-api.txt)仍只有已确认的契约声明。宿主切换后由 `App/Composition/` 调用真实工厂，其余代码只接收契约接口。
+
+当前已实现的成员：
+
+- 候选的 `View`、单次 `Activate` 和 `Dispose`；生成与恢复接入同一个内部候选构造。
+- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进位置，不运行领域系统；内容身份不同时提交投影，身份相同时在事务之前抛 `ArgumentException`。当前没有引用内容的世界状态，因此尚无引用适配检查。
+- 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
+
+下表成员尚未实现，直接抛 `NotImplementedException`，不以业务失败、故障结果、缺失查询或空世界成功代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类，交付责任在此维护。
+
+| 未实现成员 | 交付责任 |
+| --- | --- |
+| `PrepareNew`，生成候选的引用与缺失资料，`World`、节点、线路、地点及初始实例查询 | #309 小世界生成；列车详情由 #310 接入，线路与站台调度由 #311 补齐 |
+| 编组、解编、运行计划、起停命令及列车查询 | #310；调度与开发断点行为由 #311 接入 |
+| `DecodeState`、`PrepareRestore`、`Capture`，候选的 `References`、`AdaptationReport` 和 `MissingReferences` | #312 状态捕获与恢复；生成候选资料随 #309 接入 |
+| `PrepareReplay`、`CompareCheckpoints`、`ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart` | #313 录制与严格重放 |
+| 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
+
+旧 `Train.Core.Simulation` 仍只供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；当前仅移除旧驱动、控制台和说明中的恒零 `PendingSteps`。内部会话测试执行真实事务代码，拒绝与事件由内部测试体供给；公开创建会话及共享契约情景须等 #309 的 `PrepareNew` 接入后验证。
 
 ## 所有权与数值
 
