@@ -123,7 +123,11 @@ function Invoke-Isolation([string] $Name, [string] $Group, [string] $Output, [in
     finally { Remove-IsolationTrees $Output }
 }
 try {
-    $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -ExportWindows:$ExportWindows -Project $Project -Projects $projects -OutputDirectory $run
+    if ($layers.Count -eq 1 -and $layers[0] -eq 'stage') {
+        $summary.selection = @{ mode = 'stage'; baseRef = $BaseRef; projects = @(); contracts = $true; isolation = $true; schema = $false }
+    } else {
+        $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -ExportWindows:$ExportWindows -Project $Project -Projects $projects -OutputDirectory $run
+    }
     $summary.selection.layers = $layers
     $summary.selection.exportWindows = [bool] $ExportWindows
     $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })

@@ -44,7 +44,7 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 在 `master` 上手动运行 `routine` 时，默认基准与 HEAD 相同，快速与集成步骤得到空选择并成功退出，不构建；独立引擎步骤也报告未选择并成功退出，不下载 Godot、不构建或运行测试。需要全仓回归时选择 `correctness`。
 
-阶段检查另外使用 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage`，始终执行结构、公开面和 Core/Content 隔离。阶段层也记录统一改动分析；同时请求 engine 不强制引擎，阶段全量正确性使用 `-All -Layer all`。当前工作流不自动选择 stage；`all` 仍为 fast、integration、engine。
+阶段检查另外使用 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage`，单独选择 `stage` 时完全跳过改动分析，始终执行结构、公开面和 Core/Content 隔离。`-Layer stage,engine` 不强制引擎，阶段全量正确性使用 `-All -Layer all`。当前工作流不自动选择 stage；`all` 仍为 fast、integration、engine。
 
 ## 环境与证据
 

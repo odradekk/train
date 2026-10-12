@@ -60,7 +60,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目包含 1 个快速层、4 个集成层用例。
 
-阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 记录统一改动分析，但三项阶段检查不按改动筛选，总是构建一次解决方案并执行 structure、verify、isolate。同时请求 engine 时，引擎仍按同一套影响规则选择；阶段全量正确性使用 `-All -Layer all`，由 `-All` 强制引擎。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
+单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行 structure、verify、isolate。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；阶段全量正确性使用 `-All -Layer all`，由 `-All` 强制引擎。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests"]`，重新构建两个模块并运行各自全部用例。
 
