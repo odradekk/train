@@ -9,20 +9,19 @@ internal sealed class CoreSessionCandidate : ICoreSessionCandidate
     private bool _activated;
     private bool _disposed;
 
-    internal CoreSessionCandidate(CoreState state)
+    internal CoreSessionCandidate(CoreState state, ImmutableArray<CoreProblem> adaptationReport = default)
     {
         _session = new CoreSession(state);
         View = _session.Read();
+        References = new([], [], [], [state.Content.Identity]);
+        AdaptationReport = adaptationReport.IsDefault ? [] : adaptationReport;
     }
 
     public ICoreReadView View { get; }
 
-    public CoreReferenceManifest References
-        => throw new NotImplementedException("References 尚未实现。");
-    public ImmutableArray<CoreProblem> AdaptationReport
-        => throw new NotImplementedException("AdaptationReport 尚未实现。");
-    public ImmutableArray<MissingCoreReference> MissingReferences
-        => throw new NotImplementedException("MissingReferences 尚未实现。");
+    public CoreReferenceManifest References { get; }
+    public ImmutableArray<CoreProblem> AdaptationReport { get; }
+    public ImmutableArray<MissingCoreReference> MissingReferences => [];
 
     public ICoreSession Activate()
     {
