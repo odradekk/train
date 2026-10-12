@@ -162,6 +162,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Prepare installed runner toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet_root="${DOTNET_ROOT:-$HOME/.dotnet}"
+          godot_path="${GODOT:-$HOME/.local/bin/godot}"
+          test -x "$dotnet_root/dotnet"
+          test -x "$godot_path"
+          printf '%s\n' "$dotnet_root" "$HOME/opt/ci-venv/bin" >> "$GITHUB_PATH"
+          printf 'DOTNET_ROOT=%s\nGODOT=%s\n' "$dotnet_root" "$godot_path" >> "$GITHUB_ENV"
+
       - name: Record runner environment
         shell: pwsh
         run: |
