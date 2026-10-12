@@ -91,15 +91,16 @@ try {
     $summary.selection.layers = $layers
     $summary.selection.exportWindows = [bool] $ExportWindows
     $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })
-    $hasChecks = 'engine' -in $layers -or ($projects.Count -and @($layers | Where-Object { $_ -ne 'engine' }).Count) -or
-        ('integration' -in $layers -and ($summary.selection.contracts -or $summary.selection.schema))
-    if ($hasChecks) { Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300 }
-    else { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
+    $selectedLayers = @($layers | Where-Object {
+        $_ -eq 'engine' -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.schema))
+    })
+    if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or 'engine' -in $selectedLayers)) {
+        Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
+    } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
         $budget = @{ fast = 30; integration = 180; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
-        $selected = $current -eq 'engine' -or $projects.Count -or
-            ($current -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.schema))
+        $selected = $current -in $selectedLayers
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -ne 'engine') {

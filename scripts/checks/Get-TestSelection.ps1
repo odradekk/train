@@ -11,8 +11,8 @@ function Get-TestSelection {
         return $selection
     }
 
-    # dotnet-affected compares repository prefixes case-sensitively, including on Windows.
-    $root = (git rev-parse --show-toplevel).Trim()
+    # dotnet-affected requires Git's path casing and native separators, including on Windows.
+    $root = [IO.Path]::GetFullPath((git rev-parse --show-toplevel).Trim())
     if ($LASTEXITCODE) { throw 'Cannot identify the Git worktree.' }
     $base = @(git merge-base $BaseRef HEAD 2>&1)
     if ($LASTEXITCODE) { throw "Cannot resolve comparison base '$BaseRef': $base" }
