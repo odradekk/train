@@ -107,12 +107,13 @@ function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [strin
     Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
 }
 try {
-    $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -Project $Project -Projects $projects -OutputDirectory $run
+    $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -ExportWindows:$ExportWindows -Project $Project -Projects $projects -OutputDirectory $run
     $summary.selection.layers = $layers
     $summary.selection.exportWindows = [bool] $ExportWindows
     $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })
     $selectedLayers = @($layers | Where-Object {
-        $_ -eq 'engine' -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.schema))
+        if ($_ -eq 'engine') { $summary.selection.engine }
+        else { $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.schema)) }
     })
     if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or 'engine' -in $selectedLayers)) {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300

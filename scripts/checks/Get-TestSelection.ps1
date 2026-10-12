@@ -1,10 +1,10 @@
 function Get-TestSelection {
-    param([string] $BaseRef, [switch] $All, [string[]] $Project, [object[]] $Projects, [string] $OutputDirectory)
+    param([string] $BaseRef, [switch] $All, [switch] $ExportWindows, [string[]] $Project, [object[]] $Projects, [string] $OutputDirectory)
 
     $selection = [ordered]@{
         mode = if ($All) { 'all' } elseif ($Project.Count) { 'explicit' } else { 'affected' }
         baseRef = $BaseRef; mergeBase = $null; changes = @(); affectedProjects = @()
-        projects = @(); contracts = [bool] $All; schema = [bool] $All; analysis = $null
+        projects = @(); contracts = [bool] $All; schema = [bool] $All; engine = [bool] ($All -or $ExportWindows); analysis = $null
     }
     if ($All -or $Project.Count) {
         $selection.projects = @(if ($All) { $Projects.name } else { $Project })
@@ -31,8 +31,17 @@ function Get-TestSelection {
         'Contracts/*', '*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln',
         'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt'
     )
+    $enginePatterns = @($sharedPatterns | Where-Object { $_ -notin @('docs/content/schemas/*', 'Tests/ContractSupport/*') }) + @(
+        'Tests/Engine/*', 'project.godot', 'export_presets.cfg', 'builtin/*', 'addons/*'
+    )
+    $resourcePatterns = @('*.tscn', '*.tres', '*.uid', '*.import')
     foreach ($file in $files) {
-        $selection.changes += @{ path = $file; project = $null; sharedRules = @($sharedPatterns | Where-Object { $file -like $_ }) }
+        $engineRules = @($enginePatterns | Where-Object { $file -like $_ })
+        if ($file -notmatch '^(archive|docs|prototypes|Tests)/') {
+            $engineRules += @($resourcePatterns | Where-Object { $file -like $_ })
+        }
+        $selection.changes += @{ path = $file; project = $null; sharedRules = @($sharedPatterns | Where-Object { $file -like $_ }); engineRules = $engineRules }
+        if ($engineRules.Count) { $selection.engine = $true }
         if (@($contractPatterns | Where-Object { $file -like $_ }).Count) { $selection.contracts = $true }
         if ($file -like 'docs/content/*') { $selection.schema = $true }
     }
@@ -50,6 +59,7 @@ function Get-TestSelection {
         $affected = Get-Content -LiteralPath (Join-Path $OutputDirectory 'affected.json') -Raw | ConvertFrom-Json
         $selection.affectedProjects = @($affected | ForEach-Object { [IO.Path]::GetRelativePath($root, $_.FilePath).Replace('\', '/') })
     }
+    if ('Tests/Engine/Train.Engine.Tests.csproj' -in $selection.affectedProjects) { $selection.engine = $true }
     $selection.projects = @(if (@($selection.changes | Where-Object { $_.sharedRules.Count }).Count) {
         @($Projects.name)
     } else { @($Projects | Where-Object { $_.path -in $selection.affectedProjects } | ForEach-Object name) })
