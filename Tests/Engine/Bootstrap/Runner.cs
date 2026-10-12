@@ -16,7 +16,9 @@ public partial class Runner : Node
                 .LoadFromAssemblyPath(System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_TEST_ASSEMBLY")!);
             GoTest.Adapter = new ReportAdapter(System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_REPORT")!);
             GoTest.TimeoutMilliseconds = 60000;
-            await GoTest.RunTests(assembly, this, TestEnvironment.From(OS.GetCmdlineUserArgs()));
+            var screenshot = System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_SCREENSHOT") == "1";
+            await GoTest.RunTests(assembly, this, TestEnvironment.From(OS.GetCmdlineUserArgs()),
+                predicate: operation => (operation.Suite.TestClassType.Name == "ScreenshotTests") == screenshot);
         }
         catch (Exception exception)
         {
