@@ -12,19 +12,20 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location $root
 $layers = @(($Layer -join ',') -split ',' | Select-Object -Unique)
-if (@($layers | Where-Object { $_ -notin @('fast', 'integration', 'engine', 'all') }).Count) { throw 'Unknown test layer.' }
-if ('all' -in $layers) { $layers = @('fast', 'integration', 'engine') }
+if (@($layers | Where-Object { $_ -notin @('fast', 'integration', 'engine', 'stage', 'all') }).Count) { throw 'Unknown test layer.' }
+if ('all' -in $layers) { $layers = @('fast', 'integration', 'engine') + @($layers | Where-Object { $_ -eq 'stage' }) }
 $Project = @(($Project -join ',') -split ',' | Where-Object { $_ } | Select-Object -Unique)
-if (@($Project | Where-Object { $_ -notin @('core', 'content', 'godot', 'contract-support') }).Count) { throw 'Unknown test project.' }
+if (@($Project | Where-Object { $_ -notin @('core', 'content', 'godot', 'contract-support', 'contract-checks') }).Count) { throw 'Unknown test project.' }
 if ($All -and $Project.Count) { throw '-All and -Project cannot be combined.' }
 if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $IsWindows)) { throw '-ExportWindows requires engine, no -Project, and Windows.' }
-if ($Project.Count) { $layers = @($layers | Where-Object { $_ -ne 'engine' }) }
+if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
     @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 245; integration = 4 },
     @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 189; integration = 7 },
     @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 12; integration = 35; engine = 8 },
-    @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 13; integration = 0 }
+    @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 13; integration = 0 },
+    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 1; integration = 4 }
 )
 $engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
@@ -35,7 +36,7 @@ New-Item -ItemType Directory -Path $results -Force | Out-Null
 $mutex = [Threading.Mutex]::new($false, 'Train.Tests.' + [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($root))))
 try { $acquired = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $acquired = $true }
 if (-not $acquired) { $mutex.Dispose(); throw 'Another test run owns this worktree.' }
-$runs = @(Get-ChildItem $results -Directory | Where-Object Name -match '^(fast|integration|engine)(-(fast|integration|engine))*-\d{8}T\d{9}-[0-9a-f]{7}$' | Sort-Object { ($_.Name -split '-')[-2] } -Descending)
+$runs = @(Get-ChildItem $results -Directory | Where-Object Name -match '^(fast|integration|engine|stage)(-(fast|integration|engine|stage))*-\d{8}T\d{9}-[0-9a-f]{7}$' | Sort-Object { ($_.Name -split '-')[-2] } -Descending)
 foreach ($previous in $runs) {
     if (-not (Test-Path (Join-Path $previous.FullName 'summary.json'))) {
         Remove-Item -LiteralPath $previous.FullName -Recurse -Force
@@ -62,6 +63,8 @@ $summary = [ordered]@{ commit = $commit; gitBefore = @(git status --porcelain=v1
 $workspaceBefore = [Collections.Generic.HashSet[string]]::new([string[]] @(Get-Snapshot $root -Workspace), [StringComparer]::Ordinal)
 $userBefore = @(Get-Snapshot $userRoot) -join "`n"
 $pwsh = (Get-Process -Id $PID).Path
+$contractTool = Join-Path $root 'Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll'
+$contractBaseline = Join-Path $root 'docs/contracts/public-api.txt'
 $started = [Diagnostics.Stopwatch]::StartNew()
 $engineUserRoot = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
@@ -92,7 +95,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
             throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
         }
         return
-    } elseif ($Name -match '^(fast|integration)-(core|content|godot|contract-support)$') {
+    } elseif ($Name -match '^(fast|integration)-(core|content|godot|contract-support|contract-checks)$') {
         $summary.checks += [pscustomobject] $check
         throw "$Name did not produce its required TRX report."
     } elseif ($Group -ne 'preparation') {
@@ -106,15 +109,32 @@ function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [strin
     if ($Seconds -lt 1) { throw "$Group exhausted its time budget." }
     Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
 }
+function Remove-IsolationTrees([string] $Output) {
+    # 外层超时会强杀工具，无法执行其 finally；只清理本次输出内的隔离树。
+    if (Test-Path -LiteralPath $Output) {
+        foreach ($tree in (Get-ChildItem -LiteralPath $Output -Directory | Where-Object Name -match '^isolated-[0-9a-f]{8}$')) {
+            if (-not ([IO.Path]::GetFullPath($tree.FullName).StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal))) { throw 'Isolation cleanup escaped the run directory.' }
+            Remove-Item -LiteralPath $tree.FullName -Recurse -Force
+        }
+    }
+}
+function Invoke-Isolation([string] $Name, [string] $Group, [string] $Output, [int] $Seconds) {
+    try { Invoke-Check $Name $Group dotnet @($contractTool, 'isolate', $root, 'Debug', $Output) $Seconds }
+    finally { Remove-IsolationTrees $Output }
+}
 try {
-    $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -Project $Project -Projects $projects -OutputDirectory $run
+    if ($layers.Count -eq 1 -and $layers[0] -eq 'stage') {
+        $summary.selection = @{ mode = 'stage'; baseRef = $BaseRef; projects = @(); contracts = $true; isolation = $true; schema = $false }
+    } else {
+        $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -Project $Project -Projects $projects -OutputDirectory $run
+    }
     $summary.selection.layers = $layers
     $summary.selection.exportWindows = [bool] $ExportWindows
     $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })
     $selectedLayers = @($layers | Where-Object {
-        $_ -eq 'engine' -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.schema))
+        $_ -in @('engine', 'stage') -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.isolation -or $summary.selection.schema))
     })
-    if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or 'engine' -in $selectedLayers)) {
+    if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or $summary.selection.isolation -or 'engine' -in $selectedLayers -or 'stage' -in $selectedLayers)) {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
@@ -123,35 +143,63 @@ try {
         $selected = $current -in $selectedLayers
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
-            if ($current -ne 'engine') {
+            if ($current -eq 'stage') {
+                Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
+                Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
+                Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 300
+            } elseif ($current -ne 'engine') {
                 $deadline = [DateTime]::UtcNow.AddSeconds($budget)
                 $helper = Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1'
+                $tasks = @($projects | ForEach-Object {
+                    @{ name = "$current-$($_.name)"; program = 'dotnet'; project = $_;
+                        priority = if ($current -eq 'integration' -and $_.name -eq 'contract-checks') { 3 } else { 0 } }
+                })
+                $isolationOutput = Join-Path $run 'isolation'
+                if ($current -eq 'integration') {
+                    if ($summary.selection.contracts) {
+                        $tasks += @{ name = 'structure'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'contracts')) }
+                        $tasks += @{ name = 'verify'; program = 'dotnet'; priority = 0; arguments = @($contractTool, 'verify', $root, 'Debug', $contractBaseline) }
+                    }
+                    if ($summary.selection.isolation) { $tasks += @{ name = 'isolate'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'isolate', $root, 'Debug', $isolationOutput) } }
+                    if ($summary.selection.schema) { $tasks += @{ name = 'schema'; program = $pwsh; priority = 0; arguments = @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') } }
+                }
+                $throttle = if ($current -eq 'integration') { 4 } else { [Math]::Max(1, $projects.Count) }
                 $results = @()
-                if ($projects.Count) { $results = @($projects | ForEach-Object -Parallel {
+                $failure = $null
+                try { if ($tasks.Count) { $results = @($tasks | Sort-Object { $_.priority } -Descending -Stable | ForEach-Object -Parallel {
+                    $task = $_
                     . $using:helper
                     $current = $using:current
-                    $minimum = $_[$current]
                     $remaining = [int] [Math]::Floor(($using:deadline - [DateTime]::UtcNow).TotalSeconds)
-                    if ($remaining -lt 1) { throw "$current exhausted its time budget." }
-                    $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
-                    $name = "$current-$($_.name)"
-                    $arguments = @('test', '--project', $_.path, '--no-build', '--results-directory', $using:run)
-                    if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
-                    $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$name.trx", '--timeout', "${remaining}s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
-                    if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
-                    [pscustomobject]@{ name = $name; arguments = $arguments; result = (Invoke-HiddenProcess -FilePath dotnet -ArgumentList $arguments -TimeoutSeconds $remaining) }
-                } -ThrottleLimit $projects.Count) }
-                $failure = $null
+                    $arguments = $task.arguments
+                    if ($task.project) {
+                        $minimum = $task.project[$current]
+                        $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
+                        $arguments = @('test', '--project', $task.project.path, '--no-build', '--results-directory', $using:run)
+                        if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
+                        $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$($task.name).trx", '--timeout', "$([Math]::Max(1, $remaining))s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
+                        if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
+                    }
+                    $result = if ($remaining -lt 1) {
+                        [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget."; TimedOut = $true; CleanupSucceeded = $true; DurationMs = 0 }
+                    } else {
+                        try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining }
+                        catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
+                    }
+                    [pscustomobject]@{ name = $task.name; program = $task.program; arguments = $arguments; result = $result }
+                } -ThrottleLimit $throttle) } }
+                finally {
+                    if ($current -eq 'integration' -and $summary.selection.isolation) {
+                        try { Remove-IsolationTrees $isolationOutput }
+                        catch { $failure = $_ }
+                    }
+                }
                 foreach ($item in $results) {
-                    try { Add-CheckResult $item.name $current dotnet $item.arguments $item.result }
-                    catch { $failure = $_ }
+                    try { Add-CheckResult $item.name $current $item.program $item.arguments $item.result }
+                    catch { if (-not $failure) { $failure = $_ } }
                 }
                 if ($failure) { throw $failure }
-                if ($results.Count -ne $projects.Count) { throw "$current did not complete every selected project." }
-                if ($current -eq 'integration') {
-                    if ($summary.selection.contracts) { Invoke-Check contracts $current $pwsh @('-NoProfile', '-File', 'scripts/checks/check-project-boundaries.ps1', '-NoSolutionBuild', '-OutputDirectory', (Join-Path $run 'contracts')) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)) }
-                    if ($summary.selection.schema) { Invoke-Check schema $current $pwsh @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)) }
-                }
+                if ($results.Count -ne $tasks.Count) { throw "$current did not complete every selected task." }
             } else {
                 $watch.Stop()
                 $paths = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } } else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
@@ -181,7 +229,7 @@ try {
                     Invoke-Check export-smoke $current $pwsh $arguments ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 }
             }
-            if ($watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
+            if ($current -ne 'stage' -and $watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
             if (-not ($summary.checks | Where-Object layer -eq $current | Measure-Object executed -Sum).Sum) { throw "$current executed no tests." }
         } finally {
             $layerSummary = @{ name = $current; selected = [bool] $selected; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
