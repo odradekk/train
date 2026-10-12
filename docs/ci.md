@@ -8,7 +8,7 @@
 pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 ```
 
-工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。有待运行检查时构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行所选项目。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建已暂停，由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
+工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行所选测试项目；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建已暂停，由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
