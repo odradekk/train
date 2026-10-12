@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Train.Content.Loading;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
@@ -17,6 +18,9 @@ internal static class DesignEvaluator
             C.DesignSpecification.Building { PlotSize: null } or C.DesignSpecification.Building { Kind: null })
             throw new NotImplementedException("不完整草稿的部分计算尚未实现。");
 
+        var display = new C.DisplayText(draft.Display.Name.Trim(), draft.Display.Description.Trim());
+        if (display != draft.Display) draft = draft with { Display = display };
+
         var diagnostics = ImmutableArray.CreateBuilder<C.ContentDiagnostic>();
         void Invalid(string field, string message, int? cell = null) => diagnostics.Add(new(
             "design_invalid", C.ContentDiagnosticSeverity.Error, "evaluate", null, null, field,
@@ -29,20 +33,43 @@ internal static class DesignEvaluator
                 Invalid($"/layout/cells/{item.Index}/3", "调色板序号超出范围。", item.Index);
         }
         if (diagnostics.Count > 0) return new C.DesignEvaluation.Failed(diagnostics.ToImmutable());
-        foreach (var item in cells)
-            if (content.FindVoxel(draft.Layout.Palette[item.Cell.PaletteIndex].Voxel) is null)
+        var paletteCells = cells.ToLookup(item => item.Cell.PaletteIndex, item => item.Index);
+        for (var index = 0; index < draft.Layout.Palette.Length; index++)
+        {
+            var entry = draft.Layout.Palette[index];
+            var voxel = content.FindVoxel(entry.Voxel);
+            if (voxel is null)
                 throw new NotImplementedException("缺失定义的部分计算尚未实现。");
+            var cellIndex = paletteCells[index].Select(cell => (int?)cell).FirstOrDefault();
+            if (entry.Paint is { } paint && !Regex.IsMatch(paint.Value, "\\A#[0-9a-f]{6}\\z", RegexOptions.CultureInvariant))
+                Invalid($"/layout/palette/{index}/paint", "颜色必须为小写 #rrggbb。", cellIndex);
+            if (!Allowed(entry.Orientation, voxel.Definition.Orientations))
+                Invalid($"/layout/palette/{index}/orientation", "体素不允许该朝向。", cellIndex);
+            if (entry.Shape is { } shape)
+            {
+                if (voxel.Appearance.Presentation is C.VoxelPresentation.Cube cube && !cube.Shapes.Contains(shape))
+                    Invalid($"/layout/palette/{index}/shape", "体素不允许该形状。", cellIndex);
+                else if (voxel.Appearance.Presentation is C.VoxelPresentation.Mesh)
+                    Invalid($"/layout/palette/{index}/shape", "模型体素不能指定形状。", cellIndex);
+            }
+        }
 
         var design = new K.DesignHash(Hash(draft, cells.Select(item => item.Cell), false));
         var composition = new K.CompositionHash(Hash(draft, cells.Select(item => item.Cell), true));
         var envelope = Envelope(draft.Specification);
         var sceneOnly = draft.Specification is C.DesignSpecification.SceneModel;
         if (cells.Length == 0) Invalid("/layout/cells", "布局必须非空。");
-        if (draft.Display.Name.Trim().Length is < 1 or > 100) Invalid("/display/name", "名称长度必须为 1–100。");
-        if (draft.Display.Description.Trim().Length is < 1 or > 2000) Invalid("/display/description", "说明长度必须为 1–2000。");
-        if (draft.Specification is C.DesignSpecification.Building building &&
-            (building.PlotSize == K.PlotSize.Station) != (building.Kind == K.BuildingKind.Station))
-            Invalid("/simulation/building_type", "站点尺寸和站点建筑类型必须相互对应。");
+        if (draft.Display.Name.Length is < 1 or > 100) Invalid("/display/name", "名称长度必须为 1–100。");
+        if (draft.Display.Description.Length is < 1 or > 2000) Invalid("/display/description", "说明长度必须为 1–2000。");
+        if (draft.Specification is C.DesignSpecification.Building building)
+        {
+            if ((building.PlotSize == K.PlotSize.Station) != (building.Kind == K.BuildingKind.Station))
+                Invalid("/simulation/building_type", "站点尺寸和站点建筑类型必须相互对应。");
+            if (building.FacilityTags.Distinct().Count() != building.FacilityTags.Length)
+                Invalid("/simulation/facility_tags", "设施标签不能重复。");
+            if (!Enum.IsDefined(building.Kind!.Value)) Invalid("/simulation/building_type", "未知建筑类型。");
+            if (building.FacilityTags.Any(tag => !Enum.IsDefined(tag))) Invalid("/simulation/facility_tags", "未知设施标签。");
+        }
         if (draft.Specification is C.DesignSpecification.SceneModel { Flatten: { } flatten } &&
             (flatten.From.X > flatten.To.X || flatten.From.Z > flatten.To.Z))
             Invalid("/appearance/flatten", "平整区域起点不能大于终点。");
@@ -69,15 +96,9 @@ internal static class DesignEvaluator
             if (!occupied.Add(cell.At)) Invalid($"/layout/cells/{item.Index}", "坐标重复。", item.Index);
             if (sceneOnly != (definition.Good is null))
                 Invalid($"/layout/cells/{item.Index}", sceneOnly ? "场景模型只能使用场景体素。" : "车辆和建筑只能使用货物体素。", item.Index);
-            if (!Allowed(palette.Orientation, definition.Orientations))
-                Invalid($"/layout/cells/{item.Index}", "体素不允许该朝向。", item.Index);
             var shape = palette.Shape;
             if (voxel.Appearance.Presentation is C.VoxelPresentation.Cube cube)
-            {
                 shape ??= cube.Shapes[0];
-                if (!cube.Shapes.Contains(shape.Value)) Invalid($"/layout/cells/{item.Index}", "体素不允许该形状。", item.Index);
-            }
-            else if (shape is not null) Invalid($"/layout/cells/{item.Index}", "模型体素不能指定形状。", item.Index);
             if (envelope is not null && !Contains(envelope, cell.At))
                 Invalid($"/layout/cells/{item.Index}", "体素超出尺寸包络。", item.Index);
             sceneVoxels.Add(new(cell.At, palette.Voxel, palette.Orientation, shape, palette.Paint,
@@ -122,7 +143,7 @@ internal static class DesignEvaluator
         {
             C.DesignSpecification.Vehicle vehicle => new K.DesignKind.Vehicle(vehicle.Size!.Value, (int)vehicleLength),
             C.DesignSpecification.Building b => new K.DesignKind.Building(b.PlotSize!.Value, b.Kind!.Value,
-                b.FacilityTags.Order().ToImmutableArray()),
+                b.FacilityTags.OrderBy(tag => Wire(tag), StringComparer.Ordinal).ToImmutableArray()),
             _ => null
         };
         var valid = diagnostics.Count == 0;
@@ -229,7 +250,7 @@ internal static class DesignEvaluator
         return ContentHash.FromCanonicalJson(writer => JsonSerializer.Serialize(writer, value));
     }
 
-    private static string Wire(Enum value) => JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
+    internal static string Wire(Enum value) => JsonNamingPolicy.SnakeCaseLower.ConvertName(value.ToString());
     private static SortedDictionary<string, object?> Map(params (string Key, object? Value)[] entries) =>
         new(entries.ToDictionary(entry => entry.Key, entry => entry.Value), StringComparer.Ordinal);
 }

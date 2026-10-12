@@ -24,7 +24,7 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
         PackageLoader.ExcludeDependents(packages);
         var assets = _assets.Freeze();
         var evaluationView = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
-            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), [], assets);
+            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), [], assets, []);
         var blueprints = new List<(LoadPackage Package, C.BlueprintRecord Blueprint)>();
         foreach (var package in packages)
         {
@@ -34,15 +34,13 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
             {
                 var subject = new C.ContentReference.Blueprint(blueprint.Address);
                 var missing = false;
-                for (var index = 0; index < blueprint.Definition.Layout.Cells.Length; index++)
+                for (var index = 0; index < blueprint.Definition.Layout.Palette.Length; index++)
                 {
-                    var cell = blueprint.Definition.Layout.Cells[index];
-                    var reference = blueprint.Definition.Layout.Palette[cell.PaletteIndex].Voxel;
+                    var reference = blueprint.Definition.Layout.Palette[index].Voxel;
                     if (evaluationView.FindVoxel(reference) is not null) continue;
                     var wrongKind = parsedBlueprints.Any(item => item.Blueprint.Address.Id.Value == reference.Value);
                     package.Reject(wrongKind ? "reference_wrong_kind" : "reference_missing", blueprint.Path,
-                        $"/layout/palette/{cell.PaletteIndex}/voxel", $"体素引用不可用：{reference.Value}。", subject,
-                        new C.DesignElementPath.Cell([], index));
+                        $"/layout/palette/{index}/voxel", $"体素引用不可用：{reference.Value}。", subject);
                     missing = true;
                 }
                 if (missing) continue;
@@ -55,11 +53,10 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                         package.Reject(diagnostic.Code, blueprint.Path, diagnostic.Field, diagnostic.Message, subject, diagnostic.Element);
                     continue;
                 }
-                var usedPackages = blueprint.Definition.Layout.Cells.Select(cell =>
-                        blueprint.Definition.Layout.Palette[cell.PaletteIndex].Voxel.Value.Split(':')[0])
+                var usedPackages = blueprint.Definition.Layout.Palette.Select(entry => entry.Voxel.Value.Split(':')[0])
                     .Append(package.Metadata!.Id.Value).Distinct().Order(StringComparer.Ordinal)
                     .Select(id => packages.Single(p => p.Metadata?.Id.Value == id).Metadata!).ToImmutableArray();
-                blueprints.Add((package, new(blueprint.Address, blueprint.Definition, usedPackages, evaluation)));
+                blueprints.Add((package, new(blueprint.Address, evaluation.Definition, usedPackages, evaluation)));
             }
         }
         PackageLoader.ExcludeDependents(packages);

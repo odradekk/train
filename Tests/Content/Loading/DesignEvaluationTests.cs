@@ -8,15 +8,16 @@ namespace Train.Content.Tests.Loading;
 public sealed class DesignEvaluationTests
 {
     [TestMethod]
+    [DataRow(0, 0)]
     [DataRow(int.MinValue, 0)]
     [DataRow(-int.MaxValue, 0)]
     [DataRow(int.MinValue, int.MaxValue)]
-    public void Unrepresentable_vehicle_length_fails_as_a_design_error(int minimum, int maximum)
+    public void Unrepresentable_length_or_invalid_palette_index_fails_as_a_design_error(int minimum, int maximum)
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle() with
         {
-            Layout = new([DesignFixtures.Entry()], [new(new(0, 0, minimum), 0), new(new(0, 0, maximum), 0)], [])
+            Layout = new([DesignFixtures.Entry()], [new(new(0, 0, minimum), minimum == maximum ? 1 : 0), new(new(0, 0, maximum), 0)], [])
         };
         var result = ContentFactory.Create().EvaluateDesign(candidate.View, draft);
         Assert.IsInstanceOfType<C.ContentResult<C.DesignEvaluation>.Success>(result, result.ToString());
@@ -130,7 +131,7 @@ public sealed class DesignEvaluationTests
         var result = DesignFixtures.Evaluate(candidate.View, draft);
         Assert.IsTrue(result.IsValid);
         Assert.AreEqual(0, result.Diagnostics.Length);
-        Assert.AreSame(draft, result.Definition);
+        Assert.AreEqual(draft.Display, result.Definition.Display);
         var input = result.Core!;
         Assert.AreEqual(candidate.View.Core.Identity, input.InputIdentity);
         Assert.AreEqual(0, input.AssemblyGoods.Length);
@@ -223,16 +224,30 @@ public sealed class DesignEvaluationTests
     public void Building_and_scene_model_preserve_their_specific_projection_and_flatten_hash()
     {
         using var candidate = DesignFixtures.Content().Load();
-        var building = DesignFixtures.Evaluate(candidate.View, DesignFixtures.Vehicle() with { Specification = new C.DesignSpecification.Building(K.PlotSize.Small, K.BuildingKind.Production, [K.FacilityTag.Assembly]) });
+        var buildingDraft = new C.DesignDraft(new("Test", "Design"),
+            new C.DesignSpecification.Building(K.PlotSize.Small, K.BuildingKind.Production, [K.FacilityTag.FoodProcessing, K.FacilityTag.Assembly]),
+            new([DesignFixtures.Entry()], [new(new(0, 0, 0), 0)], []));
+        var building = DesignFixtures.Evaluate(candidate.View, buildingDraft);
+        const string buildingJson = """
+            {"category":"building","display":{"description":"Design","name":"Test"},"layout":{"cells":[{"at":[0,0,0],"orientation":"px_py","paint":null,"shape":null,"voxel":"core:block"}],"composites":[]},"simulation":{"building_type":"production","facility_tags":["assembly","food_processing"],"plot_size":"small"}}
+            """;
+        Assert.AreEqual(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(buildingJson))), building.Design.Value);
         var kind = (K.DesignKind.Building)building.Core!.Design.Kind;
         Assert.AreEqual(K.PlotSize.Small, kind.PlotSize);
         Assert.AreEqual(K.BuildingKind.Production, kind.Type);
-        CollectionAssert.AreEqual(new[] { K.FacilityTag.Assembly }, kind.FacilityTags.ToArray());
+        CollectionAssert.AreEqual(new[] { K.FacilityTag.Assembly, K.FacilityTag.FoodProcessing }, kind.FacilityTags.ToArray());
+        Assert.AreEqual(building.Design, DesignFixtures.Evaluate(candidate.View, buildingDraft with
+        { Specification = new C.DesignSpecification.Building(K.PlotSize.Small, K.BuildingKind.Production, [K.FacilityTag.Assembly, K.FacilityTag.FoodProcessing]) }).Design);
         var flatten = new C.FlattenRegion(new(-1, -2), new(1, 2), 3);
-        var draft = new C.DesignDraft(new("景物", "场景"), new C.DesignSpecification.SceneModel(flatten),
+        var draft = new C.DesignDraft(new("Scene", "Model"), new C.DesignSpecification.SceneModel(flatten),
             new([DesignFixtures.Entry("scenery")], [new(new(0, 0, 0), 0), new(new(5, 0, 5), 0)], []));
         var scene = DesignFixtures.Evaluate(candidate.View, draft);
+        const string sceneJson = """
+            {"appearance":{"flatten":{"from":[-1,-2],"height":3,"to":[1,2]}},"category":"scene_model","display":{"description":"Model","name":"Scene"},"layout":{"cells":[{"at":[0,0,0],"orientation":"px_py","paint":null,"shape":null,"voxel":"core:scenery"},{"at":[5,0,5],"orientation":"px_py","paint":null,"shape":null,"voxel":"core:scenery"}],"composites":[]}}
+            """;
+        Assert.AreEqual(Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(sceneJson))), scene.Design.Value);
         Assert.IsTrue(scene.IsValid);
+        Assert.IsFalse(DesignFixtures.Evaluate(candidate.View, draft with { Layout = new([DesignFixtures.Entry()], [new(new(0, 0, 0), 0)], []) }).IsValid);
         Assert.IsNull(scene.Core);
         Assert.IsNull(scene.Scene.AllowedEnvelope);
         Assert.AreEqual(flatten, scene.Scene.RootFlatten);
@@ -247,20 +262,34 @@ public sealed class DesignEvaluationTests
     [DataRow("scene")]
     [DataRow("orientation")]
     [DataRow("shape")]
+    [DataRow("paint")]
+    [DataRow("duplicate_tags")]
+    [DataRow("unknown_tag")]
+    [DataRow("unknown_building")]
     public void Complete_but_illegal_design_retains_core_and_cell_diagnostics(string problem)
     {
         using var candidate = DesignFixtures.Content().Load();
         var draft = DesignFixtures.Vehicle();
         var entry = DesignFixtures.Entry();
-        var at = problem == "envelope" ? new C.GridPosition(100, 0, 0) : new C.GridPosition(0, 0, 1);
+        var at = problem == "envelope" ? new C.GridPosition(4, 0, 0) : new C.GridPosition(0, 0, 1);
         if (problem == "scene") entry = DesignFixtures.Entry("scenery");
         if (problem == "orientation") entry = entry with { Orientation = C.VoxelOrientation.PxNy };
         if (problem == "shape") entry = entry with { Shape = new("unlisted") };
-        draft = draft with { Layout = new([entry, DesignFixtures.Entry()], [new(at, 0), new(new(0, 0, problem == "disconnected" ? -1 : 0), 1)], []) };
+        if (problem == "paint") entry = entry with { Paint = new("red") };
+        if (problem == "duplicate_tags") draft = draft with { Specification = new C.DesignSpecification.Building(K.PlotSize.Small, K.BuildingKind.Production, [K.FacilityTag.Assembly, K.FacilityTag.Assembly]) };
+        if (problem == "unknown_tag") draft = draft with { Specification = new C.DesignSpecification.Building(K.PlotSize.Small, K.BuildingKind.Production, [(K.FacilityTag)999]) };
+        if (problem == "unknown_building") draft = draft with { Specification = new C.DesignSpecification.Building(K.PlotSize.Small, (K.BuildingKind)999, []) };
+        draft = draft with { Layout = new([entry, DesignFixtures.Entry()], [new(at, 0), new(problem == "envelope" ? new(3, 0, 0) : new(0, 0, problem == "disconnected" ? -1 : 0), 1)], []) };
         var result = DesignFixtures.Evaluate(candidate.View, draft);
         Assert.IsFalse(result.IsValid);
         Assert.IsFalse(result.Core!.Design.CanConstruct);
-        Assert.IsTrue(result.Diagnostics.Any(d => d.Severity == C.ContentDiagnosticSeverity.Error && d.Element is C.DesignElementPath.Cell { CellIndex: 0 } cell && cell.NestedItemIndices.IsEmpty));
+        if (problem is "duplicate_tags" or "unknown_tag")
+            Assert.IsTrue(result.Diagnostics.Any(d => d.Code == "design_invalid" && d.Field == "/simulation/facility_tags"));
+        else if (problem == "unknown_building")
+            Assert.IsTrue(result.Diagnostics.Any(d => d.Code == "design_invalid" && d.Field == "/simulation/building_type"));
+        else if (problem == "paint")
+            Assert.IsTrue(result.Diagnostics.Any(d => d.Code == "design_invalid" && d.Field == "/layout/palette/0/paint"));
+        else Assert.IsTrue(result.Diagnostics.Any(d => d.Severity == C.ContentDiagnosticSeverity.Error && d.Element is C.DesignElementPath.Cell { CellIndex: 0 } cell && cell.NestedItemIndices.IsEmpty));
     }
 
     [TestMethod]
@@ -275,6 +304,7 @@ public sealed class DesignEvaluationTests
             Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Specification = specification }));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { NestedItems = [new C.NestedDesignItem.AssemblyCopy(new(0, 0, 0), C.VoxelOrientation.PxPy, draft)] } }));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { Palette = [DesignFixtures.Entry("absent"), DesignFixtures.Entry()] } }));
+        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, draft with { Layout = draft.Layout with { Palette = [draft.Layout.Palette[0], draft.Layout.Palette[1], DesignFixtures.Entry("absent")] } }));
     }
 
     [TestMethod]

@@ -40,6 +40,17 @@ internal static class DesignFixtures
         fixture.AddAsset(ContentFixture.BuiltIn, $"resources/voxels/{id}/icon.png", [4, 5, 6], new C.AssetMetadata.Png(128, 128));
     }
 
+    internal static void AddMeshVoxel(ContentFixture fixture)
+    {
+        var json = JsonNode.Parse(ContentFixture.VoxelJson)!;
+        json["id"] = "model";
+        json["appearance"]!["presentation"] = JsonNode.Parse("""{"kind":"mesh","model":"model.glb","surface_materials":["bare_metal"]}""");
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/voxels/model.voxel.json", json.ToJsonString());
+        fixture.AddAsset(ContentFixture.BuiltIn, "resources/voxels/model/icon.png", [4, 5, 6], new C.AssetMetadata.Png(128, 128));
+        fixture.AddAsset(ContentFixture.BuiltIn, "resources/voxels/model/model.glb", [7, 8, 9],
+            new C.AssetMetadata.Glb(1, [C.AssetAlphaMode.Opaque], new(new(-0.25, 0, -0.25), new(0.25, 0.5, 0.25)), false, false, false, false, false, false));
+    }
+
     internal static C.VoxelPaletteEntry Entry(string id = "block") => new(new("core:" + id), C.VoxelOrientation.PxPy, null, null);
     internal static C.DesignDraft Vehicle() => new(new("测试", "设计"), new C.DesignSpecification.Vehicle(K.SizeClass.Small),
         new([Entry("machine"), Entry()], [new(new(0, 0, 1), 0), new(new(0, 0, 0), 1), new(new(0, 0, -1), 1)], []));

@@ -27,7 +27,7 @@ public sealed class BlueprintLoadingTests
         var kind = (K.DesignKind.Building)design.Kind;
         Assert.AreEqual(K.PlotSize.Medium, kind.PlotSize);
         Assert.AreEqual(K.BuildingKind.Production, kind.Type);
-        CollectionAssert.AreEquivalent(new[] { K.FacilityTag.FoodProcessing, K.FacilityTag.Assembly }, kind.FacilityTags.ToArray());
+        CollectionAssert.AreEqual(new[] { K.FacilityTag.Assembly, K.FacilityTag.FoodProcessing }, kind.FacilityTags.ToArray());
         var record = ((C.ContentLookup<C.BlueprintRecord>.Found)candidate.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:scene")))).Value;
         var evaluation = (C.DesignEvaluation.Complete)record.Evaluation;
         Assert.IsNull(evaluation.Core);
@@ -75,6 +75,19 @@ public sealed class BlueprintLoadingTests
     [TestMethod]
     [DataRow("duplicate_json", "invalid_json")]
     [DataRow("missing_voxel", "reference_missing")]
+    [DataRow("unused_missing_voxel", "reference_missing")]
+    [DataRow("flatten", "design_invalid")]
+    [DataRow("empty", "design_invalid")]
+    [DataRow("unknown_building", "invalid_field")]
+    [DataRow("unknown_tag", "invalid_field")]
+    [DataRow("duplicate_tags", "design_invalid")]
+    [DataRow("paint", "design_invalid")]
+    [DataRow("shape", "design_invalid")]
+    [DataRow("unused_shape", "design_invalid")]
+    [DataRow("unused_paint", "design_invalid")]
+    [DataRow("unused_orientation", "design_invalid")]
+    [DataRow("model_shape", "design_invalid")]
+    [DataRow("wrong_kind", "reference_wrong_kind")]
     [DataRow("missing_size", "invalid_field")]
     [DataRow("filename", "invalid_field")]
     [DataRow("palette", "invalid_field")]
@@ -90,6 +103,33 @@ public sealed class BlueprintLoadingTests
         var document = DesignFixtures.Blueprint();
         switch (problem)
         {
+            case "unused_missing_voxel": document["layout"]!["palette"]!.AsArray().Add(JsonNode.Parse("""{"voxel":"absent"}""")); break;
+            case "empty": document["layout"]!["cells"] = new JsonArray(); break;
+            case "paint": document["layout"]!["palette"]![0]!["paint"] = "red"; break;
+            case "shape": document["layout"]!["palette"]![0]!["shape"] = "unlisted"; break;
+            case "unused_shape": document["layout"]!["palette"]!.AsArray().Add(JsonNode.Parse("""{"voxel":"block","shape":"unlisted"}""")); break;
+            case "unused_paint": document["layout"]!["palette"]!.AsArray().Add(JsonNode.Parse("""{"voxel":"block","paint":"red"}""")); break;
+            case "unused_orientation": document["layout"]!["palette"]!.AsArray().Add(JsonNode.Parse("""{"voxel":"block","orientation":"px_ny"}""")); break;
+            case "model_shape":
+                DesignFixtures.AddMeshVoxel(fixture);
+                document["layout"]!["palette"]![0]!["voxel"] = "model";
+                document["layout"]!["palette"]![0]!["shape"] = "cube";
+                break;
+            case "wrong_kind": document["layout"]!["palette"]![0]!["voxel"] = "test"; break;
+            case "flatten":
+                document["category"] = "scene_model";
+                document.Remove("simulation");
+                document["layout"]!["palette"]![0]!["voxel"] = "scenery";
+                document["appearance"] = JsonNode.Parse("""{"flatten":{"from":[1,0],"to":[0,0],"height":0}}""");
+                break;
+            case "unknown_building":
+            case "unknown_tag":
+            case "duplicate_tags":
+                document["category"] = "building";
+                document["simulation"] = JsonNode.Parse("""{"plot_size":"small","building_type":"production","facility_tags":["assembly"]}""");
+                if (problem == "unknown_building") document["simulation"]!["building_type"] = "unknown";
+                else document["simulation"]!["facility_tags"] = problem == "unknown_tag" ? new JsonArray("unknown") : new JsonArray("assembly", "assembly");
+                break;
             case "missing_voxel": document["layout"]!["palette"]![0]!["voxel"] = "absent"; break;
             case "missing_size": document["simulation"]!.AsObject().Remove("size_class"); break;
             case "filename": document["id"] = "different"; break;
@@ -107,6 +147,8 @@ public sealed class BlueprintLoadingTests
         var result = fixture.Prepare();
         Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
         var diagnostics = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics;
+        if (problem == "unused_missing_voxel")
+            Assert.IsTrue(diagnostics.Any(d => d.Code == "reference_missing" && d.Field == "/layout/palette/1/voxel"));
         Assert.IsTrue(diagnostics.Any(d => d.Code == code && d.Source == new C.ContentSourceLocation(new("core"), "resources/blueprints/test.blueprint.json")), string.Join("; ", diagnostics.Select(d => d.Code + ": " + d.Message)));
     }
 
@@ -139,6 +181,51 @@ public sealed class BlueprintLoadingTests
         foreach (var id in new[] { dependent, last })
             Assert.AreEqual(C.PackageState.DependencyUnavailable, statuses.Single(p => p.Metadata?.Id.Value == id).State);
         Assert.AreEqual(3, candidate.View.Voxels.Length);
+    }
+
+    [TestMethod]
+    public void Display_whitespace_normalizes_identically_for_drafts_and_package_blueprints()
+    {
+        var fixture = DesignFixtures.Content();
+        var document = DesignFixtures.Blueprint();
+        document["display"]!["name"] = " Test ";
+        document["display"]!["description"] = " Design ";
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/blueprints/test.blueprint.json", document.ToJsonString());
+        using var candidate = fixture.Load();
+        var record = ((C.ContentLookup<C.BlueprintRecord>.Found)candidate.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:test")))).Value;
+        var loaded = (C.DesignEvaluation.Complete)record.Evaluation;
+        var draft = record.Definition with { Display = new(" Test ", " Design ") };
+        var evaluated = DesignFixtures.Evaluate(candidate.View, draft);
+        Assert.AreEqual(loaded.Design, evaluated.Design);
+        Assert.AreEqual(record.Definition.Display with { Name = "Test", Description = "Design" }, evaluated.Definition.Display);
+        Assert.AreEqual(evaluated.Definition.Display, record.Definition.Display);
+    }
+
+    [TestMethod]
+    public void Retained_blueprint_uses_final_core_identity_after_another_voxel_package_is_excluded()
+    {
+        const string excluded = "11111111-1111-4111-8111-111111111111";
+        const string retained = "33333333-3333-4333-8333-333333333333";
+        var fixture = DesignFixtures.Content();
+        AddMod(fixture, "excluded", excluded, null);
+        AddMod(fixture, "retained", retained, null);
+        fixture.AddFile(ContentFixture.Mods, "excluded/resources/voxels/block.voxel.json", ContentFixture.VoxelJson);
+        fixture.AddAsset(ContentFixture.Mods, "excluded/resources/voxels/block/tile.png", [1, 2, 3], new C.AssetMetadata.Png(32, 32));
+        fixture.AddAsset(ContentFixture.Mods, "excluded/resources/voxels/block/icon.png", [4, 5, 6], new C.AssetMetadata.Png(128, 128));
+        var bad = DesignFixtures.Blueprint();
+        bad["layout"]!["palette"]![0]!["voxel"] = "core:absent";
+        fixture.AddFile(ContentFixture.Mods, "excluded/resources/blueprints/test.blueprint.json", bad.ToJsonString());
+        var good = DesignFixtures.Blueprint();
+        good["layout"]!["palette"]![0]!["voxel"] = "core:block";
+        fixture.AddFile(ContentFixture.Mods, "retained/resources/blueprints/test.blueprint.json", good.ToJsonString());
+        using var candidate = fixture.Load();
+        Assert.AreEqual(C.PackageState.Invalid, candidate.Report.Packages.Single(p => p.Metadata?.Id.Value == excluded).State);
+        Assert.AreEqual(3, candidate.View.Voxels.Length);
+        var record = ((C.ContentLookup<C.BlueprintRecord>.Found)candidate.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new(retained + ":test")))).Value;
+        var evaluation = (C.DesignEvaluation.Complete)record.Evaluation;
+        Assert.AreEqual(candidate.View.Core.Identity, evaluation.Core!.InputIdentity);
+        var found = ((C.ContentLookup<C.DesignEvaluation>.Found)candidate.View.FindDesign(evaluation.Design)).Value;
+        Assert.AreEqual(candidate.View.Core.Identity, ((C.DesignEvaluation.Complete)found).Core!.InputIdentity);
     }
 
     private static void AddMod(ContentFixture fixture, string folder, string id, string? dependency)

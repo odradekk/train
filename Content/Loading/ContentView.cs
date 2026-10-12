@@ -23,7 +23,7 @@ internal sealed class ContentView : C.IContentView
     public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles => [];
 
     internal ContentView(ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.PackageStatus> packages,
-        ImmutableArray<C.ContentAsset> assets, ImmutableArray<C.BlueprintRecord> blueprints = default)
+        ImmutableArray<C.ContentAsset> assets, ImmutableArray<C.BlueprintRecord> blueprints)
     {
         _voxels = voxels.ToFrozenDictionary(voxel => voxel.Definition.Definition);
         _assets = assets.ToFrozenDictionary(asset => asset.Revision);
@@ -44,7 +44,7 @@ internal sealed class ContentView : C.IContentView
             writer.WriteEndArray();
             writer.WriteEndObject();
         });
-        var records = (blueprints.IsDefault ? [] : blueprints).OrderBy(blueprint => blueprint.Address.Id.Value, StringComparer.Ordinal)
+        var records = blueprints.OrderBy(blueprint => blueprint.Address.Id.Value, StringComparer.Ordinal)
             .Select(blueprint => blueprint.Evaluation is C.DesignEvaluation.Complete { Core: { } core } complete
                 ? blueprint with { Evaluation = complete with { Core = core with { InputIdentity = new(identity) } } } : blueprint).ToImmutableArray();
         _blueprints = records.ToFrozenDictionary(blueprint => blueprint.Address);

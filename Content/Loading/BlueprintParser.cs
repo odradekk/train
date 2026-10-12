@@ -1,6 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
-using System.Text.RegularExpressions;
+using Train.Content.Designs;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -47,16 +47,10 @@ internal sealed class BlueprintParser
                     Object(entry, field, "voxel", "orientation", "shape", "paint");
                     var voxel = Reference(Required(entry, "voxel", field), field + "/voxel", package);
                     var orientation = entry.TryGetProperty("orientation", out var o)
-                        ? (C.VoxelOrientation)System.Array.IndexOf(Orientations, Choice(o, field + "/orientation", Orientations)) : C.VoxelOrientation.PxPy;
+                        ? EnumValue<C.VoxelOrientation>(o, field + "/orientation") : C.VoxelOrientation.PxPy;
                     C.VoxelShape? shape = entry.TryGetProperty("shape", out var s)
-                        ? new C.VoxelShape(Choice(s, field + "/shape", ["cube", "half", "plate", "wedge", "corner-wedge", "beam", "cylinder"])) : null;
-                    C.PaintColor? paint = null;
-                    if (entry.TryGetProperty("paint", out var p))
-                    {
-                        var color = Text(p, field + "/paint");
-                        if (!Regex.IsMatch(color, "\\A#[0-9a-f]{6}\\z", RegexOptions.CultureInvariant)) Fail(field + "/paint", "颜色必须为小写 #rrggbb。");
-                        paint = new(color);
-                    }
+                        ? new C.VoxelShape(Text(s, field + "/shape")) : null;
+                    C.PaintColor? paint = entry.TryGetProperty("paint", out var p) ? new(Text(p, field + "/paint")) : null;
                     palette.Add(new(new(voxel), orientation, shape, paint));
                 }
             }
@@ -73,12 +67,11 @@ internal sealed class BlueprintParser
                     cells.Add(new(new(Integer(cell[0], field + "/0"), Integer(cell[1], field + "/1"), Integer(cell[2], field + "/2")), index));
                 }
             }
-            if (cells.Count == 0) Fail("/layout/cells", "布局必须至少有一格。");
             var specification = Specification(root, category);
             var display = Required(root, "display", "");
             Object(display, "/display", "name", "description");
-            return new(address, new(new(Display(Required(display, "name", "/display"), "/display/name", 100),
-                Display(Required(display, "description", "/display"), "/display/description", 2000)),
+            return new(address, new(new(Text(Required(display, "name", "/display"), "/display/name"),
+                Text(Required(display, "description", "/display"), "/display/description")),
                 specification, new(palette.ToImmutable(), cells.ToImmutable(), [])), path);
         }
         catch (InvalidBlueprint exception)
@@ -112,12 +105,11 @@ internal sealed class BlueprintParser
         if (category == "vehicle")
         {
             Object(sim, "/simulation", "size_class");
-            var size = Choice(Required(sim, "size_class", "/simulation"), "/simulation/size_class", ["small", "medium", "large", "extra_large", "titan"]);
-            return new C.DesignSpecification.Vehicle(size switch { "small" => K.SizeClass.Small, "medium" => K.SizeClass.Medium, "large" => K.SizeClass.Large, "extra_large" => K.SizeClass.ExtraLarge, _ => K.SizeClass.Titan });
+            return new C.DesignSpecification.Vehicle(EnumValue<K.SizeClass>(Required(sim, "size_class", "/simulation"), "/simulation/size_class"));
         }
         Object(sim, "/simulation", "plot_size", "building_type", "facility_tags");
-        var plot = Choice(Required(sim, "plot_size", "/simulation"), "/simulation/plot_size", ["small", "medium", "large", "station"]);
-        var kind = Choice(Required(sim, "building_type", "/simulation"), "/simulation/building_type", ["production", "warehouse", "power", "construction", "station", "defense"]);
+        var plot = EnumValue<K.PlotSize>(Required(sim, "plot_size", "/simulation"), "/simulation/plot_size");
+        var kind = EnumValue<K.BuildingKind>(Required(sim, "building_type", "/simulation"), "/simulation/building_type");
         var tags = ImmutableArray.CreateBuilder<K.FacilityTag>();
         if (sim.TryGetProperty("facility_tags", out var values))
         {
@@ -125,13 +117,10 @@ internal sealed class BlueprintParser
             foreach (var value in values.EnumerateArray())
             {
                 var field = "/simulation/facility_tags/" + tags.Count;
-                var tag = (K.FacilityTag)System.Array.IndexOf(FacilityTags, Choice(value, field, FacilityTags));
-                if (tags.Contains(tag)) Fail(field, "设施标签不能重复。");
-                tags.Add(tag);
+                tags.Add(EnumValue<K.FacilityTag>(value, field));
             }
         }
-        return new C.DesignSpecification.Building((K.PlotSize)System.Array.IndexOf(new[] { "small", "medium", "large", "station" }, plot),
-            (K.BuildingKind)System.Array.IndexOf(new[] { "production", "warehouse", "power", "construction", "station", "defense" }, kind), tags.ToImmutable());
+        return new C.DesignSpecification.Building(plot, kind, tags.ToImmutable());
     }
 
     private static string Reference(JsonElement value, string field, LoadPackage package)
@@ -151,13 +140,12 @@ internal sealed class BlueprintParser
         Array(value, field, 2);
         return new(Integer(value[0], field + "/0"), Integer(value[1], field + "/1"));
     }
-    private static readonly string[] Orientations = ["px_py", "px_ny", "px_pz", "px_nz", "nx_py", "nx_ny", "nx_pz", "nx_nz", "py_px", "py_nx", "py_pz", "py_nz", "ny_px", "ny_nx", "ny_pz", "ny_nz", "pz_px", "pz_nx", "pz_py", "pz_ny", "nz_px", "nz_nx", "nz_py", "nz_ny"];
-    private static readonly string[] FacilityTags = ["agriculture", "extraction", "metallurgy", "building_materials", "light_industry", "chemical", "food_processing", "assembly", "electronics", "recovery"];
-    private static string Display(JsonElement value, string field, int max)
+    private static T EnumValue<T>(JsonElement value, string field) where T : struct, Enum
     {
-        var text = Text(value, field).Trim();
-        if (text.Length < 1 || text.Length > max) Fail(field, $"去掉首尾空白后长度必须为 1–{max}。");
-        return text;
+        var text = Text(value, field);
+        foreach (var candidate in Enum.GetValues<T>())
+            if (DesignEvaluator.Wire(candidate) == text) return candidate;
+        throw new InvalidBlueprint(field, "未知取值。", "invalid_field");
     }
     private static string Choice(JsonElement value, string field, string[] choices)
     {
