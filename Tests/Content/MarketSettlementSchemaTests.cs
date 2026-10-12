@@ -5,13 +5,9 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:content")]
-[TestCategory("scope:markets")]
-[TestCategory("scope:settlements")]
 public sealed class MarketSettlementSchemaTests
 {
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, "/schema_version", "2", "schema_version_unsupported")]
     [DataRow(true, "/market_tables", null, "field_invalid")]
     [DataRow(true, "/market_tables/0/id", "\"Bad\"", "local_id_invalid")]
@@ -100,7 +96,7 @@ public sealed class MarketSettlementSchemaTests
             item.Source == MarketSettlementFixtures.TypeFile && item.JsonPath == "/settlement_types/0/preferred_terrain/1"));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Duplicate_json_properties_and_duplicate_goods_are_rejected(bool market)

@@ -5,8 +5,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:identity")]
 public sealed class VoxelIdentityTests
 {
     [TestMethod]
@@ -14,9 +12,9 @@ public sealed class VoxelIdentityTests
     {
         Assert.AreEqual(VoxelDefinitionId.Parse("core:iron"), new VoxelDefinitionId("core", "iron"));
 
-        Assert.ThrowsException<ArgumentException>(() => VoxelDefinitionId.Parse(""));
-        Assert.ThrowsException<ArgumentException>(() => VoxelDefinitionId.Parse("Iron"));
-        Assert.ThrowsException<ArgumentException>(() => new VoxelDefinitionId("Core", "iron"));
-        Assert.ThrowsException<ArgumentException>(() => new VoxelDefinitionId("core", "Iron"));
+        Assert.ThrowsExactly<ArgumentException>(() => VoxelDefinitionId.Parse(""));
+        Assert.ThrowsExactly<ArgumentException>(() => VoxelDefinitionId.Parse("Iron"));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelDefinitionId("Core", "iron"));
+        Assert.ThrowsExactly<ArgumentException>(() => new VoxelDefinitionId("core", "Iron"));
     }
 }

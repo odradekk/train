@@ -7,8 +7,6 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:composites")]
 public sealed class CompositeContentTests
 {
     private static readonly CompositeDefinitionId TestDefinitionId = new("core", "dev-train");
@@ -33,7 +31,7 @@ public sealed class CompositeContentTests
         Assert.AreEqual(1, entry.Attributes.Bom[new VoxelDefinitionId("core", CompositeFixtures.CargoId)]);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(" " + CompositeFixtures.StructureId)]
     [DataRow("core:" + CompositeFixtures.StructureId + " ")]
     public void Voxel_reference_whitespace_rejects_the_blueprint(string reference)

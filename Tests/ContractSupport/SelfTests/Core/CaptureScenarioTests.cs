@@ -5,8 +5,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Train.ContractSupport.Tests.Core;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:core-contract-support")]
 public sealed class CaptureScenarioTests
 {
     [TestMethod]
@@ -26,7 +24,7 @@ public sealed class CaptureScenarioTests
     public void ScenarioRejectsCaptureThatReadsLiveReferences()
     {
         using var session = new LiveReferencesSession();
-        Assert.ThrowsException<AssertFailedException>(() =>
+        Assert.ThrowsExactly<AssertFailedException>(() =>
             CaptureScenario.AssertContract(session,
                 CaptureSessionDouble.Input, CaptureSessionDouble.InitialReferences,
                 CaptureSessionDouble.AdvancedReferences));
@@ -45,7 +43,7 @@ public sealed class CaptureScenarioTests
 
     private static void AssertUnconfigured(Action operation)
     {
-        var error = Assert.ThrowsException<InvalidOperationException>(operation);
+        var error = Assert.ThrowsExactly<InvalidOperationException>(operation);
         StringAssert.StartsWith(error.Message, "UNCONFIGURED:");
     }
 

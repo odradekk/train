@@ -5,8 +5,6 @@ using Train.Scenes.ContractSupport;
 namespace Train.ContractSupport.Tests.Scenes;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:scenes-contract-support")]
 public sealed class WorldRequestScenarioTests
 {
     [TestMethod]
@@ -48,7 +46,7 @@ public sealed class WorldRequestScenarioTests
 
     private static void AssertUnconfigured(Action action)
     {
-        var error = Assert.ThrowsException<InvalidOperationException>(action);
+        var error = Assert.ThrowsExactly<InvalidOperationException>(action);
         StringAssert.StartsWith(error.Message, "UNCONFIGURED:");
     }
 }

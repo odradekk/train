@@ -223,8 +223,10 @@ Login shells source `~/.config/train-orb/env.sh`. Restore and test without extra
 ```bash
 dotnet --version
 "$GODOT" --headless --version
-pwsh -NoProfile -File scripts/run-tests.ps1 -Correctness
+pwsh -NoProfile -File scripts/test.ps1 -Layer all
 ```
+
+The unified test entry has not yet been validated on Linux; see [#407](https://github.com/odradekk/train/issues/407).
 
 Windows export/runtime validation is not available in this Debian orb.
 {end}

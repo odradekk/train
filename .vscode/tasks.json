@@ -20,9 +20,9 @@
             "args": [
                 "-NoProfile",
                 "-File",
-                "${workspaceFolder}/scripts/run-tests.ps1",
-                "-Family",
-                "unit"
+                "${workspaceFolder}/scripts/test.ps1",
+                "-Layer",
+                "fast"
             ],
             "problemMatcher": "$msCompile"
         },
@@ -33,11 +33,10 @@
             "args": [
                 "-NoProfile",
                 "-File",
-                "${workspaceFolder}/scripts/run-tests.ps1",
-                "-Test",
-                "godot.content-export-smoke",
-                "-Test",
-                "godot.mods-export-smoke"
+                "${workspaceFolder}/scripts/test.ps1",
+                "-Layer",
+                "engine",
+                "-ExportWindows"
             ],
             "problemMatcher": "$msCompile"
         }

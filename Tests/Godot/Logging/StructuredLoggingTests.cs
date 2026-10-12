@@ -7,8 +7,7 @@ using Train.App.Logging;
 namespace Train.Godot.Tests.Logging;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:logging")]
+[TestCategory("integration")]
 public sealed class StructuredLoggingTests
 {
     [TestMethod]
@@ -48,21 +47,21 @@ public sealed class StructuredLoggingTests
     public void Event_keys_reject_invalid_developer_input()
     {
         using var session = LoggerSession.Create();
-        Assert.ThrowsException<ArgumentNullException>(() =>
+        Assert.ThrowsExactly<ArgumentNullException>(() =>
             session.Logger.Info(null!, "ready", "x"));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("", "ready", "x"));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("Application", "ready", "x"));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("1start", "ready", "x"));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("bad-key", "ready", "x"));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info(new string('a', 65), "ready", "x"));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("test", new string('e', 101), "x"));
-        Assert.ThrowsException<ArgumentNullException>(() =>
+        Assert.ThrowsExactly<ArgumentNullException>(() =>
             session.Logger.Info("test", "ready", null!));
         Assert.AreEqual(0, session.Memory.Snapshot().Count);
     }
@@ -95,16 +94,16 @@ public sealed class StructuredLoggingTests
         CollectionAssert.AreEqual(new object?[] { true, false }, ((IReadOnlyList<object?>)recorded.Attributes["flags"]!).ToArray());
         Assert.AreEqual(2, ((IReadOnlyDictionary<string, object?>)recorded.Attributes["nested"]!)["units"]);
 
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("test", "rejects_object_graph", "x", new Dictionary<string, object?>
             {
                 ["graph"] = new { Label = "unsupported", Values = new[] { 1, 2 } }
             }));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("test", "rejects_nan", "x", new Dictionary<string, object?> { ["bad"] = double.NaN }));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("test", "rejects_infinity", "x", new Dictionary<string, object?> { ["bad"] = float.PositiveInfinity }));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Logger.Info("test", "rejects_object", "x", new Dictionary<string, object?> { ["bad"] = new object() }));
 
         var jsonlPath = session.JsonlPath!;
@@ -362,8 +361,7 @@ public sealed class StructuredLoggingTests
 }
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:logging")]
+[TestCategory("integration")]
 public sealed class StructuredLoggingConcurrencyTests
 {
     [TestMethod]

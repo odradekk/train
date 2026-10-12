@@ -6,8 +6,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class KeyedRandomTests
 {
     // 参考算法：https://prng.di.unimi.it/splitmix64.c；键布局与组合协议见 KeyedRandom 的公开契约和实现。
@@ -35,14 +33,14 @@ public sealed class KeyedRandomTests
             "54524E470100000000000000000000000300000065CC8100000000", 12780317014525921434UL];
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(Vectors), DynamicDataSourceType.Method)]
     public void Encode_matches_independent_byte_vectors(RandomKey key, string expectedHex, ulong _)
     {
         CollectionAssert.AreEqual(Convert.FromHexString(expectedHex), KeyedRandom.Encode(key).ToArray());
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(Vectors), DynamicDataSourceType.Method)]
     public void Sample_matches_independent_unsigned_vectors(RandomKey key, string _, ulong expected)
     {
@@ -63,15 +61,15 @@ public sealed class KeyedRandomTests
     public void Empty_purpose_is_rejected_instead_of_sharing_an_unnamed_stream()
     {
         var key = new RandomKey(0, "", []);
-        Assert.ThrowsException<ArgumentException>(() => KeyedRandom.Encode(key));
-        Assert.ThrowsException<ArgumentException>(() => KeyedRandom.Sample(key));
+        Assert.ThrowsExactly<ArgumentException>(() => KeyedRandom.Encode(key));
+        Assert.ThrowsExactly<ArgumentException>(() => KeyedRandom.Sample(key));
     }
 
     [TestMethod]
     public void Uninitialized_components_are_rejected_instead_of_being_an_empty_sequence()
     {
         var key = new RandomKey(0, "fixture.empty", default(ImmutableArray<ulong>));
-        Assert.ThrowsException<ArgumentException>(() => KeyedRandom.Encode(key));
-        Assert.ThrowsException<ArgumentException>(() => KeyedRandom.Sample(key));
+        Assert.ThrowsExactly<ArgumentException>(() => KeyedRandom.Encode(key));
+        Assert.ThrowsExactly<ArgumentException>(() => KeyedRandom.Sample(key));
     }
 }

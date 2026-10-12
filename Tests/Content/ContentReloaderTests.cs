@@ -10,11 +10,9 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:content")]
 public sealed class ContentReloaderTests
 {
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("voxels")]
     [DataRow("composites")]
     [DataRow("market_tables")]
@@ -51,7 +49,7 @@ public sealed class ContentReloaderTests
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("voxels", true)]
     [DataRow("voxels", false)]
     [DataRow("composites", true)]
@@ -79,7 +77,7 @@ public sealed class ContentReloaderTests
             item.Source == file && item.JsonPath == path && item.Severity == ContentDiagnosticSeverity.Error));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("voxels", true)]
     [DataRow("voxels", false)]
     [DataRow("composites", true)]
@@ -128,7 +126,7 @@ public sealed class ContentReloaderTests
         }
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("voxels", true)]
     [DataRow("composites", false)]
     [DataRow("market_tables", true)]
@@ -276,7 +274,7 @@ public sealed class ContentReloaderTests
         Assert.IsTrue(iron.Definition.HasRawGoodTag);
         var entries = (ICollection<KeyValuePair<VoxelDefinitionId, VoxelContentEntry>>)snapshot.Voxels;
         Assert.IsTrue(entries.IsReadOnly);
-        Assert.ThrowsException<NotSupportedException>(() =>
+        Assert.ThrowsExactly<NotSupportedException>(() =>
             entries.Add(new KeyValuePair<VoxelDefinitionId, VoxelContentEntry>(new VoxelDefinitionId("core", "x"), iron)));
     }
 

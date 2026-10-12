@@ -21,7 +21,7 @@ For Godot scene, resource, editor or runtime work, use the project's Godot MCP N
 
 Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
 
-Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the Core, Content or Godot test project for the responsibility being changed, and the [unified test entry](run-tests.md) for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
+Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the [unified test entry](run-tests.md) with `-Project core|content|godot|contract-support` for the responsibility being changed, and `-Layer` for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
 
 ## 1. Plan
 
@@ -80,10 +80,11 @@ This section is the single source of testing policy; inventories, commands and h
 
 ### Responsibilities and real boundaries
 
-| Test family | Responsibility | Boundary |
+| Layer or check | Responsibility | Boundary |
 | --- | --- | --- |
-| Unit tests | Small rules, calculations and validity checks with fast feedback. | Prefer execution without the engine or child processes. |
-| Headless automation | Collaboration between modules, command sequences, real persistence, and required Godot or cross-process behavior. | Use ordinary C# where sufficient; start Godot or separate processes when the claimed contract requires them. |
+| fast | Small rules, calculations, validity and session contracts for quick feedback. | Run in-process without real file I/O or subprocesses; each test completes within 1 second. |
+| integration | Real file I/O and cross-process behavior; repository-wide selection also checks structure, public APIs and Schema. | Use only the current run directory and clean up test-owned files and processes; only an exercised real boundary is verified. |
+| engine | Real Godot behavior of the current App. | Ordinary C# tests cannot replace engine evidence. |
 | Benchmark | Repeatable performance measurement and comparison. | Separate from correctness tests; see the Benchmark gate below. |
 
 Graphical interaction, visual quality, export/platform behavior and target-hardware experience receive supplementary checks when affected or required by a stage gate, not in every quick run. A headless run cannot establish visual quality or real-window responsiveness.
@@ -97,9 +98,9 @@ During development, run affected tests for quick feedback. Before delivery, run 
 | Change | Default checks |
 | --- | --- |
 | Documentation only | Review the text and diff; run applicable existing documentation checks. |
-| Local domain behavior | Related unit or session-contract tests. |
-| Commands, content, persistence or simulation | Affected headless integration; cross-process comparison when recovery or determinism is part of the contract. |
-| Scenes, resources, input or presentation | Build, necessary resource import and real Godot checks; manual acceptance when interaction or visual quality changes. |
+| Local domain behavior | Related fast-layer tests. |
+| Commands, content, persistence or simulation | Affected integration-layer checks; cross-process comparison when recovery or determinism is part of the contract. |
+| Scenes, resources, input or presentation | Build, necessary resource import and `-Layer engine`; manual acceptance when interaction or visual quality changes. |
 | Export or platform wiring | Corresponding export and actual target-platform runtime checks. |
 | Broad shared-contract changes, multi-feature integration affecting cross-module behavior, or stage completion | One complete correctness regression at the relevant integration/stage gate. |
 | Performance optimization or a change with a clear complexity, memory or scale risk | Targeted measurements; optimizations require comparable before/after evidence. |
@@ -108,7 +109,7 @@ If the impact is uncertain or a failure points beyond the selected scope, expand
 
 ### Test entry and CI
 
-Run tests through `scripts/run-tests.ps1`; its usage, selection, isolation and reporting are specified in [run-tests.md](run-tests.md). [Windows CI](ci.md) runs a small selection through the same entry. CI success proves only its selected checks; required local Godot, manual and target-hardware evidence stays separate, and shared CI runners are not a performance baseline.
+Use the fast layer for daily feedback and `-Layer fast,integration` before delivery and in routine [Windows CI](ci.md). Godot-related changes also require `-Layer engine` before delivery. Explicit correctness regression uses `-Layer all`; Windows export and runtime validation uses `-Layer engine -ExportWindows`. Selection, execution limits and result rules are in the [unified test entry](run-tests.md).
 
 ### Write tests that can detect defects
 
@@ -136,9 +137,9 @@ An exception for a demonstrated unrelated baseline fault or environment limitati
 
 ### Execution cost and Benchmark gate
 
-Measure test-group durations before setting speed targets. Prefer related quick tests for daily work; in slow cases, investigate repeated setup, oversized inputs and ineffective waits, then group them by actual responsibility. Preserve necessary assertions and real boundaries; extending a timeout must not hide a hang. Reorganize existing tests incrementally, starting with cases that obstruct development, rather than rewriting the whole suite at once.
+Measure test-group durations against the [test entry's execution limits](run-tests.md#执行与边界); do not silently relax them. Prefer related quick tests for daily work; in slow cases, investigate repeated setup, oversized inputs and ineffective waits, then group them by actual responsibility. Preserve necessary assertions and real boundaries; extending a timeout must not hide a hang. Reorganize existing tests incrementally, starting with cases that obstruct development, rather than rewriting the whole suite at once.
 
-Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Unit-suite wall time or headless throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
+Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Fast- or integration-layer wall time or engine throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
 
 **Complete when:** the changed risks have sufficient applicable evidence, tests make valid claims about their boundaries, required failures/gaps are resolved or handled through the explicit scope/exception rules, and the reviewed revision's results and reused evidence are distinguishable.
 

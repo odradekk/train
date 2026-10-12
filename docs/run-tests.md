@@ -1,52 +1,40 @@
-# Unified test execution contract
+# 统一测试入口
 
-This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which checks a change needs is decided by the [Testing standard](implement-sop.md#testing-standard); [Windows CI](ci.md) calls the same entry.
+`scripts/test.ps1` 是 PowerShell 7 测试入口。[Testing standard](implement-sop.md#testing-standard)决定改动需要哪些证据；[Windows CI](ci.md)使用同一入口。四模块的目标验证责任见[独立构建与契约验证](contracts/testing.md)，当前普通 C# 测试不证明真实工厂、Godot 隔离装配或人工验收通过。
 
-四模块测试与隔离验证的目标见[独立构建与契约验证](contracts/testing.md)。模块项目拆分、多项目选择、Core/Content 实际隔离构建和项目依赖检查已接入。真实工厂契约与 Godot 隔离装配仍待生产入口建立，不能由现有普通 C# 测试推断通过。
-
-`scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
-
-默认从 `Tests/` 下发现引用 `MSTest.TestAdapter` 或 `MSTest` 的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。未指定模块的 `-Correctness` 还要求 Core、Content、Godot 三个现有入口都可发现，缺失时报告阻塞。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。模块选择包含相应的契约支持自检；模块正确性选择还包含 `contracts.structure`。Godot 隔离装配不存在时，`-Module godot -Correctness` 将待实现项加入所选用例并明确报告阻塞；`-Family` 和 `-Test` 继续对它筛选。当前引擎检查仍分别执行并报告。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
-
-未指定 `-Project` 时，Core/Content 的 `-Correctness` 在系统临时目录按允许依赖闭包重建并运行，未来的 Scenes 项目也按相同规则处理。其他 MSTest 选择在工作树中构建并运行，包括 `-Correctness` 配合 `-Project` 的调用，不能证明模块隔离；普通 MSTest 也不能证明引擎隔离。临时目录在运行结束后清理，输入及引用清单留在本次报告目录；`TestResults/.gdignore` 阻止 Godot 扫描报告。Godot 检查隔离应用日志、外部内容和用户数据，但尚未将游戏程序集与其他实现模块隔离。
-
-`-Test content.examples-schema` 调用现有 JSON Schema 校验器检查 `docs/content/examples/` 的全部当前格式示例及 Schema 自身；需要 Python 和 `jsonschema` 包。示例为空、格式不符或工具缺失都不能通过。此项不验证跨文件引用或生产加载器行为。
-
-MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. `scripts/` 顶层保留统一入口、入口测试和登记表；具体检查、检查测试及其专用进程助手放在 `scripts/checks/`，MSTest 元数据读取器放在 `scripts/metadata-reader/`。当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
+## 选择
 
 ```powershell
-pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.logging-smoke
-pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-smoke
-pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.main-menu
-pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.simulation-host-smoke
-# 同次调用共享一次 Windows 导出，分别验证内容和空 Mod 根的真实运行行为。
-pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-export-smoke -Test godot.mods-export-smoke
+# 默认快速层
+pwsh -NoProfile -File scripts/test.ps1
+# 交付前和常规 CI
+pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
+# 快速、集成和引擎三层，不含导出
+pwsh -NoProfile -File scripts/test.ps1 -Layer all
+# 只选择 MSTest 项目
+pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration -Project core,content
+# 引擎层与两项 Windows 导出运行检查
+pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 ```
 
-`-Correctness` 选择 MSTest、结构与公开面、内容示例 Schema 和已登记的非导出引擎检查；Schema 检查需要 Python 3 与 `jsonschema`（CI 为 Python 3.11、`jsonschema==4.25.1`），引擎检查需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
+`-Layer` 接受 `fast`、`integration`、`engine` 的一个或多个值；`all` 等于三者，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-Project` 接受 `core`、`content`、`godot`、`contract-support` 的一个或多个值，只筛选四个 MSTest 项目；指定它后不执行契约结构、内容 Schema 或引擎检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用。无效选择、整层实际执行零个用例、必需工具缺失或最低用例数不足均不能通过。最低用例数表位于 `scripts/test.ps1` 的 `$projects`；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
 
-content 的输入由运行器提前复制到输出目录的 `content-input/initial` 与 `content-input/added`，两份都只包含 `voxels/grain.voxels.json`、四个绑定共用的 `voxels/grain/placeholder.png`，以及用于烟测的市场表和聚居地类型 JSON；`added` 另外生成 `smoke-ore` 体素探针。图片经物理内容根读取，不需要复制 Godot 导入配置。检查切换两份读取来源，在同一个重载器上验证新增、移除；不写项目资源或输入文件。检查选择使用 `-- --check=<名称>`，不读取旧 TRAIN_* 检查开关。通过必须同时满足进程退出 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
+快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例。无 `-Project` 的集成层还检查项目边界、契约公开面、调用样例和内容示例 Schema。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
-导出过滤显式包含 `*.voxels.json`、`*.composites.json`、`*.market-tables.json`、`*.settlement-types.json` 和 `*.png`。内置 PNG 的 `.import` 使用 `importer=keep`，保证导出包中的原始字节可读。content 检查必须报告 `CONTENT_GRAIN_LOADED`、`CONTENT_PNG_DECODED`、`CONTENT_MARKET_SETTLEMENT_READY` 等初始标记，导出和空 Mod 根检查分别报告 `CONTENT_EXPORT_GRAIN_LOADED` 与 `MODS_EXPORT_GRAIN_LOADED`；PNG 标记还验证四个表现绑定共用同一张实际解码的非空图片。当前导出运行验证最小粮食内容，完整预置内容在 [#236](https://github.com/odradekk/train/issues/236) 接入后补充相应资源证据。
+引擎层经 `scripts/checks/run-app-check.ps1` 执行 logging、content、main-menu 和 simulation-host 四项当前 App 检查，需要 `GODOT`。[#405](https://github.com/odradekk/train/issues/405)将改用引擎内运行器，命令行保持不变。显式导出选择另外运行 content-export、mods-export，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
-Windows 上覆盖 APPDATA 不会改变 Godot 原生的默认 `user://` 路径。运行器为引擎日志传入运行目录内的 `--log-file`，导入和导出准备使用 `--recovery-mode` 跳过编辑器插件，防止插件设置写入正常用户目录。App 检查正常启动主场景；项目 MCP 在独立的编辑器验证中核验。正常用户目录的前后快照不一致时，整次运行以非零退出。
+## 执行与边界
 
-统一入口不写 `override.cfg`，已有文件保留并在摘要中记录 SHA256。运行结果、输入、日志和导出文件归本次运行目录所有，正常玩家目录保持不变。
+入口构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。项目边界检查跳过重复解决方案构建，仍构建不在解决方案中的调用样例和检查工具。Core/Content 的隔离重建已暂停，由 [#406](https://github.com/odradekk/train/issues/406)恢复；当前通过不证明隔离构建。
 
-## Classification and selection
+各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一层内选中的 MSTest 项目并行运行，每个项目保留各自的最低用例数、TRX、超时和挂起转储；其他检查串行执行。同一工作树不允许并发运行入口。
 
-Classify tests by family (`unit`, `headless`, `benchmark`) and stable functional scope such as content, console, logging, saves, simulation or voxels, and record actual requirements such as Godot, separate processes, export or a graphical session. Speed follows measurements, not a blanket assumption that C# tests are unit tests. Use stable case/group names rather than permanent entry points for individual Issues.
+content 检查自己在输出目录准备 `content-input/initial`、`content-input/added`，复制粮食体素和共用图片，生成市场表、聚居地类型及新增 `smoke-ore` 探针，验证同一重载器的新增与移除。导出过滤包含内容 JSON 与 PNG；PNG 使用 `importer=keep` 保留原始字节。通过必须同时满足退出码 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
 
-Show the selected cases and prerequisites before execution; combine family/scope filters and deduplicate selected cases. Invalid arguments, unknown names and an explicit selection matching no cases are errors. An unavailable required environment is reported as unverified with a non-success result, never by silently shrinking the selection. Full regression includes the registered correctness checks; unimplemented Benchmark, long-run, manual or platform groups are pending requirements, not empty groups that pass. Publish the actual selected coverage so a partial migration or small CI selection cannot be presented as all repository checks, and list manual observation separately from automated passes.
+检查输入、临时文件、运行日志、导出产物和测试用户数据写入运行目录，`TEMP`、`TMP`、`TMPDIR` 指向其中的 `tmp`。Godot 原生日志通过 `--log-file` 定向；导入和导出用 `--recovery-mode` 跳过编辑器插件。导入和 App 检查将 Windows 的 `APPDATA`、`LOCALAPPDATA`，或非 Windows 的 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_CACHE_HOME` 指向运行目录；只有导出步骤保留真实 APPDATA 以访问模板。导出是隔离的例外：Godot 仍可能改写真实 `Godot/editor_settings-4.7.tres` 和 `Godot/mono/build_logs/`；不能由导出通过推断真实 Godot 目录未变化。每项 App 检查使用独立用户目录。入口比较运行前后的快照：在 `bin/`、`obj/`、`.godot/`、`.git/` 和本次运行目录之外新增或删除文件、Git 状态或 HEAD 变化、真实 `Godot/app_userdata/Train` 下文件变化，均导致整次失败。运行期间不要修改工作树；保留已有 `override.cfg`。
 
-## Execution and isolation
+## 结果与保留
 
-Each run gets a fresh result directory for its reports and owned outputs. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
+每次运行目录为 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/`，目录名中的时间为 UTC，只产生一份 `summary.json` 摘要。摘要记录提交、工作区状态、选择、构建、各项目与各层的执行／通过／失败／跳过数、用时和结论。跳过数记入摘要，整次运行仍可以通过，但跳过的用例不算已验证；脏工作区结果不能证明所记录的干净提交通过。
 
-Process checks use measured, bounded timeouts. Cancellation or timeout preserves available evidence and terminates only this run's owned process tree; if cleanup cannot establish isolation, dispatch stops and the blocker is reported. Other worktrees' processes and ordinary game saves are left untouched.
-
-After an ordinary assertion failure, other independent, safe groups continue and all results are kept. A test assembly build or metadata read needed for discovery stops the run. A game build, import, or export failure after discovery blocks its dependent groups while independent groups continue. Cancellation stops dispatch, and serious state corruption stops that case at the first evidence. The exit is non-success whenever a selected required check fails, is blocked or does not finish. The report distinguishes failed, blocked, cancelled and not-executed outcomes; later passes never overwrite earlier failures.
-
-## Results and evidence
-
-Each run produces one machine-readable summary and one concise Markdown report beside the original evidence, in a unique directory under one Git-ignored hierarchy that never overwrites earlier reports. Both record the selection, actual execution, per-check outcome, preparation/test durations, tested commit and working-tree dirty state, relevant build/content/environment identities and artifact locations. Native TRX and Godot logs are preserved rather than copied into a second system. Results from a dirty tree do not establish that the recorded clean commit passed. Exact summary fields, nonzero exit codes and helper-file splits are implementation choices within these contracts; keep them minimal and documented.
+通过后只保留摘要；失败保留 TRX、日志、输入和转储等全部证据。入口只保留最近 10 个符合命名规则的运行目录；入口持有该工作树的命名互斥锁时，没有 `summary.json` 的运行目录一律视为崩溃遗留并清理。未取得互斥锁则拒绝同工作树新运行。`TestResults/` 下其他目录不清理。结果只有通过或失败；必需检查失败、缺少环境或未完成时返回退出码 1；人工、目标硬件和尚未实现的验证另行报告。

@@ -5,8 +5,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SplitMix64Tests
 {
     [TestMethod]

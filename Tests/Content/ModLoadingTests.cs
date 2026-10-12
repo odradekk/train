@@ -7,8 +7,6 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:content")]
 public sealed class ModLoadingTests
 {
     [TestMethod]
@@ -203,9 +201,9 @@ public sealed class ModLoadingTests
             "pretty/mod.json",
             out var manifest,
             out _));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             new ContentPackage("core", "memory://resources", true, ContentPackageKind.BuiltIn, null, new ModPackageMetadata(manifest!)));
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             new ContentPackage(
                 ModFixtures.OtherUuid,
                 "memory://mods/x/resources",

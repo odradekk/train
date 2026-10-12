@@ -14,12 +14,6 @@ internal static class SimulationProcessDriver
     private const string SemanticContent = "fixture.resource/v1;stock,holdings,entity_ids,demands;test-generator-v1";
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    internal static int UnknownInvocation(string[] args)
-    {
-        System.Console.Error.WriteLine($"未知 Train.Core.Tests 进程参数：{string.Join(' ', args)}");
-        return 64;
-    }
-
     internal static async Task<int> RunAsync(string[] args)
     {
         try

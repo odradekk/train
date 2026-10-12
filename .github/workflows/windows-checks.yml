@@ -91,40 +91,35 @@ jobs:
 
       # Only forward explicit selections. The entry owns discovery, preparation,
       # assertions, evidence and exit status, including missing prerequisites.
-      - name: Routine module isolation, MSTest, and game build
+      - name: Routine fast and integration checks
         if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
         shell: pwsh
         run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Correctness -RunnerCatalog none -BuildGame
-          exit $LASTEXITCODE
-
-      - name: Current content example schemas
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
-        shell: pwsh
-        run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Test content.examples-schema
-          exit $LASTEXITCODE
-
-      - name: Project boundaries and contract declarations
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
-        shell: pwsh
-        run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Test contracts.structure
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer fast,integration
           exit $LASTEXITCODE
 
       - name: Explicit correctness regression
         if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'correctness' }}
         shell: pwsh
         run: |
-          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/run-tests.ps1 -Correctness
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer all
           exit $LASTEXITCODE
 
       - name: Publish available reports
         if: always()
         shell: pwsh
         run: |
-          Get-ChildItem TestResults/run-tests -Filter report.md -Recurse -ErrorAction SilentlyContinue |
-            ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw | Add-Content $env:GITHUB_STEP_SUMMARY }
+          Get-ChildItem TestResults -Directory -ErrorAction SilentlyContinue |
+            Where-Object Name -Match '^[a-z-]+-\d{8}T\d{9}-[0-9a-f]{7}$' |
+            ForEach-Object {
+              $summary = Join-Path $_.FullName 'summary.json'
+              if (Test-Path -LiteralPath $summary) {
+                "### $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
+                '```json' | Add-Content $env:GITHUB_STEP_SUMMARY
+                Get-Content -LiteralPath $summary -Raw | Add-Content $env:GITHUB_STEP_SUMMARY
+                '```' | Add-Content $env:GITHUB_STEP_SUMMARY
+              }
+            }
 
       - name: Upload available evidence
         if: always()

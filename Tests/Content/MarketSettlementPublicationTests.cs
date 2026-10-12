@@ -8,10 +8,6 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:content")]
-[TestCategory("scope:markets")]
-[TestCategory("scope:settlements")]
 public sealed class MarketSettlementPublicationTests
 {
     [TestMethod]
@@ -166,7 +162,7 @@ public sealed class MarketSettlementPublicationTests
         Assert.AreSame(previous, result.Snapshot);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true, false)]
     [DataRow(false, false)]
     [DataRow(true, true)]
@@ -254,7 +250,7 @@ public sealed class MarketSettlementPublicationTests
         Assert.AreEqual(2, snapshot.MarketTables.Count);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Required_reference_failure_uses_package_ownership_for_a_non_core_namespace(bool market)
@@ -305,7 +301,7 @@ public sealed class MarketSettlementPublicationTests
         Assert.AreEqual(1, typeOnly.Snapshot.SettlementTypes.Count);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Duplicate_definition_identity_rejects_the_entire_required_batch(bool market)

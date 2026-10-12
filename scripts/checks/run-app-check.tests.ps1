@@ -10,12 +10,9 @@ $owned = [System.Collections.Generic.List[string]]::new()
 $ownedDirectories = [System.Collections.Generic.List[object]]::new()
 
 function Invoke-Check {
-    param([string] $Check, [string] $Program, [switch] $Export, [switch] $WithContent, [int] $TimeoutSeconds = 30)
+    param([string] $Check, [string] $Program, [switch] $Export, [int] $TimeoutSeconds = 30)
     $output = Join-Path $root ("output " + [guid]::NewGuid().ToString("N"))
-    if ($WithContent) {
-        New-Item -ItemType Directory -Force -Path (Join-Path $output "content-input/initial") | Out-Null
-        New-Item -ItemType Directory -Force -Path (Join-Path $output "content-input/added") | Out-Null
-    }
+    $script:lastOutput = $output
     $beforeGodot = $env:GODOT
     try {
         $arguments = @("-NoProfile", "-File", $subject, "-Check", $Check, "-OutputDirectory", $output, "-TimeoutSeconds", $TimeoutSeconds)
@@ -51,13 +48,36 @@ try {
     foreach ($path in @($logging, $content, $menu, $simulation, $contentExport, $modsExport, $missingMarket, $missing, $missingReady, $failedProgram)) { $owned.Add($path) }
 
     Assert-Exit "logging markers" 0 (Invoke-Check logging $logging)
-    Assert-Exit "logging through supplied executable" 0 (Invoke-Check logging $logging -Export)
-    Assert-Exit "content isolated input" 0 (Invoke-Check content $content -WithContent)
-    Assert-Exit "missing market and settlement marker" 1 (Invoke-Check content $missingMarket -WithContent)
+    Assert-Exit "logging does not prepare content" 0 ([int] (Test-Path -LiteralPath (Join-Path $script:lastOutput "content-input")))
+    if ($IsWindows) { Assert-Exit "logging through supplied executable" 0 (Invoke-Check logging $logging -Export) }
+    Assert-Exit "content isolated input" 0 (Invoke-Check content $content)
+    $repository = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    foreach ($state in @("initial", "added")) {
+        $resources = Join-Path $script:lastOutput "content-input/$state"
+        foreach ($relative in @("voxels/grain.voxels.json", "voxels/grain/placeholder.png")) {
+            $expected = (Get-FileHash -LiteralPath (Join-Path $repository "builtin/core/resources/$relative")).Hash
+            $actual = (Get-FileHash -LiteralPath (Join-Path $resources $relative)).Hash
+            Assert-Exit "$state copied $relative" 0 ([int] ($expected -ne $actual))
+        }
+        $market = Get-Content -LiteralPath (Join-Path $resources "markets/smoke.market-tables.json") -Raw | ConvertFrom-Json
+        $settlement = Get-Content -LiteralPath (Join-Path $resources "settlement-types/smoke.settlement-types.json") -Raw | ConvertFrom-Json
+        $goods = $market.market_tables[0].goods[0]
+        $supply = $settlement.settlement_types[0].supply[0]
+        $sensitivity = if ($state -eq "added") { 0.75 } else { 0.5 }
+        $capacity = if ($state -eq "added") { 3 } else { 2 }
+        Assert-Exit "$state market grain input" 0 ([int] ($goods.definition -ne "core:grain" -or $goods.sensitivity -ne $sensitivity))
+        Assert-Exit "$state settlement grain input" 0 ([int] ($supply.definition -ne "core:grain" -or $supply.capacity -ne $capacity))
+    }
+    $probe = Get-Content -LiteralPath (Join-Path $script:lastOutput "content-input/added/voxels/smoke-ore.voxels.json") -Raw | ConvertFrom-Json
+    Assert-Exit "added smoke probe" 0 ([int] ($probe.voxels[0].id -ne "smoke-ore"))
+    Assert-Exit "initial has no smoke probe" 0 ([int] (Test-Path -LiteralPath (Join-Path $script:lastOutput "content-input/initial/voxels/smoke-ore.voxels.json")))
+    Assert-Exit "missing market and settlement marker" 1 (Invoke-Check content $missingMarket)
     Assert-Exit "main menu markers" 0 (Invoke-Check main-menu $menu)
     Assert-Exit "simulation host markers" 0 (Invoke-Check simulation-host $simulation)
-    Assert-Exit "content export markers and spaced paths" 0 (Invoke-Check content-export $contentExport -Export)
-    Assert-Exit "mods export empty root" 0 (Invoke-Check mods-export $modsExport -Export)
+    if ($IsWindows) {
+        Assert-Exit "content export markers and spaced paths" 0 (Invoke-Check content-export $contentExport -Export)
+        Assert-Exit "mods export empty root" 0 (Invoke-Check mods-export $modsExport -Export)
+    }
     Assert-Exit "missing marker" 1 (Invoke-Check logging $missing)
     Assert-Exit "missing literal application ready marker" 1 (Invoke-Check logging $missingReady)
     Assert-Exit "nonzero child" 1 (Invoke-Check logging $failedProgram)

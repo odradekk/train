@@ -5,9 +5,6 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:content")]
-[TestCategory("scope:composites")]
 public sealed class ContentPublicationTests
 {
     [TestMethod]
@@ -171,7 +168,7 @@ public sealed class ContentPublicationTests
         var previous = reloader.Current;
         source.Current = new ThrowingContentSource();
 
-        Assert.ThrowsException<IOException>(() => reloader.Reload());
+        Assert.ThrowsExactly<IOException>(() => reloader.Reload());
         Assert.AreSame(previous, reloader.Current);
         source.Current = PairSource();
         AssertResult(ContentReloadExamples.Unchanged, reloader.Reload());
