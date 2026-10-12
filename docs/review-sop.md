@@ -14,7 +14,7 @@ Read the coordinator's dispatch comment, the Issue body and all comments, `AGENT
 
 ## 1. Create the worker
 
-Create the worker with Paseo `create_agent` in the same workspace: `provider: codex/gpt-6.1-sol`, `settings: { modeId: full-access, thinkingOptionId: xhigh }`, title `work #<n>`. Use this initial prompt:
+Create the worker with Paseo `create_agent` in the same workspace: `provider: codex/gpt-6.1-sol`, `settings: { modeId: full-access, thinkingOptionId: xhigh, features: { service_tier: priority } }`, title `work #<n>`. Use this initial prompt:
 
 > You are the worker for Issue #\<n\> in this worktree. Follow docs/implement-sop.md. The dispatch comment on the Issue has your branch, MCP assignment and stage. Your first deliverable is the plan; do not write code before I approve it. End every reply with a `WORKER:` status line.
 
