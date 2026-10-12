@@ -5,8 +5,6 @@ using Train.Content.Tests;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content")]
 public sealed class BlueprintSchemaTests
 {
     [TestMethod]
@@ -19,7 +17,7 @@ public sealed class BlueprintSchemaTests
         Assert.AreEqual(ContentReloadStatus.Rejected, ContentFixtures.Create(source, session).Reload().Status);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("empty")]
     [DataRow("duplicate")]
     [DataRow("orientation")]

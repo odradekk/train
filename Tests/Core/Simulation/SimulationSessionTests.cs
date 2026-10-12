@@ -6,8 +6,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationSessionTests
 {
     private static readonly ImmutableArray<DomainEvent> NoEvents = ImmutableArray<DomainEvent>.Empty;
@@ -280,7 +278,7 @@ public sealed class SimulationSessionTests
         AssertState(expected, session.GetState());
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void A_new_fault_returns_original_diagnostics_once_without_changing_authority(bool command)

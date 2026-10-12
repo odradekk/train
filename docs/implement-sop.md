@@ -21,7 +21,7 @@ For Godot scene, resource, editor or runtime work, use the project's Godot MCP N
 
 Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
 
-Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the Core, Content or Godot test project for the responsibility being changed, and the [unified test entry](run-tests.md) for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
+Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the [unified test entry](run-tests.md) with `-Project core|content|godot|contract-support` for the responsibility being changed, and `-Layer` for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
 
 ## 1. Plan
 
@@ -80,11 +80,12 @@ This section is the single source of testing policy; inventories, commands and h
 
 ### Responsibilities and real boundaries
 
-| Test family | Responsibility | Boundary |
+| 层或检查 | 验证责任 | 边界 |
 | --- | --- | --- |
-| Unit tests | Small rules, calculations and validity checks with fast feedback. | Prefer execution without the engine or child processes. |
-| Headless automation | Collaboration between modules, command sequences, real persistence, and required Godot or cross-process behavior. | Use ordinary C# where sufficient; start Godot or separate processes when the claimed contract requires them. |
-| Benchmark | Repeatable performance measurement and comparison. | Separate from correctness tests; see the Benchmark gate below. |
+| fast | 小规则、计算、有效性与会话契约，提供快速反馈。 | 不依赖真实文件读写或子进程。 |
+| integration | 真实文件读写、跨进程行为；全仓选择还包括结构、公开面及 Schema。 | 只有实际使用真实边界才能声明该边界已验证。 |
+| engine | 当前 App 的真实 Godot 行为。 | 普通 C# 测试不能替代。 |
+| Benchmark | 可重复的性能测量与比较。 | 与正确性测试分开；见下文 Benchmark gate。 |
 
 Graphical interaction, visual quality, export/platform behavior and target-hardware experience receive supplementary checks when affected or required by a stage gate, not in every quick run. A headless run cannot establish visual quality or real-window responsiveness.
 
@@ -108,7 +109,7 @@ If the impact is uncertain or a failure points beyond the selected scope, expand
 
 ### Test entry and CI
 
-Run tests through `scripts/run-tests.ps1`; its usage, selection, isolation and reporting are specified in [run-tests.md](run-tests.md). [Windows CI](ci.md) runs a small selection through the same entry. CI success proves only its selected checks; required local Godot, manual and target-hardware evidence stays separate, and shared CI runners are not a performance baseline.
+测试通过 `scripts/test.ps1` 执行，选择与结果规则见 [run-tests.md](run-tests.md)。快速层用于日常反馈；交付前和 [Windows CI](ci.md) 常规运行用 `-Layer fast,integration`，显式正确性回归用 `-Layer all`。`all` 不含导出，Windows 导出检查用 `-Layer engine -ExportWindows`。`-Project` 只选择 MSTest 项目，不包含全仓结构、Schema 或引擎检查。真实 I/O 与子进程测试标记 `integration`，其余 MSTest 属于快速层；快速、集成、引擎测试执行预算分别为 30、180、300 秒。模块隔离重建暂由 #406 恢复，不能由当前通过结果推断。CI 通过只证明所选检查；所需本机 Godot、人工和目标硬件证据另行取得，共享 CI runner 不作为性能基线。
 
 ### Write tests that can detect defects
 

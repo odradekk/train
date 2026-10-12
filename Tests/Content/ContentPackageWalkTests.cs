@@ -4,8 +4,6 @@ using Train.Content;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content")]
 public sealed class ContentPackageWalkTests
 {
     [TestMethod]

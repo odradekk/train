@@ -6,8 +6,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationStateCodecTests
 {
     private const string DomainText = "{\"stock\":9,\"holdings\":[{\"entity_id\":10,\"amount\":3}],\"entity_ids\":[10,20],\"demands\":[{\"entity_id\":10,\"request_id\":1,\"priority\":0,\"amount\":3,\"allow_partial\":true},{\"entity_id\":20,\"request_id\":1,\"priority\":2,\"amount\":4,\"allow_partial\":false}]}";
@@ -32,13 +30,13 @@ public sealed class SimulationStateCodecTests
         Assert.AreEqual(StateText, codec.Encode(new("fixture.resources", 1, State())));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("fixture.other", 1U)]
     [DataRow("fixture.resources", 2U)]
     public void Encode_rejects_a_snapshot_owned_by_another_format(string kind, uint version)
     {
         var codec = new ResourceStateCodec();
-        Assert.ThrowsException<ArgumentException>(() => codec.Encode(new(kind, version, State())));
+        Assert.ThrowsExactly<ArgumentException>(() => codec.Encode(new(kind, version, State())));
     }
 
     [TestMethod]
@@ -72,7 +70,7 @@ public sealed class SimulationStateCodecTests
         CollectionAssert.AreEqual(new ulong[] { 10, 20 }, restored.EntityIds.ToArray());
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("{\"stock\":9,\"holdings\":[],\"entity_ids\":[],\"demands\":[],\"extra\":0}", "unknown_field", "/extra")]
     [DataRow("{\"holdings\":[],\"entity_ids\":[],\"demands\":[]}", "missing_field", "/stock")]
     [DataRow("{\"stock\":-1,\"holdings\":[],\"entity_ids\":[],\"demands\":[]}", "invalid_uint64", "/stock")]
@@ -98,7 +96,7 @@ public sealed class SimulationStateCodecTests
         Assert.AreEqual(expected, codec.WriteDomainText(state));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("{\"core_state_format_version\":2,\"state_kind\":\"fixture.resources\",\"state_version\":1,\"simulation\":{},\"domain\":{}}", "unsupported_core_state_format", "/core_state_format_version")]
     [DataRow("{\"core_state_format_version\":1,\"state_kind\":\"other\",\"state_version\":1,\"simulation\":{},\"domain\":{}}", "unsupported_state_kind", "/state_kind")]
     [DataRow("{\"core_state_format_version\":1,\"state_kind\":\"fixture.resources\",\"state_version\":2,\"simulation\":{},\"domain\":{}}", "unsupported_state_version", "/state_version")]
@@ -127,7 +125,7 @@ public sealed class SimulationStateCodecTests
         AssertState(State(), (ResourceState)snapshot.State);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("Command", true, true)]
     [DataRow("Boundary", false, false)]
     [DataRow("Evaluate", true, false)]
@@ -147,7 +145,7 @@ public sealed class SimulationStateCodecTests
         AssertState(State() with { Fault = fault }, (ResourceState)decoded.State);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("{", "invalid_json", "")]
     [DataRow("[]", "invalid_type", "")]
     [DataRow("{\"core_state_format_version\":1,\"state_kind\":\"fixture.resources\",\"state_version\":1,\"simulation\":{},\"domain\":{},\"extra\":0}", "unknown_field", "/extra")]
@@ -186,7 +184,7 @@ public sealed class SimulationStateCodecTests
         Assert.IsNull(new ResourceCalculations().CheckInitialState(state));
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0UL, 0UL, 0UL, 1UL, 0UL, "invalid_command_id", "NextCommandId")]
     [DataRow(0UL, 0UL, 1UL, 0UL, 0UL, "invalid_entity_id", "NextEntityId")]
     [DataRow(1UL, 2UL, 2UL, 1UL, 2UL, "invalid_boundary_sequence", "BoundarySequence")]
@@ -213,7 +211,7 @@ public sealed class SimulationStateCodecTests
         Assert.AreEqual("invalid_transaction_count", violation?.Code);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("entity_zero", "invalid_entity_id", "EntityIds")]
     [DataRow("entity_at_allocator", "invalid_entity_id", "EntityIds")]
     [DataRow("holding_reference", "missing_entity_reference", "Holdings")]
@@ -253,7 +251,7 @@ public sealed class SimulationStateCodecTests
         yield return [new TransactionContext(7, SimulationOperation.Step, new(4, 0))];
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(InvalidFaultContexts), DynamicDataSourceType.Method)]
     public void Restore_rejects_fault_attempts_that_do_not_belong_to_the_frozen_boundary(TransactionContext context)
     {
@@ -266,7 +264,7 @@ public sealed class SimulationStateCodecTests
         Assert.AreEqual("/simulation/fault", error.Path);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public void Restore_preserves_a_failed_step_or_a_failure_before_identity_preparation(bool attemptedStep)

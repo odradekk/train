@@ -7,8 +7,6 @@ using Train.Content.Voxels;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content")]
 public sealed class DesignAttributeTests
 {
     [TestMethod]
@@ -75,7 +73,7 @@ public sealed class DesignAttributeTests
         Assert.AreEqual(2, attributes.Bom[DesignAttributeExamples.Cargo.Id]);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void Composed_behaviors_share_one_material_cell_and_speed_uses_the_slowest_propulsion(bool slowFirst)
@@ -98,8 +96,8 @@ public sealed class DesignAttributeTests
     [TestMethod]
     public void Null_input_or_cell_is_rejected()
     {
-        Assert.ThrowsException<ArgumentNullException>(() => DesignAttributeCalculator.Calculate(null!));
-        Assert.ThrowsException<ArgumentNullException>(() => DesignAttributeCalculator.Calculate(new ICoreVoxelDefinition[] { null! }));
+        Assert.ThrowsExactly<ArgumentNullException>(() => DesignAttributeCalculator.Calculate(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => DesignAttributeCalculator.Calculate(new ICoreVoxelDefinition[] { null! }));
     }
 
     [TestMethod]
@@ -110,6 +108,6 @@ public sealed class DesignAttributeTests
             Array.Empty<string>(), new VoxelBehavior[] { new PropulsionBehavior(double.MaxValue, 20) },
             VoxelOrientationConstraint.None, new VoxelPresentation(VoxelPresentationKind.Cube, "a.png", "a.png", "a.png", "a.png"),
             new VoxelCollision(VoxelCollisionKind.FullBox));
-        Assert.ThrowsException<OverflowException>(() => DesignAttributeCalculator.Calculate(new[] { definition, definition }));
+        Assert.ThrowsExactly<OverflowException>(() => DesignAttributeCalculator.Calculate(new[] { definition, definition }));
     }
 }

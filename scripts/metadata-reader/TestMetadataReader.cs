@@ -60,6 +60,14 @@ public static class TestMetadataReader
 
     static void AddCase(TestCatalog catalog, string id, List<string> categories)
     {
+        if (categories.Count == 0 || (categories.Count == 1 && categories[0] == "integration"))
+        {
+            categories = new List<string>
+            {
+                categories.Count == 0 ? "family:unit" : "family:headless",
+                "scope:" + id.Substring(0, id.LastIndexOf('.'))
+            };
+        }
         string family = "";
         var scopes = new List<string>();
         var requirements = new List<string>();

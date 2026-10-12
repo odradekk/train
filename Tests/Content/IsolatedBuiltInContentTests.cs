@@ -4,8 +4,7 @@ using Train.Content;
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content")]
+[TestCategory("integration")]
 public sealed class IsolatedBuiltInContentTests
 {
     [TestMethod]

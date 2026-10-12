@@ -7,9 +7,6 @@ using Train.Content.Voxels;
 namespace Train.Content.Tests.Voxels;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content")]
-[TestCategory("scope:voxels")]
 public sealed class VoxelCollisionDefinitionTests
 {
     private static readonly VoxelDefinitionId Iron = new("core", "ferrous-ore");

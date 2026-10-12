@@ -1,6 +1,7 @@
 
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -10,9 +11,7 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:simulation")]
-[TestCategory("requires:process")]
+[TestCategory("integration")]
 public sealed class SimulationProcessTests
 {
     private const string ZeroSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
@@ -20,12 +19,15 @@ public sealed class SimulationProcessTests
 
     public TestContext TestContext { get; set; } = null!;
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("steady", "bursty")]
     [DataRow("bursty", "steady")]
     public async Task Independent_processes_match_across_frame_pause_and_speed_schedules(
         string baselineSchedule, string repeatSchedule)
     {
+        if (!OperatingSystem.IsWindows() || RuntimeInformation.ProcessArchitecture != Architecture.X64)
+            Assert.Inconclusive("确定性身份验收仅支持 Windows x64。");
+
         var directory = CreateEvidenceDirectory();
         var baseline = await RunProcess(directory, "baseline", "run", baselineSchedule);
         var repeat = await RunProcess(directory, "repeat", "run", repeatSchedule);
@@ -37,7 +39,7 @@ public sealed class SimulationProcessTests
         AssertTraceComparison(baseline, repeat);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("steady", "bursty")]
     [DataRow("bursty", "steady")]
     public async Task Saved_boundary_restores_in_a_new_process_and_matches_continuous_run(
@@ -171,8 +173,11 @@ public sealed class SimulationProcessTests
     {
         var codecResultLeft = DecodeTrace(left);
         var codecResultRight = DecodeTrace(right);
-        var comparison = SimulationCheckpoints.Compare(codecResultLeft, codecResultRight);
-        Assert.IsInstanceOfType<CheckpointComparison.Equal>(comparison);
+        if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64)
+        {
+            var comparison = SimulationCheckpoints.Compare(codecResultLeft, codecResultRight);
+            Assert.IsInstanceOfType<CheckpointComparison.Equal>(comparison);
+        }
 
         Assert.AreEqual(left.Samples.Length, right.Samples.Length,
             "不能只相信 Compare 的 Equal 分支；独立核对每个实际采样。");

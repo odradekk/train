@@ -6,8 +6,7 @@ using Train.App.Saves;
 namespace Train.Godot.Tests.Saves;
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:saves")]
+[TestCategory("integration")]
 public sealed class FileSaveStoreTests
 {
     [TestMethod]
@@ -133,6 +132,9 @@ public sealed class FileSaveStoreTests
     [TestMethod]
     public void Locked_candidate_returns_write_failed_even_when_cleanup_cannot_finish()
     {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("独占句柄阻止候选清理的行为仅在 Windows 上验证。");
+
         using var files = new SaveFiles();
         var id = Guid.NewGuid();
         Assert.IsTrue(files.Store.TryWrite(id, "原存档", out _));
@@ -142,11 +144,8 @@ public sealed class FileSaveStoreTests
         {
             Assert.IsFalse(files.Store.TryWrite(id, "修改后的存档", out var status));
             Assert.AreEqual(SaveStoreStatus.WriteFailed, status);
-            if (OperatingSystem.IsWindows())
-            {
-                // 同一个独占句柄同时阻止候选写入和失败后的删除。
-                Assert.IsTrue(File.Exists(files.CandidateFor(id)));
-            }
+            // 同一个独占句柄同时阻止候选写入和失败后的删除。
+            Assert.IsTrue(File.Exists(files.CandidateFor(id)));
         }
 
         CollectionAssert.AreEqual(before, File.ReadAllBytes(files.Store.PathFor(id)));

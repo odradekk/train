@@ -8,8 +8,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationCheckpointTests
 {
     private const string CheckpointText = "{\"checkpoint_format_version\":1,\"objects\":[{\"kind\":\"fixture.entity\",\"id\":10,\"fields\":{\"holding\":3}},{\"kind\":\"fixture.entity\",\"id\":20,\"fields\":{\"holding\":null}},{\"kind\":\"fixture.resources\",\"id\":0,\"fields\":{\"demands\":[{\"allow_partial\":true,\"amount\":3,\"entity_id\":10,\"priority\":0,\"request_id\":1},{\"allow_partial\":false,\"amount\":4,\"entity_id\":20,\"priority\":2,\"request_id\":1}],\"stock\":9}},{\"kind\":\"simulation\",\"id\":0,\"fields\":{\"boundary_sequence\":2,\"completed_steps\":4,\"fault\":null,\"generator_version\":\"test-generator-v1\",\"next_command_id\":3,\"next_entity_id\":21,\"transaction_count\":6,\"world_seed\":42}}]}";
@@ -58,7 +56,7 @@ public sealed class SimulationCheckpointTests
         Assert.AreEqual(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(expected))), point.Sha256);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("{\"checkpoint_format_version\":2,\"objects\":[]}", "unsupported_checkpoint_format", "/checkpoint_format_version")]
     [DataRow("{\"checkpoint_format_version\":1,\"objects\":[],\"extra\":0}", "unknown_field", "/extra")]
     [DataRow("{\"checkpoint_format_version\":1}", "missing_field", "/objects")]
@@ -173,7 +171,7 @@ public sealed class SimulationCheckpointTests
         Assert.AreEqual(CheckpointText, difference.LeftValue); Assert.IsNull(difference.RightValue);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("source", "source_mismatch", "/identity/source_sha256")]
     [DataRow("build", "build_mismatch", "/identity/build_sha256")]
     [DataRow("content", "semantic_content_mismatch", "/identity/semantic_content_sha256")]
@@ -197,7 +195,7 @@ public sealed class SimulationCheckpointTests
 
     private static CheckpointDifference Different(CheckpointComparison value) => ((CheckpointComparison.Different)value).Difference;
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow("")]
     [DataRow("not-a-runtime")]
     public void Matching_invalid_runtime_identity_is_not_evidence_of_equality(string runtime)

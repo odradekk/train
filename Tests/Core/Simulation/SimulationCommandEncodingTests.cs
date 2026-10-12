@@ -8,8 +8,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationCommandEncodingTests
 {
     private readonly ResourceCommandCodec _codec = new();
@@ -23,7 +21,7 @@ public sealed class SimulationCommandEncodingTests
         yield return [new InvalidCandidateCommand(), "{\"input_format_version\":2,\"kind\":\"fixture.invalid_candidate\"}", "5C03F55CDCD32A9707274436B69979806112CF56EC66A6DED19861E810BA1455"];
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(CanonicalCommands), DynamicDataSourceType.Method)]
     public void Each_resource_kind_has_a_fixed_canonical_text_and_payload_hash(
         CoreCommand command, string expectedText, string expectedSha256)
@@ -88,7 +86,7 @@ public sealed class SimulationCommandEncodingTests
         yield return ["{\"input_format_version\":2,\"kind\":\"\\uD800\"}", DeterminismErrorKind.InvalidData, "/kind"];
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(InvalidEnvelopes), DynamicDataSourceType.Method)]
     public void Missing_malformed_or_wrongly_typed_envelopes_return_stable_errors(
         string json, DeterminismErrorKind expectedKind, string expectedPath)
@@ -112,7 +110,7 @@ public sealed class SimulationCommandEncodingTests
         yield return ["{\"input_format_version\":2,\"kind\":\"fixture.encoding_probe\",\"signed\":1,\"ratio\":1.5,\"label\":\"x\",\"enabled\":true,\"entity_ids\":[0],\"route\":[2]}", "/entity_ids/0"];
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(InvalidDocuments), DynamicDataSourceType.Method)]
     public void Known_format_field_type_and_range_errors_are_invalid_data(string json, string expectedPath)
     {

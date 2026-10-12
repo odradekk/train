@@ -7,8 +7,6 @@ using Train.Godot.Tests.Logging;
 namespace Train.Godot.Tests.Console;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:console")]
 public sealed class ConsoleCommandParseTests
 {
     [TestMethod]
@@ -32,13 +30,12 @@ public sealed class ConsoleCommandParseTests
         Assert.IsTrue(ParsedConsoleCommand.Parse("").IsEmpty);
         Assert.IsTrue(ParsedConsoleCommand.Parse(" \t ").IsEmpty);
         Assert.AreEqual("", ParsedConsoleCommand.Parse("").Name);
-        Assert.ThrowsException<ArgumentNullException>(() => ParsedConsoleCommand.Parse(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => ParsedConsoleCommand.Parse(null!));
     }
 }
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:console")]
+[TestCategory("integration")]
 public sealed class ConsoleCommandDispatchTests
 {
     [TestMethod]
@@ -223,7 +220,7 @@ public sealed class ConsoleCommandDispatchTests
     public void Execute_rejects_null()
     {
         using var harness = DispatchHarness.Create();
-        Assert.ThrowsException<ArgumentNullException>(() => harness.Dispatcher.Execute(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => harness.Dispatcher.Execute(null!));
     }
 
     private static void TryDeleteDirectory(string path)

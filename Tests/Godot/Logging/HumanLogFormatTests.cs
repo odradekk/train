@@ -6,8 +6,6 @@ using Train.App.Logging;
 namespace Train.Godot.Tests.Logging;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:logging")]
 public sealed class HumanLogFormatTests
 {
     [TestMethod]

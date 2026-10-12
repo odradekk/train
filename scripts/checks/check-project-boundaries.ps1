@@ -1,6 +1,7 @@
 param(
     [ValidateSet('Debug', 'Release')][string] $Configuration = 'Debug',
-    [string] $OutputDirectory = ''
+    [string] $OutputDirectory = '',
+    [switch] $NoSolutionBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,7 +45,8 @@ try {
             Add-Failure "unregistered project: $path"
         }
     }
-    $builds = @('Train.sln') + @($projects.Values | Where-Object { $_ -like 'prototypes/*' })
+    $builds = @($projects.Values | Where-Object { $_ -like 'prototypes/*' })
+    if (-not $NoSolutionBuild) { $builds = @('Train.sln') + $builds }
     foreach ($build in $builds) {
         $log = Join-Path $OutputDirectory ((Split-Path -Leaf $build) + '.build.log')
         & dotnet build $build -c $Configuration --nologo *> $log

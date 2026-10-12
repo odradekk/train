@@ -5,8 +5,6 @@ using Train.App.Logging;
 namespace Train.Godot.Tests.Logging;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:logging")]
 public sealed class RingBufferLogSinkTests
 {
     [TestMethod]
@@ -62,7 +60,7 @@ public sealed class RingBufferLogSinkTests
     public void Emit_rejects_null()
     {
         var buffer = new RingBufferLogSink();
-        Assert.ThrowsException<ArgumentNullException>(() => buffer.Emit(null!));
+        Assert.ThrowsExactly<ArgumentNullException>(() => buffer.Emit(null!));
     }
 
     private static LogEvent Event(string eventId) =>

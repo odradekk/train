@@ -8,8 +8,6 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationCommandLogTests
 {
     private const string PayloadText = "{\"input_format_version\":2,\"kind\":\"fixture.no_change\"}";
@@ -40,7 +38,7 @@ public sealed class SimulationCommandLogTests
         ];
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DynamicData(nameof(OutcomeRecords), DynamicDataSourceType.Method)]
     public void Each_outcome_has_a_fixed_record_text_and_first_chain_hash(
         CommandExecution execution, string expectedText, string expectedChain)
@@ -121,8 +119,6 @@ public sealed class SimulationCommandLogTests
 }
 
 [TestClass]
-[TestCategory("family:headless")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationSessionLoggingTests
 {
     [TestMethod]
@@ -193,7 +189,7 @@ public sealed class SimulationSessionLoggingTests
         };
         var session = new SimulationSession(before, calculations, new ResourceCommandCodec());
 
-        Assert.ThrowsException<ArgumentException>(() =>
+        Assert.ThrowsExactly<ArgumentException>(() =>
             session.Submit(new UnsupportedCommand(), CommandSource.Ui));
 
         Assert.AreEqual(before, session.GetState());

@@ -1550,6 +1550,7 @@ function Add-ExternalCases {
 function Test-MSTestProject {
     param([string] $Path)
     [xml] $projectXml = Get-Content -LiteralPath $Path -Raw
+    if ([string] $projectXml.Project.Sdk -eq 'MSTest.Sdk') { return $true }
     foreach ($package in @($projectXml.SelectNodes('/Project/ItemGroup/PackageReference'))) {
         if ([string] $package.Include -in @('MSTest', 'MSTest.TestAdapter')) { return $true }
     }
@@ -2324,14 +2325,13 @@ function Invoke-Main {
                 }
                 $trxName = "results-$batchIndex.trx"
                 $testArgs = @(
-                    "test", $batchCases[0].Project,
+                    "test", "--project", $batchCases[0].Project,
                     "-c", $parsed.Configuration,
                     "--no-build",
                     "--no-restore",
-                    "--nologo",
                     "--filter", [string] $batch.Filter,
                     "--results-directory", $groupDir,
-                    "--logger", "trx;LogFileName=$trxName"
+                    "--report-trx", "--report-trx-filename", $trxName
                 )
                 $fileName = $dotnet
                 $argumentList = $testArgs

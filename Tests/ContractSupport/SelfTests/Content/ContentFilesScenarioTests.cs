@@ -7,8 +7,6 @@ using Train.Content.ContractSupport;
 namespace Train.ContractSupport.Tests.Content;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content-contract-support")]
 public sealed class ContentFilesScenarioTests
 {
     private static readonly ContentPath Path = new(new ContentRoot("fixture"), "asset.bin");
@@ -38,7 +36,7 @@ public sealed class ContentFilesScenarioTests
         AssertUnconfigured(() => files.Enumerate(Path));
         AssertUnconfigured(() => files.Read(Path, 0));
         AssertUnconfigured(() => files.Read(OtherPath, 1));
-        var incomplete = Assert.ThrowsException<InvalidOperationException>(() => files.AssertComplete());
+        var incomplete = Assert.ThrowsExactly<InvalidOperationException>(() => files.AssertComplete());
         StringAssert.StartsWith(incomplete.Message, "INCOMPLETE:");
         files.Read(Path, 1);
         files.AssertComplete();
@@ -48,7 +46,7 @@ public sealed class ContentFilesScenarioTests
     [TestMethod]
     public void ScriptRejectsSuccessLargerThanConfiguredLimit()
     {
-        Assert.ThrowsException<ArgumentException>(() => new ScriptedContentFiles(
+        Assert.ThrowsExactly<ArgumentException>(() => new ScriptedContentFiles(
             new ScriptedContentFiles.ReadCall(Path, 2,
                 new ContentIoResult<ImmutableArray<byte>>.Success(Bytes))));
     }
@@ -56,7 +54,7 @@ public sealed class ContentFilesScenarioTests
     [TestMethod]
     public void ScenarioRejectsTruncatedSuccessForAnOverLimitRead()
     {
-        Assert.ThrowsException<AssertFailedException>(() =>
+        Assert.ThrowsExactly<AssertFailedException>(() =>
             ContentFilesScenario.AssertFixedReadAndLimit(new ViolatingContentFiles(false),
                 Path, Bytes, OtherPath, OtherBytes));
     }
@@ -64,14 +62,14 @@ public sealed class ContentFilesScenarioTests
     [TestMethod]
     public void ScenarioRejectsReusedReadBuffer()
     {
-        Assert.ThrowsException<AssertFailedException>(() =>
+        Assert.ThrowsExactly<AssertFailedException>(() =>
             ContentFilesScenario.AssertFixedReadAndLimit(new ViolatingContentFiles(true),
                 Path, Bytes, OtherPath, OtherBytes));
     }
 
     private static void AssertUnconfigured(Action operation)
     {
-        var error = Assert.ThrowsException<InvalidOperationException>(operation);
+        var error = Assert.ThrowsExactly<InvalidOperationException>(operation);
         StringAssert.StartsWith(error.Message, "UNCONFIGURED:");
     }
 

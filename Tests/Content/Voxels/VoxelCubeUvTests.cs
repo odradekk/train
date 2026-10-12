@@ -5,9 +5,6 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Train.Content.Tests.Voxels;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:voxels")]
-[TestCategory("scope:content")]
 public sealed class VoxelCubeUvTests
 {
     [TestMethod]

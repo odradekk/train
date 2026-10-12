@@ -6,13 +6,11 @@ using Train.Core.Simulation;
 namespace Train.Core.Tests.Simulation;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:simulation")]
 public sealed class SimulationDriverTests
 {
     private const double Budget = 0.005;
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1, 2UL)]
     [DataRow(2, 4UL)]
     [DataRow(4, 8UL)]
@@ -122,7 +120,7 @@ public sealed class SimulationDriverTests
         Assert.AreEqual(5UL, driver.GetStatus().State.CompletedSteps);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(1)]
     [DataRow(2)]
     [DataRow(4)]
@@ -168,7 +166,7 @@ public sealed class SimulationDriverTests
     {
         var clock = new TestClock();
         var driver = Create(clock, TimedSteps(clock, 0.006));
-        Assert.ThrowsException<InvalidOperationException>(() => driver.Step(1));
+        Assert.ThrowsExactly<InvalidOperationException>(() => driver.Step(1));
         Assert.IsFalse(driver.GetStatus().IsPaused);
         clock.Seconds = 2.5 / 60;
         driver.AdvanceFrame(2.5 / 60, Budget);
@@ -249,7 +247,7 @@ public sealed class SimulationDriverTests
         Assert.AreEqual(state, driver.GetStatus().State);
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0.0)]
     [DataRow(-1.0)]
     [DataRow(double.NaN)]
@@ -258,11 +256,11 @@ public sealed class SimulationDriverTests
     {
         var driver = Create(new TestClock());
         var before = driver.GetStatus();
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => driver.AdvanceFrame(1, budget));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => driver.AdvanceFrame(1, budget));
         Assert.AreEqual(before, driver.GetStatus());
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0.0)]
     [DataRow(-1.0)]
     [DataRow(double.NaN)]
@@ -277,7 +275,7 @@ public sealed class SimulationDriverTests
         Assert.AreEqual(before, driver.GetStatus());
     }
 
-    [DataTestMethod]
+    [TestMethod]
     [DataRow(0.0)]
     [DataRow(-1.0)]
     [DataRow(double.NaN)]
@@ -305,7 +303,7 @@ public sealed class SimulationDriverTests
     {
         var driver = Create(new TestClock());
         var before = driver.GetStatus();
-        Assert.ThrowsException<ArgumentOutOfRangeException>(() => driver.SetSpeed((SimulationSpeed)3));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => driver.SetSpeed((SimulationSpeed)3));
         Assert.AreEqual(before, driver.GetStatus());
     }
 

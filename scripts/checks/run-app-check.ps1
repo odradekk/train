@@ -14,6 +14,50 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 . (Join-Path $PSScriptRoot "Invoke-HiddenProcess.ps1")
 
+function New-ContentCheckInput {
+    param([string] $CaseDirectory)
+    $contentRoot = Join-Path $CaseDirectory "content-input"
+    $sourceResources = Join-Path $root "builtin/core/resources"
+    foreach ($state in @("initial", "added")) {
+        $resources = Join-Path $contentRoot $state
+        $voxels = Join-Path $resources "voxels"
+        $images = Join-Path $voxels "grain"
+        New-Item -ItemType Directory -Force -Path $images | Out-Null
+        Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain.voxels.json") -Destination $voxels
+        Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain/placeholder.png") -Destination $images
+        $sensitivity = if ($state -eq "added") { 0.75 } else { 0.5 }
+        $capacity = if ($state -eq "added") { 3 } else { 2 }
+        $market = [ordered]@{
+            schema_version = 1
+            market_tables = @([ordered]@{
+                id = "smoke-prices"
+                goods = @([ordered]@{ definition = "core:grain"; sensitivity = $sensitivity; min_price = 1; max_price = 1000 })
+            })
+        }
+        $settlement = [ordered]@{
+            schema_version = 1
+            settlement_types = @([ordered]@{
+                id = "smoke-settlement"; name = "Smoke settlement"
+                supply = @([ordered]@{ definition = "core:grain"; capacity = $capacity; restore_per_tick = 1 })
+                demand = @(); preferred_terrain = @(); weight = 1
+                population_min = 1; population_max = 1; initial_platform_count = 0
+            })
+        }
+        foreach ($directory in @("markets", "settlement-types")) {
+            New-Item -ItemType Directory -Force -Path (Join-Path $resources $directory) | Out-Null
+        }
+        [System.IO.File]::WriteAllText((Join-Path $resources "markets/smoke.market-tables.json"), ($market | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+        [System.IO.File]::WriteAllText((Join-Path $resources "settlement-types/smoke.settlement-types.json"), ($settlement | ConvertTo-Json -Depth 10), [System.Text.UTF8Encoding]::new($false))
+    }
+    $sourceDefinition = Join-Path $sourceResources "voxels/grain.voxels.json"
+    $probe = [System.IO.File]::ReadAllText($sourceDefinition) | ConvertFrom-Json
+    $probe.voxels[0].id = "smoke-ore"
+    $probe.voxels[0].name = "Smoke Ore"
+    $smokeDefinition = $probe | ConvertTo-Json -Depth 10
+    [System.IO.File]::WriteAllText((Join-Path $contentRoot "added/voxels/smoke-ore.voxels.json"), $smokeDefinition, [System.Text.UTF8Encoding]::new($false))
+    return $contentRoot
+}
+
 $output = [System.IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $userData = Join-Path $output "user-data"
@@ -49,12 +93,7 @@ else {
 # Windows 上 Godot 的默认 user:// 路径不会随 APPDATA 覆盖改变；原生日志也要显式定向。
 $arguments += @("--log-file", (Join-Path $output "godot.log"), "--", "--check=$Check", "--check-user-data=$userData")
 if ($Check -eq "content") {
-    $contentRoot = Join-Path $output "content-input"
-    if (-not (Test-Path -LiteralPath (Join-Path $contentRoot "initial") -PathType Container) -or
-        -not (Test-Path -LiteralPath (Join-Path $contentRoot "added") -PathType Container)) {
-        [Console]::Error.WriteLine("App check blocked: content input is incomplete: $contentRoot")
-        exit 2
-    }
+    $contentRoot = New-ContentCheckInput -CaseDirectory $output
     $arguments += "--check-content-root=$contentRoot"
 }
 

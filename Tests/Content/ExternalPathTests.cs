@@ -1,13 +1,11 @@
 
-using System.Diagnostics;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 
 namespace Train.Content.Tests;
 
 [TestClass]
-[TestCategory("family:unit")]
-[TestCategory("scope:content")]
+[TestCategory("integration")]
 public sealed class ExternalPathTests
 {
     [TestMethod]
@@ -105,8 +103,8 @@ public sealed class ExternalPathTests
         File.WriteAllText(Path.Combine(resources, "safe.voxels.json"), ContentFixtures.GoodsFile());
         File.WriteAllText(Path.Combine(target, "hidden.voxels.json"), ContentFixtures.GoodsFile());
 
-        var junction = Path.Combine(resources, "escaped");
-        if (!TryCreateDirectoryLink(junction, target))
+        var link = Path.Combine(resources, "escaped");
+        if (!TryCreateDirectoryLink(link, target))
         {
             TryDelete(root);
             Assert.Inconclusive("Could not create a directory link in this environment.");
@@ -115,8 +113,8 @@ public sealed class ExternalPathTests
 
         try
         {
-            Assert.IsTrue(ExternalPath.IsReparsePoint(junction));
-            Assert.IsTrue(ExternalPath.IsUnsafe(resources, Path.Combine(junction, "hidden.voxels.json")));
+            Assert.IsTrue(ExternalPath.IsReparsePoint(link));
+            Assert.IsTrue(ExternalPath.IsUnsafe(resources, Path.Combine(link, "hidden.voxels.json")));
 
             var discovery = ExternalContent.ListDefinitionFiles(resources);
             Assert.IsTrue(discovery.Invalid);
@@ -187,9 +185,9 @@ public sealed class ExternalPathTests
     {
         var trusted = Path.Combine(Path.GetTempPath(), "train-trusted-" + Guid.NewGuid().ToString("N"));
         var real = Path.Combine(trusted, "real");
-        var junction = Path.Combine(trusted, "linked-parent");
+        var link = Path.Combine(trusted, "linked-parent");
         Directory.CreateDirectory(real);
-        if (!TryCreateDirectoryLink(junction, real))
+        if (!TryCreateDirectoryLink(link, real))
         {
             Assert.IsFalse(ExternalPath.TryValidateTrustedChain(trusted, Path.Combine(trusted, "..", "outside", "mods"), out var escaped));
             Assert.IsFalse(string.IsNullOrEmpty(escaped));
@@ -198,11 +196,11 @@ public sealed class ExternalPathTests
             return;
         }
 
-        var mods = Path.Combine(junction, "mods");
+        var mods = Path.Combine(link, "mods");
         Directory.CreateDirectory(mods);
         try
         {
-            Assert.IsTrue(ExternalPath.IsReparsePoint(junction));
+            Assert.IsTrue(ExternalPath.IsReparsePoint(link));
             Assert.IsFalse(ExternalPath.IsReparsePoint(mods));
             Assert.IsFalse(ExternalPath.TryValidateTrustedChain(trusted, mods, out var error));
             Assert.IsFalse(string.IsNullOrEmpty(error));
@@ -222,24 +220,7 @@ public sealed class ExternalPathTests
     {
         try
         {
-            if (!OperatingSystem.IsWindows())
-            {
-                Directory.CreateSymbolicLink(link, target);
-                return Directory.Exists(link) && ExternalPath.IsReparsePoint(link);
-            }
-
-            using var process = Process.Start(new ProcessStartInfo
-            {
-                FileName = "cmd.exe",
-                Arguments = $"/c mklink /J \"{link}\" \"{target}\"",
-                CreateNoWindow = true,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            });
-            if (process is null)
-                return false;
-            process.WaitForExit(5000);
+            Directory.CreateSymbolicLink(link, target);
             return Directory.Exists(link) && ExternalPath.IsReparsePoint(link);
         }
         catch
