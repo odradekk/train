@@ -2,7 +2,7 @@ The working language is Chinese.
 
 ## Current phase: core gameplay development
 
-Current version: `0.0.55`.
+Current version: `0.0.56`.
 
 - Develop with agile, playable slices: choose the smallest end-to-end change that answers the current gameplay question.
 - Work in short iterations and validate each slice before expanding scope.
