@@ -21,13 +21,13 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 
 快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例。无 `-Project` 的集成层还检查项目边界、契约公开面、调用样例和内容示例 Schema。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
-引擎层经 `scripts/checks/run-app-check.ps1` 执行 logging、content、main-menu 和 simulation-host 四项当前 App 检查，需要 `GODOT`。显式导出选择另外运行 content-export、mods-export，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
+引擎层经 `scripts/checks/run-app-check.ps1` 执行 logging、content、main-menu 和 simulation-host 四项当前 App 检查，需要 `GODOT`。[#405](https://github.com/odradekk/train/issues/405)将改用引擎内运行器，命令行保持不变。显式导出选择另外运行 content-export、mods-export，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
 ## 执行与边界
 
 入口构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。项目边界检查跳过重复解决方案构建，仍构建不在解决方案中的调用样例和检查工具。Core/Content 的隔离重建已暂停，由 [#406](https://github.com/odradekk/train/issues/406)恢复；当前通过不证明隔离构建。
 
-各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒；增量构建加快速层须在 30 秒内完成。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一层内选中的 MSTest 项目并行运行，每个项目保留各自的最低用例数、TRX、超时和挂起转储；其他检查串行执行。同一工作树不允许并发运行入口。
+各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一层内选中的 MSTest 项目并行运行，每个项目保留各自的最低用例数、TRX、超时和挂起转储；其他检查串行执行。同一工作树不允许并发运行入口。
 
 content 检查自己在输出目录准备 `content-input/initial`、`content-input/added`，复制粮食体素和共用图片，生成市场表、聚居地类型及新增 `smoke-ore` 探针，验证同一重载器的新增与移除。导出过滤包含内容 JSON 与 PNG；PNG 使用 `importer=keep` 保留原始字节。通过必须同时满足退出码 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
 

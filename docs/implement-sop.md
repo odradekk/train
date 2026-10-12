@@ -109,7 +109,7 @@ If the impact is uncertain or a failure points beyond the selected scope, expand
 
 ### Test entry and CI
 
-Run tests through `scripts/test.ps1`; selection and result rules are in [run-tests.md](run-tests.md). Use the fast layer for daily feedback and `-Layer fast,integration` before delivery and in routine [Windows CI](ci.md). Godot-related changes also require `-Layer engine` before delivery. Explicit correctness regression uses `-Layer all`, which excludes export; Windows export checks use `-Layer engine -ExportWindows`. `-Project` selects only MSTest projects, excluding repository-wide structure, Schema and engine checks. Mark real I/O and subprocess tests as `integration`; other MSTest cases belong to fast. Execution budgets are 30, 180 and 300 seconds for fast, integration and engine respectively; incremental build plus fast must complete within 30 seconds. Module isolation rebuilds are suspended and will be restored by [#406](https://github.com/odradekk/train/issues/406); current passes do not prove isolation. CI proves only its selected checks. Obtain required local Godot, manual and target-hardware evidence separately; shared CI runners are not performance baselines.
+Use the fast layer for daily feedback and `-Layer fast,integration` before delivery and in routine [Windows CI](ci.md). Godot-related changes also require `-Layer engine` before delivery. Explicit correctness regression uses `-Layer all`; Windows export and runtime validation uses `-Layer engine -ExportWindows`. Selection, execution limits and result rules are in the [unified test entry](run-tests.md).
 
 ### Write tests that can detect defects
 
@@ -137,7 +137,7 @@ An exception for a demonstrated unrelated baseline fault or environment limitati
 
 ### Execution cost and Benchmark gate
 
-Measure test-group durations against the layer budgets above; do not silently relax them. Prefer related quick tests for daily work; in slow cases, investigate repeated setup, oversized inputs and ineffective waits, then group them by actual responsibility. Preserve necessary assertions and real boundaries; extending a timeout must not hide a hang. Reorganize existing tests incrementally, starting with cases that obstruct development, rather than rewriting the whole suite at once.
+Measure test-group durations against the [test entry's execution limits](run-tests.md#执行与边界); do not silently relax them. Prefer related quick tests for daily work; in slow cases, investigate repeated setup, oversized inputs and ineffective waits, then group them by actual responsibility. Preserve necessary assertions and real boundaries; extending a timeout must not hide a hang. Reorganize existing tests incrementally, starting with cases that obstruct development, rather than rewriting the whole suite at once.
 
 Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Fast- or integration-layer wall time or engine throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
 

@@ -1,6 +1,6 @@
 # Windows CI
 
-四模块契约验证的目标增量见[CI 与交付时机](contracts/testing.md#ci-与交付时机)。以下描述工作流的实际选择；各次结构与隔离检查结果以统一入口的摘要为准。
+四模块契约验证的目标增量见[CI 与交付时机](contracts/testing.md#ci-与交付时机)。以下描述工作流的实际选择；各次结构检查结果以统一入口的摘要为准。
 
 `.github/workflows/windows-checks.yml` 在发往 `master` 的 PR 创建、更新和重新打开时运行固定轻量集合：
 
@@ -11,8 +11,6 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 入口构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行 Core、Content、Godot 宿主和 ContractSupport 四个 MSTest 项目的快速与集成用例，并检查结构、公开面、调用样例和内容示例 Schema。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建已暂停，由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
-
-旧入口常规 CI 总用时为 5 分 34 秒，作为历史对照；新入口的实际 GitHub job 总用时及比较记录在 [#403 交付评论](https://github.com/odradekk/train/issues/403)，本机运行时间另列。
 
 ## 显式较重运行
 

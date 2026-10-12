@@ -40,7 +40,7 @@ VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test`
 
 ## Windows export and runtime validation
 
-Export requires the project's .NET SDK and matching Godot .NET Windows export templates, on this machine under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. 在 Windows 通过统一入口选择两项导出检查：
+Export requires the project's .NET SDK and matching Godot .NET Windows export templates, on this machine under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. 在 Windows 通过统一入口选择引擎层及两项 Windows 导出运行检查：
 
 ```powershell
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
@@ -48,7 +48,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 
 Use an absolute executable path for Windows runtime checks; the process launcher may fail to resolve a relative path containing forward slashes even after export succeeds. Passing the output path on the command line keeps machine-specific paths out of `export_presets.cfg`. Keep the complete export directory, including the PCK and .NET output, together when running or copying the build.
 
-统一入口将 Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，两项检查共用该文件，运行时各用独立用户目录。通过后导出产物随运行目录内其他证据删除，只保留摘要；失败时保留完整导出目录。导入和 App 检查隔离 Windows 的 APPDATA、LOCALAPPDATA，或非 Windows 的 XDG_CONFIG_HOME、XDG_DATA_HOME、XDG_CACHE_HOME；只有导出步骤保留真实 APPDATA 以访问模板，通过 `--recovery-mode` 跳过编辑器插件，并把 Godot 原生日志定向本次运行目录。Godot 导出仍可能改写真实编辑器设置及 `Godot/mono/build_logs/`，这一步不证明真实 Godot 目录未变化。运行时检查也显式定向原生日志；正常用户目录快照变化时，统一入口返回非零。摘要分别记录导出准备与两个运行时检查的结果。
+Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，两项运行检查共用该文件。产物保留、环境隔离及导出例外见[统一测试入口](run-tests.md)。
 
 需要直接验证已有构建时，通过 `-ExecutablePath` 传入绝对路径：
 
