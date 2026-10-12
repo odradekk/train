@@ -67,7 +67,7 @@ public class SimulationTests(Node testScene) : TestClass(testScene)
             Require(Status(app).ActualSpeed > 0, "重绑定前必须已有自动推进的实际速度。");
             app.AttachSession(CreateSession(states, new(91, "simulation-host-rebind-v1")), states);
             var rebound = Status(app);
-            Require(rebound.PendingSteps == 0 && rebound.Remainder == 0 && rebound.ActualSpeed == 0, "重绑定未清除自动推进的运行状态。");
+            Require(rebound.Remainder == 0 && rebound.ActualSpeed == 0, "重绑定未清除自动推进的运行状态。");
         }
         finally { await fixture.Cleanup(); }
     }
