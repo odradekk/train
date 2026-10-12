@@ -232,7 +232,9 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     if (lookup is ContentLookup<DesignEvaluation>.Missing missing) DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Instance(item.Instance));
                     if (lookup is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Failed failed })
                         DesignGeometry.AddDiagnostics(failed.Diagnostics, problems, new WorldObjectId.Instance(item.Instance));
-                    problems.Add(new("content_missing", SceneStage.Reconcile, new WorldObjectId.Instance(item.Instance), new ContentReference.Design(current.Design), null, null, "Missing object design."));
+                    var reference = new ContentReference.Design(current.Design);
+                    var source = problems.LastOrDefault(problem => problem.Content == reference && problem.Package is not null);
+                    problems.Add(new("content_missing", SceneStage.Reconcile, new WorldObjectId.Instance(item.Instance), reference, source?.Package, source?.Element, "Missing object design."));
                     objects.Add(new(ObjectId("instance:" + item.Instance), null, item.Pose, new WorldObjectId.Instance(item.Instance),
                         [new SceneVisual.Missing(new ContentReference.Design(current.Design), false)], [], []));
                     continue;

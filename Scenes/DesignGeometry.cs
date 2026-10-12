@@ -98,8 +98,8 @@ internal static class DesignGeometry
 
         void AddMissing(ContentReference reference, DesignElementPath element)
         {
-            var source = contentDiagnostics.FirstOrDefault(problem => problem.Subject == reference && problem.Source is not null)?.Source;
-            var package = source?.Package ?? projection.EditLocks.FirstOrDefault(item => item.Element == element)?.Package;
+            var package = diagnostics.FirstOrDefault(problem => problem.Content == reference && problem.Package is not null)?.Package
+                ?? projection.EditLocks.FirstOrDefault(item => item.Reference == reference)?.Package;
             diagnostics.Add(new("content_missing", SceneStage.Build, subject, reference, package, element, "Missing presentation content."));
         }
     }

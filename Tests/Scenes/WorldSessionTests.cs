@@ -274,6 +274,8 @@ public sealed class WorldSessionTests
         var frame = await Ready(session);
         Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == diagnostic.Code &&
             problem.Package == diagnostic.Source!.Package && problem.Element == element));
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" &&
+            problem.Content == diagnostic.Subject && problem.Package == diagnostic.Source!.Package));
         Assert.IsInstanceOfType<ScenePick.Miss>(frame.Pick(Ray));
         Assert.IsTrue(frame.Update.Upserts.SelectMany(item => item.Visuals).OfType<SceneVisual.Missing>().All(marker => !marker.KnownCell));
     }

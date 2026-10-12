@@ -56,6 +56,23 @@ public sealed class PreviewTests
     }
 
     [TestMethod]
+    public void MissingAppearanceLookupKeepsSourceInMarkerDiagnostics()
+    {
+        var reference = new ContentReference.Core(new CoreDefinitionReference.Voxel(SceneFixtures.Voxel));
+        var diagnostic = Diagnostic(reference, "lookup-package") with { Code = "appearance_missing" };
+        var content = new Train.Content.ContractSupport.FixedContentView
+        {
+            Generation = new(1), VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Missing([diagnostic]) }
+        };
+        var evaluation = SceneFixtures.Evaluation(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0))]));
+        using var preview = ((SceneResult<IDesignPreview>.Success)ScenesFactory.Create().PreviewDesign(content, evaluation)).Value;
+        var frame = ((SceneResult<ISceneFrame>.Success)preview.Present()).Value;
+        Assert.IsTrue(frame.Diagnostics.Any(problem => problem.Code == "content_missing" &&
+            problem.Content == reference && problem.Package == diagnostic.Source!.Package));
+    }
+
+    [TestMethod]
     public void FailedEvaluationReturnsInputFailureWithSource()
     {
         var diagnostic = Diagnostic(new ContentReference.Design(SceneFixtures.Design), "broken-package");

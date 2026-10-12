@@ -118,8 +118,10 @@ public sealed class GeometryTests
     public void FogBeforeGeometryReportsNotReadyAndDecorationDoesNotIntercept()
     {
         var rendered = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(4, 0, 0))]));
+        var cube = Meshes(rendered).Single();
+        var inFront = cube.Vertices.Select(vertex => vertex with { Position = vertex.Position - new Vector3(3, 0, 0) }).ToImmutableArray();
         var decorations = Enum.GetValues<BuiltInMaterial>().Select((kind, i) => new SceneObject(new((ulong)(100 + i)), null,
-            SceneFixtures.Identity, null, [new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(kind), [], []), new(false, 0, 0, false))], [], []));
+            SceneFixtures.Identity, null, [new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(kind), inFront, cube.TriangleIndices), new(false, 0, 0, false))], [], []));
         var reference = new ContentReference.Design(new("unknown"));
         var marker = new SceneObject(new(200), null, SceneFixtures.Identity, null, [new SceneVisual.Missing(reference, false)], [], []);
         rendered = rendered with { Objects = rendered.Objects.AddRange(decorations).Add(marker) };
