@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Train.Content.Designs;
 using C = Train.Content.Contracts;
 
 namespace Train.Content.Loading;
@@ -7,16 +8,56 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
 {
     private readonly AssetLoader _assets = new(files, inspector);
     private readonly VoxelParser _parser = new();
+    private readonly BlueprintParser _blueprintParser = new();
 
     internal C.ContentResult<C.IContentCandidate> Load()
     {
         var packages = new PackageLoader(installation, files).Discover();
         var loaded = new List<(LoadPackage Package, LoadedVoxel Voxel)>();
+        var parsedBlueprints = new List<(LoadPackage Package, ParsedBlueprint Blueprint)>();
         foreach (var package in packages)
         {
             PackageLoader.ExcludeDependents(packages);
             if (package.State != C.PackageState.Available) continue;
-            LoadVoxels(package, loaded);
+            LoadDefinitions(package, loaded, parsedBlueprints);
+        }
+        PackageLoader.ExcludeDependents(packages);
+        var assets = _assets.Freeze();
+        var evaluationView = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
+            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), [], assets, []);
+        var blueprints = new List<(LoadPackage Package, C.BlueprintRecord Blueprint)>();
+        foreach (var package in packages)
+        {
+            PackageLoader.ExcludeDependents(packages);
+            if (package.State != C.PackageState.Available) continue;
+            foreach (var (_, blueprint) in parsedBlueprints.Where(item => item.Package == package))
+            {
+                var subject = new C.ContentReference.Blueprint(blueprint.Address);
+                var missing = false;
+                for (var index = 0; index < blueprint.Definition.Layout.Palette.Length; index++)
+                {
+                    var reference = blueprint.Definition.Layout.Palette[index].Voxel;
+                    if (evaluationView.FindVoxel(reference) is not null) continue;
+                    var wrongKind = parsedBlueprints.Any(item => item.Blueprint.Address.Id.Value == reference.Value);
+                    package.Reject(wrongKind ? "reference_wrong_kind" : "reference_missing", blueprint.Path,
+                        $"/layout/palette/{index}/voxel", $"体素引用不可用：{reference.Value}。", subject);
+                    missing = true;
+                }
+                if (missing) continue;
+                var result = DesignEvaluator.Evaluate(evaluationView, blueprint.Definition);
+                if (result is not C.DesignEvaluation.Complete evaluation || !evaluation.IsValid)
+                {
+                    var failures = result is C.DesignEvaluation.Failed failed
+                        ? failed.Diagnostics : ((C.DesignEvaluation.Complete)result).Diagnostics;
+                    foreach (var diagnostic in failures)
+                        package.Reject(diagnostic.Code, blueprint.Path, diagnostic.Field, diagnostic.Message, subject, diagnostic.Element);
+                    continue;
+                }
+                var usedPackages = blueprint.Definition.Layout.Palette.Select(entry => entry.Voxel.Value.Split(':')[0])
+                    .Append(package.Metadata!.Id.Value).Distinct().Order(StringComparer.Ordinal)
+                    .Select(id => packages.Single(p => p.Metadata?.Id.Value == id).Metadata!).ToImmutableArray();
+                blueprints.Add((package, new(blueprint.Address, evaluation.Definition, usedPackages, evaluation)));
+            }
         }
         PackageLoader.ExcludeDependents(packages);
         var diagnostics = packages.SelectMany(package => package.Diagnostics).ToImmutableArray();
@@ -24,11 +65,13 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
             return new C.ContentResult<C.IContentCandidate>.Failure(diagnostics);
         var statuses = packages.Select(package => package.Status).ToImmutableArray();
         var view = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
-            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), statuses, _assets.Freeze());
+            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), statuses, assets,
+            blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray());
         return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(view, new(statuses, [], [], diagnostics)));
     }
 
-    private void LoadVoxels(LoadPackage package, List<(LoadPackage Package, LoadedVoxel Voxel)> loaded)
+    private void LoadDefinitions(LoadPackage package, List<(LoadPackage Package, LoadedVoxel Voxel)> loaded,
+        List<(LoadPackage Package, ParsedBlueprint Blueprint)> blueprints)
     {
         var resources = Enumerate(package, package.Resources);
         foreach (var entry in resources)
@@ -39,13 +82,13 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                 package.Reject("linked_path", path, "", "内容目录包含无效路径或链接。");
                 continue;
             }
-            if (entry.Name is "blueprints" or "processes" or "settlement-types" or "settlement-templates" or "rules" or
+            if (entry.Name is "processes" or "settlement-types" or "settlement-templates" or "rules" or
                 "railway-rules" or "combat-rules" or "lair-types" or "generation-profiles" or "terrain-types" or "markets")
             {
                 package.Reject("unsupported_format", path, "", $"当前尚未实现定义种类 {entry.Name}：{path}。");
                 continue;
             }
-            if (entry.Name != "voxels")
+            if (entry.Name is not ("voxels" or "blueprints"))
             {
                 if (entry.Kind == C.ContentEntryKind.Directory)
                     package.Reject("unsupported_format", path, "", $"未知的定义目录 {entry.Name}：{path}。");
@@ -53,7 +96,7 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
             }
             if (entry.Kind != C.ContentEntryKind.Directory)
             {
-                package.Reject("invalid_field", path, "", "voxels 必须是目录。");
+                package.Reject("invalid_field", path, "", $"{entry.Name} 必须是目录。");
                 continue;
             }
             foreach (var definition in Enumerate(package, path))
@@ -65,9 +108,10 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     continue;
                 }
                 if (definition.Kind != C.ContentEntryKind.File || !definition.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
-                if (!definition.Name.EndsWith(".voxel.json", StringComparison.Ordinal))
+                var suffix = entry.Name == "voxels" ? ".voxel.json" : ".blueprint.json";
+                if (!definition.Name.EndsWith(suffix, StringComparison.Ordinal))
                 {
-                    package.Reject("unsupported_format", file, "", "体素文件必须使用 .voxel.json 后缀。");
+                    package.Reject("unsupported_format", file, "", $"定义文件必须使用 {suffix} 后缀。");
                     continue;
                 }
                 var read = files.Read(new(package.Root, file), ContentLimits.JsonFileMaxBytes);
@@ -76,7 +120,14 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     package.Reject(ContentDocument.IoCode(failure.Kind), file, "", failure.Diagnostic);
                     continue;
                 }
-                var voxel = _parser.Parse(((C.ContentIoResult<ImmutableArray<byte>>.Success)read).Value.ToArray(), package, file);
+                var bytes = ((C.ContentIoResult<ImmutableArray<byte>>.Success)read).Value.ToArray();
+                if (entry.Name == "blueprints")
+                {
+                    var blueprint = _blueprintParser.Parse(bytes, package, file);
+                    if (blueprint is not null) blueprints.Add((package, blueprint));
+                    continue;
+                }
+                var voxel = _parser.Parse(bytes, package, file);
                 if (voxel is null) continue;
                 var resolved = ResolveAppearance(package, voxel);
                 if (resolved is not null) loaded.Add((package, resolved));

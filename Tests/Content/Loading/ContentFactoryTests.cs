@@ -47,7 +47,6 @@ public sealed class ContentFactoryTests
             new(fixture.Installation, new C.ContentLoadPurpose.Restore(null!, null!)), fixture, fixture));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.PrepareLoad(
             new(fixture.Installation with { UserLibrary = new C.ContentRoot("library") }, new C.ContentLoadPurpose.Initial()), fixture, fixture));
-        Assert.ThrowsExactly<NotImplementedException>(() => factory.EvaluateDesign(candidate.View, null!));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.WithSettlementCopies(candidate.View, []));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.CreateWorldInput(candidate.View, new("unused"), 1, "unused"));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.Capture(candidate.View, null!));

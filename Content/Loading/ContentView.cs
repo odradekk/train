@@ -11,17 +11,19 @@ internal sealed class ContentView : C.IContentView
 {
     private readonly FrozenDictionary<K.VoxelDefinitionId, LoadedVoxel> _voxels;
     private readonly FrozenDictionary<C.AssetRevision, C.ContentAsset> _assets;
+    private readonly FrozenDictionary<C.BlueprintAddress, C.BlueprintRecord> _blueprints;
+    private readonly FrozenDictionary<K.DesignHash, C.DesignEvaluation> _designs;
     public C.ContentGeneration Generation => new(1);
     public C.ContentRevision PersistentRevision => new(0);
     public K.CoreContentProjection Core { get; }
     public ImmutableArray<C.PackageStatus> Packages { get; }
     public ImmutableArray<C.VoxelCatalogEntry> Voxels { get; }
-    public ImmutableArray<C.BlueprintSummary> Blueprints => [];
+    public ImmutableArray<C.BlueprintSummary> Blueprints { get; }
     public ImmutableArray<C.SavedContentDraft> LocalDrafts => [];
     public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles => [];
 
     internal ContentView(ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.PackageStatus> packages,
-        ImmutableArray<C.ContentAsset> assets)
+        ImmutableArray<C.ContentAsset> assets, ImmutableArray<C.BlueprintRecord> blueprints)
     {
         _voxels = voxels.ToFrozenDictionary(voxel => voxel.Definition.Definition);
         _assets = assets.ToFrozenDictionary(asset => asset.Revision);
@@ -42,11 +44,25 @@ internal sealed class ContentView : C.IContentView
             writer.WriteEndArray();
             writer.WriteEndObject();
         });
+        var records = blueprints.OrderBy(blueprint => blueprint.Address.Id.Value, StringComparer.Ordinal)
+            .Select(blueprint => blueprint.Evaluation is C.DesignEvaluation.Complete { Core: { } core } complete
+                ? blueprint with { Evaluation = complete with { Core = core with { InputIdentity = new(identity) } } } : blueprint).ToImmutableArray();
+        _blueprints = records.ToFrozenDictionary(blueprint => blueprint.Address);
+        var designs = records.Select(blueprint => (C.DesignEvaluation.Complete)blueprint.Evaluation)
+            .DistinctBy(evaluation => evaluation.Design).OrderBy(evaluation => evaluation.Design.Value, StringComparer.Ordinal).ToImmutableArray();
+        _designs = designs.ToFrozenDictionary(evaluation => evaluation.Design, evaluation => (C.DesignEvaluation)evaluation);
+        Blueprints = records.Select(blueprint => new C.BlueprintSummary(blueprint.Address, blueprint.Definition.Display,
+            ((C.DesignEvaluation.Complete)blueprint.Evaluation).Design,
+            ((C.DesignEvaluation.Complete)blueprint.Evaluation).IsValid,
+            ((C.DesignEvaluation.Complete)blueprint.Evaluation).Diagnostics)).ToImmutableArray();
         Core = new(Identity: new(identity), Goods: voxels.Where(voxel => voxel.Definition.Good is not null)
-            .Select(voxel => voxel.Definition.Good!).ToImmutableArray(), Designs: [], DesignGoods: [], Processes: [],
+            .Select(voxel => voxel.Definition.Good!).ToImmutableArray(), Designs: designs.Where(design => design.Core is not null)
+                .Select(design => design.Core!.Design).ToImmutableArray(), DesignGoods: [], Processes: [],
             PopulationRules: [], MarketRules: [], ConstructionRules: [], RailwayRules: [], CombatRules: [],
             SettlementTypes: [], SettlementTemplates: [], Creatures: [], LairTypes: [], MissingReferences: []);
     }
+
+    internal LoadedVoxel? FindVoxel(K.VoxelDefinitionId definition) => _voxels.GetValueOrDefault(definition);
 
     public C.ContentLookup<C.VoxelAppearanceProjection> FindVoxelAppearance(K.VoxelDefinitionId definition) =>
         _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelAppearanceProjection>.Found(voxel.Appearance) : new C.ContentLookup<C.VoxelAppearanceProjection>.NotFound();
@@ -62,8 +78,10 @@ internal sealed class ContentView : C.IContentView
             : new C.ContentLookup<C.GoodPresentation>.NotFound();
     public C.ContentLookup<C.ContentAsset> FindAsset(C.AssetRevision revision) =>
         _assets.TryGetValue(revision, out var asset) ? new C.ContentLookup<C.ContentAsset>.Found(asset) : new C.ContentLookup<C.ContentAsset>.NotFound();
-    public C.ContentLookup<C.BlueprintRecord> FindBlueprint(C.BlueprintAddress address) => new C.ContentLookup<C.BlueprintRecord>.NotFound();
-    public C.ContentLookup<C.DesignEvaluation> FindDesign(K.DesignHash hash) => new C.ContentLookup<C.DesignEvaluation>.NotFound();
+    public C.ContentLookup<C.BlueprintRecord> FindBlueprint(C.BlueprintAddress address) =>
+        _blueprints.TryGetValue(address, out var blueprint) ? new C.ContentLookup<C.BlueprintRecord>.Found(blueprint) : new C.ContentLookup<C.BlueprintRecord>.NotFound();
+    public C.ContentLookup<C.DesignEvaluation> FindDesign(K.DesignHash hash) =>
+        _designs.TryGetValue(hash, out var design) ? new C.ContentLookup<C.DesignEvaluation>.Found(design) : new C.ContentLookup<C.DesignEvaluation>.NotFound();
     public C.ContentLookup<C.SettlementLayoutProjection> FindSettlementLayout(K.SettlementId settlement) => new C.ContentLookup<C.SettlementLayoutProjection>.NotFound();
     public C.ContentLookup<C.CreatureAppearanceProjection> FindCreature(K.CreatureDefinitionId creature) => new C.ContentLookup<C.CreatureAppearanceProjection>.NotFound();
     public C.ContentLookup<C.LairAppearanceProjection> FindLair(K.LairTypeId lair) => new C.ContentLookup<C.LairAppearanceProjection>.NotFound();
