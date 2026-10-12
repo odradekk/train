@@ -1,4 +1,9 @@
 {
+  "isolationTests": [
+    "Train.Core.Tests",
+    "Train.Content.Tests",
+    "Train.Scenes.Tests"
+  ],
   "projects": {
     "Train.Core.Contracts": {
       "path": "Contracts/Core/Train.Core.Contracts.csproj",
@@ -21,6 +26,9 @@
       "path": "Core/Train.Core.csproj",
       "references": [
         "Train.Core.Contracts"
+      ],
+      "friends": [
+        "Train.Core.Tests"
       ]
     },
     "Train.Content": {
@@ -28,6 +36,9 @@
       "references": [
         "Train.Core.Contracts",
         "Train.Content.Contracts"
+      ],
+      "friends": [
+        "Train.Content.Tests"
       ]
     },
     "Train.Scenes": {
@@ -36,6 +47,9 @@
         "Train.Core.Contracts",
         "Train.Content.Contracts",
         "Train.Scenes.Contracts"
+      ],
+      "friends": [
+        "Train.Scenes.Tests"
       ]
     },
     "Train": {
@@ -47,6 +61,10 @@
         "Train.Core",
         "Train.Content",
         "Train.Scenes"
+      ],
+      "friends": [
+        "Train.Godot.Tests",
+        "Train.Engine.Tests"
       ]
     },
     "Train.Core.ContractSupport": {
@@ -138,6 +156,19 @@
         "Train.Core.Contracts",
         "Train.Content.Contracts",
         "Train.Scenes.Contracts"
+      ]
+    },
+    "Train.ContractChecks": {
+      "path": "Tests/ContractChecks/Train.ContractChecks.csproj",
+      "references": [],
+      "friends": [
+        "Train.ContractChecks.Tests"
+      ]
+    },
+    "Train.ContractChecks.Tests": {
+      "path": "Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj",
+      "references": [
+        "Train.ContractChecks"
       ]
     }
   }
