@@ -130,11 +130,9 @@ public sealed class FileSaveStoreTests
     }
 
     [TestMethod]
+    [OSCondition(OperatingSystems.Windows)]
     public void Locked_candidate_returns_write_failed_even_when_cleanup_cannot_finish()
     {
-        if (!OperatingSystem.IsWindows())
-            Assert.Inconclusive("独占句柄阻止候选清理的行为仅在 Windows 上验证。");
-
         using var files = new SaveFiles();
         var id = Guid.NewGuid();
         Assert.IsTrue(files.Store.TryWrite(id, "原存档", out _));

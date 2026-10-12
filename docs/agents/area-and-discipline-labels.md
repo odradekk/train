@@ -11,25 +11,25 @@ issue 标签分四个维度，每个维度一个前缀，互不重叠：类型�
 
 ## area：系统
 
-取值与测试的 `scope:` 用同一个词；一个 area 可以覆盖多个 scope。
+`area:` 描述 issue 所属系统，不参与测试选择；测试按层和项目选择，见[统一测试入口](../run-tests.md)。
 
-| 标签 | 范围 | 设计文档 | 对应测试 scope |
-| --- | --- | --- | --- |
-| `area:content` | 内容定义、体素定义、蓝图与设计属性、内容加载与重载 | 02 | `content`、`voxels`、`identity`、`composites` |
-| `area:simulation` | 模拟时间、命令、确定性、录制与复现 | 04 | `simulation` |
-| `area:world` | 世界图与世界生成 | 05 | — |
-| `area:railway` | 铁路与列车运行 | 06 | — |
-| `area:trade` | 市场、交易规则、资金、现车买卖与运行报告 | 19 | — |
-| `area:saves` | 存档格式、读档、示例存档 | 09 | `saves` |
-| `area:production` | 资源、开采、库存、生产流程与运行 | 10–13 | — |
-| `area:construction` | 建造、改装、维修与拆解任务 | 14 | — |
-| `area:editor` | 设计编辑器、创作模式与调试模式 | 15 | — |
-| `area:settlements` | 聚居地、人口、劳动力与聚居地服务 | 16 | — |
-| `area:combat` | 战斗、世界生物、聚落袭击与征服 | 17 | — |
-| `area:scenes` | 体素引擎层：区块、网格数据、拾取、线路场景、节点场景、场景切换 | 01 | — |
-| `area:rendering` | Godot 渲染：网格上传、相机、材质 | 07 | — |
-| `area:ui` | 窗口、宏观地图、面板、菜单 | 08 | — |
-| `area:tooling` | 控制台、日志、测试运行器、CI、长测与性能测量、导出脚本 | — | `console`、`logging` |
+| 标签 | 范围 | 设计文档 |
+| --- | --- | --- |
+| `area:content` | 内容定义、体素定义、蓝图与设计属性、内容加载与重载 | 02 |
+| `area:simulation` | 模拟时间、命令、确定性、录制与复现 | 04 |
+| `area:world` | 世界图与世界生成 | 05 |
+| `area:railway` | 铁路与列车运行 | 06 |
+| `area:trade` | 市场、交易规则、资金、现车买卖与运行报告 | 19 |
+| `area:saves` | 存档格式、读档、示例存档 | 09 |
+| `area:production` | 资源、开采、库存、生产流程与运行 | 10–13 |
+| `area:construction` | 建造、改装、维修与拆解任务 | 14 |
+| `area:editor` | 设计编辑器、创作模式与调试模式 | 15 |
+| `area:settlements` | 聚居地、人口、劳动力与聚居地服务 | 16 |
+| `area:combat` | 战斗、世界生物、聚落袭击与征服 | 17 |
+| `area:scenes` | 体素引擎层：区块、网格数据、拾取、线路场景、节点场景、场景切换 | 01 |
+| `area:rendering` | Godot 渲染：网格上传、相机、材质 | 07 |
+| `area:ui` | 窗口、宏观地图、面板、菜单 | 08 |
+| `area:tooling` | 控制台、日志、测试运行器、CI、长测与性能测量、导出脚本 | — |
 
 ## discipline：工种
 

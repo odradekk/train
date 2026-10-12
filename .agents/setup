@@ -223,7 +223,7 @@ Login shells source `~/.config/train-orb/env.sh`. Restore and test without extra
 ```bash
 dotnet --version
 "$GODOT" --headless --version
-pwsh -NoProfile -File scripts/run-tests.ps1 -Correctness
+pwsh -NoProfile -File scripts/test.ps1 -Layer all
 ```
 
 Windows export/runtime validation is not available in this Debian orb.

@@ -80,12 +80,12 @@ This section is the single source of testing policy; inventories, commands and h
 
 ### Responsibilities and real boundaries
 
-| 层或检查 | 验证责任 | 边界 |
+| Layer or check | Responsibility | Boundary |
 | --- | --- | --- |
-| fast | 小规则、计算、有效性与会话契约，提供快速反馈。 | 不依赖真实文件读写或子进程。 |
-| integration | 真实文件读写、跨进程行为；全仓选择还包括结构、公开面及 Schema。 | 只有实际使用真实边界才能声明该边界已验证。 |
-| engine | 当前 App 的真实 Godot 行为。 | 普通 C# 测试不能替代。 |
-| Benchmark | 可重复的性能测量与比较。 | 与正确性测试分开；见下文 Benchmark gate。 |
+| fast | Small rules, calculations, validity and session contracts for quick feedback. | Run in-process without real file I/O or subprocesses; each test completes within 1 second. |
+| integration | Real file I/O and cross-process behavior; repository-wide selection also checks structure, public APIs and Schema. | Use only the current run directory and clean up test-owned files and processes; only an exercised real boundary is verified. |
+| engine | Real Godot behavior of the current App. | Ordinary C# tests cannot replace engine evidence. |
+| Benchmark | Repeatable performance measurement and comparison. | Separate from correctness tests; see the Benchmark gate below. |
 
 Graphical interaction, visual quality, export/platform behavior and target-hardware experience receive supplementary checks when affected or required by a stage gate, not in every quick run. A headless run cannot establish visual quality or real-window responsiveness.
 
@@ -98,9 +98,9 @@ During development, run affected tests for quick feedback. Before delivery, run 
 | Change | Default checks |
 | --- | --- |
 | Documentation only | Review the text and diff; run applicable existing documentation checks. |
-| Local domain behavior | Related unit or session-contract tests. |
-| Commands, content, persistence or simulation | Affected headless integration; cross-process comparison when recovery or determinism is part of the contract. |
-| Scenes, resources, input or presentation | Build, necessary resource import and real Godot checks; manual acceptance when interaction or visual quality changes. |
+| Local domain behavior | Related fast-layer tests. |
+| Commands, content, persistence or simulation | Affected integration-layer checks; cross-process comparison when recovery or determinism is part of the contract. |
+| Scenes, resources, input or presentation | Build, necessary resource import and `-Layer engine`; manual acceptance when interaction or visual quality changes. |
 | Export or platform wiring | Corresponding export and actual target-platform runtime checks. |
 | Broad shared-contract changes, multi-feature integration affecting cross-module behavior, or stage completion | One complete correctness regression at the relevant integration/stage gate. |
 | Performance optimization or a change with a clear complexity, memory or scale risk | Targeted measurements; optimizations require comparable before/after evidence. |
@@ -109,7 +109,7 @@ If the impact is uncertain or a failure points beyond the selected scope, expand
 
 ### Test entry and CI
 
-测试通过 `scripts/test.ps1` 执行，选择与结果规则见 [run-tests.md](run-tests.md)。快速层用于日常反馈；交付前和 [Windows CI](ci.md) 常规运行用 `-Layer fast,integration`，显式正确性回归用 `-Layer all`。`all` 不含导出，Windows 导出检查用 `-Layer engine -ExportWindows`。`-Project` 只选择 MSTest 项目，不包含全仓结构、Schema 或引擎检查。真实 I/O 与子进程测试标记 `integration`，其余 MSTest 属于快速层；快速、集成、引擎测试执行预算分别为 30、180、300 秒。模块隔离重建暂由 #406 恢复，不能由当前通过结果推断。CI 通过只证明所选检查；所需本机 Godot、人工和目标硬件证据另行取得，共享 CI runner 不作为性能基线。
+Run tests through `scripts/test.ps1`; selection and result rules are in [run-tests.md](run-tests.md). Use the fast layer for daily feedback and `-Layer fast,integration` before delivery and in routine [Windows CI](ci.md). Godot-related changes also require `-Layer engine` before delivery. Explicit correctness regression uses `-Layer all`, which excludes export; Windows export checks use `-Layer engine -ExportWindows`. `-Project` selects only MSTest projects, excluding repository-wide structure, Schema and engine checks. Mark real I/O and subprocess tests as `integration`; other MSTest cases belong to fast. Execution budgets are 30, 180 and 300 seconds for fast, integration and engine respectively; incremental build plus fast must complete within 30 seconds. Module isolation rebuilds are suspended and will be restored by [#406](https://github.com/odradekk/train/issues/406); current passes do not prove isolation. CI proves only its selected checks. Obtain required local Godot, manual and target-hardware evidence separately; shared CI runners are not performance baselines.
 
 ### Write tests that can detect defects
 
@@ -137,9 +137,9 @@ An exception for a demonstrated unrelated baseline fault or environment limitati
 
 ### Execution cost and Benchmark gate
 
-Measure test-group durations before setting speed targets. Prefer related quick tests for daily work; in slow cases, investigate repeated setup, oversized inputs and ineffective waits, then group them by actual responsibility. Preserve necessary assertions and real boundaries; extending a timeout must not hide a hang. Reorganize existing tests incrementally, starting with cases that obstruct development, rather than rewriting the whole suite at once.
+Measure test-group durations against the layer budgets above; do not silently relax them. Prefer related quick tests for daily work; in slow cases, investigate repeated setup, oversized inputs and ineffective waits, then group them by actual responsibility. Preserve necessary assertions and real boundaries; extending a timeout must not hide a hang. Reorganize existing tests incrementally, starting with cases that obstruct development, rather than rewriting the whole suite at once.
 
-Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Unit-suite wall time or headless throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
+Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Fast- or integration-layer wall time or engine throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
 
 **Complete when:** the changed risks have sufficient applicable evidence, tests make valid claims about their boundaries, required failures/gaps are resolved or handled through the explicit scope/exception rules, and the reviewed revision's results and reused evidence are distinguishable.
 

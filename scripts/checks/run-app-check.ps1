@@ -97,12 +97,23 @@ if ($Check -eq "content") {
     $arguments += "--check-content-root=$contentRoot"
 }
 
+$environment = @{}
+$paths = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } } else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
+foreach ($name in $paths.Keys) {
+    $environment[$name] = [Environment]::GetEnvironmentVariable($name)
+    $directory = Join-Path $output $paths[$name]
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    [Environment]::SetEnvironmentVariable($name, $directory)
+}
 try {
     $run = Invoke-HiddenProcess -FilePath $program -ArgumentList $arguments -TimeoutSeconds $TimeoutSeconds
 }
 catch {
     [Console]::Error.WriteLine("App check blocked: $Check process could not be completed: $($_.Exception.Message)")
     exit 2
+}
+finally {
+    foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name]) }
 }
 $text = [string] $run.Output
 Write-Host $text

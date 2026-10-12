@@ -17,17 +17,12 @@ public sealed class SimulationProcessTests
     private const string ZeroSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public TestContext TestContext { get; set; } = null!;
-
     [TestMethod]
     [DataRow("steady", "bursty")]
     [DataRow("bursty", "steady")]
     public async Task Independent_processes_match_across_frame_pause_and_speed_schedules(
         string baselineSchedule, string repeatSchedule)
     {
-        if (!OperatingSystem.IsWindows() || RuntimeInformation.ProcessArchitecture != Architecture.X64)
-            Assert.Inconclusive("确定性身份验收仅支持 Windows x64。");
-
         var directory = CreateEvidenceDirectory();
         var baseline = await RunProcess(directory, "baseline", "run", baselineSchedule);
         var repeat = await RunProcess(directory, "repeat", "run", repeatSchedule);
@@ -37,6 +32,7 @@ public sealed class SimulationProcessTests
         AssertCompleteRun(baseline, baselineSchedule);
         AssertCompleteRun(repeat, repeatSchedule);
         AssertTraceComparison(baseline, repeat);
+        Directory.Delete(directory, recursive: true);
     }
 
     [TestMethod]
@@ -71,6 +67,7 @@ public sealed class SimulationProcessTests
             .Where(point => Position(point).CompareTo(new SimulationPosition(1, 3)) >= 0)
             .ToImmutableArray();
         AssertTraceComparison(baseline with { Samples = baselineTail }, resumed with { Samples = resumedTail });
+        Directory.Delete(directory, recursive: true);
     }
 
     private static void AssertCompleteRun(ProcessResult result, string schedule)
@@ -164,8 +161,11 @@ public sealed class SimulationProcessTests
         Assert.AreEqual(
             SimulationProcessDriver.Sha256("fixture.resource/v1;stock,holdings,entity_ids,demands;test-generator-v1"),
             identity.SemanticContentSha256);
-        Assert.AreEqual("windows", identity.OperatingSystem);
-        Assert.AreEqual("x64", identity.Architecture);
+        if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X64)
+        {
+            Assert.AreEqual("windows", identity.OperatingSystem);
+            Assert.AreEqual("x64", identity.Architecture);
+        }
         Assert.IsFalse(string.IsNullOrWhiteSpace(identity.DotNetRuntime));
     }
 
@@ -261,11 +261,9 @@ public sealed class SimulationProcessTests
                ?? throw new AssertFailedException($"无法读取子进程结果：{output}");
     }
 
-    private string CreateEvidenceDirectory()
+    private static string CreateEvidenceDirectory()
     {
-        var resultsDirectory = TestContext.ResultsDirectory
-            ?? throw new InvalidOperationException("测试宿主未提供结果目录。");
-        var path = Path.Combine(resultsDirectory, "simulation-process-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(Path.GetTempPath(), "simulation-process-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
         return path;
     }

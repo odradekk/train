@@ -1,6 +1,6 @@
 # Windows CI
 
-四模块契约验证的目标增量见[CI 与交付时机](contracts/testing.md#ci-与交付时机)。以下描述工作流的实际选择；各次结构与隔离检查结果以统一入口的报告为准。
+四模块契约验证的目标增量见[CI 与交付时机](contracts/testing.md#ci-与交付时机)。以下描述工作流的实际选择；各次结构与隔离检查结果以统一入口的摘要为准。
 
 `.github/workflows/windows-checks.yml` 在发往 `master` 的 PR 创建、更新和重新打开时运行固定轻量集合：
 
@@ -8,7 +8,7 @@
 pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 ```
 
-入口构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行 Core、Content、Godot 宿主和 ContractSupport 四个 MSTest 项目的快速与集成用例，并检查结构、公开面、调用样例和内容示例 Schema。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建暂由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
+入口构建一次 `Train.sln`，使用 Microsoft.Testing.Platform 运行 Core、Content、Godot 宿主和 ContractSupport 四个 MSTest 项目的快速与集成用例，并检查结构、公开面、调用样例和内容示例 Schema。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规运行不启动 Godot；Core/Content 隔离重建已暂停，由 #406 恢复。普通 .NET 宿主用例不提供真实引擎证据。
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
@@ -37,7 +37,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
 ```
 
-`correctness` 运行四个现有 MSTest 项目、结构与公开面、内容示例 Schema 及已登记的非导出 App 真实 Godot 检查。入口复用一次游戏构建和导入并串行运行。两项 Windows 导出运行时检查用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
+`correctness` 运行四个现有 MSTest 项目、结构与公开面、内容示例 Schema 及当前四项非导出 App 真实 Godot 检查。入口复用一次游戏构建和导入并串行运行引擎检查；同层 MSTest 项目并行运行。两项 Windows 导出运行时检查用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 
@@ -53,8 +53,8 @@ GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工�
 
 入口使用唯一 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/`。通过只保留一份 `summary.json`，失败保留 TRX、日志、转储等全部证据。CI 读取该一级运行目录的摘要追加到 job summary，不生成另一份测试摘要。整个 `TestResults/` 上传为 `windows-<selection>-<run_id>-<attempt>`，保留 14 天，重跑使用新的 attempt 名称。`include-hidden-files` 保留验证产物中的隐藏文件。
 
-报告和上传步骤使用 `always()`；失败后仍执行，取消时尽可能收集已产生文件。强制终止 runner 或上传服务不可用时不能保证上传。入口非零状态直接传递给步骤，后续上传成功不会把失败 job 变绿。工具准备失败仍尝试入口，让所选检查报告缺环境；若连 PowerShell 都未准备好，只保留已产生的环境记录与 Actions 原始日志，不宣称执行通过。
+摘要发布和上传步骤使用 `always()`；失败后仍执行，取消时尽可能收集已产生文件。强制终止 runner 或上传服务不可用时不能保证上传。入口非零状态直接传递给步骤，后续上传成功不会把失败 job 变绿。工具准备失败仍尝试入口，让所选检查报告缺环境；若连 PowerShell 都未准备好，只保留已产生的环境记录与 Actions 原始日志，不宣称执行通过。
 
-job 上限为 30 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；当前检查的实际耗时以各次统一入口报告为准。
+job 上限为 30 分钟，为工具下载、构建与检查预留时间，并结束卡住的任务；当前检查的实际耗时以各次统一入口摘要为准。
 
 私有仓库的 Windows 托管运行消耗付费 Actions 分钟，较重路径要求显式请求。测试证据与复用规则见 [Testing standard](implement-sop.md#testing-standard)。

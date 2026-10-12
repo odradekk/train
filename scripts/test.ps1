@@ -33,10 +33,6 @@ if (-not $acquired) { $mutex.Dispose(); throw 'Another test run owns this worktr
 $runs = @(Get-ChildItem $results -Directory | Where-Object Name -match '^(fast|integration|engine)(-(fast|integration|engine))*-\d{8}T\d{9}-[0-9a-f]{7}$' | Sort-Object { ($_.Name -split '-')[-2] } -Descending)
 foreach ($previous in $runs) {
     if (-not (Test-Path (Join-Path $previous.FullName 'summary.json'))) {
-        $owner = $null
-        try { $owner = Get-Content (Join-Path $previous.FullName 'owner.json') -Raw | ConvertFrom-Json } catch { }
-        $process = if ($owner) { Get-Process -Id $owner.pid -ErrorAction SilentlyContinue } else { $null }
-        if ($process -and $process.StartTime.ToUniversalTime().Ticks -eq ([DateTime] $owner.started).ToUniversalTime().Ticks) { throw 'A recorded test run still owns this worktree.' }
         Remove-Item -LiteralPath $previous.FullName -Recurse -Force
     }
 }
@@ -44,7 +40,6 @@ $completed = @($runs | Where-Object { Test-Path (Join-Path $_.FullName 'summary.
 foreach ($previous in ($completed | Select-Object -Skip 9)) { Remove-Item -LiteralPath $previous.FullName -Recurse -Force }
 $run = Join-Path $results (($layers -join '-') + '-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfff') + '-' + $commit.Substring(0, 7))
 New-Item -ItemType Directory -Path (Join-Path $run 'tmp') -Force | Out-Null
-@{ pid = $PID; started = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('O') } | ConvertTo-Json | Set-Content (Join-Path $run 'owner.json')
 $environment = @{}
 foreach ($name in @('TEMP', 'TMP', 'TMPDIR')) { $environment[$name] = [Environment]::GetEnvironmentVariable($name); [Environment]::SetEnvironmentVariable($name, (Join-Path $run 'tmp')) }
 # 编译器和 MSBuild 节点复用会沿用旧进程的 TEMP，使副产物泄漏到上次运行。
@@ -54,7 +49,7 @@ $userRoot = if ($IsWindows) { Join-Path ([Environment]::GetFolderPath('Applicati
 function Get-Snapshot([string] $Path, [switch] $Workspace) {
     if (-not (Test-Path -LiteralPath $Path)) { return @() }
     @(Get-ChildItem -LiteralPath $Path -Recurse -File -Force | Where-Object {
-        -not $Workspace -or ($_.FullName -notlike "$run/*" -and -not $_.FullName.StartsWith($run + [IO.Path]::DirectorySeparatorChar) -and
+        -not $Workspace -or (-not $_.FullName.StartsWith($run + [IO.Path]::DirectorySeparatorChar) -and
             [IO.Path]::GetRelativePath($root, $_.FullName) -notmatch '(^|[\\/])(bin|obj|\.godot|\.git)([\\/]|$)')
     } | ForEach-Object { if ($Workspace) { $_.FullName } else { "$($_.FullName)|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)" } } | Sort-Object)
 }
@@ -63,9 +58,7 @@ $workspaceBefore = [Collections.Generic.HashSet[string]]::new([string[]] @(Get-S
 $userBefore = @(Get-Snapshot $userRoot) -join "`n"
 $pwsh = (Get-Process -Id $PID).Path
 $started = [Diagnostics.Stopwatch]::StartNew()
-function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, [int] $Seconds) {
-    if ($Seconds -lt 1) { throw "$Group exhausted its time budget." }
-    $result = Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds
+function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
     Write-Host $result.Output
     $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
@@ -85,33 +78,61 @@ function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [strin
     $summary.checks += [pscustomobject] $check
     if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut)); evidence: $run" }
 }
+function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, [int] $Seconds) {
+    if ($Seconds -lt 1) { throw "$Group exhausted its time budget." }
+    Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
+}
 try {
-    Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 120
+    Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     foreach ($current in $layers) {
         $budget = @{ fast = 30; integration = 180; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         try {
             if ($current -ne 'engine') {
-                foreach ($item in $projects) {
-                    $minimum = $item[$current]
-                    if (-not $minimum) { continue }
-                    $remaining = [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)
+                $deadline = [DateTime]::UtcNow.AddSeconds($budget)
+                $helper = Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1'
+                $results = @($projects | ForEach-Object -Parallel {
+                    . $using:helper
+                    $current = $using:current
+                    $minimum = $_[$current]
+                    $remaining = [int] [Math]::Floor(($using:deadline - [DateTime]::UtcNow).TotalSeconds)
+                    if ($remaining -lt 1) { throw "$current exhausted its time budget." }
                     $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
-                    $name = "$current-$($item.name)"
-                    Invoke-Check $name $current dotnet @('test', '--project', $item.path, '--no-build', '--results-directory', $run, '--minimum-expected-tests', "$minimum", '--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$name.trx", '--timeout', "${remaining}s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s") $remaining
+                    $name = "$current-$($_.name)"
+                    $arguments = @('test', '--project', $_.path, '--no-build', '--results-directory', $using:run)
+                    if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
+                    $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$name.trx", '--timeout', "${remaining}s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
+                    if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
+                    [pscustomobject]@{ name = $name; arguments = $arguments; result = (Invoke-HiddenProcess -FilePath dotnet -ArgumentList $arguments -TimeoutSeconds $remaining) }
+                } -ThrottleLimit $projects.Count)
+                $failure = $null
+                foreach ($item in $results) {
+                    try { Add-CheckResult $item.name $current dotnet $item.arguments $item.result }
+                    catch { $failure = $_ }
                 }
+                if ($failure) { throw $failure }
+                if ($results.Count -ne $projects.Count) { throw "$current did not complete every selected project." }
                 if (-not $Project.Count -and $current -eq 'integration') {
                     Invoke-Check contracts $current $pwsh @('-NoProfile', '-File', 'scripts/checks/check-project-boundaries.ps1', '-NoSolutionBuild', '-OutputDirectory', (Join-Path $run 'contracts')) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                     Invoke-Check schema $current $pwsh @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 }
             } else {
                 $watch.Stop()
+                $paths = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } } else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
+                foreach ($name in $paths.Keys) {
+                    $environment[$name] = [Environment]::GetEnvironmentVariable($name)
+                    $directory = Join-Path $run $paths[$name]
+                    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+                    [Environment]::SetEnvironmentVariable($name, $directory)
+                }
                 Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
                 $checks = @('logging', 'content', 'main-menu', 'simulation-host')
                 $binary = Join-Path $run 'exports/windows/train.exe'
                 if ($ExportWindows) {
                     New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
-                    Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120
+                    $env:APPDATA = $environment.APPDATA
+                    try { Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120 }
+                    finally { $env:APPDATA = Join-Path $run $paths.APPDATA }
                     $checks += @('content-export', 'mods-export')
                 }
                 $watch.Start()
@@ -122,7 +143,7 @@ try {
                 }
             }
             if ($watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
-            if (-not @($summary.checks | Where-Object layer -eq $current).Count) { throw "$current selected no tests." }
+            if (-not ($summary.checks | Where-Object layer -eq $current | Measure-Object executed -Sum).Sum) { throw "$current executed no tests." }
         } finally {
             $layerSummary = @{ name = $current; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
