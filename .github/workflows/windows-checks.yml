@@ -1,5 +1,5 @@
 name: Windows checks
-run-name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} · ${{ github.event.pull_request.head.sha || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || inputs.selection == 'nightly') && 'Linux' || 'Windows' }} ${{ github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} · ${{ github.event.pull_request.head.sha || github.sha }}
 
 on:
   schedule:
