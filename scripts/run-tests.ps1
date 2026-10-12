@@ -2529,30 +2529,33 @@ try {
     else { $exitCode = [int] $result }
 }
 catch {
-    $cancelled = Test-CancelRequested
+    $exitCode = Get-ExitCode -Checks $script:RunChecks -PriorExitCode 1 -UserCancel:(Test-CancelRequested)
     [Console]::Error.WriteLine("error: $($_.Exception.Message)")
     if ($_.InvocationInfo.PositionMessage) { [Console]::Error.WriteLine($_.InvocationInfo.PositionMessage) }
     if ($_.ScriptStackTrace) { [Console]::Error.WriteLine($_.ScriptStackTrace) }
     if ($script:OwnedPid) { Stop-OwnedProcessTree -ProcessId $script:OwnedPid | Out-Null }
-    if ($script:RunDirectory -and -not (Test-Path -LiteralPath (Join-Path $script:RunDirectory "summary.json"))) {
+    if ($script:RunDirectory) {
         try {
-            $preparation = New-Map
-            Add-Map $preparation "durationMs" 0 | Out-Null
-            Add-Map $preparation "commandCount" 0 | Out-Null
-            if ($cancelled) {
-                Add-Map $preparation "outcome" "cancelled" | Out-Null
-                Add-Map $preparation "reason" "cancel" | Out-Null
-                Publish-Run -Parsed $script:Parsed -Preparation $preparation -Checks $script:RunChecks -ExitCode 3 -Directory $script:RunDirectory
+            $summaryPath = Join-Path $script:RunDirectory "summary.json"
+            if (Test-Path -LiteralPath $summaryPath) {
+                $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json -AsHashtable
+                $summary.exitCode = $exitCode
+                $summary.preparation.outcome = "failed"
+                $summary.preparation.reason = "runner-error"
+                $markdown = New-Markdown -Summary $summary
+                Write-RunReports -State ([pscustomobject]@{ Directory = $script:RunDirectory; Summary = $summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
             }
             else {
+                $preparation = New-Map
+                Add-Map $preparation "durationMs" 0 | Out-Null
+                Add-Map $preparation "commandCount" 0 | Out-Null
                 Add-Map $preparation "outcome" "failed" | Out-Null
                 Add-Map $preparation "reason" "runner-error" | Out-Null
-                Publish-Run -Parsed $script:Parsed -Preparation $preparation -Checks $script:RunChecks -ExitCode 1 -Directory $script:RunDirectory
+                Publish-Run -Parsed $script:Parsed -Preparation $preparation -Checks $script:RunChecks -ExitCode $exitCode -Directory $script:RunDirectory
             }
         }
         catch { }
     }
-    if ($cancelled) { $exitCode = 3 }
 }
 finally {
     try {

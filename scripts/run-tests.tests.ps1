@@ -3155,6 +3155,32 @@ It "fixture-isolated-cleanup-failure-report" {
     finally { Remove-Item -LiteralPath $foreign -Force }
 }
 
+foreach ($reportState in @('before-report', 'after-report')) {
+    It "fixture-entry-exception-cancel-$reportState" {
+        $source = if ($reportState -eq 'before-report') { $bindingSource.Replace('Assert.AreEqual("BINDING_VALUE", VersionValue);', 'Assert.Fail("fixture check failure");') } else { $bindingSource }
+        $fixture = New-CoreIsolationRepository "entry-exception-$reportState" $sdk $source
+        $fixtureRunner = Join-Path $fixture.Repo 'scripts/run-tests.ps1'
+        $text = [IO.File]::ReadAllText($fixtureRunner)
+        $needle = if ($reportState -eq 'before-report') {
+            '    Publish-Run -Parsed $parsed -Preparation $preparation -Environment $environment -Selection $selection -Checks $checks -Groups $groupReports -ExitCode $exitCode -Directory $runDirectory'
+        } else { '    [Console]::Out.WriteLine("REPORT=$runDirectory")' }
+        Assert-Equal "$reportState unique injection point" 1 ([regex]::Matches($text, [regex]::Escape($needle)).Count)
+        $injection = "    [IO.File]::WriteAllText(`$cancelFile, 'cancel'); `$script:CancelRequested = `$true; if (-not (Test-CancelRequested)) { throw 'fixture cancellation was not recorded' }; throw 'fixture entry failure'`n"
+        [IO.File]::WriteAllText($fixtureRunner, $text.Replace($needle, $injection + $needle), $utf8)
+        $result = Invoke-Runner -RunnerPath $fixtureRunner -WorkingDirectory $fixture.Repo -Unset $script:GitIsolation -ArgumentList @(
+            '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "entry-exception-$reportState")
+        ) -WaitMs 180000
+        $summary = Assert-FinalResult $result 1
+        Assert-Contains "$reportState injected entry failure" $result.Stderr 'error: fixture entry failure'
+        Assert-Equal "$reportState entry failure outcome" 'failed' $summary.Json.preparation.outcome
+        Assert-Equal "$reportState entry failure reason" 'runner-error' $summary.Json.preparation.reason
+        $check = Find-Check (Get-Checks $summary) 'BindingFixture.BindingTests.Runs_built_sources'
+        Assert-Equal "$reportState original check retained" $(if ($reportState -eq 'before-report') { 'failed' } else { 'passed' }) $check.outcome
+        Assert-True "$reportState cancellation requested" (Test-Path -LiteralPath (Join-Path $summary.Directory 'cancel.request'))
+        Assert-True "$reportState isolated root removed" (-not (Test-Path -LiteralPath (Read-IsolatedRoot $summary)))
+    }
+}
+
 It "real-godot-pending-selection" {
     $all = Invoke-Runner -ArgumentList @("-Module", "godot", "-Correctness", "-List") -WaitMs 300000
     Assert-Exit $all 0
