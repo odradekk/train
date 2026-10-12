@@ -88,12 +88,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ArgumentNullException.ThrowIfNull(value);
         if (fault is not null) return new SceneResult<SceneRequestId>.Faulted(fault);
         if (!Exists(value)) return Failure<SceneRequestId>("target_missing", SceneStage.Input);
-        foreach (var work in tasks.Where(work => work.Task.IsCompleted).ToArray())
-        {
-            _ = work.Task.Exception;
-            work.Cancellation.Dispose();
-            tasks.Remove(work);
-        }
+        RetireCompletedTasks();
         foreach (var work in tasks) work.Cancellation.Cancel();
         target = value;
         request = new(request.Value + 1);
@@ -199,12 +194,23 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 objects.ToImmutable(), picking.ToImmutable(), new(fog, []), problems.ToImmutable(), displayedFrame as SceneFrame);
             var live = next.Objects.Select(item => item.Id).ToHashSet();
             foreach (var key in ids.Where(item => !live.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
+            RetireCompletedTasks();
             return new SceneResult<ISceneFrame>.Success(next);
         }
         catch (Exception error)
         {
             fault = new("scene_internal_fault", SceneStage.Build, null, null, null, null, error.ToString());
             return new SceneResult<ISceneFrame>.Faulted(fault);
+        }
+    }
+
+    private void RetireCompletedTasks()
+    {
+        foreach (var work in tasks.Where(work => work.Task.IsCompleted).ToArray())
+        {
+            _ = work.Task.Exception;
+            work.Cancellation.Dispose();
+            tasks.Remove(work);
         }
     }
 

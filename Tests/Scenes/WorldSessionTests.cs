@@ -359,6 +359,30 @@ public sealed class WorldSessionTests
     }
 
     [TestMethod]
+    public async Task InitialObjectGeometryBuildRunsBeforePresentAndLoadingDoesNotWait()
+    {
+        using var gated = new BlockedAppearanceView(SceneFixtures.Content(Evaluation));
+        await using var session = Session(Snapshot(content: gated), ObjectContent());
+        session.RequestView(Target);
+        try
+        {
+            await gated.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            var loading = Present(session);
+            Assert.AreEqual(SceneReadiness.Loading, loading.Readiness);
+            Assert.IsTrue(loading.Update.Upserts.IsEmpty);
+            gated.Release.Set();
+            await session.PendingBuild!;
+            var ready = Present(session, loading);
+            Assert.AreEqual(SceneReadiness.Ready, ready.Readiness);
+            Assert.AreEqual(new GridPosition(0, 0, 0), Hit(ready).Cell);
+        }
+        finally
+        {
+            gated.Release.Set();
+        }
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task BlockedRebuildKeepsOldGeometryAndDiscardsOutdatedResult(bool changeDesign)
