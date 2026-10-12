@@ -10,7 +10,7 @@ Issue comments are the durable record of dispatch, decisions, review findings an
 | --- | --- | --- |
 | Coordinator | Resident Claude agent with a heartbeat | Selects Issues, creates the workspace and the reviewer, assigns Godot MCP, merges, archives, closes Issues, keeps the progress record, organizes stage acceptance |
 | Reviewer | `claude/claude-opus-5-5`, thinking `xhigh`, mode `bypassPermissions` | Creates and directs the worker, reviews the plan and the delivery, verifies Acceptance criteria, reports the result to the coordinator |
-| Worker | `codex/gpt-6.1-sol`, thinking `xhigh`, mode `full-access` | Implements, tests, commits, pushes the task branch, opens the PR, fixes review findings |
+| Worker | `codex/gpt-6.1-sol`, thinking `xhigh`, mode `full-access`, Fast speed (`service_tier: priority`) | Implements, tests, commits, pushes the task branch, opens the PR, fixes review findings |
 | User | — | Plays each stage build and confirms the stage; answers decisions the docs cannot settle; approves scope or Acceptance-criteria changes |
 
 The user has given the coordinator standing authority to merge reviewer-accepted PRs of current-stage Issues after the checks in [step 3](#3-merge-and-close--coordinator), close those Issues or label them `awaiting-user`, archive their workspaces, delete merged task branches, file current-stage fix Issues, and record the version change after a stage passes. This does not authorize closing a stage acceptance Issue without the user's confirmation, changing scope or Acceptance criteria, force-pushing, changing branch protection, or starting the next stage early.
@@ -57,6 +57,7 @@ Do not prompt the worker or join the review. Act only on:
   - A pair where both agents are idle and no `PAIR-RESULT:` arrived gets a prompt asking the reviewer to continue or report.
   - Fill free slots under [Selecting tasks](#selecting-tasks).
   - Retry any pending workspace cleanup.
+  - Check that the nightly runner `box-linux-nightly` is online (`gh api repos/odradekk/train/actions/runners`) and that the latest nightly run is under 36 hours old. Its host has no service manager, so a reboot stops the runner; tell the user when it is offline.
   - Check whether the stage is ready for [integration](#stage-integration).
 
 ## 2. Blocked pairs — coordinator
@@ -76,7 +77,7 @@ After an `accepted` result:
 1. Check that the PR head equals the accepted SHA, the Windows checks passed on that head, the reviewer's acceptance comment names that SHA, and all Acceptance criteria are checked.
 2. Check that the head contains the current `origin/master` (`git merge-base --is-ancestor origin/master <head>`). If master has moved, ask the reviewer to have the worker merge master and to accept the new head; wait for a new `PAIR-RESULT:`.
 3. Merge with `gh pr merge <pr> --merge` and verify the remote merged state and merge commit.
-4. Stop the task's Godot editor and Blender instance if it has them. Copy `TestResults/` and `.godot/validation/` to `D:\Code\train-validation-archive\issue-<n>\`. Run `archive_workspace`, then check `git worktree list` and that the directory is gone. If Windows locks keep the directory, record it and retry on the next heartbeat; do not block other work. Delete the remote task branch once its head is in master.
+4. Stop the task's Godot editor and Blender instance if it has them. Run `archive_workspace`, then check `git worktree list` and that the directory is gone. If Windows locks keep the directory, record it and retry on the next heartbeat; do not block other work. Delete the remote task branch once its head is in master.
 5. If the acceptance comment lists criteria waiting for the user, label the Issue `awaiting-user`, keep it open, and add those criteria to the progress record; for an art Issue, also tell the user where its screenshots are. Otherwise post a closure comment linking the PR, merge commit and acceptance comment, and close the Issue as completed.
 6. Update the progress record and fill the freed slot.
 
