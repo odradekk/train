@@ -1,6 +1,5 @@
 using System.Text.Json;
 using BenchmarkDotNet.Configs;
-using BenchmarkDotNet.Exporters.Json;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using Train.Benchmarks;
@@ -20,7 +19,6 @@ try
     File.Delete(resultPath);
     var config = ManualConfig.Create(DefaultConfig.Instance)
         .WithArtifactsPath(artifacts)
-        .AddExporter(JsonExporter.Full)
         .AddJob(Job.Default.WithLaunchCount(1).WithWarmupCount(3).WithIterationCount(15)
             .WithInvocationCount(1).WithUnrollFactor(1));
     var summary = BenchmarkRunner.Run<ResourceSimulationBenchmark>(config);

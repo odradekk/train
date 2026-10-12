@@ -107,7 +107,7 @@ public class ScreenshotComparisonTests(Node testScene) : TestClass(testScene)
             "One-byte channel noise at tolerance must be accepted.");
         actual.SetPixel(1, 1, Colors.White);
         var fraction = ScreenshotComparison.DifferentPixelFraction(actual, baseline, 1);
-        Require(fraction == 0.25 && fraction > 0.20,
-            "A localized one-pixel defect must exceed a 20% changed-pixel allowance.");
+        Require(fraction == 0.25,
+            "A localized one-pixel defect must count as one changed pixel out of four.");
     }
 }

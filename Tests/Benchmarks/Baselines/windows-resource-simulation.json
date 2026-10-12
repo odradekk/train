@@ -1,0 +1,4 @@
+{
+  "workload": "resource-simulation-v1",
+  "minimumStepsPerSecond": 240000
+}
