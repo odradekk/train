@@ -2,9 +2,9 @@
 
 本页落实[体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289)的决定。业务与表现规则仍见[场景](../design/01-voxel-engine-and-scenes.md)、[渲染](../design/07-rendering.md)、[编辑器](../design/15-design-editor-and-tools.md)；公共语义、身份与提交沿用[公共约定](conventions.md)、[跨层协议](transactions.md)和[编辑协议](editing.md)。
 
-当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取，以及只读设计预览。独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；世界会话测试注入固定生成内容并控制后台完成顺序，不能据此宣称真实线路、节点或战斗生成通过。线路、节点、战斗生成分别待 #315、#316、#353；贴图方向、跨格平铺和 Front 面待 #248；标准形状与模型几何待 #388；编辑与模板预览待 #333、#389。实际隔离待 #406，真实 Godot 接入和阶段联调仍需各自证据。
+当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取，以及只读设计预览。独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；世界会话测试注入固定生成内容并控制后台完成顺序，不能据此宣称真实线路、节点或战斗生成通过。线路、节点、战斗生成分别待 #315、#316、#353；贴图方向、跨格平铺和 Front 面待 #248；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。实际隔离待 #406，真实 Godot 接入和阶段联调仍需各自证据。
 
-本票按[批准方案](https://github.com/odradekk/train/issues/314#issuecomment-6131924700)只为 Cube 表现且 Shape 为 null 生成立方体几何，TextureUv 暂用单格坐标；其他形状及模型保留占格和拾取，不遮挡邻面。生产世界生成步骤当前抛带上述 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault。OpenEditor、PreviewTemplate 分别抛注明 #333、#389 的 NotImplementedException。姿态插值、轮对、灯光、特效、地形碰撞和地点映射尚未实现：对应集合为空，NodePanBounds 为 null，Locate／TerrainHeight 返回 Missing；FindPose 提供本帧合成姿态。这些是阶段实现状态，下面的完整目标契约保持不变。
+本票按[批准方案](https://github.com/odradekk/train/issues/314#issuecomment-6131924700)只为 Cube 表现且 Shape 为 null 生成立方体几何，TextureUv 暂用单格坐标；其他形状及模型保留占格和拾取，不遮挡邻面。生产世界生成步骤当前抛带上述 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault。OpenEditor、PreviewTemplate 分别抛注明 #333、#389 的 NotImplementedException。姿态插值、轮对、灯光、特效、地形碰撞和地点映射尚未实现：对应集合为空，NodePanBounds 为 null，Locate／TerrainHeight 返回 Missing；FindPose 提供本帧合成姿态。DebugLayers 当前不产生 DebugLines；浮动原点重定位和相机采样尚未实现。这些是阶段实现状态，下面的完整目标契约保持不变。
 
 ## 公开面与责任
 
