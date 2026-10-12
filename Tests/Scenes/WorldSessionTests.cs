@@ -254,13 +254,18 @@ public sealed class WorldSessionTests
         await using var session = Session(Snapshot(), ObjectContent());
         var displayed = await Ready(session);
         var prepared = Present(session, displayed);
+        session.Observe(Snapshot(1, removed: true), []);
+        var removal = Present(session, prepared);
         var retry = Present(session, displayed);
+        Assert.AreEqual(displayed.Update.Upserts[0].Id, removal.Update.Removed.Single());
+        Assert.AreEqual(displayed.Update.Upserts[0].Id, retry.Update.Removed.Single());
         Assert.AreEqual(displayed.Update.Frame, prepared.Update.Base);
         Assert.AreEqual(displayed.Update.Frame, retry.Update.Base);
         Assert.IsTrue(retry.Update.Frame.Revision > prepared.Update.Frame.Revision);
-        var replacement = Present(session);
+        session.Observe(Snapshot(2), []);
+        var replacement = await Settled(session);
         Assert.IsNull(replacement.Update.Base);
-        Assert.AreEqual(displayed.Update.Upserts[0].Id, replacement.Update.Upserts[0].Id);
+        Assert.AreNotEqual(displayed.Update.Upserts[0].Id, replacement.Update.Upserts[0].Id);
         Assert.IsNull(replacement.NodePanBounds);
         Assert.IsInstanceOfType<Lookup<WorldLocation>.Missing>(replacement.Locate(Vector3.Zero));
         Assert.IsInstanceOfType<Lookup<double>.Missing>(replacement.TerrainHeight(0, 0));
@@ -424,6 +429,89 @@ public sealed class WorldSessionTests
             await present;
             await session.DisposeAsync();
         }
+    }
+
+
+    [TestMethod]
+    public async Task GeneratedDecorationAndUnknownMarkerDoNotInterceptTerrainAndFogIsPartial()
+    {
+        var kinds = new[] { BuiltInMaterial.RailSteel, BuiltInMaterial.Sleeper, BuiltInMaterial.Water };
+        var meshes = kinds.Select((kind, i) =>
+        {
+            var rendered = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, i * 2))]));
+            var mesh = rendered.Objects.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Single().Mesh;
+            return mesh with { Material = new SceneMaterial.BuiltIn(kind) };
+        }).ToImmutableArray();
+        var reference = new ContentReference.Design(new("unknown-composite"));
+        var problem = new SceneProblem("content_missing", SceneStage.Build, null, reference, null, null, "Unknown extent.");
+        var generated = Terrain() with
+        {
+            Terrain = [new(new(0, 0, 6), SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), [])],
+            BuiltInMeshes = meshes,
+            MissingMarkers = [new(new(new(0, 0, 5), Quaternion.Identity), reference, problem)],
+            FoggedRegions = [new(new(2, 0, 1), new(3, 1, 2))]
+        };
+        await using var session = Session(Snapshot(), generated);
+        var frame = await Ready(session);
+        Assert.AreEqual(SceneReadiness.Partial, frame.Readiness);
+        var hit = Hit(frame);
+        Assert.AreEqual(new GridPosition(0, 0, 6), hit.Cell);
+        Assert.AreEqual(8d, hit.DistanceCells);
+        Assert.AreEqual(new PickSubject.Terrain(Location), hit.Subject);
+        Assert.IsTrue(frame.Diagnostics.Contains(problem));
+        Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(Ray with { Origin = new(2.5f, 0.5f, -2) }));
+    }
+
+    [TestMethod]
+    public async Task GeneratedTerrainWithoutSubjectFaultsBeforeItCanHideOtherCells()
+    {
+        await using var session = Session(Snapshot(), Terrain() with
+        { Terrain = [new(new(0, 0, 0), SceneFixtures.Cube, null, null, null, [])] });
+        session.RequestView(Target);
+        await Assert.ThrowsExactlyAsync<ArgumentException>(async () => await session.PendingBuild!);
+        var result = (SceneResult<ISceneFrame>.Faulted)session.Present(FrameRequest, null);
+        Assert.AreEqual("scene_internal_fault", result.Problem.Code);
+        StringAssert.Contains(result.Problem.Detail, "Terrain cells must have a pick subject.");
+    }
+
+    [TestMethod]
+    public async Task FollowVehicleMustBelongToRequestedTrain()
+    {
+        var train = new TrainView(new(1), new TrainPosition.Node(new(1)), TrainActivity.Stopped,
+            [new(2)], new(1), 0, 0, 0, 0, 0, 0, null, null, 0,
+            new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0),
+            [], null, [], null, TrainOrderFacing.FirstEndLeading);
+        var snapshot = Snapshot() with { Core = new FixedCoreReadView
+        {
+            InputIdentity = new("scenes-test"), Position = new(0, 0),
+            Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = new Lookup<TrainView>.Found(train) }
+        } };
+        await using var session = Session(snapshot);
+        Assert.AreEqual("target_missing", Code(session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)))));
+    }
+
+    [TestMethod]
+    [DataRow(double.NaN)]
+    [DataRow(-1d)]
+    public async Task EdgeDistanceMustBeFiniteAndNonnegative(double distance)
+    {
+        await using var session = Session(Snapshot());
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            session.RequestView(new WorldSceneTarget.Location(new WorldLocation.Edge(new(1), distance))));
+    }
+
+    [TestMethod]
+    public async Task PresentReportsTargetMissingAfterObservedTargetRemoval()
+    {
+        await using var session = Session(Snapshot());
+        var frame = await Ready(session);
+        var missing = Snapshot(1) with { Core = new FixedCoreReadView
+        {
+            InputIdentity = new("scenes-test"), Position = new(1, 0),
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [new(1)] = new Lookup<NodeView>.Missing() }
+        } };
+        session.Observe(missing, []);
+        Assert.AreEqual("target_missing", Code(session.Present(FrameRequest, frame)));
     }
 
     private sealed class BlockedAppearanceView(IContentView inner) : IContentView, IDisposable

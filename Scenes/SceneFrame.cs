@@ -65,9 +65,9 @@ internal sealed class SceneFrame : ISceneFrame
             var inverse = Quaternion.Conjugate(item.Pose.Rotation);
             var local = new SceneRay(Vector3.Transform(ray.Origin - item.Pose.Position, inverse),
                 Vector3.Transform(ray.Direction, inverse), nearest?.DistanceCells ?? ray.MaximumDistanceCells);
-            if (item.Grid.Pick(local) is not { } hit || hit.Cell.Subject is null) continue;
+            if (item.Grid.Pick(local) is not { } hit) continue;
             if (nearest is not null && hit.Distance >= nearest.DistanceCells) continue;
-            nearest = new(Update.Frame, item.Object, hit.Cell.Subject, hit.Cell.At, hit.Face,
+            nearest = new(Update.Frame, item.Object, hit.Cell.Subject!, hit.Cell.At, hit.Face,
                 ray.Origin + ray.Direction * (float)hit.Distance,
                 Vector3.Transform(SceneGeometry.Normal(hit.Face), item.Pose.Rotation), hit.Distance, hit.Cell.Path);
         }

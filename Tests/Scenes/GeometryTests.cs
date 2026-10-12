@@ -54,8 +54,12 @@ public sealed class GeometryTests
             var shaped = appearance == cube ? new VoxelShape("slope") : (VoxelShape?)null;
             var grid = new VoxelGrid([
                 new(new(0, 0, 0), cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
-                new(new(1, 0, 0), appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])]);
-            Assert.AreEqual(12, DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>().Sum(item => item.Mesh.TriangleIndices.Length / 3));
+                new(new(1, 0, 0), appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
+                new(new(-1, 0, 0), cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])]);
+            var vertices = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>()
+                .SelectMany(item => item.Mesh.Vertices).ToArray();
+            Assert.IsTrue(vertices.Any(vertex => vertex.Normal == Vector3.UnitX && vertex.Position.X == 1));
+            Assert.IsFalse(vertices.Any(vertex => vertex.Normal == -Vector3.UnitX && vertex.Position.X == 0));
             var hit = grid.Pick(new(new(3, 0.05f, 0.05f), -Vector3.UnitX, 3));
             Assert.IsNotNull(hit);
             Assert.AreEqual(new GridPosition(1, 0, 0), hit.Value.Cell.At);
@@ -112,23 +116,6 @@ public sealed class GeometryTests
         Assert.AreEqual(new Vector3(14, 0.5f, 0.5f), hit.Point);
         Assert.AreEqual(-Vector3.UnitX, hit.Normal);
         Assert.AreEqual(root, ((Lookup<ScenePose>.Found)frame.FindPose(SceneFixtures.Subject)).Value);
-    }
-
-    [TestMethod]
-    public void FogBeforeGeometryReportsNotReadyAndDecorationDoesNotIntercept()
-    {
-        var rendered = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(4, 0, 0))]));
-        var cube = Meshes(rendered).Single();
-        var inFront = cube.Vertices.Select(vertex => vertex with { Position = vertex.Position - new Vector3(3, 0, 0) }).ToImmutableArray();
-        var decorations = Enum.GetValues<BuiltInMaterial>().Select((kind, i) => new SceneObject(new((ulong)(100 + i)), null,
-            SceneFixtures.Identity, null, [new SceneVisual.Geometry(new(new SceneMaterial.BuiltIn(kind), inFront, cube.TriangleIndices), new(false, 0, 0, false))], [], []));
-        var reference = new ContentReference.Design(new("unknown"));
-        var marker = new SceneObject(new(200), null, SceneFixtures.Identity, null, [new SceneVisual.Missing(reference, false)], [], []);
-        rendered = rendered with { Objects = rendered.Objects.AddRange(decorations).Add(marker) };
-        var ray = new SceneRay(new(-1, 0.5f, 0.5f), Vector3.UnitX, 10);
-        Assert.AreEqual(5d, ((ScenePick.Hit)SceneFixtures.Frame(rendered).Pick(ray)).Value.DistanceCells);
-        Assert.IsInstanceOfType<ScenePick.NotReady>(SceneFixtures.Frame(rendered, [new(new(1, 0, 0), new(2, 1, 1))]).Pick(ray));
-        Assert.IsInstanceOfType<ScenePick.Hit>(SceneFixtures.Frame(rendered, [new(new(8, 0, 0), new(9, 1, 1))]).Pick(ray));
     }
 
     private static SceneMesh[] Meshes(RenderedDesign rendered) => rendered.Objects.SelectMany(item => item.Visuals)

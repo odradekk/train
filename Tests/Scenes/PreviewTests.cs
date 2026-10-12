@@ -19,10 +19,13 @@ public sealed class PreviewTests
         var first = ((SceneResult<ISceneFrame>.Success)preview.Present()).Value;
         var second = ((SceneResult<ISceneFrame>.Success)preview.Present()).Value;
         Assert.IsTrue(second.Update.Frame.Revision > first.Update.Frame.Revision);
-        var objects = first.Update.Upserts;
+        Assert.IsNull(first.Update.Base);
+        Assert.IsNull(second.Update.Base);
+        Assert.AreEqual(0d, first.SimulationSeconds);
+        Assert.AreEqual(0d, second.SimulationSeconds);
+        preview.Dispose();
         preview.Dispose();
         Assert.ThrowsExactly<ObjectDisposedException>(() => preview.Present());
-        Assert.AreEqual(objects, first.Update.Upserts);
         Assert.IsTrue(first.Update.Upserts.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().Any());
         Assert.IsInstanceOfType<ScenePick.Miss>(first.Pick(new(new(-1, 0.5f, 0.5f), Vector3.UnitX, 3)));
     }
@@ -49,7 +52,7 @@ public sealed class PreviewTests
         Assert.IsTrue(markers.Any(item => item.Reference == compositeReference && !item.KnownCell));
         Assert.IsTrue(frame.Diagnostics.Any(item => item.Content == voxelReference && item.Package == new PackageId("voxel-package")));
         Assert.IsTrue(frame.Diagnostics.Any(item => item.Content == compositeReference && item.Package == new PackageId("composite-package")));
-        var built = DesignGeometry.Build(SceneFixtures.Content(), partial, SceneFixtures.Subject, SceneFixtures.Identity, NextId());
+        var built = DesignGeometry.Build(SceneFixtures.Content(), partial, SceneFixtures.Subject, SceneFixtures.Identity, SceneFixtures.NextId());
         var pickable = SceneFixtures.Frame(built);
         Assert.AreEqual(new GridPosition(0, 0, 0), ((ScenePick.Hit)pickable.Pick(new(new(-1, 0.5f, 0.5f), Vector3.UnitX, 6))).Value.Cell);
         Assert.IsInstanceOfType<ScenePick.Miss>(pickable.Pick(new(new(2, 0.5f, 0.5f), Vector3.UnitX, 3)));
@@ -87,9 +90,4 @@ public sealed class PreviewTests
 
     private static ContentDiagnostic Diagnostic(ContentReference reference, string package) => new("missing", ContentDiagnosticSeverity.Error,
         "evaluate", reference, new(new(package), "design.json"), "voxel", new DesignElementPath.Cell([], 0), "Missing content");
-    private static Func<string, SceneObjectId> NextId()
-    {
-        ulong id = 0;
-        return _ => new(++id);
-    }
 }
