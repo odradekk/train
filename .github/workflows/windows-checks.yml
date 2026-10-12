@@ -76,7 +76,8 @@ jobs:
           "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
 
       - name: Prepare Godot 4.7.2 .NET
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION != 'routine' }}
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' }}
+        continue-on-error: ${{ env.CI_SELECTION == 'routine' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -96,6 +97,14 @@ jobs:
         shell: pwsh
         run: |
           & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer fast,integration
+          exit $LASTEXITCODE
+
+      - name: Routine engine checks (non-blocking)
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer engine
           exit $LASTEXITCODE
 
       - name: Explicit correctness regression

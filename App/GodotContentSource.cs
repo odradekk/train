@@ -16,14 +16,12 @@ public sealed class GodotContentSource : IContentSource
     private readonly string? _userDataDirectory;
     private readonly string _builtInResourcesRoot;
     private readonly bool _usesPhysicalBuiltIn;
-    private readonly bool _createUserDirectories;
     private IReadOnlyList<ContentDiagnostic> _scanDiagnostics = Array.Empty<ContentDiagnostic>();
 
     public GodotContentSource(
         TrainLogger? logger = null,
         string? userDataDirectory = null,
-        string? builtInResourcesRoot = null,
-        bool createUserDirectories = true)
+        string? builtInResourcesRoot = null)
     {
         _logger = logger;
         _userDataDirectory = userDataDirectory;
@@ -31,7 +29,6 @@ public sealed class GodotContentSource : IContentSource
             ? BuiltInResourcesRoot
             : builtInResourcesRoot;
         _usesPhysicalBuiltIn = !_builtInResourcesRoot.StartsWith("res://", StringComparison.Ordinal);
-        _createUserDirectories = createUserDirectories;
     }
 
     public string UserDataDirectory => _userDataDirectory ?? OS.GetUserDataDir();
@@ -66,7 +63,7 @@ public sealed class GodotContentSource : IContentSource
                 ["physical_path"] = physical
             });
 
-        if (_userDataDirectory is null && _createUserDirectories)
+        if (_userDataDirectory is null)
         {
             try
             {
@@ -81,7 +78,7 @@ public sealed class GodotContentSource : IContentSource
 
         var diagnostics = new List<ContentDiagnostic>();
         string? error = null;
-        if (_createUserDirectories && !ExternalContent.TryEnsureDirectory(userData, physical, out error))
+        if (!ExternalContent.TryEnsureDirectory(userData, physical, out error))
         {
             diagnostics.Add(ExternalContent.ModsRootUnavailable(ModsGodotPath, error ?? "Mods directory is unavailable."));
         }
@@ -196,7 +193,7 @@ public sealed class GodotContentSource : IContentSource
     {
         var physical = Path.Combine(userData, "blueprints");
         string? error = null;
-        if (_createUserDirectories && !ExternalContent.TryEnsureDirectory(userData, physical, out error))
+        if (!ExternalContent.TryEnsureDirectory(userData, physical, out error))
         {
             diagnostics.Add(ExternalContent.BlueprintsRootUnavailable(
                 BlueprintsGodotPath,

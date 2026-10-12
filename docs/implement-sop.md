@@ -109,7 +109,7 @@ If the impact is uncertain or a failure points beyond the selected scope, expand
 
 ### Test entry and CI
 
-Use the fast layer for daily feedback and `-Layer fast,integration` before delivery and in routine [Windows CI](ci.md). Godot-related changes also require `-Layer engine` before delivery. Explicit correctness regression uses `-Layer all`; Windows export and runtime validation uses `-Layer engine -ExportWindows`. Selection, execution limits and result rules are in the [unified test entry](run-tests.md).
+Use the fast layer for daily feedback and `-Layer fast,integration` before delivery and in routine [Windows CI](ci.md). Routine CI follows those checks with a separate, currently nonblocking engine step on every PR. Making that step blocking requires a later change. Godot-related changes also require `-Layer engine` before delivery; local failures return 1. Explicit correctness regression uses `-Layer all`; Windows export and runtime validation uses `-Layer engine -ExportWindows`. Selection, execution limits and result rules are in the [unified test entry](run-tests.md).
 
 ### Write tests that can detect defects
 

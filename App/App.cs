@@ -1,8 +1,8 @@
 
 using Godot;
-using Train.App.Checks;
 using Train.App.Console;
 using Train.Content;
+using Train.Content.Voxels;
 using Train.App.Logging;
 using Train.Core.Simulation;
 using Train.Ui;
@@ -19,18 +19,15 @@ public partial class App : Node
 
     private TrainLogger? _logger;
     private ContentReloader? _reloader;
-    private CheckArguments? _check;
-    private LoggingCheck? _loggingCheck;
-    private ContentCheck? _contentCheck;
-    private SimulationCheck? _simulationCheck;
     private SimulationDriver? _simulation;
     private int _mainThread;
     private bool _insideSimulation;
     private long _attachedAt;
     private bool _firstSimulationFrame;
-    private ContentReloadResult? _lastReload;
-    private bool _checkFinished;
-    private bool _quitRequested;
+
+    internal TrainLogger Logger => _logger!;
+    internal ContentSnapshot? CurrentContent => _reloader?.Current;
+    internal Action QuitAction { get; set; } = null!;
 
     public event Action<AdvanceResult>? SimulationAdvanced;
 
@@ -39,25 +36,16 @@ public partial class App : Node
     public override void _Ready()
     {
         _mainThread = System.Environment.CurrentManagedThreadId;
+        QuitAction = () => GetTree().Quit();
         GetTree().AutoAcceptQuit = false;
         GetNode<MainMenu>("MainMenu").QuitRequested += RequestQuit;
         try
         {
-            _check = CheckArguments.Parse(OS.GetCmdlineUserArgs());
-            if (_check?.Name == "simulation-host" && !OS.IsDebugBuild())
-                throw new InvalidOperationException("simulation-host 检查需要开发构建（Debug），以验证 sim 调试命令。");
-            var userData = _check?.UserDataDirectory ?? OS.GetUserDataDir();
+            var userData = OS.GetUserDataDir();
             var buffer = new RingBufferLogSink();
             _logger = TrainLogger.StartSession(Path.Combine(userData, "logs"),
-                OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer,
-                readEnvironmentVariable: _check is null);
-            IContentSource source = new GodotContentSource(_logger, userData,
-                createUserDirectories: _check is null);
-            if (_check?.Name == "content")
-            {
-                _contentCheck = new ContentCheck(_logger, userData, _check.ContentRoot!);
-                source = _contentCheck;
-            }
+                OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer);
+            var source = new GodotContentSource(_logger, userData);
             _reloader = new ContentReloader(source, _logger);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
@@ -66,16 +54,18 @@ public partial class App : Node
             console.Initialize(buffer, new ConsoleCommandDispatcher(
                 _logger, buffer.Clear, RequestQuit, ReloadContent, OS.IsDebugBuild(), simulationCommands));
             AddChild(console);
-            ReloadContent();
-            if (_check?.Name == "logging")
-                _loggingCheck = new LoggingCheck(_logger);
-            if (_check?.Name == "simulation-host")
-                _simulationCheck = new SimulationCheck(this, console, _logger, buffer);
+            var loaded = _reloader.Reload();
+            if (OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal))
+            {
+                var grain = loaded.Snapshot?.Voxels.GetValueOrDefault(new VoxelDefinitionId("core", "grain"));
+                var passed = loaded.IsCommitted && grain is not null && grain.PresentationImages.Count > 0 &&
+                    grain.PresentationImages.Values.All(image => image.Width > 0 && image.Height > 0);
+                GetTree().Quit(passed ? 0 : 1);
+            }
         }
         catch (Exception exception)
         {
-            GD.PrintErr($"APP_CHECK_FAILED {_check?.Name ?? "startup"}: {exception.Message}");
-            _checkFinished = true;
+            GD.PrintErr($"Application startup failed: {exception}");
             GetTree().Quit(1);
         }
     }
@@ -88,11 +78,10 @@ public partial class App : Node
 
     public void RequestQuit()
     {
-        _quitRequested = true;
-        GetTree().Quit();
+        QuitAction();
     }
 
-    private void ReloadContent() => _lastReload = _reloader!.Reload();
+    private void ReloadContent() => _reloader!.Reload();
 
     public void AttachSession(SimulationSession session, SimulationStateCodec states)
     {
@@ -176,61 +165,28 @@ public partial class App : Node
 
     public override void _Process(double delta)
     {
-        if (_checkFinished)
-            return;
-        try
+        if (_simulation is not null)
         {
-            if (_simulation is not null)
+            // 挂接可能发生在较长的生成帧内；第一帧只累计会话实际存在的时间。
+            var simulationDelta = delta;
+            if (_firstSimulationFrame)
             {
-                // 挂接可能发生在较长的生成帧内；第一帧只累计会话实际存在的时间。
-                var simulationDelta = delta;
-                if (_firstSimulationFrame)
-                {
-                    simulationDelta = Math.Min(delta, System.Diagnostics.Stopwatch.GetElapsedTime(_attachedAt).TotalSeconds);
-                    _firstSimulationFrame = false;
-                }
-                var result = RunSimulation(() => _simulation.AdvanceFrame(simulationDelta, SimulationFrameBudgetSeconds));
-                ReportSimulationFault(result.Diagnostic);
-                SimulationAdvanced?.Invoke(result);
+                simulationDelta = Math.Min(delta, System.Diagnostics.Stopwatch.GetElapsedTime(_attachedAt).TotalSeconds);
+                _firstSimulationFrame = false;
             }
-            var drained = _logger?.DrainGodotQueue() ?? 0;
-            if (_check is null)
-                return;
-            bool? passed = _check.Name switch
-            {
-                "logging" => _loggingCheck!.ObserveDrain(drained),
-                "content" => _contentCheck!.Advance(_reloader!, _lastReload!, ReloadContent),
-                "content-export" => StartupChecks.ContentExport(_reloader!, _lastReload!, _logger!),
-                "mods-export" => StartupChecks.ModsExport(_reloader!, _lastReload!, _check.UserDataDirectory),
-                "main-menu" => StartupChecks.MainMenu(GetNode<MainMenu>("MainMenu"), () => _quitRequested),
-                "simulation-host" => _simulationCheck!.ObserveFrame(delta),
-                _ => false
-            };
-            if (passed is null)
-                return;
-            _checkFinished = true;
-            GD.Print(passed.Value ? $"APP_CHECK_PASSED {_check.Name}" : $"APP_CHECK_FAILED {_check.Name}");
-            GetTree().Quit(passed.Value ? 0 : 1);
+            var result = RunSimulation(() => _simulation.AdvanceFrame(simulationDelta, SimulationFrameBudgetSeconds));
+            ReportSimulationFault(result.Diagnostic);
+            SimulationAdvanced?.Invoke(result);
         }
-        catch (Exception exception)
-        {
-            if (_check is null)
-                throw;
-            _checkFinished = true;
-            GD.PrintErr($"APP_CHECK_FAILED {_check.Name}: {exception.Message}");
-            GetTree().Quit(1);
-        }
+        _logger?.DrainGodotQueue();
     }
 
     public override void _ExitTree()
     {
         _simulation = null;
-        _loggingCheck?.Join();
         _logger?.Dispose();
         _logger = null;
         _reloader = null;
-        if (_loggingCheck is not null)
-            GD.Print("SMOKE_LOGGER_DISPOSED");
     }
 
     private T RunSimulation<T>(Func<T> operation)
