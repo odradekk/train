@@ -41,8 +41,14 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
             Require(host.GetStatus()!.View.Position.CompletedSteps == before + 2 && setup.Session.AdvanceThread == owner,
                 "控制台与真实帧未在主线程驱动同一契约会话。");
             console.SubmitLine("sim status");
+            var checkpoint = new CoreCheckpoint(host.GetStatus()!.View.Position, "fixed", "engine checkpoint sha");
+            setup.Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(new FixedCoreCapture(
+                checkpoint, HostCoreScenario.References, "opaque checkpoint", HostCoreScenario.Input, new(1))));
+            console.SubmitLine("sim checkpoint");
             Require(Logs(app, "simulation_status").Length == 1 && Logs(app, "simulation_stepped").Length == 1,
                 "迁移后的控制台结果没有进入 JSONL。");
+            Require(Logs(app, "simulation_checkpoint").Single().GetProperty("attributes").GetProperty("sha256").GetString() == checkpoint.Sha256,
+                "契约检查点没有经控制台写入真实日志。");
         }
         finally { await fixture.Cleanup(); }
     }

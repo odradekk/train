@@ -12,6 +12,32 @@ namespace Train.Godot.Tests.Host;
 public sealed class HostCoordinatorTests
 {
     [TestMethod]
+    public void Notification_policy_failure_keeps_committed_events_and_later_notification_actions()
+    {
+        var calls = 0;
+        using var fixture = new HostFixture(_ => ++calls == 1
+            ? throw new InvalidOperationException("fixed notification failure") : NotificationAction.Pause);
+        var session = fixture.ReadyHost();
+        var command = new CoreCommand.StopTrain(new(1));
+        ImmutableArray<EventEnvelope> events = [new(new(0, 1), 0, new CoreEvent.TrainArrived(new(1), new(1))),
+            new(new(0, 1), 1, new CoreEvent.RailBroken(new(1), new(new(1), 0, 2)))];
+        session.QueueSubmit(command, CommandSource.UserInterface,
+            new SubmissionResult.Completed(new(1, new(0, 0), new(0, 1), new CommandDecision.Accepted([], [])), events, null),
+            new FixedCoreReadView(new(0, 1), HostCoreScenario.Input));
+        fixture.Host.SetPaused(false);
+        var received = new List<int>();
+        fixture.Host.BoundaryCompleted += (_, _, _, batch) =>
+        { received.AddRange(batch.Select(envelope => envelope.Ordinal)); Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused); };
+        var result = fixture.Host.Submit(fixture.Host.GetStatus()!.Binding, command, CommandSource.UserInterface);
+        Assert.IsInstanceOfType<SubmissionResult.Completed>(result);
+        Assert.AreEqual(new SimulationPosition(0, 1), fixture.Host.GetStatus()!.View.Position);
+        CollectionAssert.AreEqual(new[] { 0, 1 }, received);
+        Assert.AreEqual(2, calls);
+        Assert.AreEqual(1, fixture.Logs.Count(log => log.EventId == "host_notification_failed"));
+        Assert.IsFalse(fixture.Host.GetStatus()!.IsFrozen);
+    }
+
+    [TestMethod]
     public void Capture_fault_without_a_session_fault_does_not_freeze_or_create_a_reload_operation()
     {
         using var fixture = new HostFixture();

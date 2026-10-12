@@ -420,7 +420,9 @@ internal sealed class HostCoordinator : IDisposable
     {
         var group = _active!;
         var action = NotificationAction.None;
-        foreach (var envelope in events) action = (NotificationAction)Math.Max((int)action, (int)_notification(envelope.Event));
+        foreach (var envelope in events)
+            try { action = (NotificationAction)Math.Max((int)action, (int)_notification(envelope.Event)); }
+            catch (Exception exception) { LogHostFailure("host_notification_failed", exception); }
         if (action == NotificationAction.Pause) group.Driver.SetPlayerPaused(true);
         else if (action == NotificationAction.SlowToOne) group.Driver.SetSpeed(SimulationSpeed.One);
         if (BoundaryCompleted is { } handlers)
