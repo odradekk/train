@@ -18,6 +18,7 @@ internal sealed class ContentFixture : C.IContentFiles, C.IAssetInspector
     internal C.ContentInstallation Installation { get; set; } = new(BuiltIn, Mods, null, "0.0.56", []);
     internal bool ReverseEnumeration { get; set; }
     private readonly Dictionary<C.ContentPath, List<C.ContentFileEntry>> _directories = [];
+    private readonly Dictionary<C.ContentPath, C.ContentIoFailure> _enumerationFailures = [];
     private readonly Dictionary<C.ContentPath, C.ContentIoResult<ImmutableArray<byte>>> _files = [];
     private readonly List<(C.AssetKind Kind, ImmutableArray<byte> Bytes, C.AssetInspection Result)> _assets = [];
 
@@ -49,6 +50,9 @@ internal sealed class ContentFixture : C.IContentFiles, C.IAssetInspector
         SetEntry(root, parent, new(path[(slash + 1)..], C.ContentEntryKind.File));
         _files[new(root, path)] = new C.ContentIoResult<ImmutableArray<byte>>.Success(bytes.ToImmutableArray());
     }
+
+    internal void SetEnumerationFailure(C.ContentRoot root, string path, C.ContentIoFailure failure) =>
+        _enumerationFailures[new(root, path)] = failure;
 
     internal void SetReadFailure(C.ContentRoot root, string path, C.ContentIoFailure failure)
     {
@@ -89,6 +93,8 @@ internal sealed class ContentFixture : C.IContentFiles, C.IAssetInspector
 
     public C.ContentIoResult<ImmutableArray<C.ContentFileEntry>> Enumerate(C.ContentPath directory)
     {
+        if (_enumerationFailures.TryGetValue(directory, out var failure))
+            return new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Failure(failure, "fixture enumeration failure");
         if (!_directories.TryGetValue(directory, out var entries))
             throw new InvalidOperationException("UNCONFIGURED enumeration: " + directory);
         return new C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success(

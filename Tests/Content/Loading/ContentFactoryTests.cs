@@ -54,4 +54,20 @@ public sealed class ContentFactoryTests
         Assert.ThrowsExactly<NotImplementedException>(() => factory.CaptureReplay([candidate.View], null!));
         Assert.ThrowsExactly<NotImplementedException>(() => factory.OpenAuthoringPackage(ContentFixture.BuiltIn, new("core"), new("unused"), fixture));
     }
+
+    [TestMethod]
+    [DataRow("resources/voxel")]
+    [DataRow("resources/voxels/grain.voxel.JSON")]
+    public void Unknown_definition_directories_and_misnamed_json_files_are_rejected(string path)
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+            fixture.AddFile(ContentFixture.BuiltIn, path, "{}");
+        else fixture.AddDirectory(ContentFixture.BuiltIn, path);
+        var result = fixture.Prepare();
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result);
+        Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(diagnostic =>
+            diagnostic.Code == "unsupported_format" && diagnostic.Severity == C.ContentDiagnosticSeverity.Error && diagnostic.Source?.Path == path));
+    }
 }

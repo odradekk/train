@@ -24,11 +24,6 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
                 return null;
             }
             var bytes = ((C.ContentIoResult<ImmutableArray<byte>>.Success)result).Value;
-            if (bytes.Length > MaximumBytes)
-            {
-                package.Reject("file_too_large", path, field, "资产超过 4 MiB。", subject);
-                return null;
-            }
             var revision = new C.AssetRevision(ContentHash.FromBytes(bytes.AsSpan()));
             var inspected = inspector.Inspect(kind, revision, bytes);
             if (inspected is C.AssetInspection.Failure inspectionFailure)
@@ -54,33 +49,69 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
 
     internal static bool Png(C.ContentAsset asset, LoadPackage package, ParsedVoxel voxel, string field, bool face)
     {
-        if (asset.Metadata is C.AssetMetadata.Png png && png.Width is > 0 and <= 4096 && png.Width == png.Height &&
-            (!face || (png.Width & (png.Width - 1)) == 0)) return true;
-        Reject(asset, package, voxel, field, "PNG 必须是有效正方形；面贴图边长必须是 2 的幂。");
-        return false;
+        if (asset.Metadata is not C.AssetMetadata.Png png)
+        {
+            Reject(asset, package, voxel, field, $"PNG 资产必须提供 PNG 尺寸事实；观测类型 {asset.Metadata.GetType().Name}。");
+            return false;
+        }
+        var valid = true;
+        Check(png.Width > 0 && png.Height > 0, $"PNG 宽高必须大于 0；观测 {png.Width}×{png.Height}。");
+        Check(png.Width == png.Height, $"PNG 必须是正方形；观测 {png.Width}×{png.Height}。");
+        if (face)
+            Check(png.Width > 0 && png.Height > 0 && (png.Width & (png.Width - 1)) == 0 && (png.Height & (png.Height - 1)) == 0,
+                $"面贴图边长必须是 2 的幂；观测 {png.Width}×{png.Height}。");
+        return valid;
+
+        void Check(bool condition, string message)
+        {
+            if (condition) return;
+            Reject(asset, package, voxel, field, message);
+            valid = false;
+        }
     }
 
     internal static bool Glb(C.ContentAsset asset, LoadPackage package, ParsedVoxel voxel, int surfaces, string field)
     {
-        if (asset.Metadata is C.AssetMetadata.Glb glb && glb.MeshNodeCount == 1 && glb.Surfaces.Length == surfaces && surfaces > 0 &&
-            glb.Surfaces.All(alpha => alpha is C.AssetAlphaMode.Opaque or C.AssetAlphaMode.Mask) &&
-            !glb.HasSkeleton && !glb.HasMorphTargets && !glb.HasAnimation && !glb.HasCamera && !glb.HasLight && !glb.HasExternalImages &&
-            BoundsValid(glb.Bounds)) return true;
-        Reject(asset, package, voxel, field, "GLB 的节点、表面、静态内容或米制包围盒不符合单格模型规则。");
-        return false;
-    }
-
-    private static bool BoundsValid(C.ModelBounds bounds)
-    {
-        var min = bounds.MinimumMeters;
-        var max = bounds.MaximumMeters;
+        if (asset.Metadata is not C.AssetMetadata.Glb glb)
+        {
+            Reject(asset, package, voxel, field, $"模型必须提供 GLB 事实；观测类型 {asset.Metadata.GetType().Name}。");
+            return false;
+        }
+        var valid = true;
+        Check(glb.MeshNodeCount == 1, field, $"模型必须恰有一个带网格的节点；观测节点数 {glb.MeshNodeCount}。");
+        Check(glb.Surfaces.Length == surfaces, "/appearance/presentation/surface_materials",
+            $"表面数必须与 surface_materials 数量相同；观测表面数 {glb.Surfaces.Length}，surface_materials {surfaces} 项。");
+        for (var i = 0; i < glb.Surfaces.Length; i++)
+            Check(glb.Surfaces[i] is C.AssetAlphaMode.Opaque or C.AssetAlphaMode.Mask, field,
+                $"表面只能使用 Opaque 或 Mask 透明方式；观测表面 {i} 为 {glb.Surfaces[i]}。");
+        Check(!glb.HasSkeleton, field, $"模型不能含骨骼；观测 HasSkeleton={glb.HasSkeleton}。");
+        Check(!glb.HasMorphTargets, field, $"模型不能含形变目标；观测 HasMorphTargets={glb.HasMorphTargets}。");
+        Check(!glb.HasAnimation, field, $"模型不能含动画；观测 HasAnimation={glb.HasAnimation}。");
+        Check(!glb.HasCamera, field, $"模型不能含相机；观测 HasCamera={glb.HasCamera}。");
+        Check(!glb.HasLight, field, $"模型不能含灯光；观测 HasLight={glb.HasLight}。");
+        Check(!glb.HasExternalImages, field, $"模型不能引用外部贴图；观测 HasExternalImages={glb.HasExternalImages}。");
+        var min = glb.Bounds.MinimumMeters;
+        var max = glb.Bounds.MaximumMeters;
         const double tolerance = 0.0005; // 1/1000 格；一格为 0.5 米。
-        return double.IsFinite(min.X) && double.IsFinite(min.Y) && double.IsFinite(min.Z) &&
-            double.IsFinite(max.X) && double.IsFinite(max.Y) && double.IsFinite(max.Z) &&
-            min.X <= max.X && min.Y <= max.Y && min.Z <= max.Z &&
-            min.X >= -0.25 - tolerance && max.X <= 0.25 + tolerance &&
-            min.Y >= -tolerance && max.Y <= 0.5 + tolerance &&
-            min.Z >= -0.25 - tolerance && max.Z <= 0.25 + tolerance;
+        var finite = double.IsFinite(min.X) && double.IsFinite(min.Y) && double.IsFinite(min.Z) &&
+            double.IsFinite(max.X) && double.IsFinite(max.Y) && double.IsFinite(max.Z);
+        var observed = FormattableString.Invariant($"最小点 ({min.X:R}, {min.Y:R}, {min.Z:R})、最大点 ({max.X:R}, {max.Y:R}, {max.Z:R}) 米");
+        Check(finite, field, $"包围盒坐标必须是有限数值；观测 {observed}。");
+        if (finite)
+        {
+            Check(min.X <= max.X && min.Y <= max.Y && min.Z <= max.Z, field, $"包围盒每轴最小值不得大于最大值；观测 {observed}。");
+            Check(min.X >= -0.25 - tolerance && max.X <= 0.25 + tolerance, field, $"包围盒 X 必须在 [-0.25, 0.25] 米内，容差 0.0005 米；观测 {observed}。");
+            Check(min.Y >= -tolerance && max.Y <= 0.5 + tolerance, field, $"包围盒 Y 必须在 [0, 0.5] 米内，容差 0.0005 米；观测 {observed}。");
+            Check(min.Z >= -0.25 - tolerance && max.Z <= 0.25 + tolerance, field, $"包围盒 Z 必须在 [-0.25, 0.25] 米内，容差 0.0005 米；观测 {observed}。");
+        }
+        return valid;
+
+        void Check(bool condition, string targetField, string message)
+        {
+            if (condition) return;
+            Reject(asset, package, voxel, targetField, message);
+            valid = false;
+        }
     }
 
     internal static void Reject(C.ContentAsset asset, LoadPackage package, ParsedVoxel voxel, string field, string message) =>

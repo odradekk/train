@@ -178,6 +178,97 @@ public sealed class ContentPackageTests
         Assert.AreEqual(2, original.View.Voxels.Length);
     }
 
+    [TestMethod]
+    public void Invalid_utf8_manifest_isolated_from_other_packages()
+    {
+        var fixture = new ContentFixture();
+        AddMod(fixture, "valid", B);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(Manifest(A, "1.0.0"));
+        var name = System.Text.Encoding.UTF8.GetBytes("\"name\":\"");
+        var offset = bytes.AsSpan().IndexOf(name) + name.Length;
+        bytes[offset] = 0xFF;
+        fixture.AddFile(ContentFixture.Mods, "invalid/mod.json", bytes);
+        var statuses = Discover(fixture);
+        Assert.AreEqual(C.PackageState.Available, statuses.Single(p => p.Metadata?.Id.Value == B).State);
+        Assert.IsTrue(statuses.Any(p => p.State == C.PackageState.Invalid && p.Diagnostics.Any(d => d.Code == "invalid_json")));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Missing_enabled_mods_are_reported_even_when_mods_root_is_missing(bool rootMissing)
+    {
+        var fixture = new ContentFixture();
+        fixture.Installation = fixture.Installation with { EnabledMods = [new(A), new(B)] };
+        if (rootMissing) fixture.SetEnumerationFailure(ContentFixture.Mods, "", C.ContentIoFailure.Missing);
+        var statuses = Discover(fixture);
+        Assert.AreEqual(C.PackageState.Available, statuses.Single(p => p.Metadata?.Id.Value == "core").State);
+        var missing = statuses.Where(p => p.Metadata is null).ToArray();
+        Assert.AreEqual(2, missing.Length);
+        foreach (var id in new[] { A, B })
+        {
+            var status = missing.Single(p => p.Diagnostics.Any(d => d.Message.Contains(id, StringComparison.Ordinal)));
+            Assert.AreEqual(C.PackageState.DependencyUnavailable, status.State);
+            Assert.AreEqual(1, status.Diagnostics.Length);
+            Assert.AreEqual("dependency_missing", status.Diagnostics[0].Code);
+            Assert.AreEqual(C.ContentDiagnosticSeverity.Error, status.Diagnostics[0].Severity);
+        }
+        using var candidate = fixture.Load();
+        Assert.AreEqual(2, candidate.Report.Packages.Count(p => p.Metadata is null));
+    }
+
+    [TestMethod]
+    public void Cross_edge_cycle_marks_every_member_and_excludes_downstream()
+    {
+        const string last = "44444444-4444-4444-8444-444444444444";
+        var fixture = new ContentFixture();
+        AddMod(fixture, "first", A, dependencies: [(B, "1.0.0"), (D, "1.0.0")]);
+        AddMod(fixture, "second", B, dependencies: [(A, "1.0.0")]);
+        AddMod(fixture, "third", D, dependencies: [(B, "1.0.0")]);
+        AddMod(fixture, "last", last, dependencies: [(D, "1.0.0")]);
+        var statuses = Discover(fixture);
+        foreach (var id in new[] { A, B, D })
+            AssertRejected(statuses, id, C.PackageState.DependencyUnavailable, "dependency_cycle");
+        AssertRejected(statuses, last, C.PackageState.DependencyUnavailable, "dependency_missing");
+    }
+
+    [TestMethod]
+    public void Manifest_dependency_fields_keep_original_array_indices()
+    {
+        var fixture = new ContentFixture();
+        var json = Manifest(A, "1.0.0").Replace("\"dependencies\":[]",
+            "\"dependencies\":[false,{\"id\":\"core\",\"name\":false}]", StringComparison.Ordinal);
+        fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json);
+        var status = Discover(fixture).Single(p => p.Metadata?.Id.Value == A);
+        var diagnostics = status.Diagnostics;
+        Assert.IsTrue(diagnostics.Any(d => d.Field == "/dependencies/0"));
+        Assert.IsTrue(diagnostics.Any(d => d.Field == "/dependencies/1/min_version"));
+        Assert.IsTrue(diagnostics.Any(d => d.Field == "/dependencies/1/name"));
+    }
+
+    [TestMethod]
+    [DataRow(false, "dependency_missing", "/dependencies/1")]
+    [DataRow(true, "dependency_version", "/dependencies/1/min_version")]
+    public void Dependency_failures_identify_the_matching_manifest_entry(bool installed, string code, string field)
+    {
+        var fixture = new ContentFixture();
+        if (installed) AddMod(fixture, "source", B);
+        AddMod(fixture, "dependent", A, dependencies: [("core", "0.0.0"), (B, "2.0.0")]);
+        var diagnostic = Discover(fixture).Single(p => p.Metadata?.Id.Value == A).Diagnostics.Single(d => d.Code == code);
+        Assert.AreEqual(field, diagnostic.Field);
+    }
+
+    [TestMethod]
+    public void Duplicate_dependency_fields_include_the_array_index()
+    {
+        var fixture = new ContentFixture();
+        var json = Manifest(A, "1.0.0", (B, "1.0.0")).Replace("\"min_version\":\"1.0.0\"",
+            "\"min_version\":\"1.0.0\",\"min_version\":\"2.0.0\"", StringComparison.Ordinal);
+        fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json);
+        var diagnostic = Discover(fixture).SelectMany(package => package.Diagnostics).Single(d => d.Code == "invalid_json");
+        Assert.AreEqual("/dependencies/0/min_version", diagnostic.Field);
+    }
+
     private static string Manifest(string id, string version, params (string Id, string Minimum)[] dependencies) =>
         JsonSerializer.Serialize(new
         {

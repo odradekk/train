@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
-using K = Train.Core.Contracts;
 
 namespace Train.Content.Tests.Loading;
 
@@ -17,7 +16,7 @@ public sealed class ContentRevisionTests
         var original = first.View;
         var good = original.Core.Goods.Single();
         var appearance = Found(original.FindVoxelAppearance(new("core:block")));
-        var oldBytes = Found(original.FindAsset(((C.VoxelPresentation.Cube)appearance.Presentation).Top));
+        var originalTop = ((C.VoxelPresentation.Cube)appearance.Presentation).Top;
 
         var json = JsonNode.Parse(ContentFixture.VoxelJson)!;
         json["display"]!["name"] = "重涂方块";
@@ -42,9 +41,31 @@ public sealed class ContentRevisionTests
         Assert.AreNotEqual(((C.VoxelPresentation.Cube)appearance.Presentation).Top, ((C.VoxelPresentation.Cube)changedAppearance.Presentation).Top);
         second.Dispose();
         first.Dispose();
-        CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, oldBytes.Bytes.ToArray());
+        var retainedAppearance = Found(original.FindVoxelAppearance(new("core:block")));
+        var retainedTop = ((C.VoxelPresentation.Cube)retainedAppearance.Presentation).Top;
+        Assert.AreEqual(originalTop, retainedTop);
+        CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, Found(original.FindAsset(retainedTop)).Bytes.ToArray());
         Assert.AreEqual(good, original.Voxels.Single().Good);
-        Assert.IsInstanceOfType<C.VoxelCollision.FullBox>(appearance.Collision);
+        Assert.IsInstanceOfType<C.VoxelCollision.FullBox>(retainedAppearance.Collision);
+    }
+
+    [TestMethod]
+    [DataRow("propulsion", "traction")]
+    [DataRow("storage", "capacity")]
+    public void Changing_only_a_behavior_parameter_changes_business_identity(string behavior, string parameter)
+    {
+        var fixture = new ContentFixture();
+        var json = JsonNode.Parse(ContentFixture.VoxelJson)!;
+        json["simulation"]!["behaviors"] = JsonNode.Parse("""{"propulsion":{"traction":25,"rated_speed":20},"storage":{"capacity":25}}""");
+        fixture.AddCube(json.ToJsonString());
+        using var first = fixture.Load();
+        var originalGood = first.View.Core.Goods.Single();
+        json["simulation"]!["behaviors"]![behavior]![parameter] = 30;
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/voxels/block.voxel.json", json.ToJsonString());
+        using var second = fixture.Load();
+        Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(originalGood.Revision, second.View.Core.Goods.Single().Revision);
+        Assert.AreNotEqual(originalGood, second.View.Core.Goods.Single());
     }
 
     [TestMethod]

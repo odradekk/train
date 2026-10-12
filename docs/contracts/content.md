@@ -16,7 +16,7 @@
 | [Authoring.cs](../../Contracts/Content/Authoring.cs) | 已保存草稿、开发表单输入及包文件变更 |
 | [Lifecycle.cs](../../Contracts/Content/Lifecycle.cs) | 工厂、准备、固定读取、保存和复现捕获 |
 
-实现程序集已新增 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`；本票新增的其他类型均为内部实现。宿主的 `App/Composition/` 接入、旧公开路径退役，以及工厂公开面和调用位置的自动检查仍待 #317／#406。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
+实现程序集已新增 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`；候选、视图和解析器等实现类型均为 `internal`。宿主的 `App/Composition/` 接入、旧公开路径退役，以及工厂公开面和调用位置的自动检查仍待 #317／#406。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
 
 ## 身份、版本与数据所有权
 

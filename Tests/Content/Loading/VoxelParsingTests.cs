@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
@@ -151,6 +152,71 @@ public sealed class VoxelParsingTests
         json["id"] = id;
         if (asset is not null) json["appearance"]!["presentation"]!["faces"]!["top"] = asset;
         AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
+    [DataRow("value", "/simulation/value", "invalid_field")]
+    [DataRow("behavior", "/simulation/behaviors/propulsion/rated_speed", "invalid_field")]
+    [DataRow("unknown", "/appearance/presentation/faces/a~0~1b", "invalid_field")]
+    [DataRow("tag", "/simulation/tags/1", "invalid_field")]
+    [DataRow("shape", "/appearance/presentation/shapes/1", "invalid_field")]
+    [DataRow("duplicate", "/appearance/presentation/shapes/1", "invalid_field")]
+    [DataRow("surface", "/appearance/presentation/surface_materials/1", "invalid_field")]
+    [DataRow("schema", "/schema_version", "unsupported_format")]
+    public void Invalid_fields_identify_their_json_pointer(string kind, string pointer, string code)
+    {
+        var json = Document();
+        switch (kind)
+        {
+            case "value": json["simulation"]!["value"] = 0; break;
+            case "behavior": json["simulation"]!["behaviors"] = JsonNode.Parse("""{"propulsion":{"traction":25}}"""); break;
+            case "unknown": json["appearance"]!["presentation"]!["faces"]!["a~/b"] = "tile.png"; break;
+            case "tag": json["simulation"]!["tags"] = JsonNode.Parse("""["raw_good","unknown"]"""); break;
+            case "shape": json["appearance"]!["presentation"]!["shapes"] = JsonNode.Parse("""["cube","unknown"]"""); break;
+            case "duplicate": json["appearance"]!["presentation"]!["shapes"] = JsonNode.Parse("""["cube","cube"]"""); break;
+            case "surface": json["appearance"]!["presentation"] = JsonNode.Parse("""{"kind":"mesh","model":"model.glb","surface_materials":["concrete","unknown"]}"""); break;
+            case "schema": json["schema_version"] = 2; break;
+        }
+        var fixture = new ContentFixture();
+        fixture.AddCube(json.ToJsonString());
+        var result = fixture.Prepare();
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
+        var diagnostic = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Single(d => d.Code == code);
+        Assert.AreEqual(pointer, diagnostic.Field);
+        Assert.AreEqual(new C.ContentSourceLocation(new("core"), "resources/voxels/block.voxel.json"), diagnostic.Source);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Invalid_utf8_voxel_is_a_package_error(bool mod)
+    {
+        const string id = "11111111-1111-4111-8111-111111111111";
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        var bytes = Encoding.UTF8.GetBytes(ContentFixture.VoxelJson.Replace("方块", "invalid-utf8-marker", StringComparison.Ordinal));
+        bytes[bytes.AsSpan().IndexOf("invalid-utf8-marker"u8)] = 0xff;
+        if (mod)
+        {
+            fixture.AddFile(ContentFixture.Mods, "pack/mod.json", """
+                {"schema_version":2,"id":"11111111-1111-4111-8111-111111111111","name":"包","version":"1.0.0","authors":["作者"],"dependencies":[]}
+                """);
+            fixture.Installation = fixture.Installation with { EnabledMods = [new(id)] };
+            fixture.AddFile(ContentFixture.Mods, "pack/resources/voxels/block.voxel.json", bytes);
+            using var candidate = fixture.Load();
+            Assert.AreEqual(1, candidate.View.Voxels.Length);
+            Assert.AreEqual("core:block", candidate.View.Voxels.Single().Definition.Value);
+            var status = candidate.Report.Packages.Single(p => p.Metadata?.Id.Value == id);
+            Assert.AreEqual(C.PackageState.Invalid, status.State);
+            Assert.IsTrue(status.Diagnostics.Any(d => d.Code == "invalid_json"));
+        }
+        else
+        {
+            fixture.AddFile(ContentFixture.BuiltIn, "resources/voxels/block.voxel.json", bytes);
+            var result = fixture.Prepare();
+            Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
+            Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == "invalid_json"));
+        }
     }
 
     private static JsonObject Document() => JsonNode.Parse(ContentFixture.VoxelJson)!.AsObject();

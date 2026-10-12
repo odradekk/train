@@ -9,6 +9,7 @@ internal sealed class LoadPackage(C.ContentRoot root, string prefix, bool builtI
     internal string Prefix { get; } = prefix;
     internal bool BuiltIn { get; } = builtIn;
     internal C.PackageMetadata? Metadata { get; set; }
+    internal bool ImplicitCoreDependency { get; set; }
     internal C.PackageState State { get; set; } = C.PackageState.Available;
     internal List<C.ContentDiagnostic> Diagnostics { get; } = [];
     internal string Resources => Prefix + "resources";

@@ -18,10 +18,6 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
             if (package.State != C.PackageState.Available) continue;
             LoadVoxels(package, loaded);
         }
-        foreach (var group in loaded.GroupBy(item => item.Voxel.Definition.Definition).Where(group => group.Count() > 1))
-            foreach (var item in group)
-                item.Package.Reject("duplicate_identity", item.Package.Resources + "/voxels", "id", "体素身份重复。",
-                    new C.ContentReference.Core(new Train.Core.Contracts.CoreDefinitionReference.Voxel(group.Key)));
         PackageLoader.ExcludeDependents(packages);
         var diagnostics = packages.SelectMany(package => package.Diagnostics).ToImmutableArray();
         if (packages.Any(package => package.BuiltIn && package.State != C.PackageState.Available))
@@ -49,7 +45,12 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                 package.Reject("unsupported_format", path, "", $"当前尚未实现定义种类 {entry.Name}：{path}。");
                 continue;
             }
-            if (entry.Name != "voxels") continue;
+            if (entry.Name != "voxels")
+            {
+                if (entry.Kind == C.ContentEntryKind.Directory)
+                    package.Reject("unsupported_format", path, "", $"未知的定义目录 {entry.Name}：{path}。");
+                continue;
+            }
             if (entry.Kind != C.ContentEntryKind.Directory)
             {
                 package.Reject("invalid_field", path, "", "voxels 必须是目录。");
@@ -63,7 +64,7 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     package.Reject("linked_path", file, "", "体素目录包含无效路径或链接。");
                     continue;
                 }
-                if (definition.Kind != C.ContentEntryKind.File || !definition.Name.EndsWith(".json", StringComparison.Ordinal)) continue;
+                if (definition.Kind != C.ContentEntryKind.File || !definition.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
                 if (!definition.Name.EndsWith(".voxel.json", StringComparison.Ordinal))
                 {
                     package.Reject("unsupported_format", file, "", "体素文件必须使用 .voxel.json 后缀。");
@@ -110,7 +111,8 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     if (top.Metadata is C.AssetMetadata.Png a && side.Metadata is C.AssetMetadata.Png b && bottom.Metadata is C.AssetMetadata.Png c &&
                         (a.Width != b.Width || a.Width != c.Width))
                     {
-                        AssetLoader.Reject(side, package, voxel, "/appearance/presentation/faces/side", "顶面、侧面和底面贴图必须同尺寸。");
+                        AssetLoader.Reject(side, package, voxel, "/appearance/presentation/faces/side",
+                            $"顶面、侧面和底面贴图必须同尺寸；观测顶面 {a.Width}×{a.Height}、侧面 {b.Width}×{b.Height}、底面 {c.Width}×{c.Height}。");
                         valid = false;
                     }
                     presentation = new C.VoxelPresentation.Cube(cube.Shapes, cube.Material, cube.TileSpan, top.Revision, side.Revision, bottom.Revision, front.Revision);

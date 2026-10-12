@@ -31,7 +31,6 @@ public sealed class ContentAssetTests
     [DataRow(48, 48)]
     [DataRow(32, 16)]
     [DataRow(0, 0)]
-    [DataRow(8192, 8192)]
     public void Content_rejects_png_facts_that_violate_face_rules(int width, int height)
     {
         var fixture = new ContentFixture();
@@ -40,6 +39,28 @@ public sealed class ContentAssetTests
         var diagnostics = Rejected(fixture);
         Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Code == "asset_rule_failed" && diagnostic.Subject is not null &&
             diagnostic.Source?.Path == "resources/voxels/block/tile.png" && diagnostic.Field == "/appearance/presentation/faces/top"));
+    }
+
+    [TestMethod]
+    public void Valid_png_dimensions_have_no_unspecified_upper_bound()
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        fixture.AddAsset(ContentFixture.BuiltIn, "resources/voxels/block/tile.png", [1, 2, 3], new C.AssetMetadata.Png(8192, 8192));
+        using var candidate = fixture.Load();
+        Assert.AreEqual(1, candidate.View.Voxels.Length);
+    }
+
+    [TestMethod]
+    public void Png_diagnostics_identify_each_violated_rule_and_observed_dimensions()
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        fixture.AddAsset(ContentFixture.BuiltIn, "resources/voxels/block/tile.png", [1, 2, 3], new C.AssetMetadata.Png(48, 16));
+        var diagnostics = Rejected(fixture).Where(diagnostic => diagnostic.Field == "/appearance/presentation/faces/top").ToArray();
+        Assert.AreEqual(2, diagnostics.Length);
+        Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Message.Contains("正方形", StringComparison.Ordinal) && diagnostic.Message.Contains("48", StringComparison.Ordinal) && diagnostic.Message.Contains("16", StringComparison.Ordinal)));
+        Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Message.Contains("2 的幂", StringComparison.Ordinal) && diagnostic.Message.Contains("48", StringComparison.Ordinal)));
     }
 
     [TestMethod]
@@ -96,7 +117,27 @@ public sealed class ContentAssetTests
             _ => throw new ArgumentOutOfRangeException(nameof(violation))
         };
         Assert.IsTrue(Rejected(Mesh(model)).Any(diagnostic => diagnostic.Code == "asset_rule_failed" &&
-            diagnostic.Source?.Path == "resources/voxels/block/model.glb" && diagnostic.Field == "/appearance/presentation/model"));
+            diagnostic.Source?.Path == "resources/voxels/block/model.glb" && diagnostic.Field ==
+            (violation == "surfaces" ? "/appearance/presentation/surface_materials" : "/appearance/presentation/model")));
+    }
+
+    [TestMethod]
+    public void Model_within_the_documented_bounds_tolerance_is_accepted()
+    {
+        using var candidate = Mesh(ValidModel with { Bounds = new(new(-0.2504, 0, -0.25), new(0.25, 0.5, 0.25)) }).Load();
+        Assert.AreEqual(1, candidate.View.Voxels.Length);
+    }
+
+    [TestMethod]
+    public void Model_diagnostics_separate_surface_count_from_other_observed_rule_failures()
+    {
+        var diagnostics = Rejected(Mesh(ValidModel with { MeshNodeCount = 2, Surfaces = [C.AssetAlphaMode.Blend], HasSkeleton = true }));
+        Assert.AreEqual(4, diagnostics.Length);
+        Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Field == "/appearance/presentation/surface_materials" &&
+            diagnostic.Message.Contains("表面数 1", StringComparison.Ordinal) && diagnostic.Message.Contains("2 项", StringComparison.Ordinal)));
+        Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Field == "/appearance/presentation/model" && diagnostic.Message.Contains("节点数 2", StringComparison.Ordinal)));
+        Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Message.Contains("Blend", StringComparison.Ordinal)));
+        Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Message.Contains("HasSkeleton=True", StringComparison.Ordinal)));
     }
 
     [TestMethod]
