@@ -169,6 +169,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             if (content is null && pending!.IsCompleted)
             {
                 var built = pending.GetAwaiter().GetResult();
+                pending = null;
                 content = built.Content;
                 scenery = Attach(built.Scenery, "");
                 foreach (var item in built.Objects)
@@ -432,6 +433,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             ids.Clear();
             content = null;
             scenery = null;
+            pending = null;
         }
     }
 }
