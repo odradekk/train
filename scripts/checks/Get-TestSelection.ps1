@@ -4,7 +4,7 @@ function Get-TestSelection {
     $selection = [ordered]@{
         mode = if ($All) { 'all' } elseif ($Project.Count) { 'explicit' } else { 'affected' }
         baseRef = $BaseRef; mergeBase = $null; changes = @(); affectedProjects = @()
-        projects = @(); contracts = [bool] $All; schema = [bool] $All; analysis = $null
+        projects = @(); contracts = [bool] $All; isolation = [bool] $All; schema = [bool] $All; analysis = $null
     }
     if ($All -or $Project.Count) {
         $selection.projects = @(if ($All) { $Projects.name } else { $Project })
@@ -29,12 +29,14 @@ function Get-TestSelection {
     )
     $contractPatterns = @(
         'Contracts/*', '*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln',
-        'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt',
+        'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt', 'scripts/checks/project-boundaries.json',
         'builtin/*.png', 'builtin/*.glb', 'builtin/*.png.import', 'builtin/*.glb.import'
     )
+    $isolationPatterns = @('*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln', 'scripts/checks/project-boundaries.json', 'Tests/ContractChecks/*')
     foreach ($file in $files) {
         $selection.changes += @{ path = $file; project = $null; sharedRules = @($sharedPatterns | Where-Object { $file -like $_ }) }
         if (@($contractPatterns | Where-Object { $file -like $_ }).Count) { $selection.contracts = $true }
+        if (@($isolationPatterns | Where-Object { $file -like $_ }).Count) { $selection.isolation = $true }
         if ($file -like 'docs/content/*') { $selection.schema = $true }
     }
 

@@ -33,6 +33,6 @@ AssetLease<ModelAsset> AcquireModel(ContentAsset asset);
 
 ## Keep File 与验证
 
-每个新增 `builtin/**` PNG／GLB 都必须提交 `.import`，且 `[remap]` 中 `importer="keep"`。统一入口在资产或导入配置变化时选择项目边界检查，由 `common-checks.ps1` 扫描全部内置资产；缺失或非 keep 都失败。
+每个新增 `builtin/**` PNG／GLB 都必须提交 `.import`，且 `[remap]` 中 `importer="keep"`。统一入口在资产或导入配置变化时选择项目边界检查，由 C# `Train.ContractChecks structure` 扫描全部内置资产；缺失或非 keep 都失败。
 
 验证入口和资产导出探针的范围见[统一测试入口](run-tests.md#选择)。完整宿主隔离、真实四模块联调及生产资源装配仍由后续票验证。

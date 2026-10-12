@@ -15,11 +15,12 @@ internal sealed class LoadPackage(C.ContentRoot root, string prefix, bool builtI
     internal string Resources => Prefix + "resources";
     internal C.PackageStatus Status => new(Metadata, Root, State, Diagnostics.ToImmutableArray());
 
-    internal void Reject(string code, string path, string field, string message, C.ContentReference? subject = null)
+    internal void Reject(string code, string path, string field, string message, C.ContentReference? subject = null,
+        C.DesignElementPath? element = null)
     {
         State = C.PackageState.Invalid;
         Diagnostics.Add(new(code, C.ContentDiagnosticSeverity.Error, "load", subject,
-            Metadata is null ? null : new(Metadata.Id, path), field, null,
+            Metadata is null ? null : new(Metadata.Id, path), field, element,
             Metadata is null && path.Length > 0 ? path + ": " + message : message));
     }
 }
