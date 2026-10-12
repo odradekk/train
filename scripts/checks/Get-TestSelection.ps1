@@ -29,7 +29,8 @@ function Get-TestSelection {
     )
     $contractPatterns = @(
         'Contracts/*', '*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln',
-        'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt'
+        'prototypes/*', 'Tests/ContractChecks/*', 'docs/contracts/public-api.txt',
+        'builtin/*.png', 'builtin/*.glb', 'builtin/*.png.import', 'builtin/*.glb.import'
     )
     foreach ($file in $files) {
         $selection.changes += @{ path = $file; project = $null; sharedRules = @($sharedPatterns | Where-Object { $file -like $_ }) }

@@ -36,3 +36,22 @@ function Get-AssemblyReferenceNames($Metadata) {
 function Test-TestSdkCompileSource([string] $Path) {
     return $Path -match '[\\/]microsoft\.net\.test\.sdk[\\/][^\\/]+[\\/]build[\\/]netcoreapp3\.1[\\/]Microsoft\.NET\.Test\.Sdk\.Program\.cs$'
 }
+
+function Get-BuiltInImportFailures([string] $Root) {
+    $builtin = Join-Path $Root 'builtin'
+    if (-not (Test-Path -LiteralPath $builtin)) { return }
+    foreach ($asset in Get-ChildItem -LiteralPath $builtin -Recurse -File) {
+        if ($asset.Extension.ToLowerInvariant() -notin @('.png', '.glb')) { continue }
+        $import = $asset.FullName + '.import'
+        if (-not (Test-Path -LiteralPath $import -PathType Leaf)) {
+            "Keep File import missing: $($asset.FullName)"
+            continue
+        }
+        $text = [IO.File]::ReadAllText($import)
+        $remap = [regex]::Match($text, '(?ms)^\[remap\]\s*\r?\n(.*?)(?=^\[|\z)')
+        $importers = [regex]::Matches($remap.Groups[1].Value, '(?m)^\s*importer\s*=\s*(.*?)\s*$')
+        if (-not $remap.Success -or $importers.Count -ne 1 -or $importers[0].Groups[1].Value -ne '"keep"') {
+            "Keep File importer required: $import"
+        }
+    }
+}

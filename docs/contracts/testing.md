@@ -34,7 +34,7 @@
 | 体素引擎层 | `Scenes/Train.Scenes.csproj` 与独立的 `Train.Scenes.Tests` | 体素、内容、核心契约 | 用核心查询和内容访问替身供给情景；真实体素实现生成场景数据、拾取及编辑结果，不依赖 Godot |
 | Godot 层 | 根 `Train.csproj` 的隔离装配与本模块真实引擎 runner | 三个契约 | 替换核心、内容和体素实现；真实宿主执行启动、交互、资源及文件适配。普通 .NET 测试可补充纯逻辑检查，不能替代引擎 runner |
 
-Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次摘要中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台和物理存档，不提供真实引擎或隔离装配证据。Scenes 尚无可运行实现与用例。`Tests/Engine/Train.Engine.Tests.csproj` 在真实 Godot 中验证当前 App 集成行为，与普通 .NET 宿主测试分开；它不证明目标 Godot 隔离装配或真实工厂契约通过。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
+Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次摘要中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台、物理存档和磁盘内容端口，不提供真实引擎或隔离装配证据。Scenes 尚无可运行实现与用例。`Tests/Engine/Train.Engine.Tests.csproj` 在真实 Godot 中验证当前 App 集成行为及[资产端口](../godot-assets.md)，与普通 .NET 宿主测试分开；它不证明目标 Godot 隔离装配或真实工厂契约通过。`Tests/AssetExport/Train.AssetExport.csproj` 仅以链接编译 `App/Assets/` 的同份生产源码，引用 Core／Content 契约，用于资产代码的实际隔离构建与 PCK／Windows 导出验证，接入 `-Layer engine -ExportWindows`；它没有第二套引擎 runner，也不替代完整宿主隔离或阶段联调。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
 
 ## 共享用例、样例与替身
 
@@ -151,7 +151,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 
 ## 结果与证据
 
-当前每次运行使用 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/summary.json`，通过只留这一份摘要，失败保留原生 TRX、JUnit、引擎日志等全部证据；不生成第二份测试报告。以下是契约验证接入时需补齐的证据，不表示当前摘要已包含尚未实现的隔离与工厂信息：
+当前每次运行使用 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/summary.json`，普通运行通过只留这一份摘要，显式 Windows 导出另保留产物和导出／隔离证据，失败保留原生 TRX、JUnit、引擎日志等全部证据；不生成第二份测试报告。以下是契约验证接入时需补齐的证据，不表示当前摘要已包含尚未实现的隔离与工厂信息：
 
 - 被测提交与脏状态、所依据的契约基线；原型没有正式基线时记录实际声明版本，不虚构基线通过。
 - 模块、构建配置、选择及实际执行命令，构建与测试耗时、环境和相关输入身份。

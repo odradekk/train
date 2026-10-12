@@ -15,7 +15,7 @@ $failures = [Collections.Generic.List[string]]::new()
 $matrix = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
 $projects = [ordered]@{}
 $expectedFriends = @{ 'Train.Core' = @('Train.Core.Tests'); 'Train.Content' = @('Train.Content.Tests'); 'Train' = @('Train.Godot.Tests', 'Train.Engine.Tests') }
-$godotProjects = @('Train', 'Train.Godot.Tests', 'Train.Engine.Tests', 'Train.Godot.ContractSamples')
+$godotProjects = @('Train', 'Train.Godot.Tests', 'Train.Engine.Tests', 'Train.AssetExport', 'Train.Godot.ContractSamples')
 foreach ($name in $matrix.projects.Keys) {
     $projects[$name] = $matrix.projects[$name].path
 }
@@ -38,6 +38,7 @@ function Get-StructureFailureExitCode([string] $Kind) {
 
 Push-Location $root
 try {
+    foreach ($failure in @(Get-BuiltInImportFailures $root)) { Add-Failure $failure }
     $trackedProjects = @(& git ls-files --cached --others --exclude-standard -- '*.csproj' | Where-Object { $_ -notlike 'archive/*' })
     if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('blocked project inventory'); exit 2 }
     foreach ($path in $trackedProjects) {
@@ -111,7 +112,10 @@ try {
             $owner = Split-Path -Parent $project
             # Microsoft.NET.Test.Sdk 注入的 Program.cs 在 NuGet 缓存内，不属于仓库的生产源码。
             if (Test-TestSdkCompileSource $path) { continue }
-            if (-not (Test-ChildPath $path $owner)) { Add-Failure "linked source outside owner: $name ($path)" }
+            $assetExportSource = $name -eq 'Train.AssetExport' -and (
+                (Test-ChildPath $path (Join-Path $root 'App/Assets')) -or
+                $path.Equals([IO.Path]::GetFullPath((Join-Path $root 'Tests/Engine/Assets/GlbFixture.cs')), [StringComparison]::OrdinalIgnoreCase))
+            if (-not (Test-ChildPath $path $owner) -and -not $assetExportSource) { Add-Failure "linked source outside owner: $name ($path)" }
             $hostPath = [IO.Path]::GetRelativePath($root, $path)
             if ($name -eq 'Train' -and -not ($hostPath -match '^(App|Ui|Rendering)[\\/]|^\.godot[\\/]mono[\\/]temp[\\/]obj[\\/]' -or
                 ($projectConfiguration -eq 'Debug' -and $hostPath -match '^Tests[\\/]Engine[\\/]Bootstrap[\\/]'))) {
