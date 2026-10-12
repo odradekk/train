@@ -1,11 +1,14 @@
 param(
     [string[]] $Layer = @('fast'),
     [string[]] $Project = @(),
+    [string] $BaseRef = 'origin/master',
+    [switch] $All,
     [switch] $ExportWindows
 )
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+. (Join-Path $PSScriptRoot 'checks/Get-TestSelection.ps1')
 $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 Set-Location $root
 $layers = @(($Layer -join ',') -split ',' | Select-Object -Unique)
@@ -13,6 +16,7 @@ if (@($layers | Where-Object { $_ -notin @('fast', 'integration', 'engine', 'all
 if ('all' -in $layers) { $layers = @('fast', 'integration', 'engine') }
 $Project = @(($Project -join ',') -split ',' | Where-Object { $_ } | Select-Object -Unique)
 if (@($Project | Where-Object { $_ -notin @('core', 'content', 'godot', 'contract-support') }).Count) { throw 'Unknown test project.' }
+if ($All -and $Project.Count) { throw '-All and -Project cannot be combined.' }
 if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $IsWindows)) { throw '-ExportWindows requires engine, no -Project, and Windows.' }
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -ne 'engine' }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
@@ -22,6 +26,7 @@ $projects = @(
     @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 12; integration = 35; engine = 8 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 13; integration = 0 }
 )
+$engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
 $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE) { throw 'Cannot identify tested commit.' }
@@ -53,7 +58,7 @@ function Get-Snapshot([string] $Path, [switch] $Workspace) {
             [IO.Path]::GetRelativePath($root, $_.FullName) -notmatch '(^|[\\/])(bin|obj|\.godot|\.git)([\\/]|$)')
     } | ForEach-Object { if ($Workspace) { $_.FullName } else { "$($_.FullName)|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)" } } | Sort-Object)
 }
-$summary = [ordered]@{ commit = $commit; gitBefore = @(git status --porcelain=v1); selection = @{ layers = $layers; projects = @($projects.name); exportWindows = [bool] $ExportWindows }; checks = @(); layers = @(); outcome = 'failed' }
+$summary = [ordered]@{ commit = $commit; gitBefore = @(git status --porcelain=v1); selection = @{ layers = $layers; baseRef = $BaseRef; projects = @(); exportWindows = [bool] $ExportWindows }; checks = @(); layers = @(); outcome = 'failed' }
 $workspaceBefore = [Collections.Generic.HashSet[string]]::new([string[]] @(Get-Snapshot $root -Workspace), [StringComparer]::Ordinal)
 $userBefore = @(Get-Snapshot $userRoot) -join "`n"
 $pwsh = (Get-Process -Id $PID).Path
@@ -82,7 +87,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
             $check.report = $junit
         }
         $summary.checks += [pscustomobject] $check
-        $minimum = ($projects | Where-Object name -eq 'godot').engine
+        $minimum = $engineProject.engine
         if (-not (Test-Path $junit) -or $check.executed -lt $minimum -or $check.failed -or $result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) {
             throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
         }
@@ -102,15 +107,27 @@ function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [strin
     Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
 }
 try {
-    Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
+    $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -Project $Project -Projects $projects -OutputDirectory $run
+    $summary.selection.layers = $layers
+    $summary.selection.exportWindows = [bool] $ExportWindows
+    $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })
+    $selectedLayers = @($layers | Where-Object {
+        $_ -eq 'engine' -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.schema))
+    })
+    if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or 'engine' -in $selectedLayers)) {
+        Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
+    } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
         $budget = @{ fast = 30; integration = 180; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
+        $selected = $current -in $selectedLayers
         try {
+            if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -ne 'engine') {
                 $deadline = [DateTime]::UtcNow.AddSeconds($budget)
                 $helper = Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1'
-                $results = @($projects | ForEach-Object -Parallel {
+                $results = @()
+                if ($projects.Count) { $results = @($projects | ForEach-Object -Parallel {
                     . $using:helper
                     $current = $using:current
                     $minimum = $_[$current]
@@ -123,7 +140,7 @@ try {
                     $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$name.trx", '--timeout', "${remaining}s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
                     if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
                     [pscustomobject]@{ name = $name; arguments = $arguments; result = (Invoke-HiddenProcess -FilePath dotnet -ArgumentList $arguments -TimeoutSeconds $remaining) }
-                } -ThrottleLimit $projects.Count)
+                } -ThrottleLimit $projects.Count) }
                 $failure = $null
                 foreach ($item in $results) {
                     try { Add-CheckResult $item.name $current dotnet $item.arguments $item.result }
@@ -131,9 +148,9 @@ try {
                 }
                 if ($failure) { throw $failure }
                 if ($results.Count -ne $projects.Count) { throw "$current did not complete every selected project." }
-                if (-not $Project.Count -and $current -eq 'integration') {
-                    Invoke-Check contracts $current $pwsh @('-NoProfile', '-File', 'scripts/checks/check-project-boundaries.ps1', '-NoSolutionBuild', '-OutputDirectory', (Join-Path $run 'contracts')) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
-                    Invoke-Check schema $current $pwsh @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                if ($current -eq 'integration') {
+                    if ($summary.selection.contracts) { Invoke-Check contracts $current $pwsh @('-NoProfile', '-File', 'scripts/checks/check-project-boundaries.ps1', '-NoSolutionBuild', '-OutputDirectory', (Join-Path $run 'contracts')) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)) }
+                    if ($summary.selection.schema) { Invoke-Check schema $current $pwsh @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)) }
                 }
             } else {
                 $watch.Stop()
@@ -167,7 +184,7 @@ try {
             if ($watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
             if (-not ($summary.checks | Where-Object layer -eq $current | Measure-Object executed -Sum).Sum) { throw "$current executed no tests." }
         } finally {
-            $layerSummary = @{ name = $current; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
+            $layerSummary = @{ name = $current; selected = [bool] $selected; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
         }
