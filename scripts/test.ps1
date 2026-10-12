@@ -23,10 +23,11 @@ if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
     @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 245; integration = 4 },
     @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 189; integration = 7 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 12; integration = 35 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 12; integration = 35; engine = 8 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 13; integration = 0 },
     @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 1; integration = 4 }
 )
+$engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
 $commit = (git rev-parse HEAD).Trim()
 if ($LASTEXITCODE) { throw 'Cannot identify tested commit.' }
@@ -65,6 +66,7 @@ $pwsh = (Get-Process -Id $PID).Path
 $contractTool = Join-Path $root 'Tests/ContractChecks/bin/Debug/net10.0/Train.ContractChecks.dll'
 $contractBaseline = Join-Path $root 'docs/contracts/public-api.txt'
 $started = [Diagnostics.Stopwatch]::StartNew()
+$engineUserRoot = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
     Write-Host $result.Output
@@ -75,6 +77,24 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
         $counts = $report.TestRun.ResultSummary.Counters
         foreach ($count in @('total', 'executed', 'passed', 'failed')) { $check[$count] = [int] $counts.$count }
         $check.skipped = [int] $counts.notExecuted + [int] $counts.inconclusive
+    } elseif ($Name -eq 'engine-godot') {
+        $junit = Join-Path $run "$Name.junit.xml"
+        if (Test-Path $junit) {
+            [xml] $report = Get-Content $junit -Raw
+            $cases = @($report.SelectNodes('//testcase'))
+            $check.total = $cases.Count
+            $check.failed = @($cases | Where-Object { $_.SelectSingleNode('failure') -or $_.SelectSingleNode('error') }).Count
+            $check.skipped = @($cases | Where-Object { $_.SelectSingleNode('skipped') }).Count
+            $check.executed = $check.total - $check.skipped
+            $check.passed = $check.executed - $check.failed
+            $check.report = $junit
+        }
+        $summary.checks += [pscustomobject] $check
+        $minimum = $engineProject.engine
+        if (-not (Test-Path $junit) -or $check.executed -lt $minimum -or $check.failed -or $result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) {
+            throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
+        }
+        return
     } elseif ($Name -match '^(fast|integration)-(core|content|godot|contract-support|contract-checks)$') {
         $summary.checks += [pscustomobject] $check
         throw "$Name did not produce its required TRX report."
@@ -189,21 +209,24 @@ try {
                     New-Item -ItemType Directory -Force -Path $directory | Out-Null
                     [Environment]::SetEnvironmentVariable($name, $directory)
                 }
+                $engineUserRoot = if ($IsWindows) { Join-Path $env:APPDATA 'Godot/app_userdata/Train' } else { Join-Path $env:XDG_DATA_HOME 'godot/app_userdata/Train' }
                 Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
-                $checks = @('logging', 'content', 'main-menu', 'simulation-host')
                 $binary = Join-Path $run 'exports/windows/train.exe'
                 if ($ExportWindows) {
                     New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
                     $env:APPDATA = $environment.APPDATA
                     try { Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120 }
                     finally { $env:APPDATA = Join-Path $run $paths.APPDATA }
-                    $checks += @('content-export', 'mods-export')
                 }
                 $watch.Start()
-                foreach ($check in $checks) {
-                    $arguments = @('-NoProfile', '-File', 'scripts/checks/run-app-check.ps1', '-Check', $check, '-OutputDirectory', (Join-Path $run $check), '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))")
-                    if ($check -like '*-export') { $arguments += @('-ExecutablePath', $binary) }
-                    Invoke-Check $check $current $pwsh $arguments ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                foreach ($name in @('TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL')) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
+                $env:TRAIN_ENGINE_TEST_ASSEMBLY = Join-Path $root '.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll'
+                $env:TRAIN_ENGINE_REPORT = Join-Path $run 'engine-godot.junit.xml'
+                $env:TRAIN_LOG_LEVEL = 'info'
+                Invoke-Check engine-godot $current $env:GODOT @('--headless', '--path', $root, '--scene', 'res://Tests/Engine/Bootstrap/Runner.tscn', '--log-file', (Join-Path $run 'engine-godot-native.log'), '--', '--run-tests', '--quit-on-finish') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                if ($ExportWindows) {
+                    $arguments = @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))")
+                    Invoke-Check export-smoke $current $pwsh $arguments ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 }
             }
             if ($current -ne 'stage' -and $watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
@@ -217,6 +240,15 @@ try {
     $summary.outcome = 'passed'
 } catch { $summary.error = $_.Exception.Message; Write-Error $_ -ErrorAction Continue }
 finally {
+    if ($engineUserRoot -and (Test-Path -LiteralPath $engineUserRoot)) {
+        try {
+            $ownedUserRoot = [IO.Path]::GetFullPath($engineUserRoot)
+            if (-not $ownedUserRoot.StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Engine user data escaped the run directory.' }
+            $logs = Join-Path $ownedUserRoot 'logs'
+            if (Test-Path -LiteralPath $logs) { Copy-Item -LiteralPath $logs -Destination (Join-Path $run 'engine-session-logs') -Recurse }
+            Remove-Item -LiteralPath $ownedUserRoot -Recurse -Force
+        } catch { $summary.outcome = 'failed'; $summary.error = "User data cleanup failed: $($_.Exception.Message)" }
+    }
     $workspaceAfter = [Collections.Generic.HashSet[string]]::new([string[]] @(Get-Snapshot $root -Workspace), [StringComparer]::Ordinal)
     $summary.newFiles = @($workspaceAfter | Where-Object { -not $workspaceBefore.Contains($_) })
     $summary.removedFiles = @($workspaceBefore | Where-Object { -not $workspaceAfter.Contains($_) })

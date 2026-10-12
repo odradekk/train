@@ -59,7 +59,8 @@
         "Train.Scenes"
       ],
       "friends": [
-        "Train.Godot.Tests"
+        "Train.Godot.Tests",
+        "Train.Engine.Tests"
       ]
     },
     "Train.Core.ContractSupport": {
@@ -113,6 +114,10 @@
       "references": [
         "Train"
       ]
+    },
+    "Train.Engine.Tests": {
+      "path": "Tests/Engine/Train.Engine.Tests.csproj",
+      "references": ["Train"]
     },
     "Train.Core.ContractSamples": {
       "path": "prototypes/core-contract/Train.Core.ContractSamples.csproj",

@@ -126,7 +126,8 @@ internal static class ProjectAnalysis
                 if (name == "Train")
                 {
                     var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
-                    if (!new[] { "App/", "Ui/", "Rendering/", ".godot/mono/temp/obj/" }.Any(relative.StartsWith))
+                    if (!new[] { "App/", "Ui/", "Rendering/", ".godot/mono/temp/obj/" }.Any(relative.StartsWith) &&
+                        !(projectConfiguration == "Debug" && relative.StartsWith("Tests/Engine/Bootstrap/", StringComparison.Ordinal)))
                         projectFailures.Add("host compiles foreign source: " + path);
                 }
             }
@@ -160,7 +161,7 @@ internal static class ProjectAnalysis
 
             void CheckDependency(string target, string kind)
             {
-                if (name is not ("Train" or "Train.Godot.Tests" or "Train.Godot.ContractSamples") && target.StartsWith("GodotSharp", StringComparison.Ordinal))
+                if (name is not ("Train" or "Train.Godot.Tests" or "Train.Engine.Tests" or "Train.Godot.ContractSamples") && target.StartsWith("GodotSharp", StringComparison.Ordinal))
                     projectFailures.Add($"forbidden {kind}: {name} -> {target}");
                 if (IsFirstParty(target) && !closure.Contains(target)) projectFailures.Add($"forbidden {kind}: {name} -> {target}");
             }

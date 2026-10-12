@@ -21,21 +21,23 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer stage
 pwsh -NoProfile -File scripts/test.ps1 -BaseRef HEAD
 # 只选择 MSTest 项目
 pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration -Project core,content
-# 引擎层与两项 Windows 导出运行检查
+# 引擎层与 Windows 导出冒烟（一个检查、两次运行）
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
+# 全仓验收，包含全部层及 Windows 导出冒烟
+pwsh -NoProfile -File scripts/test.ps1 -All -Layer all -ExportWindows
 ```
 
 `-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`godot`、`contract-support`、`contract-checks` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用。
 
-无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
+无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
 
 快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
-引擎层经 `scripts/checks/run-app-check.ps1` 执行 logging、content、main-menu 和 simulation-host 四项当前 App 检查，需要 `GODOT`。[#405](https://github.com/odradekk/train/issues/405)将改用引擎内运行器，命令行保持不变。显式导出选择另外运行 content-export、mods-export，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
+引擎层在真实 Godot 中运行 `Tests/Engine/Train.Engine.Tests.csproj` 的当前 App 集成用例，需要 `GODOT`。独立测试程序集固定使用 Chickensoft.GoDotTest 2.0.47 和 GodotTestDriver 3.1.83；根项目仅在 Debug 编译 `Tests/Engine/Bootstrap/Runner.tscn` 的启动代码，加载外部测试 DLL 并生成 JUnit；当前引擎最低用例数为 8。Release、ExportDebug 和 ExportRelease 排除测试代码、启动场景和测试依赖。这些用例不证明目标四模块的隔离装配。显式导出选择另用 `scripts/checks/run-export-smoke.ps1` 执行一个导出冒烟检查，对同一次 Windows 导出运行两次 `--smoke`，需要 Windows 和匹配的导出模板。Benchmark、长测、额外平台和人工观察不在 `all` 中。
 
 ## 按改动选择
 
-默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从五个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。显式引擎层和阶段层照常执行；单独选择 stage 时完全跳过改动分析。
+默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从五个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。显式引擎层不参与改动筛选，始终执行当前全部引擎用例；阶段层照常执行；单独选择 stage 时完全跳过改动分析。
 
 以下共享文件改动选择全部 MSTest 项目：`Contracts/**`、任意层级的 `Directory.Build.*`、`global.json`、`docs/content/schemas/**`、`Tests/ContractSupport/**`、`Train.sln`、`.config/dotnet-tools.json`、`scripts/test.ps1`、`scripts/checks/**`。工作流 YAML 不在共享列表中。
 
@@ -49,14 +51,18 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。单独的 Schema 检查只调用 Python，不构建。C# 工具随解决方案构建；structure 串行处理四组调用样例，每组在同一个 `msbuild -restore -t:Build` 进程中构建并求值，使用 `BuildProjectReferences=false` 和 `RestoreRecursive=false` 避免写入共享契约产物；样例仍不加入解决方案。verify 检查公开面和类型归属，isolate 按[矩阵选择规则](contracts/testing.md#实际隔离与结构检查)重新构建隔离输入并运行用例。阶段层始终依次执行这三个命令；混选集成层和阶段层时，各自执行所需检查。
 
-各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。集成层选中的 MSTest 项目和 structure、verify、isolate、Schema 共用一个任务队列与 180 秒截止时间，通过已有的 `ForEach-Object -Parallel` 执行，最多 4 个任务并发，较重任务排在前面；汇总与清理仍由父流程完成。快速层保持原有 MSTest 并行执行方式，每个项目保留各自的最低用例数、TRX、超时和挂起转储。阶段层不设总预算，串行执行 structure、verify、isolate，子进程上限分别为 300、120、300 秒；引擎检查仍串行执行。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一工作树不允许并发运行入口。
+各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。集成层选中的 MSTest 项目和 structure、verify、isolate、Schema 共用一个任务队列与 180 秒截止时间，通过已有的 `ForEach-Object -Parallel` 执行，最多 4 个任务并发，较重任务排在前面；汇总与清理仍由父流程完成。快速层保持原有 MSTest 并行执行方式，每个项目保留各自的最低用例数、TRX、超时和挂起转储。阶段层不设总预算，串行执行 structure、verify、isolate，子进程上限分别为 300、120、300 秒；引擎检查仍串行执行。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；导出冒烟的两次运行共享一次 Windows 发布导出。同一工作树不允许并发运行入口。
 
-content 检查自己在输出目录准备 `content-input/initial`、`content-input/added`，复制粮食体素和共用图片，生成市场表、聚居地类型及新增 `smoke-ore` 探针，验证同一重载器的新增与移除。导出过滤包含内容 JSON 与 PNG；PNG 使用 `importer=keep` 保留原始字节。通过必须同时满足退出码 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
+`AppTests` 验证 App 启动时通过 Godot 资源加载内置内容，以及重载输入发布新内容代次；日志用例通过 `OS.AddLogger` 注册的 `Godot.Logger` 回调观测真实 Godot 输出，同时检查控制台缓冲、后台事件队列、JSONL 和退出时的日志释放；菜单用例发送退出按钮信号，以替换的退出操作断言 App 请求退出。`ContentTests` 使用真实内容源和物理夹具验证重载新增、移除及旧快照保留。`SimulationTests` 推进真实帧并通过控制台操作验证会话控制，另检查命令、步进、检查点、重绑定，以及故障回滚、冻结和诊断。引擎结果要求退出码、JUnit 结果及最低用例数均满足入口规则；实际执行、通过、失败和跳过数写入摘要，不以帧数或超时退出证明通过。
 
-检查输入、临时文件、运行日志、导出产物和测试用户数据写入运行目录，`TEMP`、`TMP`、`TMPDIR` 指向其中的 `tmp`。Godot 原生日志通过 `--log-file` 定向；导入和导出用 `--recovery-mode` 跳过编辑器插件。导入和 App 检查将 Windows 的 `APPDATA`、`LOCALAPPDATA`，或非 Windows 的 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_CACHE_HOME` 指向运行目录；只有导出步骤保留真实 APPDATA 以访问模板。导出是隔离的例外：Godot 仍可能改写真实 `Godot/editor_settings-4.7.tres` 和 `Godot/mono/build_logs/`；不能由导出通过推断真实 Godot 目录未变化。每项 App 检查使用独立用户目录。入口比较运行前后的快照：在 `bin/`、`obj/`、`.godot/`、`.git/` 和本次运行目录之外新增或删除文件、Git 状态或 HEAD 变化、真实 `Godot/app_userdata/Train` 下文件变化，均导致整次失败。运行期间不要修改工作树；保留已有 `override.cfg`。
+导出冒烟的两次运行分别使用空用户目录和有效 Mod 用户目录，都必须退出 0 并提供 JSONL 证据。生产 `--smoke` 验证内容重载提交、核心粮食和 PNG 加载，不接收测试专用预期参数。脚本核对 Mod 运行的 Info 事件：`content_mods_scan_summary` 的 `accepted_count=1`、`isolated_count=0`；`content_reload_summary` 的状态为 `Committed` 或 `CommittedWithWarnings`，accepted 数比空目录运行增加 1。
+
+检查输入、临时文件、运行日志、导出产物和测试用户数据写入运行目录，`TEMP`、`TMP`、`TMPDIR` 指向其中的 `tmp`。Godot 原生日志通过 `--log-file` 定向；导入和导出用 `--recovery-mode` 跳过编辑器插件。导入、引擎测试和导出冒烟将 Windows 的 `APPDATA`、`LOCALAPPDATA`，或非 Windows 的 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_CACHE_HOME` 指向运行目录；只有导出步骤保留真实 APPDATA 以访问模板。导出是环境隔离的例外：Godot 仍可能改写真实 `Godot/editor_settings-4.7.tres` 和 `Godot/mono/build_logs/`；不能由导出通过推断真实 Godot 目录未变化。引擎测试与导出冒烟的两次运行使用隔离用户目录，运行结束后清理目录；JSONL 日志先复制到运行证据目录。入口比较运行前后的快照：在 `bin/`、`obj/`、`.godot/`、`.git/` 和本次运行目录之外新增或删除文件、Git 状态或 HEAD 变化、真实 `Godot/app_userdata/Train` 下文件变化，均导致整次失败。运行期间不要修改工作树；保留已有 `override.cfg`。
 
 ## 结果与保留
 
-每次运行目录为 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/`，目录名中的时间为 UTC，只产生一份 `summary.json` 摘要。摘要记录提交、工作区状态、选择、构建、各项目与各层的执行／通过／失败／跳过数、用时和结论。跳过数记入摘要，整次运行仍可以通过，但跳过的用例不算已验证；脏工作区结果不能证明所记录的干净提交通过。
+每次运行目录为 `TestResults/<选择层>-<yyyyMMddTHHmmssfff>-<7位提交>/`，目录名中的时间为 UTC，只产生一份 `summary.json` 摘要。摘要记录提交、工作区状态、选择、构建、各项目与各层的执行／通过／失败／跳过数（引擎用例来自 JUnit）、用时和结论。跳过数记入摘要，整次运行仍可以通过，但跳过的用例不算已验证；脏工作区结果不能证明所记录的干净提交通过。
 
-隔离工具在所有结局下删除自己拥有的隔离树，删除失败判失败，保留清单和日志。通过后只保留摘要；失败保留 TRX、日志、输入和转储等全部证据。入口只保留最近 10 个符合命名规则的运行目录；入口持有该工作树的命名互斥锁时，没有 `summary.json` 的运行目录一律视为崩溃遗留并清理。未取得互斥锁则拒绝同工作树新运行。`TestResults/` 下其他目录不清理。结果只有通过或失败；必需检查失败、缺少环境或未完成时返回退出码 1；人工、目标硬件和尚未实现的验证另行报告。
+隔离工具在所有结局下删除自己拥有的隔离树，删除失败判失败，保留清单和日志。通过后只保留摘要；失败保留 TRX、JUnit、日志、输入和转储等全部证据，其中引擎结果为 `engine-godot.junit.xml`，原生日志为 `engine-godot-native.log`。入口只保留最近 10 个符合命名规则的运行目录；入口持有该工作树的命名互斥锁时，没有 `summary.json` 的运行目录一律视为崩溃遗留并清理。未取得互斥锁则拒绝同工作树新运行。`TestResults/` 下其他目录不清理。结果只有通过或失败；必需检查失败、缺少环境或未完成时返回退出码 1；人工、目标硬件和尚未实现的验证另行报告。
+
+定位单个引擎用例时，先构建 `dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug` 并完成资源导入；设置 `TRAIN_ENGINE_TEST_ASSEMBLY` 为 `.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll` 的绝对路径，`TRAIN_ENGINE_REPORT` 为要保存的 JUnit 文件绝对路径。然后运行 `& $env:GODOT --headless --path . --scene res://Tests/Engine/Bootstrap/Runner.tscn -- --run-tests=<类>[.<方法>] --quit-on-finish`，将选择表达式替换为类名或类名加方法名；此直接运行不执行统一入口的最低用例数、目录隔离与快照检查。
