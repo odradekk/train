@@ -1,72 +1,74 @@
 # Implementation Standard Operating Procedure
 
-Use this procedure for pair programming on an assigned Issue: the developer and the implementation agent discuss and design together, the agent implements, and the developer supervises every step. The goal is that the developer understands and agrees with every change, and that the work stays within the Issue. Workspace preparation, acceptance and user-approved closeout belong to the coordinator under [dispatch-sop.md](dispatch-sop.md). GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
+Use this procedure as the worker of one Issue. The worker implements, tests and delivers the Issue under the direction of its reviewer, who follows [review-sop.md](review-sop.md). Scheduling, merging and closure belong to the coordinator under [dispatch-sop.md](dispatch-sop.md). GitHub operations follow [issue-tracker.md](agents/issue-tracker.md).
 
 ## Scope and authority
 
-Work only in the assigned worktree, branch and Issue scope, and keep the worktree for review and revision. The developer directs the session: commit, push the task branch, open or update the PR, and post Issue comments only when the developer asks, under the [dispatch authority](dispatch-sop.md#roles-and-authority). Design choices and scope belong to the developer; changing Acceptance criteria requires the user's decision. Acceptance checkboxes, technical acceptance, merge, worktree reclamation, Issue closure and version updates belong to the coordinator and user. Preserve published history.
+Work only in the assigned worktree, branch and Issue scope. You may commit, push the task branch with `git push -u origin <branch>`, open and update the PR, and post Issue comments. Do not push to master, merge, force-push, rebase a pushed branch, close Issues, check Acceptance criteria or change their wording.
+
+You talk only to your reviewer. Each of your turns ends with a reply to the reviewer whose last line is one of:
+
+- `WORKER: plan` — your plan is ready for approval.
+- `WORKER: question` — you need a decision before continuing.
+- `WORKER: delivered <PR URL> <head SHA>` — the PR and completion comment are ready for review.
+- `WORKER: blocked` — you cannot continue; say why and what is needed.
+
+The reviewer decides design choices the docs leave open. Do not make such choices silently or widen the scope; ask instead.
 
 For Godot scene, resource, editor or runtime work, use the project's Godot MCP Native plugin (`addons/godot_mcp/`) under [Godot MCP validation](#godot-mcp-validation).
 
 ## 0. Prepare
 
-Read the Issue body and discussion, including the coordinator's dispatch comment, `AGENTS.md`, the referenced design docs/ADRs and the [Testing standard](#testing-standard). Verify the absolute worktree, task branch, baseline, PR base and Godot MCP assignment recorded in the dispatch comment, preserving unrelated changes. For staged work, verify the assigned stage and its prerequisites under [Stage integration](dispatch-sop.md#stage-integration); do not begin a later stage before the preceding stage has passed. Before environment setup, validation or export, consult [Local validation and Windows builds](local-environment.md).
+Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
 
-Reply to the developer with a short summary of the task, the open questions you see, and a proposed approach. Then wait; do not start implementing before the developer agrees.
+Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the Core, Content or Godot test project for the responsibility being changed, and the [unified test entry](run-tests.md) for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
 
-**Complete when:** the workspace and assignment match, and the developer has your summary, questions and proposed approach.
+## 1. Plan
 
-## 1. Discuss and design with the developer
+Send the reviewer a plan ending with `WORKER: plan`:
 
-- Explain your understanding and the open questions. For each real choice, give the options and a recommendation; the developer decides.
-- Do not make design choices or expand scope on your own. When the Issue is ambiguous, the design docs conflict, or a better approach would change the result, raise it instead of picking silently.
-- Agree on the approach and on an order of small, separately verifiable steps before writing code.
-- Once agreed, record decisions that the Issue does not already state (design choices, scope changes, Acceptance-criteria changes approved by the user) in an Issue comment. Acceptance is judged against the Issue and these recorded decisions.
+- your understanding of the Issue and each Acceptance criterion;
+- the approach, the files and modules it touches, and an order of small, separately verifiable steps;
+- the checks you will run, chosen under the [Testing standard](#testing-standard);
+- open questions, each with options and your recommendation.
 
-**Complete when:** the developer has agreed on the approach and step order, and new decisions are recorded on the Issue.
+Do not write code until the reviewer approves the plan.
 
-## 2. Implement in small steps
+## 2. Implement
 
-1. Implement one agreed step at a time. After each step, summarize the diff, explain anything non-obvious, and report the checks you ran; wait for the developer before moving on.
-2. Stop and ask when the work contradicts the agreed approach, a new design decision appears, or the change would leave the Issue's scope. Record any resulting decision on the Issue.
-3. Add the minimum sufficient observable regression coverage and run the checks selected under the [Testing standard](#testing-standard). For Godot changes, follow [Godot MCP validation](#godot-mcp-validation).
-4. Document the code under [Code comments](#code-comments) as part of each step, not afterwards.
-5. Commit with Conventional Commit messages when the developer agrees.
+1. Implement the approved plan in small steps and run the affected checks after each one.
+2. If the work contradicts the plan, needs a new design decision, or would leave the Issue's scope, stop and ask with `WORKER: question`.
+3. Add the minimum observable regression coverage and run the checks selected under the [Testing standard](#testing-standard). For Godot changes, follow [Godot MCP validation](#godot-mcp-validation).
+4. Make the code readable through naming and structure, following `AGENTS.md` code taste.
+5. Commit with Conventional Commit messages.
 
-**Complete when:** all agreed steps are implemented, reviewed by the developer, validated and committed.
+## 3. Deliver
 
-## 3. Deliver a PR
+1. Push the task branch and open a PR against `master`. Later fixes add commits to the same branch and PR.
+2. Reference the Issue with `Refs #<issue>`. Do not use closing keywords; the coordinator closes the Issue after merging.
+3. Post the completion comment below on the Issue, then report `WORKER: delivered <PR URL> <head SHA>`. The SHA must identify the exact code you tested.
 
-When the developer says the work is ready:
-
-1. Push the task branch and open a PR against the agreed base. Revisions add commits to the same branch and PR.
-2. Reference the Issue with a normal link or `Refs #<issue>`. Avoid closing keywords in PR descriptions and commits so the coordinator can close the Issue after worktree cleanup.
-3. Post the completion comment below on the Issue. The PR head SHA must identify the exact code tested.
-
-The developer then asks the coordinator for acceptance. If implementation or validation is blocked, post a blocker comment with evidence, missing prerequisites and the next required action. A local or unpushed commit is not delivered work.
-
-**Complete when:** the PR is accessible, its remote head matches the tested commit, and the Issue has a completion comment linking that PR. Required checks that failed or were not run remain explicit blockers, not passes.
+A local or unpushed commit is not delivered work. Required checks that failed or were not run are reported as such, not as passes.
 
 ### Completion comment
 
 - PR URL, base branch and tested head SHA.
-- What changed and which Acceptance criteria it covers; links to the decisions recorded during the session.
-- For staged work, the stage acceptance Issue and the real integration paths this task enables. Distinguish module-level evidence from stage integration evidence; delivery of this PR does not authorize the next stage.
-- Selected validation scope; exact commands, results, test-group durations, unified-entry summary paths and anything not run; host OS and tool versions where relevant. Identify reused evidence and why intervening changes do not invalidate it. For Windows builds, include the export path and report export and Windows runtime validation separately.
-- For Godot MCP validation: plugin source commit, MCP port, actual project/worktree path, tool calls and relevant arguments, observed results, retained log/artifact paths, and any fallback or unverified coverage, tied to the tested head SHA.
+- What changed and which Acceptance criteria it covers.
+- For staged work, the stage acceptance Issue and the real integration paths this task enables, separating module evidence from stage integration evidence.
+- Validation scope, exact commands, results and durations, and anything not run; host OS and tool versions where relevant. Identify reused evidence and why intervening changes do not affect it. For Windows builds, the export path and separate export and runtime results.
+- For Godot MCP validation: plugin commit, MCP port, actual project path, tool calls and their relevant arguments, observed results, retained logs, and any fallback or unverified coverage.
 - Manual and visual checks, listed separately from automated results.
-- Reproduction steps or example content needed to verify the behavior.
-- Remaining risks/blockers, or an explicit statement that none are known.
+- Remaining risks or blockers, or a statement that none are known.
 
-## 4. Handle review findings
+## 4. Fix review findings
 
-The coordinator posts findings on the Issue and tells the developer. Go through them with the developer, then fix the agreed findings in the same worktree, branch and PR, in small steps as above. Rerun affected checks under the evidence-reuse rules and add commits. Reply to each finding in the Issue with the resolution, commit IDs, actual validation and remaining gaps. The developer asks the coordinator for re-review.
+The reviewer posts each round of findings on the Issue and sends them to you. Fix them in the same branch and PR in small steps, rerun the affected checks under the evidence-reuse rules, and push. Post one Issue comment per round that answers every finding with its resolution, commit IDs and validation, then report `WORKER: delivered` with the new head SHA.
 
-**Complete when:** the revision is pushed to the same PR, its tested code is identified, and every finding has a traceable response.
+When the reviewer asks you to sync with master, merge `origin/master` into the branch (no rebase), resolve conflicts, rerun the affected checks and push.
 
 ## Recovery
 
-After interruption, read the Issue comments (including the dispatch record and recorded decisions), PR head and local Git state. Check which build/test processes belong to this worktree and whether they are still running before starting replacements. Preserve existing changes and evidence, tell the developer where the work stands, and resume the first incomplete step once the developer agrees. If the assignment or ownership is unclear, ask the developer instead of creating another branch or worktree. A changed head requires affected revalidation.
+After an interruption, read the Issue comments, the PR head and the local Git state. Check which build and test processes belong to this worktree before starting new ones. Keep existing changes and evidence, tell the reviewer where the work stands, and continue from the first incomplete step.
 
 ## Testing standard
 
@@ -126,7 +128,7 @@ Reuse results only with an explanation of why the intervening changes cannot aff
 
 Real failures require resolution. Missing environments, skipped checks and unexecuted checks remain unverified. Preserve the first failure and classify intermittent failures as product, test or environment problems; rerunning until green or silently skipping does not establish acceptance.
 
-An exception for a demonstrated unrelated baseline fault or environment limitation requires the user's explicit acceptance of the risk and a follow-up validation plan. Record it separately from passes. It does not satisfy an unverified Acceptance criterion or bypass the [coordinator acceptance and approval workflow](dispatch-sop.md#3-verify-every-acceptance-criterion--coordinator--reviewer): if an affected criterion must be deferred, the user must explicitly decide that scope change before acceptance proceeds. World-state corruption, save/recovery data loss, train-safety failures and critical determinism errors remain blockers unless the user separately changes the corresponding product contract.
+An exception for a demonstrated unrelated baseline fault or environment limitation requires the user's explicit acceptance of the risk and a follow-up validation plan. Record it separately from passes. It does not satisfy an unverified Acceptance criterion or bypass [acceptance](review-sop.md#4-accept): the reviewer reports it as [blocked](review-sop.md#blocked), and if an affected criterion must be deferred, the user must explicitly decide that scope change before acceptance proceeds. World-state corruption, save/recovery data loss, train-safety failures and critical determinism errors remain blockers unless the user separately changes the corresponding product contract.
 
 ### Execution cost and Benchmark gate
 
@@ -135,51 +137,6 @@ Measure test-group durations before setting speed targets. Prefer related quick 
 Benchmark belongs to stage gates, not to every PR, and not every change needs a performance case; targeted measurements are required earlier for the risks in the selection table. Unit-suite wall time or headless throughput does not replace real-window interaction measurements. Workloads, environments and thresholds come from the current stage's [performance requirements](design/00-product-and-core-loop.md#本阶段性能目标); measured thresholds require user confirmation.
 
 **Complete when:** the changed risks have sufficient applicable evidence, tests make valid claims about their boundaries, required failures/gaps are resolved or handled through the explicit scope/exception rules, and the reviewed revision's results and reused evidence are distinguishable.
-
-## Code comments
-
-Comments let a reader understand the code without re-deriving it from the implementation. They follow the design recipe of [How to Design Programs](https://htdp.org/2026-5-28/Book/part_preface.html): state what data represents, what each function consumes and produces and what it computes, and illustrate both with concrete examples that also exist as tests. Write comments and module overviews in Chinese, the project's working language, using the terms from [CONTEXT.md](../CONTEXT.md) and plain wording; code identifiers stay in English. Use C# XML documentation comments (`///`) for types and members.
-
-### What to document
-
-- **Module overview**: each implemented top-level module in `Core/`, `Content/` and `Scenes/`, and each Godot module such as `App/` and `Ui/`, has a short `README.md`. It states what the module is responsible for, its main types and their roles, what it depends on, and the design-doc sections it implements. Update it in the same change when the module's main types or responsibilities change. Public contracts under `Contracts/`, their creation factories and cross-module calling rules follow [the contract index](contracts/README.md) and its documentation ownership rules; module overviews link those rules rather than copying them. This is the target layout, not a claim that the migration is complete.
-- **File header**: two or three lines at the top of each source file stating which module the file belongs to and its role there. Do not list the file's members; the code and the IDE outline already show them.
-- **Types (data definitions)**: `<summary>` states what the type represents in the domain, using the term from [CONTEXT.md](../CONTEXT.md). Document every field or property whose meaning is not obvious from its name and type: its unit (metres, seconds, tonnes, kN, simulation steps), valid range, and what special values such as `null` or `0` mean. State the invariants that always hold. Give one concrete example in `<example>`.
-- **Members (signature and purpose)**: `<summary>` is a one-sentence purpose statement: what the member computes or changes. `<param>` and `<returns>` state what the values represent, not their types. Document rejected inputs and thrown exceptions with `<exception>`. For members with business rules, give a concrete example in `<example>`, using the same values as a test; for complex behavior, point to the test instead of writing a long example.
-- **Constants and magic numbers**: do not leave unnamed literals with domain meaning. Name the constant and document what it controls, its unit, why it has this value with a source (design-doc section, measurement or deciding Issue), and whether the value is provisional. Gameplay tuning values belong in content data, not in code constants.
-- **Rationale**: explain code whose reason is not obvious, such as ordering made explicit for determinism, a workaround for a Godot or .NET quirk, a check that looks redundant, or a performance trade-off.
-
-### Depth by visibility
-
-| Code | Documentation |
-| --- | --- |
-| Types and members that cross a layer or module boundary (module contracts, public creation factories, host adapters, queries and commands), data types, and members with business rules | Full documentation as above |
-| Other non-trivial members | One-line purpose statement; units and special values where they are not obvious |
-| Trivial properties, forwarders, and members whose name and signature say everything | None |
-
-### What not to write
-
-- Line-by-line restatements of what the code does.
-- Change history, Issue numbers or "added for …" notes; git history records them.
-- TODOs without a linked Issue.
-- Copies of design-doc rules; link the section instead, so the design doc stays the single source.
-
-### Keep comments true
-
-A comment that no longer matches the behavior is a defect. Update comments in the same commit as the code they describe. `Train.Core`, `Train.Content` and `Train.Scenes` build with `GenerateDocumentationFile` enabled, so a public member without documentation produces compiler warning CS1591; resolve these warnings instead of suppressing them. Reviewers check comments against the behavior and this section.
-
-### Example
-
-```csharp
-/// <summary>
-/// 查询库存当前还能接纳多少个单位的指定货物。
-/// </summary>
-/// <param name="good">要入库的货物种类。</param>
-/// <returns>考虑已有货物与有效存储预留后的非负整数数量；查询不预留空间。</returns>
-/// <example>
-/// 可用容量为 7，每单位货物占用 3，只能再接纳 2 个单位。
-/// </example>
-```
 
 ## Godot MCP validation
 

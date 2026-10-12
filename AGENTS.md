@@ -21,6 +21,7 @@ Apply these when implementing, reviewing, and writing docs. Every piece of added
 - **Information hiding** keeps modules decoupled. Each module exposes the smallest contract its callers need and keeps internal state, data structures, and algorithms `internal` or `private`. Callers depend on contracts rather than implementations, and pass other modules' opaque data, such as save payloads, through unread. A change to one module's internals should leave other modules untouched; when it does not, the contract exposes too much, so fix the contract.
 - **YAGNI: spend no complexity on features nobody needs yet.** Implement only the behaviour the current issue and slice require. Add parameters, switches, extension points, and compatibility layers when a real need arrives. Optimise performance on profiling evidence.
 - **Avoid over-engineering.** Keep indirection to what the current design needs, without generic frameworks or catch-all base classes. Use interfaces for module contracts and for boundaries whose implementation must be swappable, such as host ports and test doubles; a class with one implementation and no need to swap it stays concrete. The project's named anti-patterns are listed under [设计指导思想](docs/design/README.md#设计指导思想).
+- **Code over comments.** Make code readable through naming and structure. Write a comment only for a reason the code cannot show, such as an ordering required for determinism, an engine or platform quirk, or a check that looks redundant.
 
 ## Source layout
 
@@ -63,10 +64,11 @@ Use a single-context layout with `CONTEXT.md` and `docs/adr/` at the repository 
 
 ### Issue task workflow
 
-The two SOPs define the standard workflow; an individual task's scope and Acceptance criteria live in its Issue.
+Each Issue is done by an agent pair in Paseo; an individual task's scope and Acceptance criteria live in its Issue. Read the SOP for your role:
 
-- **Implementing a task** (pair programming between the developer and an agent: discussion, design, implementation, testing, PR delivery and review fixes): read [Implementation SOP](docs/implement-sop.md). It also holds the Testing standard and the Code comments rules.
-- **Coordinating a task** (preparing the worktree and Godot MCP editor, review and Acceptance-criteria verification when the developer asks, and user-approved merge, cleanup, closure and version updates): read [Dispatch SOP](docs/dispatch-sop.md).
+- **Coordinator** (scheduling, Paseo workspaces and reviewers, merge, closure, progress, stage acceptance and version): [Dispatch SOP](docs/dispatch-sop.md).
+- **Reviewer** (creates and directs the worker, reviews the plan and delivery for correctness, direction and code taste, verifies Acceptance criteria): [Review SOP](docs/review-sop.md).
+- **Worker** (implementation, testing, PR delivery and review fixes): [Implementation SOP](docs/implement-sop.md). It also holds the Testing standard and Godot MCP validation.
 
 ### Console command documentation
 
