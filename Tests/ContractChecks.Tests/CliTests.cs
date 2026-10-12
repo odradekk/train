@@ -47,11 +47,9 @@ public sealed class CliTests
         var fixturePaths = new List<string>();
         AddProject("Train.Core.Contracts", "Contracts/Core", [], OriginalContract);
         AddProject("Train.Core", "Core", ["Train.Core.Contracts"], "namespace Fixture; public sealed class Core { public int Value => new Contract().Original(); }");
-        AddProject("Train.Content", "Content", [], "namespace Fixture; public sealed class Content { public int Value => 1; }");
         AddProject("Train.Hidden", "Hidden", [], "namespace Fixture; public sealed class Hidden { public static int Value => 1; }");
         AddProject("Train.Core.Tests", "Tests/Core", ["Train.Core"], "using Microsoft.VisualStudio.TestTools.UnitTesting; [TestClass] public class CoreTests { [TestMethod] public void Value() => Assert.AreEqual(1, new Fixture.Core().Value); }", true);
-        AddProject("Train.Content.Tests", "Tests/Content", ["Train.Content"], "using Microsoft.VisualStudio.TestTools.UnitTesting; [TestClass] public class ContentTests { [TestMethod] public void Value() => Assert.AreEqual(1, new Fixture.Content().Value); }", true);
-        Write("scripts/checks/project-boundaries.json", JsonSerializer.Serialize(new { projects }));
+        Write("scripts/checks/project-boundaries.json", JsonSerializer.Serialize(new { projects, isolationTests = new[] { "Train.Core.Tests" } }));
         RequireSuccess(Run("git", "init", "--quiet"));
         Write("Fixture.slnx", "<Solution>" + string.Concat(fixturePaths.Select(path => $"<Project Path=\"{path}\" />")) + "</Solution>");
         Build("Fixture.slnx");
@@ -59,6 +57,7 @@ public sealed class CliTests
         originalCoreProject = File.ReadAllText(coreProject);
         contractSource = Path.Combine(root, "Contracts", "Core", "Fixture.cs");
         RequireSuccess(Check("snapshot", "baseline.txt"));
+        foreach (var directory in new[] { "bin", "obj", ".godot" }) Write("Core/" + directory + "/cache-marker", "cache");
         isolationBaseline = Check("isolate", "outputs/isolate-valid");
         RequireSuccess(isolationBaseline);
 
@@ -92,17 +91,16 @@ public sealed class CliTests
     public void Structure_rejects_a_forbidden_project_reference()
     {
         RequireSuccess(Check("structure", "outputs/structure-valid"));
-        AddCoreReference("<ProjectReference Include=\"../Content/Train.Content.csproj\" />");
+        AddCoreReference("<ProjectReference Include=\"../Hidden/Train.Hidden.csproj\" />");
         var result = Check("structure", "outputs/structure-invalid");
         Assert.AreEqual(1, result.ExitCode, result.Output);
         StringAssert.Contains(result.Output, "forbidden project reference:");
-        StringAssert.Contains(result.Output, "Train.Content");
+        StringAssert.Contains(result.Output, "Train.Hidden");
     }
 
     [TestMethod]
     public void Verify_reports_both_sides_of_a_public_member_replacement()
     {
-        Build("Contracts/Core/Train.Core.Contracts.csproj");
         RequireSuccess(Check("verify", "baseline.txt"));
         File.WriteAllText(contractSource, OriginalContract.Replace("Original", "Replacement", StringComparison.Ordinal));
         Build("Contracts/Core/Train.Core.Contracts.csproj");
@@ -116,14 +114,23 @@ public sealed class CliTests
     public void Isolation_cannot_use_a_prebuilt_dependency_outside_the_allowed_closure()
     {
         RequireSuccess(isolationBaseline);
+        foreach (var directory in new[] { "bin", "obj", ".godot" })
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Core", directory, "cache-marker")));
+        using var inputs = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "outputs", "isolate-valid", "Train.Core.Tests", "inputs.json")));
+        var files = inputs.RootElement.GetProperty("files").EnumerateArray().Select(file => file.GetString()!).ToArray();
+        Assert.IsTrue(files.Length > 0);
+        Assert.IsFalse(files.Any(file => file.Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar])
+            .Any(segment => segment is "bin" or "obj" or ".godot")));
         Assert.IsTrue(File.Exists(Path.Combine(root, "Hidden", "bin", "Debug", "net10.0", "Train.Hidden.dll")));
         AddCoreReference("<ProjectReference Include=\"../Hidden/Train.Hidden.csproj\" />");
         Write("Core/Fixture.cs", "namespace Fixture; public sealed class Core { public int Value => Hidden.Value; }");
         var result = Check("isolate", "outputs/isolate-missing-invalid");
         Assert.AreEqual(1, result.ExitCode, result.Output);
-        StringAssert.Contains(result.Output, "Train.Hidden");
-        Assert.IsTrue(result.Output.Contains("forbidden project reference:") ||
-            new[] { "MSB9008", "MSB3202", "CS0103", "CS0246" }.Any(result.Output.Contains), result.Output);
+        var buildLog = File.ReadAllText(Path.Combine(root, "outputs", "isolate-missing-invalid", "Train.Core.Tests", "build.log"));
+        using var build = JsonDocument.Parse(buildLog.Split('\n')[0]);
+        Assert.AreEqual("build", build.RootElement.GetProperty("arguments")[0].GetString(), buildLog);
+        Assert.AreNotEqual(0, build.RootElement.GetProperty("exitCode").GetInt32(), buildLog);
+        Assert.IsTrue(buildLog.Split('\n').Any(line => line.Contains("error CS0103") && line.Contains("Fixture.cs")), buildLog);
     }
 
     [TestMethod]
@@ -148,7 +155,6 @@ public sealed class CliTests
     {
         "Train.Core.Contracts" => "Contracts/Core",
         "Train.Core" => "Core",
-        "Train.Content" => "Content",
         _ => throw new InvalidOperationException(name)
     };
     private static void Write(string relativePath, string content)

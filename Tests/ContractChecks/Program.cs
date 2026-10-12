@@ -19,7 +19,7 @@ try
     return args[0] switch
     {
         "structure" => await ProjectAnalysis.CheckWorkspace(root, args[2], destination, rules.Projects),
-        "isolate" => await Isolation.Run(root, args[2], destination, rules.Projects),
+        "isolate" => await Isolation.Run(root, args[2], destination, rules.Projects, rules.IsolationTests),
         _ => ApiSurface.Run(args[0], root, args[2], destination, rules.Projects)
     };
 }

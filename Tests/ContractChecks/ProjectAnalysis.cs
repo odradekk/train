@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace Train.ContractChecks;
 
-internal sealed record BoundaryRules(Dictionary<string, ProjectRule> Projects);
+internal sealed record BoundaryRules(Dictionary<string, ProjectRule> Projects, string[] IsolationTests);
 internal sealed record ProjectRule(string Path, string[] References, string[]? Friends = null);
 
 internal static class ProjectAnalysis
@@ -84,11 +84,12 @@ internal static class ProjectAnalysis
             var owner = Path.GetDirectoryName(project)!;
             var projectConfiguration = name == "Train" && configuration == "Release" ? "ExportRelease" : configuration;
             var arguments = new List<string> { "msbuild", project, "-nodeReuse:false", "-property:UseSharedCompilation=false",
+                "-property:BuildProjectReferences=false",
                 "-property:Configuration=" + projectConfiguration, "-verbosity:quiet",
                 "-getItem:ProjectReference,ReferencePath,Compile,InternalsVisibleTo", "-getProperty:TargetPath" };
             if (!isolated && IsSample(name))
-                arguments.AddRange(["-restore", "-target:Build"]);
-            else arguments.AddRange(["-target:ResolveReferences", "-property:BuildProjectReferences=false"]);
+                arguments.AddRange(["-restore", "-target:Build", "-property:RestoreRecursive=false"]);
+            else arguments.Add("-target:ResolveReferences");
             var raw = await ToolProcess.Run("dotnet", arguments, owner, Path.Combine(output, name + ".msbuild.log"));
             using var data = JsonDocument.Parse(raw);
             var items = data.RootElement.GetProperty("Items");

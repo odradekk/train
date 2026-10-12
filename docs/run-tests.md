@@ -47,9 +47,9 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 ## 执行与边界
 
-选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。单独的 Schema 检查只调用 Python，不构建。C# 工具随解决方案构建；structure 在同一个 MSBuild 进程中构建并求值四组调用样例，它们仍不加入解决方案。verify 检查公开面和类型归属，isolate 重新构建 Core/Content 的允许输入闭包并运行各自全部用例。阶段层始终依次执行这三个命令；混选集成层和阶段层时，各自执行所需检查。
+选中 MSTest 项目、契约或隔离检查、引擎层或阶段层时，入口构建一次 `Train.sln`，MSTest 使用 Microsoft.Testing.Platform 和 `--no-build`。单独的 Schema 检查只调用 Python，不构建。C# 工具随解决方案构建；structure 串行处理四组调用样例，每组在同一个 `msbuild -restore -t:Build` 进程中构建并求值，使用 `BuildProjectReferences=false` 和 `RestoreRecursive=false` 避免写入共享契约产物；样例仍不加入解决方案。verify 检查公开面和类型归属，isolate 按[矩阵选择规则](contracts/testing.md#实际隔离与结构检查)重新构建隔离输入并运行用例。阶段层始终依次执行这三个命令；混选集成层和阶段层时，各自执行所需检查。
 
-各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。阶段层不设总预算，structure、verify、isolate 子进程上限分别为 300、120、300 秒。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一层内选中的 MSTest 项目并行运行，每个项目保留各自的最低用例数、TRX、超时和挂起转储；其他检查串行执行。同一工作树不允许并发运行入口。
+各层测试执行预算为快速 30 秒、集成 180 秒、引擎 300 秒。集成层选中的 MSTest 项目和 structure、verify、isolate、Schema 共用一个任务队列与 180 秒截止时间，通过已有的 `ForEach-Object -Parallel` 执行，最多 4 个任务并发，较重任务排在前面；汇总与清理仍由父流程完成。快速层保持原有 MSTest 并行执行方式，每个项目保留各自的最低用例数、TRX、超时和挂起转储。阶段层不设总预算，串行执行 structure、verify、isolate，子进程上限分别为 300、120、300 秒；引擎检查仍串行执行。构建准备上限为 300 秒，Godot 导入、导出各为 120 秒。超时导致失败并保留可用转储，不通过放宽预算掩盖超时。必要的 Godot 导入只做一次；两项导出检查共享一次 Windows 发布导出。同一工作树不允许并发运行入口。
 
 content 检查自己在输出目录准备 `content-input/initial`、`content-input/added`，复制粮食体素和共用图片，生成市场表、聚居地类型及新增 `smoke-ore` 探针，验证同一重载器的新增与移除。导出过滤包含内容 JSON 与 PNG；PNG 使用 `importer=keep` 保留原始字节。通过必须同时满足退出码 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
 

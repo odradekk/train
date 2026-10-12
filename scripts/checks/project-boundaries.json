@@ -1,4 +1,8 @@
 {
+  "isolationTests": [
+    "Train.Core.Tests",
+    "Train.Content.Tests"
+  ],
   "projects": {
     "Train.Core.Contracts": {
       "path": "Contracts/Core/Train.Core.Contracts.csproj",

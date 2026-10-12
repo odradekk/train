@@ -5,10 +5,12 @@ namespace Train.ContractChecks;
 internal static class Isolation
 {
     internal static async Task<int> Run(string root, string configuration, string output,
-        IReadOnlyDictionary<string, ProjectRule> projects)
+        IReadOnlyDictionary<string, ProjectRule> projects, IReadOnlyList<string> tests)
     {
+        if (tests is not { Count: > 0 } || tests.Any(test => !projects.ContainsKey(test)))
+            throw new InvalidOperationException("isolationTests must name at least one registered test project.");
         var failures = new List<string>();
-        foreach (var test in new[] { "Train.Core.Tests", "Train.Content.Tests" })
+        foreach (var test in tests)
         {
             if (failures.Count != 0) break;
             var evidence = Path.Combine(output, test);

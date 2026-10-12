@@ -89,17 +89,18 @@ function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [strin
     if ($Seconds -lt 1) { throw "$Group exhausted its time budget." }
     Add-CheckResult $Name $Group $Program $Arguments (Invoke-HiddenProcess -FilePath $Program -ArgumentList $Arguments -TimeoutSeconds $Seconds)
 }
-function Invoke-Isolation([string] $Name, [string] $Group, [string] $Output, [int] $Seconds) {
-    try { Invoke-Check $Name $Group dotnet @($contractTool, 'isolate', $root, 'Debug', $Output) $Seconds }
-    finally {
-        # 外层超时会强杀工具，无法执行其 finally；只清理本次输出内的隔离树。
-        if (Test-Path -LiteralPath $Output) {
-            foreach ($tree in (Get-ChildItem -LiteralPath $Output -Directory | Where-Object Name -match '^isolated-[0-9a-f]{8}$')) {
-                if (-not ([IO.Path]::GetFullPath($tree.FullName).StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal))) { throw 'Isolation cleanup escaped the run directory.' }
-                Remove-Item -LiteralPath $tree.FullName -Recurse -Force
-            }
+function Remove-IsolationTrees([string] $Output) {
+    # 外层超时会强杀工具，无法执行其 finally；只清理本次输出内的隔离树。
+    if (Test-Path -LiteralPath $Output) {
+        foreach ($tree in (Get-ChildItem -LiteralPath $Output -Directory | Where-Object Name -match '^isolated-[0-9a-f]{8}$')) {
+            if (-not ([IO.Path]::GetFullPath($tree.FullName).StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::Ordinal))) { throw 'Isolation cleanup escaped the run directory.' }
+            Remove-Item -LiteralPath $tree.FullName -Recurse -Force
         }
     }
+}
+function Invoke-Isolation([string] $Name, [string] $Group, [string] $Output, [int] $Seconds) {
+    try { Invoke-Check $Name $Group dotnet @($contractTool, 'isolate', $root, 'Debug', $Output) $Seconds }
+    finally { Remove-IsolationTrees $Output }
 }
 try {
     if ($layers.Count -eq 1 -and $layers[0] -eq 'stage') {
@@ -129,36 +130,56 @@ try {
             } elseif ($current -ne 'engine') {
                 $deadline = [DateTime]::UtcNow.AddSeconds($budget)
                 $helper = Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1'
-                $results = @()
-                if ($projects.Count) { $results = @($projects | ForEach-Object -Parallel {
-                    . $using:helper
-                    $current = $using:current
-                    $minimum = $_[$current]
-                    $remaining = [int] [Math]::Floor(($using:deadline - [DateTime]::UtcNow).TotalSeconds)
-                    if ($remaining -lt 1) { throw "$current exhausted its time budget." }
-                    $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
-                    $name = "$current-$($_.name)"
-                    $arguments = @('test', '--project', $_.path, '--no-build', '--results-directory', $using:run)
-                    if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
-                    $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$name.trx", '--timeout', "${remaining}s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
-                    if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
-                    [pscustomobject]@{ name = $name; arguments = $arguments; result = (Invoke-HiddenProcess -FilePath dotnet -ArgumentList $arguments -TimeoutSeconds $remaining) }
-                } -ThrottleLimit $projects.Count) }
-                $failure = $null
-                foreach ($item in $results) {
-                    try { Add-CheckResult $item.name $current dotnet $item.arguments $item.result }
-                    catch { $failure = $_ }
-                }
-                if ($failure) { throw $failure }
-                if ($results.Count -ne $projects.Count) { throw "$current did not complete every selected project." }
+                $tasks = @($projects | ForEach-Object {
+                    @{ name = "$current-$($_.name)"; program = 'dotnet'; project = $_;
+                        priority = if ($current -eq 'integration' -and $_.name -eq 'contract-checks') { 3 } else { 0 } }
+                })
+                $isolationOutput = Join-Path $run 'isolation'
                 if ($current -eq 'integration') {
                     if ($summary.selection.contracts) {
-                        Invoke-Check structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'contracts')) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
-                        Invoke-Check verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                        $tasks += @{ name = 'structure'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'contracts')) }
+                        $tasks += @{ name = 'verify'; program = 'dotnet'; priority = 0; arguments = @($contractTool, 'verify', $root, 'Debug', $contractBaseline) }
                     }
-                    if ($summary.selection.isolation) { Invoke-Isolation isolate $current (Join-Path $run 'isolation') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)) }
-                    if ($summary.selection.schema) { Invoke-Check schema $current $pwsh @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds)) }
+                    if ($summary.selection.isolation) { $tasks += @{ name = 'isolate'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'isolate', $root, 'Debug', $isolationOutput) } }
+                    if ($summary.selection.schema) { $tasks += @{ name = 'schema'; program = $pwsh; priority = 0; arguments = @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') } }
                 }
+                $throttle = if ($current -eq 'integration') { 4 } else { [Math]::Max(1, $projects.Count) }
+                $results = @()
+                $failure = $null
+                try { if ($tasks.Count) { $results = @($tasks | Sort-Object { $_.priority } -Descending -Stable | ForEach-Object -Parallel {
+                    $task = $_
+                    . $using:helper
+                    $current = $using:current
+                    $remaining = [int] [Math]::Floor(($using:deadline - [DateTime]::UtcNow).TotalSeconds)
+                    $arguments = $task.arguments
+                    if ($task.project) {
+                        $minimum = $task.project[$current]
+                        $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
+                        $arguments = @('test', '--project', $task.project.path, '--no-build', '--results-directory', $using:run)
+                        if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
+                        $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$($task.name).trx", '--timeout', "$([Math]::Max(1, $remaining))s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
+                        if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
+                    }
+                    $result = if ($remaining -lt 1) {
+                        [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget."; TimedOut = $true; CleanupSucceeded = $true; DurationMs = 0 }
+                    } else {
+                        try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining }
+                        catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
+                    }
+                    [pscustomobject]@{ name = $task.name; program = $task.program; arguments = $arguments; result = $result }
+                } -ThrottleLimit $throttle) } }
+                finally {
+                    if ($current -eq 'integration' -and $summary.selection.isolation) {
+                        try { Remove-IsolationTrees $isolationOutput }
+                        catch { $failure = $_ }
+                    }
+                }
+                foreach ($item in $results) {
+                    try { Add-CheckResult $item.name $current $item.program $item.arguments $item.result }
+                    catch { if (-not $failure) { $failure = $_ } }
+                }
+                if ($failure) { throw $failure }
+                if ($results.Count -ne $tasks.Count) { throw "$current did not complete every selected task." }
             } else {
                 $watch.Stop()
                 $paths = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } } else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
