@@ -24,15 +24,16 @@ Apply these when implementing, reviewing, and writing docs. Every piece of added
 
 ## Source layout
 
-- Production code is split into three projects per [ADR-0009](docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md), developed at the repository root:
-  - `Core/Train.Core.csproj`: content, core simulation, saves, logging, and console dispatch. References neither Godot nor `Train.Scenes`.
-  - `Scenes/Train.Scenes.csproj`: the voxel engine layer. References `Train.Core`, not Godot; it has no production code yet.
-  - Root `Train.csproj`: the Godot project, referencing both libraries. Startup, service composition, and content adapters go in `App/`, rendering code in `Rendering/`, and UI in `Ui/`. The rendering layer is not implemented yet.
-- `Contracts/Core/`, `Contracts/Content/`, and `Contracts/Scenes/` are three separate contract projects. `prototypes/*-contract/` holds four sets of compilable call samples, not production code. Scope: [baseline candidate](docs/contracts/baseline-candidate.md#候选范围).
-- `Train.Tests` tests both libraries through project references, organised under `Core/` and `Scenes/`.
-- `Tests/ContractSupport/` holds class libraries, split by interface owner, with shared scenarios, assertions, and finite-scenario test doubles; their self-tests are in `Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj`. The target module test projects are `Tests/Core/Train.Core.Tests.csproj`, `Tests/Content/Train.Content.Tests.csproj`, and `Tests/Scenes/Train.Scenes.Tests.csproj`; the Godot target entry uses the root project's isolated composition and a real-engine runner. These target entries do not exist yet, and the existing App runner does not prove module isolation. Entry and migration status: [baseline candidate](docs/contracts/baseline-candidate.md#目标模块测试入口).
+- Production code has four projects at the repository root. The legacy behavior has been separated by responsibility; the newer contract factories and full Demo behavior are still pending:
+  - `Core/Train.Core.csproj`: core simulation, with no Godot or other implementation reference.
+  - `Content/Train.Content.csproj`: content loading, validation, publication and path checks, with no other implementation reference.
+  - `Scenes/Train.Scenes.csproj`: voxel engine layer; it has no production code yet.
+  - Root `Train.csproj`: Godot host, referencing the current implementations. Startup, logging, console dispatch, file saves and content adapters live in `App/`; rendering code goes in `Rendering/`, UI in `Ui/`.
+- `Contracts/Core/`, `Contracts/Content/`, and `Contracts/Scenes/` are three separate contract projects. `prototypes/*-contract/` holds four sets of compilable call samples, not production code. The confirmed declaration baseline is [public-api.txt](docs/contracts/public-api.txt); scope history is in the [#302 handoff](docs/contracts/baseline-candidate.md#候选范围).
+- `Tests/Core/Train.Core.Tests.csproj` tests Core only; `Tests/Content/Train.Content.Tests.csproj` tests Content only; `Tests/Godot/Train.Godot.Tests.csproj` tests host code through the root project. Real engine checks use `scripts/runner-catalog.json`. A Scenes test project will be created when Scenes has behavior to verify.
+- `Tests/ContractSupport/` holds class libraries, split by interface owner, with shared scenarios, assertions, and finite-scenario test doubles; their self-tests are in `Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj`. Pure host tests do not establish real Godot behavior or module isolation. Entry and remaining gaps: [test organization](docs/contracts/testing.md#模块测试的组织与入口).
 - Before designing or changing module interfaces, project references, cross-layer types, or host composition, read the [four-module contract specification](docs/contracts/README.md) and its shared conventions. It specifies the target structure, which the code above has not migrated to yet; it is neither a finished implementation nor independent test evidence.
-- Namespaces follow the project name plus the directory path, e.g. `Train.Core.Content.Behaviors`. Divide deeper directories by the responsibilities of the current task.
+- Namespaces follow the project name plus the directory path, e.g. `Train.Content.Behaviors`. Divide deeper directories by the responsibilities of the current task.
 - Treat `archive/mvp/` as read-only validation evidence. Reuse an archived implementation only by deliberately moving or rewriting the necessary code into the root project; do not continue product development inside the archive.
 - Keep generated Godot state, build outputs, and restored packages out of the archive; regenerate them only when reproducing an MVP result.
 

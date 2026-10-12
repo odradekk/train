@@ -1,13 +1,13 @@
 # 应用适配
 
-本模块将 Core 的内容、模拟、诊断和控制台服务接入 Godot。`App.tscn` 是项目主场景，包含主菜单；`App` 负责这些服务的生命周期，并运行隔离自检。模块依赖 Godot、`Train.Core` 和 `Ui`。
+本模块将 Core 模拟、Content 内容和宿主的日志、控制台服务接入 Godot。`App.tscn` 是项目主场景，包含主菜单；`App` 负责这些服务的生命周期，并运行现有引擎检查。根项目当前引用 Core、Content、Scenes 与 Godot。
 
 | 类型 | 职责 |
 | --- | --- |
 | `App` | 管理日志生命周期、加载内容并连接主菜单与 GameConsole；在主线程驱动活动模拟会话、报告完整结果，并逐帧取出工作线程日志。 |
 | `SimulationConsoleCommands` | 在 Debug 构建中将 `sim` 调试命令交给同一个 App 模拟入口。 |
-| `GodotContentSource` | 通过 Godot 虚拟文件系统、物理文件系统和 PNG 解码实现 Core 的内容读取边界。 |
-| `GodotLogOutput` | 用 Core 的共享可读格式，把事件交给 Godot 的普通、警告或错误输出通道。 |
+| `GodotContentSource` | 通过 Godot 虚拟文件系统、物理文件系统和 PNG 解码实现 Content 的内容读取边界。 |
+| `GodotLogOutput` | 用 宿主日志的共享可读格式，把事件交给 Godot 的普通、警告或错误输出通道。 |
 | `Checks/CheckArguments` | 从命令行选择一项自检及其用户目录、只读内容输入。 |
 | `Checks/LoggingCheck` | 验证工作线程日志经 App 主线程输出，释放仍由 App 完成。 |
 | `Checks/ContentCheck` | 读取两份仅含 grain、市场表、聚居地类型及 smoke-ore 探针的预先准备内容，验证初始加载、重载新增和移除。 |
@@ -30,4 +30,4 @@
 
 当前 Godot 内容检查的成功标记为 `CONTENT_GRAIN_LOADED`、`CONTENT_EXPORT_GRAIN_LOADED` 和 `MODS_EXPORT_GRAIN_LOADED`；`CONTENT_MARKET_SETTLEMENT_READY` 是 content 检查的必需标记。`*_PNG_DECODED` 同时确认 grain 的 icon、top、side、bottom 四个绑定都指向同一 PNG，且实际解码图片非空。三种货物、七种聚居地类型、四部件和两蓝图的具体内容见 [#236](https://github.com/odradekk/train/issues/236)。
 
-此边界遵循 [ADR 0009](../docs/adr/0009-split-the-code-into-godot-free-core-and-scene-libraries-and-rewrite-the-core.md)，启动界面按[窗口与界面规则](../docs/design/08-window-and-ui.md#规则)逐步开放；诊断接入见[调试模式](../docs/design/15-design-editor-and-tools.md#调试模式)，会话、队列和格式契约见[日志模块](../Core/Logging/README.md)。
+模块归属遵循[四模块契约](../docs/contracts/README.md)，启动界面按[窗口与界面规则](../docs/design/08-window-and-ui.md#规则)逐步开放；诊断接入见[调试模式](../docs/design/15-design-editor-and-tools.md#调试模式)，会话、队列和格式契约见[日志模块](Logging/README.md)。

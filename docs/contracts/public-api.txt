@@ -1,0 +1,1163 @@
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AllowedVoxelOrientations|All24|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AllowedVoxelOrientations|FourWay|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AllowedVoxelOrientations|None|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetAlphaMode|Blend|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetAlphaMode|Mask|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetAlphaMode|Opaque|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetInspectionFailure|CannotDecode|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetInspectionFailure|UnsupportedContent|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetKind|Glb|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.AssetKind|Png|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|Local|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|Packages|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.BlueprintLibrary|User|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentChange|CoreInput|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentChange|Library|8
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentChange|None|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentChange|Persistent|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentChange|Presentation|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentDiagnosticSeverity|Error|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentDiagnosticSeverity|Information|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentDiagnosticSeverity|Warning|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentEntryKind|Directory|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentEntryKind|File|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentEntryKind|Link|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentIoFailure|Inaccessible|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentIoFailure|LimitExceeded|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentIoFailure|LinkedPath|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.ContentIoFailure|Missing|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|Blueprint|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|CombatRule|9
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|ConstructionRule|7
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|GenerationProfile|11
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|LairType|10
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|MarketRule|6
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|PopulationRule|5
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|Process|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|RailwayRule|8
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|SettlementTemplate|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|SettlementType|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|TerrainType|12
+Train.Content.Contracts|enum|global::Train.Content.Contracts.DefinitionKind|Voxel|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|ChangeShape|6
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Copy|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Enter|7
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Move|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Paint|5
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Remove|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Replace|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.LockedDesignOperation|Rotate|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|BareMetal|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|Concrete|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|Glass|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|Organic|6
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|PaintedMetal|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|PolymerRubber|5
+Train.Content.Contracts|enum|global::Train.Content.Contracts.MaterialCategory|StoneSoil|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.PackageState|Available|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.PackageState|DependencyUnavailable|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.PackageState|Disabled|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.PackageState|Invalid|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.RotationAxis|X|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.RotationAxis|Y|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.RotationAxis|Z|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NxNy|5
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NxNz|7
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NxPy|4
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NxPz|6
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NyNx|13
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NyNz|15
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NyPx|12
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NyPz|14
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NzNx|21
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NzNy|23
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NzPx|20
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|NzPy|22
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PxNy|1
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PxNz|3
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PxPy|0
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PxPz|2
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PyNx|9
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PyNz|11
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PyPx|8
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PyPz|10
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PzNx|17
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PzNy|19
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PzPx|16
+Train.Content.Contracts|enum|global::Train.Content.Contracts.VoxelOrientation|PzPy|18
+Train.Content.Contracts|member|Train.Content.Contracts.IAssetInspector|AssetInspection Inspect(AssetKind kind, AssetRevision revision, ImmutableArray<byte> bytes);
+Train.Content.Contracts|member|Train.Content.Contracts.IAuthoringPackage|ContentLookup<DefinitionDraft> Read(AuthoringDefinitionAddress address);
+Train.Content.Contracts|member|Train.Content.Contracts.IAuthoringPackage|ImmutableArray<AuthoringDefinitionAddress> EditableDefinitions { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IAuthoringPackage|PackageId Package { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IAuthoringPackage|PackageMetadata Metadata { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IAuthoringPackage|PackageSourceVersion SourceVersion { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|ContentChange Changes { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|ContentPreparationReport Report { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|IContentView Activate();
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|IContentView View { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|IContentView? Basis { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|ImmutableArray<ExternalContentWrite> RequiredWrites { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCandidate|PreparedContentEdit? Edit { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ContentRevision Revision { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ImmutableArray<DesignHash> Designs { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ImmutableArray<OwnedSettlementTemplateReference> Templates { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|ImmutableArray<PackageMetadata> ReferencedPackages { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentCapture|string Encode();
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package, PackageSourceVersion sourceVersion, IContentFiles files);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request, IContentFiles files, IAssetInspector inspector);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCapture> Capture(IContentView content, CoreReferenceManifest references);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentCapture> DecodeCapture(string payload);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<IContentReplayCapture> DecodeReplay(string payload);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<ImmutableArray<PackageStatus>> Discover(ContentInstallation installation, IContentFiles files);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<SavedContentDraft> DecodeDraft(string payload);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<WorldGenerationInput> CreateWorldInput(IContentView content, GenerationProfileId profile, ulong seed, string generatorVersion);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|ContentResult<string> EncodeDraft(SavedContentDraft draft);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFactory|IContentView WithSettlementCopies(IContentView basis, ImmutableArray<OwnedSettlementTemplateReference> copies);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFiles|ContentIoResult<ImmutableArray<ContentFileEntry>> Enumerate(ContentPath directory);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentFiles|ContentIoResult<ImmutableArray<byte>> Read(ContentPath file, long maximumBytes);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentReplayCapture|ImmutableArray<IContentView> History { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentReplayCapture|string Encode();
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentGeneration Generation { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<ContentAsset> FindAsset(AssetRevision revision);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference definition);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId creature);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<DesignEvaluation> FindDesign(DesignHash hash);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<GoodPresentation> FindGood(GoodId good);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<LairAppearanceProjection> FindLair(LairTypeId lair);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId rule);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId settlement);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId terrain);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId definition);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId definition);
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ContentRevision PersistentRevision { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|CoreContentProjection Core { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ImmutableArray<BlueprintSummary> Blueprints { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ImmutableArray<GenerationProfileSummary> GenerationProfiles { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ImmutableArray<PackageStatus> Packages { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ImmutableArray<SavedContentDraft> LocalDrafts { get; }
+Train.Content.Contracts|member|Train.Content.Contracts.IContentView|ImmutableArray<VoxelCatalogEntry> Voxels { get; }
+Train.Content.Contracts|type|Train.Content.Contracts.AllowedVoxelOrientations|public enum AllowedVoxelOrientations
+Train.Content.Contracts|type|Train.Content.Contracts.AssetAlphaMode|public enum AssetAlphaMode
+Train.Content.Contracts|type|Train.Content.Contracts.AssetInspection.Failure|public sealed record Failure(AssetInspectionFailure Kind, string Diagnostic) : AssetInspection;
+Train.Content.Contracts|type|Train.Content.Contracts.AssetInspection.Success|public sealed record Success(AssetMetadata Metadata) : AssetInspection;
+Train.Content.Contracts|type|Train.Content.Contracts.AssetInspectionFailure|public enum AssetInspectionFailure
+Train.Content.Contracts|type|Train.Content.Contracts.AssetInspection|public abstract record AssetInspection
+Train.Content.Contracts|type|Train.Content.Contracts.AssetKind|public enum AssetKind
+Train.Content.Contracts|type|Train.Content.Contracts.AssetMetadata.Glb|public sealed record Glb(int MeshNodeCount, ImmutableArray<AssetAlphaMode> Surfaces, ModelBounds Bounds, bool HasSkeleton, bool HasMorphTargets, bool HasAnimation, bool HasCamera, bool HasLight, bool HasExternalImages) : AssetMetadata;
+Train.Content.Contracts|type|Train.Content.Contracts.AssetMetadata.Png|public sealed record Png(int Width, int Height) : AssetMetadata;
+Train.Content.Contracts|type|Train.Content.Contracts.AssetMetadata|public abstract record AssetMetadata
+Train.Content.Contracts|type|Train.Content.Contracts.AssetRevision|public readonly record struct AssetRevision(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringAssetPath|public readonly record struct AuthoringAssetPath(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringDefinitionAddress|public sealed record AuthoringDefinitionAddress(DefinitionKind Kind, string LocalId);
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation.Cube|public sealed record Cube(ImmutableArray<VoxelShape> Shapes, MaterialCategory Material, int TileSpan, AuthoringAssetPath Top, AuthoringAssetPath Side, AuthoringAssetPath Bottom, AuthoringAssetPath? Front) : AuthoringVoxelPresentation;
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation.Mesh|public sealed record Mesh(AuthoringAssetPath Model, ImmutableArray<MaterialCategory> SurfaceMaterials) : AuthoringVoxelPresentation;
+Train.Content.Contracts|type|Train.Content.Contracts.AuthoringVoxelPresentation|public abstract record AuthoringVoxelPresentation
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintAddress|public sealed record BlueprintAddress(BlueprintLibrary Library, BlueprintId Id);
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintId|public readonly record struct BlueprintId(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintLibrary|public enum BlueprintLibrary
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintRecord|public sealed record BlueprintRecord(BlueprintAddress Address, DesignDraft Definition, ImmutableArray<PackageMetadata> UsedPackages, DesignEvaluation Evaluation);
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintSaveTarget.New|public sealed record New(BlueprintLibrary Library) : BlueprintSaveTarget;
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintSaveTarget.Overwrite|public sealed record Overwrite(BlueprintAddress Address) : BlueprintSaveTarget;
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintSaveTarget|public abstract record BlueprintSaveTarget
+Train.Content.Contracts|type|Train.Content.Contracts.BlueprintSummary|public sealed record BlueprintSummary(BlueprintAddress Address, DisplayText Display, DesignHash? Design, bool Usable, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.ComputedValue.Known|public sealed record Known(T Value) : ComputedValue<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ComputedValue.Unknown|public sealed record Unknown(ImmutableArray<ContentDiagnostic> Reasons) : ComputedValue<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ComputedValue|public abstract record ComputedValue<T> where T : notnull
+Train.Content.Contracts|type|Train.Content.Contracts.ContentAsset|public sealed record ContentAsset(AssetRevision Revision, ImmutableArray<byte> Bytes, AssetMetadata Metadata, ImmutableArray<ContentSourceLocation> Sources);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentChange|[Flags] public enum ContentChange
+Train.Content.Contracts|type|Train.Content.Contracts.ContentDiagnosticSeverity|public enum ContentDiagnosticSeverity
+Train.Content.Contracts|type|Train.Content.Contracts.ContentDiagnostic|public sealed record ContentDiagnostic(string Code, ContentDiagnosticSeverity Severity, string Stage, ContentReference? Subject, ContentSourceLocation? Source, string Field, DesignElementPath? Element, string Message);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentDisplay|public sealed record ContentDisplay(DisplayText Text, AssetRevision? Icon, AssetRevision? MapSymbol);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.ConstructionTarget|public sealed record ConstructionTarget(DesignDraft Target) : ContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.DeleteBlueprint|public sealed record DeleteBlueprint(BlueprintAddress Target) : ContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.DeleteLocalDraft|public sealed record DeleteLocalDraft(DraftId Draft) : ContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.InstanceTarget|public sealed record InstanceTarget(DesignHash Current, DesignDraft Target) : ContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.SaveBlueprint|public sealed record SaveBlueprint(BlueprintSaveTarget Target, DesignDraft Draft) : ContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.SaveLocalDraft|public sealed record SaveLocalDraft(SavedContentDraft Draft) : ContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit|public abstract record ContentEdit
+Train.Content.Contracts|type|Train.Content.Contracts.ContentEntryKind|public enum ContentEntryKind
+Train.Content.Contracts|type|Train.Content.Contracts.ContentFileEntry|public sealed record ContentFileEntry(string Name, ContentEntryKind Kind);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentGeneration|public readonly record struct ContentGeneration(ulong Value);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentInstallation|public sealed record ContentInstallation(ContentRoot BuiltIn, ContentRoot Mods, ContentRoot? UserLibrary, string GameVersion, ImmutableArray<PackageId> EnabledMods);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentIoFailure|public enum ContentIoFailure
+Train.Content.Contracts|type|Train.Content.Contracts.ContentIoResult.Failure|public sealed record Failure(ContentIoFailure Kind, string Diagnostic) : ContentIoResult<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentIoResult.Success|public sealed record Success(T Value) : ContentIoResult<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentIoResult|public abstract record ContentIoResult<T> where T : notnull
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLoadPurpose.Initial|public sealed record Initial : ContentLoadPurpose;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLoadPurpose.Reload|public sealed record Reload(IContentView Basis, CoreReferenceManifest References) : ContentLoadPurpose;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLoadPurpose.Restore|public sealed record Restore(IContentCapture Saved, CoreReferenceManifest References) : ContentLoadPurpose;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLoadPurpose|public abstract record ContentLoadPurpose
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLoadRequest|public sealed record ContentLoadRequest(ContentInstallation Installation, ContentLoadPurpose Purpose);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLookup.Found|public sealed record Found(T Value) : ContentLookup<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLookup.Missing|public sealed record Missing(ImmutableArray<ContentDiagnostic> Diagnostics) : ContentLookup<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLookup.NotFound|public sealed record NotFound : ContentLookup<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentLookup|public abstract record ContentLookup<T> where T : notnull
+Train.Content.Contracts|type|Train.Content.Contracts.ContentPath|public sealed record ContentPath(ContentRoot Root, string RelativePath);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentPreparationReport|public sealed record ContentPreparationReport(ImmutableArray<PackageStatus> Packages, ImmutableArray<MissingContentReference> RuntimeMissing, ImmutableArray<MissingContentReference> AuthoringMissing, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentReference.Blueprint|public sealed record Blueprint(BlueprintAddress Address) : ContentReference;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentReference.Core|public sealed record Core(CoreDefinitionReference Definition) : ContentReference;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentReference.Design|public sealed record Design(DesignHash Hash) : ContentReference;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentReference.Draft|public sealed record Draft(DraftId Id) : ContentReference;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentReference.Generation|public sealed record Generation(GenerationProfileId Id) : ContentReference;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentReference|public abstract record ContentReference
+Train.Content.Contracts|type|Train.Content.Contracts.ContentResult.Failure|public sealed record Failure(ImmutableArray<ContentDiagnostic> Diagnostics) : ContentResult<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentResult.Faulted|public sealed record Faulted(string Code, string Message, string? StackTrace) : ContentResult<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentResult.Success|public sealed record Success(T Value) : ContentResult<T>;
+Train.Content.Contracts|type|Train.Content.Contracts.ContentResult|public abstract record ContentResult<T> where T : notnull
+Train.Content.Contracts|type|Train.Content.Contracts.ContentRevision|public readonly record struct ContentRevision(ulong Value);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentRoot|public readonly record struct ContentRoot(string Key);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentSourceLocation|public sealed record ContentSourceLocation(PackageId Package, string Path);
+Train.Content.Contracts|type|Train.Content.Contracts.CreatureAppearanceProjection|public sealed record CreatureAppearanceProjection(CreatureDefinitionId Definition, DesignSceneProjection Scene, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.CreatureBehavior|public sealed record CreatureBehavior(long HitPoints, double SpeedMetersPerSecond, double RetreatThreshold, double RaidDurationSeconds);
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionDraft.Blueprint|public sealed record Blueprint(string LocalId, DesignDraft Value) : DefinitionDraft;
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionDraft.LairType|public sealed record LairType(LairTypeDraft Value) : DefinitionDraft;
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionDraft.SettlementTemplate|public sealed record SettlementTemplate(SettlementTemplateDraft Value) : DefinitionDraft;
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionDraft.SettlementType|public sealed record SettlementType(SettlementTypeDraft Value) : DefinitionDraft;
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionDraft.Voxel|public sealed record Voxel(VoxelDefinitionDraft Value) : DefinitionDraft;
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionDraft|public abstract record DefinitionDraft
+Train.Content.Contracts|type|Train.Content.Contracts.DefinitionKind|public enum DefinitionKind
+Train.Content.Contracts|type|Train.Content.Contracts.DesignChangeEvaluation|public sealed record DesignChangeEvaluation(DesignChangeProjection Core, ImmutableArray<DesignElementCorrespondence> Elements, bool CanApplyImmediately, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.DesignDraft|public sealed record DesignDraft(DisplayText Display, DesignSpecification Specification, VoxelLayout Layout);
+Train.Content.Contracts|type|Train.Content.Contracts.DesignEditLock|public sealed record DesignEditLock(DesignElementPath Element, ContentReference Reference, PackageId Package, ImmutableArray<LockedDesignOperation> BlockedOperations, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.DesignElementCorrespondence|public sealed record DesignElementCorrespondence(PartCorrespondence Parts, DesignElementPath Before, DesignElementPath After);
+Train.Content.Contracts|type|Train.Content.Contracts.DesignElementPath.Cell|public sealed record Cell(ImmutableArray<int> NestedItemIndices, int CellIndex) : DesignElementPath;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignElementPath.FunctionalComposite|public sealed record FunctionalComposite(ImmutableArray<int> NestedItemIndices, int NestedItemIndex) : DesignElementPath;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignElementPath|public abstract record DesignElementPath
+Train.Content.Contracts|type|Train.Content.Contracts.DesignElementProjection|public sealed record DesignElementProjection(PartId Number, DesignElementPath Element, ComputedValue<ImmutableArray<GridPosition>> OccupiedCells, bool FunctionalPart, bool Missing);
+Train.Content.Contracts|type|Train.Content.Contracts.DesignEvaluation.Complete|public sealed record Complete(DesignHash Design, CompositionHash Composition, DesignDraft Definition, DesignInput? Core, DesignSceneProjection Scene, bool IsValid, ImmutableArray<ContentDiagnostic> Diagnostics) : DesignEvaluation;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignEvaluation.Failed|public sealed record Failed(ImmutableArray<ContentDiagnostic> Diagnostics) : DesignEvaluation;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignEvaluation.Partial|public sealed record Partial(DesignDraft Definition, PartialDesignMetrics Metrics, KnownDesignSubtotal KnownSubtotal, DesignProjection? CorePlaceholder, DesignSceneProjection Scene, ImmutableArray<ContentDiagnostic> Diagnostics) : DesignEvaluation;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignEvaluation|public abstract record DesignEvaluation
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSceneProjection|public sealed record DesignSceneProjection(DesignHash? Design, GridBounds? OccupiedBounds, GridBounds? AllowedEnvelope, bool OccupancyComplete, RotationAppearance? RootRotation, FlattenRegion? RootFlatten, ImmutableArray<SceneVoxelProjection> Voxels, ImmutableArray<DesignElementProjection> Elements, ImmutableArray<NestedObjectProjection> NestedObjects, ImmutableArray<RotationSweepProjection> RotationSweeps, ImmutableArray<DesignEditLock> EditLocks);
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification.Assembly|public sealed record Assembly(RotationAppearance? Rotation) : DesignSpecification;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification.Building|public sealed record Building(PlotSize? PlotSize, BuildingKind? Kind, ImmutableArray<FacilityTag> FacilityTags) : DesignSpecification;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification.Creature|public sealed record Creature(CreatureBehavior? Behavior, PartCapability.Weapon? Weapon) : DesignSpecification;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification.FunctionalComposite|public sealed record FunctionalComposite(ImmutableArray<PartCapability> Behaviors, RotationAppearance? Rotation) : DesignSpecification;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification.SceneModel|public sealed record SceneModel(FlattenRegion? Flatten) : DesignSpecification;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification.Vehicle|public sealed record Vehicle(SizeClass? Size) : DesignSpecification;
+Train.Content.Contracts|type|Train.Content.Contracts.DesignSpecification|public abstract record DesignSpecification
+Train.Content.Contracts|type|Train.Content.Contracts.DisplayText|public sealed record DisplayText(string Name, string Description);
+Train.Content.Contracts|type|Train.Content.Contracts.DraftId|public readonly record struct DraftId(Guid Value);
+Train.Content.Contracts|type|Train.Content.Contracts.DraftPayload.Definition|public sealed record Definition(DefinitionDraft Value) : DraftPayload;
+Train.Content.Contracts|type|Train.Content.Contracts.DraftPayload.Design|public sealed record Design(DesignDraft Value) : DraftPayload;
+Train.Content.Contracts|type|Train.Content.Contracts.DraftPayload|public abstract record DraftPayload
+Train.Content.Contracts|type|Train.Content.Contracts.DraftTarget.Instance|public sealed record Instance(InstanceId Id) : DraftTarget;
+Train.Content.Contracts|type|Train.Content.Contracts.DraftTarget.LocalBlueprint|public sealed record LocalBlueprint(BlueprintId? Id) : DraftTarget;
+Train.Content.Contracts|type|Train.Content.Contracts.DraftTarget.PackageDefinition|public sealed record PackageDefinition(PackageId Package, DefinitionKind Kind, string LocalId, PackageSourceVersion SourceVersion) : DraftTarget;
+Train.Content.Contracts|type|Train.Content.Contracts.DraftTarget.UserBlueprint|public sealed record UserBlueprint(BlueprintId? Id) : DraftTarget;
+Train.Content.Contracts|type|Train.Content.Contracts.DraftTarget|public abstract record DraftTarget
+Train.Content.Contracts|type|Train.Content.Contracts.EditRevision|public readonly record struct EditRevision(ulong Value);
+Train.Content.Contracts|type|Train.Content.Contracts.ExternalContentWrite|public sealed record ExternalContentWrite(BlueprintId Blueprint, ImmutableArray<byte>? Bytes);
+Train.Content.Contracts|type|Train.Content.Contracts.FlattenRegion|public sealed record FlattenRegion(GridColumn From, GridColumn To, int Height);
+Train.Content.Contracts|type|Train.Content.Contracts.FoundingBuildingDraft|public sealed record FoundingBuildingDraft(int PlotNumber, BlueprintId Building);
+Train.Content.Contracts|type|Train.Content.Contracts.GenerationProfileId|public readonly record struct GenerationProfileId(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.GenerationProfileSummary|public sealed record GenerationProfileSummary(GenerationProfileId Id, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.GoodPresentation|public sealed record GoodPresentation(GoodId Good, ContentDisplay Display, DesignHash? DisplayDesign, bool Missing);
+Train.Content.Contracts|type|Train.Content.Contracts.GridBounds|public sealed record GridBounds(GridPosition Minimum, GridPosition Maximum);
+Train.Content.Contracts|type|Train.Content.Contracts.GridColumn|public readonly record struct GridColumn(int X, int Z);
+Train.Content.Contracts|type|Train.Content.Contracts.GridPosition|public readonly record struct GridPosition(int X, int Y, int Z);
+Train.Content.Contracts|type|Train.Content.Contracts.IAssetInspector|public interface IAssetInspector
+Train.Content.Contracts|type|Train.Content.Contracts.IAuthoringPackage|public interface IAuthoringPackage
+Train.Content.Contracts|type|Train.Content.Contracts.IContentCandidate|public interface IContentCandidate : IDisposable
+Train.Content.Contracts|type|Train.Content.Contracts.IContentCapture|public interface IContentCapture
+Train.Content.Contracts|type|Train.Content.Contracts.IContentFactory|public interface IContentFactory
+Train.Content.Contracts|type|Train.Content.Contracts.IContentFiles|public interface IContentFiles
+Train.Content.Contracts|type|Train.Content.Contracts.IContentReplayCapture|public interface IContentReplayCapture
+Train.Content.Contracts|type|Train.Content.Contracts.IContentView|public interface IContentView
+Train.Content.Contracts|type|Train.Content.Contracts.KnownDesignSubtotal|public sealed record KnownDesignSubtotal(double MassTons, Money StructuralBaseValue, long MaxStructureDurability, ImmutableArray<PartProjection> Parts, ImmutableArray<GoodsQuantity> BillOfMaterials);
+Train.Content.Contracts|type|Train.Content.Contracts.LairAppearanceProjection|public sealed record LairAppearanceProjection(LairTypeId Id, SceneModelProjection SceneModel, ContentDisplay Display);
+Train.Content.Contracts|type|Train.Content.Contracts.LairTypeDraft|public sealed record LairTypeDraft(string LocalId, DisplayText Display, BlueprintId? SceneModel, int? GenerationWeight, ImmutableArray<WeightedCreature> Members, int? MaximumMembers, double? SpawnIntervalSeconds, double? RaidIntervalSeconds, int? RoamingRadiusHops, int? RaidRadiusHops, double? RailDamageWorkSeconds, long? ClearanceReward);
+Train.Content.Contracts|type|Train.Content.Contracts.LayoutCell|public sealed record LayoutCell(GridPosition At, int PaletteIndex);
+Train.Content.Contracts|type|Train.Content.Contracts.LightAppearance|public sealed record LightAppearance(PaintColor Color, double RangeCells);
+Train.Content.Contracts|type|Train.Content.Contracts.LocalPoint|public readonly record struct LocalPoint(double X, double Y, double Z);
+Train.Content.Contracts|type|Train.Content.Contracts.LockedDesignOperation|public enum LockedDesignOperation
+Train.Content.Contracts|type|Train.Content.Contracts.MaterialCategory|public enum MaterialCategory
+Train.Content.Contracts|type|Train.Content.Contracts.MissingContentReference|public sealed record MissingContentReference(ContentReference Reference, PackageId? Package, string Field, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.ModelBounds|public sealed record ModelBounds(LocalPoint MinimumMeters, LocalPoint MaximumMeters);
+Train.Content.Contracts|type|Train.Content.Contracts.NestedDesignItem.AssemblyCopy|public sealed record AssemblyCopy(GridPosition At, VoxelOrientation Orientation, DesignDraft Design) : NestedDesignItem;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedDesignItem.FunctionalCompositeReference|public sealed record FunctionalCompositeReference(GridPosition At, VoxelOrientation Orientation, CompositeDefinitionId Definition, PaintColor? Paint) : NestedDesignItem;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedDesignItem.SceneModelCopy|public sealed record SceneModelCopy(GridPosition At, VoxelOrientation Orientation, DesignDraft Design) : NestedDesignItem;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedDesignItem|public abstract record NestedDesignItem
+Train.Content.Contracts|type|Train.Content.Contracts.NestedObjectDetails.Assembly|public sealed record Assembly(RotationAppearance? Rotation) : NestedObjectDetails;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedObjectDetails.FunctionalComposite|public sealed record FunctionalComposite(CompositeDefinitionId Definition, PartId Number, RotationAppearance? Rotation) : NestedObjectDetails;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedObjectDetails.MissingFunctionalComposite|public sealed record MissingFunctionalComposite(CompositeDefinitionId Definition, PartId Number) : NestedObjectDetails;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedObjectDetails.SceneModel|public sealed record SceneModel(FlattenRegion? Flatten) : NestedObjectDetails;
+Train.Content.Contracts|type|Train.Content.Contracts.NestedObjectDetails|public abstract record NestedObjectDetails
+Train.Content.Contracts|type|Train.Content.Contracts.NestedObjectProjection|public sealed record NestedObjectProjection(ImmutableArray<int> NestedItemIndices, GridPosition At, VoxelOrientation Orientation, NestedObjectDetails Details);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageDependency|public sealed record PackageDependency(PackageId Package, string MinimumVersion);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageEdit.DeleteAsset|public sealed record DeleteAsset(string PackageRelativePath) : PackageEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PackageEdit.DeleteDefinition|public sealed record DeleteDefinition(AuthoringDefinitionAddress Definition) : PackageEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PackageEdit.Manifest|public sealed record Manifest(PackageMetadata Value) : PackageEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PackageEdit.WriteAsset|public sealed record WriteAsset(string PackageRelativePath, ImmutableArray<byte> Bytes) : PackageEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PackageEdit.WriteDefinition|public sealed record WriteDefinition(DefinitionDraft Draft) : PackageEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PackageEdit|public abstract record PackageEdit
+Train.Content.Contracts|type|Train.Content.Contracts.PackageFileChange|public sealed record PackageFileChange(string RelativePath, ImmutableArray<byte>? Bytes);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageId|public readonly record struct PackageId(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageMetadata|public sealed record PackageMetadata(PackageId Id, string Name, string Version, ImmutableArray<string> Authors, ImmutableArray<PackageDependency> Dependencies);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageSourceVersion|public readonly record struct PackageSourceVersion(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageState|public enum PackageState
+Train.Content.Contracts|type|Train.Content.Contracts.PackageStatus|public sealed record PackageStatus(PackageMetadata? Metadata, ContentRoot Root, PackageState State, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.PackageWritePlan|public sealed record PackageWritePlan(PackageId Package, PackageSourceVersion SourceVersion, ImmutableArray<PackageFileChange> Changes, ImmutableArray<ContentDiagnostic> Diagnostics);
+Train.Content.Contracts|type|Train.Content.Contracts.PaintColor|public readonly record struct PaintColor(string Value);
+Train.Content.Contracts|type|Train.Content.Contracts.PartialDesignMetrics|public sealed record PartialDesignMetrics(ComputedValue<double> MassTons, ComputedValue<Money> StructuralBaseValue, ComputedValue<long> MaxStructureDurability, ComputedValue<ImmutableArray<PartProjection>> Parts, ComputedValue<ImmutableArray<GoodsQuantity>> BillOfMaterials, ComputedValue<int> VehicleLengthCells);
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.BlueprintDeleted|public sealed record BlueprintDeleted(BlueprintAddress Blueprint) : PreparedContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.BlueprintSaved|public sealed record BlueprintSaved(BlueprintAddress Blueprint, DesignHash Design) : PreparedContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.ConstructionTarget|public sealed record ConstructionTarget(DesignInput Design) : PreparedContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.DraftDeleted|public sealed record DraftDeleted(DraftId Draft) : PreparedContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.DraftSaved|public sealed record DraftSaved(DraftId Draft, EditRevision Revision) : PreparedContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit.InstanceTarget|public sealed record InstanceTarget(DesignChangeEvaluation Difference) : PreparedContentEdit;
+Train.Content.Contracts|type|Train.Content.Contracts.PreparedContentEdit|public abstract record PreparedContentEdit
+Train.Content.Contracts|type|Train.Content.Contracts.RailwayAppearanceProjection|public sealed record RailwayAppearanceProjection(RuleDefinitionId Id, double MinimumCurveRadiusMeters, double MaximumGrade);
+Train.Content.Contracts|type|Train.Content.Contracts.RailwaySceneModels|public sealed record RailwaySceneModels(int Tracks, DesignHash Bridge, DesignHash TunnelPortal);
+Train.Content.Contracts|type|Train.Content.Contracts.RotationAppearance|public sealed record RotationAppearance(RotationAxis Axis, GridPosition Pivot, double MinimumDegrees, double MaximumDegrees, double SpeedDegreesPerSecond);
+Train.Content.Contracts|type|Train.Content.Contracts.RotationAxis|public enum RotationAxis
+Train.Content.Contracts|type|Train.Content.Contracts.RotationSweepProjection|public sealed record RotationSweepProjection(ImmutableArray<int> NestedItemIndices, ComputedValue<ImmutableArray<GridPosition>> SweptCells, ComputedValue<ImmutableArray<GridPosition>> ConflictCells);
+Train.Content.Contracts|type|Train.Content.Contracts.SavedContentDraft|public sealed record SavedContentDraft(DraftId Id, EditRevision Revision, DraftTarget Target, DraftPayload Payload);
+Train.Content.Contracts|type|Train.Content.Contracts.SceneModelProjection|public sealed record SceneModelProjection(DesignHash Design, DesignSceneProjection Scene, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.SceneVoxelProjection|public sealed record SceneVoxelProjection(GridPosition At, VoxelDefinitionId Voxel, VoxelOrientation Orientation, VoxelShape? Shape, PaintColor? Paint, PartId Number, DesignElementPath Element, ImmutableArray<int> ObjectPath, GridPosition LocalAt, VoxelOrientation LocalOrientation, bool Missing);
+Train.Content.Contracts|type|Train.Content.Contracts.SettlementLayoutProjection|public sealed record SettlementLayoutProjection(SettlementId Owner, SettlementTemplateId SourceTemplate, SceneModelProjection SceneModel, ImmutableArray<SettlementPlotLayout> Plots, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.SettlementPlotLayout|public sealed record SettlementPlotLayout(int Number, PlotSize Size, GridPosition At, VoxelOrientation Orientation);
+Train.Content.Contracts|type|Train.Content.Contracts.SettlementTemplateDraft|public sealed record SettlementTemplateDraft(string LocalId, SettlementTypeId? Type, int? Weight, BlueprintId? SceneModel, ImmutableArray<TemplatePlotDraft> Plots, ImmutableArray<FoundingBuildingDraft> FoundingBuildings, ImmutableArray<GoodsQuantity> Inventory, ImmutableArray<TemplateProductionPlan> ProductionPlans);
+Train.Content.Contracts|type|Train.Content.Contracts.SettlementTypeDraft|public sealed record SettlementTypeDraft(string LocalId, DisplayText Display, AuthoringAssetPath? MapSymbol, bool Major, int? Weight, ImmutableArray<TerrainTypeId> PreferredTerrain, long? MinimumPopulation, long? MaximumPopulation);
+Train.Content.Contracts|type|Train.Content.Contracts.TemplatePlotDraft|public sealed record TemplatePlotDraft(int Number, PlotSize Size, GridPosition At, VoxelOrientation Orientation, BlueprintId? PrebuiltBuilding);
+Train.Content.Contracts|type|Train.Content.Contracts.TerrainAppearanceProjection|public sealed record TerrainAppearanceProjection(TerrainTypeId Id, VoxelDefinitionId SurfaceVoxel, VoxelDefinitionId SubsurfaceVoxel, VoxelDefinitionId RockVoxel, ImmutableArray<NoiseOctave> LocalHeightNoise, ImmutableArray<TerrainDecoration> Decorations, double DecorationTargetPerSquareMeter, ImmutableArray<RailwaySceneModels> RailwayModels, DisplayText Display);
+Train.Content.Contracts|type|Train.Content.Contracts.TerrainDecoration|public sealed record TerrainDecoration(DesignHash SceneModel, int Weight);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelAppearanceBehaviors|public sealed record VoxelAppearanceBehaviors(bool Wheelset, LightAppearance? Light);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelAppearanceProjection|public sealed record VoxelAppearanceProjection(VoxelDefinitionId Definition, AllowedVoxelOrientations AllowedOrientations, VoxelCollision Collision, VoxelPresentation Presentation, VoxelAppearanceBehaviors Behaviors);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelCatalogEntry|public sealed record VoxelCatalogEntry(VoxelDefinitionId Definition, GoodDefinitionProjection? Good);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelCollision.FullBox|public sealed record FullBox : VoxelCollision;
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelCollision.LocalBox|public sealed record LocalBox(LocalPoint Offset, LocalPoint Size) : VoxelCollision;
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelCollision.None|public sealed record None : VoxelCollision;
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelCollision|public abstract record VoxelCollision
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelDefinitionDraft|public sealed record VoxelDefinitionDraft(string LocalId, DisplayText Display, AuthoringAssetPath? Icon, VoxelSimulationDraft? Simulation, AllowedVoxelOrientations Orientations, VoxelCollision Collision, AuthoringVoxelPresentation? Presentation, VoxelAppearanceBehaviors AppearanceBehaviors);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelDisplayProjection|public sealed record VoxelDisplayProjection(VoxelDefinitionId Definition, DisplayText Display, AssetRevision Icon);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelLayout|public sealed record VoxelLayout(ImmutableArray<VoxelPaletteEntry> Palette, ImmutableArray<LayoutCell> Cells, ImmutableArray<NestedDesignItem> NestedItems);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelOrientation|public enum VoxelOrientation
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelPaletteEntry|public sealed record VoxelPaletteEntry(VoxelDefinitionId Voxel, VoxelOrientation Orientation, VoxelShape? Shape, PaintColor? Paint);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelPresentation.Cube|public sealed record Cube(ImmutableArray<VoxelShape> Shapes, MaterialCategory Material, int TileSpan, AssetRevision Top, AssetRevision Side, AssetRevision Bottom, AssetRevision Front) : VoxelPresentation;
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelPresentation.Mesh|public sealed record Mesh(AssetRevision Model, ImmutableArray<MaterialCategory> SurfaceMaterials) : VoxelPresentation;
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelPresentation|public abstract record VoxelPresentation
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelShape|public readonly record struct VoxelShape(string Name);
+Train.Content.Contracts|type|Train.Content.Contracts.VoxelSimulationDraft|public sealed record VoxelSimulationDraft(long? BaseValue, double? MassTons, long? MaxDurability, bool RawGood, double? FuelEnergyPerUnit, ImmutableArray<PartCapability> Behaviors);
+Train.Content.Contracts|using|using System.Collections.Immutable;
+Train.Content.Contracts|using|using Train.Core.Contracts;
+Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Construction|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Defense|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Power|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Production|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Station|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.BuildingKind|Warehouse|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CapabilityKind|Construction|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CapabilityKind|Extraction|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CapabilityKind|Production|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CapturePurpose|Diagnostic|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CapturePurpose|Save|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CommandSource|AutomationTest|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CommandSource|Console|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CommandSource|UserInterface|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionKind|Construction|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionKind|Deconstruction|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionKind|Refit|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionKind|Repair|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionState|Completed|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionState|Failed|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionState|Paused|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionState|Queued|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionState|ResourceBlocked|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ConstructionState|Working|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CreatureActivity|Combat|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CreatureActivity|Guarding|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CreatureActivity|RaidingRailway|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CreatureActivity|RaidingSettlement|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CreatureActivity|Retreating|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.CreatureActivity|Wandering|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.EncounterAction|Engage|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.EncounterAction|Retreat|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Agriculture|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Assembly|7
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|BuildingMaterials|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Chemical|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Electronics|8
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Extraction|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|FoodProcessing|6
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|LightIndustry|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Metallurgy|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.FacilityTag|Recovery|9
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InstanceLock|Combat|8
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InstanceLock|None|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InstanceLock|UnderDeconstruction|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InstanceLock|UnderRefit|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InstanceLock|UnderRepair|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|Frozen|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|ReadWrite|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.InventoryAccess|WithdrawOnly|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.JobFunding|NpcCommission|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.JobFunding|OwnInventory|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Large|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Medium|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Small|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PlotSize|Station|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeedClass|Basic|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeedClass|Improvement|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|Clothing|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|ConsumerElectronics|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|ConsumerGoods|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|Food|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|ImprovedDiet|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationNeed|MedicalSupplies|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationSettlementReason|Growth|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationSettlementReason|MinimumReached|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationSettlementReason|ShortageLoss|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationSettlementReason|Stable|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationTrend|AtMinimum|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationTrend|Declining|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationTrend|Growing|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.PopulationTrend|Stable|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|ConditionsNotMet|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|Disabled|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|Locked|6
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|OutputBlocked|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|ProcessMissing|7
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|Running|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|WaitingForInputs|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ProductionState|ZeroCapability|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RailwayWorkKind|AddTrack|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RailwayWorkKind|RepairBreak|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RecordingWriteOutcome|Failed|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RecordingWriteOutcome|PublishedWithDependencies|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ReplayStop|BudgetReached|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ReplayStop|EndOfRecording|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ReplayStop|FirstDifference|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ReplayStop|RecordedFault|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ReplayStop|RequestedPosition|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.ReplayStop|UnexpectedFault|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RunEndReason|AllVehiclesDestroyed|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RunEndReason|LoopCompleted|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RunEndReason|PlanCompleted|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RunEndReason|PlanReplaced|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.RunEndReason|TrainDisbanded|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SettlementRelation|Hostile|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SettlementRelation|NonHostile|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SettlementRelation|PlayerOwned|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SizeClass|ExtraLarge|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SizeClass|Large|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SizeClass|Medium|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SizeClass|Small|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.SizeClass|Titan|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TargetPriority|ArmedFirst|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TargetPriority|HighestDurability|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TargetPriority|LowestDurability|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TargetScope|All|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TargetScope|ArmedOnly|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TradeAction|Buy|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TradeAction|Load|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TradeAction|Sell|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TradeAction|Unload|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|Combat|5
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|NoRoute|4
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|Retreating|6
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|Running|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|Servicing|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|Stopped|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainActivity|Waiting|3
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainOrderFacing|FirstEndLeading|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TrainOrderFacing|LastEndLeading|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TravelDirection|Forward|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.TravelDirection|Reverse|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.VehicleTradeAction|Buy|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.VehicleTradeAction|Sell|1
+Train.Core.Contracts|enum|global::Train.Core.Contracts.WorkLimit|Capability|0
+Train.Core.Contracts|enum|global::Train.Core.Contracts.WorkLimit|Labor|2
+Train.Core.Contracts|enum|global::Train.Core.Contracts.WorkLimit|Power|1
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreCapture|CoreCheckpoint Checkpoint { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreCapture|CoreInputId InputIdentity { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreCapture|CoreReferenceManifest References { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreCapture|CoreRevision Revision { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreCapture|SimulationPosition Position { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreCapture|string Encode();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreFactory|CoreResult<CheckpointComparison> CompareCheckpoints(CoreCheckpoint expected, CoreCheckpoint actual);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreFactory|CoreResult<ICoreCapture> DecodeState(string canonicalPayload);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreFactory|CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment, ImmutableArray<CoreContentProjection> contentHistory);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreFactory|CoreResult<ICoreSessionCandidate> PrepareNew(WorldGenerationInput input, CoreContentProjection content, CoreSessionOptions options);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreFactory|CoreResult<ICoreSessionCandidate> PrepareRestore(ICoreCapture saved, CoreContentProjection content, CoreSessionOptions options);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreFault? Fault { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreInputId InputIdentity { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<LeaseQuote> QuoteLease(LeaseRequest request);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|CoreRevision Revision { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|EconomyView Economy { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<CombatView> FindCombat(CombatId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<CreatureView> FindCreature(CreatureId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<EdgeView> FindEdge(EdgeId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<FacilityView> FindFacility(FacilityKey key);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<InstanceView> FindInstance(InstanceId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<InventoryView> FindInventory(InventoryId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<JobView> FindJob(JobId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<LairView> FindLair(LairId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<LeaseView> FindLease(LeaseId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<LocationView> FindLocation(WorldLocation location);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<NodeView> FindNode(NodeId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<SettlementView> FindSettlement(SettlementId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|Lookup<TrainView> FindTrain(TrainId id);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|SimulationPosition Position { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReadView|WorldSummary World { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReplay|ICoreCapture CaptureBoundary();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReplay|ICoreReadView Read();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreReplay|ReplayAdvanceResult Advance(uint maximumSteps, SimulationPosition? stopAt = null);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSessionCandidate|CoreReferenceManifest References { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSessionCandidate|ICoreReadView View { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSessionCandidate|ICoreSession Activate();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSessionCandidate|ImmutableArray<CoreProblem> AdaptationReport { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSessionCandidate|ImmutableArray<MissingCoreReference> MissingReferences { get; }
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|AdvanceResult Advance(uint steps);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|CoreRecordingWindow ReadRecording();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|CoreResult<ICoreCapture> Capture(CapturePurpose purpose);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|CoreResult<RecordingStart> CaptureRecordingStart();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|ICoreReadView Read();
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|RecordingMaintenance ConfirmRecordingStart(RecordingPointId point, RecordingWriteOutcome outcome);
+Train.Core.Contracts|member|Train.Core.Contracts.ICoreSession|SubmissionResult Submit(CoreCommand command, CommandSource source);
+Train.Core.Contracts|member|Train.Core.Contracts.SimulationTime|public const double StepSeconds = 1.0 / StepsPerSecond;
+Train.Core.Contracts|member|Train.Core.Contracts.SimulationTime|public const int StepsPerSecond = 60;
+Train.Core.Contracts|type|Train.Core.Contracts.ActiveBatchView|public sealed record ActiveBatchView(ProcessRef Process, SemanticRevision StartedFromRevision, long FrozenWorkRequired, double ProgressWork, double Progress, ImmutableArray<GoodsQuantity> FrozenOutputs, bool CurrentSpecificationDiffers);
+Train.Core.Contracts|type|Train.Core.Contracts.AdvanceResult|public sealed record AdvanceResult(uint CompletedSteps, SimulationPosition Position, ImmutableArray<EventEnvelope> Events, CoreFault? Fault, CoreDiagnostic? Diagnostic);
+Train.Core.Contracts|type|Train.Core.Contracts.AttackSource.Creature|public sealed record Creature(CreaturePresentationRef Individual) : AttackSource;
+Train.Core.Contracts|type|Train.Core.Contracts.AttackSource.Weapon|public sealed record Weapon(InstancePresentationRef Instance, PartId WeaponPart) : AttackSource;
+Train.Core.Contracts|type|Train.Core.Contracts.AttackSource|public abstract record AttackSource
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticGoodsAction.Buy|public sealed record Buy(Money? MaximumUnitPrice) : AutomaticGoodsAction;
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticGoodsAction.Load|public sealed record Load : AutomaticGoodsAction;
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticGoodsAction.Sell|public sealed record Sell(Money? MinimumUnitPrice) : AutomaticGoodsAction;
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticGoodsAction.Unload|public sealed record Unload : AutomaticGoodsAction;
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticGoodsAction|public abstract record AutomaticGoodsAction
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticGoodsRule|public sealed record AutomaticGoodsRule(AutomaticGoodsAction Action, GoodId Good, InventoryId LocalInventory, long TargetQuantity);
+Train.Core.Contracts|type|Train.Core.Contracts.AutomaticRuleResult|public sealed record AutomaticRuleResult(int StopIndex, int RuleIndex, TradeAction Action, GoodId Good, long RequestedQuantity, long CompletedQuantity, Money ActualAmount, ImmutableArray<CoreProblem> IncompleteReasons);
+Train.Core.Contracts|type|Train.Core.Contracts.BasisPoints|public readonly record struct BasisPoints(int Value);
+Train.Core.Contracts|type|Train.Core.Contracts.BreakId|public readonly record struct BreakId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.BuildingId|public readonly record struct BuildingId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.BuildingKind|public enum BuildingKind
+Train.Core.Contracts|type|Train.Core.Contracts.CapabilityKind|public enum CapabilityKind
+Train.Core.Contracts|type|Train.Core.Contracts.CapturePurpose|public enum CapturePurpose
+Train.Core.Contracts|type|Train.Core.Contracts.CheckpointComparison.Different|public sealed record Different(CheckpointDifference Difference) : CheckpointComparison;
+Train.Core.Contracts|type|Train.Core.Contracts.CheckpointComparison.Equal|public sealed record Equal : CheckpointComparison;
+Train.Core.Contracts|type|Train.Core.Contracts.CheckpointComparison|public abstract record CheckpointComparison
+Train.Core.Contracts|type|Train.Core.Contracts.CheckpointDifference|public sealed record CheckpointDifference(SimulationPosition Position, string Field, string Expected, string Actual);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatController.Settlement|public sealed record Settlement(SettlementId Id) : CombatController;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatController.Train|public sealed record Train(TrainId Id) : CombatController;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatController|public abstract record CombatController
+Train.Core.Contracts|type|Train.Core.Contracts.CombatHit|public sealed record CombatHit(AttackSource Source, HitTarget Target, long Damage);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatId|public readonly record struct CombatId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatMapItem|public sealed record CombatMapItem(CombatId Id, WorldLocation Location);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatOwner.Creatures|public sealed record Creatures : CombatOwner;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatOwner.Player|public sealed record Player : CombatOwner;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatOwner.Settlement|public sealed record Settlement(SettlementId Id) : CombatOwner;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatOwner|public abstract record CombatOwner
+Train.Core.Contracts|type|Train.Core.Contracts.CombatParticipantView|public sealed record CombatParticipantView(CombatUnitId Unit, bool Retreating, ulong RemainingDisengagementSteps, CombatUnitId? FocusTarget);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatRuleProjection|public sealed record CombatRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, double RetreatSeconds, double MoraleDamageCoefficient, double WeaponDestroyedMoraleLoss, double MoraleRecoveryPerSecond, double SurrenderThreshold, double NewLairIntervalSeconds);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatSideSummary|public sealed record CombatSideSummary(CombatOwner Owner, ImmutableArray<DestroyedUnit> UnitsLost, ImmutableArray<DestroyedPart> PartsLost, ImmutableArray<GoodsQuantity> CargoLost, Money Reward);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatSummary|public sealed record CombatSummary(ulong StartedAtStep, ulong EndedAtStep, ImmutableArray<CombatSideSummary> Sides);
+Train.Core.Contracts|type|Train.Core.Contracts.CombatUnitId.CreatureGroup|public sealed record CreatureGroup(CreatureGroupId Id) : CombatUnitId;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatUnitId.Instance|public sealed record Instance(InstanceId Id) : CombatUnitId;
+Train.Core.Contracts|type|Train.Core.Contracts.CombatUnitId|public abstract record CombatUnitId
+Train.Core.Contracts|type|Train.Core.Contracts.CombatView|public sealed record CombatView(CombatId Id, WorldLocation Location, ulong StartedAtStep, ImmutableArray<CombatParticipantView> Participants);
+Train.Core.Contracts|type|Train.Core.Contracts.CommandDecision.Accepted|public sealed record Accepted(ImmutableArray<WorldObjectId> Created, ImmutableArray<OwnedSettlementTemplateReference> SettlementCopies) : CommandDecision;
+Train.Core.Contracts|type|Train.Core.Contracts.CommandDecision.Faulted|public sealed record Faulted(CoreFault Fault) : CommandDecision;
+Train.Core.Contracts|type|Train.Core.Contracts.CommandDecision.Rejected|public sealed record Rejected(ImmutableArray<CoreProblem> Problems) : CommandDecision;
+Train.Core.Contracts|type|Train.Core.Contracts.CommandDecision|public abstract record CommandDecision
+Train.Core.Contracts|type|Train.Core.Contracts.CommandReceipt|public sealed record CommandReceipt(ulong Number, SimulationPosition Before, SimulationPosition After, CommandDecision Decision);
+Train.Core.Contracts|type|Train.Core.Contracts.CommandSource|public enum CommandSource
+Train.Core.Contracts|type|Train.Core.Contracts.CompositeDefinitionId|public readonly record struct CompositeDefinitionId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CompositionHash|public readonly record struct CompositionHash(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionJobView|public sealed record ConstructionJobView(JobId Id, ConstructionKind Kind, SettlementId Settlement, FacilityKey Facility, ConstructionTarget Target, ConstructionState State, int Priority, long FrozenTotalWork, double ProgressWork, double Progress, double ActualWorkPerSecond, ImmutableArray<WorkLimit> Limits, ImmutableArray<GoodsQuantity> InvestedGoods, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionKind|public enum ConstructionKind
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionRuleProjection|public sealed record ConstructionRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, ulong FoundingDurationTicks, long ConstructionWorkPerItem, long RefitWorkPerChangedItem, long DeconstructionWorkPerItem, long RepairWorkPerDamagedPart, double PowerPerWork, double LaborPerWork);
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionState|public enum ConstructionState
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionTarget.Existing|public sealed record Existing(InstanceId Instance, DesignHash TargetDesign) : ConstructionTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionTarget.NewAssembly|public sealed record NewAssembly(DesignHash Design, CompositionHash Composition, InventoryId Destination) : ConstructionTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionTarget.NewBuilding|public sealed record NewBuilding(PlotId Plot, DesignHash Design) : ConstructionTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionTarget.NewVehicle|public sealed record NewVehicle(DesignHash Design) : ConstructionTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.ConstructionTarget|public abstract record ConstructionTarget
+Train.Core.Contracts|type|Train.Core.Contracts.ConsumptionGoodProjection|public sealed record ConsumptionGoodProjection(GoodId Good, ImmutableArray<NeedConversion> Satisfies, int SelectionOrder);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCheckpoint|public sealed record CoreCheckpoint(SimulationPosition Position, string CanonicalText, string Sha256);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.AcquireLease|public sealed record AcquireLease(LeaseRequest Request, Money MaximumPayment) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.ApplyInstanceDesign|public sealed record ApplyInstanceDesign(InstanceId Instance, DesignChangeProjection Change) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.BuyGoods|public sealed record BuyGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory, GoodId Good, long Quantity, Money MaximumPayment) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.BuyVehicle|public sealed record BuyVehicle(SettlementId Seller, VehicleId Vehicle, Money MaximumPayment) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.CommissionVehicleWork|public sealed record CommissionVehicleWork(JobRequest Request, Money MaximumPayment) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DebugAddRailBreak|public sealed record DebugAddRailBreak(EdgeId Edge, int Track, double DistanceMeters) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DeclareWar|public sealed record DeclareWar(SettlementId Settlement) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.DisbandTrain|public sealed record DisbandTrain(TrainId Train) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.ExpandRail|public sealed record ExpandRail(EdgeId Edge, SettlementId MaterialSource) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.FocusFire|public sealed record FocusFire(CombatId Combat, CombatController Controller, WorldObjectId Target) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.FormTrain|public sealed record FormTrain(ImmutableArray<VehicleId> OrderedVehicles) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.FoundSettlement|public sealed record FoundSettlement(NodeId Node, TrainId MaterialSource) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.LoadGoods|public sealed record LoadGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory, GoodId Good, long Quantity) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.OccupySettlement|public sealed record OccupySettlement(SettlementId Settlement, TrainId PresentTrain) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.PublishContent|public sealed record PublishContent(CoreContentProjection Content) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.RepairRail|public sealed record RepairRail(EdgeId Edge, BreakId Break, SettlementId MaterialSource) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.ReplaceRunPlan|public sealed record ReplaceRunPlan(TrainId Train, RunPlan Plan) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.Retreat|public sealed record Retreat(TrainId Train) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SellGoods|public sealed record SellGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory, GoodId Good, long Quantity, Money MinimumReceipt) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SellVehicle|public sealed record SellVehicle(SettlementId Buyer, VehicleId Vehicle, Money MinimumReceipt) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SetAutomaticRailRepair|public sealed record SetAutomaticRailRepair(EdgeId Edge, SettlementId? MaterialSource) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SetDeconstructionPaused|public sealed record SetDeconstructionPaused(JobId Job, bool Paused) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SetJobPriority|public sealed record SetJobPriority(JobId Job, int Priority) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SetProductionPlan|public sealed record SetProductionPlan(FacilityKey Facility, ProcessRef Process, bool Enabled, int Priority) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SetSettlementEngagement|public sealed record SetSettlementEngagement(SettlementId Settlement, SettlementEngagementRules Rules) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.SetTrainEngagement|public sealed record SetTrainEngagement(TrainId Train, TrainEngagementRules Rules) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.StartOwnedJob|public sealed record StartOwnedJob(JobRequest Request) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.StartTrain|public sealed record StartTrain(TrainId Train) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.StopTrain|public sealed record StopTrain(TrainId Train) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand.UnloadGoods|public sealed record UnloadGoods(TrainId Train, SettlementId Settlement, InventoryId LocalInventory, GoodId Good, long Quantity) : CoreCommand;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreCommand|public abstract record CoreCommand
+Train.Core.Contracts|type|Train.Core.Contracts.CoreContentProjection|public sealed record CoreContentProjection( CoreInputId Identity, ImmutableArray<GoodDefinitionProjection> Goods, ImmutableArray<DesignProjection> Designs, ImmutableArray<GoodDefinitionProjection> DesignGoods, ImmutableArray<ProcessProjection> Processes, ImmutableArray<PopulationRuleProjection> PopulationRules, ImmutableArray<MarketRuleProjection> MarketRules, ImmutableArray<ConstructionRuleProjection> ConstructionRules, ImmutableArray<RailwayRuleProjection> RailwayRules, ImmutableArray<CombatRuleProjection> CombatRules, ImmutableArray<SettlementTypeProjection> SettlementTypes, ImmutableArray<SettlementTemplateProjection> SettlementTemplates, ImmutableArray<CreatureProjection> Creatures, ImmutableArray<LairTypeProjection> LairTypes, ImmutableArray<MissingCoreReference> MissingReferences);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Composite|public sealed record Composite(CompositeDefinitionId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Creature|public sealed record Creature(CreatureDefinitionId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Lair|public sealed record Lair(LairTypeId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Process|public sealed record Process(ProcessRef Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Rule|public sealed record Rule(RuleDefinitionId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.SettlementType|public sealed record SettlementType(SettlementTypeId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Template|public sealed record Template(SettlementTemplateId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Terrain|public sealed record Terrain(TerrainTypeId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference.Voxel|public sealed record Voxel(VoxelDefinitionId Id) : CoreDefinitionReference;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDefinitionReference|public abstract record CoreDefinitionReference
+Train.Core.Contracts|type|Train.Core.Contracts.CoreDiagnostic|public sealed record CoreDiagnostic(string Message, string? StackTrace);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.AutomaticTradeEvaluated|public sealed record AutomaticTradeEvaluated(TrainId Train, NodeId Node, ImmutableArray<AutomaticRuleResult> Results) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.CombatDestruction|public sealed record CombatDestruction(CombatId Combat, WorldLocation Location, ImmutableArray<DestroyedPart> Parts, ImmutableArray<DestroyedUnit> Units) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.CombatEnded|public sealed record CombatEnded(CombatId Combat, WorldLocation Location, CombatSummary Summary) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.CombatHits|public sealed record CombatHits(CombatId Combat, WorldLocation Location, ImmutableArray<CombatHit> Hits) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.CombatJoined|public sealed record CombatJoined(CombatId Combat, CombatUnitId Participant) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.CombatRetreatStarted|public sealed record CombatRetreatStarted(CombatId Combat, CombatUnitId Unit, ulong DisengagementSteps) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.CombatStarted|public sealed record CombatStarted(CombatId Combat, WorldLocation Location, ImmutableArray<CombatUnitId> Participants) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ConstructionCompleted|public sealed record ConstructionCompleted(JobId Job, ConstructionKind Kind, ConstructionTarget Target, InstanceId? CreatedInstance, ImmutableArray<GoodsQuantity> ReturnedGoods) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ConstructionStarted|public sealed record ConstructionStarted(ConstructionJobView Job, JobFunding Funding, Money MaterialPayment, Money ServicePayment) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ConstructionStateChanged|public sealed record ConstructionStateChanged(JobId Job, ConstructionState Before, ConstructionState After, ImmutableArray<CoreProblem> Reasons) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.GoodsTransferred|public sealed record GoodsTransferred(TradeAction Action, GoodId Good, long Quantity, InventoryId Source, InventoryId Destination, Money ActualAmount, TrainId Train, SettlementId Settlement) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.InstanceDesignChanged|public sealed record InstanceDesignChanged(InstanceId Instance, DesignHash Before, DesignHash After) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.LairCleared|public sealed record LairCleared(LairId Lair, NodeId Node, Money Reward) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.LairCreated|public sealed record LairCreated(LairId Lair, NodeId Node, LairTypeId Type) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.LeaseAcquired|public sealed record LeaseAcquired(LeaseView Lease, Money ActualPayment, bool Renewal) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.LeaseExpired|public sealed record LeaseExpired(LeaseId Lease, SettlementId Settlement, InventoryId Inventory) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.MarketAvailabilityChanged|public sealed record MarketAvailabilityChanged(bool Available, ImmutableArray<CoreProblem> Reasons) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.PopulationAvailabilityChanged|public sealed record PopulationAvailabilityChanged(SettlementId Settlement, bool Available, ImmutableArray<CoreProblem> Reasons) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.PopulationMinimumReached|public sealed record PopulationMinimumReached(SettlementId Settlement, long Residents) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.PopulationSettled|public sealed record PopulationSettled(SettlementId Settlement, PopulationSettlementReport Report) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.PopulationShortageChanged|public sealed record PopulationShortageChanged(SettlementId Settlement, PopulationNeed Need, bool Shortage) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ProductionCompleted|public sealed record ProductionCompleted(FacilityKey Facility, ProcessRef Process, SemanticRevision StartedFromRevision, ImmutableArray<GoodsQuantity> Outputs, bool Buffered) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ProductionStateChanged|public sealed record ProductionStateChanged(FacilityKey Facility, ProductionState Before, ProductionState After, ImmutableArray<CoreProblem> Reasons) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RailBroken|public sealed record RailBroken(EdgeId Edge, TrackBreakView Break) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RailExpanded|public sealed record RailExpanded(EdgeId Edge, int Tracks) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RailRepaired|public sealed record RailRepaired(EdgeId Edge, BreakId Break, int Track) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RailwayWorkChanged|public sealed record RailwayWorkChanged(EdgeId Edge, JobId Job, ImmutableArray<CoreProblem> Reasons) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RailwayWorkStarted|public sealed record RailwayWorkStarted(EdgeId Edge, RailwayWorkView Work) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ResourceExhausted|public sealed record ResourceExhausted(NodeId Node, GoodId Good, bool Renewable) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ResourceRecovered|public sealed record ResourceRecovered(NodeId Node, GoodId Good, long Quantity) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.ResourceRegenerated|public sealed record ResourceRegenerated(NodeId Node, GoodId Good, long Quantity) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RetreatCompleted|public sealed record RetreatCompleted(TrainId Train, NodeId Node) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.RunReported|public sealed record RunReported(RunReport Report) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.SettlementFounded|public sealed record SettlementFounded(SettlementId Settlement, NodeId Node, long Residents) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.SettlementRelationChanged|public sealed record SettlementRelationChanged(SettlementId Settlement, SettlementRelation Before, SettlementRelation After) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.SettlementSurrendered|public sealed record SettlementSurrendered(CombatId Combat, SettlementId Settlement) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.TrainActivityChanged|public sealed record TrainActivityChanged(TrainId Train, TrainActivity Before, TrainActivity After, TrainPosition Position, ImmutableArray<CoreProblem> Reasons) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.TrainArrived|public sealed record TrainArrived(TrainId Train, NodeId Node) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.TrainCompositionChanged|public sealed record TrainCompositionChanged(TrainId Train, ImmutableArray<VehicleId> Vehicles) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent.VehicleTraded|public sealed record VehicleTraded(VehicleId Vehicle, SettlementId Settlement, VehicleTradeAction Action, Money ActualAmount) : CoreEvent;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreEvent|public abstract record CoreEvent
+Train.Core.Contracts|type|Train.Core.Contracts.CoreFault|public sealed record CoreFault(string Code, SimulationPosition Position, string Operation, string Field, WorldObjectId? Subject);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreInputId|public readonly record struct CoreInputId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreProblem|public sealed record CoreProblem(string Code, string Field, WorldObjectId? Subject, ImmutableArray<string> RelatedIdentities);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreRecordingWindow|public sealed record CoreRecordingWindow(SimulationPosition EndPosition, ImmutableArray<RecordingStart> Starts, ImmutableArray<RecordedCommand> Commands, ImmutableArray<CoreCheckpoint> Checkpoints, ImmutableArray<FaultRecordingSegment> FaultSegments, ImmutableArray<RecordingGap> Gaps, CoreReferenceManifest RequiredReferences);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreReferenceManifest|public sealed record CoreReferenceManifest(ImmutableArray<DesignHash> Designs, ImmutableArray<OwnedSettlementTemplateReference> Templates, ImmutableArray<RequiredDefinition> Definitions, ImmutableArray<CoreInputId> Inputs);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreReplayInput|public sealed record CoreReplayInput(int FormatVersion, RuntimeIdentity OriginalRuntime, string InitialStatePayload, ImmutableArray<RecordedCommand> Commands, ImmutableArray<CoreCheckpoint> Checkpoints, SimulationPosition EndPosition, CoreFault? ExpectedFault);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreResult.Failure|public sealed record Failure(ImmutableArray<CoreProblem> Problems) : CoreResult<T>;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreResult.Faulted|public sealed record Faulted(CoreFault Fault, CoreDiagnostic? Diagnostic) : CoreResult<T>;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreResult.Success|public sealed record Success(T Value) : CoreResult<T>;
+Train.Core.Contracts|type|Train.Core.Contracts.CoreResult|public abstract record CoreResult<T> where T : notnull
+Train.Core.Contracts|type|Train.Core.Contracts.CoreRevision|public readonly record struct CoreRevision(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CoreSessionOptions|public sealed record CoreSessionOptions(RuntimeIdentity Runtime, bool EnableDeveloperCommands, int RetainedRecordingStarts);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureActivity|public enum CreatureActivity
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureDefinitionId|public readonly record struct CreatureDefinitionId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureGroupId|public readonly record struct CreatureGroupId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureGroupMapItem|public sealed record CreatureGroupMapItem(CreatureGroupId Id, WorldLocation Location, CreatureActivity Activity);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureGroupView|public sealed record CreatureGroupView(CreatureGroupId Id, LairId? Home, WorldLocation Location, TravelDirection? Direction, CreatureActivity Activity, double SpeedMetersPerSecond, ImmutableArray<CreatureView> Creatures);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureId|public readonly record struct CreatureId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.CreaturePresentationRef|public sealed record CreaturePresentationRef(CreatureGroupId Group, CreatureId Creature, CreatureDefinitionId Definition, WorldLocation Location);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureProjection|public sealed record CreatureProjection(CreatureDefinitionId Id, SemanticRevision Revision, long HitPoints, double SpeedMetersPerSecond, double RetreatLossRatio, double RaidDurationSeconds, PartCapability.Weapon? Weapon);
+Train.Core.Contracts|type|Train.Core.Contracts.CreatureView|public sealed record CreatureView(CreatureId Id, CreatureDefinitionId Definition, long Health, long MaximumHealth);
+Train.Core.Contracts|type|Train.Core.Contracts.DefaultStartConstraints|public sealed record DefaultStartConstraints(int MinimumReachableNonHostileSettlements, int MinimumReachableEmptyNodes, bool RequireStation, bool ExcludeAdjacentLairs, int FullyLoadedPurchaseRoundsPerTrain, DesignHash RequiredAffordableCommissionDesign);
+Train.Core.Contracts|type|Train.Core.Contracts.DesignChangeProjection|public sealed record DesignChangeProjection(DesignHash Before, CompositionHash BeforeComposition, DesignInput Target, ImmutableArray<PartCorrespondence> RetainedParts, ImmutableArray<GoodsQuantity> AddedGoods, ImmutableArray<DesignReturnUnit> RemovedItems, long ChangedItemCount);
+Train.Core.Contracts|type|Train.Core.Contracts.DesignHash|public readonly record struct DesignHash(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.DesignInput|public sealed record DesignInput(CoreInputId InputIdentity, DesignProjection Design, ImmutableArray<GoodDefinitionProjection> AssemblyGoods);
+Train.Core.Contracts|type|Train.Core.Contracts.DesignKind.Building|public sealed record Building(PlotSize PlotSize, BuildingKind Type, ImmutableArray<FacilityTag> FacilityTags) : DesignKind;
+Train.Core.Contracts|type|Train.Core.Contracts.DesignKind.LargeEquipment|public sealed record LargeEquipment(GoodId ManufacturedGood) : DesignKind;
+Train.Core.Contracts|type|Train.Core.Contracts.DesignKind.Vehicle|public sealed record Vehicle(SizeClass Size, int LengthCells) : DesignKind;
+Train.Core.Contracts|type|Train.Core.Contracts.DesignKind|public abstract record DesignKind
+Train.Core.Contracts|type|Train.Core.Contracts.DesignProjection|public sealed record DesignProjection(DesignHash Design, CompositionHash Composition, DesignKind Kind, ImmutableArray<PartProjection> Parts, long MaxStructureDurability, long StructureHitWeight, double MassTons, Money StructuralBaseValue, ImmutableArray<GoodsQuantity> StructuralGoods, ImmutableArray<GoodsQuantity> BillOfMaterials, long BillOfMaterialsItemCount, ImmutableArray<DesignReturnUnit> ReturnUnits, bool CanConstruct, ImmutableArray<MissingCoreReference> MissingReferences);
+Train.Core.Contracts|type|Train.Core.Contracts.DesignReturnUnit|public sealed record DesignReturnUnit(GoodId Good, long Quantity, ImmutableArray<PartId> Parts, ImmutableArray<GoodsQuantity> StructuralGoods, ImmutableArray<MissingCoreReference> MissingReferences);
+Train.Core.Contracts|type|Train.Core.Contracts.DestroyedPart|public sealed record DestroyedPart(InstancePresentationRef Instance, PartId Part);
+Train.Core.Contracts|type|Train.Core.Contracts.DestroyedUnit.Creature|public sealed record Creature(CreaturePresentationRef Value) : DestroyedUnit;
+Train.Core.Contracts|type|Train.Core.Contracts.DestroyedUnit.Instance|public sealed record Instance(InstancePresentationRef Value) : DestroyedUnit;
+Train.Core.Contracts|type|Train.Core.Contracts.DestroyedUnit|public abstract record DestroyedUnit
+Train.Core.Contracts|type|Train.Core.Contracts.DurabilityView|public sealed record DurabilityView(long EffectiveCurrent, long Maximum);
+Train.Core.Contracts|type|Train.Core.Contracts.EconomyView|public sealed record EconomyView(Money Wallet, RuleStatusView MarketRule, RuleStatusView PopulationRule, RuleStatusView ConstructionRule, Money UnassignedServicePayments, ImmutableArray<RunReport> RecentRunReports);
+Train.Core.Contracts|type|Train.Core.Contracts.EdgeId|public readonly record struct EdgeId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.EdgeMapItem|public sealed record EdgeMapItem(EdgeId Id, NodeId Start, NodeId End, double LengthMeters, TerrainView Terrain, int Tracks, int TrackLimit, ImmutableArray<TrackBreakView> Breaks, ImmutableArray<RailwayWorkView> Works);
+Train.Core.Contracts|type|Train.Core.Contracts.EdgeView|public sealed record EdgeView(EdgeMapItem Map, ImmutableArray<TrackView> Tracks, SettlementId? AutoRepairMaterialSource);
+Train.Core.Contracts|type|Train.Core.Contracts.EncounterAction|public enum EncounterAction
+Train.Core.Contracts|type|Train.Core.Contracts.EventEnvelope|public sealed record EventEnvelope(SimulationPosition Position, int Ordinal, CoreEvent Event);
+Train.Core.Contracts|type|Train.Core.Contracts.FacilityKey|public sealed record FacilityKey(BuildingId Building, CapabilityKind Capability);
+Train.Core.Contracts|type|Train.Core.Contracts.FacilityTag|public enum FacilityTag
+Train.Core.Contracts|type|Train.Core.Contracts.FacilityView|public sealed record FacilityView(FacilityKey Key, ProcessRef? Process, bool Enabled, int Priority, ProductionState State, double CapabilityWorkPerSecond, double ActualWorkPerSecond, ImmutableArray<WorkLimit> Limits, ActiveBatchView? Batch, ImmutableArray<GoodsQuantity> OutputBuffer, ImmutableArray<GoodsRateView> PotentialConsumption, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.FaultRecordingSegment|public sealed record FaultRecordingSegment(RecordingStart Start, ImmutableArray<RecordedCommand> Commands, ImmutableArray<CoreCheckpoint> Checkpoints, CoreFault Fault, CoreReferenceManifest RequiredReferences);
+Train.Core.Contracts|type|Train.Core.Contracts.FoundingBuildingProjection|public sealed record FoundingBuildingProjection(int PlotNumber, DesignHash Design);
+Train.Core.Contracts|type|Train.Core.Contracts.FoundingJobView|public sealed record FoundingJobView(JobId Id, NodeId Node, ulong FrozenDurationTicks, ulong ElapsedTicks, SettlementId ReservedSettlementId, SettlementTemplateId SourceTemplateId, ImmutableArray<GoodsQuantity> InvestedGoods);
+Train.Core.Contracts|type|Train.Core.Contracts.GenerationBudget|public sealed record GenerationBudget(int MaximumStageRetries, int MaximumWorldRetries, long MaximumCandidates, long MaximumSearchWork);
+Train.Core.Contracts|type|Train.Core.Contracts.GoodDefinitionProjection|public sealed record GoodDefinitionProjection(GoodId Good, SemanticRevision Revision, Money BaseValue, double MassTons, bool RawGood, double? FuelEnergyPerUnit);
+Train.Core.Contracts|type|Train.Core.Contracts.GoodId.Assembly|public sealed record Assembly(CompositionHash Composition) : GoodId;
+Train.Core.Contracts|type|Train.Core.Contracts.GoodId.Composite|public sealed record Composite(CompositeDefinitionId Definition) : GoodId;
+Train.Core.Contracts|type|Train.Core.Contracts.GoodId.Voxel|public sealed record Voxel(VoxelDefinitionId Definition) : GoodId;
+Train.Core.Contracts|type|Train.Core.Contracts.GoodId|public abstract record GoodId
+Train.Core.Contracts|type|Train.Core.Contracts.GoodPriceOverride|public sealed record GoodPriceOverride(GoodId Good, GoodsPriceParameters Parameters);
+Train.Core.Contracts|type|Train.Core.Contracts.GoodsPriceParameters|public sealed record GoodsPriceParameters(BasisPoints Sensitivity, BasisPoints MinimumMultiplier, BasisPoints MaximumMultiplier, BasisPoints Spread);
+Train.Core.Contracts|type|Train.Core.Contracts.GoodsQuantity|public sealed record GoodsQuantity(GoodId Good, long Quantity);
+Train.Core.Contracts|type|Train.Core.Contracts.GoodsRateView|public sealed record GoodsRateView(GoodId Good, double UnitsPerSecond);
+Train.Core.Contracts|type|Train.Core.Contracts.HitTarget.Creature|public sealed record Creature(CreaturePresentationRef Individual) : HitTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.HitTarget.Part|public sealed record Part(InstancePresentationRef Instance, PartId HitPart) : HitTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.HitTarget.Structure|public sealed record Structure(InstancePresentationRef Instance) : HitTarget;
+Train.Core.Contracts|type|Train.Core.Contracts.HitTarget|public abstract record HitTarget
+Train.Core.Contracts|type|Train.Core.Contracts.ICoreCapture|public interface ICoreCapture
+Train.Core.Contracts|type|Train.Core.Contracts.ICoreFactory|public interface ICoreFactory
+Train.Core.Contracts|type|Train.Core.Contracts.ICoreReadView|public interface ICoreReadView
+Train.Core.Contracts|type|Train.Core.Contracts.ICoreReplay|public interface ICoreReplay : IDisposable
+Train.Core.Contracts|type|Train.Core.Contracts.ICoreSessionCandidate|public interface ICoreSessionCandidate : IDisposable
+Train.Core.Contracts|type|Train.Core.Contracts.ICoreSession|public interface ICoreSession : IDisposable
+Train.Core.Contracts|type|Train.Core.Contracts.InitialRailwayConfiguration|public sealed record InitialRailwayConfiguration(int MaximumTracks, int MinimumInitialTracks, int MaximumInitialTracks, int AdditionalCycleEdges);
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceDetails.Building|public sealed record Building(PlotId Plot, PlotSize Size) : InstanceDetails;
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceDetails.Vehicle|public sealed record Vehicle(SizeClass Size, TrainId? Train) : InstanceDetails;
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceDetails|public abstract record InstanceDetails
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceId.Building|public sealed record Building(BuildingId Id) : InstanceId;
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceId.Vehicle|public sealed record Vehicle(VehicleId Id) : InstanceId;
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceId|public abstract record InstanceId
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceLock|[System.Flags] public enum InstanceLock
+Train.Core.Contracts|type|Train.Core.Contracts.InstancePresentationRef|public sealed record InstancePresentationRef(InstanceId Instance, DesignHash Design, WorldLocation Location);
+Train.Core.Contracts|type|Train.Core.Contracts.InstanceView|public sealed record InstanceView(InstanceId Id, DesignHash Design, CompositionHash Composition, WorldLocation Location, SettlementRelation Ownership, InstanceDetails Details, InstanceLock Lock, DurabilityView Structure, ImmutableArray<PartDamageView> Parts, ImmutableArray<CoreProblem> MissingContent);
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryAccess|public enum InventoryAccess
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryId|public readonly record struct InventoryId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryOwner.Lease|public sealed record Lease(LeaseId Id) : InventoryOwner;
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryOwner.Settlement|public sealed record Settlement(SettlementId Id) : InventoryOwner;
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryOwner.Train|public sealed record Train(TrainId Id) : InventoryOwner;
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryOwner|public abstract record InventoryOwner
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryStackView|public sealed record InventoryStackView(GoodId Good, long Quantity, bool DefinitionMissing);
+Train.Core.Contracts|type|Train.Core.Contracts.InventoryView|public sealed record InventoryView(InventoryId Id, InventoryOwner Owner, WorldLocation Location, InventoryAccess Access, long Capacity, long Used, long Reserved, long Available, double GoodsMassTons, ImmutableArray<InventoryStackView> Stacks, ImmutableArray<StorageReservationView> Reservations);
+Train.Core.Contracts|type|Train.Core.Contracts.JobFunding|public enum JobFunding
+Train.Core.Contracts|type|Train.Core.Contracts.JobId|public readonly record struct JobId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.JobMaterialSourceView|public sealed record JobMaterialSourceView(InventoryId Inventory, ImmutableArray<GoodsQuantity> Goods);
+Train.Core.Contracts|type|Train.Core.Contracts.JobQuote|public sealed record JobQuote(JobRequest Request, JobFunding Funding, CoreRevision Revision, long TotalWork, ImmutableArray<GoodsQuantity> RequiredGoods, ImmutableArray<JobMaterialSourceView> SourceConsumption, ImmutableArray<GoodsQuantity> NpcPurchases, Money? MaterialPayment, Money? ServicePayment, Money? TotalPayment, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.BuildBuilding|public sealed record BuildBuilding(FacilityKey Facility, PlotId Plot, DesignInput Design, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.BuildEquipment|public sealed record BuildEquipment(FacilityKey Facility, DesignInput Design, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.BuildVehicle|public sealed record BuildVehicle(FacilityKey Facility, DesignInput Design, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.Dismantle|public sealed record Dismantle(FacilityKey Facility, InstanceId Instance, int Priority) : JobRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.Refit|public sealed record Refit(FacilityKey Facility, InstanceId Instance, DesignChangeProjection Change, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest.Repair|public sealed record Repair(FacilityKey Facility, InstanceId Instance, ImmutableArray<InventoryId> Sources, int Priority) : JobRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.JobRequest|public abstract record JobRequest
+Train.Core.Contracts|type|Train.Core.Contracts.JobView.Construction|public sealed record Construction(ConstructionJobView Value) : JobView;
+Train.Core.Contracts|type|Train.Core.Contracts.JobView.Founding|public sealed record Founding(FoundingJobView Value) : JobView;
+Train.Core.Contracts|type|Train.Core.Contracts.JobView.Railway|public sealed record Railway(EdgeId Edge, RailwayWorkView Value) : JobView;
+Train.Core.Contracts|type|Train.Core.Contracts.JobView|public abstract record JobView
+Train.Core.Contracts|type|Train.Core.Contracts.LairGenerationWeight|public sealed record LairGenerationWeight(LairTypeId Type, int Weight);
+Train.Core.Contracts|type|Train.Core.Contracts.LairId|public readonly record struct LairId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.LairTypeId|public readonly record struct LairTypeId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.LairTypeProjection|public sealed record LairTypeProjection(LairTypeId Id, SemanticRevision Revision, int GenerationWeight, ImmutableArray<WeightedCreature> Members, int MaximumMembers, double SpawnIntervalSeconds, double RaidIntervalSeconds, int RoamingRadiusHops, int RaidRadiusHops, double RailDamageWorkSeconds, Money ClearanceReward);
+Train.Core.Contracts|type|Train.Core.Contracts.LairView|public sealed record LairView(LairId Id, NodeId Node, LairTypeId Type, ImmutableArray<CreatureGroupId> Groups);
+Train.Core.Contracts|type|Train.Core.Contracts.LeaseId|public readonly record struct LeaseId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.LeaseQuote|public sealed record LeaseQuote(LeaseRequest Request, CoreRevision Revision, Money? Total, long CurrentlyRentableCapacity, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.LeaseRequest.Renew|public sealed record Renew(LeaseId Lease, ulong DurationSteps) : LeaseRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.LeaseRequest.Rent|public sealed record Rent(SettlementId Settlement, long Capacity, ulong DurationSteps) : LeaseRequest;
+Train.Core.Contracts|type|Train.Core.Contracts.LeaseRequest|public abstract record LeaseRequest
+Train.Core.Contracts|type|Train.Core.Contracts.LeaseView|public sealed record LeaseView(LeaseId Id, SettlementId Settlement, InventoryId Inventory, long Capacity, ulong ExpiresAtStep, Money Paid, bool Expired);
+Train.Core.Contracts|type|Train.Core.Contracts.LocationView|public sealed record LocationView(WorldLocation Location, ImmutableArray<TrainId> Trains, ImmutableArray<InstanceId> Instances, ImmutableArray<CreatureGroupId> CreatureGroups, ImmutableArray<CombatId> Combats, NodeOccupant? Occupant);
+Train.Core.Contracts|type|Train.Core.Contracts.Lookup.Found|public sealed record Found(T Value) : Lookup<T>;
+Train.Core.Contracts|type|Train.Core.Contracts.Lookup.Missing|public sealed record Missing : Lookup<T>;
+Train.Core.Contracts|type|Train.Core.Contracts.Lookup|public abstract record Lookup<T> where T : notnull
+Train.Core.Contracts|type|Train.Core.Contracts.MapPoint|public readonly record struct MapPoint(double X, double Y);
+Train.Core.Contracts|type|Train.Core.Contracts.MarketGoodView|public sealed record MarketGoodView(GoodId Good, long Stock, long RestockTarget, long ReservedForUse, long SellableQuantity, long ReceivableQuantity, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.MarketRuleProjection|public sealed record MarketRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, double BasicReserveHours, double ProductionReserveHours, double ImprovementReserveHours, GoodsPriceParameters DefaultGoodsPrices, ImmutableArray<GoodPriceOverride> GoodPrices, BasisPoints VehicleBuyMultiplier, BasisPoints VehicleSellMultiplier, ImmutableArray<VehiclePurchaseLimit> VehiclePurchaseLimits, int AutomaticEvaluationIntervalTicks, int RecentReportLimit, Money CommissionMoneyPerWork, Money RentMoneyPerCapacityHour, BasisPoints RentableCapacityRatio, long LeaseDurationTicks);
+Train.Core.Contracts|type|Train.Core.Contracts.MarketView|public sealed record MarketView(RuleStatusView Rule, SettlementStorageView Storage, ImmutableArray<MarketGoodView> Goods);
+Train.Core.Contracts|type|Train.Core.Contracts.MissingCoreReference|public sealed record MissingCoreReference(CoreDefinitionReference Reference, string FieldPath);
+Train.Core.Contracts|type|Train.Core.Contracts.Money|public readonly record struct Money(long Value);
+Train.Core.Contracts|type|Train.Core.Contracts.NeedConversion|public sealed record NeedConversion(PopulationNeed Need, double AmountPerGoodUnit);
+Train.Core.Contracts|type|Train.Core.Contracts.NewGameStartInput|public sealed record NewGameStartInput(Money InitialMoney, ImmutableArray<StartingTrainProjection> Trains);
+Train.Core.Contracts|type|Train.Core.Contracts.NodeId|public readonly record struct NodeId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.NodeMapItem|public sealed record NodeMapItem(NodeId Id, MapPoint Position, TerrainView Terrain, NodeOccupant Occupant, ImmutableArray<NodeResourceView> Resources, int OccupiedPlatforms, int Platforms, JobId? FoundingJob);
+Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant.Empty|public sealed record Empty : NodeOccupant;
+Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant.Lair|public sealed record Lair(LairId Id) : NodeOccupant;
+Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant.Settlement|public sealed record Settlement(SettlementId Id, SettlementRelation Relation) : NodeOccupant;
+Train.Core.Contracts|type|Train.Core.Contracts.NodeOccupant|public abstract record NodeOccupant
+Train.Core.Contracts|type|Train.Core.Contracts.NodeResourceView|public sealed record NodeResourceView(GoodId Good, long Quantity, ResourceRenewal Renewal);
+Train.Core.Contracts|type|Train.Core.Contracts.NodeTransitView|public sealed record NodeTransitView(EdgeId? EnteredFrom, EdgeId? NextEdge);
+Train.Core.Contracts|type|Train.Core.Contracts.NodeView|public sealed record NodeView(NodeMapItem Map, ImmutableArray<EdgeId> AdjacentEdges);
+Train.Core.Contracts|type|Train.Core.Contracts.NoiseOctave|public sealed record NoiseOctave(double ScaleMeters, double Amplitude);
+Train.Core.Contracts|type|Train.Core.Contracts.NpcInitializationConfiguration|public sealed record NpcInitializationConfiguration(bool FillInputsAndLivingTargets, double OutputReserveHours, int MinimumForSaleVehicles, int MaximumForSaleVehicles, ImmutableArray<DesignHash> ForSaleVehicleCandidates);
+Train.Core.Contracts|type|Train.Core.Contracts.OwnedSettlementTemplateReference|public sealed record OwnedSettlementTemplateReference(SettlementId Owner, SettlementTemplateId SourceTemplate, ImmutableArray<TemplatePlotReference> Plots);
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Construction|public sealed record Construction(double WorkPerSecond, SizeClass MaximumVehicleSize) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Control|public sealed record Control : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Extraction|public sealed record Extraction(double WorkPerSecond) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Platform|public sealed record Platform : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Power|public sealed record Power(double EnergyPerSecond) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Production|public sealed record Production(double WorkPerSecond) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Propulsion|public sealed record Propulsion(double TractionKilonewtons, double RatedSpeedMetersPerSecond) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Storage|public sealed record Storage(long Capacity) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability.Weapon|public sealed record Weapon(long Damage, double IntervalSeconds) : PartCapability;
+Train.Core.Contracts|type|Train.Core.Contracts.PartCapability|public abstract record PartCapability
+Train.Core.Contracts|type|Train.Core.Contracts.PartCorrespondence|public sealed record PartCorrespondence(PartId Before, PartId After);
+Train.Core.Contracts|type|Train.Core.Contracts.PartDamageView|public sealed record PartDamageView(PartId Part, DurabilityView Durability, bool DefinitionMissing, bool Destroyed);
+Train.Core.Contracts|type|Train.Core.Contracts.PartId|public readonly record struct PartId(int Value);
+Train.Core.Contracts|type|Train.Core.Contracts.PartProjection|public sealed record PartProjection(PartId Id, CoreDefinitionReference Definition, GoodId RepairGood, long MaxDurability, long HitWeight, Money BaseValue, ImmutableArray<PartCapability> Capabilities, bool Missing);
+Train.Core.Contracts|type|Train.Core.Contracts.PlanStop.Station|public sealed record Station(NodeId Node, ulong DwellSteps, ImmutableArray<AutomaticGoodsRule> GoodsRules) : PlanStop;
+Train.Core.Contracts|type|Train.Core.Contracts.PlanStop.Waypoint|public sealed record Waypoint(NodeId Node) : PlanStop;
+Train.Core.Contracts|type|Train.Core.Contracts.PlanStop|public abstract record PlanStop
+Train.Core.Contracts|type|Train.Core.Contracts.PlotId|public readonly record struct PlotId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.PlotOccupant.Building|public sealed record Building(BuildingId Id) : PlotOccupant;
+Train.Core.Contracts|type|Train.Core.Contracts.PlotOccupant.Construction|public sealed record Construction(JobId Id) : PlotOccupant;
+Train.Core.Contracts|type|Train.Core.Contracts.PlotOccupant.Empty|public sealed record Empty : PlotOccupant;
+Train.Core.Contracts|type|Train.Core.Contracts.PlotOccupant|public abstract record PlotOccupant
+Train.Core.Contracts|type|Train.Core.Contracts.PlotSize|public enum PlotSize
+Train.Core.Contracts|type|Train.Core.Contracts.PlotView|public sealed record PlotView(PlotId Id, int TemplatePlotNumber, PlotSize Size, ImmutableArray<BuildingKind> AllowedBuildingKinds, PlotOccupant Occupant);
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationExecution.Disabled|public sealed record Disabled(PopulationPeriodView? RetainedPeriod, ImmutableArray<CoreProblem> Reasons) : PopulationExecution;
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationExecution.InProgress|public sealed record InProgress(PopulationPeriodView Period, PopulationTrend Trend) : PopulationExecution;
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationExecution.NotStarted|public sealed record NotStarted(ImmutableArray<PopulationNeedView> CurrentNeeds) : PopulationExecution;
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationExecution|public abstract record PopulationExecution
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationNeedClass|public enum PopulationNeedClass
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationNeedProjection|public sealed record PopulationNeedProjection(PopulationNeed Need, PopulationNeedClass Class, double AmountPerPersonSecond, double Weight);
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationNeedView|public sealed record PopulationNeedView(PopulationNeed Kind, double RequiredPerSecond, double AccumulatedRequired, double AccumulatedSatisfied, double? SatisfactionRatio);
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationNeed|public enum PopulationNeed
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationPeriodView|public sealed record PopulationPeriodView(RuleDefinitionId ExecutionRule, SemanticRevision ExecutionRevision, ulong PeriodSteps, ulong ElapsedEffectiveSteps, ImmutableArray<PopulationNeedView> Needs, double? BasicSatisfaction, double? ImprovementSatisfaction);
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationRuleProjection|public sealed record PopulationRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, ImmutableArray<PopulationNeedProjection> Needs, ImmutableArray<ConsumptionGoodProjection> ConsumptionGoods, double LaborRatio, int ConsumptionIntervalTicks, int StatisticsPeriodTicks, double BaseGrowthPerSecond, double ImprovementGrowthPerSecond, double MaximumLossPerSecond);
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationSettlementReason|public enum PopulationSettlementReason
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationSettlementReport|public sealed record PopulationSettlementReport(SimulationPosition Position, SemanticRevision ExecutionRevision, long Before, long After, long Change, double BasicSatisfaction, double ImprovementSatisfaction, PopulationSettlementReason Reason);
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationTrend|public enum PopulationTrend
+Train.Core.Contracts|type|Train.Core.Contracts.PopulationView|public sealed record PopulationView(RuleStatusView CurrentRule, long Residents, double AvailableLabor, double AllocatedLabor, double IdleLabor, PopulationExecution Execution, PopulationSettlementReport? LastSettlement, ImmutableArray<PopulationSettlementReport> RecentSettlements);
+Train.Core.Contracts|type|Train.Core.Contracts.PowerPoolView|public sealed record PowerPoolView(double GenerationCapacity, double Demand, double ActualSupply, double FuelEnergyRemaining);
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessDetails.Extraction|public sealed record Extraction(ProductionProcessDefinitionId Id, GoodsQuantity Extracts) : ProcessDetails;
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessDetails.Production|public sealed record Production(ProductionProcessDefinitionId Id, ImmutableArray<GoodsQuantity> Inputs, ImmutableArray<GoodsQuantity> Outputs) : ProcessDetails;
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessDetails.Recovery|public sealed record Recovery(RecoveryProcessDefinitionId Id, ImmutableArray<GoodsQuantity> Inputs, ImmutableArray<GoodsQuantity> Outputs) : ProcessDetails;
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessDetails|public abstract record ProcessDetails
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessProjection|public sealed record ProcessProjection(ProcessDetails Details, SemanticRevision Revision, long WorkRequired, double PowerPerWork, double LaborPerWork, FacilityTag RequiredFacilityTag, ImmutableArray<TerrainTypeId> AllowedTerrainTypes);
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessRef.Production|public sealed record Production(ProductionProcessDefinitionId Definition) : ProcessRef;
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessRef.Recovery|public sealed record Recovery(RecoveryProcessDefinitionId Definition) : ProcessRef;
+Train.Core.Contracts|type|Train.Core.Contracts.ProcessRef|public abstract record ProcessRef
+Train.Core.Contracts|type|Train.Core.Contracts.ProductionProcessDefinitionId|public readonly record struct ProductionProcessDefinitionId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.ProductionState|public enum ProductionState
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayRuleProjection|public sealed record RailwayRuleProjection(RuleDefinitionId Id, SemanticRevision Revision, double BrakingDeceleration, double MinimumAcceleration, double MinimumGapMeters, VoxelDefinitionId RailGood, double RailUnitsPerMeter, double BuildSecondsPerMeter, long RepairRailUnitsPerBreak, double RepairSecondsPerBreak);
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkKind|public enum RailwayWorkKind
+Train.Core.Contracts|type|Train.Core.Contracts.RailwayWorkView|public sealed record RailwayWorkView(JobId Id, RailwayWorkKind Kind, int Track, BreakId? RepairingBreak, SettlementId MaterialSource, ImmutableArray<GoodsQuantity> InvestedGoods, double Progress, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.RecordedCommand|public sealed record RecordedCommand(CommandSource Source, string CanonicalPayload, CommandReceipt Result, CoreInputId InputBefore, CoreInputId InputAfter);
+Train.Core.Contracts|type|Train.Core.Contracts.RecordingGap|public sealed record RecordingGap(SimulationPosition From, SimulationPosition? Until, string Code);
+Train.Core.Contracts|type|Train.Core.Contracts.RecordingMaintenance|public sealed record RecordingMaintenance(ImmutableArray<CoreInputId> ReleasedInputs, ImmutableArray<RecordingGap> Gaps);
+Train.Core.Contracts|type|Train.Core.Contracts.RecordingPointId|public readonly record struct RecordingPointId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.RecordingStart|public sealed record RecordingStart(RecordingPointId Id, ICoreCapture State);
+Train.Core.Contracts|type|Train.Core.Contracts.RecordingWriteOutcome|public enum RecordingWriteOutcome
+Train.Core.Contracts|type|Train.Core.Contracts.RecoveryProcessDefinitionId|public readonly record struct RecoveryProcessDefinitionId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.ReplayAdvanceResult|public sealed record ReplayAdvanceResult(ReplayStop Stop, SimulationPosition Position, ImmutableArray<EventEnvelope> Events, CheckpointDifference? Difference, CoreFault? Fault);
+Train.Core.Contracts|type|Train.Core.Contracts.ReplayStop|public enum ReplayStop
+Train.Core.Contracts|type|Train.Core.Contracts.RequiredDefinition|public sealed record RequiredDefinition(CoreDefinitionReference Definition, SemanticRevision? FrozenRevision, string Field, bool WasMissing);
+Train.Core.Contracts|type|Train.Core.Contracts.ResolvedGenerationConfiguration|public sealed record ResolvedGenerationConfiguration(double WidthMeters, double HeightMeters, double MinimumNodeSpacingMeters, double CandidateProbability, ImmutableArray<NoiseOctave> ElevationNoise, ImmutableArray<NoiseOctave> MoistureNoise, ImmutableArray<NoiseOctave> RiverNoise, double LakeElevationThreshold, double RiverBandHalfWidth, ImmutableArray<TerrainGenerationBand> TerrainBands, double TerrainSampleSpacingMeters, double SettlementRatio, double LairRatio, double HostileSettlementRatio, ImmutableArray<LairGenerationWeight> LairWeights, ImmutableArray<ResourceGenerationEntry> Resources, InitialRailwayConfiguration InitialRailway, GenerationBudget Budget, NpcInitializationConfiguration NpcInitialization, DefaultStartConstraints StartConstraints, RuleSelection Rules);
+Train.Core.Contracts|type|Train.Core.Contracts.ResourceGenerationEntry|public sealed record ResourceGenerationEntry(VoxelDefinitionId Good, ImmutableArray<TerrainTypeId> AllowedTerrainTypes, double Probability, long MinimumReserve, long MaximumReserve, bool Renewable, double RecoveryUnitsPerSecond, double RegenerationIntervalSeconds, double GlobalRegenerationRemainingReserveRatio);
+Train.Core.Contracts|type|Train.Core.Contracts.ResourceRenewal.NonRenewable|public sealed record NonRenewable : ResourceRenewal;
+Train.Core.Contracts|type|Train.Core.Contracts.ResourceRenewal.Renewable|public sealed record Renewable(long Maximum, double UnitsPerSecond) : ResourceRenewal;
+Train.Core.Contracts|type|Train.Core.Contracts.ResourceRenewal|public abstract record ResourceRenewal
+Train.Core.Contracts|type|Train.Core.Contracts.RuleDefinitionId|public readonly record struct RuleDefinitionId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.RuleSelection|public sealed record RuleSelection(RuleDefinitionId Population, RuleDefinitionId Market, RuleDefinitionId Construction, RuleDefinitionId Railway, RuleDefinitionId Combat);
+Train.Core.Contracts|type|Train.Core.Contracts.RuleStatusView|public sealed record RuleStatusView(RuleDefinitionId Rule, SemanticRevision? PublishedRevision, ImmutableArray<CoreProblem> Problems);
+Train.Core.Contracts|type|Train.Core.Contracts.RunAccumulatorView|public sealed record RunAccumulatorView(SimulationPosition StartedAt, Money SalesReceipts, Money PurchasePayments, Money ServicePayments, long NetCashFlow, long TransportedUnits, double LoadedCapacityRatio, ImmutableArray<AutomaticRuleResult> IncompleteRules);
+Train.Core.Contracts|type|Train.Core.Contracts.RunEndReason|public enum RunEndReason
+Train.Core.Contracts|type|Train.Core.Contracts.RunPlan|public sealed record RunPlan(bool Loop, ImmutableArray<PlanStop> Stops);
+Train.Core.Contracts|type|Train.Core.Contracts.RunReport|public sealed record RunReport(TrainId Train, SimulationPosition EndedAt, RunEndReason Reason, RunAccumulatorView Totals);
+Train.Core.Contracts|type|Train.Core.Contracts.RuntimeIdentity|public sealed record RuntimeIdentity(string GameBuild, string SimulationVersion, string OperatingSystem, string Architecture, string DotNetRuntime);
+Train.Core.Contracts|type|Train.Core.Contracts.SemanticRevision|public readonly record struct SemanticRevision(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementEngagementRules|public sealed record SettlementEngagementRules(TargetPriority Priority, TargetScope Scope);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementFoundingPreview|public sealed record SettlementFoundingPreview(NodeId Node, long InitialResidents, ImmutableArray<GoodsRateView> ExpectedConsumption, ImmutableArray<GoodsQuantity> RequiredMaterials, ulong DurationTicks, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementId|public readonly record struct SettlementId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementRelation|public enum SettlementRelation
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementStorageView|public sealed record SettlementStorageView(long PhysicalCapacity, long TotalUsed, long TotalReserved, long ActiveLeaseCapacity, long ExpiredLeaseUsed, long NpcCapacity, long RentableCapacity);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateId|public readonly record struct SettlementTemplateId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementTemplateProjection|public sealed record SettlementTemplateProjection(SettlementTemplateId Id, SettlementTypeId Type, int Weight, ImmutableArray<TemplatePlotProjection> Plots, ImmutableArray<FoundingBuildingProjection> FoundingBuildings, ImmutableArray<GoodsQuantity> SpecialInitialInventory, ImmutableArray<TemplateProductionPlan> ProductionPlans);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementTypeId|public readonly record struct SettlementTypeId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementTypeProjection|public sealed record SettlementTypeProjection(SettlementTypeId Id, SemanticRevision Revision, int Weight, ImmutableArray<TerrainTypeId> PreferredTerrain, long MinimumInitialPopulation, long MaximumInitialPopulation);
+Train.Core.Contracts|type|Train.Core.Contracts.SettlementView|public sealed record SettlementView(SettlementId Id, NodeId Node, SettlementTypeId Type, SettlementTemplateId? SourceTemplateId, SettlementRelation Relation, InventoryId Inventory, ImmutableArray<PlotView> Plots, ImmutableArray<VehicleId> ParkedVehicles, int ParkingCapacity, int Platforms, int OccupiedPlatforms, ImmutableArray<VehicleId> VehiclesForSale, ImmutableArray<VehiclePurchaseCapacity> VehiclePurchaseCapacities, ImmutableArray<FacilityView> Facilities, PowerPoolView Power, PopulationView Population, SettlementEngagementRules Engagement, double MoraleRatio, bool Surrendered, ImmutableArray<JobId> CommissionJobs, ImmutableArray<LeaseId> Leases, MarketView Market);
+Train.Core.Contracts|type|Train.Core.Contracts.SimulationPosition|public readonly record struct SimulationPosition(ulong CompletedSteps, ulong Sequence);
+Train.Core.Contracts|type|Train.Core.Contracts.SimulationTime|public static class SimulationTime
+Train.Core.Contracts|type|Train.Core.Contracts.SizeClass|public enum SizeClass
+Train.Core.Contracts|type|Train.Core.Contracts.StartingTrainProjection|public sealed record StartingTrainProjection(ImmutableArray<DesignHash> Vehicles, ImmutableArray<GoodsQuantity> Inventory);
+Train.Core.Contracts|type|Train.Core.Contracts.StorageReservationView|public sealed record StorageReservationView(JobId Job, long Capacity, ImmutableArray<GoodsQuantity> ExpectedReturns);
+Train.Core.Contracts|type|Train.Core.Contracts.SubmissionResult.Completed|public sealed record Completed(CommandReceipt Receipt, ImmutableArray<EventEnvelope> Events, CoreDiagnostic? Diagnostic) : SubmissionResult;
+Train.Core.Contracts|type|Train.Core.Contracts.SubmissionResult.NotAccepted|public sealed record NotAccepted(CoreProblem Reason) : SubmissionResult;
+Train.Core.Contracts|type|Train.Core.Contracts.SubmissionResult|public abstract record SubmissionResult
+Train.Core.Contracts|type|Train.Core.Contracts.TargetPriority|public enum TargetPriority
+Train.Core.Contracts|type|Train.Core.Contracts.TargetScope|public enum TargetScope
+Train.Core.Contracts|type|Train.Core.Contracts.TemplatePlotProjection|public sealed record TemplatePlotProjection(int Number, PlotSize Size, DesignHash? PrebuiltDesign);
+Train.Core.Contracts|type|Train.Core.Contracts.TemplatePlotReference|public sealed record TemplatePlotReference(int Number, PlotSize Size);
+Train.Core.Contracts|type|Train.Core.Contracts.TemplateProductionPlan|public sealed record TemplateProductionPlan(int PlotNumber, CapabilityKind Capability, ProcessRef Process, bool Enabled, int Priority);
+Train.Core.Contracts|type|Train.Core.Contracts.TerrainGenerationBand|public sealed record TerrainGenerationBand(TerrainTypeId Terrain, double MinimumElevation, double MaximumElevation, double MinimumMoisture, double MaximumMoisture, double MaximumRelief, double DetourMultiplier, int MaximumTracks);
+Train.Core.Contracts|type|Train.Core.Contracts.TerrainTypeId|public readonly record struct TerrainTypeId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.TerrainView|public sealed record TerrainView(TerrainTypeId TypeId, double Relief, ImmutableArray<string> FeatureIds);
+Train.Core.Contracts|type|Train.Core.Contracts.TrackBreakView|public sealed record TrackBreakView(BreakId Id, int Track, double DistanceMeters);
+Train.Core.Contracts|type|Train.Core.Contracts.TrackView|public sealed record TrackView(int Number, TravelDirection? DirectionLock, ImmutableArray<TrainId> Trains);
+Train.Core.Contracts|type|Train.Core.Contracts.TradeAction|public enum TradeAction
+Train.Core.Contracts|type|Train.Core.Contracts.TradeQuoteRequest|public sealed record TradeQuoteRequest(TrainId Train, SettlementId Settlement, InventoryId LocalInventory, TradeAction Action, GoodId Good, long Quantity);
+Train.Core.Contracts|type|Train.Core.Contracts.TradeQuote|public sealed record TradeQuote(TradeQuoteRequest Request, CoreRevision Revision, long CurrentlyExecutableQuantity, Money? Total, ImmutableArray<CoreProblem> Blockers, ImmutableArray<CoreProblem> ShortageWarnings);
+Train.Core.Contracts|type|Train.Core.Contracts.TrainActivity|public enum TrainActivity
+Train.Core.Contracts|type|Train.Core.Contracts.TrainEngagementRules|public sealed record TrainEngagementRules(TargetPriority Priority, TargetScope Scope, EncounterAction Encounter, double RetreatStructureRatio);
+Train.Core.Contracts|type|Train.Core.Contracts.TrainId|public readonly record struct TrainId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.TrainMapItem|public sealed record TrainMapItem(TrainId Id, TrainPosition Position, TrainActivity Activity);
+Train.Core.Contracts|type|Train.Core.Contracts.TrainOrderFacing|public enum TrainOrderFacing
+Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition.Edge|public sealed record Edge(EdgeId Id, int Track, TravelDirection Direction, double DistanceMeters) : TrainPosition;
+Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition.Node|public sealed record Node(NodeId Id) : TrainPosition;
+Train.Core.Contracts|type|Train.Core.Contracts.TrainPosition|public abstract record TrainPosition
+Train.Core.Contracts|type|Train.Core.Contracts.TrainView|public sealed record TrainView(TrainId Id, TrainPosition Position, TrainActivity Activity, ImmutableArray<VehicleId> Vehicles, InventoryId Inventory, double SpeedMetersPerSecond, double LengthMeters, double MassTons, double TractionKilonewtons, double Acceleration, double MaximumSpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex, ulong RemainingDwellSteps, TrainEngagementRules Engagement, ImmutableArray<CoreProblem> Blockers, RunAccumulatorView? CurrentRun, ImmutableArray<RunReport> RecentReports, NodeTransitView? NodeTransit, TrainOrderFacing OrderFacing);
+Train.Core.Contracts|type|Train.Core.Contracts.TravelDirection|public enum TravelDirection
+Train.Core.Contracts|type|Train.Core.Contracts.VehicleId|public readonly record struct VehicleId(ulong Value);
+Train.Core.Contracts|type|Train.Core.Contracts.VehiclePurchaseCapacity|public sealed record VehiclePurchaseCapacity(SizeClass Size, int ForSale, int Limit, int Available);
+Train.Core.Contracts|type|Train.Core.Contracts.VehiclePurchaseLimit|public sealed record VehiclePurchaseLimit(SizeClass Size, int MaximumForSale);
+Train.Core.Contracts|type|Train.Core.Contracts.VehicleTradeAction|public enum VehicleTradeAction
+Train.Core.Contracts|type|Train.Core.Contracts.VehicleTradeQuoteRequest|public sealed record VehicleTradeQuoteRequest(SettlementId Settlement, VehicleId Vehicle, VehicleTradeAction Action);
+Train.Core.Contracts|type|Train.Core.Contracts.VehicleTradeQuote|public sealed record VehicleTradeQuote(VehicleTradeQuoteRequest Request, CoreRevision Revision, Money? Total, ImmutableArray<CoreProblem> Blockers);
+Train.Core.Contracts|type|Train.Core.Contracts.VoxelDefinitionId|public readonly record struct VoxelDefinitionId(string Value);
+Train.Core.Contracts|type|Train.Core.Contracts.WeightedCreature|public sealed record WeightedCreature(CreatureDefinitionId Creature, int Weight);
+Train.Core.Contracts|type|Train.Core.Contracts.WorkLimit|public enum WorkLimit
+Train.Core.Contracts|type|Train.Core.Contracts.WorldGenerationInput|public sealed record WorldGenerationInput(ulong WorldSeed, string GeneratorVersion, SemanticRevision GenerationContentRevision, ResolvedGenerationConfiguration Configuration, NewGameStartInput Start);
+Train.Core.Contracts|type|Train.Core.Contracts.WorldLocation.Edge|public sealed record Edge(EdgeId Id, double DistanceMeters) : WorldLocation;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldLocation.Node|public sealed record Node(NodeId Id) : WorldLocation;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldLocation|public abstract record WorldLocation
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Combat|public sealed record Combat(CombatId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.CreatureGroup|public sealed record CreatureGroup(CreatureGroupId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Creature|public sealed record Creature(CreatureId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Edge|public sealed record Edge(EdgeId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Instance|public sealed record Instance(InstanceId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Inventory|public sealed record Inventory(InventoryId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Job|public sealed record Job(JobId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Lair|public sealed record Lair(LairId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Node|public sealed record Node(NodeId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Settlement|public sealed record Settlement(SettlementId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId.Train|public sealed record Train(TrainId Id) : WorldObjectId;
+Train.Core.Contracts|type|Train.Core.Contracts.WorldObjectId|public abstract record WorldObjectId
+Train.Core.Contracts|type|Train.Core.Contracts.WorldSummary|public sealed record WorldSummary(ulong WorldSeed, RuleDefinitionId RailwayRule, double WidthMeters, double HeightMeters, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges, ImmutableArray<TrainMapItem> Trains, ImmutableArray<CreatureGroupMapItem> CreatureGroups, ImmutableArray<CombatMapItem> Combats);
+Train.Core.Contracts|using|using System.Collections.Immutable;
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|Construction|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|RailSteel|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|Sleeper|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.BuiltInMaterial|Water|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.EditElementKind|Assembly|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.EditElementKind|Cell|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.EditElementKind|FunctionalComposite|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.EditElementKind|SceneModel|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.ExposedFaceEdges|MaximumU|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.ExposedFaceEdges|MaximumV|8
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.ExposedFaceEdges|MinimumU|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.ExposedFaceEdges|MinimumV|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.ExposedFaceEdges|None|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridAxis|X|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridAxis|Y|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridAxis|Z|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridFace|NegativeX|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridFace|NegativeY|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridFace|NegativeZ|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridFace|PositiveX|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridFace|PositiveY|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.GridFace|PositiveZ|5
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.PersistentEffectKind|FacilitySmoke|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.PersistentEffectKind|Fire|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.PersistentEffectKind|Leak|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.PersistentEffectKind|Smoke|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.PersistentEffectKind|Sparks|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneDebugLayer|Centerline|16
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneDebugLayer|Chunks|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneDebugLayer|None|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneDebugLayer|Origin|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneDebugLayer|PickRay|8
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneDebugLayer|RailwaySegments|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneEffectKind|Destruction|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneEffectKind|Fragments|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneEffectKind|Impact|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneEffectKind|RailwayDamage|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneEffectKind|Shot|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneReadiness|Failed|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneReadiness|Loading|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneReadiness|Partial|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneReadiness|Ready|2
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Build|1
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Close|6
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Edit|5
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Input|0
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Pick|4
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Present|3
+Train.Scenes.Contracts|enum|global::Train.Scenes.Contracts.SceneStage|Reconcile|2
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|ContentGeneration Content { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditSessionId Id { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditSnapshot Capture();
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|EditState Read();
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<DesignDraft> CaptureObject(EditElementId element);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditElementId> Locate(EditStamp stamp, DesignElementPath path);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Apply(IEditPreview preview, bool confirmed);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Enter(EditElementId? element);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Redo();
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Select(EditSelection selection);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<EditState> Undo();
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<IEditPreview> Preview(EditOperation operation);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|SceneResult<ISceneFrame> Present(EditViewOptions options, ISceneFrame? displayedFrame);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|bool AcceptEvaluation(EditStamp requested, DesignEvaluation result);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignEditSession|bool MarkSaved(EditSnapshot saved);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignPreview|ContentGeneration Content { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IDesignPreview|SceneResult<ISceneFrame> Present();
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|EditStamp Basis { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|ImmutableArray<EditConflict> Conflicts { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|ImmutableArray<GridPosition> HighlightCells { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|bool CanApply { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|bool OccupancyComplete { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|bool RequiresConfirmation { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|int AffectedCells { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|int CoveredCells { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IEditPreview|int SkippedCells { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ImmutableArray<SceneDebugLine> DebugLines { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ImmutableArray<SceneProblem> Diagnostics { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<ScenePose> FindPose(WorldObjectId subject);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<WorldLocation> Locate(Vector3 point);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|Lookup<double> TerrainHeight(double x, double z);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePanBounds? NodePanBounds { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePick Pick(SceneRay ray);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|ScenePoint Origin { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneReadiness Readiness { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|SceneUpdate Update { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ISceneFrame|double SimulationSeconds { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IDesignPreview> PreviewDesign(IContentView content, DesignEvaluation initial);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<ITemplatePreview> PreviewTemplate(IContentView content, SettlementTemplateDraft draft, EditRevision revision);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IScenesFactory|SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ITemplatePreview|ContentGeneration Content { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ITemplatePreview|EditRevision Revision { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ITemplatePreview|ISceneFrame Frame { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ITemplatePreview|ImmutableArray<SceneProblem> Diagnostics { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ITemplatePreview|ImmutableArray<TemplatePlotPreview> Plots { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.ITemplatePreview|Lookup<int> PickPlot(SceneRay ray);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneBinding Binding { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<PickSubject> Resolve(SceneHit hit);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<SceneRequestId> RequestView(WorldSceneTarget target);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events);
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|SceneSessionId Id { get; }
+Train.Scenes.Contracts|member|Train.Scenes.Contracts.IWorldSceneSession|new ValueTask DisposeAsync();
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.BuiltInMaterial|public enum BuiltInMaterial
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.CellEdit.Add|public sealed record Add(VoxelPaletteEntry Value) : CellEdit;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.CellEdit.Paint|public sealed record Paint(PaintColor? Color) : CellEdit;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.CellEdit.Remove|public sealed record Remove : CellEdit;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.CellEdit.Replace|public sealed record Replace(VoxelPaletteEntry Value) : CellEdit;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.CellEdit.Shape|public sealed record Shape(VoxelShape Value) : CellEdit;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.CellEdit|public abstract record CellEdit
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditConflict|public sealed record EditConflict(GridPosition? Cell, EditElementId? Element, SceneProblem Problem);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditElementId|public readonly record struct EditElementId(ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditElementKind|public enum EditElementKind
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditElement|public sealed record EditElement(EditElementId Id, EditElementId? Parent, EditElementKind Kind, GridPosition At, DesignElementPath? Path, ImmutableArray<int> ObjectPath, bool Locked);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditFootprint.Box|public sealed record Box(GridBounds Bounds) : EditFootprint;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditFootprint.Cell|public sealed record Cell(GridPosition At) : EditFootprint;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditFootprint.Stroke|public sealed record Stroke(ImmutableArray<GridPosition> Samples, int BrushWidth) : EditFootprint;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditFootprint|public abstract record EditFootprint
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.Cells|public sealed record Cells(EditFootprint Footprint, CellEdit Action) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.CopySelection|public sealed record CopySelection(GridPosition Offset) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.MoveSelection|public sealed record MoveSelection(GridPosition Offset) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.PaintSelection|public sealed record PaintSelection(PaintColor? Color) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.PlaceNested|public sealed record PlaceNested(NestedDesignItem Value) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.Properties|public sealed record Properties(DisplayText Display, DesignSpecification Specification) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.RemoveSelection|public sealed record RemoveSelection : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.ReplaceNested|public sealed record ReplaceNested(EditElementId Element, NestedDesignItem Value) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.RotateSelection|public sealed record RotateSelection(GridAxis Axis, GridPosition Pivot, int QuarterTurns) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation.ShapeSelection|public sealed record ShapeSelection(VoxelShape Shape) : EditOperation;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditOperation|public abstract record EditOperation
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditSelection.Box|public sealed record Box(GridBounds Bounds) : EditSelection;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditSelection.Elements|public sealed record Elements(ImmutableArray<EditElementId> Ids) : EditSelection;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditSelection|public abstract record EditSelection
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditSessionId|public readonly record struct EditSessionId(Guid Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditSnapshot|public sealed record EditSnapshot(EditStamp Stamp, DesignDraft Draft);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditStamp|public sealed record EditStamp(EditSessionId Session, EditRevision Revision, ContentGeneration Content);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditState|public sealed record EditState(EditSnapshot Snapshot, bool IsDirty, bool CanUndo, bool CanRedo, EditElementId? EnteredObject, ImmutableArray<EditElementId> Selection, ImmutableArray<EditElement> Elements, DesignEvaluation? CurrentEvaluation, ImmutableArray<ContentDiagnostic> EvaluationDiagnostics);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditViewOptions|public sealed record EditViewOptions(EditWorkPlane WorkPlane, int? HighestVisibleY, SceneDebugLayer DebugLayers);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.EditWorkPlane|public sealed record EditWorkPlane(GridAxis Axis, int Coordinate);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ExposedFaceEdges|[Flags] public enum ExposedFaceEdges
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.GridAxis|public enum GridAxis
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.GridFace|public enum GridFace
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.IDesignEditSession|public interface IDesignEditSession : IDisposable
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.IDesignPreview|public interface IDesignPreview : IDisposable
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.IEditPreview|public interface IEditPreview
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ISceneFrame|public interface ISceneFrame
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.IScenesFactory|public interface IScenesFactory
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ITemplatePreview|public interface ITemplatePreview
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.IWorldSceneSession|public interface IWorldSceneSession : IAsyncDisposable
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.PersistentEffectKind|public enum PersistentEffectKind
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.PersistentSceneEffect|public sealed record PersistentSceneEffect(PersistentEffectKind Kind, Vector3 LocalPosition, float Strength, ulong Seed);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.PickSubject.Editing|public sealed record Editing(EditSessionId Session, EditRevision Revision, EditElementId Element) : PickSubject;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.PickSubject.Terrain|public sealed record Terrain(WorldLocation Location) : PickSubject;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.PickSubject.WorldObject|public sealed record WorldObject(WorldObjectId Object, DesignHash? Design, PartId? Part) : PickSubject;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.PickSubject|public abstract record PickSubject
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneBinding|public readonly record struct SceneBinding(Guid Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneBounds|public sealed record SceneBounds(Vector3 Minimum, Vector3 Maximum);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneCameraSample|public sealed record SceneCameraSample(ISceneFrame Frame, Vector3 Focus);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneDebugLayer|[Flags] public enum SceneDebugLayer
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneDebugLine|public sealed record SceneDebugLine(Vector3 From, Vector3 To, Vector4 Color);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectCue|public sealed record SceneEffectCue(SceneEffectId Id, SceneEffectKind Kind, Vector3 From, Vector3? To, PaintColor? Color, VoxelCollision? FragmentCollision, WorldObjectId? Subject, double StartedAtSimulationSeconds);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectId|public readonly record struct SceneEffectId(ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEffectKind|public enum SceneEffectKind
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneEnvironment|public sealed record SceneEnvironment(ImmutableArray<SceneBounds> FoggedRegions, ImmutableArray<TerrainCollisionPatch> TerrainCollision);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneFrameRequest|public sealed record SceneFrameRequest(double Interpolation, SceneCameraSample? Camera, SceneDebugLayer DebugLayers);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneFrameStamp|public sealed record SceneFrameStamp(SceneSessionId Session, SceneRequestId Request, SceneSpaceId Space, ulong Revision);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneHit|public sealed record SceneHit(SceneFrameStamp Frame, SceneObjectId? Object, PickSubject Subject, GridPosition Cell, GridFace Face, Vector3 Point, Vector3 Normal, double DistanceCells, ImmutableArray<int> NestedObjectPath);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneLight|public sealed record SceneLight(PaintColor Color, double RangeCells, float Damage, ulong Seed);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMaterial.BuiltIn|public sealed record BuiltIn(BuiltInMaterial Kind) : SceneMaterial;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMaterial.Voxel|public sealed record Voxel(AssetRevision Texture, MaterialCategory Category, PaintColor? Paint) : SceneMaterial;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMaterial|public abstract record SceneMaterial
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneMesh|public sealed record SceneMesh(SceneMaterial Material, ImmutableArray<SceneVertex> Vertices, ImmutableArray<int> TriangleIndices);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneObjectId|public readonly record struct SceneObjectId(ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneObject|public sealed record SceneObject(SceneObjectId Id, SceneObjectId? Parent, ScenePose Pose, WorldObjectId? Subject, ImmutableArray<SceneVisual> Visuals, ImmutableArray<SceneLight> Lights, ImmutableArray<PersistentSceneEffect> Effects);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePanBounds|public sealed record ScenePanBounds(Vector2 Minimum, Vector2 Maximum);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.Hit|public sealed record Hit(SceneHit Value) : ScenePick;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.Miss|public sealed record Miss : ScenePick;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick.NotReady|public sealed record NotReady : ScenePick;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePick|public abstract record ScenePick
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePoint|public readonly record struct ScenePoint(double X, double Y, double Z);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.ScenePose|public sealed record ScenePose(Vector3 Position, Quaternion Rotation);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneProblem|public sealed record SceneProblem(string Code, SceneStage Stage, WorldObjectId? Subject, ContentReference? Content, PackageId? Package, DesignElementPath? Element, string Detail);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneRay|public sealed record SceneRay(Vector3 Origin, Vector3 Direction, double MaximumDistanceCells);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneReadiness|public enum SceneReadiness
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneRequestId|public readonly record struct SceneRequestId(ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult.Failure|public sealed record Failure(ImmutableArray<SceneProblem> Problems) : SceneResult<T>;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult.Faulted|public sealed record Faulted(SceneProblem Problem) : SceneResult<T>;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult.Success|public sealed record Success(T Value) : SceneResult<T>;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneResult|public abstract record SceneResult<T> where T : notnull
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSessionId|public readonly record struct SceneSessionId(Guid Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneSpaceId|public readonly record struct SceneSpaceId(ulong Value);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneStage|public enum SceneStage
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneUpdate|public sealed record SceneUpdate(SceneFrameStamp? Base, SceneFrameStamp Frame, Vector3 ShiftExistingRoots, ImmutableArray<SceneObject> Upserts, ImmutableArray<SceneObjectId> Removed, SceneEnvironment Environment, ImmutableArray<SceneEffectCue> Effects);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVertex|public sealed record SceneVertex(Vector3 Position, Vector3 Normal, Vector2 TextureUv, Vector2 FaceUv, ExposedFaceEdges ExposedEdges, float RelativeHeight, float Damage);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Geometry|public sealed record Geometry(SceneMesh Mesh, SurfaceState Surface) : SceneVisual;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Missing|public sealed record Missing(ContentReference Reference, bool KnownCell) : SceneVisual;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Model|public sealed record Model(AssetRevision Asset, ImmutableArray<MaterialCategory> Materials, PaintColor? Paint, SurfaceState Surface, Vector4 RelativeHeightPlane) : SceneVisual;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual.Wheelset|public sealed record Wheelset(double GaugeCells, double RadiusCells, double WidthCells, double RotationRadians) : SceneVisual;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneVisual|public abstract record SceneVisual
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SceneWorldSnapshot|public sealed record SceneWorldSnapshot(ICoreReadView Core, IContentView Content);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.SurfaceState|public sealed record SurfaceState(bool WearEnabled, ulong WearSeed, float Damage, bool Scorched);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.TemplatePlotPreview|public sealed record TemplatePlotPreview(int DraftIndex, ScenePose Pose, GridBounds Bounds);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.TerrainCollisionPatch|public sealed record TerrainCollisionPatch(SceneObjectId Id, Vector3 Origin, int Width, int Depth, double SpacingCells, ImmutableArray<float> Heights);
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.WorldSceneTarget.Combat|public sealed record Combat(CombatId Id) : WorldSceneTarget;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.WorldSceneTarget.Follow|public sealed record Follow(TrainId Train, VehicleId Vehicle) : WorldSceneTarget;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.WorldSceneTarget.Location|public sealed record Location(WorldLocation Value) : WorldSceneTarget;
+Train.Scenes.Contracts|type|Train.Scenes.Contracts.WorldSceneTarget|public abstract record WorldSceneTarget
+Train.Scenes.Contracts|using|using System.Collections.Immutable;
+Train.Scenes.Contracts|using|using System.Numerics;
+Train.Scenes.Contracts|using|using Train.Content.Contracts;
+Train.Scenes.Contracts|using|using Train.Core.Contracts;

@@ -2,7 +2,7 @@
 // 查询与操作都作用于已挂接会话，无会话时只报告状态，不建立模拟世界。
 
 using System.Globalization;
-using Train.Core.Logging;
+using Train.App.Logging;
 using Train.Core.Simulation;
 
 namespace Train.App;

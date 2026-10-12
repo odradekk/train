@@ -25,4 +25,4 @@
 
 ## 实现依据
 
-基础分发器见 [`Core/Console/ConsoleCommands.cs`](../../Core/Console/ConsoleCommands.cs)，模拟命令宿主处理见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。
+基础分发器见 [`App/Console/ConsoleCommands.cs`](../../App/Console/ConsoleCommands.cs)，模拟命令宿主处理见 [`App/SimulationConsoleCommands.cs`](../../App/SimulationConsoleCommands.cs)，游戏内界面见 [`Ui/GameConsole.cs`](../../Ui/GameConsole.cs)。宿主将退出、清屏、内容重载及可选的模拟命令回调交给分发器，再将分发器与日志缓冲传入界面；界面从 `RingBufferLogSink` 读取显示内容。

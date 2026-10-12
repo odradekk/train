@@ -2,11 +2,15 @@
 
 This document specifies the usage and behavior of `scripts/run-tests.ps1`. Which checks a change needs is decided by the [Testing standard](implement-sop.md#testing-standard); [Windows CI](ci.md) calls the same entry.
 
-四模块测试拆分、模块选择、共享契约用例与实际隔离检查的已确认目标方案见[独立构建与契约验证](contracts/testing.md)。这些扩展尚未实现，本页以下命令和行为描述现有入口；不能把当前运行结果当作目标方案已通过的证据。
+四模块测试与隔离验证的目标见[独立构建与契约验证](contracts/testing.md)。模块项目拆分、多项目选择、Core/Content 实际隔离构建和项目依赖检查已接入。真实工厂契约与 Godot 隔离装配仍待生产入口建立，不能由现有普通 C# 测试推断通过。
 
 `scripts/run-tests.ps1` (PowerShell 7) is the single entry for discovery, selection, prerequisites, runner invocation and reporting. It is a thin dispatcher: assertions stay in their test implementations, and runners remain independently callable. Without arguments it prints help and the discovered groups; running requires an explicit selection such as `-Family`, `-Scope`, `-Test` or `-Correctness`.
 
-`-Project <路径>` 指定本次发现和运行的 MSTest 项目，默认是 `Train.Tests/Train.Tests.csproj`，不会自动发现其他测试项目。支持库自检须显式运行 `pwsh -NoProfile -File scripts/run-tests.ps1 -Project Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj -RunnerCatalog none -Family unit`。
+默认从 `Tests/` 下发现引用 `MSTest.TestAdapter` 或 `MSTest` 的测试项目：Core、Content、Godot 宿主和 ContractSupport 自检。未指定模块的 `-Correctness` 还要求 Core、Content、Godot 三个现有入口都可发现，缺失时报告阻塞。`-Module core|content|godot` 在构建和发现前限定项目，重复参数取并集；`scenes` 入口尚不存在，明确选择会报阻塞。模块选择包含相应的契约支持自检；模块正确性选择还包含 `contracts.structure`。Godot 隔离装配不存在时，`-Module godot -Correctness` 将待实现项加入所选用例并明确报告阻塞；`-Family` 和 `-Test` 继续对它筛选。当前引擎检查仍分别执行并报告。`-Project <路径>` 用于显式运行一个 MSTest 项目，与 `-Module` 互斥。`module` 表示责任归属。完整现有 MSTest 可用 `-Correctness -RunnerCatalog none` 运行，结构与公开面检查可用 `-Test contracts.structure` 运行。
+
+未指定 `-Project` 时，Core/Content 的 `-Correctness` 在系统临时目录按允许依赖闭包重建并运行，未来的 Scenes 项目也按相同规则处理。其他 MSTest 选择在工作树中构建并运行，包括 `-Correctness` 配合 `-Project` 的调用，不能证明模块隔离；普通 MSTest 也不能证明引擎隔离。临时目录在运行结束后清理，输入及引用清单留在本次报告目录；`TestResults/.gdignore` 阻止 Godot 扫描报告。Godot 检查隔离应用日志、外部内容和用户数据，但尚未将游戏程序集与其他实现模块隔离。
+
+`-Test content.examples-schema` 调用现有 JSON Schema 校验器检查 `docs/content/examples/` 的全部当前格式示例及 Schema 自身；需要 Python 和 `jsonschema` 包。示例为空、格式不符或工具缺失都不能通过。此项不验证跨文件引用或生产加载器行为。
 
 MSTest cases and classification come from test metadata. Other runners are registered once in `scripts/runner-catalog.json` with only the invocation information they need; the same file records the retained support harnesses and tools. `scripts/` 顶层保留统一入口、入口测试和登记表；具体检查、检查测试及其专用进程助手放在 `scripts/checks/`，MSTest 元数据读取器放在 `scripts/metadata-reader/`。当前 App 的引擎检查使用 `scripts/checks/run-app-check.ps1`：
 
@@ -19,7 +23,7 @@ pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.simulation-host-smoke
 pwsh -NoProfile -File scripts/run-tests.ps1 -Test godot.content-export-smoke -Test godot.mods-export-smoke
 ```
 
-`-Correctness` 选择 MSTest 与已登记的非导出引擎检查，需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
+`-Correctness` 选择 MSTest、结构与公开面、内容示例 Schema 和已登记的非导出引擎检查；Schema 检查需要 Python 3 与 `jsonschema`（CI 为 Python 3.11、`jsonschema==4.25.1`），引擎检查需要 `GODOT` 和游戏工程构建、资源导入。带 `export` 要求的检查必须显式选择；它们需要 Windows 和匹配的导出模板。一次调用只构建、导入一次，选择导出检查时再共享一次 Windows 发布导出。导出准备保留模板所在的 APPDATA；随后每项检查都有独立 APPDATA，并通过 `--check-user-data` 将应用日志及外部内容限制在该项的输出目录。
 
 content 的输入由运行器提前复制到输出目录的 `content-input/initial` 与 `content-input/added`，两份都只包含 `voxels/grain.voxels.json`、四个绑定共用的 `voxels/grain/placeholder.png`，以及用于烟测的市场表和聚居地类型 JSON；`added` 另外生成 `smoke-ore` 体素探针。图片经物理内容根读取，不需要复制 Godot 导入配置。检查切换两份读取来源，在同一个重载器上验证新增、移除；不写项目资源或输入文件。检查选择使用 `-- --check=<名称>`，不读取旧 TRAIN_* 检查开关。通过必须同时满足进程退出 0、行为标记和 `APP_CHECK_PASSED <名称>`，不以帧数或超时退出证明通过。
 
@@ -37,11 +41,11 @@ Show the selected cases and prerequisites before execution; combine family/scope
 
 ## Execution and isolation
 
-Each run gets a fresh result directory with isolated saves, mutable content and user data. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
+Each run gets a fresh result directory for its reports and owned outputs. Child processes get controlled test settings without leaking task-specific settings into other runs. Only necessary builds/imports are prepared and are reused within the invocation. Checks that need Godot, builds or shared resources run serially; there is no cross-run caching or automatic parallel scheduling.
 
 Process checks use measured, bounded timeouts. Cancellation or timeout preserves available evidence and terminates only this run's owned process tree; if cleanup cannot establish isolation, dispatch stops and the blocker is reported. Other worktrees' processes and ordinary game saves are left untouched.
 
-After an ordinary assertion failure, other independent, safe groups continue and all results are kept. A failed build/import blocks its dependent groups, cancellation stops dispatch, and serious state corruption stops that case at the first evidence. The exit is non-success whenever a selected required check fails, is blocked or does not finish. The report distinguishes failed, blocked, cancelled and not-executed outcomes; later passes never overwrite earlier failures.
+After an ordinary assertion failure, other independent, safe groups continue and all results are kept. A test assembly build or metadata read needed for discovery stops the run. A game build, import, or export failure after discovery blocks its dependent groups while independent groups continue. Cancellation stops dispatch, and serious state corruption stops that case at the first evidence. The exit is non-success whenever a selected required check fails, is blocked or does not finish. The report distinguishes failed, blocked, cancelled and not-executed outcomes; later passes never overwrite earlier failures.
 
 ## Results and evidence
 

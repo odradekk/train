@@ -9,7 +9,11 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="Core/Train.Core.csproj" />
+    <ProjectReference Include="Content/Train.Content.csproj" />
     <ProjectReference Include="Scenes/Train.Scenes.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Train.Godot.Tests" />
   </ItemGroup>
   <ItemGroup>
     <Compile Remove="Contracts/**" />
@@ -21,6 +25,9 @@
     <Compile Remove="Core/**" />
     <EmbeddedResource Remove="Core/**" />
     <None Remove="Core/**" />
+    <Compile Remove="Content/**" />
+    <EmbeddedResource Remove="Content/**" />
+    <None Remove="Content/**" />
     <Compile Remove="Scenes/**" />
     <EmbeddedResource Remove="Scenes/**" />
     <None Remove="Scenes/**" />

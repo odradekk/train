@@ -3,9 +3,9 @@
 
 using Godot;
 using Train.App.Checks;
-using Train.Core.Console;
-using Train.Core.Content;
-using Train.Core.Logging;
+using Train.App.Console;
+using Train.Content;
+using Train.App.Logging;
 using Train.Core.Simulation;
 using Train.Ui;
 

@@ -8,6 +8,6 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
-    <InternalsVisibleTo Include="Train.Tests" />
+    <InternalsVisibleTo Include="Train.Core.Tests" />
   </ItemGroup>
 </Project>

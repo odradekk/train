@@ -5,6 +5,9 @@ bin/
 obj/
 builds/
 TestResults/
+!/TestResults/
+/TestResults/*
+!/TestResults/.gdignore
 *.user
 .amp/portals/*
 .vs/

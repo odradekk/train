@@ -1,9 +1,9 @@
 // 属于 Godot 项目的内容适配模块。
 // 将 Godot 虚拟文件访问、外部物理内容包和 PNG 解码接入内容读取边界。
-using Train.Core.Content;
-using Train.Core.Content.Voxels;
+using Train.Content;
+using Train.Content.Voxels;
 using Godot;
-using Train.Core.Logging;
+using Train.App.Logging;
 
 namespace Train.App;
 

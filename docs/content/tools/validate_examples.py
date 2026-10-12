@@ -61,6 +61,9 @@ def main():
         for error in validator.iter_errors(load(path)):
             errors += 1
             print(f"{os.path.relpath(path, root)} {list(error.absolute_path)}: {error.message}")
+    if files == 0:
+        errors += 1
+        print("未找到需要校验的示例 JSON 文件")
     print(f"{files} 个文件，{errors} 个错误")
     sys.exit(1 if errors else 0)
 

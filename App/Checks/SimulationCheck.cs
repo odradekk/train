@@ -4,7 +4,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Godot;
-using Train.Core.Logging;
+using Train.App.Logging;
 using Train.Core.Simulation;
 using Train.Ui;
 
