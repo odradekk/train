@@ -53,6 +53,16 @@ try {
         New-Item -ItemType Directory -Path $isolated -Force | Out-Null
         [Environment]::SetEnvironmentVariable($name, $isolated)
     }
+    $templates = [IO.Path]::GetFullPath((Join-Path $TemplateAppData 'Godot/export_templates'))
+    if (-not (Test-Path -LiteralPath $templates -PathType Container)) { throw "Godot export templates not found: $templates" }
+    $templateLink = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'Godot/export_templates'))
+    if (-not $templateLink.StartsWith($output + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Asset probe template link escaped its output directory.'
+    }
+    if (Test-Path -LiteralPath $templateLink) { throw "Asset probe template link already exists: $templateLink" }
+    New-Item -ItemType Directory -Path (Split-Path $templateLink) -Force | Out-Null
+    New-Item -ItemType Junction -Path $templateLink -Target $templates | Out-Null
+    $ownsTemplateLink = $true
     Copy-Item -LiteralPath (Join-Path $root 'global.json') -Destination $staging
     foreach ($file in @('project.godot', 'ProbeRunner.tscn', 'export_presets.cfg')) {
         Copy-Item -LiteralPath (Join-Path $root "Tests/AssetExport/$file") -Destination $project
@@ -101,16 +111,6 @@ try {
     $exportDirectory = Join-Path $output 'export'
     New-Item -ItemType Directory -Path $exportDirectory | Out-Null
     $probe = Join-Path $exportDirectory 'asset-probe.exe'
-    $templates = [IO.Path]::GetFullPath((Join-Path $TemplateAppData 'Godot/export_templates'))
-    if (-not (Test-Path -LiteralPath $templates -PathType Container)) { throw "Godot export templates not found: $templates" }
-    $templateLink = [IO.Path]::GetFullPath((Join-Path $env:APPDATA 'Godot/export_templates'))
-    if (-not $templateLink.StartsWith($output + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-        throw 'Asset probe template link escaped its output directory.'
-    }
-    if (Test-Path -LiteralPath $templateLink) { throw "Asset probe template link already exists: $templateLink" }
-    New-Item -ItemType Directory -Path (Split-Path $templateLink) -Force | Out-Null
-    New-Item -ItemType Junction -Path $templateLink -Target $templates | Out-Null
-    $ownsTemplateLink = $true
     Invoke-ProbeProcess 'export' $env:GODOT @('--headless', '--path', $project, '--export-release', 'Windows Asset Probe', $probe, '--log-file', (Join-Path $output 'export.godot.log'))
     Invoke-ProbeProcess 'runtime' $probe @('--headless', '--log-file', (Join-Path $output 'runtime.godot.log'), '--', '--data-root', $data, '--game-pck', $gamePck)
 }
