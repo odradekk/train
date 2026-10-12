@@ -90,6 +90,7 @@ internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) :
             {
                 var source = decoded.Mesh(meshIndex);
                 var normalBasis = transform.Basis.Inverse().Transposed();
+                var mirrored = transform.Basis.Determinant() < 0;
                 for (var surface = 0; surface < source.GetSurfaceCount(); surface++)
                 {
                     using var arrays = source.GetSurfaceArrays(surface);
@@ -109,10 +110,22 @@ internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) :
                         {
                             var tangent = (transform.Basis * new Vector3(tangents[i], tangents[i + 1], tangents[i + 2])).Normalized();
                             tangents[i] = tangent.X; tangents[i + 1] = tangent.Y; tangents[i + 2] = tangent.Z;
+                            if (mirrored) tangents[i + 3] = -tangents[i + 3];
                         }
                         arrays[(int)Godot.Mesh.ArrayType.Tangent] = tangents;
                     }
-                    mesh.AddSurfaceFromArrays(source.GetSurfacePrimitiveType(surface), arrays);
+                    var primitive = source.GetSurfacePrimitiveType(surface);
+                    if (mirrored && primitive is Godot.Mesh.PrimitiveType.Triangles or Godot.Mesh.PrimitiveType.TriangleStrip)
+                    {
+                        var indices = arrays[(int)Godot.Mesh.ArrayType.Index].VariantType == Variant.Type.Nil
+                            ? Enumerable.Range(0, vertices.Length).ToArray() : arrays[(int)Godot.Mesh.ArrayType.Index].AsInt32Array();
+                        if (primitive == Godot.Mesh.PrimitiveType.Triangles)
+                            for (var i = 0; i < indices.Length; i += 3) (indices[i + 1], indices[i + 2]) = (indices[i + 2], indices[i + 1]);
+                        // 首个退化三角形翻转 strip 后续的奇偶绕序，不改变可见几何。
+                        else indices = [indices[0], .. indices];
+                        arrays[(int)Godot.Mesh.ArrayType.Index] = indices;
+                    }
+                    mesh.AddSurfaceFromArrays(primitive, arrays);
                     if (mesh.GetSurfaceCount() != surfaces.Count + 1)
                         throw new InvalidOperationException("模型网格表面创建失败。");
                     var material = input.Material(meshIndex, surface);

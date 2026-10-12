@@ -29,7 +29,7 @@ AssetLease<ModelAsset> AcquireModel(ContentAsset asset);
 
 调用方传入 Content 已校验的资产。缓存键为“修订 + 用途”，当前用途只有生成 mipmap 的面贴图和模型。相同键共享资源，每份租约 `Dispose()` 只释放一次引用，最后一个引用释放时才销毁 Godot 资源；租约释放后不能访问 `Value`。Godot 资源由缓存拥有，消费者只持租约，不自行销毁网格或贴图。
 
-`ModelAsset.Mesh` 烘焙节点和父节点变换，然后只乘一次 2，把米换成格，不做轴转换。`Surfaces` 与展开后的网格表面按序对应，保留基础贴图、线性颜色系数、透明方式和 alpha cutoff。它不构建最终材质。非对称 JSON＋BIN 夹具从构造参数独立推出米制包围盒，并核对网格 AABB 为其两倍、+X／+Z 顶点没有翻转。
+`ModelAsset.Mesh` 烘焙节点和父节点变换，然后只乘一次 2，把米换成格，不做轴转换。负行列式变换同时补偿三角面绕序和切线方向，保留 Godot 解码后的正面。`Surfaces` 与展开后的网格表面按序对应，保留基础贴图、线性颜色系数、透明方式和 alpha cutoff。它不构建最终材质。非对称 JSON＋BIN 夹具从构造参数独立推出米制包围盒，并核对网格 AABB 为其两倍、+X／+Z 顶点没有翻转。
 
 ## Keep File 与验证
 

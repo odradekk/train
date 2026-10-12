@@ -94,6 +94,46 @@ public class AssetResourceCacheTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
+    public void Mirrored_node_transform_preserves_front_faces_and_tangent_handedness()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        var bytes = GlbFixture.Create(feature: "tangent", changeJson: json =>
+            json["nodes"]![0]!["scale"] = System.Text.Json.Nodes.JsonNode.Parse("[-1,1,1]"));
+        using var lease = cache.AcquireModel(Glb(dispatcher, "mirrored", bytes));
+        using var arrays = lease.Value.Mesh.SurfaceGetArrays(0);
+        var vertices = arrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var indices = arrays[(int)Mesh.ArrayType.Index].AsInt32Array();
+        var normal = new Vector3(0, -1, 3).Normalized();
+        // Godot 使用顺时针正面；镜像后的外法线仍为 (0,-1,3)，由夹具三顶点独立推出。
+        var front = (vertices[indices[2]] - vertices[indices[0]]).Cross(vertices[indices[1]] - vertices[indices[0]]).Normalized();
+        Require(front.Dot(normal) > 0.999f, "烘焙镜像节点变换后正面绕序反转。");
+        Near(arrays[(int)Mesh.ArrayType.Normal].AsVector3Array()[0], new(0, -1 / Math.Sqrt(10), 3 / Math.Sqrt(10)));
+        var tangents = arrays[(int)Mesh.ArrayType.Tangent].AsFloat32Array();
+        Near(new Vector3(tangents[0], tangents[1], tangents[2]), new(-1, 0, 0));
+        Require(tangents[3] == -1, "负行列式变换必须翻转 glTF 夹具原为 +1 的 tangent.w。");
+        var stripBytes = GlbFixture.Create(changeJson: json =>
+        {
+            json["nodes"]![0]!["scale"] = System.Text.Json.Nodes.JsonNode.Parse("[-1,1,1]");
+            foreach (var primitive in json["meshes"]![0]!["primitives"]!.AsArray())
+            {
+                primitive!["mode"] = 5;
+                primitive.AsObject().Remove("indices");
+            }
+        });
+        using var strip = cache.AcquireModel(Glb(dispatcher, "mirrored-strip", stripBytes));
+        using var stripArrays = strip.Value.Mesh.SurfaceGetArrays(0);
+        var stripVertices = stripArrays[(int)Mesh.ArrayType.Vertex].AsVector3Array();
+        var stripIndices = stripArrays[(int)Mesh.ArrayType.Index].AsInt32Array();
+        Require(stripIndices.Length == 4, "strip 绕序翻转应只增加一个退化索引。");
+        // 第一个可见三角形是 strip 的奇数项，顶点顺序为 (2,1,3)。
+        var stripFront = (stripVertices[stripIndices[3]] - stripVertices[stripIndices[2]])
+            .Cross(stripVertices[stripIndices[1]] - stripVertices[stripIndices[2]]).Normalized();
+        // Godot 4.7.2 的 strip 保留输入绕序，原三顶点的顺时针正面为 (0,1,-3)。
+        Require(stripFront.Dot(-normal) > 0.999f, "镜像 strip 没有保留 Godot 解码后的正面方向。");
+    }
+
+    [Test]
     public void Embedded_material_texture_factor_and_model_leases_have_owned_lifetimes()
     {
         using var dispatcher = new GodotMainThreadDispatcher();

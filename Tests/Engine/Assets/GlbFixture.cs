@@ -51,6 +51,17 @@ internal static class GlbFixture
             root["nodes"]![1]!["scale"] = JsonNode.Parse("[0.5,2,1]");
         }
         var primitives = root["meshes"]![0]!["primitives"]!.AsArray();
+        if (feature == "tangent")
+        {
+            var unit = 1 / MathF.Sqrt(10);
+            var normal = Accessor(Floats(0, -unit, 3 * unit, 0, -unit, 3 * unit, 0, -unit, 3 * unit), 5126, 3, "VEC3");
+            var tangent = Accessor(Floats(1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1), 5126, 3, "VEC4");
+            foreach (var primitive in primitives)
+            {
+                primitive!["attributes"]!["NORMAL"] = normal;
+                primitive["attributes"]!["TANGENT"] = tangent;
+            }
+        }
         if (feature == "skin")
         {
             root["nodes"]!.AsArray().Add(new JsonObject { ["name"] = "joint" });

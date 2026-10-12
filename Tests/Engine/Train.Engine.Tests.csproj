@@ -7,6 +7,7 @@
     <!-- 与宿主程序集放在同一目录，供 Godot 的 AssemblyLoadContext 加载。 -->
     <OutputPath>$(GodotProjectDir).godot/mono/temp/bin/$(Configuration)/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Bootstrap/**" />
