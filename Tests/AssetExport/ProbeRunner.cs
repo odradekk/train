@@ -120,7 +120,7 @@ public partial class ProbeRunner : Node
             "Actual game PCK placeholder differs from current source PNG.");
         Require(Success(files.Enumerate(new(production, ""))).Any(entry => entry.Name == "placeholder.png"
             && entry.Kind == ContentEntryKind.File), "Actual game PCK did not retain original PNG name.");
-        CheckPackedSourceExclusions("res://");
+        CheckPackedSourceContents("res://");
         foreach (var (name, kind) in new[] { ("broken.png", AssetKind.Png), ("broken.glb", AssetKind.Glb) })
         {
             var result = inspector.Inspect(kind, new(name), Success(files.Read(new(mod, name), 100)));
@@ -157,17 +157,17 @@ public partial class ProbeRunner : Node
         finally { Directory.Delete(link); }
     }
 
-    private static void CheckPackedSourceExclusions(string path)
+    private static void CheckPackedSourceContents(string path)
     {
         using var directory = DirAccess.Open(path);
         Require(directory is not null, $"Cannot enumerate packed directory {path}.");
         foreach (var file in directory!.GetFiles())
             Require(!file.EndsWith(".blend", StringComparison.OrdinalIgnoreCase)
-                && !file.EndsWith(".blend1", StringComparison.OrdinalIgnoreCase), $"Source file leaked into PCK: {path}{file}");
+                && !file.EndsWith(".blend1", StringComparison.OrdinalIgnoreCase), $"Current PCK contains a source file (no source-file fixture is supplied): {path}{file}");
         foreach (var child in directory.GetDirectories())
         {
-            Require(!child.Equals("art-source", StringComparison.OrdinalIgnoreCase), $"Source directory leaked into PCK: {path}{child}");
-            CheckPackedSourceExclusions(path == "res://" ? path + child + "/" : path.TrimEnd('/') + "/" + child + "/");
+            Require(!child.Equals("art-source", StringComparison.OrdinalIgnoreCase), $"Current PCK contains a source directory (no source-file fixture is supplied): {path}{child}");
+            CheckPackedSourceContents(path == "res://" ? path + child + "/" : path.TrimEnd('/') + "/" + child + "/");
         }
     }
 

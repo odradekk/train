@@ -443,12 +443,12 @@ Global
 		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.ExportRelease|x64.Build.0 = ExportRelease|Any CPU
 		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.ExportRelease|x86.ActiveCfg = ExportRelease|Any CPU
 		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.ExportRelease|x86.Build.0 = ExportRelease|Any CPU
-		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|Any CPU.ActiveCfg = Debug|Any CPU
-		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|Any CPU.Build.0 = Debug|Any CPU
-		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x64.ActiveCfg = Debug|Any CPU
-		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x64.Build.0 = Debug|Any CPU
-		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x86.ActiveCfg = Debug|Any CPU
-		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x86.Build.0 = Debug|Any CPU
+		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|Any CPU.ActiveCfg = ExportRelease|Any CPU
+		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|Any CPU.Build.0 = ExportRelease|Any CPU
+		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x64.ActiveCfg = ExportRelease|Any CPU
+		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x64.Build.0 = ExportRelease|Any CPU
+		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x86.ActiveCfg = ExportRelease|Any CPU
+		{9BB69C17-2944-4EBB-B99C-3496C138B33D}.Release|x86.Build.0 = ExportRelease|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

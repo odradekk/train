@@ -23,7 +23,7 @@ if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
     @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 245; integration = 4 },
     @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 189; integration = 7 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 12; integration = 40; engine = 21 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = 39; engine = 23 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 13; integration = 0 }
 )
 $engineProject = $projects | Where-Object name -eq 'godot'
@@ -181,7 +181,8 @@ try {
                     Invoke-Check export-smoke $current $pwsh $arguments ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                     Invoke-Check asset-export $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-asset-export.ps1',
                         '-OutputDirectory', (Join-Path $run 'asset-export'), '-GameExecutablePath', $binary,
-                        '-TemplateAppData', $environment.APPDATA) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                        '-TemplateAppData', $environment.APPDATA,
+                        '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))") ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 }
             }
             if ($watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
@@ -219,8 +220,29 @@ finally {
     $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json')
     if ($summary.outcome -eq 'passed') {
         $retained = @('summary.json')
-        if ($ExportWindows) { $retained += @('exports', 'export-smoke', 'asset-export', 'export.log', 'export-godot.log', 'asset-export.log', 'export-smoke.log') }
-        try { foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -notin $retained)) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force } }
+        try {
+            if ($ExportWindows) {
+                foreach ($relative in @('exports', 'asset-export/staging', 'asset-export/export', 'asset-export/appdata',
+                    'asset-export/localappdata', 'asset-export/temp', 'asset-export/tmp')) {
+                    $ownedPath = [IO.Path]::GetFullPath((Join-Path $run $relative))
+                    if (-not $ownedPath.StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Export cleanup escaped the run directory.' }
+                    if (Test-Path -LiteralPath $ownedPath) { Remove-Item -LiteralPath $ownedPath -Recurse -Force }
+                }
+                $probeData = [IO.Path]::GetFullPath((Join-Path $run 'asset-export/probe-data'))
+                foreach ($artifact in (Get-ChildItem -LiteralPath $run -File -Recurse -Force)) {
+                    $inProbeData = $artifact.FullName.StartsWith($probeData + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+                    if ($artifact.Name -ne 'summary.json' -and -not $inProbeData -and $artifact.Extension -notin @('.log', '.jsonl') -and
+                        $artifact.Name -notlike '*.process.json' -and $artifact.Name -ne 'duration.json') {
+                        Remove-Item -LiteralPath $artifact.FullName -Force
+                    }
+                }
+                foreach ($directory in (Get-ChildItem -LiteralPath $run -Directory -Recurse -Force | Sort-Object { $_.FullName.Length } -Descending)) {
+                    if (-not (Get-ChildItem -LiteralPath $directory.FullName -Force)) { Remove-Item -LiteralPath $directory.FullName -Force }
+                }
+            } else {
+                foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -notin $retained)) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force }
+            }
+        }
         catch { $summary.outcome = 'failed'; $summary.error = "Cleanup failed: $($_.Exception.Message)"; $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json') }
     }
     $mutex.ReleaseMutex()
