@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Content.Loading;
+using Train.Content.Designs;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -44,7 +45,21 @@ internal sealed class InitialContentFactory : C.IContentFactory
         }
     }
 
-    public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft) => throw new NotImplementedException();
+    public C.ContentResult<C.DesignEvaluation> EvaluateDesign(C.IContentView content, C.DesignDraft draft)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(draft);
+        if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
+        try
+        {
+            return new C.ContentResult<C.DesignEvaluation>.Success(DesignEvaluator.Evaluate(view, draft));
+        }
+        catch (NotImplementedException) { throw; }
+        catch (Exception exception)
+        {
+            return new C.ContentResult<C.DesignEvaluation>.Faulted("content_fault", exception.Message, exception.StackTrace);
+        }
+    }
     public C.ContentResult<C.DesignChangeEvaluation> CompareDesigns(C.IContentView content, K.DesignHash current, C.DesignDraft target) => throw new NotImplementedException();
     public C.ContentResult<C.IContentCandidate> PrepareEdit(C.IContentView basis, C.ContentEdit edit) => throw new NotImplementedException();
     public C.IContentView WithSettlementCopies(C.IContentView basis, ImmutableArray<K.OwnedSettlementTemplateReference> copies) => throw new NotImplementedException();

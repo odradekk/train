@@ -4,7 +4,7 @@
 
 ## 状态与入口
 
-[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial)`：manifest v2、依赖、voxel v3 静态字段、固定资产字节、资产规则、只读投影及候选生命周期。其他标准定义目录明确拒绝。设计计算、普通恢复／重载、草稿、捕获、复现、创作、模板副本和世界输入仍待对应工单实现，相关入口直接抛 `NotImplementedException`，不转成正常失败或内部故障。当前宿主仍使用旧加载路径，真实宿主端口和四模块联调待后续验证。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持无嵌套的车辆、建筑和场景模型。`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。其他标准定义目录、大型设备、生物与非空嵌套布局明确拒绝。嵌套设计、部分计算、普通恢复／重载、草稿、捕获、复现、创作、模板副本和世界输入仍待对应工单实现，相关入口直接抛 `NotImplementedException`，不转成正常失败或内部故障。当前宿主仍使用旧加载路径，真实宿主端口和四模块联调待后续验证。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |
@@ -66,6 +66,8 @@ Mod 缺依赖、版本不够、依赖循环、未知行为／字段、定义或�
 `DesignDraft` 是可编码的工作快照，不承诺完整合法。缺必填参数可为 null，空文字、重复格、暂时不连通等可保留；非法枚举、递归对象环或不能编码的非有限数字不属于有效快照。非网格表单尚未能形成领域值的输入仍由界面持有，不能把任意 JSON 当公开模块接口。
 
 `EvaluateDesign` 一次返回内容计算的设计身份、构成身份、属性、BOM、合法性、包络和部件定位。`Complete.Core` 为车辆、建筑、组装体和功能复合体提供 DesignInput；后二者映射 DesignKind.LargeEquipment，货物身份分别为 GoodId.Assembly 和 GoodId.Composite；只有场景模型与生物为空。`Complete` 表示计算完整，`IsValid` 才表示合法；例如完整但不连通的布局仍应报告可算出的质量与不连通位置。`Partial` 区分已知小计与每项未知结果，不以零冒充未知；占位核心投影只供已有实例恢复，不能成为新建或改装目标。`Failed` 表示无法形成计算结果；内部程序故障通过外层 `ContentResult.Faulted` 报告。
+
+当前 #307 实现仅覆盖没有嵌套的车辆、建筑和场景模型，编号按自有体素的 x／y／z 顺序生成，元素路径保留输入 `Cells` 的下标。布局完整但不合法时仍返回 `Complete`，诊断定位到格，车辆和建筑的 `CanConstruct=false`；调色板序号越界或车辆长度超出 Int32 表示范围时返回 `Failed`；长度超限使用 `design_invalid` 诊断。BOM 件数等于实际货物数量之和，非法设计中的场景格不计入材料。嵌套、大型设备、生物、缺失定义或缺少必填规格的求值直接抛 `NotImplementedException`，不冒充完整结果。包内蓝图出现缺失定义、缺少必填规格或不合法布局时拒绝该包。省略的形状在哈希中编码为 null，场景投影取当前定义的第一种形状；省略的朝向等同显式 `px_py`。同一设计在两个固定视图上重新计算，不跨视图缓存属性；真实 Reload、占位与保存恢复由 #371 接入，嵌套及其编号由 #324 接入。
 
 内容统一生成所有体素与功能复合体的编号、嵌套路径、占格和对象局部坐标。体素层可以按这些对应定位、拾取和动画，不重做哈希、编号或耐久保留算法。根坐标表示零姿态占格；对象局部坐标和父路径用于嵌套转动。`NestedObjectDetails` 将组装体转动、功能复合体引用及编号、场景模型平整区域分在各自变体中；场景模型的平整区域不要求体素层从源蓝图重新解析。缺失功能复合体使用 `MissingFunctionalComposite`，保留原引用、锚点、朝向和整件编号，不附加未知的转动参数。未知占格用 `OccupancyComplete=false`，不能假装它只占一格。
 
