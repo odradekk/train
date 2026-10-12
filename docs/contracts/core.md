@@ -4,7 +4,7 @@
 
 ## 交付状态与入口
 
-已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂对象、内部候选与会话生命周期、同步内容发布、逐步位置推进和四字段不可变读视图；世界生成及其他领域行为尚未实现。声明编译通过只证明结构可用，模块测试不代表公开新局、共享契约用例、真实四模块联调或完整 Demo 已通过。
+已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂对象、内部候选与会话生命周期、同步内容发布、逐步位置推进、四字段不可变读视图，以及当前状态的捕获、编码、解码和普通恢复；世界生成及其他领域行为尚未实现。声明编译通过只证明结构可用，模块测试不代表公开新局、非空业务世界恢复、真实四模块联调或完整 Demo 已通过。
 
 | 声明 | 调用方使用的内容 |
 | --- | --- |
@@ -19,9 +19,10 @@
 
 当前已实现的成员：
 
-- 候选的 `View`、单次 `Activate` 和 `Dispose`；该内部构造供后续生成与恢复共用。
+- 候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；该内部构造供后续生成共用，普通恢复已接入。
 - 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进位置，不运行领域系统；内容身份不同时提交投影，身份相同时在事务之前抛 `ArgumentException`。当前没有引用内容的世界状态，因此尚无引用适配检查。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
+- `Capture`、`DecodeState` 和 `PrepareRestore`，仅覆盖当前真实状态；格式与恢复规则见下文“当前载荷”。共享 `CaptureScenario` 通过内部构造的真实会话执行，不代表公开新局路径已实现。
 
 下表成员尚未实现，直接抛 `NotImplementedException`，不以业务失败、故障结果、缺失查询或空世界成功代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类，交付责任在此维护。
 
@@ -29,11 +30,10 @@
 | --- | --- |
 | `PrepareNew`，生成候选的引用与缺失资料，`World`、节点、线路、地点及初始实例查询 | #309 小世界生成；列车详情由 #310 接入，线路与站台调度由 #311 补齐 |
 | 编组、解编、运行计划、起停命令及列车查询 | #310；调度与开发断点行为由 #311 接入 |
-| `DecodeState`、`PrepareRestore`、`Capture`，候选的 `References`、`AdaptationReport` 和 `MissingReferences` | #312 状态捕获与恢复；生成候选资料随 #309 接入 |
 | `PrepareReplay`、`CompareCheckpoints`、`ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart` | #313 录制与严格重放 |
 | 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
-旧 `Train.Core.Simulation` 仍只供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；当前仅移除旧驱动、控制台和说明中的恒零 `PendingSteps`。内部会话测试执行真实事务代码，拒绝与事件由内部测试体供给；公开创建会话及共享契约情景须等 #309 的 `PrepareNew` 接入后验证。
+旧 `Train.Core.Simulation` 仍只供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；当前仅移除旧驱动、控制台和说明中的恒零 `PendingSteps`。内部会话测试执行真实事务代码，拒绝与事件由内部测试体供给；公开创建会话须等 #309 的 `PrepareNew` 接入后验证。世界、列车、调度及后续领域任务各自将新增权威字段补入捕获、恢复和检查点，不能以当前捕获通过代替非空业务世界恢复证据。
 
 ## 所有权与数值
 
@@ -157,6 +157,22 @@
 ## 捕获、编码与录制
 
 `Capture(Save)` 只捕获完整边界并拒绝冻结会话；`Capture(Diagnostic)` 用于故障资料。捕获返回持久修订、位置、输入身份、引用清单、检查点和不透明载荷，后台只对它调用 `Encode()`。宿主组合内容与元数据，不遍历内部状态。持久修订覆盖核心可保存变化，不被仅有位置的比较替代；内容与存档元数据修订仍分别由其所有者管理。
+
+### 当前载荷
+
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现当前真实状态，编码器为内部的 [CoreCapture](../../Core/Sessions/CoreCapture.cs)。核心载荷的 `core_state_format_version` 从 1 开始，与宿主完整存档的 `SaveFormatVersion` 6 分开；不包含内容投影，也不支持旧通用模拟框架的载荷。
+
+字段按 `core_state_format_version`、`position`（`completed_steps`、`sequence`）、`next_command_number`、`revision`、`input_identity`、`fault` 的顺序输出。位置、下一编号和修订均使用十进制 `ulong`，下一命令编号非零；输入身份为 64 字符大写 SHA-256。故障字段为 `code`、`position`、`operation`、`field`、`subject`；当前运行故障的 `subject` 始终为空，尝试执行的位置与回滚后的完整位置分别保留。诊断消息和堆栈不进入载荷。
+
+当前引用清单由输入身份确定：`Designs`、`Templates`、`Definitions` 都为空，`Inputs` 仅含这一个身份；没有额外的世界引用字段。捕获的检查点另行生成，只含位置、下一命令编号和故障全部字段，不含修订和输入身份。文本对 UTF-8 求 SHA-256，取大写十六进制。当前捕获、引用和检查点在会话推进及释放后仍有效。
+
+`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用、检查点及输入文本；再次 `Encode()` 逐字节返回该文本，包括合法的原始空白。无法解析的 JSON 返回根路径的 `invalid_state`；不支持版本返回 `unsupported_format`；字段缺失、多余、重复、类型、范围或身份格式错误返回带 JSON 字段路径的 `invalid_state`。这些检查仅覆盖当前字段，领域一致性检查随领域实现补入。
+
+`PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份，`MissingReferences` 为空。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
+
+严格恢复的输入拒绝、检查点比较与录制仍由 #313 接入，本票不增设严格恢复入口。当前测试通过内部构造创建真实起点，恢复经过公开解码、准备和激活；不代表 #309 的公开新局、后续领域或 #298 的四模块联调已经通过。
+
+### 完整领域状态与录制
 
 载荷读取和适配必须保留设计/损伤、对象及编号进度、等待顺序、批次与任务冻结规格、物资预留/输出、人口消费和统计进度及两类余量、本期规则、燃料电量、租约、现车、自动重评余时和经营报告。内部字段布局不属于公开数据模型；格式版本和完整权威字段定义仍由核心编码器在实现时维护，不能以本页查询字段代替存档字段。
 
