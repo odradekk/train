@@ -19,7 +19,7 @@
 
 当前已实现的成员：
 
-- 候选的 `View`、单次 `Activate` 和 `Dispose`；生成与恢复接入同一个内部候选构造。
+- 候选的 `View`、单次 `Activate` 和 `Dispose`；该内部构造供后续生成与恢复共用。
 - 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进位置，不运行领域系统；内容身份不同时提交投影，身份相同时在事务之前抛 `ArgumentException`。当前没有引用内容的世界状态，因此尚无引用适配检查。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 
