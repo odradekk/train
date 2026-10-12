@@ -16,6 +16,7 @@ public sealed class ContentPackageTests
     [DataRow("duplicate", "invalid_json")]
     [DataRow("unknown", "invalid_field")]
     [DataRow("uuid", "invalid_field")]
+    [DataRow("newline", "invalid_field")]
     [DataRow("malformed", "invalid_json")]
     public void Discover_rejects_strict_manifest_errors(string mutation, string code)
     {
@@ -26,6 +27,7 @@ public sealed class ContentPackageTests
             "duplicate" => json.Insert(1, "\"schema_version\":2,"),
             "unknown" => json.Insert(1, "\"extra\":true,"),
             "uuid" => json.Replace(A, A.ToUpperInvariant().Replace("11111111", "AAAAAAAA")),
+            "newline" => json.Replace(A, A + "\\n", StringComparison.Ordinal),
             _ => "{"
         };
         fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json);
@@ -46,6 +48,15 @@ public sealed class ContentPackageTests
         Assert.AreEqual(2, duplicates.Length);
         Assert.IsTrue(duplicates.All(p => p.State == C.PackageState.Invalid && p.Diagnostics.Any(d => d.Code == "duplicate_identity")));
         AssertRejected(statuses, B, C.PackageState.DependencyUnavailable, "dependency_missing");
+    }
+
+    [TestMethod]
+    public void Dependency_uuid_cannot_have_a_trailing_line_feed()
+    {
+        var fixture = new ContentFixture();
+        AddMod(fixture, "source", A);
+        AddMod(fixture, "dependent", B, dependencies: [(A + "\n", "1.0.0")]);
+        AssertRejected(Discover(fixture), B, C.PackageState.Invalid, "invalid_field");
     }
 
     [TestMethod]

@@ -131,7 +131,8 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
         if (!root.TryGetProperty("schema_version", out var schema) || schema.ValueKind != JsonValueKind.Number || !schema.TryGetInt32(out var number) || number != 2)
             package.Reject("unsupported_format", path, "schema_version", "manifest 只支持 schema_version 2。");
         var id = Text(root, "id", 100, trim: false);
-        if (!ModManifest.TryCanonicalUuid(id, out var canonical)) Invalid("id");
+        var canonical = "";
+        if (id?.Length != 36 || !ModManifest.TryCanonicalUuid(id, out canonical)) Invalid("id");
         var name = Text(root, "name", 100);
         var version = Text(root, "version", int.MaxValue, trim: false);
         if (!SemVer.IsValid(version)) Invalid("version");
@@ -159,7 +160,7 @@ internal sealed class PackageLoader(C.ContentInstallation installation, C.IConte
                 var dependency = Text(value, "id", 100, trim: false);
                 var minimum = Text(value, "min_version", int.MaxValue, trim: false);
                 Text(value, "name", 100, true);
-                if (dependency != "core" && !ModManifest.TryCanonicalUuid(dependency, out _)) Invalid("dependencies.id");
+                if (dependency != "core" && (dependency?.Length != 36 || !ModManifest.TryCanonicalUuid(dependency, out _))) Invalid("dependencies.id");
                 if (!SemVer.IsValid(minimum)) Invalid("dependencies.min_version");
                 if (dependency == id || dependencies.Any(d => d.Package.Value == dependency)) Invalid("dependencies.id");
                 if (dependency is not null && minimum is not null) dependencies.Add(new(new(dependency), minimum));
