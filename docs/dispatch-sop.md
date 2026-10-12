@@ -13,19 +13,19 @@ Issue comments are the durable record of dispatch, decisions, review findings an
 | Worker | `codex/gpt-6.1-sol`, thinking `xhigh`, mode `full-access` | Implements, tests, commits, pushes the task branch, opens the PR, fixes review findings |
 | User | — | Plays each stage build and confirms the stage; answers decisions the docs cannot settle; approves scope or Acceptance-criteria changes |
 
-The user has given the coordinator standing authority to merge reviewer-accepted PRs of current-stage Issues after the checks in [step 3](#3-merge-and-close--coordinator), close those Issues, archive their workspaces, delete merged task branches, file current-stage fix Issues, and record the version change after a stage passes. This does not authorize closing a stage acceptance Issue without the user's confirmation, changing scope or Acceptance criteria, force-pushing, changing branch protection, or starting the next stage early.
+The user has given the coordinator standing authority to merge reviewer-accepted PRs of current-stage Issues after the checks in [step 3](#3-merge-and-close--coordinator), close those Issues or label them `awaiting-user`, archive their workspaces, delete merged task branches, file current-stage fix Issues, and record the version change after a stage passes. This does not authorize closing a stage acceptance Issue without the user's confirmation, changing scope or Acceptance criteria, force-pushing, changing branch protection, or starting the next stage early.
 
-Art Issues (`责任：美术`) will also be done by agents; their workflow is not defined yet, so this SOP does not dispatch them.
+Art Issues go through the same pairs; their production and inspection rules are in [art 08](art/08-asset-pipeline-and-review.md).
 
 ## Selecting tasks
 
 The current stage is the lowest-numbered open [stage acceptance Issue](#stage-integration). A candidate Issue:
 
 - blocks the current stage acceptance Issue, is open and labelled `ready-for-agent`, and is not labelled `needs-info`;
-- has no open native blockers;
+- has every native blocker closed or labelled `awaiting-user`;
 - has no active Paseo workspace.
 
-**Modules and slots.** The module is the `责任` field in the Issue body: 核心, 内容 (including 内容数据), 体素 or Godot; `工具／X` counts as X. At most four pairs run at once. Each module normally has at most one active pair. When a module has no candidate, its slot may go to a module that has more candidates. Running pairs are never stopped to return a slot; when a slot frees, a module with candidates and no active pair gets it first. Within a module, prefer the candidate that unblocks the most open current-stage Issues, then the lowest number. Do not run two pairs of the same module on Issues that depend on each other or change the same contract.
+**Modules and slots.** The module is the `责任` field in the Issue body: 核心, 内容 (including 内容数据), 体素, Godot or 美术; `工具／X` counts as X and `Godot／美术设计` counts as 美术. At most five pairs run at once. Each module normally has at most one active pair. When a module has no candidate, its slot may go to a module that has more candidates. Running pairs are never stopped to return a slot; when a slot frees, a module with candidates and no active pair gets it first. Within a module, prefer the candidate that unblocks the most open current-stage Issues, then the lowest number. Do not run two pairs of the same module on Issues that depend on each other or change the same contract.
 
 **Shared resources.**
 
@@ -77,24 +77,24 @@ After an `accepted` result:
 2. Check that the head contains the current `origin/master` (`git merge-base --is-ancestor origin/master <head>`). If master has moved, ask the reviewer to have the worker merge master and to accept the new head; wait for a new `PAIR-RESULT:`.
 3. Merge with `gh pr merge <pr> --merge` and verify the remote merged state and merge commit.
 4. Stop the task's MCP editor if it has one. Copy `TestResults/` and `.godot/validation/` to `D:\Code\train-validation-archive\issue-<n>\`. Run `archive_workspace`, then check `git worktree list` and that the directory is gone. If Windows locks keep the directory, record it and retry on the next heartbeat; do not block other work. Delete the remote task branch once its head is in master.
-5. Post a closure comment linking the PR, merge commit and acceptance comment, and close the Issue as completed.
+5. If the acceptance comment lists criteria waiting for the user, label the Issue `awaiting-user`, keep it open, and add those criteria to the progress record; for an art Issue, also tell the user where its screenshots are. Otherwise post a closure comment linking the PR, merge commit and acceptance comment, and close the Issue as completed.
 6. Update the progress record and fill the freed slot.
 
 Tasks do not change the version; see [Stage integration](#stage-integration).
 
 ## Progress record
 
-Keep one progress comment on the current stage acceptance Issue and edit it in place after each dispatch, merge or block. It lists, with links: Issues in progress (module, workspace, review round when known), merged Issues, blocked Issues with reasons, questions waiting for the user, and the next candidates per module. When a stage closes, start a new comment on the next stage's Issue.
+Keep one progress comment on the current stage acceptance Issue and edit it in place after each dispatch, merge or block. It lists, with links: Issues in progress (module, workspace, review round when known), merged Issues, `awaiting-user` Issues with the criteria the user must confirm, blocked Issues with reasons, questions waiting for the user, and the next candidates per module. When a stage closes, start a new comment on the next stage's Issue.
 
 ## Stage integration
 
 The full Demo uses the six [development stages](design/00-product-and-core-loop.md#开发阶段) confirmed in [the staged delivery decision](https://github.com/odradekk/train/issues/293). Every development Issue of the next stage has the preceding stage's acceptance Issue as a native blocker, so it cannot become a candidate until that stage passes. Accepted tasks merge into master; there are no module or stage integration branches. Merging every task does not establish stage acceptance. Required evidence follows [stage acceptance](contracts/testing.md#阶段性联调的验收).
 
-1. **Start.** When every other native blocker of the stage acceptance Issue is closed, dispatch the stage acceptance Issue itself as a pair, with a workspace on the current `origin/master` commit. The worker runs the stage's complete regression, real four-module paths, real Godot, Windows export and post-export run on that commit, writes the playtest checklist, and copies the export to `D:\Code\train-builds\stage-<k>-<sha>\`. The reviewer verifies the evidence and checks the technical criteria. A failure becomes a `blocked` result listing the failing paths.
+1. **Start.** When every other native blocker of the stage acceptance Issue is closed or labelled `awaiting-user`, dispatch the stage acceptance Issue itself as a pair, with a workspace on the current `origin/master` commit. The worker runs the stage's complete regression, real four-module paths, real Godot, Windows export and post-export run on that commit, writes the playtest checklist, and copies the export to `D:\Code\train-builds\stage-<k>-<sha>\`. The reviewer verifies the evidence and checks the technical criteria. A failure becomes a `blocked` result listing the failing paths.
 2. **Fix failures.** For each failure, file a current-stage fix Issue in the owning module, make it a native blocker of the stage acceptance Issue, and dispatch it normally. After the fixes merge, run step 1 again on the new master commit.
-3. **Hand to the user.** Give the user the build path, tested commit, playtest checklist, evidence comment and known gaps. Keep the stage workspace until the stage passes.
-4. **Playtest.** Problems the user reports become fix Issues as in step 2, followed by step 1 again.
-5. **Pass.** Only the user's confirmation that the stage passed lets the coordinator check the user-confirmation criterion, close the stage acceptance Issue, archive the stage workspace and update the version. The next stage's Issues then become candidates.
+3. **Hand to the user.** Give the user the build path, tested commit, playtest checklist, evidence comment and known gaps. The checklist includes every criterion of the stage's `awaiting-user` Issues. Keep the stage workspace until the stage passes.
+4. **Playtest.** Problems the user reports become fix Issues as in step 2, followed by step 1 again. A problem with an `awaiting-user` Issue is recorded on that Issue, which loses the label and is dispatched again.
+5. **Pass.** Only the user's confirmation that the stage passed lets the coordinator check the user-confirmed criteria of the `awaiting-user` Issues and close them, check the stage's user-confirmation criterion, close the stage acceptance Issue, archive the stage workspace and update the version. The next stage's Issues then become candidates.
 
 ### Version
 

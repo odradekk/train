@@ -43,7 +43,7 @@ When the worker reports `WORKER: delivered <PR> <SHA>`, read its completion comm
 | Direction | The change matches the design docs, ADRs, contracts and `CONTEXT.md`; it stays within the Issue, the recorded decisions and the approved plan; module boundaries and dependency directions follow `AGENTS.md` source layout and the [contract index](contracts/README.md). |
 | Code taste | The code is plain and readable without comments; it has no unneeded helpers, layers, interfaces, settings or compatibility code; comments appear only where the code cannot show the reason. |
 
-You may run each area in its own subagent so that one area's findings do not narrow attention on another. Run the key risk-appropriate checks yourself rather than in subagents, following [Review tests and evidence](implement-sop.md#review-tests-and-evidence). For Godot changes, inspect saved scene and resource diffs and runtime evidence, not tool success messages.
+You may run each area in its own subagent so that one area's findings do not narrow attention on another. Run the key risk-appropriate checks yourself rather than in subagents, following [Review tests and evidence](implement-sop.md#review-tests-and-evidence). For Godot changes, inspect saved scene and resource diffs and runtime evidence, not tool success messages. For art Issues, review the screenshots against docs/art 00–07 and the [inspection checklist](art/08-asset-pipeline-and-review.md#检查清单); you may use Blender MCP to inspect models.
 
 Verify each finding against the code or a reproduction before sending it, and drop claims that do not hold. Post one Issue comment per review round naming the PR head SHA and, for each finding, its severity, the violated requirement or doc, the file and line or reproduction, observed and expected results, and the requested correction. Send the same findings to the worker.
 
@@ -53,8 +53,8 @@ Re-review each new delivery: the fixed findings, the areas the fixes touch, and 
 
 When no findings remain:
 
-1. Map every Acceptance criterion to the inspected implementation and its evidence. Check only satisfied criteria; read the saved Issue body back to confirm. Do not change the criteria's wording.
-2. Post the acceptance comment: PR URL and head SHA, evidence per criterion, the checks you ran and the worker's results you relied on, resolved findings, and remaining non-blocking risks.
+1. Map every Acceptance criterion to the inspected implementation and its evidence. Check only satisfied criteria; read the saved Issue body back to confirm. Do not change the criteria's wording. Criteria that need the user's confirmation, such as visual approval, thresholds, budgets or values, stay unchecked and do not block acceptance.
+2. Post the acceptance comment: PR URL and head SHA, evidence per criterion, the checks you ran and the worker's results you relied on, resolved findings, and remaining non-blocking risks. List the criteria waiting for the user, each with the evidence the user needs, such as screenshot paths or measurements.
 3. End your final message with `PAIR-RESULT: accepted <PR URL> <head SHA>`.
 
 If the coordinator later reports that master has moved, tell the worker to merge `origin/master` into the branch (no rebase), rerun the affected checks and push. Review the merge and the affected behavior, post a new acceptance comment for the new head, and report `accepted` again.

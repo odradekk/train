@@ -66,6 +66,10 @@ The reviewer posts each round of findings on the Issue and sends them to you. Fi
 
 When the reviewer asks you to sync with master, merge `origin/master` into the branch (no rebase), resolve conflicts, rerun the affected checks and push.
 
+## Art Issues
+
+Produce and inspect assets under [art 08](art/08-asset-pipeline-and-review.md). For each texture, shared texture, wear overlay, paint card and icon, choose between your image model and a generator script, and record the choice; an image-model PNG is its own source, and the completion comment records the model and prompt. Build custom models in Blender through Blender MCP and keep the `.blend` source under `art-source/`. Take screenshots with the [art inspection screenshot entry](https://github.com/odradekk/train/issues/400); until it exists, use Godot MCP if this pair holds it. Put the checklist table and screenshot paths in the completion comment.
+
 ## Recovery
 
 After an interruption, read the Issue comments, the PR head and the local Git state. Check which build and test processes belong to this worktree before starting new ones. Keep existing changes and evidence, tell the reviewer where the work stands, and continue from the first incomplete step.
