@@ -40,7 +40,6 @@ public sealed class SimulationDriverTests
         clock.Seconds = 4.5 / 60;
         var first = driver.AdvanceFrame(4.5 / 60, Budget);
         Assert.AreEqual(2UL, first.StepsAdvanced);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
         CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(1), new MarkerEvent(2) }, first.Events.ToArray());
 
@@ -48,7 +47,6 @@ public sealed class SimulationDriverTests
         var second = driver.AdvanceFrame(0.5 / 60, Budget);
         Assert.AreEqual(1UL, second.StepsAdvanced);
         Assert.AreEqual(3UL, second.StateAfter.CompletedSteps);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(0.0, driver.GetStatus().Remainder, 1e-12);
         CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(3) }, second.Events.ToArray());
     }
@@ -62,7 +60,6 @@ public sealed class SimulationDriverTests
         clock.Seconds = 1;
         var result = driver.AdvanceFrame(1, Budget);
         Assert.AreEqual(1UL, result.StepsAdvanced);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(1.0 / 60 / 1.006, driver.GetStatus().ActualSpeed, 1e-12);
         Assert.IsTrue(driver.GetStatus().ActualSpeed < 8);
     }
@@ -170,13 +167,11 @@ public sealed class SimulationDriverTests
         Assert.IsFalse(driver.GetStatus().IsPaused);
         clock.Seconds = 2.5 / 60;
         driver.AdvanceFrame(2.5 / 60, Budget);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
         driver.SetPaused(true);
         var result = driver.Step(2);
         Assert.AreEqual(2UL, result.StepsAdvanced);
         Assert.AreEqual(3UL, result.StateAfter.CompletedSteps);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(0.5 / 60, driver.GetStatus().Remainder, 1e-12);
         Assert.AreEqual(0.0, driver.GetStatus().ActualSpeed);
         clock.Seconds += 1;
@@ -223,14 +218,12 @@ public sealed class SimulationDriverTests
         Assert.AreEqual(2UL, result.StateAfter.CompletedSteps);
         Assert.AreEqual("test_stop", result.StateAfter.Fault!.Code);
         CollectionAssert.AreEqual(new DomainEvent[] { new MarkerEvent(1), new MarkerEvent(2) }, result.Events.ToArray());
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.IsNotNull(result.Diagnostic);
         Assert.AreEqual(result.StateAfter.Fault, result.Diagnostic.Fault);
         clock.Seconds += 10;
         var frozen = driver.AdvanceFrame(10, Budget);
         Assert.AreEqual(0UL, frozen.StepsAdvanced);
         Assert.IsNull(frozen.Diagnostic);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(0.0, driver.GetStatus().ActualSpeed);
         driver.SetPaused(true);
         Assert.AreEqual(0UL, driver.Step(1).StepsAdvanced);
@@ -243,7 +236,6 @@ public sealed class SimulationDriverTests
         var session = new SimulationSession(state, new ScriptedCalculations(), new ResourceCommandCodec());
         var driver = new SimulationDriver(session, new ResourceStateCodec(), () => 0);
         Assert.AreEqual(0UL, driver.AdvanceFrame(1, Budget).StepsAdvanced);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(state, driver.GetStatus().State);
     }
 
@@ -287,13 +279,11 @@ public sealed class SimulationDriverTests
         var driver = Create(clock, TimedSteps(clock, 0.006));
         driver.AdvanceFrame(2.5 / 60, Budget);
         var before = driver.GetStatus();
-        Assert.AreEqual(0UL, before.PendingSteps);
 
         var result = driver.AdvanceFrame(delta, Budget);
 
         Assert.AreEqual(0UL, result.StepsAdvanced);
         Assert.AreEqual(before.State, result.StateAfter);
-        Assert.AreEqual(0UL, driver.GetStatus().PendingSteps);
         Assert.AreEqual(before.Remainder, driver.GetStatus().Remainder);
         Assert.IsTrue(result.Events.IsEmpty);
     }

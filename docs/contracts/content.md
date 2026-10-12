@@ -4,7 +4,7 @@
 
 ## 状态与入口
 
-[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。现有内容加载器已迁至 `Content/Train.Content.csproj`；这些契约仍是后续完整 Demo 的规划声明，旧加载器迁移不代表新设计计算、包发布或完整 Demo 已实现。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial)`：manifest v2、依赖、voxel v3 静态字段、固定资产字节、资产规则、只读投影及候选生命周期。其他标准定义目录明确拒绝。设计计算、普通恢复／重载、草稿、捕获、复现、创作、模板副本和世界输入仍待对应工单实现，相关入口直接抛 `NotImplementedException`，不转成正常失败或内部故障。当前宿主仍使用旧加载路径，真实宿主端口和四模块联调待后续验证。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |
@@ -16,7 +16,7 @@
 | [Authoring.cs](../../Contracts/Content/Authoring.cs) | 已保存草稿、开发表单输入及包文件变更 |
 | [Lifecycle.cs](../../Contracts/Content/Lifecycle.cs) | 工厂、准备、固定读取、保存和复现捕获 |
 
-未来实现程序集仅在装配处公开 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`。宿主的 `App/Composition/` 调用工厂，其他代码只接收契约；当前没有创建虚假实现工厂。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
+实现程序集已新增 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`；候选、视图和解析器等实现类型均为 `internal`。宿主的 `App/Composition/` 接入、旧公开路径退役，以及工厂公开面和调用位置的自动检查仍待 #317／#406。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
 
 ## 身份、版本与数据所有权
 
