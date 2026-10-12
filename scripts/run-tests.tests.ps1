@@ -2891,7 +2891,8 @@ It "fixture-build-failure-classification" {
     foreach ($code in @('NU1605', 'NU1201', 'NU1101', 'MSB4019')) {
         Assert-Equal "$code repository failure" 'failed' (Get-BuildFailureKind "error ${code}: fixture failure")
     }
-    foreach ($message in @('error NETSDK1141: global.json SDK missing', 'error NU1301: service index unavailable', 'No .NET SDKs were found', 'error MSB3027: Could not copy file because it is being used by another process')) {
+    $copyLocked = "warning MSB3026: Could not copy obj/Binding.dll. Beginning retry 1.`nerror MSB3027: Could not copy obj/Binding.dll. Exceeded retry count of 10. Failed.`nerror MSB3021: Unable to copy file obj/Binding.dll. The process cannot access the file because it is being used by another process."
+    foreach ($message in @('error NETSDK1141: global.json SDK missing', 'error NU1301: service index unavailable', 'No .NET SDKs were found', $copyLocked)) {
         Assert-Equal "$message environment failure" 'blocked' (Get-BuildFailureKind $message)
     }
     Assert-Equal 'repository error takes precedence' 'failed' (Get-BuildFailureKind "error NU1301: service index unavailable`nerror NU1605: package downgrade")
@@ -2911,10 +2912,10 @@ It "fixture-build-failure-classification" {
     }
 }
 
-function New-CoreIsolationRepository([string] $Name, [string] $ProjectXml = $sdk, [string] $Source = $bindingSource) {
+function New-CoreIsolationRepository([string] $Name, [string] $Source = $bindingSource) {
     $fixture = New-BindingRepository $Name $bindingSource
     Copy-Item -LiteralPath (Join-Path $root 'global.json') -Destination $fixture.Repo
-    Write-Project (Join-Path $fixture.Repo 'Tests/Core') 'Train.Core.Tests' $ProjectXml $Source
+    Write-Project (Join-Path $fixture.Repo 'Tests/Core') 'Train.Core.Tests' $sdk $Source
     Remove-Item -LiteralPath (Join-Path $fixture.Repo 'Binding.csproj'), (Join-Path $fixture.Repo 'BindingTests.cs')
     Set-Content -LiteralPath (Join-Path $fixture.Repo 'scripts/checks/project-boundaries.json') -Value '{"projects":{"Train.Core.Tests":{"path":"Tests/Core/Train.Core.Tests.csproj","references":[]}}}' -Encoding utf8
     return $fixture
@@ -2940,13 +2941,14 @@ It "fixture-isolated-reference-interruption" {
     ACTION
   </Target>
 '@
-        $action = if ($mode -eq 'failure') { '<Error Code="NU1101" Text="reference fixture failure" />' } else { '<Exec Command="pwsh -NoProfile -Command &quot;Start-Sleep -Seconds 90&quot;" />' }
+        $action = if ($mode -eq 'failure') { '<Error Code="NU1101" Text="reference fixture failure" />' } else { '<Exec Command="pwsh -NoProfile -Command &quot;Start-Sleep -Seconds 300&quot;" />' }
         $xml = $sdk.Replace('</Project>', $target.Replace('READY', $ready).Replace('ACTION', $action) + '</Project>')
         Write-Project (Join-Path $repo 'Tests/Core') 'Train.Core.Tests' $xml $bindingSource
         $results = New-Results "reference-$mode"
-        $handle = Open-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
-            '-Module', 'core', '-Correctness', '-PrepTimeoutSeconds', '15', '-ResultsRoot', $results
-        ) -WaitMs 180000
+        $arguments = @('-Module', 'core', '-Correctness', '-ResultsRoot', $results)
+        # 只有超时模式使用短上限；首次构建同受此上限约束，其余模式用默认值以免慢机器提前超时。
+        if ($mode -eq 'timeout') { $arguments += @('-PrepTimeoutSeconds', '45') }
+        $handle = Open-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList $arguments -WaitMs 240000
         try {
             if ($mode -eq 'cancel') {
                 Assert-True 'reference phase reached' (Wait-PidFile $ready 90)
@@ -2970,9 +2972,9 @@ It "fixture-isolated-reference-interruption" {
     }
 }
 
-It "fixture-isolated-input-missing" {
+It "fixture-isolated-input-errors" {
     foreach ($mode in @('matrix-project', 'directory', 'matrix-missing', 'matrix-json', 'file-locked')) {
-        $fixture = New-CoreIsolationRepository "input-missing-$mode"
+        $fixture = New-CoreIsolationRepository "input-errors-$mode"
         $repo = $fixture.Repo
         $references = @('Train.Core')
         if ($mode -eq 'file-locked') { $references = @() }
@@ -2987,7 +2989,7 @@ It "fixture-isolated-input-missing" {
                 $lock = [IO.File]::Open((Join-Path $repo 'Tests/Core/Train.Core.Tests.cs'), [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
             }
             $result = Invoke-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList @(
-                '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "input-missing-$mode")
+                '-Module', 'core', '-Correctness', '-ResultsRoot', (New-Results "input-errors-$mode")
             ) -WaitMs 180000
         }
         finally { if ($lock) { $lock.Dispose() } }
@@ -3106,7 +3108,7 @@ It "fixture-isolated-cleanup-failure-report" {
     try {
         foreach ($mode in @('success', 'cancel', 'failure')) {
             $source = if ($mode -eq 'failure') { $bindingSource.Replace('Assert.AreEqual("BINDING_VALUE", VersionValue);', 'Assert.Fail("fixture check failure");') } else { $bindingSource }
-            $fixture = New-CoreIsolationRepository "cleanup-report-$mode" $sdk $source
+            $fixture = New-CoreIsolationRepository "cleanup-report-$mode" $source
             $results = New-Results "cleanup-report-$mode"
             $ready = Join-Path $results 'test.ready'
             $release = Join-Path $results 'test.release'
@@ -3158,7 +3160,7 @@ It "fixture-isolated-cleanup-failure-report" {
 foreach ($reportState in @('before-report', 'after-report')) {
     It "fixture-entry-exception-cancel-$reportState" {
         $source = if ($reportState -eq 'before-report') { $bindingSource.Replace('Assert.AreEqual("BINDING_VALUE", VersionValue);', 'Assert.Fail("fixture check failure");') } else { $bindingSource }
-        $fixture = New-CoreIsolationRepository "entry-exception-$reportState" $sdk $source
+        $fixture = New-CoreIsolationRepository "entry-exception-$reportState" $source
         $fixtureRunner = Join-Path $fixture.Repo 'scripts/run-tests.ps1'
         $text = [IO.File]::ReadAllText($fixtureRunner)
         $needle = if ($reportState -eq 'before-report') {
@@ -3172,8 +3174,16 @@ foreach ($reportState in @('before-report', 'after-report')) {
         ) -WaitMs 180000
         $summary = Assert-FinalResult $result 1
         Assert-Contains "$reportState injected entry failure" $result.Stderr 'error: fixture entry failure'
-        Assert-Equal "$reportState entry failure outcome" 'failed' $summary.Json.preparation.outcome
-        Assert-Equal "$reportState entry failure reason" 'runner-error' $summary.Json.preparation.reason
+        if ($reportState -eq 'before-report') {
+            Assert-Equal "$reportState entry failure outcome" 'failed' $summary.Json.preparation.outcome
+            Assert-Equal "$reportState entry failure reason" 'runner-error' $summary.Json.preparation.reason
+        }
+        else {
+            Assert-Equal "$reportState preparation retained" 'passed' $summary.Json.preparation.outcome
+            Assert-Contains "$reportState entry failure recorded" $summary.Json.runnerError 'fixture entry failure'
+            Assert-Contains "$reportState markdown entry failure" $summary.Report '入口自身失败'
+            Assert-True "$reportState markdown keeps preparation" (-not $summary.Report.Contains('准备阶段失败'))
+        }
         $check = Find-Check (Get-Checks $summary) 'BindingFixture.BindingTests.Runs_built_sources'
         Assert-Equal "$reportState original check retained" $(if ($reportState -eq 'before-report') { 'failed' } else { 'passed' }) $check.outcome
         Assert-True "$reportState cancellation requested" (Test-Path -LiteralPath (Join-Path $summary.Directory 'cancel.request'))

@@ -5,7 +5,7 @@
 # 退出码：
 #   0 所选必需检查都通过
 #   1 检查、构建、仓库输入或入口自身失败
-#   2 阻塞（环境不可用、发现失败、清理失败、玩家用户目录变化、待实现的检查）
+#   2 阻塞（环境不可用、发现失败、清理失败、正常用户目录前后不一致或无法读取、待实现的检查）
 #   3 取消或超时
 #   4 参数非法、未知名称或明确选择零匹配
 # 有效运行按失败、清理失败、取消/超时、其他阻塞/未完成、通过的顺序合并结果。
@@ -170,8 +170,8 @@ function Get-HelpText {
 
 退出码
   0 所选必需检查都通过
-  1 检查、构建、项目输入或入口自身失败
-  2 阻塞（环境不可用、发现失败、清理失败、玩家用户目录变化、待实现的检查）
+  1 检查、构建、仓库输入或入口自身失败
+  2 阻塞（环境不可用、发现失败、清理失败、正常用户目录前后不一致或无法读取、待实现的检查）
   3 取消或超时
   4 参数非法、未知名称或明确选择零匹配
   有效运行按失败、清理失败、取消/超时、其他阻塞/未完成、通过的顺序合并结果。
@@ -400,7 +400,7 @@ function Test-IsolatedReferences {
     $run = Invoke-OwnedProcess -FileName $Dotnet -Arguments $arguments -WorkingDirectory $IsolationRoot -TempDirectory $TempDirectory -TimeoutSeconds $TimeoutSeconds -CancelFile $CancelFile -LogPath $log
     $disposition = Get-ProcessDisposition $run
     if ($disposition.Kind -ne 'exit' -or $run.ExitCode -ne 0) { return (New-IsolatedProcessFailure -Run $run -Disposition $disposition -Reason 'msbuild' -LogPath $log) }
-    # MSBuild can append MSB9008 after its JSON when a forbidden project is absent from the isolated copy.
+    # 隔离副本缺少被禁止的项目时，MSBuild 可能在 JSON 之后追加 MSB9008。
     $jsonStart = $run.Output.IndexOf('{')
     $jsonEnd = $run.Output.LastIndexOf('}')
     try { $resolved = $run.Output.Substring($jsonStart, $jsonEnd - $jsonStart + 1) | ConvertFrom-Json }
@@ -1262,6 +1262,7 @@ function New-Markdown {
     $lines.Add("- 取消 $($counts["cancelled"])")
     $lines.Add("- 未执行 $($counts["notExecuted"])")
     if ($preparation -and $preparation["outcome"] -eq 'failed') { $lines.Add("- 准备阶段失败；上述计数仅包含检查结果，详情见准备节。") }
+    if ($Summary.ContainsKey("runnerError")) { $lines.Add("- 入口自身失败：$($Summary["runnerError"])；上述计数是失败前已发布的检查结果。") }
     $lines.Add("- 退出码 $($Summary["exitCode"])")
     $lines.Add("")
     $lines.Add("## 检查")
@@ -1352,13 +1353,27 @@ function Publish-Run {
     $tested = $script:TestedGit
     if ($null -eq $tested) { $tested = New-MissingGitState "构建前没有记录 Git 身份" }
     $summary = New-Summary -Parsed $Parsed -Git $tested -Ending (Get-GitState) -Environment $Environment -Selection $Selection -Checks $Checks -Groups $Groups -Preparation $Preparation -ExitCode $ExitCode -Directory $Directory
-    $markdown = New-Markdown -Summary $summary
-    Write-RunReports -State ([pscustomobject]@{ Directory = $Directory; Summary = $summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
+    Write-RunSummary -Directory $Directory -Summary $summary
+}
+
+function Write-RunSummary([string] $Directory, $Summary) {
+    $markdown = New-Markdown -Summary $Summary
+    Write-RunReports -State ([pscustomobject]@{ Directory = $Directory; Summary = $Summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
+}
+
+# 报告发布后结果又改变时，就地更新同一份 JSON 和 Markdown；尚未发布时返回 false。
+function Update-PublishedRun([string] $Directory, [scriptblock] $Update) {
+    $summaryPath = Join-Path $Directory "summary.json"
+    if (-not (Test-Path -LiteralPath $summaryPath)) { return $false }
+    $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json -AsHashtable
+    & $Update $summary
+    Write-RunSummary -Directory $Directory -Summary $summary
+    return $true
 }
 
 function Get-ExitCode {
     param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked, [switch] $RequiredBuildFailed, [switch] $IsolationFailed, [int] $PriorExitCode = 0)
-    # 清理后的重算保留此前结果分类；参数选择错误不属于执行结果合并。
+    # 调用方已有的退出码（入口异常为 1，或隔离目录清理前的结果）按同一顺序参与合并；退出码 4 原样返回。
     if ($PriorExitCode -eq 4) { return 4 }
     $failed = $false
     $blocked = $false
@@ -1926,7 +1941,7 @@ function Invoke-Main {
     Add-Map $preparation "commandCount" 0 | Out-Null
     $catalog = [pscustomobject]@{ Cases = [System.Collections.Generic.List[object]]::new(); Errors = [System.Collections.Generic.List[string]]::new() }
     $projectEvidence = New-List
-    # Capture the tree once before any selected test project is built.
+    # 在构建任何所选测试项目之前记录一次工作树身份。
     $script:TestedGit = Get-GitState
     foreach ($project in $projects) {
         $sourceProject = $project.Path
@@ -2529,23 +2544,17 @@ try {
     else { $exitCode = [int] $result }
 }
 catch {
-    $exitCode = Get-ExitCode -Checks $script:RunChecks -PriorExitCode 1 -UserCancel:(Test-CancelRequested)
-    [Console]::Error.WriteLine("error: $($_.Exception.Message)")
+    $exitCode = Get-ExitCode -PriorExitCode 1
+    $runnerError = $_.Exception.Message
+    [Console]::Error.WriteLine("error: $runnerError")
     if ($_.InvocationInfo.PositionMessage) { [Console]::Error.WriteLine($_.InvocationInfo.PositionMessage) }
     if ($_.ScriptStackTrace) { [Console]::Error.WriteLine($_.ScriptStackTrace) }
     if ($script:OwnedPid) { Stop-OwnedProcessTree -ProcessId $script:OwnedPid | Out-Null }
     if ($script:RunDirectory) {
         try {
-            $summaryPath = Join-Path $script:RunDirectory "summary.json"
-            if (Test-Path -LiteralPath $summaryPath) {
-                $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json -AsHashtable
-                $summary.exitCode = $exitCode
-                $summary.preparation.outcome = "failed"
-                $summary.preparation.reason = "runner-error"
-                $markdown = New-Markdown -Summary $summary
-                Write-RunReports -State ([pscustomobject]@{ Directory = $script:RunDirectory; Summary = $summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
-            }
-            else {
+            # 报告已发布时保留原准备结果，另记入口失败；否则以准备失败发布本次已有结果。
+            $updated = Update-PublishedRun -Directory $script:RunDirectory -Update { param($summary) $summary.exitCode = $exitCode; $summary.runnerError = $runnerError }
+            if (-not $updated) {
                 $preparation = New-Map
                 Add-Map $preparation "durationMs" 0 | Out-Null
                 Add-Map $preparation "commandCount" 0 | Out-Null
@@ -2565,19 +2574,12 @@ finally {
 }
 if ($cleanupErrors.Count -gt 0) {
     foreach ($cleanupError in $cleanupErrors) { [Console]::Error.WriteLine("error: isolation cleanup $cleanupError") }
-    $exitCode = Get-ExitCode -Checks $script:RunChecks -CleanupFailed -PriorExitCode $exitCode
+    $exitCode = Get-ExitCode -CleanupFailed -PriorExitCode $exitCode
     if ($script:RunDirectory) {
         $logPath = Join-Path $script:RunDirectory 'isolation/cleanup.log'
         New-Item -ItemType Directory -Force -Path (Split-Path -Parent $logPath) | Out-Null
         $cleanupErrors | Set-Content -LiteralPath $logPath -Encoding utf8
-        $summaryPath = Join-Path $script:RunDirectory 'summary.json'
-        if (Test-Path -LiteralPath $summaryPath) {
-            $summary = Get-Content -LiteralPath $summaryPath -Raw | ConvertFrom-Json -AsHashtable
-            $summary.exitCode = $exitCode
-            $summary.environment.isolationCleanupErrors = $cleanupErrors
-            $markdown = New-Markdown -Summary $summary
-            Write-RunReports -State ([pscustomobject]@{ Directory = $script:RunDirectory; Summary = $summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
-        }
+        Update-PublishedRun -Directory $script:RunDirectory -Update { param($summary) $summary.exitCode = $exitCode; $summary.environment.isolationCleanupErrors = $cleanupErrors } | Out-Null
     }
 }
 exit [int] $exitCode

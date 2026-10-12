@@ -75,7 +75,7 @@ try {
         $projectConfiguration = if ($name -eq 'Train' -and $Configuration -eq 'Release') { 'ExportRelease' } else { $Configuration }
         $raw = & dotnet msbuild $project -property:Configuration=$projectConfiguration -target:ResolveReferences '-getItem:ProjectReference,ReferencePath,Compile,InternalsVisibleTo' -getProperty:TargetPath 2> $errorLog
         if ($LASTEXITCODE -ne 0) {
-            $evaluationOutput = (@($raw) -join "`n") + (Get-Content -LiteralPath $errorLog -Raw)
+            $evaluationOutput = (@($raw) -join "`n") + "`n" + (Get-Content -LiteralPath $errorLog -Raw)
             $kind = Get-BuildFailureKind $evaluationOutput
             [Console]::Error.WriteLine("$kind evaluation: $name; log=$errorLog")
             exit (Get-StructureFailureExitCode $kind)

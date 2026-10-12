@@ -1,11 +1,11 @@
 # 统一入口与结构检查共用构建失败分类、允许依赖闭包与元数据读取。
-# 仓库错误不能被同时出现的环境错误遮蔽。
 function Get-BuildFailureKind([string] $Output) {
     # 警告不决定失败分类；任一仓库错误优先于同时出现的环境错误。
+    # MSBuild 复制遇到文件占用时先报 MSB3027，再报 MSB3021，两者同属环境阻塞。
     $diagnostics = ($Output -split '\r?\n' | Where-Object { $_ -notmatch '\bwarning(?:\s+[A-Z]+\d+)?\s*:' }) -join "`n"
     $errors = [regex]::Matches($diagnostics, '(?im)\berror\s+([A-Z]+\d+)\b')
     foreach ($diagnosticError in $errors) {
-        if ($diagnosticError.Groups[1].Value -notmatch '^(NU1301|NETSDK1141|MSB4236|CS2012|MSB3027)$') { return 'failed' }
+        if ($diagnosticError.Groups[1].Value -notmatch '^(NU1301|NETSDK1141|MSB4236|CS2012|MSB3027|MSB3021)$') { return 'failed' }
     }
     if ($errors.Count -gt 0 -or $diagnostics -match 'compatible .NET SDK was not found|No .NET SDKs were found') {
         return 'blocked'
