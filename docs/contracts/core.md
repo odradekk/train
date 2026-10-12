@@ -160,13 +160,11 @@
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现当前真实状态，编码器为内部的 [CoreCapture](../../Core/Sessions/CoreCapture.cs)。核心载荷的 `core_state_format_version` 从 1 开始，与宿主完整存档的 `SaveFormatVersion` 6 分开；不包含内容投影，也不支持旧通用模拟框架的载荷。
-
-字段按 `core_state_format_version`、`position`（`completed_steps`、`sequence`）、`next_command_number`、`revision`、`input_identity`、`fault` 的顺序输出。位置、下一编号和修订均使用十进制 `ulong`，下一命令编号非零；输入身份为 64 字符大写 SHA-256。故障字段为 `code`、`position`、`operation`、`field`、`subject`；当前运行故障的 `subject` 始终为空，尝试执行的位置与回滚后的完整位置分别保留。诊断消息和堆栈不进入载荷。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现当前真实状态，编码器为内部的 [CoreCapture](../../Core/Sessions/CoreCapture.cs)。核心载荷有独立格式版本，从 1 开始，与宿主完整存档的 `SaveFormatVersion` 6 分开；不包含内容投影，也不支持旧通用模拟框架的载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
 当前引用清单由输入身份确定：`Designs`、`Templates`、`Definitions` 都为空，`Inputs` 仅含这一个身份；没有额外的世界引用字段。捕获的检查点另行生成，只含位置、下一命令编号和故障全部字段，不含修订和输入身份。文本对 UTF-8 求 SHA-256，取大写十六进制。当前捕获、引用和检查点在会话推进及释放后仍有效。
 
-`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用、检查点及输入文本；再次 `Encode()` 逐字节返回该文本，包括合法的原始空白。无法解析的 JSON 返回根路径的 `invalid_state`；不支持版本返回 `unsupported_format`；字段缺失、多余、重复、类型、范围或身份格式错误返回带 JSON 字段路径的 `invalid_state`。这些检查仅覆盖当前字段，领域一致性检查随领域实现补入。
+`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用和检查点；`Encode()` 一律按状态重新规范编码，编码器产生的规范载荷往返后逐字节相同。确认版本受支持之前的错误返回 `unsupported_format`：JSON 无法解析、根不是对象、缺少版本、版本不是无符号整数或版本不受支持，定位到根或版本字段。确认版本受支持后，字段缺失、多余、重复、类型、范围或身份格式错误返回带字段路径的 `invalid_state`。这些检查仅覆盖当前状态，领域一致性检查随领域实现补入。
 
 `PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份，`MissingReferences` 为空。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
 

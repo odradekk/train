@@ -7,20 +7,17 @@ namespace Train.Core.Sessions;
 
 internal sealed class CoreCapture : ICoreCapture
 {
-    private readonly string? _payload;
-
     internal CoreCapture(CoreState state)
         : this(state.Position, state.NextCommandNumber, state.Revision, state.Content.Identity, state.Fault) { }
 
     private CoreCapture(SimulationPosition position, ulong nextCommandNumber, CoreRevision revision,
-        CoreInputId inputIdentity, CoreFault? fault, string? payload = null)
+        CoreInputId inputIdentity, CoreFault? fault)
     {
         Position = position;
         NextCommandNumber = nextCommandNumber;
         Revision = revision;
         InputIdentity = inputIdentity;
         Fault = fault;
-        _payload = payload;
         References = new([], [], [], [inputIdentity]);
         var text = Format(WriteBoundary);
         Checkpoint = new(position, text, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text))));
@@ -34,7 +31,7 @@ internal sealed class CoreCapture : ICoreCapture
     internal ulong NextCommandNumber { get; }
     internal CoreFault? Fault { get; }
 
-    public string Encode() => _payload ?? Format(writer =>
+    public string Encode() => Format(writer =>
     {
         writer.WriteStartObject();
         writer.WriteNumber("core_state_format_version", 1);
@@ -56,10 +53,9 @@ internal sealed class CoreCapture : ICoreCapture
             using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
-                throw new InvalidState("");
-            if (!root.TryGetProperty("core_state_format_version", out var version))
-                throw new InvalidState("/core_state_format_version");
-            if (Unsigned(version, "/core_state_format_version") != 1)
+                return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "", null, [])]);
+            if (!root.TryGetProperty("core_state_format_version", out var version)
+                || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt64(out var numberVersion) || numberVersion != 1)
                 return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "/core_state_format_version", null, [])]);
             Object(root, "", "core_state_format_version", "position", "next_command_number",
                 "revision", "input_identity", "fault");
@@ -70,7 +66,7 @@ internal sealed class CoreCapture : ICoreCapture
             if (identity.Length != 64 || !identity.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F'))
                 throw new InvalidState("/input_identity");
             var fault = ReadFault(root.GetProperty("fault"));
-            return new CoreResult<ICoreCapture>.Success(new CoreCapture(position, number, revision, new(identity), fault, payload));
+            return new CoreResult<ICoreCapture>.Success(new CoreCapture(position, number, revision, new(identity), fault));
         }
         catch (InvalidState error)
         {
@@ -78,7 +74,7 @@ internal sealed class CoreCapture : ICoreCapture
         }
         catch (JsonException)
         {
-            return new CoreResult<ICoreCapture>.Failure([new("invalid_state", "", null, [])]);
+            return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "", null, [])]);
         }
     }
 

@@ -33,13 +33,13 @@ public sealed class CoreCaptureTests
     }
 
     [TestMethod]
-    public void Decode_preserves_payload_bytes_and_the_saved_boundary_without_content()
+    public void Decode_normalizes_whitespace_and_preserves_the_saved_boundary_without_content()
     {
         var payload = " \n" + Payload + "\r\n";
 
         var capture = Decode(payload);
 
-        Assert.AreEqual(payload, capture.Encode());
+        Assert.AreEqual(Payload, capture.Encode());
         Assert.AreEqual(new SimulationPosition(7, 2), capture.Position);
         Assert.AreEqual(new CoreRevision(20), capture.Revision);
         Assert.AreEqual(new CoreInputId(Identity), capture.InputIdentity);
@@ -194,7 +194,7 @@ public sealed class CoreCaptureTests
     [DataRow("null")]
     [DataRow("[]")]
     public void Malformed_or_nonobject_payload_returns_a_root_problem(string payload)
-        => AssertFailure(CoreFactory.Create().DecodeState(payload), "invalid_state", "");
+        => AssertFailure(CoreFactory.Create().DecodeState(payload), "unsupported_format", "");
 
     [TestMethod]
     public void Unsupported_version_is_rejected_before_reading_an_unknown_state_schema()
@@ -203,8 +203,12 @@ public sealed class CoreCaptureTests
 
     [TestMethod]
     [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":2", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":\"1\"", "invalid_state", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1,", "", "invalid_state", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":1,", "", "unsupported_format", "/core_state_format_version")]
     [DataRow("\"revision\":20,", "", "invalid_state", "/revision")]
     [DataRow("\"revision\":20", "\"revision\":20,\"extra\":1", "invalid_state", "/extra")]
     [DataRow("\"revision\":20", "\"revision\":20,\"revision\":21", "invalid_state", "/revision")]
