@@ -33,7 +33,7 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
     }
 
     [Test]
-    public void Resource_roots_read_fixed_bytes_and_enumerate_original_names()
+    public void Resource_roots_read_fixed_bytes_and_enumerate_source_tree_names()
     {
         using var dispatcher = new GodotMainThreadDispatcher();
         var fixture = "res://.godot/validation/content-files-" + Guid.NewGuid().ToString("N");
@@ -64,7 +64,7 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
         });
         var entries = files.Enumerate(new(root, ""));
         Require(entries is ContentIoResult<ImmutableArray<ContentFileEntry>>.Success found &&
-            found.Value.Any(entry => entry.Name == "placeholder.png" && entry.Kind == ContentEntryKind.File), "Keep File 原始文件名没有出现在枚举结果。");
+            found.Value.Any(entry => entry.Name == "placeholder.png" && entry.Kind == ContentEntryKind.File), "源码树枚举没有返回 PNG 文件名。");
         var path = new ContentPath(root, "placeholder.png");
         var result = files.Read(path, 4 * 1024 * 1024);
         Require(result is ContentIoResult<ImmutableArray<byte>>.Success, "原始 PNG 读取失败。");

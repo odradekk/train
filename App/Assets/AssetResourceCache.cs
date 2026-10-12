@@ -93,7 +93,8 @@ internal sealed class AssetResourceCache(GodotMainThreadDispatcher dispatcher) :
                 var mirrored = transform.Basis.Determinant() < 0;
                 for (var surface = 0; surface < source.GetSurfaceCount(); surface++)
                 {
-                    using var arrays = source.GetSurfaceArrays(surface);
+                    using var sourceArrays = source.GetSurfaceArrays(surface);
+                    using var arrays = sourceArrays.Duplicate();
                     var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
                     for (var i = 0; i < vertices.Length; i++) vertices[i] = (transform * vertices[i]) * 2;
                     arrays[(int)Godot.Mesh.ArrayType.Vertex] = vertices;

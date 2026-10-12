@@ -66,9 +66,21 @@ internal sealed class GlbInput : IDisposable
         return external;
     }
 
+    internal JsonElement Primitives(int mesh)
+    {
+        if (!Json.RootElement.TryGetProperty("meshes", out var meshes) || meshes.ValueKind != JsonValueKind.Array ||
+            mesh < 0 || mesh >= meshes.GetArrayLength() || meshes[mesh].ValueKind != JsonValueKind.Object ||
+            !meshes[mesh].TryGetProperty("primitives", out var primitives) || primitives.ValueKind != JsonValueKind.Array)
+            throw new JsonException("GLB meshes 和 primitives 必须是数组，mesh 项必须是对象。");
+        return primitives;
+    }
+
     internal JsonElement Material(int mesh, int surface)
     {
-        var primitive = Json.RootElement.GetProperty("meshes")[mesh].GetProperty("primitives")[surface];
+        var primitives = Primitives(mesh);
+        if (surface < 0 || surface >= primitives.GetArrayLength() || primitives[surface].ValueKind != JsonValueKind.Object)
+            throw new JsonException("GLB primitive 项必须是对象。");
+        var primitive = primitives[surface];
         if (!primitive.TryGetProperty("material", out var index)) return default;
         if (index.ValueKind != JsonValueKind.Number || !index.TryGetInt32(out var value) || value < 0 ||
             !Json.RootElement.TryGetProperty("materials", out var materials) || materials.ValueKind != JsonValueKind.Array ||

@@ -95,7 +95,7 @@ internal sealed class ContentFiles : IContentFiles
                 while (!input.EofReached())
                 {
                     var remaining = maximumBytes - bytes.Count;
-                    var block = input.GetBuffer(Math.Min(8192, remaining < 8192 ? remaining + 1 : 8192));
+                    var block = input.GetBuffer(remaining < 8192 ? remaining + 1 : 8192);
                     if (block.Length > remaining) return Failure<ImmutableArray<byte>>(ContentIoFailure.LimitExceeded, path);
                     bytes.AddRange(block);
                     var error = input.GetError();

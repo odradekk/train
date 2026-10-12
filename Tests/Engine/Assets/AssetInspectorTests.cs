@@ -33,12 +33,12 @@ public class AssetInspectorTests(Node testScene) : TestClass(testScene)
         Require(plain.MeshNodeCount == 1, "网格节点计数错误。");
         Require(plain.Surfaces.SequenceEqual(new[] { AssetAlphaMode.Opaque, AssetAlphaMode.Mask, AssetAlphaMode.Blend }),
             "表面顺序必须对应 primitive 的 JSON 材质，缺省为 Opaque。");
-        Bounds(plain.Bounds, new(-1, 0, 0), new(2, 3, 1));
+        Bounds(plain.Bounds, new(-1, 0, 0), new(2, 3, 5));
         Require(!plain.HasSkeleton && !plain.HasMorphTargets && !plain.HasAnimation
             && !plain.HasCamera && !plain.HasLight && !plain.HasExternalImages, "基础夹具误报特性。");
         var transformed = Glb(inspector, GlbFixture.Create(transformed: true));
         // 子变换后父节点绕 Z 旋转 90°：x=4-6y，y=22+x，z=42+4z。
-        Bounds(transformed.Bounds, new(-14, 21, 42), new(4, 24, 46));
+        Bounds(transformed.Bounds, new(-14, 21, 42), new(4, 24, 62));
     }
 
     [Test]
@@ -81,6 +81,30 @@ public class AssetInspectorTests(Node testScene) : TestClass(testScene)
         Require(inspector.Inspect(AssetKind.Glb, new("no-engine-call"), GlbFixture.Create(externalBuffer: true))
             is AssetInspection.Failure { Kind: AssetInspectionFailure.UnsupportedContent },
             "外部 buffer 的预检不应进入已关闭的 Godot dispatcher。");
+    }
+
+    [Test]
+    public void Malformed_geometry_json_returns_cannot_decode_and_shutdown_still_throws()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        var inspector = new GodotAssetInspector(dispatcher);
+        foreach (var shape in new[] { "5", "{}", "null" })
+            CannotDecode(inspector.Inspect(AssetKind.Glb, new("primitives-shape"),
+                GlbFixture.Create(changeJson: json =>
+                    json["meshes"]![0]!["primitives"] = System.Text.Json.Nodes.JsonNode.Parse(shape))));
+        CannotDecode(inspector.Inspect(AssetKind.Glb, new("meshes-shape"),
+            GlbFixture.Create(changeJson: json => json["meshes"] = new System.Text.Json.Nodes.JsonObject())));
+        CannotDecode(inspector.Inspect(AssetKind.Glb, new("mesh-shape"),
+            GlbFixture.Create(changeJson: json => json["meshes"]![0] = 5)));
+        CannotDecode(inspector.Inspect(AssetKind.Glb, new("primitive-shape"),
+            GlbFixture.Create(changeJson: json => json["meshes"]![0]!["primitives"]![0] = 5)));
+        dispatcher.Dispose();
+        try
+        {
+            inspector.Inspect(AssetKind.Glb, new("closed"), GlbFixture.Create());
+            throw new Exception("关闭 dispatcher 不能被误报为解码失败。");
+        }
+        catch (ObjectDisposedException) { }
     }
 
     [Test]

@@ -8,10 +8,10 @@ using Train.Content.ContractSupport;
 namespace Train.Godot.Tests.Assets;
 
 [TestClass]
-[TestCategory("integration")]
 public sealed class DiskContentFilesTests
 {
     [TestMethod]
+    [TestCategory("integration")]
     public void Reads_complete_fixed_bytes_and_enumerates_only_direct_children()
     {
         using var files = new DiskFiles();
@@ -31,6 +31,7 @@ public sealed class DiskContentFilesTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     public void Missing_locked_and_zero_byte_limits_are_distinct()
     {
         using var files = new DiskFiles();
@@ -45,6 +46,7 @@ public sealed class DiskContentFilesTests
     }
 
     [TestMethod]
+    [TestCategory("integration")]
     public void Invalid_relative_paths_are_rejected_before_io()
     {
         using var files = new DiskFiles();
@@ -54,12 +56,14 @@ public sealed class DiskContentFilesTests
     }
 
     [TestMethod]
-    public void Junctions_are_listed_but_never_traversed_in_paths_roots_or_root_ancestors()
+    [TestCategory("integration")]
+    public void Junctions_at_or_inside_root_are_rejected_but_linked_ancestors_are_allowed()
     {
         using var files = new DiskFiles();
         var target = Directory.CreateDirectory(files.File("target")).FullName;
         File.WriteAllBytes(Path.Combine(target, "asset.bin"), [1]);
         Directory.CreateDirectory(Path.Combine(target, "nested"));
+        File.WriteAllBytes(Path.Combine(target, "nested", "asset.bin"), [2]);
         var junction = files.File("link");
         using var process = Process.Start(new ProcessStartInfo("cmd.exe")
         {
@@ -78,7 +82,8 @@ public sealed class DiskContentFilesTests
             Failure(files.Port.Read(files.Path("link/asset.bin"), 1), ContentIoFailure.LinkedPath);
             Failure(files.Port.Enumerate(files.Path("link")), ContentIoFailure.LinkedPath);
             Failure(new DiskContentFiles(junction).Read(files.Path("asset.bin"), 1), ContentIoFailure.LinkedPath);
-            Failure(new DiskContentFiles(Path.Combine(junction, "nested")).Enumerate(files.Path("")), ContentIoFailure.LinkedPath);
+            CollectionAssert.AreEqual(new byte[] { 2 }, Success(new DiskContentFiles(Path.Combine(junction, "nested"))
+                .Read(files.Path("asset.bin"), 1)).ToArray());
         }
         finally
         {
@@ -87,16 +92,11 @@ public sealed class DiskContentFilesTests
     }
 
     [TestMethod]
-    public void Bounded_reader_detects_growth_after_first_chunk_and_reads_only_limit_plus_one()
+    public void Bounded_reader_reads_only_limit_plus_one_without_querying_stream_length()
     {
-        using var files = new DiskFiles();
-        var path = files.File("growing.bin");
-        File.WriteAllBytes(path, new byte[8192]);
-        using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        using var growing = new GrowingFile(input, path);
-        Failure(DiskContentFiles.ReadBounded(growing, 8192), ContentIoFailure.LimitExceeded);
-        Assert.AreEqual(8193L, growing.BytesRead);
-        Assert.AreEqual(8194L, new FileInfo(path).Length);
+        using var input = new NonSeekableInput(new byte[8194]);
+        Failure(DiskContentFiles.ReadBounded(input, 8192), ContentIoFailure.LimitExceeded);
+        Assert.AreEqual(8193, input.BytesRead);
     }
 
     private static T Success<T>(ContentIoResult<T> result) where T : notnull
@@ -122,17 +122,13 @@ public sealed class DiskContentFilesTests
         public void Dispose() => Directory.Delete(Root, recursive: true);
     }
 
-    private sealed class GrowingFile(FileStream input, string path) : Stream
+    private sealed class NonSeekableInput(byte[] bytes) : Stream
     {
-        public long BytesRead { get; private set; }
+        public int BytesRead { get; private set; }
         public override int Read(byte[] buffer, int offset, int count)
         {
-            var read = input.Read(buffer, offset, count);
-            if (BytesRead == 0 && read > 0)
-            {
-                using var append = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
-                append.Write([1, 2]);
-            }
+            var read = Math.Min(count, bytes.Length - BytesRead);
+            bytes.AsSpan(BytesRead, read).CopyTo(buffer.AsSpan(offset, read));
             BytesRead += read;
             return read;
         }

@@ -92,12 +92,14 @@ internal sealed class DiskContentFiles : IContentFiles
         return Path.Combine(_directory, Path.Combine(segments));
     }
 
-    private static bool HasLinkedSegment(string path)
+    private bool HasLinkedSegment(string path)
     {
-        var current = Path.GetPathRoot(path)!;
+        var current = _directory;
         if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
             return true;
-        foreach (var segment in path[current.Length..].Split(Path.DirectorySeparatorChar,
+        var relative = Path.GetRelativePath(_directory, path);
+        if (relative == ".") return false;
+        foreach (var segment in relative.Split(Path.DirectorySeparatorChar,
                      StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);

@@ -81,8 +81,8 @@ internal sealed class GodotAssetDecoder : IDisposable
         foreach (var (meshIndex, transform) in Instances())
         {
             meshNodes++;
+            var primitives = Input.Primitives(meshIndex);
             var mesh = Mesh(meshIndex);
-            var primitives = Input.Json.RootElement.GetProperty("meshes")[meshIndex].GetProperty("primitives");
             if (mesh.GetSurfaceCount() != primitives.GetArrayLength()) throw DecodeFailure("GLB primitive 与网格表面数量不匹配。");
             for (var surface = 0; surface < mesh.GetSurfaceCount(); surface++)
             {
