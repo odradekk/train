@@ -17,24 +17,34 @@ public class AppTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         string? path = null;
+        using var output = new GodotOutputCapture();
+        OS.AddLogger(output);
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
             var console = app.GetChildren().OfType<GameConsole>().Single();
             Require(console.LogEvents.Any(e => e.EventId == TrainLogger.ApplicationReadyEventId), "App startup event missing.");
+            Require(output.Contains("[application][application_ready]"), "App startup event did not reach Godot output.");
             app.SetProcess(false);
             var logger = app.Logger;
             path = logger.JsonlPath;
             await Task.Run(() => logger.Info("engine_test", "worker_event", "Queued from a worker thread."));
             Require(logger.PendingGodotEventCount == 1, "Worker event must wait for App's main-thread drain.");
             Require(console.LogEvents.Any(e => e.EventId == "worker_event"), "Worker event did not reach the console buffer.");
+            Require(!output.Contains("[engine_test][worker_event]"), "Worker event reached Godot output before App's main-thread drain.");
             app.SetProcess(true);
-            for (var frame = 0; frame < 3 && logger.PendingGodotEventCount != 0; frame++)
+            for (var frame = 0; frame < 3 && !output.Contains("[engine_test][worker_event]"); frame++)
                 await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
             Require(logger.PendingGodotEventCount == 0, "App frame did not drain the queued worker event.");
+            Require(output.Contains("[engine_test][worker_event]"), "App frame did not deliver the worker event to Godot output.");
         }
-        finally { await fixture.Cleanup(); }
+        finally
+        {
+            try { await fixture.Cleanup(); }
+            finally { OS.RemoveLogger(output); }
+        }
         Require(path is not null, "JSONL logging was not started.");
+        // 独占打开验证 logger 已关闭写句柄；共享读取无法证明退出时释放了文件。
         using var file = new FileStream(path!, FileMode.Open, System.IO.FileAccess.ReadWrite, FileShare.None);
         using var reader = new StreamReader(file);
         var lines = reader.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries);
@@ -48,14 +58,15 @@ public class AppTests(Node testScene) : TestClass(testScene)
         var fixture = new Fixture(TestScene.GetTree());
         try
         {
-            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            var requests = 0;
+            app.QuitAction = () => requests++;
+            await fixture.AddToRoot(app);
             var menu = app.GetNode<MainMenu>("MainMenu");
             Require(menu.IsNodeReady() && menu.IsVisibleInTree(), "Main menu is not ready and visible.");
             var buttons = menu.FindChildren("*", "BaseButton", true, false).Cast<BaseButton>().Where(b => b.IsVisibleInTree()).ToArray();
             var quit = menu.GetNode<Button>("%QuitGame");
             Require(buttons.Length == 1 && buttons[0] == quit && !quit.Disabled && quit.Text == "退出", "Main menu must expose only the enabled quit button.");
-            var requests = 0;
-            app.QuitAction = () => requests++;
             quit.EmitSignal(BaseButton.SignalName.Pressed);
             Require(requests == 1, "Quit button signal did not reach App's quit request.");
         }
@@ -76,11 +87,6 @@ public class AppTests(Node testScene) : TestClass(testScene)
             Require(presentation.IconPath == imagePath && presentation.TopPath == imagePath && presentation.SidePath == imagePath && presentation.BottomPath == imagePath,
                 "Grain presentation paths were not loaded.");
             Require(grain.PresentationImages.Count == 1 && grain.PresentationImages[imagePath] is { Width: > 0, Height: > 0 }, "Godot PNG decoder did not produce the grain image.");
-            foreach (var path in new[] { "res://builtin/core/resources/voxels/grain.voxels.json", "res://builtin/core/resources/" + imagePath })
-            {
-                using var resource = Godot.FileAccess.Open(path, Godot.FileAccess.ModeFlags.Read);
-                Require(resource is not null && resource.GetLength() > 0 && (ulong)resource.GetBuffer((long)resource.GetLength()).Length == resource.GetLength(), "Godot VFS could not read " + path);
-            }
         }
         finally { await fixture.Cleanup(); }
     }

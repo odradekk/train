@@ -54,6 +54,7 @@ try {
             Write-Host "$case reload: $($reload | ConvertTo-Json -Depth 10 -Compress)"
             if ($case -eq 'empty') { $emptyAccepted = [int] $reload.attributes.accepted }
             else {
+                # 源扫描与加载器共用此事件 ID；isolated_count 只在加载器的最终汇总中出现。
                 $mods = $events | Where-Object { $_.level -eq 'info' -and $_.event_id -eq 'content_mods_scan_summary' -and $_.attributes.PSObject.Properties.Name -contains 'isolated_count' } | Select-Object -Last 1
                 Write-Host "mod scan: $($mods | ConvertTo-Json -Depth 10 -Compress)"
                 if (-not $mods -or $mods.attributes.accepted_count -ne 1 -or $mods.attributes.isolated_count -ne 0 -or [int] $reload.attributes.accepted -ne $emptyAccepted + 1) {

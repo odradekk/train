@@ -61,6 +61,13 @@ public class SimulationTests(Node testScene) : TestClass(testScene)
             Require(!Status(app).IsPaused && Status(app).State == state && Logs(app, SimulationConsoleCommands.ResumedEventId).Length == 1, "恢复命令修改了状态或未取消暂停。");
             console.SubmitLine("sim pause");
             Require(Status(app).IsPaused && Status(app).State == state && Logs(app, SimulationConsoleCommands.PausedEventId).Length == 2, "再次暂停未保持完整状态。");
+            app.SetSimulationPaused(false);
+            app.SetSimulationSpeed(SimulationSpeed.Eight);
+            await WaitForFrames(() => Status(app).ActualSpeed > 0);
+            Require(Status(app).ActualSpeed > 0, "重绑定前必须已有自动推进的实际速度。");
+            app.AttachSession(CreateSession(states, new(91, "simulation-host-rebind-v1")), states);
+            var rebound = Status(app);
+            Require(rebound.PendingSteps == 0 && rebound.Remainder == 0 && rebound.ActualSpeed == 0, "重绑定未清除自动推进的运行状态。");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -95,7 +102,7 @@ public class SimulationTests(Node testScene) : TestClass(testScene)
             app.SetSimulationSpeed(SimulationSpeed.Eight);
             app.AttachSession(CreateSession(states, new(91, "simulation-host-rebind-v1")), states);
             var rebound = Status(app);
-            Require(!rebound.IsPaused && rebound.Speed == SimulationSpeed.One && rebound.PendingSteps == 0 && rebound.Remainder == 0 && rebound.ActualSpeed == 0 && rebound.State is ProbeState { WorldSeed: 91, CompletedSteps: 0, Counter: 0 } && snapshot.CompletedSteps == 0 && snapshot.Counter == 0, "重绑定未重置宿主设置或破坏旧快照。");
+            Require(!rebound.IsPaused && rebound.Speed == SimulationSpeed.One && rebound.State is ProbeState { WorldSeed: 91, CompletedSteps: 0, Counter: 0 } && snapshot.CompletedSteps == 0 && snapshot.Counter == 0, "重绑定未重置宿主设置或破坏旧快照。");
             app.DetachSession();
             Require(app.GetSimulationStatus() is null, "解绑后仍存在会话。");
         }

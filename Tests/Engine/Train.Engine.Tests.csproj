@@ -3,15 +3,16 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <GodotProjectDir>$(MSBuildProjectDirectory)/../../</GodotProjectDir>
+    <!-- 与宿主程序集放在同一目录，供 Godot 的 AssemblyLoadContext 加载。 -->
     <OutputPath>$(GodotProjectDir).godot/mono/temp/bin/$(Configuration)/</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Bootstrap/**" />
-    <CompilerVisibleProperty Include="GodotProjectDir" />
     <ProjectReference Include="../../Train.csproj" />
+    <!-- Godot.Logger 的 C# 重写需要生成原生回调分派。 -->
+    <PackageReference Include="Godot.SourceGenerators" Version="4.7.2" PrivateAssets="all" />
     <PackageReference Include="Chickensoft.GoDotTest" Version="2.0.47" />
     <PackageReference Include="Chickensoft.GodotTestDriver" Version="3.1.83" />
   </ItemGroup>

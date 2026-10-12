@@ -38,7 +38,7 @@ VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test`
 
 ## Windows export and runtime validation
 
-Export requires the project's .NET SDK and matching Godot .NET Windows export templates, on this machine under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. 在 Windows 通过统一入口选择引擎层及两项 Windows 导出运行检查：
+Export requires the project's .NET SDK and matching Godot .NET Windows export templates, on this machine under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. 在 Windows 通过统一入口选择引擎层及一个 Windows 导出冒烟检查（两次运行）：
 
 ```powershell
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows

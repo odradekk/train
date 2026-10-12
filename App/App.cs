@@ -27,7 +27,9 @@ public partial class App : Node
 
     internal TrainLogger Logger => _logger!;
     internal ContentSnapshot? CurrentContent => _reloader?.Current;
-    internal Action QuitAction { get; set; } = null!;
+    internal Action QuitAction { get; set; }
+
+    public App() => QuitAction = () => GetTree().Quit();
 
     public event Action<AdvanceResult>? SimulationAdvanced;
 
@@ -36,7 +38,6 @@ public partial class App : Node
     public override void _Ready()
     {
         _mainThread = System.Environment.CurrentManagedThreadId;
-        QuitAction = () => GetTree().Quit();
         GetTree().AutoAcceptQuit = false;
         GetNode<MainMenu>("MainMenu").QuitRequested += RequestQuit;
         try
