@@ -16,30 +16,40 @@ internal sealed record WorldSceneContent(ImmutableArray<SceneCell> Terrain,
 internal sealed class WorldSceneSession : IWorldSceneSession
 {
     private readonly Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate;
-    private readonly List<(Task<WorldSceneContent> Task, CancellationTokenSource Cancellation)> tasks = [];
+    private readonly List<(Task Task, CancellationTokenSource Cancellation)> tasks = [];
+    private readonly Dictionary<InstanceId, Task<BuiltObject>> rebuilds = [];
     private readonly Dictionary<string, SceneObjectId> ids = [];
     private readonly Dictionary<InstanceId, (DesignHash Design, ImmutableHashSet<PartId> Destroyed, RenderedDesign Geometry)> designs = [];
     private SceneWorldSnapshot snapshot;
     private WorldSceneTarget? target;
-    private Task<WorldSceneContent>? pending;
+    private Task<BuiltWorld>? pending;
     private WorldSceneContent? content;
     private RenderedDesign? scenery;
     private EventEnvelope? lastEvent;
     private SceneProblem? fault;
     private SceneRequestId request;
     private SceneSpaceId space;
-    private ulong revision, nextObject;
+    private ulong revision;
+    private ulong nextObject;
     private Task? closing;
     private bool disposed;
     public SceneSessionId Id { get; } = new(Guid.NewGuid());
     public SceneBinding Binding { get; }
-    internal Task<WorldSceneContent>? PendingBuild => pending;
+    internal Task? PendingBuild => pending;
+    internal Task[] PendingObjectBuilds => rebuilds.Values.Cast<Task>().ToArray();
+
+    private sealed record BuiltGeometry(RenderedDesign Geometry, ImmutableDictionary<SceneObjectId, string> Keys);
+    private sealed record BuiltObject(DesignHash Design, ImmutableHashSet<PartId> Destroyed, BuiltGeometry Geometry);
+    private sealed record BuiltWorld(WorldSceneContent Content, BuiltGeometry Scenery,
+        ImmutableDictionary<InstanceId, BuiltObject> Objects);
 
     internal WorldSceneSession(SceneBinding binding, SceneWorldSnapshot initial,
         Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate)
     {
         ValidateSnapshot(initial);
-        Binding = binding; snapshot = initial; this.generate = generate;
+        Binding = binding;
+        snapshot = initial;
+        this.generate = generate;
     }
 
     internal static void ValidateSnapshot(SceneWorldSnapshot snapshot)
@@ -80,14 +90,22 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         foreach (var work in tasks.Where(work => work.Task.IsCompleted).ToArray())
         {
             _ = work.Task.Exception;
-            work.Cancellation.Dispose(); tasks.Remove(work);
+            work.Cancellation.Dispose();
+            tasks.Remove(work);
         }
         foreach (var work in tasks) work.Cancellation.Cancel();
-        target = value; request = new(request.Value + 1); space = new(space.Value + 1);
-        content = null; scenery = null; designs.Clear(); ids.Clear();
+        target = value;
+        request = new(request.Value + 1);
+        space = new(space.Value + 1);
+        content = null;
+        scenery = null;
+        designs.Clear();
+        rebuilds.Clear();
+        ids.Clear();
         var input = snapshot;
         var cancellation = new CancellationTokenSource();
-        pending = Task.Run(() => generate(input, value, cancellation.Token), cancellation.Token);
+        var generator = generate;
+        pending = Task.Run(() => BuildWorld(input, value, generator, cancellation.Token), cancellation.Token);
         tasks.Add((pending, cancellation));
         return new SceneResult<SceneRequestId>.Success(request);
     }
@@ -126,7 +144,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             previous = item;
         }
         if (fault is not null) return new SceneResult<SimulationPosition>.Faulted(fault);
-        snapshot = input; lastEvent = previous;
+        snapshot = input;
+        lastEvent = previous;
         return new SceneResult<SimulationPosition>.Success(input.Core.Position);
     }
 
@@ -147,19 +166,27 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         {
             if (content is null && pending!.IsCompleted)
             {
-                content = pending.GetAwaiter().GetResult();
-                scenery = BuildScenery(content);
+                var built = pending.GetAwaiter().GetResult();
+                content = built.Content;
+                scenery = Attach(built.Scenery, "");
+                foreach (var item in built.Objects)
+                    if (snapshot.Core.FindInstance(item.Key) is Lookup<InstanceView>.Found current && Matches(item.Value, current.Value))
+                        Accept(item.Key, item.Value);
             }
             var objects = ImmutableArray.CreateBuilder<SceneObject>();
             var picking = ImmutableArray.CreateBuilder<PickGrid>();
             var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+            var rebuilding = false;
             if (scenery is not null)
             {
-                objects.AddRange(scenery.Objects); picking.AddRange(scenery.Picking); problems.AddRange(scenery.Diagnostics);
-                Reconcile(objects, picking, problems);
+                objects.AddRange(scenery.Objects);
+                picking.AddRange(scenery.Picking);
+                problems.AddRange(scenery.Diagnostics);
+                rebuilding = Reconcile(objects, picking, problems);
             }
             var fog = content?.FoggedRegions ?? [new SceneBounds(new(float.MinValue), new(float.MaxValue))];
-            var readiness = content is null ? SceneReadiness.Loading : fog.IsEmpty ? SceneReadiness.Ready : SceneReadiness.Partial;
+            var readiness = content is null ? SceneReadiness.Loading :
+                rebuilding || !fog.IsEmpty ? SceneReadiness.Partial : SceneReadiness.Ready;
             var next = new SceneFrame(new(Id, request, space, ++revision), content?.Origin ?? new(0, 0, 0),
                 snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, readiness,
                 objects.ToImmutable(), picking.ToImmutable(), new(fog, []), problems.ToImmutable(), displayedFrame as SceneFrame);
@@ -180,10 +207,89 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return value;
     }
 
-    private RenderedDesign BuildScenery(WorldSceneContent value)
+    private static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)
+    {
+        var keys = ImmutableDictionary.CreateBuilder<SceneObjectId, string>();
+        ulong next = 0;
+        var geometry = build(key =>
+        {
+            var id = new SceneObjectId(++next);
+            keys.Add(id, key);
+            return id;
+        });
+        return new(geometry, keys.ToImmutable());
+    }
+
+    private static BuiltWorld BuildWorld(SceneWorldSnapshot input, WorldSceneTarget target,
+        Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate,
+        CancellationToken cancellation)
+    {
+        var content = generate(input, target, cancellation);
+        var scenery = BuildGeometry(id => BuildScenery(content, id));
+        var objects = ImmutableDictionary.CreateBuilder<InstanceId, BuiltObject>();
+        foreach (var item in content.Objects)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (input.Core.FindInstance(item.Instance) is Lookup<InstanceView>.Found found)
+                objects.Add(item.Instance, BuildObject(input.Content, found.Value, item.Pose));
+        }
+        return new(content, scenery, objects.ToImmutable());
+    }
+
+    private static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>
+        instance.Parts.Where(part => part.Destroyed).Select(part => part.Part).ToImmutableHashSet();
+
+    private static bool Matches(BuiltObject built, InstanceView current) =>
+        built.Design == current.Design && built.Destroyed.SetEquals(Destroyed(current));
+
+    private static BuiltObject BuildObject(IContentView content, InstanceView instance, ScenePose pose)
+    {
+        var destroyed = Destroyed(instance);
+        var geometry = BuildGeometry(id =>
+        {
+            var subject = new WorldObjectId.Instance(instance.Id);
+            var lookup = content.FindDesign(instance.Design);
+            if (lookup is ContentLookup<DesignEvaluation>.Found design && design.Value is not DesignEvaluation.Failed)
+                return DesignGeometry.Build(content, design.Value, subject, pose, id, destroyed, instance.Design);
+            var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+            if (lookup is ContentLookup<DesignEvaluation>.Missing missing)
+                DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, subject);
+            if (lookup is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Failed failed })
+                DesignGeometry.AddDiagnostics(failed.Diagnostics, problems, subject);
+            var reference = new ContentReference.Design(instance.Design);
+            var source = problems.LastOrDefault(problem => problem.Content == reference && problem.Package is not null);
+            problems.Add(new("content_missing", SceneStage.Reconcile, subject, reference,
+                source?.Package, source?.Element, "Missing object design."));
+            return new([new(id(""), null, pose, subject, [new SceneVisual.Missing(reference, false)], [], [])],
+                [], problems.ToImmutable());
+        });
+        return new(instance.Design, destroyed, geometry);
+    }
+
+    private RenderedDesign Attach(BuiltGeometry built, string prefix)
+    {
+        var assigned = built.Keys.ToDictionary(item => item.Key, item => ObjectId(prefix + item.Value));
+        return built.Geometry with
+        {
+            Objects = built.Geometry.Objects.Select(item => item with
+            {
+                Id = assigned[item.Id],
+                Parent = item.Parent is { } parent ? assigned[parent] : null
+            }).ToImmutableArray(),
+            Picking = built.Geometry.Picking.Select(item => item with { Object = assigned[item.Object] }).ToImmutableArray()
+        };
+    }
+
+    private void Accept(InstanceId instance, BuiltObject built) =>
+        designs[instance] = (built.Design, built.Destroyed, Attach(built.Geometry, "instance:" + instance + ":"));
+
+    private static RenderedDesign BuildScenery(WorldSceneContent value, Func<string, SceneObjectId> id)
     {
         if (value.Terrain.IsDefault || value.Objects.IsDefault || value.BuiltInMeshes.IsDefault || value.FoggedRegions.IsDefault || value.MissingMarkers.IsDefault ||
-            !double.IsFinite(value.Origin.X) || !double.IsFinite(value.Origin.Y) || !double.IsFinite(value.Origin.Z)) throw new ArgumentException("Invalid generated content.");
+            !double.IsFinite(value.Origin.X) || !double.IsFinite(value.Origin.Y) || !double.IsFinite(value.Origin.Z))
+            throw new ArgumentException("Invalid generated content.");
+        if (value.Terrain.Any(cell => cell.Subject is null))
+            throw new ArgumentException("Terrain cells must have a pick subject.", nameof(value));
         var objects = ImmutableArray.CreateBuilder<SceneObject>();
         var picking = ImmutableArray.CreateBuilder<PickGrid>();
         var problems = ImmutableArray.CreateBuilder<SceneProblem>();
@@ -191,61 +297,71 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         var grid = new VoxelGrid(value.Terrain);
         if (!value.Terrain.IsEmpty)
         {
-            var id = ObjectId("terrain");
-            objects.Add(new(id, null, pose, null, DesignGeometry.Meshes(grid, false), [], []));
-            picking.Add(new(id, pose, grid));
+            var objectId = id("terrain");
+            objects.Add(new(objectId, null, pose, null, DesignGeometry.Meshes(grid, false), [], []));
+            picking.Add(new(objectId, pose, grid));
             foreach (var cell in value.Terrain.Where(cell => cell.MissingReference is not null))
             {
-                objects.Add(new(ObjectId("terrain-missing:" + cell.At), id,
+                objects.Add(new(id("terrain-missing:" + cell.At), objectId,
                     new(new(cell.At.X, cell.At.Y, cell.At.Z), Quaternion.Identity), null,
                     [new SceneVisual.Missing(cell.MissingReference!, true)], [], []));
                 problems.Add(new("content_missing", SceneStage.Build, null, cell.MissingReference, null, null, "Missing terrain voxel."));
             }
         }
         for (var i = 0; i < value.BuiltInMeshes.Length; i++)
-            objects.Add(new(ObjectId("built-in:" + i), null, pose, null, [new SceneVisual.Geometry(value.BuiltInMeshes[i], new(false, 0, 0, false))], [], []));
+            objects.Add(new(id("built-in:" + i), null, pose, null, [new SceneVisual.Geometry(value.BuiltInMeshes[i], new(false, 0, 0, false))], [], []));
         for (var i = 0; i < value.MissingMarkers.Length; i++)
         {
             var marker = value.MissingMarkers[i];
-            objects.Add(new(ObjectId("marker:" + i), null, marker.Pose, marker.Problem.Subject,
+            objects.Add(new(id("marker:" + i), null, marker.Pose, marker.Problem.Subject,
                 [new SceneVisual.Missing(marker.Reference, false)], [], []));
             problems.Add(marker.Problem);
         }
         return new(objects.ToImmutable(), picking.ToImmutable(), problems.ToImmutable());
     }
 
-    private void Reconcile(ImmutableArray<SceneObject>.Builder objects, ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems)
+    private bool Reconcile(ImmutableArray<SceneObject>.Builder objects,
+        ImmutableArray<PickGrid>.Builder picking, ImmutableArray<SceneProblem>.Builder problems)
     {
         var present = new HashSet<InstanceId>();
+        var rebuilding = false;
         foreach (var item in content!.Objects)
         {
             if (snapshot.Core.FindInstance(item.Instance) is not Lookup<InstanceView>.Found found) continue;
             present.Add(item.Instance);
             var current = found.Value;
-            var destroyed = current.Parts.Where(part => part.Destroyed).Select(part => part.Part).ToImmutableHashSet();
-            if (!designs.TryGetValue(item.Instance, out var cached) || cached.Design != current.Design || !cached.Destroyed.SetEquals(destroyed))
+            if (rebuilds.TryGetValue(item.Instance, out var pending) && pending.IsCompleted)
             {
-                var lookup = snapshot.Content.FindDesign(current.Design);
-                if (lookup is not ContentLookup<DesignEvaluation>.Found design || design.Value is DesignEvaluation.Failed)
-                {
-                    designs.Remove(item.Instance);
-                    if (lookup is ContentLookup<DesignEvaluation>.Missing missing) DesignGeometry.AddDiagnostics(missing.Diagnostics, problems, new WorldObjectId.Instance(item.Instance));
-                    if (lookup is ContentLookup<DesignEvaluation>.Found { Value: DesignEvaluation.Failed failed })
-                        DesignGeometry.AddDiagnostics(failed.Diagnostics, problems, new WorldObjectId.Instance(item.Instance));
-                    var reference = new ContentReference.Design(current.Design);
-                    var source = problems.LastOrDefault(problem => problem.Content == reference && problem.Package is not null);
-                    problems.Add(new("content_missing", SceneStage.Reconcile, new WorldObjectId.Instance(item.Instance), reference, source?.Package, source?.Element, "Missing object design."));
-                    objects.Add(new(ObjectId("instance:" + item.Instance), null, item.Pose, new WorldObjectId.Instance(item.Instance),
-                        [new SceneVisual.Missing(new ContentReference.Design(current.Design), false)], [], []));
-                    continue;
-                }
-                var geometry = DesignGeometry.Build(snapshot.Content, design.Value, new WorldObjectId.Instance(item.Instance), item.Pose,
-                    path => ObjectId("instance:" + item.Instance + ":" + path), destroyed, current.Design);
-                designs[item.Instance] = cached = (current.Design, destroyed, geometry);
+                var built = pending.GetAwaiter().GetResult();
+                rebuilds.Remove(item.Instance);
+                if (Matches(built, current)) Accept(item.Instance, built);
             }
-            objects.AddRange(cached.Geometry.Objects); picking.AddRange(cached.Geometry.Picking); problems.AddRange(cached.Geometry.Diagnostics);
+            if (!designs.TryGetValue(item.Instance, out var cached) ||
+                cached.Design != current.Design || !cached.Destroyed.SetEquals(Destroyed(current)))
+            {
+                rebuilding = true;
+                if (!rebuilds.ContainsKey(item.Instance))
+                {
+                    var contentView = snapshot.Content;
+                    var cancellation = new CancellationTokenSource();
+                    var work = Task.Run(() => BuildObject(contentView, current, item.Pose), cancellation.Token);
+                    rebuilds.Add(item.Instance, work);
+                    tasks.Add((work, cancellation));
+                }
+            }
+            if (cached.Geometry is not null)
+            {
+                objects.AddRange(cached.Geometry.Objects);
+                picking.AddRange(cached.Geometry.Picking);
+                problems.AddRange(cached.Geometry.Diagnostics);
+            }
         }
-        foreach (var id in designs.Keys.Where(id => !present.Contains(id)).ToArray()) designs.Remove(id);
+        foreach (var id in designs.Keys.Concat(rebuilds.Keys).Where(id => !present.Contains(id)).Distinct().ToArray())
+        {
+            designs.Remove(id);
+            rebuilds.Remove(id);
+        }
+        return rebuilding;
     }
 
     public SceneResult<PickSubject> Resolve(SceneHit hit)
@@ -281,12 +397,23 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     }
     private async Task Close()
     {
-        try { await Task.WhenAll(tasks.Select(work => work.Task)).ConfigureAwait(false); }
-        catch (Exception) { /* Closed sessions discard canceled and failed background results. */ }
+        try
+        {
+            await Task.WhenAll(tasks.Select(work => work.Task)).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Closed sessions discard canceled and failed background results.
+        }
         finally
         {
             foreach (var work in tasks) work.Cancellation.Dispose();
-            tasks.Clear(); designs.Clear(); ids.Clear(); content = null; scenery = null;
+            tasks.Clear();
+            designs.Clear();
+            rebuilds.Clear();
+            ids.Clear();
+            content = null;
+            scenery = null;
         }
     }
 }

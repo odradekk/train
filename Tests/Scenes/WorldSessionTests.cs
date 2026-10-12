@@ -45,7 +45,17 @@ public sealed class WorldSessionTests
     {
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(Target));
         await session.PendingBuild!;
-        return Present(session);
+        return await Settled(session);
+    }
+    private static async Task<ISceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null)
+    {
+        var frame = Present(session, displayed);
+        while (session.PendingObjectBuilds.Length > 0)
+        {
+            await Task.WhenAll(session.PendingObjectBuilds);
+            frame = Present(session, displayed);
+        }
+        return frame;
     }
     private static ISceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null) =>
         ((SceneResult<ISceneFrame>.Success)session.Present(FrameRequest, displayed)).Value;
@@ -225,22 +235,17 @@ public sealed class WorldSessionTests
         var hash = new DesignHash("new-design");
         var evaluation = Evaluation with { Design = hash, Scene = Evaluation.Scene with
         { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] } };
-        var content = new FixedContentView
-        {
-            Generation = new(1), Core = SceneFixtures.Content().Core,
-            Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [hash] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
-            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) }
-        };
+        var content = SceneFixtures.Content(evaluation, hash);
         var instance = Instance with { Design = hash };
         session.Observe(Snapshot(1, instance: instance, content: content), []);
         Assert.AreEqual("stale_hit", Code(session.Resolve(oldHit)));
-        var second = Present(session, first);
+        var second = await Settled(session, first);
         Assert.AreEqual(first.Update.Upserts[0].Id, second.Update.Upserts[0].Id);
         Assert.IsInstanceOfType<ScenePick.Miss>(second.Pick(Ray));
         var newHit = ((ScenePick.Hit)second.Pick(Ray with { Origin = new(3.5f, 0.5f, -2) })).Value;
         session.Observe(Snapshot(2, instance: instance with { Parts = [new(new(1), new(0, 10), false, true)] }, content: content), []);
         Assert.AreEqual("stale_hit", Code(session.Resolve(newHit)));
-        Assert.IsInstanceOfType<ScenePick.Miss>(Present(session, second).Pick(Ray with { Origin = new(3.5f, 0.5f, -2) }));
+        Assert.IsInstanceOfType<ScenePick.Miss>((await Settled(session, second)).Pick(Ray with { Origin = new(3.5f, 0.5f, -2) }));
     }
 
     [TestMethod]
@@ -292,17 +297,17 @@ public sealed class WorldSessionTests
         var first = await Ready(session);
         var oldHit = Hit(first);
         session.Observe(Snapshot(1, instance: healthy with { Parts = [new(new(9), new(0, 10), false, true)] }, content: content), []);
-        var destroyed = Present(session, first);
+        var destroyed = await Settled(session, first);
         Assert.IsTrue(destroyed.Update.Removed.Contains(oldHit.Object!.Value));
         session.Observe(Snapshot(2, instance: healthy, content: content), []);
-        var repaired = Present(session, destroyed);
+        var repaired = await Settled(session, destroyed);
         Assert.AreNotEqual(oldHit.Object, Hit(repaired).Object);
         Assert.AreEqual("stale_hit", Code(session.Resolve(oldHit)));
         Assert.IsInstanceOfType<SceneResult<PickSubject>.Success>(session.Resolve(Hit(repaired)));
         session.Observe(Snapshot(3, removed: true, content: content), []);
         var removed = Present(session, repaired);
         session.Observe(Snapshot(4, instance: healthy, content: content), []);
-        var restored = Present(session, removed);
+        var restored = await Settled(session, removed);
         Assert.AreNotEqual(Hit(repaired).Object, Hit(restored).Object);
     }
 
@@ -320,15 +325,13 @@ public sealed class WorldSessionTests
             var evaluation = Evaluation with { Design = hash, Scene = Evaluation.Scene with
             { Design = hash, Voxels = [SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(3, 0, 0), 2)],
                 Elements = SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(3, 0, 0), 2)]).Elements } };
-            var content = new FixedContentView
-            {
-                Generation = new(1), Core = SceneFixtures.Content().Core,
-                Designs = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [hash] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
-                VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>> { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube) }
-            };
+            var content = SceneFixtures.Content(evaluation, hash);
             session.Observe(Snapshot(1, instance: Instance with { Design = hash, Parts = [new(new(1), new(0, 10), false, true)] }, content: content), []);
             release.Set(); await session.PendingBuild!;
-            var visible = Present(session);
+            var first = Present(session);
+            Assert.AreEqual(SceneReadiness.Partial, first.Readiness);
+            Assert.IsTrue(first.Update.Upserts.IsEmpty);
+            var visible = await Settled(session, first);
             Assert.IsInstanceOfType<ScenePick.Miss>(visible.Pick(Ray));
             var hit = ((ScenePick.Hit)visible.Pick(Ray with { Origin = new(3.5f, 0.5f, -2) })).Value;
             Assert.AreEqual(hash, ((PickSubject.WorldObject)hit.Subject).Design);
@@ -348,5 +351,110 @@ public sealed class WorldSessionTests
         Assert.ThrowsExactly<ArgumentException>(() => session.Present(FrameRequest, foreign));
         Assert.ThrowsExactly<ArgumentException>(() => session.Present(FrameRequest with { Interpolation = double.NaN }, frame));
         Assert.AreEqual(frame.Update.Frame, Present(session, frame).Update.Base);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BlockedRebuildKeepsOldGeometryAndDiscardsOutdatedResult(bool changeDesign)
+    {
+        await using var session = Session(Snapshot(), ObjectContent());
+        var first = await Ready(session);
+        var oldHit = Hit(first);
+        var hash = new DesignHash("rebuilding-design");
+        var evaluation = Evaluation with { Design = hash, Scene = Evaluation.Scene with
+        { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] } };
+        using var gated = new BlockedAppearanceView(SceneFixtures.Content(evaluation, hash));
+        var rebuilding = Instance with { Design = hash };
+        session.Observe(Snapshot(1, instance: rebuilding, content: gated), []);
+        var present = Task.Run(() => Present(session, first));
+        try
+        {
+            await gated.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            var during = await present.WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.AreEqual(SceneReadiness.Partial, during.Readiness);
+            Assert.AreEqual(oldHit.Cell, Hit(during).Cell);
+            Assert.IsTrue(during.Update.Upserts.IsEmpty);
+            Assert.AreEqual("stale_hit", Code(session.Resolve(oldHit)));
+            var latest = changeDesign ? Instance : rebuilding with
+            { Parts = [new(new(1), new(0, 10), false, true)] };
+            var latestContent = changeDesign ? SceneFixtures.Content(Evaluation) : SceneFixtures.Content(evaluation, hash);
+            session.Observe(Snapshot(2, instance: latest, content: latestContent), []);
+            gated.Release.Set();
+            await Task.WhenAll(session.PendingObjectBuilds);
+            var discarded = Present(session, during);
+            Assert.AreEqual(oldHit.Cell, Hit(discarded).Cell);
+            Assert.IsInstanceOfType<ScenePick.Miss>(discarded.Pick(Ray with { Origin = new(3.5f, 0.5f, -2) }));
+            var settled = await Settled(session, discarded);
+            Assert.AreEqual(SceneReadiness.Ready, settled.Readiness);
+            if (changeDesign) Assert.AreEqual(oldHit.Cell, Hit(settled).Cell);
+            else Assert.IsInstanceOfType<ScenePick.Miss>(settled.Pick(Ray));
+        }
+        finally
+        {
+            gated.Release.Set();
+            await present;
+        }
+    }
+
+    [TestMethod]
+    public async Task DisposeWaitsForBlockedObjectRebuildAndRetainedFrameSurvives()
+    {
+        var session = Session(Snapshot(), ObjectContent());
+        var first = await Ready(session);
+        using var gated = new BlockedAppearanceView(SceneFixtures.Content(Evaluation));
+        session.Observe(Snapshot(1, instance: Instance with
+        { Parts = [new(new(2), new(0, 10), false, true)] }, content: gated), []);
+        var present = Task.Run(() => Present(session, first));
+        try
+        {
+            await gated.Entered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+            var retained = await present.WaitAsync(TimeSpan.FromSeconds(1));
+            var closing = session.DisposeAsync();
+            Assert.IsFalse(closing.IsCompleted);
+            Assert.ThrowsExactly<ObjectDisposedException>(() => session.Present(FrameRequest, retained));
+            Assert.ThrowsExactly<ObjectDisposedException>(() => session.Resolve(Hit(retained)));
+            gated.Release.Set();
+            await closing;
+            Assert.AreEqual(Hit(first).Cell, Hit(retained).Cell);
+        }
+        finally
+        {
+            gated.Release.Set();
+            await present;
+            await session.DisposeAsync();
+        }
+    }
+
+    private sealed class BlockedAppearanceView(IContentView inner) : IContentView, IDisposable
+    {
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal ManualResetEventSlim Release { get; } = new();
+        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
+        {
+            Entered.TrySetResult();
+            Release.Wait();
+            return inner.FindVoxelAppearance(id);
+        }
+        public ContentGeneration Generation => inner.Generation;
+        public CoreContentProjection Core => inner.Core;
+        public ContentLookup<DesignEvaluation> FindDesign(DesignHash id) => inner.FindDesign(id);
+        public ContentRevision PersistentRevision => inner.PersistentRevision;
+        public ImmutableArray<PackageStatus> Packages => inner.Packages;
+        public ImmutableArray<VoxelCatalogEntry> Voxels => inner.Voxels;
+        public ImmutableArray<BlueprintSummary> Blueprints => inner.Blueprints;
+        public ImmutableArray<SavedContentDraft> LocalDrafts => inner.LocalDrafts;
+        public ImmutableArray<GenerationProfileSummary> GenerationProfiles => inner.GenerationProfiles;
+        public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress id) => inner.FindBlueprint(id);
+        public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => inner.FindVoxelDisplay(id);
+        public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id) => inner.FindDefinitionDisplay(id);
+        public ContentLookup<GoodPresentation> FindGood(GoodId id) => inner.FindGood(id);
+        public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => inner.FindAsset(id);
+        public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => inner.FindSettlementLayout(id);
+        public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => inner.FindCreature(id);
+        public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => inner.FindLair(id);
+        public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => inner.FindTerrain(id);
+        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => inner.FindRailwayAppearance(id);
+        public void Dispose() => Release.Dispose();
     }
 }

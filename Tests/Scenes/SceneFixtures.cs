@@ -16,12 +16,12 @@ internal static class SceneFixtures
     internal static VoxelAppearanceProjection Cube => new(Voxel, AllowedVoxelOrientations.All24,
         new VoxelCollision.None(), new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, 1,
             new("tile"), new("tile"), new("tile"), new("tile")), new(false, null));
-    internal static FixedContentView Content(DesignEvaluation? evaluation = null) => new()
+    internal static FixedContentView Content(DesignEvaluation? evaluation = null, DesignHash? design = null) => new()
     {
         Generation = new(1),
         Core = new(new("scenes-test"), [], [], [], [], [], [], [], [], [], [], [], [], [], []),
         Designs = evaluation is null ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>() :
-            new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
+            new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [design ?? Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
         VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
         { [Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(Cube) }
     };
@@ -44,8 +44,12 @@ internal static class SceneFixtures
     internal static RenderedDesign Build(DesignSceneProjection projection, ScenePose? pose = null,
         IContentView? content = null, ImmutableArray<ContentDiagnostic> diagnostics = default)
     {
-        ulong id = 0;
         return DesignGeometry.Build(content ?? Content(), Evaluation(projection, diagnostics), Subject,
-            pose ?? Identity, _ => new(++id));
+            pose ?? Identity, NextId());
+    }
+    internal static Func<string, SceneObjectId> NextId()
+    {
+        ulong id = 0;
+        return _ => new(++id);
     }
 }
