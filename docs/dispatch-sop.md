@@ -29,7 +29,7 @@ The current stage is the lowest-numbered open [stage acceptance Issue](#stage-in
 
 **Shared resources.**
 
-- The Godot MCP port is fixed, so one pair at a time holds MCP. Give it to the Issue whose Acceptance criteria depend most on editor or runtime observation; the others use the CLI fallback.
+- Each pair that needs Godot or Blender gets its own ports: the pair in slot k (1–5) uses Godot MCP port `9080 + k` and Blender MCP port `9876 + k`. The defaults 9080 and 9876 stay free for the main checkout. At most five editors can run games at once ([godot-mcp.md](godot-mcp.md)).
 - Changes to `Contracts/` follow the [controlled contract change procedure](contracts/conventions.md#契约基线与受控变更) one at a time.
 - Parallel validation shares one machine. A check that times out while other pairs are validating is rerun alone before it counts as failed; reviewers and workers record both results.
 
@@ -37,8 +37,8 @@ The current stage is the lowest-numbered open [stage acceptance Issue](#stage-in
 
 1. Verify the candidate's Acceptance criteria are clear enough to start. If not, comment the gap, label it `needs-info`, and pick another candidate.
 2. Create the workspace with Paseo `create_workspace`: `isolation: worktree`, `mode: branch-off`, `branchName: issue-<n>-<slug>`, `baseBranch: origin/master`, `title: #<n> <module>`. Verify the branch and baseline SHA in the checkout. If the branch tracks `origin/master`, run `git branch --unset-upstream` so a bare `git push` cannot target master.
-3. If this pair gets MCP, start the worktree's editor and verify `get_project_info` returns this worktree as `project_path`, as [godot-mcp.md](godot-mcp.md) describes. Start it before the worker exists, because the client connects at session start.
-4. Post the dispatch comment: worktree path, task branch, baseline SHA, PR base `master`, module, stage acceptance Issue, contract baseline, MCP assignment (port and verified path, or CLI fallback), and the Paseo workspace ID.
+3. If the Issue needs Godot, start the worktree's editor on its port and verify that `get_project_info` returns this worktree as `project_path` ([godot-mcp.md](godot-mcp.md)). If it needs Blender, start a Blender instance on its port ([blender-mcp.md](blender-mcp.md)). Point the worktree's `.mcp.json` and `.codex/config.toml` at these ports and run `git update-index --skip-worktree .mcp.json .codex/config.toml`. Do this before creating the reviewer, because clients connect at session start.
+4. Post the dispatch comment: worktree path, task branch, baseline SHA, PR base `master`, module, stage acceptance Issue, contract baseline, MCP ports (Godot with its verified path, Blender) or not applicable, and the Paseo workspace ID.
 5. Create the reviewer with `create_agent` in that workspace (`provider: claude/claude-opus-5-5`, `settings: { modeId: bypassPermissions, thinkingOptionId: xhigh }`, title `review #<n>`) and this initial prompt:
 
    > You are the reviewer for Issue #\<n\> in this worktree. Follow docs/review-sop.md. The dispatch comment on the Issue has your worktree, branch, MCP assignment and stage. Create the worker, run the plan and delivery reviews, and end your final message with a `PAIR-RESULT:` line.
@@ -76,7 +76,7 @@ After an `accepted` result:
 1. Check that the PR head equals the accepted SHA, the Windows checks passed on that head, the reviewer's acceptance comment names that SHA, and all Acceptance criteria are checked.
 2. Check that the head contains the current `origin/master` (`git merge-base --is-ancestor origin/master <head>`). If master has moved, ask the reviewer to have the worker merge master and to accept the new head; wait for a new `PAIR-RESULT:`.
 3. Merge with `gh pr merge <pr> --merge` and verify the remote merged state and merge commit.
-4. Stop the task's MCP editor if it has one. Copy `TestResults/` and `.godot/validation/` to `D:\Code\train-validation-archive\issue-<n>\`. Run `archive_workspace`, then check `git worktree list` and that the directory is gone. If Windows locks keep the directory, record it and retry on the next heartbeat; do not block other work. Delete the remote task branch once its head is in master.
+4. Stop the task's Godot editor and Blender instance if it has them. Copy `TestResults/` and `.godot/validation/` to `D:\Code\train-validation-archive\issue-<n>\`. Run `archive_workspace`, then check `git worktree list` and that the directory is gone. If Windows locks keep the directory, record it and retry on the next heartbeat; do not block other work. Delete the remote task branch once its head is in master.
 5. If the acceptance comment lists criteria waiting for the user, label the Issue `awaiting-user`, keep it open, and add those criteria to the progress record; for an art Issue, also tell the user where its screenshots are. Otherwise post a closure comment linking the PR, merge commit and acceptance comment, and close the Issue as completed.
 6. Update the progress record and fill the freed slot.
 
@@ -102,4 +102,4 @@ Each passed stage increases MINOR by 1 and resets PATCH to 0 (`0.0.56 → 0.1.0`
 
 ## Recovery
 
-After an interruption, read the progress record, open Issues with dispatch comments, Paseo `list_workspaces` and `list_agents`, `git worktree list`, open PRs, and running Godot editors. Resume each pair at its first incomplete step: send a continue prompt to an idle reviewer, rather than creating a second workspace, PR or merge. Restart a stopped MCP editor for the same worktree and tell the reviewer that the worker must reconnect. A changed PR head after acceptance needs a new `accepted` result before merging.
+After an interruption, read the progress record, open Issues with dispatch comments, Paseo `list_workspaces` and `list_agents`, `git worktree list`, open PRs, and running Godot editors and Blender instances. Resume each pair at its first incomplete step: send a continue prompt to an idle reviewer, rather than creating a second workspace, PR or merge. Restart a stopped Godot editor or Blender instance on the same port and tell the reviewer that the worker must reconnect. A changed PR head after acceptance needs a new `accepted` result before merging.
