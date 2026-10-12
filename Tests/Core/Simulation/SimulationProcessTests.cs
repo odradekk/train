@@ -151,7 +151,7 @@ public sealed class SimulationProcessTests
         Assert.AreEqual(5, prefix.LogEntryCount);
     }
 
-    private static void AssertIdentity(ProcessIdentity identity)
+    internal static void AssertIdentity(ProcessIdentity identity)
     {
         AssertSha256(identity.SourceSha256, "原始起点");
         AssertSha256(identity.BuildSha256, "实际测试构建");
@@ -169,7 +169,7 @@ public sealed class SimulationProcessTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(identity.DotNetRuntime));
     }
 
-    private static void AssertTraceComparison(ProcessResult left, ProcessResult right)
+    internal static void AssertTraceComparison(ProcessResult left, ProcessResult right)
     {
         var codecResultLeft = DecodeTrace(left);
         var codecResultRight = DecodeTrace(right);
@@ -211,7 +211,7 @@ public sealed class SimulationProcessTests
             points.ToImmutable());
     }
 
-    private async Task<ProcessResult> RunProcess(
+    internal static async Task<ProcessResult> RunProcess(
         string directory, string name, string mode, string schedule, string? input = null, string? payload = null)
     {
         var output = Path.Combine(directory, $"{name}-{schedule}.json");
@@ -261,7 +261,7 @@ public sealed class SimulationProcessTests
                ?? throw new AssertFailedException($"无法读取子进程结果：{output}");
     }
 
-    private static string CreateEvidenceDirectory()
+    internal static string CreateEvidenceDirectory()
     {
         var path = Path.Combine(Path.GetTempPath(), "simulation-process-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(path);
