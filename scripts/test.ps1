@@ -36,7 +36,7 @@ foreach ($previous in $runs) {
         $owner = $null
         try { $owner = Get-Content (Join-Path $previous.FullName 'owner.json') -Raw | ConvertFrom-Json } catch { }
         $process = if ($owner) { Get-Process -Id $owner.pid -ErrorAction SilentlyContinue } else { $null }
-        if ($process -and $process.StartTime.ToUniversalTime().ToString('O') -eq $owner.started) { throw 'A recorded test run still owns this worktree.' }
+        if ($process -and $process.StartTime.ToUniversalTime().Ticks -eq ([DateTime] $owner.started).ToUniversalTime().Ticks) { throw 'A recorded test run still owns this worktree.' }
         Remove-Item -LiteralPath $previous.FullName -Recurse -Force
     }
 }
@@ -105,14 +105,16 @@ try {
                     Invoke-Check schema $current $pwsh @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 }
             } else {
-                Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                $watch.Stop()
+                Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
                 $checks = @('logging', 'content', 'main-menu', 'simulation-host')
                 $binary = Join-Path $run 'exports/windows/train.exe'
                 if ($ExportWindows) {
                     New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
-                    Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                    Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120
                     $checks += @('content-export', 'mods-export')
                 }
+                $watch.Start()
                 foreach ($check in $checks) {
                     $arguments = @('-NoProfile', '-File', 'scripts/checks/run-app-check.ps1', '-Check', $check, '-OutputDirectory', (Join-Path $run $check), '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))")
                     if ($check -like '*-export') { $arguments += @('-ExecutablePath', $binary) }
@@ -144,7 +146,8 @@ finally {
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name]) }
     $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json')
     if ($summary.outcome -eq 'passed') {
-        # 临时保留 TRX，供同提交的新旧入口等效证明；证明后的提交恢复清理。
+        try { foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -ne 'summary.json')) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force } }
+        catch { $summary.outcome = 'failed'; $summary.error = "Cleanup failed: $($_.Exception.Message)"; $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json') }
     }
     $mutex.ReleaseMutex()
     $mutex.Dispose()

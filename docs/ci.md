@@ -12,7 +12,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
-旧入口常规 CI 总用时为 5 分 34 秒，作为历史对照；本票的新用时须从实际 GitHub job 取得，尚未记录。
+旧入口常规 CI 总用时为 5 分 34 秒，作为历史对照；新入口的实际 GitHub job 总用时及比较记录在 [#403 交付评论](https://github.com/odradekk/train/issues/403)，本机运行时间另列。
 
 ## 显式较重运行
 

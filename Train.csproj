@@ -43,8 +43,5 @@
     <Compile Remove="TestResults/**" />
     <EmbeddedResource Remove="TestResults/**" />
     <None Remove="TestResults/**" />
-    <Compile Remove="scripts/metadata-reader/**" />
-    <EmbeddedResource Remove="scripts/metadata-reader/**" />
-    <None Remove="scripts/metadata-reader/**" />
   </ItemGroup>
 </Project>
