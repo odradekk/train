@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 验证通用 SplitMix64 变换的固定输入与输出。
-// 向量独立按参考算法计算，覆盖零、普通输入和 64 位溢出，不使用断裂随机键。
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Simulation;

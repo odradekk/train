@@ -1,5 +1,3 @@
-// Content 测试辅助：记录内容诊断事件，供断言观察。
-// 属性在写入时复制，快照不暴露记录集合。
 using Train.Content;
 
 namespace Train.Content.Tests;

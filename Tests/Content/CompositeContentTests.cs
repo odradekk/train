@@ -1,5 +1,3 @@
-// Content 内容模块测试：验证 schema 2 蓝图、设计属性、引用隔离与原子发布。
-// 输入由最小内存夹具提供，期望属性均由夹具字段手工计算。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Content.Composites;
@@ -147,7 +145,6 @@ public sealed class CompositeContentTests
                 CompositeFixtures.Voxel(0, 0, 0, "core:vehicle-shell"),
                 CompositeFixtures.Voxel(1, 0, 0, "core:control-unit")))));
         var playerPackage = source.ListPackages().Single(package => package.Kind == ContentPackageKind.PlayerBlueprint);
-        // 通用发现会列出这些文件，加载器只读取 UUID 同名的根级蓝图。
         foreach (var ignored in new[]
                  {
                      "extra.voxels.json", "extra.composites.json", "extra.market-tables.json",
@@ -285,7 +282,6 @@ public sealed class CompositeContentTests
         Assert.AreSame(snapshot, reloader.Current);
     }
 
-    /// <summary>比较全部设计属性和 BOM，不依赖对象实例或映射的枚举顺序。</summary>
     private static void AssertAttributesEqual(DesignAttributes expected, DesignAttributes actual)
     {
         Assert.AreEqual(expected.Mass, actual.Mass, nameof(DesignAttributes.Mass));

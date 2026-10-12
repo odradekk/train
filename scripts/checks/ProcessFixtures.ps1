@@ -1,5 +1,3 @@
-# 为 App 检查脚本的编排测试创建假的本机进程，并清理本次拥有的临时文件。
-# 假进程只提供输出和退出状态，不证明 Godot 或游戏行为。
 
 function Get-TestPowerShellPath {
     if ($PSVersionTable.PSVersion.Major -lt 7) {
@@ -9,7 +7,6 @@ function Get-TestPowerShellPath {
     return (Get-Process -Id $PID).Path
 }
 
-# 清理本次创建的临时目录前，确认绝对目标是固定名称与 GUID 组成的直系临时子目录。
 function Remove-ProcessFixtureDirectory {
     param([string] $Path, [string] $ExpectedPrefix)
     $target = [System.IO.Path]::GetFullPath($Path).TrimEnd('\', '/')

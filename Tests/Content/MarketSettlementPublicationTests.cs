@@ -1,4 +1,3 @@
-// 从命名数据例子验证新领域格式复用同一加载、包隔离和原子发布流程。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Content.Markets;

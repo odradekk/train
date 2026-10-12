@@ -1,28 +1,17 @@
-// 属于内容层的体素定义模块。
-// 定义体素布局、表现和碰撞共同使用的离散正交朝向。
 using System.Collections.ObjectModel;
 
 namespace Train.Content.Voxels;
 
-/// <summary>表示体素局部坐标或世界坐标的一条有向正交轴。</summary>
 public enum VoxelAxis
 {
-    /// <summary>X 轴正方向。</summary>
     PositiveX,
-    /// <summary>X 轴负方向。</summary>
     NegativeX,
-    /// <summary>Y 轴正方向。</summary>
     PositiveY,
-    /// <summary>Y 轴负方向。</summary>
     NegativeY,
-    /// <summary>Z 轴正方向。</summary>
     PositiveZ,
-    /// <summary>Z 轴负方向。</summary>
     NegativeZ
 }
 
-/// <summary>表示体素从局部单位格到世界单位格的右手正交朝向。</summary>
-/// <example>水平旋转见 <c>VoxelCubeUvTests.Yaw90_rotates_top_uvs_instead_of_reusing_world_face_corners</c>；倾斜朝向见 <c>VoxelCubeUvTests.Tilt_maps_world_top_through_the_local_side_now_pointing_up</c>。</example>
 public readonly record struct VoxelOrientation
 {
     private static readonly VoxelAxis[] Axes = Enum.GetValues<VoxelAxis>();
@@ -35,29 +24,16 @@ public readonly record struct VoxelOrientation
         new VoxelOrientation(VoxelAxis.NegativeZ, VoxelAxis.PositiveY)
     });
 
-    /// <summary>获取局部 X 正轴在世界坐标中的方向。</summary>
     public VoxelAxis Right { get; }
-    /// <summary>获取局部 Y 正轴在世界坐标中的方向。</summary>
     public VoxelAxis Up { get; }
-    /// <summary>获取由 Right × Up 得到的局部 Z 正轴世界方向。</summary>
     public VoxelAxis Forward { get; }
-    /// <summary>获取三个轴是否构成有效右手正交基。</summary>
     public bool IsOrthogonal => ArePerpendicular(Right, Up) && Forward == Cross(Right, Up);
 
-    /// <summary>获取局部轴与世界轴相同的默认朝向。</summary>
     public static VoxelOrientation Identity { get; } = new(VoxelAxis.PositiveX, VoxelAxis.PositiveY);
-    /// <summary>获取绕世界 Y 轴旋转 90 度的朝向。</summary>
     public static VoxelOrientation Yaw90 { get; } = new(VoxelAxis.PositiveZ, VoxelAxis.PositiveY);
-    /// <summary>获取全部二十四个右手正交朝向。</summary>
     public static IReadOnlyList<VoxelOrientation> All => AllOrientations;
-    /// <summary>获取保持局部 Y 轴向上的四个水平朝向。</summary>
     public static IReadOnlyList<VoxelOrientation> FourWay => FourWayOrientations;
 
-    /// <summary>用局部 X、Y 正轴在世界中的方向构造朝向。</summary>
-    /// <param name="right">局部 X 正轴的世界方向。</param>
-    /// <param name="up">局部 Y 正轴的世界方向。</param>
-    /// <exception cref="ArgumentException">两个轴平行或反向，不能构成正交基。</exception>
-    /// <exception cref="ArgumentOutOfRangeException">right 或 up 不是有效的有向轴枚举值。</exception>
     public VoxelOrientation(VoxelAxis right, VoxelAxis up)
     {
         if (!ArePerpendicular(right, up))
@@ -67,10 +43,6 @@ public readonly record struct VoxelOrientation
         Forward = Cross(right, up);
     }
 
-    /// <summary>把一条局部有向轴转换为世界有向轴。</summary>
-    /// <param name="localAxis">局部有向轴。</param>
-    /// <returns>对应的世界有向轴。</returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="localAxis"/> 不是有效枚举值。</exception>
     public VoxelAxis Transform(VoxelAxis localAxis) => localAxis switch
     {
         VoxelAxis.PositiveX => Right,
@@ -82,10 +54,6 @@ public readonly record struct VoxelOrientation
         _ => throw new ArgumentOutOfRangeException(nameof(localAxis), localAxis, "Unknown voxel axis.")
     };
 
-    /// <summary>把一条世界有向轴转换为局部有向轴。</summary>
-    /// <param name="worldAxis">世界有向轴。</param>
-    /// <returns>对应的局部有向轴。</returns>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="worldAxis"/> 不是当前朝向产生的有效轴。</exception>
     public VoxelAxis InverseTransform(VoxelAxis worldAxis)
     {
         foreach (var local in Axes)
@@ -97,12 +65,6 @@ public readonly record struct VoxelOrientation
         throw new ArgumentOutOfRangeException(nameof(worldAxis), worldAxis, "World axis is not produced by this orientation.");
     }
 
-    /// <summary>把局部单位格中的坐标转换到同一世界单位格。</summary>
-    /// <param name="localX">局部 X 坐标，单位为体素。</param>
-    /// <param name="localY">局部 Y 坐标，单位为体素。</param>
-    /// <param name="localZ">局部 Z 坐标，单位为体素。</param>
-    /// <returns>旋转后的世界格内坐标，单位为体素。</returns>
-    /// <exception cref="ArgumentOutOfRangeException">任一输入不是有限数。</exception>
     public (double X, double Y, double Z) ToWorldCell(double localX, double localY, double localZ)
     {
         if (!IsFinite(localX) || !IsFinite(localY) || !IsFinite(localZ))
@@ -113,12 +75,6 @@ public readonly record struct VoxelOrientation
             AlongWorld(VoxelAxis.PositiveZ, localX, localY, localZ));
     }
 
-    /// <summary>把世界单位格中的坐标转换到定义的局部单位格。</summary>
-    /// <param name="worldX">世界格内 X 坐标，单位为体素。</param>
-    /// <param name="worldY">世界格内 Y 坐标，单位为体素。</param>
-    /// <param name="worldZ">世界格内 Z 坐标，单位为体素。</param>
-    /// <returns>逆旋转后的局部格内坐标，单位为体素。</returns>
-    /// <exception cref="ArgumentOutOfRangeException">任一输入不是有限数。</exception>
     public (double X, double Y, double Z) ToLocalCell(double worldX, double worldY, double worldZ)
     {
         if (!IsFinite(worldX) || !IsFinite(worldY) || !IsFinite(worldZ))
@@ -129,13 +85,8 @@ public readonly record struct VoxelOrientation
             AlongLocal(VoxelAxis.PositiveZ, worldX, worldY, worldZ));
     }
 
-    /// <summary>返回 <c>right_up</c> 形式的小写线格式。</summary>
     public override string ToString() => $"{ToWire(Right)}_{ToWire(Up)}";
 
-    /// <summary>不区分大小写地解析一个二十四朝向线格式。</summary>
-    /// <param name="value">候选文本；<see langword="null"/> 无效。</param>
-    /// <param name="orientation">成功时为解析结果；失败时为默认结构值。</param>
-    /// <returns>文本匹配一个有效朝向时返回 <see langword="true"/>。</returns>
     public static bool TryParse(string? value, out VoxelOrientation orientation)
     {
         foreach (var candidate in All)
@@ -264,21 +215,12 @@ public readonly record struct VoxelOrientation
     };
 }
 
-/// <summary>
-/// 表示立方体在世界坐标中的一个面方向。
-/// </summary>
 public enum VoxelFaceNormal
 {
-    /// <summary>朝向 X 轴正方向的面。</summary>
     PositiveX,
-    /// <summary>朝向 X 轴负方向的面。</summary>
     NegativeX,
-    /// <summary>朝向 Y 轴正方向的面。</summary>
     PositiveY,
-    /// <summary>朝向 Y 轴负方向的面。</summary>
     NegativeY,
-    /// <summary>朝向 Z 轴正方向的面。</summary>
     PositiveZ,
-    /// <summary>朝向 Z 轴负方向的面。</summary>
     NegativeZ
 }

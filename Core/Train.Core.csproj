@@ -5,7 +5,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Train.Core</RootNamespace>
     <LangVersion>12.0</LangVersion>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Train.Core.Tests" />

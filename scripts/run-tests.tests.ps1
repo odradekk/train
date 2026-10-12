@@ -1,6 +1,3 @@
-# 从统一入口的输出和产物验证选择、隔离、退出状态与进程清理契约。
-# 假宿主只证明编排；真实 MSTest 用例另行执行。
-# Ctrl+C 用例依赖 Windows 控制台事件，其他宿主将其报告为未验证并返回非零。
 
 param([string] $Only = "")
 
@@ -422,7 +419,6 @@ function New-CheckSpec {
     return $map
 }
 
-# 将检查和可选库存写成 JSON；PowerShell 编码器能处理夹具中的哈希表及其包装对象。
 function Write-ExternalCatalog([string] $Path, [object[]] $Checks, [object[]] $Inventory = $null) {
     $list = [System.Collections.Generic.List[object]]::new()
     foreach ($check in @($Checks)) { $list.Add($check) }
@@ -447,8 +443,6 @@ function Get-AppDataStamp {
     return [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($bytes))
 }
 
-# Expected family / comma-separated scopes / group / optional comma-separated requirements.
-# Scope、分组和环境要求是彼此独立的清单契约。
 $expected = @{
     VoxelCubeUvTests = "unit/voxels,content/voxels"
     VoxelCollisionDefinitionTests = "unit/content,voxels/content"
@@ -2551,7 +2545,6 @@ It "fixture-external-timeout-tree" {
         (New-CheckSpec -Id "ext.timeout-hold" -Group "a-hold" -ScriptPath $externalHost -Arguments @("-Mode", "hold", "-PidFile", $pidFile) -TimeoutSeconds 30),
         (New-CheckSpec -Id "ext.timeout-later" -Group "z-later" -ScriptPath $externalHost -Arguments @("-Mode", "pass") -TimeoutSeconds 30)
     )
-    # 库存来自运行器所在仓库；在隔离仓库提供同名库存，不依赖生产登记项。
     $fixtureInventory = foreach ($check in $fixtureChecks) {
         @{
             id = $check["id"]; entry = $externalHost
@@ -2946,7 +2939,6 @@ It "fixture-isolated-reference-interruption" {
         Write-Project (Join-Path $repo 'Tests/Core') 'Train.Core.Tests' $xml $bindingSource
         $results = New-Results "reference-$mode"
         $arguments = @('-Module', 'core', '-Correctness', '-ResultsRoot', $results)
-        # 只有超时模式使用短上限；首次构建同受此上限约束，其余模式用默认值以免慢机器提前超时。
         if ($mode -eq 'timeout') { $arguments += @('-PrepTimeoutSeconds', '45') }
         $handle = Open-Runner -RunnerPath (Join-Path $repo 'scripts/run-tests.ps1') -WorkingDirectory $repo -Unset $script:GitIsolation -ArgumentList $arguments -WaitMs 240000
         try {

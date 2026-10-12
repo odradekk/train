@@ -1,14 +1,3 @@
-# PowerShell 7 统一检查入口，负责发现、选择、准备环境、调用检查和发布报告。
-# MSTest 分类来自 TestCategory；App 检查由 runner-catalog.json 登记，断言留在各自实现中。
-# Windows CI 与本地验证使用同一入口。
-#
-# 退出码：
-#   0 所选必需检查都通过
-#   1 检查、构建、仓库输入或入口自身失败
-#   2 阻塞（环境不可用、发现失败、清理失败、正常用户目录前后不一致或无法读取、待实现的检查）
-#   3 取消或超时
-#   4 参数非法、未知名称或明确选择零匹配
-# 有效运行按失败、清理失败、取消/超时、其他阻塞/未完成、通过的顺序合并结果。
 
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
@@ -324,7 +313,6 @@ function Copy-IsolatedProject {
     New-Item -ItemType Directory -Force -Path $isolationRoot | Out-Null
     $script:IsolationRoots.Add($isolationRoot)
     New-Item -ItemType Directory -Force -Path $evidenceRoot | Out-Null
-    # 输入复制失败时也保留本次目录身份，供运行结束后核对清理。
     [IO.File]::WriteAllText((Join-Path $evidenceRoot 'root.txt'), $isolationRoot, $script:Utf8)
     $inputs = [System.Collections.Generic.List[object]]::new()
     $boundary = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'checks/project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
@@ -747,8 +735,6 @@ function Get-GitState {
         $known = $false
         $reason = [string] $_.Exception.Message
     }
-    # An unreadable snapshot is not a known-clean tree. Dirty stays true so it cannot be
-    # reported as clean; IdentityKnown says this was not an observation of edits.
     return [pscustomobject]@{
         Commit = $commit
         Dirty = [bool] $dirty
@@ -804,8 +790,6 @@ function Test-RequirementAvailable {
 function Get-GroupTimeoutSeconds {
     param([int] $CaseCount, [int] $Override)
     if ($Override -gt 0) { return $Override }
-    # 沿用编排层的保守等待预算：预留启动时间，随用例数增加，并限制在 90 至 900 秒。
-    # 该预算用于结束卡住的进程，不是测试耗时或性能基线。
     $seconds = 45 + (20 * $CaseCount)
     return [Math]::Min(900, [Math]::Max(90, $seconds))
 }
@@ -880,9 +864,6 @@ function Get-OutcomeRank([string] $Outcome) {
 }
 
 function Get-ProcessDisposition($Run) {
-    # StopDispatch is only user cancel or a cleanup failure. A timeout whose process
-    # was cleaned up does not stop independent groups; callers still block dependents.
-    # For every non-exit result, Kind is the reason and dependents are blocked.
     if ($Run.CleanupFailed) {
         return [pscustomobject]@{ Kind = "cleanup"; Outcome = "blocked"; StopDispatch = $true }
     }
@@ -1361,7 +1342,6 @@ function Write-RunSummary([string] $Directory, $Summary) {
     Write-RunReports -State ([pscustomobject]@{ Directory = $Directory; Summary = $Summary; Markdown = $markdown; JsonOptions = (New-JsonOptions) }) | Out-Null
 }
 
-# 报告发布后结果又改变时，就地更新同一份 JSON 和 Markdown；尚未发布时返回 false。
 function Update-PublishedRun([string] $Directory, [scriptblock] $Update) {
     $summaryPath = Join-Path $Directory "summary.json"
     if (-not (Test-Path -LiteralPath $summaryPath)) { return $false }
@@ -1373,7 +1353,6 @@ function Update-PublishedRun([string] $Directory, [scriptblock] $Update) {
 
 function Get-ExitCode {
     param($Checks, [switch] $CleanupFailed, [switch] $UserCancel, [switch] $PrepTimedOut, [switch] $RequiredBuildBlocked, [switch] $RequiredBuildFailed, [switch] $IsolationFailed, [int] $PriorExitCode = 0)
-    # 调用方已有的退出码（入口异常为 1，或隔离目录清理前的结果）按同一顺序参与合并；退出码 4 原样返回。
     if ($PriorExitCode -eq 4) { return 4 }
     $failed = $false
     $blocked = $false
@@ -1700,8 +1679,6 @@ function New-ContentCheckInput {
         New-Item -ItemType Directory -Force -Path $images | Out-Null
         Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain.voxels.json") -Destination $voxels
         Copy-Item -LiteralPath (Join-Path $sourceResources "voxels/grain/placeholder.png") -Destination $images
-        # 同一轮改变体素、价格表和类型规格，实际 App 检查断言它们只发布一个完整世代。
-        # 两状态的敏感度和供给容量对应 App/Checks/ContentCheck.cs 的独立预期；调整夹具时同步核对。
         $sensitivity = if ($state -eq "added") { 0.75 } else { 0.5 }
         $capacity = if ($state -eq "added") { 3 } else { 2 }
         $market = [ordered]@{
@@ -1909,7 +1886,6 @@ function Invoke-Main {
     }
 
     $runDirectory = ""
-    # -List never executes. Help never executes. Any other explicit selection executes.
     $executing = (-not $parsed.Help) -and (-not $parsed.List) 
     if ($executing) {
         $resultsRoot = if ($parsed.ResultsRoot) { Resolve-ExistingPath $parsed.ResultsRoot } else { Join-Path $script:Root "TestResults/run-tests" }
@@ -1926,8 +1902,6 @@ function Invoke-Main {
     $cancelFile = ""
     if ($runDirectory) { $cancelFile = Join-Path $runDirectory "cancel.request" }
 
-    # One preparation cap covers restore and build of the test assembly, Train.csproj,
-    # Godot import, and the version probe. -PrepTimeoutSeconds replaces that one limit.
     # Cold measurement on 2026-09-30 with empty NUGET_PACKAGES and NUGET_HTTP_CACHE_PATH:
     # Train.Tests restore 10471ms and build --no-restore 8315ms;
     # Train.csproj restore 5834ms and build --no-restore 8608ms.
@@ -1941,7 +1915,6 @@ function Invoke-Main {
     Add-Map $preparation "commandCount" 0 | Out-Null
     $catalog = [pscustomobject]@{ Cases = [System.Collections.Generic.List[object]]::new(); Errors = [System.Collections.Generic.List[string]]::new() }
     $projectEvidence = New-List
-    # 在构建任何所选测试项目之前记录一次工作树身份。
     $script:TestedGit = Get-GitState
     foreach ($project in $projects) {
         $sourceProject = $project.Path
@@ -1959,7 +1932,6 @@ function Invoke-Main {
                 Add-PrepStep -Preparation $preparation -Name "isolation-inputs-$($project.Module)" -Outcome 'passed' -Reason 'copied' -DurationMs 0 -Command $null
             }
             catch {
-                # 缺失源文件/目录和配置错误属于仓库输入；其余 IO、权限问题才是环境阻塞。
                 $inputException = $_.Exception.GetBaseException()
                 $environmentFailure = $inputException -is [UnauthorizedAccessException] -or
                     ($inputException -is [IO.IOException] -and $inputException -isnot [IO.FileNotFoundException] -and $inputException -isnot [IO.DirectoryNotFoundException])
@@ -2005,8 +1977,6 @@ function Invoke-Main {
         Add-Map $preparation "reason" $buildReason | Out-Null
         Add-PrepStep -Preparation $preparation -Name "build" -Outcome $buildOutcome -Reason $buildReason -DurationMs ([int] $buildWatch.ElapsedMilliseconds) -Command $buildCommand
 
-        # The test assembly is required for discovery, so a timeout or cancel stops the run.
-        # A game-build or import timeout does not: it only blocks groups that need that step.
         if ($buildDisposition.Kind -eq "cleanup") {
             [Console]::Error.WriteLine("error: blocked cleanup")
             if ($runDirectory) { Publish-Run -Parsed $parsed -Preparation $preparation -ExitCode 2 -Directory $runDirectory }
@@ -2552,7 +2522,6 @@ catch {
     if ($script:OwnedPid) { Stop-OwnedProcessTree -ProcessId $script:OwnedPid | Out-Null }
     if ($script:RunDirectory) {
         try {
-            # 报告已发布时保留原准备结果，另记入口失败；否则以准备失败发布本次已有结果。
             $updated = Update-PublishedRun -Directory $script:RunDirectory -Update { param($summary) $summary.exitCode = $exitCode; $summary.runnerError = $runnerError }
             if (-not $updated) {
                 $preparation = New-Map

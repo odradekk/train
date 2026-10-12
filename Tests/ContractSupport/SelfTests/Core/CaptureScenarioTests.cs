@@ -1,5 +1,3 @@
-// 核心契约支持自检：验证捕获情景的共享断言及有限情景替身。
-// 未配置操作必须明确失败；读取会话当前引用的捕获必须被共享断言发现。
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

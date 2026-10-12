@@ -1,11 +1,8 @@
-// Train.Core.Simulation 读写核心状态的共享基础字段。
-// 恢复载荷与检查点通过同一实现保持字段、枚举和值域一致。
 
 using System.Text.Json;
 
 namespace Train.Core.Simulation;
 
-/// <summary>读写完整模拟边界的基础权威字段。</summary>
 internal static class SimulationStateDocument
 {
     private static readonly string[] FieldNames =
@@ -14,7 +11,6 @@ internal static class SimulationStateDocument
         "next_command_id", "next_entity_id", "transaction_count", "fault"
     ];
 
-    /// <summary>按固定顺序写入完整 simulation 对象。</summary>
     internal static void Write(Utf8JsonWriter writer, SimulationState state)
     {
         writer.WriteStartObject();
@@ -30,7 +26,6 @@ internal static class SimulationStateDocument
         writer.WriteEndObject();
     }
 
-    /// <summary>严格读取完整 simulation 对象。</summary>
     internal static SimulationState Read(JsonElement fields, string path)
     {
         SimulationJson.CheckKnownFields(fields, path, FieldNames);
@@ -52,13 +47,11 @@ internal static class SimulationStateDocument
         };
     }
 
-    /// <summary>按固定读取顺序取得字段并定位缺失值。</summary>
     private static JsonElement Property(JsonElement value, string name, string path) =>
         value.TryGetProperty(name, out var property)
             ? property
             : throw SimulationJson.Invalid("missing_field", path + "/" + SimulationJson.Escape(name));
 
-    /// <summary>按固定顺序写入可选故障及其事务上下文。</summary>
     private static void WriteFault(Utf8JsonWriter writer, SimulationFault? fault)
     {
         if (fault is null)
@@ -77,7 +70,6 @@ internal static class SimulationStateDocument
         writer.WriteEndObject();
     }
 
-    /// <summary>按固定顺序写入可选事务上下文。</summary>
     private static void WriteContext(Utf8JsonWriter writer, TransactionContext? context)
     {
         if (context is null)
@@ -99,7 +91,6 @@ internal static class SimulationStateDocument
         writer.WriteEndObject();
     }
 
-    /// <summary>读取 null 或严格故障对象。</summary>
     private static SimulationFault? ReadFault(JsonElement value, string path)
     {
         if (value.ValueKind == JsonValueKind.Null) return null;
@@ -111,7 +102,6 @@ internal static class SimulationStateDocument
             ReadNullableNonZero(Property(value, "entity_id", path), path + "/entity_id", "invalid_entity_id"));
     }
 
-    /// <summary>读取 null 或严格事务上下文对象。</summary>
     private static TransactionContext? ReadContext(JsonElement value, string path)
     {
         if (value.ValueKind == JsonValueKind.Null) return null;
@@ -129,18 +119,15 @@ internal static class SimulationStateDocument
             ReadNullableNonZero(Property(value, "command_id", path), path + "/command_id", "invalid_command_id"));
     }
 
-    /// <summary>读取非零 UInt64 身份。</summary>
     private static ulong ReadNonZero(JsonElement value, string path, string code)
     {
         var result = SimulationJson.UInt64(value, path);
         return result != 0 ? result : throw SimulationJson.Invalid(code, path);
     }
 
-    /// <summary>读取显式 null 或非零 UInt64 身份。</summary>
     private static ulong? ReadNullableNonZero(JsonElement value, string path, string code) =>
         value.ValueKind == JsonValueKind.Null ? null : ReadNonZero(value, path, code);
 
-    /// <summary>读取稳定的小写阶段名。</summary>
     private static SimulationPhase ReadPhase(JsonElement value, string path) =>
         SimulationJson.String(value, path) switch
         {
@@ -153,7 +140,6 @@ internal static class SimulationStateDocument
             _ => throw SimulationJson.Invalid("invalid_phase", path)
         };
 
-    /// <summary>读取稳定的小写事务种类。</summary>
     private static SimulationOperation ReadOperation(JsonElement value, string path) =>
         SimulationJson.String(value, path) switch
         {
@@ -162,7 +148,6 @@ internal static class SimulationStateDocument
             _ => throw SimulationJson.Invalid("invalid_operation", path)
         };
 
-    /// <summary>把阶段映射为稳定的小写文本。</summary>
     private static string PhaseText(SimulationPhase phase) => phase switch
     {
         SimulationPhase.Boundary => "boundary",
@@ -174,7 +159,6 @@ internal static class SimulationStateDocument
         _ => throw new ArgumentOutOfRangeException(nameof(phase), phase, null)
     };
 
-    /// <summary>把事务种类映射为稳定的小写文本。</summary>
     private static string OperationText(SimulationOperation operation) => operation switch
     {
         SimulationOperation.Command => "command",

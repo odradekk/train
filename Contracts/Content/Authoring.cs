@@ -1,5 +1,3 @@
-// 草稿持久值和开发创作的强类型输入；表单和网格都不通过任意 JSON 修改内部目录。
-// 不合法但可编码的内容可以保存草稿；有效发布仍需完整候选校验。
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 
@@ -23,7 +21,6 @@ public abstract record DraftPayload
 public sealed record SavedContentDraft(DraftId Id, EditRevision Revision,
     DraftTarget Target, DraftPayload Payload);
 
-/// <summary>创作输入中的资产路径；内容解释相对定义目录或 shared，不能传任意磁盘路径。</summary>
 public readonly record struct AuthoringAssetPath(string Value);
 public abstract record AuthoringVoxelPresentation
 {
@@ -34,7 +31,6 @@ public abstract record AuthoringVoxelPresentation
     public sealed record Mesh(AuthoringAssetPath Model,
         ImmutableArray<MaterialCategory> SurfaceMaterials) : AuthoringVoxelPresentation;
 }
-/// <summary>行为参数是创作声明，不是调用方计算的聚合能力；内容根据已知行为计算投影。</summary>
 public sealed record VoxelSimulationDraft(long? BaseValue, double? MassTons,
     long? MaxDurability, bool RawGood, double? FuelEnergyPerUnit,
     ImmutableArray<PartCapability> Behaviors);
@@ -67,13 +63,11 @@ public abstract record DefinitionDraft
     public sealed record SettlementTemplate(SettlementTemplateDraft Value) : DefinitionDraft;
 }
 public sealed record AuthoringDefinitionAddress(DefinitionKind Kind, string LocalId);
-/// <summary>打开时固定的包草稿输入；不持有文件句柄，不允许直接写入有效包。</summary>
 public interface IAuthoringPackage
 {
     PackageId Package { get; }
     PackageSourceVersion SourceVersion { get; }
     PackageMetadata Metadata { get; }
-    /// <summary>只列 DefinitionDraft 支持的五类；规则/生成配置等仍手写，不在此列表伪装为可编辑。</summary>
     ImmutableArray<AuthoringDefinitionAddress> EditableDefinitions { get; }
     ContentLookup<DefinitionDraft> Read(AuthoringDefinitionAddress address);
 }
@@ -86,7 +80,6 @@ public abstract record PackageEdit
     public sealed record DeleteAsset(string PackageRelativePath) : PackageEdit;
     public sealed record Manifest(PackageMetadata Value) : PackageEdit;
 }
-/// <summary>保留其他文件的确定补丁；null 为删除。删除定义自己的资产目录时须明确列出文件，不含 shared。</summary>
 public sealed record PackageFileChange(string RelativePath, ImmutableArray<byte>? Bytes);
 public sealed record PackageWritePlan(PackageId Package, PackageSourceVersion SourceVersion,
     ImmutableArray<PackageFileChange> Changes, ImmutableArray<ContentDiagnostic> Diagnostics);

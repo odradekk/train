@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 验证命令日志记录、摘要链、窗口裁剪和会话接入。
-// 固定记录文本为手写协议向量；链摘要由标准 SHA-256 从前一文本摘要和记录文本独立计算。
 
 using System.Collections.Immutable;
 using System.Security.Cryptography;

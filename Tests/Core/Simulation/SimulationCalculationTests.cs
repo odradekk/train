@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 把各计算用途的固定输入和独立预期输出写成单元测试。
-// 预期结果来自独立例子，同时检查共享流水线与资源领域计算。
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -81,7 +79,6 @@ public sealed class SimulationCalculationTests
         var result = (ResourcePlan)new ResourceCalculations().Resolve(
             ResourceInput(), new ResourceRequests(demands), FirstStep);
 
-        // 未获准请求不进入执行计划；剩余的 2 单位保留在库存中。
         CollectionAssert.AreEqual(new[] { new ResourceGrant(10, 1, 3) }, result.Grants.ToArray());
     }
 
@@ -142,7 +139,6 @@ public sealed class SimulationCalculationTests
         Assert.IsNull(candidate.Fault);
         foreach (var phase in new[] { SimulationPhase.Evaluate, SimulationPhase.Resolve, SimulationPhase.Commit })
         {
-            // 观察各阶段读取的完整事实；不把内部调用次数或对象引用身份作为合同。
             var input = calculations.Inputs[phase];
             var state = (ResourceState)input.Before;
             Assert.AreEqual(5UL, state.Stock);
@@ -346,7 +342,6 @@ public sealed class SimulationCalculationTests
         EntityIds = ImmutableSortedSet.Create(10UL, 20UL), NextEntityId = 21
     };
 
-    /// <summary>各阶段只返回预设数据，观察真实 ComputeStep 的输入及结果转交，不实现领域算法。</summary>
     private sealed class PipelineExamples(ResourceState before) : SimulationCalculations
     {
         public Dictionary<SimulationPhase, (SimulationState Before, TransactionContext Context)> Inputs { get; } = [];

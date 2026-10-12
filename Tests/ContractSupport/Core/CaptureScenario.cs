@@ -1,14 +1,10 @@
-// 核心契约的固定捕获情景，断言只依赖公开接口和公开值。
-// 有限情景替身不计算模拟、存档编码或引用清单。
 using Train.Core.Contracts;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Train.Core.ContractSupport;
 
-/// <summary>核对捕获跨一步推进及会话释放后的保留性；仅当预期引用不同，才验证引用变化后的旧值保留。</summary>
 public static class CaptureScenario
 {
-    /// <summary>依次保存捕获、推进一步、再次捕获并释放会话；输入身份和两份预期引用由调用方独立提供。</summary>
     public static void AssertContract(ICoreSession session, CoreInputId expectedInput,
         CoreReferenceManifest initialReferences, CoreReferenceManifest advancedReferences)
     {
@@ -63,7 +59,6 @@ public static class CaptureScenario
     }
 }
 
-/// <summary>只支持 Save 捕获及一次 Advance(1)，不计算模拟；startBatchOnAdvance 为 true（默认）时，推进后的捕获返回 AdvancedReferences，否则仍返回 InitialReferences。</summary>
 public sealed class CaptureSessionDouble : ICoreSession
 {
     public static CoreInputId Input => new(new string('A', 64));
@@ -77,7 +72,6 @@ public sealed class CaptureSessionDouble : ICoreSession
                     new ProcessRef.Production(new("fixture:process"))),
                 null, "settlements[1].facilities[1].plan.process", false)],
         [Input]);
-    /// <summary>保留原模板副本，并追加推进中启动的生产批次所需、带 FrozenRevision 的流程引用。</summary>
     public static CoreReferenceManifest AdvancedReferences
     {
         get

@@ -1,12 +1,9 @@
-// 内容文件端口的共享情景；调用方提供真实端口或有限情景替身。
-// 只断言公开的字节和超限结果，不推断来源的文件系统行为。
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 
 namespace Train.Content.ContractSupport;
 
-/// <summary>核对两个等长文件的固定字节、结果不可变性与超限失败；调用方提供端口及独立的期望字节。</summary>
 public static class ContentFilesScenario
 {
     public static void AssertFixedReadAndLimit(IContentFiles files, ContentPath path,

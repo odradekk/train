@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 提供命令规范编码的真实测试领域适配器。
-// 夹具只定义固定种类及字段，不承担公共包络、重复字段或摘要计算。
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -8,7 +6,6 @@ using Train.Core.Simulation;
 
 namespace Train.Core.Tests.Simulation;
 
-/// <summary>覆盖命令编码中各类标量、无序身份集合和有序身份序列的测试命令。</summary>
 internal sealed record EncodingProbeCommand(
     long Signed,
     double Ratio,
@@ -17,10 +14,8 @@ internal sealed record EncodingProbeCommand(
     ImmutableHashSet<ulong> EntityIds,
     ImmutableArray<ulong> Route) : CoreCommand;
 
-/// <summary>把资源测试命令映射到版本 2 的固定种类名、字段顺序和字段约束。</summary>
 internal sealed class ResourceCommandCodec : SimulationCommandCodec
 {
-    /// <summary>在领域字段写入时观察会话公开查询；未设置时不产生附加效果。</summary>
     internal Action? WritingFields { get; init; }
 
     protected override string GetKind(CoreCommand command) => command switch

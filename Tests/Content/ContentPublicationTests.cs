@@ -1,5 +1,3 @@
-// Content 内容发布的功能例子：从两格蓝图的输入验证一个完整批次。
-// 预期属性来自 ContentReloadExamples 的手算数据。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 using Train.Content.Tests;

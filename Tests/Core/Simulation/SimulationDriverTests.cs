@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 用可控真实时间验证宿主驱动的输入输出。
-// 预期步数、余量、事件和速度来自固定输入；不等待真实时钟或启动 Godot。
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -88,7 +86,6 @@ public sealed class SimulationDriverTests
         clock.Seconds = 1;
         Assert.AreEqual(1UL, driver.AdvanceFrame(1, Budget).StepsAdvanced);
 
-        // 计算变快后也只能兑现新帧的 1× 额度，不能补算之前未完成的 479 步。
         cost = 0;
         driver.SetSpeed(SimulationSpeed.One);
         for (var frame = 0; frame < 60; frame++)
@@ -362,6 +359,5 @@ public sealed class SimulationDriverTests
         }
     };
 
-    /// <summary>测试中可显式推进的单调真实秒，既记录帧间隔也记录模拟计算耗时。</summary>
     private sealed class TestClock { public double Seconds { get; set; } }
 }

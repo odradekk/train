@@ -1,5 +1,3 @@
-// Content 内容模块测试。
-// 验证内容包遍历遇到链接或不可列举目录时使整个包失效。
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content;
 

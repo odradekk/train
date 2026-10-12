@@ -1,5 +1,3 @@
-// 市场表与聚居地类型的命名数据例子；预期由输入和手算结果独立给定。
-// 功能测试比较解析与完整快照发布结果，不调用被测函数生成预期。
 using System.Text.Json.Nodes;
 using Train.Content;
 using Train.Content.Markets;
@@ -8,13 +6,10 @@ using Train.Content.Voxels;
 
 namespace Train.Content.Tests;
 
-/// <summary>价格参数的人工预期，金额单位为游戏货币。</summary>
 internal sealed record MarketPriceExample(double Sensitivity, long MinPrice, long MaxPrice);
 
-/// <summary>供给或需求的人工预期，两个数均为货物单位数。</summary>
 internal sealed record MarketQuantityExample(int Capacity, int RestorePerTick);
 
-/// <summary>初始人口闭区间的人工预期，单位为人。</summary>
 internal sealed record PopulationRangeExample(int Min, int Max);
 
 internal static class MarketSettlementExamples
@@ -49,7 +44,6 @@ internal static class MarketSettlementExamples
         }
         """;
 
-    // 敏感度可为零，价格区间可退化为同一个正整数；不要求区间覆盖体素 Value。
     public static readonly string ConstantPriceFile = """
         {
           "schema_version": 1,
@@ -60,7 +54,6 @@ internal static class MarketSettlementExamples
         }
         """;
 
-    // 粮食在两边都出现；各边内部身份唯一。地貌是集合，排序不属于语义。
     public static readonly string DepotFile = """
         {
           "schema_version": 1,
@@ -77,7 +70,6 @@ internal static class MarketSettlementExamples
         }
         """;
 
-    // 供需可以为空、地貌不限、人口闭区间相等、站台数为零。
     public static readonly string QuietTypeFile = """
         {
           "schema_version": 1,
@@ -105,7 +97,6 @@ internal static class MarketSettlementFixtures
     public const string MarketFile = "markets/prices.market-tables.json";
     public const string TypeFile = "settlement-types/depot.settlement-types.json";
 
-    // 两单位粮食各 5 t、Value 100、耐久 100；蓝图为 10 t、Value 200、结构耐久 200。
     public static MemoryContentSource BaseSource()
     {
         var source = ContentFixtures.CorePackage();
@@ -127,7 +118,6 @@ internal static class MarketSettlementFixtures
         return source;
     }
 
-    // 仅用标准 JSON DOM 构造测试输入；预期合法性与数值由测试显式给出。
     public static string Edit(string json, string pointer, string? replacement)
     {
         var root = JsonNode.Parse(json)!;

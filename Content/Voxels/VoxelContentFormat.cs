@@ -1,8 +1,5 @@
-// 属于体素内容模块。
-// 解析体素定义、校验 PNG 表现和体素数量，生成候选条目及其修订。
 namespace Train.Content.Voxels;
 
-/// <summary>一轮加载中的 schema 2 体素格式；不发布目录，也不决定其他格式的隔离。</summary>
 internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, VoxelContentEntry>
 {
     public IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> Entries => Candidates;
@@ -12,7 +9,6 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
     public override bool HasChanges(ContentSnapshot previous) =>
         HasChanges(Entries, previous.Voxels, static entry => entry.PublicationFingerprint);
 
-    /// <summary>严格解析文件，并用同一份已验证 PNG 字节计算资产修订。</summary>
     protected override IReadOnlyList<VoxelContentEntry> Parse(
         IContentSource source, ContentPackageLoad load, string file, byte[] bytes)
     {
@@ -38,7 +34,6 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
         return entries;
     }
 
-    /// <summary>检查已隔离候选的体素总数；首次成功发布至少要有一个体素，后续允许清空。</summary>
     public void CheckGlobalLimits(DiagnosticBag diagnostics, bool initial)
     {
         if (Entries.Count > ContentLimits.MaxVoxels)
@@ -47,7 +42,6 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
             diagnostics.Reject(ContentDiagnosticCodes.EmptyInitialCatalog, "The initial content must contain at least one voxel definition.");
     }
 
-    /// <summary>读取四种绑定引用的去重 PNG，检查解码及尺寸；失败使整个所属包无效。</summary>
     private static bool TryLoadImages(IContentSource source, ContentPackageLoad load, VoxelPresentation presentation,
         out Dictionary<string, DecodedImage> images, out Dictionary<string, string> assets)
     {
@@ -85,7 +79,6 @@ internal sealed class VoxelContentFormat : ContentFormat<VoxelDefinitionId, Voxe
         return valid;
     }
 
-    /// <summary>解码已读取的同一份图片字节，拒绝链接、超限和失败结果，并检查单边尺寸。</summary>
     private static bool TryReadImage(IContentSource source, ContentPackageLoad load, string path,
         out DecodedImage? image, out string? revision)
     {

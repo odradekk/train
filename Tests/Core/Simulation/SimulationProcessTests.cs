@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 从 MSTest 父进程核验跨进程确定性证据。
-// 测试独立检查身份、采样、业务状态、执行日志与宿主调度遥测。
 
 using System.Collections.Immutable;
 using System.Diagnostics;

@@ -5,6 +5,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Train.Scenes</RootNamespace>
     <LangVersion>12.0</LangVersion>
-    <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 </Project>

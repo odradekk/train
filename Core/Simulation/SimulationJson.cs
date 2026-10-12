@@ -1,5 +1,3 @@
-// Train.Core.Simulation 共享确定性文档的 UTF-8 写入和严格字段读取。
-// 内部读取错误携带稳定路径，公共入口将其转换为完整失败结果。
 
 using System.Globalization;
 using System.Security.Cryptography;
@@ -9,10 +7,8 @@ using System.Text.Json;
 
 namespace Train.Core.Simulation;
 
-/// <summary>提供命令、恢复载荷和检查点共同使用的文档操作。</summary>
 internal static class SimulationJson
 {
-    /// <summary>计算无 BOM、无尾换行的紧凑 UTF-8 JSON 文本。</summary>
     internal static string Format(Action<Utf8JsonWriter> write)
     {
         using var stream = new MemoryStream();
@@ -22,11 +18,9 @@ internal static class SimulationJson
         return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    /// <summary>计算文本 UTF-8 字节的大写十六进制 SHA-256。</summary>
     internal static string Sha256(string text) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
-    /// <summary>读取独立存活的根对象，拒绝任何深度上的重复字段和非法字符串。</summary>
     internal static JsonElement ParseObject(string json)
     {
         using var document = JsonDocument.Parse(json);
@@ -35,7 +29,6 @@ internal static class SimulationJson
         return document.RootElement.Clone();
     }
 
-    /// <summary>检查一个对象恰好具有指定字段，不依赖字段枚举次序。</summary>
     internal static void CheckFields(JsonElement value, string path, params string[] names)
     {
         CheckKnownFields(value, path, names);
@@ -44,7 +37,6 @@ internal static class SimulationJson
                 throw Invalid("missing_field", path + "/" + Escape(name));
     }
 
-    /// <summary>检查对象只含指定字段；重复字段已由根文档读取统一拒绝。</summary>
     internal static void CheckKnownFields(JsonElement value, string path, params string[] names)
     {
         RequireObject(value, path);
@@ -53,14 +45,12 @@ internal static class SimulationJson
                 throw Invalid("unknown_field", path + "/" + Escape(property.Name));
     }
 
-    /// <summary>检查值属于对象分支。</summary>
     internal static void RequireObject(JsonElement value, string path)
     {
         if (value.ValueKind != JsonValueKind.Object)
             throw Invalid("invalid_type", path);
     }
 
-    /// <summary>读取完整范围内的 UInt64 整数，拒绝浮点文本和溢出。</summary>
     internal static ulong UInt64(JsonElement value, string path)
     {
         if (value.ValueKind != JsonValueKind.Number)
@@ -70,7 +60,6 @@ internal static class SimulationJson
         return result;
     }
 
-    /// <summary>读取完整范围内的 UInt32 整数。</summary>
     internal static uint UInt32(JsonElement value, string path)
     {
         if (value.ValueKind != JsonValueKind.Number)
@@ -80,7 +69,6 @@ internal static class SimulationJson
         return result;
     }
 
-    /// <summary>读取字符串字段；要求身份名时同时拒绝空字符串。</summary>
     internal static string String(JsonElement value, string path, bool nonEmpty = false)
     {
         if (value.ValueKind != JsonValueKind.String)
@@ -100,11 +88,9 @@ internal static class SimulationJson
         return result;
     }
 
-    /// <summary>把字段名转为 JSON Pointer 中的一个片段。</summary>
     internal static string Escape(string name) =>
         name.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
 
-    /// <summary>检查全部后代的重复字段和 Unicode 字符串，返回稳定错误路径。</summary>
     internal static void CheckTree(JsonElement value, string path)
     {
         if (value.ValueKind == JsonValueKind.Object)
@@ -133,7 +119,6 @@ internal static class SimulationJson
         }
     }
 
-    /// <summary>规范写入字段树；只对对象排序，数组保持原顺序。</summary>
     internal static void WriteCanonical(Utf8JsonWriter writer, JsonElement value, string path = "")
     {
         switch (value.ValueKind)
@@ -172,7 +157,6 @@ internal static class SimulationJson
         }
     }
 
-    /// <summary>按明确整数范围或有限 double 的 R 文本写入数值。</summary>
     private static void WriteNumber(Utf8JsonWriter writer, JsonElement value, string path)
     {
         var raw = value.GetRawText();
@@ -196,12 +180,10 @@ internal static class SimulationJson
         }
     }
 
-    /// <summary>构造可由公共读取入口返回的非法数据错误。</summary>
     internal static SimulationJsonException Invalid(string code, string path) =>
         new(new DeterminismError(DeterminismErrorKind.InvalidData, code, path));
 }
 
-/// <summary>在内部严格读取调用之间传递稳定字段错误。</summary>
 internal sealed class SimulationJsonException(DeterminismError error) : Exception(error.Code)
 {
     internal DeterminismError Error { get; } = error;

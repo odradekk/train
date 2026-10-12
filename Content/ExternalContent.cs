@@ -1,16 +1,10 @@
-// Train.Content 内容基础设施模块。
-// 访问用户目录中的 Mod、蓝图及其数据文件，同时执行路径安全检查。
 namespace Train.Content;
 
-/// <summary>安全访问用户目录中的物理内容包和玩家蓝图。</summary>
 public static class ExternalContent
 {
-    /// <summary>Godot 用户目录中的 Mod 逻辑路径。</summary>
     public const string ModsGodotPath = "user://mods";
-    /// <summary>Godot 用户目录中的玩家蓝图逻辑路径。</summary>
     public const string BlueprintsGodotPath = "user://blueprints";
 
-    /// <summary>确保目录位于可信用户数据根内且不经过重解析点。</summary><param name="trustedUserDataRoot">可信用户数据根。</param><param name="modsPath">要创建或验证的目录。</param><param name="error">失败原因；成功时为 <see langword="null"/>。</param><returns>目录可信且存在时为 <see langword="true"/>。</returns>
     public static bool TryEnsureDirectory(string trustedUserDataRoot, string modsPath, out string? error)
     {
         if (!ExternalPath.TryValidateTrustedChain(trustedUserDataRoot, modsPath, out error))
@@ -37,7 +31,6 @@ public static class ExternalContent
         }
     }
 
-    /// <summary>安全列出 Mod 根目录的直接子项并读取根清单。</summary><param name="trustedUserDataRoot">可信用户数据根。</param><param name="modsPath">Mod 物理根。</param><param name="children">成功时返回候选快照。</param><param name="error">无法列举根目录时的原因。</param><returns>根目录可安全列举时为 <see langword="true"/>。</returns>
     public static bool TryListDirectChildren(
         string trustedUserDataRoot,
         string modsPath,
@@ -119,13 +112,11 @@ public static class ExternalContent
         }
     }
 
-    /// <summary>列出 Mod 根目录的直接子项。</summary><param name="trustedUserDataRoot">可信用户数据根。</param><param name="modsPath">Mod 物理根。</param><returns>候选快照；根目录不可用时为空。</returns>
     public static IReadOnlyList<ModFolderCandidate> ListDirectChildren(string trustedUserDataRoot, string modsPath) =>
         TryListDirectChildren(trustedUserDataRoot, modsPath, out var children, out _)
             ? children
             : Array.Empty<ModFolderCandidate>();
 
-    /// <summary>安全列出玩家蓝图根目录中的直接 JSON 文件。</summary><param name="trustedUserDataRoot">可信用户数据根。</param><param name="blueprintsPath">蓝图物理根。</param><param name="files">成功时返回文件名与物理路径。</param><param name="error">失败原因。</param><returns>根目录可安全列举时为 <see langword="true"/>。</returns>
     public static bool TryListBlueprintFiles(
         string trustedUserDataRoot,
         string blueprintsPath,
@@ -191,7 +182,6 @@ public static class ExternalContent
         }
     }
 
-    /// <summary>创建蓝图根目录不可用诊断。</summary><param name="source">逻辑来源路径。</param><param name="message">失败说明。</param><returns>警告诊断。</returns>
     public static ContentDiagnostic BlueprintsRootUnavailable(string source, string message) =>
         new(
             ContentDiagnosticSeverity.Warning,
@@ -199,7 +189,6 @@ public static class ExternalContent
             message,
             source);
 
-    /// <summary>递归发现物理资源根中的 JSON 数据文件；格式由加载器解释。</summary><param name="resourcesRoot">资源根。</param><returns>安全相对路径、发现诊断和包无效标记。</returns>
     public static ContentFileDiscovery ListDefinitionFiles(string resourcesRoot)
     {
         if (!ExternalPath.TryStat(resourcesRoot, out var attributes, out var exists))
@@ -226,7 +215,6 @@ public static class ExternalContent
         return ContentPackageWalk.Discover(walkRoot, path => ListPhysicalEntries(path, resourcesRoot), ".json");
     }
 
-    /// <summary>在上限内安全读取物理资源文件。</summary><param name="resourcesRoot">资源根。</param><param name="normalizedRelativePath">规范化相对路径。</param><param name="maxBytes">最大读取字节数。</param><returns>读取结果。</returns>
     public static ContentBytesResult ReadFile(string resourcesRoot, string normalizedRelativePath, int maxBytes)
     {
         if (!ContentPath.TryNormalize(normalizedRelativePath, out var normalized) ||
@@ -263,7 +251,6 @@ public static class ExternalContent
         }
     }
 
-    /// <summary>创建 Mod 根目录不可用诊断。</summary><param name="source">逻辑来源路径。</param><param name="message">失败说明。</param><returns>警告诊断。</returns>
     public static ContentDiagnostic ModsRootUnavailable(string source, string message) =>
         new(
             ContentDiagnosticSeverity.Warning,

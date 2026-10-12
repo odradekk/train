@@ -1,12 +1,9 @@
-// 属于内容层的体素定义模块。
-// 解析字段和图片绑定；候选引用与图片检查由目录构建阶段完成。
 
 using System.Text.Json;
 using Train.Content.Behaviors;
 
 namespace Train.Content.Voxels;
 
-/// <summary>暂存通过字段校验的体素定义及其源文件，等待包和图片校验。</summary>
 internal sealed class ParsedVoxel
 {
     public string LocalId { get; }
@@ -51,13 +48,10 @@ internal sealed class ParsedVoxel
     }
 }
 
-/// <summary>严格解析当前体素内容格式，将格式错误归入所属包的诊断。</summary>
 internal static class VoxelsJsonParser
 {
-    /// <summary>当前唯一支持的文件 schema 版本，固定为 2；格式约定见模块说明。</summary>
     private const int SchemaVersion = 2;
 
-    /// <summary>解析 UTF-8 体素 JSON；结构或字段无效时记录诊断并返回 null。</summary>
     public static IReadOnlyList<ParsedVoxel>? Parse(
         byte[] utf8,
         string sourceFile,
@@ -67,7 +61,6 @@ internal static class VoxelsJsonParser
             (element, path) => TryParseVoxel(element, sourceFile, path, diagnostics, out var voxel) ? voxel : null);
     }
 
-    /// <summary>校验一个体素条目的身份、数值、标签、行为和表现字段。</summary>
     private static bool TryParseVoxel(
         JsonElement element,
         string sourceFile,
@@ -239,7 +232,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>校验标签文本和唯一性，返回规范化的标签集合。</summary>
     private static bool TryParseTags(
         JsonElement element,
         string jsonPath,
@@ -285,7 +277,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>按行为种类校验字段和参数，返回保留声明顺序的类型化行为。</summary>
     private static bool TryParseBehaviors(
         JsonElement element,
         string jsonPath,
@@ -402,7 +393,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>校验方块表现绑定和各面图片的安全相对路径。</summary>
     private static bool TryParsePresentation(
         JsonElement element,
         string jsonPath,
@@ -464,7 +454,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>校验碰撞种类和局部盒几何，包括 float 表现精度下的正体积。</summary>
     private static bool TryParseCollision(
         JsonElement element,
         string jsonPath,
@@ -551,7 +540,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>读取局部盒的三轴有限数值，保留各分量的诊断路径。</summary>
     private static bool TryParseLocalVector(
         JsonElement element,
         string jsonPath,
@@ -608,7 +596,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>读取并校验资源路径，拒绝不安全或不支持的图片路径。</summary>
     private static bool TryGetResourcePath(JsonElement element, DiagnosticBag diagnostics, string jsonPath, out string path)
     {
         path = "";
@@ -624,7 +611,6 @@ internal static class VoxelsJsonParser
         return true;
     }
 
-    /// <summary>校验 JSON 数值为有限 double，并在失败时记录字段诊断。</summary>
     private static bool TryGetFiniteDouble(
         JsonElement element,
         DiagnosticBag diagnostics,

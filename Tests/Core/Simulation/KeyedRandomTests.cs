@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 验证随机键的字段边界和无状态结果。
-// 字面向量可用同目录 ReferenceVectors.py 独立复算；该程序只使用 Python 标准库，不调用 Train.Core。
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;

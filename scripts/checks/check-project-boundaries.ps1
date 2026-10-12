@@ -1,5 +1,3 @@
-# 检查项目引用、源码归属、友元程序集、公开面与调用样例。
-# 允许依赖读取 project-boundaries.json；检查结果保存在本次运行目录。
 param(
     [ValidateSet('Debug', 'Release')][string] $Configuration = 'Debug',
     [string] $OutputDirectory = ''
@@ -13,8 +11,6 @@ New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $report = [Collections.Generic.List[object]]::new()
 $failures = [Collections.Generic.List[string]]::new()
 
-# 结构检查与隔离构建共享同一份允许依赖，避免两个入口各自放宽模块边界。
-# Train 是当前组合入口，可直接引用三个实现；真实工厂的调用位置仍待建立后检查。
 $matrix = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'project-boundaries.json') -Raw | ConvertFrom-Json -AsHashtable
 $projects = [ordered]@{}
 $expectedFriends = @{ 'Train.Core' = 'Train.Core.Tests'; 'Train.Content' = 'Train.Content.Tests'; 'Train' = 'Train.Godot.Tests' }
@@ -23,7 +19,6 @@ foreach ($name in $matrix.projects.Keys) {
     $projects[$name] = $matrix.projects[$name].path
 }
 
-# 使用目录分隔符限定前缀，避免同名前缀目录被当成项目所有者。
 function Test-ChildPath([string] $child, [string] $parent) {
     $resolved = [IO.Path]::GetFullPath($child)
     $prefix = [IO.Path]::GetFullPath($parent).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
@@ -35,7 +30,6 @@ function Add-Failure([string] $message) {
     [Console]::Error.WriteLine($message)
 }
 
-# 保留已发现的仓库失败，避免后续环境阻塞改变整次结构检查的分类。
 function Get-StructureFailureExitCode([string] $Kind) {
     if ($Kind -eq 'failed' -or $failures.Count -gt 0) { return 1 }
     return 2
@@ -43,11 +37,9 @@ function Get-StructureFailureExitCode([string] $Kind) {
 
 Push-Location $root
 try {
-    # 从版本控制清单检查未登记项目，防止新项目绕过固定矩阵；归档不属于当前产品。
     $trackedProjects = @(& git ls-files --cached --others --exclude-standard -- '*.csproj' | Where-Object { $_ -notlike 'archive/*' })
     if ($LASTEXITCODE -ne 0) { [Console]::Error.WriteLine('blocked project inventory'); exit 2 }
     foreach ($path in $trackedProjects) {
-        # 公开面工具不属于模块图，没有产品项目引用；它读取源码、依赖矩阵、契约及实现程序集和基线。
         if ($path -ne 'Tests/ContractChecks/Train.ContractChecks.csproj' -and $path -notin $projects.Values) {
             Add-Failure "unregistered project: $path"
         }
@@ -57,7 +49,6 @@ try {
         $log = Join-Path $OutputDirectory ((Split-Path -Leaf $build) + '.build.log')
         & dotnet build $build -c $Configuration --nologo *> $log
         if ($LASTEXITCODE -ne 0) {
-            # 明确的 SDK/工具不可用、包源不可达和文件占用属于环境阻塞，其余构建错误属于仓库失败。
             $buildOutput = Get-Content -LiteralPath $log -Raw
             $kind = Get-BuildFailureKind $buildOutput
             if ($kind -eq 'blocked') {
@@ -87,7 +78,6 @@ try {
             $target = [string] $item.Filename
             $path = [string] $item.FullPath
             $record.projectReferences += @{ name = $target; path = $path }
-            # 导入的项目引用不按本项目直接边判断，解析后的程序集仍受闭包检查。
             if ([string] $item.DefiningProjectFullPath -ne $project) { continue }
             if (-not $projects.Contains($target) -or $target -notin @($matrix.projects[$name].references) -or
                 -not [IO.Path]::GetFullPath($path).Equals([IO.Path]::GetFullPath((Join-Path $root $projects[$target])), [StringComparison]::OrdinalIgnoreCase)) {
@@ -131,7 +121,6 @@ try {
         }
         $assembly = [string] $data.Properties.TargetPath
         if (-not (Test-Path -LiteralPath $assembly)) { [Console]::Error.WriteLine("failed output missing: $assembly"); exit 1 }
-        # 直接读取 PE 元数据，避免加载 Godot 或其他实现依赖；覆盖手写友元属性。
         $stream = [IO.File]::OpenRead($assembly)
         $pe = [Reflection.PortableExecutable.PEReader]::new($stream)
         try {

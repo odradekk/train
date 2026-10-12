@@ -1,14 +1,10 @@
-// 属于蓝图内容模块。
-// 解析蓝图布局，按本轮体素候选校验引用并计算设计属性。
 using Train.Content.Voxels;
 
 namespace Train.Content.Composites;
 
-/// <summary>表示完成本地解析的蓝图布局、来源和语义修订；不含尚未计算的设计属性或发布指纹。</summary>
 internal sealed record CompositeCandidate(
     CompositeDefinition Definition, ContentOrigin Origin, string? FileDisplayName, string SemanticRevision);
 
-/// <summary>一轮加载中的 schema 2 蓝图格式；引用解析始终使用同轮体素索引。</summary>
 internal sealed class CompositeContentFormat : ContentFormat<CompositeDefinitionId, CompositeCandidate>
 {
     private readonly Dictionary<CompositeDefinitionId, CompositeContentEntry> _entries = new();
@@ -20,7 +16,6 @@ internal sealed class CompositeContentFormat : ContentFormat<CompositeDefinition
     public override bool HasChanges(ContentSnapshot previous) =>
         HasChanges(Entries, previous.Blueprints, static entry => entry.PublicationFingerprint);
 
-    /// <summary>严格解析布局；引用及派生属性留给合并后的候选检查。</summary>
     protected override IReadOnlyList<CompositeCandidate> Parse(
         IContentSource source, ContentPackageLoad load, string file, byte[] bytes)
     {
@@ -32,8 +27,6 @@ internal sealed class CompositeContentFormat : ContentFormat<CompositeDefinition
             CompositeRevisions.ComputeSemanticRevision(definition))).ToArray();
     }
 
-    /// <summary>按已合并的体素索引校验候选布局并计算属性，只为成功候选建立完整蓝图条目。</summary>
-    /// <remarks>效果：重建本轮 Entries；失败使实际所属包无效，已发布快照不受影响。</remarks>
     public void ResolveReferences(IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels)
     {
         _entries.Clear();
@@ -48,7 +41,6 @@ internal sealed class CompositeContentFormat : ContentFormat<CompositeDefinition
         }
     }
 
-    /// <summary>逐格校验引用和朝向并汇总核心定义；失败返回 null，原因记录到实际所属包。</summary>
     private static DesignAttributes? CalculateAttributes(CompositeCandidate composite,
         IReadOnlyDictionary<VoxelDefinitionId, VoxelContentEntry> voxels, ContentPackageLoad owner)
     {

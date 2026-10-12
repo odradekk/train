@@ -1,5 +1,3 @@
-// Train.Core.Tests.Simulation 提供资源状态格式的真实测试领域适配器。
-// 夹具负责领域字段、关系和投影，不承担公共包络或规范摘要计算。
 
 using System.Collections.Immutable;
 using System.Globalization;
@@ -9,7 +7,6 @@ using Train.Core.Simulation;
 
 namespace Train.Core.Tests.Simulation;
 
-/// <summary>资源测试领域的版本 1 状态格式。</summary>
 internal sealed class ResourceStateCodec : SimulationStateCodec
 {
     public override string StateKind => "fixture.resources";

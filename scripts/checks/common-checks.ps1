@@ -1,6 +1,4 @@
-# 统一入口与结构检查共用构建失败分类、允许依赖闭包与元数据读取。
 function Get-BuildFailureKind([string] $Output) {
-    # 警告不决定失败分类；任一仓库错误优先于同时出现的环境错误。
     # MSBuild 复制遇到文件占用时先报 MSB3027，再报 MSB3021，两者同属环境阻塞。
     $diagnostics = ($Output -split '\r?\n' | Where-Object { $_ -notmatch '\bwarning(?:\s+[A-Z]+\d+)?\s*:' }) -join "`n"
     $errors = [regex]::Matches($diagnostics, '(?im)\berror\s+([A-Z]+\d+)\b')

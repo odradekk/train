@@ -1,5 +1,3 @@
-// 内容文件端口情景的执行与反例检查。
-// 验证共享断言和合规有限情景替身；违规实现只存在于反例测试中。
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
