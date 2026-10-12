@@ -1,0 +1,12 @@
+<Project>
+  <UsingTask TaskName="Train.ContractChecks.ProjectFacts" AssemblyFile="$(ContractChecksAssembly)" />
+  <PropertyGroup>
+    <ContractFactsDependencies>ResolveReferences</ContractFactsDependencies>
+    <ContractFactsDependencies Condition="'$(ContractBuildSample)' == 'true'">Build</ContractFactsDependencies>
+  </PropertyGroup>
+  <Target Name="CollectContractFacts" DependsOnTargets="$(ContractFactsDependencies)">
+    <Train.ContractChecks.ProjectFacts OutputFile="$(ContractFactsFile)" TargetPath="$(TargetPath)"
+      ProjectReference="@(ProjectReference)" ReferencePath="@(ReferencePath)" Compile="@(Compile)"
+      InternalsVisibleTo="@(InternalsVisibleTo)" />
+  </Target>
+</Project>

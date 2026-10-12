@@ -153,7 +153,7 @@ public sealed class CliTests
     private static void Build(string project)
     {
         var elapsed = Stopwatch.StartNew();
-        RequireSuccess(Run("dotnet", "build", project, "--nologo", "-v:m", "-nodeReuse:false", "-property:UseSharedCompilation=false"));
+        RequireSuccess(Run("dotnet", "build", project, "--nologo", "-v:m", "-maxCpuCount:1", "-nodeReuse:false", "-property:UseSharedCompilation=false"));
         Console.WriteLine($"Fixture build {project}: {elapsed.Elapsed.TotalSeconds:F2}s");
     }
     private static string ProjectDirectory(string name) => name switch

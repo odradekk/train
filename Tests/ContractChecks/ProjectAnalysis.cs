@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using System.Xml.Linq;
 
 namespace Train.ContractChecks;
 
@@ -50,44 +51,30 @@ internal static class ProjectAnalysis
     {
         var failures = new List<string>();
         var reports = new List<object>();
-        var pending = new Queue<string>(names);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        // 外层集成队列同时构建夹具与隔离模块，查询不再另开一组 MSBuild 进程。
-        while (failures.Count == 0 && pending.TryDequeue(out var next))
+        var requested = names.SelectMany(name => Closure(projects, name)).Distinct(StringComparer.Ordinal).ToArray();
+        var facts = await QueryProjects(root, configuration, output, projects, requested, isolated);
+        foreach (var name in requested)
         {
-            if (!seen.Add(next)) continue;
-            var result = await Inspect(next);
+            var result = Inspect(name);
             failures.AddRange(result.Failures);
             reports.Add(result.Report);
-            foreach (var dependency in result.Dependencies) pending.Enqueue(dependency);
         }
         await File.WriteAllTextAsync(Path.Combine(output, "references.json"), JsonSerializer.Serialize(reports,
             new JsonSerializerOptions { WriteIndented = true }));
         return failures;
 
-        bool IsSample(string name) => projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal);
-
-        async Task<(List<string> Failures, object Report, List<string> Dependencies)> Inspect(string name)
+        (List<string> Failures, object Report) Inspect(string name)
         {
             var projectFailures = new List<string>();
-            var dependencies = new List<string>();
             var rule = projects[name];
             var project = Path.GetFullPath(Path.Combine(root, rule.Path));
             var owner = Path.GetDirectoryName(project)!;
             var projectConfiguration = name == "Train" && configuration == "Release" ? "ExportRelease" : configuration;
-            var arguments = new List<string> { "msbuild", project, "-nodeReuse:false", "-property:UseSharedCompilation=false",
-                "-property:BuildProjectReferences=false",
-                "-property:Configuration=" + projectConfiguration, "-verbosity:quiet",
-                "-getItem:ProjectReference,ReferencePath,Compile,InternalsVisibleTo", "-getProperty:TargetPath" };
-            if (!isolated && IsSample(name))
-                arguments.AddRange(["-restore", "-target:Build", "-property:RestoreRecursive=false"]);
-            else arguments.Add("-target:ResolveReferences");
-            var raw = await ToolProcess.Run("dotnet", arguments, owner, Path.Combine(output, name + ".msbuild.log"));
-            using var data = JsonDocument.Parse(raw);
-            var items = data.RootElement.GetProperty("Items");
+            var data = facts[name];
+            var items = data.GetProperty("Items");
             var closure = Closure(projects, name);
             closure.Remove(name);
-            var assembly = data.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
+            var assembly = data.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
             foreach (var item in items.GetProperty("ProjectReference").EnumerateArray())
             {
                 var target = item.GetProperty("Filename").GetString()!;
@@ -97,7 +84,6 @@ internal static class ProjectAnalysis
                     !Path.GetFullPath(path).Equals(Path.GetFullPath(Path.Combine(root, targetRule.Path)), PathComparison))
                     projectFailures.Add($"forbidden project reference: {name} -> {target} ({path})");
                 if (isolated && !IsChildPath(path, root)) projectFailures.Add($"project reference outside isolation: {name} ({path})");
-                if (projects.ContainsKey(target) && IsChildPath(path, root)) dependencies.Add(target);
             }
             foreach (var item in items.GetProperty("ReferencePath").EnumerateArray())
             {
@@ -149,6 +135,7 @@ internal static class ProjectAnalysis
             foreach (var friend in friends)
                 if (!(rule.Friends ?? []).Contains(friend)) projectFailures.Add($"forbidden friend assembly: {name} -> {friend}");
             var report = new { name, project, assembly, items = items.Clone(), assemblyReferences, friends,
+                processId = data.GetProperty("Properties").GetProperty("ProcessId").GetInt32(),
                 assemblySha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(assembly))) };
 
             void CheckDependency(string target, string kind)
@@ -157,7 +144,49 @@ internal static class ProjectAnalysis
                     projectFailures.Add($"forbidden {kind}: {name} -> {target}");
                 if (IsFirstParty(target) && !closure.Contains(target)) projectFailures.Add($"forbidden {kind}: {name} -> {target}");
             }
-            return (projectFailures, report, dependencies);
+            return (projectFailures, report);
         }
+    }
+
+    private static async Task<Dictionary<string, JsonElement>> QueryProjects(string root, string configuration,
+        string output, IReadOnlyDictionary<string, ProjectRule> projects, string[] names, bool isolated)
+    {
+        Directory.CreateDirectory(output);
+        var assembly = typeof(ProjectAnalysis).Assembly.Location;
+        var targets = Path.Combine(Path.GetDirectoryName(assembly)!, "ProjectFacts.targets");
+        var properties = $"CustomAfterMicrosoftCommonTargets={targets};ContractChecksAssembly={assembly};UseSharedCompilation=false;BuildProjectReferences=false;RestoreRecursive=false";
+        var projectItems = names.Select(name =>
+        {
+            var sample = !isolated && projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal);
+            var config = name == "Train" && configuration == "Release" ? "ExportRelease" : configuration;
+            return new XElement("ContractProject", new XAttribute("Include", Path.Combine(root, projects[name].Path)),
+                new XElement("AdditionalProperties", $"Configuration={config};ContractFactsFile={Path.Combine(output, name + ".facts.json")};ContractBuildSample={sample.ToString().ToLowerInvariant()}"),
+                new XElement("Sample", sample.ToString().ToLowerInvariant()));
+        }).ToArray();
+        var sampleItems = projectItems.Where(item => item.Element("Sample")!.Value == "true").Select(item =>
+        {
+            var sample = new XElement(item);
+            sample.Name = "ContractSample";
+            return sample;
+        });
+        var traversal = new XDocument(new XElement("Project",
+            new XElement("ItemGroup", projectItems, sampleItems),
+            new XElement("Target", new XAttribute("Name", "CollectAll"),
+                // 新的全局属性让 Build 重新求值，导入 Restore 刚生成的 NuGet 配置。
+                new XElement("MSBuild", new XAttribute("Projects", "@(ContractSample)"), new XAttribute("Targets", "Restore"),
+                    new XAttribute("Properties", properties + ";ContractRestorePhase=true"), new XAttribute("BuildInParallel", "false")),
+                new XElement("MSBuild", new XAttribute("Projects", "@(ContractProject)"), new XAttribute("Targets", "CollectContractFacts"),
+                    new XAttribute("Properties", properties), new XAttribute("BuildInParallel", "false")))));
+        var traversalPath = Path.Combine(output, "query.proj");
+        traversal.Save(traversalPath);
+        await ToolProcess.Run("dotnet", ["msbuild", traversalPath, "-target:CollectAll", "-maxCpuCount:1", "-nodeReuse:false", "-verbosity:quiet"],
+            root, Path.Combine(output, "query.log"), 300);
+        var result = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var name in names)
+        {
+            using var data = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(output, name + ".facts.json")));
+            result.Add(name, data.RootElement.Clone());
+        }
+        return result;
     }
 }

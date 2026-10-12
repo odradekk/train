@@ -48,7 +48,7 @@ internal static class Isolation
                 }, new JsonSerializerOptions { WriteIndented = true }));
                 var project = Path.Combine(isolated, projects[test].Path);
                 await ToolProcess.Run("dotnet", ["build", project, "-c", configuration, "--nologo",
-                    "-nodeReuse:false", "-property:UseSharedCompilation=false", "-property:RestoreConfigFile=" + config],
+                    "-maxCpuCount:1", "-nodeReuse:false", "-property:UseSharedCompilation=false", "-property:RestoreConfigFile=" + config],
                     isolated, Path.Combine(evidence, "build.log"), 300);
                 var analysis = await ProjectAnalysis.Check(isolated, configuration, evidence, projects, [test], isolated: true);
                 failures.AddRange(analysis);
