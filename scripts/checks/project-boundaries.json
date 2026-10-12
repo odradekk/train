@@ -1,7 +1,8 @@
 {
   "isolationTests": [
     "Train.Core.Tests",
-    "Train.Content.Tests"
+    "Train.Content.Tests",
+    "Train.Scenes.Tests"
   ],
   "projects": {
     "Train.Core.Contracts": {
@@ -46,6 +47,9 @@
         "Train.Core.Contracts",
         "Train.Content.Contracts",
         "Train.Scenes.Contracts"
+      ],
+      "friends": [
+        "Train.Scenes.Tests"
       ]
     },
     "Train": {
@@ -107,6 +111,15 @@
         "Train.Core.Contracts",
         "Train.Content.Contracts",
         "Train.Content.ContractSupport"
+      ]
+    },
+    "Train.Scenes.Tests": {
+      "path": "Tests/Scenes/Train.Scenes.Tests.csproj",
+      "references": [
+        "Train.Scenes",
+        "Train.Core.ContractSupport",
+        "Train.Content.ContractSupport",
+        "Train.Scenes.ContractSupport"
       ]
     },
     "Train.Godot.Tests": {

@@ -15,7 +15,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer fast,integration
 # 全部正确性检查，含引擎、不含导出
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer all
-# 阶段结构、公开面与 Core/Content 隔离（始终执行）
+# 阶段结构、公开面与 Core/Content/Scenes 隔离（始终执行）
 pwsh -NoProfile -File scripts/test.ps1 -Layer stage
 # 只比较当前工作区改动
 pwsh -NoProfile -File scripts/test.ps1 -BaseRef HEAD
@@ -27,9 +27,11 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 pwsh -NoProfile -File scripts/test.ps1 -All -Layer all -ExportWindows
 ```
 
-`-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`godot`、`contract-support`、`contract-checks` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用。
+`-Layer` 接受 `fast`、`integration`、`engine`、`stage` 的一个或多个值；`all` 仍等于 fast、integration、engine，默认是 `fast`。逗号多选和 PowerShell 数组都可用，例如 `& ./scripts/test.ps1 -Layer @('fast', 'integration')`。`-All` 强制全部项目和独立检查，仍只执行所选层；它与 `-Project` 冲突。`-Project` 接受 `core`、`content`、`scenes`、`godot`、`contract-support`、`contract-checks` 的一个或多个值，显式选择 MSTest 项目并跳过改动分析、契约结构与公开面、隔离、内容 Schema、引擎和阶段检查。`-ExportWindows` 仅能与未指定 `-Project` 的引擎层一起使用。
 
 无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
+
+Scenes 快速层验证会话生命周期、不可变帧、网格、拾取和只读预览；Core／Content 为配置情景的固定读视图，世界生成由测试门控，不能作为真实线路或节点生成证据。Scenes 已接入实际隔离入口，单次是否通过以运行日志与摘要为准；后续实现范围见[体素契约](contracts/scenes.md)。
 
 快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
@@ -39,7 +41,7 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all -ExportWindows
 
 ## 按改动选择
 
-默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从五个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。显式引擎层不参与改动筛选，始终执行当前全部引擎用例；阶段层照常执行；单独选择 stage 时完全跳过改动分析。
+默认基准 `-BaseRef origin/master` 必须在本地存在。入口以 `git merge-base <BaseRef> HEAD` 为比较起点，包含该点之后的提交及暂存、未暂存、未跟踪改动；文件列表禁用重命名识别，移动前后路径都参与规则匹配。入口不自动 fetch。dotnet-affected 7.0.1 以 `Train.sln` 限定项目图，沿 MSBuild 项目依赖选出受影响项目，再从六个已登记 MSTest 项目中选择；归档和调用样例不进入这张项目图。显式引擎层不参与改动筛选，始终执行当前全部引擎用例；阶段层照常执行；单独选择 stage 时完全跳过改动分析。
 
 以下共享文件改动选择全部 MSTest 项目：`Contracts/**`、任意层级的 `Directory.Build.*`、`global.json`、`docs/content/schemas/**`、`Tests/ContractSupport/**`、`Train.sln`、`.config/dotnet-tools.json`、`scripts/test.ps1`、`scripts/checks/**`。工作流 YAML 不在共享列表中。
 
