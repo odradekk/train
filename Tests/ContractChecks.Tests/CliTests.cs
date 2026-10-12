@@ -150,7 +150,12 @@ public sealed class CliTests
     private static void AddCoreReference(string reference) => File.WriteAllText(coreProject, originalCoreProject.Replace("</ItemGroup>", reference + "</ItemGroup>", StringComparison.Ordinal));
     private static (int ExitCode, string Output) Check(string command, string output) => Run("dotnet", tool, command, root, "Debug", Path.Combine(root, output));
     private static void RequireSuccess((int ExitCode, string Output) result) => Assert.AreEqual(0, result.ExitCode, result.Output);
-    private static void Build(string project) => RequireSuccess(Run("dotnet", "build", project, "--nologo", "-v:q", "-nodeReuse:false", "-property:UseSharedCompilation=false"));
+    private static void Build(string project)
+    {
+        var elapsed = Stopwatch.StartNew();
+        RequireSuccess(Run("dotnet", "build", project, "--nologo", "-v:m", "-nodeReuse:false", "-property:UseSharedCompilation=false"));
+        Console.WriteLine($"Fixture build {project}: {elapsed.Elapsed.TotalSeconds:F2}s");
+    }
     private static string ProjectDirectory(string name) => name switch
     {
         "Train.Core.Contracts" => "Contracts/Core",
@@ -176,7 +181,7 @@ public sealed class CliTests
         {
             process.Kill(entireProcessTree: true);
             process.WaitForExit();
-            Assert.Fail($"Timed out: {executable} {string.Join(' ', arguments)}");
+            Assert.Fail($"Timed out: {executable} {string.Join(' ', arguments)}\n{stdout.GetAwaiter().GetResult()}{stderr.GetAwaiter().GetResult()}");
         }
         return (process.ExitCode, stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult());
     }

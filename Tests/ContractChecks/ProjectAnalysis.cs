@@ -52,22 +52,14 @@ internal static class ProjectAnalysis
         var reports = new List<object>();
         var pending = new Queue<string>(names);
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        while (pending.Count != 0 && failures.Count == 0)
+        // 外层集成队列同时构建夹具与隔离模块，查询不再另开一组 MSBuild 进程。
+        while (failures.Count == 0 && pending.TryDequeue(out var next))
         {
-            var batch = new List<string>();
-            while (pending.TryPeek(out var next) && batch.Count < (isolated ? 1 : 4))
-            {
-                // 调用样例会构建共享契约，逐个执行；其余只读取已构建的项目。
-                if (batch.Count != 0 && (IsSample(next) || IsSample(batch[0]))) break;
-                pending.Dequeue();
-                if (seen.Add(next)) batch.Add(next);
-            }
-            foreach (var result in await Task.WhenAll(batch.Select(Inspect)))
-            {
-                failures.AddRange(result.Failures);
-                reports.Add(result.Report);
-                foreach (var dependency in result.Dependencies) pending.Enqueue(dependency);
-            }
+            if (!seen.Add(next)) continue;
+            var result = await Inspect(next);
+            failures.AddRange(result.Failures);
+            reports.Add(result.Report);
+            foreach (var dependency in result.Dependencies) pending.Enqueue(dependency);
         }
         await File.WriteAllTextAsync(Path.Combine(output, "references.json"), JsonSerializer.Serialize(reports,
             new JsonSerializerOptions { WriteIndented = true }));
