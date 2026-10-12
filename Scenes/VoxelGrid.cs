@@ -62,9 +62,24 @@ internal sealed class VoxelGrid
             var next = Math.Min(nextX, Math.Min(nextY, nextZ));
             if (!double.IsFinite(next)) return null;
             // Simultaneous crossings skip cells touched only at an edge or corner.
-            if (nextZ == next) { z += Math.Sign(direction.Z); nextZ += Math.Abs(1.0 / direction.Z); face = direction.Z > 0 ? GridFace.NegativeZ : GridFace.PositiveZ; }
-            if (nextY == next) { y += Math.Sign(direction.Y); nextY += Math.Abs(1.0 / direction.Y); face = direction.Y > 0 ? GridFace.NegativeY : GridFace.PositiveY; }
-            if (nextX == next) { x += Math.Sign(direction.X); nextX += Math.Abs(1.0 / direction.X); face = direction.X > 0 ? GridFace.NegativeX : GridFace.PositiveX; }
+            if (nextZ == next)
+            {
+                z += Math.Sign(direction.Z);
+                nextZ += Math.Abs(1.0 / direction.Z);
+                face = direction.Z > 0 ? GridFace.NegativeZ : GridFace.PositiveZ;
+            }
+            if (nextY == next)
+            {
+                y += Math.Sign(direction.Y);
+                nextY += Math.Abs(1.0 / direction.Y);
+                face = direction.Y > 0 ? GridFace.NegativeY : GridFace.PositiveY;
+            }
+            if (nextX == next)
+            {
+                x += Math.Sign(direction.X);
+                nextX += Math.Abs(1.0 / direction.X);
+                face = direction.X > 0 ? GridFace.NegativeX : GridFace.PositiveX;
+            }
             distance = next;
         }
         return null;
@@ -100,7 +115,8 @@ internal static class SceneGeometry
     internal static void Validate(ScenePose pose)
     {
         ArgumentNullException.ThrowIfNull(pose);
-        if (!Finite(pose.Position) || !float.IsFinite(pose.Rotation.LengthSquared()) || Math.Abs(pose.Rotation.LengthSquared() - 1) > 0.00001f)
+        if (!Finite(pose.Position) || !float.IsFinite(pose.Rotation.LengthSquared()) ||
+            Math.Abs(pose.Rotation.LengthSquared() - 1) > 0.00001f)
             throw new ArgumentException("A pose must be finite and have a unit rotation.", nameof(pose));
     }
 
@@ -131,7 +147,8 @@ internal static class SceneGeometry
 
     internal static bool Intersect(SceneRay ray, SceneBounds bounds, out double entry, out GridFace face, out double exit)
     {
-        entry = 0; exit = ray.MaximumDistanceCells;
+        entry = 0;
+        exit = ray.MaximumDistanceCells;
         face = GridFace.NegativeX;
         for (var axis = 0; axis < 3; axis++)
         {
@@ -139,11 +156,19 @@ internal static class SceneGeometry
             var direction = axis == 0 ? ray.Direction.X : axis == 1 ? ray.Direction.Y : ray.Direction.Z;
             var minimum = axis == 0 ? bounds.Minimum.X : axis == 1 ? bounds.Minimum.Y : bounds.Minimum.Z;
             var maximum = axis == 0 ? bounds.Maximum.X : axis == 1 ? bounds.Maximum.Y : bounds.Maximum.Z;
-            if (direction == 0) { if (origin < minimum || origin >= maximum) return false; continue; }
+            if (direction == 0)
+            {
+                if (origin < minimum || origin >= maximum) return false;
+                continue;
+            }
             var near = (minimum - (double)origin) / direction;
             var far = (maximum - (double)origin) / direction;
             if (near > far) (near, far) = (far, near);
-            if (near >= entry) { entry = near; face = (GridFace)(axis * 2 + (direction < 0 ? 1 : 0)); }
+            if (near >= entry)
+            {
+                entry = near;
+                face = (GridFace)(axis * 2 + (direction < 0 ? 1 : 0));
+            }
             exit = Math.Min(exit, far);
             if (entry > exit) return false;
         }

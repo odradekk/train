@@ -64,7 +64,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     internal static WorldSceneContent Generate(SceneWorldSnapshot snapshot, WorldSceneTarget target, CancellationToken cancellation)
     {
         cancellation.ThrowIfCancellationRequested();
-        if (target is WorldSceneTarget.Combat) throw new NotImplementedException("Combat scene generation is implemented by Issue #353.");
+        if (target is WorldSceneTarget.Combat)
+            throw new NotImplementedException("Combat scene generation is implemented by Issue #353.");
         var location = target switch
         {
             WorldSceneTarget.Location value => value.Value,
@@ -113,7 +114,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     private bool Exists(WorldSceneTarget value) => value switch
     {
         WorldSceneTarget.Location location => Exists(location.Value),
-        WorldSceneTarget.Follow follow => snapshot.Core.FindTrain(follow.Train) is Lookup<TrainView>.Found train && train.Value.Vehicles.Contains(follow.Vehicle),
+        WorldSceneTarget.Follow follow => snapshot.Core.FindTrain(follow.Train) is Lookup<TrainView>.Found train &&
+            train.Value.Vehicles.Contains(follow.Vehicle),
         WorldSceneTarget.Combat combat => snapshot.Core.FindCombat(combat.Id) is Lookup<CombatView>.Found,
         _ => throw new ArgumentException("Invalid target.", nameof(value))
     };
@@ -122,10 +124,13 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ArgumentNullException.ThrowIfNull(location);
         if (location is WorldLocation.Edge edge)
         {
-            if (!double.IsFinite(edge.DistanceMeters) || edge.DistanceMeters < 0) throw new ArgumentException("Invalid edge distance.", nameof(location));
+            if (!double.IsFinite(edge.DistanceMeters) || edge.DistanceMeters < 0)
+                throw new ArgumentException("Invalid edge distance.", nameof(location));
             return snapshot.Core.FindEdge(edge.Id) is Lookup<EdgeView>.Found view && edge.DistanceMeters <= view.Value.Map.LengthMeters;
         }
-        return location is WorldLocation.Node node ? snapshot.Core.FindNode(node.Id) is Lookup<NodeView>.Found : throw new ArgumentException("Invalid location.", nameof(location));
+        return location is WorldLocation.Node node
+            ? snapshot.Core.FindNode(node.Id) is Lookup<NodeView>.Found
+            : throw new ArgumentException("Invalid location.", nameof(location));
     }
 
     public SceneResult<SimulationPosition> Observe(SceneWorldSnapshot input, ImmutableArray<EventEnvelope> events)
@@ -139,7 +144,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         foreach (var item in events)
         {
             if (item is null || item.Event is null || item.Ordinal < 0 || Compare(item.Position, input.Core.Position) > 0 ||
-                previous is not null && (Compare(item.Position, previous.Position) < 0 || item.Position == previous.Position && item.Ordinal <= previous.Ordinal))
+                previous is not null && (Compare(item.Position, previous.Position) < 0 ||
+                    item.Position == previous.Position && item.Ordinal <= previous.Ordinal))
                 throw new ArgumentException("Events must be ordered, new and no later than the input boundary.", nameof(events));
             previous = item;
         }
@@ -154,7 +160,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ObjectDisposedException.ThrowIf(disposed, this);
         ArgumentNullException.ThrowIfNull(frameRequest);
         if (!double.IsFinite(frameRequest.Interpolation) || frameRequest.Interpolation < 0 || frameRequest.Interpolation > 1 ||
-            (frameRequest.DebugLayers & ~(SceneDebugLayer.Chunks | SceneDebugLayer.RailwaySegments | SceneDebugLayer.Origin | SceneDebugLayer.PickRay | SceneDebugLayer.Centerline)) != 0)
+            (frameRequest.DebugLayers & ~(SceneDebugLayer.Chunks | SceneDebugLayer.RailwaySegments | SceneDebugLayer.Origin |
+                SceneDebugLayer.PickRay | SceneDebugLayer.Centerline)) != 0)
             throw new ArgumentException("Invalid frame request.", nameof(frameRequest));
         if (displayedFrame is not null && (displayedFrame is not SceneFrame || displayedFrame.Update.Frame.Session != Id))
             throw new ArgumentException("The displayed frame belongs to another session.", nameof(displayedFrame));
@@ -285,7 +292,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
 
     private static RenderedDesign BuildScenery(WorldSceneContent value, Func<string, SceneObjectId> id)
     {
-        if (value.Terrain.IsDefault || value.Objects.IsDefault || value.BuiltInMeshes.IsDefault || value.FoggedRegions.IsDefault || value.MissingMarkers.IsDefault ||
+        if (value.Terrain.IsDefault || value.Objects.IsDefault || value.BuiltInMeshes.IsDefault ||
+            value.FoggedRegions.IsDefault || value.MissingMarkers.IsDefault ||
             !double.IsFinite(value.Origin.X) || !double.IsFinite(value.Origin.Y) || !double.IsFinite(value.Origin.Z))
             throw new ArgumentException("Invalid generated content.");
         if (value.Terrain.Any(cell => cell.Subject is null))
@@ -309,7 +317,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             }
         }
         for (var i = 0; i < value.BuiltInMeshes.Length; i++)
-            objects.Add(new(id("built-in:" + i), null, pose, null, [new SceneVisual.Geometry(value.BuiltInMeshes[i], new(false, 0, 0, false))], [], []));
+            objects.Add(new(id("built-in:" + i), null, pose, null,
+                [new SceneVisual.Geometry(value.BuiltInMeshes[i], new(false, 0, 0, false))], [], []));
         for (var i = 0; i < value.MissingMarkers.Length; i++)
         {
             var marker = value.MissingMarkers[i];
@@ -370,13 +379,16 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         ArgumentNullException.ThrowIfNull(hit);
         if (fault is not null) return new SceneResult<PickSubject>.Faulted(fault);
         if (hit.Frame.Session != Id || hit.Frame.Request != request) return Failure<PickSubject>("stale_request", SceneStage.Pick);
-        if (hit.Frame.Space != space || hit.Frame.Revision > revision || target is null || !Exists(target)) return Failure<PickSubject>("stale_hit", SceneStage.Pick);
+        if (hit.Frame.Space != space || hit.Frame.Revision > revision || target is null || !Exists(target))
+            return Failure<PickSubject>("stale_hit", SceneStage.Pick);
         if (hit.Object is { } objectId && !ids.Values.Contains(objectId)) return Failure<PickSubject>("stale_hit", SceneStage.Pick);
-        if (hit.Subject is PickSubject.Terrain terrain && Exists(terrain.Location)) return new SceneResult<PickSubject>.Success(hit.Subject);
+        if (hit.Subject is PickSubject.Terrain terrain && Exists(terrain.Location))
+            return new SceneResult<PickSubject>.Success(hit.Subject);
         if (hit.Subject is PickSubject.WorldObject { Object: WorldObjectId.Instance instance } subject &&
             snapshot.Core.FindInstance(instance.Id) is Lookup<InstanceView>.Found found && found.Value.Design == subject.Design &&
             (subject.Part is null || !found.Value.Parts.Any(part => part.Part == subject.Part && part.Destroyed)) &&
-            snapshot.Content.FindDesign(found.Value.Design) is ContentLookup<DesignEvaluation>.Found design && design.Value is not DesignEvaluation.Failed &&
+            snapshot.Content.FindDesign(found.Value.Design) is ContentLookup<DesignEvaluation>.Found design &&
+            design.Value is not DesignEvaluation.Failed &&
             (subject.Part is null || DesignGeometry.Projection(design.Value).Elements.Any(element => element.Number == subject.Part)))
             return new SceneResult<PickSubject>.Success(hit.Subject);
         return Failure<PickSubject>("stale_hit", SceneStage.Pick);

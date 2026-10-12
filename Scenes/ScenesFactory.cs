@@ -26,7 +26,8 @@ public static class ScenesFactory
             ArgumentNullException.ThrowIfNull(initial);
             if (initial is DesignEvaluation.Failed failed)
                 return new SceneResult<IDesignPreview>.Failure(failed.Diagnostics.Select(problem =>
-                    new SceneProblem(problem.Code, SceneStage.Input, null, problem.Subject, problem.Source?.Package, problem.Element, problem.Message)).ToImmutableArray());
+                    new SceneProblem(problem.Code, SceneStage.Input, null, problem.Subject, problem.Source?.Package,
+                        problem.Element, problem.Message)).ToImmutableArray());
             return new SceneResult<IDesignPreview>.Success(new DesignPreview(content, initial));
         }
     }
@@ -44,7 +45,8 @@ internal sealed class DesignPreview : IDesignPreview
     {
         Content = content.Generation;
         ulong nextId = 0;
-        geometry = DesignGeometry.Build(content, evaluation, null, new(System.Numerics.Vector3.Zero, System.Numerics.Quaternion.Identity), _ => new(++nextId));
+        geometry = DesignGeometry.Build(content, evaluation, null,
+            new(System.Numerics.Vector3.Zero, System.Numerics.Quaternion.Identity), _ => new(++nextId));
     }
     public SceneResult<ISceneFrame> Present()
     {

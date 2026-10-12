@@ -39,14 +39,18 @@ internal static class DesignGeometry
         AddDiagnostics(contentDiagnostics, diagnostics, subject);
         var paths = new Dictionary<string, (SceneObjectId Id, ScenePose RootPose)>();
         var appearance = new Dictionary<VoxelDefinitionId, VoxelAppearanceProjection?>();
-        var voxelGroups = projection.Voxels.GroupBy(voxel => Key(voxel.ObjectPath)).ToDictionary(group => group.Key, group => group.ToArray());
+        var voxelGroups = projection.Voxels.GroupBy(voxel => Key(voxel.ObjectPath))
+            .ToDictionary(group => group.Key, group => group.ToArray());
         var nestedObjects = projection.NestedObjects.ToDictionary(item => Key(item.NestedItemIndices));
         AddObject([], rootPose, null, rootPose);
         foreach (var nested in projection.NestedObjects.OrderBy(item => item.NestedItemIndices.Length))
         {
-            if (nested.NestedItemIndices.IsDefaultOrEmpty) throw new ArgumentException("Nested paths must be nonempty.", nameof(evaluation));
-            if (nested.Details is NestedObjectDetails.FunctionalComposite functional && destroyed?.Contains(functional.Number) == true) continue;
-            if (nested.Details is NestedObjectDetails.MissingFunctionalComposite missing && destroyed?.Contains(missing.Number) == true) continue;
+            if (nested.NestedItemIndices.IsDefaultOrEmpty)
+                throw new ArgumentException("Nested paths must be nonempty.", nameof(evaluation));
+            if (nested.Details is NestedObjectDetails.FunctionalComposite functional && destroyed?.Contains(functional.Number) == true)
+                continue;
+            if (nested.Details is NestedObjectDetails.MissingFunctionalComposite missing && destroyed?.Contains(missing.Number) == true)
+                continue;
             var parentKey = Key(nested.NestedItemIndices.RemoveAt(nested.NestedItemIndices.Length - 1));
             if (!paths.TryGetValue(parentKey, out var parent)) continue;
             var pose = SceneGeometry.Placement(nested.At, nested.Orientation);
@@ -68,10 +72,12 @@ internal static class DesignGeometry
                 {
                     var lookup = content.FindVoxelAppearance(voxel.Voxel);
                     value = lookup is ContentLookup<VoxelAppearanceProjection>.Found found ? found.Value : null;
-                    if (lookup is ContentLookup<VoxelAppearanceProjection>.Missing missing) AddDiagnostics(missing.Diagnostics, diagnostics, subject);
+                    if (lookup is ContentLookup<VoxelAppearanceProjection>.Missing missing)
+                        AddDiagnostics(missing.Diagnostics, diagnostics, subject);
                     appearance.Add(voxel.Voxel, value);
                 }
-                var reference = voxel.Missing || value is null ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
+                var reference = voxel.Missing || value is null
+                    ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
                 var pick = subject is null ? null : new PickSubject.WorldObject(subject, worldDesign ?? projection.Design, voxel.Number);
                 cells.Add(new(voxel.LocalAt, reference is null ? value : null, voxel.Shape, voxel.Paint, pick, path, reference));
                 if (reference is not null)
@@ -100,7 +106,8 @@ internal static class DesignGeometry
         {
             var package = diagnostics.FirstOrDefault(problem => problem.Content == reference && problem.Package is not null)?.Package
                 ?? projection.EditLocks.FirstOrDefault(item => item.Reference == reference)?.Package;
-            diagnostics.Add(new("content_missing", SceneStage.Build, subject, reference, package, element, "Missing presentation content."));
+            diagnostics.Add(new("content_missing", SceneStage.Build, subject, reference, package, element,
+                "Missing presentation content."));
         }
     }
 
@@ -111,7 +118,8 @@ internal static class DesignGeometry
     {
         if (source.IsDefault) throw new ArgumentException("Diagnostics must be initialized.", nameof(source));
         foreach (var problem in source)
-            target.Add(new(problem.Code, SceneStage.Build, subject, problem.Subject, problem.Source?.Package, problem.Element, problem.Message));
+            target.Add(new(problem.Code, SceneStage.Build, subject, problem.Subject,
+                problem.Source?.Package, problem.Element, problem.Message));
     }
 
     internal static ImmutableArray<SceneVisual> Meshes(VoxelGrid grid, bool wear)

@@ -23,8 +23,12 @@ internal sealed class SceneFrame : ISceneFrame
         SceneReadiness readiness, ImmutableArray<SceneObject> objects, ImmutableArray<PickGrid> picking,
         SceneEnvironment environment, ImmutableArray<SceneProblem> diagnostics, SceneFrame? displayed = null)
     {
-        Origin = origin; SimulationSeconds = seconds; Readiness = readiness;
-        Objects = objects; this.picking = picking; Diagnostics = diagnostics;
+        Origin = origin;
+        SimulationSeconds = seconds;
+        Readiness = readiness;
+        Objects = objects;
+        this.picking = picking;
+        Diagnostics = diagnostics;
         var byId = objects.ToDictionary(item => item.Id);
         var composed = new Dictionary<SceneObjectId, ScenePose>();
         var visiting = new HashSet<SceneObjectId>();
@@ -41,7 +45,9 @@ internal sealed class SceneFrame : ISceneFrame
             (float)(previous.Origin.X - origin.X), (float)(previous.Origin.Y - origin.Y), (float)(previous.Origin.Z - origin.Z));
         var oldObjects = previous?.Objects.ToDictionary(item => item.Id);
         var upserts = previous is null ? objects : objects.Where(item => !oldObjects!.TryGetValue(item.Id, out var old) ||
-            item != (old.Parent is null ? old with { Pose = old.Pose with { Position = old.Pose.Position + shift } } : old)).ToImmutableArray();
+            item != (old.Parent is null
+                ? old with { Pose = old.Pose with { Position = old.Pose.Position + shift } }
+                : old)).ToImmutableArray();
         var removed = previous is null ? ImmutableArray<SceneObjectId>.Empty : previous.Objects
             .Where(item => !byId.ContainsKey(item.Id)).Select(item => item.Id).ToImmutableArray();
         Update = new(previous?.Update.Frame, stamp, shift, upserts, removed, environment, []);
@@ -49,10 +55,13 @@ internal sealed class SceneFrame : ISceneFrame
         ScenePose Compose(SceneObjectId id)
         {
             if (composed.TryGetValue(id, out var pose)) return pose;
-            if (!visiting.Add(id) || !byId.TryGetValue(id, out var item)) throw new ArgumentException("Scene parents must exist and be acyclic.", nameof(objects));
+            if (!visiting.Add(id) || !byId.TryGetValue(id, out var item))
+                throw new ArgumentException("Scene parents must exist and be acyclic.", nameof(objects));
             SceneGeometry.Validate(item.Pose);
             pose = item.Parent is { } parent ? SceneGeometry.Compose(Compose(parent), item.Pose) : item.Pose;
-            visiting.Remove(id); composed.Add(id, pose); return pose;
+            visiting.Remove(id);
+            composed.Add(id, pose);
+            return pose;
         }
     }
 
