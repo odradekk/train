@@ -11,6 +11,10 @@ internal static class TrainCommands
     {
         switch (command)
         {
+            case CoreCommand.DebugAddRailBreak broken:
+                if (broken.Edge.Value == 0 || broken.Track < 1 || !double.IsFinite(broken.DistanceMeters) || broken.DistanceMeters < 0)
+                    throw new ArgumentException("断点须提供非零线路编号、正轨号及有限非负距离。", nameof(command));
+                return;
             case CoreCommand.FormTrain form:
                 if (form.OrderedVehicles.IsDefault || form.OrderedVehicles.Any(v => v.Value == 0))
                     throw new ArgumentException("车辆数组必须初始化且编号非零。", nameof(command));
@@ -40,8 +44,23 @@ internal static class TrainCommands
         }
     }
 
-    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command)
+    internal static CommandEffect Execute(WorldState world, CoreContentProjection content, CoreCommand command, ulong step)
     {
+        if (command is CoreCommand.DebugAddRailBreak broken)
+        {
+            var edge = world.Edges.FirstOrDefault(e => e.Id == broken.Edge);
+            if (edge is null) return Reject("object_missing", "Edge", new WorldObjectId.Edge(broken.Edge));
+            if (broken.Track > edge.Tracks || broken.DistanceMeters > edge.LengthMeters)
+                return Reject("invalid_state", "Break", new WorldObjectId.Edge(broken.Edge));
+            if (world.Next.Break == ulong.MaxValue) return Reject("identity_exhausted", "World.Next.Break");
+            var item = new TrackBreakView(new(world.Next.Break), broken.Track, broken.DistanceMeters);
+            return new CommandEffect.Accepted(content, [new CoreEvent.RailBroken(edge.Id, item)], world with
+            {
+                Edges = world.Edges.Select(e => e.Id == edge.Id ? e with { Breaks = e.Breaks.Add(item) } : e).ToImmutableArray(),
+                TrackHandoffs = world.TrackHandoffs.Where(h => h.Edge != edge.Id || h.Track != item.Track).ToImmutableArray(),
+                Next = world.Next with { Break = world.Next.Break + 1 }
+            });
+        }
         if (command is CoreCommand.FormTrain form) return Form(world, content, form);
         var id = command switch
         {
@@ -68,9 +87,10 @@ internal static class TrainCommands
                 }
                 if (replace.Plan.Loop && replace.Plan.Stops.Select(TrainOperations.Target).Distinct().Count() == 1)
                     return Reject("plan_degenerate", "Plan.Stops", subject);
-                train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0 };
+                train = train with { Plan = replace.Plan, NextStopIndex = 0, RemainingDwellSteps = 0, QueueEnteredStep = null };
                 if (train.Position is TrainPosition.Node && train.Activity != TrainActivity.Stopped)
-                    train = TrainOperations.ResolveNode(world, content, train, events);
+                    train = TrainOperations.ResolveNode(world, content, train, events,
+                        new TrainDispatch(world with { Trains = world.Trains.Select(t => t.Id == id ? t with { Activity = TrainActivity.Stopped } : t).ToImmutableArray() }, content), step);
                 break;
             case CoreCommand.StartTrain:
                 if (train.Activity != TrainActivity.Stopped)
@@ -83,12 +103,12 @@ internal static class TrainCommands
                 if (TrainOperations.Capabilities(world, content, train).DepartureProblem(id,
                     TrainOperations.Rule(world, content).MinimumAcceleration) is { } problem)
                     return new CommandEffect.Rejected([problem]);
-                train = TrainOperations.ResolveNode(world, content, train, events);
+                train = TrainOperations.ResolveNode(world, content, train, events, new TrainDispatch(world, content), step);
                 break;
             case CoreCommand.StopTrain:
                 if (train.Position is TrainPosition.Edge) train = train with { StopRequested = true };
                 else train = TrainOperations.ChangeActivity(train with { SpeedMetersPerSecond = 0,
-                    Transit = train.Transit! with { NextEdge = null } }, TrainActivity.Stopped, events);
+                    Transit = train.Transit! with { NextEdge = null }, QueueEnteredStep = null }, TrainActivity.Stopped, events);
                 break;
         }
         return new CommandEffect.Accepted(content, events.ToImmutable(), world with
@@ -119,7 +139,7 @@ internal static class TrainCommands
         var train = new TrainId(world.Next.Train);
         var inventory = new InventoryId(world.Next.Inventory);
         var added = new TrainState(train, new TrainPosition.Node(settlement.Node), command.OrderedVehicles, inventory,
-            new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false);
+            new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false, null, null);
         return new CommandEffect.Accepted(content, [new CoreEvent.TrainCompositionChanged(train, command.OrderedVehicles)], world with
         {
             Trains = world.Trains.Add(added), Inventories = world.Inventories.Add(new(inventory, new InventoryOwner.Train(train), [])),

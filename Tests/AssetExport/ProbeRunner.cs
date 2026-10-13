@@ -74,7 +74,7 @@ public partial class ProbeRunner : Node
         {
             [packed] = new ContentRootLocation.Resource("res://assets"),
             [mod] = new ContentRootLocation.Disk(modDirectory),
-            [production] = new ContentRootLocation.Resource("res://builtin/core/resources/voxels/grain")
+            [production] = new ContentRootLocation.Resource("res://builtin/legacy-host/resources/voxels/grain")
         });
         var inspector = new GodotAssetInspector(dispatcher);
         using var cache = new AssetResourceCache(dispatcher);

@@ -76,6 +76,7 @@ internal sealed class CoreCapture : ICoreCapture
                 throw new CoreStateFormatException("/input_identity");
             var fault = ReadFault(root.GetProperty("fault"));
             var world = WorldJson.Read(root.GetProperty("world"));
+            WorldStateValidation.ValidateQueueSteps(world, position.CompletedSteps);
             var references = WorldJson.ReadReferences(root.GetProperty("references"));
             var knownMissing = references.Definitions.Where(d => d.WasMissing)
                 .Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray();
@@ -121,7 +122,8 @@ internal sealed class CoreCapture : ICoreCapture
                 return new("invalid_state", "/position", null, []);
             Unsigned(root.GetProperty("next_command_number"), "/next_command_number", nonzero: true);
             ReadFault(root.GetProperty("fault"));
-            WorldJson.Read(root.GetProperty("world"));
+            var world = WorldJson.Read(root.GetProperty("world"));
+            WorldStateValidation.ValidateQueueSteps(world, checkpoint.Position.CompletedSteps);
             if (Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(checkpoint.CanonicalText))) != checkpoint.Sha256)
                 return new("invalid_state", "Sha256", null, []);
             return null;

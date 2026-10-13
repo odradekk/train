@@ -15,6 +15,7 @@ namespace Train.Core.Tests.Sessions;
 
 [TestClass]
 [UsesVerify]
+[OSCondition(OperatingSystems.Windows)]
 [TestCategory("integration")]
 public sealed partial class CoreReplayCorpusTests
 {
