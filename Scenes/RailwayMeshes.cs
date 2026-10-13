@@ -12,11 +12,24 @@ internal static class RailwayMeshes
         var start = segment * RailwayCoordinates.SegmentLengthCells;
         var end = Math.Min(start + RailwayCoordinates.SegmentLengthCells, path.LengthCells);
         if (start >= end) return [];
+        return Build(path.Sample, start, end, origin, path.Edge.Tracks);
+    }
+
+    internal static ImmutableArray<SceneMesh> Build(Func<double, RailwaySample> sample, double length, ScenePoint origin) =>
+        Build((arc, offset) =>
+        {
+            var at = sample(arc);
+            return at with { Position = RailwayCoordinates.Add(at.Position, at.Right * (float)offset) };
+        }, 0, length, origin, 1);
+
+    private static ImmutableArray<SceneMesh> Build(Func<double, double, RailwaySample> sampleAt,
+        double start, double end, ScenePoint origin, int tracks)
+    {
         var rails = new MeshBuilder(BuiltInMaterial.RailSteel);
         var sleepers = new MeshBuilder(BuiltInMaterial.Sleeper);
-        for (var track = 1; track <= path.Edge.Tracks; track++)
+        for (var track = 1; track <= tracks; track++)
         {
-            var offset = RailwayCoordinates.TrackOffset(track, path.Edge.Tracks);
+            var offset = RailwayCoordinates.TrackOffset(track, tracks);
             foreach (var (gauge, height, _, _) in RailwayCoordinates.WheelDimensions)
             {
                 var width = height * .65f;
@@ -45,7 +58,7 @@ internal static class RailwayMeshes
                     Vector3[] Ring(double arc) => profile.Select(point => Point(arc, point)).ToArray();
                     Vector3 Point(double arc, Vector2 point)
                     {
-                        var sample = path.Sample(arc, railOffset);
+                        var sample = sampleAt(arc, railOffset);
                         var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
                         return RailwayCoordinates.Relative(sample.Position, origin) + sample.Right * point.X + up * point.Y;
                     }
@@ -69,7 +82,7 @@ internal static class RailwayMeshes
             // Global spacing keeps a sleeper at a segment boundary in exactly one segment.
             for (var index = (long)Math.Ceiling(start / 1.5); index * 1.5 < end; index++)
             {
-                var sample = path.Sample(index * 1.5, offset);
+                var sample = sampleAt(index * 1.5, offset);
                 var up = Vector3.Normalize(Vector3.Cross(sample.Forward, sample.Right));
                 var center = RailwayCoordinates.Relative(sample.Position, origin) - up * .8f;
                 Box(0, 0, 8.5f, .2f);

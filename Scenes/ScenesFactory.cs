@@ -12,10 +12,11 @@ public static class ScenesFactory
     private sealed class Factory : IScenesFactory
     {
         private readonly RailwayCache railwayCache = new();
+        private readonly NodeScene.Cache nodeCache = new();
         public SceneResult<IWorldSceneSession> OpenWorld(SceneBinding binding, SceneWorldSnapshot initial)
         {
             WorldSceneSession.ValidateSnapshot(initial);
-            return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, WorldSceneSession.Generate, railwayCache));
+            return new SceneResult<IWorldSceneSession>.Success(new WorldSceneSession(binding, initial, WorldSceneSession.Generate, railwayCache, nodeCache));
         }
         public SceneResult<IDesignEditSession> OpenEditor(IContentView content, DesignEvaluation initial) =>
             throw new NotImplementedException("Design editing is implemented by Issue #333.");

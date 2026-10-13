@@ -76,14 +76,20 @@ public sealed class WorldSessionTests
     }
 
     [TestMethod]
-    public async Task ProductionWorldGenerationReportsExplicitFaultInsteadOfEmptySuccess()
+    public async Task ProductionWorldGenerationKeepsCombatExplicitlyDeferred()
     {
-        await using var session = (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), Snapshot())).Value;
-        session.RequestView(Target);
+        var basis = Snapshot();
+        var snapshot = basis with { Core = new FixedCoreReadView
+        {
+            InputIdentity = basis.Core.InputIdentity,
+            Combats = new Dictionary<CombatId, Lookup<CombatView>> { [new(1)] = new Lookup<CombatView>.Found(new(new(1), Location, 0, [])) }
+        } };
+        await using var session = (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), snapshot)).Value;
+        session.RequestView(new WorldSceneTarget.Combat(new(1)));
         await Assert.ThrowsExactlyAsync<NotImplementedException>(async () => await session.PendingBuild!);
         var fault = (SceneResult<ISceneFrame>.Faulted)session.Present(FrameRequest, null);
         Assert.AreEqual("scene_internal_fault", fault.Problem.Code);
-        StringAssert.Contains(fault.Problem.Detail, "#316");
+        StringAssert.Contains(fault.Problem.Detail, "#353");
     }
 
     [TestMethod]

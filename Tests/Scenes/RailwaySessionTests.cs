@@ -223,18 +223,6 @@ public sealed class RailwaySessionTests
             .Any(visual => visual is SceneVisual.Geometry));
     }
 
-    [TestMethod]
-    public async Task FollowingIntoNodeReportsTheDeferredNodeImplementation()
-    {
-        await using var session = Open(Short());
-        session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
-        await Settled(session);
-        var node = Short(train: RailwayFixtures.Train(1) with { Position = new TrainPosition.Node(new(2)) }, steps: 1);
-        session.Observe(node, []);
-        var fault = (SceneResult<ISceneFrame>.Faulted)session.Present(Request, null);
-        StringAssert.Contains(fault.Problem.Detail, "#316");
-    }
-
     private static ScenePose Pose(ISceneFrame frame, ulong vehicle) =>
         ((Lookup<ScenePose>.Found)frame.FindPose(new WorldObjectId.Instance(new InstanceId.Vehicle(new(vehicle))))).Value;
     private static void AssertPosition(ISceneFrame frame, ulong vehicle, Vector3 position) =>

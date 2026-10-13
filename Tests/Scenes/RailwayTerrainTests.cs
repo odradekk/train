@@ -129,7 +129,8 @@ public sealed class RailwayTerrainTests
         var point = new ScenePoint(40.5, 0, Math.Floor(endpoint.Z) + .5);
         var column = new GridColumn((int)Math.Floor(point.X - segment.Origin.X), (int)Math.Floor(point.Z - segment.Origin.Z));
         var local = new ScenePoint(point.X - endpoint.X, 0, point.Z - endpoint.Z);
-        var nodeHeight = Math.Floor(RailwayTerrain.NodeGround(snapshot, endNode, local)) + 1;
+        var nodeHeight = Math.Floor(RailwayTerrain.NodeGround(snapshot, endNode,
+            new(local.X + path.EndNode.EntryPoint(path.Edge.Id).X, local.Y, local.Z + path.EndNode.EntryPoint(path.Edge.Id).Z))) + 1;
         Assert.AreEqual(nodeHeight, segment.Heights[column], 1,
             "The endpoint blend must approach the same node-local sample used by the node scene.");
     }
@@ -379,20 +380,20 @@ public sealed class RailwayTerrainTests
         var snapshot = Short(Content(RailwayFixtures.TerrainAppearance));
         var segment = Build(snapshot);
         var cache = new RailwayCache();
-        var oldOwner = cache.OpenSession();
-        cache.Publish(oldOwner, [segment]);
-        var currentOwner = cache.OpenSession();
+        var oldOwner = cache.OpenSession(RailwayFixtures.Edge);
+        cache.Publish(RailwayFixtures.Edge, oldOwner, [segment]);
+        var currentOwner = cache.OpenSession(RailwayFixtures.Edge);
         var equivalent = Short(Content(RailwayFixtures.TerrainAppearance with { LocalHeightNoise = [], Decorations = [] }));
         var path = new RailwayPath(equivalent, RailwayFixtures.Edge);
         var reused = cache.Find(equivalent, path, 0);
         Assert.AreSame(segment, reused);
         AssertGeometry(reused!, Build(equivalent));
-        cache.Publish(currentOwner, []);
-        cache.Publish(oldOwner, [segment]);
+        cache.Publish(RailwayFixtures.Edge, currentOwner, []);
+        cache.Publish(RailwayFixtures.Edge, oldOwner, [segment]);
         Assert.IsNull(cache.Find(equivalent, path, 0));
-        cache.Publish(currentOwner, [segment]);
+        cache.Publish(RailwayFixtures.Edge, currentOwner, [segment]);
         Assert.AreSame(segment, cache.Find(equivalent, path, 0));
-        cache.Publish(currentOwner, []);
+        cache.Publish(RailwayFixtures.Edge, currentOwner, []);
         Assert.IsNull(cache.Find(equivalent, path, 0));
     }
 

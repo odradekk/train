@@ -81,6 +81,8 @@ internal sealed class RailwayPath
     internal NodeMapItem End { get; }
     internal ulong Seed { get; }
     internal RailwayAppearanceProjection Rules { get; }
+    internal NodeLayout StartNode { get; }
+    internal NodeLayout EndNode { get; }
     internal double LengthCells { get; }
     internal int SegmentCount => checked((int)Math.Ceiling(LengthCells / RailwayCoordinates.SegmentLengthCells));
     private readonly ScenePoint start;
@@ -97,7 +99,7 @@ internal sealed class RailwayPath
     private const double GradeReserve = 0.5;
     private const double ReliefSlopeRadians = 0.03;
 
-    internal RailwayPath(SceneWorldSnapshot snapshot, EdgeId id)
+    internal RailwayPath(SceneWorldSnapshot snapshot, EdgeId id, CancellationToken cancellation = default)
     {
         Edge = snapshot.Core.FindEdge(id) is Lookup<EdgeView>.Found edge ? edge.Value.Map :
             throw new RailwayBuildException("The railway edge is missing.");
@@ -118,6 +120,8 @@ internal sealed class RailwayPath
             !double.IsFinite(Rules.MinimumCurveRadiusMeters) || Rules.MinimumCurveRadiusMeters <= 0 ||
             !double.IsFinite(Rules.MaximumGrade) || Rules.MaximumGrade <= 0)
             throw new RailwayBuildException("The edge length or railway appearance cannot produce a valid alignment.");
+        StartNode = NodeLayout.Build(snapshot, Start.Id, cancellation);
+        EndNode = NodeLayout.Build(snapshot, End.Id, cancellation);
         forwardX = dx / direct;
         forwardZ = dz / direct;
         side = RailwayRandom.Unit(Seed, id.Value, 0, HorizontalSidePurpose) < 0.5 ? -1 : 1;

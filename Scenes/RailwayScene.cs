@@ -47,6 +47,8 @@ internal sealed class RailwayScene : IAsyncDisposable
     private double lastSimulationSeconds;
     private double displayRate = 1;
     internal EdgeId Edge { get; }
+    internal RailwayPath? Path => path;
+    internal void PreparePath() => AcceptPath();
     internal Task[] PendingWork => (path is null && failure is null ? new Task[] { pendingPath } : [])
         .Concat(pendingSegments.Values.Select(item => item.Task)).Concat(pendingVehicles.Values)
         .Concat(retiredSegments.Where(item => !item.Task.IsCompleted).Select(item => item.Task))
@@ -57,15 +59,15 @@ internal sealed class RailwayScene : IAsyncDisposable
     {
         this.cache = cache;
         Edge = edge;
-        owner = cache.OpenSession();
+        owner = cache.OpenSession(edge);
         this.objectId = objectId;
         this.build = build ?? RailwayTerrain.Build;
         lastSimulationSeconds = initial.Core.Position.CompletedSteps * SimulationTime.StepSeconds;
-        pendingPath = Task.Run(() => new RailwayPath(initial, edge), cancellation.Token);
+        pendingPath = Task.Run(() => new RailwayPath(initial, edge, cancellation.Token), cancellation.Token);
     }
 
     internal SceneFrame Present(SceneWorldSnapshot snapshot, SceneWorldSnapshot? previous, WorldSceneTarget target,
-        SceneFrameRequest request, SceneFrameStamp stamp, SceneFrame? displayed)
+        SceneFrameRequest request, SceneFrameStamp stamp, SceneFrame? displayed, ScenePoint? switchedOrigin = null)
     {
         var adjacent = previous is not null && previous.Core.Position.CompletedSteps + 1 == snapshot.Core.Position.CompletedSteps;
         var seconds = (adjacent ? previous!.Core.Position.CompletedSteps + request.Interpolation :
@@ -83,7 +85,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             focal = path.Locate(RailwayCoordinates.Add(camera.Frame.Origin, camera.Focus));
         var focus = path.Sample(focal).Position;
         var step = RailwayCoordinates.OriginStepCells;
-        var origin = new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
+        var origin = switchedOrigin ?? new ScenePoint(Math.Floor(focus.X / step) * step, Math.Floor(focus.Y / step) * step, Math.Floor(focus.Z / step) * step);
         var middle = Math.Clamp((int)(focal / RailwayCoordinates.SegmentLengthCells), 0, path.SegmentCount - 1);
         UpdateDisplayRate(seconds);
         var (minimum, maximum) = NeededRange(middle, followed?.Train);
@@ -124,12 +126,23 @@ internal sealed class RailwayScene : IAsyncDisposable
     private (int Minimum, int Maximum) NeededRange(int middle, TrainView? followed)
     {
         var direction = followed?.Position is TrainPosition.Edge { Direction: TravelDirection.Reverse } ? -1 : 1;
-        var ahead = Math.Clamp((int)Math.Ceiling(Math.Abs(followed?.SpeedMetersPerSecond ?? 0) *
-            RailwayCoordinates.CellsPerMeter * displayRate * RailwayCoordinates.PrefetchSeconds / RailwayCoordinates.SegmentLengthCells),
-            0, RailwayCoordinates.MaxPrefetchSegments);
+        var ahead = PrefetchSegments(followed?.SpeedMetersPerSecond ?? 0, displayRate);
         var radius = RailwayCoordinates.ViewRadiusSegments;
         return (Math.Max(0, middle - radius - (direction < 0 ? ahead : 0)),
             Math.Min(path!.SegmentCount - 1, middle + radius + (direction > 0 ? ahead : 0)));
+    }
+
+    internal static int PrefetchSegments(double speed, double rate) => Math.Clamp((int)Math.Ceiling(Math.Abs(speed) *
+        RailwayCoordinates.CellsPerMeter * rate * RailwayCoordinates.PrefetchSeconds / RailwayCoordinates.SegmentLengthCells),
+        0, RailwayCoordinates.MaxPrefetchSegments);
+
+    internal WorldLocation.Node? FrontNode(SceneWorldSnapshot snapshot, TrainView train)
+    {
+        var position = (TrainPosition.Edge)train.Position;
+        var edge = ((Lookup<EdgeView>.Found)snapshot.Core.FindEdge(position.Id)).Value.Map;
+        var remaining = position.Direction == TravelDirection.Forward ? edge.LengthMeters - position.DistanceMeters : position.DistanceMeters;
+        return remaining * RailwayCoordinates.CellsPerMeter <= PrefetchSegments(train.SpeedMetersPerSecond, displayRate) * RailwayCoordinates.SegmentLengthCells
+            ? new(position.Direction == TravelDirection.Forward ? edge.End : edge.Start) : null;
     }
 
     private void ReconcileSegments(SceneWorldSnapshot snapshot, int middle, int minimum, int maximum)
@@ -160,7 +173,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 pendingSegments.Add(index, new(Task.Run(() => build(snapshot, currentPath, index, stop.Token), stop.Token), stop));
             }
         }
-        cache.Publish(owner, segments.Values.Select(item => item.Source));
+        cache.Publish(Edge, owner, segments.Values.Select(item => item.Source));
     }
 
     private void Connect(RailwaySegment segment)
@@ -275,7 +288,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         return waiting;
     }
 
-    private static SceneBounds VehicleBounds(DesignSceneProjection projection, InstanceDetails.Vehicle vehicle)
+    internal static SceneBounds VehicleBounds(DesignSceneProjection projection, InstanceDetails.Vehicle vehicle)
     {
         var minimum = Vector3.Zero;
         var maximum = Vector3.Zero;
