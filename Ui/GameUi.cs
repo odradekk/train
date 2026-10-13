@@ -19,6 +19,7 @@ public partial class GameUi : CanvasLayer
     private Label _error = null!;
     private PanelContainer _errorPanel = null!;
     private Button? _createNewGame;
+    private Button? _confirmMissing;
     private Label _clock = null!;
     private MacroMap _map = null!;
     private WorldPanels? _panels;
@@ -136,8 +137,9 @@ public partial class GameUi : CanvasLayer
             _reportedMissing = missing.Operation;
             var details = missing.Content.RuntimeMissing.Select(item => $"{item.Reference} · {item.Field}")
                 .Concat(missing.Core.Select(item => $"{item.Reference} · {item.FieldPath}"));
-            var message = "等待缺失确认，可取消创建。\n" + string.Join("\n", details);
+            var message = "等待缺失确认，可确认继续或取消创建。\n" + string.Join("\n", details);
             _newGameError!.Text = message;
+            _confirmMissing!.Show();
             _logger.Warning("ui", "new_game_missing_confirmation", message);
             ShowError(message);
         }
@@ -203,6 +205,22 @@ public partial class GameUi : CanvasLayer
         _newGameError.AutowrapMode = TextServer.AutowrapMode.WordSmart;
         _newGameError.AddThemeColorOverride("font_color", UiStyle.Error);
         body.AddChild(_newGameError);
+        _confirmMissing = UiStyle.Button("ConfirmMissing", "确认继续", () =>
+        {
+            var operation = _newOperation;
+            if (operation == 0 || _host!.MissingConfirmation?.Operation != operation) return;
+            var missingMessage = _newGameError!.Text;
+            if (_host.ConfirmMissing(operation))
+            {
+                if (_error.Text == missingMessage) _errorPanel.Hide();
+                return;
+            }
+            const string message = "缺失确认已失效，请重新创建对局。";
+            _logger.Warning("ui", "new_game_confirmation_expired", message);
+            ShowError(message);
+        }, true);
+        _confirmMissing.Hide();
+        body.AddChild(_confirmMissing);
         body.AddChild(UiStyle.Button("Cancel", "取消", CancelNewGame));
         var create = _createNewGame = UiStyle.Button("Create", "创建对局", () =>
         {
@@ -227,6 +245,7 @@ public partial class GameUi : CanvasLayer
             return;
         }
         _newOperation = result.Operation;
+        _confirmMissing!.Hide();
         _newGameError!.Text = "正在创建对局，可取消。";
         _createNewGame!.Disabled = true;
     }
@@ -251,6 +270,7 @@ public partial class GameUi : CanvasLayer
         }
         if (_newOperation != result.Operation) return;
         _newOperation = 0;
+        _confirmMissing!.Hide();
         _createNewGame!.Disabled = false;
         if (result.Status is "Committed" or "CommittedWithWarnings" or "Cancelled") _newGame!.Hide();
     }

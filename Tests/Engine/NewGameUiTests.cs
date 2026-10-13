@@ -22,7 +22,11 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
     [Test]
     public Task Missing_new_game_references_are_visible_and_can_be_cancelled() => CreateThroughInput(false, true);
 
-    private async Task CreateThroughInput(bool reject, bool missing = false)
+    [Test]
+    public Task Missing_new_game_confirmation_activates_the_candidate_and_opens_a_paused_map()
+        => CreateThroughInput(false, true, confirm: true);
+
+    private async Task CreateThroughInput(bool reject, bool missing = false, bool confirm = false)
     {
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
@@ -109,12 +113,27 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
                     ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree() &&
                     panel.GetNode<Label>("Layout/Body/Problem").Text.Contains("等待缺失确认"),
                     "缺失引用未显示具体引用、字段和等待确认状态，或提前替换了活动局。");
-                panel.GetNode<Button>("Layout/Body/Cancel").GrabFocus();
+                var action = panel.GetNode<Button>(confirm ? "Layout/Body/ConfirmMissing" : "Layout/Body/Cancel");
+                Require(action.IsVisibleInTree() && !action.Disabled, "缺失确认的操作入口不可用。");
+                Require(candidate.ActivationCount == 0, "缺失确认前已激活候选。");
+                action.GrabFocus();
                 await Press(Key.Space);
                 await FramesUntil(() => !app.Host.IsBusy);
-                Require(app.Host.MissingConfirmation is null && app.Host.GetStatus() is null &&
-                    candidate.ActivationCount == 0 && candidate.DisposeCount == 1 && !panel.IsVisibleInTree(),
-                    "真实取消输入未清除缺失确认，或候选被激活、重复释放。");
+                Require(app.Host.MissingConfirmation is null && candidate.DisposeCount == 1 && !panel.IsVisibleInTree(),
+                    "真实确认或取消输入未清除缺失确认，或候选重复释放、表单仍显示。");
+                if (confirm)
+                {
+                    var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+                    await FramesUntil(() => ReferenceEquals(map.View, view));
+                    Require(candidate.ActivationCount == 1 && app.Host.GetStatus()!.PlayerPaused &&
+                        map.IsVisibleInTree() && !menu.IsVisibleInTree() &&
+                        !ui.GetNode<Control>("Root/ErrorPanel").IsVisibleInTree(),
+                        "真实确认输入没有激活候选并进入暂停地图。");
+                    session.AssertComplete();
+                }
+                else
+                    Require(app.Host.GetStatus() is null && candidate.ActivationCount == 0,
+                        "真实取消输入激活了缺失候选。");
             }
             else if (reject)
             {
