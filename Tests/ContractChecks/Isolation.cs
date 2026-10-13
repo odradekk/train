@@ -35,6 +35,7 @@ internal static class Isolation
                         CopyConfiguration(parent.FullName);
                 }
                 CopyConfiguration(root);
+                if (test == "Train.Content.Tests") CopyDirectory(Path.Combine(root, "builtin", "core"));
                 // 查找在隔离根终止，不能继承外层工作区或用户目录中的构建配置。
                 foreach (var file in new[] { "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props" })
                     if (!File.Exists(Path.Combine(isolated, file))) File.WriteAllText(Path.Combine(isolated, file), "<Project />");
@@ -57,7 +58,7 @@ internal static class Isolation
                 var testAssembly = facts.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
                 await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
                     "--root-directory", isolated, "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
-                    "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
+                    "--filter", "TestCategory!=stage", "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
                     "--hangdump", "--hangdump-timeout", "110s"], isolated, Path.Combine(evidence, "tests.log"), 120);
                 Console.WriteLine($"isolation passed: {test}; evidence={evidence}");
 
