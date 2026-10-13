@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Train.csproj" />
+    <ProjectReference Include="../ContractSupport/Content/Train.Content.ContractSupport.csproj" />
   </ItemGroup>
 </Project>
