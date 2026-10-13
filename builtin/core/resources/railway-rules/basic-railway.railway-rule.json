@@ -1,0 +1,1 @@
+{"schema_version":1,"id":"basic-railway","braking_deceleration":0.7,"minimum_acceleration":0.15,"minimum_gap_meters":28,"rail_units_per_meter":0.7,"build_seconds_per_meter":3,"repair_seconds_per_break":48,"rail_good":"structural-metal","repair_rail_units_per_break":18,"appearance":{"minimum_curve_radius_meters":80,"maximum_grade":0.08}}

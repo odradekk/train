@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"ground","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"stone_soil","faces":{"top":"shared/organic-face.png","side":"shared/organic-face.png","bottom":"shared/organic-face.png"}}},"display":{"name":"地表","description":"地表的第一版正式定义；数值待配平，占位贴图待美术制作。","icon":"shared/organic-icon.png"}}
