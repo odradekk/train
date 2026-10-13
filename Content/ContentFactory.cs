@@ -62,8 +62,23 @@ internal sealed class InitialContentFactory : C.IContentFactory
     }
     public C.ContentResult<C.DesignChangeEvaluation> CompareDesigns(C.IContentView content, K.DesignHash current, C.DesignDraft target) => throw new NotImplementedException();
     public C.ContentResult<C.IContentCandidate> PrepareEdit(C.IContentView basis, C.ContentEdit edit) => throw new NotImplementedException();
-    public C.IContentView WithSettlementCopies(C.IContentView basis, ImmutableArray<K.OwnedSettlementTemplateReference> copies) => throw new NotImplementedException();
-    public C.ContentResult<K.WorldGenerationInput> CreateWorldInput(C.IContentView content, C.GenerationProfileId profile, ulong seed, string generatorVersion) => throw new NotImplementedException();
+    public C.IContentView WithSettlementCopies(C.IContentView basis, ImmutableArray<K.OwnedSettlementTemplateReference> copies)
+    {
+        ArgumentNullException.ThrowIfNull(basis);
+        if (basis is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(basis));
+        return view.WithSettlementCopies(copies);
+    }
+    public C.ContentResult<K.WorldGenerationInput> CreateWorldInput(C.IContentView content, C.GenerationProfileId profile, ulong seed, string generatorVersion)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(generatorVersion);
+        if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
+        try { return view.CreateWorldInput(profile, seed, generatorVersion); }
+        catch (Exception exception)
+        {
+            return new C.ContentResult<K.WorldGenerationInput>.Faulted("content_fault", exception.Message, exception.StackTrace);
+        }
+    }
     public C.ContentResult<C.IContentCapture> Capture(C.IContentView content, K.CoreReferenceManifest references) => throw new NotImplementedException();
     public C.ContentResult<C.IContentCapture> DecodeCapture(string payload) => throw new NotImplementedException();
     public C.ContentResult<C.IContentReplayCapture> CaptureReplay(ImmutableArray<C.IContentView> history, K.CoreReferenceManifest references) => throw new NotImplementedException();

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "id": "basic",
+  "id": "basic-combat",
   "retreat_seconds": 10,
   "morale_damage_coefficient": 0.1,
   "weapon_destroyed_morale_loss": 0.1,

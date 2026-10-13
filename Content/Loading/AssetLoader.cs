@@ -11,10 +11,16 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
 
     internal C.ContentAsset? Load(LoadPackage package, ParsedVoxel voxel, string name, string field, C.AssetKind kind)
     {
-        var localId = voxel.Definition.Value[(voxel.Definition.Value.IndexOf(':') + 1)..];
-        var path = package.Resources + "/voxels/" + (name.StartsWith("shared/", StringComparison.Ordinal) ? name : localId + "/" + name);
-        var key = new C.ContentPath(package.Root, path);
         var subject = new C.ContentReference.Core(new Train.Core.Contracts.CoreDefinitionReference.Voxel(voxel.Definition));
+        return Load(package, "voxels", voxel.Definition.Value, subject, name, field, kind);
+    }
+
+    internal C.ContentAsset? Load(LoadPackage package, string directory, string id, C.ContentReference subject,
+        string name, string field, C.AssetKind kind)
+    {
+        var localId = id[(id.IndexOf(':') + 1)..];
+        var path = package.Resources + "/" + directory + "/" + (name.StartsWith("shared/", StringComparison.Ordinal) ? name : localId + "/" + name);
+        var key = new C.ContentPath(package.Root, path);
         if (!_read.TryGetValue(key, out var asset))
         {
             var result = files.Read(key, MaximumBytes);
@@ -37,6 +43,15 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
         }
         _used.Add((package, asset));
         return asset;
+    }
+
+    internal static bool MapSymbol(C.ContentAsset asset, LoadPackage package, C.ContentReference subject)
+    {
+        if (asset.Metadata is C.AssetMetadata.Png { Width: > 0 } png && png.Width == png.Height && png.Width % 24 == 0)
+            return true;
+        package.Reject("asset_rule_failed", asset.Sources.First(s => s.Package == package.Metadata!.Id).Path,
+            "/display/map_symbol", "地图符号必须是边长为 24 的整数倍的正方形 PNG。", subject);
+        return false;
     }
 
     internal ImmutableArray<C.ContentAsset> Freeze() => _used.Where(item => item.Package.State == C.PackageState.Available)
