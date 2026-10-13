@@ -28,33 +28,33 @@ public sealed class TrainDispatchOrderingTests
     }
 
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void Cleared_track_goes_to_opposite_waiter_whether_the_other_old_direction_track_stays_occupied_or_clears(bool otherClears)
+    public void Handoff_is_honored_with_its_receiving_direction_on_the_other_track_and_both_queues_progress()
     {
         var state = State(4, 2) with { Position = new(5, 0) };
         var trains = state.World.Trains;
         using var session = new CoreSession(state with { World = state.World with { Trains =
-            [OnEdge(trains[0], 1, 19.99, 2), OnEdge(trains[1], 2, otherClears ? 19.99 : 10, otherClears ? 2 : 1),
+            [OnEdge(trains[0], 1, 19.99, 2), OnEdge(trains[1], 2, 10, 1, reverse: true),
                 Queued(trains[2], 1, 1, 2), Queued(trains[3], 2, 2, 1)] } });
         Step(session);
         Assert.IsInstanceOfType<TrainPosition.Node>(View(session, 1).Position);
-        if (otherClears) Assert.IsInstanceOfType<TrainPosition.Node>(View(session, 2).Position);
-        else Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 2).Position);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 2).Position);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 3).Activity);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 4).Activity);
         Step(session);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 4).Position);
         var admitted = (TrainPosition.Edge)View(session, 4).Position;
         Assert.AreEqual(1, admitted.Track);
         Assert.AreEqual(TravelDirection.Reverse, admitted.Direction);
-        if (!otherClears)
-        {
-            var remaining = (TrainPosition.Edge)View(session, 2).Position;
-            Assert.AreEqual(2, remaining.Track);
-            Assert.AreEqual(TravelDirection.Forward, remaining.Direction);
-        }
+        var remaining = (TrainPosition.Edge)View(session, 2).Position;
+        Assert.AreEqual(2, remaining.Track);
+        Assert.AreEqual(TravelDirection.Reverse, remaining.Direction);
         Assert.AreEqual(new TrainPosition.Node(new(1)), View(session, 3).Position);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 3).Activity);
+        for (var step = 0; step < 1000 && View(session, 3).Position is TrainPosition.Node; step++) Step(session);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 3).Position);
+        var later = (TrainPosition.Edge)View(session, 3).Position;
+        Assert.AreEqual(2, later.Track);
+        Assert.AreEqual(TravelDirection.Forward, later.Direction);
     }
 
     [TestMethod]
@@ -82,9 +82,10 @@ public sealed class TrainDispatchOrderingTests
         }
     }
 
-    private static TrainState OnEdge(TrainState train, int track, double distance, double speed) => train with
-    { Position = new TrainPosition.Edge(new(1), track, TravelDirection.Forward, distance), Transit = null,
-        Activity = TrainActivity.Running, SpeedMetersPerSecond = speed };
+    private static TrainState OnEdge(TrainState train, int track, double distance, double speed, bool reverse = false) => train with
+    { Position = new TrainPosition.Edge(new(1), track, reverse ? TravelDirection.Reverse : TravelDirection.Forward, distance), Transit = null,
+        Activity = TrainActivity.Running, SpeedMetersPerSecond = speed,
+        Plan = new(false, [new PlanStop.Waypoint(new(reverse ? 1UL : 2UL))]) };
 
     private static TrainState Queued(TrainState train, ulong node, ulong age, ulong target) => train with
     { Position = new TrainPosition.Node(new(node)), Activity = TrainActivity.Waiting, QueueEnteredStep = age,

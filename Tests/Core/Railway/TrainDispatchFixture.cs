@@ -3,6 +3,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 using Train.Core.Tests.World;
+using Train.Core.World;
 
 namespace Train.Core.Tests.Railway;
 
@@ -20,11 +21,12 @@ internal static class TrainDispatchFixture
         world = world with
         {
             Source = world.Source with { Configuration = world.Source.Configuration with { WidthMeters = Math.Max(20, length) } },
-            Nodes = [node, node with { Id = new(2), Position = new(20, 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 }],
+            Nodes = [node, node with { Id = new(2), Position = new(Math.Min(20, length), 0), Occupant = new NodeOccupant.Empty(), Platforms = 0 }],
             Edges = [new(new(1), new(1), new(2), length, node.Terrain, tracks, 2, [], [])],
             Trains = world.Trains.Select(t => t with { Plan = new(false, [new PlanStop.Waypoint(new(2))]), NextStopIndex = 0 }).ToImmutableArray(),
             Next = world.Next with { Node = 3, Edge = 2 }
         };
+        WorldStateValidation.Validate(world);
         return state with { World = world };
     }
 

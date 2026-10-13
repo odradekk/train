@@ -134,6 +134,7 @@ public sealed class TrainDispatchTests
         var state = TwoEdges(4, 1, 5);
         state = state with { World = state.World with { Trains = state.World.Trains.Select(t => t with
         { Activity = TrainActivity.Running, Plan = Plan(3) }).ToImmutableArray() } };
+        WorldStateValidation.Validate(state.World);
         using var session = new CoreSession(state);
         var maximumDrop = WorldFixture.Content.RailwayRules[0].BrakingDeceleration * SimulationTime.StepSeconds;
         var deceleratingSteps = 0;
@@ -312,6 +313,27 @@ public sealed class TrainDispatchTests
         Submit(session, new CoreCommand.PublishContent(WorldFixture.Content));
         Step(session);
         Assert.AreEqual(TrainActivity.Servicing, View(session, 2).Activity);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Unpowered_stationary_train_on_an_unbroken_track_keeps_its_direction_and_order_facing(bool reverse)
+    {
+        var content = WorldFixture.Content with { Designs = WorldFixture.Content.Designs.Select(d =>
+            d.Design == WorldFixture.Vehicle ? d with { Parts = d.Parts.Select(p => p with
+            { Capabilities = p.Capabilities.Where(c => c is not PartCapability.Propulsion).ToImmutableArray() }).ToImmutableArray() } : d).ToImmutableArray() };
+        var state = State(1, content: content);
+        var facing = reverse ? TrainOrderFacing.LastEndLeading : TrainOrderFacing.FirstEndLeading;
+        var train = OnEdge(state.World.Trains[0], 10, 0, reverse) with { OrderFacing = facing };
+        using var session = new CoreSession(state with { World = state.World with { Trains = [train] } });
+        for (var step = 0; step < 20; step++)
+        {
+            Step(session);
+            Assert.AreEqual(train.Position, View(session, 1).Position);
+            Assert.AreEqual(0.0, View(session, 1).SpeedMetersPerSecond);
+            Assert.AreEqual(facing, View(session, 1).OrderFacing);
+        }
     }
 
     [TestMethod]
