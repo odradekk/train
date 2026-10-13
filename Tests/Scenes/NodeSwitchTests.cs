@@ -401,6 +401,7 @@ public sealed class NodeSwitchTests
             Assert.IsFalse(loading.Update.Environment.FoggedRegions.IsEmpty);
             Assert.IsInstanceOfType<ScenePick.NotReady>(loading.Pick(new(new(0, 10, 0), -Vector3.UnitY, 30)));
             release.SetResult();
+            await session.PendingBuild!;
             var ready = await RailwayFixtures.Settled(session, Request, loading);
             Assert.AreEqual(SceneReadiness.Ready, ready.Readiness);
             Assert.AreEqual(loading.NodePanBounds, ready.NodePanBounds);
