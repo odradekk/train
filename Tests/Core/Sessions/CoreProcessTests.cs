@@ -10,6 +10,8 @@ namespace Train.Core.Tests.Sessions;
 [TestCategory("integration")]
 public sealed class CoreProcessTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     [TestMethod]
     public async Task World_save_in_one_process_restores_the_same_execution_in_another()
     {
@@ -20,11 +22,18 @@ public sealed class CoreProcessTests
         AssertIndependent(continuous, prefix);
         AssertIndependent(prefix, restored);
         Assert.AreEqual(prefix.Samples[^1].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
-        AssertSamples(continuous.Samples[..5], prefix.Samples);
-        AssertSamples(continuous.Samples[4..], restored.Samples);
-        CollectionAssert.AreEqual(continuous.Receipts[..3], prefix.Receipts);
-        CollectionAssert.AreEqual(continuous.Receipts[3..], restored.Receipts);
-        Assert.AreEqual(new SimulationPosition(1, 2), restored.Samples[0].Position);
+        AssertSamples(continuous.Samples[..6], prefix.Samples);
+        AssertSamples(continuous.Samples[5..], restored.Samples);
+        CollectionAssert.AreEqual(continuous.Receipts[..4], prefix.Receipts);
+        CollectionAssert.AreEqual(continuous.Receipts[4..], restored.Receipts);
+        Assert.AreEqual(new SimulationPosition(1, 3), restored.Samples[0].Position);
+        Assert.AreEqual(new string('E', 64), restored.Samples[0].InputIdentity);
+        using var savedPayload = JsonDocument.Parse(restored.Samples[0].Payload);
+        var savedWorld = savedPayload.RootElement.GetProperty("world");
+        Assert.IsTrue(savedWorld.GetProperty("designs").EnumerateArray().All(d =>
+            d.GetProperty("max_structure_durability").GetInt64() == 40
+            && d.GetProperty("mass_tons").GetDouble() == 2));
+        Assert.IsTrue(savedWorld.GetProperty("nodes").EnumerateArray().All(n => n.GetProperty("platforms").GetInt32() == 0));
         using var payload = JsonDocument.Parse(continuous.Samples[0].Payload);
         var world = payload.RootElement.GetProperty("world");
         Assert.AreEqual(42UL, world.GetProperty("source").GetProperty("world_seed").GetUInt64());
@@ -52,7 +61,7 @@ public sealed class CoreProcessTests
         Assert.AreEqual(first.Identity, second.Identity);
     }
 
-    private static async Task<CoreProcessResult> Run(string directory, string name, string mode)
+    private async Task<CoreProcessResult> Run(string directory, string name, string mode)
     {
         var output = Path.Combine(directory, name + ".json");
         var stdoutPath = Path.Combine(directory, name + ".stdout.log");
@@ -68,21 +77,20 @@ public sealed class CoreProcessTests
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动核心子进程。");
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try
         {
-            await process.WaitForExitAsync(timeout.Token);
+            await process.WaitForExitAsync(TestContext.CancellationToken);
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
+            throw new AssertFailedException($"测试运行已取消；核心子进程 {name}：{directory}");
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
             await File.WriteAllTextAsync(stdoutPath, await stdout, new UTF8Encoding(false));
             await File.WriteAllTextAsync(stderrPath, await stderr, new UTF8Encoding(false));
-            throw new AssertFailedException($"核心子进程超过 30 秒：{directory}");
         }
-        await File.WriteAllTextAsync(stdoutPath, await stdout, new UTF8Encoding(false));
-        await File.WriteAllTextAsync(stderrPath, await stderr, new UTF8Encoding(false));
         Assert.AreEqual(0, process.ExitCode, $"子进程失败：{stdoutPath}；{stderrPath}");
         Assert.IsTrue(File.Exists(output), $"缺少子进程结果：{output}");
         var result = JsonSerializer.Deserialize<CoreProcessResult>(await File.ReadAllTextAsync(output))

@@ -12,6 +12,58 @@ namespace Train.Core.Tests.World;
 public sealed class WorldCaptureTests
 {
     [TestMethod]
+    public void Published_specifications_round_trip_and_restore_without_changing_the_previous_capture()
+    {
+        using var candidate = Prepare();
+        using var session = candidate.Activate();
+        var previous = Capture(session);
+        var previousText = previous.Encode();
+        var content = WorldFixture.Content with
+        {
+            Identity = new(new string('A', 64)),
+            Designs = WorldFixture.Content.Designs.Select(d => d with
+            {
+                MaxStructureDurability = 40, MassTons = 2,
+                Parts = d.Parts.Select(p => p with { MaxDurability = 30,
+                    Capabilities = d.Design == Station ? [] : p.Capabilities }).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+        var publication = (SubmissionResult.Completed)session.Submit(
+            new CoreCommand.PublishContent(content), CommandSource.AutomationTest);
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(publication.Receipt.Decision);
+        var captured = Capture(session);
+        var decoded = Success(CoreFactory.Create().DecodeState(captured.Encode()));
+        Assert.AreEqual(captured.Encode(), decoded.Encode());
+        Assert.AreEqual(captured.Checkpoint, decoded.Checkpoint);
+        using var restoredCandidate = Success(CoreFactory.Create().PrepareRestore(decoded, content, Options));
+        Assert.IsTrue(restoredCandidate.MissingReferences.IsEmpty);
+        Assert.IsTrue(restoredCandidate.AdaptationReport.IsEmpty);
+        using var restored = restoredCandidate.Activate();
+        AssertQueries(session.Read(), restored.Read());
+        Assert.AreEqual(captured.Encode(), Capture(restored).Encode());
+        Assert.AreEqual(captured.Checkpoint, Capture(restored).Checkpoint);
+        Assert.AreEqual(previousText, previous.Encode());
+
+        using var payload = JsonDocument.Parse(captured.Encode());
+        var world = payload.RootElement.GetProperty("world");
+        foreach (var design in world.GetProperty("designs").EnumerateArray())
+        {
+            Assert.AreEqual(40L, design.GetProperty("max_structure_durability").GetInt64());
+            Assert.AreEqual(2d, design.GetProperty("mass_tons").GetDouble());
+            Assert.AreEqual(30L, design.GetProperty("parts")[0].GetProperty("max_durability").GetInt64());
+        }
+        Assert.IsTrue(session.Read().World.Nodes.All(n => n.Platforms == 0));
+        var vehicle = ((Lookup<InstanceView>.Found)restored.Read().FindInstance(new InstanceId.Vehicle(new(1)))).Value;
+        Assert.AreEqual(new DurabilityView(40, 40), vehicle.Structure);
+        Assert.AreEqual(new DurabilityView(30, 30), vehicle.Parts[0].Durability);
+        using var before = JsonDocument.Parse(previousText);
+        Assert.AreEqual(before.RootElement.GetProperty("world").GetProperty("instances").GetRawText(),
+            world.GetProperty("instances").GetRawText());
+        Assert.AreEqual(before.RootElement.GetProperty("world").GetProperty("settlements").GetRawText(),
+            world.GetProperty("settlements").GetRawText());
+    }
+
+    [TestMethod]
     public void Publicly_generated_session_runs_the_shared_capture_contract()
     {
         using var candidate = Prepare();
