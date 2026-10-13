@@ -60,7 +60,7 @@ Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已
 
 当前工具命令为 `structure <仓库根> <配置> <输出目录>`、`verify <仓库根> <配置> <基线文件>`、`isolate <仓库根> <配置> <输出目录>`、`snapshot <仓库根> <配置> <基线文件>`；退出码 0 表示通过，1 表示检查或执行失败，2 表示用法错误。`contract-checks` 自测项目包含 1 个快速层、4 个集成层用例。
 
-阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 不按改动选择，总是构建一次解决方案并执行 structure、verify、isolate。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
+单独选择阶段层 `pwsh -NoProfile -File scripts/test.ps1 -Layer stage` 时完全跳过改动分析，总是构建一次解决方案并执行 structure、verify、isolate。`-Layer stage,engine` 不强制引擎，引擎仍按同一套影响规则选择；阶段全量正确性使用 `-All -Layer all`，由 `-All` 强制引擎。常规集成层仅在任意 `*.csproj`、任意层级 `Directory.Build.*`、`Train.sln`、边界矩阵、`Tests/ContractChecks/**` 改动或 `-All` 时选中隔离；显式 `-Project` 跳过这些全仓检查。
 
 边界矩阵 `scripts/checks/project-boundaries.json` 在顶层、与 `projects` 同级登记 `isolationTests`，其元素是 `projects` 中的隔离根测试项目名。`isolate` 只选择此列表中的项目，沿矩阵声明的允许引用生成各自的依赖闭包；空列表判失败，不回退到固定项目名。工具夹具可以只登记一个模块；真实仓库登记 `["Train.Core.Tests", "Train.Content.Tests", "Train.Scenes.Tests"]`，重新构建三个模块并运行各自全部用例；单次是否通过以运行日志与摘要为准。
 
@@ -147,7 +147,7 @@ Godot 隔离构建只替换真实创建工厂所在的装配入口及其实现�
 | 时机 | 目标检查 |
 | --- | --- |
 | 日常开发 | 所改模块的相关用例；范围不确定或失败超出所选范围时扩大验证 |
-| 常规 CI | 运行 `-Layer fast,integration`，按改动选择受影响 MSTest 和独立检查；选中 MSTest 或契约检查时构建一次解决方案，Schema 单独运行不构建；按上述触发规则执行 Core/Content/Scenes 隔离重建和全部自身用例；Scenes 已有上述行为用例，后续生成、编辑等责任仍待实现；另以非阻断步骤运行当前 App 的真实 Godot 集成用例 |
+| 常规 CI | 运行 `-Layer fast,integration`，按改动选择受影响 MSTest 和独立检查；选中 MSTest 或契约检查时构建一次解决方案，Schema 单独运行不构建；按上述触发规则执行 Core/Content/Scenes 隔离重建和全部自身用例；Scenes 已有上述行为用例，后续生成、编辑等责任仍待实现；另以非阻断步骤调用引擎入口，按同一次改动分析选择当前 App 的真实 Godot 集成用例，未选中时写摘要并成功退出 |
 | 显式较重检查 | 运行 `-All -Layer all`，执行全部已实现的非导出正确性检查；目标还包括真实 Godot 的隔离与契约行为检查 |
 | 相关变更交付前 | 取得受影响模块及消费者的适用证据；影响 Godot 行为或其所消费契约时须有真实引擎证据，常规 CI 通过不能代替 |
 | 契约原型及整组基线确认 | 完成规定调用矩阵和相关故意破坏验证；初始基线先交候选，再由检查工具任务完成适用证据并取得用户确认，候选交付不提前确认基线；缺少真实实现的验证单列待办，不冒充生产模块通过 |
