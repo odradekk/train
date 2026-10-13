@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
@@ -9,20 +10,24 @@ internal sealed class CoreSessionCandidate : ICoreSessionCandidate
     private bool _activated;
     private bool _disposed;
 
-    internal CoreSessionCandidate(CoreState state)
+    internal CoreSessionCandidate(CoreState state, ImmutableArray<CoreProblem> adaptationReport = default)
     {
         _session = new CoreSession(state);
         View = _session.Read();
+        References = WorldReferences.Create(state.World, state.Content);
+        AdaptationReport = adaptationReport.IsDefault ? [] : adaptationReport;
+        MissingReferences = References.Definitions.Where(d => d.WasMissing)
+            .Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray();
+        MissingReferences = MissingReferences.AddRange(References.Templates
+            .Where(t => state.Content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Template(t.SourceTemplate)))
+            .Select(t => new MissingCoreReference(new CoreDefinitionReference.Template(t.SourceTemplate), $"World.Settlements[{t.Owner.Value}].Template")));
     }
 
     public ICoreReadView View { get; }
 
-    public CoreReferenceManifest References
-        => throw new NotImplementedException("References 尚未实现。");
-    public ImmutableArray<CoreProblem> AdaptationReport
-        => throw new NotImplementedException("AdaptationReport 尚未实现。");
-    public ImmutableArray<MissingCoreReference> MissingReferences
-        => throw new NotImplementedException("MissingReferences 尚未实现。");
+    public CoreReferenceManifest References { get; }
+    public ImmutableArray<CoreProblem> AdaptationReport { get; }
+    public ImmutableArray<MissingCoreReference> MissingReferences { get; }
 
     public ICoreSession Activate()
     {

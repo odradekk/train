@@ -1,10 +1,11 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
 internal sealed record CoreState(SimulationPosition Position, ulong NextCommandNumber,
-    CoreRevision Revision, CoreContentProjection Content, CoreFault? Fault = null);
+    CoreRevision Revision, CoreContentProjection Content, WorldState World, CoreFault? Fault = null);
 
 internal abstract record CommandEffect
 {
@@ -21,7 +22,7 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
     public ICoreReadView Read()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault);
+        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World);
     }
 
     public SubmissionResult Submit(CoreCommand command, CommandSource source)
@@ -32,7 +33,7 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             throw new ArgumentOutOfRangeException(nameof(source));
         if (command is not CoreCommand.PublishContent publish)
             throw new NotImplementedException($"{command.GetType().Name} 尚未实现。");
-        ArgumentNullException.ThrowIfNull(publish.Content);
+        WorldInputs.ValidateContent(publish.Content);
         if (publish.Content.Identity == State.Content.Identity)
             throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
         return ExecuteCommand(_ => new CommandEffect.Accepted(publish.Content, []));
@@ -135,7 +136,11 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
     public CoreResult<ICoreCapture> Capture(CapturePurpose purpose)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("Capture 尚未实现。");
+        if (!Enum.IsDefined(purpose))
+            throw new ArgumentOutOfRangeException(nameof(purpose));
+        return purpose == CapturePurpose.Save && State.Fault is not null
+            ? new CoreResult<ICoreCapture>.Failure([new("frozen", "Fault", null, [])])
+            : new CoreResult<ICoreCapture>.Success(new CoreCapture(State));
     }
 
     public CoreRecordingWindow ReadRecording()
