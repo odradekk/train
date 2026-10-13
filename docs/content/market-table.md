@@ -38,4 +38,4 @@
 
 ## 和现有代码的差别
 
-现在的代码读 `schema_version: 1` 的 `.market-tables.json`：一个文件多张表，根对象是 `market_tables` 数组，字段不分节，货物引用写作 `definition`。它与本文的单文件临时格式都尚未迁移到 Demo 规则；后续实施以内容契约交付的新格式为目标，不再以实现本临时格式为终点。
+旧版本 1 的 `.market-tables.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。本文的单文件临时格式、Schema 和样例仅作历史记录；当前内容工厂解析[市场规则](market-rule.md)，具体范围见[内容契约](../contracts/content.md)，不再以实现本临时格式为目标。

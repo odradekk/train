@@ -8,7 +8,7 @@ reload
 
 `reload` 把请求交给宿主的内容重载回调。它没有路径、包名或定义 ID 参数；附带 token 会忽略。发布构建执行时会报告该命令仅在 Debug 构建可用。
 
-默认 App 通过真实内容工厂与 `HostCoordinator` 重载。启动时发现并启用当时安装的有效 Mod，重载重新读取这组启用包；运行中新安装的 Mod 需重启后发现。旧 `ContentReloader`／`ContentSnapshot` 仍在内容模块中保留，宿主已不再使用，退役归 #452。
+默认 App 通过真实内容工厂与 `HostCoordinator` 重载。启动时发现并启用当时安装的有效 Mod，重载重新读取这组启用包；运行中新安装的 Mod 需重启后发现。旧内容加载路径已在 [#452](https://github.com/odradekk/train/issues/452) 退役，当前入口见[内容契约](../contracts/content.md)。
 
 基础分发器只调用宿主回调；重载结果和失败原因由内容日志报告，命令不另行输出成功消息。Debug 构建也可以按 Ctrl+Shift+R 发起同样的重载；发布构建不处理该快捷键。
 

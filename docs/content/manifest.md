@@ -36,4 +36,4 @@
 
 ## 和现有代码的差别
 
-新 `ContentFactory` 已接受 `schema_version: 2`，并检查依赖、最低版本、循环及级联排除。当前宿主仍使用旧 `ContentReloader`，它只接受版本 1，尚不支持依赖；宿主接入新工厂由后续工单完成。
+当前宿主通过真实 `ContentFactory` 加载本文的 `schema_version: 2`，检查依赖、最低版本、循环及级联排除。旧版本 1 的加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役；当前入口及实现范围见[内容契约](../contracts/content.md)。

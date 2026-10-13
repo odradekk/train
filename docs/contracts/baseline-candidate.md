@@ -63,6 +63,8 @@
 
 ## 旧代码迁移边界
 
+下表是 #302 时的历史迁移快照，相关模块迁移边界已完成；旧内容加载路径在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前内容入口与实现范围见[内容契约](content.md)，表中条目不作为当前待办。
+
 | 现状 | 后续迁移需一起处理 |
 | --- | --- |
 | `Core/Content/` 尚在 `Train.Core`；`Core/Saves/FileSaveStore.cs` 使用其中的 `ExternalPath` | 内容项目成立时消除核心对内容实现的反向依赖，并保持文件路径行为等效 |

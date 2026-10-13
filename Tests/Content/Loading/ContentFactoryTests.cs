@@ -10,6 +10,10 @@ namespace Train.Content.Tests.Loading;
 public sealed class ContentFactoryTests
 {
     [TestMethod]
+    public void Only_the_factory_is_exported_from_the_content_implementation() =>
+        CollectionAssert.AreEqual(new[] { typeof(ContentFactory) }, typeof(ContentFactory).Assembly.GetExportedTypes());
+
+    [TestMethod]
     public void Initial_candidate_can_be_activated_once_and_retained_after_disposal()
     {
         var fixture = new ContentFixture();
