@@ -9,7 +9,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast,integration
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine
 ```
 
-工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 SDK 的 `dotnet test --test-modules` 运行所选项目的已构建测试程序集；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规两个步骤分别生成运行目录和摘要。引擎步骤始终调用统一入口；引擎被选中时构建一次解决方案并运行当前 App 的真实 Godot 集成用例，未选中时明确报告、写摘要并成功退出，不构建或运行测试。该步骤使用 `continue-on-error: true`，暂不阻断 PR；本地失败仍返回 1，摘要保留实际 JUnit 用例计数。引擎是否受影响由统一入口按项目依赖与引擎路径规则选择，选中后执行全部引擎用例；用户于 2026-10-13 决定该步骤保持非阻断，不再计划转为阻断。Core/Content/Scenes 隔离重建按项目文件、构建配置、解决方案、边界矩阵和检查工具变更进入默认选择，`-All` 也会执行；选中后在集成队列结束后独立运行，使用 300 秒上限，队列失败也执行且不计入集成层耗时。普通 .NET 宿主用例不提供真实引擎证据。
+工作流检出完整历史并执行 `dotnet tool restore`，恢复固定的 dotnet-affected。入口按默认基准 `origin/master` 的共同祖先及实际改动选择 MSTest 项目和独立检查，规则见[按改动选择](run-tests.md#按改动选择)。选中 MSTest 或契约检查时构建一次 `Train.sln`，使用 SDK 的 `dotnet test --test-modules` 运行所选项目的已构建测试程序集；Schema 单独运行时不构建。Schema 由工作流准备 Python 3.11 与 `jsonschema==4.25.1`。常规两个步骤分别生成运行目录和摘要。引擎步骤始终调用统一入口；引擎被选中时构建一次解决方案并运行当前 App 的真实 Godot 集成用例，未选中时明确报告、写摘要并成功退出，不构建或运行测试。该步骤使用 `continue-on-error: true`，暂不阻断 PR；本地失败仍返回 1，摘要保留实际 JUnit 用例计数。引擎是否受影响由统一入口按项目依赖与引擎路径规则选择，选中后执行全部引擎用例；用户于 2026-10-13 决定该步骤保持非阻断，不再计划转为阻断。Core/Content/Scenes 隔离重建按项目文件、构建配置、解决方案、边界矩阵和检查工具变更进入默认选择，`-All` 也会执行；选中后在集成队列结束后独立运行，使用 300 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。普通 .NET 宿主用例不提供真实引擎证据。
 
 YAML 只传递明确选择并发布入口摘要，不复制游戏断言或推断路径影响。CI 不改变仓库设置、required checks 或分支保护。具体用例数、跳过数和耗时以每次摘要为准；CI 通过不表示人工、性能或全仓目标责任都已验证。
 
@@ -36,7 +36,7 @@ gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selec
 gh workflow run windows-checks.yml --repo odradekk/train --ref <分支> -f selection=correctness
 ```
 
-`correctness` 运行六个现有 MSTest 项目、结构与公开面、Core/Content/Scenes 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 180 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 300 秒上限，队列失败也执行且不计入集成层耗时。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
+`correctness` 运行六个现有 MSTest 项目、结构与公开面、Core/Content/Scenes 隔离、内容示例 Schema 及当前 App 的非导出真实 Godot 集成用例。入口复用一次游戏构建和导入并运行独立引擎测试程序集；集成层 MSTest、structure、verify 与可选 Schema 共用最多 4 个并发任务和 210 秒截止时间；选中的 isolate 在该队列结束后独立运行，使用 300 秒上限，队列失败也执行且不计入集成层耗时；收到停止请求时不启动尚未开始的独立隔离检查。导出冒烟对同一次 Windows 导出运行两次，用 `-Layer engine -ExportWindows` 另外显式选择；Benchmark、长测、人工和额外平台也不属于此选择。
 
 GitHub 要求 `workflow_dispatch` 文件已存在于默认分支，所以新工作流合并前使用 PR 标签取得远端证据。见 [GitHub 触发文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)。
 
