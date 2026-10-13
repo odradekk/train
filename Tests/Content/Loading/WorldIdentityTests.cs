@@ -1,0 +1,108 @@
+using System.Text.Json.Nodes;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using C = Train.Content.Contracts;
+using K = Train.Core.Contracts;
+
+namespace Train.Content.Tests.Loading;
+
+[TestClass]
+public sealed class WorldIdentityTests
+{
+    [TestMethod]
+    public void Display_assets_scene_layout_and_railway_appearance_change_without_changing_business_inputs()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        Change(fixture, "resources/settlement-types/farm.settlement-type.json", j => j["display"]!["name"] = "新类型名称");
+        fixture.AddAsset(ContentFixture.BuiltIn, "resources/settlement-types/farm/symbol.png", [33, 34], new C.AssetMetadata.Png(48, 48));
+        Change(fixture, WorldContentFixtures.TemplatePath, j =>
+        {
+            j["display"]!["name"] = "新模板";
+            j["plots"]![0]!["at"] = new JsonArray(5, 0, 0);
+        });
+        Change(fixture, WorldContentFixtures.ProfilePath, j => j["display"]!["name"] = "新配置");
+        Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["appearance"]!["maximum_grade"] = 0.3);
+        Change(fixture, "resources/blueprints/station.blueprint.json", j => j["display"]!["name"] = "新站点");
+        Change(fixture, "resources/blueprints/scene.blueprint.json", j => j["layout"]!["cells"]![0]![0] = 2);
+        using var second = fixture.Load();
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+        var reference = new K.CoreDefinitionReference.SettlementType(new("core:farm"));
+        var oldDisplay = WorldContentTests.Found(first.View.FindDefinitionDisplay(reference));
+        var newDisplay = WorldContentTests.Found(second.View.FindDefinitionDisplay(reference));
+        Assert.AreEqual("新类型名称", newDisplay.Text.Name);
+        Assert.AreNotEqual(oldDisplay.MapSymbol, newDisplay.MapSymbol);
+        Assert.AreEqual(0.3, WorldContentTests.Found(second.View.FindRailwayAppearance(new("core:rail"))).MaximumGrade);
+        Assert.AreEqual("新配置", second.View.GenerationProfiles.Single().Display.Name);
+        Assert.AreNotEqual(first.View.Core.SettlementTemplates.Single().Plots[0].PrebuiltDesign,
+            second.View.Core.SettlementTemplates.Single().Plots[0].PrebuiltDesign);
+    }
+
+    [TestMethod]
+    [DataRow("type")]
+    [DataRow("template")]
+    [DataRow("building-composition")]
+    [DataRow("rule")]
+    [DataRow("voxel-specification")]
+    public void Effective_business_changes_change_core_and_generation_identities(string change)
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        switch (change)
+        {
+            case "type": Change(fixture, "resources/settlement-types/farm.settlement-type.json", j => j["simulation"]!["weight"] = 8); break;
+            case "template": Change(fixture, WorldContentFixtures.TemplatePath, j => j["weight"] = 8); break;
+            case "building-composition": Change(fixture, "resources/blueprints/station.blueprint.json", j => j["layout"]!["cells"]![0]![0] = 1); break;
+            case "rule": Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["braking_deceleration"] = 9); break;
+            case "voxel-specification": Change(fixture, "resources/voxels/machine.voxel.json", j => j["simulation"]!["max_durability"] = 9); break;
+        }
+        using var second = fixture.Load();
+        Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
+    public void Profile_parameters_affect_generation_but_not_external_core_input()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        Change(fixture, WorldContentFixtures.ProfilePath, j => j["configuration"]!["resources"]![0]!["global_regeneration_remaining_reserve_ratio"] = 0.5);
+        using var second = fixture.Load();
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
+    public void Unreferenced_blueprint_does_not_change_either_business_identity()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        WorldContentFixtures.AddBlueprint(fixture, DesignFixtures.Blueprint("spare"));
+        using var second = fixture.Load();
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+        Assert.AreEqual(first.View.Blueprints.Length + 1, second.View.Blueprints.Length);
+    }
+
+    [TestMethod]
+    public void Type_without_a_template_changes_core_catalog_but_not_generation_candidates()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        Change(fixture, "resources/settlement-types/unused.settlement-type.json", j => j["simulation"]!["weight"] = 100);
+        using var second = fixture.Load();
+        Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    internal static void Change(ContentFixture fixture, string path, Action<JsonObject> change)
+    {
+        var bytes = ((C.ContentIoResult<System.Collections.Immutable.ImmutableArray<byte>>.Success)
+            fixture.Read(new(ContentFixture.BuiltIn, path), 1024 * 1024)).Value;
+        var json = JsonNode.Parse(bytes.AsSpan())!.AsObject();
+        change(json);
+        fixture.AddFile(ContentFixture.BuiltIn, path, json.ToJsonString());
+    }
+
+    private static K.WorldGenerationInput World(C.IContentView view) => WorldContentTests.World(view);
+}

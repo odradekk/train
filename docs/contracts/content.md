@@ -4,7 +4,9 @@
 
 ## 状态与入口
 
-[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持无嵌套的车辆、建筑和场景模型。`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。其他标准定义目录、大型设备、生物与非空嵌套布局明确拒绝。嵌套设计、部分计算、普通恢复／重载、草稿、捕获、复现、创作、模板副本和世界输入仍待对应工单实现，相关入口直接抛 `NotImplementedException`，不转成正常失败或内部故障。当前宿主仍使用旧加载路径，真实宿主端口和四模块联调待后续验证。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+[Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持无嵌套的车辆、建筑和场景模型。Initial 还支持地貌 v1、聚居地类型 v3、最小模板 v2、五类规则与生成配置 v2，包含 NPC 初始化参数；铁路表现参数通过 `FindRailwayAppearance` 提供。`CreateWorldInput` 交出已解析的新局输入，`WithSettlementCopies` 按最终所有者固定模板副本，`FindSettlementLayout` 读取所有者的布局。模板的 `founding`、`inventory`、`production_plans` 省略或为空时支持，非空时以 `unsupported_format` 拒绝。新模板目录只影响新 Initial 视图，已有副本保留原数据；真实 Reload 保留副本仍待 #371。
+
+`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。流程、生物聚落、大型设备、生物与非空嵌套布局尚未支持。嵌套设计、部分计算、普通恢复／重载、草稿、捕获、复现及创作仍待对应工单实现，相关入口直接抛 `NotImplementedException`，不转成正常失败或内部故障。上述实现状态不代表模拟行为、保存恢复或真实四模块联调已通过。当前宿主仍使用旧加载路径，新的宿主装配由 #317 接入。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |

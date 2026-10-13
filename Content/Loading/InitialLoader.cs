@@ -9,6 +9,7 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
     private readonly AssetLoader _assets = new(files, inspector);
     private readonly VoxelParser _parser = new();
     private readonly BlueprintParser _blueprintParser = new();
+    private readonly WorldLoader _world = new();
 
     internal C.ContentResult<C.IContentCandidate> Load()
     {
@@ -60,13 +61,14 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
             }
         }
         PackageLoader.ExcludeDependents(packages);
+        var world = _world.Resolve(packages, loaded, blueprints);
         var diagnostics = packages.SelectMany(package => package.Diagnostics).ToImmutableArray();
         if (packages.Any(package => package.BuiltIn && package.State != C.PackageState.Available))
             return new C.ContentResult<C.IContentCandidate>.Failure(diagnostics);
         var statuses = packages.Select(package => package.Status).ToImmutableArray();
         var view = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
-            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), statuses, assets,
-            blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray());
+            .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), statuses, _assets.Freeze(),
+            blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray(), world);
         return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(view, new(statuses, [], [], diagnostics)));
     }
 
@@ -82,13 +84,12 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                 package.Reject("linked_path", path, "", "内容目录包含无效路径或链接。");
                 continue;
             }
-            if (entry.Name is "processes" or "settlement-types" or "settlement-templates" or "rules" or
-                "railway-rules" or "combat-rules" or "lair-types" or "generation-profiles" or "terrain-types" or "markets")
+            if (entry.Name is "processes" or "lair-types" or "markets")
             {
                 package.Reject("unsupported_format", path, "", $"当前尚未实现定义种类 {entry.Name}：{path}。");
                 continue;
             }
-            if (entry.Name is not ("voxels" or "blueprints"))
+            if (entry.Name is not ("voxels" or "blueprints") && !WorldLoader.Directory(entry.Name))
             {
                 if (entry.Kind == C.ContentEntryKind.Directory)
                     package.Reject("unsupported_format", path, "", $"未知的定义目录 {entry.Name}：{path}。");
@@ -108,8 +109,9 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     continue;
                 }
                 if (definition.Kind != C.ContentEntryKind.File || !definition.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
-                var suffix = entry.Name == "voxels" ? ".voxel.json" : ".blueprint.json";
-                if (!definition.Name.EndsWith(suffix, StringComparison.Ordinal))
+                var kind = entry.Name switch { "voxels" => "voxel", "blueprints" => "blueprint", _ => WorldLoader.Kind(entry.Name, definition.Name) };
+                var suffix = "." + kind + ".json";
+                if (kind is null || !definition.Name.EndsWith(suffix, StringComparison.Ordinal))
                 {
                     package.Reject("unsupported_format", file, "", $"定义文件必须使用 {suffix} 后缀。");
                     continue;
@@ -121,6 +123,11 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     continue;
                 }
                 var bytes = ((C.ContentIoResult<ImmutableArray<byte>>.Success)read).Value.ToArray();
+                if (entry.Name is not ("voxels" or "blueprints"))
+                {
+                    _world.Parse(package, kind!, file, bytes, _assets);
+                    continue;
+                }
                 if (entry.Name == "blueprints")
                 {
                     var blueprint = _blueprintParser.Parse(bytes, package, file);
