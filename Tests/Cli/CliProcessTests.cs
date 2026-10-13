@@ -53,6 +53,12 @@ public sealed partial class CliProcessTests
             await Run(directory, "changed-compare", 1, "compare", changed, second);
             StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "changed-compare.stderr.log")),
                 "/next_command_number");
+
+            modified["input_identity"]!["value"] = "different-core-input";
+            await File.WriteAllTextAsync(changed, modified.ToJsonString());
+            await Run(directory, "changed-input-compare", 1, "compare", changed, second);
+            StringAssert.Contains(await File.ReadAllTextAsync(Path.Combine(directory, "changed-input-compare.stderr.log")),
+                "配方或内容已变，需要重新制作。");
         }
         catch
         {

@@ -84,7 +84,7 @@ public sealed partial class CliProcessTests
     [OSCondition(OperatingSystems.Windows)]
     [DataRow("seed")]
     [DataRow("next_command_number")]
-    public async Task Check_reports_changed_input_or_first_state_difference_without_changing_committed_files(string changed)
+    public async Task Check_reports_first_state_difference_without_changing_committed_files(string changed)
     {
         var directory = CreateDirectory();
         try
@@ -96,7 +96,6 @@ public sealed partial class CliProcessTests
             var recipePath = Path.Combine(directory, "recipe.json");
             await File.WriteAllBytesAsync(save, originalSave);
             await File.WriteAllBytesAsync(recipePath, originalRecipe);
-            File.Copy(Path.ChangeExtension(committed, "input.json"), Path.ChangeExtension(save, "input.json"));
             if (changed == "seed")
             {
                 var recipe = JsonNode.Parse(originalRecipe)!;
@@ -113,13 +112,8 @@ public sealed partial class CliProcessTests
             }
             await Run(directory, "changed-check", 1, "check", Repository, recipePath, save);
             var diagnostic = await File.ReadAllTextAsync(Path.Combine(directory, "changed-check.stderr.log"));
-            if (changed == "seed")
-                StringAssert.Contains(diagnostic, "配方或内容已变，需要重新制作。");
-            else
-            {
-                StringAssert.Contains(diagnostic, "检查点不同：");
-                StringAssert.Contains(diagnostic, "/next_command_number");
-            }
+            StringAssert.Contains(diagnostic, "检查点不同：");
+            StringAssert.Contains(diagnostic, changed == "seed" ? "/world/source/world_seed" : "/next_command_number");
             CollectionAssert.AreEqual(originalSave, await File.ReadAllBytesAsync(committed));
             CollectionAssert.AreEqual(originalRecipe, await File.ReadAllBytesAsync(RecipePath));
         }

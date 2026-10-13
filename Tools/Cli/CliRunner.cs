@@ -4,20 +4,12 @@ using System.Text.Json.Serialization;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.App.Saves;
-using System.Text;
 
 namespace Train.Cli;
 
-internal sealed record GenerationIdentity(
-    [property: JsonRequired] string Profile,
-    [property: JsonRequired] ulong Seed,
-    [property: JsonRequired] string GeneratorVersion,
-    [property: JsonRequired] string Configuration,
-    [property: JsonRequired] string GenerationRevision,
-    [property: JsonRequired] string CoreInputId);
 internal sealed record RunOutput(int ProcessId,
     [property: JsonRequired] RuntimeIdentity Runtime,
-    [property: JsonRequired] GenerationIdentity Input,
+    [property: JsonRequired] CoreInputId InputIdentity,
     [property: JsonRequired] ImmutableArray<CoreCheckpoint> Checkpoints, int AcceptedCommands, int RejectedCommands,
     bool ReplayVerified);
 
@@ -45,30 +37,26 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         var result = Store(target).Write(target, document, overwrite: false);
         if (!result.Published) throw new IOException($"{result.Code}: {result.Message}");
         if (result.CleanupMessage is not null) Console.Error.WriteLine(result.CleanupMessage);
-        File.WriteAllText(InputPath(target), JsonSerializer.Serialize(prepared.Input, Recipe.Json), new UTF8Encoding(false));
     }
 
     internal RunOutput Resume(string repository, Recipe recipe, string path)
     {
-        var prepared = PrepareRestore(repository, recipe, Store(path).Read(path));
+        var prepared = PrepareRestore(repository, Store(path).Read(path));
         using var session = prepared.Core;
         return Execute(prepared, recipe, recipe.Target, false);
     }
 
     internal void CheckExample(string repository, Recipe recipe, string path)
     {
-        var expected = JsonSerializer.Deserialize<GenerationIdentity>(File.ReadAllText(InputPath(path)), Recipe.Json)
-            ?? throw new InvalidDataException("示例缺少生成输入身份。");
-        var fresh = PrepareNew(repository, recipe, expected);
+        var fresh = PrepareNew(repository, recipe);
         using var freshSession = fresh.Core;
         var actual = Execute(fresh, recipe, recipe.Target, false);
-        var restored = PrepareRestore(repository, recipe, Store(path).Read(path));
+        var restored = PrepareRestore(repository, Store(path).Read(path));
         using var restoredSession = restored.Core;
-        CompareInputs(expected, restored.Input);
+        CompareInputs(fresh.InputIdentity, restored.InputIdentity);
         Compare(Require(restoredSession.Capture(CapturePurpose.Save)).Checkpoint, actual.Checkpoints[^1]);
     }
 
-    internal static string InputPath(string savePath) => Path.ChangeExtension(savePath, "input.json");
     private static FileSaveStore Store(string path) => new(Path.GetDirectoryName(Path.GetFullPath(path))!);
 
     private IContentCandidate Load(string repository, ContentLoadPurpose purpose)
@@ -96,22 +84,21 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         return loaded;
     }
 
-    private (ICoreSession Core, IContentView Content, GenerationIdentity Input) PrepareNew(
-        string repository, Recipe recipe, GenerationIdentity? expected = null)
+    private (ICoreSession Core, IContentView Content, CoreInputId InputIdentity) PrepareNew(
+        string repository, Recipe recipe)
     {
         using var loaded = Load(repository, new ContentLoadPurpose.Initial());
         var view = loaded.View;
         var input = Require(content.CreateWorldInput(view, new(recipe.GenerationProfile), recipe.Seed, recipe.GeneratorVersion));
-        var identity = Identity(recipe, input, view.Core.Identity);
-        if (expected is not null) CompareInputs(expected, identity);
+        var identity = view.Core.Identity;
         using var candidate = Require(core.PrepareNew(input, view.Core, new(runtime, false, 1)));
         view = content.WithSettlementCopies(view, candidate.References.Templates);
         loaded.Activate();
         return (candidate.Activate(), view, identity);
     }
 
-    private (ICoreSession Core, IContentView Content, GenerationIdentity Input) PrepareRestore(
-        string repository, Recipe recipe, SaveDocument document)
+    private (ICoreSession Core, IContentView Content, CoreInputId InputIdentity) PrepareRestore(
+        string repository, SaveDocument document)
     {
         var state = Require(core.DecodeState(document.CorePayload));
         var embedded = Require(content.DecodeCapture(document.ContentPayload));
@@ -120,17 +107,11 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         if (!candidate.MissingReferences.IsEmpty)
             throw new InvalidDataException(string.Join('\n', candidate.MissingReferences.Select(m => $"缺少引用：{m.FieldPath}")));
         var view = loaded.View;
-        var generation = Require(content.CreateWorldInput(view, new(recipe.GenerationProfile), recipe.Seed, recipe.GeneratorVersion));
-        var identity = Identity(recipe, generation with { WorldSeed = candidate.View.World.WorldSeed }, state.InputIdentity);
         loaded.Activate();
-        return (candidate.Activate(), view, identity);
+        return (candidate.Activate(), view, state.InputIdentity);
     }
 
-    private static GenerationIdentity Identity(Recipe recipe, WorldGenerationInput input, CoreInputId coreInput) =>
-        new(recipe.GenerationProfile, input.WorldSeed, input.GeneratorVersion,
-            JsonSerializer.Serialize(input.Configuration, Recipe.Json), input.GenerationContentRevision.Value, coreInput.Value);
-
-    private RunOutput Execute((ICoreSession Core, IContentView Content, GenerationIdentity Input) prepared, Recipe recipe,
+    private RunOutput Execute((ICoreSession Core, IContentView Content, CoreInputId InputIdentity) prepared, Recipe recipe,
         SimulationPosition target, bool verifyReplay)
     {
         var session = prepared.Core;
@@ -164,7 +145,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
         AdvanceTo(target);
         var samples = checkpoints.ToImmutable();
         if (verifyReplay) VerifyReplay(session.ReadRecording(), prepared.Content, samples);
-        return new(Environment.ProcessId, runtime, prepared.Input, samples, accepted, rejected, verifyReplay);
+        return new(Environment.ProcessId, runtime, prepared.InputIdentity, samples, accepted, rejected, verifyReplay);
 
         void Sample() => checkpoints.Add(Require(session.Capture(CapturePurpose.Save)).Checkpoint);
         void AdvanceTo(SimulationPosition target)
@@ -185,7 +166,7 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
 
     internal void Compare(RunOutput expected, RunOutput actual)
     {
-        CompareInputs(expected.Input, actual.Input);
+        CompareInputs(expected.InputIdentity, actual.InputIdentity);
         if (expected.Runtime != runtime || actual.Runtime != runtime)
             throw new InvalidDataException("构建或运行环境不兼容，不能验证确定性一致。");
         if (expected.Checkpoints.IsDefaultOrEmpty || actual.Checkpoints.IsDefaultOrEmpty)
@@ -198,9 +179,9 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
             Compare(expected.Checkpoints[index + offset], actual.Checkpoints[index]);
     }
 
-    private static void CompareInputs(GenerationIdentity? expected, GenerationIdentity? actual)
+    private static void CompareInputs(CoreInputId expected, CoreInputId actual)
     {
-        if (expected is null || actual is null || expected != actual)
+        if (expected != actual)
             throw new InvalidDataException("配方或内容已变，需要重新制作。");
     }
 
