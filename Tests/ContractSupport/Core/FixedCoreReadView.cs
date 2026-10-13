@@ -5,6 +5,17 @@ namespace Train.Core.ContractSupport;
 
 public sealed class FixedCoreReadView : ICoreReadView
 {
+    public FixedCoreReadView() { }
+
+    public FixedCoreReadView(SimulationPosition position, CoreInputId inputIdentity,
+        CoreFault? fault = null, CoreRevision revision = default)
+    {
+        Position = position;
+        InputIdentity = inputIdentity;
+        Fault = fault;
+        Revision = revision;
+    }
+
     private SimulationPosition? position;
     public SimulationPosition Position
     {
@@ -12,7 +23,12 @@ public sealed class FixedCoreReadView : ICoreReadView
         init => position = value;
     }
 
-    public CoreRevision Revision => throw Unconfigured(nameof(Revision));
+    private CoreRevision? revision;
+    public CoreRevision Revision
+    {
+        get => revision ?? throw Unconfigured(nameof(Revision));
+        init => revision = value;
+    }
 
     private CoreInputId? inputIdentity;
     public CoreInputId InputIdentity
@@ -30,7 +46,13 @@ public sealed class FixedCoreReadView : ICoreReadView
 
     public EconomyView Economy => throw Unconfigured(nameof(Economy));
 
-    public CoreFault? Fault => throw Unconfigured(nameof(Fault));
+    private CoreFault? fault;
+    private bool faultConfigured;
+    public CoreFault? Fault
+    {
+        get => faultConfigured ? fault : throw Unconfigured(nameof(Fault));
+        init { fault = value; faultConfigured = true; }
+    }
 
     private ImmutableDictionary<NodeId, Lookup<NodeView>> nodes = ImmutableDictionary<NodeId, Lookup<NodeView>>.Empty;
     public IReadOnlyDictionary<NodeId, Lookup<NodeView>> Nodes

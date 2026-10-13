@@ -4,7 +4,7 @@ namespace Train.Godot.Tests.Logging;
 
 internal sealed class LoggerSession : IDisposable
 {
-    private readonly string _directory;
+    private readonly string? _directory;
     private bool _loggerDisposed;
 
     public TrainLogger Logger { get; private set; }
@@ -14,7 +14,7 @@ internal sealed class LoggerSession : IDisposable
     public string? JsonlPath => Logger.JsonlPath;
 
     private LoggerSession(
-        string directory,
+        string? directory,
         TrainLogger logger,
         MemoryLogSink memory,
         RecordingGodotOutput godot,
@@ -48,6 +48,16 @@ internal sealed class LoggerSession : IDisposable
         return new LoggerSession(directory, logger, memory, godot, overflow);
     }
 
+    public static LoggerSession CreateMemory()
+    {
+        var memory = new MemoryLogSink();
+        var godot = new RecordingGodotOutput();
+        var overflow = new StringWriter();
+        var logger = new TrainLogger("", LogLevel.Debug, godot, memory, null, overflow, false,
+            TrainLogger.GodotQueueCapacity, new JsonlLogSink(Stream.Null));
+        return new LoggerSession(null, logger, memory, godot, overflow);
+    }
+
     public void DisposeLogger()
     {
         if (_loggerDisposed)
@@ -59,6 +69,8 @@ internal sealed class LoggerSession : IDisposable
     public void Dispose()
     {
         DisposeLogger();
+        if (_directory is null)
+            return;
         try
         {
             Directory.Delete(_directory, true);

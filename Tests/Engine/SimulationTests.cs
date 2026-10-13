@@ -5,6 +5,7 @@ using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.Core.Simulation;
+using SimulationSpeed = Train.Core.Simulation.SimulationSpeed;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 

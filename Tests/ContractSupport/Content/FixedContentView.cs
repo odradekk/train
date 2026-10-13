@@ -6,6 +6,17 @@ namespace Train.Content.ContractSupport;
 
 public sealed class FixedContentView : IContentView
 {
+    public FixedContentView() { }
+
+    public FixedContentView(CoreContentProjection core, ContentGeneration generation = default,
+        ContentRevision persistentRevision = default, ImmutableArray<PackageStatus> packages = default)
+    {
+        Core = core;
+        Generation = generation;
+        PersistentRevision = persistentRevision;
+        Packages = packages.IsDefault ? [] : packages;
+    }
+
     private ContentGeneration? generation;
     public ContentGeneration Generation
     {
@@ -13,7 +24,12 @@ public sealed class FixedContentView : IContentView
         init => generation = value;
     }
 
-    public ContentRevision PersistentRevision => throw Unconfigured(nameof(PersistentRevision));
+    private ContentRevision? persistentRevision;
+    public ContentRevision PersistentRevision
+    {
+        get => persistentRevision ?? throw Unconfigured(nameof(PersistentRevision));
+        init => persistentRevision = value;
+    }
 
     private CoreContentProjection? core;
     public CoreContentProjection Core
@@ -22,7 +38,12 @@ public sealed class FixedContentView : IContentView
         init => core = value;
     }
 
-    public ImmutableArray<PackageStatus> Packages => throw Unconfigured(nameof(Packages));
+    private ImmutableArray<PackageStatus> packages;
+    public ImmutableArray<PackageStatus> Packages
+    {
+        get => packages.IsDefault ? throw Unconfigured(nameof(Packages)) : packages;
+        init => packages = value;
+    }
 
     public ImmutableArray<VoxelCatalogEntry> Voxels => throw Unconfigured(nameof(Voxels));
 

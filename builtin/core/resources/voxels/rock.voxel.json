@@ -1,0 +1,1 @@
+{"schema_version":3,"id":"rock","appearance":{"allowed_orientations":"four_way","presentation":{"kind":"cube","material":"stone_soil","faces":{"top":"shared/soil-face.png","side":"shared/soil-face.png","bottom":"shared/soil-face.png"}}},"display":{"name":"岩层","description":"岩层的第一版正式定义；数值待配平，占位贴图待美术制作。","icon":"shared/soil-icon.png"}}
