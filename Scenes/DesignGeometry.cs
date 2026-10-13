@@ -21,7 +21,7 @@ internal static class DesignGeometry
 
     internal static RenderedDesign Build(IContentView content, DesignEvaluation evaluation,
         WorldObjectId? subject, ScenePose rootPose, Func<string, SceneObjectId> id,
-        ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null)
+        ImmutableHashSet<PartId>? destroyed = null, DesignHash? worldDesign = null, WorldLocation? terrainLocation = null)
     {
         SceneGeometry.Validate(rootPose);
         var projection = Projection(evaluation);
@@ -78,7 +78,8 @@ internal static class DesignGeometry
                 }
                 var reference = voxel.Missing || value is null
                     ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
-                var pick = subject is null ? null : new PickSubject.WorldObject(subject, worldDesign ?? projection.Design, voxel.Number);
+                PickSubject? pick = terrainLocation is not null ? new PickSubject.Terrain(terrainLocation) :
+                    subject is null ? null : new PickSubject.WorldObject(subject, worldDesign ?? projection.Design, voxel.Number);
                 cells.Add(new(voxel.LocalAt, voxel.LocalOrientation, reference is null ? value : null, voxel.Shape, voxel.Paint, pick, path, reference));
                 if (reference is not null)
                 {
@@ -99,7 +100,7 @@ internal static class DesignGeometry
             }
             else visuals = Meshes(grid, true);
             objects.Add(new(objectId, parent, pose, subject, visuals, [], []));
-            if (cells.Count > 0 && subject is not null) picking.Add(new(objectId, composed, grid));
+            if (cells.Count > 0 && (subject is not null || terrainLocation is not null)) picking.Add(new(objectId, composed, grid));
         }
 
         void AddMissing(ContentReference reference, DesignElementPath element)
