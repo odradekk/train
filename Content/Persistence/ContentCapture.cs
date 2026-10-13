@@ -25,6 +25,20 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             t.Plots.Select(p => new K.TemplatePlotReference(p.Number, p.Size)).ToImmutableArray())).ToImmutableArray();
     public ImmutableArray<C.PackageMetadata> ReferencedPackages { get; } = packages;
 
+    internal void Validate(K.CoreReferenceManifest references)
+    {
+        if (references.Designs.IsDefault || references.Templates.IsDefault || references.Definitions.IsDefault || references.Inputs.IsDefault)
+            Inconsistent("/references", "引用清单必须初始化。");
+        if (references.Designs.Any(hash => !Designs.Contains(hash))) Inconsistent("/designs", "缺少被引用的实例设计。");
+        foreach (var reference in references.Templates)
+        {
+            var template = Templates.FirstOrDefault(t => t.Owner == reference.Owner);
+            if (template is null || template.SourceTemplate != reference.SourceTemplate || reference.Plots.IsDefault ||
+                !template.Plots.SequenceEqual(reference.Plots.OrderBy(p => p.Number)))
+                Inconsistent("/templates", "模板副本与核心所有者及地块清单不配对。");
+        }
+    }
+
     internal static ContentCapture Create(ContentView view, K.CoreReferenceManifest references)
     {
         if (references.Designs.IsDefault || references.Templates.IsDefault || references.Definitions.IsDefault || references.Inputs.IsDefault)

@@ -35,12 +35,33 @@ internal sealed class InitialContentFactory : C.IContentFactory
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(inspector);
-        if (request.Purpose is not C.ContentLoadPurpose.Initial || request.Installation.UserLibrary is not null)
-            throw new NotImplementedException("当前只实现不含用户蓝图库的 Initial 加载。");
+        if (request.Installation.UserLibrary is not null || request.Purpose is C.ContentLoadPurpose.Reload)
+            throw new NotImplementedException("用户蓝图库与重载尚未实现。");
         try
         {
-            return new InitialLoader(request.Installation, files, inspector).Load();
+            var loaded = new InitialLoader(request.Installation, files, inspector).Load();
+            if (loaded is not C.ContentResult<C.IContentCandidate>.Success success || request.Purpose is C.ContentLoadPurpose.Initial)
+                return loaded;
+            using var initial = success.Value;
+            var restore = (C.ContentLoadPurpose.Restore)request.Purpose;
+            var decoded = restore.Saved as ContentCapture;
+            if (decoded is null)
+            {
+                var result = DecodeCapture(restore.Saved.Encode());
+                if (result is C.ContentResult<C.IContentCapture>.Failure failed)
+                    return new C.ContentResult<C.IContentCandidate>.Failure(failed.Diagnostics);
+                if (result is C.ContentResult<C.IContentCapture>.Faulted fault)
+                    return new C.ContentResult<C.IContentCandidate>.Faulted(fault.Code, fault.Message, fault.StackTrace);
+                decoded = (ContentCapture)((C.ContentResult<C.IContentCapture>.Success)result).Value;
+            }
+            return CaptureResult<C.IContentCandidate>(() =>
+            {
+                var view = ((ContentView)initial.View).WithCapture(decoded, restore.References);
+                var missing = view.Missing(restore.References);
+                return new ContentCandidate(view, initial.Report with { RuntimeMissing = missing });
+            });
         }
+        catch (NotImplementedException) { throw; }
         catch (Exception exception)
         {
             return new C.ContentResult<C.IContentCandidate>.Faulted("content_fault", exception.Message, exception.StackTrace);
