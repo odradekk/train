@@ -20,6 +20,7 @@ public partial class SavePanel : Window
     private readonly ConfirmationDialog _leave = new() { Title = "未保存的更改", OkButtonText = "保存", CancelButtonText = "取消" };
     private Button _discard = null!;
     private Button _cancel = null!;
+    private HBoxContainer _current = null!;
     private IReadOnlyList<SaveEntry> _entries = [];
     private string? _exportPath;
 
@@ -51,7 +52,7 @@ public partial class SavePanel : Window
         });
         AddButton(files, "读取最近存档", () => { if (_entries.Count > 0) ShowFailure(_service!.Load(_entries[0])); });
         AddButton(files, "导入文件", () => _import.PopupCentered(new Vector2I(800, 560)));
-        var current = new HBoxContainer();
+        var current = _current = new HBoxContainer();
         column.AddChild(current);
         _saveButtons.Add(AddButton(current, "保存", () => ShowFailure(_service!.Save())));
         _saveButtons.Add(AddButton(current, "另存为", () =>
@@ -60,7 +61,7 @@ public partial class SavePanel : Window
             _nameDialog.PopupCentered();
             _name.GrabFocus();
         }));
-        AddButton(current, "导出文件", () => _export.PopupCentered(new Vector2I(800, 560)));
+        _saveButtons.Add(AddButton(current, "导出文件", () => _export.PopupCentered(new Vector2I(800, 560))));
         AddButton(current, "返回菜单", () => ShowFailure(_service!.ReturnToMenu()));
         _cancel = new Button { Text = "取消当前操作" };
         _cancel.Pressed += () => _service!.Cancel();
@@ -104,6 +105,7 @@ public partial class SavePanel : Window
     {
         if (_service is null) return;
         var status = _service.Status;
+        _current.Visible = status is not null;
         _status.Text = status is null ? "当前没有活动会话" :
             $"{status.Identity.Name} · {status.Identity.Id} · {(status.Unsaved ? "未保存" : "已保存")}" +
             (status.Frozen ? "（核心已冻结，不能保存）" : "");

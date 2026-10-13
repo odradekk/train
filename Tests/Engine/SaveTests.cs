@@ -81,6 +81,11 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(saves.Status!.Identity == second.Identity && saves.Status.Binding != previousBinding &&
                 previousSession.DisposeCount == 1 && !saves.Status.Unsaved,
                 "缺失确认后未完成读档替换或未保留存档身份。");
+            saves.ReturnToMenu();
+            await FramesUntil(() => panel.FindChildren("*", "Button", true, false).Cast<Button>()
+                .Where(button => button.GetWindow() == panel && button.Text is "导出文件" or "返回菜单")
+                .All(button => !button.IsVisibleInTree()));
+            Require(saves.Status is null, "返回菜单后仍保留活动会话。");
         }
         finally { await Cleanup(fixture, app, owned); }
     }
