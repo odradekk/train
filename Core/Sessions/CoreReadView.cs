@@ -1,10 +1,11 @@
 using Train.Core.Contracts;
 using Train.Core.World;
+using Train.Core.Railway;
 
 namespace Train.Core.Sessions;
 
 internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Revision,
-    CoreInputId InputIdentity, CoreFault? Fault, WorldState State) : ICoreReadView
+    CoreInputId InputIdentity, CoreFault? Fault, WorldState State, CoreContentProjection Content) : ICoreReadView
 {
     public WorldSummary World { get; } = State.Map;
     public EconomyView Economy => throw new NotImplementedException("Economy 尚未实现。");
@@ -25,7 +26,12 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
             throw new ArgumentException("地点编号必须非零。", nameof(location));
         return Lookup(State.FindLocation(location));
     }
-    public Lookup<TrainView> FindTrain(TrainId id) => throw new NotImplementedException("FindTrain 尚未实现。");
+    public Lookup<TrainView> FindTrain(TrainId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("列车编号必须非零。", nameof(id));
+        var train = State.Trains.FirstOrDefault(t => t.Id == id);
+        return Lookup(train is null ? null : TrainOperations.Read(State, Content, train));
+    }
     public Lookup<InstanceView> FindInstance(InstanceId id)
     {
         ArgumentNullException.ThrowIfNull(id);

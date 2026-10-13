@@ -14,7 +14,7 @@ internal abstract record GeneratedOccupant
 
 internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementTypeId Type,
     SettlementRelation Relation, long Population, SettlementTemplateProjection Template,
-    ImmutableArray<PlotState> Plots, InventoryId Inventory);
+    ImmutableArray<PlotState> Plots, InventoryId Inventory, ImmutableArray<VehicleId> ParkedVehicles);
 internal sealed record PlotState(PlotId Id, int TemplateNumber, PlotSize Size, BuildingId? Building);
 internal sealed record LairState(LairId Id, NodeId Node, LairTypeId Type);
 internal sealed record PartDurability(PartId Id, long Current);
@@ -31,8 +31,10 @@ internal sealed record InstanceState(InstanceId Id, DesignHash Design,
                 specification.Missing, p.Current == 0);
         }).ToImmutableArray(), []);
 }
-internal sealed record TrainState(TrainId Id, NodeId Node, ImmutableArray<VehicleId> Vehicles,
-    InventoryId Inventory, NodeTransitView Transit, TrainOrderFacing OrderFacing);
+internal sealed record TrainState(TrainId Id, TrainPosition Position, ImmutableArray<VehicleId> Vehicles,
+    InventoryId Inventory, NodeTransitView? Transit, TrainOrderFacing OrderFacing,
+    TrainActivity Activity, double SpeedMetersPerSecond, RunPlan? Plan, int? NextStopIndex,
+    ulong RemainingDwellSteps, bool StopRequested);
 internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
     ImmutableArray<GoodsQuantity> Goods);
 internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement, ulong Lair, ulong Plot,
@@ -47,7 +49,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
 {
     internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
         Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes, Edges,
-        Trains.Select(t => new TrainMapItem(t.Id, new TrainPosition.Node(t.Node), TrainActivity.Stopped)).ToImmutableArray(), [], []);
+        Trains.Select(t => new TrainMapItem(t.Id, t.Position, t.Activity)).ToImmutableArray(), [], []);
 
     internal static WorldState Create(WorldGenerationInput input, CoreContentProjection content,
         ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges,
@@ -90,7 +92,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
                 var inventory = new InventoryId(inventoryNumber++);
                 inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory));
                 settlements.Add(new(settlementId, id, settlement.Type.Id, settlement.Relation, settlement.Population,
-                    settlement.Template, plots.ToImmutable(), inventory));
+                    settlement.Template, plots.ToImmutable(), inventory, []));
             }
             else if (occupants[index] is GeneratedOccupant.Lair lair)
             {
@@ -118,7 +120,8 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             }
             var inventory = new InventoryId(inventoryNumber++);
             inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory));
-            trains.Add(new(trainId, startNode, vehicles.ToImmutable(), inventory, new(null, null), TrainOrderFacing.FirstEndLeading));
+            trains.Add(new(trainId, new TrainPosition.Node(startNode), vehicles.ToImmutable(), inventory,
+                new(null, null), TrainOrderFacing.FirstEndLeading, TrainActivity.Stopped, 0, null, null, 0, false));
         }
         var designs = content.Designs.Where(d => designHashes.Contains(d.Design)).ToImmutableArray();
         var goods = new HashSet<GoodId>(inventories.SelectMany(i => i.Goods).Select(g => g.Good));
@@ -149,7 +152,9 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
     {
         var edge = Edges.FirstOrDefault(e => e.Id == id);
         return edge is null ? null : new(edge,
-            Enumerable.Range(1, edge.Tracks).Select(n => new TrackView(n, null, [])).ToImmutableArray(), null);
+            Enumerable.Range(1, edge.Tracks).Select(n => new TrackView(n, null,
+                Trains.Where(t => t.Position is TrainPosition.Edge p && p.Id == id && p.Track == n)
+                    .Select(t => t.Id).ToImmutableArray())).ToImmutableArray(), null);
     }
 
     internal LocationView? FindLocation(WorldLocation location)
@@ -164,7 +169,7 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
             if (found is null) return null;
         }
         return new(location,
-            Trains.Where(t => SameLocation(location, new WorldLocation.Node(t.Node))).Select(t => t.Id).ToImmutableArray(),
+            Trains.Where(t => SameLocation(location, Location(t.Position))).Select(t => t.Id).ToImmutableArray(),
             Instances.Where(i => SameLocation(Location(i), location)).Select(i => i.Id).ToImmutableArray(), [], [], occupant);
     }
 
@@ -183,8 +188,16 @@ internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<No
 
     private WorldLocation Location(InstanceState instance) => instance.Details switch
     {
-        InstanceDetails.Vehicle { Train: { } train } => new WorldLocation.Node(Trains.Single(t => t.Id == train).Node),
+        InstanceDetails.Vehicle { Train: { } train } => Location(Trains.Single(t => t.Id == train).Position),
+        InstanceDetails.Vehicle { Train: null } => new WorldLocation.Node(Settlements.Single(s => s.ParkedVehicles.Contains(((InstanceId.Vehicle)instance.Id).Id)).Node),
         InstanceDetails.Building building => new WorldLocation.Node(Settlements.Single(s => s.Plots.Any(p => p.Id == building.Plot)).Node),
         _ => throw new InvalidOperationException("实例缺少所属列车或聚居地。")
+    };
+
+    internal static WorldLocation Location(TrainPosition position) => position switch
+    {
+        TrainPosition.Node node => new WorldLocation.Node(node.Id),
+        TrainPosition.Edge edge => new WorldLocation.Edge(edge.Id, edge.DistanceMeters),
+        _ => throw new InvalidOperationException("列车位置无效。")
     };
 }

@@ -312,7 +312,7 @@ public sealed class CoreSessionTests
         using var session = Session();
 
         Assert.ThrowsExactly<NotImplementedException>(() =>
-            session.Submit(new CoreCommand.StartTrain(new(11)), CommandSource.AutomationTest));
+            session.Submit(new CoreCommand.ExpandRail(new(11), new(1)), CommandSource.AutomationTest));
 
         AssertBoundary(session, new(7, 2), 10, 20, A);
     }
