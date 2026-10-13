@@ -32,13 +32,13 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer fast
 & $env:GODOT --path . --editor   # open the editor after a successful build/import
 ```
 
-VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test` selects the unified entry's `fast` layer; `export-windows` selects resource import, the engine test suite, Windows export and both production smoke runs. With the C# extension installed, the `Train (Godot)` launch configuration builds the solution and starts the game. `GODOT_EDITOR` points to the main Godot executable for debugging; `GODOT` points to its console wrapper for validation output. This follows the [Godot C# editor setup](https://docs.godotengine.org/en/4.7/tutorials/scripting/c_sharp/c_sharp_basics.html#visual-studio-code).
+VS Code uses the repository's `build`, `test` and `export-windows` tasks. `test` selects the unified entry's `fast` layer; `export-windows` selects resource import, the engine test suite, Windows export, both production smoke runs and the asset export probe. With the C# extension installed, the `Train (Godot)` launch configuration builds the solution and starts the game. `GODOT_EDITOR` points to the main Godot executable for debugging; `GODOT` points to its console wrapper for validation output. This follows the [Godot C# editor setup](https://docs.godotengine.org/en/4.7/tutorials/scripting/c_sharp/c_sharp_basics.html#visual-studio-code).
 
 当前格式内容示例的 Schema 检查还需要可通过 `python` 调用的 Python 3 与 `jsonschema`。CI 使用 Python 3.11 和 `jsonschema==4.25.1`；本地可用 `python -m pip install jsonschema==4.25.1` 安装，并用 `python -c "import jsonschema, referencing"` 验证。未指定 `-Project` 的 `-Layer integration` 和 `-Layer all` 包含此检查；缺少工具或包时入口判失败并返回退出码 1。
 
 ## Windows export and runtime validation
 
-Export requires the project's .NET SDK and matching Godot .NET Windows export templates, on this machine under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. 在 Windows 通过统一入口选择引擎层及一个 Windows 导出冒烟检查（两次运行）：
+Export requires the project's .NET SDK and matching Godot .NET Windows export templates, on this machine under `%APPDATA%\Godot\export_templates\4.7.2.stable.mono`. 在 Windows 通过统一入口选择引擎层、Windows 导出冒烟（两次运行）及资产导出验证：
 
 ```powershell
 pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
@@ -46,7 +46,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 
 Use an absolute executable path for Windows runtime checks; the process launcher may fail to resolve a relative path containing forward slashes even after export succeeds. Passing the output path on the command line keeps machine-specific paths out of `export_presets.cfg`. Keep the complete export directory, including the PCK and .NET output, together when running or copying the build.
 
-Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，空用户目录与有效 Mod 用户目录的两次 `--smoke` 运行共用该文件。产物保留、环境隔离及导出例外见[统一测试入口](run-tests.md)。
+Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，空用户目录与有效 Mod 用户目录的两次 `--smoke` 运行共用该文件。资产导出探针的范围、产物保留和环境隔离见[统一测试入口](run-tests.md#选择)。
 
 需要直接验证已有构建时，通过 `-ExecutablePath` 传入绝对路径：
 

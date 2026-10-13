@@ -1,10 +1,11 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
 internal sealed record CoreState(SimulationPosition Position, ulong NextCommandNumber,
-    CoreRevision Revision, CoreContentProjection Content, CoreFault? Fault = null);
+    CoreRevision Revision, CoreContentProjection Content, WorldState World, CoreFault? Fault = null);
 
 internal abstract record CommandEffect
 {
@@ -13,15 +14,16 @@ internal abstract record CommandEffect
     internal sealed record Rejected(ImmutableArray<CoreProblem> Problems) : CommandEffect;
 }
 
-internal sealed class CoreSession(CoreState state) : ICoreSession
+internal sealed class CoreSession(CoreState state, int retainedRecordingStarts = 1) : ICoreSession
 {
     private bool _disposed;
+    private readonly CoreRecording _recording = new(state, retainedRecordingStarts);
     internal CoreState State { get; private set; } = state;
 
     public ICoreReadView Read()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault);
+        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World);
     }
 
     public SubmissionResult Submit(CoreCommand command, CommandSource source)
@@ -32,13 +34,14 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             throw new ArgumentOutOfRangeException(nameof(source));
         if (command is not CoreCommand.PublishContent publish)
             throw new NotImplementedException($"{command.GetType().Name} 尚未实现。");
-        ArgumentNullException.ThrowIfNull(publish.Content);
+        WorldInputs.ValidateContent(publish.Content);
         if (publish.Content.Identity == State.Content.Identity)
             throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
-        return ExecuteCommand(_ => new CommandEffect.Accepted(publish.Content, []));
+        return ExecuteCommand(publish, source, _ => new CommandEffect.Accepted(publish.Content, []));
     }
 
-    internal SubmissionResult ExecuteCommand(Func<CoreContentProjection, CommandEffect> body)
+    internal SubmissionResult ExecuteCommand(CoreCommand.PublishContent command, CommandSource source,
+        Func<CoreContentProjection, CommandEffect> body)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var before = State;
@@ -48,7 +51,10 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             return new SubmissionResult.NotAccepted(new("identity_exhausted",
                 before.NextCommandNumber == ulong.MaxValue ? "NextCommandNumber" : "Position.Sequence", null, []));
 
+        var payload = CoreCommandEncoding.Encode(command);
         var position = new SimulationPosition(before.Position.CompletedSteps, checked(before.Position.Sequence + 1));
+        CoreState after;
+        SubmissionResult.Completed result;
         try
         {
             var effect = body(before.Content);
@@ -60,30 +66,34 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             };
             var events = effect is CommandEffect.Accepted accepted
                 ? Envelopes(position, accepted.Events) : ImmutableArray<EventEnvelope>.Empty;
-            var after = before with
+            after = before with
             {
                 Position = position,
                 NextCommandNumber = checked(before.NextCommandNumber + 1),
                 Revision = new(checked(before.Revision.Value + 1)),
                 Content = effect is CommandEffect.Accepted change ? change.Content : before.Content
             };
-            State = after;
-            return new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
+            result = new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
                 after.Position, decision), events, null);
         }
         catch (Exception exception)
         {
             var fault = new CoreFault("internal_error", position, nameof(Submit), "", null);
-            State = before with
+            after = before with
             {
                 Fault = fault,
                 Revision = before.Revision.Value == ulong.MaxValue
                     ? before.Revision : new(checked(before.Revision.Value + 1))
             };
-            return new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
+            result = new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
                 before.Position, new CommandDecision.Faulted(fault)), [],
                 new(exception.Message, exception.StackTrace));
         }
+        _recording.Record(new(source, payload, result.Receipt, before.Content.Identity, after.Content.Identity));
+        State = after;
+        if (after.Fault is not null)
+            _recording.FreezeFault(after);
+        return result;
     }
 
     public AdvanceResult Advance(uint steps) => Advance(steps, content => (content, []));
@@ -123,6 +133,7 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
                     Revision = before.Revision.Value == ulong.MaxValue
                         ? before.Revision : new(checked(before.Revision.Value + 1))
                 };
+                _recording.FreezeFault(State);
                 diagnostic = new(exception.Message, exception.StackTrace);
             }
         }
@@ -145,20 +156,26 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
     public CoreRecordingWindow ReadRecording()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("ReadRecording 尚未实现。");
+        return _recording.Read(State);
     }
 
     public CoreResult<RecordingStart> CaptureRecordingStart()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("CaptureRecordingStart 尚未实现。");
+        return State.Fault is not null
+            ? new CoreResult<RecordingStart>.Failure([new("frozen", "Fault", null, [])])
+            : new CoreResult<RecordingStart>.Success(_recording.CaptureStart(State));
     }
 
     public RecordingMaintenance ConfirmRecordingStart(RecordingPointId point, RecordingWriteOutcome outcome)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("ConfirmRecordingStart 尚未实现。");
+        return _recording.Confirm(point, outcome);
     }
 
-    public void Dispose() => _disposed = true;
+    public void Dispose()
+    {
+        _disposed = true;
+        _recording.Clear();
+    }
 }
