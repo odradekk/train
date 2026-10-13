@@ -102,7 +102,7 @@ public sealed class NodeLifecycleTests
             Interlocked.Increment(ref builds);
             var layout = NodeLayout.Build(input, node, token);
             return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("platform:0",
-                NodeScene.PlatformPart(layout, 0, NodeFixtures.ConcreteCube)));
+                NodeScene.PlatformPart(layout, 0, NodeFixtures.ConcreteCube)), []);
         });
         session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
         var before = await RailwayFixtures.Settled(session, Request);

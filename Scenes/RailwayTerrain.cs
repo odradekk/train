@@ -8,6 +8,9 @@ namespace Train.Scenes;
 
 internal static class RailwayTerrain
 {
+    internal sealed record BoundaryData(RailwayPath Path, RailwayDependencies Dependencies,
+        ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
+        ScenePoint Origin, ImmutableArray<SceneProblem> Problems);
     private const double BedTopBelowRailCells = 1;
     private const double TunnelPortalLookbackCells = 2;
     private const ulong HeightNoisePurpose = 3;
@@ -91,9 +94,7 @@ internal static class RailwayTerrain
     internal static RailwaySegment Build(SceneWorldSnapshot snapshot, RailwayPath path, int index, CancellationToken cancellation) =>
     new SegmentBuilder(snapshot, path, index, cancellation).Build();
 
-    internal static (ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
-        ScenePoint Origin, ImmutableArray<SceneProblem> Problems, string Inputs)
-        NodeBoundary(SceneWorldSnapshot snapshot, RailwayPath path, NodeId node, NodeLayout.Entry entry, CancellationToken token) =>
+    internal static BoundaryData NodeBoundary(SceneWorldSnapshot snapshot, RailwayPath path, NodeId node, NodeLayout.Entry entry, CancellationToken token) =>
         new SegmentBuilder(snapshot, path, node == path.Start.Id ? 0 : path.SegmentCount - 1, token).Boundary(node, entry);
 
     private sealed class SegmentBuilder
@@ -259,8 +260,7 @@ internal static class RailwayTerrain
             return new(arc, lateral, Math.Floor(height), terrain, water, tunnel);
         }
 
-        internal (ImmutableArray<SceneCell> Cells, ImmutableDictionary<GridColumn, double> Heights,
-            ScenePoint Origin, ImmutableArray<SceneProblem> Problems, string Inputs) Boundary(NodeId node, NodeLayout.Entry entry)
+        internal BoundaryData Boundary(NodeId node, NodeLayout.Entry entry)
         {
             var isStart = node == path.Start.Id;
             var endpoint = path.Sample(isStart ? 0 : path.LengthCells).Position;
@@ -288,9 +288,8 @@ internal static class RailwayTerrain
                     path.Edge.Tracks > 0 && !value.Water && !value.Tunnel, Appearance,
                     new PickSubject.Terrain(new WorldLocation.Node(node)));
             }
-            return (cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable(),
-                RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
-                    readsStartTerrain, readsEndTerrain).Key);
+            return new(path, RailwayDependencies.Capture(snapshot, path, index, terrainReads, modelReads, models, voxelReads,
+                readsStartTerrain, readsEndTerrain), cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable());
         }
 
         private void PlaceModels(Dictionary<GridColumn, TerrainColumn> columns)

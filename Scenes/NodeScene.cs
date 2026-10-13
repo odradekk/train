@@ -9,7 +9,8 @@ namespace Train.Scenes;
 internal sealed class NodeScene : IAsyncDisposable
 {
     internal sealed record Part(string Inputs, BuiltGeometry Geometry, ImmutableDictionary<GridColumn, double> Heights, ScenePoint Origin = default);
-    internal sealed record Built(NodeLayout Layout, ImmutableDictionary<string, Part> Parts);
+    internal sealed record Built(NodeLayout Layout, ImmutableDictionary<string, Part> Parts,
+        ImmutableDictionary<EdgeId, RailwayTerrain.BoundaryData> Boundaries);
     internal sealed class Cache
     {
         private readonly object gate = new();
@@ -118,8 +119,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
         var bed = new Dictionary<GridColumn, double>();
         var boundaryColumns = new HashSet<GridColumn>();
-        var boundaries = new List<(NodeLayout.Entry Entry, string Inputs, ImmutableArray<SceneCell> Cells,
-            ImmutableDictionary<GridColumn, double> Heights, ScenePoint Origin)>();
+        var boundaries = ImmutableDictionary.CreateBuilder<EdgeId, RailwayTerrain.BoundaryData>();
         var boundaryOwners = new Dictionary<GridColumn, (EdgeId Edge, double Distance)>();
         var terrainInputs = RailwayDependencies.Values(new object?[] { snapshot.Core.World.WorldSeed, map.Position, map.Terrain.TypeId,
             map.Terrain.Relief, TerrainInputs(snapshot.Content, map.Terrain.TypeId) });
@@ -143,9 +143,11 @@ internal sealed class NodeScene : IAsyncDisposable
             }
             Put("entry:" + entry.Edge.Value, entryKey, () => MeshPart(meshes.ToImmutable()));
             var edge = snapshot.Core.World.Edges.Single(value => value.Id == entry.Edge);
-            var boundary = RailwayTerrain.NodeBoundary(snapshot, new RailwayPath(snapshot, entry.Edge, token), node, entry, token);
+            var boundary = previous?.Layout.Inputs == layout.Inputs && previous.Boundaries.TryGetValue(entry.Edge, out var oldBoundary) &&
+                oldBoundary.Dependencies.MatchesBoundary(snapshot, oldBoundary.Path, node == oldBoundary.Path.Start.Id ? 0 : oldBoundary.Path.SegmentCount - 1)
+                ? oldBoundary : RailwayTerrain.NodeBoundary(snapshot, new RailwayPath(snapshot, entry.Edge, token), node, entry, token);
             diagnostics.AddRange(boundary.Problems);
-            boundaries.Add((entry, RailwayDependencies.Values(new[] { layout.Inputs, boundary.Inputs }), boundary.Cells, boundary.Heights, boundary.Origin));
+            boundaries.Add(entry.Edge, boundary);
             foreach (var column in boundary.Heights.Keys)
             {
                 var global = new GridColumn((int)Math.Round(column.X + boundary.Origin.X), (int)Math.Round(column.Z + boundary.Origin.Z));
@@ -158,13 +160,14 @@ internal sealed class NodeScene : IAsyncDisposable
                     boundaryOwners[global] = (entry.Edge, distance);
             }
         }
-        foreach (var boundary in boundaries)
+        foreach (var entry in layout.Entries)
         {
+            var boundary = boundaries[entry.Edge];
             GridColumn Global(GridColumn column) => new((int)Math.Round(column.X + boundary.Origin.X), (int)Math.Round(column.Z + boundary.Origin.Z));
-            var allowed = boundary.Heights.Keys.Where(column => boundaryOwners[Global(column)].Edge == boundary.Entry.Edge).ToImmutableHashSet();
-            var inputs = RailwayDependencies.Values(new object[] { boundary.Inputs,
+            var allowed = boundary.Heights.Keys.Where(column => boundaryOwners[Global(column)].Edge == entry.Edge).ToImmutableHashSet();
+            var inputs = RailwayDependencies.Values(new object[] { layout.Inputs, boundary.Dependencies.Key,
                 boundary.Heights.Keys.Where(column => !allowed.Contains(column)).OrderBy(column => column.X).ThenBy(column => column.Z).ToArray() });
-            Put("boundary:" + boundary.Entry.Edge.Value, inputs, () => GridPart(
+            Put("boundary:" + entry.Edge.Value, inputs, () => GridPart(
                 boundary.Cells.Where(cell => allowed.Contains(new(cell.At.X, cell.At.Z))).ToImmutableArray(),
                 boundary.Heights.Where(item => allowed.Contains(item.Key)).ToImmutableDictionary(), [], boundary.Origin));
             foreach (var column in allowed) boundaryColumns.Add(Global(column));
@@ -218,7 +221,7 @@ internal sealed class NodeScene : IAsyncDisposable
         var uniqueProblems = RailwayTerrain.UniqueProblems(diagnostics);
         var problemInputs = RailwayDependencies.Values(uniqueProblems);
         Put("diagnostics", problemInputs, () => GridPart([], ImmutableDictionary<GridColumn, double>.Empty, uniqueProblems));
-        return new(layout, parts.ToImmutable());
+        return new(layout, parts.ToImmutable(), boundaries.ToImmutable());
 
         void Put(string name, string inputs, Func<Part> create)
         {

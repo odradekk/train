@@ -71,7 +71,7 @@ public sealed class NodeSceneTests
             {
                 var layout = NodeLayout.Build(input, node, token);
                 return new(layout, Enumerable.Range(0, layout.Platforms).ToImmutableDictionary(i => "platform:" + i,
-                    i => NodeScene.PlatformPart(layout, i, NodeScene.Concrete(input.Content))));
+                    i => NodeScene.PlatformPart(layout, i, NodeScene.Concrete(input.Content))), []);
             });
         await scene.BuildWork!;
         var frame = scene.Present(snapshot, new(1, null, SceneDebugLayer.None), new(new(Guid.NewGuid()), new(1), new(1), 1), null, default);
@@ -203,10 +203,12 @@ public sealed class NodeSceneTests
         var snapshot = DiagonalSnapshot();
         var built = NodeScene.Build(snapshot, NodeFixtures.NodeId);
         var same = NodeScene.Build(snapshot, NodeFixtures.NodeId, built);
+        Assert.AreSame(built.Boundaries[new(1)], same.Boundaries[new(1)], "Unchanged inputs reuse strip samples and their path before building.");
         foreach (var part in built.Parts) Assert.AreSame(part.Value, same.Parts[part.Key]);
         var relief = RailwayFixtures.ReplaceCore(snapshot, node: snapshot.Core.World.Nodes[0] with
         { Terrain = snapshot.Core.World.Nodes[0].Terrain with { Relief = 2 } });
         var changed = NodeScene.Build(relief, NodeFixtures.NodeId, same);
+        Assert.AreNotSame(same.Boundaries[new(1)], changed.Boundaries[new(1)], "Relief is read from the rebound snapshot, including when the old path is cached.");
         Assert.AreNotSame(same.Parts["boundary:1"], changed.Parts["boundary:1"]);
         Assert.AreSame(same.Parts["entry:1"], changed.Parts["entry:1"]);
         Assert.AreSame(same.Parts["station-tracks"], changed.Parts["station-tracks"]);
@@ -217,7 +219,7 @@ public sealed class NodeSceneTests
     [TestCategory("integration")]
     public async Task ProductionNodePreservesTrackBedsPlatformsAndObjectOrderAcrossProcesses()
     {
-        var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少测试结果目录。");
+        var root = Path.GetTempPath();
         var directory = Path.Combine(root, "node-process-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         using var first = await RunNodeProcess(directory, "first");

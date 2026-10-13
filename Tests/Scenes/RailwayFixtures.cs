@@ -119,7 +119,7 @@ internal static class RailwayFixtures
 
     internal static NodeScene.Built EmptyNode(SceneWorldSnapshot snapshot, NodeId node,
         NodeScene.Built? previous, CancellationToken token) =>
-        new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty);
+        new(NodeLayout.Build(snapshot, node, token), ImmutableDictionary<string, NodeScene.Part>.Empty, []);
 
     internal static RailwayScene Controlled(SceneWorldSnapshot snapshot, SceneVehicles vehicles,
         Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null)

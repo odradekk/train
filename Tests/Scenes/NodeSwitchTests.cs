@@ -367,7 +367,7 @@ public sealed class NodeSwitchTests
             var pose = new ScenePose(RailwayCoordinates.Relative(boundary.Origin, default), Quaternion.Identity);
             return new([new(root, null, pose, null, DesignGeometry.Meshes(grid, false), [], [])], [new(root, pose, grid)], boundary.Problems);
         });
-        return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("boundary", new("", geometry, boundary.Heights, boundary.Origin)));
+        return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty.Add("boundary", new("", geometry, boundary.Heights, boundary.Origin)), []);
     }
     private static void AssertHeight(ISceneFrame before, ISceneFrame after, Vector3 point)
     {
