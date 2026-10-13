@@ -111,6 +111,8 @@ internal sealed class SaveService : IDisposable
     private SaveFailure? StartWrite(WriteKind kind, SaveIdentity? target = null, string? path = null,
         bool overwrite = true, bool leaving = false)
     {
+        if (_host.GetStatus() is { IsReplay: true })
+            return Fail("replay_read_only", "重放只允许显式导出边界为普通存档。");
         if (_read is not null || _import is not null || _restore is not null || (!leaving && _leave is not null))
             return Fail("busy", "正在处理其他存档操作。");
         var status = Status;

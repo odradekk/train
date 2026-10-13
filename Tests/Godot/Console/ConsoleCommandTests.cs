@@ -37,6 +37,28 @@ public sealed class ConsoleCommandParseTests
 }
 
 [TestClass]
+public sealed class DevelopmentConsoleCommandTests
+{
+    [TestMethod]
+    public void DevelopmentIsListedAndDispatchedOnlyWhenRegistered()
+    {
+        IReadOnlyList<string>? forwarded = null;
+        using var registered = DispatchHarness.CreateMemory(development: args => forwarded = args);
+        registered.Dispatcher.Execute("help");
+        StringAssert.Contains(registered.ConsoleEvents.Single(x => x.EventId == ConsoleCommandDispatcher.HelpEventId).Message, "dev");
+        registered.Dispatcher.Execute("DeV open");
+        CollectionAssert.AreEqual(new[] { "open" }, forwarded!.ToArray());
+
+        using var unregistered = DispatchHarness.CreateMemory();
+        unregistered.Dispatcher.Execute("help");
+        Assert.IsFalse(unregistered.ConsoleEvents.Single(x => x.EventId == ConsoleCommandDispatcher.HelpEventId)
+            .Message.Contains("dev", StringComparison.Ordinal));
+        unregistered.Dispatcher.Execute("dev open");
+        Assert.AreEqual(ConsoleCommandDispatcher.UnknownEventId, unregistered.ConsoleEvents.Last().EventId);
+    }
+}
+
+[TestClass]
 public sealed class LightingConsoleCommandTests
 {
     [TestMethod]
@@ -331,7 +353,8 @@ internal sealed class DispatchHarness : IDisposable
     public IReadOnlyList<LogEvent> ConsoleEvents =>
         _session.Memory.Snapshot().Where(e => e.Category == ConsoleCommandDispatcher.Category).ToArray();
 
-    private DispatchHarness(LoggerSession session, bool allowReload, bool simulation, Action<IReadOnlyList<string>>? lighting)
+    private DispatchHarness(LoggerSession session, bool allowReload, bool simulation, Action<IReadOnlyList<string>>? lighting,
+        Action<IReadOnlyList<string>>? development = null)
     {
         _session = session;
         Dispatcher = new ConsoleCommandDispatcher(
@@ -340,14 +363,15 @@ internal sealed class DispatchHarness : IDisposable
             () => Quit = true,
             () => Reloaded = true,
             allowReload,
-            simulation ? arguments => SimulationArguments = arguments.ToArray() : null, lighting);
+            simulation ? arguments => SimulationArguments = arguments.ToArray() : null, lighting, development);
     }
 
     public static DispatchHarness Create(bool allowReload = true, bool simulation = false) =>
         new(LoggerSession.Create(), allowReload, simulation, null);
 
-    public static DispatchHarness CreateMemory(bool allowReload = true, Action<IReadOnlyList<string>>? lighting = null) =>
-        new(LoggerSession.CreateMemory(), allowReload, false, lighting);
+    public static DispatchHarness CreateMemory(bool allowReload = true, Action<IReadOnlyList<string>>? lighting = null,
+        Action<IReadOnlyList<string>>? development = null) =>
+        new(LoggerSession.CreateMemory(), allowReload, false, lighting, development);
 
     public void ResetActions()
     {

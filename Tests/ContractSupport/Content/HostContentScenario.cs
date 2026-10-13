@@ -23,11 +23,12 @@ public static class HostContentScenario
 
 public sealed class ScriptedContentFactory : IContentFactory
 {
-    public Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>>? PrepareLoadCall { get; init; }
+    public Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>>? PrepareLoadCall { get; set; }
     public Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? CreateWorldInputCall { get; init; }
-    public Func<string, ContentResult<IContentCapture>>? DecodeCaptureCall { get; init; }
+    public Func<string, ContentResult<IContentCapture>>? DecodeCaptureCall { get; set; }
     public Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureCall { get; init; }
     public Func<ImmutableArray<IContentView>, CoreReferenceManifest, ContentResult<IContentReplayCapture>>? CaptureReplayCall { get; init; }
+    public Func<string, ContentResult<IContentReplayCapture>>? DecodeReplayCall { get; set; }
     public int CaptureCount { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
@@ -54,7 +55,8 @@ public sealed class ScriptedContentFactory : IContentFactory
     }
     public ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references)
         => (CaptureReplayCall ?? throw Unconfigured())(history, references);
-    public ContentResult<IContentReplayCapture> DecodeReplay(string payload) => throw Unconfigured();
+    public ContentResult<IContentReplayCapture> DecodeReplay(string payload) =>
+        (DecodeReplayCall ?? throw Unconfigured())(payload);
     public ContentResult<string> EncodeDraft(SavedContentDraft draft) => throw Unconfigured();
     public ContentResult<SavedContentDraft> DecodeDraft(string payload) => throw Unconfigured();
     public ContentResult<IAuthoringPackage> OpenAuthoringPackage(ContentRoot source, PackageId package,

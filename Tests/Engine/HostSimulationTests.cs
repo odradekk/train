@@ -161,7 +161,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
 
     internal sealed class HostSetup
     {
-        internal ScriptedCoreSession Session { get; } = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+        internal ScriptedCoreSession Session { get; } = new(View(new(0, 0)));
         internal ScriptedCoreCandidate Candidate { get; }
         internal int PreparationThread { get; private set; }
         private CoreContentProjection? _restoreProjection;
@@ -171,8 +171,10 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
         internal void QueueSteps(int count)
         {
             for (var step = 1u; step <= count; step++)
-                Session.QueueAdvance(new(1, new(step, 0), [], null, null), new FixedCoreReadView(new(step, 0), HostCoreScenario.Input));
+                Session.QueueAdvance(new(1, new(step, 0), [], null, null), View(new(step, 0)));
         }
+        private static FixedCoreReadView View(SimulationPosition position) => new(position, HostCoreScenario.Input)
+        { World = new(1, new("fixture:railway"), 100, 100, [], [], [], [], []) };
         internal HostCoordinator Create(TrainLogger logger, Func<CoreEvent, NotificationAction>? policy = null)
         {
             var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));

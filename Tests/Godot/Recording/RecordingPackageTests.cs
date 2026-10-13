@@ -22,6 +22,18 @@ public sealed class RecordingPackageTests
             var package = Package();
             package.Write(path);
             package.Validate(path);
+            var decoded = RecordingPackage.Read(path);
+            Assert.AreEqual(package.ContentPayload, decoded.ContentPayload);
+            Assert.AreEqual(package.Header.Runtime, decoded.Header.Runtime);
+            Assert.AreEqual(package.Header.EndPosition, decoded.Header.EndPosition);
+            Assert.AreEqual(package.Header.Starts[1].Payload, decoded.Header.Starts[1].Payload);
+            Assert.AreEqual(package.Header.Starts[1].Checkpoint, decoded.Header.Starts[1].Checkpoint);
+            Assert.AreEqual(package.Commands.Length, decoded.Commands.Length);
+            Assert.AreEqual(package.Commands[0].CanonicalPayload, decoded.Commands[0].CanonicalPayload);
+            Assert.AreEqual(package.Commands[0].Result.Before, decoded.Commands[0].Result.Before);
+            Assert.AreEqual(package.Header.FaultSegments[0].Commands[0].CanonicalPayload,
+                decoded.Header.FaultSegments[0].Commands[0].CanonicalPayload);
+            Assert.IsInstanceOfType<CommandDecision.Faulted>(decoded.Header.FaultSegments[0].Commands[0].Result.Decision);
             using var zip = ZipFile.OpenRead(path);
             Assert.AreEqual(" 内容\r\n🚂\0 opaque ", Read(zip, "content.payload"));
             using var manifest = JsonDocument.Parse(Read(zip, "manifest.json"));
@@ -100,6 +112,67 @@ public sealed class RecordingPackageTests
         {
             File.WriteAllText(path, "not ZIP");
             Assert.ThrowsExactly<InvalidDataException>(() => Package().Validate(path));
+        });
+    }
+
+    [TestMethod]
+    public void Read_returns_package_values_without_reinterpreting_opaque_payloads()
+    {
+        WithFile(path =>
+        {
+            var package = Package();
+            package.Write(path);
+            using (var zip = ZipFile.Open(path, ZipArchiveMode.Update))
+                Replace(zip, "content.payload", _ => "changed opaque content, not JSON");
+            Assert.AreEqual("changed opaque content, not JSON", RecordingPackage.Read(path).ContentPayload);
+            Assert.ThrowsExactly<InvalidDataException>(() => package.Validate(path));
+        });
+    }
+
+    [TestMethod]
+    public void Read_rejects_invalid_container_and_missing_required_structures()
+    {
+        foreach (var mutation in new Action<ZipArchive>[]
+        {
+            zip => zip.GetEntry("content.payload")!.Delete(),
+            zip => zip.CreateEntry("commands.jsonl"),
+            zip => Replace(zip, "manifest.json", _ => "{}"),
+            zip => Replace(zip, "manifest.json", _ => "null"),
+            zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":1", "\"FormatVersion\":2")),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["Starts"] = null;
+                return manifest.ToJsonString();
+            }),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["RequiredReferences"]!["Inputs"] = null;
+                return manifest.ToJsonString();
+            }),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["FaultSegments"]![0]!["Checkpoints"] = null;
+                return manifest.ToJsonString();
+            }),
+            zip => Replace(zip, "commands.jsonl", text => text.TrimEnd('\n')),
+            zip => Replace(zip, "commands.jsonl", text => text.Replace("\"$kind\":\"accepted\"", "\"$kind\":\"unknown\"")),
+            zip => Replace(zip, "manifest.json", _ => "not JSON")
+        })
+        {
+            WithFile(path =>
+            {
+                Package().Write(path);
+                using (var zip = ZipFile.Open(path, ZipArchiveMode.Update)) mutation(zip);
+                Assert.ThrowsExactly<InvalidDataException>(() => RecordingPackage.Read(path));
+            });
+        }
+        WithFile(path =>
+        {
+            File.WriteAllText(path, "not ZIP");
+            Assert.ThrowsExactly<InvalidDataException>(() => RecordingPackage.Read(path));
         });
     }
 

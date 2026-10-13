@@ -20,6 +20,50 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
 {
     private static readonly WorldSceneTarget Target = new WorldSceneTarget.Location(new WorldLocation.Node(new(1)));
     private static readonly SceneSessionId SceneId = new(Guid.Parse("00000000-0000-0000-0000-000000000319"));
+
+    [Test]
+    public async Task Debug_flags_are_requested_and_regeneration_retires_only_the_scene_session()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup();
+        var sessions = new List<FixedDisplaySession>();
+        var factory = Factory(binding =>
+        {
+            var session = Session(binding, [Success(Frame(1, debugLines:
+                [new(new(3, 4, 5), new(6, 7, 8), new(1, 1, 0, 1))]))]);
+            sessions.Add(session);
+            return session;
+        });
+        try
+        {
+            var app = await Ready(fixture, setup, factory);
+            var world = app.WorldScenes!;
+            Require(world.Regenerate()?.Code == "no_scene", "地图状态应拒绝重新生成。");
+            world.DebugLayers = SceneDebugLayer.Chunks | SceneDebugLayer.Centerline;
+            world.Open(Target);
+            world.ProcessFrame(0, false);
+            Require(sessions[0].PresentCalls.Single().Request.DebugLayers == world.DebugLayers,
+                "所选调试图层没有传给Scenes。");
+            using (var arrays = world.Display!.Root.GetNode<MeshInstance3D>("DebugLines").Mesh.SurfaceGetArrays(0))
+            {
+                var vertices = arrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
+                Require(vertices.SequenceEqual(new[] { new Vector3(3, 4, 5), new Vector3(6, 7, 8) }),
+                    "Scenes返回的调试线没有成为真实Godot几何。");
+            }
+            var oldRoot = world.Display!.Root;
+            var status = app.Host!.GetStatus()!;
+            Require(world.Regenerate() is null, "活动场景重新生成失败。");
+            Require(sessions.Count == 2 && sessions[0].IsDisposed && !GodotObject.IsInstanceValid(oldRoot),
+                "重新生成必须退役旧场景会话和显示组。");
+            Require(sessions[1].RequestCalls.Single() == Target && factory.OpenCalls[1].Snapshot.Core == status.View &&
+                app.Host.GetStatus()!.Binding == status.Binding && setup.Session.DisposeCount == 0,
+                "重新生成应复用当前目标与核心读视图，不得替换核心会话。");
+            world.ProcessFrame(0, false);
+            Require(sessions[1].PresentCalls.Single().Request.DebugLayers == world.DebugLayers,
+                "重新生成丢失调试图层选择。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
     private static readonly SceneMesh Mesh = new(new SceneMaterial.BuiltIn(BuiltInMaterial.Sleeper),
         [new(NVector3.Zero, NVector3.UnitY, default, default, 0, 0, 0),
          new(NVector3.UnitZ, NVector3.UnitY, default, default, 0, 0, 0),
@@ -521,10 +565,11 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObject> objects = default,
         ScenePoint origin = default, NVector3 shift = default, ScenePick? pick = null,
         ImmutableArray<SceneProblem> diagnostics = default, SceneSessionId? session = null,
-        Lookup<double>? height = null, ulong request = 1) => new()
+        Lookup<double>? height = null, ulong request = 1, ImmutableArray<SceneDebugLine> debugLines = default) => new()
     {
         Update = new(baseline, Stamp(revision, session) with { Request = new(request) }, shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
         Origin = origin, Readiness = readiness, PickResult = pick,
+        DebugLines = debugLines.IsDefault ? [] : debugLines,
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
         TerrainHeightResult = height ?? new Lookup<double>.Missing()
     };
