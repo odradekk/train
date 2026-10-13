@@ -132,7 +132,7 @@
     },
     "Train.Engine.Tests": {
       "path": "Tests/Engine/Train.Engine.Tests.csproj",
-      "references": ["Train", "Train.Core.ContractSupport", "Train.Content.ContractSupport"]
+      "references": ["Train", "Train.Core.ContractSupport", "Train.Content.ContractSupport", "Train.Scenes.ContractSupport"]
     },
     "Train.AssetExport": {
       "path": "Tests/AssetExport/Train.AssetExport.csproj",
