@@ -79,7 +79,7 @@ public sealed class CoreCaptureTests
     public void Frozen_save_is_rejected_but_diagnostic_capture_preserves_attempted_fault_boundary()
     {
         using var session = Session();
-        session.ExecuteCommand(_ => throw new InvalidOperationException("diagnostic only"));
+        session.ExecuteCommand(new CoreCommand.PublishContent(Content('B')), CommandSource.AutomationTest, _ => throw new InvalidOperationException("diagnostic only"));
 
         AssertFailure(session.Capture(CapturePurpose.Save), "frozen", "Fault");
         var diagnostic = Success(session.Capture(CapturePurpose.Diagnostic));

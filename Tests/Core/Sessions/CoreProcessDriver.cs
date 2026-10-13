@@ -22,7 +22,7 @@ internal static class CoreProcessDriver
             {
                 var factory = CoreFactory.Create();
                 var saved = Success(factory.DecodeState(await File.ReadAllTextAsync(payloadPath)));
-                using var candidate = Success(factory.PrepareRestore(saved, Content('B'), new(runtime, false, 0)));
+                using var candidate = Success(factory.PrepareRestore(saved, Content('B'), new(runtime, false, 1)));
                 session = candidate.Activate();
             }
             else

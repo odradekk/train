@@ -25,18 +25,20 @@ internal sealed class CoreSessionFactory : ICoreFactory
             throw new ArgumentException("捕获必须由核心工厂或会话生成。", nameof(saved));
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.RetainedRecordingStarts, 1);
         if (capture.Fault is not null)
             return new CoreResult<ICoreSessionCandidate>.Failure([new("frozen", "Fault", null, [])]);
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
-            new(capture.Position, capture.NextCommandNumber, capture.Revision, content), report));
+            new(capture.Position, capture.NextCommandNumber, capture.Revision, content), report,
+            options.RetainedRecordingStarts));
     }
 
     public CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment,
         ImmutableArray<CoreContentProjection> contentHistory)
-        => throw new NotImplementedException("PrepareReplay 尚未实现。");
+        => CoreReplay.Prepare(input, environment, contentHistory);
 
     public CoreResult<CheckpointComparison> CompareCheckpoints(CoreCheckpoint expected, CoreCheckpoint actual)
-        => throw new NotImplementedException("CompareCheckpoints 尚未实现。");
+        => CoreCheckpoints.Compare(expected, actual);
 }

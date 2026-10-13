@@ -9,9 +9,10 @@ internal sealed class CoreSessionCandidate : ICoreSessionCandidate
     private bool _activated;
     private bool _disposed;
 
-    internal CoreSessionCandidate(CoreState state, ImmutableArray<CoreProblem> adaptationReport = default)
+    internal CoreSessionCandidate(CoreState state, ImmutableArray<CoreProblem> adaptationReport = default,
+        int retainedRecordingStarts = 1)
     {
-        _session = new CoreSession(state);
+        _session = new CoreSession(state, retainedRecordingStarts);
         View = _session.Read();
         References = new([], [], [], [state.Content.Identity]);
         AdaptationReport = adaptationReport.IsDefault ? [] : adaptationReport;

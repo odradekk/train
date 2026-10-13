@@ -1,0 +1,34 @@
+﻿[
+  {
+    "Position": {
+      "CompletedSteps": 0,
+      "Sequence": 0
+    },
+    "CanonicalText": "{\u0022position\u0022:{\u0022completed_steps\u0022:0,\u0022sequence\u0022:0},\u0022next_command_number\u0022:1,\u0022fault\u0022:null}",
+    "Sha256": "859E220CCA1DBB7EF7A63C51D3AA744B2A33791DB0FD9649B62E3613FD27D5C2"
+  },
+  {
+    "Position": {
+      "CompletedSteps": 2,
+      "Sequence": 1
+    },
+    "CanonicalText": "{\u0022position\u0022:{\u0022completed_steps\u0022:2,\u0022sequence\u0022:1},\u0022next_command_number\u0022:4,\u0022fault\u0022:null}",
+    "Sha256": "691599549DD73FD703C8C154E29AB5EB8C076173E938EE9C3AFC7A7FC0E06FE5"
+  },
+  {
+    "Position": {
+      "CompletedSteps": 4,
+      "Sequence": 0
+    },
+    "CanonicalText": "{\u0022position\u0022:{\u0022completed_steps\u0022:4,\u0022sequence\u0022:0},\u0022next_command_number\u0022:4,\u0022fault\u0022:null}",
+    "Sha256": "B8AC9D80C5753E9D4B9B0271648CF24C9F121EB45D045E4D3572ADAC3DA65935"
+  },
+  {
+    "Position": {
+      "CompletedSteps": 6,
+      "Sequence": 0
+    },
+    "CanonicalText": "{\u0022position\u0022:{\u0022completed_steps\u0022:6,\u0022sequence\u0022:0},\u0022next_command_number\u0022:4,\u0022fault\u0022:null}",
+    "Sha256": "60D2D018E175F6B340810BD63D6BFBF19A0574D4D0A63AD44FD2E81D76D2F6F0"
+  }
+]
