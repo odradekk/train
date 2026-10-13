@@ -141,8 +141,8 @@ internal static class GenerationProfileParser
         Object(value, field, "maximum_tracks", "minimum_initial_tracks", "maximum_initial_tracks", "additional_cycle_edges");
         int Read(string key, int minimum = 0) => Int32(Required(value, key, field), field + "/" + key, minimum);
         var maximumTracks = Read("maximum_tracks", 1);
-        var minimum = Read("minimum_initial_tracks");
-        var maximum = Read("maximum_initial_tracks");
+        var minimum = Int32(Required(value, "minimum_initial_tracks", field), field + "/minimum_initial_tracks", 0, 2);
+        var maximum = Int32(Required(value, "maximum_initial_tracks", field), field + "/maximum_initial_tracks", 0, 2);
         if (minimum > maximum || maximum > maximumTracks) Fail(field + "/maximum_initial_tracks", "初始轨数范围必须有序且不超过全局上限。");
         return new(maximumTracks, minimum, maximum, Read("additional_cycle_edges"));
     }
