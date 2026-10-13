@@ -16,6 +16,78 @@ public sealed class RailwayTerrainTests
     private static readonly VoxelDefinitionId ModelVoxel = new("test:model-voxel");
 
     [TestMethod]
+    public void ExtendedChordSamplesTheEndNodeTerrainInNodeLocalCoordinates()
+    {
+        var nodeType = new TerrainTypeId("test:node-ground");
+        var line = RailwayFixtures.TerrainAppearance;
+        var nodeTerrain = line with { Id = nodeType, LocalHeightNoise = [new(4, 10)] };
+        var original = RailwayFixtures.Content();
+        var content = new FixedContentView
+        {
+            Core = original.Core,
+            Terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+            {
+                [line.Id] = new ContentLookup<TerrainAppearanceProjection>.Found(line),
+                [nodeType] = new ContentLookup<TerrainAppearanceProjection>.Found(nodeTerrain)
+            },
+            RailwayAppearances = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+            { [RailwayFixtures.Rule] = original.FindRailwayAppearance(RailwayFixtures.Rule) },
+            VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            { [SceneFixtures.Voxel] = original.FindVoxelAppearance(SceneFixtures.Voxel) }
+        };
+        var basis = RailwayFixtures.Snapshot(600, 28.224, relief: 0, content: content);
+        var endNode = basis.Core.World.Nodes[1] with { Terrain = new(nodeType, 1, []) };
+        var snapshot = ReplaceCore(basis, endNode);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var endpoint = path.Sample(path.LengthCells).Position;
+        Assert.IsTrue(endpoint.Z > endNode.Position.Y * 2);
+        var segment = Build(snapshot, path.SegmentCount - 1);
+        var point = new ScenePoint(40.5, 0, Math.Floor(endpoint.Z) + .5);
+        var column = new GridColumn((int)Math.Floor(point.X - segment.Origin.X), (int)Math.Floor(point.Z - segment.Origin.Z));
+        var local = new ScenePoint(point.X - endpoint.X, 0, point.Z - endpoint.Z);
+        var nodeHeight = Math.Floor(RailwayTerrain.NodeGround(snapshot, endNode, local)) + 1;
+        Assert.AreEqual(nodeHeight, segment.Heights[column], 1,
+            "The endpoint blend must approach the same node-local sample used by the node scene.");
+    }
+
+    [TestMethod]
+    public void TrackbedSupportsSleepersWithoutBuryingRailwayMeshes()
+    {
+        var segment = Build(Short());
+        var meshes = Meshes(segment);
+        var sleepers = meshes.Single(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Sleeper });
+        var rails = meshes.Single(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.RailSteel });
+        var top = segment.Heights[new(0, 3)] - segment.Origin.Y;
+        Assert.IsTrue(top <= sleepers.Vertices.Min(vertex => vertex.Position.Y) + 1e-6,
+            "The voxel trackbed must support the sleepers from below.");
+        Assert.IsTrue(rails.Vertices.All(vertex => vertex.Position.Y > top), "The rails are buried in the trackbed.");
+    }
+
+    [TestMethod]
+    public void DecorationFlattenPreservesTrackClearanceAndWaterSurface()
+    {
+        var model = Model(flatten: new(new(-32, 0), new(32, 0), 8));
+        var terrain = RailwayFixtures.TerrainAppearance with
+        { Decorations = [new(ModelHash, 1)], DecorationTargetPerSquareMeter = .03 };
+        var snapshot = WithFeatures(RailwayFixtures.Snapshot(20, 20, relief: 0, content: Content(terrain, model)), ["river"]);
+        var segment = Build(snapshot);
+        Assert.IsTrue(segment.Geometry.Objects.Any(item => item.Parent is null && item.Id.Value != 0 &&
+            item.Visuals.OfType<SceneVisual.Geometry>().Any()), "The fixture needs actual decorations.");
+        var water = Meshes(segment).Single(mesh => mesh.Material is SceneMaterial.BuiltIn { Kind: BuiltInMaterial.Water });
+        var wet = new HashSet<GridColumn>();
+        foreach (var quad in water.Vertices.Chunk(4))
+        {
+            var column = new GridColumn((int)quad.Min(vertex => vertex.Position.X), (int)quad.Min(vertex => vertex.Position.Z));
+            wet.Add(column);
+            Assert.IsTrue(segment.Heights[column] - segment.Origin.Y < quad[0].Position.Y,
+                "Decoration flattening raised underwater terrain through the water surface.");
+        }
+        var control = Build(snapshot with { Content = Content(terrain with { DecorationTargetPerSquareMeter = 0 }, model) });
+        foreach (var pair in control.Heights.Where(pair => !wet.Contains(pair.Key) && Math.Abs(pair.Key.X + .5) < 17))
+            Assert.AreEqual(pair.Value, segment.Heights[pair.Key], "Decoration flattening changed the track clearance.");
+    }
+
+    [TestMethod]
     public void NodeMaterialTransitionDoesNotReplaceTheLineRockInTrackbed()
     {
         var nodeType = new TerrainTypeId("test:node-terrain");
@@ -54,7 +126,7 @@ public sealed class RailwayTerrainTests
         var cells = Build(snapshot).Geometry.Picking.Single().Grid.Cells;
         Assert.IsTrue(cells.Any(cell => Math.Abs(cell.At.X + 0.5) > 24 && cell.Appearance?.Definition == ModelVoxel),
             "The fixture must actually exercise the node material transition.");
-        var trackbed = cells.Where(cell => Math.Abs(cell.At.X + 0.5) < 9.5 && cell.At.Y is -1 or -2).ToArray();
+        var trackbed = cells.Where(cell => Math.Abs(cell.At.X + 0.5) < 9.5 && cell.At.Y is -2 or -3).ToArray();
         Assert.IsTrue(trackbed.Length > 0);
         Assert.IsTrue(trackbed.All(cell => cell.Appearance?.Definition == SceneFixtures.Voxel),
             "Trackbed must retain the line rock even where node rock differs.");
@@ -273,9 +345,9 @@ public sealed class RailwayTerrainTests
         return ReplaceCore(snapshot, edge: edge with { Terrain = edge.Terrain with { FeatureIds = features } });
     }
 
-    private static SceneWorldSnapshot ReplaceCore(SceneWorldSnapshot snapshot, NodeMapItem? first = null, EdgeMapItem? edge = null)
+    private static SceneWorldSnapshot ReplaceCore(SceneWorldSnapshot snapshot, NodeMapItem? replacement = null, EdgeMapItem? edge = null)
     {
-        var nodes = snapshot.Core.World.Nodes.SetItem(0, first ?? snapshot.Core.World.Nodes[0]);
+        var nodes = snapshot.Core.World.Nodes.Select(node => replacement is not null && node.Id == replacement.Id ? replacement : node).ToImmutableArray();
         var current = edge ?? snapshot.Core.World.Edges.Single();
         var oldEdge = ((Lookup<EdgeView>.Found)snapshot.Core.FindEdge(current.Id)).Value;
         return snapshot with { Core = new FixedCoreReadView

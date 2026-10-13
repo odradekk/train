@@ -10,10 +10,13 @@ internal static class RailwayTerrain
 {
     internal const double EndpointBlendCells = 128;
     private const int ColumnDepth = 6;
+    private const double BedTopBelowRailCells = 1;
 
-    internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint point)
+    internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint localPoint)
     {
         var terrain = snapshot.Content.FindTerrain(node.Terrain.TypeId) is ContentLookup<TerrainAppearanceProjection>.Found found ? found.Value : null;
+        var origin = RailwayCoordinates.NodePoint(node);
+        var point = new ScenePoint(origin.X + localPoint.X, origin.Y + localPoint.Y, origin.Z + localPoint.Z);
         return Ground(snapshot.Core.World.WorldSeed, node.Id.Value, node.Terrain, terrain, point);
     }
 
@@ -43,6 +46,8 @@ internal static class RailwayTerrain
         var begin = index * RailwayCoordinates.SegmentLengthCells;
         var end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
         var endpointBlend = Math.Min(EndpointBlendCells, path.LengthCells / 2);
+        var startPoint = path.Sample(0).Position;
+        var endPoint = path.Sample(path.LengthCells).Position;
         var waterRegions = WaterFeatures().Select(feature =>
         {
             var first = Math.Max(0, feature.Center - feature.HalfWidth);
@@ -110,7 +115,7 @@ internal static class RailwayTerrain
                 var trackDistance = TrackDistance(lateral);
                 if (path.Edge.Tracks > 0 && !water && !TunnelAt(located))
                 {
-                    var bed = nearest.Position.Y - (trackDistance <= 9.5 ? 1 : 2);
+                    var bed = nearest.Position.Y - BedTopBelowRailCells - (trackDistance <= 9.5 ? 1 : 2);
                     var blend = Math.Clamp((trackDistance - 10.5) / 12, 0, 1);
                     height = bed * (1 - blend) + height * blend;
                 }
@@ -171,7 +176,8 @@ internal static class RailwayTerrain
                 var y = value.Height - depth;
                 if (isTunnel && trackDistance < 12 && y >= rail.Position.Y && y < rail.Position.Y + 20) continue;
                 var terrain = value.Terrain;
-                var bed = path.Edge.Tracks > 0 && !value.Water && depth < 2 && trackDistance <= (depth == 0 ? 9.5 : 10.5);
+                var bed = path.Edge.Tracks > 0 && !value.Water && !isTunnel &&
+                    (depth == 0 && trackDistance <= 10.5 || depth == 1 && trackDistance <= 9.5);
                 if (bed ? bedTerrain is null : terrain is null) continue;
                 var voxel = bed ? bedTerrain!.RockVoxel : depth == 0 ? terrain!.SurfaceVoxel : depth < 3 ? terrain!.SubsurfaceVoxel : terrain!.RockVoxel;
                 var appearance = Appearance(voxel);
@@ -235,14 +241,16 @@ internal static class RailwayTerrain
                 readsStartTerrain = true;
                 GetTerrain(path.Start.Terrain.TypeId);
                 var weight = arc / endpointBlend;
-                height = NodeGround(snapshot, path.Start, point) * (1 - weight) + height * weight;
+                height = NodeGround(snapshot, path.Start, new(point.X - startPoint.X, point.Y - startPoint.Y, point.Z - startPoint.Z)) *
+                    (1 - weight) + height * weight;
             }
             if (path.LengthCells - arc < endpointBlend)
             {
                 readsEndTerrain = true;
                 GetTerrain(path.End.Terrain.TypeId);
                 var weight = (path.LengthCells - arc) / endpointBlend;
-                height = NodeGround(snapshot, path.End, point) * (1 - weight) + height * weight;
+                height = NodeGround(snapshot, path.End, new(point.X - endPoint.X, point.Y - endPoint.Y, point.Z - endPoint.Z)) *
+                    (1 - weight) + height * weight;
             }
             return height;
         }
@@ -310,6 +318,7 @@ internal static class RailwayTerrain
                 foreach (var column in columns.Keys.ToArray())
                 {
                     var value = columns[column];
+                    if (decoration is not null && (value.Water || TrackDistance(value.Offset) < 17)) continue;
                     var local = Vector3.Transform(new Vector3(column.X + 0.5f, 0, column.Z + 0.5f) - pose.Position, Quaternion.Inverse(pose.Rotation));
                     var distance = Math.Max(Math.Max(flatten.From.X - local.X, local.X - flatten.To.X - 1),
                         Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));
