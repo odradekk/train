@@ -1,4 +1,5 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System.Globalization;
 using Train.Core.Contracts;
 using Train.Core.Sessions;
 
@@ -7,6 +8,63 @@ namespace Train.Core.Tests.Sessions;
 [TestClass]
 public sealed class CoreCommandEncodingTests
 {
+    [TestMethod]
+    public void Rail_break_has_a_fixed_vector_and_round_trips_under_other_cultures()
+    {
+        const string payload = "{\"input_format_version\":2,\"kind\":\"rail.debug_add_break\",\"edge\":18446744073709551615,\"track\":2147483647,\"distance_meters\":0.12345678901234568}";
+        var command = new CoreCommand.DebugAddRailBreak(new(ulong.MaxValue), int.MaxValue, 0.12345678901234568);
+        var previous = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
+            Assert.AreEqual(payload, CoreCommandEncoding.Encode(command));
+            Assert.AreEqual(command, Decode(payload));
+            Assert.AreEqual(command, Decode("{\"distance_meters\":0.12345678901234568,\"track\":2147483647,\"edge\":18446744073709551615,\"kind\":\"rail.debug_add_break\",\"input_format_version\":2}"));
+            foreach (var distance in new[] { 0, double.Epsilon, double.MaxValue })
+            {
+                var boundary = new CoreCommand.DebugAddRailBreak(new(1), 1, distance);
+                Assert.AreEqual(boundary, Decode(CoreCommandEncoding.Encode(boundary)));
+            }
+        }
+        finally { CultureInfo.CurrentCulture = previous; }
+    }
+
+    [TestMethod]
+    [DataRow("\"edge\":0,\"track\":1,\"distance_meters\":0", "/edge")]
+    [DataRow("\"edge\":-1,\"track\":1,\"distance_meters\":0", "/edge")]
+    [DataRow("\"edge\":18446744073709551616,\"track\":1,\"distance_meters\":0", "/edge")]
+    [DataRow("\"edge\":1.5,\"track\":1,\"distance_meters\":0", "/edge")]
+    [DataRow("\"track\":1,\"distance_meters\":0", "/edge")]
+    [DataRow("\"edge\":1,\"distance_meters\":0", "/track")]
+    [DataRow("\"edge\":1,\"track\":0,\"distance_meters\":0", "/track")]
+    [DataRow("\"edge\":1,\"track\":-1,\"distance_meters\":0", "/track")]
+    [DataRow("\"edge\":1,\"track\":1.5,\"distance_meters\":0", "/track")]
+    [DataRow("\"edge\":1,\"track\":2147483648,\"distance_meters\":0", "/track")]
+    [DataRow("\"edge\":1,\"track\":1", "/distance_meters")]
+    [DataRow("\"edge\":1,\"track\":1,\"distance_meters\":-1", "/distance_meters")]
+    [DataRow("\"edge\":1,\"track\":1,\"distance_meters\":1e309", "/distance_meters")]
+    [DataRow("\"edge\":1,\"track\":1,\"distance_meters\":\"NaN\"", "/distance_meters")]
+    [DataRow("\"edge\":1,\"track\":1,\"distance_meters\":null", "/distance_meters")]
+    [DataRow("\"edge\":1,\"edge\":2,\"track\":1,\"distance_meters\":0", "/edge")]
+    [DataRow("\"edge\":1,\"track\":1,\"distance_meters\":0,\"extra\":0", "/extra")]
+    public void Rail_break_payload_fields_are_strict(string fields, string field)
+    {
+        var payload = "{\"input_format_version\":2,\"kind\":\"rail.debug_add_break\"," + fields + "}";
+        var failure = (CoreResult<DecodedCommand>.Failure)CoreCommandEncoding.Decode(payload);
+        Assert.AreEqual("invalid_state", failure.Problems.Single().Code);
+        Assert.AreEqual(field, failure.Problems.Single().Field);
+    }
+
+    [TestMethod]
+    public void Invalid_rail_break_values_cannot_be_encoded()
+    {
+        Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.DebugAddRailBreak(new(0), 1, 0)));
+        foreach (var track in new[] { 0, -1 })
+            Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.DebugAddRailBreak(new(1), track, 0)));
+        foreach (var distance in new[] { -1, double.NaN, double.PositiveInfinity, double.NegativeInfinity })
+            Assert.ThrowsExactly<ArgumentException>(() => CoreCommandEncoding.Encode(new CoreCommand.DebugAddRailBreak(new(1), 1, distance)));
+    }
+
     [TestMethod]
     public void Formation_preserves_vehicle_order_and_has_a_fixed_vector()
     {

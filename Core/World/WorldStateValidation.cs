@@ -113,6 +113,7 @@ internal static class WorldStateValidation
             }
         }
         var pairs = new HashSet<(NodeId, NodeId)>();
+        var breakIds = new HashSet<ulong>();
         foreach (var edge in world.Edges)
         {
             Require(nodes.ContainsKey(edge.Start) && nodes.ContainsKey(edge.End) && edge.Start.Value < edge.End.Value
@@ -125,8 +126,16 @@ internal static class WorldStateValidation
             var distance = Math.Sqrt((start.X - end.X) * (start.X - end.X) + (start.Y - end.Y) * (start.Y - end.Y));
             Require(double.IsFinite(distance) && distance > 0 && edge.LengthMeters >= distance, "/world/edges/length_meters");
             Terrain(edge.Terrain, "/world/edges/terrain");
-            Items(edge.Breaks, "/world/edges/breaks"); Items(edge.Works, "/world/edges/works");
-            Require(edge.Breaks.IsEmpty && edge.Works.IsEmpty, "/world/edges");
+            Ordered(edge.Breaks, b => b.Id.Value, "/world/edges/breaks");
+            foreach (var broken in edge.Breaks)
+            {
+                Require(breakIds.Add(broken.Id.Value), "/world/edges/breaks/id");
+                Require(broken.Track >= 1 && broken.Track <= edge.Tracks, "/world/edges/breaks/track");
+                Require(double.IsFinite(broken.DistanceMeters) && broken.DistanceMeters >= 0
+                    && broken.DistanceMeters <= edge.LengthMeters, "/world/edges/breaks/distance_meters");
+            }
+            Items(edge.Works, "/world/edges/works");
+            Require(edge.Works.IsEmpty, "/world/edges/works");
         }
         var parkedVehicles = new HashSet<VehicleId>();
         foreach (var settlement in world.Settlements)
@@ -176,6 +185,23 @@ internal static class WorldStateValidation
                 && inventory.Owner == new InventoryOwner.Train(train.Id), "/world/trains/inventory");
 
         }
+        foreach (var track in world.Trains.Select(t => t.Position).OfType<TrainPosition.Edge>()
+            .GroupBy(p => (p.Id, p.Track)))
+            Require(track.Select(p => p.Direction).Distinct().Count() == 1, "/world/trains/position/direction");
+        Items(world.TrackHandoffs, "/world/track_handoffs");
+        (ulong Edge, int Track) previousHandoff = (0, 0);
+        foreach (var handoff in world.TrackHandoffs)
+        {
+            var key = (handoff.Edge.Value, handoff.Track);
+            Require(key.CompareTo(previousHandoff) > 0, "/world/track_handoffs");
+            previousHandoff = key;
+            Require(edges.TryGetValue(handoff.Edge, out var edge), "/world/track_handoffs/edge");
+            Require(handoff.Track >= 1 && handoff.Track <= edge.Tracks, "/world/track_handoffs/track");
+            Require(!edge.Breaks.Any(b => b.Track == handoff.Track), "/world/track_handoffs/track");
+            Require(Enum.IsDefined(handoff.Direction), "/world/track_handoffs/direction");
+            Require(!world.Trains.Any(t => t.Position is TrainPosition.Edge p
+                && p.Id == handoff.Edge && p.Track == handoff.Track), "/world/track_handoffs/track");
+        }
         foreach (var instance in world.Instances)
         {
             switch (instance.Id, instance.Details, designs[instance.Design].Kind)
@@ -212,6 +238,7 @@ internal static class WorldStateValidation
         Next(next.Vehicle, world.Instances.Select(i => i.Id).OfType<InstanceId.Vehicle>().Select(i => i.Id.Value), "/world/next/vehicle");
         Next(next.Train, world.Trains.Select(t => t.Id.Value), "/world/next/train");
         Next(next.Inventory, world.Inventories.Select(i => i.Id.Value), "/world/next/inventory");
+        Next(next.Break, breakIds, "/world/next/break");
     }
 
     private static void ValidateTrain(TrainState train, Dictionary<NodeId, NodeMapItem> nodes,
@@ -219,6 +246,12 @@ internal static class WorldStateValidation
     {
         Require(Enum.IsDefined(train.OrderFacing) && double.IsFinite(train.SpeedMetersPerSecond)
             && train.SpeedMetersPerSecond >= 0, "/world/trains");
+        Require(train.QueueEnteredStep is null || train.Position is TrainPosition.Node
+            && train.Activity == TrainActivity.Waiting, "/world/trains/queue_entered_step");
+        Require(train.ReturningFromBreak is null || train.Position is TrainPosition.Edge returning
+            && train.Activity == TrainActivity.Running && edges.TryGetValue(returning.Id, out var returningEdge)
+            && returningEdge.Breaks.Any(b => b.Id == train.ReturningFromBreak && b.Track == returning.Track),
+            "/world/trains/returning_from_break");
         switch (train.Position)
         {
             case TrainPosition.Node node:
@@ -290,12 +323,22 @@ internal static class WorldStateValidation
                     && train.RemainingDwellSteps > 0, "/world/trains/activity");
                 break;
             case TrainActivity.Waiting:
+                Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0,
+                    "/world/trains/activity");
+                break;
             case TrainActivity.NoRoute:
                 Require(unfinished && train.Position is TrainPosition.Node && train.SpeedMetersPerSecond == 0
                     && train.RemainingDwellSteps == 0, "/world/trains/activity");
                 break;
             default: throw new CoreStateFormatException("/world/trains/activity");
         }
+    }
+
+    internal static void ValidateQueueSteps(WorldState world, ulong completedSteps)
+    {
+        foreach (var train in world.Trains)
+            Require(train.QueueEnteredStep is null || train.QueueEnteredStep <= completedSteps,
+                "/world/trains/queue_entered_step");
     }
 
     private static void Terrain(TerrainView terrain, string field)

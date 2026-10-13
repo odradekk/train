@@ -14,6 +14,9 @@ if (args.Length > 0 && string.Equals(args[0], "--simulation-process", StringComp
 if (args.Length > 0 && string.Equals(args[0], "--train-process", StringComparison.Ordinal))
     return await TrainProcessDriver.RunAsync(args[1..]);
 
+if (args.Length > 0 && string.Equals(args[0], "--dispatch-process", StringComparison.Ordinal))
+    return await TrainDispatchProcessDriver.RunAsync(args[1..]);
+
 var builder = await TestApplication.CreateBuilderAsync(args);
 builder.AddSelfRegisteredExtensions(args);
 using var application = await builder.BuildAsync();

@@ -30,6 +30,20 @@ public sealed class ProjectAnalysisTests
     }
 
     [TestMethod]
+    public void Benchmark_linked_sources_are_limited_to_the_resource_fixtures()
+    {
+        var root = Path.GetFullPath("workspace");
+        var owner = Path.Combine(root, "Tests", "Benchmarks");
+        bool Allowed(string name, string file) => ProjectAnalysis.OwnsCompileSource(root, name, owner,
+            Path.Combine(root, "Tests", "Core", "Simulation", file));
+        Assert.IsTrue(Allowed("Train.Benchmarks", "SimulationExamples.cs"));
+        Assert.IsTrue(Allowed("Train.Benchmarks", "ResourceCommandCodec.cs"));
+        Assert.IsFalse(Allowed("Train.Benchmarks", "ResourceStateCodec.cs"));
+        Assert.IsFalse(Allowed("Train.Benchmarks", "../World/Fixture.cs"));
+        Assert.IsFalse(Allowed("Train.Content", "SimulationExamples.cs"));
+    }
+
+    [TestMethod]
     [DataRow("texture.png", "[remap]\nimporter=\"keep\"\n", null)]
     [DataRow("model.glb", null, "Keep File import missing:")]
     [DataRow("texture.png", "[remap]\nimporter=\"texture\"\n", "Keep File importer required:")]
