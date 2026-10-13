@@ -10,6 +10,7 @@
   <ItemGroup>
     <ProjectReference Include="Contracts/Core/Train.Core.Contracts.csproj" />
     <ProjectReference Include="Contracts/Content/Train.Content.Contracts.csproj" />
+    <ProjectReference Include="Contracts/Scenes/Train.Scenes.Contracts.csproj" />
     <ProjectReference Include="Core/Train.Core.csproj" />
     <ProjectReference Include="Content/Train.Content.csproj" />
     <ProjectReference Include="Scenes/Train.Scenes.csproj" />
@@ -25,6 +26,9 @@
     <Compile Remove="prototypes/**" />
     <EmbeddedResource Remove="prototypes/**" />
     <None Remove="prototypes/**" />
+    <Compile Remove="Tools/**" />
+    <EmbeddedResource Remove="Tools/**" />
+    <None Remove="Tools/**" />
     <Compile Remove="Core/**" />
     <EmbeddedResource Remove="Core/**" />
     <None Remove="Core/**" />

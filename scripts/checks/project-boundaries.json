@@ -5,6 +5,15 @@
     "Train.Scenes.Tests"
   ],
   "projects": {
+    "Train.Cli": {
+      "path": "Tools/Cli/Train.Cli.csproj",
+      "references": ["Train.Core.Contracts", "Train.Content.Contracts", "Train.Core", "Train.Content"],
+      "friends": ["Train.Cli.Tests"]
+    },
+    "Train.Cli.Tests": {
+      "path": "Tests/Cli/Train.Cli.Tests.csproj",
+      "references": ["Train.Cli"]
+    },
     "Train.Core.Contracts": {
       "path": "Contracts/Core/Train.Core.Contracts.csproj",
       "references": []
@@ -132,7 +141,7 @@
     },
     "Train.Engine.Tests": {
       "path": "Tests/Engine/Train.Engine.Tests.csproj",
-      "references": ["Train", "Train.Core.ContractSupport", "Train.Content.ContractSupport"]
+      "references": ["Train", "Train.Core.ContractSupport", "Train.Content.ContractSupport", "Train.Scenes.ContractSupport"]
     },
     "Train.AssetExport": {
       "path": "Tests/AssetExport/Train.AssetExport.csproj",
