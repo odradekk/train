@@ -54,6 +54,8 @@ public sealed class CliTests
         var fixturePaths = new List<string>();
         AddProject("Train.Core.Contracts", "Contracts/Core", [], OriginalContract);
         AddProject("Train.Core", "Core", ["Train.Core.Contracts"], "namespace Fixture; public sealed class Core { public int Value => new Contract().Original(); }");
+        Write("Core/CoreFactory.cs", "namespace Train.Core; public static class CoreFactory { public static object Create() => new object(); }");
+        AddProject("Train", "App", ["Train.Core"], "namespace Fixture; public sealed class Host { }");
         AddProject("Train.Hidden", "Hidden", [], "namespace Fixture; public sealed class Hidden { public static int Value => 1; }");
         AddProject("Train.Core.Tests", "Tests/Core", ["Train.Core"], "using Microsoft.VisualStudio.TestTools.UnitTesting; [TestClass] public class CoreTests { [TestMethod] public void Value() => Assert.AreEqual(1, new Fixture.Core().Value); }", true);
         Write("scripts/checks/project-boundaries.json", JsonSerializer.Serialize(new { projects, isolationTests = new[] { "Train.Core.Tests" } }));
@@ -92,6 +94,20 @@ public sealed class CliTests
         File.WriteAllText(coreProject, originalCoreProject);
         File.WriteAllText(contractSource, OriginalContract);
         Write("Core/Fixture.cs", "namespace Fixture; public sealed class Core { public int Value => new Contract().Original(); }");
+        Write("App/Fixture.cs", "namespace Fixture; public sealed class Host { }");
+    }
+
+    [TestMethod]
+    public void Structure_rejects_a_real_factory_reference_outside_host_composition()
+    {
+        Write("App/Fixture.cs", "using Factory = Train.Core.CoreFactory; namespace Fixture; public sealed class Host { public object Create() => Factory.Create(); }");
+        Build("App/Train.csproj");
+        var result = Check("structure", "outputs/structure-factory-invalid");
+        Assert.AreEqual(1, result.ExitCode, result.Output);
+        StringAssert.Contains(result.Output, "factory reference outside composition: Train");
+        StringAssert.Contains(result.Output, "Train.Core.CoreFactory.Create");
+        StringAssert.Contains(result.Output, "Fixture.cs");
+        TestContext.WriteLine(result.Output);
     }
 
     [TestMethod]

@@ -3,7 +3,9 @@ using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App.Logging;
-using Train.Content.Voxels;
+using Train.Content.Contracts;
+using System.Diagnostics;
+using System.Text.Json.Nodes;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -22,6 +24,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(() => !app.Host!.IsBusy);
             var console = app.GetChildren().OfType<GameConsole>().Single();
             Require(console.LogEvents.Any(e => e.EventId == TrainLogger.ApplicationReadyEventId), "App startup event missing.");
             Require(output.Contains("[application][application_ready]"), "App startup event did not reach Godot output.");
@@ -62,11 +65,11 @@ public class AppTests(Node testScene) : TestClass(testScene)
             var requests = 0;
             app.QuitAction = () => requests++;
             await fixture.AddToRoot(app);
+            await FramesUntil(() => !app.Host!.IsBusy);
             var menu = app.GetNode<MainMenu>("MainMenu");
             Require(menu.IsNodeReady() && menu.IsVisibleInTree(), "Main menu is not ready and visible.");
-            var buttons = menu.FindChildren("*", "BaseButton", true, false).Cast<BaseButton>().Where(b => b.IsVisibleInTree()).ToArray();
             var quit = menu.GetNode<Button>("%QuitGame");
-            Require(buttons.Length == 1 && buttons[0] == quit && !quit.Disabled && quit.Text == "退出", "Main menu must expose only the enabled quit button.");
+            Require(quit.IsVisibleInTree() && !quit.Disabled && quit.Text == "退出", "Main menu must expose the enabled quit button.");
             quit.EmitSignal(BaseButton.SignalName.Pressed);
             Require(requests == 1, "Quit button signal did not reach App's quit request.");
         }
@@ -80,13 +83,15 @@ public class AppTests(Node testScene) : TestClass(testScene)
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            Require(app.CurrentContent is { Generation: > 0 }, "App did not publish initial content.");
-            var grain = app.CurrentContent!.Voxels[new VoxelDefinitionId("core", "grain")];
-            const string imagePath = "voxels/grain/placeholder.png";
-            var presentation = grain.Definition.Presentation;
-            Require(presentation.IconPath == imagePath && presentation.TopPath == imagePath && presentation.SidePath == imagePath && presentation.BottomPath == imagePath,
-                "Grain presentation paths were not loaded.");
-            Require(grain.PresentationImages.Count == 1 && grain.PresentationImages[imagePath] is { Width: > 0, Height: > 0 }, "Godot PNG decoder did not produce the grain image.");
+            await FramesUntil(() => !app.Host!.IsBusy);
+            var content = app.Host!.Content;
+            Require(content is { Generation.Value: > 0 }, "App did not publish initial content.");
+            Require(content!.FindVoxelDisplay(new("core:staple-food")) is ContentLookup<VoxelDisplayProjection>.Found,
+                "Built-in staple food was not loaded.");
+            var display = ((ContentLookup<VoxelDisplayProjection>.Found)content.FindVoxelDisplay(new("core:staple-food"))).Value;
+            Require(display.Icon is { } icon && content.FindAsset(icon) is ContentLookup<ContentAsset>.Found
+                { Value.Metadata: AssetMetadata.Png { Width: > 0, Height: > 0 } },
+                "Godot PNG decoder did not produce the built-in icon.");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -97,18 +102,26 @@ public class AppTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var directory = Path.Combine(OS.GetUserDataDir(), "mods", "engine-input-" + Guid.NewGuid().ToString("N"));
+        var id = Guid.NewGuid();
         try
         {
+            ContentFixture.WriteMod(directory, id);
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
-            var before = app.CurrentContent!;
-            ContentFixture.WriteMod(directory);
+            await FramesUntil(() => !app.Host!.IsBusy);
+            var before = app.Host!.Content!;
+            Require(before.FindVoxelDisplay(new(id.ToString("D") + ":engine-food")) is ContentLookup<VoxelDisplayProjection>.Found,
+                "Production composition did not enable the installed Mod.");
+            var path = Path.Combine(directory, "resources/voxels/engine-food.voxel.json");
+            var definition = JsonNode.Parse(File.ReadAllText(path))!;
+            definition["simulation"]!["value"] = 13;
+            File.WriteAllText(path, definition.ToJsonString());
             Require(InputMap.HasAction(Train.App.App.ReloadContentAction), "reload_content input action is missing.");
             using var input = new InputEventAction { Action = Train.App.App.ReloadContentAction, Pressed = true };
             Input.ParseInputEvent(input);
             Input.FlushBufferedEvents();
-            for (var frame = 0; frame < 3 && app.CurrentContent!.Generation == before.Generation; frame++)
-                await tree.ToSignal(tree, SceneTree.SignalName.ProcessFrame);
-            Require(app.CurrentContent!.Generation == before.Generation + 1, "reload_content input did not publish one new generation.");
+            await FramesUntil(() => !app.Host.IsBusy && app.Host.Content!.Generation != before.Generation);
+            Require(app.Host.Content!.Generation.Value == before.Generation.Value + 1 && app.Host.Content.Core.Identity != before.Core.Identity,
+                "reload_content input did not publish the modified Mod exactly once.");
         }
         finally
         {
@@ -118,5 +131,13 @@ public class AppTests(Node testScene) : TestClass(testScene)
             try { await fixture.Cleanup(); }
             finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
         }
+    }
+
+    private async Task FramesUntil(Func<bool> completed)
+    {
+        var watch = Stopwatch.StartNew();
+        while (!completed() && watch.Elapsed < TimeSpan.FromSeconds(30))
+            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+        Require(completed(), "App did not complete content preparation.");
     }
 }

@@ -21,7 +21,7 @@ if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $Is
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
-    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 629; integration = $(if ($IsWindows) { 11 } else { 8 }) },
+    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 479; integration = $(if ($IsWindows) { 10 } else { 7 }) },
     @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 507; integration = 7 },
     @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 167; integration = 0 },
     @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = $(if ($IsWindows) { 40 } else { 37 }); engine = 24 },
@@ -195,12 +195,12 @@ try {
                 if ($IsWindows) {
                     $threshold = [ordered]@{ name = 'benchmark-threshold'; layer = $current; total = 1; executed = 1; passed = 0; failed = 1; skipped = 0 }
                     try {
-                        $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-resource-simulation.json') -Raw | ConvertFrom-Json
+                        $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-core-train-loop.json') -Raw | ConvertFrom-Json
                         $threshold.measurement = Get-Content (Join-Path $run 'benchmark/throughput.json') -Raw | ConvertFrom-Json
                         foreach ($value in @($threshold.baseline.baselineStepsPerSecond, $threshold.baseline.maximumSlowdown, $threshold.measurement.stepsPerSecond)) {
                             if (($value -isnot [long] -and $value -isnot [double]) -or -not [double]::IsFinite($value)) { throw 'Benchmark numeric values are invalid.' }
                         }
-                        if ($threshold.baseline.workload -ne 'resource-simulation-v1' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
+                        if ($threshold.baseline.workload -ne 'core-train-loop-v1' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
                             $threshold.baseline.baselineStepsPerSecond -le 0 -or $threshold.baseline.maximumSlowdown -lt 1 -or $threshold.measurement.stepsPerSecond -le 0) { throw 'Benchmark workload or numeric values are invalid.' }
                         $threshold.measurementRatio = $threshold.measurement.stepsPerSecond / $threshold.baseline.baselineStepsPerSecond
                         if ($threshold.measurement.stepsPerSecond * $threshold.baseline.maximumSlowdown -lt $threshold.baseline.baselineStepsPerSecond) { throw 'Benchmark slowdown exceeds the candidate limit.' }
@@ -376,7 +376,10 @@ finally {
                     $inBenchmark = $artifact.FullName.StartsWith((Join-Path $run 'benchmark') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inScreenshot = $artifact.FullName.StartsWith((Join-Path $run 'screenshot') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inProbeData = $artifact.FullName.StartsWith($probeData + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
-                    if ($artifact.Name -ne 'summary.json' -and -not $inProbeData -and -not $inBenchmark -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
+                    $isIsolationEvidence = ($artifact.FullName.StartsWith((Join-Path $run 'isolation') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase) -or
+                        $artifact.FullName.StartsWith((Join-Path $run 'stage-isolate') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) -and
+                        $artifact.Name -in @('inputs.json', 'first-party-assemblies.json', 'isolation-summary.json')
+                    if ($artifact.Name -ne 'summary.json' -and -not $isIsolationEvidence -and -not $inProbeData -and -not $inBenchmark -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
                         $artifact.Name -notlike '*.process.json' -and $artifact.Name -ne 'duration.json') {
                         Remove-Item -LiteralPath $artifact.FullName -Force
                     }

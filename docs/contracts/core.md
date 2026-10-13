@@ -15,7 +15,7 @@
 | [Events.cs](../../Contracts/Core/Events.cs) | 本次调用的有序领域事件和删除后仍可用的表现资料 |
 | [Lifecycle.cs](../../Contracts/Core/Lifecycle.cs) | 工厂、会话、内容候选、捕获、录制与严格重放 |
 
-新入口为 [Train.Core.CoreFactory.Create()](../../Core/CoreFactory.cs)，返回 `ICoreFactory`；新实现类型均为 `internal`，不接收外部计算阶段、规则、随机源或编码器，也不引用旧通用模拟框架。工厂公开面与调用位置的自动检查尚未接入，归 #406 和宿主切换；[公开面基线](public-api.txt)仍只有已确认的契约声明。宿主切换后由 `App/Composition/` 调用真实工厂，其余代码只接收契约接口。
+新入口为 [Train.Core.CoreFactory.Create()](../../Core/CoreFactory.cs)，返回 `ICoreFactory`；实现类型均为 `internal`，不接收外部计算阶段、规则、随机源或编码器。生产宿主由 `App/Composition/` 调用真实工厂，其余代码只接收契约接口；调用位置由结构检查验证。工厂公开面纳入检查仍归 #406 等整组基线工作；[公开面基线](public-api.txt)仍只有已确认的契约声明。
 
 当前已实现的成员：
 
@@ -33,7 +33,7 @@
 | 自动货物规则、`CurrentRun`、`RecentReports`、`RunReported` | #385 |
 | 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 
-旧 `Train.Core.Simulation` 仍供旧宿主路径使用，其公开类型不成为新接口。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，它随 #424 宿主切换的旧入口删除任务退役；生成器当前依赖其中的 `Train.Core.Simulation.KeyedRandom`，#424 必须保留该实现或将它迁出旧命名空间。`PendingSteps` 已从旧驱动、控制台和说明移除。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
+旧 `Train.Core.Simulation` 及宿主入口已删除。`RandomKey`、`KeyedRandom`、`SplitMix64` 原算法迁到 `Core/World/`，作为内部实现保留；固定向量测试及独立 Python 参考工具位于 `Tests/Core/World/`。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
 
 ## 所有权与数值
 

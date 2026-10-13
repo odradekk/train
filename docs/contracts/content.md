@@ -6,7 +6,7 @@
 
 [Train.Content.Contracts](../../Contracts/Content/Train.Content.Contracts.csproj) 只引用核心契约，并提供[可编译消费样例](../../prototypes/content-contract/ConsumerExamples.cs)。`Content/Train.Content.csproj` 已实现真实工厂的 `Discover` 与不含用户蓝图库的 `PrepareLoad(Initial/Restore/Reload)`：manifest v2、依赖、voxel v3、固定资产字节、资产规则、只读投影及候选生命周期；包内 blueprint v3 支持无嵌套的车辆、建筑和场景模型。Initial 还支持地貌 v1、聚居地类型 v3、聚居地模板 v2、五类规则与生成配置 v2，包含 NPC 初始化参数；铁路表现参数通过 `FindRailwayAppearance` 提供。`CreateWorldInput` 交出已解析的新局输入，`WithSettlementCopies` 按最终所有者固定模板副本，`FindSettlementLayout` 读取所有者的布局。模板的 `founding`、`inventory`、`production_plans` 省略或为空时支持，非空时以 `unsupported_format` 拒绝。Restore 从内嵌设计与实例模板副本重算当前投影，Reload 保留清单仍引用的原设计与副本；源蓝图、源模板的删改不改写已有实例布局。
 
-`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复／重载只对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤原值仍由核心保存。流程、生物聚落、大型设备、生物与非空嵌套布局尚未支持；不完整草稿、草稿与蓝图库编辑、用户库加载、设计比较及创作仍待后续工单，相关入口直接抛 `NotImplementedException`。上述模块实现不表示完整存档容器、核心耐久保存恢复或真实四模块联调已经通过；阶段一真实交接归 #298，新的宿主装配归 #317。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
+`EvaluateDesign` 在真实工厂产生的固定视图上计算这三类平面设计的身份、合法性及投影，车辆和建筑提供 `DesignInput`。`Capture/DecodeCapture` 与 `CaptureReplay/DecodeReplay` 已实现当前范围的普通内容往返和仅凭载荷重建历史视图。恢复／重载只对已保存设计和模板副本中的缺失定义提供部分计算、占位和锁资料；损伤原值仍由核心保存。流程、生物聚落、大型设备、生物与非空嵌套布局尚未支持；不完整草稿、草稿与蓝图库编辑、用户库加载、设计比较及创作仍待后续工单，相关入口直接抛 `NotImplementedException`。上述模块实现不表示完整存档容器、核心耐久保存恢复或真实四模块联调已经通过；阶段一真实交接归 #298；生产宿主已通过 `App/Composition/` 接入真实工厂。共享用例与替身的行为验证由[契约原型](https://github.com/odradekk/train/issues/292)完成。
 
 | 声明 | 作用 |
 | --- | --- |
@@ -18,7 +18,7 @@
 | [Authoring.cs](../../Contracts/Content/Authoring.cs) | 已保存草稿、开发表单输入及包文件变更 |
 | [Lifecycle.cs](../../Contracts/Content/Lifecycle.cs) | 工厂、准备、固定读取、保存和复现捕获 |
 
-实现程序集已新增 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`；候选、视图和解析器等实现类型均为 `internal`。宿主的 `App/Composition/` 接入、旧公开路径退役，以及工厂公开面和调用位置的自动检查仍待 #317／#406。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
+实现程序集已新增 `Train.Content.ContentFactory.Create()`，返回 `IContentFactory`；候选、视图和解析器等实现类型均为 `internal`。宿主已在 `App/Composition/` 接入，工厂调用位置由结构检查验证。旧公开 `ContentLoader`、`ContentReloader`、`ContentSnapshot` 路径仍保留，但宿主不再使用，退役归 #452；工厂公开面纳入检查仍归 #406 等整组基线工作。文件端口和资产检查由宿主注入，内容不访问静态全局目录、不启动线程、不依赖 Godot，也不允许调用方替换解析器、哈希器或业务计算阶段。
 
 ## 身份、版本与数据所有权
 
