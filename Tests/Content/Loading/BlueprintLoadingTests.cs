@@ -75,6 +75,12 @@ public sealed class BlueprintLoadingTests
     [TestMethod]
     [DataRow("duplicate_json", "invalid_json")]
     [DataRow("missing_voxel", "reference_missing")]
+    [DataRow("reference_blank", "invalid_field")]
+    [DataRow("reference_leading_space", "invalid_field")]
+    [DataRow("reference_trailing_space", "invalid_field")]
+    [DataRow("reference_uppercase_namespace", "invalid_field")]
+    [DataRow("reference_double_colon", "invalid_field")]
+    [DataRow("reference_empty_namespace", "invalid_field")]
     [DataRow("unused_missing_voxel", "reference_missing")]
     [DataRow("flatten", "design_invalid")]
     [DataRow("empty", "design_invalid")]
@@ -134,6 +140,12 @@ public sealed class BlueprintLoadingTests
                 else document["simulation"]!["facility_tags"] = problem == "unknown_tag" ? new JsonArray("unknown") : new JsonArray("assembly", "assembly");
                 break;
             case "missing_voxel": document["layout"]!["palette"]![0]!["voxel"] = "absent"; break;
+            case "reference_blank": document["layout"]!["palette"]![0]!["voxel"] = " "; break;
+            case "reference_leading_space": document["layout"]!["palette"]![0]!["voxel"] = " block"; break;
+            case "reference_trailing_space": document["layout"]!["palette"]![0]!["voxel"] = "block "; break;
+            case "reference_uppercase_namespace": document["layout"]!["palette"]![0]!["voxel"] = "CORE:block"; break;
+            case "reference_double_colon": document["layout"]!["palette"]![0]!["voxel"] = "core::block"; break;
+            case "reference_empty_namespace": document["layout"]!["palette"]![0]!["voxel"] = ":block"; break;
             case "missing_size": document["simulation"]!.AsObject().Remove("size_class"); break;
             case "unknown_size": document["simulation"]!["size_class"] = "huge"; break;
             case "unknown_field": document["extra"] = true; break;
@@ -155,6 +167,8 @@ public sealed class BlueprintLoadingTests
         var diagnostics = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics;
         if (problem == "unused_missing_voxel")
             Assert.IsTrue(diagnostics.Any(d => d.Code == "reference_missing" && d.Field == "/layout/palette/1/voxel"));
+        if (problem.StartsWith("reference_", StringComparison.Ordinal))
+            Assert.IsTrue(diagnostics.Any(d => d.Code == code && d.Field == "/layout/palette/0/voxel"));
         Assert.IsTrue(diagnostics.Any(d => d.Code == code && d.Source == new C.ContentSourceLocation(new("core"), "resources/blueprints/test.blueprint.json")), string.Join("; ", diagnostics.Select(d => d.Code + ": " + d.Message)));
     }
 
@@ -205,6 +219,27 @@ public sealed class BlueprintLoadingTests
         Assert.AreEqual(loaded.Design, evaluated.Design);
         Assert.AreEqual(record.Definition.Display with { Name = "Test", Description = "Design" }, evaluated.Definition.Display);
         Assert.AreEqual(evaluated.Definition.Display, record.Definition.Display);
+    }
+
+    [TestMethod]
+    public void Mod_blueprint_local_voxel_reference_uses_its_package_despite_matching_core_definition()
+    {
+        const string mod = "11111111-1111-4111-8111-111111111111";
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        AddMod(fixture, "pack", mod, null);
+        var voxel = JsonNode.Parse(ContentFixture.VoxelJson)!;
+        voxel["simulation"]!["mass"] = 3;
+        fixture.AddFile(ContentFixture.Mods, "pack/resources/voxels/block.voxel.json", voxel.ToJsonString());
+        fixture.AddAsset(ContentFixture.Mods, "pack/resources/voxels/block/tile.png", [1, 2, 3], new C.AssetMetadata.Png(32, 32));
+        fixture.AddAsset(ContentFixture.Mods, "pack/resources/voxels/block/icon.png", [4, 5, 6], new C.AssetMetadata.Png(128, 128));
+        fixture.AddFile(ContentFixture.Mods, "pack/resources/blueprints/test.blueprint.json", DesignFixtures.Blueprint().ToJsonString());
+
+        using var candidate = fixture.Load();
+        Assert.IsTrue(candidate.View.Voxels.Any(v => v.Definition.Value == "core:block"));
+        var record = ((C.ContentLookup<C.BlueprintRecord>.Found)candidate.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new(mod + ":test")))).Value;
+        Assert.AreEqual(mod + ":block", record.Definition.Layout.Palette.Single().Voxel.Value);
+        Assert.AreEqual(3d, ((C.DesignEvaluation.Complete)record.Evaluation).Core!.Design.MassTons);
     }
 
     [TestMethod]
