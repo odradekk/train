@@ -30,7 +30,9 @@ public partial class App : Node
     internal ContentSnapshot? CurrentContent => _reloader?.Current;
     internal Action QuitAction { get; set; }
     internal Func<TrainLogger, HostCoordinator>? CreateHost { get; set; }
+    internal Func<Train.Scenes.Contracts.IScenesFactory>? CreateScenes { get; set; }
     internal HostCoordinator? Host { get; private set; }
+    internal WorldSceneController? WorldScenes { get; private set; }
     internal SaveService? Saves { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
@@ -60,6 +62,11 @@ public partial class App : Node
             {
                 var source = new GodotContentSource(_logger, userData);
                 _reloader = new ContentReloader(source, _logger);
+            }
+            if (Host is not null && CreateScenes is not null)
+            {
+                WorldScenes = new(Host, CreateScenes(), _logger);
+                AddChild(WorldScenes.View);
             }
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
@@ -199,6 +206,8 @@ public partial class App : Node
     {
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        // headless 的虚拟窗口始终报告最小化；它仍需执行资源和显示边界检查。
+        WorldScenes?.ProcessFrame(delta, DisplayServer.GetName() != "headless" && GetWindow().Mode == Window.ModeEnum.Minimized);
         if (_simulation is not null)
         {
             // 挂接可能发生在较长的生成帧内；第一帧只累计会话实际存在的时间。
@@ -219,6 +228,8 @@ public partial class App : Node
     {
         Saves?.Dispose();
         Saves = null;
+        WorldScenes?.Dispose();
+        WorldScenes = null;
         Host?.Dispose();
         Host = null;
         _simulation = null;
