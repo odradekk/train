@@ -4,7 +4,7 @@
 
 ## 交付状态与入口
 
-已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂对象、内部候选与会话生命周期、同步内容发布、逐步位置推进、四字段不可变读视图，以及当前状态的捕获、编码、解码和普通恢复；世界生成及其他领域行为尚未实现。声明编译通过只证明结构可用，模块测试不代表公开新局、非空业务世界恢复、真实四模块联调或完整 Demo 已通过。
+已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂、候选与会话生命周期、阶段一小世界生成、同步内容发布、逐步位置推进、不可变世界查询，以及当前世界状态的捕获、编码、解码和普通恢复。列车运行和其他领域行为仍待交付；模块证据不代表严格重放、真实四模块联调或完整 Demo 已通过。
 
 | 声明 | 调用方使用的内容 |
 | --- | --- |
@@ -19,21 +19,22 @@
 
 当前已实现的成员：
 
-- 候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；该内部构造供后续生成共用，普通恢复已接入。
-- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进位置，不运行领域系统；内容身份不同时提交投影，身份相同时在事务之前抛 `ArgumentException`。当前没有引用内容的世界状态，因此尚无引用适配检查。
+- `PrepareNew` 及候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；生成失败不替换活动会话。
+- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进模拟位置，不运行领域系统；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。合法投影身份不同时提交，身份相同时在事务前抛 `ArgumentException`。当前发布尚不校验或标记世界所用的地貌、类型、设计等引用，也不执行领域适配；恢复候选的缺失标注见下文“当前载荷”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
-- `Capture`、`DecodeState` 和 `PrepareRestore`，仅覆盖当前真实状态；格式与恢复规则见下文“当前载荷”。共享 `CaptureScenario` 通过内部构造的真实会话执行，不代表公开新局路径已实现。
+- `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`，覆盖生成的图、占据者、资源及初始实例；列车详情查询尚未实现。
+- `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
 
-下表成员尚未实现，直接抛 `NotImplementedException`，不以业务失败、故障结果、缺失查询或空世界成功代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类，交付责任在此维护。
+下表列出尚未实现的行为。尚未实现的独立成员直接抛 `NotImplementedException`，不以业务失败、故障结果或缺失查询代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类。
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| `PrepareNew`，生成候选的引用与缺失资料，`World`、节点、线路、地点及初始实例查询 | #309 小世界生成；列车详情由 #310 接入，线路与站台调度由 #311 补齐 |
 | 编组、解编、运行计划、起停命令及列车查询 | #310；调度与开发断点行为由 #311 接入 |
 | `PrepareReplay`、`CompareCheckpoints`、`ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart` | #313 录制与严格重放 |
 | 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
+| 内容发布时的世界引用检查与适配 | 待协调者指定 |
 
-旧 `Train.Core.Simulation` 仍只供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；当前仅移除旧驱动、控制台和说明中的恒零 `PendingSteps`。内部会话测试执行真实事务代码，拒绝与事件由内部测试体供给；公开创建会话须等 #309 的 `PrepareNew` 接入后验证。世界、列车、调度及后续领域任务各自将新增权威字段补入捕获、恢复和检查点，不能以当前捕获通过代替非空业务世界恢复证据。
+旧 `Train.Core.Simulation` 仍供旧宿主路径使用，其公开类型不成为新接口。它随 #317 宿主切换的旧入口删除任务退役；生成器当前依赖其中的 `Train.Core.Simulation.KeyedRandom`，#317 必须保留该实现或将它迁出旧命名空间。`PendingSteps` 已从旧驱动、控制台和说明移除。会话始终持有世界状态；内部会话测试也使用真实生成状态，拒绝与事件由内部测试体供给。列车运行、调度及后续领域任务须将各自新增权威字段补入捕获、恢复和检查点，不能把初始世界往返当作完整玩法恢复证据。
 
 ## 所有权与数值
 
@@ -71,6 +72,40 @@
 总工作量与工作系数为整数，进行中的 `ProgressWork` 保留小数。工钱费率是整数金额/工作量；租金费率是整数金额/容量/模拟小时，期限用模拟步。逐件货物、整车、服务费的结算以及两轮备货算法统一见[市场规则](../design/19-markets-and-trading.md)和[潜在消耗](../design/13-production-runtime-and-facilities.md#备货用的潜在消耗)，调用方不得复算。
 
 ## 创建、恢复与销毁
+
+### 阶段一生成器
+
+[#309 的批准计划](https://github.com/odradekk/train/issues/309#issuecomment-6134702996)落实为内部 [WorldGenerator](../../Core/World/WorldGenerator.cs)，只接受生成器版本 `stage1-world-v1`。七阶段依次生成地貌、节点、非交叉连通图、占据者、资源、初始铁路及有效起点。无模板的聚居地类型不参选；优先从偏好当前节点地貌或没有地貌偏好的类型中按权重选择，若没有这样的类型，则从全部有模板的类型中选择。类型和模板按规范身份排序后抽取，人口取类型闭区间。模板业务字段复制到聚居地内，库存和生产计划保存但不执行；生物聚落仅保存类型、节点和身份，不生成生物群。地貌特征身份固定为 `lake`、`river`。
+
+初始铁路只用铁轨数范围有效且不经过生物聚落的线路。先检查包含全部聚居地的连通分量能否满足环数与可达空节点数，再按格子 `(y,x)` 顺序尝试删除空节点；仅在诱导子图仍连通、环数及空节点数仍足够时删除，重复整轮直到没有删除。每轮检查计入预算，结果为“包含意义上最少”：去掉任一空节点都会破坏条件，不保证全局最少。精确枚举所有空节点子集的搜索呈指数增长，已在目标规模耗尽预算，因此采用批准决定 12 的删点规则。剩余集合上按长度、身份做 Kruskal，再按随机分数增加成环边；初始铁轨数取配置、线路铁轨上限与 `[1,2]` 的交集。
+
+起点验证非敌对、站点、已建铁路可达的非敌对聚居地和空节点数量，以及是否排除相邻生物聚落。`FullyLoadedPurchaseRoundsPerTrain`、`RequiredAffordableCommissionDesign` 只检查取值、车辆设计种类和引用，不评估经济条件。`FillInputsAndLivingTargets=true`、`OutputReserveHours>0`、`MaximumForSaleVehicles>0` 都返回 `config_invalid`；生成成功不证明经济或战斗开局可玩。初始车队按输入顺序在起点创建，车辆归玩家、满耐久，列车停着且不占站台，`EnteredFrom` 为空。实例和库存不另存位置，查询从所属列车或聚居地派生。
+
+违反契约取值范围的输入（包括空地貌带）抛 `ArgumentException`；没有带模板的聚居地类型在重试前返回 `config_invalid`；不支持的版本、缺少引用或无法唯一匹配的地貌带返回配置失败。失败用一条 `CoreProblem("generation_failed", 字段路径, null, [类别, 阶段, 候选身份, 世界重试序号, 已用候选数, 已用搜索工作量])` 表达，六项都是字符串，计数使用不变区域十进制；类别为 `config_invalid`、`constraint_unsatisfied`、`budget_exhausted`。同步入口没有中断类别，也没有成功报告字段。预算跨整次准备累计，起点 BFS 与相邻生物聚落的线路扫描也计入搜索工作量；进入阶段时清空候选身份。配置失败和预算耗尽立即返回，约束失败有界重试，失败不消耗正式身份。最大阶段／世界重试数表示首次之外的次数。
+
+诊断的阶段和候选身份使用下表格式；格子坐标为生成时的非负整数，尚未分配正式节点编号。阶段开始及整阶段失败 `World.Nodes`、`World.Connected` 时，候选身份为空字符串。地貌在节点和线路采样期间求值，因此诊断没有单独的地貌阶段；地貌随机键仍使用阶段编号 1。
+
+| 诊断阶段 | 对应生成阶段编号 | 候选身份 |
+| --- | --- | --- |
+| `configuration` | 生成前的校验与规范化，不使用随机键 | 空字符串 |
+| `nodes` | 2；地貌采样使用 1 | `cell:x,y` |
+| `edges` | 3；地貌采样使用 1 | `cell:x1,y1/cell:x2,y2` |
+| `occupants` | 4 | `cell:x,y` |
+| `resources` | 5 | `cell:x,y:namespace:good-id` |
+| `railway` | 6 | 删除空节点时为 `rail:remove:cell:x,y`；尚未检查具体候选时为空字符串 |
+| `validation` | 7 | `cell:x,y`；尚未检查起点时为空字符串 |
+
+随机使用 `KeyedRandom` 版本 1：`RandomKey(WorldSeed, "world.stage1.v1.<用途>", [阶段编号, 世界重试序号, 阶段重试序号, 候选分量…])`。无序输入规范排序，车队和编组保持输入顺序；不以正式编号或枚举次序作为候选身份。各用途的候选分量如下，阶段 3 的图算法没有随机键。
+
+| 阶段 | 用途后缀 | 阶段重试序号与候选分量 |
+| --- | --- | --- |
+| 1 | `noise.elevation`、`noise.moisture`、`noise.river` | 0；八度尺度的 double 位模式、格点 x/y 的 ZigZag 编码 |
+| 2 | `node.presence`、`node.x`、`node.y` | 节点重试序号；格子 x/y |
+| 4 | `occupant.rank`、`settlement.relation`、`settlement.type`、`lair.type` | 占据者重试序号；格子 x/y |
+| 4 | `settlement.template`、`settlement.population` | 占据者重试序号；格子 x/y、类型身份的 UTF-8 字节数及逐字节数值 |
+| 5 | `resource.presence`、`resource.reserve` | 0；格子 x/y、资源货物身份的 UTF-8 字节数及逐字节数值 |
+| 6 | `rail.cycle`、`rail.tracks` | 0；按端点身份排列的两端格子 x/y |
+| 7 | `start.rank` | 0；格子 x/y |
 
 新局调用 `PrepareNew`，输入固定种子、生成器版本、完整解析配置、开局资料和核心内容投影。成功返回独立候选；阶段约束不满足或预算耗尽返回阶段、相关字段和失败原因。失败不会替换活动会话。配置中的平衡值来自内容，不以声明中的字段为默认数值或生成算法实现。
 
@@ -148,7 +183,7 @@
 内容加载、资产检查和设计计算先在固定输入上完成；宿主核对操作及基准，并在协调线程调用 `Submit`。调用开始前可以取消；同步执行期间不再接受取消。核心在返回前落实接受、拒绝或内部故障及相应记录，不存在取消后须另交回的预备故障。耗时尚未测量；若实际阻塞不能接受，再有针对性调整，不预建后台命令协议。
 
 - 建造、改装与立即应用随命令带入 `DesignInput`；对应完整设计先保留在固定内容候选中，接受后才激活。拒绝不改变本局内容，但录制仍须保留这次输入的依赖。
-- `PublishContent` 携带候选 `CoreContentProjection`；核心同步检查运行引用和适配，接受后宿主立即 `Activate` 内容候选，再通知或继续推进。正常拒绝只改变应有计数和拒绝记录，旧业务和有效内容不变；内部故障保留旧业务边界并冻结。
+- `PublishContent` 携带候选 `CoreContentProjection`，核心先校验投影自身的数组、身份及当前读取字段，再比较输入身份并提交投影替换；接受后宿主立即 `Activate` 内容候选，再通知或继续推进。契约要求核心同步检查运行引用和适配，但世界引用检查与适配尚待实现。正常拒绝只改变应有计数和拒绝记录，旧业务和有效内容不变；内部故障保留旧业务边界并冻结。
 - `FoundSettlement` 接受结果的 `SettlementCopies` 返回预留的最终所有者、源模板和地块对应。宿主从同一固定内容调用 `WithSettlementCopies`，纯内存关联已完成校验的模板副本；配对完成前不分发事件、不保存、不继续推进。来源或地块错配是编程错误，不在此阶段重新进行合法性裁决。若意外故障中断关联，宿主停止该活动组的使用并报告，不继续运行半配对状态。
 - 新局仍为独立候选，先用其 `References.Templates` 调用相同复制操作，完整配对后激活。普通读档沿用内嵌副本，不用当前源模板补造。
 
@@ -160,15 +195,19 @@
 
 ### 当前载荷
 
-#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现当前真实状态，编码器为内部的 [CoreCapture](../../Core/Sessions/CoreCapture.cs)。核心载荷有独立格式版本，从 1 开始，与宿主完整存档的 `SaveFormatVersion` 6 分开；不包含内容投影，也不支持旧通用模拟框架的载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
+#312 按[批准决定](https://github.com/odradekk/train/issues/312#issuecomment-6133949111)实现捕获边界，#309 扩展世界状态。内部编码器 [CoreCapture](../../Core/Sessions/CoreCapture.cs) 当前使用独立的 `core_state_format_version = 2`，与宿主完整存档的 `SaveFormatVersion` 6 分开；不支持格式 1 或旧通用模拟框架载荷。诊断消息和堆栈不进入载荷。内部字段布局由编码器维护，宿主只通过公开契约取得所需资料。
 
-当前引用清单由输入身份确定：`Designs`、`Templates`、`Definitions` 都为空，`Inputs` 仅含这一个身份；没有额外的世界引用字段。捕获的检查点另行生成，只含位置、下一命令编号和故障全部字段，不含修订和输入身份。文本对 UTF-8 求 SHA-256，取大写十六进制。当前捕获、引用和检查点在会话推进及释放后仍有效。
+顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
-`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用和检查点；`Encode()` 一律按状态重新规范编码，编码器产生的规范载荷往返后逐字节相同。确认版本受支持之前的错误返回 `unsupported_format`：JSON 无法解析、根不是对象、缺少版本、版本不是无符号整数或版本不受支持，定位到根或版本字段。确认版本受支持后，字段缺失、多余、重复、类型、范围或身份格式错误返回带字段路径的 `invalid_state`。这些检查仅覆盖当前状态，领域一致性检查随领域实现补入。
+`world.definition_dependencies` 保存生成时使用的规则、类型及流程等外部依赖身份和字段路径，使无内容解码仍能重建引用；它不是冻结执行参数。顶层 `references` 是交接清单，生成候选、捕获及恢复候选都由同一 [WorldReferences](../../Core/World/WorldReferences.cs) 从状态计算。`Templates` 按最终聚居地所有者排序且唯一，包含源模板和本地地块号／尺寸；`Designs`、`Definitions` 覆盖实际依赖，`Inputs` 使用对应候选或捕获的当前输入身份。新局缺少所需投影即配置失败，成功候选没有缺失项。
 
-`PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份，`MissingReferences` 为空。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
+检查点包含位置、下一命令编号、故障全部字段及全部 `world` 字段；修订和当前输入身份仍在检查点之外，生成内容语义修订作为世界来源的一部分保留。文本对 UTF-8 求 SHA-256，取大写十六进制。捕获、引用和检查点在会话推进及释放后仍有效。
 
-严格恢复的输入拒绝、检查点比较与录制仍由 #313 接入，本票不增设严格恢复入口。当前测试通过内部构造创建真实起点，恢复经过公开解码、准备和激活；不代表 #309 的公开新局、后续领域或 #298 的四模块联调已经通过。
+`DecodeState` 不做内容适配，保留保存时的身份、位置、修订、引用和检查点；`Encode()` 按状态重新规范编码，编码器产生的规范载荷往返后逐字节相同。确认格式版本受支持之前的错误返回 `unsupported_format`：JSON 无法解析、根不是对象、缺少版本、版本不是无符号整数或版本不受支持，定位到根或版本字段。确认版本受支持后，字段缺失、多余、重复、类型、范围或身份格式错误返回带字段路径的 `invalid_state`；`world` 必须是完整世界对象，不能为 `null`。世界校验还检查有限连续量、规范集合顺序、唯一身份、图及所有者引用、模板地块和实例设计配对、下一身份编号大于现存最大编号，以及顶层引用清单与状态一致。不要求保存时的生成器版本仍可用于新局；解码及恢复不重新生成世界。后续领域一致性检查随领域实现补入。
+
+`PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留世界、位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份。`MissingReferences` 按传入投影中已知缺失标注及字段路径产生，当前不做进一步适配，不重新计算保存的初始世界。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
+
+严格恢复的输入拒绝、检查点比较与录制仍由 #313 接入，本票不增设严格恢复入口。测试覆盖公开新局创建、共享捕获情景、跨进程生成及保存恢复路径。#313 严格重放和 #298 真实四模块交接仍待验证，也未证明后续经济、调度或战斗状态恢复。
 
 ### 完整领域状态与录制
 

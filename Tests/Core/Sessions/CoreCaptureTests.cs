@@ -1,6 +1,9 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Train.Core.Tests.World;
 using Train.Core.Sessions;
 
 namespace Train.Core.Tests.Sessions;
@@ -9,26 +12,21 @@ namespace Train.Core.Tests.Sessions;
 public sealed class CoreCaptureTests
 {
     private const string Identity = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-    private const string Payload = "{\"core_state_format_version\":1,\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"revision\":20,\"input_identity\":\"" + Identity + "\",\"fault\":null}";
-    private const string CheckpointText = "{\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"fault\":null}";
-    private const string CheckpointHash = "7164320630B008C414C22F3CAFDC6EB23A7BFED698B24626192A501986BE4927";
-    private const string FaultText = "{\"code\":\"internal_error\",\"position\":{\"completed_steps\":7,\"sequence\":3},\"operation\":\"Submit\",\"field\":\"\",\"subject\":null}";
-    private const string DiagnosticPayload = "{\"core_state_format_version\":1,\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"revision\":21,\"input_identity\":\"" + Identity + "\",\"fault\":" + FaultText + "}";
-    private const string DiagnosticCheckpoint = "{\"position\":{\"completed_steps\":7,\"sequence\":2},\"next_command_number\":10,\"fault\":" + FaultText + "}";
-    private static readonly CoreSessionOptions Options = new(new("test", "test", "windows", "x64", "test"), false, 1);
+    private static CoreSessionOptions Options => WorldFixture.Options;
+    private static string Payload => Saved().Encode();
 
     [TestMethod]
-    public void Capture_encodes_current_state_and_an_independent_checkpoint_vector()
+    public void Capture_encodes_the_current_world_and_session_boundary()
     {
         using var session = Session();
 
         var capture = Capture(session);
 
-        Assert.AreEqual(Payload, capture.Encode());
+        AssertEncodedBoundary(capture, 20, 'A');
         Assert.AreEqual(new SimulationPosition(7, 2), capture.Position);
         Assert.AreEqual(new CoreRevision(20), capture.Revision);
         Assert.AreEqual(Content('A').Identity, capture.InputIdentity);
-        Assert.AreEqual(new CoreCheckpoint(new(7, 2), CheckpointText, CheckpointHash), capture.Checkpoint);
+        AssertCheckpointBoundary(capture.Checkpoint);
         AssertReferences(capture.References, 'A');
     }
 
@@ -44,16 +42,7 @@ public sealed class CoreCaptureTests
         Assert.AreEqual(new CoreRevision(20), capture.Revision);
         Assert.AreEqual(new CoreInputId(Identity), capture.InputIdentity);
         AssertReferences(capture.References, 'A');
-        Assert.AreEqual(new CoreCheckpoint(new(7, 2), CheckpointText, CheckpointHash), capture.Checkpoint);
-    }
-
-    [TestMethod]
-    public void Shared_capture_contract_runs_against_the_real_session()
-    {
-        var references = new CoreReferenceManifest([], [], [], [Content('A').Identity]);
-        using var session = Session();
-
-        CaptureScenario.AssertContract(session, Content('A').Identity, references, references);
+        AssertCheckpointBoundary(capture.Checkpoint);
     }
 
     [TestMethod]
@@ -61,13 +50,16 @@ public sealed class CoreCaptureTests
     {
         var session = Session();
         var retained = Capture(session);
+        var retainedPayload = retained.Encode();
+        var retainedCheckpoint = retained.Checkpoint;
         session.Submit(new CoreCommand.PublishContent(Content('B')), CommandSource.AutomationTest);
         session.Advance(2);
         var current = Capture(session);
         session.Dispose();
 
-        Assert.AreEqual(Payload, retained.Encode());
-        Assert.AreEqual(new CoreCheckpoint(new(7, 2), CheckpointText, CheckpointHash), retained.Checkpoint);
+        Assert.AreEqual(retainedPayload, retained.Encode());
+        Assert.AreEqual(retainedCheckpoint, retained.Checkpoint);
+        AssertEncodedBoundary(retained, 20, 'A');
         AssertReferences(retained.References, 'A');
         AssertReferences(current.References, 'B');
         Assert.AreEqual(new SimulationPosition(9, 0), current.Position);
@@ -83,11 +75,12 @@ public sealed class CoreCaptureTests
 
         AssertFailure(session.Capture(CapturePurpose.Save), "frozen", "Fault");
         var diagnostic = Success(session.Capture(CapturePurpose.Diagnostic));
-        Assert.AreEqual(DiagnosticPayload, diagnostic.Encode());
-        Assert.AreEqual(new CoreCheckpoint(new(7, 2), DiagnosticCheckpoint,
-            "83C6FA841D3B06E3CEDCC04222B7DE927038B4C9C65C248165534A03CD2AE2FB"), diagnostic.Checkpoint);
+        AssertEncodedBoundary(diagnostic, 21, 'A');
+        Assert.AreEqual(new CoreFault("internal_error", new(7, 3), "Submit", "", null), ((CoreCapture)diagnostic).Fault);
+        using var document = JsonDocument.Parse(diagnostic.Checkpoint.CanonicalText);
+        Assert.AreEqual(3UL, document.RootElement.GetProperty("fault").GetProperty("position").GetProperty("sequence").GetUInt64());
         var decoded = Decode(diagnostic.Encode());
-        Assert.AreEqual(DiagnosticPayload, decoded.Encode());
+        Assert.AreEqual(diagnostic.Encode(), decoded.Encode());
         Assert.AreEqual(diagnostic.Checkpoint, decoded.Checkpoint);
         AssertFailure(CoreFactory.Create().PrepareRestore(decoded, Content('A'), Options), "frozen", "Fault");
         Assert.AreEqual(new SimulationPosition(7, 2), session.Read().Position);
@@ -149,7 +142,7 @@ public sealed class CoreCaptureTests
         AssertReferences(candidate.References, 'B');
         using var session = candidate.Activate();
         var adapted = Capture(session);
-        Assert.AreEqual(Payload.Replace(Identity, new string('B', 64)), adapted.Encode());
+        AssertEncodedBoundary(adapted, 20, 'B');
         Assert.AreEqual(saved.Checkpoint, adapted.Checkpoint);
         Assert.AreEqual(Payload, saved.Encode());
         AssertReferences(saved.References, 'A');
@@ -160,9 +153,10 @@ public sealed class CoreCaptureTests
     [TestMethod]
     public void Revision_and_input_identity_are_outside_the_checkpoint()
     {
-        using var session = new CoreSession(new(new(7, 2), 10, new(ulong.MaxValue), Content('B')));
+        using var session = new CoreSession(WorldFixture.State(new(7, 2), 10, new(ulong.MaxValue), Content('B')));
 
-        Assert.AreEqual(new CoreCheckpoint(new(7, 2), CheckpointText, CheckpointHash), Capture(session).Checkpoint);
+        using var original = Session();
+        Assert.AreEqual(Capture(original).Checkpoint, Capture(session).Checkpoint);
     }
 
     [TestMethod]
@@ -177,7 +171,7 @@ public sealed class CoreCaptureTests
     [TestMethod]
     public void Maximum_unsigned_values_round_trip_without_clamping()
     {
-        using var session = new CoreSession(new(new(ulong.MaxValue, ulong.MaxValue), ulong.MaxValue,
+        using var session = new CoreSession(WorldFixture.State(new(ulong.MaxValue, ulong.MaxValue), ulong.MaxValue,
             new(ulong.MaxValue), Content('A')));
         var saved = Capture(session);
         var decoded = Decode(saved.Encode());
@@ -198,17 +192,40 @@ public sealed class CoreCaptureTests
 
     [TestMethod]
     public void Unsupported_version_is_rejected_before_reading_an_unknown_state_schema()
-        => AssertFailure(CoreFactory.Create().DecodeState("{\"core_state_format_version\":2}"),
+        => AssertFailure(CoreFactory.Create().DecodeState("{\"core_state_format_version\":3}"),
             "unsupported_format", "/core_state_format_version");
 
     [TestMethod]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":2", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
-    [DataRow("\"core_state_format_version\":1,", "", "unsupported_format", "/core_state_format_version")]
+    public void Saved_state_requires_a_world()
+    {
+        var payload = JsonNode.Parse(Payload)!;
+        payload["world"] = null;
+        AssertFailure(CoreFactory.Create().DecodeState(payload.ToJsonString()), "invalid_state", "/world");
+    }
+
+    [TestMethod]
+    public void Both_preparation_entries_validate_session_options()
+    {
+        var saved = Saved();
+        foreach (var options in new CoreSessionOptions[]
+        {
+            null!, Options with { Runtime = null! },
+            Options with { Runtime = Options.Runtime with { DotNetRuntime = null! } }
+        })
+        {
+            Assert.ThrowsExactly<ArgumentNullException>(() => CoreFactory.Create().PrepareNew(WorldFixture.Input, Content('A'), options));
+            Assert.ThrowsExactly<ArgumentNullException>(() => CoreFactory.Create().PrepareRestore(saved, Content('A'), options));
+        }
+    }
+
+    [TestMethod]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":3", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":\"1\"", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":null", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":-1", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":1.5", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2", "\"core_state_format_version\":18446744073709551616", "unsupported_format", "/core_state_format_version")]
+    [DataRow("\"core_state_format_version\":2,", "", "unsupported_format", "/core_state_format_version")]
     [DataRow("\"revision\":20,", "", "invalid_state", "/revision")]
     [DataRow("\"revision\":20", "\"revision\":20,\"extra\":1", "invalid_state", "/extra")]
     [DataRow("\"revision\":20", "\"revision\":20,\"revision\":21", "invalid_state", "/revision")]
@@ -236,14 +253,23 @@ public sealed class CoreCaptureTests
     public void Invalid_diagnostic_fields_are_located_without_freezing_an_existing_session(string before, string after, string field)
     {
         using var active = Session();
-        AssertFailure(CoreFactory.Create().DecodeState(DiagnosticPayload.Replace(before, after)), "invalid_state", field);
-        Assert.AreEqual(Payload, Capture(active).Encode());
+        var initialPayload = Capture(active).Encode();
+        using var failed = Session();
+        failed.ExecuteCommand(_ => throw new InvalidOperationException("diagnostic only"));
+        var diagnostic = Success(failed.Capture(CapturePurpose.Diagnostic)).Encode();
+        AssertFailure(CoreFactory.Create().DecodeState(diagnostic.Replace(before, after)), "invalid_state", field);
+        Assert.AreEqual(initialPayload, Capture(active).Encode());
         Assert.IsNull(active.Read().Fault);
     }
 
-    private static CoreSession Session() => new(new(new(7, 2), 10, new(20), Content('A')));
+    private static CoreSession Session() => new(WorldFixture.State(new(7, 2), 10, new(20), Content('A')));
+    private static ICoreCapture Saved()
+    {
+        using var session = Session();
+        return Capture(session);
+    }
     private static CoreContentProjection Content(char identity)
-        => new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        => WorldFixture.Content with { Identity = new(new string(identity, 64)) };
     private static ICoreCapture Capture(ICoreSession session) => Success(session.Capture(CapturePurpose.Save));
     private static ICoreCapture Decode(string payload) => Success(CoreFactory.Create().DecodeState(payload));
     private static T Success<T>(CoreResult<T> result) where T : notnull
@@ -262,9 +288,39 @@ public sealed class CoreCaptureTests
     }
     private static void AssertReferences(CoreReferenceManifest references, char identity)
     {
-        Assert.IsTrue(references.Designs.IsEmpty);
-        Assert.IsTrue(references.Templates.IsEmpty);
-        Assert.IsTrue(references.Definitions.IsEmpty);
+        CollectionAssert.AreEqual(new[] { WorldFixture.Vehicle, WorldFixture.Station }, references.Designs.ToArray());
+        Assert.AreEqual(new SettlementId(1), references.Templates.Single().Owner);
+        Assert.AreEqual(new SettlementTemplateId("fixture:town-template"), references.Templates.Single().SourceTemplate);
+        Assert.IsTrue(references.Definitions.Any(d => d.Definition == new CoreDefinitionReference.Rule(WorldFixture.Rules.Railway)
+            && d.Field == "Configuration.Rules.Railway"));
         CollectionAssert.AreEqual(new[] { Content(identity).Identity }, references.Inputs.ToArray());
+    }
+
+    private static void AssertEncodedBoundary(ICoreCapture capture, ulong revision, char identity)
+    {
+        using var document = JsonDocument.Parse(capture.Encode());
+        var root = document.RootElement;
+        Assert.AreEqual(2, root.GetProperty("core_state_format_version").GetInt32());
+        Assert.AreEqual(7UL, root.GetProperty("position").GetProperty("completed_steps").GetUInt64());
+        Assert.AreEqual(2UL, root.GetProperty("position").GetProperty("sequence").GetUInt64());
+        Assert.AreEqual(10UL, root.GetProperty("next_command_number").GetUInt64());
+        Assert.AreEqual(revision, root.GetProperty("revision").GetUInt64());
+        Assert.AreEqual(new string(identity, 64), root.GetProperty("input_identity").GetString());
+        Assert.AreEqual(42UL, root.GetProperty("world").GetProperty("source").GetProperty("world_seed").GetUInt64());
+        Assert.AreEqual(1, root.GetProperty("world").GetProperty("nodes").GetArrayLength());
+    }
+
+    private static void AssertCheckpointBoundary(CoreCheckpoint checkpoint)
+    {
+        using var document = JsonDocument.Parse(checkpoint.CanonicalText);
+        var root = document.RootElement;
+        Assert.AreEqual(7UL, root.GetProperty("position").GetProperty("completed_steps").GetUInt64());
+        Assert.AreEqual(2UL, root.GetProperty("position").GetProperty("sequence").GetUInt64());
+        Assert.AreEqual(10UL, root.GetProperty("next_command_number").GetUInt64());
+        Assert.AreEqual(JsonValueKind.Null, root.GetProperty("fault").ValueKind);
+        Assert.AreEqual(JsonValueKind.Object, root.GetProperty("world").ValueKind);
+        Assert.IsFalse(root.TryGetProperty("revision", out _));
+        Assert.IsFalse(root.TryGetProperty("input_identity", out _));
+        Assert.AreEqual(CoreProcessDriver.Sha256(checkpoint.CanonicalText), checkpoint.Sha256);
     }
 }
