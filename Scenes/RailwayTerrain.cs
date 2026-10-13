@@ -17,6 +17,47 @@ internal static class RailwayTerrain
     private const ulong RiverPlacementPurpose = 20;
     private const ulong LakePlacementPurpose = 21;
 
+    internal static double BedHeight(double railHeight, double distance) =>
+        railHeight - BedTopBelowRailCells - (distance <= RailwayCoordinates.BedTopHalfWidth ? 1 : 2);
+
+    internal static void FillColumn(ImmutableArray<SceneCell>.Builder cells, GridColumn column, double height,
+        TerrainAppearanceProjection? terrain, TerrainAppearanceProjection? bedTerrain, double trackDistance,
+        bool hasBed, Func<VoxelDefinitionId, VoxelAppearanceProjection?> appearance, PickSubject subject,
+        double originY = 0, (double From, double To)? excludedY = null)
+    {
+        for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
+        {
+            var y = height - depth;
+            if (excludedY is { } excluded && y >= excluded.From && y < excluded.To) continue;
+            var bed = hasBed && (depth == 0 && trackDistance <= RailwayCoordinates.BedBaseHalfWidth ||
+                depth == 1 && trackDistance <= RailwayCoordinates.BedTopHalfWidth);
+            if (bed ? bedTerrain is null : terrain is null) continue;
+            var voxel = bed ? bedTerrain!.RockVoxel : depth == 0 ? terrain!.SurfaceVoxel :
+                depth < 3 ? terrain!.SubsurfaceVoxel : terrain!.RockVoxel;
+            var projection = appearance(voxel);
+            cells.Add(new(new(column.X, checked((int)(y - originY)), column.Z), VoxelOrientation.PxPy,
+                projection, null, null, subject, [], projection is null ?
+                    new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel)) : null));
+        }
+    }
+
+    internal static void ReportMissing(ContentReference reference, ImmutableArray<ContentDiagnostic> sourceDiagnostics,
+        string detail, ImmutableArray<SceneProblem>.Builder diagnostics, WorldObjectId? subject = null)
+    {
+        if (diagnostics.Any(problem => problem.Code == "content_missing" && problem.Content == reference)) return;
+        var source = ImmutableArray.CreateBuilder<SceneProblem>();
+        DesignGeometry.AddDiagnostics(sourceDiagnostics, source, subject);
+        foreach (var problem in source)
+            if (!diagnostics.Contains(problem)) diagnostics.Add(problem);
+        var package = sourceDiagnostics.FirstOrDefault(problem => problem.Subject == reference && problem.Source is not null)?.Source?.Package
+            ?? sourceDiagnostics.FirstOrDefault(problem => problem.Source is not null)?.Source?.Package;
+        diagnostics.Add(new("content_missing", SceneStage.Build, subject, reference, package, null, detail));
+    }
+
+    internal static ImmutableArray<SceneProblem> UniqueProblems(IEnumerable<SceneProblem> problems) =>
+        problems.DistinctBy(problem => problem.Code == "content_missing" && problem.Content is ContentReference.Core reference
+            ? (object)reference : problem).ToImmutableArray();
+
     internal static double NodeGround(SceneWorldSnapshot snapshot, NodeMapItem node, ScenePoint localPoint)
     {
         var terrain = snapshot.Content.FindTerrain(node.Terrain.TypeId) is ContentLookup<TerrainAppearanceProjection>.Found found ? found.Value : null;
@@ -97,8 +138,8 @@ internal static class RailwayTerrain
             endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
             startPoint = path.Sample(0).Position;
             endPoint = path.Sample(path.LengthCells).Position;
-            var startLayout = path.StartNode.Inputs == NodeLayout.InputKey(snapshot, path.Start.Id) ? path.StartNode : NodeLayout.Build(snapshot, path.Start.Id, cancellation);
-            var endLayout = path.EndNode.Inputs == NodeLayout.InputKey(snapshot, path.End.Id) ? path.EndNode : NodeLayout.Build(snapshot, path.End.Id, cancellation);
+            var startLayout = path.StartNode.Inputs == NodeLayout.InputKey(snapshot, path.Start.Id) ? path.StartNode : NodeLayout.BuildEntries(snapshot, path.Start.Id);
+            var endLayout = path.EndNode.Inputs == NodeLayout.InputKey(snapshot, path.End.Id) ? path.EndNode : NodeLayout.BuildEntries(snapshot, path.End.Id);
             startEntry = startLayout.EntryPoint(path.Edge.Id);
             endEntry = endLayout.EntryPoint(path.Edge.Id);
             waterRegions = WaterFeatures().Select(feature =>
@@ -210,7 +251,7 @@ internal static class RailwayTerrain
             var tunnel = path.Edge.Tracks > 0 && TunnelAt(arc);
             if (path.Edge.Tracks > 0 && !water && !tunnel)
             {
-                var bed = path.Sample(arc).Position.Y - BedTopBelowRailCells - (distance <= RailwayCoordinates.BedTopHalfWidth ? 1 : 2);
+                var bed = BedHeight(path.Sample(arc).Position.Y, distance);
                 var blend = Math.Clamp((distance - RailwayCoordinates.BedBaseHalfWidth) / RailwayCoordinates.BedBlendWidth, 0, 1);
                 height = bed * (1 - blend) + height * blend;
             }
@@ -225,7 +266,7 @@ internal static class RailwayTerrain
         {
             var isStart = node == path.Start.Id;
             var endpoint = path.Sample(isStart ? 0 : path.LengthCells).Position;
-            var shift = new ScenePoint(entry.Point.X - endpoint.X, entry.Point.Y - endpoint.Y, entry.Point.Z - endpoint.Z);
+            var shift = new ScenePoint(Math.Round(entry.Point.X - endpoint.X), entry.Point.Y - endpoint.Y, Math.Round(entry.Point.Z - endpoint.Z));
             var radius = NodeLayout.GroundMargin + halfWidth + 2;
             var cells = ImmutableArray.CreateBuilder<SceneCell>();
             var heights = ImmutableDictionary.CreateBuilder<GridColumn, double>();
@@ -245,16 +286,9 @@ internal static class RailwayTerrain
                 heights.Add(new(x, z), value.Height + 1);
                 var distance = TrackDistance(lineLateral);
                 var bedTerrain = terrains[path.Edge.Terrain.TypeId];
-                for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
-                {
-                    var bed = path.Edge.Tracks > 0 && !value.Water && !value.Tunnel &&
-                        (depth == 0 && distance <= RailwayCoordinates.BedBaseHalfWidth || depth == 1 && distance <= RailwayCoordinates.BedTopHalfWidth);
-                    if (bed ? bedTerrain is null : value.Terrain is null) continue;
-                    var id = bed ? bedTerrain!.RockVoxel : depth == 0 ? value.Terrain!.SurfaceVoxel : depth < 3 ? value.Terrain!.SubsurfaceVoxel : value.Terrain!.RockVoxel;
-                    var appearance = Appearance(id);
-                    cells.Add(new(new(x, (int)value.Height - depth, z), VoxelOrientation.PxPy, appearance, null, null,
-                        new PickSubject.Terrain(new WorldLocation.Node(node)), [], appearance is null ? new ContentReference.Core(new CoreDefinitionReference.Voxel(id)) : null));
-                }
+                FillColumn(cells, new(x, z), value.Height, value.Terrain, bedTerrain, distance,
+                    path.Edge.Tracks > 0 && !value.Water && !value.Tunnel, Appearance,
+                    new PickSubject.Terrain(new WorldLocation.Node(node)));
             }
             return (cells.ToImmutable(), heights.ToImmutable(), shift, diagnostics.ToImmutable());
         }
@@ -306,20 +340,11 @@ internal static class RailwayTerrain
                 var trackDistance = TrackDistance(value.Offset);
                 var isTunnel = value.Tunnel;
                 heights.Add(column, value.Height + 1);
-                for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
-                {
-                    var y = value.Height - depth;
-                    if (isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth && y >= rail.Position.Y && y < rail.Position.Y + RailwayCoordinates.TunnelClearance) continue;
-                    var terrain = value.Terrain;
-                    var bed = path.Edge.Tracks > 0 && !value.Water && !isTunnel &&
-                    (depth == 0 && trackDistance <= RailwayCoordinates.BedBaseHalfWidth || depth == 1 && trackDistance <= RailwayCoordinates.BedTopHalfWidth);
-                    if (bed ? bedTerrain is null : terrain is null) continue;
-                    var voxel = bed ? bedTerrain!.RockVoxel : depth == 0 ? terrain!.SurfaceVoxel : depth < 3 ? terrain!.SubsurfaceVoxel : terrain!.RockVoxel;
-                    var appearance = Appearance(voxel);
-                    var reference = appearance is null ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel)) : null;
-                    cells.Add(new(new(column.X, checked((int)(y - origin.Y)), column.Z), VoxelOrientation.PxPy,
-                    appearance, null, null, new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter)), [], reference));
-                }
+                FillColumn(cells, column, value.Height, value.Terrain, bedTerrain, trackDistance,
+                    path.Edge.Tracks > 0 && !value.Water && !isTunnel, Appearance,
+                    new PickSubject.Terrain(new WorldLocation.Edge(path.Edge.Id, value.Arc / RailwayCoordinates.CellsPerMeter)),
+                    origin.Y, isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth ?
+                        (rail.Position.Y, rail.Position.Y + RailwayCoordinates.TunnelClearance) : null);
                 if (value.Water)
                 {
                     var y = (float)(WaterLevel(value.Arc) - origin.Y);
@@ -370,12 +395,8 @@ internal static class RailwayTerrain
                 lookup is ContentLookup<VoxelAppearanceProjection>.Missing missing ? missing.Diagnostics : [], "Railway voxel appearance is missing.");
             appearances.Add(id, result); return result;
         }
-        private void ReportMissing(ContentReference reference, ImmutableArray<ContentDiagnostic> sourceDiagnostics, string detail)
-        {
-            DesignGeometry.AddDiagnostics(sourceDiagnostics, diagnostics, null);
-            var package = diagnostics.FirstOrDefault(problem => problem.Content == reference && problem.Package is not null)?.Package;
-            diagnostics.Add(new("content_missing", SceneStage.Build, null, reference, package, null, detail));
-        }
+        private void ReportMissing(ContentReference reference, ImmutableArray<ContentDiagnostic> sourceDiagnostics, string detail) =>
+            RailwayTerrain.ReportMissing(reference, sourceDiagnostics, detail, diagnostics);
 
         private double Height(double arc, ScenePoint point, TerrainAppearanceProjection? terrain)
         {

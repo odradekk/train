@@ -25,7 +25,7 @@ public sealed class RailwaySessionTests
         (WorldSceneSession)((SceneResult<IWorldSceneSession>.Success)ScenesFactory.Create().OpenWorld(new(Guid.NewGuid()), snapshot)).Value;
     private static ISceneFrame Present(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1) =>
         ((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = interpolation }, displayed)).Value;
-    private static Task<ISceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1) =>
+    private static Task<SceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1) =>
         RailwayFixtures.Settled(session, Request with { Interpolation = interpolation }, displayed);
     private static Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,
         SceneWorldSnapshot? previous = null, SceneFrame? displayed = null, double interpolation = 1, ulong revision = 1,
@@ -187,7 +187,7 @@ public sealed class RailwaySessionTests
         var invalid = RailwayFixtures.Snapshot(10, 20);
         await using var failed = Open(invalid);
         failed.RequestView(new WorldSceneTarget.Location(new WorldLocation.Edge(RailwayFixtures.Edge, 0)));
-        await Assert.ThrowsExactlyAsync<RailwayBuildException>(() => Task.WhenAll(failed.PendingRailwayBuilds));
+        await Task.WhenAll(failed.PendingRailwayBuilds);
         var rejected = Present(failed);
         Assert.AreEqual(SceneReadiness.Failed, rejected.Readiness);
         Assert.IsTrue(rejected.Diagnostics.Any(problem => problem.Code == "build_failed"));

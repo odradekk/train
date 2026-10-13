@@ -15,6 +15,42 @@ public sealed class RailwayTerrainTests
     private static readonly VoxelDefinitionId ModelVoxel = new("test:model-voxel");
 
     [TestMethod]
+    [DataRow(9.5, true, true)]
+    [DataRow(10.0, true, false)]
+    [DataRow(10.5, true, false)]
+    [DataRow(11.5, false, false)]
+    public void SharedColumnUsesTheSameBedLayersAtTrackShoulder(double distance, bool firstRock, bool secondRock)
+    {
+        var terrain = RailwayFixtures.TerrainAppearance with
+        {
+            SurfaceVoxel = new("test:surface"), SubsurfaceVoxel = new("test:subsurface"), RockVoxel = new("test:rock")
+        };
+        var cells = ImmutableArray.CreateBuilder<SceneCell>();
+        var height = RailwayTerrain.BedHeight(0, distance);
+        RailwayTerrain.FillColumn(cells, new(1, 2), height, terrain, terrain, distance, true,
+            id => SceneFixtures.Cube with { Definition = id }, new PickSubject.Terrain(new WorldLocation.Node(new(1))));
+        Assert.AreEqual(firstRock ? terrain.RockVoxel : terrain.SurfaceVoxel, cells[0].Appearance!.Definition);
+        Assert.AreEqual(secondRock ? terrain.RockVoxel : terrain.SubsurfaceVoxel, cells[1].Appearance!.Definition);
+        Assert.AreEqual((int)height, cells[0].At.Y);
+        Assert.AreEqual(RailwayCoordinates.TerrainDepthCells, cells.Count);
+    }
+
+    [TestMethod]
+    public void RepeatedMissingReportsKeepOneProblemAndTheSourcePackage()
+    {
+        var reference = new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain));
+        var package = new PackageId("test:source");
+        ImmutableArray<ContentDiagnostic> source = [new("source_failure", ContentDiagnosticSeverity.Error,
+            "content", reference, new(package, "terrain.json"), "terrain", null, "Missing source.")];
+        var problems = ImmutableArray.CreateBuilder<SceneProblem>();
+        RailwayTerrain.ReportMissing(reference, source, "Missing terrain.", problems);
+        RailwayTerrain.ReportMissing(reference, source, "Missing terrain again.", problems);
+        Assert.AreEqual(1, problems.Count(problem => problem.Code == "content_missing"));
+        Assert.AreEqual(1, problems.Count(problem => problem.Code == "source_failure"));
+        Assert.IsTrue(problems.All(problem => problem.Package == package));
+    }
+
+    [TestMethod]
     public void LongGradedLineWithoutTerrainNoiseHasNoTunnelOrHighEmbankment()
     {
         var snapshot = RailwayFixtures.Snapshot(4000, 4000, relief: 0.5);
@@ -84,7 +120,7 @@ public sealed class RailwayTerrainTests
         Assert.AreEqual(reference, forwarded.Content);
         Assert.AreEqual(package, forwarded.Package);
         var missing = problems.Where(problem => problem.Code == "content_missing" && problem.Content == reference).ToArray();
-        Assert.IsTrue(missing.Length > 0);
+        Assert.AreEqual(1, missing.Length);
         Assert.IsTrue(missing.All(problem => problem.Package == package));
     }
 

@@ -22,8 +22,9 @@ public sealed class NodeRebindTests
         var nodeCache = new NodeScene.Cache();
         var railwayCache = new RailwayCache();
         var frames = new List<SceneFrame>();
-        var firstBodies = new List<BuiltObject>();
-        var secondBodies = new List<BuiltObject>();
+        var vehicleCache = new SceneVehicles.Cache();
+        var firstBodies = new List<SceneMesh>();
+        var secondBodies = new List<SceneMesh>();
         for (ulong generation = 1; generation <= 3; generation++)
         {
             var evaluation = secondDesign with { Diagnostics = generation == 2 ? [diagnostic] : [] };
@@ -38,9 +39,9 @@ public sealed class NodeRebindTests
                     RailwayFixtures.Instance(train: train.Id) with { Location = NodeFixtures.Location },
                     RailwayFixtures.Instance(2, design: otherHash, train: train.Id) with { Location = NodeFixtures.Location }
                 ]);
-            await using var session = Open(snapshot, railwayCache, nodeCache);
+            await using var session = Open(snapshot, railwayCache, nodeCache, vehicleCache);
             session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
-            var frame = await Settled(session);
+            var frame = await RailwayFixtures.Settled(session, Request);
             Assert.AreEqual(generation == 2, frame.Diagnostics.Any(problem => problem.Code == diagnostic.Code));
             if (generation == 2)
             {
@@ -50,8 +51,8 @@ public sealed class NodeRebindTests
                 Assert.AreEqual(diagnostic.Source!.Package, problem.Package);
             }
             frames.Add(frame);
-            firstBodies.Add(nodeCache.ReadVehicle(NodeFixtures.NodeId, new InstanceId.Vehicle(new(1)))!.Body);
-            secondBodies.Add(nodeCache.ReadVehicle(NodeFixtures.NodeId, new InstanceId.Vehicle(new(2)))!.Body);
+            firstBodies.Add(Mesh(frame, 1));
+            secondBodies.Add(Mesh(frame, 2));
         }
         Assert.AreSame(firstBodies[0], firstBodies[1]);
         Assert.AreSame(firstBodies[1], firstBodies[2]);
@@ -80,14 +81,16 @@ public sealed class NodeRebindTests
         var nodeCache = new NodeScene.Cache();
         await using var session = Open(initial, railwayCache, nodeCache);
         session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)));
-        var first = await Settled(session);
+        var first = await RailwayFixtures.Settled(session, Request);
         Assert.IsNull(session.PrebuiltLocation);
         Assert.IsNotNull(railwayCache.Find(initial, new(initial, new(1)), 0));
 
         var atNode = NodeFixtures.Train(enteredFrom: new(1), nextEdge: new(2));
         var middle = Snapshot(atNode, 1);
         session.Observe(middle, []);
-        var node = await Settled(session, first);
+        var node = await RailwayFixtures.Settled(session, Request, first);
+        await Task.WhenAll(session.PendingPrebuilds);
+        node = await RailwayFixtures.Settled(session, Request, node);
         Assert.AreEqual(new WorldLocation.Edge(new(2), 4), session.PrebuiltLocation);
         Assert.IsNotNull(nodeCache.Read(new(1)));
         Assert.IsNull(railwayCache.Find(middle, new(middle, new(1)), 0));
@@ -97,7 +100,9 @@ public sealed class NodeRebindTests
         { Position = new TrainPosition.Edge(new(2), 1, TravelDirection.Reverse, .5) };
         var last = Snapshot(onSecondEdge, 2);
         session.Observe(last, []);
-        var second = await Settled(session, node);
+        var second = await RailwayFixtures.Settled(session, Request, node);
+        await Task.WhenAll(session.PendingPrebuilds);
+        second = await RailwayFixtures.Settled(session, Request, second);
         Assert.AreEqual(new WorldLocation.Node(new(3)), session.PrebuiltLocation);
         Assert.IsNull(nodeCache.Read(new(1)), "The departed node cannot remain beside the current edge and candidate node.");
         Assert.IsNotNull(nodeCache.Read(new(3)));
@@ -106,34 +111,20 @@ public sealed class NodeRebindTests
 
         var stopped = Snapshot(onSecondEdge with { SpeedMetersPerSecond = 0 }, 3);
         session.Observe(stopped, []);
-        await Settled(session, second);
+        await RailwayFixtures.Settled(session, Request, second);
+        await Task.WhenAll(session.PendingPrebuilds);
+        await RailwayFixtures.Settled(session, Request, second);
         Assert.IsNull(session.PrebuiltLocation);
         Assert.IsNull(nodeCache.Read(new(3)), "Canceling the candidate also releases its immutable cache.");
         Assert.IsNotNull(railwayCache.Find(stopped, new(stopped, new(2)), 0));
     }
 
-    private static WorldSceneSession Open(SceneWorldSnapshot snapshot, RailwayCache railways, NodeScene.Cache nodes) =>
+    private static SceneMesh Mesh(SceneFrame frame, ulong vehicle) => frame.Objects
+        .Where(item => item.Subject == new WorldObjectId.Instance(new InstanceId.Vehicle(new(vehicle))))
+        .SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().First().Mesh;
+
+    private static WorldSceneSession Open(SceneWorldSnapshot snapshot, RailwayCache railways, NodeScene.Cache nodes, SceneVehicles.Cache? vehicles = null) =>
         new(new(Guid.NewGuid()), snapshot, WorldSceneSession.Generate, railways, nodes,
-            (input, node, _, token, readyLayout) =>
-            {
-                var layout = NodeLayout.Build(input, node, token);
-                readyLayout?.Invoke(layout);
-                return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty);
-            });
+            RailwayFixtures.EmptyNode, vehicles);
 
-    private static async Task<SceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null)
-    {
-        SceneFrame Present() => (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request, displayed)).Value;
-        var frame = Present();
-        while (frame.Readiness != SceneReadiness.Ready || Work().Length > 0)
-        {
-            await Task.WhenAll(Work());
-            frame = Present();
-        }
-        frame = Present();
-        Assert.AreEqual(SceneReadiness.Ready, frame.Readiness);
-        return frame;
-
-        Task[] Work() => session.PendingNodeBuilds.Concat(session.PendingRailwayBuilds).Concat(session.PendingPrebuilds).ToArray();
-    }
 }

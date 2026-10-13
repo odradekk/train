@@ -100,9 +100,10 @@ public sealed class NodePlacementTests
         Assert.AreEqual(Pose(explicitFrame, 1), Pose(automatic, 1));
 
         var unbuiltFirst = RailwayFixtures.ReplaceCore(snapshot, edge: world.Edges[0] with { Tracks = 0 });
-        var secondEdge = await Settled(scene, unbuiltFirst);
-        Assert.IsTrue(Pose(secondEdge, 1).Position.Z < 0,
-            "The lower edge ID is ignored when it has no built track.");
+        await using var reopened = Controlled(unbuiltFirst);
+        var secondEdge = await Settled(reopened, unbuiltFirst);
+        var expectedEntry = reopened.Layout!.EntryFor(new(2));
+        AssertPosition(secondEdge, 1, RailwayCoordinates.Relative(expectedEntry.Point, default) - expectedEntry.Outward * 8);
     }
 
     [TestMethod]
@@ -151,13 +152,14 @@ public sealed class NodePlacementTests
         var snapshot = Snapshot(trains, platforms: 0, length: 64);
         await using var scene = Controlled(snapshot);
         var frame = await Settled(scene, snapshot);
+        var entry = scene.Layout!.EntryFor(new(2));
         for (ulong id = 1; id <= 6; id++)
         {
-            AssertPosition(frame, id, new(0, 0, -16 - 32 - 4 - ((float)id - 1) * 68));
+            var expected = RailwayCoordinates.Relative(entry.Point, default) + entry.Outward * (32 + 4 + ((float)id - 1) * 68 - 16);
+            AssertPosition(frame, id, expected);
             Assert.IsTrue(Vector3.Distance(Vector3.UnitZ, Vector3.Transform(Vector3.UnitZ, Pose(frame, id).Rotation)) < 1e-4);
         }
-        var entry = scene.Layout!.EntryFor(new(2));
-        Assert.IsTrue(Pose(frame, 6).Position.Z < entry.Point.Z + 16,
+        Assert.IsTrue(Vector3.Dot(Pose(frame, 6).Position - RailwayCoordinates.Relative(entry.Point, default), entry.Outward) > 0,
             "The queue extends past the generated connection instead of stacking at its endpoint.");
     }
 
@@ -170,8 +172,11 @@ public sealed class NodePlacementTests
         var frame = await Settled(scene, snapshot);
         var fifth = Pose(frame, 5).Position;
         var sixth = Pose(frame, 6).Position;
-        Assert.AreEqual(-17f, fifth.X, .001f);
-        Assert.AreEqual(-17f, sixth.X, .001f);
+        var entry = scene.Layout!.EntryFor(new(2));
+        var right = Vector3.Cross(Vector3.UnitY, -entry.Outward);
+        var at = RailwayCoordinates.Relative(entry.Point, default);
+        Assert.AreEqual(-17f, Vector3.Dot(fifth - at, right), .001f);
+        Assert.AreEqual(-17f, Vector3.Dot(sixth - at, right), .001f);
         Assert.IsTrue(fifth.Z < scene.Layout!.EntryFor(new(2)).Point.Z);
         Assert.AreEqual(new Vector3(0, 0, -68), sixth - fifth);
     }
@@ -223,17 +228,12 @@ public sealed class NodePlacementTests
         {
             if (!ids.TryGetValue(key, out var id)) ids.Add(key, id = new(++next));
             return id;
-        }, (input, node, _, token, readyLayout) =>
-        {
-            var layout = NodeLayout.Build(input, node, token);
-            readyLayout?.Invoke(layout);
-            return new(layout, ImmutableDictionary<string, NodeScene.Part>.Empty);
-        });
+        }, RailwayFixtures.EmptyNode);
     }
 
     private static async Task<SceneFrame> Settled(NodeScene scene, SceneWorldSnapshot snapshot)
     {
-        await scene.BuildWork;
+        await scene.BuildWork!;
         var revision = Stamp.Revision;
         SceneFrame Present() => scene.Present(snapshot, Request, Stamp with { Revision = ++revision }, null, default);
         Present();

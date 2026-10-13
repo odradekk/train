@@ -15,7 +15,6 @@ internal sealed class RailwayCache
         {
             var old = edges.GetValueOrDefault(edge);
             edges[edge] = (++next, old.Segments ?? ImmutableDictionary<int, RailwaySegment>.Empty);
-            while (edges.Count > 2) edges.Remove(edges.MinBy(item => item.Value.Owner).Key);
             return next;
         }
     }
