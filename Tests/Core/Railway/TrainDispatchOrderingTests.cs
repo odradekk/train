@@ -28,25 +28,31 @@ public sealed class TrainDispatchOrderingTests
     }
 
     [TestMethod]
-    public void Cleared_track_goes_to_opposite_waiter_while_old_direction_still_occupies_other_track()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Cleared_track_goes_to_opposite_waiter_whether_the_other_old_direction_track_stays_occupied_or_clears(bool otherClears)
     {
         var state = State(4, 2) with { Position = new(5, 0) };
         var trains = state.World.Trains;
         using var session = new CoreSession(state with { World = state.World with { Trains =
-            [OnEdge(trains[0], 1, 19.99, 2), OnEdge(trains[1], 2, 10, 1),
+            [OnEdge(trains[0], 1, 19.99, 2), OnEdge(trains[1], 2, otherClears ? 19.99 : 10, otherClears ? 2 : 1),
                 Queued(trains[2], 1, 1, 2), Queued(trains[3], 2, 2, 1)] } });
         Step(session);
         Assert.IsInstanceOfType<TrainPosition.Node>(View(session, 1).Position);
-        Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 2).Position);
+        if (otherClears) Assert.IsInstanceOfType<TrainPosition.Node>(View(session, 2).Position);
+        else Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 2).Position);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 3).Activity);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 4).Activity);
         Step(session);
         var admitted = (TrainPosition.Edge)View(session, 4).Position;
         Assert.AreEqual(1, admitted.Track);
         Assert.AreEqual(TravelDirection.Reverse, admitted.Direction);
-        var remaining = (TrainPosition.Edge)View(session, 2).Position;
-        Assert.AreEqual(2, remaining.Track);
-        Assert.AreEqual(TravelDirection.Forward, remaining.Direction);
+        if (!otherClears)
+        {
+            var remaining = (TrainPosition.Edge)View(session, 2).Position;
+            Assert.AreEqual(2, remaining.Track);
+            Assert.AreEqual(TravelDirection.Forward, remaining.Direction);
+        }
         Assert.AreEqual(new TrainPosition.Node(new(1)), View(session, 3).Position);
         Assert.AreEqual(TrainActivity.Waiting, View(session, 3).Activity);
     }
