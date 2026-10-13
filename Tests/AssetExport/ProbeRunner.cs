@@ -161,11 +161,17 @@ public partial class ProbeRunner : Node
     {
         using var directory = DirAccess.Open(path);
         Require(directory is not null, $"Cannot enumerate packed directory {path}.");
+        directory!.IncludeHidden = true;
         foreach (var file in directory!.GetFiles())
+        {
+            Require(file is not ".mcp.json" and not "global.json", $"Current PCK contains a development file: {path}{file}");
             Require(!file.EndsWith(".blend", StringComparison.OrdinalIgnoreCase)
                 && !file.EndsWith(".blend1", StringComparison.OrdinalIgnoreCase), $"Current PCK contains a source file (no source-file fixture is supplied): {path}{file}");
+        }
         foreach (var child in directory.GetDirectories())
         {
+            Require(!(path == "res://" && child == "addons") && !(path == "res://App/" && child == "ArtCapture"),
+                $"Current PCK contains a development directory: {path}{child}");
             Require(!child.Equals("art-source", StringComparison.OrdinalIgnoreCase), $"Current PCK contains a source directory (no source-file fixture is supplied): {path}{child}");
             CheckPackedSourceContents(path == "res://" ? path + child + "/" : path.TrimEnd('/') + "/" + child + "/");
         }
