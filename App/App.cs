@@ -28,6 +28,8 @@ public partial class App : Node
     internal TrainLogger Logger => _logger!;
     internal ContentSnapshot? CurrentContent => _reloader?.Current;
     internal Action QuitAction { get; set; }
+    internal Func<TrainLogger, HostCoordinator>? CreateHost { get; set; }
+    internal HostCoordinator? Host { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -46,16 +48,28 @@ public partial class App : Node
             var buffer = new RingBufferLogSink();
             _logger = TrainLogger.StartSession(Path.Combine(userData, "logs"),
                 OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer);
-            var source = new GodotContentSource(_logger, userData);
-            _reloader = new ContentReloader(source, _logger);
+            if (CreateHost is not null)
+                Host = CreateHost(_logger);
+            else
+            {
+                var source = new GodotContentSource(_logger, userData);
+                _reloader = new ContentReloader(source, _logger);
+            }
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
             if (OS.IsDebugBuild())
-                simulationCommands = new SimulationConsoleCommands(this, _logger).Execute;
+                simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
+                    : new SimulationConsoleCommands(Host, _logger).Execute;
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, ReloadContent, OS.IsDebugBuild(), simulationCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands));
             AddChild(console);
-            var loaded = _reloader.Reload();
+            if (Host is not null)
+            {
+                Host.SetFocused(GetWindow().HasFocus());
+                if (!Host.IsBusy) Host.BeginReload(Train.Core.Contracts.CommandSource.UserInterface);
+                return;
+            }
+            var loaded = _reloader!.Reload();
             if (OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal))
             {
                 var grain = loaded.Snapshot?.Voxels.GetValueOrDefault(new VoxelDefinitionId("core", "grain"));
@@ -75,6 +89,10 @@ public partial class App : Node
     {
         if (what == NotificationWMCloseRequest)
             RequestQuit();
+        else if (what == NotificationApplicationFocusIn)
+            Host?.SetFocused(true);
+        else if (what == NotificationApplicationFocusOut)
+            Host?.SetFocused(false);
     }
 
     public void RequestQuit()
@@ -82,7 +100,13 @@ public partial class App : Node
         QuitAction();
     }
 
-    private void ReloadContent() => _reloader!.Reload();
+    private void ReloadContent(Train.Core.Contracts.CommandSource source)
+    {
+        if (Host is null) _reloader!.Reload();
+        else if (Host.BeginReload(source).Problem is { Code: "busy" } problem)
+            _logger!.Warning("content", "content_reload_failed", problem.Code,
+                new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
+    }
 
     public void AttachSession(SimulationSession session, SimulationStateCodec states)
     {
@@ -114,7 +138,7 @@ public partial class App : Node
         return true;
     }
 
-    public bool SetSimulationSpeed(SimulationSpeed speed)
+    public bool SetSimulationSpeed(Train.Core.Simulation.SimulationSpeed speed)
     {
         EnsureSimulationMutation();
         if (_simulation is null)
@@ -156,16 +180,17 @@ public partial class App : Node
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (OS.IsDebugBuild() && _reloader is not null &&
+        if (OS.IsDebugBuild() && (_reloader is not null || Host is not null) &&
             @event.IsActionPressed(ReloadContentAction) && !@event.IsEcho())
         {
-            ReloadContent();
+            ReloadContent(Train.Core.Contracts.CommandSource.UserInterface);
             GetViewport().SetInputAsHandled();
         }
     }
 
     public override void _Process(double delta)
     {
+        Host?.ProcessFrame(delta);
         if (_simulation is not null)
         {
             // 挂接可能发生在较长的生成帧内；第一帧只累计会话实际存在的时间。
@@ -184,6 +209,8 @@ public partial class App : Node
 
     public override void _ExitTree()
     {
+        Host?.Dispose();
+        Host = null;
         _simulation = null;
         _logger?.Dispose();
         _logger = null;

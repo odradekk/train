@@ -76,6 +76,8 @@ public sealed class JsonlLogSink : ILogSink, IDisposable
     public string? FilePath { get; }
     public bool IsEnabled => _stream is not null;
 
+    internal JsonlLogSink(Stream stream) => _stream = stream;
+
     public JsonlLogSink(string directory, Guid sessionId)
     {
         ArgumentNullException.ThrowIfNull(directory);
