@@ -28,11 +28,7 @@ internal static class SimulationProcessDriver
             var samples = ImmutableArray.CreateBuilder<ProcessCheckpoint>();
             var executions = ImmutableArray.CreateBuilder<ProcessExecution>();
             var host = new ProcessHost(options.Schedule);
-            if (options.Mode is "record" or "replay" or "heavy")
-            {
-                session = await RunStageScenario(options, sourcePayload, stateCodec, commandCodec, samples, executions);
-            }
-            else if (options.Mode == "resume")
+            if (options.Mode == "resume")
             {
                 var payload = await File.ReadAllTextAsync(Required(options.Input, "--input"), Encoding.UTF8);
                 var decoded = stateCodec.Decode(payload);
@@ -81,8 +77,7 @@ internal static class SimulationProcessDriver
                 session.GetCommandLog().Entries.Length,
                 host.AdvanceCalls.ToImmutableArray(),
                 host.Speeds.ToImmutableArray(),
-                host.PauseFrames,
-                session.GetCommandLog().Entries.Select(entry => entry.CanonicalText).ToImmutableArray());
+                host.PauseFrames);
             await File.WriteAllTextAsync(Required(options.Output, "--output"),
                 JsonSerializer.Serialize(result, JsonOptions), new UTF8Encoding(false));
             return 0;
@@ -91,95 +86,6 @@ internal static class SimulationProcessDriver
         {
             System.Console.Error.WriteLine(exception);
             return 1;
-        }
-    }
-
-    private static async Task<SimulationSession> RunStageScenario(
-        DriverOptions options, string sourcePayload, ResourceStateCodec codec, ResourceCommandCodec commands,
-        ImmutableArray<ProcessCheckpoint>.Builder samples, ImmutableArray<ProcessExecution>.Builder executions)
-    {
-        if (options.Mode == "replay")
-        {
-            var recording = JsonSerializer.Deserialize<ProcessRecording>(
-                await File.ReadAllTextAsync(Required(options.Input, "--input"), Encoding.UTF8))
-                ?? throw new InvalidOperationException("无法读取录制。");
-            var replay = Restore(codec, commands, recording.InitialState);
-            foreach (var text in recording.Commands)
-            {
-                using var record = JsonDocument.Parse(text);
-                var entry = record.RootElement;
-                var step = entry.GetProperty("position").GetProperty("completed_steps").GetUInt64();
-                AdvanceStageTo(replay, codec, step, samples);
-                var decoded = commands.Decode(entry.GetProperty("payload").GetRawText());
-                if (decoded is not DeterminismResult<CoreCommand>.Success command)
-                    throw new InvalidOperationException($"重放命令读取失败：{Describe(decoded)}");
-                var source = entry.GetProperty("source").GetString() switch
-                {
-                    "ui" => CommandSource.Ui,
-                    "console" => CommandSource.Console,
-                    "automation" => CommandSource.Automation,
-                    _ => throw new InvalidOperationException("未知命令来源。")
-                };
-                Submit(replay, codec, command.Value, samples, executions, source);
-            }
-            AdvanceStageTo(replay, codec, recording.CompletedSteps, samples);
-            return replay;
-        }
-
-        var session = new SimulationSession(CreateInitialState(), new ResourceCalculations(), commands);
-        for (ulong step = 0; step <= 4; step++)
-        {
-            CoreCommand[] atBoundary = step switch
-            {
-                0 => [new NoChangeCommand(), new CreateEntityCommand()],
-                1 => [new DeleteEntityCommand(21), new DeleteEntityCommand(21), new CreateThenRejectCommand()],
-                2 => [new CreateEntityCommand()],
-                _ => []
-            };
-            foreach (var command in atBoundary)
-                Submit(session, codec, command, samples, executions);
-            if (step == 4) break;
-            if (session.Advance(1).StepsAdvanced != 1)
-                throw new InvalidOperationException("阶段检查未完成一个模拟步。");
-            if (options.Mode == "heavy")
-            {
-                var directory = Required(options.Payload, "--payload");
-                Directory.CreateDirectory(directory);
-                var path = Path.Combine(directory, $"step-{step + 1}.core-state.json");
-                await File.WriteAllTextAsync(path, codec.Encode(codec.Capture(session.GetState())), new UTF8Encoding(false));
-                session = Restore(codec, commands, await File.ReadAllTextAsync(path, Encoding.UTF8));
-            }
-            AddSample(codec, session.GetState(), samples);
-        }
-        if (options.Mode == "record")
-        {
-            var recording = new ProcessRecording(sourcePayload, session.GetState().CompletedSteps,
-                session.GetCommandLog().Entries.Select(entry => entry.CanonicalText).ToImmutableArray());
-            await File.WriteAllTextAsync(Required(options.Payload, "--payload"),
-                JsonSerializer.Serialize(recording, JsonOptions), new UTF8Encoding(false));
-        }
-        return session;
-    }
-
-    private static SimulationSession Restore(ResourceStateCodec codec, ResourceCommandCodec commands, string payload)
-    {
-        var decoded = codec.Decode(payload);
-        if (decoded is not DeterminismResult<CoreStateSnapshot>.Success state)
-            throw new InvalidOperationException($"恢复载荷读取失败：{Describe(decoded)}");
-        var restored = codec.Restore(state.Value, new ResourceCalculations(), commands);
-        return restored is DeterminismResult<SimulationSession>.Success session
-            ? session.Value
-            : throw new InvalidOperationException($"恢复会话失败：{Describe(restored)}");
-    }
-
-    private static void AdvanceStageTo(SimulationSession session, SimulationStateCodec codec, ulong step,
-        ImmutableArray<ProcessCheckpoint>.Builder samples)
-    {
-        while (session.GetState().CompletedSteps < step)
-        {
-            if (session.Advance(1).StepsAdvanced != 1)
-                throw new InvalidOperationException("重放未完成一个模拟步。");
-            AddSample(codec, session.GetState(), samples);
         }
     }
 
@@ -206,10 +112,9 @@ internal static class SimulationProcessDriver
 
     private static void Submit(
         SimulationSession session, SimulationStateCodec codec, CoreCommand command,
-        ImmutableArray<ProcessCheckpoint>.Builder samples, ImmutableArray<ProcessExecution>.Builder executions,
-        CommandSource source = CommandSource.Automation)
+        ImmutableArray<ProcessCheckpoint>.Builder samples, ImmutableArray<ProcessExecution>.Builder executions)
     {
-        if (session.Submit(command, source) is not SubmissionResult.Completed completed)
+        if (session.Submit(command, CommandSource.Automation) is not SubmissionResult.Completed completed)
             throw new InvalidOperationException("固定场景中的命令被入口拒收。");
         executions.Add(new ProcessExecution(
             completed.Execution.CommandId,
@@ -394,9 +299,7 @@ internal sealed record ProcessResult(
     int LogEntryCount,
     ImmutableArray<ulong> AdvanceCalls,
     ImmutableArray<double> Speeds,
-    int PauseFrames,
-    ImmutableArray<string> CommandRecords);
-internal sealed record ProcessRecording(string InitialState, ulong CompletedSteps, ImmutableArray<string> Commands);
+    int PauseFrames);
 internal sealed record ProcessIdentity(
     string SourceSha256, string BuildSha256, string SemanticContentSha256,
     string OperatingSystem, string Architecture, string DotNetRuntime);

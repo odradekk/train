@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -18,6 +19,8 @@ internal static class CoreProcessDriver
             var output = args[1];
             var payloadPath = args[2];
             var runtime = Identity();
+            if (mode == "replay")
+                return await Replay(output, payloadPath, runtime);
             ICoreSession session;
             if (mode == "resume")
             {
@@ -33,7 +36,7 @@ internal static class CoreProcessDriver
                 session = candidate.Activate();
             }
 
-            using (session)
+            try
             {
                 var samples = new List<CoreProcessSample>();
                 var receipts = new List<CoreProcessReceipt>();
@@ -56,6 +59,17 @@ internal static class CoreProcessDriver
                     var result = session.Advance(steps);
                     if (result.CompletedSteps != steps || result.Fault is not null)
                         throw new InvalidOperationException("推进未成功。");
+                    if (mode == "every-step")
+                    {
+                        var capture = Success(session.Capture(CapturePurpose.Save));
+                        File.WriteAllText(payloadPath, capture.Encode(), new UTF8Encoding(false));
+                        var factory = CoreFactory.Create();
+                        var saved = Success(factory.DecodeState(File.ReadAllText(payloadPath)));
+                        using var candidate = Success(factory.PrepareRestore(saved,
+                            Content(capture.InputIdentity.Value[0]), new(runtime, false, 1)));
+                        session.Dispose();
+                        session = candidate.Activate();
+                    }
                     Sample();
                 }
 
@@ -73,10 +87,29 @@ internal static class CoreProcessDriver
                 {
                     Publish('C');
                     Publish('A');
-                    Advance(2);
+                    if (mode is "record" or "every-step" or "stage-continuous")
+                    {
+                        Advance(1);
+                        Advance(1);
+                    }
+                    else Advance(2);
+                }
+                if (mode == "record")
+                {
+                    var window = session.ReadRecording();
+                    var recording = new CoreDiskRecording(runtime, window.Starts[0].State.Encode(),
+                        window.Commands.Select(command => new CoreDiskCommand(command.Source, command.CanonicalPayload,
+                            command.Result.Number, command.Result.Before, command.Result.After,
+                            (CommandDecision.Accepted)command.Result.Decision, command.InputBefore, command.InputAfter)).ToArray(),
+                        window.Checkpoints.ToArray(), window.EndPosition, samples.Select(sample => sample.Position).ToArray());
+                    await File.WriteAllTextAsync(payloadPath, JsonSerializer.Serialize(recording), new UTF8Encoding(false));
                 }
                 var result = new CoreProcessResult(Environment.ProcessId, runtime, samples.ToArray(), receipts.ToArray());
                 await File.WriteAllTextAsync(output, JsonSerializer.Serialize(result), new UTF8Encoding(false));
+            }
+            finally
+            {
+                session.Dispose();
             }
             return 0;
         }
@@ -85,6 +118,34 @@ internal static class CoreProcessDriver
             Console.Error.WriteLine(exception);
             return 1;
         }
+    }
+
+    private static async Task<int> Replay(string output, string payloadPath, RuntimeIdentity runtime)
+    {
+        var recording = JsonSerializer.Deserialize<CoreDiskRecording>(await File.ReadAllTextAsync(payloadPath))!;
+        var input = new CoreReplayInput(1, recording.Runtime, recording.InitialState,
+            recording.Commands.Select(command => new RecordedCommand(command.Source, command.Payload,
+                new(command.Number, command.Before, command.After, command.Decision),
+                command.InputBefore, command.InputAfter)).ToImmutableArray(),
+            recording.Checkpoints.ToImmutableArray(), recording.EndPosition, null);
+        using var replay = Success(CoreFactory.Create().PrepareReplay(input, runtime,
+            new[] { 'A', 'B', 'C' }.Select(Content).ToImmutableArray()));
+        var samples = new List<CoreProcessSample>();
+        foreach (var position in recording.Positions)
+        {
+            var result = replay.Advance(uint.MaxValue, position);
+            if (result.Stop != ReplayStop.RequestedPosition || result.Difference is not null || result.Fault is not null)
+                throw new InvalidOperationException($"回放失败：{result}");
+            var capture = replay.CaptureBoundary();
+            samples.Add(new(capture.Position, capture.Revision, capture.InputIdentity.Value,
+                capture.Encode(), capture.Checkpoint.CanonicalText, capture.Checkpoint.Sha256));
+        }
+        var end = replay.Advance(1);
+        if (end.Stop != ReplayStop.EndOfRecording || end.Difference is not null || end.Fault is not null)
+            throw new InvalidOperationException($"回放未到录制末尾：{end}");
+        await File.WriteAllTextAsync(output, JsonSerializer.Serialize(new CoreProcessResult(
+            Environment.ProcessId, runtime, samples.ToArray(), [])), new UTF8Encoding(false));
+        return 0;
     }
 
     private static CoreContentProjection Content(char identity) =>
@@ -109,3 +170,10 @@ internal sealed record CoreProcessSample(SimulationPosition Position, CoreRevisi
 internal sealed record CoreProcessReceipt(ulong Number, SimulationPosition Before, SimulationPosition After);
 internal sealed record CoreProcessResult(int ProcessId, RuntimeIdentity Identity,
     CoreProcessSample[] Samples, CoreProcessReceipt[] Receipts);
+
+internal sealed record CoreDiskCommand(CommandSource Source, string Payload, ulong Number,
+    SimulationPosition Before, SimulationPosition After, CommandDecision.Accepted Decision,
+    CoreInputId InputBefore, CoreInputId InputAfter);
+internal sealed record CoreDiskRecording(RuntimeIdentity Runtime, string InitialState,
+    CoreDiskCommand[] Commands, CoreCheckpoint[] Checkpoints, SimulationPosition EndPosition,
+    SimulationPosition[] Positions);
