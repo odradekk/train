@@ -6,6 +6,8 @@ using Train.App.Logging;
 using Train.Content.Contracts;
 using System.Text.Json.Nodes;
 using Train.Ui;
+using Train.App.Saves;
+using Train.Core.Contracts;
 using static Train.Engine.Tests.Assertions;
 
 namespace Train.Engine.Tests;
@@ -68,7 +70,7 @@ public class AppTests(Node testScene) : TestClass(testScene)
             var menu = app.GetNode<MainMenu>("MainMenu");
             Require(menu.IsNodeReady() && menu.IsVisibleInTree(), "Main menu is not ready and visible.");
             var quit = menu.GetNode<Button>("%QuitGame");
-            foreach (var name in new[] { "%NewGame", "%Saves", "%Settings", "%QuitGame" })
+            foreach (var name in new[] { "%NewGame", "%Example", "%Saves", "%Settings", "%QuitGame" })
             {
                 var button = menu.GetNode<Button>(name);
                 Require(button.IsVisibleInTree() && !button.Disabled,
@@ -79,6 +81,65 @@ public class AppTests(Node testScene) : TestClass(testScene)
             Require(requests == 1, "Quit button signal did not reach App's quit request.");
         }
         finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Example_menu_input_restores_an_unsaved_paused_world()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var input = new UiTestInput(TestScene);
+        var source = Godot.FileAccess.GetFileAsString(Train.App.App.ExampleSavePath);
+        using var json = JsonDocument.Parse(source);
+        var header = json.RootElement.GetProperty("Header");
+        try
+        {
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            await input.Frames();
+            var menu = app.GetNode<MainMenu>("MainMenu");
+            await input.Activate(menu.GetNode<Button>("%Example"));
+            await FramesUntil(TestScene, () => app.Saves!.Status is not null && !app.Saves.IsBusy);
+            await FramesUntil(TestScene, () => app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree());
+            var status = app.Host!.GetStatus()!;
+            var save = app.Saves!.Status!;
+            Require(save.Identity.Id != header.GetProperty("Id").GetGuid() &&
+                save.Identity.Name == header.GetProperty("Name").GetString() && save.Unsaved,
+                "示例启动未生成新 UUID、保留原名称或标记未保存。");
+            Require(status.View.Position == new SimulationPosition(200, 0) && status.IsPaused &&
+                !menu.IsVisibleInTree() && app.GetNode<MacroMap>("GameUi/Root/World/MacroMap").IsVisibleInTree(),
+                "示例菜单输入未恢复到 200:0 的暂停宏观地图。");
+            Require(Godot.FileAccess.GetFileAsString(Train.App.App.ExampleSavePath) == source,
+                "示例启动修改了原存档。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Example_read_and_decode_failures_are_visible()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var path = Path.Combine(OS.GetUserDataDir(), "invalid-example-" + Guid.NewGuid() + ".json");
+        try
+        {
+            var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
+            await FramesUntil(TestScene, () => !app.Host!.IsBusy);
+            var panel = app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single();
+            foreach (var invalidJson in new[] { false, true })
+            {
+                if (invalidJson) File.WriteAllText(path, "not JSON");
+                var failure = app.StartExample(path);
+                Require(failure is not null && panel.Visible && panel.FindChildren("*", "Label", true, false)
+                    .Cast<Label>().Any(label => label.Text == failure.Message),
+                    "示例读取或解码失败未通过存档面板显示。");
+                Require(app.Host!.GetStatus() is null, "损坏示例创建了活动会话。");
+                panel.Hide();
+            }
+        }
+        finally
+        {
+            try { await fixture.Cleanup(); }
+            finally { if (File.Exists(path)) File.Delete(path); }
+        }
     }
 
     [Test]
