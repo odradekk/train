@@ -36,7 +36,7 @@ function Get-TestSelection {
         'Tests/Engine/*', 'project.godot', 'export_presets.cfg', 'builtin/*', 'addons/*'
     )
     $resourcePatterns = @('*.tscn', '*.tres', '*.uid', '*.import')
-    $cliPatterns = @('Tools/Cli/*', 'examples/*', 'builtin/*', 'Core/*', 'Content/*', 'Contracts/Core/*', 'Contracts/Content/*')
+    $cliPatterns = @('examples/*', 'builtin/*', 'project.godot')
     $isolationPatterns = @('*.csproj', 'Directory.Build.*', '*/Directory.Build.*', 'Train.sln', 'scripts/checks/project-boundaries.json', 'Tests/ContractChecks/*')
     foreach ($file in $files) {
         $engineRules = @($enginePatterns | Where-Object { $file -like $_ })

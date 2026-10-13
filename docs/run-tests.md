@@ -66,7 +66,7 @@ dotnet run --project Tests/Benchmarks/Train.Benchmarks.csproj -c Release --no-bu
 
 以下共享文件改动选择全部 MSTest 项目：`Contracts/**`、任意层级的 `Directory.Build.*`、`global.json`、`docs/content/schemas/**`、`Tests/ContractSupport/**`、`Train.sln`、`.config/dotnet-tools.json`、`scripts/test.ps1`、`scripts/checks/**`。工作流 YAML 不在共享列表中。
 
-`Tools/Cli/**`、`examples/**`、`builtin/**`、`Core/**`、`Content/**`、`Contracts/Core/**` 和 `Contracts/Content/**` 改动均选择 CLI 测试；摘要逐文件记录 `cliRules`，确保没有项目源码变化的配方和资产改动也会验证工具。
+CLI 及其项目依赖的源码改动由 dotnet-affected 沿引用图选择。`examples/**`、`builtin/**` 和 `project.godot` 是 CLI 的额外输入，改动时也选择 CLI 测试；摘要逐文件记录这三组补充规则 `cliRules`。
 
 引擎路径规则复用上述整体构建与测试入口条目，但不包含 `docs/content/schemas/**` 和 `Tests/ContractSupport/**`；另外包含 `Tests/Engine/**`、`project.godot`、`export_presets.cfg`、`builtin/**`、`addons/**`，以及 `archive/`、`docs/`、`prototypes/`、`Tests/` 之外的 `*.tscn`、`*.tres`、`*.uid`、`*.import`。`Tests/Engine/` 内的资源已由该目录规则覆盖。普通宿主 MSTest 被选中不表示引擎也被选中。
 
