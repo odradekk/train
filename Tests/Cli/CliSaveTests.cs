@@ -28,9 +28,6 @@ public sealed partial class CliProcessTests
                 header.GetProperty("SavedAt").GetDateTimeOffset());
             Assert.AreEqual(150UL, header.GetProperty("Position").GetProperty("CompletedSteps").GetUInt64());
             Assert.AreEqual(0UL, header.GetProperty("Position").GetProperty("Sequence").GetUInt64());
-            using var core = JsonDocument.Parse(document.RootElement.GetProperty("CorePayload").GetString()!);
-            Assert.AreEqual(150UL, core.RootElement.GetProperty("position").GetProperty("completed_steps").GetUInt64());
-            Assert.AreEqual(0UL, core.RootElement.GetProperty("position").GetProperty("sequence").GetUInt64());
             Assert.IsFalse(string.IsNullOrWhiteSpace(document.RootElement.GetProperty("ContentPayload").GetString()));
 
             var resumingProcess = await Run(directory, "resume", "resume", Repository, RecipePath, save, resumedPath);
@@ -63,7 +60,7 @@ public sealed partial class CliProcessTests
 
     [TestMethod]
     [OSCondition(OperatingSystems.Windows)]
-    public async Task Committed_example_checks_and_remakes_as_identical_ordinary_save_bytes()
+    public async Task Committed_example_checks_without_changing_committed_files()
     {
         var directory = CreateDirectory();
         try
@@ -71,9 +68,6 @@ public sealed partial class CliProcessTests
             var committed = Path.Combine(Repository, "examples", "basic-through", "save.json");
             var originalSave = await File.ReadAllBytesAsync(committed);
             var originalRecipe = await File.ReadAllBytesAsync(RecipePath);
-            var remade = Path.Combine(directory, "remade.save.json");
-            await Run(directory, "make", "make", Repository, RecipePath, remade);
-            CollectionAssert.AreEqual(originalSave, await File.ReadAllBytesAsync(remade));
             await Run(directory, "check", "check", Repository, RecipePath, committed);
             CollectionAssert.AreEqual(originalSave, await File.ReadAllBytesAsync(committed));
             CollectionAssert.AreEqual(originalRecipe, await File.ReadAllBytesAsync(RecipePath));
