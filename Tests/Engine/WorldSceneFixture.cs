@@ -9,6 +9,9 @@ namespace Train.Engine.Tests;
 
 internal static class WorldSceneFixture
 {
+    internal static FixedCoreReadView EmptyWorld(SimulationPosition position) => new(position, HostCoreScenario.Input)
+    { World = new(1, new("fixture:railway"), 1, 1, [], [], [], [], []) };
+
     internal static HostCoordinator CreateHost(ScriptedCoreSession session, FixedContentView content,
         TrainLogger logger, Func<ContentResult<IContentCandidate>>? reload = null,
         Func<ScriptedCoreSession>? restore = null)
