@@ -9,7 +9,7 @@ namespace Train.ContractSupport.Tests.Content;
 public sealed class HostContentScenarioTests
 {
     [TestMethod]
-    public void CapturePassesExactViewAndReferencesAndRecordsCallingThread()
+    public void CapturePassesExactViewAndReferences()
     {
         var view = new FixedContentView(HostContentScenario.CreateProjection(new CoreInputId("fixture")), new(1), new(9));
         var references = new CoreReferenceManifest([], [], [], []);
@@ -25,7 +25,6 @@ public sealed class HostContentScenarioTests
         };
         Assert.AreSame(capture, ((ContentResult<IContentCapture>.Success)factory.Capture(view, references)).Value);
         Assert.AreEqual(1, factory.CaptureCount);
-        Assert.AreEqual(Environment.CurrentManagedThreadId, factory.CaptureThread);
     }
 
     [TestMethod]

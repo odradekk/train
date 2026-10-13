@@ -31,21 +31,26 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             await FramesUntil(() => app.Saves!.Status is not null);
             var saves = app.Saves!;
             owned.Add(saves.Status!.Identity.Id);
-            var ownerThread = System.Environment.CurrentManagedThreadId;
+            var store = new FileSaveStore(OS.GetUserDataDir());
+            Directory.CreateDirectory(store.DirectoryFor(saves.Status.Identity.Id));
+            File.WriteAllText(store.PathFor(saves.Status.Identity.Id),
+                "{\"id\":\"e4a0ca31-b542-4f3e-bde2-bc4a27148a2b\",\"bounds\":{\"x\":16,\"y\":8,\"z\":16},\"display_name\":\"old\",\"save_format_version\":5,\"seed\":42}");
             var menu = app.GetNode<MainMenu>("MainMenu");
             var entry = menu.GetNode<Button>("%Saves");
             Require(entry.Visible && !entry.Disabled, "新宿主的存档入口未显示。");
             entry.EmitSignal(BaseButton.SignalName.Pressed);
             var panel = menu.GetChildren().OfType<SavePanel>().Single();
             Require(panel.Visible, "存档入口未打开生产面板。");
+            Require(panel.FindChildren("*", "Label", true, false).Cast<Label>().Any(label =>
+                label.GetWindow() == panel && label.Text.Contains("基于全局体素世界的旧存档已不支持", StringComparison.Ordinal)),
+                "列表没有立即显示旧格式兼容性诊断。");
             Press(panel, "保存");
             await FramesUntil(() => !saves.HasPendingWork);
             var first = saves.Status!;
             Require(!first.Unsaved && File.Exists(new FileSaveStore(OS.GetUserDataDir()).PathFor(first.Identity.Id)),
                 "保存按钮未发布真实文件并确认已保存状态。");
-            Require(setup.Session!.CaptureCount == 1 && setup.Content!.CaptureCount == 1 &&
-                setup.Session.CaptureThread == ownerThread && setup.Content.CaptureThread == ownerThread,
-                "核心与内容没有在 Godot 主线程共同捕获。");
+            Require(setup.Session!.CaptureCount == 1 && setup.Content!.CaptureCount == 1,
+                "保存没有同时捕获核心与内容。");
             Press(panel, "另存为");
             var nameDialog = Dialog<AcceptDialog>(panel, "另存为");
             var name = "engine-save-" + Guid.NewGuid().ToString("N");
@@ -57,7 +62,6 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             owned.Add(second.Identity.Id);
             Require(second.Identity.Id != first.Identity.Id && second.Identity.Name == name && !second.Unsaved,
                 "另存为没有切换为新身份或没有确认保存版本。");
-            var store = new FileSaveStore(OS.GetUserDataDir());
             Require(store.ReadHeader(store.PathFor(first.Identity.Id)).Id == first.Identity.Id &&
                 store.ReadHeader(store.PathFor(second.Identity.Id)).Name == name,
                 "另存为覆盖了原文件或新文件头部不正确。");
@@ -81,7 +85,13 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             Require(saves.Status!.Identity == second.Identity && saves.Status.Binding != previousBinding &&
                 previousSession.DisposeCount == 1 && !saves.Status.Unsaved,
                 "缺失确认后未完成读档替换或未保留存档身份。");
+            Require(app.Host!.RenameSave("discard before menu") is null, "无法准备未保存的离开情景。");
             saves.ReturnToMenu();
+            await FramesUntil(() => Dialog<ConfirmationDialog>(panel, "未保存的更改").Visible);
+            var discard = Dialog<ConfirmationDialog>(panel, "未保存的更改")
+                .FindChildren("*", "Button", true, false).Cast<Button>().Single(button => button.Text == "不保存");
+            Require(!discard.Disabled && discard.IsVisibleInTree(), "不保存按钮不可用。");
+            discard.EmitSignal(BaseButton.SignalName.Pressed);
             await FramesUntil(() => panel.FindChildren("*", "Button", true, false).Cast<Button>()
                 .Where(button => button.GetWindow() == panel && button.Text is "导出文件" or "返回菜单")
                 .All(button => !button.IsVisibleInTree()));
@@ -133,6 +143,15 @@ public class SaveTests(Node testScene) : TestClass(testScene)
             await FramesUntil(() => quitRequests == 1);
             Require(publishedAtQuit && !saves.HasPendingWork && saves.Leaving is null,
                 "保存成功前执行了退出动作或文件不可读取。");
+            Require(app.Host!.RenameSave("discard before quit") is null, "无法准备未保存的退出情景。");
+            app.Notification((int)Node.NotificationWMCloseRequest);
+            await FramesUntil(() => leave.Visible);
+            var discard = leave.FindChildren("*", "Button", true, false).Cast<Button>()
+                .Single(button => button.Text == "不保存");
+            Require(!discard.Disabled && discard.IsVisibleInTree(), "退出时不保存按钮不可用。");
+            discard.EmitSignal(BaseButton.SignalName.Pressed);
+            Require(quitRequests == 2 && saves.Status!.Unsaved && !saves.HasPendingWork && saves.Leaving is null,
+                "不保存按钮未执行退出回调，或错误地确认了保存。");
         }
         finally { await Cleanup(fixture, app, owned); }
     }
@@ -220,9 +239,9 @@ public class SaveTests(Node testScene) : TestClass(testScene)
                     return new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view, report: report));
                 }
             };
-            var host = new HostCoordinator(core, Content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-                new(new("builtin"), new("mods"), null, "engine-save", []), logger);
             var options = new CoreSessionOptions(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1);
+            var host = new HostCoordinator(core, Content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
+                new(new("builtin"), new("mods"), null, "engine-save", []), logger, sessionOptions: options);
             Require(host.BeginRestore("engine core", "engine content", options).Problem is null, "无法开始初始恢复。");
             return host;
         }

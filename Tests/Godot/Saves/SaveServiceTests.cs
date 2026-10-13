@@ -95,9 +95,14 @@ public sealed class SaveServiceTests
         Assert.IsNull(run.Service.Export(export));
         run.Drain();
         Assert.IsTrue(File.Exists(export));
+        Assert.AreEqual(run.Id, run.Store.ReadHeader(export).Id);
         Assert.AreEqual(run.Id, run.Service.Status!.Identity.Id);
         Assert.IsTrue(run.Service.Status.Unsaved);
         Assert.AreEqual("overwrite-confirmation", run.Service.Export(export)?.Code);
+        Assert.IsNull(run.Service.Export(export, true));
+        run.Drain();
+        Assert.AreEqual(run.Id, run.Store.ReadHeader(export).Id);
+        Assert.IsTrue(run.Service.Status.Unsaved);
         Assert.IsNull(run.Service.Save());
         run.Drain();
         Assert.IsFalse(run.Service.Status.Unsaved);
@@ -110,6 +115,47 @@ public sealed class SaveServiceTests
         Assert.IsFalse(run.Service.Status.Unsaved);
         Assert.AreEqual(second.Id, run.Store.ReadHeader(run.Store.PathFor(second.Id)).Id);
         CollectionAssert.AreEqual(old, File.ReadAllBytes(run.Store.PathFor(run.Id)));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Save_as_failure_or_cancellation_preserves_identity_and_unsaved_state(bool cancel)
+    {
+        using var run = new Run(blockFirstWrite: true, failPublish: !cancel);
+        var before = run.Service.Status!;
+        Assert.IsNull(run.Service.SaveAs("failed replacement"));
+        run.WaitWriter();
+        if (cancel) run.Service.Cancel();
+        run.Release();
+        run.Drain();
+        Assert.AreEqual(before.Identity, run.Service.Status!.Identity);
+        Assert.IsTrue(run.Service.Status.Unsaved);
+        Assert.AreEqual(0, run.Service.List().Count);
+    }
+
+    [TestMethod]
+    public void Recreated_service_replaces_oldest_automatic_slot_and_preserves_other_files()
+    {
+        using var run = new Run();
+        foreach (var (slot, seconds) in new[] { (0, 30), (1, 10), (2, 20) })
+        {
+            var document = SaveContainerTests.Document();
+            document = document with { Header = document.Header with { Id = run.Id, SavedAt = DateTimeOffset.FromUnixTimeSeconds(seconds) } };
+            Directory.CreateDirectory(run.Store.DirectoryFor(run.Id));
+            File.WriteAllText(run.Store.AutoPathFor(run.Id, slot), SaveContainer.Encode(document));
+        }
+        var first = File.ReadAllBytes(run.Store.AutoPathFor(run.Id, 0));
+        var third = File.ReadAllBytes(run.Store.AutoPathFor(run.Id, 2));
+        run.RecreateService();
+        run.Service.SetAutoSaveInterval(TimeSpan.FromSeconds(10));
+        run.Process();
+        run.Now = 40;
+        run.Process();
+        run.Drain();
+        Assert.AreEqual(40L, run.Store.ReadHeader(run.Store.AutoPathFor(run.Id, 1)).SavedAt.ToUnixTimeSeconds());
+        CollectionAssert.AreEqual(first, File.ReadAllBytes(run.Store.AutoPathFor(run.Id, 0)));
+        CollectionAssert.AreEqual(third, File.ReadAllBytes(run.Store.AutoPathFor(run.Id, 2)));
     }
 
     [TestMethod]
@@ -200,11 +246,80 @@ public sealed class SaveServiceTests
     }
 
     [TestMethod]
-    [DataRow("{\"SaveFormatVersion\":2}")]
-    [DataRow("{\"SaveFormatVersion\":5}")]
-    [DataRow("broken JSON")]
-    public void Invalid_load_keeps_current_run_and_original_file(string text)
+    public void Loading_automatic_entry_preserves_uuid_and_requires_manual_save()
     {
+        using var run = new Run();
+        var source = run.Source();
+        var automatic = run.Store.AutoPathFor(run.Id, 0);
+        File.Copy(source, automatic);
+        var entry = run.Service.List().Single();
+        Assert.IsTrue(entry.Automatic);
+        run.ConfigureRestore();
+        Assert.IsNull(run.Service.Load(entry));
+        run.Service.ChooseLeave(LeaveChoice.Discard);
+        run.Drain();
+        Assert.AreEqual(run.Id, run.Service.Status!.Identity.Id);
+        Assert.IsTrue(run.Service.Status.Unsaved);
+        Assert.IsNull(run.Service.Save());
+        run.Drain();
+        Assert.IsFalse(run.Service.Status.Unsaved);
+    }
+
+    [TestMethod]
+    public void Cancelled_missing_load_releases_service_for_save_load_and_leave()
+    {
+        using var run = new Run();
+        var source = run.Source();
+        var entry = new SaveEntry(source, run.Store.ReadHeader(source), false);
+        var before = run.Service.Status!;
+        run.ConfigureRestore(missing: new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "voxel"));
+        Assert.IsNull(run.Service.Load(entry));
+        run.Service.ChooseLeave(LeaveChoice.Discard);
+        run.PumpUntil(() => run.Service.Missing is not null);
+        run.Service.Cancel();
+        run.Process();
+        Assert.IsFalse(run.Service.IsBusy);
+        Assert.IsFalse(run.Service.HasPendingWork);
+        Assert.AreEqual(before, run.Service.Status);
+        Assert.IsNull(run.Service.Save());
+        run.Drain();
+        run.ConfigureRestore();
+        Assert.IsNull(run.Service.Load(entry));
+        run.Drain();
+        Assert.IsFalse(run.Service.IsBusy);
+        Assert.IsNull(run.Service.ReturnToMenu());
+        Assert.IsNull(run.Service.Status);
+    }
+
+    [TestMethod]
+    [DataRow(2)]
+    [DataRow(5)]
+    public void Legacy_list_and_import_reject_without_mutating_session_or_file(int version)
+    {
+        using var run = new Run();
+        var path = run.Store.PathFor(run.Id);
+        Directory.CreateDirectory(run.Store.DirectoryFor(run.Id));
+        File.WriteAllText(path, SaveContainerTests.Legacy(version));
+        var bytes = File.ReadAllBytes(path);
+        var before = run.Service.Status;
+        Assert.AreEqual(0, run.Service.List().Count);
+        StringAssert.Contains(run.Service.LastMessage!, "基于全局体素世界的旧存档已不支持");
+        Assert.IsFalse(run.Service.LastMessage.Contains("损坏", StringComparison.Ordinal));
+        Assert.ThrowsExactly<SaveFormatException>(() => run.Store.Read(path));
+        Assert.IsNull(run.Service.Import(path));
+        run.Drain();
+        Assert.AreEqual(before, run.Service.Status);
+        StringAssert.Contains(run.Service.LastMessage!, "基于全局体素世界的旧存档已不支持");
+        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path));
+    }
+
+    [TestMethod]
+    [DataRow(2)]
+    [DataRow(5)]
+    [DataRow(0)]
+    public void Invalid_load_keeps_current_run_and_original_file(int version)
+    {
+        var text = version == 0 ? "broken JSON" : SaveContainerTests.Legacy(version);
         using var run = new Run();
         var source = run.Source();
         File.WriteAllText(source, text);
@@ -217,7 +332,8 @@ public sealed class SaveServiceTests
         Assert.AreEqual(status, run.Service.Status);
         Assert.IsFalse(run.Host.Host.GetStatus()!.OperationLocked);
         CollectionAssert.AreEqual(before, File.ReadAllBytes(source));
-        Assert.IsTrue(run.Service.LastMessage!.Contains(text == "broken JSON" ? "损坏" : "旧存档", StringComparison.Ordinal));
+        StringAssert.Contains(run.Service.LastMessage!, version == 0 ? "损坏" : "基于全局体素世界的旧存档已不支持");
+        if (version != 0) Assert.IsFalse(run.Service.LastMessage.Contains("损坏", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -365,7 +481,7 @@ public sealed class SaveServiceTests
         internal string Root { get; } = Directory.CreateTempSubdirectory("train-save-service-").FullName;
         internal HostFixture Host { get; } = new();
         internal FileSaveStore Store { get; }
-        internal SaveService Service { get; }
+        internal SaveService Service { get; private set; }
         internal Guid Id { get; }
         internal bool WriterEntered => entered.IsSet;
         internal double Now { get; set; }
@@ -395,6 +511,12 @@ public sealed class SaveServiceTests
             Service.SetAutoSaveInterval(null);
         }
 
+        internal void RecreateService()
+        {
+            Service.Dispose();
+            Service = new(Host.Host, Store, () => Now, () => DateTimeOffset.FromUnixTimeSeconds((long)Now));
+        }
+
         internal void Process() { Host.Host.ProcessFrame(0); Service.Process(); }
         internal void PumpUntil(Func<bool> complete) => Assert.IsTrue(SpinWait.SpinUntil(() =>
             { Process(); return complete(); }, HostFixture.HangTimeout), "save service did not settle");
@@ -414,6 +536,7 @@ public sealed class SaveServiceTests
             string core = "core-state", string content = "content-state", MissingCoreReference? missing = null)
         {
             var session = new ScriptedCoreSession(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+            session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(CoreCapture(core)));
             var coreCandidate = new ScriptedCoreCandidate(session, HostCoreScenario.References, missing is null ? [] : [missing]);
             var contentCandidate = new ScriptedContentCandidate(Host.Content);
             Host.Core.DecodeStateCall = value => value == core ? new CoreResult<ICoreCapture>.Success(CoreCapture(value))

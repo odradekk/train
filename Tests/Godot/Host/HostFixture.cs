@@ -64,7 +64,7 @@ internal sealed class HostFixture : IDisposable
             WithSettlementCopiesCall = (view, copies) => (Copies ?? throw new InvalidOperationException("UNCONFIGURED: 模板副本。"))(view, copies)
         };
         Host = new(Core, Factory, new ScriptedContentFiles(), new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture-game", []),
-            Logger, notification, seconds ?? (() => 0));
+            Logger, notification, seconds ?? (() => 0), sessionOptions: Options);
     }
 
     internal void AllowHostFailure(string id, int count = 1)

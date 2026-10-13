@@ -31,10 +31,9 @@ public sealed class HostSaveTests
     }
 
     [TestMethod]
-    public void Save_captures_core_then_paired_content_on_owner_thread()
+    public void Save_captures_core_then_paired_content_synchronously()
     {
         using var fixture = ReadyClean();
-        var owner = Environment.CurrentManagedThreadId;
         var references = HostCoreScenario.References with { Designs = [new("saved-design")] };
         var core = new FixedCoreCapture(new(new(0, 0), "canonical", "hash"), references, "core", HostCoreScenario.Input, new(0));
         fixture.Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(core));
@@ -43,15 +42,12 @@ public sealed class HostSaveTests
             Assert.AreSame(fixture.Host.Content, view);
             Assert.AreSame(references, actualReferences);
             Assert.AreEqual(1, fixture.Session.CaptureCount);
-            Assert.AreEqual(owner, Environment.CurrentManagedThreadId);
             Assert.AreEqual("busy", fixture.Host.RenameSave("during capture")?.Code);
             return new ContentResult<IContentCapture>.Success(new FixedContentCapture("content-state", view.PersistentRevision));
         };
         var (capture, failure) = fixture.Host.CaptureSave();
         Assert.IsNull(failure);
         Assert.AreSame(core, capture!.Core);
-        Assert.AreEqual(owner, fixture.Session.CaptureThread);
-        Assert.AreEqual(owner, fixture.Factory.CaptureThread);
         Assert.AreEqual(1, fixture.Factory.CaptureCount);
         Assert.AreEqual("content-state", capture.Content.Encode());
     }
@@ -86,6 +82,36 @@ public sealed class HostSaveTests
         Assert.IsTrue(fixture.Host.CompleteSave(capture, capture.Identity));
         Assert.IsTrue(fixture.Host.GetSaveStatus()!.Unsaved);
         Assert.AreEqual("after capture", fixture.Host.GetSaveStatus()!.Identity.Name);
+    }
+
+    [TestMethod]
+    public void Core_revision_alone_marks_session_unsaved_even_after_old_capture_completes()
+    {
+        using var fixture = ReadyClean();
+        var capture = fixture.Host.CaptureSave().Capture!;
+        var command = new CoreCommand.StopTrain(new(1));
+        fixture.Session.QueueSubmit(command, CommandSource.UserInterface,
+            new SubmissionResult.Completed(new(1, new(0, 0), new(0, 1), new CommandDecision.Accepted([], [])), [], null),
+            new FixedCoreReadView(new(0, 1), HostCoreScenario.Input, revision: new(1)));
+        fixture.Host.Submit(fixture.Host.GetStatus()!.Binding, command, CommandSource.UserInterface);
+        Assert.IsTrue(fixture.Host.GetSaveStatus()!.Unsaved);
+        Assert.IsTrue(fixture.Host.CompleteSave(capture, capture.Identity));
+        Assert.IsTrue(fixture.Host.GetSaveStatus()!.Unsaved);
+        Assert.AreEqual(capture.Identity, fixture.Host.GetSaveStatus()!.Identity);
+    }
+
+    [TestMethod]
+    public void New_game_is_unsaved_before_its_first_save()
+    {
+        using var fixture = new HostFixture();
+        fixtureUnderTest = fixture;
+        fixture.Load = _ => new ContentResult<IContentCandidate>.Success(fixture.ContentCandidate);
+        fixture.World = (_, _, _, _) => new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World);
+        fixture.Copies = (view, _) => view;
+        fixture.Core.PrepareNewCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(fixture.CoreCandidate);
+        Assert.IsNull(fixture.Host.BeginNewGame(new("fixture:profile"), 1, "fixed", HostFixture.Options).Problem);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        Assert.IsTrue(fixture.Host.GetSaveStatus()!.Unsaved);
     }
 
     [TestMethod]

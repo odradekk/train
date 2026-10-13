@@ -53,7 +53,7 @@ internal sealed class HostCoordinator : IDisposable
 
     internal event Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>>? BoundaryCompleted;
     internal event Action<long, bool>? ReplacementCompleted;
-    internal CoreSessionOptions? SessionOptions { get; private set; }
+    internal CoreSessionOptions? SessionOptions { get; }
     internal IContentView? Content { get { EnsureOwner(); return _content; } }
     internal bool IsBusy { get { EnsureOwner(); return _pending is not null || _insideBoundary || _leaveLocked; } }
     internal bool AutoPauseOnFocusLoss
@@ -228,11 +228,11 @@ internal sealed class HostCoordinator : IDisposable
 
     internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
         ulong seed, string generatorVersion, CoreSessionOptions options)
-        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, options: options);
+        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface);
 
     internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
         string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
-        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved, options);
+        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved);
 
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
     {
@@ -265,12 +265,12 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     private (long Operation, CoreProblem? Problem) Begin(OperationKind kind, Func<PreparedOperation> prepare,
-        CommandSource source, SaveIdentity? save = null, bool unsaved = true, CoreSessionOptions? options = null)
+        CommandSource source, SaveIdentity? save = null, bool unsaved = true)
     {
         EnsureOwner();
         if (IsBusy) return (0, Problem("busy"));
         var operation = new PendingOperation(checked(++_nextOperation), kind, _active?.Binding,
-            _content, Task.Run(prepare), source) { Save = save, Unsaved = unsaved, Options = options };
+            _content, Task.Run(prepare), source) { Save = save, Unsaved = unsaved };
         _pending = operation;
         _active?.Driver.SetOperationLocked(true);
         return (operation.Id, null);
@@ -452,7 +452,6 @@ internal sealed class HostCoordinator : IDisposable
                     group.Saved = saved with { Name = group.Save.Name };
                 if (group.View.Fault is not null) group.Driver.Freeze();
                 _active = group; _content = group.Content;
-                SessionOptions = operation.Options;
                 operation.Succeeded = true;
                 activatedCore = null;
                 UpdateFocusPause();
@@ -679,7 +678,6 @@ internal sealed class HostCoordinator : IDisposable
         internal SaveIdentity? Save { get; init; }
         internal bool Unsaved { get; init; }
         internal bool Succeeded { get; set; }
-        internal CoreSessionOptions? Options { get; init; }
     }
     internal sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
         CoreResult<ICoreSessionCandidate>? Core, IContentView? Paired) : IDisposable

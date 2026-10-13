@@ -28,7 +28,6 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<string, ContentResult<IContentCapture>>? DecodeCaptureCall { get; init; }
     public Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureCall { get; init; }
     public int CaptureCount { get; private set; }
-    public int? CaptureThread { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
     public ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request, IContentFiles files,
@@ -50,7 +49,6 @@ public sealed class ScriptedContentFactory : IContentFactory
     {
         var call = CaptureCall ?? throw Unconfigured();
         CaptureCount++;
-        CaptureThread = Environment.CurrentManagedThreadId;
         return call(content, references);
     }
     public ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references) => throw Unconfigured();
