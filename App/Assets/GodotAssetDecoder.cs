@@ -117,6 +117,15 @@ internal sealed class GodotAssetDecoder : IDisposable
         using var textures = (Godot.Collections.Array)_state.GetTextures();
         var reference = textures[texture.GetProperty("index").GetInt32()].As<GltfTexture>();
         var result = _images[reference.SrcImage];
+        if (!_transferredImages.Contains(result))
+        {
+            using var image = result.GetImage();
+            var mipmapError = image.GenerateMipmaps();
+            if (mipmapError != Error.Ok) throw DecodeFailure($"GLB 内嵌图片 mipmap 创建失败：{mipmapError}。");
+            var mipmapped = ImageTexture.CreateFromImage(image);
+            result.Dispose();
+            _images[reference.SrcImage] = result = mipmapped;
+        }
         _transferredImages.Add(result);
         return result;
     }
