@@ -4,7 +4,7 @@
 
 ## 交付状态与入口
 
-已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂、候选与会话生命周期、阶段一小世界生成、同步内容发布、逐步位置推进、不可变世界查询，以及当前世界状态的捕获、编码、解码和普通恢复。列车运行和其他领域行为仍待交付；模块证据不代表严格重放、真实四模块联调或完整 Demo 已通过。
+已提供独立的 [Train.Core.Contracts](../../Contracts/Core/Train.Core.Contracts.csproj) 声明和[可编译消费样例](../../prototypes/core-contract/ConsumerExamples.cs)。当前实现了核心工厂、候选与会话生命周期、阶段一小世界生成、同步内容发布、列车编组及计划运行、不可变世界查询，以及当前世界状态的捕获、编码、解码、普通恢复、默认录制、起点确认与裁剪、固定故障片段、严格重放和检查点比较。调度及其他领域行为仍待交付；模块证据不代表真实四模块联调或完整 Demo 已通过。
 
 | 声明 | 调用方使用的内容 |
 | --- | --- |
@@ -20,17 +20,18 @@
 当前已实现的成员：
 
 - `PrepareNew` 及候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；生成失败不替换活动会话。
-- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进模拟位置，不运行领域系统；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。合法投影身份不同时提交，身份相同时在事务前抛 `ArgumentException`。当前发布尚不校验或标记世界所用的地貌、类型、设计等引用，也不执行领域适配；恢复候选的缺失标注见下文“当前载荷”。
+- 会话的 `Read`、`Submit`、`Advance` 和 `Dispose`。实现 `PublishContent` 和五个铁路命令，推进包含列车运行；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。合法投影身份不同时提交，身份相同时在事务前抛 `ArgumentException`。当前发布尚不适配保存的设计等世界引用；铁路货物查询和出发检查从当前货物目录识别缺失，恢复候选的缺失标注见下文“当前载荷”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
-- `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`，覆盖生成的图、占据者、资源及初始实例；列车详情查询尚未实现。
+- `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`、`FindTrain`，覆盖生成的图、占据者、资源、实例和运行列车；车辆位置随所属列车派生，轨道查询列出实际在轨列车。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
+- `ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart`、`PrepareReplay` 和 `CompareCheckpoints`，覆盖当前完整世界状态、`PublishContent` 和五个铁路命令，包含正常业务拒绝。运行在线路上及停留中的录制通过生产重放路径逐检查点比较。
 
 下表列出尚未实现的行为。尚未实现的独立成员直接抛 `NotImplementedException`，不以业务失败、故障结果或缺失查询代替。未实现的命令在取得编号和进入事务捕获之前抛出；异常消息只注明成员或命令种类。
 
 | 未实现成员 | 交付责任 |
 | --- | --- |
-| 编组、解编、运行计划、起停命令及列车查询 | #310；调度与开发断点行为由 #311 接入 |
-| `PrepareReplay`、`CompareCheckpoints`、`ReadRecording`、`CaptureRecordingStart`、`ConfirmRecordingStart` | #313 录制与严格重放 |
+| 方向锁、跟车、站台排队和开发断点行为 | #311 |
+| 自动货物规则、`CurrentRun`、`RecentReports`、`RunReported` | #385 |
 | 其余命令、`Economy`、其他 `Find*`、报价和预览 | 后续经济运输、制造与编辑、自有建设、战斗与生物领域任务 |
 | 内容发布时的世界引用检查与适配 | 待协调者指定 |
 
@@ -115,6 +116,8 @@
 
 宿主准备完整活动组并完成必要确认后调用一次 `Activate`。未激活候选的 `Dispose` 放弃候选；激活后会话所有权移交调用方，销毁候选不再销毁会话。会话 `Dispose` 终止写入口、释放自身持有的录制资料；已返回的值、读视图、捕获与导出资料仍有效。重复释放无副作用；对已释放会话调用操作或重复激活是编程错误。
 
+`CoreSessionOptions.RetainedRecordingStarts` 必须至少为 1，在选项进入核心时检查；`PrepareNew` 与 `PrepareRestore` 使用同一选项校验，对非正数抛 `ArgumentOutOfRangeException`，并把宿主给定的数量传入候选。没有关闭录制或无限保留的特殊数值。数量由宿主明确传入，实际容量与起点请求间隔仍由 #322 测量并提交用户确认。
+
 核心对象与内容投影都是托管数据，没有借用数组、引擎资源或文件句柄。宿主仍须按跨层协议处理旧组资源与迟到结果。新局/读档成功后的暂停、技术操作锁及编辑期间暂停由宿主执行，不成为核心命令。
 
 ## 读视图、查询与事件
@@ -142,6 +145,30 @@
 `TrainView.NodeTransit` 在线路上为空，在节点上必须提供。`EnteredFrom` 是实际进入当前节点的线路，随核心状态保存；在节点生成或编组而没有进入历史时为空。`NextEdge` 是核心已决定的下一条行驶线路，尚未决定或当前没有可用下一步时为空；它不承诺预留铁轨或永远不变。体素用它预建，不能自己按运行计划重新算路线；未能及时预建时沿用雾中缺段规则。线路方向可由进入线路的端点与当前节点取得，不重复保存方向字段。
 
 `TrainPosition.Edge.DistanceMeters` 表示整列长度中心，`TrainView.OrderFacing` 表示车辆列表哪一端沿最近实际行驶方向在前。编组默认首端在前，线路上倒车及节点原路返回时切换标记；节点驶入其他线路时保持，等待中保留最近实际状态。两项均随存档恢复，场景不自行记一份持久朝向。标记不参与牵引、选路或战斗计算；中心间距、成员被毁后的收拢及整列在节点切换的规则见[铁路位置](../design/06-railway.md#位置)。
+
+### 当前列车运行
+
+列车能力来自有序成员的保存设计及当前耐久。长度为各车 `LengthCells × 0.5` 米之和，质量为车辆设计质量与已知库存货物质量之和；耐久大于零且定义未缺失的部件提供完整能力。牵引相加，最高速度取有效动力部件额定速度的最小值，加速度为牵引除以质量。定义型货物使用当前 `Goods`，组装体货物使用世界保存的衍生投影。库存定义缺失时，`MassTons`、`Acceleration` 只表示已知部分，`Blockers` 必含 `content_missing / Train.Inventory`，主体为列车；相关身份使用 `assembly:`、`composite:`、`voxel:` 前缀并按 Ordinal 排序，不能把这些数值当作完整质量和加速度。
+
+每次从静止出发共用检查，依次返回 `control_missing / Train.Vehicles`、`traction_missing / Train.TractionKilonewtons`、`content_missing / Train.Inventory`、`overloaded / Train.Acceleration`。加速度等于规则下限允许出发。手动启动不满足时拒绝；停留后不满足时为 `Waiting`，每步重试。已经行驶的列车按已知质量继续到下一个停车点。铁路规则按 `WorldSummary.RailwayRule` 从当前投影读取，不保存另一个规则副本或添加缺失兜底；引用与普通恢复适配责任沿用世界生成路径。
+
+每步为 1/60 秒。到下一必须停车点的路径距离 `D` 每步重算；Station、单次计划终点和手动停车的前方节点要求停车。若后续目标无路，最后可到达的目标节点就是预测停车点。每步按加速、巡航、制动三段精确积分：未达到制动距离时，峰值速度为 `sqrt((2abD + b v²)/(a+b))`，受最高速度限制；加速时间为 `max(0,(峰值-v)/a)`，巡航距离为 `max(0,D-加速距离-峰值²/(2b))`，制动时间为 `峰值/b`。已处于制动距离内直接按 `b` 制动。节点到达步截断于端点，舍去剩余时间；途经节点保留速度，下一步进入下一条线路。临近端点才收到停车或换计划、到达时才发现无路，以及制动舍入误差，均允许在节点写入零速度，这是节点抽象的强制停车例外。负的阶段时间或距离按零处理。
+
+选路权重为线路长度除以最高速度，用时相同时按完整线路身份序列的字典序比较，与邻接枚举顺序无关。敌对聚居地及生物聚落可作当前目标，不能作中间节点。至少一条铁轨没有断点且不在修复才可走，进入时取最小轨号；加轨施工不关闭原有铁轨。当前多列车同轨互不约束。无路时停在节点，活动为 `NoRoute`，原因 `no_route / Train.Plan` 带目标节点身份，每步重新选路。沿 `EnteredFrom` 原路实际离开时切换正反标记；线路上倒车由 #311 和战斗阶段接入。
+
+`Stopped` 表示手动停车、无计划或单次完成；`Running` 表示在线路上或途经节点；`Servicing` 表示 Station 停留计时，包含手动停车后恢复的余时；`Waiting` 表示静止出发能力不足；`NoRoute` 表示当前目标无路。战斗活动尚不产生。停留的索引仍指当前 Station，余时每步减一，到零后依序消费；到达 Station 立即计时，不占站台，不改 `OccupiedPlatforms`，完整站台规则由 #311 接入。运行节点上已选好下一条线路时 `NextEdge` 有值，在线路上 `NodeTransit` 为空，停车、停留、等待和无路时 `NextEdge` 为空。
+
+`TrainArrived` 在每次实际从线路到达节点时发出，包括中间节点；同节点重复目标和在当前节点启动不会重复发出。到达事件先于该到达引起的 `TrainActivityChanged`；活动变化才发活动事件，反复等待不重复通知。编组的 `TrainCompositionChanged` 携带新列车及完整有序成员；解编携带被删除列车及空成员数组。`CurrentRun` 为 null、`RecentReports` 为空且不发 `RunReported`，运行报告和自动交易由 #385 接入。交战规则由完好武器派生：有武器为 `(ArmedFirst, ArmedOnly, Engage, 0)`，否则为 `(ArmedFirst, ArmedOnly, Retreat, 0)`；优先级和阈值是暂定值，由战斗阶段确定。
+
+| 命令 | 当前条件及领域拒绝（代码 / 字段） |
+| --- | --- |
+| `FormTrain` | 有序成员非空且唯一：`composition_empty`、`vehicle_duplicate / OrderedVehicles`；车辆存在、玩家自有、未编组、在同一非敌对聚居地停放：`object_missing`、`not_owned`、`vehicle_in_train`、`vehicles_not_colocated`、`access_denied / OrderedVehicles`；新列车或库存编号耗尽为 `identity_exhausted / World.Next`。成功创建停车列车及空库存，回执给出二者身份，保留车辆输入顺序 |
+| `DisbandTrain` | 在节点且速度为零：`train_not_stationary_at_node / Train.Position`；节点不是聚居地：`settlement_unavailable / Train.Position`，聚居地敌对：`access_denied / Train.Position`；库存必须为空：`inventory_not_empty / Train.Inventory`。停留、等待、无路的静止列车也可解编；删除列车、计划和库存，成员原地停放，身份不复用 |
+| `ReplaceRunPlan` | 非空：`plan_empty / Plan.Stops`；目标存在：`object_missing / Plan.Stops[i].Node`，主体为该节点；循环目标不能全部相同：`plan_degenerate / Plan.Stops`。Station 可设在任何现存节点，空节点、敌对聚居地及生物聚落均照常停留计时。非空 GoodsRules 在编号前抛 `NotImplementedException`。索引置 0，放弃剩余停留，保持启停意图；运行在线路上先到前方节点，当前节点目标依序视为已到达，停车列车保持停车且索引 0 |
+| `StartTrain` | 非 `Stopped` 时接受，清除尚未完成的停车请求，否则保持业务状态；仅在 `Stopped` 时检查未完计划（`plan_missing / Train.Plan`、`plan_completed / Train.NextStopIndex`）及上述静止出发条件。暂停停留恢复余时，否则立即选择路线 |
+| `StopTrain` | 节点立即停车并暂停停留；在线路上请求停在前方节点。重复请求保持同样业务状态 |
+
+后四个命令不存在的列车统一为 `object_missing / Train`，主体为该列车；编组中缺失车辆的主体为该车辆实例，非自有用 `not_owned`，聚居地敌对用 `access_denied`。正常拒绝仍前进命令编号和边界序号并录制，无事件且业务状态不变。单次计划完成后保留计划、索引为空、活动为 `Stopped`，须替换计划才可再次启动。相邻重复目标依序消费，零停留 Station 仍是停车点。
 
 普通查询无副作用。报价不锁价格、库存、容量或资金，也不是提交凭证。只读派生计算若遇内部故障，返回 `CoreResult.Faulted` 及该视图的位置，不记录命令或修改任何活动会话；不能用旧视图的错误冻结新局。命令执行重新裁决时发生内部故障，仍按下节冻结。这一区分也适用于独立新局/读档准备与活动运行。
 
@@ -199,6 +226,8 @@
 
 顶层载荷包含格式版本、位置、下一命令编号、修订、当前输入身份、故障、`world` 和 `references`。`world` 保存完整生成来源 `source`（含种子、生成器版本、生成内容语义修订、解析配置及开局输入）、图与资源、聚居地与生物聚落、聚居地模板业务副本和地块、实例耐久、列车、库存、资金、全部下一身份编号，以及实际设计投影和衍生货物。实例只保存 `DesignHash`，引用同一 `world.designs` 中的投影，不在每个实例重复设计。实例和库存位置由所有者派生，不进载荷。
 
+铁路新增权威字段全部进入捕获、检查点和解码一致性检查：列车的唯一 `position`（节点或线路、轨号、方向、中心距离）、`activity`、`speed_meters_per_second`、`plan`、`next_stop_index`、`remaining_dwell_steps`、`stop_requested`，以及节点转场与正反标记；聚居地的 `parked_vehicles` 是未编组车辆的唯一停放归属。成员、库存所有者和下一身份编号沿用原世界状态。解码检查位置范围、节点/线路与转场互斥、活动与速度及计划进度匹配、暂停停留余时、停车请求仅在线路上、计划目标存在、Station 货物规则为空、循环不退化，以及车辆与列车或停放清单的双向唯一归属。能力、Blockers、预测距离、交战默认值和运行报告占位均为查询派生，不增加持久副本。
+
 `world.definition_dependencies` 保存生成时使用的规则、类型及流程等外部依赖身份和字段路径，使无内容解码仍能重建引用；它不是冻结执行参数。顶层 `references` 是交接清单，生成候选、捕获及恢复候选都由同一 [WorldReferences](../../Core/World/WorldReferences.cs) 从状态计算。`Templates` 按最终聚居地所有者排序且唯一，包含源模板和本地地块号／尺寸；`Designs`、`Definitions` 覆盖实际依赖，`Inputs` 使用对应候选或捕获的当前输入身份。新局缺少所需投影即配置失败，成功候选没有缺失项。
 
 检查点包含位置、下一命令编号、故障全部字段及全部 `world` 字段；修订和当前输入身份仍在检查点之外，生成内容语义修订作为世界来源的一部分保留。文本对 UTF-8 求 SHA-256，取大写十六进制。捕获、引用和检查点在会话推进及释放后仍有效。
@@ -207,7 +236,7 @@
 
 `PrepareRestore` 使用调用方固定的当前投影。身份相同则适配报告为空；身份不同时只改候选输入身份，报告恰好一条 `CoreProblem("content_changed", "InputIdentity", null, [旧身份, 新身份])`。两种情况都保留世界、位置、修订和下一命令编号，检查点不变；候选 `References.Inputs` 使用候选身份。`MissingReferences` 按传入投影中已知缺失标注及字段路径产生，当前不做进一步适配，不重新计算保存的初始世界。原捕获不变。普通保存或普通恢复遇到故障返回 `Failure(frozen, "Fault")`，诊断载荷仍可解码；外部自行实现的 `ICoreCapture` 传入恢复属于编程错误，抛 `ArgumentException`。
 
-严格恢复的输入拒绝、检查点比较与录制仍由 #313 接入，本票不增设严格恢复入口。测试覆盖公开新局创建、共享捕获情景、跨进程生成及保存恢复路径。#313 严格重放和 #298 真实四模块交接仍待验证，也未证明后续经济、调度或战斗状态恢复。
+严格重放复用同一解码器，从捕获恢复完整世界和原输入身份，不走普通恢复的内容适配。测试覆盖公开新局创建、共享捕获情景、跨进程生成、保存恢复及生产重放路径；重放语料用公开 `PrepareNew` 的固定输入在运行时生成起点，没有另行提交起点载荷文件。#298 的真实四模块交接仍待验证，也未证明后续经济、调度或战斗状态恢复。
 
 ### 完整领域状态与录制
 
@@ -219,17 +248,27 @@
 
 核心保管命令、检查点和故障片段；宿主按 `RequiredReferences` 保管对应内容并写文件。`ReadRecording` 给出截止位置，因而没有命令的运行区间也可以准确导出。`CaptureRecordingStart` 建立待写起点；宿主仅在起点和全部依赖已经发布后，以原起点标识调用 `ConfirmRecordingStart(PublishedWithDependencies)`。
 
+当前会话创建时自动建立初始起点，出现在 `ReadRecording().Starts` 中，同样需要宿主确认。检查点只在录制起点、故障边界及读取窗口的截止边界生成；同一内容的截止检查点不重复列出，不逐命令生成，也不设置核心固定采样间隔。命令与对应记录在同一完整边界生效，查询、捕获、起点确认、暂停和倍速不生成模拟输入。当前 `content.publish` 的规范负载为 `{"input_format_version":2,"kind":"content.publish","input_identity":"<目标 CoreInputId>"}`；目标投影由宿主保留，核心不编码内容投影。窗口引用合并各起点和固定故障片段的完整清单，并包含全部 Completed 命令的前后及目标输入身份。设计和输入身份按 Ordinal 排序去重；定义依赖按类型身份及字段路径排序去重；模板按 `Owner` 排序且所有者唯一。起点世界的设计、模板和定义依赖在普通窗口及固定故障片段中保留。
+
+五个铁路命令同用输入格式 2：`train.form` 携带 `ordered_vehicles` 数字数组；`train.disband`、`train.start`、`train.stop` 携带 `train`；`train.replace_run_plan` 携带 `train` 与 `plan:{loop,stops}`。Waypoint 为 `{kind:"waypoint",node}`，Station 为 `{kind:"station",node,dwell_steps,goods_rules:[]}`。数组保留业务顺序，整数按完整范围编码，字段输出顺序固定；解码拒绝缺少、多余、重复或非法字段及非空货物规则。铁路命令的内容依赖来自前后输入身份，不产生发布目标。生产重放通过同一 `Submit` 和 `Advance` 路径执行，运行位置、停留进度及其余铁路权威状态均参加检查点比较。
+
 `RecordedCommand` 的命令编号与前后位置统一由 `Result` 中的 `CommandReceipt` 提供，不另外保存可矛盾的编号或前置位置。此结构调整不改变既定命令线格式的编号、位置与结果语义。
 
 `CoreReferenceManifest.Templates` 列出当前聚居地、冻结建城任务及保留录制所需的实例副本引用，按 `Owner` 排序且所有者唯一。内容捕获、普通读档和严格复现须保留这些所有者对应的固定副本；来源定义身份仅作来源说明，不能用同身份的当前模板替换已有副本。恢复时缺少所声明所有者的内容副本是载荷不一致，不用当前源模板兜底。副本引用及其固定场景模型设计由内容展开，宿主不自行遍历模板字段。
 
 成功确认后，核心按保留策略裁掉较早的普通证据，返回已不被任何片段引用的输入身份；宿主还须考虑活动内容等其他使用者。写入失败调用 Failed，保留旧证据并记录缺口；新起点只恢复之后的连续范围。故障片段固定保留，不参与普通窗口裁剪。窗口数和起点间隔由测量确定，本契约不给出伪装成性能结论的默认值；宿主不能把一次普通保存成功当作录制起点成功。
 
+每个已发出的起点只接受一次确认：从未发出的标识抛 `ArgumentException`，重复确认抛 `InvalidOperationException`。迟到的旧成功确认不倒退裁剪边界。失败缺口从该起点的位置开始，到之后某个起点确认成功的位置结束；已存在较新成功起点时，迟到失败形成闭合缺口，历史缺口仍保留。故障片段固定故障时窗口最早的起点至故障边界的全部命令、检查点和引用，之后的普通裁剪不改动它。冻结后不能捕获新的录制起点，返回 `frozen`、字段 `Fault`；故障资料由已固定片段和诊断捕获提供。
+
 ## 严格重放
 
 宿主读取复现容器并还原包内内容投影，调用 `PrepareReplay`；核心比较原构建、模拟版本、兼容环境、配置和输入身份。依赖不完整、格式无法理解或身份不符明确失败，不跳过命令，也不读取安装目录补救。
 
+当前 `CoreReplayInput.FormatVersion` 为 1，与命令输入格式 2 分开。`RuntimeIdentity` 的 `GameBuild`、`SimulationVersion`、`OperatingSystem`、`Architecture` 和 `DotNetRuntime` 全部按 Ordinal 匹配；不匹配返回 `incompatible_replay`，字段为 `OriginalRuntime.<成员>`，兼容粒度由宿主提供的字符串决定。准备阶段解码起点与全部命令，核验记录位置、检查点格式／SHA-256，并从 `contentHistory` 取得起点及所有命令前后、目标输入身份的投影；任一依赖缺失返回 `content_missing`。不支持的版本和种类返回 `unsupported_format`，非法字段和位置返回 `invalid_state`，附字段路径；带故障的起点不能作为可执行起点。准备阶段也对全部 `contentHistory` 使用与 `PublishContent`、普通恢复相同的内容投影校验，非法投影抛 `ArgumentException`，不能在执行一段前缀后才发现输入无法使用。检查点复用世界载荷读取与校验，世界内部差异以 JSON Pointer 报告。世界来源含生成配置，未来新增领域字段仍须同步接入。
+
 重放只有读取、推进和边界捕获入口，没有 Submit。`Advance` 到达预算、指定位置、记录截止位置、首个差异或故障即返回明确停止原因；`stopAt` 可以指定同一步内某条命令后的边界，不能越过它。同一步内的命令按记录位置顺序执行，拒绝结果也核对。`CompareCheckpoints` 返回首个字段差异，不要求宿主解析检查点文本。`CaptureBoundary` 可作为普通读档候选建立可编辑副本；此后当前内容适配属于新会话，不改原重放或声称其仍是严格复现。
+
+步骤预算计实际推进的模拟步数；当前边界上的命令不消耗预算，因此 `Advance(0)` 可以执行同一步命令，`stopAt` 仍先于下一条命令检查。指定已过去或记录范围内不存在的边界是编程错误，抛 `ArgumentOutOfRangeException`；指定记录末尾之后的位置仍在记录末尾停止。回执按完整决策和嵌套集合内容比较，不用 record 的引用相等判定。检查点按稳定字段顺序比较并报告 JSON Pointer、预期及实际值，伪造摘要或非法文本返回失败；位置相同的健康与故障边界分别核对。终止后重复推进保持终止位置，不重复返回事件；未重现记录中的故障时，不能暴露超出录制末尾的状态。
 
 ## 验证与性能责任
 

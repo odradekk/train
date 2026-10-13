@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
 using Train.Core.World;
+using Train.Core.Railway;
 
 namespace Train.Core.Sessions;
 
@@ -10,19 +11,21 @@ internal sealed record CoreState(SimulationPosition Position, ulong NextCommandN
 internal abstract record CommandEffect
 {
     private CommandEffect() { }
-    internal sealed record Accepted(CoreContentProjection Content, ImmutableArray<CoreEvent> Events) : CommandEffect;
+    internal sealed record Accepted(CoreContentProjection Content, ImmutableArray<CoreEvent> Events,
+        WorldState? World = null, ImmutableArray<WorldObjectId> Created = default) : CommandEffect;
     internal sealed record Rejected(ImmutableArray<CoreProblem> Problems) : CommandEffect;
 }
 
-internal sealed class CoreSession(CoreState state) : ICoreSession
+internal sealed class CoreSession(CoreState state, int retainedRecordingStarts = 1) : ICoreSession
 {
     private bool _disposed;
+    private readonly CoreRecording _recording = new(state, retainedRecordingStarts);
     internal CoreState State { get; private set; } = state;
 
     public ICoreReadView Read()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World);
+        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World, State.Content);
     }
 
     public SubmissionResult Submit(CoreCommand command, CommandSource source)
@@ -31,15 +34,19 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
         ArgumentNullException.ThrowIfNull(command);
         if (!Enum.IsDefined(source))
             throw new ArgumentOutOfRangeException(nameof(source));
-        if (command is not CoreCommand.PublishContent publish)
-            throw new NotImplementedException($"{command.GetType().Name} 尚未实现。");
-        WorldInputs.ValidateContent(publish.Content);
-        if (publish.Content.Identity == State.Content.Identity)
-            throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
-        return ExecuteCommand(_ => new CommandEffect.Accepted(publish.Content, []));
+        if (command is CoreCommand.PublishContent publish)
+        {
+            WorldInputs.ValidateContent(publish.Content);
+            if (publish.Content.Identity == State.Content.Identity)
+                throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
+            return ExecuteCommand(publish, source, _ => new CommandEffect.Accepted(publish.Content, []));
+        }
+        TrainCommands.Validate(command);
+        return ExecuteCommand(command, source, content => TrainCommands.Execute(State.World, content, command));
     }
 
-    internal SubmissionResult ExecuteCommand(Func<CoreContentProjection, CommandEffect> body)
+    internal SubmissionResult ExecuteCommand(CoreCommand command, CommandSource source,
+        Func<CoreContentProjection, CommandEffect> body)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var before = State;
@@ -49,48 +56,69 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             return new SubmissionResult.NotAccepted(new("identity_exhausted",
                 before.NextCommandNumber == ulong.MaxValue ? "NextCommandNumber" : "Position.Sequence", null, []));
 
+        var payload = CoreCommandEncoding.Encode(command);
         var position = new SimulationPosition(before.Position.CompletedSteps, checked(before.Position.Sequence + 1));
+        CoreState after;
+        SubmissionResult.Completed result;
         try
         {
             var effect = body(before.Content);
             var decision = effect switch
             {
-                CommandEffect.Accepted => (CommandDecision)new CommandDecision.Accepted([], []),
+                CommandEffect.Accepted acceptance => (CommandDecision)new CommandDecision.Accepted(
+                    acceptance.Created.IsDefault ? [] : acceptance.Created, []),
                 CommandEffect.Rejected rejected => new CommandDecision.Rejected(rejected.Problems),
                 _ => throw new InvalidOperationException("命令结果无效。")
             };
             var events = effect is CommandEffect.Accepted accepted
                 ? Envelopes(position, accepted.Events) : ImmutableArray<EventEnvelope>.Empty;
-            var after = before with
+            after = before with
             {
                 Position = position,
                 NextCommandNumber = checked(before.NextCommandNumber + 1),
                 Revision = new(checked(before.Revision.Value + 1)),
-                Content = effect is CommandEffect.Accepted change ? change.Content : before.Content
+                Content = effect is CommandEffect.Accepted change ? change.Content : before.Content,
+                World = effect is CommandEffect.Accepted { World: { } world } ? world : before.World
             };
-            State = after;
-            return new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
+            result = new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
                 after.Position, decision), events, null);
         }
         catch (Exception exception)
         {
             var fault = new CoreFault("internal_error", position, nameof(Submit), "", null);
-            State = before with
+            after = before with
             {
                 Fault = fault,
                 Revision = before.Revision.Value == ulong.MaxValue
                     ? before.Revision : new(checked(before.Revision.Value + 1))
             };
-            return new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
+            result = new SubmissionResult.Completed(new(before.NextCommandNumber, before.Position,
                 before.Position, new CommandDecision.Faulted(fault)), [],
                 new(exception.Message, exception.StackTrace));
         }
+        _recording.Record(new(source, payload, result.Receipt, before.Content.Identity, after.Content.Identity));
+        State = after;
+        if (after.Fault is not null)
+            _recording.FreezeFault(after);
+        return result;
     }
 
-    public AdvanceResult Advance(uint steps) => Advance(steps, content => (content, []));
+    public AdvanceResult Advance(uint steps) => AdvanceWorld(steps, before =>
+    {
+        var (world, events) = TrainOperations.Advance(before.World, before.Content);
+        return (before.Content, world, events);
+    });
 
     internal AdvanceResult Advance(uint steps,
         Func<CoreContentProjection, (CoreContentProjection Content, ImmutableArray<CoreEvent> Events)> stepBody)
+        => AdvanceWorld(steps, before =>
+        {
+            var (content, events) = stepBody(before.Content);
+            return (content, before.World, events);
+        });
+
+    private AdvanceResult AdvanceWorld(uint steps,
+        Func<CoreState, (CoreContentProjection Content, WorldState World, ImmutableArray<CoreEvent> Events)> stepBody)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var completed = 0u;
@@ -103,13 +131,14 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             try
             {
                 position = new(checked(before.Position.CompletedSteps + 1), 0);
-                var change = stepBody(before.Content);
+                var change = stepBody(before);
                 var stepEvents = Envelopes(position, change.Events);
                 var after = before with
                 {
                     Position = position,
                     Revision = new(checked(before.Revision.Value + 1)),
-                    Content = change.Content
+                    Content = change.Content,
+                    World = change.World
                 };
                 events.AddRange(stepEvents);
                 State = after;
@@ -124,6 +153,7 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
                     Revision = before.Revision.Value == ulong.MaxValue
                         ? before.Revision : new(checked(before.Revision.Value + 1))
                 };
+                _recording.FreezeFault(State);
                 diagnostic = new(exception.Message, exception.StackTrace);
             }
         }
@@ -146,20 +176,26 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
     public CoreRecordingWindow ReadRecording()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("ReadRecording 尚未实现。");
+        return _recording.Read(State);
     }
 
     public CoreResult<RecordingStart> CaptureRecordingStart()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("CaptureRecordingStart 尚未实现。");
+        return State.Fault is not null
+            ? new CoreResult<RecordingStart>.Failure([new("frozen", "Fault", null, [])])
+            : new CoreResult<RecordingStart>.Success(_recording.CaptureStart(State));
     }
 
     public RecordingMaintenance ConfirmRecordingStart(RecordingPointId point, RecordingWriteOutcome outcome)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("ConfirmRecordingStart 尚未实现。");
+        return _recording.Confirm(point, outcome);
     }
 
-    public void Dispose() => _disposed = true;
+    public void Dispose()
+    {
+        _disposed = true;
+        _recording.Clear();
+    }
 }

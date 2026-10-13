@@ -85,7 +85,7 @@
 
 ## 和现有代码的差别
 
-模板和世界生成的生产接入由[工单重组](https://github.com/odradekk/train/issues/294)安排到基础贯通阶段；历史[世界生成与宏观地图](https://github.com/odradekk/train/issues/223)保留原任务背景。本文的目标格式与样例不表示生产接入已经完成。
+真实 `ContentFactory` 的 Initial 加载已支持本文版本 2 的类型、权重、场景模型、地块和显示字段，校验预建建筑与地块的对应，并提供核心模板和场景布局投影。`founding`、`inventory`、`production_plans` 省略或为空时支持，非空时以 `unsupported_format` 拒绝；起始建筑和经营计划仍归后续阶段。`WithSettlementCopies` 按最终聚居地身份固定副本，所有者布局查询读取该副本；新 Initial 视图中的模板更新不改变已有视图的副本数据。副本的捕获、恢复与真实 Reload 保留由 #371 接入，核心选择由 #309、真实交接由 #298 验证，当前宿主的新装配由 #317 接入。完整格式样例不表示全部模板字段已受支持。
 
 ## 初始生产计划
 

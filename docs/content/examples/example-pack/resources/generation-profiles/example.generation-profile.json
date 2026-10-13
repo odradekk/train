@@ -98,7 +98,7 @@
       "market": "demo-market",
       "construction": "demo-construction",
       "railway": "basic",
-      "combat": "basic"
+      "combat": "basic-combat"
     }
   },
   "start": {
