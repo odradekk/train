@@ -128,11 +128,11 @@ def content_files():
     voxel("control-equipment", "驾驶台", "equipment", "painted_metal", good(420, 0.018, behaviors={"control": {}}))
     voxel("storage-equipment", "货舱", "equipment", "painted_metal", good(126, 0.016, behaviors={"storage": {"capacity": 180}}))
     goods = (("staple-food", "主食", 12, 0.7), ("clothing", "衣物", 46, 0.8),
-             ("processed-food", "加工食品", 34, 0.6), ("consumer-goods", "消费品", 58, 1.4),
+             ("prepared-food", "加工食品", 34, 0.6), ("consumer-goods", "日用品", 58, 1.4),
              ("consumer-electronics", "消费电子", 176, 1.6), ("medical-supplies", "医疗用品", 94, 0.4))
     for identity, name, value, mass in goods:
         voxel(identity, name, "organic", "organic", good(value, mass))
-    voxel("stone", "石料", "soil", "stone_soil", good(18, 42, raw=True))
+    voxel("stone", "石料", "soil", "stone_soil", good(18, 0.042, raw=True))
     voxel("ground", "地表", "organic", "stone_soil")
     voxel("subsoil", "土层", "soil", "stone_soil")
     voxel("rock", "岩层", "soil", "stone_soil")
@@ -182,7 +182,7 @@ def content_files():
     needs = ("food", "clothing", "improved_diet", "consumer_goods", "consumer_electronics", "medical_supplies")
     consumption = []
     for order, (identity, _, _, _) in enumerate(goods):
-        roles = ("food", "improved_diet") if identity == "processed-food" else (needs[order],)
+        roles = ("food", "improved_diet") if identity == "prepared-food" else (needs[order],)
         consumption.append({"good": identity, "selection_order": order,
                             "satisfies": [{"need": role, "amount_per_good_unit": 1.4 if role == "food" else 1.1} for role in roles]})
     document("rules", "population-rule", "basic-population",
