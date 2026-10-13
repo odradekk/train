@@ -22,7 +22,9 @@ internal static class ProjectAnalysis
     internal static bool OwnsCompileSource(string root, string name, string owner, string path) =>
         IsChildPath(path, owner) || name == "Train.AssetExport" &&
         (IsChildPath(path, Path.Combine(root, "App", "Assets")) ||
-         Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison));
+         Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison)) || name == "Train.Benchmarks" &&
+        new[] { "SimulationExamples.cs", "ResourceCommandCodec.cs" }.Any(file =>
+            Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Core", "Simulation", file), PathComparison));
 
     internal static IEnumerable<string> BuiltInImportFailures(string root)
     {
@@ -190,23 +192,23 @@ internal static class ProjectAnalysis
         var properties = $"CustomAfterMicrosoftCommonTargets={targets};ContractChecksAssembly={assembly};ContractRoot={root};ContractFactsDirectory={output};ContractCollectReferences={isolated.ToString().ToLowerInvariant()};UseSharedCompilation=false;BuildProjectReferences=false;RestoreRecursive=false";
         var projectItems = names.Select(name =>
         {
-            var sample = !isolated && projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal);
+            var needsBuild = !isolated && (name == "Train.Benchmarks" || projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal));
             var config = (name is "Train" or "Train.AssetExport") && configuration == "Release" ? "ExportRelease" : configuration;
             return new XElement("ContractProject", new XAttribute("Include", Path.Combine(root, projects[name].Path)),
-                new XElement("AdditionalProperties", $"Configuration={config};ContractBuildSample={sample.ToString().ToLowerInvariant()}"),
-                new XElement("Sample", sample.ToString().ToLowerInvariant()));
+                new XElement("AdditionalProperties", $"Configuration={config};ContractBuildSample={needsBuild.ToString().ToLowerInvariant()}"),
+                new XElement("NeedsBuild", needsBuild.ToString().ToLowerInvariant()));
         }).ToArray();
-        var sampleItems = projectItems.Where(item => item.Element("Sample")!.Value == "true").Select(item =>
+        var buildItems = projectItems.Where(item => item.Element("NeedsBuild")!.Value == "true").Select(item =>
         {
-            var sample = new XElement(item);
-            sample.Name = "ContractSample";
-            return sample;
+            var buildProject = new XElement(item);
+            buildProject.Name = "ContractBuildProject";
+            return buildProject;
         });
         var traversal = new XDocument(new XElement("Project",
-            new XElement("ItemGroup", projectItems, sampleItems),
+            new XElement("ItemGroup", projectItems, buildItems),
             new XElement("Target", new XAttribute("Name", "CollectAll"),
                 // 新的全局属性让 Build 重新求值，导入 Restore 刚生成的 NuGet 配置。
-                new XElement("MSBuild", new XAttribute("Projects", "@(ContractSample)"), new XAttribute("Targets", "Restore"),
+                new XElement("MSBuild", new XAttribute("Projects", "@(ContractBuildProject)"), new XAttribute("Targets", "Restore"),
                     new XAttribute("Properties", properties + ";ContractRestorePhase=true"), new XAttribute("BuildInParallel", "false")),
                 new XElement("MSBuild", new XAttribute("Projects", "@(ContractProject)"), new XAttribute("Targets", "CollectContractFacts"),
                     new XAttribute("Properties", properties), new XAttribute("BuildInParallel", "false")))));

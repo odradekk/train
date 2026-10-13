@@ -57,7 +57,7 @@ Do not prompt the worker or join the review. Act only on:
   - A pair where both agents are idle and no `PAIR-RESULT:` arrived gets a prompt asking the reviewer to continue or report.
   - Fill free slots under [Selecting tasks](#selecting-tasks).
   - Retry any pending workspace cleanup.
-  - Check that the nightly runner `box-linux-nightly` is online (`gh api repos/odradekk/train/actions/runners`) and that the latest nightly run is under 36 hours old. Its host has no service manager, so a reboot stops the runner; tell the user when it is offline.
+  - Check that the nightly runner `lan-linux-nightly` is online (`gh api repos/odradekk/train/actions/runners`) and that the latest nightly run is under 36 hours old. The runner runs as a systemd service; when it is offline, ask the user to check the runner service.
   - Check whether the stage is ready for [integration](#stage-integration).
 
 ## 2. Blocked pairs — coordinator

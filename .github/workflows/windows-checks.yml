@@ -1,16 +1,18 @@
 name: Windows checks
-run-name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} · ${{ github.event.pull_request.head.sha || github.sha }}
+run-name: ${{ (github.event_name == 'schedule' || inputs.selection == 'nightly') && 'Linux' || 'Windows' }} ${{ github.event_name == 'schedule' && 'nightly' || inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }} · ${{ github.event.pull_request.head.sha || github.sha }}
 
 on:
+  schedule:
+    - cron: '23 20 * * *' # 04:23 Asia/Shanghai
   pull_request:
     branches: [master]
     types: [opened, synchronize, reopened, labeled]
   workflow_dispatch:
     inputs:
       selection:
-        description: Unified entry selection (Benchmark/platform/manual excluded)
+        description: Check selection
         type: choice
-        options: [routine, correctness]
+        options: [routine, correctness, nightly]
         default: routine
 
 permissions:
@@ -20,7 +22,7 @@ jobs:
   checks:
     name: Windows ${{ inputs.selection || (github.event.action == 'labeled' && github.event.label.name == 'ci:correctness' && 'correctness') || (github.event.action == 'labeled' && 'unrelated-label') || 'routine' }}
     # A label is a one-shot request; leaving it on a PR does not make pushes heavy.
-    if: github.event.action != 'labeled' || github.event.label.name == 'ci:correctness'
+    if: github.event_name != 'schedule' && inputs.selection != 'nightly' && (github.event.action != 'labeled' || github.event.label.name == 'ci:correctness')
     runs-on: windows-2025
     timeout-minutes: 30
     env:
@@ -161,3 +163,94 @@ jobs:
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14
+
+  nightly:
+    name: Linux nightly
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.selection == 'nightly')
+    runs-on: [self-hosted, linux, nightly]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout tested head
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record runner environment
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path TestResults/ci -Force | Out-Null
+          @"
+          run=$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          attempt=$env:GITHUB_RUN_ATTEMPT
+          event=$env:GITHUB_EVENT_NAME
+          selection=nightly
+          runner=$env:RUNNER_OS/$env:RUNNER_ARCH
+          powershell=$($PSVersionTable.PSVersion)
+          "@ | Set-Content TestResults/ci/environment.txt
+          "head=$(git rev-parse HEAD)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "godot=$(& $env:GODOT --headless --version)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Command python, python3 -ErrorAction SilentlyContinue |
+            ForEach-Object { "$($_.Name)=$($_.Source)" | Add-Content TestResults/ci/environment.txt }
+          "python3=$(python3 --version)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "jsonschema=$(python3 -c 'import importlib.metadata; print(importlib.metadata.version("jsonschema"))')" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Restore locked .NET tools
+        shell: pwsh
+        run: dotnet tool restore
+
+      - name: All correctness and stage checks
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
+          exit $LASTEXITCODE
+
+      - name: Publish available reports
+        if: always()
+        shell: pwsh
+        run: |
+          Get-ChildItem TestResults -Directory -ErrorAction SilentlyContinue |
+            Where-Object Name -Match '^[a-z-]+-\d{8}T\d{9}-[0-9a-f]{7}$' |
+            ForEach-Object {
+              $summary = Join-Path $_.FullName 'summary.json'
+              if (Test-Path -LiteralPath $summary) {
+                "### $($_.Name)" | Add-Content $env:GITHUB_STEP_SUMMARY
+                '```json' | Add-Content $env:GITHUB_STEP_SUMMARY
+                Get-Content -LiteralPath $summary -Raw | Add-Content $env:GITHUB_STEP_SUMMARY
+                '```' | Add-Content $env:GITHUB_STEP_SUMMARY
+              }
+            }
+
+      - name: Upload available evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: linux-nightly-${{ github.run_id }}-${{ github.run_attempt }}
+          path: TestResults/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Clean runner workspace
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $workspace = (Resolve-Path -LiteralPath $env:GITHUB_WORKSPACE).Path
+          if ((Get-Location).Path -cne $workspace) { throw 'Cleanup requires the current GitHub workspace directory.' }
+          $repository = git rev-parse --show-toplevel
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ((Resolve-Path -LiteralPath $repository).Path -cne $workspace) { throw 'Cleanup requires the GitHub workspace repository root.' }
+          git clean -ffdx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem -LiteralPath $workspace -Force | Format-Table Mode, Name

@@ -7,12 +7,12 @@ using Train.Core.Contracts;
 namespace Train.Core.Tests.Sessions;
 
 [TestClass]
-[TestCategory("integration")]
 public sealed class CoreProcessTests
 {
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    [TestCategory("integration")]
     public async Task World_save_in_one_process_restores_the_same_execution_in_another()
     {
         var directory = CreateDirectory();
@@ -40,6 +40,46 @@ public sealed class CoreProcessTests
         Assert.IsTrue(world.GetProperty("nodes").GetArrayLength() > 1);
         Assert.IsTrue(world.GetProperty("lairs").GetArrayLength() > 0);
         Directory.Delete(directory, true);
+    }
+
+    [TestMethod]
+    [TestCategory("stage")]
+    public async Task Production_recording_replays_from_disk_in_a_new_process()
+    {
+        var directory = CreateDirectory();
+        var recorded = await Run(directory, "recorded", "record");
+        var replayed = await Run(directory, "replayed", "replay");
+        AssertIndependent(recorded, replayed);
+        AssertCheckpoints(recorded.Samples, replayed.Samples);
+        Directory.Delete(directory, true);
+    }
+
+    [TestMethod]
+    [TestCategory("stage")]
+    public async Task Every_step_restored_from_disk_matches_continuous_execution()
+    {
+        var directory = CreateDirectory();
+        var continuous = await Run(directory, "continuous", "stage-continuous");
+        var restored = await Run(directory, "restored", "every-step");
+        AssertIndependent(continuous, restored);
+        AssertCheckpoints(continuous.Samples, restored.Samples);
+        CollectionAssert.AreEqual(continuous.Receipts, restored.Receipts);
+        Directory.Delete(directory, true);
+    }
+
+    private static void AssertCheckpoints(CoreProcessSample[] expected, CoreProcessSample[] actual)
+    {
+        Assert.AreEqual(expected.Length, actual.Length);
+        var factory = CoreFactory.Create();
+        for (var index = 0; index < expected.Length; index++)
+        {
+            var comparison = factory.CompareCheckpoints(
+                new(expected[index].Position, expected[index].CanonicalText, expected[index].Sha256),
+                new(actual[index].Position, actual[index].CanonicalText, actual[index].Sha256));
+            Assert.IsInstanceOfType<CoreResult<CheckpointComparison>.Success>(comparison);
+            var value = ((CoreResult<CheckpointComparison>.Success)comparison).Value;
+            Assert.IsInstanceOfType<CheckpointComparison.Equal>(value, $"采样 {index}：{value}");
+        }
     }
 
     private static void AssertSamples(CoreProcessSample[] expected, CoreProcessSample[] actual)
