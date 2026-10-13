@@ -350,8 +350,7 @@ internal sealed class SaveService : IDisposable
     {
         if (_restore != result.Operation || result.Kind != OperationKind.Restore) return;
         _restore = null;
-        var succeeded = result.Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings;
-        LastMessage = succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
+        LastMessage = result.Succeeded ? "读档完成，游戏已暂停。" : "读档失败或已取消，保留原对局。";
         Changed?.Invoke();
     }
 

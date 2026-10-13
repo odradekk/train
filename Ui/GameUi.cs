@@ -356,11 +356,9 @@ public partial class GameUi : CanvasLayer
 
     private void OnOperationEnded(HostOperationResult result)
     {
-        if (result.Kind == OperationKind.Restore &&
-            result.Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings)
+        if (result.Kind == OperationKind.Restore && result.Succeeded)
             _menu.CloseSaves();
-        if (result.Status is not (HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings or
-            HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
+        if (!result.Succeeded && result.Status is not (HostOperationStatus.Cancelled or HostOperationStatus.Discarded))
         {
             var message = string.Join("；", result.Problems.Select(CommandDiagnostics.Describe)
                 .Concat(result.Diagnostics.Select(problem => problem.Message)));
@@ -368,7 +366,8 @@ public partial class GameUi : CanvasLayer
             { OperationKind.NewGame => "新游戏", OperationKind.Restore => "读档", OperationKind.Reload => "内容重载", _ => "宿主操作" };
             if (result.Status == HostOperationStatus.Faulted)
                 message = result.Fault is { } fault ? CommandDiagnostics.Describe(fault) : $"{operation}发生故障：{result.FaultCode}。";
-            else if (message.Length == 0) message = $"{operation}准备失败：{result.Status}。";
+            else if (message.Length == 0) message = result.Status == HostOperationStatus.NotAccepted
+                ? $"{operation}当前无法执行，请稍后重试。" : $"{operation}准备失败，请检查内容或输入。";
             ShowError(message);
             if (_newOperation == result.Operation) _newGameError!.Text = message;
         }
@@ -376,7 +375,7 @@ public partial class GameUi : CanvasLayer
         _newOperation = 0;
         _confirmMissing!.Hide();
         _createNewGame!.Disabled = false;
-        if (result.Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings or HostOperationStatus.Cancelled)
+        if (result.Succeeded || result.Status == HostOperationStatus.Cancelled)
             _newGame!.Hide();
     }
 

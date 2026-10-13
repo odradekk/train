@@ -12,7 +12,10 @@ internal enum OperationKind { NewGame, Restore, Reload }
 internal enum HostOperationStatus { Committed, CommittedWithWarnings, Rejected, NotAccepted, Faulted, Cancelled, Discarded }
 internal sealed record HostOperationResult(long Operation, OperationKind Kind, HostOperationStatus Status,
     ImmutableArray<CoreProblem> Problems, ImmutableArray<ContentDiagnostic> Diagnostics, string? FaultCode,
-    CoreFault? Fault = null);
+    CoreFault? Fault = null)
+{
+    internal bool Succeeded => Status is HostOperationStatus.Committed or HostOperationStatus.CommittedWithWarnings;
+}
 internal sealed record HostStatus(HostBinding Binding, ICoreReadView View,
     bool PlayerPaused, bool FocusPaused, bool OperationLocked, bool IsFrozen,
     SimulationSpeed Speed, double ActualSpeed, double Remainder)
@@ -250,15 +253,17 @@ internal sealed class HostCoordinator : IDisposable
             var captured = CaptureCurrent();
             if (captured is CoreResult<ICoreCapture>.Failure rejected)
             {
-                LogReloadResult(checked(++_nextOperation), null, "Rejected", false, rejected.Problems);
-                NotifyOperation(new(_nextOperation, OperationKind.Reload, HostOperationStatus.Rejected, rejected.Problems, [], null));
+                var status = HostOperationStatus.Rejected;
+                LogReloadResult(checked(++_nextOperation), null, status.ToString(), false, rejected.Problems);
+                NotifyOperation(new(_nextOperation, OperationKind.Reload, status, rejected.Problems, [], null));
                 return (0, rejected.Problems[0]);
             }
             if (captured is CoreResult<ICoreCapture>.Faulted failed)
             {
-                LogReloadResult(checked(++_nextOperation), null, "Faulted", false,
+                var status = HostOperationStatus.Faulted;
+                LogReloadResult(checked(++_nextOperation), null, status.ToString(), false,
                     [new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, [])], failed.Diagnostic);
-                NotifyOperation(new(_nextOperation, OperationKind.Reload, HostOperationStatus.Faulted, [], [], failed.Fault.Code, failed.Fault));
+                NotifyOperation(new(_nextOperation, OperationKind.Reload, status, [], [], failed.Fault.Code, failed.Fault));
                 return (0, _active.Driver.Frozen ? Problem("frozen") :
                     new(failed.Fault.Code, failed.Fault.Field, failed.Fault.Subject, []));
             }
@@ -342,21 +347,20 @@ internal sealed class HostCoordinator : IDisposable
         try { prepared = current.Work.GetAwaiter().GetResult(); }
         catch (Exception exception)
         {
-            if (current.Reload) LogReloadResult(current.Id, null, "Faulted", false,
+            var status = HostOperationStatus.Faulted;
+            if (current.Reload) LogReloadResult(current.Id, null, status.ToString(), false,
                 diagnostic: new(exception.Message, exception.StackTrace ?? ""));
-            else LogReplacementFailure(current, "Faulted", [], "preparation_exception", exception: exception);
-            EndOperation(current, HostOperationStatus.Faulted, faultCode: "preparation_exception");
+            else LogReplacementFailure(current, status.ToString(), [], "preparation_exception", exception: exception);
+            EndOperation(current, status, faultCode: "preparation_exception");
             return;
         }
         if (_active?.Binding != current.BasisBinding || !ReferenceEquals(_content, current.BasisContent))
         { Discard(prepared); EndOperation(current, HostOperationStatus.Discarded); return; }
         if (ReportPreparation(prepared) is { } failureStatus)
         {
-            if (current.Reload) LogReloadResult(current.Id, prepared, failureStatus, false);
-            else LogReplacementFailure(current, failureStatus,
-                (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ??
-                    (prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted coreFault
-                        ? [new(coreFault.Fault.Code, coreFault.Fault.Field, coreFault.Fault.Subject, [])] : []),
+            if (current.Reload) LogReloadResult(current.Id, prepared, failureStatus.ToString(), false);
+            else LogReplacementFailure(current, failureStatus.ToString(),
+                (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ?? [],
                 (prepared.Content as ContentResult<IContentCandidate>.Faulted)?.Code ??
                     (prepared.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Fault.Code ??
                     (prepared.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics.FirstOrDefault()?.Code ??
@@ -364,7 +368,7 @@ internal sealed class HostCoordinator : IDisposable
                 (prepared.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Diagnostic ??
                     (prepared.Content is ContentResult<IContentCandidate>.Faulted contentFault
                         ? new(contentFault.Message, contentFault.StackTrace ?? "") : null));
-            Discard(prepared); EndOperation(current, failureStatus == "Faulted" ? HostOperationStatus.Faulted : HostOperationStatus.Rejected,
+            Discard(prepared); EndOperation(current, failureStatus,
                 prepared, (prepared.Core as CoreResult<ICoreSessionCandidate>.Failure)?.Problems ?? []); return;
         }
         if (!current.Reload && (prepared.ContentCandidate!.Report.RuntimeMissing.Length > 0 ||
@@ -421,17 +425,19 @@ internal sealed class HostCoordinator : IDisposable
         _insideBoundary = true;
         ICoreSession? activatedCore = null;
         var coreWasCalled = false;
-        var outcome = HostOperationStatus.Committed;
+        var status = HostOperationStatus.Committed;
         ImmutableArray<CoreProblem> problems = [];
         string? faultCode = null;
         CoreFault? fault = null;
         try
         {
             var candidate = prepared.ContentCandidate!;
+            if (operation.Reload && candidate.Report.Diagnostics.Any(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Warning))
+                status = HostOperationStatus.CommittedWithWarnings;
             if (operation.Reload)
             {
                 if (candidate.Changes == ContentChange.None && _content is not null)
-                { LogReloadResult(operation.Id, prepared, "Committed", false); return; }
+                { LogReloadResult(operation.Id, prepared, status.ToString(), false); return; }
                 if (_active is not null && candidate.Changes.HasFlag(ContentChange.CoreInput))
                 {
                     coreWasCalled = true;
@@ -439,28 +445,24 @@ internal sealed class HostCoordinator : IDisposable
                     if (result is SubmissionResult.Completed completed)
                     {
                         var published = CompleteSubmission(completed, candidate);
-                        var status = published ? "Committed" : completed.Receipt.Decision is CommandDecision.Rejected
-                            ? "Rejected" : "Faulted";
-                        outcome = published ? HostOperationStatus.Committed : completed.Receipt.Decision is CommandDecision.Rejected
+                        if (!published) status = completed.Receipt.Decision is CommandDecision.Rejected
                             ? HostOperationStatus.Rejected : HostOperationStatus.Faulted;
                         problems = completed.Receipt.Decision is CommandDecision.Rejected rejection ? rejection.Problems : [];
                         fault = (completed.Receipt.Decision as CommandDecision.Faulted)?.Fault;
-                        LogReloadResult(operation.Id, prepared, status, published,
-                            completed.Receipt.Decision is CommandDecision.Rejected rejected ? rejected.Problems : []);
+                        LogReloadResult(operation.Id, prepared, status.ToString(), published, problems);
                     }
                     else
                     {
-                        outcome = HostOperationStatus.NotAccepted;
+                        status = HostOperationStatus.NotAccepted;
                         problems = [((SubmissionResult.NotAccepted)result).Reason];
-                        LogReloadResult(operation.Id, prepared, "NotAccepted", false,
-                            [((SubmissionResult.NotAccepted)result).Reason]);
+                        LogReloadResult(operation.Id, prepared, status.ToString(), false, problems);
                     }
                 }
                 else
                 {
                     _content = candidate.Activate();
                     if (_active is not null) { _active.Content = _content; Dispatch([]); }
-                    LogReloadResult(operation.Id, prepared, "Committed", true);
+                    LogReloadResult(operation.Id, prepared, status.ToString(), true);
                 }
             }
             else
@@ -491,12 +493,12 @@ internal sealed class HostCoordinator : IDisposable
             try { activatedCore?.Dispose(); }
             catch (Exception cleanup) { LogHostFailure("host_cleanup_failed", cleanup); }
             LogHostFailure("host_activation_failed", exception);
-            outcome = HostOperationStatus.Faulted;
+            status = HostOperationStatus.Faulted;
             problems = [];
             faultCode = "host_activation_failed";
-            if (operation.Reload) LogReloadResult(operation.Id, prepared, "Faulted", false);
+            if (operation.Reload) LogReloadResult(operation.Id, prepared, status.ToString(), false);
         }
-        finally { Discard(prepared); EndOperation(operation, outcome, prepared, problems, faultCode, fault); _insideBoundary = false; }
+        finally { Discard(prepared); EndOperation(operation, status, prepared, problems, faultCode, fault); _insideBoundary = false; }
     }
 
     private bool CompleteSubmission(SubmissionResult.Completed completed, IContentCandidate? target)
@@ -564,7 +566,7 @@ internal sealed class HostCoordinator : IDisposable
             }, null);
     }
 
-    private string? ReportPreparation(PreparedOperation prepared)
+    private HostOperationStatus? ReportPreparation(PreparedOperation prepared)
     {
         var diagnostics = prepared.ContentCandidate?.Report.Diagnostics ??
             (prepared.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics ?? [];
@@ -580,7 +582,7 @@ internal sealed class HostCoordinator : IDisposable
                 new Dictionary<string, object?> { ["code"] = failed.Code, ["diagnostic_stack_trace"] = failed.StackTrace }, null);
         if (prepared.ContentCandidate is not null && (prepared.Core is null || prepared.CoreCandidate is not null)) return null;
         return prepared.Content is ContentResult<IContentCandidate>.Faulted ||
-            prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted ? "Faulted" : "Rejected";
+            prepared.Core is CoreResult<ICoreSessionCandidate>.Faulted ? HostOperationStatus.Faulted : HostOperationStatus.Rejected;
     }
 
     private void LogReplacementFailure(PendingOperation operation, string status,
@@ -601,7 +603,6 @@ internal sealed class HostCoordinator : IDisposable
         var diagnostics = prepared?.Content is ContentResult<IContentCandidate>.Failure failed
             ? failed.Diagnostics : prepared?.ContentCandidate?.Report.Diagnostics ?? [];
         var warnings = diagnostics.Count(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Warning);
-        if (status == "Committed" && warnings > 0) status = "CommittedWithWarnings";
         var attributes = new Dictionary<string, object?>
         {
             ["operation_id"] = operationId, ["status"] = status, ["changed"] = changed,
@@ -628,9 +629,6 @@ internal sealed class HostCoordinator : IDisposable
         _skipNextFrame = true;
         var diagnostics = (prepared?.Content as ContentResult<IContentCandidate>.Failure)?.Diagnostics ??
             prepared?.ContentCandidate?.Report.Diagnostics ?? [];
-        if (operation.Reload && status == HostOperationStatus.Committed &&
-            diagnostics.Any(diagnostic => diagnostic.Severity == ContentDiagnosticSeverity.Warning))
-            status = HostOperationStatus.CommittedWithWarnings;
         fault ??= (prepared?.Core as CoreResult<ICoreSessionCandidate>.Faulted)?.Fault;
         faultCode ??= (prepared?.Content as ContentResult<IContentCandidate>.Faulted)?.Code ?? fault?.Code;
         NotifyOperation(new(operation.Id, operation.Kind, status, problems.IsDefault ? [] : problems,

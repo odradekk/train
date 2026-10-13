@@ -27,6 +27,10 @@ public sealed class HostOperationTests
         Assert.AreEqual(fault, ended.Fault);
         Assert.AreEqual(fault.Code, ended.FaultCode);
         Assert.IsTrue(ended.Problems.IsEmpty);
+        var logged = fixture.Logs.Single(log => log.EventId == "host_restore_failed");
+        Assert.AreEqual(fault.Code, logged.Attributes["code"]);
+        Assert.AreEqual("Faulted", logged.Attributes["status"]);
+        Assert.AreEqual(0, ((IReadOnlyCollection<object>)logged.Attributes["problems"]!).Count);
         Assert.AreEqual(before.Binding, fixture.Host.GetStatus()!.Binding);
         Assert.IsFalse(fixture.Host.GetStatus()!.IsFrozen);
         Assert.IsFalse(fixture.Host.IsBusy);
