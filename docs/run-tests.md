@@ -47,7 +47,15 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 & $env:GODOT --path . --scene res://Tests/Engine/Bootstrap/ScenePreview.tscn
 ```
 
-“进入”打开跟随场景；“下一情景”依次切换原点移动、部分就绪与空间变更；“切换车辆”在同列车的两个跟随目标间切换；“节点”和“线路”用于比较中键平移范围；“退出”或 Escape 返回验证地图。“最小化”设置真实窗口模式，从任务栏恢复。状态栏显示模拟步数、Present／Observe 次数、Session／Request、对象根与雾组实例 ID、根节点退出树次数及 Camera／Environment 激活状态，可检查连续帧、目标切换、稳定节点身份与最小化期间模拟推进。这是人工观察入口，不生成 JUnit，也不代表真实体素工厂或完整玩法验收。
+入口先显示预览选择，选择“显示帧预览”使用上述固定显示帧。“进入”打开跟随场景；“下一情景”依次切换原点移动、部分就绪与空间变更；“切换车辆”在同列车的两个跟随目标间切换；“节点”和“线路”用于比较中键平移范围；“退出”或 Escape 返回验证地图。“最小化”设置真实窗口模式，从任务栏恢复。状态栏显示模拟步数、Present／Observe 次数、Session／Request、对象根与雾组实例 ID、根节点退出树次数及 Camera／Environment 激活状态，可检查连续帧、目标切换、稳定节点身份与最小化期间模拟推进。这是人工观察入口，不生成 JUnit，也不代表真实体素工厂或完整玩法验收。
+
+选择“检查光照预览”启动 `InspectionLightingPreview`，也可直接指定：
+
+```powershell
+& $env:GODOT --path . --scene res://Tests/Engine/Bootstrap/ScenePreview.tscn -- --lighting-preview
+```
+
+该手动预览通过真实 `ScenesFactory.Create()` 生成一条线路和一列小型列车，复用生产 App、世界视图、相机和渲染；Core/Content 使用 ContractSupport 的固定读视图与明确的线路、车辆及素材输入，并保持暂停。按反引号打开控制台，执行 [`lighting`](console/lighting.md) 切换三种检查光照或恢复；“线路 / 重新进入”支持线路平移及重入，“跟随列车”切换跟随目标。它提供真实 Scenes 生成、真实 Godot 渲染的窗口检查入口，不生成截图或 JUnit，不证明完整四模块联调或 Godot 完整隔离；后两者分别归 #298 和 #424。截图采集遵循实施 SOP，本票证据放在工作树 `TestResults/`，自动截图流程归 #400。预览代码仅在 Debug 可用，导出构建不包含此入口。
 
 ## 阶段检查与候选基准
 

@@ -19,8 +19,28 @@ public partial class ScenePreview : Node
             _resolver = new(path);
             _context.Resolving += Resolve;
             var assembly = _context.LoadFromAssemblyPath(path);
-            assembly.GetType("Train.Engine.Tests.WorldScenePreview", throwOnError: true)!
+            void Start(string type) => assembly.GetType("Train.Engine.Tests." + type, throwOnError: true)!
                 .GetMethod("Start", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, [this]);
+            if (OS.GetCmdlineUserArgs().Contains("--lighting-preview", StringComparer.Ordinal))
+            {
+                Start("InspectionLightingPreview");
+                return;
+            }
+            var menu = new CanvasLayer { Name = "PreviewSelection" };
+            AddChild(menu);
+            var buttons = new VBoxContainer { Position = new(32, 32) };
+            menu.AddChild(buttons);
+            foreach (var (name, text) in new[] { ("WorldScenePreview", "显示帧预览"), ("InspectionLightingPreview", "检查光照预览") })
+            {
+                var button = new Button { Name = name, Text = text, CustomMinimumSize = new(220, 48) };
+                buttons.AddChild(button);
+                button.Pressed += () =>
+                {
+                    menu.QueueFree();
+                    try { Start(name); }
+                    catch (Exception exception) { GD.PrintErr(exception); GetTree().Quit(1); }
+                };
+            }
         }
         catch (Exception exception) { GD.PrintErr(exception); GetTree().Quit(1); }
     }

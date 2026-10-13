@@ -70,11 +70,16 @@ public partial class App : Node
             }
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
+            Action<IReadOnlyList<string>>? lightingCommands = null;
             if (OS.IsDebugBuild())
+            {
                 simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
                     : new SimulationConsoleCommands(Host, _logger).Execute;
+                lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
+                    mode => WorldScenes!.View.SetLighting(mode)).Execute;
+            }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands, lightingCommands));
             AddChild(console);
             if (Host is not null)
             {
