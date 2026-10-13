@@ -24,11 +24,22 @@ internal sealed class CoreSessionFactory : ICoreFactory
         };
 
     public CoreResult<ICoreCapture> DecodeState(string canonicalPayload)
-        => throw new NotImplementedException("DecodeState 尚未实现。");
+        => CoreCapture.Decode(canonicalPayload);
 
     public CoreResult<ICoreSessionCandidate> PrepareRestore(ICoreCapture saved,
         CoreContentProjection content, CoreSessionOptions options)
-        => throw new NotImplementedException("PrepareRestore 尚未实现。");
+    {
+        if (saved is not CoreCapture capture)
+            throw new ArgumentException("捕获必须由核心工厂或会话生成。", nameof(saved));
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(options);
+        if (capture.Fault is not null)
+            return new CoreResult<ICoreSessionCandidate>.Failure([new("frozen", "Fault", null, [])]);
+        ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
+            ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
+        return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
+            new(capture.Position, capture.NextCommandNumber, capture.Revision, content), report));
+    }
 
     public CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment,
         ImmutableArray<CoreContentProjection> contentHistory)

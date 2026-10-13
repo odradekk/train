@@ -136,7 +136,11 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
     public CoreResult<ICoreCapture> Capture(CapturePurpose purpose)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        throw new NotImplementedException("Capture 尚未实现。");
+        if (!Enum.IsDefined(purpose))
+            throw new ArgumentOutOfRangeException(nameof(purpose));
+        return purpose == CapturePurpose.Save && State.Fault is not null
+            ? new CoreResult<ICoreCapture>.Failure([new("frozen", "Fault", null, [])])
+            : new CoreResult<ICoreCapture>.Success(new CoreCapture(State));
     }
 
     public CoreRecordingWindow ReadRecording()

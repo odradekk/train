@@ -10,17 +10,18 @@ internal sealed class CoreSessionCandidate : ICoreSessionCandidate
     private bool _activated;
     private bool _disposed;
 
-    internal CoreSessionCandidate(CoreState state)
+    internal CoreSessionCandidate(CoreState state, ImmutableArray<CoreProblem> adaptationReport = default)
     {
         _session = new CoreSession(state);
         View = _session.Read();
         References = WorldReferences.Create(state.World, state.Content);
+        AdaptationReport = adaptationReport.IsDefault ? [] : adaptationReport;
     }
 
     public ICoreReadView View { get; }
 
     public CoreReferenceManifest References { get; }
-    public ImmutableArray<CoreProblem> AdaptationReport => [];
+    public ImmutableArray<CoreProblem> AdaptationReport { get; }
     public ImmutableArray<MissingCoreReference> MissingReferences => [];
 
     public ICoreSession Activate()
