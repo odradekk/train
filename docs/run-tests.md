@@ -84,6 +84,8 @@ dotnet-affected 退出码 166 表示空项目集合；其他非零退出码、12
 
 检查输入、临时文件、运行日志、导出产物和测试用户数据写入运行目录，`TEMP`、`TMP`、`TMPDIR` 指向其中的 `tmp`。Godot 原生日志通过 `--log-file` 定向；导入和导出用 `--recovery-mode` 跳过编辑器插件。导入、引擎测试和导出冒烟将 Windows 的 `APPDATA`、`LOCALAPPDATA`，或非 Windows 的 `XDG_CONFIG_HOME`、`XDG_DATA_HOME`、`XDG_CACHE_HOME` 指向运行目录；只有真实游戏导出步骤保留真实 APPDATA 以访问模板。资产探针的构建、导出和运行始终使用隔离 APPDATA；导出时在其中创建指向真实 `Godot/export_templates` 目录的 junction，结束后只删除本次创建的链接本身。真实游戏导出是环境隔离的例外：Godot 仍可能改写真实 `Godot/editor_settings-4.7.tres` 和 `Godot/mono/build_logs/`；不能由导出通过推断真实 Godot 目录未变化。引擎测试与导出冒烟的两次运行使用隔离用户目录，运行结束后清理目录；JSONL 日志先复制到运行证据目录。入口比较运行前后的快照：在 `bin/`、`obj/`、`.godot/`、`.git/` 和本次运行目录之外新增或删除文件、Git 状态或 HEAD 变化、真实 `Godot/app_userdata/Train` 下文件变化，均导致整次失败。运行期间不要修改工作树；保留已有 `override.cfg`。
 
+非 Windows 的 MTP Unix socket 路径有 103 字节上限。入口在 `/tmp` 创建指向本次 `tmp` 的唯一短符号链接，通过 [MTP 的 `TESTINGPLATFORM_PIPE_DIRECTORY`](https://learn.microsoft.com/en-us/dotnet/core/testing/microsoft-testing-platform-config#testingplatform_pipe_directory-environment-variable) 使用它；管道文件仍位于运行目录。结束时只删除短链接并恢复环境变量，摘要记录链接清理结果；删除失败使整次失败。
+
 ## 结果与保留
 
 Core 集成层的回放语料位于 `Tests/Core/Sessions/ReplayCorpus/`：这组固定基准仅在 Windows 执行（`OSCondition`）；Linux 将其记为跳过，跨进程确定性由阶段层的生产自回放用例验证。提交的 JSONL 命令日志经公开 `PrepareReplay`／`ICoreReplay` 重放，每两步保存生产检查点，与 Verify 31.26.0 管理的 `*.verified.txt` 比较。每个检查点一行，格式为 `<步数>:<序号> <SHA-256> <规范文本>`；`.gitattributes` 固定基准为 UTF-8、LF，Windows 的 `core.autocrlf=true` 检出也保持该格式。运行身份固定，位置、规范检查点文本和 SHA-256 都参与基准比较；首个字段分歧由 `CompareCheckpoints` 报告。反向用例只在内存中篡改中间基准，不改提交文件。

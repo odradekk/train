@@ -69,6 +69,7 @@ $contractBaseline = Join-Path $root 'docs/contracts/public-api.txt'
 $started = [Diagnostics.Stopwatch]::StartNew()
 $engineUserRoot = $null
 $importDone = $false
+$mtpPipeAlias = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
     Write-Host $result.Output
@@ -125,6 +126,15 @@ function Invoke-Isolation([string] $Name, [string] $Group, [string] $Output, [in
     finally { Remove-IsolationTrees $Output }
 }
 try {
+    if (-not $IsWindows) {
+        # Unix socket 名有 103 字节上限；短链接仍把管道文件留在本次隔离目录内。
+        $alias = Join-Path '/tmp' ('train-mtp-' + [Guid]::NewGuid().ToString('N'))
+        [IO.Directory]::CreateSymbolicLink($alias, (Join-Path $run 'tmp')) | Out-Null
+        $mtpPipeAlias = $alias
+        $environment.TESTINGPLATFORM_PIPE_DIRECTORY = [Environment]::GetEnvironmentVariable('TESTINGPLATFORM_PIPE_DIRECTORY')
+        $env:TESTINGPLATFORM_PIPE_DIRECTORY = $mtpPipeAlias
+        $summary.mtpPipeAlias = $mtpPipeAlias
+    }
     if ($layers.Count -eq 1 -and $layers[0] -eq 'stage') {
         $summary.selection = @{ mode = 'stage'; baseRef = $BaseRef; projects = @(); contracts = $true; isolation = $true; schema = $false }
     } else {
@@ -296,6 +306,10 @@ try {
     $summary.outcome = 'passed'
 } catch { $summary.error = $_.Exception.Message; Write-Error $_ -ErrorAction Continue }
 finally {
+    if ($mtpPipeAlias) {
+        try { [IO.Directory]::Delete($mtpPipeAlias); $summary.mtpPipeAliasRemoved = $true }
+        catch { $summary.outcome = 'failed'; $summary.error = "MTP pipe alias cleanup failed: $($_.Exception.Message)" }
+    }
     if ($engineUserRoot -and (Test-Path -LiteralPath $engineUserRoot)) {
         try {
             $ownedUserRoot = [IO.Path]::GetFullPath($engineUserRoot)
