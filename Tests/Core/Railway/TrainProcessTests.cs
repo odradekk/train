@@ -22,46 +22,40 @@ public sealed class TrainProcessTests
         var root = TestContext.TestRunResultsDirectory ?? throw new AssertFailedException("缺少当前测试结果目录。");
         var directory = Path.Combine(root, "train-process-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        try
+        var continuous = await Run(directory, "continuous", "complete", boundary);
+        var repeated = await Run(directory, "repeated", "complete", boundary);
+        var prefix = await Run(directory, "prefix", "save", boundary);
+        var resumed = await Run(directory, "resumed", "resume", boundary);
+        foreach (var result in new[] { continuous, repeated, prefix, resumed })
         {
-            var continuous = await Run(directory, "continuous", "complete", boundary);
-            var repeated = await Run(directory, "repeated", "complete", boundary);
-            var prefix = await Run(directory, "prefix", "save", boundary);
-            var resumed = await Run(directory, "resumed", "resume", boundary);
-            foreach (var result in new[] { continuous, repeated, prefix, resumed })
-            {
-                Assert.AreNotEqual(Environment.ProcessId, result.ProcessId);
-                Assert.AreEqual(CoreProcessDriver.Identity(), result.Runtime);
-            }
-            Assert.AreEqual(4, new[] { continuous.ProcessId, repeated.ProcessId, prefix.ProcessId, resumed.ProcessId }.Distinct().Count());
-            CollectionAssert.AreEqual(continuous.Samples, repeated.Samples);
-            CollectionAssert.AreEqual(continuous.Events, repeated.Events);
-            CollectionAssert.AreEqual(continuous.PrefixEvents, repeated.PrefixEvents);
-            Assert.AreEqual(continuous.Samples[0], prefix.Samples.Single());
-            CollectionAssert.AreEqual(continuous.PrefixEvents, prefix.PrefixEvents);
-            CollectionAssert.AreEqual(continuous.Samples, resumed.Samples);
-            CollectionAssert.AreEqual(continuous.Events, resumed.Events);
-            Assert.AreEqual(prefix.Samples[0].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
-            Assert.IsTrue(continuous.Events.Any(value => value.Contains("TrainArrived", StringComparison.Ordinal)));
-            Assert.IsTrue(continuous.Events.Any(value => value.Contains("TrainActivityChanged", StringComparison.Ordinal)));
-            Assert.IsTrue(continuous.PrefixEvents.Any(value => value.Contains("TrainCompositionChanged", StringComparison.Ordinal)));
-            foreach (var sample in resumed.Samples)
-                Assert.AreEqual(CoreProcessDriver.Sha256(sample.CanonicalText), sample.Sha256);
-            using var query = JsonDocument.Parse(prefix.Samples[0].Query);
-            if (boundary == "servicing")
-            {
-                Assert.AreEqual((int)TrainActivity.Servicing, query.RootElement.GetProperty("Activity").GetInt32());
-                Assert.IsTrue(query.RootElement.GetProperty("RemainingDwellSteps").GetUInt64() > 0);
-            }
-            else Assert.IsTrue(query.RootElement.GetProperty("Position").GetString()!.Contains("DistanceMeters", StringComparison.Ordinal));
-            using var payload = JsonDocument.Parse(prefix.Samples[0].Payload);
-            Assert.AreEqual(boundary == "pending-stop", payload.RootElement.GetProperty("world")
-                .GetProperty("trains")[0].GetProperty("stop_requested").GetBoolean());
+            Assert.AreNotEqual(Environment.ProcessId, result.ProcessId);
+            Assert.AreEqual(CoreProcessDriver.Identity(), result.Runtime);
         }
-        finally
+        Assert.AreEqual(4, new[] { continuous.ProcessId, repeated.ProcessId, prefix.ProcessId, resumed.ProcessId }.Distinct().Count());
+        CollectionAssert.AreEqual(continuous.Samples, repeated.Samples);
+        CollectionAssert.AreEqual(continuous.Events, repeated.Events);
+        CollectionAssert.AreEqual(continuous.PrefixEvents, repeated.PrefixEvents);
+        Assert.AreEqual(continuous.Samples[0], prefix.Samples.Single());
+        CollectionAssert.AreEqual(continuous.PrefixEvents, prefix.PrefixEvents);
+        CollectionAssert.AreEqual(continuous.Samples, resumed.Samples);
+        CollectionAssert.AreEqual(continuous.Events, resumed.Events);
+        Assert.AreEqual(prefix.Samples[0].Payload, await File.ReadAllTextAsync(Path.Combine(directory, "state.json")));
+        Assert.IsTrue(continuous.Events.Any(value => value.Contains("TrainArrived", StringComparison.Ordinal)));
+        Assert.IsTrue(continuous.Events.Any(value => value.Contains("TrainActivityChanged", StringComparison.Ordinal)));
+        Assert.IsTrue(continuous.PrefixEvents.Any(value => value.Contains("TrainCompositionChanged", StringComparison.Ordinal)));
+        foreach (var sample in resumed.Samples)
+            Assert.AreEqual(CoreProcessDriver.Sha256(sample.CanonicalText), sample.Sha256);
+        using var query = JsonDocument.Parse(prefix.Samples[0].Query);
+        if (boundary == "servicing")
         {
-            if (!TestContext.CancellationToken.IsCancellationRequested) Directory.Delete(directory, recursive: true);
+            Assert.AreEqual((int)TrainActivity.Servicing, query.RootElement.GetProperty("Activity").GetInt32());
+            Assert.IsTrue(query.RootElement.GetProperty("RemainingDwellSteps").GetUInt64() > 0);
         }
+        else Assert.IsTrue(query.RootElement.GetProperty("Position").GetString()!.Contains("DistanceMeters", StringComparison.Ordinal));
+        using var payload = JsonDocument.Parse(prefix.Samples[0].Payload);
+        Assert.AreEqual(boundary == "pending-stop", payload.RootElement.GetProperty("world")
+            .GetProperty("trains")[0].GetProperty("stop_requested").GetBoolean());
+        Directory.Delete(directory, recursive: true);
     }
 
     private async Task<TrainProcessResult> Run(string directory, string name, string mode, string boundary)
@@ -79,10 +73,7 @@ public sealed class TrainProcessTests
         try { await process.WaitForExitAsync(TestContext.CancellationToken); }
         catch (OperationCanceledException)
         {
-            var message = $"测试运行已取消；铁路子进程 {name}：{directory}";
-            // MTP 取消整次运行时可能丢弃未完成用例的结果，单独保留取消原因。
-            await File.WriteAllTextAsync(Path.Combine(directory, name + ".canceled.log"), message);
-            throw new AssertFailedException(message);
+            throw new AssertFailedException($"测试运行已取消；铁路子进程 {name}：{directory}");
         }
         finally
         {

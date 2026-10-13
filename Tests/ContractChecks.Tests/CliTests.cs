@@ -195,23 +195,15 @@ public sealed class CliTests
         using var process = Process.Start(start)!;
         var stdout = process.StandardOutput.ReadToEndAsync();
         var stderr = process.StandardError.ReadToEndAsync();
-        var log = Path.Combine(Path.GetTempPath(), "cli-process-" + Guid.NewGuid().ToString("N"));
         try
         {
             process.WaitForExitAsync(cancellationToken).GetAwaiter().GetResult();
         }
         catch (OperationCanceledException)
         {
-            var message = $"测试运行已取消；子进程 {executable} {string.Join(' ', arguments)}；目录：{root}；日志：{log}.stdout.log；{log}.stderr.log";
-            // MTP 取消整次运行时可能丢弃未完成用例的结果，单独保留取消原因。
-            File.WriteAllText(log + ".canceled.log", message);
-            throw new AssertFailedException(message);
-        }
-        finally
-        {
-            if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(); }
-            File.WriteAllText(log + ".stdout.log", stdout.GetAwaiter().GetResult());
-            File.WriteAllText(log + ".stderr.log", stderr.GetAwaiter().GetResult());
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            Assert.Fail($"测试运行已取消；子进程 {executable} {string.Join(' ', arguments)}；目录：{root}\n{stdout.GetAwaiter().GetResult()}{stderr.GetAwaiter().GetResult()}");
         }
         return (process.ExitCode, stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult());
     }
