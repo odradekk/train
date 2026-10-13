@@ -15,7 +15,7 @@ $layers = @(($Layer -join ',') -split ',' | Select-Object -Unique)
 if (@($layers | Where-Object { $_ -notin @('fast', 'integration', 'engine', 'stage', 'all') }).Count) { throw 'Unknown test layer.' }
 if ('all' -in $layers) { $layers = @('fast', 'integration', 'engine') + @($layers | Where-Object { $_ -eq 'stage' }) }
 $Project = @(($Project -join ',') -split ',' | Where-Object { $_ } | Select-Object -Unique)
-if (@($Project | Where-Object { $_ -notin @('core', 'content', 'scenes', 'godot', 'contract-support', 'contract-checks') }).Count) { throw 'Unknown test project.' }
+if (@($Project | Where-Object { $_ -notin @('core', 'content', 'scenes', 'godot', 'contract-support', 'contract-checks', 'cli') }).Count) { throw 'Unknown test project.' }
 if ($All -and $Project.Count) { throw '-All and -Project cannot be combined.' }
 if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $IsWindows)) { throw '-ExportWindows requires engine, no -Project, and Windows.' }
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
@@ -26,7 +26,8 @@ $projects = @(
     @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 167; integration = 1 },
     @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = $(if ($IsWindows) { 40 } else { 37 }); engine = 24 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 24; integration = 0 },
-    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 }
+    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 },
+    @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 4; integration = $(if ($IsWindows) { 7 } else { 3 }) }
 )
 $engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
@@ -99,7 +100,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
             throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
         }
         return
-    } elseif ($Name -match '^(fast|integration|stage)-(core|content|scenes|godot|contract-support|contract-checks)$') {
+    } elseif ($Name -match '^(fast|integration|stage)-(core|content|scenes|godot|contract-support|contract-checks|cli)$') {
         if (-not $check.timedOut -and -not $check.notStarted) {
             $summary.checks += [pscustomobject] $check
             throw "$Name did not produce its required TRX report."

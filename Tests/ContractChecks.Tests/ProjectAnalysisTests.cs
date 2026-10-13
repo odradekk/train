@@ -7,6 +7,21 @@ namespace Train.ContractChecks.Tests;
 public sealed class ProjectAnalysisTests
 {
     [TestMethod]
+    public void Cli_links_only_its_registered_host_source()
+    {
+        var root = Path.GetFullPath("workspace");
+        var owner = Path.Combine(root, "Tools", "Cli");
+        bool Allowed(string file) => ProjectAnalysis.OwnsCompileSource(root, "Train.Cli", owner, Path.Combine(root, "App", file));
+        Assert.IsTrue(Allowed("Assets/DiskContentFiles.cs"));
+        Assert.IsTrue(Allowed("Saves/SaveContainer.cs"));
+        Assert.IsTrue(Allowed("Saves/FileSaveStore.cs"));
+        Assert.IsFalse(Allowed("Saves/SaveCapture.cs"));
+        Assert.IsFalse(Allowed("Saves/SaveService.cs"));
+        Assert.IsFalse(Allowed("Assets/ContentFiles.cs"));
+        Assert.IsFalse(Allowed("Assets/../HostCoordinator.cs"));
+    }
+
+    [TestMethod]
     public void Child_path_requires_a_directory_boundary()
     {
         var parent = Path.GetFullPath("isolated");

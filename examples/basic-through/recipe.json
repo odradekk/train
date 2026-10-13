@@ -1,0 +1,36 @@
+{
+  "format_version": 1,
+  "generation_profile": "core:basic-through-world",
+  "seed": 1,
+  "generator_version": "stage1-world-v1",
+  "save": {
+    "id": "75787871-0d94-4c50-8c4a-a3f673d7fdcc",
+    "name": "基础贯通小世界",
+    "saved_at": "2026-10-13T00:00:00Z"
+  },
+  "commands": [
+    {
+      "at": { "completed_steps": 0, "sequence": 0 },
+      "kind": "train.replace_run_plan",
+      "train": 1,
+      "plan": {
+        "loop": true,
+        "stops": [
+          { "kind": "waypoint", "node": 5 },
+          { "kind": "waypoint", "node": 2 }
+        ]
+      }
+    },
+    {
+      "at": { "completed_steps": 0, "sequence": 1 },
+      "kind": "train.start",
+      "train": 1
+    },
+    {
+      "at": { "completed_steps": 150, "sequence": 0 },
+      "kind": "train.stop",
+      "train": 1
+    }
+  ],
+  "target": { "completed_steps": 200, "sequence": 0 }
+}
