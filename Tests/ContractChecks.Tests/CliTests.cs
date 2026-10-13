@@ -88,14 +88,25 @@ public sealed class CliTests
     }
 
     [TestMethod]
-    public void Structure_rejects_a_forbidden_project_reference()
+    public void Structure_reports_forbidden_project_reference_and_non_keep_builtin_import()
     {
         RequireSuccess(Check("structure", "outputs/structure-valid"));
         AddCoreReference("<ProjectReference Include=\"../Hidden/Train.Hidden.csproj\" />");
-        var result = Check("structure", "outputs/structure-invalid");
-        Assert.AreEqual(1, result.ExitCode, result.Output);
-        StringAssert.Contains(result.Output, "forbidden project reference:");
-        StringAssert.Contains(result.Output, "Train.Hidden");
+        try
+        {
+            Write("builtin/texture.png", "fixture");
+            Write("builtin/texture.png.import", "[remap]\nimporter=\"texture\"\n");
+            var result = Check("structure", "outputs/structure-invalid");
+            Assert.AreEqual(1, result.ExitCode, result.Output);
+            StringAssert.Contains(result.Output, "forbidden project reference:");
+            StringAssert.Contains(result.Output, "Train.Hidden");
+            StringAssert.Contains(result.Output, "Keep File importer required:");
+            StringAssert.Contains(result.Output, "texture.png.import");
+        }
+        finally
+        {
+            Directory.Delete(Path.Combine(root, "builtin"), true);
+        }
     }
 
     [TestMethod]

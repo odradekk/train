@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
 namespace Train.ContractChecks;
@@ -17,6 +18,31 @@ internal static class ProjectAnalysis
         Path.TrimEndingDirectorySeparator(Path.GetFullPath(parent)) + Path.DirectorySeparatorChar, PathComparison);
 
     internal static bool IsFirstParty(string name) => name == "Train" || name.StartsWith("Train.", StringComparison.Ordinal);
+
+    internal static bool OwnsCompileSource(string root, string name, string owner, string path) =>
+        IsChildPath(path, owner) || name == "Train.AssetExport" &&
+        (IsChildPath(path, Path.Combine(root, "App", "Assets")) ||
+         Path.GetFullPath(path).Equals(Path.Combine(root, "Tests", "Engine", "Assets", "GlbFixture.cs"), PathComparison));
+
+    internal static IEnumerable<string> BuiltInImportFailures(string root)
+    {
+        var builtin = Path.Combine(root, "builtin");
+        if (!Directory.Exists(builtin)) yield break;
+        foreach (var asset in Directory.EnumerateFiles(builtin, "*", SearchOption.AllDirectories))
+        {
+            if (Path.GetExtension(asset).ToLowerInvariant() is not (".png" or ".glb")) continue;
+            var import = asset + ".import";
+            if (!File.Exists(import))
+            {
+                yield return "Keep File import missing: " + asset;
+                continue;
+            }
+            var remap = Regex.Match(File.ReadAllText(import), @"(?ms)^\[remap\]\s*\r?\n(.*?)(?=^\[|\z)");
+            var importers = Regex.Matches(remap.Groups[1].Value, @"(?m)^\s*importer\s*=\s*(.*?)\s*$");
+            if (!remap.Success || importers.Count != 1 || importers[0].Groups[1].Value != "\"keep\"")
+                yield return "Keep File importer required: " + import;
+        }
+    }
 
     internal static HashSet<string> Closure(IReadOnlyDictionary<string, ProjectRule> projects, string name)
     {
@@ -40,6 +66,7 @@ internal static class ProjectAnalysis
         var failures = inventory.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
             .Where(path => !path.StartsWith("archive/", StringComparison.Ordinal) && !registered.Contains(path))
             .Select(path => "unregistered project: " + path).ToList();
+        failures.AddRange(BuiltInImportFailures(root));
         failures.AddRange(await Check(root, configuration, output, projects, projects.Keys, isolated: false));
         foreach (var failure in failures) Console.Error.WriteLine(failure);
         Console.WriteLine($"registered projects={projects.Count}, failures={failures.Count}; evidence={output}");
@@ -74,7 +101,7 @@ internal static class ProjectAnalysis
             var rule = projects[name];
             var project = Path.GetFullPath(Path.Combine(root, rule.Path));
             var owner = Path.GetDirectoryName(project)!;
-            var projectConfiguration = name == "Train" && configuration == "Release" ? "ExportRelease" : configuration;
+            var projectConfiguration = (name is "Train" or "Train.AssetExport") && configuration == "Release" ? "ExportRelease" : configuration;
             var data = facts[name];
             var items = data.GetProperty("Items");
             var closure = Closure(projects, name);
@@ -105,7 +132,7 @@ internal static class ProjectAnalysis
             foreach (var item in items.GetProperty("Compile").EnumerateArray())
             {
                 var path = item.GetProperty("FullPath").GetString()!;
-                if (!IsChildPath(path, owner)) projectFailures.Add($"linked source outside owner: {name} ({path})");
+                if (!OwnsCompileSource(root, name, owner, path)) projectFailures.Add($"linked source outside owner: {name} ({path})");
                 if (isolated && !IsChildPath(path, root)) projectFailures.Add($"compile source outside isolation: {name} ({path})");
                 if (name == "Train")
                 {
@@ -146,7 +173,7 @@ internal static class ProjectAnalysis
 
             void CheckDependency(string target, string kind)
             {
-                if (name is not ("Train" or "Train.Godot.Tests" or "Train.Engine.Tests" or "Train.Godot.ContractSamples") && target.StartsWith("GodotSharp", StringComparison.Ordinal))
+                if (name is not ("Train" or "Train.Godot.Tests" or "Train.Engine.Tests" or "Train.AssetExport" or "Train.Godot.ContractSamples") && target.StartsWith("GodotSharp", StringComparison.Ordinal))
                     projectFailures.Add($"forbidden {kind}: {name} -> {target}");
                 if (IsFirstParty(target) && !closure.Contains(target)) projectFailures.Add($"forbidden {kind}: {name} -> {target}");
             }
@@ -164,7 +191,7 @@ internal static class ProjectAnalysis
         var projectItems = names.Select(name =>
         {
             var sample = !isolated && projects[name].Path.Replace('\\', '/').StartsWith("prototypes/", StringComparison.Ordinal);
-            var config = name == "Train" && configuration == "Release" ? "ExportRelease" : configuration;
+            var config = (name is "Train" or "Train.AssetExport") && configuration == "Release" ? "ExportRelease" : configuration;
             return new XElement("ContractProject", new XAttribute("Include", Path.Combine(root, projects[name].Path)),
                 new XElement("AdditionalProperties", $"Configuration={config};ContractBuildSample={sample.ToString().ToLowerInvariant()}"),
                 new XElement("Sample", sample.ToString().ToLowerInvariant()));
