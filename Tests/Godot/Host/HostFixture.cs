@@ -95,7 +95,9 @@ internal sealed class HostFixture : IDisposable
         {
             Host.Dispose();
             var logs = Logs;
-            Assert.IsFalse(logs.Any(log => ContainsUnconfigured(log.Exception)),
+            Assert.IsFalse(logs.Any(log => ContainsUnconfigured(log.Exception) ||
+                log.Attributes.TryGetValue("diagnostic_message", out var message) &&
+                message is string text && text.Contains("UNCONFIGURED", StringComparison.Ordinal)),
                 "宿主吞掉了未配置的测试替身调用。");
             var failures = logs.Where(log => log.EventId.StartsWith("host_", StringComparison.Ordinal)
                 && log.EventId.EndsWith("_failed", StringComparison.Ordinal))

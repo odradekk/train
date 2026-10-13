@@ -13,6 +13,26 @@ namespace Train.Godot.Tests.Host;
 public sealed class HostCoordinatorTests
 {
     [TestMethod]
+    public void Fixture_disposal_rejects_unconfigured_reload_preparation_even_after_diagnostic_conversion()
+    {
+        var fixture = new HostFixture();
+        AssertFailedException? disposalFailure = null;
+        try
+        {
+            fixture.ReadyHost();
+            fixture.Host.BeginReload(CommandSource.Console);
+            fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        }
+        finally
+        {
+            try { fixture.Dispose(); }
+            catch (AssertFailedException exception) { disposalFailure = exception; }
+        }
+        Assert.IsNotNull(disposalFailure, "未配置的重载准备调用应使夹具清理失败。");
+        StringAssert.Contains(disposalFailure.Message, "未配置");
+    }
+
+    [TestMethod]
     public void Notification_policy_failure_keeps_committed_events_and_later_notification_actions()
     {
         var calls = 0;
