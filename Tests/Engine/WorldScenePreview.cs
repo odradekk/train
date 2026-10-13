@@ -85,7 +85,8 @@ public partial class WorldScenePreview : Node
             var node = new Button { Text = "节点", Name = "NodeLocation" };
             var railway = new Button { Text = "线路", Name = "RailwayLocation" };
             var minimize = new Button { Text = "最小化", Name = "Minimize" };
-            foreach (var button in new[] { _enter, _next, exit, reopen, node, railway, minimize })
+            var menu = new Button { Text = "主菜单", Name = "MainMenu" };
+            foreach (var button in new[] { _enter, _next, exit, reopen, node, railway, minimize, menu })
             {
                 button.CustomMinimumSize = new(110, 36);
                 toolbar.AddChild(button);
@@ -99,6 +100,7 @@ public partial class WorldScenePreview : Node
                 ? Window.ModeEnum.Windowed : Window.ModeEnum.Minimized;
             _next.Pressed += () => { if (_world.Display is not null && _stage < Stages.Length - 1) _stage++; };
             exit.Pressed += _world.ReturnToMap;
+            menu.Pressed += () => _app.GetNode<Train.Ui.MainMenu>("MainMenu").ShowSaveFailure(_app.Saves!.ReturnToMenu());
             _status.Text = "准备固定宿主读档…";
         }
         catch (Exception exception) { GD.PrintErr(exception); GetTree().Quit(1); }
@@ -118,6 +120,11 @@ public partial class WorldScenePreview : Node
             }
             var ready = _host.GetStatus() is not null;
             if (ready && !_running) { _host.SetPaused(false); _running = true; }
+            if (!ready && _running)
+            {
+                _map.Visible = false;
+                _app!.GetNode<Control>("MainMenu").Show();
+            }
             _enter.Disabled = !ready;
             _next.Disabled = _world.Display is null || _stage >= Stages.Length - 1;
             if (GetWindow().Mode == Window.ModeEnum.Minimized)
@@ -149,6 +156,7 @@ public partial class WorldScenePreview : Node
         _status.Text = $"情景 {_stage + 1}/4：{Stages[_stage]} | 选择：{_selected}\n" +
             $"模拟步数={_core?.AdvanceCount} Present={_session?.PresentCalls} Observe={_session?.ObserveCalls} " +
             $"Session={_session?.Id.Value.ToString()[..8]} Request={_session?.Request.Value}\n" +
+            $"HostActive={_host?.GetStatus() is not null} SceneDisposed={_session?.IsDisposed}\n" +
             $"最小化最后观测：Steps={_minimizedSteps} Present={_minimizedPresents}\n" +
             $"Root={root?.GetInstanceId()} Fog={fog?.GetInstanceId()} TreeExit={_session?.TreeExits} " +
             $"Camera={_world?.View.CameraRig.Camera.Current} Environment={_world?.View.GetChildren().OfType<WorldEnvironment>().Single().Environment is not null}\n" +
@@ -177,6 +185,7 @@ public partial class WorldScenePreview : Node
         internal WorldSceneTarget? Target { get; private set; }
         internal int PresentCalls { get; private set; }
         internal int ObserveCalls { get; private set; }
+        internal bool IsDisposed => _disposed;
         internal int TreeExits { get; set; }
         internal Node3D? WatchedRoot { get; set; }
         private int _presentedStage = -1;

@@ -129,10 +129,17 @@ internal sealed class WorldSceneController : IDisposable
                 catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }
                 _closing.RemoveAt(i);
             }
-        if (minimized || _session is null) return;
+        if (_session is null) return;
         try
         {
-            var status = _host.GetStatus()!;
+            var status = _host.GetStatus();
+            if (status is null)
+            {
+                CloseScene();
+                _target = null;
+                return;
+            }
+            if (minimized) return;
             var actual = _display!.DisplayedFrame;
             var displayed = _fullReplacement ? null : actual;
             var camera = actual is null ? null : new SceneCameraSample(actual, ToNumerics(View.CameraRig.Focus));

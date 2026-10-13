@@ -4,6 +4,7 @@ using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App;
 using Train.App.Logging;
+using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -440,6 +441,39 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             world.ReturnToMap();
             Require(!world.View.CameraRig.Camera.Current && environment.Environment is null,
                 "关闭世界未停止相机和环境。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Returning_to_menu_through_saves_closes_the_scene_without_returning_to_map_or_logging_a_fault()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup();
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, setup, Factory(binding => session = Session(binding, [Success(Frame(1))])));
+            var world = app.WorldScenes!;
+            var returned = 0;
+            world.ReturnedToMap += _ => returned++;
+            world.Open(Target);
+            app._Process(0);
+            Require(world.View.Interactive && world.Display?.DisplayedFrame is not null, "离开前场景未接入。");
+            var oldRoot = world.Display!.Root;
+            Require(app.Host!.RenameSave("unsaved before menu") is null, "无法准备未保存的离开流程。");
+            Require(app.Saves!.ReturnToMenu() is null && app.Saves.Leaving is { Waiting: false },
+                "返回主菜单没有进入存档离开保护。");
+            app.Saves.ChooseLeave(LeaveChoice.Discard);
+            Require(app.Host.GetStatus() is null && setup.Session.DisposeCount == 1,
+                "存档离开流程没有结束宿主会话。");
+            app._Process(0);
+            Require(world.Display is null && !world.View.Visible && !world.View.Interactive && session!.IsDisposed,
+                "下一帧未关闭场景、停交互和释放场景会话。");
+            Require(!GodotObject.IsInstanceValid(oldRoot), "离开后仍保留旧显示根。");
+            Require(returned == 0, "返回主菜单不能触发返回地图事件。");
+            Require(!app.GetChildren().OfType<Train.Ui.GameConsole>().Single().LogEvents
+                .Any(log => log.EventId == "scene_adapter_failed"), "正常离开被记录为场景接入故障。");
         }
         finally { await fixture.Cleanup(); }
     }
