@@ -97,18 +97,19 @@ internal sealed class MeasurementRun : IDisposable
             if (!_scenario.StartsWith("map-", StringComparison.Ordinal))
             {
                 var requested = Seconds();
-                try
+                await SceneDisplayTime("scene-first-display", requested, async () =>
                 {
                     _app.WorldScenes.Open(_scenario.StartsWith("node-", StringComparison.Ordinal)
                         ? new WorldSceneTarget.Location(new WorldLocation.Node(view.World.Nodes[0].Id))
                         : new WorldSceneTarget.Follow(train.Id, train.Vehicles[0]));
                     await Wait(() => _firstDisplay is not null);
-                    _operations.Add(new("scene-first-display", requested - _created, _firstDisplay!.Value - requested, true));
+                    return _firstDisplay!.Value;
+                });
+                await SceneDisplayTime("scene-ready", requested, async () =>
+                {
                     await Wait(() => _readyDisplay is not null);
-                    _operations.Add(new("scene-ready", requested - _created, _readyDisplay!.Value - requested, true));
-                }
-                catch (Exception error)
-                { _operations.Add(new("scene-load", requested - _created, Seconds() - requested, false, error.Message)); throw; }
+                    return _readyDisplay!.Value;
+                });
             }
             await Timed("environment-identity", () => { ReadIdentity(train.Id, speed); return Task.CompletedTask; });
             if (host.SetPaused(false) is not null) throw new InvalidOperationException("无法开始实时模拟。");
@@ -165,7 +166,14 @@ internal sealed class MeasurementRun : IDisposable
         if (_identity["assembly"] is not JsonElement supplied ||
             !string.Equals(supplied.GetProperty("sha256").GetString(), hash, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("构建身份与当前加载的 Train.dll 不同。");
-        var expectedCommit = ((JsonElement)_identity["commit"]!).GetString()!;
+        using var sourceStream = assembly.GetManifestResourceStream("Train.Measurement.BuildIdentity")
+            ?? throw new InvalidDataException("导出缺少构建时源码身份，请用 export-measurement.ps1 重新导出。");
+        using var sourceDocument = JsonDocument.Parse(sourceStream);
+        var source = sourceDocument.RootElement.Clone();
+        if (source.GetProperty("build_configuration").GetString() != "ExportRelease")
+            throw new InvalidDataException("构建时身份不是 ExportRelease。");
+        _identity["build_source"] = source;
+        var expectedCommit = source.GetProperty("commit").GetString()!;
         var build = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
         if (!build.Contains(expectedCommit, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException($"构建提交不匹配：{build} / {expectedCommit}");
@@ -277,6 +285,13 @@ internal sealed class MeasurementRun : IDisposable
         try { await operation(); _operations.Add(new(name, start - _created, Seconds() - start, true)); }
         catch (Exception error)
         { _operations.Add(new(name, start - _created, Seconds() - start, false, error.Message)); throw; }
+    }
+
+    private async Task SceneDisplayTime(string name, double requested, Func<Task<double>> display)
+    {
+        try { _operations.Add(new(name, requested - _created, await display() - requested, true)); }
+        catch (Exception error)
+        { _operations.Add(new(name, requested - _created, Seconds() - requested, false, error.Message)); throw; }
     }
 
     private async Task Wait(Func<bool> ready)

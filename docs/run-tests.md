@@ -59,15 +59,21 @@ dotnet build Tests/Engine/Train.Engine.Tests.csproj -c Debug
 
 `ObservationIndependenceTests` 由引擎层执行，使用默认 App 的真实 Core／Content／Scenes 装配和 `examples/basic-through/recipe.json`。参考运行使用 60 Hz、1×、不打开局部场景；五组变体覆盖 30／120 Hz、不规则间隔、2×／4×／8×、运行中切换倍速、暂停中连续命令，以及线路／节点／跟随场景的打开、切换和关闭。间隔由测试注入生产帧驱动，不依赖机器实际 FPS；在 `BoundaryCompleted` 请求完整边界暂停。每条命令前后及目标位置先核对位置、种子、运行身份和 `CoreInputId`，再委托核心比较检查点并定位首个字段差异。它提供真实模块的观察无关证据，不提供窗口性能或完整 Demo 验收。
 
-`scripts/measure.ps1` 复用已有 Windows Release 导出。完整导出目录须包含 EXE、旁置 PCK 和唯一的 `Train.dll`；统一测试入口会删除自己的导出二进制，因此测量构建需另保留，构建命令见[本地 Windows 导出](local-environment.md#windows-export-and-runtime-validation)。输入为普通存档，输出使用新目录或空目录：
+`scripts/export-measurement.ps1` 为测量生成并保留 Windows Release 导出，先读[本地 Windows 环境要求](local-environment.md#windows-export-and-runtime-validation)。它在导出前捕获源码身份，通过 `MeasurementBuildIdentityPath` 将 JSON 嵌入 `Train.dll`，导出后重新捕获并核对源码没有变化。它隔离用户目录，只复制已安装的 Windows Release 模板并在结束时清理该副本。构建和测量的输出都须使用新目录或空目录；仓库内构建目录须被 Git 忽略，推荐 `TestResults/`。统一测试入口会删除自己的导出二进制，且普通导出不含此源码身份，因此不能直接作为测量构建。
+
+`scripts/measure.ps1` 复用这个已有导出，不重新构建。保留完整导出目录中的 EXE、旁置 PCK 和唯一的 `Train.dll`；输入为普通存档：
 
 ```powershell
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath 'D:/train-builds/train.exe' -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-small-world
+# 构建一次，后续测量复用此固定二进制；保留完整目录与构建日志
+pwsh -NoProfile -File scripts/export-measurement.ps1 -OutputDirectory TestResults/measurement-build
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-small-world
 # 单独复测一组情景，仍执行三个独立进程
-pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath 'D:/train-builds/train.exe' -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-follow -Scenario follow-8x
+pwsh -NoProfile -File scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-follow -Scenario follow-8x
 # 在 PowerShell 中多选；不把逗号列表作为 -File 的单个参数传入
-& ./scripts/measure.ps1 -ExecutablePath 'D:/train-builds/train.exe' -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-selected -Scenario @('sdfgi-off', 'sdfgi-on')
+& ./scripts/measure.ps1 -ExecutablePath TestResults/measurement-build/train.exe -InputPath examples/basic-through/save.json -OutputDirectory TestResults/measure-selected -Scenario @('sdfgi-off', 'sdfgi-on')
 ```
+
+报告的 `identity.build_source` 来自实际加载程序集的嵌入身份，记录导出时的 commit、dirty、Git 状态、契约基线和源码文件 SHA-256。`identity.measurement_workspace` 另列测量时工作树及其摘要，不能代替构建来源。旧导出缺少嵌入身份时测量失败，需要重新导出；测量脚本继续记录实际 EXE／PCK／程序集与输入哈希。
 
 默认情景为 `map-1x`、`map-8x`、`follow-1x`、`follow-8x`、`node-1x`、`node-8x`、`sdfgi-off`、`sdfgi-on`、`taa-off`、`taa-on`。每组串行启动三个进程，各暖机 5 秒、采样至少 30 秒。脚本将输入、报告和身份路径传给生产 `--measure=<情景>`，不使用测试 Bootstrap、控制台命令或新增 UI。测量加载普通存档、启动其第一列非空编组列车并保留已有计划；节点情景观察首个节点，其他局部情景跟随该列车首车。SDFGI／TAA 情景均以 8× 运行，只切换对应效果，其余使用当前游戏画质。
 

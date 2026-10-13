@@ -102,12 +102,15 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                 if (variant.SwitchSpeed) boundaries.UnionWith([40, 80, 120]);
                 if (variant.Scenes) boundaries.UnionWith([30, 60, 90, 120]);
                 foreach (var boundary in boundaries.Where(step => step > host.GetStatus()!.View.Position.CompletedSteps &&
-                    step < target.CompletedSteps))
+                    step < target.CompletedSteps).ToArray())
                 {
                     await DriveTo(new(boundary, 0));
                     if (variant.SwitchSpeed && boundary is 40 or 80 or 120)
+                    {
+                        Require(host.SetPaused(false) is null, "切换倍速前无法恢复运行。");
                         Require(host.SetSpeed(boundary == 40 ? SimulationSpeed.Two :
                             boundary == 80 ? SimulationSpeed.Four : SimulationSpeed.Eight) is null, "运行中切换倍速失败。");
+                    }
                     if (variant.Scenes) await Observe(boundary);
                 }
                 await DriveTo(target);
@@ -150,9 +153,19 @@ public class ObservationIndependenceTests(Node testScene) : TestClass(testScene)
                     60 => new WorldSceneTarget.Location(new WorldLocation.Node(view.World.Nodes[0].Id)),
                     _ => new WorldSceneTarget.Follow(train.Id, train.Vehicles[0])
                 });
+                stopAt = new(step + 30, 0);
+                Require(host.SetPaused(false) is null, "场景生成期间无法恢复核心推进。");
                 await FramesUntil(TestScene, () =>
                 {
-                    app._Process(0);
+                    var before = host.GetStatus()!.View.Position;
+                    app._Process(variant.Intervals[frame++ % variant.Intervals.Length]);
+                    var status = host.GetStatus()!;
+                    Require(!status.IsFrozen && HostCoordinator.ComparePosition(status.View.Position, stopAt) <= 0,
+                        "场景生成期间核心冻结或越过下一观察边界。");
+                    Require(status.View.Position == stopAt || status.View.Position.CompletedSteps > before.CompletedSteps,
+                        "场景生成阻止了完整模拟步推进。");
+                    Require(!status.PlayerPaused || status.View.Position == stopAt,
+                        "场景生成在指定边界之前暂停了核心。");
                     Require(scenes.View.Visible, "真实场景生成失败或自动关闭。");
                     return scenes.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial } displayed &&
                         displayed.Update.Frame != previous;

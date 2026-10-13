@@ -57,4 +57,7 @@
     <!-- 独立测试 DLL 使用 Driver；根 deps.json 必须包含它，Godot 才能解析该依赖。 -->
     <PackageReference Include="Chickensoft.GodotTestDriver" Version="3.1.83" />
   </ItemGroup>
+  <ItemGroup Condition="'$(Configuration)' == 'ExportRelease' and Exists('$(MeasurementBuildIdentityPath)')">
+    <EmbeddedResource Include="$(MeasurementBuildIdentityPath)" LogicalName="Train.Measurement.BuildIdentity" />
+  </ItemGroup>
 </Project>

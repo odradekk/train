@@ -13,6 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1')
+. (Join-Path $PSScriptRoot 'checks/MeasurementSourceIdentity.ps1')
 
 function Get-FileIdentity([string] $Path) {
     @{ path = $Path; sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -49,32 +50,20 @@ try {
     $assemblies = @(Get-ChildItem -LiteralPath $exportDirectory -Filter Train.dll -File -Recurse)
     if ($assemblies.Count -ne 1) { throw '导出目录必须包含唯一的 Train.dll。' }
 
-    $commit = & git -C $repo rev-parse HEAD
-    if ($LASTEXITCODE -ne 0) { throw '无法读取源码提交。' }
-    $status = @(& git -C $repo status --porcelain)
-    if ($LASTEXITCODE -ne 0) { throw '无法读取工作树状态。' }
-    $apiBlob = & git -C $repo hash-object -- docs/contracts/public-api.txt
-    if ($LASTEXITCODE -ne 0) { throw '无法读取当前 public-api Git blob。' }
-    $tracked = @(& git -C $repo -c core.quotePath=false ls-files --cached --others --exclude-standard)
-    if ($LASTEXITCODE -ne 0) { throw '无法列出源码文件。' }
-    $sourceFiles = @($tracked | ForEach-Object {
-        $path = Join-Path $repo $_
-        if (Test-Path -LiteralPath $path -PathType Leaf) {
-            @{ path = $_; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant() }
-        }
-    })
+    $workspace = Get-MeasurementSourceIdentity $repo
     $manifestPath = Join-Path $OutputDirectory 'source-manifest.json'
-    Write-Json $manifestPath @{ commit = $commit; dirty = $status.Count -ne 0; files = $sourceFiles }
+    Write-Json $manifestPath $workspace
     $identity = @{
-        commit = $commit
-        dirty = $status.Count -ne 0
-        build_configuration = 'ExportRelease'
-        contract_baseline = '6032c70'
-        public_api_git_blob = $apiBlob
+        measurement_workspace = @{
+            commit = $workspace.commit
+            dirty = $workspace.dirty
+            contract_baseline = $workspace.contract_baseline
+            public_api_git_blob = $workspace.public_api_git_blob
+            source_manifest = Get-FileIdentity $manifestPath
+        }
         executable = Get-FileIdentity $ExecutablePath
         pck = Get-FileIdentity $pck
         assembly = Get-FileIdentity $assemblies[0].FullName
-        source_manifest = Get-FileIdentity $manifestPath
         input = Get-FileIdentity $InputPath
     }
 
