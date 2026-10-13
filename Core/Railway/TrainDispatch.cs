@@ -63,7 +63,7 @@ internal sealed class TrainDispatch
         while (train.NextStopIndex is { } index && TrainOperations.Target(train.Plan!.Stops[index]) == node.Id)
         {
             if (train.Plan.Stops[index] is PlanStop.Station station
-                && (station.DwellSteps > 0 || train.RemainingDwellSteps > 0)) return null;
+                && (NeedsPlatform(world, train) || station.DwellSteps > 0 || train.RemainingDwellSteps > 0)) return null;
             train = TrainOperations.Consume(train);
         }
         if (train.NextStopIndex is null) return null;
@@ -174,10 +174,6 @@ internal sealed class TrainDispatch
             var edge = world.Edges.Single(e => e.Id == group.Key.Id);
             if (group.Any(t => t.SpeedMetersPerSecond != 0 || t.ReturningFromBreak is not null
                 || AheadBreak(edge, t) is null)) continue;
-            if (group.Any(t => edge.Breaks.Any(b => b.Track == group.Key.Track
-                && (((TrainPosition.Edge)t.Position).Direction == TravelDirection.Forward
-                    ? b.DistanceMeters < ((TrainPosition.Edge)t.Position).DistanceMeters
-                    : b.DistanceMeters > ((TrainPosition.Edge)t.Position).DistanceMeters)))) continue;
             foreach (var train in group)
                 trains[train.Id] = train with
                 {

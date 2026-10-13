@@ -253,6 +253,43 @@ public sealed class TrainDispatchTests
     }
 
     [TestMethod]
+    public void Already_passed_break_does_not_prevent_turning_for_a_new_forward_break()
+    {
+        var state = State(1);
+        using var session = new CoreSession(state with { World = state.World with { Trains = [OnEdge(state.World.Trains[0], 10, 2)] } });
+        Submit(session, new CoreCommand.DebugAddRailBreak(new(1), 1, 5));
+        Submit(session, new CoreCommand.DebugAddRailBreak(new(1), 1, 11));
+        for (var step = 0; step < 1000 && session.State.World.Trains[0].ReturningFromBreak is null; step++) Step(session);
+        Assert.AreEqual(new BreakId(2), session.State.World.Trains[0].ReturningFromBreak);
+        Assert.AreEqual(TravelDirection.Reverse, ((TrainPosition.Edge)View(session, 1).Position).Direction);
+        for (var step = 0; step < 1000; step++)
+        {
+            Step(session);
+            if (View(session, 1).SpeedMetersPerSecond == 0 && ((TrainPosition.Edge)View(session, 1).Position).DistanceMeters == 5) break;
+        }
+        Assert.AreEqual(5.0, ((TrainPosition.Edge)View(session, 1).Position).DistanceMeters);
+        Assert.AreEqual(0.0, View(session, 1).SpeedMetersPerSecond);
+        Assert.AreEqual(TrainOrderFacing.LastEndLeading, View(session, 1).OrderFacing);
+    }
+
+    [TestMethod]
+    public void Platform_wait_at_a_zero_dwell_station_does_not_count_as_an_opposite_track_request()
+    {
+        var state = State();
+        var world = state.World;
+        world = world with { Nodes = world.Nodes.SetItem(0, world.Nodes[0] with { Platforms = 0 }),
+            Instances = world.Instances.Select(i => i.Id is InstanceId.Building ? i with
+            { Parts = i.Parts.Select(p => p with { Current = 0 }).ToImmutableArray() } : i).ToImmutableArray(),
+            Trains = [OnEdge(world.Trains[0], 10, 1, true), Queued(world.Trains[1], 2, 0, 1), world.Trains[2] with
+            { Activity = TrainActivity.Waiting, QueueEnteredStep = 0, Plan = new(false,
+                [new PlanStop.Station(new(1), 0, []), new PlanStop.Waypoint(new(2))]) }] };
+        using var session = new CoreSession(state with { World = world });
+        Step(session);
+        Assert.AreEqual("platform_wait", View(session, 3).Blockers.Single().Code);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(View(session, 2).Position);
+    }
+
+    [TestMethod]
     [DataRow(2UL, 1, 0.0, "object_missing", "Edge")]
     [DataRow(1UL, 2, 0.0, "invalid_state", "Break")]
     [DataRow(1UL, 1, 21.0, "invalid_state", "Break")]
