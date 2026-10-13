@@ -45,17 +45,17 @@ public sealed class ProjectAnalysisTests
     }
 
     [TestMethod]
-    public void Benchmark_linked_sources_are_limited_to_the_resource_fixtures()
+    public void Benchmark_linked_sources_are_limited_to_the_world_and_train_fixtures()
     {
         var root = Path.GetFullPath("workspace");
         var owner = Path.Combine(root, "Tests", "Benchmarks");
         bool Allowed(string name, string file) => ProjectAnalysis.OwnsCompileSource(root, name, owner,
-            Path.Combine(root, "Tests", "Core", "Simulation", file));
-        Assert.IsTrue(Allowed("Train.Benchmarks", "SimulationExamples.cs"));
-        Assert.IsTrue(Allowed("Train.Benchmarks", "ResourceCommandCodec.cs"));
-        Assert.IsFalse(Allowed("Train.Benchmarks", "ResourceStateCodec.cs"));
-        Assert.IsFalse(Allowed("Train.Benchmarks", "../World/Fixture.cs"));
-        Assert.IsFalse(Allowed("Train.Content", "SimulationExamples.cs"));
+            Path.Combine(root, "Tests", "Core", file));
+        Assert.IsTrue(Allowed("Train.Benchmarks", "World/WorldFixture.cs"));
+        Assert.IsTrue(Allowed("Train.Benchmarks", "Railway/TrainRecoveryFixture.cs"));
+        Assert.IsFalse(Allowed("Train.Benchmarks", "World/WorldStateFixture.cs"));
+        Assert.IsFalse(Allowed("Train.Benchmarks", "World/OtherFixture.cs"));
+        Assert.IsFalse(Allowed("Train.Content", "World/WorldFixture.cs"));
     }
 
     [TestMethod]

@@ -1,8 +1,8 @@
 
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Core.Simulation;
+using Train.Core.World;
 
-namespace Train.Core.Tests.Simulation;
+namespace Train.Core.Tests.World;
 
 [TestClass]
 public sealed class SplitMix64Tests

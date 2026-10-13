@@ -11,6 +11,8 @@ public sealed class ProjectFacts : Microsoft.Build.Utilities.Task
     public ITaskItem[]? ProjectReference { get; set; }
     public ITaskItem[]? ReferencePath { get; set; }
     public ITaskItem[]? Compile { get; set; }
+    public ITaskItem[]? None { get; set; }
+    public string DefineConstants { get; set; } = "";
     public ITaskItem[]? InternalsVisibleTo { get; set; }
     [Output] public ITaskItem[] ReferencedProjects { get; set; } = [];
 
@@ -19,11 +21,12 @@ public sealed class ProjectFacts : Microsoft.Build.Utilities.Task
         Directory.CreateDirectory(Path.GetDirectoryName(OutputFile)!);
         File.WriteAllText(OutputFile, JsonSerializer.Serialize(new
         {
-            Properties = new { TargetPath, ProcessId = Environment.ProcessId },
+            Properties = new { TargetPath, ProcessId = Environment.ProcessId, DefineConstants },
             Items = new
             {
                 ProjectReference = Items(ProjectReference), ReferencePath = Items(ReferencePath),
-                Compile = Items(Compile), InternalsVisibleTo = Items(InternalsVisibleTo)
+                Compile = Items(Compile), InternalsVisibleTo = Items(InternalsVisibleTo),
+                None = Items(None?.Where(item => Path.GetExtension(item.ItemSpec) == ".cs").ToArray())
             }
         }));
         ReferencedProjects = (ProjectReference ?? []).Select(item => item.GetMetadata("FullPath"))

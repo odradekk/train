@@ -8,6 +8,8 @@
     <LangVersion>12.0</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Remove="Isolation/HostComposition.cs" />
+    <None Include="Isolation/HostComposition.cs" />
     <ProjectReference Include="../../Train.csproj" />
     <ProjectReference Include="../ContractSupport/Core/Train.Core.ContractSupport.csproj" />
     <ProjectReference Include="../ContractSupport/Content/Train.Content.ContractSupport.csproj" />

@@ -26,14 +26,22 @@ internal static class HostComposition
         var installation = new ContentInstallation(builtin, mods, null,
             ProjectSettings.GetSetting("application/config/version").AsString(), []);
         var discovery = content.Discover(installation, files);
-        if (discovery is not ContentResult<ImmutableArray<PackageStatus>>.Success discovered)
-            throw new InvalidOperationException($"内容发现失败：{discovery}");
-        installation = installation with
+        if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Success discovered)
         {
-            EnabledMods = discovered.Value.Where(package => package.Root == mods &&
-                package.Metadata is not null && package.State is PackageState.Available or PackageState.Disabled)
-                .Select(package => package.Metadata!.Id).ToImmutableArray()
-        };
+            installation = installation with
+            {
+                EnabledMods = discovered.Value.Where(package => package.Root == mods &&
+                    package.Metadata is not null && package.State is PackageState.Available or PackageState.Disabled)
+                    .Select(package => package.Metadata!.Id).ToImmutableArray()
+            };
+        }
+        else if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Faulted fault)
+            logger.Error("content", "content_discovery_failed", fault.Message,
+                new Dictionary<string, object?> { ["code"] = fault.Code });
+        else if (discovery is ContentResult<ImmutableArray<PackageStatus>>.Failure failure)
+            foreach (var diagnostic in failure.Diagnostics)
+                logger.Error("content", "content_discovery_failed", diagnostic.Message,
+                    new Dictionary<string, object?> { ["code"] = diagnostic.Code });
         var runtime = new RuntimeIdentity(typeof(HostComposition).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion, "core-session-v1",
             RuntimeInformation.OSDescription, RuntimeInformation.ProcessArchitecture.ToString(),

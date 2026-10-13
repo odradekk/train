@@ -1,6 +1,6 @@
 # Godot 资产端口
 
-`App/Assets/` 实现 `IContentFiles`、`IAssetInspector` 和从修订字节创建的资源缓存。它们尚未接入生产宿主；#317 负责装配、每帧泵送和退出顺序，#319 负责模型最终材质。旧 `GodotContentSource` 不使用这些端口。
+`App/Assets/` 实现 `IContentFiles`、`IAssetInspector` 和从修订字节创建的资源缓存。生产宿主已通过 `App/Composition/` 装配这些端口，由 App 每帧泵送并按退出顺序释放；#319 负责模型最终材质。旧 `GodotContentSource` 已删除。
 
 ## 文件与线程
 
@@ -35,4 +35,4 @@ AssetLease<ModelAsset> AcquireModel(ContentAsset asset);
 
 每个新增 `builtin/**` PNG／GLB 都必须提交 `.import`，且 `[remap]` 中 `importer="keep"`。统一入口在资产或导入配置变化时选择项目边界检查，由 C# `Train.ContractChecks structure` 扫描全部内置资产；缺失或非 keep 都失败。
 
-验证入口和资产导出探针的范围见[统一测试入口](run-tests.md#选择)。完整宿主隔离、真实四模块联调及生产资源装配仍由后续票验证。
+验证入口和资产导出探针的范围见[统一测试入口](run-tests.md#选择)。宿主隔离已接入独立检查，生产资源端口已装配；完整的真实四模块联调仍归阶段验收。

@@ -3,11 +3,11 @@ using System.Collections.Immutable;
 using System.Buffers.Binary;
 using System.Text;
 
-namespace Train.Core.Simulation;
+namespace Train.Core.World;
 
-public sealed record RandomKey(ulong WorldSeed, string Purpose, ImmutableArray<ulong> Components);
+internal sealed record RandomKey(ulong WorldSeed, string Purpose, ImmutableArray<ulong> Components);
 
-public static class KeyedRandom
+internal static class KeyedRandom
 {
     public const uint AlgorithmVersion = 1;
 

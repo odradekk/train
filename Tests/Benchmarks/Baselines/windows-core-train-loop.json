@@ -1,0 +1,5 @@
+{
+  "workload": "core-train-loop-v1",
+  "baselineStepsPerSecond": 190000,
+  "maximumSlowdown": 3
+}

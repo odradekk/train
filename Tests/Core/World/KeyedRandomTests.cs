@@ -1,9 +1,9 @@
 
 using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using Train.Core.Simulation;
+using Train.Core.World;
 
-namespace Train.Core.Tests.Simulation;
+namespace Train.Core.Tests.World;
 
 [TestClass]
 public sealed class KeyedRandomTests
@@ -35,16 +35,16 @@ public sealed class KeyedRandomTests
 
     [TestMethod]
     [DynamicData(nameof(Vectors), DynamicDataSourceType.Method)]
-    public void Encode_matches_independent_byte_vectors(RandomKey key, string expectedHex, ulong _)
+    public void Encode_matches_independent_byte_vectors(object key, string expectedHex, ulong _)
     {
-        CollectionAssert.AreEqual(Convert.FromHexString(expectedHex), KeyedRandom.Encode(key).ToArray());
+        CollectionAssert.AreEqual(Convert.FromHexString(expectedHex), KeyedRandom.Encode((RandomKey)key).ToArray());
     }
 
     [TestMethod]
     [DynamicData(nameof(Vectors), DynamicDataSourceType.Method)]
-    public void Sample_matches_independent_unsigned_vectors(RandomKey key, string _, ulong expected)
+    public void Sample_matches_independent_unsigned_vectors(object key, string _, ulong expected)
     {
-        Assert.AreEqual(expected, KeyedRandom.Sample(key));
+        Assert.AreEqual(expected, KeyedRandom.Sample((RandomKey)key));
     }
 
     [TestMethod]

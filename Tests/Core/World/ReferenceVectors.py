@@ -1,6 +1,6 @@
 """独立复算 KeyedRandomTests 的编码及采样向量。
 
-运行 `python Tests/Core/Simulation/ReferenceVectors.py` 输出 JSON；程序只使用
+运行 `python Tests/Core/World/ReferenceVectors.py` 输出 JSON；程序只使用
 Python 标准库，不加载 Train.Core。SplitMix64 参考：
 https://prng.di.unimi.it/splitmix64.c
 """

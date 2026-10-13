@@ -1,9 +1,8 @@
 
-using Train.Content;
 
 namespace Train.App.Logging;
 
-public sealed class TrainLogger : IContentLogger, IDisposable
+public sealed class TrainLogger : IDisposable
 {
     public const int GodotQueueCapacity = 4096;
     public const string LevelEnvironmentVariable = "TRAIN_LOG_LEVEL";
