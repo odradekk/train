@@ -14,9 +14,9 @@ public sealed class WorldStartTests
     {
         var input = Input with { Configuration = Input.Configuration with
             { StartConstraints = Input.Configuration.StartConstraints with { MinimumReachableNonHostileSettlements = 1 } } };
-        var start = WorldGenerator.Start(Nodes(), [Edge(0, 1), Edge(0, 2)], Occupants(), [1, 0],
+        var start = WorldGenerator.Start(Nodes(), [Edge(0, 1), Edge(1, 2)], Occupants(), [1, 0],
             input, new(input.Configuration.Budget));
-        Assert.AreEqual(1, start);
+        Assert.AreEqual(0, start);
     }
 
     [TestMethod]

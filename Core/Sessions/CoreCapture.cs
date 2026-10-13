@@ -75,7 +75,6 @@ internal sealed class CoreCapture : ICoreCapture
             if (!WorldFormat.IsHash(identity))
                 throw new CoreStateFormatException("/input_identity");
             var fault = ReadFault(root.GetProperty("fault"));
-            if (root.GetProperty("world").ValueKind == JsonValueKind.Null) throw new CoreStateFormatException("/world");
             var world = WorldJson.Read(root.GetProperty("world"));
             var references = WorldJson.ReadReferences(root.GetProperty("references"));
             var knownMissing = references.Definitions.Where(d => d.WasMissing)
@@ -164,7 +163,7 @@ internal sealed class CoreCapture : ICoreCapture
             try { name = property.Name; }
             catch (InvalidOperationException) { throw new CoreStateFormatException(path); }
             if (!fields.Contains(name, StringComparer.Ordinal) || !seen.Add(name))
-                throw new CoreStateFormatException(path + "/" + WorldFormat.EscapePointer(name));
+                throw new CoreStateFormatException(path + "/" + name.Replace("~", "~0").Replace("/", "~1"));
         }
         foreach (var name in fields)
             if (!seen.Contains(name))

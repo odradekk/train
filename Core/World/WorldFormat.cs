@@ -18,5 +18,4 @@ internal static class WorldFormat
     internal static bool IsHash(string? value) => value is { Length: 64 }
         && value.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F');
 
-    internal static string EscapePointer(string value) => value.Replace("~", "~0").Replace("/", "~1");
 }

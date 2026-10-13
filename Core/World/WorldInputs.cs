@@ -86,18 +86,11 @@ internal static class WorldInputs
         {
             switch (process.Details)
             {
-                case ProcessDetails.Production p: Items(p.Inputs); Items(p.Outputs); break;
-                case ProcessDetails.Recovery p: Items(p.Inputs); Items(p.Outputs); break;
-                case ProcessDetails.Extraction p: Require(p.Extracts is not null, "Processes.Extracts"); break;
+                case ProcessDetails.Production p: Identity(p.Id.Value); Items(p.Inputs); Items(p.Outputs); break;
+                case ProcessDetails.Recovery p: Identity(p.Id.Value); Items(p.Inputs); Items(p.Outputs); break;
+                case ProcessDetails.Extraction p: Identity(p.Id.Value); Require(p.Extracts is not null, "Processes.Extracts"); break;
+                default: throw new ArgumentException("Invalid process details.");
             }
-            var reference = process.Details switch
-            {
-                ProcessDetails.Production p => (ProcessRef)new ProcessRef.Production(p.Id),
-                ProcessDetails.Extraction p => new ProcessRef.Production(p.Id),
-                ProcessDetails.Recovery p => new ProcessRef.Recovery(p.Id),
-                _ => throw new ArgumentException("Invalid process details.")
-            };
-            Process(reference);
             Identities(process.AllowedTerrainTypes);
             foreach (var good in WorldReferences.ProcessGoods(process.Details)) ValidateGood(good);
         }

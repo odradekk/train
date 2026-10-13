@@ -8,7 +8,6 @@ internal static class WorldStateValidation
 {
     internal static void Validate(WorldState world)
     {
-        Require(world is not null, "/world");
         Ordered(world.Nodes, n => n.Id.Value, "/world/nodes");
         Ordered(world.Edges, e => e.Id.Value, "/world/edges");
         Ordered(world.Settlements, s => s.Id.Value, "/world/settlements");
@@ -43,19 +42,21 @@ internal static class WorldStateValidation
             foreach (var unit in design.ReturnUnits)
                 Require(unit.Parts.All(id => design.Parts.Any(p => p.Id == id)), "/world/designs/return_units/parts");
         }
+        var designs = world.Designs.ToDictionary(d => d.Design);
+        Require(designs.TryGetValue(world.Source.Configuration.StartConstraints.RequiredAffordableCommissionDesign, out var commission)
+            && commission.Kind is DesignKind.Vehicle, "/world/source/configuration/start_constraints/required_affordable_commission_design");
+        Require(world.Source.Configuration.NpcInitialization.ForSaleVehicleCandidates.All(hash =>
+            designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Vehicle), "/world/source/configuration/npc_initialization/for_sale_vehicle_candidates");
+        Require(world.Source.Start.Trains.All(t => t.Vehicles.All(hash =>
+            designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Vehicle)), "/world/source/start/trains/vehicles");
         foreach (var settlement in world.Settlements)
         {
             try { WorldInputs.ValidateTemplate(settlement.Template); }
             catch (ArgumentException) { throw new CoreStateFormatException("/world/settlements/template"); }
-        }
-        var designs = world.Designs.ToDictionary(d => d.Design);
-        Require(designs.ContainsKey(world.Source.Configuration.StartConstraints.RequiredAffordableCommissionDesign), "/world/source/configuration/start_constraints/required_affordable_commission_design");
-        Require(world.Source.Configuration.NpcInitialization.ForSaleVehicleCandidates.All(designs.ContainsKey), "/world/source/configuration/npc_initialization/for_sale_vehicle_candidates");
-        Require(world.Source.Start.Trains.All(t => t.Vehicles.All(designs.ContainsKey)), "/world/source/start/trains/vehicles");
-        foreach (var settlement in world.Settlements)
-        {
-            Require(settlement.Template.Plots.All(p => p.PrebuiltDesign is not { } hash || designs.ContainsKey(hash)), "/world/settlements/template/plots/prebuilt_design");
-            Require(settlement.Template.FoundingBuildings.All(b => designs.ContainsKey(b.Design)), "/world/settlements/template/founding_buildings/design");
+            Require(settlement.Template.Plots.All(p => p.PrebuiltDesign is not { } hash ||
+                designs.TryGetValue(hash, out var design) && design.Kind is DesignKind.Building), "/world/settlements/template/plots/prebuilt_design");
+            Require(settlement.Template.FoundingBuildings.All(b => designs.TryGetValue(b.Design, out var design)
+                && design.Kind is DesignKind.Building), "/world/settlements/template/founding_buildings/design");
         }
         var nodes = world.Nodes.ToDictionary(n => n.Id);
         var edges = world.Edges.ToDictionary(e => e.Id);
@@ -78,8 +79,7 @@ internal static class WorldStateValidation
             previousInstance = key;
             instances.Add(instance.Id, instance);
             Require(Enum.IsDefined(instance.Ownership) && instance.StructureDurability >= 0, "/world/instances");
-            var design = world.Designs.FirstOrDefault(d => d.Design == instance.Design);
-            Require(design is not null, "/world/instances/design");
+            Require(designs.TryGetValue(instance.Design, out var design), "/world/instances/design");
             Items(instance.Parts, "/world/instances/parts");
             Require(instance.Parts.Select(p => p.Id).SequenceEqual(design.Parts.Select(p => p.Id))
                 && instance.Parts.All(p => p.Current >= 0), "/world/instances/parts");
@@ -184,7 +184,7 @@ internal static class WorldStateValidation
         }
         foreach (var instance in world.Instances)
         {
-            switch (instance.Id, instance.Details, world.Designs.Single(d => d.Design == instance.Design).Kind)
+            switch (instance.Id, instance.Details, designs[instance.Design].Kind)
             {
                 case (InstanceId.Building id, InstanceDetails.Building b, DesignKind.Building design):
                     Require(plots.TryGetValue(b.Plot, out var plot) && plot.Plot.Building == id.Id

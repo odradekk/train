@@ -267,6 +267,35 @@ public sealed class CoreSessionTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void Malformed_published_arrays_are_rejected_before_identity_checks_without_consuming_a_command(
+        bool sameIdentity, bool missingReferences)
+    {
+        using var session = Session();
+        var malformed = sameIdentity ? A : B;
+        malformed = missingReferences ? malformed with { MissingReferences = default } : malformed with { Designs = default };
+        var before = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        var payload = before.Encode();
+        var checkpoint = before.Checkpoint;
+
+        var exception = Assert.ThrowsExactly<ArgumentException>(() =>
+            session.Submit(new CoreCommand.PublishContent(malformed), CommandSource.AutomationTest));
+
+        Assert.AreEqual("Uninitialized array", exception.ParamName);
+        AssertBoundary(session, new(7, 2), 10, 20, A);
+        var after = WorldFixture.Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(payload, after.Encode());
+        Assert.AreEqual(checkpoint, after.Checkpoint);
+        var accepted = Completed(session.Submit(new CoreCommand.PublishContent(B), CommandSource.AutomationTest));
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(accepted.Receipt.Decision);
+        Assert.AreEqual(10UL, accepted.Receipt.Number);
+        AssertBoundary(session, new(7, 3), 11, 21, B);
+    }
+
+    [TestMethod]
     public void Publishing_the_current_identity_is_a_precondition_error_without_state_changes()
     {
         using var session = Session();

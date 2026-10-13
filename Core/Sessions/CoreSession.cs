@@ -33,7 +33,7 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
             throw new ArgumentOutOfRangeException(nameof(source));
         if (command is not CoreCommand.PublishContent publish)
             throw new NotImplementedException($"{command.GetType().Name} 尚未实现。");
-        ArgumentNullException.ThrowIfNull(publish.Content);
+        WorldInputs.ValidateContent(publish.Content);
         if (publish.Content.Identity == State.Content.Identity)
             throw new ArgumentException("发布内容的输入身份必须不同于当前身份。", nameof(command));
         return ExecuteCommand(_ => new CommandEffect.Accepted(publish.Content, []));

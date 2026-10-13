@@ -20,7 +20,7 @@
 当前已实现的成员：
 
 - `PrepareNew` 及候选的 `View`、`References`、`AdaptationReport`、`MissingReferences`、单次 `Activate` 和 `Dispose`；生成失败不替换活动会话。
-- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进模拟位置，不运行领域系统；内容身份不同时提交投影，身份相同时在事务之前抛 `ArgumentException`。当前 `PublishContent` 只替换投影，不校验或标记世界所用的地貌、类型、设计等引用，也不执行领域适配；恢复候选的缺失标注见下文“当前载荷”。
+- 会话的 `Read`、`Submit(PublishContent)`、`Advance` 和 `Dispose`。推进只前进模拟位置，不运行领域系统；`PublishContent` 在比较身份前使用与新局相同的内容投影校验，未初始化数组等输入错误在事务前抛 `ArgumentException`，不取得命令编号。合法投影身份不同时提交，身份相同时在事务前抛 `ArgumentException`。当前发布尚不校验或标记世界所用的地貌、类型、设计等引用，也不执行领域适配；恢复候选的缺失标注见下文“当前载荷”。
 - 读视图的 `Position`、`Revision`、`InputIdentity` 和 `Fault`。修订在每个 Completed 命令、完成步骤及新步骤故障时各增加一次；NotAccepted、查询和零步推进不增加。修订已达 `ulong.MaxValue` 时，故障仍写入并冻结，修订保持最大值；正常路径的递增仍使用 checked 算术。
 - `World`、`FindNode`、`FindEdge`、`FindLocation`、`FindInstance`，覆盖生成的图、占据者、资源及初始实例；列车详情查询尚未实现。
 - `Capture`、`DecodeState` 和 `PrepareRestore`，覆盖当前真实世界状态；格式与恢复规则见下文“当前载荷”。公开 `PrepareNew` 路径有共享 `CaptureScenario` 及跨进程生成、保存恢复测试。
@@ -183,7 +183,7 @@
 内容加载、资产检查和设计计算先在固定输入上完成；宿主核对操作及基准，并在协调线程调用 `Submit`。调用开始前可以取消；同步执行期间不再接受取消。核心在返回前落实接受、拒绝或内部故障及相应记录，不存在取消后须另交回的预备故障。耗时尚未测量；若实际阻塞不能接受，再有针对性调整，不预建后台命令协议。
 
 - 建造、改装与立即应用随命令带入 `DesignInput`；对应完整设计先保留在固定内容候选中，接受后才激活。拒绝不改变本局内容，但录制仍须保留这次输入的依赖。
-- `PublishContent` 携带候选 `CoreContentProjection`，接受后宿主立即 `Activate` 内容候选，再通知或继续推进。契约要求核心同步检查运行引用和适配，但当前实现只提交投影替换，该检查与适配尚待实现。正常拒绝只改变应有计数和拒绝记录，旧业务和有效内容不变；内部故障保留旧业务边界并冻结。
+- `PublishContent` 携带候选 `CoreContentProjection`，核心先校验投影自身的数组、身份及当前读取字段，再比较输入身份并提交投影替换；接受后宿主立即 `Activate` 内容候选，再通知或继续推进。契约要求核心同步检查运行引用和适配，但世界引用检查与适配尚待实现。正常拒绝只改变应有计数和拒绝记录，旧业务和有效内容不变；内部故障保留旧业务边界并冻结。
 - `FoundSettlement` 接受结果的 `SettlementCopies` 返回预留的最终所有者、源模板和地块对应。宿主从同一固定内容调用 `WithSettlementCopies`，纯内存关联已完成校验的模板副本；配对完成前不分发事件、不保存、不继续推进。来源或地块错配是编程错误，不在此阶段重新进行合法性裁决。若意外故障中断关联，宿主停止该活动组的使用并报告，不继续运行半配对状态。
 - 新局仍为独立候选，先用其 `References.Templates` 调用相同复制操作，完整配对后激活。普通读档沿用内嵌副本，不用当前源模板补造。
 

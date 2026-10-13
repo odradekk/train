@@ -6,25 +6,24 @@ namespace Train.Core.Sessions;
 internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Revision,
     CoreInputId InputIdentity, CoreFault? Fault, WorldState State) : ICoreReadView
 {
-    private readonly WorldSummary _world = State.Map;
-    public WorldSummary World => _world;
+    public WorldSummary World { get; } = State.Map;
     public EconomyView Economy => throw new NotImplementedException("Economy 尚未实现。");
     public Lookup<NodeView> FindNode(NodeId id)
     {
         if (id.Value == 0) throw new ArgumentException("节点编号必须非零。", nameof(id));
-        return Lookup(Data.FindNode(id));
+        return Lookup(State.FindNode(id));
     }
     public Lookup<EdgeView> FindEdge(EdgeId id)
     {
         if (id.Value == 0) throw new ArgumentException("线路编号必须非零。", nameof(id));
-        return Lookup(Data.FindEdge(id));
+        return Lookup(State.FindEdge(id));
     }
     public Lookup<LocationView> FindLocation(WorldLocation location)
     {
         ArgumentNullException.ThrowIfNull(location);
         if (location is WorldLocation.Node { Id.Value: 0 } or WorldLocation.Edge { Id.Value: 0 })
             throw new ArgumentException("地点编号必须非零。", nameof(location));
-        return Lookup(Data.FindLocation(location));
+        return Lookup(State.FindLocation(location));
     }
     public Lookup<TrainView> FindTrain(TrainId id) => throw new NotImplementedException("FindTrain 尚未实现。");
     public Lookup<InstanceView> FindInstance(InstanceId id)
@@ -32,9 +31,8 @@ internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Re
         ArgumentNullException.ThrowIfNull(id);
         if (id is InstanceId.Vehicle { Id.Value: 0 } or InstanceId.Building { Id.Value: 0 })
             throw new ArgumentException("实例编号必须非零。", nameof(id));
-        return Lookup(Data.FindInstance(id));
+        return Lookup(State.FindInstance(id));
     }
-    private WorldState Data => State;
     private static Lookup<T> Lookup<T>(T? value) where T : class
         => value is null ? new Lookup<T>.Missing() : new Lookup<T>.Found(value);
     public Lookup<SettlementView> FindSettlement(SettlementId id)

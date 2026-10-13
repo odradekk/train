@@ -41,6 +41,11 @@ public sealed class WorldDecodeTests
     [DataRow("missing_start_design", "/world/source/start/trains/vehicles")]
     [DataRow("missing_prebuilt_design", "/world/settlements/template/plots/prebuilt_design")]
     [DataRow("missing_founding_design", "/world/settlements/template/founding_buildings/design")]
+    [DataRow("wrong_commission_design_kind", "/world/source/configuration/start_constraints/required_affordable_commission_design")]
+    [DataRow("wrong_for_sale_design_kind", "/world/source/configuration/npc_initialization/for_sale_vehicle_candidates")]
+    [DataRow("wrong_start_design_kind", "/world/source/start/trains/vehicles")]
+    [DataRow("wrong_prebuilt_design_kind", "/world/settlements/template/plots/prebuilt_design")]
+    [DataRow("wrong_founding_design_kind", "/world/settlements/template/founding_buildings/design")]
     public void Corrupt_world_payload_is_rejected_without_changing_the_active_session(string corruption, string? expectedField)
     {
         var factory = CoreFactory.Create();
@@ -61,6 +66,8 @@ public sealed class WorldDecodeTests
         var settlementNode = nodes.Single(n => n!["id"]!["value"]!.GetValue<ulong>() == settlement["node"]!["value"]!.GetValue<ulong>())!;
         var configuration = world["source"]!["configuration"]!;
         var missingHash = new string('E', 64);
+        var stationHash = station["design"]!["value"]!.GetValue<string>();
+        var vehicleHash = vehicle["design"]!["value"]!.GetValue<string>();
         switch (corruption)
         {
             case "null_world": root["world"] = null; break;
@@ -78,6 +85,12 @@ public sealed class WorldDecodeTests
             case "missing_prebuilt_design": settlement["template"]!["plots"]![0]!["prebuilt_design"]!["value"] = missingHash; break;
             case "missing_founding_design": settlement["template"]!["founding_buildings"] = new JsonArray(new JsonObject
                 { ["plot_number"] = 1, ["design"] = new JsonObject { ["value"] = missingHash } }); break;
+            case "wrong_commission_design_kind": configuration["start_constraints"]!["required_affordable_commission_design"]!["value"] = stationHash; break;
+            case "wrong_for_sale_design_kind": configuration["npc_initialization"]!["for_sale_vehicle_candidates"] = new JsonArray(new JsonObject { ["value"] = stationHash }); break;
+            case "wrong_start_design_kind": world["source"]!["start"]!["trains"]![0]!["vehicles"]![0]!["value"] = stationHash; break;
+            case "wrong_prebuilt_design_kind": settlement["template"]!["plots"]![0]!["prebuilt_design"]!["value"] = vehicleHash; break;
+            case "wrong_founding_design_kind": settlement["template"]!["founding_buildings"] = new JsonArray(new JsonObject
+                { ["plot_number"] = 1, ["design"] = new JsonObject { ["value"] = vehicleHash } }); break;
             case "duplicate_node": nodes[1]!["id"] = nodes[0]!["id"]!.DeepClone(); break;
             case "unordered_nodes":
                 var first = nodes[0]!.DeepClone();

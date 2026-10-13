@@ -49,6 +49,7 @@ internal static class WorldRailway
                     selected.Add(node);
             }
         } while (removed);
+        budget.Candidate = "";
         budget.Work(usable.Length);
         var selectedEdges = usable.Where(i => selected.Contains(edges[i].A) && selected.Contains(edges[i].B)).ToList();
         budget.Sort(selectedEdges.Count);
