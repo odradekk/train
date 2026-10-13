@@ -47,8 +47,7 @@ internal sealed class TrainConsoleCommands(HostCoordinator host, TrainLogger log
         }
         else
         {
-            if (!ulong.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out var id) ||
-                operation != "plan" && id == 0) return false;
+            if (!TryId(args[1], out var id)) return false;
             var train = new TrainId(id);
             if (args.Count == 2)
                 command = operation switch

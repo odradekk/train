@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Train.App.Logging;
 using Train.Core.Contracts;
 
@@ -9,21 +10,15 @@ internal static class CommandDiagnostics
     {
         if (result is SubmissionResult.Completed { Receipt.Decision: CommandDecision.Faulted failed })
             return Describe(failed.Fault);
-        var message = result switch
+        ImmutableArray<CoreProblem> problems = result switch
         {
-            SubmissionResult.NotAccepted rejected => Describe(rejected.Reason),
-            SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejected } =>
-                string.Join("；", rejected.Problems.Select(Describe)),
-            _ => null
+            SubmissionResult.NotAccepted rejected => [rejected.Reason],
+            SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejected } => rejected.Problems,
+            _ => default
         };
-        if (message is null) return null;
+        if (problems.IsDefault) return null;
+        var message = string.Join("；", problems.Select(Describe));
         var receipt = (result as SubmissionResult.Completed)?.Receipt;
-        var problems = result switch
-        {
-            SubmissionResult.NotAccepted rejected => new[] { rejected.Reason },
-            SubmissionResult.Completed { Receipt.Decision: CommandDecision.Rejected rejected } => rejected.Problems.ToArray(),
-            _ => []
-        };
         logger.Log(LogLevel.Warning, "train", "train_command_failed", message,
             new Dictionary<string, object?> { ["command_id"] = receipt?.Number,
                 ["decision"] = receipt?.Decision.GetType().Name ?? "NotAccepted",
