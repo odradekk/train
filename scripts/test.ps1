@@ -140,7 +140,7 @@ function Invoke-WindowsExport([string] $Name, [string] $Group, [string] $Binary)
             Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
             $script:importDone = $true
         }
-        Invoke-Check $Name $Group $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run "$Name-godot.log"), '--export-release', 'Windows Desktop', $Binary) 120
+        Invoke-Check $Name $Group $env:GODOT @('--headless', '--path', $root, '--log-file', (Join-Path $run "$Name-godot.log"), '--export-release', 'Windows Desktop', $Binary) 120
     } finally {
         if (Test-Path -LiteralPath $templateDirectory) { Remove-Item -LiteralPath $templateDirectory -Recurse -Force }
     }
