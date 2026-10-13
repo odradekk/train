@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
 
@@ -18,6 +19,8 @@ public sealed class ContentPackageTests
     [DataRow("uuid", "invalid_field")]
     [DataRow("newline", "invalid_field")]
     [DataRow("malformed", "invalid_json")]
+    [DataRow("schema_version", "unsupported_format")]
+    [DataRow("schema_version_missing", "unsupported_format")]
     public void Discover_rejects_strict_manifest_errors(string mutation, string code)
     {
         var fixture = new ContentFixture();
@@ -28,12 +31,20 @@ public sealed class ContentPackageTests
             "unknown" => json.Insert(1, "\"extra\":true,"),
             "uuid" => json.Replace(A, A.ToUpperInvariant().Replace("11111111", "AAAAAAAA")),
             "newline" => json.Replace(A, A + "\\n", StringComparison.Ordinal),
+            "schema_version" => json.Replace("\"schema_version\":2", "\"schema_version\":1", StringComparison.Ordinal),
+            "schema_version_missing" => json.Replace("\"schema_version\":2,", "", StringComparison.Ordinal),
             _ => "{"
         };
         fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json);
         var status = Discover(fixture).Single(p => !Equals(p.Metadata?.Id.Value, "core"));
         Assert.AreEqual(C.PackageState.Invalid, status.State);
         Assert.IsTrue(status.Diagnostics.Any(d => d.Code == code));
+        if (code == "unsupported_format")
+        {
+            var diagnostic = status.Diagnostics.Single(d => d.Code == code);
+            Assert.AreEqual("/schema_version", diagnostic.Field);
+            Assert.AreEqual(new C.ContentSourceLocation(new(A), "pack/mod.json"), diagnostic.Source);
+        }
     }
 
     [TestMethod]
@@ -48,6 +59,203 @@ public sealed class ContentPackageTests
         Assert.AreEqual(2, duplicates.Length);
         Assert.IsTrue(duplicates.All(p => p.State == C.PackageState.Invalid && p.Diagnostics.Any(d => d.Code == "duplicate_identity")));
         AssertRejected(statuses, B, C.PackageState.DependencyUnavailable, "dependency_missing");
+    }
+
+    [TestMethod]
+    [DataRow("1.2.3-alpha.1+build.7")]
+    [DataRow("1.0.0+001")]
+    public void Manifest_text_normalizes_at_valid_length_and_author_count_boundaries(string version)
+    {
+        var fixture = new ContentFixture();
+        var json = JsonNode.Parse(Manifest(A, version))!;
+        var name = new string('名', 100);
+        var authors = Enumerable.Range(1, 16).Select(i => new string('作', 98) + i.ToString("D2")).ToArray();
+        json["name"] = " " + name + " ";
+        json["authors"] = new JsonArray(authors.Select(author => (JsonNode?)JsonValue.Create(" " + author + " ")).ToArray());
+        json["description"] = " " + new string('说', 4000) + " ";
+        fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json.ToJsonString());
+        fixture.Installation = fixture.Installation with { EnabledMods = [new(A)] };
+
+        var status = Discover(fixture).Single(p => p.Metadata?.Id.Value == A);
+        Assert.AreEqual(C.PackageState.Available, status.State);
+        Assert.AreEqual(name, status.Metadata!.Name);
+        Assert.AreEqual(version, status.Metadata.Version);
+        CollectionAssert.AreEqual(authors, status.Metadata.Authors.ToArray());
+    }
+
+    [TestMethod]
+    [DataRow("name", "\" \"", "/name")]
+    [DataRow("name", "false", "/name")]
+    [DataRow("name", null, "/name")]
+    [DataRow("authors", "[]", "/authors")]
+    [DataRow("authors", "false", "/authors")]
+    [DataRow("authors", null, "/authors")]
+    [DataRow("authors", "[\"作者\",\" 作者 \"]", "/authors/1")]
+    [DataRow("authors", "[false]", "/authors/0")]
+    [DataRow("version", "\"01.0.0\"", "/version")]
+    [DataRow("version", "\"1.0.0-01\"", "/version")]
+    [DataRow("version", "\"1.0.0-\"", "/version")]
+    [DataRow("version", "\"1.0.0+\"", "/version")]
+    [DataRow("version", "\"1.0.0-alpha.\"", "/version")]
+    [DataRow("version", "\"1\"", "/version")]
+    [DataRow("version", "\"1.0\"", "/version")]
+    [DataRow("version", "\"v1.0.0\"", "/version")]
+    [DataRow("version", "\"1.00.0\"", "/version")]
+    [DataRow("version", "\"1.0.0+build.\"", "/version")]
+    [DataRow("version", "\"1.0.0_beta\"", "/version")]
+    [DataRow("version", "\"\"", "/version")]
+    [DataRow("version", "false", "/version")]
+    [DataRow("version", null, "/version")]
+    [DataRow("description", "false", "/description")]
+    public void Manifest_invalid_text_and_authors_report_their_field(string field, string? replacement, string pointer)
+    {
+        var fixture = new ContentFixture();
+        var json = JsonNode.Parse(Manifest(A, "1.0.0"))!.AsObject();
+        if (replacement is null) json.Remove(field);
+        else json[field] = JsonNode.Parse(replacement);
+        fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json.ToJsonString());
+
+        var status = Discover(fixture).Single(p => p.Metadata?.Id.Value == A);
+        Assert.AreEqual(C.PackageState.Invalid, status.State);
+        Assert.IsTrue(status.Diagnostics.Any(d => d.Code == "invalid_field" && d.Field == pointer));
+        Assert.AreEqual(new C.ContentSourceLocation(new(A), "pack/mod.json"),
+            status.Diagnostics.First(d => d.Code == "invalid_field" && d.Field == pointer).Source);
+    }
+
+    [TestMethod]
+    [DataRow("name", "/name")]
+    [DataRow("author", "/authors/0")]
+    [DataRow("author_count", "/authors")]
+    [DataRow("description", "/description")]
+    public void Manifest_rejects_text_and_author_counts_above_the_documented_limits(string mutation, string pointer)
+    {
+        var fixture = new ContentFixture();
+        var json = JsonNode.Parse(Manifest(A, "1.0.0"))!;
+        switch (mutation)
+        {
+            case "name": json["name"] = new string('名', 101); break;
+            case "author": json["authors"] = new JsonArray(new string('作', 101)); break;
+            case "author_count": json["authors"] = new JsonArray(Enumerable.Range(1, 17).Select(i => (JsonNode?)JsonValue.Create("作者" + i)).ToArray()); break;
+            case "description": json["description"] = new string('说', 4001); break;
+        }
+        fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json.ToJsonString());
+        var status = Discover(fixture).Single(p => p.Metadata?.Id.Value == A);
+        Assert.AreEqual(C.PackageState.Invalid, status.State);
+        Assert.IsTrue(status.Diagnostics.Any(d => d.Code == "invalid_field" && d.Field == pointer));
+    }
+
+    [TestMethod]
+    public void Invalid_version_still_reserves_its_uuid_and_rejects_a_valid_duplicate()
+    {
+        var fixture = new ContentFixture();
+        AddMod(fixture, "valid", A);
+        AddMod(fixture, "invalid", A, "01.0.0");
+        var duplicates = Discover(fixture).Where(p => p.Metadata?.Id.Value == A).ToArray();
+        Assert.AreEqual(2, duplicates.Length);
+        Assert.IsTrue(duplicates.All(p => p.State == C.PackageState.Invalid && p.Diagnostics.Any(d => d.Code == "duplicate_identity")));
+    }
+
+    [TestMethod]
+    [DataRow("\"00000000-0000-0000-0000-000000000000\"")]
+    [DataRow("42")]
+    [DataRow(null)]
+    public void Manifest_requires_a_non_nil_uuid_string(string? id)
+    {
+        var fixture = new ContentFixture();
+        var json = JsonNode.Parse(Manifest(A, "1.0.0"))!.AsObject();
+        if (id is null) json.Remove("id");
+        else json["id"] = JsonNode.Parse(id);
+        fixture.AddFile(ContentFixture.Mods, "pack/mod.json", json.ToJsonString());
+        var status = Discover(fixture).Single(p => p.Metadata?.Id.Value != "core");
+        Assert.AreEqual(C.PackageState.Invalid, status.State);
+        Assert.IsTrue(status.Diagnostics.Any(d => d.Code == "invalid_field" && d.Field == "/id"));
+    }
+
+    [TestMethod]
+    public void Renaming_a_mod_folder_preserves_package_definition_and_business_identity()
+    {
+        using var original = LoadFolder("first");
+        using var renamed = LoadFolder("renamed");
+        CollectionAssert.AreEqual(original.View.Packages.Select(p => p.Metadata!.Id).ToArray(), renamed.View.Packages.Select(p => p.Metadata!.Id).ToArray());
+        Assert.AreEqual(A + ":block", original.View.Voxels.Single().Definition.Value);
+        CollectionAssert.AreEqual(original.View.Voxels.Select(v => v.Definition).ToArray(), renamed.View.Voxels.Select(v => v.Definition).ToArray());
+        Assert.AreEqual(original.View.Core.Identity, renamed.View.Core.Identity);
+
+        static C.IContentCandidate LoadFolder(string folder)
+        {
+            var fixture = new ContentFixture();
+            AddMod(fixture, folder, A);
+            fixture.AddFile(ContentFixture.Mods, folder + "/resources/voxels/block.voxel.json", ContentFixture.VoxelJson);
+            fixture.AddAsset(ContentFixture.Mods, folder + "/resources/voxels/block/tile.png", [1, 2, 3], new C.AssetMetadata.Png(32, 32));
+            fixture.AddAsset(ContentFixture.Mods, folder + "/resources/voxels/block/icon.png", [4, 5, 6], new C.AssetMetadata.Png(128, 128));
+            return fixture.Load();
+        }
+    }
+
+    [TestMethod]
+    [DataRow("resources/voxels", true)]
+    [DataRow("resources/voxels/block.voxel.json", true)]
+    [DataRow("resources", false)]
+    [DataRow("resources/voxels", false)]
+    public void Unsafe_entries_and_unreadable_definition_directories_reject_the_whole_builtin_package(string path, bool linked)
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        if (linked)
+        {
+            var slash = path.LastIndexOf('/');
+            fixture.SetEntry(ContentFixture.BuiltIn, slash < 0 ? "" : path[..slash],
+                new(path[(slash + 1)..], C.ContentEntryKind.Link));
+        }
+        else fixture.SetEnumerationFailure(ContentFixture.BuiltIn, path, C.ContentIoFailure.Inaccessible);
+        var result = fixture.Prepare();
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
+        Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d =>
+            d.Code == (linked ? "linked_path" : "file_unreadable") && d.Source?.Path == path));
+    }
+
+    [TestMethod]
+    [DataRow("linked_directory", "linked_path")]
+    [DataRow("missing_manifest", "file_missing")]
+    [DataRow("unreadable_manifest", "file_unreadable")]
+    public void Unsafe_mod_packages_are_isolated_and_report_their_io_failure(string failure, string code)
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        if (failure == "linked_directory")
+            fixture.SetEntry(ContentFixture.Mods, "", new("pack", C.ContentEntryKind.Link));
+        else fixture.SetReadFailure(ContentFixture.Mods, "pack/mod.json",
+            failure == "missing_manifest" ? C.ContentIoFailure.Missing : C.ContentIoFailure.Inaccessible);
+
+        using var candidate = fixture.Load();
+        Assert.AreEqual(C.PackageState.Available, candidate.Report.Packages.Single(p => p.Metadata?.Id.Value == "core").State);
+        Assert.AreEqual("core:block", candidate.View.Voxels.Single().Definition.Value);
+        var status = candidate.Report.Packages.Single(p => p.Metadata is null);
+        Assert.AreEqual(C.PackageState.Invalid, status.State);
+        Assert.AreEqual(ContentFixture.Mods, status.Root);
+        var diagnostic = status.Diagnostics.Single();
+        Assert.AreEqual(code, diagnostic.Code);
+        Assert.AreEqual("", diagnostic.Field);
+        Assert.IsNull(diagnostic.Source);
+    }
+
+    [TestMethod]
+    public void Inaccessible_mods_root_reports_its_failure_and_keeps_builtin_content_available()
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        fixture.SetEnumerationFailure(ContentFixture.Mods, "", C.ContentIoFailure.Inaccessible);
+
+        using var candidate = fixture.Load();
+        Assert.AreEqual(C.PackageState.Available, candidate.Report.Packages.Single(p => p.Metadata?.Id.Value == "core").State);
+        Assert.AreEqual("core:block", candidate.View.Voxels.Single().Definition.Value);
+        var status = candidate.Report.Packages.Single(p => p.Metadata is null);
+        Assert.AreEqual(C.PackageState.Invalid, status.State);
+        Assert.AreEqual(ContentFixture.Mods, status.Root);
+        var diagnostic = status.Diagnostics.Single();
+        Assert.AreEqual("file_unreadable", diagnostic.Code);
+        Assert.AreEqual("", diagnostic.Field);
+        Assert.IsNull(diagnostic.Source);
     }
 
     [TestMethod]

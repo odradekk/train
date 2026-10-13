@@ -14,7 +14,7 @@
 ## Consequences
 
 - [ADR-0004](0004-keep-the-world-model-as-the-single-source-of-truth-and-treat-godot-as-a-derived-adapter.md) 所说的 AssetId 就是资产修订。
-- 修订 [ADR-0011](0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)：Godot 向内容层提供的“PNG 解码”改为资产检查（PNG 和 `.glb`），只返回元数据；现有代码中 `DecodedImage` 带像素进入内容层的做法由实施工单改掉。
+- 修订 [ADR-0011](0011-move-the-content-layer-into-its-own-project-and-split-definitions-by-reader.md)：Godot 向内容层提供的“PNG 解码”改为资产检查（PNG 和 `.glb`），只返回元数据。旧像素解码路径已在 [#452](https://github.com/odradekk/train/issues/452) 退役；当前工厂使用资产检查元数据并保留原始字节，见[内容契约](../contracts/content.md)。
 - 资源创建不参与内容能否发布的决定。通过检查的字节由同一个解码器上传，之后再失败按引擎故障报告，不回滚内容。
 - 内容资产不使用 Godot 编辑器的导入产物，内置的 PNG 和 `.glb` 用 Keep File 导入。`.glb` 的 Keep File 导入目前只有 Godot 源码依据，由[契约原型](https://github.com/odradekk/train/issues/292)在 4.7.2 上验证。
 - 本决定不代表接口已经实现。具体声明由内容层、体素引擎层和 Godot 层的契约票写进各自的接口文档。
