@@ -200,6 +200,20 @@ public sealed class WorldGenerationTests
     }
 
     [TestMethod]
+    [DataRow(3, 3, "MinimumInitialTracks")]
+    [DataRow(0, 0, "MaximumInitialTracks")]
+    public void Initial_tracks_without_a_supported_intersection_fail_before_generation(int minimum, int maximum, string field)
+    {
+        var input = WorldFixture.Input;
+        var problem = Failure(input with { Configuration = input.Configuration with
+            { InitialRailway = new(3, minimum, maximum, 0) } }, WorldFixture.Content,
+            "config_invalid", "Configuration.InitialRailway." + field);
+        Assert.AreEqual("configuration", problem.RelatedIdentities[1]);
+        Assert.AreEqual("0", problem.RelatedIdentities[4]);
+        Assert.AreEqual("0", problem.RelatedIdentities[5]);
+    }
+
+    [TestMethod]
     public void Economic_start_requests_are_validated_but_not_evaluated()
     {
         var input = WorldFixture.Input;

@@ -61,6 +61,23 @@ public sealed class GenerationProfileParserTests
     }
 
     [TestMethod]
+    [DataRow(0, 0)]
+    [DataRow(2, 2)]
+    public void Parse_accepts_initial_track_boundaries_without_reducing_track_limits(int minimum, int maximum)
+    {
+        var node = JsonNode.Parse(Json)!;
+        Set(node, "configuration/initial_railway/minimum_initial_tracks", JsonValue.Create(minimum));
+        Set(node, "configuration/initial_railway/maximum_initial_tracks", JsonValue.Create(maximum));
+        var (parsed, package) = Parse(node.ToJsonString());
+        Assert.IsNotNull(parsed);
+        Assert.AreEqual(0, package.Diagnostics.Count);
+        Assert.AreEqual(new K.InitialRailwayConfiguration(3, minimum, maximum, 0), parsed.Configuration.InitialRailway);
+        Assert.AreEqual(3, parsed.Configuration.TerrainBands.Single().MaximumTracks);
+    }
+
+    [TestMethod]
+    [DataRow("configuration/initial_railway/minimum_initial_tracks", "3")]
+    [DataRow("configuration/initial_railway/maximum_initial_tracks", "3")]
     [DataRow("configuration/resources/0/global_regeneration_remaining_reserve_ratio", "-0.01")]
     [DataRow("configuration/resources/0/global_regeneration_remaining_reserve_ratio", "1.01")]
     [DataRow("configuration/resources/0/global_regeneration_remaining_reserve_ratio", "1e999")]
@@ -123,7 +140,7 @@ public sealed class GenerationProfileParserTests
                 Set(node, "configuration/lair_ratio", JsonValue.Create(0.6));
                 Get(node, "configuration/lair_weights").AsArray().Add(JsonNode.Parse("{\"type\":\"nest\",\"weight\":1}"));
                 break;
-            case "tracks": Set(node, "configuration/initial_railway/maximum_initial_tracks", JsonValue.Create(4)); break;
+            case "tracks": Set(node, "configuration/initial_railway/maximum_tracks", JsonValue.Create(1)); break;
             case "npc-range": Set(node, "configuration/npc_initialization/minimum_for_sale_vehicles", JsonValue.Create(2)); break;
             case "npc-empty": Set(node, "configuration/npc_initialization/for_sale_vehicle_candidates", new JsonArray()); break;
             case "lair-empty": Set(node, "configuration/lair_ratio", JsonValue.Create(0.1)); break;
