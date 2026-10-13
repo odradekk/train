@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Train.ContractChecks;
@@ -9,17 +10,16 @@ internal static class Isolation
     {
         if (tests is not { Count: > 0 } || tests.Any(test => !projects.ContainsKey(test)))
             throw new InvalidOperationException("isolationTests must name at least one registered test project.");
-        var failures = new List<string>();
-        foreach (var test in tests)
+        var failures = new ConcurrentBag<string>();
+        await Parallel.ForEachAsync(tests, new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (test, _) =>
         {
-            if (failures.Count != 0) break;
             var evidence = Path.Combine(output, test);
-            Directory.CreateDirectory(evidence);
             // Windows 子进程的工作目录仍受路径长度限制，隔离树不嵌套在模块日志目录中。
             var isolated = Path.Combine(output, "isolated-" + Guid.NewGuid().ToString("N")[..8]);
-            Directory.CreateDirectory(isolated);
             try
             {
+                Directory.CreateDirectory(evidence);
+                Directory.CreateDirectory(isolated);
                 var closure = ProjectAnalysis.Closure(projects, test);
                 var inputs = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var name in closure)
@@ -51,10 +51,12 @@ internal static class Isolation
                     "-maxCpuCount:1", "-nodeReuse:false", "-property:UseSharedCompilation=false", "-property:RestoreConfigFile=" + config],
                     isolated, Path.Combine(evidence, "build.log"), 300);
                 var analysis = await ProjectAnalysis.Check(isolated, configuration, evidence, projects, [test], isolated: true);
-                failures.AddRange(analysis);
-                if (analysis.Count != 0) continue;
-                await ToolProcess.Run("dotnet", ["test", "--project", project, "--configuration", configuration,
-                    "--no-build", "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
+                foreach (var failure in analysis) failures.Add(failure);
+                if (analysis.Count != 0) return;
+                using var facts = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(evidence, test + ".facts.json")));
+                var testAssembly = facts.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
+                await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
+                    "--root-directory", isolated, "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
                     "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
                     "--hangdump", "--hangdump-timeout", "110s"], isolated, Path.Combine(evidence, "tests.log"), 120);
                 Console.WriteLine($"isolation passed: {test}; evidence={evidence}");
@@ -88,11 +90,11 @@ internal static class Isolation
             catch (Exception exception) { failures.Add($"isolation failed: {test}: {exception.Message}"); }
             finally
             {
-                try { Directory.Delete(isolated, recursive: true); }
+                try { if (Directory.Exists(isolated)) Directory.Delete(isolated, recursive: true); }
                 catch (Exception exception) { failures.Add($"isolation cleanup failed: {test}: {exception.Message}"); }
             }
-        }
-        foreach (var failure in failures) Console.Error.WriteLine(failure);
-        return failures.Count == 0 ? 0 : 1;
+        });
+        foreach (var failure in failures.Order(StringComparer.Ordinal)) Console.Error.WriteLine(failure);
+        return failures.IsEmpty ? 0 : 1;
     }
 }
