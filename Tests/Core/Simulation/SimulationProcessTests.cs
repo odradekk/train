@@ -14,6 +14,8 @@ namespace Train.Core.Tests.Simulation;
 [TestCategory("integration")]
 public sealed class SimulationProcessTests
 {
+    public TestContext TestContext { get; set; } = null!;
+
     private const string ZeroSha256 = "0000000000000000000000000000000000000000000000000000000000000000";
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
 
@@ -237,23 +239,21 @@ public sealed class SimulationProcessTests
         using var process = Process.Start(start) ?? throw new AssertFailedException("无法启动模拟测试子进程。");
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         try
         {
-            await process.WaitForExitAsync(timeout.Token);
+            await process.WaitForExitAsync(TestContext.CancellationToken);
         }
         catch (OperationCanceledException)
         {
-            process.Kill(entireProcessTree: true);
-            await process.WaitForExitAsync();
+            throw new AssertFailedException($"测试运行已取消；模拟子进程 {name}：{directory}");
+        }
+        finally
+        {
+            if (!process.HasExited) { process.Kill(entireProcessTree: true); await process.WaitForExitAsync(); }
             await File.WriteAllTextAsync(stdoutPath, await stdoutTask, new UTF8Encoding(false));
             await File.WriteAllTextAsync(stderrPath, await stderrTask, new UTF8Encoding(false));
-            throw new AssertFailedException($"模拟子进程超过 30 秒；证据目录：{directory}");
         }
-        var stdout = await stdoutTask;
         var stderr = await stderrTask;
-        await File.WriteAllTextAsync(stdoutPath, stdout, new UTF8Encoding(false));
-        await File.WriteAllTextAsync(stderrPath, stderr, new UTF8Encoding(false));
         Assert.AreEqual(0, process.ExitCode,
             $"模拟子进程失败（exit {process.ExitCode}）。\nstdout: {stdoutPath}\nstderr: {stderrPath}\n{stderr}");
         Assert.IsTrue(File.Exists(output), $"子进程未生成结果：{output}");
