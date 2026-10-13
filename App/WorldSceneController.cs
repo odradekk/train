@@ -118,7 +118,7 @@ internal sealed class WorldSceneController : IDisposable
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Reconcile); }
     }
 
-    internal void ProcessFrame(double delta, bool minimized)
+    internal void ProcessFrame(double delta, bool minimized, bool atCompletedStep = false)
     {
         _dispatcher.RequireMainThread();
         _dispatcher.Pump();
@@ -143,7 +143,7 @@ internal sealed class WorldSceneController : IDisposable
             var actual = _display!.DisplayedFrame;
             var displayed = _fullReplacement ? null : actual;
             var camera = actual is null ? null : new SceneCameraSample(actual, ToNumerics(View.CameraRig.Focus));
-            var interpolation = status.Remainder / SimulationTime.StepSeconds;
+            var interpolation = atCompletedStep ? 1 : status.Remainder / SimulationTime.StepSeconds;
             var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, SceneDebugLayer.None), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
                 problems.Length > 0 && problems.All(problem => problem.Code == "target_missing"))

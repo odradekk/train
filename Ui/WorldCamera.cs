@@ -6,6 +6,8 @@ namespace Train.Ui;
 
 internal partial class WorldCamera : Node3D
 {
+    internal const float DefaultDistance = 48f;
+    internal const float MaximumDistance = 240f;
     private const float OrbitSensitivity = 0.006f;
     private const float MinimumPitch = 0.15f;
     private const float MaximumPitch = 1.35f;
@@ -19,7 +21,7 @@ internal partial class WorldCamera : Node3D
     private float _bodyYaw;
     private float _orbitYaw;
     private float _pitch = 0.55f;
-    private float _distance = 48f;
+    private float _distance = DefaultDistance;
     private bool _hasFollowPose;
 
     public Vector3 Focus { get; private set; }
@@ -97,7 +99,19 @@ internal partial class WorldCamera : Node3D
 
     public void Zoom(float amount)
     {
-        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * 0.15f), 8f, 240f);
+        _distance = Mathf.Clamp(_distance * Mathf.Exp(-amount * 0.15f), 8f, MaximumDistance);
+        PlaceCamera();
+    }
+
+    internal void PlaceAbsolute(Vector3 focus, float distance, float yaw, float pitch)
+    {
+        Focus = focus;
+        _targetPosition = focus;
+        _bodyYaw = _targetYaw = 0;
+        _orbitYaw = yaw;
+        _pitch = pitch;
+        _distance = distance;
+        _hasFollowPose = false;
         PlaceCamera();
     }
 

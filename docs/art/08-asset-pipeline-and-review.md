@@ -96,10 +96,33 @@ builtin/core/resources/voxels/
 ### 检查人与记录
 
 - 自动检查由实现者运行，结果写进完成评论（实现 SOP）。
-- 画面检查：实现者先按清单自查，用[美术检查截图入口](https://github.com/odradekk/train/issues/400)截图，截图放在被忽略的 `.godot/validation/<工单号>/`，不进仓库；reviewer 对照 docs/art 审截图，通过后合并。工单标为 `awaiting-user`，由用户在阶段试玩中查看，用户确认后才关闭。
+- 画面检查：实现者先按清单自查，用下述美术检查截图入口截图，截图放在被忽略的 `.godot/validation/<名称>/`，不进仓库；reviewer 对照 docs/art 审截图，通过后合并。工单标为 `awaiting-user`，由用户在阶段试玩中查看，用户确认后才关闭。
 - 完成评论用一张表记录：检查项、条件（距离、光照、运动）、结果、问题。
 - 不通过的问题在同一张工单里返工，超出工单范围的另开工单。用户在试玩中提出的画面问题，也在原工单里重新分派返工。
 - 规格要改时，例如换色值，先改 docs/art 和该批资产的唯一源，再重新交付资产。
+
+截图入口使用编辑器可执行文件运行独立场景；先按[本地验证约定](../local-environment.md)构建和导入。从普通存档恢复真实内容与编组，只拍指定列车的第一节车辆。场景参数为 `edge:<线路ID>` 或 `node:<节点ID>`；节点生成尚未实现时由体素层拒绝。名称只接受英文字母、数字、连字符和下划线，输出目录已存在且非空时拒绝。
+
+```powershell
+dotnet build Train.csproj -c Debug
+& $env:GODOT --headless --path . --editor --import
+& $env:GODOT --path . --scene res://App/ArtCapture/ArtCapture.tscn -- --capture-save TestResults/art-input.save.json --capture-location edge:1 --capture-train 1 --capture-name issue-374
+```
+
+用 [Train.Cli](../../examples/README.md) 的 `make` 制作配方目标位置的存档，或用 `save` 指定更早的步数。输入列车必须在所选场景中，并在接下来的 120 个模拟步内实际转向；已提交的 `basic-through/save.json` 包含停车命令，不能用它代替运动输入。下面从已启动、尚未停车的位置保存；正式美术检查应使用装有待检查素材的配方和存档。
+
+```powershell
+New-Item -ItemType Directory -Force TestResults | Out-Null
+dotnet build Tools/Cli/Train.Cli.csproj
+dotnet Tools/Cli/bin/Debug/net10.0/Train.Cli.dll save . examples/basic-through/recipe.json TestResults/art-input.save.json 100
+# 按配方目标制作：将上一行 save 改为 make，并去掉末尾的步数。
+```
+
+成功退出码为 0，输出 129 张 PNG 和 `manifest.json`：三种距离 × 中性日光、阴天、夜间人工照明共 9 张静态图；日光下以默认跟随距离拍 60 帧过弯和 60 帧绕车。近景距车辆包围盒表面约 3 米；其余距离使用玩家相机的默认距离和最大缩放距离。文件名标明场景、距离或运动类型、光照及帧号。使用项目窗口分辨率，清单记录实际视口尺寸、构建提交、输入存档哈希、列车、每张图的模拟位置、表现时间、光照和相机变换，重复运行可比较清单与文件列表。
+
+采集会话保持暂停，过弯每帧只用普通 `Step` 推进两步；绕车不推进。等待资源时不推进采样时钟，超过 600 帧仍未完整显示则失败。不提交核心命令、不写存档、自动存档或录制；采集结束丢弃会话，输入存档哈希必须保持不变。缺输入、场景、编组，列车不在该场景、资源或光照失败、未过弯及写盘失败均非零退出；失败后的残留图不算完整检查，换一个空输出目录重跑。
+
+不能用 `--headless` 采图。Godot 4.7.2 官方调试／发布导出模板禁用 `--scene` 覆盖；把上述命令的可执行文件替换为导出的 exe，并去掉 `--path .`，会由引擎报错、非零退出且不进入截图脚本。脚本另保留 `OS.IsDebugBuild()` 拒绝，供允许路径覆盖的自编译模板使用；官方模板下该检查不可达。
 
 ### 样机
 
