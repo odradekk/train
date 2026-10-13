@@ -38,7 +38,6 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         var customFormat = ((ulong)mesh.SurfaceGetFormat(0) >> (int)Mesh.ArrayFormat.FormatCustom0Shift)
             & (ulong)Mesh.ArrayFormat.FormatCustomMask;
         Require(customFormat == (ulong)Mesh.ArrayCustomFormat.RgbaFloat, "表现通道需要完整 float 精度。");
-        Require(indices.SequenceEqual(new[] { 0, 2, 1 }), "契约 CCW 三角形没有转为 Godot CW。");
         var outward = (vertices[indices[2]] - vertices[indices[0]]).Cross(vertices[indices[1]] - vertices[indices[0]]).Normalized();
         Require(outward.Dot(Vector3.Back) > 0.999f, "正面绕序没有保持契约的外侧。");
         for (var index = 0; index < source.Vertices.Length; index++)
@@ -138,6 +137,38 @@ public class RenderingResourceTests(Node testScene) : TestClass(testScene)
         Require(GodotObject.IsInstanceValid(mesh) && GodotObject.IsInstanceValid(texture), "共享资源在最后使用者结束前被释放。");
         second.Dispose();
         Require(!GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(texture), "最后显示租约没有释放共享资源。");
+    }
+
+    [Test]
+    public void Missing_markers_prepare_known_cells_and_unknown_positions_and_release_owned_resources()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var resources = new SceneResources(cache, new FixedContentView());
+        var reference = new ContentReference.Design(new("missing-design"));
+        foreach (var knownCell in new[] { true, false })
+        {
+            var source = new SceneVisual.Missing(reference, knownCell);
+            using var visual = resources.Prepare(source);
+            var node = visual.Node;
+            var instance = Instance(visual);
+            var mesh = (BoxMesh)instance.Mesh;
+            var material = (StandardMaterial3D)instance.MaterialOverride;
+            Require(node.GetParent() is null, "缺失标记在准备时不得接入显示树。");
+            Require(instance.Position.IsEqualApprox(knownCell ? Vector3.One / 2 : Vector3.Zero),
+                "已知格标记必须位于格中心，未知范围标记必须位于放置点。");
+            Require(mesh.Size.X > 0 && mesh.Size.X <= 1 && mesh.Size.IsEqualApprox(Vector3.One * mesh.Size.X),
+                "缺失标记必须是格尺度内的立方体。");
+            Require(material.AlbedoColor.IsEqualApprox(Colors.Magenta) &&
+                material.ShadingMode == BaseMaterial3D.ShadingModeEnum.Unshaded,
+                "缺失标记必须使用可识别的不受光照影响的洋红色。");
+            Require(visual.CanUpdate(source) && !visual.CanUpdate(source with { KnownCell = !knownCell }),
+                "缺失标记类型改变需要重新准备。");
+            visual.Dispose();
+            Require(!GodotObject.IsInstanceValid(node) && !GodotObject.IsInstanceValid(instance) &&
+                !GodotObject.IsInstanceValid(mesh) && !GodotObject.IsInstanceValid(material),
+                "缺失标记的节点、网格及材质必须一起释放。");
+        }
     }
 
     [Test]

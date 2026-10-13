@@ -20,6 +20,7 @@ internal partial class WorldSceneView : Node3D
     internal event Action<Vector2>? PickRequested;
     internal event Action? ReturnRequested;
     private readonly Godot.Environment _environment;
+    private readonly WorldEnvironment _worldEnvironment;
     private readonly Sky _sky;
     private readonly ProceduralSkyMaterial _skyMaterial;
 
@@ -38,7 +39,8 @@ internal partial class WorldSceneView : Node3D
             SsaoIntensity = 0.5f, GlowEnabled = true, GlowBloom = 0,
             FogEnabled = true, FogLightColor = new Color("c9d6e0"), FogDensity = 0.001f
         };
-        AddChild(new WorldEnvironment { Environment = _environment });
+        _worldEnvironment = new() { Name = "WorldEnvironment", Environment = _environment };
+        AddChild(_worldEnvironment);
         AddChild(new DirectionalLight3D { Name = "Sun", RotationDegrees = new Vector3(-40, -30, 0),
             LightColor = new Color(1, 0.96f, 0.9f), ShadowEnabled = true,
             DirectionalShadowMode = DirectionalLight3D.ShadowMode.Parallel4Splits });
@@ -51,15 +53,21 @@ internal partial class WorldSceneView : Node3D
 
     public override void _Ready()
     {
-        CameraRig.Camera.Current = true;
+        CameraRig.Camera.Current = Visible;
         GetViewport().Msaa3D = Viewport.Msaa.Msaa4X;
         GetViewport().UseDebanding = true;
     }
 
     internal void SetLoading(bool loading) => _loading.Visible = loading;
-    internal void ShowFrame(ISceneFrame frame, WorldObjectId? follow)
+    internal void SetActive(bool active)
     {
-        CameraRig.DisplayedFrame(frame, follow);
+        Visible = active;
+        CameraRig.Camera.Current = active;
+        _worldEnvironment.Environment = active ? _environment : null;
+    }
+    internal void ShowFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false)
+    {
+        CameraRig.DisplayedFrame(frame, follow, railwayPan);
         SetLoading(false);
         Interactive = true;
     }

@@ -23,9 +23,11 @@ internal sealed class WorldSceneController : IDisposable
     private SceneDisplay? _display;
     private HostBinding _hostBinding;
     private ContentGeneration _generation;
+    private SceneBinding _sceneBinding;
     private SceneRequestId _request;
     private WorldSceneTarget? _target;
     private bool _fullReplacement;
+    private bool _awaitingRequest;
     private bool _disposed;
 
     internal WorldSceneView View { get; } = new();
@@ -40,7 +42,7 @@ internal sealed class WorldSceneController : IDisposable
         host.BoundaryCompleted += Observe;
         View.PickRequested += Pick;
         View.ReturnRequested += ReturnToMap;
-        View.Visible = false;
+        View.SetActive(false);
         View.SetLoading(false);
     }
 
@@ -50,28 +52,39 @@ internal sealed class WorldSceneController : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (_host.GetStatus() is not { } status || _host.Content is not { } content)
             throw new InvalidOperationException("打开世界场景需要活动会话。");
+        if (_session is not null && status.Binding == _hostBinding && content.Generation == _generation)
+        {
+            try { RequestTarget(target); }
+            catch (Exception exception) { AdapterFailed(exception, SceneStage.Input); }
+            return;
+        }
         CloseScene();
-        _target = target;
-        Start(status.Binding, new(status.View, content));
+        UpdateBinding(status.Binding, content.Generation);
+        Start(new(status.View, content), target);
     }
 
-    private void Start(HostBinding binding, SceneWorldSnapshot snapshot)
+    private void UpdateBinding(HostBinding binding, ContentGeneration generation)
     {
-        View.Visible = true;
+        if (binding == _hostBinding && generation == _generation) return;
+        _hostBinding = binding;
+        _generation = generation;
+        _sceneBinding = new(Guid.NewGuid());
+    }
+
+    private void Start(SceneWorldSnapshot snapshot, WorldSceneTarget target)
+    {
+        View.SetActive(true);
         View.Interactive = false;
         View.SetLoading(true);
-        _hostBinding = binding;
-        _generation = snapshot.Content.Generation;
         try
         {
-            var opened = _factory.OpenWorld(new SceneBinding(Guid.NewGuid()), snapshot);
+            var opened = _factory.OpenWorld(_sceneBinding, snapshot);
             if (opened is not SceneResult<IWorldSceneSession>.Success success) { Fail(opened); return; }
             _session = success.Value;
             _display = new(_cache, snapshot.Content);
             View.AddChild(_display.Root);
-            var requested = _session.RequestView(_target!);
-            if (requested is SceneResult<SceneRequestId>.Success request) _request = request.Value;
-            else Fail(requested);
+            var requested = RequestTarget(target);
+            if (requested is SceneResult<SceneRequestId>.Failure) Fail(requested);
         }
         catch (Exception exception) { AdapterFailed(exception, SceneStage.Input); }
     }
@@ -79,15 +92,26 @@ internal sealed class WorldSceneController : IDisposable
     private void Observe(HostBinding binding, ICoreReadView core, IContentView content,
         ImmutableArray<EventEnvelope> events)
     {
-        if (_session is null) return;
         try
         {
-            if (binding != _hostBinding || content.Generation != _generation)
+            if (binding != _hostBinding)
             {
-                CloseScene();
-                Start(binding, new(core, content));
+                UpdateBinding(binding, content.Generation);
+                ReturnToMap();
                 return;
             }
+            if (content.Generation != _generation)
+            {
+                UpdateBinding(binding, content.Generation);
+                if (_session is not null)
+                {
+                    var target = _target!;
+                    CloseScene();
+                    Start(new(core, content), target);
+                }
+                return;
+            }
+            if (_session is null) return;
             var observed = _session.Observe(new(core, content), events);
             if (observed is not SceneResult<SimulationPosition>.Success) Fail(observed);
         }
@@ -109,9 +133,10 @@ internal sealed class WorldSceneController : IDisposable
         try
         {
             var status = _host.GetStatus()!;
-            var displayed = _fullReplacement ? null : _display!.DisplayedFrame;
-            var camera = displayed is null ? null : new SceneCameraSample(displayed, ToNumerics(View.CameraRig.Focus));
-            var interpolation = status.IsPaused ? 1 : status.Remainder / SimulationTime.StepSeconds;
+            var actual = _display!.DisplayedFrame;
+            var displayed = _fullReplacement ? null : actual;
+            var camera = actual is null ? null : new SceneCameraSample(actual, ToNumerics(View.CameraRig.Focus));
+            var interpolation = status.Remainder / SimulationTime.StepSeconds;
             var result = _session.Present(new(Math.Clamp(interpolation, 0, 1), camera, SceneDebugLayer.None), displayed);
             if (result is SceneResult<ISceneFrame>.Failure { Problems: var problems } &&
                 problems.Length > 0 && problems.All(problem => problem.Code == "target_missing"))
@@ -130,6 +155,7 @@ internal sealed class WorldSceneController : IDisposable
             }
             if (frame.Update.Frame.Session != _session.Id || frame.Update.Frame.Request != _request)
                 throw new InvalidOperationException("显示帧不属于活动场景请求。");
+            if (_awaitingRequest && frame.Readiness == SceneReadiness.Loading) View.SetLoading(true);
             if (frame.Update.Base is { } baseline && baseline != displayed?.Update.Frame)
             { _fullReplacement = true; return; }
             using var prepared = _display!.Prepare(frame);
@@ -137,7 +163,8 @@ internal sealed class WorldSceneController : IDisposable
             {
                 prepared.Commit();
                 _fullReplacement = false;
-                View.ShowFrame(frame, FollowSubject());
+                _awaitingRequest = false;
+                View.ShowFrame(frame, FollowSubject(), _target is WorldSceneTarget.Location { Value: WorldLocation.Edge });
             }
             View.CameraRig.Update(delta);
         }
@@ -146,6 +173,24 @@ internal sealed class WorldSceneController : IDisposable
 
     private WorldObjectId? FollowSubject() => _target is WorldSceneTarget.Follow follow
         ? new WorldObjectId.Instance(new InstanceId.Vehicle(follow.Vehicle)) : null;
+
+    private SceneResult<SceneRequestId> RequestTarget(WorldSceneTarget target)
+    {
+        var result = _session!.RequestView(target);
+        if (result is SceneResult<SceneRequestId>.Success success)
+        {
+            _target = target;
+            _request = success.Value;
+            _fullReplacement = true;
+            _awaitingRequest = true;
+            View.Interactive = false;
+            View.SetLoading(_display!.DisplayedFrame is null);
+        }
+        else if (result is SceneResult<SceneRequestId>.Failure failure)
+            foreach (var problem in failure.Problems) Report(problem);
+        else Fail(result);
+        return result;
+    }
 
     private bool FollowReplacement()
     {
@@ -157,13 +202,8 @@ internal sealed class WorldSceneController : IDisposable
             instance.Value.Structure.EffectiveCurrent > 0);
         if (replacement == default) return false;
         var target = new WorldSceneTarget.Follow(follow.Train, replacement);
-        var result = _session!.RequestView(target);
-        if (result is not SceneResult<SceneRequestId>.Success success) { Fail(result); return true; }
-        _target = target;
-        _request = success.Value;
-        _fullReplacement = true;
-        View.Interactive = false;
-        return true;
+        var result = RequestTarget(target);
+        return result is SceneResult<SceneRequestId>.Success || _session is null;
     }
 
     internal void Pick(Vector2 screenPoint)
@@ -228,7 +268,7 @@ internal sealed class WorldSceneController : IDisposable
     private void CloseScene()
     {
         View.Interactive = false;
-        View.Visible = false;
+        View.SetActive(false);
         View.SetLoading(false);
         try { _display?.Dispose(); }
         catch (Exception exception) { LogAdapterFailure(exception, SceneStage.Close); }
@@ -241,6 +281,7 @@ internal sealed class WorldSceneController : IDisposable
         }
         _reported.Clear();
         _fullReplacement = false;
+        _awaitingRequest = false;
     }
 
     public void Dispose()

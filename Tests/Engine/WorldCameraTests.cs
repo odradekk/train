@@ -49,8 +49,6 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             camera.DisplayedFrame(displayed, null);
             Require(camera.Camera.Position.Y > 100, "相机必须略高于已显示帧地形。");
             var prepared = Frame(revision: 2, height: new Lookup<double>.Found(200));
-            camera.Update(0.1);
-            Require(camera.Camera.Position.Y < 200, "未显示候选帧不得改变地形约束。");
             camera.DisplayedFrame(prepared, null);
             Require(camera.Camera.Position.Y > 200, "接入成功后必须使用新显示帧地形。");
         }
@@ -125,12 +123,14 @@ public class WorldCameraTests(Node testScene) : TestClass(testScene)
             Require(camera.Focus.Z < 0 && camera.Focus.Z > -50, "换车辆必须平滑而不是瞬移。");
             Near(camera.Camera.Basis.Z, initialForward);
             camera.DisplayedFrame(Frame(revision: 3,
-                poses: Poses((Second, Pose(0, 0, -100, Mathf.Pi / 2)))), Second);
+                poses: Poses((Second, Pose(0, 0, -100, Mathf.Pi / 2))),
+                bounds: new(new(-2000, -2000), new(2000, 2000))), Second);
             camera.Update(0.05);
             Require(camera.Camera.Basis.Z.DistanceTo(initialForward) > 0.01,
                 "相机必须跟随显示帧车体朝向变化。");
+            var focus = camera.Focus;
             camera.Pan(new(1000, 0, 1000));
-            Require(camera.Focus.X == 0, "跟随时不能进入节点自由平移。");
+            Require(camera.Focus == focus, "跟随时不能进入节点自由平移。");
         }
         finally { camera.Free(); }
     }

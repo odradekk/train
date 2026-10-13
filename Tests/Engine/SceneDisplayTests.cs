@@ -64,9 +64,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         var loading = Frame(2, [], first.Update.Frame, readiness: SceneReadiness.Loading);
         Require(display.Prepare(loading) is null, "Loading 帧不能提交显示。");
         var wrongBase = first.Update.Frame with { Revision = 999 };
-        Require(display.Prepare(Frame(3, [], wrongBase)) is null, "不匹配的 Base 不能准备增量。");
+        Require(display.Prepare(Frame(3, [Object(2, Mesh(), new(20, 0, 0))], wrongBase,
+            shift: new(100, 0, 0), removed: [new(1)])) is null, "不匹配的 Base 不能准备增量。");
         Require(ReferenceEquals(first, display.DisplayedFrame) && ReferenceEquals(root, display.Objects[new(1)].Root),
             "拒绝候选必须保留最后成功帧和对象。");
+        Require(display.Objects.Count == 1 && GodotObject.IsInstanceValid(root),
+            "Base 错配不得部分删除或添加对象。");
+        Near(root.Position, Vector3.Zero);
     }
 
     [Test]
@@ -119,6 +123,9 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Commit(display, first);
         var oldMesh = MeshOf(display.Objects[new(1)]);
         var identity = oldMesh.GetInstanceId();
+        var oldVisual = display.Objects[new(1)].Visuals[0];
+        var exits = 0;
+        display.Objects[new(1)].Root.TreeExiting += () => exits++;
         var next = Frame(2, [Object(3, mesh, new(-50, 0, -60))], first.Update.Frame,
             new(-100, 5, 200), new(100, -5, -200));
         using (var candidate = Prepare(display, next))
@@ -132,6 +139,8 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Near(display.Objects[new(3)].Root.Position, new(-50, 0, -60));
         Require(MeshOf(display.Objects[new(1)]).GetInstanceId() == identity,
             "浮动原点平移不能重建旧网格。");
+        Require(ReferenceEquals(oldVisual, display.Objects[new(1)].Visuals[0]) && exits == 0,
+            "浮动原点平移必须复用表现且不让原根退出场景树。");
         var moved = Frame(3, [Object(1, mesh, new(-190, 10, 420))], next.Update.Frame,
             new(-100, 5, 200), new(200, -10, -400));
         Commit(display, moved);
@@ -139,6 +148,41 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Near(display.Objects[new(3)].Root.Position, new(-150, 5, 140));
         Require(MeshOf(display.Objects[new(1)]).GetInstanceId() == identity,
             "仅更新姿态的 Upsert 必须复用网格。");
+        Require(ReferenceEquals(oldVisual, display.Objects[new(1)].Visuals[0]) && exits == 0,
+            "仅更新姿态必须复用表现且保持根节点在树中。");
+    }
+
+    [Test]
+    public void Unchanged_fog_is_reused_and_surviving_child_can_leave_a_retired_parent()
+    {
+        using var dispatcher = new GodotMainThreadDispatcher();
+        using var cache = new AssetResourceCache(dispatcher);
+        using var display = Attach(cache, new FixedContentView());
+        var mesh = Mesh();
+        var regions = ImmutableArray.Create(new SceneBounds(NVector3.Zero, NVector3.One));
+        var first = Frame(1, [Object(1, mesh), Object(2, mesh, parent: new(1)), Object(3, mesh)], fog: regions);
+        Commit(display, first);
+        var fog = display.Root.GetNode<Node3D>("LoadingFog");
+        var parent = display.Objects[new(1)].Root;
+        var child = display.Objects[new(2)].Root;
+        var survivor = display.Objects[new(3)].Root;
+        var exits = 0;
+        survivor.TreeExiting += () => exits++;
+        var next = Frame(2, [Object(2, mesh, new(4, 0, 0))], first.Update.Frame,
+            removed: [new(1)], fog: ImmutableArray.Create(new SceneBounds(NVector3.Zero, NVector3.One)));
+        using (var abandoned = Prepare(display, next)) { }
+        Require(GodotObject.IsInstanceValid(fog) && ReferenceEquals(fog.GetParent(), display.Root),
+            "丢弃复用雾的候选不得释放当前雾节点。");
+        Commit(display, next);
+        Require(ReferenceEquals(fog, display.Root.GetNode<Node3D>("LoadingFog")),
+            "区域未变化必须保留原雾节点。");
+        Require(exits == 0, "未更新的根不得退出场景树。");
+        Require(!GodotObject.IsInstanceValid(parent) && GodotObject.IsInstanceValid(child) &&
+            ReferenceEquals(child.GetParent(), display.Root), "退役父节点不能释放换父后存活的子对象。");
+        Near(child.Position, new(4, 0, 0));
+        var replacement = Frame(3, [], next.Update.Frame, fog: []);
+        Commit(display, replacement);
+        Require(!GodotObject.IsInstanceValid(fog), "雾区域变化后必须释放旧雾节点。");
     }
 
     [Test]
@@ -194,12 +238,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
 
     private static FixedSceneFrame Frame(ulong revision, ImmutableArray<SceneObject> objects,
         SceneFrameStamp? @base = null, NVector3 shift = default, ScenePoint origin = default,
-        SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObjectId> removed = default) => new()
+        SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObjectId> removed = default,
+        ImmutableArray<SceneBounds> fog = default) => new()
     {
         Origin = origin,
         Readiness = readiness,
         Update = new(@base, new(Session, new(1), new(1), revision), shift, objects,
-            removed.IsDefault ? [] : removed, new([], []), [])
+            removed.IsDefault ? [] : removed, new(fog.IsDefault ? [] : fog, []), [])
     };
 
     private static SceneObject Object(ulong id, SceneMesh mesh, NVector3 position = default,

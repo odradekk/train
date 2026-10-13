@@ -60,8 +60,9 @@ internal sealed class SceneDisplay : IDisposable
             foreach (var item in next.Values)
                 if (item.Source.Parent is { } parent && !next.ContainsKey(parent))
                     throw new InvalidOperationException("显示对象的父对象不存在。");
-            fog = new(update.Environment.FoggedRegions);
-            return new(this, frame, next, created, roots, fog);
+            if (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions))
+                fog = new(update.Environment.FoggedRegions);
+            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null);
         }
         catch
         {
@@ -77,8 +78,13 @@ internal sealed class SceneDisplay : IDisposable
         _cache.RequireMainThread();
         var update = prepared.Frame.Update;
         var next = prepared.Objects;
-        // 先分别脱离子节点，再退役父节点，避免释放仍在使用的子对象。
-        foreach (var item in _objects.Values) item.Root.GetParent()?.RemoveChild(item.Root);
+        // 先摘除退役或换父的对象，避免退役父节点释放仍在使用的子对象。
+        foreach (var item in _objects.Values)
+        {
+            var surviving = next.GetValueOrDefault(item.Source.Id);
+            if (surviving is null || item.Source.Parent != surviving.Source.Parent)
+                item.Root.GetParent()?.RemoveChild(item.Root);
+        }
         var upserts = update.Upserts.Select(item => item.Id).ToHashSet();
         foreach (var item in next.Values)
         {
@@ -97,10 +103,11 @@ internal sealed class SceneDisplay : IDisposable
             else if (item.Source.Parent is null) item.Root.Position += ToGodot(update.ShiftExistingRoots);
         }
         foreach (var item in next.Values)
-            (item.Source.Parent is { } parent ? next[parent].Root : Root).AddChild(item.Root);
+            if (item.Root.GetParent() is null)
+                (item.Source.Parent is { } parent ? next[parent].Root : Root).AddChild(item.Root);
         var old = _objects;
         var oldFog = _fog;
-        Root.AddChild(prepared.Fog.Root);
+        if (!ReferenceEquals(oldFog, prepared.Fog)) Root.AddChild(prepared.Fog.Root);
         _fog = prepared.Fog;
         _objects = next;
         prepared.Transferred = true;
@@ -111,7 +118,7 @@ internal sealed class SceneDisplay : IDisposable
                 if (surviving is null || !surviving.Visuals.Contains(visual)) visual.Dispose();
             if (surviving is null) item.Root.Free();
         }
-        oldFog?.Dispose();
+        if (!ReferenceEquals(oldFog, _fog)) oldFog?.Dispose();
         DisplayedFrame = prepared.Frame;
         Root.Visible = true;
     }
@@ -137,7 +144,7 @@ internal sealed class SceneDisplay : IDisposable
 
     internal sealed class PreparedFrame(SceneDisplay owner, ISceneFrame frame,
         Dictionary<SceneObjectId, DisplayObject> objects, List<PreparedVisual> visuals,
-        List<Node3D> roots, FogGroup fog) : IDisposable
+        List<Node3D> roots, FogGroup fog, bool ownsFog) : IDisposable
     {
         internal bool Transferred { get; set; }
         private bool _disposed;
@@ -154,12 +161,13 @@ internal sealed class SceneDisplay : IDisposable
             _disposed = true;
             foreach (var visual in visuals) visual.Dispose();
             foreach (var root in roots) if (GodotObject.IsInstanceValid(root)) root.Free();
-            Fog.Dispose();
+            if (ownsFog) Fog.Dispose();
         }
     }
 
     internal sealed class FogGroup : IDisposable
     {
+        internal System.Collections.Immutable.ImmutableArray<SceneBounds> Regions { get; }
         internal Node3D Root { get; } = new() { Name = "LoadingFog" };
         private readonly List<BoxMesh> _meshes = [];
         private bool _disposed;
@@ -170,6 +178,7 @@ internal sealed class SceneDisplay : IDisposable
         };
         internal FogGroup(System.Collections.Immutable.ImmutableArray<SceneBounds> regions)
         {
+            Regions = regions;
             foreach (var region in regions)
             {
                 var mesh = new BoxMesh { Size = ToGodot(region.Maximum - region.Minimum) };

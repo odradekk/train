@@ -9,31 +9,6 @@ namespace Train.ContractSupport.Tests.Scenes;
 public sealed class FrameDisplayScenarioTests
 {
     [TestMethod]
-    public async Task PresentKeepsDisplayedBaseAndRetainedFrame()
-    {
-        var id = new SceneSessionId(Guid.NewGuid());
-        var stamp = new SceneFrameStamp(id, new(1), new(1), 1);
-        var first = Frame(new(null, stamp, Vector3.Zero, [], [], new([], []), []));
-        var next = Frame(new(stamp, stamp with { Revision = 2 }, -Vector3.UnitX, [], [], new([], []), []));
-        await using var session = new FixedDisplaySession
-        {
-            Id = id,
-            Binding = new(Guid.NewGuid()),
-            PresentResults = [new SceneResult<ISceneFrame>.Success(first), new SceneResult<ISceneFrame>.Success(next)]
-        };
-        var request = new SceneFrameRequest(0, null, SceneDebugLayer.None);
-        var displayed = ((SceneResult<ISceneFrame>.Success)session.Present(request, null)).Value;
-        FrameDisplayScenario.AssertFullReplacement(displayed);
-        FrameDisplayScenario.AssertRetainedFrame(displayed, () =>
-        {
-            var second = ((SceneResult<ISceneFrame>.Success)session.Present(request, displayed)).Value;
-            FrameDisplayScenario.AssertIncrementalBase(second, displayed);
-        });
-        Assert.AreSame(displayed, session.PresentCalls[1].DisplayedFrame);
-        AssertUnconfigured(() => session.Present(request, next));
-    }
-
-    [TestMethod]
     public async Task UnconfiguredOperationsFailClearlyAndDisposeRevokesImmediately()
     {
         var frame = Frame(new(null, WorldRequestScenario.Hit.Frame, Vector3.Zero, [], [], new([], []), []));

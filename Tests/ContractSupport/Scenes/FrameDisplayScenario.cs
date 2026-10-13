@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Numerics;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -122,26 +121,4 @@ public sealed class FixedDisplayFactory : IScenesFactory
 public static class FrameDisplayScenario
 {
     internal static InvalidOperationException Unconfigured(string operation) => new($"UNCONFIGURED: {operation}未配置。");
-
-    public static void AssertFullReplacement(ISceneFrame frame) => Assert.IsNull(frame.Update.Base);
-    public static void AssertIncrementalBase(ISceneFrame frame, ISceneFrame displayedFrame) => Assert.AreEqual(displayedFrame.Update.Frame, frame.Update.Base);
-
-    public static void AssertRetainedFrame(ISceneFrame frame, Action advance)
-    {
-        var update = frame.Update;
-        var origin = frame.Origin;
-        var bounds = frame.NodePanBounds;
-        var readiness = frame.Readiness;
-        var seconds = frame.SimulationSeconds;
-        var diagnostics = frame.Diagnostics;
-        var debugLines = frame.DebugLines;
-        advance();
-        Assert.AreEqual(update, frame.Update);
-        Assert.AreEqual(origin, frame.Origin);
-        Assert.AreEqual(bounds, frame.NodePanBounds);
-        Assert.AreEqual(readiness, frame.Readiness);
-        Assert.AreEqual(seconds, frame.SimulationSeconds);
-        CollectionAssert.AreEqual(diagnostics.ToArray(), frame.Diagnostics.ToArray());
-        CollectionAssert.AreEqual(debugLines.ToArray(), frame.DebugLines.ToArray());
-    }
 }

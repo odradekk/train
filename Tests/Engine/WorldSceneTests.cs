@@ -53,9 +53,16 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     public async Task Loading_base_mismatch_and_minimization_keep_the_last_display_boundary()
     {
         var fixture = new Fixture(TestScene.GetTree());
-        var first = Frame(1);
-        var loading = Frame(2, readiness: SceneReadiness.Loading);
-        var badBase = Frame(3, baseline: Stamp(90));
+        var first = Frame(1, pick: new ScenePick.Miss(), height: new Lookup<double>.Found(100));
+        var loading = Frame(2, readiness: SceneReadiness.Loading,
+            pick: new ScenePick.NotReady(), height: new Lookup<double>.Found(200));
+        var badBase = new FixedSceneFrame
+        {
+            Update = new(Stamp(90), Stamp(3), new(100, 0, -200),
+                [Object(2) with { Pose = new(new(30, 0, 40), System.Numerics.Quaternion.Identity) }],
+                [new(1)], new([], []), []),
+            TerrainHeightResult = new Lookup<double>.Missing()
+        };
         var replacement = Frame(4);
         FixedDisplaySession? session = null;
         try
@@ -65,12 +72,24 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var world = app.WorldScenes!;
             world.Open(Target);
             world.ProcessFrame(0, false);
+            var root = world.Display!.Root;
+            var oldObject = world.Display.Objects[new(1)].Root;
+            var oldTransform = oldObject.Transform;
             world.ProcessFrame(0, true);
             Require(session!.PresentCalls.Count == 1, "最小化仍调用了Present。");
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display!.DisplayedFrame, first), "Loading替换了旧显示帧。");
+            world.Pick(TestScene.GetViewport().GetVisibleRect().Size / 2);
+            Require(first.LastPickRay is not null && loading.LastPickRay is null, "Loading期间拾取必须只查询已显示首帧。");
+            Require(world.View.CameraRig.Camera.Position.Y > 100 && world.View.CameraRig.Camera.Position.Y < 200,
+                "Loading候选帧改变了已显示地形高度约束。");
             world.ProcessFrame(0, false);
             Require(ReferenceEquals(world.Display.DisplayedFrame, first), "Base不符部分接入了更新。");
+            Require(ReferenceEquals(world.Display.Root, root) && world.Display.Objects.Count == 1 &&
+                ReferenceEquals(world.Display.Objects[new(1)].Root, oldObject) && oldObject.Transform == oldTransform,
+                "Base不符仍更换显示根、增删对象或移动了旧对象。");
+            Require(ReferenceEquals(session.PresentCalls[1].DisplayedFrame, first) &&
+                ReferenceEquals(session.PresentCalls[2].DisplayedFrame, first), "Loading之后Present丢失了首帧边界。");
             world.ProcessFrame(0, false);
             Require(session.PresentCalls[^1].DisplayedFrame is null && world.Display.DisplayedFrame == replacement,
                 "Base不符后没有用null请求完整替换。");
@@ -186,12 +205,18 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     {
         var fixture = new Fixture(TestScene.GetTree());
         var setup = new Setup();
+        var railway = new WorldSceneTarget.Location(new WorldLocation.Edge(new(1), 50));
         var sessions = new List<FixedDisplaySession>();
+        var oldHit = new SceneHit(Stamp(1), new(1), new PickSubject.Terrain(new WorldLocation.Node(new(1))),
+            default, GridFace.PositiveY, default, NVector3.UnitY, 1, []);
         var factory = Factory(binding =>
         {
             var id = sessions.Count == 0 ? SceneId : new SceneSessionId(Guid.NewGuid());
-            var session = Session(binding, [Success(Frame((ulong)sessions.Count + 1, session: id))],
-                observe: [new SceneResult<SimulationPosition>.Success(new(0, 1))], id: id);
+            var session = Session(binding, [Success(Frame((ulong)sessions.Count + 1, session: id,
+                    pick: new ScenePick.Hit(oldHit)))], resolve:
+                ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty.Add(oldHit,
+                    new SceneResult<PickSubject>.Success(oldHit.Subject)),
+                observe: [new SceneResult<SimulationPosition>.Success(new(0, 1))], id: id, target: railway);
             sessions.Add(session);
             return session;
         });
@@ -199,9 +224,11 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         {
             var app = await Ready(fixture, setup, factory);
             var world = app.WorldScenes!;
-            world.Open(Target);
+            world.Open(railway);
             world.ProcessFrame(0, false);
             var old = world.Display!.DisplayedFrame;
+            var selected = 0;
+            world.Selected += _ => selected++;
             var changedInput = new CoreInputId(new string('B', 64));
             var rejectedContent = new FixedContentView(HostContentScenario.CreateProjection(changedInput), new(2));
             setup.Reload = new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(rejectedContent, changes: ContentChange.CoreInput));
@@ -218,8 +245,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             await Pump(app.Host);
             Require(sessions[0].IsDisposed && sessions.Count == 2 && world.View.Loading && !world.View.Interactive,
                 "有效重载没有更换绑定、关闭旧场景和加载。");
+            Require(sessions[1].RequestCalls.SequenceEqual(new[] { railway }), "内容世代变更丢失了当前线路目标。");
             world.Pick(Vector2.Zero);
-            Require(sessions[0].ResolveCalls.Count == 0 && factory.OpenCalls[0].Binding != factory.OpenCalls[1].Binding,
+            Require(selected == 0 && sessions[0].ResolveCalls.Count == 0 && factory.OpenCalls[0].Binding != factory.OpenCalls[1].Binding,
                 "旧绑定仍可拾取或新会话沿用了旧绑定。");
             world.ProcessFrame(0, false);
             Require(world.Display!.DisplayedFrame != old && world.View.Interactive, "重载后的新帧未接入。");
@@ -237,6 +265,7 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var world = app.WorldScenes!;
             world.Open(Target);
             world.ProcessFrame(0, false);
+            app.GetNode<Control>("MainMenu").Hide();
             var picks = 0;
             world.View.PickRequested += _ => picks++;
             var cover = new Control { MouseFilter = Control.MouseFilterEnum.Stop };
@@ -246,19 +275,171 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             {
                 var viewport = TestScene.GetViewport();
                 var position = viewport.GetVisibleRect().Size / 2;
-                viewport.PushInput(new InputEventMouseButton { Position = position, GlobalPosition = position,
-                    ButtonIndex = MouseButton.Left, Pressed = true }, true);
+                var click = new InputEventMouseButton { Position = position, GlobalPosition = position,
+                    ButtonIndex = MouseButton.Left, Pressed = true };
+                viewport.PushInput(click, true);
                 Require(picks == 0, "UI遮挡鼠标仍进入了世界_UnhandledInput。");
                 cover.Free();
-                world.View._UnhandledInput(new InputEventMouseButton { Position = position, ButtonIndex = MouseButton.Left, Pressed = true });
+                viewport.PushInput(click, true);
                 Require(picks == 1, "未遮挡点击没有交给拾取入口。");
                 world.ReturnToMap();
                 var exits = 0;
                 world.ReturnedToMap += _ => exits++;
-                world.View._UnhandledInput(new InputEventKey { Keycode = Key.Escape, Pressed = true });
+                viewport.PushInput(new InputEventKey { Keycode = Key.Escape, Pressed = true }, true);
                 Require(exits == 0, "隐藏的世界视图仍消费地图的Escape。");
             }
             finally { if (GodotObject.IsInstanceValid(cover)) cover.Free(); }
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Restoring_a_new_host_binding_returns_to_map_without_reopening_the_old_target()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new Setup();
+        FixedDisplaySession? session = null;
+        var factory = Factory(binding =>
+        {
+            var id = new SceneSessionId(Guid.NewGuid());
+            return session = Session(binding, [Success(Frame(1, session: id))], id: id);
+        });
+        try
+        {
+            var app = await Ready(fixture, setup, factory);
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.ProcessFrame(0, false);
+            var returned = 0;
+            SceneProblem? reason = null;
+            world.ReturnedToMap += problem => { returned++; reason = problem; };
+            var oldBinding = app.Host!.GetStatus()!.Binding;
+            setup.RestoredSession = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+            app.Host.BeginRestore("opaque", "opaque",
+                new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
+            await Pump(app.Host);
+            Require(app.Host.GetStatus()!.Binding != oldBinding && session!.IsDisposed && returned == 1 && reason is null,
+                "宿主绑定切换必须关闭旧场景并正常返回地图。");
+            Require(world.Display is null && !world.View.Visible && factory.OpenCalls.Count == 1,
+                "宿主绑定切换仍重开了旧观察目标。");
+            world.Open(Target);
+            Require(factory.OpenCalls.Count == 2 && factory.OpenCalls[0].Binding != factory.OpenCalls[1].Binding,
+                "新宿主绑定再次打开世界没有分配新SceneBinding。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Reopening_under_the_same_host_and_content_keeps_the_scene_binding()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var sessions = new List<FixedDisplaySession>();
+        var factory = Factory(binding =>
+        {
+            var id = new SceneSessionId(Guid.NewGuid());
+            var session = Session(binding, [Success(Frame(1, session: id))], id: id);
+            sessions.Add(session);
+            return session;
+        });
+        try
+        {
+            var app = await Ready(fixture, new Setup(), factory);
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.ProcessFrame(0, false);
+            world.ReturnToMap();
+            world.Open(Target);
+            world.ProcessFrame(0, false);
+            Require(sessions.Count == 2 && sessions[0].IsDisposed && world.View.Interactive,
+                "回地图后必须可以新开场景会话。");
+            Require(factory.OpenCalls[0].Binding == factory.OpenCalls[1].Binding,
+                "同一个宿主绑定和内容世代重开不能改变SceneBinding。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Open_switches_targets_in_one_session_and_failed_requests_keep_the_active_target()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var railway = new WorldSceneTarget.Location(new WorldLocation.Edge(new(1), 50));
+        var rejected = new WorldSceneTarget.Location(new WorldLocation.Node(new(2)));
+        var problem = new SceneProblem("target_missing", SceneStage.Input, null, null, null, null, "目标不存在。");
+        var first = Frame(1, pick: new ScenePick.Miss());
+        var next = Frame(3, request: 2, pick: new ScenePick.Miss());
+        FixedDisplaySession? session = null;
+        var factory = Factory(binding => session = new()
+        {
+            Id = SceneId, Binding = binding,
+            RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty
+                .Add(Target, new SceneResult<SceneRequestId>.Success(new(1)))
+                .Add(railway, new SceneResult<SceneRequestId>.Success(new(2)))
+                .Add(rejected, new SceneResult<SceneRequestId>.Failure([problem])),
+            PresentResults = [Success(first), Success(Frame(2, request: 2, readiness: SceneReadiness.Loading)),
+                Success(next), Success(Frame(4, request: 2, pick: new ScenePick.Miss()))]
+        });
+        try
+        {
+            var app = await Ready(fixture, new Setup(), factory);
+            var world = app.WorldScenes!;
+            world.Open(Target);
+            world.ProcessFrame(0, false);
+            world.Open(railway);
+            Require(factory.OpenCalls.Count == 1 && !session!.IsDisposed && !world.View.Loading && !world.View.Interactive,
+                "打开另一目标必须复用会话，等待首帧时不能直接显示加载罩。");
+            world.ProcessFrame(0, false);
+            Require(world.View.Loading && ReferenceEquals(world.Display!.DisplayedFrame, first),
+                "新请求的Loading首帧应显示加载罩并保留旧画面。");
+            world.ProcessFrame(0, false);
+            Require(world.View.Interactive && !world.View.Loading && ReferenceEquals(world.Display!.DisplayedFrame, next),
+                "新请求Ready没有接入。");
+            var focus = world.View.CameraRig.Focus;
+            world.View.CameraRig.Pan(new(8, 0, -12));
+            Require(world.View.CameraRig.Focus == focus + new Vector3(8, 0, -12),
+                "线路地点应允许没有节点边界的自由平移。");
+            world.Open(rejected);
+            Require(world.View.Interactive && !world.View.Loading && !session!.IsDisposed && world.Display!.DisplayedFrame == next,
+                "失败的目标请求改变了活动场景。");
+            world.ProcessFrame(0, false);
+            Require(world.View.Interactive && session!.PresentCalls[^1].DisplayedFrame == next &&
+                session.PresentCalls[^1].Request.Camera?.Focus == new NVector3(focus.X + 8, focus.Y, focus.Z - 12),
+                "失败请求改变了活动请求，或线路平移没有传给下一次Present.Camera。");
+            Require(factory.OpenCalls.Count == 1 && session!.RequestCalls.SequenceEqual(new[] { Target, railway, rejected }),
+                "目标切换新开了场景会话或跳过RequestView。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
+    public async Task Pausing_preserves_fractional_interpolation_and_returning_to_map_stops_camera_and_environment()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        FixedDisplaySession? session = null;
+        try
+        {
+            var app = await Ready(fixture, new Setup(), Factory(binding => session = Session(binding,
+                [Success(Frame(1)), Success(Frame(2)), Success(Frame(3))])));
+            var world = app.WorldScenes!;
+            var host = app.Host!;
+            var environment = world.View.GetChildren().OfType<WorldEnvironment>().Single();
+            Require(!world.View.CameraRig.Camera.Current && environment.Environment is null,
+                "地图状态仍启用了世界相机或环境。");
+            world.Open(Target);
+            Require(world.View.CameraRig.Camera.Current && environment.Environment is not null,
+                "打开世界未启用相机和环境。");
+            host.SetPaused(false);
+            host.ProcessFrame(0);
+            host.ProcessFrame(SimulationTime.StepSeconds * 0.5);
+            world.ProcessFrame(0, false);
+            var remainder = host.GetStatus()!.Remainder;
+            Require(remainder > 0 && remainder < SimulationTime.StepSeconds, "没有建立部分模拟步长。");
+            host.SetPaused(true);
+            world.ProcessFrame(0, false);
+            Require(Math.Abs(session!.PresentCalls[^1].Request.Interpolation - remainder / SimulationTime.StepSeconds) < 1e-9,
+                "暂停把保留的部分步长改成了步末插值。");
+            world.ReturnToMap();
+            Require(!world.View.CameraRig.Camera.Current && environment.Environment is null,
+                "关闭世界未停止相机和环境。");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -288,10 +469,11 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     { OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(open(binding)) };
     private static FixedDisplaySession Session(SceneBinding binding, ImmutableArray<SceneResult<ISceneFrame>> frames,
         Task? close = null, ImmutableDictionary<SceneHit, SceneResult<PickSubject>>? resolve = null,
-        ImmutableArray<SceneResult<SimulationPosition>> observe = default, SceneSessionId? id = null) => new()
+        ImmutableArray<SceneResult<SimulationPosition>> observe = default, SceneSessionId? id = null,
+        WorldSceneTarget? target = null) => new()
     {
         Id = id ?? SceneId, Binding = binding, PresentResults = frames, DisposeGate = close,
-        RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(Target,
+        RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(target ?? Target,
             new SceneResult<SceneRequestId>.Success(new(1))),
         ResolveResults = resolve ?? ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty,
         ObserveResults = observe.IsDefault ? [] : observe
@@ -304,42 +486,27 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     private static FixedSceneFrame Frame(ulong revision, SceneFrameStamp? baseline = null,
         SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObject> objects = default,
         ScenePoint origin = default, NVector3 shift = default, ScenePick? pick = null,
-        ImmutableArray<SceneProblem> diagnostics = default, SceneSessionId? session = null) => new()
+        ImmutableArray<SceneProblem> diagnostics = default, SceneSessionId? session = null,
+        Lookup<double>? height = null, ulong request = 1) => new()
     {
-        Update = new(baseline, Stamp(revision, session), shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
+        Update = new(baseline, Stamp(revision, session) with { Request = new(request) }, shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
         Origin = origin, Readiness = readiness, PickResult = pick,
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
-        TerrainHeightResult = new Lookup<double>.Missing()
+        TerrainHeightResult = height ?? new Lookup<double>.Missing()
     };
 
     private sealed class Setup
     {
         internal ScriptedCoreSession Session { get; } = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
         internal ContentResult<IContentCandidate>? Reload { get; set; }
+        internal ScriptedCoreSession? RestoredSession { get; set; }
         internal IReadOnlyDictionary<AssetRevision, ContentLookup<ContentAsset>> Assets { get; init; } =
             ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>>.Empty;
         internal HostCoordinator Create(TrainLogger logger)
         {
             var content = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1)) { Assets = Assets };
-            var capture = new FixedCoreCapture(new(new(0, 0), "fixed", "fixed"), HostCoreScenario.References,
-                "opaque", HostCoreScenario.Input, new(1));
-            Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
-            var core = new ScriptedCoreFactory
-            {
-                DecodeStateCall = _ => new CoreResult<ICoreCapture>.Success(capture),
-                PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(Session, HostCoreScenario.References))
-            };
-            var factory = new ScriptedContentFactory
-            {
-                DecodeCaptureCall = _ => new ContentResult<IContentCapture>.Success(new FixedContentCapture("opaque")),
-                PrepareLoadCall = (request, _, _) => request.Purpose is ContentLoadPurpose.Restore
-                    ? new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(content))
-                    : Reload ?? throw new InvalidOperationException("UNCONFIGURED: 重载结果。")
-            };
-            var host = new HostCoordinator(core, factory, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-                new(new("builtin"), new("mods"), null, "fixture", []), logger);
-            host.BeginRestore("opaque", "opaque", new(new("fixture", "fixture", "fixture", "fixture", "fixture"), true, 1));
-            return host;
+            return WorldSceneFixture.CreateHost(Session, content, logger, () => Reload
+                ?? throw new InvalidOperationException("UNCONFIGURED: 重载结果。"), () => RestoredSession ?? Session);
         }
     }
 }

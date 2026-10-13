@@ -13,6 +13,7 @@ internal partial class WorldCamera : Node3D
     private const float TerrainClearance = 1f;
     private ISceneFrame? _frame;
     private WorldObjectId? _follow;
+    private bool _railwayPan;
     private Vector3 _targetPosition;
     private float _targetYaw;
     private float _bodyYaw;
@@ -29,7 +30,7 @@ internal partial class WorldCamera : Node3D
         AddChild(Camera);
     }
 
-    public void DisplayedFrame(ISceneFrame frame, WorldObjectId? follow)
+    public void DisplayedFrame(ISceneFrame frame, WorldObjectId? follow, bool railwayPan = false)
     {
         var previous = _frame;
         var sameSpace = previous is not null && previous.Update.Frame.Session == frame.Update.Frame.Session
@@ -61,6 +62,7 @@ internal partial class WorldCamera : Node3D
 
         _frame = frame;
         _follow = follow;
+        _railwayPan = railwayPan;
         if (pose is not null)
         {
             _targetPosition = ToGodot(pose.Position);
@@ -101,7 +103,7 @@ internal partial class WorldCamera : Node3D
 
     public void Pan(Vector3 horizontal)
     {
-        if (_follow is not null || _frame?.NodePanBounds is null)
+        if (_frame is null || _follow is not null || !_railwayPan && _frame.NodePanBounds is null)
             return;
         Focus += new Vector3(horizontal.X, 0f, horizontal.Z);
         ClampFocus();
@@ -110,7 +112,7 @@ internal partial class WorldCamera : Node3D
 
     private void ClampFocus()
     {
-        if (_follow is null && _frame?.NodePanBounds is { } bounds)
+        if (_follow is null && !_railwayPan && _frame?.NodePanBounds is { } bounds)
             Focus = new Vector3(Mathf.Clamp(Focus.X, bounds.Minimum.X, bounds.Maximum.X),
                 Focus.Y, Mathf.Clamp(Focus.Z, bounds.Minimum.Y, bounds.Maximum.Y));
     }
