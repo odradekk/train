@@ -23,8 +23,13 @@ internal sealed class CliRunner(ICoreFactory core, IContentFactory content, Runt
 {
     internal RunOutput Run(string repository, Recipe recipe, bool verifyReplay)
     {
+        const string versionPrefix = "config/version=";
+        var versionLine = File.ReadLines(Path.Combine(repository, "project.godot"))
+            .Single(line => line.StartsWith(versionPrefix, StringComparison.Ordinal));
+        var gameVersion = JsonSerializer.Deserialize<string>(versionLine[versionPrefix.Length..])
+            ?? throw new InvalidDataException("project.godot 缺少游戏版本。");
         using var loaded = Require(content.PrepareLoad(new(new(CliContentFiles.BuiltIn,
-            CliContentFiles.Mods, null, "0.0.56", []), new ContentLoadPurpose.Initial()),
+            CliContentFiles.Mods, null, gameVersion, []), new ContentLoadPurpose.Initial()),
             new CliContentFiles(repository), new PngAssetInspector()));
         if (loaded.Report.Diagnostics.Any(d => d.Severity == ContentDiagnosticSeverity.Error))
             throw new InvalidDataException(string.Join('\n', loaded.Report.Diagnostics.Select(d => $"{d.Field}: {d.Code} {d.Message}")));
