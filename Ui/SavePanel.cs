@@ -8,6 +8,13 @@ public partial class SavePanel : Window
     private SaveService? _service;
     private readonly Label _status = new();
     private readonly Label _message = new();
+    private readonly Label _listMessage = new()
+    {
+        AutowrapMode = TextServer.AutowrapMode.WordSmart,
+        MaxLinesVisible = 2,
+        TextOverrunBehavior = TextServer.OverrunBehavior.TrimEllipsis,
+        Visible = false
+    };
     private readonly ItemList _list = new() { CustomMinimumSize = new Vector2(620, 220) };
     private readonly List<Button> _operations = [];
     private readonly List<Button> _saveButtons = [];
@@ -42,6 +49,7 @@ public partial class SavePanel : Window
         column.AddChild(_status);
         column.AddChild(_message);
         _message.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        column.AddChild(_listMessage);
         column.AddChild(_list);
         var files = new HBoxContainer();
         column.AddChild(files);
@@ -156,6 +164,9 @@ public partial class SavePanel : Window
         if (Visible)
         {
             _entries = _service.List();
+            _listMessage.Text = _service.ListMessage is { } message ? $"存档列表：{message}" : "";
+            _listMessage.TooltipText = _listMessage.Text;
+            _listMessage.Visible = _service.ListMessage is not null;
             _list.Clear();
             foreach (var entry in _entries)
                 _list.AddItem($"{entry.Header.Name} · {entry.Header.SavedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}{(entry.Automatic ? " · 自动" : "")}");

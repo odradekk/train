@@ -42,6 +42,7 @@ internal sealed class SaveService : IDisposable
     internal event Action? Changed;
     internal SaveStatus? Status => _host.GetSaveStatus();
     internal string? LastMessage { get; private set; }
+    internal string? ListMessage { get; private set; }
     internal LeavePrompt? Leaving { get; private set; }
     internal bool HasPendingWork => _writes.Count != 0 || _read is not null || _import is not null || _restore is not null;
     internal bool IsBusy => HasPendingWork || _leave is not null || _host.IsBusy;
@@ -66,13 +67,14 @@ internal sealed class SaveService : IDisposable
 
     internal IReadOnlyList<SaveEntry> List()
     {
+        ListMessage = null;
         var entries = new List<SaveEntry>();
         var root = Path.Combine(_store.Root, FileSaveStore.SavesFolder);
         if (!Directory.Exists(root)) return entries;
         string[] directories;
         try { directories = Directory.GetDirectories(root); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-        { LastMessage = $"无法读取存档目录：{error.Message}"; return entries; }
+        { ListMessage = $"无法读取存档目录：{error.Message}"; return entries; }
         foreach (var directory in directories)
         {
             if (!Guid.TryParse(Path.GetFileName(directory), out var id)) continue;
@@ -87,7 +89,7 @@ internal sealed class SaveService : IDisposable
                     entries.Add(new(path, header, Path.GetFileName(path) != FileSaveStore.FileName));
                 }
                 catch (Exception error) when (error is SaveFormatException or IOException or UnauthorizedAccessException)
-                { LastMessage = $"无法读取存档列表项 {path}：{error.Message}"; }
+                { ListMessage = $"无法读取存档列表项：{error.Message}\n{path}"; }
             }
         }
         return entries.OrderByDescending(entry => entry.Header.SavedAt).ThenBy(entry => entry.Path, StringComparer.Ordinal).ToArray();

@@ -305,8 +305,8 @@ public sealed class SaveServiceTests
         var bytes = File.ReadAllBytes(path);
         var before = run.Service.Status;
         Assert.AreEqual(0, run.Service.List().Count);
-        StringAssert.Contains(run.Service.LastMessage!, "基于全局体素世界的旧存档已不支持");
-        Assert.IsFalse(run.Service.LastMessage.Contains("损坏", StringComparison.Ordinal));
+        StringAssert.Contains(run.Service.ListMessage!, "基于全局体素世界的旧存档已不支持");
+        Assert.IsFalse(run.Service.ListMessage.Contains("损坏", StringComparison.Ordinal));
         Assert.ThrowsExactly<SaveFormatException>(() => run.Store.Read(path));
         Assert.IsNull(run.Service.Import(path));
         run.Drain();
@@ -336,6 +336,41 @@ public sealed class SaveServiceTests
         CollectionAssert.AreEqual(before, File.ReadAllBytes(source));
         StringAssert.Contains(run.Service.LastMessage!, version == 0 ? "损坏" : "基于全局体素世界的旧存档已不支持");
         if (version != 0) Assert.IsFalse(run.Service.LastMessage.Contains("损坏", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Invalid_list_entry_cannot_replace_manual_or_leave_save_failure(bool leaving)
+    {
+        using var run = new Run(failPublish: true);
+        var damaged = run.Store.PathFor(Guid.NewGuid());
+        Directory.CreateDirectory(Path.GetDirectoryName(damaged)!);
+        File.WriteAllText(damaged, SaveContainerTests.Legacy(5));
+        var before = File.ReadAllBytes(damaged);
+        var status = run.Service.Status;
+        run.Service.Changed += () => run.Service.List();
+        var continued = false;
+        if (leaving)
+        {
+            Assert.IsNull(run.Service.RequestLeave(() => continued = true));
+            run.Service.ChooseLeave(LeaveChoice.Save);
+        }
+        else Assert.IsNull(run.Service.Save());
+        run.Drain();
+        Assert.AreEqual("deterministic publish failure", run.Service.LastMessage);
+        Assert.AreEqual(0, run.Service.List().Count);
+        StringAssert.Contains(run.Service.ListMessage!, "基于全局体素世界的旧存档已不支持");
+        Assert.AreEqual("deterministic publish failure", run.Service.LastMessage);
+        Assert.AreEqual(status, run.Service.Status);
+        Assert.IsFalse(continued);
+        Assert.IsNull(run.Service.Leaving);
+        Assert.IsFalse(run.Host.Host.GetStatus()!.OperationLocked);
+        CollectionAssert.AreEqual(before, File.ReadAllBytes(damaged));
+        File.Delete(damaged);
+        Assert.AreEqual(0, run.Service.List().Count);
+        Assert.IsNull(run.Service.ListMessage);
+        Assert.AreEqual("deterministic publish failure", run.Service.LastMessage);
     }
 
     [TestMethod]
