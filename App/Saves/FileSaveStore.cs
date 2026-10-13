@@ -32,7 +32,15 @@ internal sealed class FileSaveStore
         return Path.Combine(DirectoryFor(id), $"autosave-{slot}.json");
     }
 
-    internal SaveDocument Read(string target) => SaveContainer.Decode(File.ReadAllText(target, Encoding.UTF8));
+    internal SaveDocument Read(string target)
+    {
+        try
+        {
+            using var reader = new StreamReader(target, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false);
+            return SaveContainer.Decode(reader.ReadToEnd());
+        }
+        catch (DecoderFallbackException) { throw new SaveFormatException("invalid-save", "存档文件不是有效的 UTF-8"); }
+    }
     internal SaveHeader ReadHeader(string target)
     {
         using var stream = File.OpenRead(target);

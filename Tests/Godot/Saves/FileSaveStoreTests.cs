@@ -8,6 +8,21 @@ namespace Train.Godot.Tests.Saves;
 public sealed class FileSaveStoreTests
 {
     [TestMethod]
+    public void Invalid_utf8_is_rejected_without_replacing_damaged_text_or_changing_the_file()
+    {
+        using var files = new SaveFiles();
+        var document = SaveContainerTests.Document();
+        var text = SaveContainer.Encode(document with { Header = document.Header with { Name = "readable-name" } });
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        var offset = System.Text.Encoding.UTF8.GetByteCount(text.AsSpan(0, text.IndexOf("readable-name", StringComparison.Ordinal)));
+        bytes[offset] = 0xff;
+        Directory.CreateDirectory(Path.GetDirectoryName(files.Target)!);
+        File.WriteAllBytes(files.Target, bytes);
+        Assert.ThrowsExactly<SaveFormatException>(() => files.Store.Read(files.Target));
+        CollectionAssert.AreEqual(bytes, File.ReadAllBytes(files.Target));
+    }
+
+    [TestMethod]
     public void Valid_document_round_trips_and_export_can_use_external_target()
     {
         using var files = new SaveFiles();
@@ -77,7 +92,7 @@ public sealed class FileSaveStoreTests
             cancellation.Cancel();
         });
         var result = store.Write(files.Target, SaveContainerTests.Document("replacement"), true, cancellation.Token);
-        Assert.IsTrue(result.Published);
+        Assert.IsTrue(result.Published, $"{result.Code}: {result.Message}; cleanup: {result.CleanupMessage}");
         Assert.IsNull(result.Code);
         Assert.AreEqual("replacement", files.Store.Read(files.Target).CorePayload);
         files.AssertOnlyTarget();
