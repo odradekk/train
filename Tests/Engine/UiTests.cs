@@ -9,6 +9,8 @@ using Train.App.Assets;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Core.ContractSupport;
+using Train.Scenes.Contracts;
+using Train.Scenes.ContractSupport;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -24,6 +26,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var scale = tree.Root.ContentScaleFactor;
+        using var output = new GodotOutputCapture();
         using var dispatcher = new GodotMainThreadDispatcher();
         var factory = Train.Content.ContentFactory.Create();
         var loaded = factory.PrepareLoad(new(new(new("builtin"), new("mods"), null, "0.0.56", []),
@@ -47,10 +50,14 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Locations = nodes.ToDictionary(node => (WorldLocation)new WorldLocation.Node(node.Id), node =>
                 (Lookup<LocationView>)new Lookup<LocationView>.Found(new(new WorldLocation.Node(node.Id), [], [], [], [], node.Occupant)))
         };
+        var scenes = new FixedDisplayFactory { OpenWorldResults = [new SceneResult<IWorldSceneSession>.Failure(
+            [new("fixture_scene_unavailable", SceneStage.Build, null, null, null, null, "地图测试不构建世界场景。")])] };
+        OS.AddLogger(output);
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => new HostSimulationTests.HostSetup(view, content).Create(logger);
+            app.CreateScenes = () => scenes;
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
@@ -74,8 +81,10 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Require(clicked is null, "普通聚居地在圆心外 18 像素处被实际左键选中。");
             await _input.Click(map.GlobalPosition + map.MapToScreen(nodes[0].Position) + new Vector2(18, 0));
             Require(clicked == new WorldObjectId.Node(nodes[0].Id), "主要聚居地在圆心外 18 像素处未被实际左键选中。");
+            Require(scenes.OpenCalls.Count == 1, "地图点击没有发出唯一的场景打开请求。");
+            Require(!output.Contains("scene_adapter_failed"), "地图点击打开场景记录了适配异常。");
         }
-        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+        finally { OS.RemoveLogger(output); await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
     private sealed class MajorSettlementFiles : IContentFiles
@@ -149,12 +158,17 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var tree = TestScene.GetTree();
         var fixture = new Fixture(tree);
         var scale = tree.Root.ContentScaleFactor;
+        using var output = new GodotOutputCapture();
         var view = UiWorldFixture.Map();
         var setup = new HostSimulationTests.HostSetup(view);
+        var scenes = new FixedDisplayFactory { OpenWorldResults = [new SceneResult<IWorldSceneSession>.Failure(
+            [new("fixture_scene_unavailable", SceneStage.Build, null, null, null, null, "地图测试不构建世界场景。")])] };
+        OS.AddLogger(output);
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => setup.Create(logger);
+            app.CreateScenes = () => scenes;
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
             tree.Root.ContentScaleFactor = 1;
@@ -201,8 +215,10 @@ public class UiTests(Node testScene) : TestClass(testScene)
             await _input.MouseButton(covered, MouseButton.WheelUp, true);
             await _input.MouseButton(covered, MouseButton.WheelUp, false);
             Require(map.Offset == before && map.Zoom == zoom, "上层列表的实际输入穿透到了地图。");
+            Require(scenes.OpenCalls.Count == 1, "地图点击没有发出唯一的场景打开请求。");
+            Require(!output.Contains("scene_adapter_failed"), "地图点击打开场景记录了适配异常。");
         }
-        finally { await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
+        finally { OS.RemoveLogger(output); await fixture.Cleanup(); tree.Root.ContentScaleFactor = scale; }
     }
 
     [Test]
