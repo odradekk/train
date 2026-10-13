@@ -22,7 +22,7 @@ if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine',
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
     @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 481; integration = $(if ($IsWindows) { 10 } else { 7 }) },
-    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 515; integration = 7 },
+    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 426; integration = 1 },
     @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 251; integration = 1 },
     @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 145; integration = $(if ($IsWindows) { 85 } else { 77 }); engine = 104 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 40; integration = 0 },
@@ -140,7 +140,7 @@ function Invoke-WindowsExport([string] $Name, [string] $Group, [string] $Binary)
             Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
             $script:importDone = $true
         }
-        Invoke-Check $Name $Group $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run "$Name-godot.log"), '--export-release', 'Windows Desktop', $Binary) 120
+        Invoke-Check $Name $Group $env:GODOT @('--headless', '--path', $root, '--log-file', (Join-Path $run "$Name-godot.log"), '--export-release', 'Windows Desktop', $Binary) 120
     } finally {
         if (Test-Path -LiteralPath $templateDirectory) { Remove-Item -LiteralPath $templateDirectory -Recurse -Force }
     }

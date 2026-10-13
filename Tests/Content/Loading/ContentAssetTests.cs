@@ -28,17 +28,20 @@ public sealed class ContentAssetTests
     }
 
     [TestMethod]
-    [DataRow(48, 48)]
-    [DataRow(32, 16)]
-    [DataRow(0, 0)]
-    public void Content_rejects_png_facts_that_violate_face_rules(int width, int height)
+    [DataRow(48, 48, false)]
+    [DataRow(32, 16, false)]
+    [DataRow(0, 0, false)]
+    [DataRow(128, 64, true)]
+    public void Content_rejects_png_facts_that_violate_field_rules(int width, int height, bool icon)
     {
         var fixture = new ContentFixture();
         fixture.AddCube();
-        fixture.AddAsset(ContentFixture.BuiltIn, "resources/voxels/block/tile.png", [1, 2, 3], new C.AssetMetadata.Png(width, height));
+        var path = "resources/voxels/block/" + (icon ? "icon.png" : "tile.png");
+        var field = icon ? "/display/icon" : "/appearance/presentation/faces/top";
+        fixture.AddAsset(ContentFixture.BuiltIn, path, icon ? [4, 5, 6] : [1, 2, 3], new C.AssetMetadata.Png(width, height));
         var diagnostics = Rejected(fixture);
         Assert.IsTrue(diagnostics.Any(diagnostic => diagnostic.Code == "asset_rule_failed" && diagnostic.Subject is not null &&
-            diagnostic.Source?.Path == "resources/voxels/block/tile.png" && diagnostic.Field == "/appearance/presentation/faces/top"));
+            diagnostic.Source?.Path == path && diagnostic.Field == field));
     }
 
     [TestMethod]

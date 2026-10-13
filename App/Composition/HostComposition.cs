@@ -1,11 +1,9 @@
 using System.Collections.Immutable;
-using System.Runtime.InteropServices;
 using System.Reflection;
 using Godot;
 using Train.App.Assets;
 using Train.App.Logging;
 using Train.Content.Contracts;
-using Train.Core.Contracts;
 using Train.Scenes.Contracts;
 
 namespace Train.App.Composition;
@@ -42,10 +40,8 @@ internal static class HostComposition
             foreach (var diagnostic in failure.Diagnostics)
                 logger.Error("content", "content_discovery_failed", diagnostic.Message,
                     new Dictionary<string, object?> { ["code"] = diagnostic.Code });
-        var runtime = new RuntimeIdentity(typeof(HostComposition).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion, "core-session-v1",
-            RuntimeInformation.OSDescription, RuntimeInformation.ProcessArchitecture.ToString(),
-            RuntimeInformation.FrameworkDescription);
+        var runtime = RuntimeEnvironment.Identity(typeof(HostComposition).Assembly
+            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
         return new(Train.Core.CoreFactory.Create(), content, files, new GodotAssetInspector(dispatcher),
             installation, logger, sessionOptions: new(runtime, OS.IsDebugBuild(), 3));
     }

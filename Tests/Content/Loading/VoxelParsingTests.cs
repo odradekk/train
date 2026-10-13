@@ -91,6 +91,64 @@ public sealed class VoxelParsingTests
     }
 
     [TestMethod]
+    [DataRow("{\"kind\":\"none\",\"offset\":{\"x\":0,\"y\":0,\"z\":0}}")]
+    [DataRow("{\"kind\":\"full_box\",\"size\":{\"x\":1,\"y\":1,\"z\":1}}")]
+    [DataRow("{\"kind\":\"local_box\"}")]
+    [DataRow("{\"kind\":\"local_box\",\"offset\":{\"x\":0,\"y\":0,\"z\":0},\"size\":{\"x\":1,\"y\":1}}")]
+    [DataRow("{\"kind\":\"local_box\",\"offset\":{\"x\":0,\"y\":0,\"z\":0,\"w\":1},\"size\":{\"x\":1,\"y\":1,\"z\":1}}")]
+    public void Collision_fields_follow_the_selected_shape(string collision)
+    {
+        var json = Document();
+        json["appearance"]!["collision"] = JsonNode.Parse(collision);
+        AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
+    [DataRow("offset", "x", "-0.01")]
+    [DataRow("offset", "y", "1.01")]
+    [DataRow("size", "x", "0")]
+    [DataRow("size", "y", "-0.1")]
+    [DataRow("size", "z", "1.01")]
+    [DataRow("size", "z", "0.51")]
+    [DataRow("size", "x", "1e400")]
+    public void Local_box_rejects_nonfinite_nonpositive_and_out_of_cell_dimensions(string point, string axis, string value)
+    {
+        var json = Document();
+        var collision = JsonNode.Parse("""
+            {"kind":"local_box","offset":{"x":0,"y":0,"z":0.5},"size":{"x":0.5,"y":0.5,"z":0.5}}
+            """)!;
+        collision[point]![axis] = JsonNode.Parse(value);
+        json["appearance"]!["collision"] = collision;
+        AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
+    [DataRow("x", 1d, 1e-20, false)]
+    [DataRow("y", 1d, 1e-20, false)]
+    [DataRow("z", 1d, 1e-20, false)]
+    [DataRow("x", 1e-20, 1d, false)]
+    [DataRow("x", 0.25d, 0.75d, true)]
+    [DataRow("x", 0.5d, 1e-20, true)]
+    public void Local_box_checks_exact_cell_bounds_without_requiring_distinguishable_endpoints(
+        string axis, double offset, double size, bool valid)
+    {
+        var json = Document();
+        var collision = JsonNode.Parse("""
+            {"kind":"local_box","offset":{"x":0,"y":0,"z":0},"size":{"x":1,"y":1,"z":1}}
+            """)!;
+        collision["offset"]![axis] = offset;
+        collision["size"]![axis] = size;
+        json["appearance"]!["collision"] = collision;
+        if (valid)
+        {
+            using var candidate = Load(json);
+            Assert.IsInstanceOfType<C.VoxelCollision.LocalBox>(Appearance(candidate).Collision);
+        }
+        else
+            AssertRejected(json.ToJsonString(), "invalid_field");
+    }
+
+    [TestMethod]
     [DataRow("duplicate")]
     [DataRow("comment")]
     [DataRow("trailing")]
@@ -140,18 +198,29 @@ public sealed class VoxelParsingTests
     }
 
     [TestMethod]
-    [DataRow("different", null)]
-    [DataRow("shared", null)]
-    [DataRow("Block", null)]
-    [DataRow("block", "../tile.png")]
-    [DataRow("block", "shared/sub/tile.png")]
-    [DataRow("block", "Tile.png")]
-    public void Id_and_asset_paths_cannot_escape_the_definition_folder(string id, string? asset)
+    [DataRow("different", null, false)]
+    [DataRow("shared", null, true)]
+    [DataRow("Block", null, true)]
+    [DataRow("_block", null, true)]
+    [DataRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, true)]
+    [DataRow("block", "../tile.png", true)]
+    [DataRow("block", "shared/sub/tile.png", true)]
+    [DataRow("block", "Tile.png", true)]
+    public void Invalid_voxel_ids_and_asset_paths_report_their_field(string id, string? asset, bool matchingFileName)
     {
         var json = Document();
         json["id"] = id;
         if (asset is not null) json["appearance"]!["presentation"]!["faces"]!["top"] = asset;
-        AssertRejected(json.ToJsonString(), "invalid_field");
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/voxels/block.voxel.json");
+        var path = $"resources/voxels/{(matchingFileName ? id : "block")}.voxel.json";
+        fixture.AddFile(ContentFixture.BuiltIn, path, json.ToJsonString());
+        var result = fixture.Prepare();
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
+        var diagnostic = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Single(d => d.Code == "invalid_field");
+        Assert.AreEqual(asset is null ? "/id" : "/appearance/presentation/faces/top", diagnostic.Field);
+        Assert.AreEqual(new C.ContentSourceLocation(new("core"), path), diagnostic.Source);
     }
 
     [TestMethod]
@@ -163,6 +232,13 @@ public sealed class VoxelParsingTests
     [DataRow("duplicate", "/appearance/presentation/shapes/1", "invalid_field")]
     [DataRow("surface", "/appearance/presentation/surface_materials/1", "invalid_field")]
     [DataRow("schema", "/schema_version", "unsupported_format")]
+    [DataRow("name_blank", "/display/name", "invalid_field")]
+    [DataRow("name_long", "/display/name", "invalid_field")]
+    [DataRow("description_blank", "/display/description", "invalid_field")]
+    [DataRow("description_long", "/display/description", "invalid_field")]
+    [DataRow("icon_extension", "/display/icon", "invalid_field")]
+    [DataRow("face_extension", "/appearance/presentation/faces/top", "invalid_field")]
+    [DataRow("model_extension", "/appearance/presentation/model", "invalid_field")]
     public void Invalid_fields_identify_their_json_pointer(string kind, string pointer, string code)
     {
         var json = Document();
@@ -176,6 +252,13 @@ public sealed class VoxelParsingTests
             case "duplicate": json["appearance"]!["presentation"]!["shapes"] = JsonNode.Parse("""["cube","cube"]"""); break;
             case "surface": json["appearance"]!["presentation"] = JsonNode.Parse("""{"kind":"mesh","model":"model.glb","surface_materials":["concrete","unknown"]}"""); break;
             case "schema": json["schema_version"] = 2; break;
+            case "name_blank": json["display"]!["name"] = " \t "; break;
+            case "name_long": json["display"]!["name"] = new string('a', 101); break;
+            case "description_blank": json["display"]!["description"] = " \t "; break;
+            case "description_long": json["display"]!["description"] = new string('a', 2001); break;
+            case "icon_extension": json["display"]!["icon"] = "icon.jpg"; break;
+            case "face_extension": json["appearance"]!["presentation"]!["faces"]!["top"] = "tile.jpg"; break;
+            case "model_extension": json["appearance"]!["presentation"] = JsonNode.Parse("""{"kind":"mesh","model":"model.png","surface_materials":["concrete"]}"""); break;
         }
         var fixture = new ContentFixture();
         fixture.AddCube(json.ToJsonString());
@@ -216,6 +299,50 @@ public sealed class VoxelParsingTests
             var result = fixture.Prepare();
             Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
             Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d => d.Code == "invalid_json"));
+        }
+    }
+
+    [TestMethod]
+    [DataRow(1, 1)]
+    [DataRow(100, 2000)]
+    public void Display_text_is_trimmed_and_accepts_its_length_boundaries(int nameLength, int descriptionLength)
+    {
+        var json = Document();
+        var name = new string('a', nameLength);
+        var description = new string('b', descriptionLength);
+        json["display"]!["name"] = " \t" + name + " \r\n";
+        json["display"]!["description"] = " \t" + description + " \r\n";
+        using var candidate = Load(json);
+        var display = ((C.ContentLookup<C.VoxelDisplayProjection>.Found)candidate.View.FindVoxelDisplay(new("core:block"))).Value.Display;
+        Assert.AreEqual(name, display.Name);
+        Assert.AreEqual(description, display.Description);
+    }
+
+    [TestMethod]
+    [DataRow(1024 * 1024, true)]
+    [DataRow(1024 * 1024 + 1, false)]
+    public void Definition_json_has_a_one_MiB_limit(int size, bool accepted)
+    {
+        var fixture = new ContentFixture();
+        fixture.AddCube();
+        const string path = "resources/voxels/block.voxel.json";
+        var bytes = new byte[size];
+        Array.Fill(bytes, (byte)' ');
+        Encoding.UTF8.GetBytes(ContentFixture.VoxelJson).CopyTo(bytes, 0);
+        fixture.AddFile(ContentFixture.BuiltIn, path, bytes);
+        var result = fixture.Prepare();
+        if (accepted)
+        {
+            Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Success>(result, result.ToString());
+            using var candidate = ((C.ContentResult<C.IContentCandidate>.Success)result).Value;
+            Assert.AreEqual("core:block", candidate.View.Voxels.Single().Definition.Value);
+        }
+        else
+        {
+            Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
+            var diagnostic = ((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Single(d => d.Code == "file_too_large");
+            Assert.AreEqual(new C.ContentSourceLocation(new("core"), path), diagnostic.Source);
+            Assert.AreEqual("", diagnostic.Field);
         }
     }
 

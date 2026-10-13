@@ -42,4 +42,4 @@ Demo 的全部聚居地共用一套独立的人口规则内容数据，见 [18](
 
 ## 和现有代码的差别
 
-真实 `ContentFactory` 的 Initial 加载已采用本文版本 3，解析类型、校验地貌引用和地图符号，并交出核心及显示投影；不接受旧的临时供需与站台数字段。当前游戏宿主仍使用旧加载器和 `schema_version: 1` 的 `.settlement-types.json`，新宿主装配由 #317 接入。
+当前宿主通过真实 `ContentFactory` 的 Initial 加载采用本文版本 3，解析类型、校验地貌引用和地图符号，并交出核心及显示投影；不接受旧的临时供需与站台数字段。旧版本 1 的 `.settlement-types.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役；当前范围见[内容契约](../contracts/content.md)。

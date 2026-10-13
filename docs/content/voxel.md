@@ -182,4 +182,4 @@
 
 ## 和现有代码的差别
 
-新 `ContentFactory` 已解析本文版本 3 的完整静态字段，提供货物、显示和外观投影，并保留通过规则检查的原始资产字节；能力汇总和运行效果仍由后续工单实现。当前宿主仍使用旧加载器，读取版本 2 的 `.voxels.json`：一个文件多份定义，字段不分节，`icon` 在 `presentation` 里，行为写成带 `type` 的数组，有 `cargo` 行为，资产路径从 `resources/` 起算，朝向和碰撞必填。旧宿主和内置格式的迁移待对应工单完成。
+当前宿主通过真实 `ContentFactory` 加载本文版本 3 的 `.voxel.json`，提供货物、显示和外观投影，并保留通过规则检查的原始资产字节。无嵌套的车辆、建筑和场景模型设计已有属性计算、部件能力投影及适用的连通与包络校验；嵌套、大型设备、生物设计及相应运行效果仍按后续工单交付。旧版本 2 的 `.voxels.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前范围见[内容契约](../contracts/content.md)，设计计算的行为覆盖见[设计评估测试](../../Tests/Content/Loading/DesignEvaluationTests.cs)。

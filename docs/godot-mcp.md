@@ -4,7 +4,7 @@
 
 不要在本仓库修改 `addons/godot_mcp/`。更新时用上游指定提交的 `addons/godot_mcp/` 整体替换，同步本文件中的提交 SHA，并按下文重新验证。
 
-插件启用后，编辑器启动时会在 `project.godot` 注册 `MCPRuntimeProbe` autoload（`addons/godot_mcp/runtime/mcp_runtime_probe.gd`），供运行时调试工具与编辑器通信。没有编辑器调试会话时（包括导出版本）它不做任何事。这项注册已随仓库提交；删掉后编辑器下次启动会重新写入。
+插件启用后，编辑器启动时会在 `project.godot` 注册 `MCPRuntimeProbe` autoload（`addons/godot_mcp/runtime/mcp_runtime_probe.gd`），供运行时调试工具与编辑器通信。这项注册已随仓库提交；删掉后编辑器下次启动会重新写入。`addons/export_cleanup/` 的导出钩子在调试和发布导出开始时仅在内存移除该设置，结束后恢复原值，不保存项目配置；导出预设排除整个 `addons/`，导出包不含探针或编辑器插件。
 
 三个客户端都把服务器命名为 `godot`，连接 `http://127.0.0.1:9080/mcp`：
 

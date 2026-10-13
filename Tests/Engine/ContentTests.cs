@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
@@ -20,6 +21,8 @@ public class ContentTests(Node testScene) : TestClass(testScene)
     {
         var fixture = new Fixture(TestScene.GetTree());
         Guid? saveId = null;
+        using var output = new GodotOutputCapture();
+        OS.AddLogger(output);
         try
         {
             var app = await fixture.LoadAndAddScene<Train.App.App>("res://App/App.tscn");
@@ -33,6 +36,13 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             Require(created is { PlayerPaused: true } && created.View.World.Nodes.Length > 0 && created.View.World.Trains.Length == 3,
                 "正式内容没有生成暂停的小世界与三列初始列车。");
             Require(created!.View.InputIdentity == host.Content!.Core.Identity, "新局的核心与内容没有配对。");
+            var runtime = host.Runtime!;
+            Require(runtime.OperatingSystem == (OperatingSystem.IsWindows() ? "Windows" : RuntimeInformation.OSDescription),
+                "真实宿主的操作系统身份没有按兼容边界填写。");
+            Require(runtime.Architecture == RuntimeInformation.ProcessArchitecture.ToString(),
+                "真实宿主的架构身份与当前进程不符。");
+            Require(runtime.DotNetRuntime == RuntimeInformation.FrameworkDescription,
+                "真实宿主的 .NET 身份没有保留完整运行时版本。");
             Require(host.Step(2).Completed == 2, "真实会话没有完成两个模拟步。");
             var checkpoint = Checkpoint(host);
             var saves = app.Saves!;
@@ -50,13 +60,23 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             Require(Checkpoint(host).Sha256 == checkpoint.Sha256 && restored.View.InputIdentity == host.Content!.Core.Identity,
                 "真实文件恢复后检查点或核心／内容配对改变。");
             var edge = restored.View.World.Edges.First();
-            app.WorldScenes!.Open(new WorldSceneTarget.Location(new WorldLocation.Edge(edge.Id, 1)));
-            await FramesUntil(TestScene, () => app.WorldScenes.Display?.DisplayedFrame is not null || !app.WorldScenes.View.Visible);
-            Require(app.WorldScenes.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial },
+            var map = app.GetNode<GameUi>("GameUi").GetNode<MacroMap>("Root/World/MacroMap");
+            var input = new UiTestInput(TestScene);
+            await input.Frames(2);
+            var start = restored.View.World.Nodes.Single(node => node.Id == edge.Start).Position;
+            var end = restored.View.World.Nodes.Single(node => node.Id == edge.End).Position;
+            var point = map.GlobalPosition + (map.MapToScreen(start) + map.MapToScreen(end)) / 2;
+            Require(map.HitTest(point - map.GlobalPosition) == new WorldObjectId.Edge(edge.Id),
+                "真实地图点击位置没有命中待验证线路。");
+            await input.Click(point);
+            await FramesUntil(TestScene, () => app.WorldScenes!.Display?.DisplayedFrame is not null || !app.WorldScenes.View.Visible);
+            Require(app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial },
                 "真实体素工厂没有把线路帧接入 Godot。");
+            Require(!output.Contains("scene_adapter_failed"), "真实地图点击打开场景记录了适配异常。");
         }
         finally
         {
+            OS.RemoveLogger(output);
             await fixture.Cleanup();
             if (saveId is { } id)
                 Directory.Delete(new FileSaveStore(OS.GetUserDataDir()).DirectoryFor(id), true);

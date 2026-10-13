@@ -70,6 +70,8 @@ public sealed class ContentRevisionTests
 
     [TestMethod]
     [DataRow("mass")]
+    [DataRow("value")]
+    [DataRow("tags")]
     [DataRow("durability")]
     [DataRow("behavior")]
     [DataRow("orientations")]
@@ -82,6 +84,8 @@ public sealed class ContentRevisionTests
         switch (change)
         {
             case "mass": json["simulation"]!["mass"] = 3; break;
+            case "value": json["simulation"]!["value"] = 21; break;
+            case "tags": json["simulation"]!["tags"] = new JsonArray(); break;
             case "durability": json["simulation"]!["max_durability"] = 200; break;
             case "behavior": json["simulation"]!["behaviors"] = new JsonObject { ["propulsion"] = new JsonObject { ["traction"] = 25, ["rated_speed"] = 20 } }; break;
             case "orientations": json["appearance"]!["allowed_orientations"] = "all_24"; break;

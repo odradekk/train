@@ -180,7 +180,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
     {
         Object(value, field, "id", "name", "version", "authors", "dependencies");
         var id = Text(Required(value, "id", field), field + "/id");
-        if (id != "core" && (!ModManifest.TryCanonicalUuid(id, out var canonical) || canonical != id)) Inconsistent(field + "/id", "包身份无效。");
+        if (id != "core" && (!PackageIdentity.TryCanonicalUuid(id, out var canonical) || canonical != id)) Inconsistent(field + "/id", "包身份无效。");
         var version = Text(Required(value, "version", field), field + "/version");
         if (!SemVer.IsValid(version)) Inconsistent(field + "/version", "包版本无效。");
         var authors = Items(Required(value, "authors", field), field + "/authors").Select(item => Text(item.Value, item.Field)).ToImmutableArray();
@@ -189,7 +189,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             Object(item.Value, item.Field, "id", "min_version");
             var package = Text(Required(item.Value, "id", item.Field), item.Field + "/id");
             var minimum = Text(Required(item.Value, "min_version", item.Field), item.Field + "/min_version");
-            if ((package != "core" && (!ModManifest.TryCanonicalUuid(package, out var canonical) || canonical != package)) || !SemVer.IsValid(minimum))
+            if ((package != "core" && (!PackageIdentity.TryCanonicalUuid(package, out var canonical) || canonical != package)) || !SemVer.IsValid(minimum))
                 Inconsistent(item.Field, "包依赖无效。");
             return new C.PackageDependency(new(package), minimum);
         }).ToImmutableArray();
