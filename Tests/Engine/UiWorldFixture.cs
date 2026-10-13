@@ -8,6 +8,19 @@ internal static class UiWorldFixture
 {
     private enum Scenario { Map, Save, Scene, Formation }
 
+    internal static ScriptedCoreSession Session(ICoreReadView view)
+    {
+        var capture = new FixedCoreCapture(new(view.Position, "UI recording start", "ui-start"),
+            HostCoreScenario.References, "ui-start", view.InputIdentity, view.Revision);
+        return new(view)
+        {
+            ReadRecordingCall = () => new(view.Position, [new(new(1), capture)], [],
+                [capture.Checkpoint], [], [], capture.References),
+            ConfirmRecordingStartCall = (point, _) => point.Value == 1 ? new([], [])
+                : throw new InvalidOperationException("UNCONFIGURED: UI recording point")
+        };
+    }
+
     internal static FixedCoreReadView Map(SimulationPosition tick = default)
         => Create(Scenario.Map, tick, HostCoreScenario.Input);
 

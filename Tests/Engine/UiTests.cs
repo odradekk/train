@@ -150,7 +150,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             new SubmissionResult.Completed(new(1, view.Position, new(0, 1),
                 new CommandDecision.Rejected([new("no_route", "train.plan", new WorldObjectId.Train(new(7)), [])])), [], null),
             rejectedView);
-        var replacement = new ScriptedCoreSession(UiWorldFixture.Map());
+        var replacement = UiWorldFixture.Session(UiWorldFixture.Map());
         setup.ReplacementCandidate = new(replacement, HostCoreScenario.References);
         try
         {

@@ -72,7 +72,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
         };
         var view = new FixedCoreReadView(default, HostCoreScenario.Input)
         { World = new(42, new("fixture:railway"), 100, 100, [], [], [], [], []) };
-        var session = new ScriptedCoreSession(view);
+        var session = UiWorldFixture.Session(view);
         var candidate = new ScriptedCoreCandidate(session, HostCoreScenario.References,
             missing ? [new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "vehicles[0]")] : []);
         var loads = 0;
@@ -91,6 +91,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
         };
         var content = new ScriptedContentFactory
         {
+            CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "ui recording content")),
             PrepareLoadCall = (request, _, _) =>
             {
                 Require(request.Purpose is ContentLoadPurpose.Initial && ++loads <= 2,

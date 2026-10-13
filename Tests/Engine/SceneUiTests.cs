@@ -221,7 +221,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
                 "scene-ui", HostCoreScenario.Input, new(0));
             ScriptedCoreCandidate Candidate()
             {
-                Session = new(UiWorldFixture.Scene());
+                Session = UiWorldFixture.Session(UiWorldFixture.Scene());
                 Session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(capture));
                 return new(Session, HostCoreScenario.References);
             }
@@ -231,6 +231,7 @@ public class SceneUiTests(Node testScene) : TestClass(testScene)
             var contentView = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
             { GenerationProfiles = [new(new("fixture:world"), new("固定世界", ""))] };
             var content = new ScriptedContentFactory { CaptureCall = (view, _) => new ContentResult<IContentCapture>.Success(new FixedContentCapture("scene-ui", view.PersistentRevision)),
+                CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "ui recording content")),
                 DecodeCaptureCall = _ => new ContentResult<IContentCapture>.Success(new FixedContentCapture("scene-ui")),
                 PrepareLoadCall = (_, _, _) => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(contentView)),
                 CreateWorldInputCall = (_, _, _, _) => new ContentResult<WorldGenerationInput>.Success(HostCoreScenario.World) };
