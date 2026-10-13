@@ -93,12 +93,19 @@ public sealed class NodeLayoutTests
             directions.Sum(direction => Math.Acos(Math.Clamp(Math.Abs(direction.Y), 0, 1))) - 1e-8;
         var sameSideEntries = directions.Select(direction => (alongX ? direction.X : direction.Y) >= 0)
             .GroupBy(side => side).Max(group => group.Count());
-        var entrySpacing = (sameSideEntries - 1) * 59;
-        var lateralShift = 20 + 17 + entrySpacing;
+        var platforms = snapshot.Core.World.Nodes.Single(node => node.Id == new NodeId(1)).Platforms;
+        var trackLimit = snapshot.Core.World.Edges.Max(edge => edge.TrackLimit);
+        var stationHalfExtent = 40 * Math.Max(0, platforms - 1) / 2.0;
+        var outermostLaneOffset = 34 * Math.Max(0, trackLimit - 1) / 2.0;
+        // Each extra entry needs both lane corridors, two 10.5-cell bed shoulders,
+        // and a 4-cell lateral gap. The terrain adds 12 blend and 26.5 slope cells.
+        var entrySpacing = (sameSideEntries - 1) * (2 * outermostLaneOffset + 2 * 10.5 + 4);
+        var corridor = outermostLaneOffset + 10.5 + 12 + 26.5;
+        var lateralShift = stationHalfExtent + outermostLaneOffset + entrySpacing;
         var lateralForwardSpan = radius + Math.Sqrt(3) * Math.Max(0, lateralShift - (2 - Math.Sqrt(3)) * radius);
-        // 64 half-platform, 16 clearance, 16 approach, 66 terrain corridor,
-        // 32 terrain margin, and two half-cell grid roundings.
-        var bound = Math.Ceiling((64 + 16 + 16 + radius + lateralForwardSpan + 66 + entrySpacing + 32 + 2) / 32) * 32;
+        const double halfPlatformLength = 128 / 2.0, clearance = 16, approachStraight = 16, margin = 32;
+        var bound = Math.Ceiling((halfPlatformLength + clearance + approachStraight + radius +
+            lateralForwardSpan + corridor + entrySpacing + margin) / 32) * 32;
         Assert.IsTrue(layout.HalfSize <= bound, $"{name}: half-size {layout.HalfSize}, bound {bound}");
         foreach (var entry in layout.Entries)
         {
