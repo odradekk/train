@@ -2,9 +2,13 @@
 
 本页落实[体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289)的决定。业务与表现规则仍见[场景](../design/01-voxel-engine-and-scenes.md)、[渲染](../design/07-rendering.md)、[编辑器](../design/15-design-editor-and-tools.md)；公共语义、身份与提交沿用[公共约定](conventions.md)、[跨层协议](transactions.md)和[编辑协议](editing.md)。
 
-当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取、贴图方向与跨格平铺，以及只读设计预览。独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；世界会话测试注入固定生成内容并控制后台完成顺序，不能据此宣称真实线路、节点或战斗生成通过。线路、节点、战斗生成分别待 #315、#316、#353；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。Scenes 已接入 C# 检查工具的隔离矩阵，单次隔离结果以运行证据为准；真实 Godot 接入和阶段联调仍需各自证据。
+当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取、贴图方向与跨格平铺、只读设计预览，以及 #315 的线路场景数据生成。线路生成使用固定 Core／Content 读视图，独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；受控后台测试与实际线路生成测试分别验证会话时序和几何行为，不证明真实四模块联调或 Godot 画面。节点及跟随穿越节点、下一场景预建待 #316；战斗、生物、损伤与 TerrainCollision 待 #353；会话中铁轨数／断点增量更新、断点缺口和工地待 #345；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。Scenes 已接入 C# 检查工具的隔离矩阵，单次隔离结果以运行证据为准；真实 Godot 接入和阶段联调归 #298，仍需各自证据。
 
-按 [#248 批准方案](https://github.com/odradekk/train/issues/248#issuecomment-6135067760)，Cube 表现且 Shape 为 null 或 `"cube"` 时生成立方体几何并参与遮面；其他形状及模型保留占格和拾取，不遮挡邻面，几何待 #388。生产世界生成步骤当前抛带上述 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault。OpenEditor、PreviewTemplate 分别抛注明 #333、#389 的 NotImplementedException。姿态插值、轮对、灯光、特效、地形碰撞和地点映射尚未实现：对应集合为空，NodePanBounds 为 null，Locate／TerrainHeight 返回 Missing；FindPose 提供本帧合成姿态。DebugLayers 当前不产生 DebugLines；浮动原点重定位和相机采样尚未实现。这些是阶段实现状态，下面的完整目标契约保持不变。
+按 [#248 批准方案](https://github.com/odradekk/train/issues/248#issuecomment-6135067760)，Cube 表现且 Shape 为 null 或 `"cube"` 时生成立方体几何并参与遮面；其他形状及模型保留占格和拾取，不遮挡邻面，几何待 #388。节点、战斗生成以及跟随列车进入节点仍抛带对应 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault；OpenEditor、PreviewTemplate 分别注明 #333、#389。
+
+线路按 64 米分段后台构建，输出地形柱、地貌过渡、削坡填方、水面、带键随机装饰、按轨数选择的桥梁与洞口、钢轨和轨枕。河流与湖泊识别 Demo 清单的 `river`／`lake` 特征 id。道床暂用线路地貌的 RockVoxel（上层 19 格、下层 21 格），不增加内容字段。中心线依固定输入和铁轨上限预留走廊，当前轨数只决定以 34 格中心距对称放置的铁轨；长度由圆弧与直线构造，短节点间距或坡度使地图直距不可用时采用 [#315 批准规则](https://github.com/odradekk/train/issues/315#issuecomment-6135918111) 的场景弦长。节点基准高程统一为 0，地图 X／Y 映射到场景 X／Z；越过端点的车辆沿切线直线延长摆放。
+
+线路显示各铁轨上的全部列车；仅相邻完成步之间插值，运动和浮动原点平移复用网格，FindPose 与拾取共用显示姿态。车长取设计 VehicleLengthCells；编组存在未知车长时，各成员用 Missing 标记置于权威编组中心并报告 vehicle_length_unknown，不猜测长度。轮对按根网格 Z 行生成，档位轨距为 3／7／15 格，半径为 0.5／1／2 格、轮宽为 0.25／0.5／1 格，均为集中定义的暂定数值；转角由显示弧长直接计算。Locate 和 TerrainHeight 仅在已接入分段提供映射；相机采样转换到稳定线路空间。后台任务和工厂共享几何表有界，内容重绑定按实际读取的值依赖复用未变化分段。灯光、特效集合仍为空，NodePanBounds 为 null，DebugLayers 不产生 DebugLines。这些是阶段实现状态，下面的完整目标契约保持不变。
 
 ## 公开面与责任
 

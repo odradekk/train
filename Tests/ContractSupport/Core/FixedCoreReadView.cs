@@ -21,7 +21,12 @@ public sealed class FixedCoreReadView : ICoreReadView
         init => inputIdentity = value;
     }
 
-    public WorldSummary World => throw Unconfigured(nameof(World));
+    private WorldSummary? world;
+    public WorldSummary World
+    {
+        get => world ?? throw Unconfigured(nameof(World));
+        init => world = value;
+    }
 
     public EconomyView Economy => throw Unconfigured(nameof(Economy));
 
@@ -43,7 +48,13 @@ public sealed class FixedCoreReadView : ICoreReadView
     public Lookup<EdgeView> FindEdge(EdgeId id)
         => edges.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindEdge));
 
-    public Lookup<LocationView> FindLocation(WorldLocation id) => throw Unconfigured(nameof(FindLocation));
+    private ImmutableDictionary<WorldLocation, Lookup<LocationView>> locations = ImmutableDictionary<WorldLocation, Lookup<LocationView>>.Empty;
+    public IReadOnlyDictionary<WorldLocation, Lookup<LocationView>> Locations
+    {
+        init => locations = value.ToImmutableDictionary();
+    }
+    public Lookup<LocationView> FindLocation(WorldLocation id)
+        => locations.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindLocation));
 
     private ImmutableDictionary<TrainId, Lookup<TrainView>> trains = ImmutableDictionary<TrainId, Lookup<TrainView>>.Empty;
     public IReadOnlyDictionary<TrainId, Lookup<TrainView>> Trains

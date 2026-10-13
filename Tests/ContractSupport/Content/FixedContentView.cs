@@ -64,9 +64,21 @@ public sealed class FixedContentView : IContentView
 
     public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => throw Unconfigured(nameof(FindLair));
 
-    public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => throw Unconfigured(nameof(FindTerrain));
+    private ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> terrains = ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>.Empty;
+    public IReadOnlyDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>> Terrains
+    {
+        init => terrains = value.ToImmutableDictionary();
+    }
+    public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id)
+        => terrains.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindTerrain));
 
-    public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => throw Unconfigured(nameof(FindRailwayAppearance));
+    private ImmutableDictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> railwayAppearances = ImmutableDictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>.Empty;
+    public IReadOnlyDictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>> RailwayAppearances
+    {
+        init => railwayAppearances = value.ToImmutableDictionary();
+    }
+    public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id)
+        => railwayAppearances.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindRailwayAppearance));
 
 
     private static InvalidOperationException Unconfigured(string member)
