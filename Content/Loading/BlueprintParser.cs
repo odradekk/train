@@ -26,59 +26,145 @@ internal sealed class BlueprintParser
                 Fail("/id", "local id 必须有效且与文件名一致，不能是 shared。");
             var address = new C.BlueprintAddress(C.BlueprintLibrary.Packages, new(package.Metadata!.Id.Value + ":" + id));
             subject = new C.ContentReference.Blueprint(address);
-            var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
-            if (category is "large_equipment" or "creature")
-                Fail("/category", "当前不支持大型设备或生物蓝图。", "unsupported_format");
-            var layout = Required(root, "layout", "");
-            Object(layout, "/layout", "palette", "cells", "composites");
-            if (layout.TryGetProperty("composites", out var composites))
-            {
-                Array(composites, "/layout/composites");
-                if (composites.GetArrayLength() > 0)
-                    Fail("/layout/composites", "当前不支持嵌套蓝图。", "unsupported_format");
-            }
-            var palette = ImmutableArray.CreateBuilder<C.VoxelPaletteEntry>();
-            if (layout.TryGetProperty("palette", out var entries))
-            {
-                Array(entries, "/layout/palette");
-                foreach (var entry in entries.EnumerateArray())
-                {
-                    var field = "/layout/palette/" + palette.Count;
-                    Object(entry, field, "voxel", "orientation", "shape", "paint");
-                    var voxel = Reference(Required(entry, "voxel", field), field + "/voxel", package);
-                    var orientation = entry.TryGetProperty("orientation", out var o)
-                        ? EnumValue<C.VoxelOrientation>(o, field + "/orientation") : C.VoxelOrientation.PxPy;
-                    C.VoxelShape? shape = entry.TryGetProperty("shape", out var s)
-                        ? new C.VoxelShape(Text(s, field + "/shape")) : null;
-                    C.PaintColor? paint = entry.TryGetProperty("paint", out var p) ? new(Text(p, field + "/paint")) : null;
-                    palette.Add(new(new(voxel), orientation, shape, paint));
-                }
-            }
-            var cells = ImmutableArray.CreateBuilder<C.LayoutCell>();
-            if (layout.TryGetProperty("cells", out var cellValues))
-            {
-                Array(cellValues, "/layout/cells");
-                foreach (var cell in cellValues.EnumerateArray())
-                {
-                    var field = "/layout/cells/" + cells.Count;
-                    Array(cell, field, 4);
-                    var index = Integer(cell[3], field + "/3");
-                    if (index < 0 || index >= palette.Count) Fail(field + "/3", "调色板序号必须在调色板范围内。");
-                    cells.Add(new(new(Integer(cell[0], field + "/0"), Integer(cell[1], field + "/1"), Integer(cell[2], field + "/2")), index));
-                }
-            }
-            var specification = Specification(root, category);
-            var display = Required(root, "display", "");
-            Object(display, "/display", "name", "description");
-            return new(address, new(new(Text(Required(display, "name", "/display"), "/display/name"),
-                Text(Required(display, "description", "/display"), "/display/description")),
-                specification, new(palette.ToImmutable(), cells.ToImmutable(), [])), path);
+            return new(address, ReadDesign(root, package), path);
         }
-        catch (InvalidBlueprint exception)
+        catch (DefinitionFormatException exception)
         {
             package.Reject(exception.Code, path, exception.Field, exception.Message, subject);
             return null;
         }
+    }
+
+    internal static C.DesignDraft ReadDesign(JsonElement root)
+    {
+        Object(root, "", "category", "simulation", "layout", "appearance", "display");
+        return ReadDesign(root, null);
+    }
+
+    private static C.DesignDraft ReadDesign(JsonElement root, LoadPackage? package)
+    {
+        var category = Choice(Required(root, "category", ""), "/category", ["vehicle", "building", "large_equipment", "scene_model", "creature"]);
+        if (category is "large_equipment" or "creature")
+            Fail("/category", "当前不支持大型设备或生物蓝图。", "unsupported_format");
+        var layout = Required(root, "layout", "");
+        Object(layout, "/layout", "palette", "cells", "composites");
+        if (layout.TryGetProperty("composites", out var composites))
+        {
+            Array(composites, "/layout/composites");
+            if (composites.GetArrayLength() > 0)
+                Fail("/layout/composites", "当前不支持嵌套蓝图。", "unsupported_format");
+        }
+        var palette = ImmutableArray.CreateBuilder<C.VoxelPaletteEntry>();
+        if (layout.TryGetProperty("palette", out var entries))
+        {
+            Array(entries, "/layout/palette");
+            foreach (var entry in entries.EnumerateArray())
+            {
+                var field = "/layout/palette/" + palette.Count;
+                Object(entry, field, "voxel", "orientation", "shape", "paint");
+                var voxel = DefinitionJson.Reference(Required(entry, "voxel", field), field + "/voxel", package);
+                var orientation = entry.TryGetProperty("orientation", out var o)
+                    ? EnumValue<C.VoxelOrientation>(o, field + "/orientation") : C.VoxelOrientation.PxPy;
+                C.VoxelShape? shape = entry.TryGetProperty("shape", out var s)
+                    ? new C.VoxelShape(Text(s, field + "/shape")) : null;
+                C.PaintColor? paint = entry.TryGetProperty("paint", out var p) ? new(Text(p, field + "/paint")) : null;
+                palette.Add(new(new(voxel), orientation, shape, paint));
+            }
+        }
+        var cells = ImmutableArray.CreateBuilder<C.LayoutCell>();
+        if (layout.TryGetProperty("cells", out var cellValues))
+        {
+            Array(cellValues, "/layout/cells");
+            foreach (var cell in cellValues.EnumerateArray())
+            {
+                var field = "/layout/cells/" + cells.Count;
+                Array(cell, field, 4);
+                var index = Integer(cell[3], field + "/3");
+                if (index < 0 || index >= palette.Count) Fail(field + "/3", "调色板序号必须在调色板范围内。");
+                cells.Add(new(new(Integer(cell[0], field + "/0"), Integer(cell[1], field + "/1"), Integer(cell[2], field + "/2")), index));
+            }
+        }
+        var specification = Specification(root, category);
+        var display = Required(root, "display", "");
+        Object(display, "/display", "name", "description");
+        return new(new(Text(Required(display, "name", "/display"), "/display/name"),
+            Text(Required(display, "description", "/display"), "/display/description")),
+            specification, new(palette.ToImmutable(), cells.ToImmutable(), []));
+    }
+
+    internal static void WriteDesign(Utf8JsonWriter writer, C.DesignDraft draft)
+    {
+        if (!draft.Layout.NestedItems.IsEmpty)
+            Fail("/layout/composites", "当前不支持嵌套蓝图。", "unsupported_format");
+        switch (draft.Specification)
+        {
+            case C.DesignSpecification.Vehicle { Size: { } size }:
+                writer.WriteString("category", "vehicle");
+                writer.WriteStartObject("simulation");
+                writer.WriteString("size_class", DesignEvaluator.Wire(size));
+                writer.WriteEndObject();
+                break;
+            case C.DesignSpecification.Building { PlotSize: { } plot, Kind: { } kind } building:
+                writer.WriteString("category", "building");
+                writer.WriteStartObject("simulation");
+                writer.WriteString("plot_size", DesignEvaluator.Wire(plot));
+                writer.WriteString("building_type", DesignEvaluator.Wire(kind));
+                writer.WriteStartArray("facility_tags");
+                foreach (var tag in building.FacilityTags) writer.WriteStringValue(DesignEvaluator.Wire(tag));
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+                break;
+            case C.DesignSpecification.SceneModel:
+                writer.WriteString("category", "scene_model");
+                break;
+            default:
+                Fail("/category", "当前只支持完整的车辆、建筑或场景模型设计。", "unsupported_format");
+                break;
+        }
+        writer.WriteStartObject("layout");
+        writer.WriteStartArray("palette");
+        foreach (var entry in draft.Layout.Palette)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("voxel", entry.Voxel.Value);
+            writer.WriteString("orientation", DesignEvaluator.Wire(entry.Orientation));
+            if (entry.Shape is { } shape) writer.WriteString("shape", shape.Name);
+            if (entry.Paint is { } paint) writer.WriteString("paint", paint.Value);
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteStartArray("cells");
+        foreach (var cell in draft.Layout.Cells)
+        {
+            writer.WriteStartArray();
+            writer.WriteNumberValue(cell.At.X);
+            writer.WriteNumberValue(cell.At.Y);
+            writer.WriteNumberValue(cell.At.Z);
+            writer.WriteNumberValue(cell.PaletteIndex);
+            writer.WriteEndArray();
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+        if (draft.Specification is C.DesignSpecification.SceneModel { Flatten: { } flatten })
+        {
+            writer.WriteStartObject("appearance");
+            writer.WriteStartObject("flatten");
+            writer.WriteStartArray("from");
+            writer.WriteNumberValue(flatten.From.X);
+            writer.WriteNumberValue(flatten.From.Z);
+            writer.WriteEndArray();
+            writer.WriteStartArray("to");
+            writer.WriteNumberValue(flatten.To.X);
+            writer.WriteNumberValue(flatten.To.Z);
+            writer.WriteEndArray();
+            writer.WriteNumber("height", flatten.Height);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        writer.WriteStartObject("display");
+        writer.WriteString("name", draft.Display.Name);
+        writer.WriteString("description", draft.Display.Description);
+        writer.WriteEndObject();
     }
 
     private static C.DesignSpecification Specification(JsonElement root, string category)
@@ -123,18 +209,6 @@ internal sealed class BlueprintParser
         return new C.DesignSpecification.Building(plot, kind, tags.ToImmutable());
     }
 
-    private static string Reference(JsonElement value, string field, LoadPackage package)
-    {
-        var text = Text(value, field);
-        var parts = text.Split(':');
-        var ns = parts.Length == 1 ? package.Metadata!.Id.Value : parts[0];
-        if (parts.Length > 2 || !ContentIdentity.IsValidPart(parts[^1]) ||
-            (ns != "core" && (!ModManifest.TryCanonicalUuid(ns, out var canonical) || canonical != ns)))
-            Fail(field, "引用必须为 local id 或规范的 namespace:local-id。");
-        if (ns != package.Metadata!.Id.Value && !package.Metadata.Dependencies.Any(d => d.Package.Value == ns))
-            Fail(field, "引用的包必须在 dependencies 中声明。", "reference_missing");
-        return ns + ":" + parts[^1];
-    }
     private static C.GridColumn Column(JsonElement value, string field)
     {
         Array(value, field, 2);
@@ -145,7 +219,7 @@ internal sealed class BlueprintParser
         var text = Text(value, field);
         foreach (var candidate in Enum.GetValues<T>())
             if (DesignEvaluator.Wire(candidate) == text) return candidate;
-        throw new InvalidBlueprint(field, "未知取值。", "invalid_field");
+        throw new DefinitionFormatException(field, "未知取值。", "invalid_field");
     }
     private static string Choice(JsonElement value, string field, string[] choices)
     {
@@ -179,10 +253,5 @@ internal sealed class BlueprintParser
             if (!keys.Contains(property.Name, StringComparer.Ordinal)) Fail(Child(field, property.Name), "未知字段。");
     }
     private static string Child(string field, string key) => field + "/" + key.Replace("~", "~0", StringComparison.Ordinal).Replace("/", "~1", StringComparison.Ordinal);
-    private static void Fail(string field, string message, string code = "invalid_field") => throw new InvalidBlueprint(field, message, code);
-    private sealed class InvalidBlueprint(string field, string message, string code) : Exception(message)
-    {
-        internal string Field { get; } = field;
-        internal string Code { get; } = code;
-    }
+    private static void Fail(string field, string message, string code = "invalid_field") => throw new DefinitionFormatException(field, message, code);
 }

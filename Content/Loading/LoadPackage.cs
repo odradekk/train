@@ -12,6 +12,7 @@ internal sealed class LoadPackage(C.ContentRoot root, string prefix, bool builtI
     internal bool ImplicitCoreDependency { get; set; }
     internal C.PackageState State { get; set; } = C.PackageState.Available;
     internal List<C.ContentDiagnostic> Diagnostics { get; } = [];
+    internal List<C.ContentDiagnostic> AssetDiagnostics { get; } = [];
     internal string Resources => Prefix + "resources";
     internal C.PackageStatus Status => new(Metadata, Root, State, Diagnostics.ToImmutableArray());
 
@@ -22,5 +23,11 @@ internal sealed class LoadPackage(C.ContentRoot root, string prefix, bool builtI
         Diagnostics.Add(new(code, C.ContentDiagnosticSeverity.Error, "load", subject,
             Metadata is null ? null : new(Metadata.Id, path), field, element,
             Metadata is null && path.Length > 0 ? path + ": " + message : message));
+    }
+
+    internal void RejectAsset(string code, string path, string field, string message, C.ContentReference subject)
+    {
+        Reject(code, path, field, message, subject);
+        AssetDiagnostics.Add(Diagnostics[^1]);
     }
 }
