@@ -173,7 +173,7 @@ Train.Content.Contracts|type|Train.Content.Contracts.ContentAsset|public sealed 
 Train.Content.Contracts|type|Train.Content.Contracts.ContentChange|[Flags] public enum ContentChange
 Train.Content.Contracts|type|Train.Content.Contracts.ContentDiagnosticSeverity|public enum ContentDiagnosticSeverity
 Train.Content.Contracts|type|Train.Content.Contracts.ContentDiagnostic|public sealed record ContentDiagnostic(string Code, ContentDiagnosticSeverity Severity, string Stage, ContentReference? Subject, ContentSourceLocation? Source, string Field, DesignElementPath? Element, string Message);
-Train.Content.Contracts|type|Train.Content.Contracts.ContentDisplay|public sealed record ContentDisplay(DisplayText Text, AssetRevision? Icon, AssetRevision? MapSymbol);
+Train.Content.Contracts|type|Train.Content.Contracts.ContentDisplay|public sealed record ContentDisplay(DisplayText Text, AssetRevision? Icon, AssetRevision? MapSymbol, bool Major);
 Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.ConstructionTarget|public sealed record ConstructionTarget(DesignDraft Target) : ContentEdit;
 Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.DeleteBlueprint|public sealed record DeleteBlueprint(BlueprintAddress Target) : ContentEdit;
 Train.Content.Contracts|type|Train.Content.Contracts.ContentEdit.DeleteLocalDraft|public sealed record DeleteLocalDraft(DraftId Draft) : ContentEdit;
