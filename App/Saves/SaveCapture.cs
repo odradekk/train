@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -11,6 +12,8 @@ internal sealed record SaveCapture(HostBinding Binding, SaveIdentity Identity, S
     ICoreCapture Core, IContentCapture Content)
 {
     internal SaveDocument Encode(SaveIdentity target, DateTimeOffset savedAt) => new(
-        new(SaveContainer.FormatVersion, target.Id, target.Name, savedAt, Core.Position, Content.ReferencedPackages),
+        new(SaveContainer.FormatVersion, target.Id, target.Name, savedAt,
+            new(Core.Position.CompletedSteps, Core.Position.Sequence),
+            Content.ReferencedPackages.Select(package => new SavePackage(package.Id.Value, package.Version)).ToImmutableArray()),
         Core.Encode(), Content.Encode());
 }

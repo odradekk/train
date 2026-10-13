@@ -1,13 +1,12 @@
 using System.Collections.Immutable;
-using System.Text;
 using System.Text.Json;
-using Train.Content.Contracts;
-using Train.Core.Contracts;
 
 namespace Train.App.Saves;
 
+internal sealed record SavePosition(ulong CompletedSteps, ulong Sequence);
+internal sealed record SavePackage(string Id, string Version);
 internal sealed record SaveHeader(int SaveFormatVersion, Guid Id, string Name, DateTimeOffset SavedAt,
-    SimulationPosition Position, ImmutableArray<PackageMetadata> Packages);
+    SavePosition Position, ImmutableArray<SavePackage> Packages);
 internal sealed record SaveDocument(SaveHeader Header, string CorePayload, string ContentPayload);
 internal sealed class SaveFormatException(string code, string message) : Exception(message)
 {
@@ -84,7 +83,13 @@ internal static class SaveContainer
                         using var json = JsonDocument.Parse(prefix.ToArray());
                         CheckObject(json.RootElement);
                         CheckLegacy(json.RootElement);
-                        return ValidateHeader(json.RootElement.GetProperty("Header"));
+                        if (json.RootElement.TryGetProperty("Header", out var header)) return ValidateHeader(header);
+                        // 旧格式的版本在 bounds、delta 后；它没有格式 6 的先写头部。
+                        prefix.SetLength(prefix.Length - 1);
+                        stream.CopyTo(prefix);
+                        using var legacy = JsonDocument.Parse(prefix.ToArray());
+                        CheckLegacy(legacy.RootElement);
+                        throw Invalid();
                     }
                     catch (Exception error) when (error is JsonException or InvalidOperationException or KeyNotFoundException or FormatException or OverflowException)
                     { throw Invalid(); }
@@ -119,8 +124,7 @@ internal static class SaveContainer
         if (result.Id == Guid.Empty || string.IsNullOrWhiteSpace(result.Name) || result.SavedAt == default || result.Packages.IsDefault)
             throw Invalid();
         foreach (var package in result.Packages)
-            if (package is null || string.IsNullOrWhiteSpace(package.Id.Value) || string.IsNullOrWhiteSpace(package.Name)
-                || string.IsNullOrWhiteSpace(package.Version) || package.Authors.IsDefault || package.Dependencies.IsDefault)
+            if (package is null || string.IsNullOrWhiteSpace(package.Id) || string.IsNullOrWhiteSpace(package.Version))
                 throw Invalid();
         return result;
     }
@@ -141,8 +145,7 @@ internal static class SaveContainer
 
     private static void CheckLegacy(JsonElement root)
     {
-        foreach (var name in new[] { "SaveFormatVersion", "saveFormatVersion", "FormatVersion", "formatVersion" })
-            if (root.TryGetProperty(name, out var value)) CheckVersion(value.GetInt32());
+        if (root.TryGetProperty("save_format_version", out var value)) CheckVersion(value.GetInt32());
     }
 
     private static void CheckVersion(int version)

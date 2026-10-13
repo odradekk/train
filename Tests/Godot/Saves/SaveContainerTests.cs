@@ -1,8 +1,8 @@
 using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Saves;
-using Train.Core.Contracts;
 
 namespace Train.Godot.Tests.Saves;
 
@@ -10,7 +10,15 @@ namespace Train.Godot.Tests.Saves;
 public sealed class SaveContainerTests
 {
     internal static SaveDocument Document(string payload = " {\r\n \"中文\": \"🚂\" } \n") => new(
-        new(6, Guid.NewGuid(), "中文存档", DateTimeOffset.UtcNow, new SimulationPosition(12, 34), []), payload, payload);
+        new(6, Guid.NewGuid(), "中文存档", DateTimeOffset.UtcNow, new(12, 34), [new("fixture:mod", "1.2")]), payload, payload);
+
+    internal static string Legacy(int version) => $$"""
+        {"id":"e4a0ca31-b542-4f3e-bde2-bc4a27148a2b","base_layout":"fixture",
+        "bounds":{"x":16,"y":8,"z":16},"chunk_size":16,
+        "delta":{"added":[],"changed":[],"removed":[]},"display_name":"旧存档",
+        "external_definitions":[],"save_format_version":{{version}},"seed":42,
+        "generator_version":"blank-world-v1","next_entity_id":1,"transaction_count":0,"vehicles":[]}
+        """;
 
     [TestMethod]
     public void Opaque_module_payloads_preserve_their_utf8_bytes()
@@ -40,11 +48,30 @@ public sealed class SaveContainerTests
     {
         for (var version = 2; version <= 5; version++)
         {
-            var error = Assert.ThrowsExactly<SaveFormatException>(() => SaveContainer.Decode($"{{\"SaveFormatVersion\":{version}}}"));
+            var error = Assert.ThrowsExactly<SaveFormatException>(() => SaveContainer.Decode(Legacy(version)));
             Assert.AreEqual("基于全局体素世界的旧存档已不支持", error.Message);
-            using var stream = new MemoryStream(Encoding.UTF8.GetBytes($"{{\"SaveFormatVersion\":{version}}}"));
+            using var stream = new MemoryStream(Encoding.UTF8.GetBytes(Legacy(version)));
             Assert.AreEqual(error.Message, Assert.ThrowsExactly<SaveFormatException>(() => SaveContainer.ReadHeader(stream)).Message);
         }
+    }
+
+    [TestMethod]
+    public void Header_format_uses_only_package_identity_version_and_position_numbers()
+    {
+        var original = Document();
+        using var json = JsonDocument.Parse(SaveContainer.Encode(original));
+        var header = json.RootElement.GetProperty("Header");
+        var position = header.GetProperty("Position");
+        CollectionAssert.AreEquivalent(new[] { "CompletedSteps", "Sequence" }, position.EnumerateObject().Select(field => field.Name).ToArray());
+        Assert.AreEqual(12ul, position.GetProperty("CompletedSteps").GetUInt64());
+        Assert.AreEqual(34ul, position.GetProperty("Sequence").GetUInt64());
+        var package = header.GetProperty("Packages")[0];
+        CollectionAssert.AreEquivalent(new[] { "Id", "Version" }, package.EnumerateObject().Select(field => field.Name).ToArray());
+        Assert.AreEqual("fixture:mod", package.GetProperty("Id").GetString());
+        Assert.AreEqual("1.2", package.GetProperty("Version").GetString());
+        var decoded = SaveContainer.Decode(json.RootElement.GetRawText()).Header;
+        Assert.AreEqual(original.Header.Position, decoded.Position);
+        CollectionAssert.AreEqual(original.Header.Packages.ToArray(), decoded.Packages.ToArray());
     }
 
     [TestMethod]

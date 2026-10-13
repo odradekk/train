@@ -153,12 +153,14 @@ public partial class SavePanel : Window
     private void Refresh()
     {
         if (_service is null) return;
+        if (Visible)
+        {
+            _entries = _service.List();
+            _list.Clear();
+            foreach (var entry in _entries)
+                _list.AddItem($"{entry.Header.Name} · {entry.Header.SavedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}{(entry.Automatic ? " · 自动" : "")}");
+        }
         _message.Text = _service.LastMessage ?? "";
-        if (!Visible) return;
-        _entries = _service.List();
-        _list.Clear();
-        foreach (var entry in _entries)
-            _list.AddItem($"{entry.Header.Name} · {entry.Header.SavedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}{(entry.Automatic ? " · 自动" : "")}");
     }
 
     internal void ShowFailure(SaveFailure? failure)
