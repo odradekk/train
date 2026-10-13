@@ -145,6 +145,36 @@ public sealed class NodeSwitchTests
     }
 
     [TestMethod]
+    public async Task PendingNodeHasStablePanBoundsAndFogUntilItsBuildCompletes()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var snapshot = NodeFixtures.Snapshot(platforms: 0, trains: [], content: NodeFixtures.Content(
+            rules: RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 1 }));
+        await using var session = Open(snapshot, (input, id, previous, token, ready) =>
+        {
+            var result = Empty(input, id, previous, token, ready);
+            started.SetResult(); release.Task.GetAwaiter().GetResult(); return result;
+        });
+        try
+        {
+            session.RequestView(new WorldSceneTarget.Location(NodeFixtures.Location));
+            await started.Task;
+            var loading = (SceneFrame)((SceneResult<ISceneFrame>.Success)session.Present(Request, null)).Value;
+            Assert.AreEqual(SceneReadiness.Loading, loading.Readiness);
+            Assert.IsNotNull(loading.NodePanBounds);
+            Assert.IsFalse(loading.Update.Environment.FoggedRegions.IsEmpty);
+            Assert.IsInstanceOfType<ScenePick.NotReady>(loading.Pick(new(new(0, 10, 0), -Vector3.UnitY, 30)));
+            release.SetResult();
+            var ready = await NodeSceneTests.Settled(session, loading);
+            Assert.AreEqual(SceneReadiness.Ready, ready.Readiness);
+            Assert.AreEqual(loading.NodePanBounds, ready.NodePanBounds);
+            Assert.IsTrue(ready.Update.Environment.FoggedRegions.IsEmpty);
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [TestMethod]
     public async Task CancelledCandidateCannotPublishLateAndCurrentFrameDoesNotWaitForIt()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -156,7 +186,7 @@ public sealed class NodeSwitchTests
         await using var session = Open(initial, (snapshot, id, previous, token, ready) =>
         {
             started.SetResult(); release.Task.GetAwaiter().GetResult();
-            return Empty(snapshot, id, previous, token, ready);
+            return Empty(snapshot, id, previous, CancellationToken.None, ready);
         }, cache);
         try
         {
