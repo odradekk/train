@@ -6,6 +6,7 @@ using Train.App.Logging;
 using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
+using Train.App.Recording;
 using Train.Ui;
 
 namespace Train.App;
@@ -25,6 +26,7 @@ public partial class App : Node
     internal HostCoordinator? Host { get; private set; }
     internal WorldSceneController? WorldScenes { get; private set; }
     internal SaveService? Saves { get; private set; }
+    internal RecordingService? Recording { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -42,13 +44,21 @@ public partial class App : Node
             Host = CreateHost?.Invoke(_logger) ?? HostComposition.CreateHost(_logger, userData, _dispatcher);
             Saves = new SaveService(Host, new FileSaveStore(userData));
             GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
+            Recording = new RecordingService(Host, new FileSaveStore(userData));
+            GetNode<MainMenu>("MainMenu").ConfigureRecording(Recording);
             WorldScenes = new(Host, CreateScenes?.Invoke() ?? HostComposition.CreateScenes(), _logger);
             AddChild(WorldScenes.View);
             var console = new GameConsole();
-            Action<IReadOnlyList<string>>? simulationCommands = OS.IsDebugBuild()
-                ? new SimulationConsoleCommands(Host, _logger).Execute : null;
+            Action<IReadOnlyList<string>>? simulationCommands = null;
+            Action<IReadOnlyList<string>>? lightingCommands = null;
+            if (OS.IsDebugBuild())
+            {
+                simulationCommands = new SimulationConsoleCommands(Host, _logger).Execute;
+                lightingCommands = new LightingConsoleCommands(_logger, () => WorldScenes?.View.Lighting,
+                    mode => WorldScenes!.View.SetLighting(mode)).Execute;
+            }
             console.Initialize(buffer, new ConsoleCommandDispatcher(
-                _logger, buffer.Clear, RequestQuit, () => ReloadContent(CommandSource.Console), OS.IsDebugBuild(), simulationCommands));
+                _logger, buffer.Clear, RequestQuit, () => ReloadContent(CommandSource.Console), OS.IsDebugBuild(), simulationCommands, lightingCommands));
             AddChild(console);
             _smoke = OS.GetCmdlineUserArgs().Contains("--smoke", StringComparer.Ordinal);
             Host.SetFocused(GetWindow().HasFocus());
@@ -73,8 +83,19 @@ public partial class App : Node
 
     public void RequestQuit()
     {
-        if (Saves is null) QuitAction();
-        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(QuitAction));
+        if (Saves is null) FinishQuit();
+        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(FinishQuit));
+    }
+
+    private void FinishQuit()
+    {
+        if (Recording is null) QuitAction();
+        else
+        {
+            if (Host!.LockLeaving() is { } problem)
+            { GetNode<MainMenu>("MainMenu").ShowSaveFailure(new(problem.Code, "正在处理其他操作。")); return; }
+            Recording.Close(() => { Host.UnlockLeaving(); QuitAction(); });
+        }
     }
 
     private void ReloadContent(CommandSource source)
@@ -99,6 +120,7 @@ public partial class App : Node
         _dispatcher?.Pump();
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        Recording?.Process();
         // headless 的虚拟窗口始终报告最小化；它仍需执行资源和显示边界检查。
         WorldScenes?.ProcessFrame(delta, DisplayServer.GetName() != "headless" && GetWindow().Mode == Window.ModeEnum.Minimized);
         _logger?.DrainGodotQueue();
@@ -128,6 +150,8 @@ public partial class App : Node
 
     public override void _ExitTree()
     {
+        Recording?.Dispose();
+        Recording = null;
         Saves?.Dispose();
         Saves = null;
         WorldScenes?.Dispose();

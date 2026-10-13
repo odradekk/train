@@ -27,6 +27,7 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? CreateWorldInputCall { get; init; }
     public Func<string, ContentResult<IContentCapture>>? DecodeCaptureCall { get; init; }
     public Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureCall { get; init; }
+    public Func<ImmutableArray<IContentView>, CoreReferenceManifest, ContentResult<IContentReplayCapture>>? CaptureReplayCall { get; init; }
     public int CaptureCount { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
@@ -51,7 +52,8 @@ public sealed class ScriptedContentFactory : IContentFactory
         CaptureCount++;
         return call(content, references);
     }
-    public ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references) => throw Unconfigured();
+    public ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references)
+        => (CaptureReplayCall ?? throw Unconfigured())(history, references);
     public ContentResult<IContentReplayCapture> DecodeReplay(string payload) => throw Unconfigured();
     public ContentResult<string> EncodeDraft(SavedContentDraft draft) => throw Unconfigured();
     public ContentResult<SavedContentDraft> DecodeDraft(string payload) => throw Unconfigured();
@@ -60,6 +62,12 @@ public sealed class ScriptedContentFactory : IContentFactory
     public ContentResult<PackageWritePlan> PreparePackageWrite(IAuthoringPackage basis, ImmutableArray<PackageEdit> edits) => throw Unconfigured();
 
     private static InvalidOperationException Unconfigured() => new("UNCONFIGURED: 内容工厂入口未配置。");
+}
+
+public sealed class FixedContentReplayCapture(ImmutableArray<IContentView> history, string opaquePayload) : IContentReplayCapture
+{
+    public ImmutableArray<IContentView> History { get; } = history;
+    public string Encode() => opaquePayload;
 }
 
 public sealed class ScriptedContentCandidate : IContentCandidate

@@ -178,6 +178,9 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
             var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1));
             var capture = new FixedCoreCapture(new(new(0, 0), "fixed", "fixed"), HostCoreScenario.References,
                 "opaque", HostCoreScenario.Input, new(1));
+            Session.ReadRecordingCall = () => new(new(0, 0), [new(new(1), capture)], [], [capture.Checkpoint], [], [], capture.References);
+            Session.ConfirmRecordingStartCall = (point, _) => point.Value == 1 ? new([], [])
+                : throw new InvalidOperationException("UNCONFIGURED: recording point");
             var core = new ScriptedCoreFactory
             {
                 DecodeStateCall = payload =>
@@ -195,6 +198,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
             };
             var content = new ScriptedContentFactory
             {
+                CaptureReplayCall = (history, _) => new ContentResult<IContentReplayCapture>.Success(new FixedContentReplayCapture(history, "engine recording content")),
                 DecodeCaptureCall = payload => payload == "opaque content"
                     ? new ContentResult<IContentCapture>.Success(new FixedContentCapture(payload)) : throw new InvalidOperationException("UNCONFIGURED: payload"),
                 PrepareLoadCall = (request, _, _) => request.Purpose is ContentLoadPurpose.Restore
