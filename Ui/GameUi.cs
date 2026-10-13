@@ -41,7 +41,6 @@ public partial class GameUi : CanvasLayer
     private IContentView? _content;
     private HostBinding _binding;
 
-    internal event Action<GenerationProfileId, ulong>? NewGameRequested;
     internal ICoreReadView? View => _view;
     internal string ErrorText => _error.Text;
 
@@ -189,7 +188,7 @@ public partial class GameUi : CanvasLayer
             _world.Hide(); _map.Show(); _errorPanel.Hide(); _settings.Hide();
             _menu.Show();
         }
-        _menu.GetNode<Button>("%NewGame").Disabled = _host is null || _host.IsBusy || _host.Content is null;
+        _menu.SetNewGameEnabled(_host?.SessionOptions is not null && !_host.IsBusy && _host.Content is not null);
     }
 
     private void Report(CoreProblem? problem)
@@ -286,7 +285,7 @@ public partial class GameUi : CanvasLayer
 
     private void OpenNewGame()
     {
-        if (_host?.Content is not { } content) return;
+        if (_host?.Content is not { } content || _host.SessionOptions is null) return;
         if (_newGame is not null)
         {
             _root.RemoveChild(_newGame); _newGame.QueueFree();
@@ -329,27 +328,23 @@ public partial class GameUi : CanvasLayer
             if (!ulong.TryParse(seed.Text, NumberStyles.None, CultureInfo.InvariantCulture, out var value))
             { _newGameError.Text = "种子必须是 0 至 18446744073709551615 的整数。"; return; }
             if (profile.Selected < 0) return;
-            NewGameRequested?.Invoke(profiles[profile.Selected].Id, value);
+            var result = _host.BeginNewGame(profiles[profile.Selected].Id, value, "stage1-world-v1", _host.SessionOptions);
+            if (result.Problem is { } problem)
+            {
+                var message = CommandDiagnostics.Describe(problem);
+                _logger.Warning("application", "host_new_game_denied", message);
+                ShowError(message);
+                _newGameError.Text = message;
+                return;
+            }
+            _newOperation = result.Operation;
+            _confirmMissing!.Hide();
+            _newGameError.Text = "正在创建对局，可取消。";
+            _createNewGame!.Disabled = true;
         }, true);
         create.Disabled = profiles.IsEmpty;
         body.AddChild(create);
         _newGame.Resized += () => _newGame.Position = (_root.Size - _newGame.Size) / 2;
-    }
-
-    internal void NewGameStarted((long Operation, CoreProblem? Problem) result)
-    {
-        if (result.Problem is { } problem)
-        {
-            var message = CommandDiagnostics.Describe(problem);
-            _logger.Warning("application", "host_new_game_denied", message);
-            ShowError(message);
-            _newGameError!.Text = message;
-            return;
-        }
-        _newOperation = result.Operation;
-        _confirmMissing!.Hide();
-        _newGameError!.Text = "正在创建对局，可取消。";
-        _createNewGame!.Disabled = true;
     }
 
     private void CancelNewGame()

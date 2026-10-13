@@ -25,7 +25,6 @@ public partial class App : Node
     private bool _insideSimulation;
     private long _attachedAt;
     private bool _firstSimulationFrame;
-    private GameUi? _ui;
 
     internal TrainLogger Logger => _logger!;
     internal ContentSnapshot? CurrentContent => _reloader?.Current;
@@ -69,10 +68,9 @@ public partial class App : Node
                 WorldScenes = new(Host, CreateScenes(), _logger);
                 AddChild(WorldScenes.View);
             }
-            _ui = new GameUi { Name = "GameUi" };
-            _ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes);
-            _ui.NewGameRequested += NewGame;
-            AddChild(_ui);
+            var ui = new GameUi { Name = "GameUi" };
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes);
+            AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;
             Action<IReadOnlyList<string>>? trainCommands = null;
@@ -80,7 +78,7 @@ public partial class App : Node
                 simulationCommands = Host is null ? new LegacySimulationConsoleCommands(this, _logger).Execute
                     : new SimulationConsoleCommands(Host, _logger).Execute;
             if (OS.IsDebugBuild() && Host is not null)
-                trainCommands = new TrainConsoleCommands(Host, _logger, _ui.ShowError).Execute;
+                trainCommands = new TrainConsoleCommands(Host, _logger, ui.ShowError).Execute;
             console.Initialize(buffer, new ConsoleCommandDispatcher(
                 _logger, buffer.Clear, RequestQuit, () => ReloadContent(Train.Core.Contracts.CommandSource.Console), OS.IsDebugBuild(), simulationCommands, trainCommands));
             AddChild(console);
@@ -128,16 +126,6 @@ public partial class App : Node
         else if (Host.BeginReload(source).Problem is { Code: "busy" } problem)
             _logger!.Warning("content", "content_reload_failed", problem.Code,
                 new Dictionary<string, object?> { ["code"] = problem.Code, ["field"] = problem.Field });
-    }
-
-    private void NewGame(Train.Content.Contracts.GenerationProfileId profile, ulong seed)
-    {
-        var version = ProjectSettings.GetSetting("application/config/version").AsString();
-        var runtime = new Train.Core.Contracts.RuntimeIdentity(version, version, OS.GetName(),
-            System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture.ToString(),
-            System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
-        _ui!.NewGameStarted(Host!.BeginNewGame(profile, seed, "stage1-world-v1",
-            new(runtime, OS.IsDebugBuild(), 1)));
     }
 
     public void AttachSession(SimulationSession session, SimulationStateCodec states)

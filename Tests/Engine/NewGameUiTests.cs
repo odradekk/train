@@ -29,6 +29,32 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
     public async Task Missing_new_game_confirmation_activates_the_candidate_and_opens_a_paused_map()
         => await CreateThroughInput(false, true, confirm: true);
 
+    [Test]
+    public async Task New_game_without_session_options_is_disabled()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var core = new ScriptedCoreFactory();
+        var view = new FixedContentView(HostContentScenario.CreateProjection(HostCoreScenario.Input), new(1))
+        { GenerationProfiles = [new(new("fixture:world"), new("固定世界", ""))] };
+        var content = new ScriptedContentFactory
+        { PrepareLoadCall = (_, _, _) => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view)) };
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => new HostCoordinator(core, content, new ScriptedContentFiles(),
+                new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture", []), logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.Content is not null && !app.Host.IsBusy);
+            await _input.Frames(2);
+            var button = app.GetNode<MainMenu>("MainMenu").GetNode<Button>("%NewGame");
+            Require(button.Visible && button.Disabled, "缺少宿主会话选项时，新游戏入口仍可操作。");
+            await _input.Click(button.GetGlobalRect().GetCenter());
+            Require(core.PrepareNewCount == 0 && app.GetNodeOrNull<Control>("GameUi/Root/NewGame") is null,
+                "停用的新游戏入口仍准备了候选或打开了表单。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
     private async Task CreateThroughInput(bool reject, bool missing = false, bool confirm = false)
     {
         var tree = TestScene.GetTree();
@@ -47,12 +73,13 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
             missing ? [new(new CoreDefinitionReference.Voxel(new("fixture:missing")), "vehicles[0]")] : []);
         var loads = 0;
         var worldInputs = 0;
+        var sessionOptions = new CoreSessionOptions(new("fixture-game", "fixture-core", "fixture-os", "fixture-arch", "fixture-runtime"), true, 1);
         var core = new ScriptedCoreFactory
         {
             PrepareNewCall = (world, content, options) =>
             {
                 Require(ReferenceEquals(world, HostCoreScenario.World) && ReferenceEquals(content, projection) &&
-                    options.Runtime.GameBuild.Length > 0, "新游戏未传递情景世界输入、内容投影和运行时选项。");
+                    ReferenceEquals(options, sessionOptions), "新游戏未传递情景世界输入、内容投影和宿主会话选项。");
                 return reject ? new CoreResult<ICoreSessionCandidate>.Failure(
                     [new("fixture_generation_rejected", "world", null, [])])
                     : new CoreResult<ICoreSessionCandidate>.Success(candidate);
@@ -78,7 +105,7 @@ public class NewGameUiTests(Node testScene) : TestClass(testScene)
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
             app.CreateHost = logger => new HostCoordinator(core, content, new ScriptedContentFiles(),
-                new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture", []), logger);
+                new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture", []), logger, sessionOptions: sessionOptions);
             await fixture.AddToRoot(app);
             await _input.WaitUntil(() => app.Host!.Content is not null && !app.Host.IsBusy);
             tree.Root.ContentScaleFactor = 1;

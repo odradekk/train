@@ -213,7 +213,7 @@ public class HostSimulationTests(Node testScene) : TestClass(testScene)
                     ? new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(view)) : throw new InvalidOperationException("UNCONFIGURED: purpose")
             };
             var host = new HostCoordinator(core, content, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-                new(new("builtin"), new("mods"), null, "fixture", []), logger, policy);
+                new(new("builtin"), new("mods"), null, "fixture", []), logger, policy, sessionOptions: _options);
             host.BeginRestore("opaque core", "opaque content", _options);
             return host;
         }
