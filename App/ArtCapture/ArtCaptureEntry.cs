@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Reflection;
 using System.Text;
@@ -37,7 +38,6 @@ public partial class ArtCaptureEntry : Node
 
 internal sealed class ArtCaptureRun(Node owner) : IDisposable
 {
-    internal const int MaximumWaitFrames = 600;
     private GodotMainThreadDispatcher? _dispatcher;
     private TrainLogger? _logger;
     internal HostCoordinator? Host { get; private set; }
@@ -121,7 +121,8 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
 
     private async Task WaitAsync(Func<bool> ready, Action pump)
     {
-        for (var frame = 0; frame < MaximumWaitFrames; frame++)
+        var wait = Stopwatch.StartNew();
+        while (wait.Elapsed < TimeSpan.FromSeconds(120))
         {
             pump();
             if (_sceneFailure is not null) throw new InvalidDataException($"场景失败：{_sceneFailure}");
@@ -129,7 +130,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
             if (ready()) return;
             await owner.ToSignal(owner.GetTree(), SceneTree.SignalName.ProcessFrame);
         }
-        throw new TimeoutException("资源等待超过帧数上限。");
+        throw new TimeoutException("资源等待超过 120 秒。");
     }
 
     internal Task DisplayAsync() => WaitAsync(
