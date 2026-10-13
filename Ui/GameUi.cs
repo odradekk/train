@@ -3,6 +3,7 @@ using System.Globalization;
 using Godot;
 using Train.App;
 using Train.App.Logging;
+using Train.App.Recording;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -13,6 +14,7 @@ public partial class GameUi : CanvasLayer
 {
     private HostCoordinator? _host;
     private WorldSceneController? _scenes;
+    private RecordingService? _recording;
     private TrainLogger _logger = null!;
     private MainMenu _menu = null!;
     private Control _root = null!;
@@ -43,8 +45,8 @@ public partial class GameUi : CanvasLayer
     internal string ErrorText => _error.Text;
 
     internal void Initialize(MainMenu menu, HostCoordinator? host, TrainLogger logger,
-        WorldSceneController? scenes = null)
-    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; }
+        WorldSceneController? scenes = null, RecordingService? recording = null)
+    { _menu = menu; _host = host; _logger = logger; _scenes = scenes; _recording = recording; }
 
     public override void _Ready()
     {
@@ -123,7 +125,7 @@ public partial class GameUi : CanvasLayer
         _error.AddThemeColorOverride("font_color", UiStyle.Error);
         errorBody.AddChild(_error);
         _settings = new SettingsPanel { Name = "SettingsPanel" };
-        _settings.Initialize(_host, _logger, ShowError);
+        _settings.Initialize(_host, _logger, ShowError, _recording);
         _root.AddChild(_settings);
         _bar.AddChild(UiStyle.Button("Settings", "设置", _settings.Show));
         _menu.SetHostAvailable(_host is not null);

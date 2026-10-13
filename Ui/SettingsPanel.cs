@@ -1,6 +1,7 @@
 using Godot;
 using Train.App;
 using Train.App.Logging;
+using Train.App.Recording;
 
 namespace Train.Ui;
 
@@ -8,6 +9,7 @@ public partial class SettingsPanel : Control
 {
     private const string Path = "user://settings.cfg";
     private HostCoordinator? _host;
+    private RecordingService? _recording;
     private TrainLogger _logger = null!;
     private Action<string> _showError = null!;
     private Window _window = null!;
@@ -16,8 +18,9 @@ public partial class SettingsPanel : Control
     private int _fps;
     private bool _focusPause;
 
-    internal void Initialize(HostCoordinator? host, TrainLogger logger, Action<string> showError)
-    { _host = host; _logger = logger; _showError = showError; }
+    internal void Initialize(HostCoordinator? host, TrainLogger logger, Action<string> showError,
+        RecordingService? recording = null)
+    { _host = host; _logger = logger; _showError = showError; _recording = recording; }
 
     public override void _Ready()
     {
@@ -70,6 +73,13 @@ public partial class SettingsPanel : Control
         focus.Toggled += value => { _focusPause = value; Save(); };
         body.AddChild(focus);
         body.AddChild(UiStyle.Label("更改立即生效，并自动保存。"));
+        if (_recording is not null)
+        {
+            var report = new IssueReportPanel { Name = "IssueReportPanel" };
+            AddChild(report);
+            report.Configure(_recording);
+            body.AddChild(UiStyle.Button("ReportIssue", "报告问题", report.Open));
+        }
         body.AddChild(UiStyle.Button("Back", "返回", Hide));
         panel.Resized += () => panel.Position = (Size - panel.Size) / 2;
         Resized += () => panel.Position = (Size - panel.Size) / 2;

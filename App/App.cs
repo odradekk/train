@@ -60,7 +60,6 @@ public partial class App : Node
                 Saves = new SaveService(Host, new FileSaveStore(userData));
                 GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
                 Recording = new RecordingService(Host, new FileSaveStore(userData));
-                GetNode<MainMenu>("MainMenu").ConfigureRecording(Recording);
             }
             else
             {
@@ -73,7 +72,7 @@ public partial class App : Node
                 AddChild(WorldScenes.View);
             }
             var ui = new GameUi { Name = "GameUi" };
-            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes);
+            ui.Initialize(GetNode<MainMenu>("MainMenu"), Host, _logger, WorldScenes, Recording);
             AddChild(ui);
             var console = new GameConsole();
             Action<IReadOnlyList<string>>? simulationCommands = null;

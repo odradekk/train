@@ -76,10 +76,3 @@ visible = false
 custom_minimum_size = Vector2(240, 48)
 layout_mode = 2
 text = "存档"
-
-[node name="ReportIssue" type="Button" parent="Center/Buttons"]
-unique_name_in_owner = true
-visible = false
-custom_minimum_size = Vector2(240, 48)
-layout_mode = 2
-text = "报告问题"
