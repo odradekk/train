@@ -1,19 +1,30 @@
 using System.Collections.Immutable;
 using Train.Content.Designs;
+using Train.Content.Persistence;
 using C = Train.Content.Contracts;
 
 namespace Train.Content.Loading;
 
-internal sealed class InitialLoader(C.ContentInstallation installation, C.IContentFiles files, C.IAssetInspector inspector)
+internal sealed class InitialLoader
 {
-    private readonly AssetLoader _assets = new(files, inspector);
+    private readonly C.ContentInstallation _installation;
+    private readonly RecordingContentSource _source;
+    private readonly AssetLoader _assets;
     private readonly VoxelParser _parser = new();
     private readonly BlueprintParser _blueprintParser = new();
     private readonly WorldLoader _world = new();
+    internal ImmutableArray<C.ContentDiagnostic> AssetFailures { get; private set; } = [];
+
+    internal InitialLoader(C.ContentInstallation installation, C.IContentFiles files, C.IAssetInspector inspector)
+    {
+        _installation = installation;
+        _source = new(installation, files, inspector);
+        _assets = new(_source, _source);
+    }
 
     internal C.ContentResult<C.IContentCandidate> Load()
     {
-        var packages = new PackageLoader(installation, files).Discover();
+        var packages = new PackageLoader(_installation, _source).Discover();
         var loaded = new List<(LoadPackage Package, LoadedVoxel Voxel)>();
         var parsedBlueprints = new List<(LoadPackage Package, ParsedBlueprint Blueprint)>();
         foreach (var package in packages)
@@ -62,13 +73,14 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
         }
         PackageLoader.ExcludeDependents(packages);
         var world = _world.Resolve(packages, loaded, blueprints);
+        AssetFailures = packages.SelectMany(package => package.AssetDiagnostics).ToImmutableArray();
         var diagnostics = packages.SelectMany(package => package.Diagnostics).ToImmutableArray();
         if (packages.Any(package => package.BuiltIn && package.State != C.PackageState.Available))
             return new C.ContentResult<C.IContentCandidate>.Failure(diagnostics);
         var statuses = packages.Select(package => package.Status).ToImmutableArray();
         var view = new ContentView(loaded.Where(item => item.Package.State == C.PackageState.Available)
             .Select(item => item.Voxel).OrderBy(voxel => voxel.Definition.Definition.Value, StringComparer.Ordinal).ToImmutableArray(), statuses, _assets.Freeze(),
-            blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray(), world);
+            blueprints.Where(item => item.Package.State == C.PackageState.Available).Select(item => item.Blueprint).ToImmutableArray(), world, _source.Freeze());
         return new C.ContentResult<C.IContentCandidate>.Success(new ContentCandidate(view, new(statuses, [], [], diagnostics)));
     }
 
@@ -118,7 +130,7 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                     package.Reject("unsupported_format", file, "", $"定义文件必须使用 {suffix} 后缀。");
                     continue;
                 }
-                var read = files.Read(new(package.Root, file), ContentLimits.JsonFileMaxBytes);
+                var read = _source.Read(new(package.Root, file), ContentLimits.JsonFileMaxBytes);
                 if (read is C.ContentIoResult<ImmutableArray<byte>>.Failure failure)
                 {
                     package.Reject(ContentDocument.IoCode(failure.Kind), file, "", failure.Diagnostic);
@@ -146,7 +158,7 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
 
     private ImmutableArray<C.ContentFileEntry> Enumerate(LoadPackage package, string path)
     {
-        var result = files.Enumerate(new(package.Root, path));
+        var result = _source.Enumerate(new(package.Root, path));
         if (result is C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success success)
             return success.Value.OrderBy(entry => entry.Name, StringComparer.Ordinal).ToImmutableArray();
         var failure = (C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Failure)result;

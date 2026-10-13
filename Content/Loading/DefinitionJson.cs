@@ -22,15 +22,17 @@ internal sealed class DefinitionJson
         Id = package.Metadata!.Id.Value + ":" + local;
     }
 
-    internal string Reference(JsonElement value, string field)
+    internal string Reference(JsonElement value, string field) => Reference(value, field, _package);
+
+    internal static string Reference(JsonElement value, string field, LoadPackage? package)
     {
         var text = Text(value, field);
         var parts = text.Split(':');
-        var ns = parts.Length == 1 ? _package.Metadata!.Id.Value : parts[0];
-        if (parts.Length > 2 || !ContentIdentity.IsValidPart(parts[^1]) || parts[^1] == "shared" ||
+        var ns = parts.Length == 1 ? package?.Metadata!.Id.Value ?? "" : parts[0];
+        if (package is null && parts.Length != 2 || parts.Length > 2 || !ContentIdentity.IsValidPart(parts[^1]) || parts[^1] == "shared" ||
             (ns != "core" && (!ModManifest.TryCanonicalUuid(ns, out var canonical) || canonical != ns)))
             Fail(field, "引用必须为 local id 或规范的 namespace:local-id。");
-        if (ns != _package.Metadata!.Id.Value && !_package.Metadata.Dependencies.Any(d => d.Package.Value == ns))
+        if (package is not null && ns != package.Metadata!.Id.Value && !package.Metadata.Dependencies.Any(d => d.Package.Value == ns))
             Fail(field, "引用的包必须在 dependencies 中声明。", "reference_missing");
         return ns + ":" + parts[^1];
     }

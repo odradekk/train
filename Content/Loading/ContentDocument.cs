@@ -29,7 +29,7 @@ internal static class ContentDocument
         }
     }
 
-    private static string? DuplicateField(JsonElement element, string field)
+    internal static string? DuplicateField(JsonElement element, string field)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
