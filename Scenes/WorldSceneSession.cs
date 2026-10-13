@@ -16,10 +16,14 @@ internal sealed record WorldSceneContent(ImmutableArray<SceneCell> Terrain,
 internal sealed class WorldSceneSession : IWorldSceneSession
 {
     private readonly Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate;
+    private readonly RailwayCache railwayCache;
+    private RailwayScene? railway;
+    private readonly List<Task> closingRailways = [];
+    private SceneWorldSnapshot? interpolationStart;
     private readonly List<(Task Task, CancellationTokenSource Cancellation)> tasks = [];
     private readonly Dictionary<InstanceId, Task<BuiltObject>> rebuilds = [];
     private readonly Dictionary<string, SceneObjectId> ids = [];
-    private readonly Dictionary<InstanceId, (DesignHash Design, ImmutableHashSet<PartId> Destroyed, RenderedDesign Geometry)> designs = [];
+    private readonly Dictionary<InstanceId, BuiltObject> designs = [];
     private SceneWorldSnapshot snapshot;
     private WorldSceneTarget? target;
     private Task<BuiltWorld>? pending;
@@ -37,19 +41,19 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     public SceneBinding Binding { get; }
     internal Task? PendingBuild => pending;
     internal Task[] PendingObjectBuilds => rebuilds.Values.Cast<Task>().ToArray();
+    internal Task[] PendingRailwayBuilds => railway?.PendingWork ?? [];
 
-    private sealed record BuiltGeometry(RenderedDesign Geometry, ImmutableDictionary<SceneObjectId, string> Keys);
-    private sealed record BuiltObject(DesignHash Design, ImmutableHashSet<PartId> Destroyed, BuiltGeometry Geometry);
     private sealed record BuiltWorld(WorldSceneContent Content, BuiltGeometry Scenery,
         ImmutableDictionary<InstanceId, BuiltObject> Objects);
 
     internal WorldSceneSession(SceneBinding binding, SceneWorldSnapshot initial,
-        Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate)
+        Func<SceneWorldSnapshot, WorldSceneTarget, CancellationToken, WorldSceneContent> generate, RailwayCache railwayCache)
     {
         ValidateSnapshot(initial);
         Binding = binding;
         snapshot = initial;
         this.generate = generate;
+        this.railwayCache = railwayCache;
     }
 
     internal static void ValidateSnapshot(SceneWorldSnapshot snapshot)
@@ -66,20 +70,10 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         cancellation.ThrowIfCancellationRequested();
         if (target is WorldSceneTarget.Combat)
             throw new NotImplementedException("Combat scene generation is implemented by Issue #353.");
-        var location = target switch
-        {
-            WorldSceneTarget.Location value => value.Value,
-            WorldSceneTarget.Follow follow => ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value.Position switch
-            {
-                TrainPosition.Node node => (WorldLocation)new WorldLocation.Node(node.Id),
-                TrainPosition.Edge edge => new WorldLocation.Edge(edge.Id, edge.DistanceMeters),
-                _ => throw new ArgumentException("Invalid train position.")
-            },
-            _ => throw new ArgumentException("Invalid target.")
-        };
-        throw new NotImplementedException(location is WorldLocation.Node
-            ? "Node scene generation is implemented by Issue #316."
-            : "Railway scene generation is implemented by Issue #315.");
+        var location = CurrentLocation(snapshot, target);
+        if (location is WorldLocation.Node)
+            throw new NotImplementedException("Node scene generation is implemented by Issue #316.");
+        throw new ArgumentException("Railway generation uses the segmented world-session path.");
     }
 
     public SceneResult<SceneRequestId> RequestView(WorldSceneTarget value)
@@ -90,6 +84,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (!Exists(value)) return Failure<SceneRequestId>("target_missing", SceneStage.Input);
         RetireCompletedTasks();
         foreach (var work in tasks) work.Cancellation.Cancel();
+        if (railway is not null) { closingRailways.Add(railway.DisposeAsync().AsTask()); railway = null; }
         target = value;
         request = new(request.Value + 1);
         space = new(space.Value + 1);
@@ -98,6 +93,12 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         designs.Clear();
         rebuilds.Clear();
         ids.Clear();
+        if (value is not WorldSceneTarget.Combat && CurrentLocation(snapshot, value) is WorldLocation.Edge edge)
+        {
+            railway = new(snapshot, edge.Id, railwayCache, ObjectId);
+            pending = null;
+            return new SceneResult<SceneRequestId>.Success(request);
+        }
         var input = snapshot;
         var cancellation = new CancellationTokenSource();
         var generator = generate;
@@ -105,6 +106,18 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         tasks.Add((pending, cancellation));
         return new SceneResult<SceneRequestId>.Success(request);
     }
+
+    private static WorldLocation CurrentLocation(SceneWorldSnapshot snapshot, WorldSceneTarget value) => value switch
+    {
+        WorldSceneTarget.Location location => location.Value,
+        WorldSceneTarget.Follow follow => ((Lookup<TrainView>.Found)snapshot.Core.FindTrain(follow.Train)).Value.Position switch
+        {
+            TrainPosition.Node node => new WorldLocation.Node(node.Id),
+            TrainPosition.Edge edge => new WorldLocation.Edge(edge.Id, edge.DistanceMeters),
+            _ => throw new ArgumentException("Invalid train position.")
+        },
+        _ => throw new ArgumentException("Invalid location target.")
+    };
 
     private bool Exists(WorldSceneTarget value) => value switch
     {
@@ -145,6 +158,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             previous = item;
         }
         if (fault is not null) return new SceneResult<SimulationPosition>.Faulted(fault);
+        if (input.Core.Position.CompletedSteps != snapshot.Core.Position.CompletedSteps)
+            interpolationStart = input.Core.Position.CompletedSteps == snapshot.Core.Position.CompletedSteps + 1 ? snapshot : null;
         snapshot = input;
         lastEvent = previous;
         return new SceneResult<SimulationPosition>.Success(input.Core.Position);
@@ -166,12 +181,23 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         if (target is null || !Exists(target)) return Failure<ISceneFrame>("target_missing", SceneStage.Present);
         try
         {
+            if (railway is not null)
+            {
+                if (CurrentLocation(snapshot, target) is not WorldLocation.Edge location || location.Id != railway.Edge)
+                    throw new NotImplementedException("Following trains across nodes is implemented by Issue #316.");
+                var frame = railway.Present(snapshot, interpolationStart, target, frameRequest,
+                    new(Id, request, space, ++revision), displayedFrame as SceneFrame);
+                var liveIds = frame.Objects.Select(item => item.Id).ToHashSet();
+                foreach (var key in ids.Where(item => !liveIds.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
+                closingRailways.RemoveAll(task => task.IsCompleted);
+                return new SceneResult<ISceneFrame>.Success(frame);
+            }
             if (content is null && pending!.IsCompleted)
             {
                 var built = pending.GetAwaiter().GetResult();
                 pending = null;
                 content = built.Content;
-                scenery = Attach(built.Scenery, "");
+                scenery = Attach(built.Scenery, "", ObjectId).Geometry;
                 foreach (var item in built.Objects)
                     if (snapshot.Core.FindInstance(item.Key) is Lookup<InstanceView>.Found current && Matches(item.Value, current.Value))
                         Accept(item.Key, item.Value);
@@ -192,7 +218,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 rebuilding || !fog.IsEmpty ? SceneReadiness.Partial : SceneReadiness.Ready;
             var next = new SceneFrame(new(Id, request, space, ++revision), content?.Origin ?? new(0, 0, 0),
                 snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, readiness,
-                objects.ToImmutable(), picking.ToImmutable(), new(fog, []), problems.ToImmutable(), displayedFrame as SceneFrame);
+                objects.ToImmutable(), picking.ToImmutable(), fog.Select(bounds => new SceneFog(bounds)).ToImmutableArray(),
+                problems.ToImmutable(), displayedFrame as SceneFrame);
             var live = next.Objects.Select(item => item.Id).ToHashSet();
             foreach (var key in ids.Where(item => !live.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
             RetireCompletedTasks();
@@ -221,7 +248,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return value;
     }
 
-    private static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)
+    internal static BuiltGeometry BuildGeometry(Func<Func<string, SceneObjectId>, RenderedDesign> build)
     {
         var keys = ImmutableDictionary.CreateBuilder<SceneObjectId, string>();
         ulong next = 0;
@@ -250,13 +277,13 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new(content, scenery, objects.ToImmutable());
     }
 
-    private static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>
+    internal static ImmutableHashSet<PartId> Destroyed(InstanceView instance) =>
         instance.Parts.Where(part => part.Destroyed).Select(part => part.Part).ToImmutableHashSet();
 
-    private static bool Matches(BuiltObject built, InstanceView current) =>
+    internal static bool Matches(BuiltObject built, InstanceView current) =>
         built.Design == current.Design && built.Destroyed.SetEquals(Destroyed(current));
 
-    private static BuiltObject BuildObject(IContentView content, InstanceView instance, ScenePose pose)
+    internal static BuiltObject BuildObject(IContentView content, InstanceView instance, ScenePose pose)
     {
         var destroyed = Destroyed(instance);
         var geometry = BuildGeometry(id =>
@@ -280,10 +307,10 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new(instance.Design, destroyed, geometry);
     }
 
-    private RenderedDesign Attach(BuiltGeometry built, string prefix)
+    internal static BuiltGeometry Attach(BuiltGeometry built, string prefix, Func<string, SceneObjectId> objectId)
     {
-        var assigned = built.Keys.ToDictionary(item => item.Key, item => ObjectId(prefix + item.Value));
-        return built.Geometry with
+        var assigned = built.Keys.ToDictionary(item => item.Key, item => objectId(prefix + item.Value));
+        var geometry = built.Geometry with
         {
             Objects = built.Geometry.Objects.Select(item => item with
             {
@@ -292,10 +319,14 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             }).ToImmutableArray(),
             Picking = built.Geometry.Picking.Select(item => item with { Object = assigned[item.Object] }).ToImmutableArray()
         };
+        return new(geometry, built.Keys.ToImmutableDictionary(item => assigned[item.Key], item => item.Value));
     }
 
     private void Accept(InstanceId instance, BuiltObject built) =>
-        designs[instance] = (built.Design, built.Destroyed, Attach(built.Geometry, "instance:" + instance + ":"));
+        designs[instance] = built with
+        {
+            Geometry = Attach(built.Geometry, "instance:" + instance + ":", ObjectId)
+        };
 
     private static RenderedDesign BuildScenery(WorldSceneContent value, Func<string, SceneObjectId> id)
     {
@@ -353,7 +384,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 if (Matches(built, current)) Accept(item.Instance, built);
             }
             if (!designs.TryGetValue(item.Instance, out var cached) ||
-                cached.Design != current.Design || !cached.Destroyed.SetEquals(Destroyed(current)))
+                !Matches(cached, current))
             {
                 rebuilding = true;
                 if (!rebuilds.ContainsKey(item.Instance))
@@ -365,11 +396,11 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                     tasks.Add((work, cancellation));
                 }
             }
-            if (cached.Geometry is not null)
+            if (cached is not null)
             {
-                objects.AddRange(cached.Geometry.Objects);
-                picking.AddRange(cached.Geometry.Picking);
-                problems.AddRange(cached.Geometry.Diagnostics);
+                objects.AddRange(cached.Geometry.Geometry.Objects);
+                picking.AddRange(cached.Geometry.Geometry.Picking);
+                problems.AddRange(cached.Geometry.Geometry.Diagnostics);
             }
         }
         foreach (var id in designs.Keys.Concat(rebuilds.Keys).Where(id => !present.Contains(id)).Distinct().ToArray())
@@ -410,6 +441,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         if (closing is not null) return new(closing);
         disposed = true;
+        if (railway is not null) { closingRailways.Add(railway.DisposeAsync().AsTask()); railway = null; }
         foreach (var work in tasks) work.Cancellation.Cancel();
         closing = Close();
         return new(closing);
@@ -418,7 +450,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
     {
         try
         {
-            await Task.WhenAll(tasks.Select(work => work.Task)).ConfigureAwait(false);
+            await Task.WhenAll(tasks.Select(work => work.Task).Concat(closingRailways)).ConfigureAwait(false);
         }
         catch (Exception)
         {

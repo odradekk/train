@@ -46,7 +46,7 @@ pwsh -NoProfile -File scripts/test.ps1 -Layer engine -ExportWindows
 
 Use an absolute executable path for Windows runtime checks; the process launcher may fail to resolve a relative path containing forward slashes even after export succeeds. Passing the output path on the command line keeps machine-specific paths out of `export_presets.cfg`. Keep the complete export directory, including the PCK and .NET output, together when running or copying the build.
 
-Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，空用户目录与有效 Mod 用户目录的两次 `--smoke` 运行共用该文件。资产导出探针的范围、产物保留和环境隔离见[统一测试入口](run-tests.md#选择)。
+统一入口将主游戏和资产探针导出的 `APPDATA` 重定向到各自运行目录，只从真实模板目录复制 `4.7.2.stable.mono/windows_release_x86_64.exe`，不创建模板 junction；真实模板目录只读，复制的模板在导出 `finally` 中删除，前序步骤失败时也清理。Windows 发布版本导出到本次运行目录的 `exports/windows/train.exe`，空用户目录与有效 Mod 用户目录的两次 `--smoke` 运行共用该文件。资产导出探针的范围、产物保留和环境隔离见[统一测试入口](run-tests.md#选择)。
 
 需要直接验证已有构建时，通过 `-ExecutablePath` 传入绝对路径：
 

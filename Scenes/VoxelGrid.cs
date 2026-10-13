@@ -96,6 +96,13 @@ internal sealed class VoxelGrid
 
 internal static class SceneGeometry
 {
+    internal static RenderedDesign Place(RenderedDesign geometry, ScenePose pose) => geometry with
+    {
+        Objects = geometry.Objects.Select(item => item.Parent is null
+            ? item with { Pose = Compose(pose, item.Pose) } : item).ToImmutableArray(),
+        Picking = geometry.Picking.Select(item => item with { Pose = Compose(pose, item.Pose) }).ToImmutableArray()
+    };
+
     internal static Vector3 Normal(GridFace face) => face switch
     {
         GridFace.NegativeX => -Vector3.UnitX, GridFace.PositiveX => Vector3.UnitX,

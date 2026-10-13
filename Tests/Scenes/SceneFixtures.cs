@@ -46,7 +46,7 @@ internal static class SceneFixtures
             projection, true, diagnostics.IsDefault ? [] : diagnostics);
     internal static SceneFrame Frame(RenderedDesign geometry, ImmutableArray<SceneBounds> fog = default) => new(
         new(new(Guid.NewGuid()), new(1), new(1), 1), new(0, 0, 0), 0, SceneReadiness.Ready,
-        geometry.Objects, geometry.Picking, new(fog.IsDefault ? [] : fog, []), geometry.Diagnostics);
+        geometry.Objects, geometry.Picking, fog.IsDefault ? [] : fog.Select(bounds => new SceneFog(bounds)).ToImmutableArray(), geometry.Diagnostics);
     internal static RenderedDesign Build(DesignSceneProjection projection, ScenePose? pose = null,
         IContentView? content = null, ImmutableArray<ContentDiagnostic> diagnostics = default)
     {
@@ -57,5 +57,36 @@ internal static class SceneFixtures
     {
         ulong id = 0;
         return _ => new(++id);
+    }
+    internal sealed class BlockedAppearanceView(IContentView inner) : IContentView, IDisposable
+    {
+        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal ManualResetEventSlim Release { get; } = new();
+        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
+        {
+            Entered.TrySetResult();
+            Release.Wait();
+            return inner.FindVoxelAppearance(id);
+        }
+        public ContentGeneration Generation => inner.Generation;
+        public CoreContentProjection Core => inner.Core;
+        public ContentLookup<DesignEvaluation> FindDesign(DesignHash id) => inner.FindDesign(id);
+        public ContentRevision PersistentRevision => inner.PersistentRevision;
+        public ImmutableArray<PackageStatus> Packages => inner.Packages;
+        public ImmutableArray<VoxelCatalogEntry> Voxels => inner.Voxels;
+        public ImmutableArray<BlueprintSummary> Blueprints => inner.Blueprints;
+        public ImmutableArray<SavedContentDraft> LocalDrafts => inner.LocalDrafts;
+        public ImmutableArray<GenerationProfileSummary> GenerationProfiles => inner.GenerationProfiles;
+        public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress id) => inner.FindBlueprint(id);
+        public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => inner.FindVoxelDisplay(id);
+        public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id) => inner.FindDefinitionDisplay(id);
+        public ContentLookup<GoodPresentation> FindGood(GoodId id) => inner.FindGood(id);
+        public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => inner.FindAsset(id);
+        public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => inner.FindSettlementLayout(id);
+        public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => inner.FindCreature(id);
+        public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => inner.FindLair(id);
+        public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => inner.FindTerrain(id);
+        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => inner.FindRailwayAppearance(id);
+        public void Dispose() => Release.Dispose();
     }
 }

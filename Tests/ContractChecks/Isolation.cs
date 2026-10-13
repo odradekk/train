@@ -14,12 +14,12 @@ internal static class Isolation
         {
             if (failures.Count != 0) break;
             var evidence = Path.Combine(output, test);
-            Directory.CreateDirectory(evidence);
             // Windows 子进程的工作目录仍受路径长度限制，隔离树不嵌套在模块日志目录中。
             var isolated = Path.Combine(output, "isolated-" + Guid.NewGuid().ToString("N")[..8]);
-            Directory.CreateDirectory(isolated);
             try
             {
+                Directory.CreateDirectory(evidence);
+                Directory.CreateDirectory(isolated);
                 var closure = ProjectAnalysis.Closure(projects, test);
                 var inputs = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var name in closure)
@@ -35,6 +35,7 @@ internal static class Isolation
                         CopyConfiguration(parent.FullName);
                 }
                 CopyConfiguration(root);
+                if (test == "Train.Content.Tests") CopyDirectory(Path.Combine(root, "builtin", "core"));
                 // 查找在隔离根终止，不能继承外层工作区或用户目录中的构建配置。
                 foreach (var file in new[] { "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props" })
                     if (!File.Exists(Path.Combine(isolated, file))) File.WriteAllText(Path.Combine(isolated, file), "<Project />");
@@ -53,8 +54,10 @@ internal static class Isolation
                 var analysis = await ProjectAnalysis.Check(isolated, configuration, evidence, projects, [test], isolated: true);
                 failures.AddRange(analysis);
                 if (analysis.Count != 0) continue;
-                await ToolProcess.Run("dotnet", ["test", "--project", project, "--configuration", configuration,
-                    "--no-build", "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
+                using var facts = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(evidence, test + ".facts.json")));
+                var testAssembly = facts.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
+                await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
+                    "--root-directory", isolated, "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
                     "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
                     "--hangdump", "--hangdump-timeout", "110s"], isolated, Path.Combine(evidence, "tests.log"), 120);
                 Console.WriteLine($"isolation passed: {test}; evidence={evidence}");
@@ -88,7 +91,7 @@ internal static class Isolation
             catch (Exception exception) { failures.Add($"isolation failed: {test}: {exception.Message}"); }
             finally
             {
-                try { Directory.Delete(isolated, recursive: true); }
+                try { if (Directory.Exists(isolated)) Directory.Delete(isolated, recursive: true); }
                 catch (Exception exception) { failures.Add($"isolation cleanup failed: {test}: {exception.Message}"); }
             }
         }
