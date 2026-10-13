@@ -57,7 +57,10 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             await input.Frames(2);
             var start = restored.View.World.Nodes.Single(node => node.Id == edge.Start).Position;
             var end = restored.View.World.Nodes.Single(node => node.Id == edge.End).Position;
-            await input.Click(map.GlobalPosition + (map.MapToScreen(start) + map.MapToScreen(end)) / 2);
+            var point = map.GlobalPosition + (map.MapToScreen(start) + map.MapToScreen(end)) / 2;
+            Require(map.HitTest(point - map.GlobalPosition) == new WorldObjectId.Edge(edge.Id),
+                "真实地图点击位置没有命中待验证线路。");
+            await input.Click(point);
             await FramesUntil(TestScene, () => app.WorldScenes!.Display?.DisplayedFrame is not null || !app.WorldScenes.View.Visible);
             Require(app.WorldScenes!.Display?.DisplayedFrame is { Readiness: SceneReadiness.Ready or SceneReadiness.Partial },
                 "真实体素工厂没有把线路帧接入 Godot。");

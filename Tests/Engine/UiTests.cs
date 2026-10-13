@@ -159,11 +159,11 @@ public class UiTests(Node testScene) : TestClass(testScene)
         var fixture = new Fixture(tree);
         var scale = tree.Root.ContentScaleFactor;
         using var output = new GodotOutputCapture();
-        OS.AddLogger(output);
         var view = UiWorldFixture.Map();
         var setup = new HostSimulationTests.HostSetup(view);
         var scenes = new FixedDisplayFactory { OpenWorldResults = [new SceneResult<IWorldSceneSession>.Failure(
             [new("fixture_scene_unavailable", SceneStage.Build, null, null, null, null, "地图测试不构建世界场景。")])] };
+        OS.AddLogger(output);
         try
         {
             var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
