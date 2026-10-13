@@ -11,6 +11,7 @@ namespace Train.Godot.Tests.Host;
 
 internal sealed class HostFixture : IDisposable
 {
+    internal static TimeSpan HangTimeout { get; } = TimeSpan.FromSeconds(30);
     internal static CoreSessionOptions Options { get; } = new(new("fixture-build", "fixture-simulation",
         "fixture-os", "fixture-arch", "fixture-runtime"), true, 1);
     internal HostCoordinator Host { get; }
@@ -80,10 +81,13 @@ internal sealed class HostFixture : IDisposable
         return Session;
     }
 
-    internal void PumpUntil(Func<bool> completed)
+    internal static void WaitForSignal(ManualResetEventSlim signal, string description) =>
+        Assert.IsTrue(signal.Wait(HangTimeout), $"挂起保护超时：{description}。");
+
+    internal void PumpUntil(Func<bool> completed, double delta = 0)
     {
-        Assert.IsTrue(SpinWait.SpinUntil(() => { Host.ProcessFrame(0); return completed(); }, 900),
-            "受控准备没有接入预期结果。" + string.Join(";", Logs.Select(log => log.Message)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => { Host.ProcessFrame(delta); return completed(); }, HangTimeout),
+            "挂起保护超时：后台准备结果未接入预期边界。" + string.Join(";", Logs.Select(log => log.Message)));
     }
 
     internal FixedCoreCapture Capture(SimulationPosition position) => new(new(position,
@@ -91,23 +95,25 @@ internal sealed class HostFixture : IDisposable
         "opaque core capture", HostCoreScenario.Input, new(1));
     public void Dispose()
     {
-        try
-        {
-            Host.Dispose();
-            var logs = Logs;
-            Assert.IsFalse(logs.Any(log => ContainsUnconfigured(log.Exception) ||
-                log.Attributes.TryGetValue("diagnostic_message", out var message) &&
-                message is string text && text.Contains("UNCONFIGURED", StringComparison.Ordinal)),
-                "宿主吞掉了未配置的测试替身调用。");
-            var failures = logs.Where(log => log.EventId.StartsWith("host_", StringComparison.Ordinal)
-                && log.EventId.EndsWith("_failed", StringComparison.Ordinal))
-                .GroupBy(log => log.EventId).ToDictionary(group => group.Key, group => group.Count());
-            foreach (var (id, count) in failures)
-                Assert.AreEqual(_allowedHostFailures.GetValueOrDefault(id), count, $"意外宿主失败日志：{id}。");
-            foreach (var (id, count) in _allowedHostFailures)
-                Assert.AreEqual(count, failures.GetValueOrDefault(id), $"预期宿主失败日志数量不符：{id}。");
-        }
+        try { Host.Dispose(); }
         finally { _logging.Dispose(); }
+    }
+
+    // 由 TestCleanup 在主体通过后验证，清理期间的日志断言不能覆盖主体失败。
+    internal void AssertNoUnexpectedFailures()
+    {
+        var logs = Logs;
+        Assert.IsFalse(logs.Any(log => ContainsUnconfigured(log.Exception) ||
+            log.Attributes.TryGetValue("diagnostic_message", out var message) &&
+            message is string text && text.Contains("UNCONFIGURED", StringComparison.Ordinal)),
+            "宿主吞掉了未配置的测试替身调用。");
+        var failures = logs.Where(log => log.EventId.StartsWith("host_", StringComparison.Ordinal)
+            && log.EventId.EndsWith("_failed", StringComparison.Ordinal))
+            .GroupBy(log => log.EventId).ToDictionary(group => group.Key, group => group.Count());
+        foreach (var (id, count) in failures)
+            Assert.AreEqual(_allowedHostFailures.GetValueOrDefault(id), count, $"意外宿主失败日志：{id}。");
+        foreach (var (id, count) in _allowedHostFailures)
+            Assert.AreEqual(count, failures.GetValueOrDefault(id), $"预期宿主失败日志数量不符：{id}。");
     }
 
     private static bool ContainsUnconfigured(LogExceptionData? exception) => exception is not null

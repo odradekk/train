@@ -12,10 +12,23 @@ namespace Train.Godot.Tests.Console;
 [TestClass]
 public sealed class SimulationConsoleCommandTests
 {
+    private HostFixture? _fixture;
+    public TestContext TestContext { get; set; } = null!;
+
+    private HostFixture CreateFixture(Func<CoreEvent, NotificationAction>? notification = null) =>
+        _fixture = new(notification);
+
+    [TestCleanup]
+    public void VerifyHostLogs()
+    {
+        if (TestContext.CurrentTestOutcome == UnitTestOutcome.Passed)
+            _fixture?.AssertNoUnexpectedFailures();
+    }
+
     [TestMethod]
     public void InvalidArgumentsReportUsageBeforeSessionAccess()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
         string[][] invalid =
         [
@@ -34,7 +47,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void ValidCommandsWithoutSessionReportUnavailable()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
         string[][] valid =
         [
@@ -50,7 +63,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void SpeedKeepsPlayerPauseAndResumeOnlyClearsPlayerPause()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.ReadyHost();
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
 
@@ -70,7 +83,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void CheckpointReportsDeclaredPositionAndHash()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         var expected = fixture.Capture(new(27, 4));
         session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Success(expected));
@@ -91,7 +104,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void StepWhileRunningRequiresPauseWithoutAdvancing()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
         commands.Execute(["resume"]);
@@ -104,7 +117,7 @@ public sealed class SimulationConsoleCommandTests
     public void PauseNotificationStopsManualStepsAndReportsActualCountOnce()
     {
         var notifications = 0;
-        using var fixture = new HostFixture(_ => { notifications++; return NotificationAction.Pause; });
+        using var fixture = CreateFixture(_ => { notifications++; return NotificationAction.Pause; });
         var session = fixture.ReadyHost();
         session.QueueAdvance(new(1, new(1, 0),
             [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
@@ -123,7 +136,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void FrozenSessionUsesDiagnosticCheckpointAndCannotResumeOrRepeatFaultLog()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         var position = new SimulationPosition(1, 0);
         var fault = new CoreFault("fixture_fault", position, "advance", "inventory", new WorldObjectId.Train(new(7)));
@@ -189,7 +202,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void RefocusAndResumeKeepOtherPauseSources()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.ReadyHost();
         fixture.Host.AutoPauseOnFocusLoss = true;
         var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
@@ -209,7 +222,7 @@ public sealed class SimulationConsoleCommandTests
     [TestMethod]
     public void TechnicalOperationLockRejectsMutationsAsBusy()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
@@ -218,14 +231,14 @@ public sealed class SimulationConsoleCommandTests
         fixture.Load = _ =>
         {
             entered.Set();
-            if (!release.Wait(900)) throw new TimeoutException("准备任务的放行信号未触发。");
+            HostFixture.WaitForSignal(release, "重载准备任务的放行信号未触发");
             return new ContentResult<IContentCandidate>.Success(candidate);
         };
         try
         {
             var operation = fixture.Host.BeginReload(CommandSource.Console);
             Assert.IsNull(operation.Problem);
-            Assert.IsTrue(entered.Wait(500));
+            HostFixture.WaitForSignal(entered, "重载准备任务未进入");
             var commands = new SimulationConsoleCommands(fixture.Host, fixture.Logger);
             string[][] mutations = [["resume"], ["pause"], ["speed", "8"], ["step", "2"]];
             foreach (var arguments in mutations)

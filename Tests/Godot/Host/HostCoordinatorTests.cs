@@ -12,31 +12,35 @@ namespace Train.Godot.Tests.Host;
 [TestClass]
 public sealed class HostCoordinatorTests
 {
-    [TestMethod]
-    public void Fixture_disposal_rejects_unconfigured_reload_preparation_even_after_diagnostic_conversion()
+    private HostFixture? _fixture;
+    public TestContext TestContext { get; set; } = null!;
+
+    private HostFixture CreateFixture(Func<CoreEvent, NotificationAction>? notification = null) =>
+        _fixture = new(notification);
+
+    [TestCleanup]
+    public void VerifyHostLogs()
     {
-        var fixture = new HostFixture();
-        AssertFailedException? disposalFailure = null;
-        try
-        {
-            fixture.ReadyHost();
-            fixture.Host.BeginReload(CommandSource.Console);
-            fixture.PumpUntil(() => !fixture.Host.IsBusy);
-        }
-        finally
-        {
-            try { fixture.Dispose(); }
-            catch (AssertFailedException exception) { disposalFailure = exception; }
-        }
-        Assert.IsNotNull(disposalFailure, "未配置的重载准备调用应使夹具清理失败。");
-        StringAssert.Contains(disposalFailure.Message, "未配置");
+        if (TestContext.CurrentTestOutcome == UnitTestOutcome.Passed)
+            _fixture?.AssertNoUnexpectedFailures();
+    }
+
+    [TestMethod]
+    public void Fixture_log_check_rejects_unconfigured_reload_preparation_even_after_diagnostic_conversion()
+    {
+        using var fixture = new HostFixture();
+        fixture.ReadyHost();
+        fixture.Host.BeginReload(CommandSource.Console);
+        fixture.PumpUntil(() => !fixture.Host.IsBusy);
+        var failure = Assert.ThrowsExactly<AssertFailedException>(fixture.AssertNoUnexpectedFailures);
+        StringAssert.Contains(failure.Message, "未配置");
     }
 
     [TestMethod]
     public void Notification_policy_failure_keeps_committed_events_and_later_notification_actions()
     {
         var calls = 0;
-        using var fixture = new HostFixture(_ => ++calls == 1
+        using var fixture = CreateFixture(_ => ++calls == 1
             ? throw new InvalidOperationException("fixed notification failure") : NotificationAction.Pause);
         fixture.AllowHostFailure("host_notification_failed");
         var session = fixture.ReadyHost();
@@ -66,7 +70,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Capture_fault_without_a_session_fault_does_not_freeze_or_create_a_reload_operation()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         var fault = new CoreFault("capture_failed", new(0, 0), "capture", "state", null);
         session.SetCapture(CapturePurpose.Save, new CoreResult<ICoreCapture>.Faulted(fault, new("fixed", "stack")));
@@ -85,7 +89,7 @@ public sealed class HostCoordinatorTests
     [DataRow(1.0 / 60)]
     public void Reload_completes_in_frame_and_skips_the_next_interval_containing_commit_time(double completionDelta)
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         fixture.Host.SetSpeed(SimulationSpeed.Four);
         fixture.Host.SetPaused(false);
@@ -96,7 +100,7 @@ public sealed class HostCoordinatorTests
             for (var i = 1u; i <= 4; i++)
                 session.QueueAdvance(new(1, new(i, 0), [], null, null), new FixedCoreReadView(new(i, 0), HostCoreScenario.Input));
         fixture.Host.BeginReload(CommandSource.Console);
-        Assert.IsTrue(SpinWait.SpinUntil(() => { fixture.Host.ProcessFrame(completionDelta); return !fixture.Host.IsBusy; }, 900));
+        fixture.PumpUntil(() => !fixture.Host.IsBusy, completionDelta);
         Assert.AreEqual(completionDelta > 0 ? 4 : 0, session.AdvanceCount, "完成帧应使用正常间隔。");
         fixture.Host.ProcessFrame(100);
         Assert.AreEqual(completionDelta > 0 ? 4 : 0, session.AdvanceCount, "下一帧不能追赶提交耗时。");
@@ -109,7 +113,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Slow_notification_at_one_speed_keeps_the_remaining_steps()
     {
-        using var fixture = new HostFixture(_ => NotificationAction.SlowToOne);
+        using var fixture = CreateFixture(_ => NotificationAction.SlowToOne);
         var session = fixture.ReadyHost();
         for (var i = 1u; i <= 2; i++)
             session.QueueAdvance(new(1, new(i, 0), [new(new(i, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
@@ -126,7 +130,7 @@ public sealed class HostCoordinatorTests
     [DataRow(true)]
     public void Pause_wins_over_slow_in_same_boundary_in_both_event_orders(bool reverse)
     {
-        using var fixture = new HostFixture(@event => @event is CoreEvent.TrainArrived ? NotificationAction.SlowToOne : NotificationAction.Pause);
+        using var fixture = CreateFixture(@event => @event is CoreEvent.TrainArrived ? NotificationAction.SlowToOne : NotificationAction.Pause);
         var session = fixture.ReadyHost();
         CoreEvent slow = new CoreEvent.TrainArrived(new(1), new(1));
         CoreEvent pause = new CoreEvent.RailBroken(new(1), new(new(1), 0, 2));
@@ -152,7 +156,7 @@ public sealed class HostCoordinatorTests
     [DataRow("restore", "exception")]
     public void Preparation_failure_uses_operation_event_and_logs_each_content_diagnostic_once(string operation, string outcome)
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var eventId = operation == "reload" ? "content_reload_failed" : operation == "new" ? "host_new_game_failed" : "host_restore_failed";
         if (operation != "reload") fixture.AllowHostFailure(eventId);
         fixture.Load = _ => outcome switch
@@ -182,7 +186,7 @@ public sealed class HostCoordinatorTests
     [DataRow("core_rejected")]
     public void New_game_failure_before_activation_preserves_running_group(string outcome)
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.AllowHostFailure("host_new_game_failed");
         fixture.ReadyHost();
         var binding = fixture.Host.GetStatus()!.Binding;
@@ -214,7 +218,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void New_game_waits_for_content_missing_confirmation_and_applies_current_focus_pause()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var missing = new MissingContentReference(new ContentReference.Generation(new("fixture:missing")), null, "runtime", []);
         fixture.Load = _ => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(fixture.Content,
             report: new(fixture.Content.Packages, [missing], [], [])));
@@ -237,12 +241,12 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Host_calls_from_a_different_thread_fail_before_touching_session()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.ReadyHost();
         Exception? observed = null;
         var thread = new Thread(() => { try { fixture.Host.SetPaused(false); } catch (Exception exception) { observed = exception; } });
         thread.Start();
-        Assert.IsTrue(thread.Join(500));
+        Assert.IsTrue(thread.Join(HostFixture.HangTimeout), "挂起保护超时：非协调线程调用未返回。");
         Assert.IsInstanceOfType<InvalidOperationException>(observed);
         StringAssert.Contains(observed.Message, "协调线程");
         Assert.IsTrue(fixture.Host.GetStatus()!.PlayerPaused);
@@ -252,7 +256,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Default_notification_policy_keeps_speed_and_dispatches_each_step_once()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         for (var step = 1u; step <= 2; step++)
             session.QueueAdvance(new(1, new(step, 0),
@@ -276,7 +280,7 @@ public sealed class HostCoordinatorTests
     [DataRow(true)]
     public void Accepted_settlement_copies_are_paired_before_consumers_or_stop_on_pairing_failure(bool fail)
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         if (fail) fixture.AllowHostFailure("host_pairing_failed");
         var session = fixture.ReadyHost();
         var command = new CoreCommand.FoundSettlement(new(1), new(1));
@@ -321,9 +325,11 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Cancel_A_start_B_then_A_returns_without_rebinding_B()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         using var enteredA = new ManualResetEventSlim();
         using var releaseA = new ManualResetEventSlim();
+        using var enteredB = new ManualResetEventSlim();
+        using var releaseB = new ManualResetEventSlim();
         var sessionA = new ScriptedCoreSession(new FixedCoreReadView(new(11, 0), HostCoreScenario.Input));
         var sessionB = new ScriptedCoreSession(new FixedCoreReadView(new(22, 0), HostCoreScenario.Input));
         var candidateA = new ScriptedCoreCandidate(sessionA, HostCoreScenario.References);
@@ -341,19 +347,27 @@ public sealed class HostCoordinatorTests
             if (saved.Encode() == "A")
             {
                 enteredA.Set();
-                if (!releaseA.Wait(900)) throw new AssertFailedException("A 的准备任务的放行信号未触发。");
+                HostFixture.WaitForSignal(releaseA, "A 的准备任务的放行信号未触发");
                 return new CoreResult<ICoreSessionCandidate>.Success(candidateA);
             }
-            if (saved.Encode() == "B") return new CoreResult<ICoreSessionCandidate>.Success(candidateB);
+            if (saved.Encode() == "B")
+            {
+                enteredB.Set();
+                HostFixture.WaitForSignal(releaseB, "B 的准备任务的放行信号未触发");
+                return new CoreResult<ICoreSessionCandidate>.Success(candidateB);
+            }
             throw new AssertFailedException("未配置载荷。");
         };
         try
         {
             var a = fixture.Host.BeginRestore("A", "content-state", HostFixture.Options);
-            Assert.IsTrue(enteredA.Wait(500));
+            HostFixture.WaitForSignal(enteredA, "A 的准备任务未进入");
             Assert.IsTrue(fixture.Host.Cancel(a.Operation));
             var b = fixture.Host.BeginRestore("B", "content-state", HostFixture.Options);
             Assert.IsNull(b.Problem);
+            HostFixture.WaitForSignal(enteredB, "B 的准备任务未进入");
+            Assert.IsFalse(releaseA.IsSet, "B 开始准备时 A 尚未放行。");
+            releaseB.Set();
             fixture.PumpUntil(() => fixture.Host.GetStatus()?.View.Position.CompletedSteps == 22);
             var bindingB = fixture.Host.GetStatus()!.Binding;
             Assert.IsFalse(releaseA.IsSet, "B 必须在 A 返回前激活。");
@@ -365,13 +379,13 @@ public sealed class HostCoordinatorTests
             Assert.AreEqual(1, contentA.Disposals);
             Assert.AreEqual(1, sessionA.DisposeCount);
         }
-        finally { releaseA.Set(); }
+        finally { releaseA.Set(); releaseB.Set(); }
     }
 
     [TestMethod]
     public void Command_events_keep_order_and_continue_after_consumer_failure_without_reentry()
     {
-        using var fixture = new HostFixture(_ => NotificationAction.Pause);
+        using var fixture = CreateFixture(_ => NotificationAction.Pause);
         fixture.AllowHostFailure("host_consumer_failed");
         var session = fixture.ReadyHost();
         var command = new CoreCommand.StopTrain(new(7));
@@ -412,7 +426,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Each_automatic_step_applies_notification_before_the_next_step()
     {
-        using var fixture = new HostFixture(_ => NotificationAction.SlowToOne);
+        using var fixture = CreateFixture(_ => NotificationAction.SlowToOne);
         var session = fixture.ReadyHost();
         session.QueueAdvance(new(1, new(1, 0), [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(1)))], null, null),
             new FixedCoreReadView(new(1, 0), HostCoreScenario.Input));
@@ -428,7 +442,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Missing_confirmation_is_specific_to_the_prepared_candidate()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var missing = new MissingCoreReference(new CoreDefinitionReference.Voxel(new("fixture:missing")), "inventory");
         var candidate = new ScriptedCoreCandidate(fixture.Session, HostCoreScenario.References, [missing]);
         fixture.Core.PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(candidate);
@@ -453,7 +467,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Operation_lock_reports_busy_and_cancel_restores_settings_without_catchup()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.ReadyHost();
         fixture.Host.SetSpeed(SimulationSpeed.Four);
         fixture.Host.SetPaused(false);
@@ -464,13 +478,13 @@ public sealed class HostCoordinatorTests
         fixture.Load = _ =>
         {
             entered.Set();
-            if (!release.Wait(900)) throw new AssertFailedException("未释放重载。");
+            HostFixture.WaitForSignal(release, "重载准备任务的放行信号未触发");
             return new ContentResult<IContentCandidate>.Success(abandoned);
         };
         try
         {
             var op = fixture.Host.BeginReload(CommandSource.Console);
-            Assert.IsTrue(entered.Wait(500));
+            HostFixture.WaitForSignal(entered, "重载准备任务未进入");
             Assert.IsTrue(fixture.Host.GetStatus()!.OperationLocked);
             Assert.AreEqual("busy", fixture.Host.SetPaused(true)?.Code);
             Assert.AreEqual("busy", fixture.Host.Step(1).Problem?.Code);
@@ -495,7 +509,7 @@ public sealed class HostCoordinatorTests
     [DataRow("not_accepted")]
     public void Business_reload_only_activates_on_acceptance_and_keeps_fault_frozen(string outcome)
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var session = fixture.ReadyHost();
         fixture.Host.SetSpeed(SimulationSpeed.Four);
         fixture.Host.SetPaused(false);
@@ -556,7 +570,7 @@ public sealed class HostCoordinatorTests
     [DataRow(ContentChange.None)]
     public void Non_business_reload_never_submits_core_command(ContentChange change)
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.ReadyHost();
         var target = change == ContentChange.None ? fixture.Content :
             new FixedContentView(fixture.Content.Core, new(2));
@@ -575,7 +589,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Menu_reload_only_activates_content_without_a_core_session()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         ContentLoadPurpose? observedPurpose = null;
         fixture.Load = request =>
         {
@@ -595,7 +609,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void New_game_pairs_final_template_owners_before_activation_and_uses_owner_thread()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         var owner = Environment.CurrentManagedThreadId;
         var preparationThread = owner;
         ImmutableArray<OwnedSettlementTemplateReference> templates = [new(new(91), new("fixture:template"), [])];
@@ -655,7 +669,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Preparation_failure_preserves_old_group_and_old_bindings_are_rejected_after_success()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.AllowHostFailure("host_restore_failed");
         fixture.ReadyHost();
         fixture.Host.SetPaused(false);
@@ -687,7 +701,7 @@ public sealed class HostCoordinatorTests
     [TestMethod]
     public void Bad_candidate_activation_cleans_new_session_and_does_not_freeze_old_group()
     {
-        using var fixture = new HostFixture();
+        using var fixture = CreateFixture();
         fixture.AllowHostFailure("host_activation_failed");
         fixture.ReadyHost();
         fixture.Host.SetPaused(false);
