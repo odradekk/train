@@ -19,7 +19,7 @@ public sealed class CoreRecordingTests
         Assert.AreEqual(CommandSource.Console, record.Source);
         var decoded = Success(CoreCommandEncoding.Decode("{\"input_identity\":\"" + new string('B', 64)
             + "\",\"kind\":\"content.publish\",\"input_format_version\":2}"));
-        Assert.AreEqual(Content('B').Identity, decoded);
+        Assert.AreEqual(Content('B').Identity, decoded.InputIdentity);
     }
 
     [TestMethod]
@@ -204,6 +204,23 @@ public sealed class CoreRecordingTests
                 CollectionAssert.AreEqual(template.Plots.ToArray(), actual.Plots.ToArray());
             }
         }
+    }
+
+    [TestMethod]
+    public void Train_commands_keep_boundary_inputs_without_a_publication_target()
+    {
+        var state = WorldFixture.State(content: Content('A'));
+        var recording = new CoreRecording(state, 1);
+        var after = state with { Position = new(0, 1) };
+        recording.Record(new(CommandSource.Console,
+            CoreCommandEncoding.Encode(new CoreCommand.FormTrain([new(1)])),
+            new(1, state.Position, after.Position, new CommandDecision.Rejected([new("object_missing", "OrderedVehicles", null, [])])),
+            state.Content.Identity, state.Content.Identity));
+        CollectionAssert.AreEqual(new[] { Content('A').Identity }, recording.Read(after).RequiredReferences.Inputs.ToArray());
+        var fault = new CoreFault("internal_error", new(0, 2), nameof(ICoreSession.Submit), "", null);
+        recording.FreezeFault(after with { Fault = fault });
+        CollectionAssert.AreEqual(new[] { Content('A').Identity },
+            recording.Read(after).FaultSegments.Single().RequiredReferences.Inputs.ToArray());
     }
 
     private static CoreSession Session(ulong revision = 0) => new(WorldFixture.State(revision: new(revision), content: Content('A')));

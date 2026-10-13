@@ -6,7 +6,7 @@ using Train.Core.World;
 namespace Train.Core.Sessions;
 
 internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
-    ImmutableArray<CoreCommand.PublishContent> commands) : ICoreReplay
+    ImmutableArray<CoreCommand> commands) : ICoreReplay
 {
     private int _command;
     private int _checkpoint;
@@ -49,19 +49,24 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
             content.TryAdd(projection.Identity, projection);
         if (!content.TryGetValue(capture.InputIdentity, out var initial))
             return Failure("content_missing", "InitialStatePayload.InputIdentity");
-        var decodedCommands = ImmutableArray.CreateBuilder<CoreCommand.PublishContent>();
+        var decodedCommands = ImmutableArray.CreateBuilder<CoreCommand>();
         var position = capture.Position;
         for (var index = 0; index < input.Commands.Length; index++)
         {
             var record = input.Commands[index];
             var field = $"Commands[{index}]";
             var target = CoreCommandEncoding.Decode(record.CanonicalPayload);
-            if (target is CoreResult<CoreInputId>.Failure invalid)
+            if (target is CoreResult<DecodedCommand>.Failure invalid)
                 return new CoreResult<ICoreReplay>.Failure(invalid.Problems.Select(problem =>
                     problem with { Field = field + ".CanonicalPayload" + problem.Field }).ToImmutableArray());
-            var identity = ((CoreResult<CoreInputId>.Success)target).Value;
-            if (!content.TryGetValue(identity, out var projection))
-                return Failure("content_missing", field + ".CanonicalPayload/input_identity");
+            var decodedCommand = ((CoreResult<DecodedCommand>.Success)target).Value;
+            var command = decodedCommand.Command;
+            if (decodedCommand.InputIdentity is { } identity)
+            {
+                if (!content.TryGetValue(identity, out var projection))
+                    return Failure("content_missing", field + ".CanonicalPayload/input_identity");
+                command = new CoreCommand.PublishContent(projection);
+            }
             if (!content.ContainsKey(record.InputBefore))
                 return Failure("content_missing", field + ".InputBefore");
             if (!content.ContainsKey(record.InputAfter))
@@ -80,7 +85,7 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
                 return Failure("invalid_state", field + ".Result.After");
             // 预检整段记录，不能在已经执行前缀后才发现无法解释的决策。
             CoreCheckpoints.ReceiptText(receipt);
-            decodedCommands.Add(new(projection));
+            decodedCommands.Add(command!);
             position = receipt.After;
         }
         if (!Reachable(position, input.EndPosition))
@@ -144,7 +149,8 @@ internal sealed class CoreReplay(CoreSession session, CoreReplayInput input,
                 var expected = input.Commands[_command];
                 if (expected.InputBefore != session.State.Content.Identity)
                     return Different("InputBefore", expected.InputBefore.Value, session.State.Content.Identity.Value, events);
-                if (commands[_command].Content.Identity == session.State.Content.Identity)
+                if (commands[_command] is CoreCommand.PublishContent publish
+                    && publish.Content.Identity == session.State.Content.Identity)
                     return Different("CanonicalPayload/input_identity", "different input identity", session.State.Content.Identity.Value, events);
                 var beforeCommand = session.State;
                 var result = session.Submit(commands[_command], expected.Source);
