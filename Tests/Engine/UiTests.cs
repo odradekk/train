@@ -14,6 +14,33 @@ public class UiTests(Node testScene) : TestClass(testScene)
     private readonly UiTestInput _input = new(testScene);
 
     [Test]
+    public async Task Lair_node_draws_an_ordinary_marker_without_a_content_error()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var original = UiWorldFixture.Map();
+        var lair = original.World.Nodes[1] with { Occupant = new NodeOccupant.Lair(new(1)) };
+        var view = new FixedCoreReadView(default, HostCoreScenario.Input)
+        { World = original.World with { Nodes = original.World.Nodes.SetItem(1, lair) } };
+        try
+        {
+            var app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger => new HostSimulationTests.HostSetup(view).Create(logger);
+            await fixture.AddToRoot(app);
+            await _input.WaitUntil(() => app.Host!.GetStatus() is not null);
+            var ui = app.GetNode<GameUi>("GameUi");
+            var map = ui.GetNode<MacroMap>("Root/World/MacroMap");
+            var drawn = false;
+            map.Draw += () => drawn = true;
+            map.QueueRedraw();
+            await _input.WaitUntil(() => drawn);
+            Require(ui.ErrorText.Length == 0 && !ui.GetNode<Control>("Root/ErrorPanel").Visible &&
+                map.HitTest(map.MapToScreen(lair.Position)) == new WorldObjectId.Node(lair.Id),
+                "生物聚落标记导致内容错误或无法选中。");
+        }
+        finally { await fixture.Cleanup(); }
+    }
+
+    [Test]
     public async Task Map_input_hits_objects_and_panels_block_camera_input()
     {
         var tree = TestScene.GetTree();

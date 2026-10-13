@@ -111,7 +111,7 @@ public partial class MacroMap : Control
             if (TrainPoint(train) is { } p && new Rect2(p - new Vector2(14, 7), new Vector2(28, 14)).HasPoint(point))
                 return new WorldObjectId.Train(train.Id);
         foreach (var node in _world.Nodes.Reverse())
-            if (MapToScreen(node.Position).DistanceTo(point) <= (node.Occupant is NodeOccupant.Empty ? 6 : 16))
+            if (MapToScreen(node.Position).DistanceTo(point) <= (node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair ? 6 : 16))
                 return new WorldObjectId.Node(node.Id);
         foreach (var edge in _world.Edges)
             if (EdgePoints(edge) is { } ends && Geometry2D.GetClosestPointToSegment(point, ends.Start, ends.End).DistanceTo(point) <= 6)
@@ -158,7 +158,7 @@ public partial class MacroMap : Control
     private void DrawNode(NodeMapItem node)
     {
         var point = MapToScreen(node.Position);
-        if (node.Occupant is NodeOccupant.Empty)
+        if (node.Occupant is NodeOccupant.Empty or NodeOccupant.Lair)
         {
             DrawCircle(point, 6, Colors.White);
             DrawArc(point, 6, 0, Mathf.Tau, 32, Ink, 2, true);
