@@ -21,6 +21,7 @@ public sealed class FixedCoreReadViewTests
         var view = new FixedCoreReadView();
         AssertUnconfigured(() => _ = view.Position);
         AssertUnconfigured(() => _ = view.InputIdentity);
+        AssertUnconfigured(() => _ = view.World);
         AssertUnconfigured(() => view.FindNode(new NodeId(1)));
         AssertUnconfigured(() => view.FindEdge(new EdgeId(1)));
         AssertUnconfigured(() => view.FindTrain(new TrainId(1)));
@@ -29,6 +30,14 @@ public sealed class FixedCoreReadViewTests
         AssertUnconfigured(() => _ = view.Revision);
         AssertUnconfigured(() => _ = view.Fault);
         AssertUnconfigured(() => view.FindLocation(new WorldLocation.Node(new(1))));
+    }
+
+    [TestMethod]
+    public void WorldRetainsFixedInput()
+    {
+        var world = new WorldSummary(42, new("railway"), 100, 100, [], [], [], [], []);
+        var view = new FixedCoreReadView { World = world };
+        Assert.AreSame(world, view.World);
     }
 
     [TestMethod]
