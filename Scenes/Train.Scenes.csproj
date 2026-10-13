@@ -6,4 +6,8 @@
     <RootNamespace>Train.Scenes</RootNamespace>
     <LangVersion>12.0</LangVersion>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Contracts/Scenes/Train.Scenes.Contracts.csproj" />
+    <InternalsVisibleTo Include="Train.Scenes.Tests" />
+  </ItemGroup>
 </Project>

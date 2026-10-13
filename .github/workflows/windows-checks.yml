@@ -82,21 +82,6 @@ jobs:
           "powershell=$($PSVersionTable.PSVersion)" | Add-Content TestResults/ci/environment.txt
           "dotnet=$(dotnet --version)" | Add-Content TestResults/ci/environment.txt
 
-      - name: Prepare Godot 4.7.2 .NET
-        if: ${{ !cancelled() && steps.powershell.outcome == 'success' }}
-        continue-on-error: ${{ env.CI_SELECTION == 'routine' }}
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $archive = Join-Path $env:RUNNER_TEMP 'godot.zip'
-          Invoke-WebRequest 'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_win64.zip' -OutFile $archive
-          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'a2a48473a7414c5f19fab690518caebb738c09ef9601f6bd2388676a7f53b3c0') { throw 'Godot archive SHA256 mismatch' }
-          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/godot"
-          $godot = "$env:RUNNER_TEMP/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
-          "GODOT=$godot" | Add-Content $env:GITHUB_ENV
-          "godot=$(& $godot --headless --version)" | Add-Content TestResults/ci/environment.txt
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
       # Only forward explicit selections. The entry owns discovery, preparation,
       # assertions, evidence and exit status, including missing prerequisites.
       - name: Routine fast and integration checks
@@ -105,6 +90,38 @@ jobs:
         run: |
           & "$env:RUNNER_TEMP/pwsh/pwsh.exe" -NoProfile -File scripts/test.ps1 -Layer fast,integration
           exit $LASTEXITCODE
+
+      - name: Prepare Godot 4.7.2 .NET
+        if: ${{ !cancelled() && steps.powershell.outcome == 'success' }}
+        continue-on-error: ${{ env.CI_SELECTION == 'routine' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:CI_SELECTION -eq 'routine') {
+            try {
+              $summaries = @(Get-ChildItem TestResults -Directory -ErrorAction Stop |
+                Where-Object Name -Match '^fast-integration-\d{8}T\d{9}-[0-9a-f]{7}$' |
+                ForEach-Object { Join-Path $_.FullName 'summary.json' })
+              if ($summaries.Count -ne 1) { throw 'Expected one routine fast/integration summary.' }
+              $summary = Get-Content -LiteralPath $summaries[0] -Raw | ConvertFrom-Json
+              if ($summary.selection.engine -isnot [bool]) { throw 'Summary has no Boolean engine selection.' }
+              if (-not $summary.selection.engine) {
+                Write-Host 'Engine not selected by the unified entry; skipping Godot download.'
+                exit 0
+              }
+              Write-Host 'Engine selected by the unified entry; preparing Godot.'
+            } catch {
+              Write-Host "Cannot read engine selection; preparing Godot: $($_.Exception.Message)"
+            }
+          }
+          $archive = Join-Path $env:RUNNER_TEMP 'godot.zip'
+          Invoke-WebRequest 'https://github.com/godotengine/godot/releases/download/4.7.2-stable/Godot_v4.7.2-stable_mono_win64.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'a2a48473a7414c5f19fab690518caebb738c09ef9601f6bd2388676a7f53b3c0') { throw 'Godot archive SHA256 mismatch' }
+          Expand-Archive $archive -DestinationPath "$env:RUNNER_TEMP/godot"
+          $godot = "$env:RUNNER_TEMP/godot/Godot_v4.7.2-stable_mono_win64/Godot_v4.7.2-stable_mono_win64_console.exe"
+          "GODOT=$godot" | Add-Content $env:GITHUB_ENV
+          "godot=$(& $godot --headless --version)" | Add-Content TestResults/ci/environment.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Routine engine checks (non-blocking)
         if: ${{ !cancelled() && steps.powershell.outcome == 'success' && env.CI_SELECTION == 'routine' }}

@@ -9,6 +9,11 @@
     <LangVersion>12.0</LangVersion>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Verify.MSTest" Version="31.26.0" />
     <ProjectReference Include="../../Core/Train.Core.csproj" />
+    <ProjectReference Include="../ContractSupport/Core/Train.Core.ContractSupport.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="Sessions/ReplayCorpus/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
