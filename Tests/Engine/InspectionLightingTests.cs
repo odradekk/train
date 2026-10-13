@@ -68,13 +68,19 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
         try
         {
             var environment = view.GetNode<WorldEnvironment>("WorldEnvironment");
+            var game = environment.Environment;
+            var gameSkyColor = ((ProceduralSkyMaterial)game.Sky.SkyMaterial).SkyTopColor;
             view.SetActive(false);
             view.SetLighting(InspectionLighting.Night);
             Require(environment.Environment is null && view.Lighting == InspectionLighting.Night,
                 "隐藏时设置光照重新接入了环境或丢失了模式。");
             view.SetActive(true);
-            Require(environment.Environment is not null && view.Lighting == InspectionLighting.Night,
+            var night = environment.Environment ?? throw new InvalidOperationException("进入世界没有接入环境。");
+            Require(night != game && view.Lighting == InspectionLighting.Night,
                 "进入世界没有应用隐藏时选择的光照。");
+            Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color &&
+                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(gameSkyColor),
+                "进入世界后的夜间没有使用颜色环境光和较暗天空。");
             view.ShowFrame(Frame(new(Guid.NewGuid())), null, railwayPan: true);
             view.CameraRig.Pan(new(12, 0, -8));
             await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -91,7 +97,7 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             view.SetActive(false);
             Require(environment.Environment is null, "离开世界仍占用环境。");
             view.SetActive(true);
-            Require(view.Lighting == InspectionLighting.Night && lights.Visible && environment.Environment is not null,
+            Require(view.Lighting == InspectionLighting.Night && lights.Visible && environment.Environment == night,
                 "重新进入世界没有保留夜间模式。");
         }
         finally { view.Release(); }
@@ -140,8 +146,13 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
                 "地图状态下的控制台命令没有保留光照选择，或提前接入世界环境。");
             world.Open(target);
             world.ProcessFrame(0, false);
-            foreach (var (argument, mode) in new[] { ("daylight", InspectionLighting.Daylight),
-                ("overcast", InspectionLighting.Overcast), ("night", InspectionLighting.Night) })
+            var environment = world.View.GetNode<WorldEnvironment>("WorldEnvironment");
+            console.SubmitLine("lighting daylight");
+            Require(world.View.Lighting == InspectionLighting.Daylight, "控制台命令没有应用日光模式。");
+            var game = environment.Environment;
+            var gameSkyColor = ((ProceduralSkyMaterial)game.Sky.SkyMaterial).SkyTopColor;
+            foreach (var (argument, mode) in new[] { ("overcast", InspectionLighting.Overcast),
+                ("night", InspectionLighting.Night) })
             {
                 console.SubmitLine($"lighting {argument}");
                 Require(world.View.Lighting == mode, "控制台命令没有应用请求的光照模式。");
@@ -154,6 +165,11 @@ public class InspectionLightingTests(Node testScene) : TestClass(testScene)
             Require(world.View.Interactive && world.View.Lighting == InspectionLighting.Night &&
                 world.View.GetNode<Node3D>("InspectionWorkLights").Visible,
                 "重新打开世界丢失了夜间光照。");
+            var night = environment.Environment ?? throw new InvalidOperationException("重新打开世界没有接入环境。");
+            Require(night != game, "重新打开世界接入了游戏环境而非检查光照环境。");
+            Require(night.AmbientLightSource == Godot.Environment.AmbientSource.Color &&
+                Brightness(((ProceduralSkyMaterial)night.Sky.SkyMaterial).SkyTopColor) < Brightness(gameSkyColor),
+                "重新打开世界后的夜间没有使用颜色环境光和较暗天空。");
             console.SubmitLine("lighting restore");
             Require(world.View.Lighting == InspectionLighting.Game, "控制台restore没有恢复游戏光照。");
             Require((core.AdvanceCount, core.SubmitCount, core.CaptureCount) == calls &&

@@ -21,11 +21,6 @@ public partial class ScenePreview : Node
             var assembly = _context.LoadFromAssemblyPath(path);
             void Start(string type) => assembly.GetType("Train.Engine.Tests." + type, throwOnError: true)!
                 .GetMethod("Start", BindingFlags.Public | BindingFlags.Static)!.Invoke(null, [this]);
-            if (OS.GetCmdlineUserArgs().Contains("--lighting-preview", StringComparer.Ordinal))
-            {
-                Start("InspectionLightingPreview");
-                return;
-            }
             var menu = new CanvasLayer { Name = "PreviewSelection" };
             AddChild(menu);
             var buttons = new VBoxContainer { Position = new(32, 32) };

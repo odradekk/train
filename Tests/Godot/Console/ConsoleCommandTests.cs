@@ -343,8 +343,8 @@ internal sealed class DispatchHarness : IDisposable
             simulation ? arguments => SimulationArguments = arguments.ToArray() : null, lighting);
     }
 
-    public static DispatchHarness Create(bool allowReload = true, bool simulation = false, Action<IReadOnlyList<string>>? lighting = null) =>
-        new(LoggerSession.Create(), allowReload, simulation, lighting);
+    public static DispatchHarness Create(bool allowReload = true, bool simulation = false) =>
+        new(LoggerSession.Create(), allowReload, simulation, null);
 
     public static DispatchHarness CreateMemory(bool allowReload = true, Action<IReadOnlyList<string>>? lighting = null) =>
         new(LoggerSession.CreateMemory(), allowReload, false, lighting);
