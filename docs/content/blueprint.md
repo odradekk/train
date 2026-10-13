@@ -165,4 +165,4 @@ Schema 之外，加载器按[设计文档 03 的设计合法性](../design/03-ve
 
 ## 和现有代码的差别
 
-现在的代码读 `schema_version: 2` 的 `.composites.json`：一个文件多份蓝图，根对象有 `display_name`，每份蓝图只有 `id`、`name`、`description`、`size_class`、`voxels`，每格写成 `{x, y, z, definition, orientation}`，所有蓝图都按车辆处理；没有类别、涂装、嵌套和行为。玩家的蓝图在 `user://blueprints/<UUID>.composites.json`，每个文件是一个包。改成本格式由实施工单完成。
+当前宿主通过真实 `ContentFactory` 加载本文版本 3 的 `.blueprint.json`，支持无嵌套的车辆、建筑和场景模型，保留类别、形状、涂装与场景模型平整区域，并计算设计属性、车辆长度及适用的连通与尺寸包络校验。嵌套、大型设备、生物设计、用户蓝图库加载及编辑仍待后续工单。旧版本 2 的 `.composites.json` 加载实现已在 [#452](https://github.com/odradekk/train/issues/452) 退役。当前范围见[内容契约](../contracts/content.md)，行为覆盖见[蓝图加载测试](../../Tests/Content/Loading/BlueprintLoadingTests.cs)与[设计评估测试](../../Tests/Content/Loading/DesignEvaluationTests.cs)。

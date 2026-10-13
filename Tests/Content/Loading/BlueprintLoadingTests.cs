@@ -89,6 +89,9 @@ public sealed class BlueprintLoadingTests
     [DataRow("model_shape", "design_invalid")]
     [DataRow("wrong_kind", "reference_wrong_kind")]
     [DataRow("missing_size", "invalid_field")]
+    [DataRow("unknown_size", "invalid_field")]
+    [DataRow("unknown_field", "invalid_field")]
+    [DataRow("old_schema", "unsupported_format")]
     [DataRow("filename", "invalid_field")]
     [DataRow("palette", "invalid_field")]
     [DataRow("duplicate_cell", "design_invalid")]
@@ -132,6 +135,9 @@ public sealed class BlueprintLoadingTests
                 break;
             case "missing_voxel": document["layout"]!["palette"]![0]!["voxel"] = "absent"; break;
             case "missing_size": document["simulation"]!.AsObject().Remove("size_class"); break;
+            case "unknown_size": document["simulation"]!["size_class"] = "huge"; break;
+            case "unknown_field": document["extra"] = true; break;
+            case "old_schema": document["schema_version"] = 2; break;
             case "filename": document["id"] = "different"; break;
             case "palette": document["layout"]!["cells"]![0]![3] = 1; break;
             case "duplicate_cell": document["layout"]!["cells"]!.AsArray().Add(JsonNode.Parse("[0,0,0,0]")); break;
