@@ -432,45 +432,42 @@ public sealed class TrainOperationTests
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void Missing_cargo_after_publish_or_restore_is_visible_and_prevents_start(bool restore)
+    public void Missing_cargo_after_restore_or_republication_is_visible_and_prevents_start(bool restore)
     {
         using var original = LoadedSession();
         Accepted(original, new CoreCommand.ReplaceRunPlan(new(1), Plan(2)));
         var missing = Content with { Identity = new(new string('E', 64)), Goods = [], MissingReferences =
             [new(new CoreDefinitionReference.Voxel(Material), "Content.Goods")] };
-        ICoreSession session = original;
-        if (restore)
-        {
-            var saved = Success(CoreFactory.Create().DecodeState(Success(original.Capture(CapturePurpose.Save)).Encode()));
-            using var candidate = Success(CoreFactory.Create().PrepareRestore(saved, missing, Options));
-            session = candidate.Activate();
-        }
-        else Accepted(original, new CoreCommand.PublishContent(missing));
-        try
-        {
-            var train = ((Lookup<TrainView>.Found)session.Read().FindTrain(new(1))).Value;
-            Assert.AreEqual(1.0, train.MassTons);
-            Assert.AreEqual(100.0, train.Acceleration);
-            var problem = train.Blockers.Single();
-            Assert.AreEqual("content_missing", problem.Code);
-            Assert.AreEqual("Train.Inventory", problem.Field);
-            CollectionAssert.AreEqual(new[] { "voxel:" + Material.Value }, problem.RelatedIdentities.ToArray());
-            Rejected((CoreSession)session, new CoreCommand.StartTrain(new(1)), "content_missing", "Train.Inventory",
-                new WorldObjectId.Train(new(1)));
-        }
-        finally { if (restore) session.Dispose(); }
+        var saved = Success(CoreFactory.Create().DecodeState(Success(original.Capture(CapturePurpose.Save)).Encode()));
+        using var candidate = Success(CoreFactory.Create().PrepareRestore(saved, missing, Options));
+        using var session = (CoreSession)candidate.Activate();
+        if (!restore) Accepted(session, new CoreCommand.PublishContent(missing with { Identity = new(new string('F', 64)) }));
+        var train = Train(session);
+        Assert.AreEqual(1.0, train.MassTons);
+        Assert.AreEqual(100.0, train.Acceleration);
+        var problem = train.Blockers.Single();
+        Assert.AreEqual("content_missing", problem.Code);
+        Assert.AreEqual("Train.Inventory", problem.Field);
+        CollectionAssert.AreEqual(new[] { "voxel:" + Material.Value }, problem.RelatedIdentities.ToArray());
+        Rejected(session, new CoreCommand.StartTrain(new(1)), "content_missing", "Train.Inventory",
+            new WorldObjectId.Train(new(1)));
     }
 
     [TestMethod]
     public void Running_with_missing_cargo_reaches_station_and_waits_after_dwell_then_retries()
     {
-        using var session = LoadedSession();
-        Accepted(session, new CoreCommand.ReplaceRunPlan(new(1), new(true,
+        using var original = LoadedSession();
+        Accepted(original, new CoreCommand.ReplaceRunPlan(new(1), new(true,
             [new PlanStop.Waypoint(new(2)), new PlanStop.Station(new(1), 2, [])])));
-        Accepted(session, new CoreCommand.StartTrain(new(1)));
-        session.Advance(1);
-        Assert.IsInstanceOfType<TrainPosition.Edge>(Train(session).Position);
-        Accepted(session, new CoreCommand.PublishContent(Content with { Identity = new(new string('E', 64)), Goods = [] }));
+        Accepted(original, new CoreCommand.StartTrain(new(1)));
+        original.Advance(1);
+        Assert.IsInstanceOfType<TrainPosition.Edge>(Train(original).Position);
+        var missing = Content with { Identity = new(new string('E', 64)), Goods = [],
+            MissingReferences = [new(new CoreDefinitionReference.Voxel(Material), "Content.Goods")] };
+        var saved = Success(CoreFactory.Create().DecodeState(Success(original.Capture(CapturePurpose.Save)).Encode()));
+        using var candidate = Success(CoreFactory.Create().PrepareRestore(saved, missing, Options));
+        using var session = (CoreSession)candidate.Activate();
+        Accepted(session, new CoreCommand.PublishContent(missing with { Identity = new(new string('F', 64)) }));
         AdvanceUntil(session, t => t.Activity == TrainActivity.Servicing);
         session.Advance(2);
         Assert.AreEqual(TrainActivity.Waiting, Train(session).Activity);
