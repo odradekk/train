@@ -31,6 +31,7 @@ internal sealed class HostFixture : IDisposable
     internal Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureContent { get; set; }
     internal Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? World { get; set; }
     internal Func<IContentView, System.Collections.Immutable.ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? Copies { get; set; }
+    internal Func<System.Collections.Immutable.ImmutableArray<IContentView>, CoreReferenceManifest, ContentResult<IContentReplayCapture>>? ReplayCapture { get; set; }
 
     internal HostFixture(Func<CoreEvent, NotificationAction>? notification = null, Func<double>? seconds = null)
     {
@@ -52,6 +53,7 @@ internal sealed class HostFixture : IDisposable
         };
         Factory = new()
         {
+            CaptureReplayCall = (history, references) => (ReplayCapture ?? throw new InvalidOperationException("UNCONFIGURED: 复现内容捕获。"))(history, references),
             CaptureCall = (view, references) => CaptureContent?.Invoke(view, references)
                 ?? new ContentResult<IContentCapture>.Success(new FixedContentCapture("content-state", view.PersistentRevision)),
             DecodeCaptureCall = payload => payload == "content-state"

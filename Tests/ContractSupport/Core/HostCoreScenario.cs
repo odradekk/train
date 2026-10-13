@@ -118,6 +118,9 @@ public sealed class ScriptedCoreCandidate(ICoreSession session, CoreReferenceMan
 
 public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
 {
+    public Func<CoreRecordingWindow>? ReadRecordingCall { get; set; }
+    public Func<CoreResult<RecordingStart>>? CaptureRecordingStartCall { get; set; }
+    public Func<RecordingPointId, RecordingWriteOutcome, RecordingMaintenance>? ConfirmRecordingStartCall { get; set; }
     private abstract record Step(ICoreReadView After);
     private sealed record AdvanceStep(uint Steps, AdvanceResult Result, ICoreReadView View) : Step(View);
     private sealed record SubmitStep(CoreCommand Command, CommandSource Source,
@@ -196,10 +199,12 @@ public sealed class ScriptedCoreSession(ICoreReadView initial) : ICoreSession
 
     public void Dispose() { if (DisposeCount == 0) DisposeCount++; }
     private void EnsureAlive() => ObjectDisposedException.ThrowIf(DisposeCount != 0, this);
-    public CoreRecordingWindow ReadRecording() => throw HostCoreScenario.Unconfigured(nameof(ReadRecording));
-    public CoreResult<RecordingStart> CaptureRecordingStart() => throw HostCoreScenario.Unconfigured(nameof(CaptureRecordingStart));
+    public CoreRecordingWindow ReadRecording()
+    { EnsureAlive(); return (ReadRecordingCall ?? throw HostCoreScenario.Unconfigured(nameof(ReadRecording)))(); }
+    public CoreResult<RecordingStart> CaptureRecordingStart()
+    { EnsureAlive(); return (CaptureRecordingStartCall ?? throw HostCoreScenario.Unconfigured(nameof(CaptureRecordingStart)))(); }
     public RecordingMaintenance ConfirmRecordingStart(RecordingPointId point, RecordingWriteOutcome outcome)
-        => throw HostCoreScenario.Unconfigured(nameof(ConfirmRecordingStart));
+    { EnsureAlive(); return (ConfirmRecordingStartCall ?? throw HostCoreScenario.Unconfigured(nameof(ConfirmRecordingStart)))(point, outcome); }
 }
 
 public sealed class FixedCoreCapture(CoreCheckpoint checkpoint, CoreReferenceManifest references,

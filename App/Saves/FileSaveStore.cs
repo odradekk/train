@@ -49,6 +49,11 @@ internal sealed class FileSaveStore
 
     internal FileWriteResult Write(string target, SaveDocument document, bool overwrite,
         CancellationToken cancellation = default)
+        => Write(target, path => writeCandidate(path, SaveContainer.Encode(document)),
+            path => _ = Read(path), overwrite, cancellation);
+
+    internal FileWriteResult Write(string target, Action<string> encode, Action<string> validate,
+        bool overwrite, CancellationToken cancellation = default)
     {
         var fullTarget = Path.GetFullPath(target);
         var directory = Path.GetDirectoryName(fullTarget)!;
@@ -59,8 +64,8 @@ internal sealed class FileSaveStore
         {
             cancellation.ThrowIfCancellationRequested();
             Directory.CreateDirectory(directory);
-            writeCandidate(candidate, SaveContainer.Encode(document));
-            _ = Read(candidate);
+            encode(candidate);
+            validate(candidate);
             cancellation.ThrowIfCancellationRequested();
             publishing = true;
             // Windows 的短暂占用可能拒绝替换；进入发布后不再把取消当作撤销。
@@ -77,6 +82,8 @@ internal sealed class FileSaveStore
         { result = new(false, "cancelled", "保存已取消"); }
         catch (SaveFormatException error)
         { result = new(false, error.Code, error.Message); }
+        catch (InvalidDataException error)
+        { result = new(false, "invalid-file", error.Message); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         { result = new(false, "write-failed", error.Message); }
         try { if (File.Exists(candidate)) File.Delete(candidate); }
