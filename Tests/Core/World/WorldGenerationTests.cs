@@ -247,8 +247,8 @@ public sealed class WorldGenerationTests
             WorldFixture.Content, "constraint_unsatisfied", "World.Nodes");
         CollectionAssert.AreEqual(new[] { "constraint_unsatisfied", "nodes", "cell:0,0", "1", "4", "5" }, exhausted.RelatedIdentities.ToArray());
         var candidates = Failure(WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with
-            { Budget = new(1, 1, 1, 1_000_000) } }, WorldFixture.Content, "budget_exhausted", "Configuration.Budget.MaximumCandidates");
-        Assert.AreEqual("railway", candidates.RelatedIdentities[1]);
+            { WidthMeters = 20, Budget = new(1, 1, 1, 1_000_000) } }, WorldFixture.Content, "budget_exhausted", "Configuration.Budget.MaximumCandidates");
+        Assert.AreEqual("nodes", candidates.RelatedIdentities[1]);
         Assert.AreEqual("1", candidates.RelatedIdentities[4]);
         var work = Failure(WorldFixture.Input with { Configuration = WorldFixture.Input.Configuration with
             { Budget = new(1, 1, 100_000, 1) } }, WorldFixture.Content, "budget_exhausted", "Configuration.Budget.MaximumSearchWork");

@@ -11,18 +11,51 @@ internal static class WorldRailway
         budget.Stage = "railway";
         var config = input.Configuration.InitialRailway;
         var mandatory = Enumerable.Range(0, nodes.Length).Where(i => occupants[i] is GeneratedOccupant.Settlement).ToArray();
-        var empty = Enumerable.Range(0, nodes.Length).Where(i => occupants[i] is GeneratedOccupant.Empty).ToArray();
         if (mandatory.Length == 0) throw new GenerationFailure("constraint_unsatisfied", "Configuration.SettlementRatio");
         var minimumEmpty = input.Configuration.StartConstraints.MinimumReachableEmptyNodes;
-        if (minimumEmpty > empty.Length)
-            throw new GenerationFailure("constraint_unsatisfied", "Configuration.StartConstraints.MinimumReachableEmptyNodes");
+        budget.Work(edges.Length);
         var usable = Enumerable.Range(0, edges.Length).Where(i => occupants[edges[i].A] is not GeneratedOccupant.Lair
             && occupants[edges[i].B] is not GeneratedOccupant.Lair
             && Math.Max(1, config.MinimumInitialTracks) <= Math.Min(2, Math.Min(config.MaximumInitialTracks, edges[i].TrackLimit))).ToArray();
-        HashSet<int>? selected = null;
-        for (var count = minimumEmpty; count <= empty.Length && selected is null; count++)
-            Search(0, count, []);
-        if (selected is null) throw new GenerationFailure("constraint_unsatisfied", "Configuration.InitialRailway");
+        var adjacency = Enumerable.Range(0, nodes.Length).Select(_ => new List<int>()).ToArray();
+        foreach (var index in usable)
+        {
+            budget.Work();
+            adjacency[edges[index].A].Add(edges[index].B);
+            adjacency[edges[index].B].Add(edges[index].A);
+        }
+        var component = Component(null);
+        var selected = component.Nodes;
+        if (mandatory.Any(i => !selected.Contains(i)))
+            throw new GenerationFailure("constraint_unsatisfied", "Configuration.InitialRailway");
+        if (component.Edges - selected.Count + 1 < config.AdditionalCycleEdges)
+            throw new GenerationFailure("constraint_unsatisfied", "Configuration.InitialRailway.AdditionalCycleEdges");
+        var empty = selected.Where(i => occupants[i] is GeneratedOccupant.Empty).ToArray();
+        if (empty.Length < minimumEmpty)
+            throw new GenerationFailure("constraint_unsatisfied", "Configuration.StartConstraints.MinimumReachableEmptyNodes");
+        budget.Sort(empty.Length);
+        empty = empty.OrderBy(i => nodes[i].Cell.Y).ThenBy(i => nodes[i].Cell.X).ToArray();
+        var emptyCount = empty.Length;
+        bool removed;
+        do
+        {
+            removed = false;
+            foreach (var node in empty)
+            {
+                budget.Work();
+                if (!selected.Contains(node)) continue;
+                budget.Candidate = "rail:remove:" + nodes[node].Cell;
+                budget.CandidateCount();
+                if (emptyCount == minimumEmpty) continue;
+                selected.Remove(node);
+                var remaining = Component(selected);
+                if (remaining.Nodes.Count == selected.Count && remaining.Edges - selected.Count + 1 >= config.AdditionalCycleEdges)
+                { emptyCount--; removed = true; }
+                else
+                    selected.Add(node);
+            }
+        } while (removed);
+        budget.Work(usable.Length);
         var selectedEdges = usable.Where(i => selected.Contains(edges[i].A) && selected.Contains(edges[i].B)).ToList();
         budget.Sort(selectedEdges.Count);
         selectedEdges.Sort((a, b) => WorldGraph.Compare(edges[a], edges[b]));
@@ -45,28 +78,23 @@ internal static class WorldRailway
                 Math.Min(2, Math.Min(config.MaximumInitialTracks, edges[index].TrackLimit)));
         return tracks.ToImmutableArray();
 
-        bool Search(int begin, int remaining, List<int> additions)
+        (HashSet<int> Nodes, int Edges) Component(HashSet<int>? allowed)
         {
-            budget.Work();
-            if (remaining == 0)
+            var reached = new HashSet<int> { mandatory[0] };
+            var pending = new Queue<int>(reached);
+            var incidentEdges = 0;
+            while (pending.TryDequeue(out var node))
             {
-                budget.Candidate = "rail:" + string.Join("/", mandatory.Concat(additions).Order().Select(i => nodes[i].Cell));
-                budget.CandidateCount();
-                var choice = mandatory.Concat(additions).ToHashSet();
-                var induced = usable.Where(i => choice.Contains(edges[i].A) && choice.Contains(edges[i].B)).Select(i => edges[i]).ToArray();
-                budget.Work(usable.Length);
-                if (induced.Length >= choice.Count - 1 + (long)config.AdditionalCycleEdges
-                    && WorldGraph.Connected(nodes.Length, induced, choice, budget))
-                { selected = choice; return true; }
-                return false;
+                budget.Work();
+                foreach (var next in adjacency[node])
+                {
+                    budget.Work();
+                    if (allowed is not null && !allowed.Contains(next)) continue;
+                    incidentEdges++;
+                    if (reached.Add(next)) pending.Enqueue(next);
+                }
             }
-            for (var i = begin; i <= empty.Length - remaining; i++)
-            {
-                additions.Add(empty[i]);
-                if (Search(i + 1, remaining - 1, additions)) return true;
-                additions.RemoveAt(additions.Count - 1);
-            }
-            return false;
+            return (reached, incidentEdges / 2);
         }
 
         int Root(int index)

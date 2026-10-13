@@ -201,6 +201,7 @@ public sealed class WorldGraphTests
         var failure = Assert.ThrowsExactly<GenerationFailure>(() => WorldRailway.Build(nodes, edges,
             [Town(), Town(), Town(), Town()], input, new(input.Configuration.Budget)));
         Assert.AreEqual("constraint_unsatisfied", failure.Category);
+        Assert.AreEqual("Configuration.InitialRailway.AdditionalCycleEdges", failure.Field);
         input = input with { Configuration = input.Configuration with { InitialRailway = new(2, 1, 2, 1) } };
         var tracks = WorldRailway.Build(nodes, edges, [Town(), Town(), Town(), Town()], input,
             new(input.Configuration.Budget));
@@ -218,9 +219,116 @@ public sealed class WorldGraphTests
             [Edge(0, 1), Edge(1, 2)], [Town(), new GeneratedOccupant.Lair(lair.Id), Town()],
             input, new(input.Configuration.Budget)));
         Assert.AreEqual("constraint_unsatisfied", blocked.Category);
+        Assert.AreEqual("Configuration.InitialRailway", blocked.Field);
         var exhausted = Assert.ThrowsExactly<GenerationFailure>(() => WorldRailway.Build(nodes,
             [Edge(0, 1), Edge(1, 2)], [Town(), new GeneratedOccupant.Empty(), Town()],
             input, new(input.Configuration.Budget with { MaximumSearchWork = 0 })));
         Assert.AreEqual("budget_exhausted", exhausted.Category);
+    }
+
+    [TestMethod]
+    public void RailwayRejectsSettlementsInSeparateBuildableComponents()
+    {
+        var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
+        var input = WorldFixture.Input;
+        var failure = Assert.ThrowsExactly<GenerationFailure>(() => WorldRailway.Build(nodes,
+            [Edge(0, 1), Edge(1, 2) with { TrackLimit = 0 }],
+            [Town(), new GeneratedOccupant.Empty(), Town()], input, new(input.Configuration.Budget)));
+        Assert.AreEqual("constraint_unsatisfied", failure.Category);
+        Assert.AreEqual("Configuration.InitialRailway", failure.Field);
+    }
+
+    [TestMethod]
+    public void RailwayCountsReachableEmptyNodesWithinSettlementComponent()
+    {
+        var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
+        var input = WorldFixture.Input;
+        input = input with { Configuration = input.Configuration with
+            { StartConstraints = input.Configuration.StartConstraints with { MinimumReachableEmptyNodes = 1 } } };
+        var failure = Assert.ThrowsExactly<GenerationFailure>(() => WorldRailway.Build(nodes, [Edge(0, 1)],
+            [Town(), Town(), new GeneratedOccupant.Empty()], input, new(input.Configuration.Budget)));
+        Assert.AreEqual("constraint_unsatisfied", failure.Category);
+        Assert.AreEqual("Configuration.StartConstraints.MinimumReachableEmptyNodes", failure.Field);
+    }
+
+    [TestMethod]
+    public void RailwayRevisitsEmptyRelayAfterItsLeafIsRemoved()
+    {
+        var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
+        var input = WorldFixture.Input;
+        ImmutableArray<CandidateEdge> edges = [Edge(0, 1), Edge(1, 2)];
+        ImmutableArray<GeneratedOccupant> occupants = [Town(), new GeneratedOccupant.Empty(), new GeneratedOccupant.Empty()];
+        var tracks = WorldRailway.Build(nodes, edges, occupants, input, new(input.Configuration.Budget));
+        CollectionAssert.AreEqual(new[] { 0, 0 }, tracks.ToArray());
+
+        // 第一轮先保留中继再删叶子；第二轮中继才可删除，此次重试也消耗候选预算。
+        var failure = Assert.ThrowsExactly<GenerationFailure>(() => WorldRailway.Build(nodes, edges, occupants,
+            input, new(input.Configuration.Budget with { MaximumCandidates = 2 })));
+        Assert.AreEqual("budget_exhausted", failure.Category);
+        Assert.AreEqual("Configuration.Budget.MaximumCandidates", failure.Field);
+    }
+
+    [TestMethod]
+    [DataRow(0, 1)]
+    [DataRow(1, 0)]
+    [DataRow(0, 0)]
+    public void RailwayRemovesEmptyNodesByCellYThenX(int firstY, int secondY)
+    {
+        var nodes = Nodes(new(0, 0), new(1, 0), new(0, 1), new(1, 1));
+        nodes = nodes.SetItem(1, nodes[1] with { Cell = new(10, (ulong)firstY) })
+            .SetItem(2, nodes[2] with { Cell = new(11, (ulong)secondY) });
+        var input = WorldFixture.Input;
+        var tracks = WorldRailway.Build(nodes, [Edge(0, 1), Edge(1, 3), Edge(0, 2), Edge(2, 3)],
+            [Town(), new GeneratedOccupant.Empty(), new GeneratedOccupant.Empty(), Town()], input, new(input.Configuration.Budget));
+        var expected = firstY <= secondY ? new[] { 0, 0, 1, 1 } : new[] { 1, 1, 0, 0 };
+        CollectionAssert.AreEqual(expected, tracks.ToArray());
+    }
+
+    [TestMethod]
+    public void RailwayKeepsAnInclusionMinimalRelaySetWithoutClaimingGlobalMinimum()
+    {
+        var nodes = Nodes(new(0, 0), new(1, 0), new(0, 1), new(1, 1), new(2, 0));
+        var input = WorldFixture.Input;
+        ImmutableArray<CandidateEdge> edges = [Edge(0, 1), Edge(1, 4), Edge(0, 2), Edge(2, 3), Edge(3, 4)];
+        var tracks = WorldRailway.Build(nodes, edges,
+            [Town(), new GeneratedOccupant.Empty(), new GeneratedOccupant.Empty(), new GeneratedOccupant.Empty(), Town()],
+            input, new(input.Configuration.Budget));
+        CollectionAssert.AreEqual(new[] { 0, 0, 1, 1, 1 }, tracks.ToArray());
+
+        // 删点顺序选择两个中继的路径；另一条路径只有一个中继，因此这里只承诺包含意义最少。
+        foreach (var removed in new[] { 2, 3 })
+        {
+            var selected = new HashSet<int> { 0, 2, 3, 4 };
+            selected.Remove(removed);
+            var reached = new HashSet<int> { 0 };
+            var pending = new Queue<int>(reached);
+            while (pending.TryDequeue(out var node))
+                foreach (var edge in edges.Where(e => selected.Contains(e.A) && selected.Contains(e.B) && (e.A == node || e.B == node)))
+                {
+                    var next = edge.A == node ? edge.B : edge.A;
+                    if (reached.Add(next)) pending.Enqueue(next);
+                }
+            Assert.IsTrue(reached.Count < selected.Count);
+        }
+    }
+
+    [TestMethod]
+    public void RailwayRetainsEmptyNodesRequiredByCycleAndReachabilityConstraints()
+    {
+        var nodes = Nodes(new(0, 0), new(1, 0), new(2, 0));
+        var input = WorldFixture.Input;
+        input = input with { Configuration = input.Configuration with { InitialRailway = new(2, 1, 1, 1) } };
+        var cycleTracks = WorldRailway.Build(nodes, [Edge(0, 1), Edge(1, 2), Edge(0, 2)],
+            [Town(), new GeneratedOccupant.Empty(), new GeneratedOccupant.Empty()], input, new(input.Configuration.Budget));
+        CollectionAssert.AreEqual(new[] { 1, 1, 1 }, cycleTracks.ToArray());
+
+        input = input with { Configuration = input.Configuration with
+        {
+            InitialRailway = new(2, 1, 1, 0),
+            StartConstraints = input.Configuration.StartConstraints with { MinimumReachableEmptyNodes = 1 }
+        } };
+        var reachableTracks = WorldRailway.Build(nodes, [Edge(0, 1), Edge(1, 2)],
+            [Town(), new GeneratedOccupant.Empty(), new GeneratedOccupant.Empty()], input, new(input.Configuration.Budget));
+        CollectionAssert.AreEqual(new[] { 1, 0 }, reachableTracks.ToArray());
     }
 }

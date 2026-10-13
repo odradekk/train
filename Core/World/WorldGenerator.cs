@@ -3,7 +3,8 @@ using Train.Core.Contracts;
 
 namespace Train.Core.World;
 
-internal sealed record GeneratedWorld(WorldState State, CoreContentProjection Content, long Candidates, long SearchWork);
+internal sealed record GeneratedWorld(WorldState State, CoreContentProjection Content, long Candidates, long SearchWork,
+    ulong WorldRetries, long OccupantRetries);
 
 internal static class WorldGenerator
 {
@@ -22,6 +23,7 @@ internal static class WorldGenerator
             (input, content) = WorldInputs.Normalize(input, content, budget);
             ValidateReferences(input, content);
             GenerationFailure? last = null;
+            long occupantRetries = 0;
             for (ulong world = 0; world <= (ulong)input.Configuration.Budget.MaximumWorldRetries; world++)
             {
                 budget.WorldRetry = world;
@@ -42,12 +44,13 @@ internal static class WorldGenerator
                 {
                     try
                     {
+                        if (attempt > 0) occupantRetries++;
                         var occupants = Occupants(nodes, input, content, budget, attempt);
                         var resources = Resources(nodes, input, budget);
                         var tracks = WorldRailway.Build(nodes, edges, occupants, input, budget);
                         var start = Start(nodes, edges, occupants, tracks, input, budget);
                         var state = WorldState.Create(input, content, nodes, edges, occupants, resources, tracks, start);
-                        return new CoreResult<GeneratedWorld>.Success(new(state, content, budget.UsedCandidates, budget.UsedSearchWork));
+                        return new CoreResult<GeneratedWorld>.Success(new(state, content, budget.UsedCandidates, budget.UsedSearchWork, world, occupantRetries));
                     }
                     catch (GenerationFailure failure) when (failure.Category == "constraint_unsatisfied") { last = failure; }
                 }
