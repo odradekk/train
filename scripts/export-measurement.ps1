@@ -68,7 +68,7 @@ try {
     Invoke-MeasurementBuildStep 'import' $env:GODOT @('--headless', '--path', $repo, '--recovery-mode',
         '--log-file', (Join-Path $OutputDirectory 'import-godot.log'), '--editor', '--import')
     $binary = Join-Path $OutputDirectory 'train.exe'
-    Invoke-MeasurementBuildStep 'export' $env:GODOT @('--headless', '--path', $repo, '--recovery-mode',
+    Invoke-MeasurementBuildStep 'export' $env:GODOT @('--headless', '--path', $repo,
         '--log-file', (Join-Path $OutputDirectory 'export-godot.log'), '--export-release', 'Windows Desktop', $binary)
     $afterJson = Get-MeasurementSourceIdentity $repo | ConvertTo-Json -Depth 10
     $afterJson | Set-Content -LiteralPath (Join-Path $OutputDirectory 'source-after.json') -Encoding utf8
