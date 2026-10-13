@@ -23,6 +23,7 @@ internal sealed class ContentView : C.IContentView
     public ImmutableArray<C.BlueprintSummary> Blueprints { get; }
     public ImmutableArray<C.SavedContentDraft> LocalDrafts => [];
     public ImmutableArray<C.GenerationProfileSummary> GenerationProfiles { get; }
+    internal ImmutableArray<C.PackageMetadata> SavedPackages { get; } = [];
 
     internal ContentView(ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.PackageStatus> packages,
         ImmutableArray<C.ContentAsset> assets, ImmutableArray<C.BlueprintRecord> blueprints, WorldDefinitions? world = null)
@@ -98,6 +99,21 @@ internal sealed class ContentView : C.IContentView
     }
 
     internal LoadedVoxel? FindVoxel(K.VoxelDefinitionId definition) => _voxels.GetValueOrDefault(definition);
+
+    internal static string DefinitionId(K.CoreDefinitionReference definition) => definition switch
+    {
+        K.CoreDefinitionReference.Voxel voxel => voxel.Id.Value,
+        K.CoreDefinitionReference.Composite composite => composite.Id.Value,
+        K.CoreDefinitionReference.Rule rule => rule.Id.Value,
+        K.CoreDefinitionReference.SettlementType type => type.Id.Value,
+        K.CoreDefinitionReference.Template template => template.Id.Value,
+        K.CoreDefinitionReference.Terrain terrain => terrain.Id.Value,
+        K.CoreDefinitionReference.Creature creature => creature.Id.Value,
+        K.CoreDefinitionReference.Lair lair => lair.Id.Value,
+        K.CoreDefinitionReference.Process { Id: K.ProcessRef.Production process } => process.Definition.Value,
+        K.CoreDefinitionReference.Process { Id: K.ProcessRef.Recovery process } => process.Definition.Value,
+        _ => throw new ArgumentOutOfRangeException(nameof(definition))
+    };
 
     public C.ContentLookup<C.VoxelAppearanceProjection> FindVoxelAppearance(K.VoxelDefinitionId definition) =>
         _voxels.TryGetValue(definition, out var voxel) ? new C.ContentLookup<C.VoxelAppearanceProjection>.Found(voxel.Appearance) : new C.ContentLookup<C.VoxelAppearanceProjection>.NotFound();

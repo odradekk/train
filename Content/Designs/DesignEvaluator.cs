@@ -9,6 +9,10 @@ namespace Train.Content.Designs;
 
 internal static class DesignEvaluator
 {
+    internal static K.DesignHash Identity(C.DesignDraft draft) => new(Hash(
+        draft with { Display = new(draft.Display.Name.Trim(), draft.Display.Description.Trim()) },
+        draft.Layout.Cells.OrderBy(cell => cell.At.X).ThenBy(cell => cell.At.Y).ThenBy(cell => cell.At.Z), false));
+
     internal static C.DesignEvaluation Evaluate(ContentView content, C.DesignDraft draft)
     {
         if (!draft.Layout.NestedItems.IsEmpty || draft.Specification is

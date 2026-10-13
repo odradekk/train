@@ -1,6 +1,8 @@
 using System.Collections.Immutable;
 using Train.Content.Loading;
 using Train.Content.Designs;
+using Train.Content.Persistence;
+using System.Text.Json;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -79,8 +81,43 @@ internal sealed class InitialContentFactory : C.IContentFactory
             return new C.ContentResult<K.WorldGenerationInput>.Faulted("content_fault", exception.Message, exception.StackTrace);
         }
     }
-    public C.ContentResult<C.IContentCapture> Capture(C.IContentView content, K.CoreReferenceManifest references) => throw new NotImplementedException();
-    public C.ContentResult<C.IContentCapture> DecodeCapture(string payload) => throw new NotImplementedException();
+    public C.ContentResult<C.IContentCapture> Capture(C.IContentView content, K.CoreReferenceManifest references)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentNullException.ThrowIfNull(references);
+        if (content is not ContentView view) throw new ArgumentException("需要本工厂产生的固定内容视图。", nameof(content));
+        return CaptureResult<C.IContentCapture>(() => ContentCapture.Create(view, references));
+    }
+    public C.ContentResult<C.IContentCapture> DecodeCapture(string payload)
+    {
+        ArgumentNullException.ThrowIfNull(payload);
+        return CaptureResult<C.IContentCapture>(() =>
+        {
+            using var document = ContentCapture.Parse(payload);
+            return ContentCapture.Read(document.RootElement);
+        });
+    }
+
+    private static C.ContentResult<T> CaptureResult<T>(Func<T> action) where T : notnull
+    {
+        try { return new C.ContentResult<T>.Success(action()); }
+        catch (DefinitionFormatException exception)
+        {
+            return new C.ContentResult<T>.Failure([new(
+                exception.Code is "invalid_json" or "unsupported_format" ? exception.Code : "inconsistent_capture",
+                C.ContentDiagnosticSeverity.Error, "capture", null, null, exception.Field, null, exception.Message)]);
+        }
+        catch (JsonException exception)
+        {
+            return new C.ContentResult<T>.Failure([new("invalid_json", C.ContentDiagnosticSeverity.Error,
+                "capture", null, null, exception.Path ?? "", null, exception.Message)]);
+        }
+        catch (NotImplementedException) { throw; }
+        catch (Exception exception)
+        {
+            return new C.ContentResult<T>.Faulted("content_fault", exception.Message, exception.StackTrace);
+        }
+    }
     public C.ContentResult<C.IContentReplayCapture> CaptureReplay(ImmutableArray<C.IContentView> history, K.CoreReferenceManifest references) => throw new NotImplementedException();
     public C.ContentResult<C.IContentReplayCapture> DecodeReplay(string payload) => throw new NotImplementedException();
     public C.ContentResult<string> EncodeDraft(C.SavedContentDraft draft) => throw new NotImplementedException();
