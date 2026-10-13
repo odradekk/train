@@ -97,6 +97,47 @@ public sealed class TrainDispatchTests
     }
 
     [TestMethod]
+    public void Increasing_gap_keeps_the_follower_still_until_the_leader_opens_space()
+    {
+        var state = State();
+        using var session = new CoreSession(state with { World = state.World with { Trains =
+            [OnEdge(state.World.Trains[0], 1.5, 1), OnEdge(state.World.Trains[1], 0, 8),
+                state.World.Trains[2] with { Activity = TrainActivity.Running }] } });
+        var before = session.State.World.Trains.Select(t => t.Position).ToArray();
+        var changed = WorldFixture.Content with { Identity = new(new string('E', 64)), RailwayRules =
+            [WorldFixture.Content.RailwayRules[0] with { MinimumGapMeters = 2 }] };
+        Submit(session, new CoreCommand.PublishContent(changed));
+        CollectionAssert.AreEqual(before, session.State.World.Trains.Select(t => t.Position).ToArray());
+        var required = (View(session, 1).LengthMeters + View(session, 2).LengthMeters) / 2 + 2;
+        var previousGap = 1.5;
+        var resumed = false;
+        for (var step = 0; step < 200; step++)
+        {
+            var leading = ((TrainPosition.Edge)View(session, 1).Position).DistanceMeters;
+            var following = ((TrainPosition.Edge)View(session, 2).Position).DistanceMeters;
+            Step(session);
+            var after = ((TrainPosition.Edge)View(session, 2).Position).DistanceMeters;
+            var gap = ((TrainPosition.Edge)View(session, 1).Position).DistanceMeters - after;
+            if (leading - following < required)
+            {
+                Assert.AreEqual(following, after);
+                Assert.AreEqual(0.0, View(session, 2).SpeedMetersPerSecond);
+                Assert.IsTrue(gap >= previousGap);
+                Assert.AreEqual(new TrainPosition.Node(new(1)), View(session, 3).Position);
+            }
+            else if (after > following)
+            {
+                Assert.IsTrue(gap >= required);
+                Assert.IsTrue(View(session, 2).SpeedMetersPerSecond > 0);
+                resumed = true;
+                break;
+            }
+            previousGap = gap;
+        }
+        Assert.IsTrue(resumed, "前车拉开间距后，后车应恢复跟车。");
+    }
+
+    [TestMethod]
     public void Waypoint_conflict_forces_zero_speed_at_the_node_and_reports_waiting_once()
     {
         var state = State(2);
