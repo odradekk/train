@@ -64,8 +64,11 @@ internal sealed class SceneDisplay : IDisposable
                     throw new InvalidOperationException("显示对象的父对象不存在。");
             if (_fog is null || !_fog.Regions.SequenceEqual(update.Environment.FoggedRegions))
                 fog = new(update.Environment.FoggedRegions);
-            debugLines = new(frame.DebugLines);
-            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null, debugLines);
+            if (!frame.DebugLines.IsEmpty &&
+                (_debugLines is null || !_debugLines.Lines.SequenceEqual(frame.DebugLines)))
+                debugLines = new(frame.DebugLines);
+            return new(this, frame, next, created, roots, fog ?? _fog!, fog is not null,
+                frame.DebugLines.IsEmpty ? null : debugLines ?? _debugLines, debugLines is not null);
         }
         catch
         {
@@ -118,9 +121,12 @@ internal sealed class SceneDisplay : IDisposable
         }
         _fog = prepared.Fog;
         _objects = next;
-        _debugLines?.Dispose();
-        _debugLines = prepared.DebugLines;
-        Root.AddChild(_debugLines.Root);
+        if (!ReferenceEquals(_debugLines, prepared.DebugLines))
+        {
+            _debugLines?.Dispose();
+            _debugLines = prepared.DebugLines;
+            if (_debugLines is not null) Root.AddChild(_debugLines.Root);
+        }
         prepared.Transferred = true;
         foreach (var item in old.Values)
         {
@@ -157,14 +163,14 @@ internal sealed class SceneDisplay : IDisposable
 
     internal sealed class PreparedFrame(SceneDisplay owner, ISceneFrame frame,
         Dictionary<SceneObjectId, DisplayObject> objects, List<PreparedVisual> visuals,
-        List<Node3D> roots, FogGroup fog, bool ownsFog, DebugLineGroup debugLines) : IDisposable
+        List<Node3D> roots, FogGroup fog, bool ownsFog, DebugLineGroup? debugLines, bool ownsDebugLines) : IDisposable
     {
         internal bool Transferred { get; set; }
         private bool _disposed;
         internal ISceneFrame Frame { get; } = frame;
         internal Dictionary<SceneObjectId, DisplayObject> Objects { get; } = objects;
         internal FogGroup Fog { get; } = fog;
-        internal DebugLineGroup DebugLines { get; } = debugLines;
+        internal DebugLineGroup? DebugLines { get; } = debugLines;
         internal void Commit()
         {
             owner.Commit(this);
@@ -176,12 +182,13 @@ internal sealed class SceneDisplay : IDisposable
             foreach (var visual in visuals) visual.Dispose();
             foreach (var root in roots) if (GodotObject.IsInstanceValid(root)) root.Free();
             if (ownsFog) Fog.Dispose();
-            DebugLines.Dispose();
+            if (ownsDebugLines) DebugLines?.Dispose();
         }
     }
 
     internal sealed class DebugLineGroup : IDisposable
     {
+        internal System.Collections.Immutable.ImmutableArray<SceneDebugLine> Lines { get; }
         internal MeshInstance3D Root { get; } = new()
         {
             Name = "DebugLines", CastShadow = GeometryInstance3D.ShadowCastingSetting.Off
@@ -196,8 +203,8 @@ internal sealed class SceneDisplay : IDisposable
 
         internal DebugLineGroup(System.Collections.Immutable.ImmutableArray<SceneDebugLine> lines)
         {
+            Lines = lines;
             Root.Mesh = _mesh;
-            if (lines.IsEmpty) return;
             _mesh.SurfaceBegin(Mesh.PrimitiveType.Lines, _material);
             foreach (var line in lines)
             {

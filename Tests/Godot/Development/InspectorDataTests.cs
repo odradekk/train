@@ -16,11 +16,14 @@ public sealed class InspectorDataTests
         var id = new WorldObjectId.Node(new(7));
         var node = new NodeView(new(new(7), new(1, 2), new(new("test:terrain"), 0, []),
             new NodeOccupant.Settlement(new(9), SettlementRelation.PlayerOwned), [], 0, 1, null), []);
-        var found = InspectorData.Inspect(new FixedCoreReadView
+        var view = new FixedCoreReadView
         {
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [id.Id] = new Lookup<NodeView>.Found(node) }
-        }, id);
-        Assert.AreEqual("found", found.Status);
+        };
+        Assert.IsTrue(InspectorData.Exists(view, id));
+        Assert.IsFalse(InspectorData.Exists(view, new WorldObjectId.Node(new(8))));
+        var found = InspectorData.Inspect(view, id);
+        Assert.AreEqual(InspectionStatus.Found, found.Status);
         using var json = JsonDocument.Parse(found.Json!);
         Assert.AreEqual(9UL, json.RootElement.GetProperty("Map").GetProperty("Occupant")
             .GetProperty("Id").GetProperty("Value").GetUInt64());
@@ -29,9 +32,9 @@ public sealed class InspectorDataTests
             Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [id.Id] = new Lookup<NodeView>.Missing() }
         }, id);
         Assert.AreEqual(id, missing.Id);
-        Assert.AreEqual("missing", missing.Status);
+        Assert.AreEqual(InspectionStatus.Missing, missing.Status);
         var unavailable = InspectorData.Inspect(new FixedCoreReadView(), new WorldObjectId.Settlement(new(9)));
-        Assert.AreEqual("unavailable", unavailable.Status);
+        Assert.AreEqual(InspectionStatus.Unavailable, unavailable.Status);
         Assert.IsNotNull(unavailable.Explanation);
     }
 

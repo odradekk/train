@@ -2,7 +2,9 @@ using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
 using Godot;
 using Train.App.Saves;
+using Train.App.Development;
 using Train.Core.Contracts;
+using Train.Scenes.Contracts;
 using Train.Ui;
 using static Train.Engine.Tests.Assertions;
 
@@ -32,8 +34,8 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
                 setup.InitialSession.AdvanceCount == 2, "开发窗口没有在目标完整边界停止。");
             app._Process(0);
             Require(setup.InitialSession.AdvanceCount == 2, "停止后又推进了核心。");
-            Require(app.Development!.Inspect(new WorldObjectId.Node(new(1)))?.Status == "found" &&
-                app.Development.Inspect(new WorldObjectId.Train(new(1)))?.Status == "found", "对象检查没有使用当前契约读视图。");
+            Require(app.Development!.Inspect(new WorldObjectId.Node(new(1)))?.Status == InspectionStatus.Found &&
+                app.Development.Inspect(new WorldObjectId.Train(new(1)))?.Status == InspectionStatus.Found, "对象检查没有使用当前契约读视图。");
         }
         finally { await fixture.Cleanup(); CleanFiles(setup); }
     }
@@ -59,6 +61,11 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
                 "重放候选激活后没有退役原会话。");
             Require(app.Saves.Save()?.Code == "replay_read_only" && app.Host.Step(1).Problem?.Code == "replay_read_only",
                 "重放允许普通保存或普通核心推进。");
+            app.WorldScenes!.DebugLayers = SceneDebugLayer.Origin;
+            app.WorldScenes.Open(DeveloperToolsFixture.Target);
+            await Until(() => app.WorldScenes.Display?.DisplayedFrame?.DebugLines.Length == 2);
+            Require(app.WorldScenes.Display!.Root.GetChildren().OfType<MeshInstance3D>().Any(node => node.Name == "DebugLines"),
+                "重放期间App帧驱动未显示Scenes提供的调试线。");
             Require(tools.StartSteps(1) is null, "无法开始重放单步。");
             await Until(() => !tools.Running);
             Require(app.Host.GetStatus()!.View.Position == new SimulationPosition(1, 0), "重放单步边界错误。");
@@ -69,13 +76,53 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
             Require(tools.ExportReplayBoundary(setup.ExportPath) is null, "无法导出重放边界。");
             await Until(() => !tools.IsBusy);
             Require(File.Exists(setup.ExportPath), "导出没有写入所选文件。");
-            Require(tools.LoadSave(setup.ExportPath) is null, "导出的边界不能进入普通读档。");
+            var store = new FileSaveStore(Path.GetDirectoryName(setup.ExportPath)!);
+            Require(app.Saves.Load(new(setup.ExportPath, store.ReadHeader(setup.ExportPath), false)) is null,
+                "导出的边界不能进入存档面板使用的普通读档操作。");
             await Until(() => app.Host.GetStatus() is { IsReplay: false } && !app.Saves.IsBusy);
             Require(setup.Replay.DisposeCount == 1 && setup.RestoredSessions.Count == 1 &&
                 setup.Candidates.All(candidate => candidate.ActivationCount == 1) &&
                 app.Host.GetStatus()!.View.Position == new SimulationPosition(2, 0), "普通读档未激活独立候选或未释放重放。");
         }
         finally { await fixture.Cleanup(); CleanFiles(setup); }
+    }
+
+    [Test]
+    public async Task Boundary_export_window_shows_progress_then_failure_without_reporting_success()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = Setup();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        try
+        {
+            var app = await Ready(fixture, setup);
+            Require(app.Development!.OpenReplay(setup.ReplayPath) is null, "无法准备重放。");
+            app.Saves!.ChooseLeave(LeaveChoice.Discard);
+            await Until(() => app.Host!.GetStatus() is { IsReplay: true });
+            var store = new FileSaveStore(Path.GetDirectoryName(setup.ExportPath)!, (_, _) =>
+            {
+                entered.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(30))) throw new TimeoutException("导出等待超时。");
+                throw new IOException("publication denied");
+            }, File.Move);
+            using var saves = new SaveService(app.Host!, store);
+            using var tools = new DeveloperTools(app.Host!, saves);
+            var inspector = new DeveloperInspector();
+            inspector.Configure(tools, app.WorldScenes);
+            app.AddChild(inspector);
+            inspector.Open();
+            ((FileDialog)inspector.FindChild("ExportBoundary", true, false)).EmitSignal(FileDialog.SignalName.FileSelected, setup.ExportPath);
+            await Until(() => entered.IsSet);
+            var message = (Label)inspector.FindChild("DeveloperMessage", true, false);
+            Require(message.Text.Contains("正在保存", StringComparison.Ordinal) && !message.Text.Contains("已导出", StringComparison.Ordinal),
+                "后台导出尚未完成就显示成功。");
+            release.Set();
+            await Until(() => { saves.Process(); tools.Process(); return !tools.IsBusy; });
+            inspector._Process(0.3);
+            Require(message.Text.Contains("publication denied", StringComparison.Ordinal), "导出失败被窗口旧消息遮住。");
+        }
+        finally { release.Set(); await fixture.Cleanup(); CleanFiles(setup); }
     }
 
     [Test]
@@ -116,6 +163,6 @@ public class DeveloperToolsTests(Node testScene) : TestClass(testScene)
         var limit = System.Diagnostics.Stopwatch.StartNew();
         while (!completed() && limit.Elapsed < TimeSpan.FromSeconds(30))
             await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
-        Require(completed(), "开发工具真实引擎接线超时。");
+        Require(completed(), "开发工具真实引擎等待超时。");
     }
 }

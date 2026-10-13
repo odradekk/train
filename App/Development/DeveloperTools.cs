@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using System.Diagnostics;
 using Train.App.Saves;
 using Train.Core.Contracts;
@@ -22,24 +22,28 @@ internal sealed class DeveloperTools : IDisposable
 {
     private readonly HostCoordinator _host;
     private readonly SaveService _saves;
-    private readonly FileSaveStore _store;
     private readonly Func<double> _seconds;
     private readonly List<DeveloperCheckpoint> _checkpoints = [];
     private readonly List<DeveloperMark> _marks = [];
     private readonly List<string> _stops = [];
     private Run? _run;
     private long? _replayOperation;
-    private PendingExport? _export;
+    private bool _exporting;
+    private Action? _openReplay;
+    private bool _frozenStop;
+    private bool _disposed;
 
-    internal DeveloperTools(HostCoordinator host, SaveService saves, FileSaveStore store, Func<double>? seconds = null)
+    internal DeveloperTools(HostCoordinator host, SaveService saves, Func<double>? seconds = null)
     {
-        _host = host; _saves = saves; _store = store;
+        _host = host; _saves = saves;
         _seconds = seconds ?? (() => Stopwatch.GetTimestamp() / (double)Stopwatch.Frequency);
         host.BoundaryCompleted += OnBoundary;
+        host.ReplacementCompleted += OnReplacement;
+        saves.Changed += OnSaveChanged;
     }
     internal HostStatus? Status => _host.GetStatus();
     internal bool Running => _run is not null;
-    internal bool IsBusy => _host.IsBusy || _saves.IsBusy || _export is not null || _replayOperation is not null;
+    internal bool IsBusy => _host.IsBusy || _saves.IsBusy || _exporting || _replayOperation is not null;
     internal string? LastMessage { get; private set; }
     internal IReadOnlyList<string> StopReasons => _stops;
     internal IReadOnlyList<DeveloperCheckpoint> Checkpoints => _checkpoints;
@@ -79,19 +83,20 @@ internal sealed class DeveloperTools : IDisposable
         if (condition is DeveloperCondition.Event eventCondition &&
             typeof(CoreEvent).GetNestedType(eventCondition.EventType) is null)
             return Fail("invalid-condition", "请输入已声明的 CoreEvent 类型名。");
-        if (Target(condition) is { } target && InspectorData.Inspect(status.View, target, includeDetails: false).Status != "found")
+        if (Target(condition) is { } target && !InspectorData.Exists(status.View, target))
             return Fail("invalid-target", $"目标无效：{target}");
         return Start(condition, maximumSteps, null);
     }
 
     private SaveFailure? Start(DeveloperCondition? condition, ulong? limit, SimulationPosition? stopAt)
     {
-        if (Running || _host.IsBusy || _saves.IsBusy || _export is not null) return Fail("busy", "正在处理其他操作。");
+        if (Running || _host.IsBusy || _saves.IsBusy || _exporting) return Fail("busy", "正在处理其他操作。");
         if (Status is not { } status) return Fail("no-session", "当前没有会话。");
         if (status.IsFrozen) return Fail("frozen", "核心已冻结，不能继续推进。");
         if (limit == 0) return Fail("invalid-steps", "最大步数必须大于零，或留空。");
         if (_host.SetPaused(true) is { } problem) return Fail(problem.Code, "无法暂停当前会话。");
         _stops.Clear();
+        _frozenStop = false;
         _run = new(status.Binding, status.View.Position, condition, limit, stopAt, status.IsReplay);
         LastMessage = "正在逐步推进，可取消。";
         return null;
@@ -100,9 +105,9 @@ internal sealed class DeveloperTools : IDisposable
     internal void Cancel()
     {
         if (_run is not null) Stop("已取消");
-        if (_replayOperation is { } operation && _host.CancelReplay(operation))
-        { _replayOperation = null; LastMessage = _host.ReplayMessage; }
-        _export?.Cancellation.Cancel();
+        if (_replayOperation is { } operation) _host.Cancel(operation);
+        if (_openReplay is not null) { _saves.ChooseLeave(LeaveChoice.Cancel); _openReplay = null; }
+        if (_exporting) _saves.Cancel();
     }
 
     internal SaveFailure? Pause()
@@ -113,21 +118,6 @@ internal sealed class DeveloperTools : IDisposable
 
     internal void Process()
     {
-        if (_export is { } export && export.Work.IsCompleted)
-        {
-            _export = null;
-            try
-            {
-                var result = export.Work.GetAwaiter().GetResult();
-                LastMessage = result.Published ? $"普通存档已导出：{export.Path}。请通过普通读档打开副本。"
-                    : $"导出失败：{result.Message}";
-                if (result.CleanupMessage is { } cleanup) LastMessage += "\n" + cleanup;
-            }
-            catch (Exception error) { LastMessage = $"导出失败：{error.Message}"; }
-            finally { export.Cancellation.Dispose(); }
-        }
-        if (_replayOperation is not null && !_host.IsBusy)
-        { _replayOperation = null; LastMessage = _host.ReplayMessage; }
         if (_run is not { } run) return;
         if (Status is not { } status || status.Binding != run.Binding) { Stop("会话已切换，条件已清除"); return; }
         if (_stops.Count > 0) { Stop(); return; }
@@ -143,8 +133,8 @@ internal sealed class DeveloperTools : IDisposable
                 catch (ArgumentOutOfRangeException) { Stop("目标重放位置无效"); return; }
                 if (result is null) { Stop("重放无法继续推进"); return; }
                 status = Status!;
-                if (status.IsFrozen) AddStop("核心已冻结");
-                if (result.Stop != ReplayStop.BudgetReached) AddStop(_host.ReplayMessage ?? result.Stop.ToString());
+                if (status.IsFrozen) AddFrozenStop();
+                if (result.Stop != ReplayStop.BudgetReached) AddStop(ReplayStopMessage(result));
                 if (_host.LastNotification == NotificationAction.Pause) AddStop("通知要求暂停");
                 if (run.Limit is { } maximum && status.View.Position.CompletedSteps - run.Start.CompletedSteps >= maximum)
                     AddStop("已完成指定步数");
@@ -170,17 +160,18 @@ internal sealed class DeveloperTools : IDisposable
         if (view.Fault is { } fault)
         {
             if (run.Condition is DeveloperCondition.ObjectFault target && fault.Subject == target.Subject) AddStop("目标对象发生内部故障");
-            AddStop("核心已冻结");
+            AddFrozenStop();
         }
         if (run.Condition is DeveloperCondition.AtStep step && view.Position.CompletedSteps >= step.Step)
             AddStop("已到达目标步");
         if (run.Condition is DeveloperCondition.Event eventCondition && events.Any(item => item.Event.GetType().Name == eventCondition.EventType))
             AddStop("已发生领域事件：" + eventCondition.EventType);
         if (run.Condition is DeveloperCondition.Rejected rejected && _host.ReadRecording(binding) is { } recording &&
-            InspectorData.ReadCommands(recording.Commands, rejected.Kind, "rejected", rejected.Subject)
-                .Any(command => HostCoordinator.ComparePosition(command.Record.Result.After, run.Start) > 0))
+            InspectorData.ReadCommands(recording.Commands.Where(command =>
+                HostCoordinator.ComparePosition(command.Result.After, run.Start) > 0).ToImmutableArray(),
+                rejected.Kind, "rejected", rejected.Subject).Length > 0)
             AddStop("匹配命令被拒绝");
-        if (Target(run.Condition) is { } subject && InspectorData.Inspect(view, subject, includeDetails: false).Status != "found")
+        if (Target(run.Condition) is { } subject && !InspectorData.Exists(view, subject))
             AddStop("目标失效：" + subject);
         if (run.Limit is { } limit && view.Position.CompletedSteps - run.Start.CompletedSteps >= limit)
             AddStop(run.Condition is null ? "已完成指定步数" : "已达到最大步数");
@@ -190,11 +181,17 @@ internal sealed class DeveloperTools : IDisposable
     private static WorldObjectId? Target(DeveloperCondition? condition) => condition switch
     { DeveloperCondition.ObjectFault fault => fault.Subject, DeveloperCondition.Rejected rejected => rejected.Subject, _ => null };
     private void AddStop(string reason) { if (!_stops.Contains(reason)) _stops.Add(reason); }
+    private void AddFrozenStop()
+    {
+        if (_frozenStop) return;
+        _frozenStop = true;
+        _stops.Insert(0, "核心已冻结");
+    }
     private void Stop(string? reason = null)
     {
         if (reason is not null) AddStop(reason);
         _run = null;
-        LastMessage = string.Join("；", _stops.OrderByDescending(reason => reason == "核心已冻结"));
+        LastMessage = string.Join("；", _stops);
     }
 
     internal SaveFailure? CaptureCheckpoint(string label)
@@ -202,7 +199,15 @@ internal sealed class DeveloperTools : IDisposable
         if (Status is not { } status || _host.Runtime is not { } runtime) return Fail("no-session", "当前没有会话。");
         var result = _host.CaptureCheckpoint();
         if (result is not CoreResult<ICoreCapture>.Success capture)
-            return Fail("checkpoint-failed", "无法捕获检查点。");
+            return result switch
+            {
+                CoreResult<ICoreCapture>.Failure failure => Fail(failure.Problems[0].Code,
+                    "无法捕获检查点：" + string.Join("；", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}"))),
+                CoreResult<ICoreCapture>.Faulted fault => Fail(fault.Fault.Code,
+                    $"无法捕获检查点：{fault.Fault.Code}/{fault.Fault.Operation}/{fault.Fault.Field}" +
+                    (fault.Diagnostic is { } diagnostic ? $" · {diagnostic.Message}" : "")),
+                _ => throw new InvalidOperationException("未知检查点捕获结果。")
+            };
         _checkpoints.Add(new(label, capture.Value.Position, status.View.World.WorldSeed,
             runtime, capture.Value.InputIdentity, capture.Value.Checkpoint));
         LastMessage = $"检查点已保存在内存：{label} · {capture.Value.Position}";
@@ -237,44 +242,58 @@ internal sealed class DeveloperTools : IDisposable
 
     internal SaveFailure? OpenReplay(string path)
     {
-        if (_replayOperation is not null || _export is not null) return Fail("busy", "正在处理其他操作。");
+        if (IsBusy) return Fail("busy", "正在处理其他操作。");
         if (_run is not null) Stop("打开重放，条件已清除");
-        return _saves.RequestLeave(() =>
+        _openReplay = () =>
         {
+            _openReplay = null;
+            if (_disposed) return;
             var result = _host.BeginReplay(path);
             if (result.Problem is { } problem) Fail(problem.Code, "无法开始重放准备。");
-            else { _replayOperation = result.Operation; LastMessage = _host.ReplayMessage; }
-        });
+            else { _replayOperation = result.Operation; LastMessage = "正在准备隔离重放…"; }
+        };
+        var failure = _saves.RequestLeave(_openReplay);
+        if (failure is not null) _openReplay = null;
+        return failure;
     }
     internal SaveFailure? ExportReplayBoundary(string path, bool overwriteConfirmed = false)
     {
-        if (Running || _export is not null || _saves.IsBusy) return Fail("busy", "请先停止推进及其他操作。");
-        if (File.Exists(path) && !overwriteConfirmed) return Fail("overwrite-confirmation", "目标文件已存在，请确认覆盖。");
-        var (capture, failure) = _host.CaptureReplaySave();
-        if (failure is not null) return Fail(failure.Code, failure.Message);
-        var cancellation = new CancellationTokenSource();
-        _export = new(path, cancellation, Task.Run(() => _store.Write(path,
-            capture!.Encode(capture.Identity, DateTimeOffset.UtcNow), overwriteConfirmed, cancellation.Token)));
-        LastMessage = "正在导出普通存档…";
-        return null;
+        if (Running || IsBusy) return Fail("busy", "请先停止推进及其他操作。");
+        if (Status is not { IsReplay: true }) return Fail("no-replay", "当前不是重放会话。");
+        _exporting = true;
+        var failure = _saves.Export(path, overwriteConfirmed);
+        LastMessage = _saves.LastMessage;
+        if (failure is not null) _exporting = false;
+        return failure;
     }
-    internal SaveFailure? LoadSave(string path)
+    private void OnSaveChanged()
     {
-        if (_export is not null) return Fail("busy", "正在导出普通存档。");
-        try { return _saves.Load(new(path, _store.ReadHeader(path), false)); }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or SaveFormatException)
-        { return Fail("read-failed", error.Message); }
+        if (_openReplay is not null && _saves.Leaving is null) _openReplay = null;
+        if (!_exporting) return;
+        LastMessage = _saves.LastMessage;
+        if (!_saves.HasPendingWork) _exporting = false;
     }
+    private void OnReplacement(long operation, bool succeeded)
+    {
+        if (_replayOperation != operation) return;
+        _replayOperation = null;
+        LastMessage = succeeded ? $"隔离重放已打开：{_host.ReplayRecording!.Path}"
+            : "重放准备失败或已取消，保留原会话。";
+    }
+    private static string ReplayStopMessage(ReplayAdvanceResult result) =>
+        $"重放停止：{result.Stop} · {result.Position.CompletedSteps}:{result.Position.Sequence}" +
+        (result.Difference is { } difference ? $" · {difference.Field}: {difference.Expected} → {difference.Actual}" : "") +
+        (result.Fault is { } fault ? $" · {fault.Code}" : "");
     private SaveFailure Fail(string code, string message) { LastMessage = message; return new(code, message); }
     public void Dispose()
     {
-        _host.BoundaryCompleted -= OnBoundary;
+        if (_disposed) return;
+        _disposed = true;
         Cancel();
-        if (_export is { } export) { _export = null; _ = FinishExport(export); }
+        _host.BoundaryCompleted -= OnBoundary;
+        _host.ReplacementCompleted -= OnReplacement;
+        _saves.Changed -= OnSaveChanged;
     }
-    private static async Task FinishExport(PendingExport export)
-    { try { await export.Work.ConfigureAwait(false); } finally { export.Cancellation.Dispose(); } }
     private sealed record Run(HostBinding Binding, SimulationPosition Start, DeveloperCondition? Condition,
         ulong? Limit, SimulationPosition? StopAt, bool Replay);
-    private sealed record PendingExport(string Path, CancellationTokenSource Cancellation, Task<FileWriteResult> Work);
 }

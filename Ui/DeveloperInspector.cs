@@ -36,7 +36,6 @@ public partial class DeveloperInspector : Window
     private string? _exportPath;
     private double _refreshElapsed;
     private readonly FileDialog _openReplay = FilePicker("OpenReplay", "打开复现包", false, "*.zip ; ZIP 复现包");
-    private readonly FileDialog _loadSave = FilePicker("LoadSave", "读取普通存档", false);
     private readonly FileDialog _export = FilePicker("ExportBoundary", "导出重放边界为普通存档", true);
     private readonly ConfirmationDialog _overwrite = new() { Title = "覆盖文件", DialogText = "目标文件已存在。确认覆盖？" };
 
@@ -76,14 +75,13 @@ public partial class DeveloperInspector : Window
         BuildCommands(Tab(tabs, "命令"));
         BuildCheckpoints(Tab(tabs, "检查点与标记"));
         BuildScenes(Tab(tabs, "场景与性能"));
-        foreach (var dialog in new Window[] { _openReplay, _loadSave, _export, _overwrite })
+        foreach (var dialog in new Window[] { _openReplay, _export, _overwrite })
         {
             AddChild(dialog);
             dialog.Transient = true;
             dialog.Exclusive = true;
         }
         _openReplay.FileSelected += path => Run(() => _tools!.OpenReplay(path));
-        _loadSave.FileSelected += path => Run(() => _tools!.LoadSave(path));
         _export.FileSelected += path => Export(path);
         _overwrite.Confirmed += () => { if (_exportPath is { } path) Export(path, true); _exportPath = null; };
         _overwrite.Canceled += () => _exportPath = null;
@@ -124,7 +122,6 @@ public partial class DeveloperInspector : Window
         });
         Button(tab, "打开复现包", "OpenReplayPackage", () => _openReplay.PopupCentered(new(800, 560)));
         Button(tab, "导出当前重放边界", "ExportReplayBoundary", () => _export.PopupCentered(new(800, 560)));
-        Button(tab, "读取普通存档", "OpenOrdinarySave", () => _loadSave.PopupCentered(new(800, 560)));
     }
 
     private void BuildObjects(VBoxContainer tab)
@@ -235,7 +232,7 @@ public partial class DeveloperInspector : Window
         _performance.Text = $"进程帧耗时：{Performance.GetMonitor(Performance.Monitor.TimeProcess):F6}s\n" +
             $"静态内存：{Performance.GetMonitor(Performance.Monitor.MemoryStatic):F0} bytes\n" +
             $"对象数：{Performance.GetMonitor(Performance.Monitor.ObjectCount):F0}\n" +
-            (status is null ? "模拟速度：未采集\n" : $"请求速度：{(int)status.Speed}× · 实际速度：{status.ActualSpeed:F3}× · " +
+            (status is null ? "模拟速度：未采集\n" : status.IsReplay ? "推进方式：按录制边界\n" : $"请求速度：{(int)status.Speed}× · 实际速度：{status.ActualSpeed:F3}× · " +
                 (status.IsPaused ? "已暂停\n" : status.ActualSpeed >= (int)status.Speed ? "跟得上\n" : "未跟上\n")) +
             $"调试线数：{(_scenes?.Display?.DisplayedFrame is { } frame ? frame.DebugLines.Length.ToString() : "未采集")}\n模拟耗时与录制容量：未采集";
     }
@@ -244,7 +241,7 @@ public partial class DeveloperInspector : Window
     {
         if (_selected is null) return;
         var data = _tools?.Inspect(_selected);
-        SetDetails(_objectDetails, $"{_selected}\n{data?.Status ?? "无活动视图"}\n{data?.Explanation}\n{data?.Json}");
+        SetDetails(_objectDetails, $"{_selected}\n{data?.Status.ToString() ?? "无活动视图"}\n{data?.Explanation}\n{data?.Json}");
     }
 
     private void RefreshCommands()
@@ -255,14 +252,18 @@ public partial class DeveloperInspector : Window
             _result.Selected <= 0 ? null : _result.GetItemText(_result.Selected), _subjectFilter.ButtonPressed ? _selected : null);
         SetDetails(_commands, $"{(window.Replay ? "重放" : "录制")}窗口 {FormatPosition(window.From)} → {FormatPosition(window.Until)}\n" +
             string.Join("\n", window.Gaps.Select(x => $"缺口 {FormatPosition(x.From)} → {(x.Until is { } until ? FormatPosition(until) : "未结束")} · {x.Code}")) + "\n" +
-            string.Join("\n\n", data.Select(x => $"#{x.Record.Result.Number} {FormatPosition(x.Record.Result.Before)} → {FormatPosition(x.Record.Result.After)}\n{x.Kind} · {x.Result} · {x.Record.Source}\n关联：{string.Join(", ", x.Subjects)}\n{x.Record.CanonicalPayload}\n{x.Explanation}")));
+            string.Join("\n\n", data.Select(x => $"#{x.Record.Result.Number} {FormatPosition(x.Record.Result.Before)} → {FormatPosition(x.Record.Result.After)}\n{x.Kind} · {x.Result} · {x.Record.Source}\n关联：{string.Join(", ", x.Subjects.Select(FormatSubject))}\n{x.Record.CanonicalPayload}\n{x.Explanation}")));
         var related = data.SelectMany(x => x.Subjects).Distinct().ToArray();
         if (!_relatedIds.SequenceEqual(related))
         {
             _relatedIds.Clear(); _relatedIds.AddRange(related); _related.Clear();
-            foreach (var id in related) _related.AddItem(id.ToString());
+            foreach (var id in related) _related.AddItem(FormatSubject(id));
         }
+        for (var i = 0; i < related.Length; i++) _related.SetItemText(i, FormatSubject(related[i]));
     }
+
+    private string FormatSubject(WorldObjectId id)
+        => $"{id}（{(_tools?.Status is { } status && InspectorData.Exists(status.View, id) ? "存在" : "已失效")}）";
 
     private void SyncCheckpoints(OptionButton selector)
     {
@@ -278,7 +279,8 @@ public partial class DeveloperInspector : Window
         if (_tools is null) return;
         var failure = _tools.ExportReplayBoundary(path, confirmed);
         if (failure?.Code == "overwrite-confirmation") { _exportPath = path; _overwrite.PopupCentered(); }
-        else _localMessage = failure?.Message ?? "普通存档已导出。";
+        else _localMessage = failure?.Message;
+        Refresh();
     }
 
     private void Run(Func<SaveFailure?> action)
@@ -325,7 +327,6 @@ public partial class DeveloperInspector : Window
         _buttons["CancelRun"].Disabled = !busy;
         _buttons["ExportReplayBoundary"].Disabled = status is not { IsReplay: true } || busy;
         _buttons["OpenReplayPackage"].Disabled = busy;
-        _buttons["OpenOrdinarySave"].Disabled = busy;
         _buttons["CaptureCheckpoint"].Disabled = status is null || busy;
         _buttons["AddMark"].Disabled = status is null;
         _buttons["InspectObject"].Disabled = status is null;

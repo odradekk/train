@@ -82,7 +82,7 @@ public partial class App : Node
             {
                 if (Host is not null)
                 {
-                    Development = new(Host, Saves!, new FileSaveStore(userData));
+                    Development = new(Host, Saves!);
                     var inspector = new DeveloperInspector();
                     AddChild(inspector);
                     inspector.Configure(Development, WorldScenes);

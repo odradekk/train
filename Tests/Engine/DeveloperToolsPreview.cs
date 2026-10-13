@@ -19,7 +19,7 @@ public partial class DeveloperToolsPreview : Node
     {
         try
         {
-            _fixture = new(ProjectSettings.GlobalizePath("res://TestResults/issue-375-preview"));
+            _fixture = new(ProjectSettings.GlobalizePath("res://TestResults/developer-tools-preview"));
             _app = GD.Load<PackedScene>("res://App/App.tscn").Instantiate<Train.App.App>();
             _app.CreateHost = _fixture.CreateHost;
             _app.CreateScenes = () => _fixture.Scenes;
@@ -36,7 +36,7 @@ public partial class DeveloperToolsPreview : Node
                 Text = "开发检查预览 · 同份生产App / DeveloperTools / DeveloperInspector\n" +
                     "Core、Content、Scenes均为有限契约替身；不是生产世界或真实内容工厂。\n" +
                     "普通会话：只支持0→1→2，到达步2后停止。对象：节点1、列车1。\n" +
-                    "重放：打开ZIP→单步至1:0→到位置2:0→导出普通存档→普通读档。\n" +
+                    "重放：打开ZIP→单步至1:0→到位置2:0→导出普通存档→经存档面板导入和读档。\n" +
                     "可重新打开同一ZIP重复验证。图层开启后Scenes替身提供两条彩色线。\n" +
                     "ZIP起点0:0，录制截止2:0，无命令；中间及截止检查点为有限固定样本。\n" +
                     $"复现包：{_fixture.ReplayPath}\n默认导出：{_fixture.ExportPath}",
@@ -53,7 +53,7 @@ public partial class DeveloperToolsPreview : Node
             Action(second, "重放单步", "ReplayStep", () => Show(_app.Development!.StartSteps(1)));
             Action(second, "重放至2:0", "ReplayToEnd", () => Show(_app.Development!.AdvanceTo(new(2, 0))));
             Action(second, "导出至默认路径", "ExportFixtureBoundary", () => Show(_app.Development!.ExportReplayBoundary(_fixture.ExportPath)));
-            Action(second, "普通读取导出文件", "LoadFixtureSave", () => Show(_app.Development!.LoadSave(_fixture.ExportPath)));
+            Action(second, "打开存档面板", "OpenSaves", () => _app.GetNode<MainMenu>("MainMenu").GetChildren().OfType<SavePanel>().Single().Open());
             var third = new HBoxContainer();
             box.AddChild(third);
             Action(third, "进入节点场景", "EnterFixtureScene", () => _app.WorldScenes!.Open(DeveloperToolsFixture.Target));

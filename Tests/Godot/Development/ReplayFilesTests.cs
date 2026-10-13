@@ -36,10 +36,10 @@ public sealed class ReplayFilesTests
         };
         var store = new FileSaveStore(files.Root);
         using var saves = new SaveService(run.Host.Host, store, () => 0);
-        using var tools = new DeveloperTools(run.Host.Host, saves, store, () => 0);
+        using var tools = new DeveloperTools(run.Host.Host, saves, () => 0);
         var exported = Path.Combine(files.Root, "boundary.json");
         Assert.IsNull(tools.ExportReplayBoundary(exported));
-        Pump(run, saves, tools, () => tools.LastMessage?.StartsWith("普通存档已导出", StringComparison.Ordinal) == true);
+        Pump(run, saves, tools, () => !tools.IsBusy);
         var document = store.Read(exported);
         Assert.AreNotEqual(Guid.Empty, document.Header.Id);
         Assert.AreNotEqual(oldId, document.Header.Id);
@@ -68,7 +68,7 @@ public sealed class ReplayFilesTests
             Assert.AreSame(capture, state);
             return new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(session, capture.References));
         };
-        Assert.IsNull(tools.LoadSave(exported));
+        Assert.IsNull(saves.Load(new(exported, store.ReadHeader(exported), false)));
         if (saves.Leaving is not null) saves.ChooseLeave(LeaveChoice.Discard);
         Pump(run, saves, tools, () => run.Host.Host.GetStatus() is { IsReplay: false } && !saves.HasPendingWork);
         Assert.AreEqual(1, run.Replay.DisposeCount);
@@ -92,10 +92,11 @@ public sealed class ReplayFilesTests
         var store = new FileSaveStore(files.Root, File.WriteAllText,
             (_, _, _) => throw new IOException("publication denied"));
         using var saves = new SaveService(run.Host.Host, store, () => 0);
-        using var tools = new DeveloperTools(run.Host.Host, saves, store, () => 0);
+        using var tools = new DeveloperTools(run.Host.Host, saves, () => 0);
         Assert.AreEqual("overwrite-confirmation", tools.ExportReplayBoundary(target)?.Code);
         Assert.IsNull(tools.ExportReplayBoundary(target, overwriteConfirmed: true));
-        Pump(run, saves, tools, () => tools.LastMessage?.StartsWith("导出失败", StringComparison.Ordinal) == true);
+        Pump(run, saves, tools, () => !tools.IsBusy);
+        StringAssert.Contains(tools.LastMessage!, "publication denied");
         Assert.AreEqual(original, File.ReadAllText(target));
         Assert.IsTrue(run.Host.Host.GetStatus()!.IsReplay);
         Assert.AreEqual(0, Directory.GetFiles(files.Root, "*.tmp").Length);
@@ -113,8 +114,40 @@ public sealed class ReplayFilesTests
         run.Host.PumpUntil(() => !run.Host.Host.IsBusy);
         Assert.AreEqual(before, run.Host.Host.GetStatus()!.Binding);
         Assert.IsFalse(run.Host.Host.GetStatus()!.IsReplay);
-        StringAssert.Contains(run.Host.Host.ReplayMessage!, "无法打开复现包");
+        Assert.IsTrue(run.Host.Logs.Any(log => log.EventId == "host_replay_failed" &&
+            log.Attributes["code"] as string == "preparation_exception"));
         Assert.AreEqual(0, run.Host.Session.DisposeCount);
+    }
+
+    [TestMethod]
+    public void CancelOpeningReplayAfterSavePublicationKeepsTheOrdinarySession()
+    {
+        using var files = new ReplayFiles();
+        using var run = new ReplayFixture();
+        using var published = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var binding = run.Host.Host.GetStatus()!.Binding;
+        var store = new FileSaveStore(files.Root, File.WriteAllText, (candidate, target, overwrite) =>
+        {
+            File.Move(candidate, target, overwrite);
+            published.Set();
+            HostFixture.WaitForSignal(release, "保存发布完成后返回");
+        });
+        using var saves = new SaveService(run.Host.Host, store, () => 0);
+        using var tools = new DeveloperTools(run.Host.Host, saves);
+        try
+        {
+            Assert.IsNull(tools.OpenReplay("unused.zip"));
+            saves.ChooseLeave(LeaveChoice.Save);
+            HostFixture.WaitForSignal(published, "保存已发布");
+            tools.Cancel();
+            release.Set();
+            Pump(run, saves, tools, () => !tools.IsBusy);
+            Assert.AreEqual(binding, run.Host.Host.GetStatus()!.Binding);
+            Assert.IsFalse(run.Host.Host.GetStatus()!.IsReplay);
+            Assert.AreEqual(0, run.Host.Session.DisposeCount);
+        }
+        finally { release.Set(); }
     }
 
     private static void Pump(ReplayFixture run, SaveService saves, DeveloperTools tools, Func<bool> completed)

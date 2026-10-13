@@ -23,6 +23,9 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var dispatcher = new GodotMainThreadDispatcher();
         using var cache = new AssetResourceCache(dispatcher);
         using var display = Attach(cache, new FixedContentView());
+        Commit(display, Frame(0, []));
+        Require(display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null,
+            "空线集合不得创建调试线节点。");
         var lines = ImmutableArray.Create(new SceneDebugLine(new(10, 2, 3), new(20, 4, 6), new(1, 0, 0, 1)));
         var first = Frame(1, [], origin: new(100, 0, 0), debugLines: lines);
         Commit(display, first);
@@ -37,9 +40,24 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         Near(vertices[1], new(20, 4, 6));
         var colors = firstArrays[(int)Godot.Mesh.ArrayType.Color].AsColorArray();
         Require(colors.Length == 2 && colors.All(color => color == Colors.Red), "线段端点必须保留Scenes提供的颜色。");
+        var unchanged = Frame(2, [], first.Update.Frame,
+            debugLines: ImmutableArray.Create(lines[0]));
+        using (var abandoned = Prepare(display, unchanged)) { }
+        Require(ReferenceEquals(root, display.Root.GetNode<MeshInstance3D>("DebugLines")) &&
+            GodotObject.IsInstanceValid(mesh), "丢弃复用线段的候选不得释放当前资源。");
+        Commit(display, unchanged);
+        Require(ReferenceEquals(root, display.Root.GetNode<MeshInstance3D>("DebugLines")) &&
+            ReferenceEquals(mesh, root.Mesh), "线序列未变化必须复用节点和网格。");
         var shiftedLines = ImmutableArray.Create(new SceneDebugLine(new(-90, 2, 3), new(-80, 4, 6), new(0, 1, 0, 1)));
-        var next = Frame(2, [], first.Update.Frame, new(-100, 0, 0), new(200, 0, 0), debugLines: shiftedLines);
-        using (var abandoned = Prepare(display, next)) { }
+        var next = Frame(3, [], unchanged.Update.Frame, new(-100, 0, 0), new(200, 0, 0), debugLines: shiftedLines);
+        using (var abandoned = Prepare(display, next))
+        {
+            var candidateRoot = abandoned.DebugLines!.Root;
+            var candidateMesh = candidateRoot.Mesh;
+            abandoned.Dispose();
+            Require(!GodotObject.IsInstanceValid(candidateRoot) && !GodotObject.IsInstanceValid(candidateMesh),
+                "丢弃新线段候选必须释放其节点和网格。");
+        }
         Require(ReferenceEquals(root, display.Root.GetNode<MeshInstance3D>("DebugLines")) &&
             GodotObject.IsInstanceValid(mesh), "丢弃候选不得改变已显示线段。");
         Commit(display, next);
@@ -48,9 +66,13 @@ public class SceneDisplayTests(Node testScene) : TestClass(testScene)
         using var shiftedArrays = shiftedMesh.SurfaceGetArrays(0);
         vertices = shiftedArrays[(int)Godot.Mesh.ArrayType.Vertex].AsVector3Array();
         Near(vertices[0], new(-90, 2, 3));
-        Commit(display, Frame(3, [], next.Update.Frame));
-        Require(display.Root.GetNode<MeshInstance3D>("DebugLines").Mesh.GetSurfaceCount() == 0 &&
-            !GodotObject.IsInstanceValid(shiftedMesh), "空线集合必须清除旧线。");
+        var empty = Frame(4, [], next.Update.Frame);
+        using (var abandoned = Prepare(display, empty)) { }
+        Require(GodotObject.IsInstanceValid(shiftedMesh), "丢弃空线候选不得释放当前线段。");
+        Commit(display, empty);
+        Require(display.Root.GetNodeOrNull<MeshInstance3D>("DebugLines") is null &&
+            !GodotObject.IsInstanceValid(shiftedMesh), "空线集合必须清除旧线且不创建空组。");
+        Commit(display, Frame(5, [], empty.Update.Frame, debugLines: lines));
         var lastRoot = display.Root.GetNode<MeshInstance3D>("DebugLines");
         var lastMesh = lastRoot.Mesh;
         display.Dispose();

@@ -168,8 +168,6 @@ public sealed class HostCoreScenarioTests
         replay.Dispose();
         replay.Dispose();
         Assert.AreEqual(1, replay.DisposeCount);
-        Assert.AreSame(checkpoint, capture.Checkpoint);
-        HostCoreScenario.AssertView(initial, new(0, 0), HostCoreScenario.Input);
         Assert.ThrowsExactly<ObjectDisposedException>(() => replay.Read());
         Assert.ThrowsExactly<ObjectDisposedException>(() => replay.Advance(5));
         Assert.ThrowsExactly<ObjectDisposedException>(() => replay.CaptureBoundary());

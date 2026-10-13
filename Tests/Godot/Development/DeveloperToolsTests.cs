@@ -1,4 +1,4 @@
-using System.Collections.Immutable;
+﻿using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App;
 using Train.App.Development;
@@ -123,7 +123,7 @@ public sealed class DeveloperToolsTests
         Assert.AreEqual(1, run.Session.AdvanceCount);
         var inspection = run.Tools.Inspect(Target)!;
         Assert.AreEqual(Target, inspection.Id);
-        Assert.AreEqual("missing", inspection.Status);
+        Assert.AreEqual(InspectionStatus.Missing, inspection.Status);
         StringAssert.StartsWith(run.Tools.StopReasons.Single(), "目标失效：");
         run.Session.AssertComplete();
     }
@@ -265,7 +265,7 @@ public sealed class DeveloperToolsTests
             Replace(View(0));
             var store = new FileSaveStore(Path.GetTempPath());
             _saves = new(Fixture.Host, store, () => 0);
-            Tools = new(Fixture.Host, _saves, store, seconds ?? (() => 0));
+            Tools = new(Fixture.Host, _saves, seconds ?? (() => 0));
         }
         internal void Replace(FixedCoreReadView view, RuntimeIdentity? runtime = null)
         {

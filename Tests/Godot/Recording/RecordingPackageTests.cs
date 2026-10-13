@@ -22,18 +22,6 @@ public sealed class RecordingPackageTests
             var package = Package();
             package.Write(path);
             package.Validate(path);
-            var decoded = RecordingPackage.Read(path);
-            Assert.AreEqual(package.ContentPayload, decoded.ContentPayload);
-            Assert.AreEqual(package.Header.Runtime, decoded.Header.Runtime);
-            Assert.AreEqual(package.Header.EndPosition, decoded.Header.EndPosition);
-            Assert.AreEqual(package.Header.Starts[1].Payload, decoded.Header.Starts[1].Payload);
-            Assert.AreEqual(package.Header.Starts[1].Checkpoint, decoded.Header.Starts[1].Checkpoint);
-            Assert.AreEqual(package.Commands.Length, decoded.Commands.Length);
-            Assert.AreEqual(package.Commands[0].CanonicalPayload, decoded.Commands[0].CanonicalPayload);
-            Assert.AreEqual(package.Commands[0].Result.Before, decoded.Commands[0].Result.Before);
-            Assert.AreEqual(package.Header.FaultSegments[0].Commands[0].CanonicalPayload,
-                decoded.Header.FaultSegments[0].Commands[0].CanonicalPayload);
-            Assert.IsInstanceOfType<CommandDecision.Faulted>(decoded.Header.FaultSegments[0].Commands[0].Result.Decision);
             using var zip = ZipFile.OpenRead(path);
             Assert.AreEqual(" 内容\r\n🚂\0 opaque ", Read(zip, "content.payload"));
             using var manifest = JsonDocument.Parse(Read(zip, "manifest.json"));

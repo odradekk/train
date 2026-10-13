@@ -5,7 +5,8 @@ using Train.Core.Contracts;
 
 namespace Train.App.Development;
 
-internal sealed record ObjectInspection(WorldObjectId Id, string Status, string? Json, string? Explanation);
+internal enum InspectionStatus { Found, Missing, Unavailable }
+internal sealed record ObjectInspection(WorldObjectId Id, InspectionStatus Status, string? Json, string? Explanation);
 internal sealed record CommandInspection(RecordedCommand Record, string Kind, string Result,
     ImmutableArray<WorldObjectId> Subjects, string? Explanation);
 
@@ -17,36 +18,59 @@ internal static class InspectorData
         Converters = { new RuntimeRecordConverterFactory() }
     };
 
-    internal static ObjectInspection Inspect(ICoreReadView view, WorldObjectId id, bool includeDetails = true)
+    internal static ObjectInspection Inspect(ICoreReadView view, WorldObjectId id)
     {
         try
         {
             return id switch
             {
-                WorldObjectId.Node x => InspectLookup(id, view.FindNode(x.Id), includeDetails),
-                WorldObjectId.Edge x => InspectLookup(id, view.FindEdge(x.Id), includeDetails),
-                WorldObjectId.Train x => InspectLookup(id, view.FindTrain(x.Id), includeDetails),
-                WorldObjectId.Instance x => InspectLookup(id, view.FindInstance(x.Id), includeDetails),
-                WorldObjectId.Settlement x => InspectLookup(id, view.FindSettlement(x.Id), includeDetails),
-                WorldObjectId.Inventory x => InspectLookup(id, view.FindInventory(x.Id), includeDetails),
-                WorldObjectId.Job x => InspectLookup(id, view.FindJob(x.Id), includeDetails),
-                WorldObjectId.Combat x => InspectLookup(id, view.FindCombat(x.Id), includeDetails),
-                WorldObjectId.Creature x => InspectLookup(id, view.FindCreature(x.Id), includeDetails),
-                WorldObjectId.CreatureGroup x => InspectLookup(id, view.FindCreatureGroup(x.Id), includeDetails),
-                WorldObjectId.Lair x => InspectLookup(id, view.FindLair(x.Id), includeDetails),
-                _ => new(id, "unavailable", null, "未支持的公开对象身份。")
+                WorldObjectId.Node x => InspectLookup(id, view.FindNode(x.Id)),
+                WorldObjectId.Edge x => InspectLookup(id, view.FindEdge(x.Id)),
+                WorldObjectId.Train x => InspectLookup(id, view.FindTrain(x.Id)),
+                WorldObjectId.Instance x => InspectLookup(id, view.FindInstance(x.Id)),
+                WorldObjectId.Settlement x => InspectLookup(id, view.FindSettlement(x.Id)),
+                WorldObjectId.Inventory x => InspectLookup(id, view.FindInventory(x.Id)),
+                WorldObjectId.Job x => InspectLookup(id, view.FindJob(x.Id)),
+                WorldObjectId.Combat x => InspectLookup(id, view.FindCombat(x.Id)),
+                WorldObjectId.Creature x => InspectLookup(id, view.FindCreature(x.Id)),
+                WorldObjectId.CreatureGroup x => InspectLookup(id, view.FindCreatureGroup(x.Id)),
+                WorldObjectId.Lair x => InspectLookup(id, view.FindLair(x.Id)),
+                _ => new(id, InspectionStatus.Unavailable, null, "未支持的公开对象身份。")
             };
         }
         catch (Exception error)
         {
-            return new(id, "unavailable", null, $"查询或显示失败：{error.Message}");
+            return new(id, InspectionStatus.Unavailable, null, $"查询或显示失败：{error.Message}");
         }
     }
 
-    private static ObjectInspection InspectLookup<T>(WorldObjectId id, Lookup<T> lookup, bool includeDetails) where T : notnull
+    internal static bool Exists(ICoreReadView view, WorldObjectId id)
+    {
+        try
+        {
+            return id switch
+            {
+                WorldObjectId.Node x => view.FindNode(x.Id) is Lookup<NodeView>.Found,
+                WorldObjectId.Edge x => view.FindEdge(x.Id) is Lookup<EdgeView>.Found,
+                WorldObjectId.Train x => view.FindTrain(x.Id) is Lookup<TrainView>.Found,
+                WorldObjectId.Instance x => view.FindInstance(x.Id) is Lookup<InstanceView>.Found,
+                WorldObjectId.Settlement x => view.FindSettlement(x.Id) is Lookup<SettlementView>.Found,
+                WorldObjectId.Inventory x => view.FindInventory(x.Id) is Lookup<InventoryView>.Found,
+                WorldObjectId.Job x => view.FindJob(x.Id) is Lookup<JobView>.Found,
+                WorldObjectId.Combat x => view.FindCombat(x.Id) is Lookup<CombatView>.Found,
+                WorldObjectId.Creature x => view.FindCreature(x.Id) is Lookup<CreatureView>.Found,
+                WorldObjectId.CreatureGroup x => view.FindCreatureGroup(x.Id) is Lookup<CreatureGroupView>.Found,
+                WorldObjectId.Lair x => view.FindLair(x.Id) is Lookup<LairView>.Found,
+                _ => false
+            };
+        }
+        catch (Exception) { return false; }
+    }
+
+    private static ObjectInspection InspectLookup<T>(WorldObjectId id, Lookup<T> lookup) where T : notnull
         => lookup is Lookup<T>.Found found
-            ? new(id, "found", includeDetails ? JsonSerializer.Serialize(found.Value, found.Value.GetType(), JsonOptions) : null, null)
-            : new(id, "missing", null, "对象已失效；保留原身份。");
+            ? new(id, InspectionStatus.Found, JsonSerializer.Serialize(found.Value, found.Value.GetType(), JsonOptions), null)
+            : new(id, InspectionStatus.Missing, null, "对象已失效；保留原身份。");
 
     internal static ImmutableArray<CommandInspection> ReadCommands(ImmutableArray<RecordedCommand> commands,
         string? kind = null, string? result = null, WorldObjectId? subject = null)

@@ -43,6 +43,8 @@ public sealed class HostReplayTests
     public void OpenRetiresSessionKeepsSameInputHistoryAndRejectsMutablePorts()
     {
         using var run = new ReplayFixture();
+        var replacements = new List<(long Operation, bool Succeeded)>();
+        run.Host.Host.ReplacementCompleted += (operation, succeeded) => replacements.Add((operation, succeeded));
         var second = new FixedContentView(run.Host.Content.Core, new(2), new(2));
         run.History = [run.Host.Content, second];
         run.Open();
@@ -53,10 +55,11 @@ public sealed class HostReplayTests
         Assert.AreSame(second, run.Host.Host.Content);
         var status = run.Host.Host.GetStatus()!;
         Assert.IsTrue(status.IsReplay);
+        Assert.IsTrue(replacements.Single().Succeeded);
         Assert.AreEqual("replay_read_only", ((SubmissionResult.NotAccepted)run.Host.Host.Submit(status.Binding,
             new CoreCommand.StartTrain(new(1)), CommandSource.UserInterface)).Reason.Code);
         Assert.AreEqual("replay_read_only", run.Host.Host.BeginReload(CommandSource.Console).Problem?.Code);
-        Assert.AreEqual("replay_read_only", run.Host.Host.CaptureSave().Failure?.Code);
+        Assert.AreEqual("replay_read_only", run.Host.Host.SetSpeed(SimulationSpeed.Four)?.Code);
         using var saves = new SaveService(run.Host.Host, new FileSaveStore(Path.GetTempPath()));
         Assert.AreEqual("replay_read_only", saves.Save()?.Code);
         Assert.IsNull(run.Host.Host.ReadRecording(status.Binding));
@@ -70,18 +73,39 @@ public sealed class HostReplayTests
     public void ReaderAndMissingDependencyFailuresPreserveOriginalBinding()
     {
         using var run = new ReplayFixture();
+        var replacements = new List<bool>();
+        run.Host.Host.ReplacementCompleted += (_, succeeded) => replacements.Add(succeeded);
         var original = run.Host.Host.GetStatus()!.Binding;
         Assert.IsNull(run.Host.Host.BeginReplay("memory.zip", _ => throw new InvalidDataException("bad package")).Problem);
         run.Host.PumpUntil(() => !run.Host.Host.IsBusy);
         Assert.AreEqual(original, run.Host.Host.GetStatus()!.Binding);
-        StringAssert.Contains(run.Host.Host.ReplayMessage!, "bad package");
+        var readFailure = run.Host.Logs.Single(log => log.EventId == "host_replay_failed");
+        Assert.AreEqual("preparation_exception", readFailure.Attributes["code"]);
+        StringAssert.Contains(readFailure.Exception!.Message, "bad package");
         run.Host.Core.PrepareReplayCall = (_, _, _) => new CoreResult<ICoreReplay>.Failure(
             [new("content_missing", "ContentHistory", null, [])]);
         Assert.IsNull(run.Host.Host.BeginReplay("memory.zip", _ => run.Package).Problem);
         run.Host.PumpUntil(() => !run.Host.Host.IsBusy);
         Assert.AreEqual(original, run.Host.Host.GetStatus()!.Binding);
-        StringAssert.Contains(run.Host.Host.ReplayMessage!, "ContentHistory");
+        var preparationFailure = run.Host.Logs.Last(log => log.EventId == "host_replay_failed");
+        Assert.AreEqual("content_missing", preparationFailure.Attributes["code"]);
         Assert.AreEqual(0, run.Host.Session.DisposeCount);
+        CollectionAssert.AreEqual(new[] { false, false }, replacements);
+    }
+
+    [TestMethod]
+    public void FrozenReplayBoundaryRejectsExportBeforeCapturingOrWriting()
+    {
+        using var run = new ReplayFixture();
+        run.Open();
+        var fault = new CoreFault("recorded_fault", new(1, 0), "Advance", "Target", null);
+        run.Replay.QueueAdvance(1, null, new(ReplayStop.RecordedFault, fault.Position, [], null, fault),
+            ReplayFixture.View(fault.Position, fault));
+        run.Host.Host.AdvanceReplay(1);
+        using var saves = new SaveService(run.Host.Host, new FileSaveStore(Path.GetTempPath(),
+            (_, _) => Assert.Fail("冻结边界不应写入文件。"), (_, _, _) => Assert.Fail("冻结边界不应发布文件。")));
+        Assert.AreEqual("frozen", saves.Export(Path.Combine(Path.GetTempPath(), "frozen-boundary.train"))?.Code);
+        Assert.IsFalse(saves.HasPendingWork);
     }
 
     [TestMethod]
@@ -101,7 +125,7 @@ public sealed class HostReplayTests
         {
             var first = run.Host.Host.BeginReplay("late.zip", _ => run.Package);
             HostFixture.WaitForSignal(entered, "迟到候选已进入核心准备");
-            Assert.IsTrue(run.Host.Host.CancelReplay(first.Operation));
+            Assert.IsTrue(run.Host.Host.Cancel(first.Operation));
             run.ConfigureReplay();
             run.Open();
             var current = run.Host.Host.GetStatus()!.Binding;
@@ -123,7 +147,7 @@ public sealed class HostReplayTests
         run.Host.PumpUntil(() => run.Host.Host.GetStatus()?.IsReplay == true);
         var store = new FileSaveStore(Path.GetTempPath());
         using var saves = new SaveService(run.Host.Host, store, () => 0);
-        using var tools = new DeveloperTools(run.Host.Host, saves, store, () => 0);
+        using var tools = new DeveloperTools(run.Host.Host, saves, () => 0);
         run.Replay.QueueAdvance(1, null, new(ReplayStop.BudgetReached, new(1, 0), [], null, null), ReplayFixture.View(new(1, 0)));
         Assert.IsNull(tools.StartSteps(1));
         tools.Process();
@@ -146,7 +170,7 @@ public sealed class HostReplayTests
         run.Open();
         var store = new FileSaveStore(Path.GetTempPath());
         using var saves = new SaveService(run.Host.Host, store, () => 0);
-        using var tools = new DeveloperTools(run.Host.Host, saves, store);
+        using var tools = new DeveloperTools(run.Host.Host, saves);
         Assert.AreEqual("invalid-position", tools.AdvanceTo(new(1, 99))?.Code);
         Assert.IsFalse(tools.Running);
         tools.Process();
@@ -164,7 +188,7 @@ public sealed class HostReplayTests
             [new(new(1, 0), 0, new CoreEvent.TrainArrived(new(1), new(7)))], null, null), ReplayFixture.View(new(1, 0)));
         var store = new FileSaveStore(Path.GetTempPath());
         using var saves = new SaveService(run.Host.Host, store, () => 0);
-        using var tools = new DeveloperTools(run.Host.Host, saves, store);
+        using var tools = new DeveloperTools(run.Host.Host, saves);
         Assert.IsNull(tools.StartSteps(1));
         tools.Process();
         Assert.IsFalse(tools.Running);
@@ -192,8 +216,6 @@ public sealed class HostReplayTests
             Assert.AreSame(expected, result);
             Assert.AreEqual(position, run.Host.Host.GetStatus()!.View.Position);
             Assert.AreEqual((0U, (SimulationPosition?)position), run.Replay.AdvanceCalls.Single());
-            StringAssert.Contains(run.Host.Host.ReplayMessage!, stop.ToString());
-            if (difference is not null) StringAssert.Contains(run.Host.Host.ReplayMessage!, difference.Field);
             if (fault is not null) Assert.IsTrue(run.Host.Host.GetStatus()!.IsFrozen);
         }
     }

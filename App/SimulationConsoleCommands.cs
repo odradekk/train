@@ -27,12 +27,13 @@ internal sealed class SimulationConsoleCommands
 
     private readonly HostCoordinator _host;
     private readonly TrainLogger _logger;
-    private readonly DeveloperTools? _development;
+    private readonly DeveloperTools _development;
 
-    internal SimulationConsoleCommands(HostCoordinator host, TrainLogger logger, DeveloperTools? development = null)
+    internal SimulationConsoleCommands(HostCoordinator host, TrainLogger logger, DeveloperTools development)
     {
         ArgumentNullException.ThrowIfNull(host);
         ArgumentNullException.ThrowIfNull(logger);
+        ArgumentNullException.ThrowIfNull(development);
         _host = host;
         _logger = logger;
         _development = development;
@@ -144,42 +145,9 @@ internal sealed class SimulationConsoleCommands
             SessionUnavailable();
             return;
         }
-        if (_development is not null)
-        {
-            if (_development.CaptureCheckpoint("控制台检查点") is { } failure)
-                Log(LogLevel.Warning, CheckpointFailedEventId, failure.Message);
-            else ReportCheckpointValue(_development.Checkpoints[^1].Checkpoint);
-            return;
-        }
-        switch (_host.CaptureCheckpoint())
-        {
-            case CoreResult<ICoreCapture>.Success success:
-                ReportCheckpointValue(success.Value.Checkpoint);
-                return;
-            case CoreResult<ICoreCapture>.Failure failure:
-                Log(LogLevel.Warning, CheckpointFailedEventId,
-                    "检查点获取失败：" + string.Join("，", failure.Problems.Select(problem => $"{problem.Code}/{problem.Field}")) + "。",
-                    new Dictionary<string, object?>
-                    {
-                        ["problem_code"] = string.Join(",", failure.Problems.Select(problem => problem.Code)),
-                        ["problem_field"] = string.Join(",", failure.Problems.Select(problem => problem.Field))
-                    });
-                return;
-            case CoreResult<ICoreCapture>.Faulted faulted:
-                Log(LogLevel.Warning, CheckpointFailedEventId,
-                    $"检查点获取失败：{faulted.Fault.Code}/{faulted.Fault.Operation}/{faulted.Fault.Field}。",
-                    new Dictionary<string, object?>
-                    {
-                        ["fault_code"] = faulted.Fault.Code, ["operation"] = faulted.Fault.Operation,
-                        ["field"] = faulted.Fault.Field,
-                        ["fault_completed_steps"] = faulted.Fault.Position.CompletedSteps,
-                        ["fault_sequence"] = faulted.Fault.Position.Sequence,
-                        ["subject"] = faulted.Fault.Subject?.ToString(),
-                        ["diagnostic_message"] = faulted.Diagnostic?.Message,
-                        ["diagnostic_stack_trace"] = faulted.Diagnostic?.StackTrace
-                    });
-                return;
-        }
+        if (_development.CaptureCheckpoint("控制台检查点") is { } failure)
+            Log(LogLevel.Warning, CheckpointFailedEventId, failure.Message);
+        else ReportCheckpointValue(_development.Checkpoints[^1].Checkpoint);
     }
 
     private void ReportCheckpointValue(CoreCheckpoint checkpoint) => Log(LogLevel.Info, CheckpointEventId,
