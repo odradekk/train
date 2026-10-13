@@ -64,6 +64,7 @@ internal sealed class WorldLoader
         RejectDuplicates(_templates, t => t.Core.Id.Value, t => t.Path);
         RejectDuplicates(_rules, r => r.Id.Value, r => r.Path);
         RejectDuplicates(_profiles, p => p.Id.Value, p => p.Path);
+        var resolvedTerrains = new Dictionary<K.TerrainTypeId, ParsedTerrain>();
         var resolvedTemplates = new Dictionary<K.SettlementTemplateId, LoadedSettlementTemplate>();
         var resolvedProfiles = new Dictionary<C.GenerationProfileId, ParsedGenerationProfile>();
         int before;
@@ -91,12 +92,21 @@ internal sealed class WorldLoader
                     if (voxelIndex.TryGetValue(id, out var voxel) && voxel.Voxel.Definition.Good is not null)
                         package.Reject("reference_wrong_kind", terrain.Path, field, "地貌分层必须引用场景体素。", subject);
                 }
-                foreach (var decoration in a.Decorations) Scene(package, terrain.Path, subject, decoration.SceneModel.Value, "/decorations");
-                foreach (var model in a.RailwayModels)
+                var decorations = a.Decorations.Select(decoration =>
                 {
-                    Scene(package, terrain.Path, subject, model.Bridge.Value, "/railway_models");
-                    Scene(package, terrain.Path, subject, model.TunnelPortal.Value, "/railway_models");
-                }
+                    var model = Scene(package, terrain.Path, subject, decoration.SceneModel.Value, "/decorations");
+                    return decoration with { SceneModel = model?.Design ?? decoration.SceneModel };
+                }).ToImmutableArray();
+                var railwayModels = a.RailwayModels.Select(model =>
+                {
+                    var bridge = Scene(package, terrain.Path, subject, model.Bridge.Value, "/railway_models");
+                    var portal = Scene(package, terrain.Path, subject, model.TunnelPortal.Value, "/railway_models");
+                    return model with { Bridge = bridge?.Design ?? model.Bridge, TunnelPortal = portal?.Design ?? model.TunnelPortal };
+                }).ToImmutableArray();
+                if (Active(package)) resolvedTerrains[a.Id] = terrain with
+                {
+                    Appearance = a with { Decorations = decorations, RailwayModels = railwayModels }
+                };
             }
             foreach (var (package, type) in _types.Where(t => Active(t.Package)))
                 foreach (var terrain in type.Source.Core.PreferredTerrain)
@@ -205,7 +215,7 @@ internal sealed class WorldLoader
             }
         } while (packages.Count(p => Active(p)) < before);
 
-        return new(_terrains.Where(t => Active(t.Package)).Select(t => t.Value).OrderBy(t => t.Appearance.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
+        return new(_terrains.Where(t => Active(t.Package)).Select(t => resolvedTerrains[t.Value.Appearance.Id]).OrderBy(t => t.Appearance.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _types.Where(t => Active(t.Package)).Select(t => t.Value).OrderBy(t => t.Source.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _templates.Where(t => Active(t.Package)).Select(t => resolvedTemplates[t.Value.Core.Id]).OrderBy(t => t.Core.Id.Value, StringComparer.Ordinal).ToImmutableArray(),
             _rules.Where(r => Active(r.Package)).Select(r => r.Value).OrderBy(r => r.Id.Value, StringComparer.Ordinal).ToImmutableArray(),

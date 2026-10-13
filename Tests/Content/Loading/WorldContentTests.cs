@@ -11,6 +11,26 @@ namespace Train.Content.Tests.Loading;
 public sealed class WorldContentTests
 {
     [TestMethod]
+    public void Terrain_models_resolve_to_designs_available_in_the_fixed_view()
+    {
+        var fixture = WorldContentFixtures.Content();
+        var terrain = WorldContentFixtures.Terrain();
+        terrain["decorations"] = new JsonArray(new JsonObject { ["scene_model"] = "scene", ["weight"] = 3 });
+        terrain["decoration_target_per_square_meter"] = 0.1;
+        fixture.AddFile(ContentFixture.BuiltIn, "resources/terrain-types/plains.terrain-type.json", terrain.ToJsonString());
+        using var candidate = fixture.Load();
+        var appearance = Found(candidate.View.FindTerrain(new("core:plains")));
+        var expected = Design(candidate.View, "scene");
+        Assert.AreEqual(expected, appearance.Decorations.Single().SceneModel);
+        foreach (var model in appearance.RailwayModels)
+        {
+            Assert.AreEqual(expected, model.Bridge);
+            Assert.AreEqual(expected, model.TunnelPortal);
+            Assert.IsInstanceOfType<C.DesignEvaluation.Complete>(Found(candidate.View.FindDesign(model.Bridge)));
+        }
+    }
+
+    [TestMethod]
     public void Factory_publishes_world_definitions_and_resolves_generation_rules_and_ordered_fleet()
     {
         var fixture = WorldContentFixtures.Content();
