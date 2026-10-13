@@ -32,7 +32,6 @@ internal sealed class PngAssetInspector : IAssetInspector
             return CannotDecode("PNG 签名无效。");
 
         int width = 0, height = 0;
-        bool sawData = false, endedData = false;
         using var compressed = new MemoryStream();
         for (var offset = 8; offset < bytes.Length;)
         {
@@ -65,27 +64,13 @@ internal sealed class PngAssetInspector : IAssetInspector
                 return CannotDecode("PNG 必须以 IHDR 开始。");
             else if (type.SequenceEqual("IDAT"u8))
             {
-                if (endedData)
-                    return CannotDecode("PNG 的 IDAT 块必须连续。");
-                sawData = true;
                 compressed.Write(data);
             }
             else if (type.SequenceEqual("IEND"u8))
             {
-                if (!sawData || data.Length != 0 || offset != bytes.Length)
+                if (compressed.Length == 0 || data.Length != 0 || offset != bytes.Length)
                     return CannotDecode("PNG 结束块无效。");
                 return InspectPixels(width, height, compressed);
-            }
-            else
-            {
-                endedData |= sawData;
-                if (type.SequenceEqual("PLTE"u8))
-                {
-                    if (sawData || data.Length == 0 || data.Length > 768 || data.Length % 3 != 0)
-                        return CannotDecode("PNG 调色板无效。");
-                }
-                else if ((type[0] & 32) == 0)
-                    return CannotDecode("不支持的 PNG 关键块。");
             }
         }
         return CannotDecode("PNG 缺少 IEND。");
@@ -101,27 +86,15 @@ internal sealed class PngAssetInspector : IAssetInspector
         var expectedLength = rowLength * height;
         var buffer = new byte[8192];
         long total = 0;
-        uint a = 1, b = 0;
         int count;
         while ((count = decoded.Read(buffer)) != 0)
         {
             if (count > expectedLength - total)
                 return CannotDecode("PNG 像素数据长于尺寸所需长度。");
-            for (var i = 0; i < count; i++)
-            {
-                if ((total + i) % rowLength == 0 && buffer[i] > 4)
-                    return CannotDecode("PNG 行过滤类型无效。");
-                a = (a + buffer[i]) % 65521;
-                b = (b + a) % 65521;
-            }
             total += count;
         }
         if (total != expectedLength)
             return CannotDecode("PNG 像素数据短于尺寸所需长度。");
-        // ZLibStream 可能静默结束截断的流，因此还要校验压缩数据的校验尾。
-        var encoded = compressed.GetBuffer().AsSpan(0, (int)compressed.Length);
-        if (encoded.Length < 6 || BinaryPrimitives.ReadUInt32BigEndian(encoded[^4..]) != (b << 16 | a))
-            return CannotDecode("PNG 压缩数据校验值无效。");
         return new AssetInspection.Success(new AssetMetadata.Png(width, height));
     }
 

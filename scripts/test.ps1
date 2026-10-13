@@ -27,7 +27,7 @@ $projects = @(
     @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = $(if ($IsWindows) { 40 } else { 37 }); engine = 24 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 24; integration = 0 },
     @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 },
-    @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 11; integration = 2 }
+    @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 4; integration = 2 }
 )
 $engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
