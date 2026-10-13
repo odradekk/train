@@ -22,11 +22,11 @@ if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine',
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
     @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 245; integration = 4 },
-    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 189; integration = 7 },
-    @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 36; integration = 0 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 12; integration = 35; engine = 8 },
+    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 185; integration = 7 },
+    @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 51; integration = 0 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = 39; engine = 23 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 22; integration = 0 },
-    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 1; integration = 4 }
+    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 8; integration = 4 }
 )
 $engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
@@ -127,13 +127,14 @@ try {
     if ($layers.Count -eq 1 -and $layers[0] -eq 'stage') {
         $summary.selection = @{ mode = 'stage'; baseRef = $BaseRef; projects = @(); contracts = $true; isolation = $true; schema = $false }
     } else {
-        $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -Project $Project -Projects $projects -OutputDirectory $run
+        $summary.selection = Get-TestSelection -BaseRef $BaseRef -All:$All -ExportWindows:$ExportWindows -Project $Project -Projects $projects -OutputDirectory $run
     }
     $summary.selection.layers = $layers
     $summary.selection.exportWindows = [bool] $ExportWindows
     $projects = @($projects | Where-Object { $_.name -in $summary.selection.projects })
     $selectedLayers = @($layers | Where-Object {
-        $_ -in @('engine', 'stage') -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.isolation -or $summary.selection.schema))
+        if ($_ -eq 'engine') { $summary.selection.engine }
+        else { $_ -eq 'stage' -or $projects.Count -or ($_ -eq 'integration' -and ($summary.selection.contracts -or $summary.selection.isolation -or $summary.selection.schema)) }
     })
     if ($selectedLayers.Count -and ($projects.Count -or $summary.selection.contracts -or $summary.selection.isolation -or 'engine' -in $selectedLayers -or 'stage' -in $selectedLayers)) {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
@@ -228,6 +229,10 @@ try {
                 if ($ExportWindows) {
                     $arguments = @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))")
                     Invoke-Check export-smoke $current $pwsh $arguments ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
+                    Invoke-Check asset-export $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-asset-export.ps1',
+                        '-OutputDirectory', (Join-Path $run 'asset-export'), '-GameExecutablePath', $binary,
+                        '-TemplateAppData', $environment.APPDATA,
+                        '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))") ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 }
             }
             if ($current -ne 'stage' -and $watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
@@ -264,7 +269,30 @@ finally {
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name]) }
     $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json')
     if ($summary.outcome -eq 'passed') {
-        try { foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -ne 'summary.json')) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force } }
+        $retained = @('summary.json')
+        try {
+            if ($ExportWindows) {
+                foreach ($relative in @('exports', 'asset-export/staging', 'asset-export/export', 'asset-export/appdata',
+                    'asset-export/localappdata', 'asset-export/temp', 'asset-export/tmp')) {
+                    $ownedPath = [IO.Path]::GetFullPath((Join-Path $run $relative))
+                    if (-not $ownedPath.StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Export cleanup escaped the run directory.' }
+                    if (Test-Path -LiteralPath $ownedPath) { Remove-Item -LiteralPath $ownedPath -Recurse -Force }
+                }
+                $probeData = [IO.Path]::GetFullPath((Join-Path $run 'asset-export/probe-data'))
+                foreach ($artifact in (Get-ChildItem -LiteralPath $run -File -Recurse -Force)) {
+                    $inProbeData = $artifact.FullName.StartsWith($probeData + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+                    if ($artifact.Name -ne 'summary.json' -and -not $inProbeData -and $artifact.Extension -notin @('.log', '.jsonl') -and
+                        $artifact.Name -notlike '*.process.json' -and $artifact.Name -ne 'duration.json') {
+                        Remove-Item -LiteralPath $artifact.FullName -Force
+                    }
+                }
+                foreach ($directory in (Get-ChildItem -LiteralPath $run -Directory -Recurse -Force | Sort-Object { $_.FullName.Length } -Descending)) {
+                    if (-not (Get-ChildItem -LiteralPath $directory.FullName -Force)) { Remove-Item -LiteralPath $directory.FullName -Force }
+                }
+            } else {
+                foreach ($artifact in (Get-ChildItem -LiteralPath $run -Force | Where-Object Name -notin $retained)) { Remove-Item -LiteralPath $artifact.FullName -Recurse -Force }
+            }
+        }
         catch { $summary.outcome = 'failed'; $summary.error = "Cleanup failed: $($_.Exception.Message)"; $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json') }
     }
     $mutex.ReleaseMutex()

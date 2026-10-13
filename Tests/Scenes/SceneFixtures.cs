@@ -16,14 +16,20 @@ internal static class SceneFixtures
     internal static VoxelAppearanceProjection Cube => new(Voxel, AllowedVoxelOrientations.All24,
         new VoxelCollision.None(), new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, 1,
             new("tile"), new("tile"), new("tile"), new("tile")), new(false, null));
-    internal static FixedContentView Content(DesignEvaluation? evaluation = null, DesignHash? design = null) => new()
+    internal static VoxelAppearanceProjection TexturedCube(int span, bool front = false) => Cube with
+    {
+        Presentation = new VoxelPresentation.Cube([], MaterialCategory.PaintedMetal, span,
+            new("top"), new("side"), new("bottom"), new(front ? "front" : "side"))
+    };
+    internal static FixedContentView Content(DesignEvaluation? evaluation = null, DesignHash? design = null,
+        VoxelAppearanceProjection? appearance = null) => new()
     {
         Generation = new(1),
         Core = new(new("scenes-test"), [], [], [], [], [], [], [], [], [], [], [], [], [], []),
         Designs = evaluation is null ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>() :
             new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [design ?? Design] = new ContentLookup<DesignEvaluation>.Found(evaluation) },
         VoxelAppearances = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
-        { [Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(Cube) }
+        { [Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(appearance ?? Cube) }
     };
     internal static SceneVoxelProjection Cell(GridPosition at, int number = 1, bool missing = false,
         ImmutableArray<int> path = default, VoxelShape? shape = null) => new(at, Voxel,

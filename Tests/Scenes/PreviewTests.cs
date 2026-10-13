@@ -31,6 +31,30 @@ public sealed class PreviewTests
     }
 
     [TestMethod]
+    public void NestedPreviewUsesObjectLocalCoordinatesAndOrientationForTextures()
+    {
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(4));
+        var cell = SceneFixtures.Cell(new(1, 2, 3)) with { LocalOrientation = VoxelOrientation.PxPz, Shape = new VoxelShape("cube") };
+        var nestedCell = cell with { ObjectPath = [0], At = new(101, -42, 73), Orientation = VoxelOrientation.NzNy };
+        var nested = new NestedObjectProjection([0], new(100, -40, 70), VoxelOrientation.NxPy, new NestedObjectDetails.Assembly(null));
+        using var direct = ((SceneResult<IDesignPreview>.Success)ScenesFactory.Create().PreviewDesign(content,
+            SceneFixtures.Evaluation(SceneFixtures.Projection([cell])))).Value;
+        using var placed = ((SceneResult<IDesignPreview>.Success)ScenesFactory.Create().PreviewDesign(content,
+            SceneFixtures.Evaluation(SceneFixtures.Projection([nestedCell], [nested])))).Value;
+        var directFrame = ((SceneResult<ISceneFrame>.Success)direct.Present()).Value;
+        var nestedFrame = ((SceneResult<ISceneFrame>.Success)placed.Present()).Value;
+        var child = nestedFrame.Update.Upserts.Single(item => item.Parent is not null);
+        Assert.AreNotEqual(SceneFixtures.Identity, child.Pose);
+        var directMeshes = directFrame.Update.Upserts.SelectMany(item => item.Visuals).OfType<SceneVisual.Geometry>().ToArray();
+        var nestedMeshes = child.Visuals.OfType<SceneVisual.Geometry>().ToArray();
+        Assert.IsNotEmpty(directMeshes);
+        CollectionAssert.AreEqual(directMeshes.SelectMany(item => item.Mesh.Vertices).ToArray(),
+            nestedMeshes.SelectMany(item => item.Mesh.Vertices).ToArray());
+        CollectionAssert.AreEqual(directMeshes.Select(item => item.Mesh.Material).ToArray(),
+            nestedMeshes.Select(item => item.Mesh.Material).ToArray());
+    }
+
+    [TestMethod]
     public void PartialPreviewPreservesKnownCellAndUnknownCompositeSources()
     {
         var voxelReference = new ContentReference.Core(new CoreDefinitionReference.Voxel(SceneFixtures.Voxel));
