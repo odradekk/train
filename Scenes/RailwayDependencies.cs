@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 using Train.Scenes.Contracts;
@@ -10,6 +12,36 @@ internal enum RailwayModelRole { Decoration, Bridge, Tunnel }
 internal readonly record struct RailwayModelRead(TerrainTypeId Terrain, int Slot, RailwayModelRole Role);
 internal sealed class RailwayDependencies
 {
+    private static readonly JsonSerializerOptions ValueOptions = CreateValueOptions();
+
+    private static JsonSerializerOptions CreateValueOptions()
+    {
+        var resolver = new DefaultJsonTypeInfoResolver();
+        resolver.Modifiers.Add(info =>
+        {
+            if (info.Kind != JsonTypeInfoKind.Object) return;
+            var type = info.CreateJsonPropertyInfo(typeof(string), "$type");
+            type.Get = value => value.GetType().FullName;
+            info.Properties.Add(type);
+        });
+        return new() { TypeInfoResolver = resolver, Converters = { new RuntimeVariantConverterFactory() } };
+    }
+
+    private sealed class RuntimeVariantConverterFactory : JsonConverterFactory
+    {
+        public override bool CanConvert(Type type) => type.IsClass && type.IsAbstract;
+        public override JsonConverter CreateConverter(Type type, JsonSerializerOptions options) =>
+            (JsonConverter)Activator.CreateInstance(typeof(RuntimeVariantConverter<>).MakeGenericType(type))!;
+    }
+
+    private sealed class RuntimeVariantConverter<T> : JsonConverter<T> where T : class
+    {
+        public override T? Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) =>
+            throw new NotSupportedException("Railway dependency keys are only serialized.");
+        public override void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options) =>
+            JsonSerializer.Serialize(writer, value, value.GetType(), options);
+    }
+
     private readonly ImmutableArray<TerrainTypeId> terrains;
     private readonly ImmutableArray<RailwayModelRead> slots;
     private readonly ImmutableArray<DesignHash> models;
@@ -45,7 +77,7 @@ internal sealed class RailwayDependencies
                 values.Add(new object[] { t.Id, t.SurfaceVoxel, t.SubsurfaceVoxel, t.RockVoxel,
                     t.LocalHeightNoise, t.DecorationTargetPerSquareMeter, t.Decorations.Select(item => item.Weight).ToArray() });
             }
-            else values.Add(Missing(snapshot.Content.FindTerrain(id)));
+            else values.Add(snapshot.Content.FindTerrain(id));
         }
         foreach (var slot in slots)
         {
@@ -69,31 +101,20 @@ internal sealed class RailwayDependencies
                     s.Voxels.Select(v => new object?[] { v.At, v.Voxel, v.Orientation, v.Shape, v.Paint,
                         v.Number, v.Element, v.ObjectPath, v.LocalAt, v.LocalOrientation, v.Missing }).ToArray(),
                     s.NestedObjects.Select(item => new object[] { item.NestedItemIndices, item.At, item.Orientation, item.Details }).ToArray(),
-                    s.EditLocks.Select(item => new object?[] { item.Element, Reference(item.Reference), item.Package,
-                        item.BlockedOperations, Diagnostics(item.Diagnostics) }).ToArray(),
-                    Diagnostics(found.Value is DesignEvaluation.Complete c ? c.Diagnostics : ((DesignEvaluation.Partial)found.Value).Diagnostics) });
+                    s.EditLocks.Select(item => new object?[] { item.Element, item.Reference, item.Package,
+                        item.BlockedOperations, item.Diagnostics }).ToArray(),
+                    (found.Value is DesignEvaluation.Complete c ? c.Diagnostics : ((DesignEvaluation.Partial)found.Value).Diagnostics) });
             }
-            else values.Add(new object[] { hash, Missing(lookup) });
+            else values.Add(new object[] { hash, lookup });
         }
         foreach (var id in voxels)
         {
             var lookup = snapshot.Content.FindVoxelAppearance(id);
             values.Add(lookup is ContentLookup<VoxelAppearanceProjection>.Found found ?
                 new object[] { id, found.Value.AllowedOrientations, found.Value.Collision, found.Value.Presentation, found.Value.Behaviors } :
-                new object[] { id, Missing(lookup) });
+                new object[] { id, lookup });
         }
-        return JsonSerializer.Serialize(values);
+        return JsonSerializer.Serialize(values, ValueOptions);
     }
     private static object[] Terrain(TerrainView value) => [value.TypeId, value.Relief, value.FeatureIds];
-    private static object? Reference(ContentReference? value) => value is ContentReference.Core core ?
-        new object[] { "core", core.Definition } : value;
-    private static object Diagnostics(ImmutableArray<ContentDiagnostic> values) => values.Select(value =>
-        new object?[] { value.Code, value.Severity, value.Stage, Reference(value.Subject), value.Source,
-            value.Field, value.Element, value.Message }).ToArray();
-    private static object Missing<T>(ContentLookup<T> value) where T : notnull => value switch
-    {
-        ContentLookup<T>.Missing missing => new object[] { "missing", Diagnostics(missing.Diagnostics) },
-        ContentLookup<T>.Found { Value: DesignEvaluation.Failed failed } => new object[] { "failed", Diagnostics(failed.Diagnostics) },
-        _ => new object[] { "not_found" }
-    };
 }

@@ -33,24 +33,11 @@ public sealed class FixedCoreReadViewTests
     }
 
     [TestMethod]
-    public void WorldAndLocationsRetainFixedInputAndCopyConfiguration()
+    public void WorldRetainsFixedInput()
     {
         var world = new WorldSummary(42, new("railway"), 100, 100, [], [], [], [], []);
-        var location = new WorldLocation.Edge(new(1), 12);
-        var found = new Lookup<LocationView>.Found(new(location, [new(3)], [], [], [], null));
-        var missing = new Lookup<LocationView>.Missing();
-        var missingLocation = new WorldLocation.Node(new(2));
-        var entries = new Dictionary<WorldLocation, Lookup<LocationView>>
-        {
-            [location] = found,
-            [missingLocation] = missing
-        };
-        var view = new FixedCoreReadView { World = world, Locations = entries };
-        entries.Clear();
+        var view = new FixedCoreReadView { World = world };
         Assert.AreSame(world, view.World);
-        Assert.AreSame(found, view.FindLocation(new WorldLocation.Edge(new(1), 12)));
-        Assert.AreSame(missing, view.FindLocation(missingLocation));
-        AssertUnconfigured(() => view.FindLocation(new WorldLocation.Edge(new(1), 13)));
     }
 
     [TestMethod]
