@@ -177,6 +177,7 @@ internal sealed class SceneDisplay : IDisposable
                 Root.AddChild(new MeshInstance3D
                 {
                     Mesh = mesh, MaterialOverride = _material,
+                    CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
                     Position = ToGodot((region.Minimum + region.Maximum) / 2)
                 });
             }

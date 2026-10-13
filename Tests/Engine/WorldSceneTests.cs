@@ -98,8 +98,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
             var closeGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var factory = Factory(binding =>
             {
-                var next = Session(binding, sessions.Count == 0 ? [Success(Frame(1)), failure] : [Success(Frame(3))],
-                    sessions.Count == 0 ? closeGate.Task : null);
+                var id = sessions.Count == 0 ? SceneId : new SceneSessionId(Guid.NewGuid());
+                var next = Session(binding, sessions.Count == 0 ? [Success(Frame(1)), failure] : [Success(Frame(3, session: id))],
+                    sessions.Count == 0 ? closeGate.Task : null, id: id);
                 sessions.Add(next);
                 return next;
             });
@@ -188,7 +189,9 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
         var sessions = new List<FixedDisplaySession>();
         var factory = Factory(binding =>
         {
-            var session = Session(binding, [Success(Frame((ulong)sessions.Count + 1))], observe: [new SceneResult<SimulationPosition>.Success(new(0, 1))]);
+            var id = sessions.Count == 0 ? SceneId : new SceneSessionId(Guid.NewGuid());
+            var session = Session(binding, [Success(Frame((ulong)sessions.Count + 1, session: id))],
+                observe: [new SceneResult<SimulationPosition>.Success(new(0, 1))], id: id);
             sessions.Add(session);
             return session;
         });
@@ -285,25 +288,25 @@ public class WorldSceneTests(Node testScene) : TestClass(testScene)
     { OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(open(binding)) };
     private static FixedDisplaySession Session(SceneBinding binding, ImmutableArray<SceneResult<ISceneFrame>> frames,
         Task? close = null, ImmutableDictionary<SceneHit, SceneResult<PickSubject>>? resolve = null,
-        ImmutableArray<SceneResult<SimulationPosition>> observe = default) => new()
+        ImmutableArray<SceneResult<SimulationPosition>> observe = default, SceneSessionId? id = null) => new()
     {
-        Id = SceneId, Binding = binding, PresentResults = frames, DisposeGate = close,
+        Id = id ?? SceneId, Binding = binding, PresentResults = frames, DisposeGate = close,
         RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(Target,
             new SceneResult<SceneRequestId>.Success(new(1))),
         ResolveResults = resolve ?? ImmutableDictionary<SceneHit, SceneResult<PickSubject>>.Empty,
         ObserveResults = observe.IsDefault ? [] : observe
     };
     private static SceneResult<ISceneFrame> Success(ISceneFrame frame) => new SceneResult<ISceneFrame>.Success(frame);
-    private static SceneFrameStamp Stamp(ulong revision) => new(SceneId, new(1), new(1), revision);
+    private static SceneFrameStamp Stamp(ulong revision, SceneSessionId? session = null) => new(session ?? SceneId, new(1), new(1), revision);
     private static SceneObject Object(ulong id, SceneVisual? visual = null) => new(new(id), null,
         new(NVector3.Zero, System.Numerics.Quaternion.Identity), null,
         [visual ?? new SceneVisual.Geometry(Mesh, new(false, 0, 0, false))], [], []);
     private static FixedSceneFrame Frame(ulong revision, SceneFrameStamp? baseline = null,
         SceneReadiness readiness = SceneReadiness.Ready, ImmutableArray<SceneObject> objects = default,
         ScenePoint origin = default, NVector3 shift = default, ScenePick? pick = null,
-        ImmutableArray<SceneProblem> diagnostics = default) => new()
+        ImmutableArray<SceneProblem> diagnostics = default, SceneSessionId? session = null) => new()
     {
-        Update = new(baseline, Stamp(revision), shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
+        Update = new(baseline, Stamp(revision, session), shift, objects.IsDefault ? [Object(1)] : objects, [], new([], []), []),
         Origin = origin, Readiness = readiness, PickResult = pick,
         Diagnostics = diagnostics.IsDefault ? [] : diagnostics,
         TerrainHeightResult = new Lookup<double>.Missing()
