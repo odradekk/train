@@ -28,12 +28,11 @@ VEHICLES = (
 )
 
 
-def png(size, color):
+def png(size, pixel):
     def chunk(kind, data):
         return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
 
-    rows = (b"\0" + bytes(color) * size) * size if not callable(color) else b"".join(
-        b"\0" + b"".join(bytes(color(x, y)) for x in range(size)) for y in range(size))
+    rows = b"".join(b"\0" + b"".join(bytes(pixel(x, y)) for x in range(size)) for y in range(size))
     return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
             + chunk(b"IDAT", zlib.compress(rows, 9)) + chunk(b"IEND", b""))
 
@@ -53,11 +52,11 @@ def tint(color, change=0):
     return tuple(max(0, min(255, value + change)) for value in color) + (255,)
 
 
-def grain(x, y, size):
+def grain(x, y, size, seed):
     # 四角采样绕回同一张图，低频固有色纹样在平铺边界连续。
     def sample(dx, dy):
         ax, ay = (x // 8 + dx) % (size // 8), (y // 8 + dy) % (size // 8)
-        value = ax * 73856093 ^ ay * 19349663 ^ 0x374
+        value = ax * 73856093 ^ ay * 19349663 ^ seed
         value = (value ^ (value >> 13)) * 1274126177
         return ((value ^ (value >> 16)) & 255) / 255 - .5
     fx, fy = x % 8 / 8, y % 8 / 8
@@ -66,63 +65,92 @@ def grain(x, y, size):
                       + (sample(0, 1) * (1 - fx) + sample(1, 1) * fx) * fy))
 
 
+SOIL_PEBBLES = ((1, 24, 3), (15, 61, 2), (19, 109, 3), (29, 16, 2), (34, 85, 2),
+                (47, 45, 3), (51, 122, 2), (64, 73, 2), (71, 7, 3), (80, 101, 2),
+                (88, 36, 2), (100, 66, 3), (112, 114, 2), (120, 46, 2), (126, 91, 2))
+ROCK_BLOCKS = ((7, 18, -8), (13, 85, 9), (37, 49, 3), (43, 117, -4),
+               (61, 15, 11), (70, 84, -11), (87, 48, -3), (104, 113, 5), (120, 13, -6))
+
+
 def soil_texture(x, y):
-    return tint(SOIL, grain(x, y, 128))
+    for cx, cy, radius in SOIL_PEBBLES:
+        dx, dy = (x - cx + 64) % 128 - 64, (y - cy + 64) % 128 - 64
+        if dx * dx + 1.6 * dy * dy <= radius * radius:
+            return tint(tuple((a + b) // 2 for a, b in zip(SOIL, ROCK)), grain(x, y, 128, 0x501))
+    return tint(SOIL, grain(x, y, 128, 0x501))
 
 
 def grass_texture(x, y):
-    return tint(GRASS, grain(x, y, 128))
+    return tint(GRASS, grain(x, y, 128, 0x502))
 
 
 def roots_texture(x, y):
-    variation = grain(x, y, 128)
+    variation = grain(x, y, 128, 0x503)
     return tint(SOIL if variation < 3 else tuple((a + b) // 2 for a, b in zip(SOIL, GRASS)), variation)
 
 
 def rock_texture(x, y):
-    return tint(ROCK, grain(x, y, 128) * 2)
+    # 环面上的不规则石块边界形成裂纹；块面只改变固有色，不画方向性光影。
+    px, py = x + grain(x, y, 128, 0x504) / 2, y + grain(x, y, 128, 0x505) / 2
+    distances = sorted((((px - cx + 64) % 128 - 64) ** 2
+                        + ((py - cy + 64) % 128 - 64) ** 2, shade)
+                       for cx, cy, shade in ROCK_BLOCKS)
+    change = -26 if distances[1][0] - distances[0][0] < 45 else distances[0][1]
+    return tint(ROCK, change + grain(x, y, 128, 0x506) // 2)
 
 
 def plate_texture(x, y):
     seam = x % 128 in (0, 64)
     rivet = x % 64 == 3 and y % 16 in (4, 5)
-    return tint(BLUE, -10 if seam else -6 if rivet else grain(x, y, 128))
+    return tint(BLUE, -10 if seam else -6 if rivet else grain(x, y, 128, 0x507))
 
 
 def tread_texture(x, y):
-    return tint(BLUE, 6 if (x + y) % 16 in (2, 3) or (x - y) % 16 in (2, 3) else grain(x, y, 128))
+    return tint(BLUE, 6 if (x + y) % 16 in (2, 3) or (x - y) % 16 in (2, 3) else grain(x, y, 128, 0x508))
 
 
 def underside_texture(x, y):
     return tint((0x2b, 0x2e, 0x31))
 
 
-def bogie_texture(x, y):
-    return tint(GRAPHITE, 8 if y % 32 in range(12, 20) else grain(x, y, 64))
+def bogie_top_texture(x, y):
+    ax, ay = min(x, 63 - x), min(y, 63 - y)
+    seam = ax == 0 or ay == 0
+    rivet = ax % 16 in (3, 12) and ay % 16 in (3, 12)
+    return tint(GRAPHITE, -6 if seam else 8 if rivet else grain(min(ax, ay), max(ax, ay), 64, 0x509))
+
+
+def bogie_side_texture(x, y):
+    ax, ay = x % 32, y % 32
+    axle_box = 10 <= ax < 22 and 9 <= ay < 25
+    frame = 12 <= ay < 20 or (4 <= ax < 8 or 24 <= ax < 28) and 8 <= ay < 24
+    if axle_box:
+        return tint(GRAPHITE, 16 if ax in (10, 21) or ay in (9, 24) else 6)
+    return tint(GRAPHITE, 10 if frame else grain(x, y, 64, 0x510))
 
 
 def engine_texture(x, y):
-    return tint(BLUE, -22 if 4 <= x < 28 and y % 8 in (2, 3) else grain(x, y, 32))
+    return tint(BLUE, -22 if 4 <= x < 28 and y % 8 in (2, 3) else grain(x, y, 32, 0x511))
 
 
 def control_texture(x, y):
-    return tint(GLASS if 3 <= x < 29 else BLUE, grain(x, y, 32))
+    return tint(GLASS if 3 <= x < 29 else BLUE, grain(x, y, 32, 0x512))
 
 
 def storage_texture(x, y):
-    return tint(RED, -12 if x in (2, 3, 28, 29) else 8 if 23 <= x < 27 and 12 <= y < 18 else grain(x, y, 32))
+    return tint(RED, -12 if x in (2, 3, 28, 29) else 8 if 23 <= x < 27 and 12 <= y < 18 else grain(x, y, 32, 0x513))
 
 
 def grille_texture(x, y):
-    return tint(BLUE, -18 if x % 8 in (2, 3) and y % 8 in (2, 3) else grain(x, y, 32))
+    return tint(BLUE, -18 if x % 8 in (2, 3) and y % 8 in (2, 3) else grain(x, y, 32, 0x514))
 
 
 def equipment_roof_texture(x, y):
-    return tint(BLUE, grain(x, y, 32))
+    return tint(BLUE, grain(x, y, 32, 0x515))
 
 
 def storage_roof_texture(x, y):
-    return tint(RED, grain(x, y, 32))
+    return tint(RED, grain(x, y, 32, 0x516))
 
 
 def icon(identity):
@@ -199,31 +227,26 @@ def icon(identity):
 def style_assets(files):
     for name, size in (("vehicle-underside", 128), ("equipment-underside", 32), ("bogie-underside", 64)):
         files[f"voxels/shared/{name}.png"] = png(size, underside_texture)
-    textures = {
-        "ground": (4, "organic", grass_texture, roots_texture, "shared/subsoil.png"),
-        "subsoil": (4, "stone_soil", soil_texture, None, None),
-        "rock": (4, "stone_soil", rock_texture, None, None),
-        "structural-metal": (4, "painted_metal", tread_texture, plate_texture, "shared/vehicle-underside.png"),
-        "bogie": (2, "bare_metal", bogie_texture, None, "shared/bogie-underside.png"),
-        "propulsion-equipment": (1, "painted_metal", grille_texture, engine_texture, "shared/equipment-underside.png"),
-        "control-equipment": (1, "painted_metal", equipment_roof_texture, control_texture, "shared/equipment-underside.png"),
-        "storage-equipment": (1, "painted_metal", storage_roof_texture, storage_texture, "shared/equipment-underside.png"),
-    }
-    for identity, (span, material, top, side, bottom) in textures.items():
-        directory = f"voxels/{identity}"
-        top_path = "shared/subsoil.png" if identity == "subsoil" else "top.png"
-        files[f"voxels/{top_path}" if identity == "subsoil" else f"{directory}/{top_path}"] = png(32 * span, top)
+    files["voxels/shared/subsoil.png"] = png(128, soil_texture)
+    for identity, size, top, side in (
+        ("ground", 128, grass_texture, roots_texture),
+        ("rock", 128, rock_texture, None),
+        ("structural-metal", 128, tread_texture, plate_texture),
+        ("bogie", 64, bogie_top_texture, bogie_side_texture),
+        ("propulsion-equipment", 32, grille_texture, engine_texture),
+        ("control-equipment", 32, equipment_roof_texture, control_texture),
+        ("storage-equipment", 32, storage_roof_texture, storage_texture),
+    ):
+        files[f"voxels/{identity}/top.png"] = png(size, top)
         if side is not None:
-            files[f"{directory}/side.png"] = png(32 * span, side)
-        files[f"{directory}/icon.png"] = icon(identity)
-        path = f"voxels/{identity}.voxel.json"
-        value = json.loads(files[path])
-        value["appearance"]["presentation"].update(
-            material=material, tile_span=span,
-            faces={"top": top_path, "side": "side.png" if side is not None else top_path,
-                   "bottom": bottom if bottom is not None else top_path})
-        value["display"].update(icon="icon.png", description=f"{value['display']['name']}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。")
-        files[path] = (json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+            files[f"voxels/{identity}/side.png"] = png(size, side)
+    for identity in ("ground", "subsoil", "rock", "structural-metal", "bogie", "propulsion-equipment",
+                     "control-equipment", "storage-equipment"):
+        files[f"voxels/{identity}/icon.png"] = icon(identity)
+
+
+def faces(top, side=None, bottom=None):
+    return {"top": top, "side": side or top, "bottom": bottom or top}
 
 
 def keep_import(path):
@@ -313,17 +336,20 @@ def content_files():
     colors = {"soil": (125, 107, 76, 255),
               "organic": (99, 143, 81, 255), "equipment": (194, 148, 60, 255)}
     for material, color in colors.items():
-        files[f"voxels/shared/{material}-face.png"] = png(32, color)
-        files[f"voxels/shared/{material}-icon.png"] = png(128, color)
-    files["settlement-types/shared/agricultural-town.png"] = png(48, (226, 236, 220, 255))
+        files[f"voxels/shared/{material}-face.png"] = png(32, lambda x, y: color)
+        files[f"voxels/shared/{material}-icon.png"] = png(128, lambda x, y: color)
+    files["settlement-types/shared/agricultural-town.png"] = png(48, lambda x, y: (226, 236, 220, 255))
 
-    def voxel(identity, name, color, material, simulation=None, wheelset=False):
+    def voxel(identity, name, material, face_paths, icon_path, simulation=None, wheelset=False,
+              tile_span=None, description=None):
         value = {"schema_version": 3, "id": identity,
                  "appearance": {"allowed_orientations": "four_way",
                                 "presentation": {"kind": "cube", "material": material,
-                                                 "faces": {face: f"shared/{color}-face.png" for face in ("top", "side", "bottom")}}},
-                 "display": {"name": name, "description": f"{name}的第一版正式定义；数值待配平，占位贴图待美术制作。",
-                             "icon": f"shared/{color}-icon.png"}}
+                                                 "faces": face_paths}},
+                 "display": {"name": name, "description": description or f"{name}的第一版正式定义；数值待配平，占位贴图待美术制作。",
+                             "icon": icon_path}}
+        if tile_span is not None:
+            value["appearance"]["presentation"]["tile_span"] = tile_span
         if simulation is not None:
             value["simulation"] = simulation
         if wheelset:
@@ -336,23 +362,35 @@ def content_files():
             simulation["behaviors"] = behaviors
         return simulation
 
-    voxel("structural-metal", "结构金属", "metal", "bare_metal", good(64, 0.028, 260))
-    voxel("construction-material", "建材", "soil", "concrete", good(38, 0.046, 220))
-    voxel("bogie", "转向架", "metal", "bare_metal", good(156, 0.034, 240), wheelset=True)
-    voxel("platform-equipment", "站台设备", "equipment", "painted_metal", good(218, 0.024, behaviors={"platform": {}}))
-    voxel("propulsion-equipment", "柴油机组", "equipment", "painted_metal",
-          good(860, 1.12, behaviors={"propulsion": {"traction": 240, "rated_speed": 22}}))
-    voxel("control-equipment", "驾驶台", "equipment", "painted_metal", good(420, 0.018, behaviors={"control": {}}))
-    voxel("storage-equipment", "货舱", "equipment", "painted_metal", good(126, 0.016, behaviors={"storage": {"capacity": 180}}))
+    sample_description = "{}的第一阶段风格样稿；数值待配平，画面待用户阶段试玩确认。"
+    voxel("structural-metal", "结构金属", "painted_metal", faces("top.png", "side.png", "shared/vehicle-underside.png"),
+          "icon.png", good(64, 0.028, 260), tile_span=4, description=sample_description.format("结构金属"))
+    voxel("construction-material", "建材", "concrete", faces("shared/soil-face.png"),
+          "shared/soil-icon.png", good(38, 0.046, 220))
+    voxel("bogie", "转向架", "bare_metal", faces("top.png", "side.png", "shared/bogie-underside.png"),
+          "icon.png", good(156, 0.034, 240), wheelset=True, tile_span=2, description=sample_description.format("转向架"))
+    voxel("platform-equipment", "站台设备", "painted_metal", faces("shared/equipment-face.png"),
+          "shared/equipment-icon.png", good(218, 0.024, behaviors={"platform": {}}))
+    voxel("propulsion-equipment", "柴油机组", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
+          "icon.png", good(860, 1.12, behaviors={"propulsion": {"traction": 240, "rated_speed": 22}}),
+          tile_span=1, description=sample_description.format("柴油机组"))
+    voxel("control-equipment", "驾驶台", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
+          "icon.png", good(420, 0.018, behaviors={"control": {}}), tile_span=1, description=sample_description.format("驾驶台"))
+    voxel("storage-equipment", "货舱", "painted_metal", faces("top.png", "side.png", "shared/equipment-underside.png"),
+          "icon.png", good(126, 0.016, behaviors={"storage": {"capacity": 180}}),
+          tile_span=1, description=sample_description.format("货舱"))
     goods = (("staple-food", "主食", 12, 0.7), ("clothing", "衣物", 46, 0.8),
              ("prepared-food", "加工食品", 34, 0.6), ("consumer-goods", "日用品", 58, 1.4),
              ("consumer-electronics", "消费电子", 176, 1.6), ("medical-supplies", "医疗用品", 94, 0.4))
     for identity, name, value, mass in goods:
-        voxel(identity, name, "organic", "organic", good(value, mass))
-    voxel("stone", "石料", "soil", "stone_soil", good(18, 0.042, raw=True))
-    voxel("ground", "地表", "organic", "stone_soil")
-    voxel("subsoil", "土层", "soil", "stone_soil")
-    voxel("rock", "岩层", "soil", "stone_soil")
+        voxel(identity, name, "organic", faces("shared/organic-face.png"), "shared/organic-icon.png", good(value, mass))
+    voxel("stone", "石料", "stone_soil", faces("shared/soil-face.png"), "shared/soil-icon.png", good(18, 0.042, raw=True))
+    voxel("ground", "地表", "organic", faces("top.png", "side.png", "shared/subsoil.png"),
+          "icon.png", tile_span=4, description=sample_description.format("地表"))
+    voxel("subsoil", "土层", "stone_soil", faces("shared/subsoil.png"),
+          "icon.png", tile_span=4, description=sample_description.format("土层"))
+    voxel("rock", "岩层", "stone_soil", faces("top.png"),
+          "icon.png", tile_span=4, description=sample_description.format("岩层"))
     style_assets(files)
 
     for spec in VEHICLES:
@@ -484,9 +522,6 @@ def main():
     resources = args.output_dir / "resources"
     actual = {path.relative_to(resources).as_posix() for path in resources.rglob("*") if path.is_file()}
     extra = actual - files.keys()
-    retired = {f"voxels/shared/metal-{kind}.png{suffix}" for kind in ("face", "icon") for suffix in ("", ".import")}
-    if not args.check:
-        extra -= retired
     missing = files.keys() - actual
     if extra or (args.check and missing):
         for label, paths in (("多余", extra), ("缺少", missing if args.check else set())):
@@ -501,8 +536,6 @@ def main():
             return 1
         check_schemas(files)
     else:
-        for path in actual & retired:
-            (resources / path).unlink()
         for path, data in files.items():
             target = resources / path
             target.parent.mkdir(parents=True, exist_ok=True)
