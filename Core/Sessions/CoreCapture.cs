@@ -91,6 +91,10 @@ internal sealed class CoreCapture : ICoreCapture
         {
             return new CoreResult<ICoreCapture>.Failure([new("unsupported_format", "", null, [])]);
         }
+        catch (InvalidOperationException)
+        {
+            return new CoreResult<ICoreCapture>.Failure([new("invalid_state", "", null, [])]);
+        }
     }
 
     private void WriteBoundary(Utf8JsonWriter writer)
@@ -104,6 +108,27 @@ internal sealed class CoreCapture : ICoreCapture
         writer.WritePropertyName("world");
         WorldJson.Write(writer, World);
         writer.WriteEndObject();
+    }
+
+    internal static CoreProblem? ValidateCheckpoint(CoreCheckpoint checkpoint)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(checkpoint.CanonicalText);
+            var root = document.RootElement;
+            Object(root, "", "position", "next_command_number", "fault", "world");
+            if (ReadPosition(root.GetProperty("position"), "/position") != checkpoint.Position)
+                return new("invalid_state", "/position", null, []);
+            Unsigned(root.GetProperty("next_command_number"), "/next_command_number", nonzero: true);
+            ReadFault(root.GetProperty("fault"));
+            WorldJson.Read(root.GetProperty("world"));
+            if (Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(checkpoint.CanonicalText))) != checkpoint.Sha256)
+                return new("invalid_state", "Sha256", null, []);
+            return null;
+        }
+        catch (CoreStateFormatException error) { return new("invalid_state", error.Field, null, []); }
+        catch (JsonException) { return new("unsupported_format", "CanonicalText", null, []); }
+        catch (InvalidOperationException) { return new("invalid_state", "", null, []); }
     }
 
     private static void WritePosition(Utf8JsonWriter writer, SimulationPosition position)
