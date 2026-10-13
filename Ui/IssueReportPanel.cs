@@ -93,7 +93,10 @@ public partial class IssueReportPanel : Window
         Refresh();
     }
 
-    public override void _Process(double delta) => RefreshStatus();
+    public override void _Process(double delta)
+    {
+        if (Visible) RefreshStatus();
+    }
 
     public override void _ExitTree()
     {
@@ -102,6 +105,7 @@ public partial class IssueReportPanel : Window
 
     private void Refresh()
     {
+        if (!Visible) return;
         RefreshStatus();
         _message.Text = _service?.LastMessage ?? "";
     }
@@ -110,9 +114,10 @@ public partial class IssueReportPanel : Window
     {
         var status = _service?.Status;
         _status.Text = status is null ? "当前没有活动会话" :
-            status.Incomplete || !status.Gaps.IsEmpty ? "录制不完整" :
+            status.Frozen ? "录制已停止在故障边界（核心已冻结，仍可导出）" :
+            status.Incomplete ? "录制不完整" :
             !status.HasUsableStart ? "尚无可用起点" : "正在录制";
-        if (status is { Frozen: true }) _status.Text += "（核心已冻结，仍可导出）";
+        if (status is { Frozen: true, Incomplete: true }) _status.Text += " · 录制不完整";
         _range.Text = status is null ? "" : $"录制范围：{FormatPosition(status.From)} → {FormatPosition(status.Until)}";
         _gaps.Text = status is null || status.Gaps.IsEmpty ? "没有已记录的缺口" :
             "录制缺口：\n" + string.Join("\n", status.Gaps.Select(gap =>

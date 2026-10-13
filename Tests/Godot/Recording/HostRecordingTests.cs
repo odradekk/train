@@ -77,20 +77,24 @@ public sealed class HostRecordingTests
         };
         var binding = fixture.Host.GetStatus()!.Binding;
         void Capture() => Assert.IsNull(fixture.Host.CaptureRecording(binding, Window(fixture)).Failure);
-        Capture();
+        var held = fixture.Host.CaptureRecording(binding, Window(fixture)).Snapshot!;
         CollectionAssert.AreEqual(new IContentView[] { fixture.Content, revision, copied }, retained.ToArray());
-        fixture.Host.ReleaseRecordingHistory([]);
+        session.ConfirmRecordingStartCall = (_, _) => new([], []);
+        fixture.Host.ConfirmRecordingStart(binding, new(1), RecordingWriteOutcome.PublishedWithDependencies);
         Capture();
         Assert.AreEqual(3, retained.Length, "没有 ReleasedInputs 时不能释放旧视图。");
         session.ConfirmRecordingStartCall = (_, _) => new([fixture.Content.Core.Identity], []);
-        fixture.Host.BeginRecordingWrite(binding, new(1));
-        fixture.Host.ConfirmRecordingStart(binding, new(1), RecordingWriteOutcome.PublishedWithDependencies, [fixture.Content]);
-        Capture();
-        CollectionAssert.AreEqual(new IContentView[] { fixture.Content, copied }, retained.ToArray());
-        fixture.Host.ReleaseRecordingHistory([]);
+        session.CaptureRecordingStartCall = () => new CoreResult<RecordingStart>.Success(
+            new(new(2), fixture.Capture(new(0, 1))));
+        var next = fixture.Host.CaptureRecordingStart(binding);
+        Assert.IsInstanceOfType<CoreResult<RecordingStart>.Success>(next);
+        fixture.Host.ConfirmRecordingStart(binding, ((CoreResult<RecordingStart>.Success)next).Value.Id,
+            RecordingWriteOutcome.PublishedWithDependencies);
         Capture();
         Assert.AreEqual(1, retained.Length);
         Assert.AreSame(copied, retained[0], "当前视图不能因 ReleasedInputs 被释放。");
+        CollectionAssert.AreEqual(new IContentView[] { fixture.Content, revision, copied }, held.Content.History.ToArray(),
+            "已捕获资料持有自己的历史，不受活动历史释放影响。");
         fixture.AssertNoUnexpectedFailures();
     }
 

@@ -77,6 +77,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
             {
                 FaultSegments = manifest.FaultSegments.Select((f, i) =>
                 {
+                    if (f is null) throw new InvalidDataException("故障片段为空。");
                     if (!f.Commands.IsEmpty) throw new InvalidDataException("故障命令必须来自 JSONL。");
                     return f with { Commands = DecodeCommands(ReadEntry(zip, $"faults/{i}/commands.jsonl")) };
                 }).ToImmutableArray()
@@ -87,7 +88,7 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
                 throw new InvalidDataException("录制 ZIP 读回值与写入快照不一致。");
         }
         catch (Exception error) when (error is JsonException or NotSupportedException or DecoderFallbackException
-            or ArgumentException or NullReferenceException or InvalidOperationException)
+            or ArgumentException or InvalidOperationException)
         {
             throw new InvalidDataException("录制 ZIP 无法解码。", error);
         }
@@ -123,18 +124,14 @@ internal sealed record RecordingPackage(RecordingPackage.Manifest Header,
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(info =>
         {
-            JsonDerivedType[] variants = info.Type switch
-            {
-                var t when t == typeof(CommandDecision) => [new(typeof(CommandDecision.Accepted), "accepted"), new(typeof(CommandDecision.Rejected), "rejected"), new(typeof(CommandDecision.Faulted), "faulted")],
-                var t when t == typeof(WorldObjectId) => [new(typeof(WorldObjectId.Node), "node"), new(typeof(WorldObjectId.Edge), "edge"), new(typeof(WorldObjectId.Train), "train"), new(typeof(WorldObjectId.Instance), "instance"), new(typeof(WorldObjectId.Settlement), "settlement"), new(typeof(WorldObjectId.Inventory), "inventory"), new(typeof(WorldObjectId.Job), "job"), new(typeof(WorldObjectId.Combat), "combat"), new(typeof(WorldObjectId.Creature), "creature"), new(typeof(WorldObjectId.CreatureGroup), "creature_group"), new(typeof(WorldObjectId.Lair), "lair")],
-                var t when t == typeof(InstanceId) => [new(typeof(InstanceId.Vehicle), "vehicle"), new(typeof(InstanceId.Building), "building")],
-                var t when t == typeof(CoreDefinitionReference) => [new(typeof(CoreDefinitionReference.Voxel), "voxel"), new(typeof(CoreDefinitionReference.Composite), "composite"), new(typeof(CoreDefinitionReference.Process), "process"), new(typeof(CoreDefinitionReference.Rule), "rule"), new(typeof(CoreDefinitionReference.SettlementType), "settlement_type"), new(typeof(CoreDefinitionReference.Template), "template"), new(typeof(CoreDefinitionReference.Terrain), "terrain"), new(typeof(CoreDefinitionReference.Creature), "creature"), new(typeof(CoreDefinitionReference.Lair), "lair")],
-                var t when t == typeof(ProcessRef) => [new(typeof(ProcessRef.Production), "production"), new(typeof(ProcessRef.Recovery), "recovery")],
-                _ => []
-            };
+            if (info.Type.Assembly != typeof(CommandDecision).Assembly || !info.Type.IsAbstract) return;
+            var variants = info.Type.GetNestedTypes()
+                .Where(type => type.IsSealed && info.Type.IsAssignableFrom(type)).ToArray();
             if (variants.Length == 0) return;
             info.PolymorphismOptions = new() { TypeDiscriminatorPropertyName = "$kind" };
-            foreach (var variant in variants) info.PolymorphismOptions.DerivedTypes.Add(variant);
+            foreach (var variant in variants)
+                info.PolymorphismOptions.DerivedTypes.Add(new JsonDerivedType(variant,
+                    JsonNamingPolicy.SnakeCaseLower.ConvertName(variant.Name)));
         });
         return new()
         {

@@ -10,7 +10,6 @@ internal sealed record RecordingStatus(SimulationPosition From, SimulationPositi
 
 internal sealed class RecordingService : IDisposable
 {
-    internal const int RetainedStarts = 3;
     internal const ulong StartIntervalSteps = 18_000;
     private readonly HostCoordinator _host;
     private readonly ulong _interval;
@@ -74,8 +73,7 @@ internal sealed class RecordingService : IDisposable
             if (completed.Point is { } point)
             {
                 _host.ConfirmRecordingStart(completed.Snapshot.Binding, point,
-                    result.Published ? RecordingWriteOutcome.PublishedWithDependencies : RecordingWriteOutcome.Failed,
-                    PendingHistory());
+                    result.Published ? RecordingWriteOutcome.PublishedWithDependencies : RecordingWriteOutcome.Failed);
                 if (_binding == completed.Snapshot.Binding)
                 {
                     _hasUsableStart |= result.Published;
@@ -86,7 +84,6 @@ internal sealed class RecordingService : IDisposable
                 _faultFailure = $"故障证据写入失败：{result.Message ?? result.Code}";
             LastMessage = result.Published ? $"复现资料已写入：{completed.Path}" : $"复现资料写入失败：{result.Message ?? result.Code}";
             if (result.CleanupMessage is { } cleanup) LastMessage += $"\n{cleanup}";
-            _host.ReleaseRecordingHistory(PendingHistory());
             Changed?.Invoke();
         }
         if (_pending is not null) return;
@@ -117,11 +114,10 @@ internal sealed class RecordingService : IDisposable
         }
         _initialized = true;
         _lastStart = start.State.Position.CompletedSteps;
-        _host.BeginRecordingWrite(status.Binding, start.Id);
-        var (snapshot, failure) = Capture(status.Binding, _window);
+        var (snapshot, failure) = _host.CaptureRecording(status.Binding, _window);
         if (failure is not null)
         {
-            _host.ConfirmRecordingStart(status.Binding, start.Id, RecordingWriteOutcome.Failed, PendingHistory());
+            _host.ConfirmRecordingStart(status.Binding, start.Id, RecordingWriteOutcome.Failed);
             _window = _host.ReadRecording(status.Binding);
             Fail(failure.Code, failure.Message);
             return;
@@ -136,15 +132,10 @@ internal sealed class RecordingService : IDisposable
         ObserveBinding(binding);
         var window = _host.ReadRecording(binding)!;
         _window = window;
-        foreach (var segment in window.FaultSegments)
-        {
-            var fragment = new CoreRecordingWindow(segment.Fault.Position, [segment.Start], segment.Commands,
-                segment.Checkpoints, [segment], window.Gaps, segment.RequiredReferences);
-            var (snapshot, failure) = Capture(binding, fragment);
-            if (failure is not null)
-            { _faultFailure = $"故障证据捕获失败：{failure.Message}"; Fail(failure.Code, _faultFailure); continue; }
-            _faults.Enqueue((snapshot!, Path.Combine(EvidenceDirectory, $"fault-{binding.Session:N}-{Guid.NewGuid():N}.zip")));
-        }
+        var (snapshot, failure) = _host.CaptureRecording(binding, window);
+        if (failure is not null)
+        { _faultFailure = $"故障证据捕获失败：{failure.Message}"; Fail(failure.Code, _faultFailure); return; }
+        _faults.Enqueue((snapshot!, Path.Combine(EvidenceDirectory, $"fault-{binding.Session:N}-{Guid.NewGuid():N}.zip")));
     }
 
     private void ObserveBinding(HostBinding? binding)
@@ -160,33 +151,22 @@ internal sealed class RecordingService : IDisposable
         if (_host.GetStatus() is not { } status) return Fail("no-session", "当前没有对局。");
         if (File.Exists(path) && !overwriteConfirmed) return Fail("overwrite-confirmation", "目标文件已存在，请确认覆盖。");
         var window = _host.ReadRecording(status.Binding)!;
-        var (snapshot, failure) = Capture(status.Binding, window);
+        var (snapshot, failure) = _host.CaptureRecording(status.Binding, window);
         if (failure is not null) return Fail(failure.Code, failure.Message);
         _window = window;
         StartWrite(snapshot!, path, overwriteConfirmed);
         return null;
     }
 
-    private (RecordingSnapshot? Snapshot, SaveFailure? Failure) Capture(HostBinding binding, CoreRecordingWindow window)
-    {
-        try { return _host.CaptureRecording(binding, window); }
-        catch (Exception error) { return (null, new("capture-fault", error.Message)); }
-    }
-
     private void StartWrite(RecordingSnapshot snapshot, string path, bool overwrite,
         RecordingPointId? point = null, bool fault = false)
     {
         var cancellation = new CancellationTokenSource();
-        Task<FileWriteResult> work;
-        try { work = _write(snapshot, path, overwrite, cancellation.Token); }
-        catch (Exception error) { work = Task.FromResult(new FileWriteResult(false, "recording-fault", error.Message)); }
+        var work = _write(snapshot, path, overwrite, cancellation.Token);
         _pending = new(snapshot, Path.GetFullPath(path), point, fault, cancellation, work);
         LastMessage = "正在写入复现资料…";
         Changed?.Invoke();
     }
-
-    private ImmutableArray<IContentView> PendingHistory() => _faults.SelectMany(fault => fault.Snapshot.Content.History)
-        .Concat(_pending?.Snapshot.Content.History ?? []).ToImmutableArray();
 
     private SaveFailure Fail(string code, string message)
     { LastMessage = message; Changed?.Invoke(); return new(code, message); }

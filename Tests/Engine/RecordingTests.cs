@@ -72,7 +72,8 @@ public class RecordingTests(Node testScene) : TestClass(testScene)
             var faultPath = Directory.GetFiles(recording.EvidenceDirectory,
                 $"fault-{app.Host.GetStatus()!.Binding.Session:N}-*.zip").Single();
             Package(window).Validate(faultPath);
-            Require(Labels(panel).Any(label => label.Text.Contains("核心已冻结", StringComparison.Ordinal)) &&
+            Require(Labels(panel).Any(label => label.Text == "录制已停止在故障边界（核心已冻结，仍可导出）") &&
+                !Labels(panel).Any(label => label.Text.Contains("正在录制", StringComparison.Ordinal)) &&
                 !panel.FindChildren("*", "Button", true, false).Cast<Button>().Single(candidate => candidate.Text == "导出复现 ZIP").Disabled,
                 "冻结后报告入口或导出被禁用。");
             panel.Export(Path.Combine(exportDirectory, "frozen-report.zip"));

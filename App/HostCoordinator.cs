@@ -29,7 +29,6 @@ internal sealed class HostCoordinator : IDisposable
     private readonly Func<double>? _seconds;
     private readonly int _owner = Environment.CurrentManagedThreadId;
     private readonly List<PendingOperation> _abandoned = [];
-    private readonly List<ActiveGroup> _retired = [];
     private ActiveGroup? _active;
     private IContentView? _content;
     private PendingOperation? _pending;
@@ -128,16 +127,7 @@ internal sealed class HostCoordinator : IDisposable
         EnsureOwner();
         if (MutationProblem() is { } problem) return new CoreResult<RecordingStart>.Failure([problem]);
         if (_active!.Binding != binding) return new CoreResult<RecordingStart>.Failure([Problem("content_changed")]);
-        if (_active.PendingStarts.Count != 0) return new CoreResult<RecordingStart>.Failure([Problem("busy")]);
         return _active.Core.CaptureRecordingStart();
-    }
-
-    internal void BeginRecordingWrite(HostBinding binding, RecordingPointId point)
-    {
-        EnsureOwner();
-        if (_active is not { } group || group.Binding != binding) throw new InvalidOperationException("录制绑定已失效。");
-        if (group.PendingStarts.Count != 0 || !group.PendingStarts.Add(point))
-            throw new InvalidOperationException("已有未确认的录制起点。");
     }
 
     internal (RecordingSnapshot? Snapshot, SaveFailure? Failure) CaptureRecording(
@@ -157,24 +147,14 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     internal void ConfirmRecordingStart(HostBinding binding, RecordingPointId point,
-        RecordingWriteOutcome outcome, ImmutableArray<IContentView> pendingHistory)
+        RecordingWriteOutcome outcome)
     {
         EnsureOwner();
-        var group = _active?.Binding == binding ? _active : _retired.SingleOrDefault(old => old.Binding == binding);
-        if (group is null || !group.PendingStarts.Remove(point)) return;
+        if (_active is not { } group || group.Binding != binding) return;
         var result = group.Core.ConfirmRecordingStart(point, outcome);
         group.ReleasedInputs.UnionWith(result.ReleasedInputs);
-        ReleaseRecordingHistory(pendingHistory);
-        if (_retired.Contains(group) && group.PendingStarts.Count == 0)
-        { _retired.Remove(group); group.Core.Dispose(); }
-    }
-
-    internal void ReleaseRecordingHistory(ImmutableArray<IContentView> pendingHistory)
-    {
-        EnsureOwner();
-        if (_active is not { } group) return;
         group.History.RemoveAll(view => group.ReleasedInputs.Contains(view.Core.Identity)
-            && !ReferenceEquals(view, group.Content) && !pendingHistory.Any(pending => ReferenceEquals(pending, view)));
+            && !ReferenceEquals(view, group.Content));
     }
 
     internal SaveStatus? GetSaveStatus()
@@ -255,7 +235,7 @@ internal sealed class HostCoordinator : IDisposable
             throw new InvalidOperationException("离开对局需要先取得离开保护锁。");
         var old = _active;
         _active = null;
-        Retire(old);
+        old?.Core.Dispose();
     }
 
     private CoreResult<ICoreCapture> CaptureCurrent()
@@ -523,7 +503,7 @@ internal sealed class HostCoordinator : IDisposable
                         new Dictionary<string, object?> { ["operation_id"] = operation.Id, ["code"] = problem.Code,
                             ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }, null);
                 Dispatch([]);
-                try { Retire(old); }
+                try { old?.Core.Dispose(); }
                 catch (Exception exception) { LogHostFailure("host_retirement_failed", exception); }
             }
         }
@@ -714,22 +694,8 @@ internal sealed class HostCoordinator : IDisposable
         _disposed = true;
         foreach (var operation in _abandoned) _ = CleanAfterClose(operation);
         _abandoned.Clear();
-        foreach (var group in _retired.Concat(_active is { } active ? new[] { active } : []))
-        {
-            foreach (var point in group.PendingStarts)
-                group.Core.ConfirmRecordingStart(point, RecordingWriteOutcome.Failed);
-            group.Core.Dispose();
-        }
-        _retired.Clear();
+        _active?.Core.Dispose();
         _active = null; _content = null;
-    }
-
-    private void Retire(ActiveGroup? group)
-    {
-        if (group is null) return;
-        // 旧局的已开始起点写入仍须在协调线程确认，再释放其核心会话。
-        if (group.PendingStarts.Count != 0) _retired.Add(group);
-        else group.Core.Dispose();
     }
 
     private sealed class ActiveGroup(ICoreSession core, IContentView content, SimulationFrameDriver driver,
@@ -744,7 +710,6 @@ internal sealed class HostCoordinator : IDisposable
         internal SaveRevision? Saved { get; set; }
         internal RuntimeIdentity Runtime { get; } = runtime;
         internal List<IContentView> History { get; } = [content];
-        internal HashSet<RecordingPointId> PendingStarts { get; } = [];
         internal HashSet<CoreInputId> ReleasedInputs { get; } = [];
         internal void Retain(IContentView view)
         {

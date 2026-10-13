@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.App.Recording;
 using Train.Content.Contracts;
@@ -73,6 +74,12 @@ public sealed class RecordingPackageTests
             zip => Replace(zip, "manifest.json", text => text.Replace("\"FormatVersion\":1", "\"FormatVersion\":2")),
             zip => Replace(zip, "manifest.json", text => text.Replace("hash-unmodified", "different-hash")),
             zip => Replace(zip, "manifest.json", text => text.Replace("fault-only", "lost-reference")),
+            zip => Replace(zip, "manifest.json", text =>
+            {
+                var manifest = JsonNode.Parse(text)!;
+                manifest["FaultSegments"]![0] = null;
+                return manifest.ToJsonString();
+            }),
             zip => Replace(zip, "commands.jsonl", text => text.Replace("related", "lost-identity")),
             zip => Replace(zip, "commands.jsonl", text => text.Replace("\"$kind\":\"accepted\"", "\"$kind\":\"unknown\"")),
             zip => Replace(zip, "commands.jsonl", text => text.TrimEnd('\n')),
