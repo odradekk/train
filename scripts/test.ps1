@@ -21,10 +21,10 @@ if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $Is
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
-    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 479; integration = $(if ($IsWindows) { 10 } else { 7 }) },
-    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 507; integration = 7 },
+    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 481; integration = $(if ($IsWindows) { 10 } else { 7 }) },
+    @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 511; integration = 7 },
     @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 167; integration = 0 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = $(if ($IsWindows) { 40 } else { 37 }); engine = 24 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 102; integration = $(if ($IsWindows) { 79 } else { 71 }); engine = 67 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 24; integration = 0 },
     @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 },
     @{ name = 'cli'; path = 'Tests/Cli/Train.Cli.Tests.csproj'; fast = 4; integration = $(if ($IsWindows) { 7 } else { 3 }) }
