@@ -26,7 +26,7 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
             var result = files.Read(key, MaximumBytes);
             if (result is C.ContentIoResult<ImmutableArray<byte>>.Failure failure)
             {
-                package.Reject(ContentDocument.IoCode(failure.Kind), path, field, failure.Diagnostic, subject);
+                package.RejectAsset(ContentDocument.IoCode(failure.Kind), path, field, failure.Diagnostic, subject);
                 return null;
             }
             var bytes = ((C.ContentIoResult<ImmutableArray<byte>>.Success)result).Value;
@@ -34,7 +34,7 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
             var inspected = inspector.Inspect(kind, revision, bytes);
             if (inspected is C.AssetInspection.Failure inspectionFailure)
             {
-                package.Reject(inspectionFailure.Kind == C.AssetInspectionFailure.CannotDecode ? "asset_decode_failed" : "asset_unsupported",
+                package.RejectAsset(inspectionFailure.Kind == C.AssetInspectionFailure.CannotDecode ? "asset_decode_failed" : "asset_unsupported",
                     path, field, inspectionFailure.Diagnostic, subject);
                 return null;
             }
@@ -49,7 +49,7 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
     {
         if (asset.Metadata is C.AssetMetadata.Png { Width: > 0 } png && png.Width == png.Height && png.Width % 24 == 0)
             return true;
-        package.Reject("asset_rule_failed", asset.Sources.First(s => s.Package == package.Metadata!.Id).Path,
+        package.RejectAsset("asset_rule_failed", asset.Sources.First(s => s.Package == package.Metadata!.Id).Path,
             "/display/map_symbol", "地图符号必须是边长为 24 的整数倍的正方形 PNG。", subject);
         return false;
     }
@@ -130,6 +130,6 @@ internal sealed class AssetLoader(C.IContentFiles files, C.IAssetInspector inspe
     }
 
     internal static void Reject(C.ContentAsset asset, LoadPackage package, ParsedVoxel voxel, string field, string message) =>
-        package.Reject("asset_rule_failed", asset.Sources[0].Path, field, message,
+        package.RejectAsset("asset_rule_failed", asset.Sources[0].Path, field, message,
             new C.ContentReference.Core(new Train.Core.Contracts.CoreDefinitionReference.Voxel(voxel.Definition)));
 }
