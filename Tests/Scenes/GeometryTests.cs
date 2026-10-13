@@ -53,9 +53,9 @@ public sealed class GeometryTests
         {
             var shaped = appearance == cube ? new VoxelShape("slope") : (VoxelShape?)null;
             var grid = new VoxelGrid([
-                new(new(0, 0, 0), cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
-                new(new(1, 0, 0), appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
-                new(new(-1, 0, 0), cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])]);
+                new(new(0, 0, 0), VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
+                new(new(1, 0, 0), VoxelOrientation.PxPy, appearance, shaped, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), []),
+                new(new(-1, 0, 0), VoxelOrientation.PxPy, cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(1))), [])]);
             var vertices = DesignGeometry.Meshes(grid, false).OfType<SceneVisual.Geometry>()
                 .SelectMany(item => item.Mesh.Vertices).ToArray();
             Assert.IsTrue(vertices.Any(vertex => vertex.Normal == Vector3.UnitX && vertex.Position.X == 1));
@@ -116,6 +116,185 @@ public sealed class GeometryTests
         Assert.AreEqual(new Vector3(14, 0.5f, 0.5f), hit.Point);
         Assert.AreEqual(-Vector3.UnitX, hit.Normal);
         Assert.AreEqual(root, ((Lookup<ScenePose>.Found)frame.FindPose(SceneFixtures.Subject)).Value);
+    }
+
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(4)]
+    public void AllOrientationsSelectLocalTexturesWithoutMirroringImageAxes(int span)
+    {
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(span, front: true));
+        foreach (var orientation in Enum.GetValues<VoxelOrientation>())
+        {
+            var (right, up, forward) = ExpectedAxes(orientation);
+            var cell = SceneFixtures.Cell(new(3, -5, 7)) with { LocalOrientation = orientation };
+            var meshes = Meshes(SceneFixtures.Build(SceneFixtures.Projection([cell]), content: content));
+            foreach (var (normal, imageUp, texture) in new[] {
+                (right, up, "side"), (-right, up, "side"),
+                (up, forward, "top"), (-up, forward, "bottom"),
+                (forward, up, "front"), (-forward, up, "side") })
+            {
+                var face = meshes.SelectMany(mesh => mesh.Vertices.Where(vertex => vertex.Normal == normal)
+                    .Select(vertex => (Vertex: vertex, Material: (SceneMaterial.Voxel)mesh.Material))).ToArray();
+                Assert.HasCount(4, face, $"{orientation}, {normal}");
+                Assert.IsTrue(face.All(item => item.Material.Texture == new AssetRevision(texture)));
+                var u = Vector3.Cross(imageUp, normal);
+                var v = -imageUp;
+                var width = texture == "front" ? 1f : 1f / span;
+                for (var i = 0; i < face.Length; i++)
+                {
+                    var a = face[i].Vertex;
+                    var b = face[(i + 1) % face.Length].Vertex;
+                    var delta = b.Position - a.Position;
+                    Assert.AreEqual(Vector3.Dot(delta, u) * width, b.TextureUv.X - a.TextureUv.X);
+                    Assert.AreEqual(Vector3.Dot(delta, v) * width, b.TextureUv.Y - a.TextureUv.Y);
+                    Assert.IsTrue(a.TextureUv.X is >= 0 and <= 1 && a.TextureUv.Y is >= 0 and <= 1);
+                }
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow(2, 0f, 0f)]
+    [DataRow(4, 0.5f, 0f)]
+    [DataRow(8, 0.75f, 0.5f)]
+    public void TileSpanSelectsObjectGridSubtile(int span, float minimumU, float minimumV)
+    {
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(span));
+        var geometry = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(1, 2, 3))]), content: content);
+        var top = Meshes(geometry).SelectMany(mesh => mesh.Vertices).Where(vertex => vertex.Normal == Vector3.UnitY).ToArray();
+        foreach (var vertex in top)
+        {
+            var expected = new Vector2(minimumU + (2 - vertex.Position.X) / span,
+                minimumV + (4 - vertex.Position.Z) / span);
+            Assert.AreEqual(expected, vertex.TextureUv);
+        }
+    }
+
+    [TestMethod]
+    [DataRow(2)]
+    [DataRow(4)]
+    [DataRow(8)]
+    public void RotatedTilesJoinAcrossNegativeCoordinatesAndChunkBoundaries(int span)
+    {
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(span));
+        foreach (var orientation in new[] { VoxelOrientation.PxPy, VoxelOrientation.PzPy, VoxelOrientation.PxPz })
+        {
+            var (right, up, forward) = ExpectedAxes(orientation);
+            foreach (var (normal, imageUp) in new[] { (up, forward), (right, up) })
+            foreach (var (axis, component) in new[] { (Vector3.Cross(imageUp, normal), 0), (-imageUp, 1) })
+            foreach (var coordinate in new[] { -33, -32, -1, 0, 1, 30, 31, 32 })
+            {
+                var at = new GridPosition(coordinate, coordinate, coordinate);
+                var next = new GridPosition(at.X + (int)axis.X, at.Y + (int)axis.Y, at.Z + (int)axis.Z);
+                var geometry = SceneFixtures.Build(SceneFixtures.Projection([
+                    SceneFixtures.Cell(at) with { LocalOrientation = orientation },
+                    SceneFixtures.Cell(next, 2) with { LocalOrientation = orientation }]), content: content);
+                var quads = Meshes(geometry).SelectMany(mesh => mesh.Vertices)
+                    .Where(vertex => vertex.Normal == normal).Chunk(4).ToArray();
+                Assert.HasCount(2, quads);
+                var shared = (from a in quads[0] from b in quads[1] where a.Position == b.Position select (a, b)).ToArray();
+                Assert.HasCount(2, shared);
+                foreach (var (a, b) in shared)
+                {
+                    var aUv = component == 0 ? a.TextureUv.X : a.TextureUv.Y;
+                    var bUv = component == 0 ? b.TextureUv.X : b.TextureUv.Y;
+                    if ((int)Vector3.Dot(a.Position, axis) % span == 0)
+                    {
+                        Assert.AreEqual(1f, aUv);
+                        Assert.AreEqual(0f, bUv);
+                    }
+                    else Assert.AreEqual(aUv, bUv);
+                    Assert.AreEqual(component == 0 ? a.TextureUv.Y : a.TextureUv.X,
+                        component == 0 ? b.TextureUv.Y : b.TextureUv.X);
+                }
+            }
+        }
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OnlyDistinctFrontTextureUsesWholeImage(bool front)
+    {
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(4, front));
+        var geometry = SceneFixtures.Build(SceneFixtures.Projection([SceneFixtures.Cell(new(1, 2, 3))]), content: content);
+        var mesh = Meshes(geometry).Single(item => item.Vertices.Any(vertex => vertex.Normal == Vector3.UnitZ));
+        Assert.AreEqual(new AssetRevision(front ? "front" : "side"), ((SceneMaterial.Voxel)mesh.Material).Texture);
+        var vertices = mesh.Vertices.Where(vertex => vertex.Normal == Vector3.UnitZ).ToArray();
+        Assert.AreEqual(front ? 0f : 0.25f, vertices.Min(vertex => vertex.TextureUv.X));
+        Assert.AreEqual(front ? 1f : 0.5f, vertices.Max(vertex => vertex.TextureUv.X));
+        Assert.AreEqual(front ? 0f : 0.25f, vertices.Min(vertex => vertex.TextureUv.Y));
+        Assert.AreEqual(front ? 1f : 0.5f, vertices.Max(vertex => vertex.TextureUv.Y));
+    }
+
+    [TestMethod]
+    public void LargeIntegerGridCoordinatesKeepTexturePhase()
+    {
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(8));
+        foreach (var orientation in Enum.GetValues<VoxelOrientation>())
+        {
+            Vector2[] Uvs(GridPosition at) => Meshes(SceneFixtures.Build(SceneFixtures.Projection([
+                SceneFixtures.Cell(at) with { LocalOrientation = orientation }]), content: content))
+                .SelectMany(mesh => mesh.Vertices.Select(vertex => vertex.TextureUv)).ToArray();
+            CollectionAssert.AreEqual(Uvs(new(1, 6, 3)), Uvs(new(1_000_000_001, -1_000_000_002, 1_000_000_003)));
+        }
+    }
+
+    [TestMethod]
+    public void ExplicitCubeRendersAndOccludesLikeUnspecifiedShape()
+    {
+        var implicitCube = SceneFixtures.Cell(new(0, 0, 0));
+        var explicitCube = implicitCube with { Shape = new VoxelShape("cube") };
+        var implicitMesh = Meshes(SceneFixtures.Build(SceneFixtures.Projection([implicitCube]))).Single();
+        var explicitMesh = Meshes(SceneFixtures.Build(SceneFixtures.Projection([explicitCube]))).Single();
+        CollectionAssert.AreEqual(implicitMesh.Vertices.ToArray(), explicitMesh.Vertices.ToArray());
+        CollectionAssert.AreEqual(implicitMesh.TriangleIndices.ToArray(), explicitMesh.TriangleIndices.ToArray());
+        foreach (var x in new[] { -33, -1, 31 })
+        {
+            var geometry = SceneFixtures.Build(SceneFixtures.Projection([
+                explicitCube with { At = new(x, 0, 0), LocalAt = new(x, 0, 0) },
+                SceneFixtures.Cell(new(x + 1, 0, 0), 2)]));
+            Assert.AreEqual(20, Meshes(geometry).Sum(mesh => mesh.TriangleIndices.Length / 3));
+        }
+    }
+
+    [TestMethod]
+    public void TextureRotationPreservesFaceCoordinatesAndExposedEdges()
+    {
+        var geometry = SceneFixtures.Build(SceneFixtures.Projection([
+            SceneFixtures.Cell(new(0, 0, 0)) with { LocalOrientation = VoxelOrientation.PzNx },
+            SceneFixtures.Cell(new(1, 0, 0), 2)]));
+        var top = Meshes(geometry).SelectMany(mesh => mesh.Vertices).Where(vertex => vertex.Normal == Vector3.UnitY).Take(4).ToArray();
+        foreach (var vertex in top)
+        {
+            Assert.AreEqual(new Vector2(vertex.Position.X, 1 - vertex.Position.Z), vertex.FaceUv);
+            Assert.AreEqual(ExposedFaceEdges.MinimumU | ExposedFaceEdges.MinimumV | ExposedFaceEdges.MaximumV, vertex.ExposedEdges);
+        }
+    }
+
+    [TestMethod]
+    public void RootPoseChangesLeaveLocalMeshAndTextureCoordinatesUnchanged()
+    {
+        var projection = SceneFixtures.Projection([SceneFixtures.Cell(new(-3, 2, 5)) with { LocalOrientation = VoxelOrientation.PyNz }]);
+        var content = SceneFixtures.Content(appearance: SceneFixtures.TexturedCube(4));
+        var original = SceneFixtures.Build(projection, content: content);
+        var moved = SceneFixtures.Build(projection, new(new(100, -20, 40), Quaternion.CreateFromAxisAngle(Vector3.UnitY, 0.7f)), content);
+        Assert.AreNotEqual(original.Objects[0].Pose, moved.Objects[0].Pose);
+        CollectionAssert.AreEqual(Meshes(original).SelectMany(mesh => mesh.Vertices).ToArray(),
+            Meshes(moved).SelectMany(mesh => mesh.Vertices).ToArray());
+    }
+
+    private static (Vector3 Right, Vector3 Up, Vector3 Forward) ExpectedAxes(VoxelOrientation orientation)
+    {
+        var axes = new Dictionary<string, Vector3> {
+            ["Px"] = Vector3.UnitX, ["Nx"] = -Vector3.UnitX,
+            ["Py"] = Vector3.UnitY, ["Ny"] = -Vector3.UnitY,
+            ["Pz"] = Vector3.UnitZ, ["Nz"] = -Vector3.UnitZ };
+        var name = orientation.ToString();
+        var right = axes[name[..2]];
+        var up = axes[name[2..]];
+        return (right, up, Vector3.Cross(right, up));
     }
 
     private static SceneMesh[] Meshes(RenderedDesign rendered) => rendered.Objects.SelectMany(item => item.Visuals)

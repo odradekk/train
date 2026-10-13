@@ -6,11 +6,11 @@ using Train.Scenes.Contracts;
 
 namespace Train.Scenes;
 
-internal sealed record SceneCell(GridPosition At, VoxelAppearanceProjection? Appearance,
+internal sealed record SceneCell(GridPosition At, VoxelOrientation Orientation, VoxelAppearanceProjection? Appearance,
     VoxelShape? Shape, PaintColor? Paint, PickSubject? Subject, ImmutableArray<int> Path,
     ContentReference? MissingReference = null)
 {
-    internal bool Occludes => Shape is null && Appearance?.Presentation is VoxelPresentation.Cube;
+    internal bool Occludes => (Shape is null or { Name: "cube" }) && Appearance?.Presentation is VoxelPresentation.Cube;
 }
 
 internal sealed class VoxelGrid
@@ -126,16 +126,20 @@ internal static class SceneGeometry
 
     internal static ScenePose Placement(GridPosition at, VoxelOrientation orientation)
     {
-        if (!Enum.IsDefined(orientation)) throw new ArgumentException("Invalid orientation.", nameof(orientation));
-        var name = orientation.ToString();
-        var right = Axis(name[..2]);
-        var up = Axis(name[2..]);
-        var forward = Vector3.Cross(right, up);
+        var (right, up, forward) = Axes(orientation);
         var rotation = Quaternion.CreateFromRotationMatrix(new(
             right.X, right.Y, right.Z, 0, up.X, up.Y, up.Z, 0,
             forward.X, forward.Y, forward.Z, 0, 0, 0, 0, 1));
         var center = new Vector3(0.5f);
         return new(new Vector3(at.X, at.Y, at.Z) + center - Vector3.Transform(center, rotation), rotation);
+    }
+    internal static (Vector3 Right, Vector3 Up, Vector3 Forward) Axes(VoxelOrientation orientation)
+    {
+        if (!Enum.IsDefined(orientation)) throw new ArgumentException("Invalid orientation.", nameof(orientation));
+        var name = orientation.ToString();
+        var right = Axis(name[..2]);
+        var up = Axis(name[2..]);
+        return (right, up, Vector3.Cross(right, up));
     }
     private static Vector3 Axis(string axis) => axis switch
     {

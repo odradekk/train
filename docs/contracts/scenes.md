@@ -2,9 +2,9 @@
 
 本页落实[体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289)的决定。业务与表现规则仍见[场景](../design/01-voxel-engine-and-scenes.md)、[渲染](../design/07-rendering.md)、[编辑器](../design/15-design-editor-and-tools.md)；公共语义、身份与提交沿用[公共约定](conventions.md)、[跨层协议](transactions.md)和[编辑协议](editing.md)。
 
-当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取，以及只读设计预览。独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；世界会话测试注入固定生成内容并控制后台完成顺序，不能据此宣称真实线路、节点或战斗生成通过。线路、节点、战斗生成分别待 #315、#316、#353；贴图方向、跨格平铺和 Front 面待 #248；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。Scenes 已接入 C# 检查工具的隔离矩阵，单次隔离结果以运行证据为准；真实 Godot 接入和阶段联调仍需各自证据。
+当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取、贴图方向与跨格平铺，以及只读设计预览。独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；世界会话测试注入固定生成内容并控制后台完成顺序，不能据此宣称真实线路、节点或战斗生成通过。线路、节点、战斗生成分别待 #315、#316、#353；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。Scenes 已接入 C# 检查工具的隔离矩阵，单次隔离结果以运行证据为准；真实 Godot 接入和阶段联调仍需各自证据。
 
-本票按[批准方案](https://github.com/odradekk/train/issues/314#issuecomment-6131924700)只为 Cube 表现且 Shape 为 null 生成立方体几何，TextureUv 暂用单格坐标；其他形状及模型保留占格和拾取，不遮挡邻面。生产世界生成步骤当前抛带上述 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault。OpenEditor、PreviewTemplate 分别抛注明 #333、#389 的 NotImplementedException。姿态插值、轮对、灯光、特效、地形碰撞和地点映射尚未实现：对应集合为空，NodePanBounds 为 null，Locate／TerrainHeight 返回 Missing；FindPose 提供本帧合成姿态。DebugLayers 当前不产生 DebugLines；浮动原点重定位和相机采样尚未实现。这些是阶段实现状态，下面的完整目标契约保持不变。
+按 [#248 批准方案](https://github.com/odradekk/train/issues/248#issuecomment-6135067760)，Cube 表现且 Shape 为 null 或 `"cube"` 时生成立方体几何并参与遮面；其他形状及模型保留占格和拾取，不遮挡邻面，几何待 #388。生产世界生成步骤当前抛带上述 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault。OpenEditor、PreviewTemplate 分别抛注明 #333、#389 的 NotImplementedException。姿态插值、轮对、灯光、特效、地形碰撞和地点映射尚未实现：对应集合为空，NodePanBounds 为 null，Locate／TerrainHeight 返回 Missing；FindPose 提供本帧合成姿态。DebugLayers 当前不产生 DebugLines；浮动原点重定位和相机采样尚未实现。这些是阶段实现状态，下面的完整目标契约保持不变。
 
 ## 公开面与责任
 
@@ -78,6 +78,10 @@ Base 不匹配、资源尚未准备好或适配失败时，不部分应用更新
 | `PersistentSceneEffect` | 当前状态派生的烟、火等，位置相对对象，强度 `[0,1]`；对象移除同时结束其持续效果 |
 | `SceneEffectCue` | 实际新事件产生的一次性效果，位置相对帧原点，稳定 ID 防重复；可带来自内容的碎片碰撞类别，不含 GPU 粒子资源 |
 | `TerrainCollisionPatch` | 近似地形高度场，X 最快的行优先数组，长度 Width×Depth；高程相对 Patch.Origin，间距正数格。只供相机之外的碎片等表现碰撞，不做逐体素刚体 |
+
+立方体贴图按体素的 24 种局部朝向选面：局部 +Y、-Y 分别用 Top、Bottom；局部 +Z 在 Front 与 Side 的 `AssetRevision` 不同时用 Front，其余面用 Side。侧面和 Front 的图像上方朝局部 +Y，顶面、底面朝局部 +Z。`TextureUv` 的 `(0,0)` 是图像左上角，U 沿「图像上方 × 外法线」增大，V 沿图像上方的反方向增大，从面外看图像不镜像。
+
+Top、Bottom、Side 沿贴图轴以对象网格的整数坐标作向下取整的取模，按跨度 1／2／4／8 选取图中的子块，每格 `TextureUv` 均在 `[0,1]` 内。同一周期中相邻格的共边坐标相等，周期边界从 1 回到 0，由宿主重复采样衔接；负坐标沿用同一规则。Front 与 Side 的资产修订不同时，Front 使用单格 `[0,1]` 且不平铺；相同时视为没有 Front，局部 +Z 使用 Side 并参与平铺。内容侧在缺省 Front 时须保持 Front = Side。平铺只影响 `TextureUv`，`FaceUv` 和外露边标志仍使用相互一致的单面坐标。真实 Godot 纹理采样由 #298 联调验证。
 
 体素只生成标准形状、铁路等自己的几何，不接收像素或导入模型几何。模型纹理、材质、磨损图案、粒子实现和缺失标记外观归 Godot，见[资产交接](README.md#表现资产的交接)。
 

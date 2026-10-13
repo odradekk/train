@@ -79,7 +79,7 @@ internal static class DesignGeometry
                 var reference = voxel.Missing || value is null
                     ? new ContentReference.Core(new CoreDefinitionReference.Voxel(voxel.Voxel)) : null;
                 var pick = subject is null ? null : new PickSubject.WorldObject(subject, worldDesign ?? projection.Design, voxel.Number);
-                cells.Add(new(voxel.LocalAt, reference is null ? value : null, voxel.Shape, voxel.Paint, pick, path, reference));
+                cells.Add(new(voxel.LocalAt, voxel.LocalOrientation, reference is null ? value : null, voxel.Shape, voxel.Paint, pick, path, reference));
                 if (reference is not null)
                 {
                     objects.Add(new(id(key + ":missing:" + voxel.LocalAt), objectId,
@@ -129,19 +129,25 @@ internal static class DesignGeometry
         {
             if (!cell.Occludes) continue;
             var cube = (VoxelPresentation.Cube)cell.Appearance!.Presentation;
+            var axes = SceneGeometry.Axes(cell.Orientation);
             for (var face = GridFace.NegativeX; face <= GridFace.PositiveZ; face++)
             {
                 var normal = SceneGeometry.Normal(face);
                 var at = cell.At;
                 if (grid.Find(new(at.X + (int)normal.X, at.Y + (int)normal.Y, at.Z + (int)normal.Z))?.Occludes == true) continue;
-                var texture = face == GridFace.PositiveY ? cube.Top : face == GridFace.NegativeY ? cube.Bottom : cube.Side;
+                var front = normal == axes.Forward && cube.Front != cube.Side;
+                var texture = normal == axes.Up ? cube.Top : normal == -axes.Up ? cube.Bottom : front ? cube.Front : cube.Side;
+                var imageUp = normal == axes.Up || normal == -axes.Up ? axes.Forward : axes.Up;
+                var textureU = Vector3.Cross(imageUp, normal);
+                var textureV = -imageUp;
+                var span = front ? 1 : cube.TileSpan;
                 var material = new SceneMaterial.Voxel(texture, cube.Material, cell.Paint);
                 var key = (VoxelGrid.Chunk(at), (SceneMaterial)material);
                 if (!groups.TryGetValue(key, out var group)) groups.Add(key, group = ([], []));
                 var u = face is GridFace.NegativeY or GridFace.PositiveY ? Vector3.UnitX :
                     face is GridFace.NegativeX or GridFace.PositiveX ? Vector3.UnitZ : Vector3.UnitX;
                 var v = Vector3.Cross(normal, u);
-                var center = new Vector3(at.X + 0.5f, at.Y + 0.5f, at.Z + 0.5f) + normal * 0.5f;
+                var center = new Vector3(0.5f) + normal * 0.5f;
                 var first = group.Vertices.Count;
                 var edges = ExposedFaceEdges.None;
                 if (Empty(-u)) edges |= ExposedFaceEdges.MinimumU;
@@ -150,10 +156,13 @@ internal static class DesignGeometry
                 if (Empty(v)) edges |= ExposedFaceEdges.MaximumV;
                 foreach (var uv in new Vector2[] { new(0, 0), new(1, 0), new(1, 1), new(0, 1) })
                 {
-                    var position = center + u * (uv.X - 0.5f) + v * (uv.Y - 0.5f);
+                    var corner = center + u * (uv.X - 0.5f) + v * (uv.Y - 0.5f);
+                    var position = new Vector3(at.X, at.Y, at.Z) + corner;
+                    var textureUv = new Vector2(TextureCoordinate(at, corner, textureU, span),
+                        TextureCoordinate(at, corner, textureV, span));
                     var bounds = grid.Bounds!;
                     var height = (position.Y - bounds.Minimum.Y) / (bounds.Maximum.Y - bounds.Minimum.Y);
-                    group.Vertices.Add(new(position, normal, uv, uv, edges, Math.Clamp(height, 0, 1), 0));
+                    group.Vertices.Add(new(position, normal, textureUv, uv, edges, Math.Clamp(height, 0, 1), 0));
                 }
                 group.Indices.AddRange([first, first + 1, first + 2, first, first + 2, first + 3]);
                 bool Empty(Vector3 offset) => grid.Find(new(at.X + (int)offset.X, at.Y + (int)offset.Y, at.Z + (int)offset.Z)) is null;
@@ -162,5 +171,15 @@ internal static class DesignGeometry
         return groups.Select(group => (SceneVisual)new SceneVisual.Geometry(
             new(group.Key.Material, group.Value.Vertices.ToImmutableArray(), group.Value.Indices.ToImmutableArray()),
             new(wear, 0, 0, false))).ToImmutableArray();
+    }
+
+    private static float TextureCoordinate(GridPosition at, Vector3 corner, Vector3 axis, int span)
+    {
+        var coordinate = axis.X != 0 ? at.X : axis.Y != 0 ? at.Y : at.Z;
+        var positive = axis.X + axis.Y + axis.Z > 0;
+        var minimum = positive ? (long)coordinate : -(long)coordinate - 1;
+        var offset = Vector3.Dot(corner, axis) + (positive ? 0 : 1);
+        // Reduce integer coordinates before converting to float, so distant cells retain their texture phase.
+        return (((minimum % span + span) % span) + offset) / span;
     }
 }

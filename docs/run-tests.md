@@ -31,7 +31,7 @@ pwsh -NoProfile -File scripts/test.ps1 -All -Layer all -ExportWindows
 
 无待运行项目或检查的层在摘要中记为 `selected: false`；所有层均未选择时明确报告、写摘要并成功退出，不构建。已选中的层实际执行零个用例、无效参数、必需工具缺失或最低用例数不足仍判失败。最低用例数表位于 `scripts/test.ps1` 的 `$projects`，引擎层使用其中的 `godot` 行；删除用例或调整分层时必须同步更新。最低数为零的项目与层组合仍执行，只允许该组合没有用例。
 
-Scenes 快速层验证会话生命周期、不可变帧、网格、拾取和只读预览；Core／Content 为配置情景的固定读视图，世界生成由测试门控，不能作为真实线路或节点生成证据。Scenes 已接入实际隔离入口，单次是否通过以运行日志与摘要为准；后续实现范围见[体素契约](contracts/scenes.md)。
+Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其贴图方向与跨格平铺、拾取和只读预览；Core／Content 为配置情景的固定读视图，世界生成由测试门控，不能作为真实线路或节点生成证据；立方体 UV 的纯 .NET 检查不替代 #298 的真实 Godot 纹理采样联调。Scenes 已接入实际隔离入口，单次是否通过以运行日志与摘要为准；后续实现范围见[体素契约](contracts/scenes.md)。
 
 快速层运行未标记 `integration` 的 MSTest；集成层运行真实文件读写和子进程用例，并按下述规则选择独立检查。Schema 需要 Python 3 与 `jsonschema`（CI 固定为 Python 3.11、`jsonschema==4.25.1`）；它不验证跨文件引用或生产加载器行为。
 
