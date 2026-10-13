@@ -84,7 +84,34 @@ internal static class WorldJson
             UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
             RespectNullableAnnotations = true,
             RespectRequiredConstructorParameters = true,
-            TypeInfoResolver = resolver
+            TypeInfoResolver = resolver,
+            Converters = { new MoneyConverter(), new BasisPointsConverter() }
         };
+    }
+
+    private sealed class MoneyConverter : JsonConverter<Money>
+    {
+        public override Money Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.Number || !reader.TryGetInt64(out var value))
+                throw new JsonException();
+            return new(value);
+        }
+
+        public override void Write(Utf8JsonWriter writer, Money value, JsonSerializerOptions options)
+            => writer.WriteNumberValue(value.Value);
+    }
+
+    private sealed class BasisPointsConverter : JsonConverter<BasisPoints>
+    {
+        public override BasisPoints Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType != JsonTokenType.Number || !reader.TryGetInt32(out var value))
+                throw new JsonException();
+            return new(value);
+        }
+
+        public override void Write(Utf8JsonWriter writer, BasisPoints value, JsonSerializerOptions options)
+            => writer.WriteNumberValue(value.Value);
     }
 }
