@@ -2,7 +2,6 @@ using System.Collections.Immutable;
 using Godot;
 using Train.App;
 using Train.App.Assets;
-using Train.App.Logging;
 using Train.Content.Contracts;
 using Train.Content.ContractSupport;
 using Train.Core.Contracts;
@@ -16,22 +15,27 @@ using NQuaternion = System.Numerics.Quaternion;
 
 namespace Train.Engine.Tests;
 
-// 仅供 #319 真实窗口检查的 Debug 固定场景，不接真实工厂。
 public partial class WorldScenePreview : Node
 {
     private static readonly WorldSceneTarget Target = new WorldSceneTarget.Follow(new(1), new(1));
     private static readonly WorldObjectId Subject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(1)));
+    private static readonly WorldObjectId SecondSubject = new WorldObjectId.Instance(new InstanceId.Vehicle(new(2)));
     private readonly Label _status = new() { Position = new(12, 56), MouseFilter = Control.MouseFilterEnum.Ignore };
     private readonly ColorRect _map = new() { Color = new Color("17202c"), MouseFilter = Control.MouseFilterEnum.Stop };
     private readonly Button _enter = new() { Text = "进入", Name = "Enter", Disabled = true };
-    private readonly Button _next = new() { Text = "下一帧", Name = "NextFrame" };
-    private TrainLogger? _logger;
+    private readonly Button _next = new() { Text = "下一情景", Name = "NextFrame" };
+    private Train.App.App? _app;
+    private ScriptedCoreSession? _core;
+    private PreviewSession? _session;
+    private int _queuedSteps;
+    private bool _running;
+    private int _minimizedSteps;
+    private int _minimizedPresents;
     private HostCoordinator? _host;
     private WorldSceneController? _world;
     private FixedContentView? _content;
     private ImmutableArray<SceneObject> _gallery;
     private readonly Dictionary<SceneObjectId, string> _names = [];
-    private bool _advance;
     private int _stage;
     private string _selected = "未选择";
     private static readonly string[] Stages = ["初始就绪", "原点 +100 / 已有根 -100 / 新对象", "部分就绪 / 远处雾", "另一空间 / 跟随连续"];
@@ -42,25 +46,33 @@ public partial class WorldScenePreview : Node
     {
         try
         {
-            _logger = TrainLogger.StartSession(ProjectSettings.GlobalizePath("res://TestResults/issue-319-preview/logs"), LogLevel.Debug, new GodotLogOutput());
             _content = CreateContent();
             _gallery = Gallery();
-            _host = CreateHost(_content, _logger);
-            var factory = new FixedDisplayFactory { OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(Session(binding)) };
-            _world = new(_host, factory, _logger);
+            _core = new(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
+            _app = GD.Load<PackedScene>("res://App/App.tscn").Instantiate<Train.App.App>();
+            _app.GetNode<Control>("MainMenu").Visible = false;
+            _app.CreateHost = logger => WorldSceneFixture.CreateHost(_core, _content, logger);
+            _app.CreateScenes = () => new FixedDisplayFactory
+            {
+                OpenWorldCall = (binding, _) => new SceneResult<IWorldSceneSession>.Success(
+                    _session = new PreviewSession(this, binding))
+            };
+            AddChild(_app);
+            _host = _app.Host!;
+            _host.AutoPauseOnFocusLoss = false;
+            _world = _app.WorldScenes!;
             _world.View.CameraRig.Zoom(1);
-            AddChild(_world.View);
-            _world.Selected += _ => { _selected = "车辆 1（命中已核对）"; UpdateStatus(); };
+            _world.Selected += _ => { _selected = "命中已核对"; UpdateStatus(); };
             _world.ReturnedToMap += reason =>
             {
-                _map.Visible = true; _advance = false; _stage = 0;
+                _map.Visible = true; _stage = 0;
                 _status.Text = reason is null ? "验证地图：已退出，可重新进入。" : $"验证地图：{reason.Code}";
             };
             var mapLayer = new CanvasLayer { Name = "ValidationMap", Layer = 9 };
             AddChild(mapLayer);
             mapLayer.AddChild(_map);
             _map.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
-            var title = new Label { Text = "#319 验证地图\n点击“进入”显示固定场景。\n这不是生产地图或真实体素工厂。",
+            var title = new Label { Text = "显示帧验证地图\n点击“进入”显示固定场景。\n这不是生产地图或真实体素工厂。",
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, MouseFilter = Control.MouseFilterEnum.Ignore };
             _map.AddChild(title);
             title.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
@@ -69,16 +81,23 @@ public partial class WorldScenePreview : Node
             var toolbar = new HBoxContainer { Name = "Toolbar", Position = new(12, 12), MouseFilter = Control.MouseFilterEnum.Ignore };
             hud.AddChild(toolbar);
             var exit = new Button { Text = "退出", Name = "Exit" };
-            var reopen = new Button { Text = "重开", Name = "Reopen" };
-            foreach (var button in new[] { _enter, _next, exit, reopen })
+            var reopen = new Button { Text = "切换车辆", Name = "SwitchVehicle" };
+            var node = new Button { Text = "节点", Name = "NodeLocation" };
+            var railway = new Button { Text = "线路", Name = "RailwayLocation" };
+            var minimize = new Button { Text = "最小化", Name = "Minimize" };
+            foreach (var button in new[] { _enter, _next, exit, reopen, node, railway, minimize })
             {
                 button.CustomMinimumSize = new(110, 36);
                 toolbar.AddChild(button);
             }
             hud.AddChild(_status);
             _enter.Pressed += Enter;
-            reopen.Pressed += Enter;
-            _next.Pressed += () => { if (_world.Display is not null && _stage < Stages.Length) _advance = true; };
+            reopen.Pressed += () => Open(new WorldSceneTarget.Follow(new(1), new(_session?.Target is WorldSceneTarget.Follow { Vehicle.Value: 1 } ? 2UL : 1UL)));
+            node.Pressed += () => Open(new WorldSceneTarget.Location(new WorldLocation.Node(new(1))));
+            railway.Pressed += () => Open(new WorldSceneTarget.Location(new WorldLocation.Edge(new(1), 0)));
+            minimize.Pressed += () => GetWindow().Mode = GetWindow().Mode == Window.ModeEnum.Minimized
+                ? Window.ModeEnum.Windowed : Window.ModeEnum.Minimized;
+            _next.Pressed += () => { if (_world.Display is not null && _stage < Stages.Length - 1) _stage++; };
             exit.Pressed += _world.ReturnToMap;
             _status.Text = "准备固定宿主读档…";
         }
@@ -90,39 +109,56 @@ public partial class WorldScenePreview : Node
         try
         {
             if (_host is null || _world is null) return;
-            _host.ProcessFrame(0);
-            var ready = _host.GetStatus() is not null;
-            if (_enter.Disabled && ready) _status.Text = "验证地图：固定宿主已准备，点击进入。";
-            _enter.Disabled = !ready;
-            _next.Disabled = _world.Display is null || _stage >= Stages.Length;
-            if (_advance && GetWindow().Mode != Window.ModeEnum.Minimized)
+            // App 在子节点的真实帧回调中消费这些固定单步；预览只补充本帧可能需要的有限输入。
+            var needed = checked((int)Math.Ceiling(delta * SimulationTime.StepsPerSecond) + 1);
+            while (_queuedSteps - _core!.AdvanceCount < needed)
             {
-                _advance = false;
-                _world.ProcessFrame(delta, false);
-                if (_world.Display?.DisplayedFrame is not null)
-                {
-                    _stage++;
-                    AddNames();
-                    UpdateStatus();
-                }
+                var position = new SimulationPosition((ulong)++_queuedSteps, 0);
+                _core.QueueAdvance(new(1, position, [], null, null), new FixedCoreReadView(position, HostCoreScenario.Input));
             }
-            else _world.View.CameraRig.Update(delta);
-            _logger?.DrainGodotQueue();
+            var ready = _host.GetStatus() is not null;
+            if (ready && !_running) { _host.SetPaused(false); _running = true; }
+            _enter.Disabled = !ready;
+            _next.Disabled = _world.Display is null || _stage >= Stages.Length - 1;
+            if (GetWindow().Mode == Window.ModeEnum.Minimized)
+            {
+                _minimizedSteps = _core!.AdvanceCount;
+                _minimizedPresents = _session?.PresentCalls ?? 0;
+            }
+            if (_world.Display?.DisplayedFrame is not null) AddNames();
+            UpdateStatus();
         }
         catch (Exception exception) { GD.PrintErr(exception); GetTree().Quit(1); }
     }
 
-    private void Enter()
+    private void Enter() { _stage = 0; Open(Target); }
+
+    private void Open(WorldSceneTarget target)
     {
         if (_host?.GetStatus() is null) return;
-        _map.Visible = false; _stage = 0; _selected = "未选择";
-        _world!.Open(Target);
-        _advance = true;
-        _status.Text = "加载固定首帧…";
+        _map.Visible = false;
+        _selected = "未选择";
+        _world!.Open(target);
     }
 
-    private void UpdateStatus() => _status.Text = $"阶段 {_stage}/4：{(_stage > 0 ? Stages[_stage - 1] : "准备")} | 选择：{_selected}\n" +
-        "右拖旋转 / 滚轮缩放 / 左键拾取 / Escape 退出；顶部按钮遮挡不拾取。";
+    private void UpdateStatus()
+    {
+        var display = _world?.Display;
+        var root = display?.Objects.GetValueOrDefault(new(1))?.Root;
+        var fog = display?.Root.GetNodeOrNull<Node3D>("LoadingFog");
+        _status.Text = $"情景 {_stage + 1}/4：{Stages[_stage]} | 选择：{_selected}\n" +
+            $"模拟步数={_core?.AdvanceCount} Present={_session?.PresentCalls} Observe={_session?.ObserveCalls} " +
+            $"Session={_session?.Id.Value.ToString()[..8]} Request={_session?.Request.Value}\n" +
+            $"最小化最后观测：Steps={_minimizedSteps} Present={_minimizedPresents}\n" +
+            $"Root={root?.GetInstanceId()} Fog={fog?.GetInstanceId()} TreeExit={_session?.TreeExits} " +
+            $"Camera={_world?.View.CameraRig.Camera.Current} Environment={_world?.View.GetChildren().OfType<WorldEnvironment>().Single().Environment is not null}\n" +
+            "右拖旋转 / 中拖平移 / 滚轮缩放 / 左键拾取 / Escape 返回；最小化后用任务栏恢复。";
+        if (root is not null && _session is { WatchedRoot: null } session)
+        {
+            session.WatchedRoot = root;
+            root.TreeExited += () => session.TreeExits++;
+        }
+    }
 
     private void AddNames()
     {
@@ -132,41 +168,94 @@ public partial class WorldScenePreview : Node
                     PixelSize = 0.01f, Billboard = BaseMaterial3D.BillboardModeEnum.Enabled });
     }
 
-    private FixedDisplaySession Session(SceneBinding binding)
+    // 只接受工具栏定义的两辆车、一个节点和一条线路；每帧从当前情景生成不可变帧。
+    private sealed class PreviewSession(WorldScenePreview preview, SceneBinding binding) : IWorldSceneSession
     {
-        var id = new SceneSessionId(Guid.NewGuid());
-        var frames = ImmutableArray.CreateBuilder<SceneResult<ISceneFrame>>();
-        var hits = ImmutableDictionary.CreateBuilder<SceneHit, SceneResult<PickSubject>>();
-        for (var stage = 0; stage < 4; stage++)
+        public SceneSessionId Id { get; } = new(Guid.NewGuid());
+        public SceneBinding Binding { get; } = binding;
+        internal SceneRequestId Request { get; private set; }
+        internal WorldSceneTarget? Target { get; private set; }
+        internal int PresentCalls { get; private set; }
+        internal int ObserveCalls { get; private set; }
+        internal int TreeExits { get; set; }
+        internal Node3D? WatchedRoot { get; set; }
+        private int _presentedStage = -1;
+        private SceneHit? _hit;
+        private bool _disposed;
+
+        public SceneResult<SceneRequestId> RequestView(WorldSceneTarget target)
         {
-            var stamp = new SceneFrameStamp(id, new(1), new(stage == 3 ? 2UL : 1UL), (ulong)stage + 1);
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (target is not (WorldSceneTarget.Follow { Train.Value: 1, Vehicle.Value: 1 or 2 }
+                or WorldSceneTarget.Location { Value: WorldLocation.Node { Id.Value: 1 } }
+                or WorldSceneTarget.Location { Value: WorldLocation.Edge { Id.Value: 1, DistanceMeters: 0 } }))
+                throw new InvalidOperationException("UNCONFIGURED: 预览目标。");
+            Target = target;
+            Request = new(Request.Value + 1);
+            _presentedStage = -1;
+            return new SceneResult<SceneRequestId>.Success(Request);
+        }
+
+        public SceneResult<SimulationPosition> Observe(SceneWorldSnapshot snapshot, ImmutableArray<EventEnvelope> events)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (snapshot.Core.InputIdentity != HostCoreScenario.Input || snapshot.Content != preview._content || !events.IsEmpty)
+                throw new InvalidOperationException("UNCONFIGURED: 预览观察输入。");
+            ObserveCalls++;
+            return new SceneResult<SimulationPosition>.Success(snapshot.Core.Position);
+        }
+
+        public SceneResult<ISceneFrame> Present(SceneFrameRequest request, ISceneFrame? displayedFrame)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (Target is null || displayedFrame is not null &&
+                (displayedFrame.Update.Frame.Session != Id || displayedFrame.Update.Frame.Request != Request))
+                throw new InvalidOperationException("UNCONFIGURED: 预览显示基准。");
+            var stage = preview._stage;
+            var space = Target is WorldSceneTarget.Location { Value: WorldLocation.Node }
+                ? 3UL : stage == 3 ? 2UL : 1UL;
+            var full = displayedFrame is null || displayedFrame.Update.Frame.Space.Value != space;
+            var changed = stage != _presentedStage;
+            var stamp = new SceneFrameStamp(Id, Request, new(space), (ulong)++PresentCalls);
             var pose = stage == 3 ? new ScenePose(new(10, 0, -10), NQuaternion.CreateFromAxisAngle(NVector3.UnitY, 0.5f))
                 : new ScenePose(new(stage == 0 ? 0 : -100, 0, 0), NQuaternion.Identity);
-            var hit = new SceneHit(stamp, new(1), new PickSubject.WorldObject(Subject, null, null), default,
-                GridFace.PositiveY, pose.Position, NVector3.UnitY, 1, []);
-            hits.Add(hit, new SceneResult<PickSubject>.Success(hit.Subject));
-            ImmutableArray<SceneObject> objects = stage switch
+            var secondPose = pose with { Position = pose.Position + NVector3.Transform(new(8, 0, 0), pose.Rotation) };
+            var second = Target is WorldSceneTarget.Follow { Vehicle.Value: 2 };
+            var subject = second ? SecondSubject : Subject;
+            ImmutableArray<SceneObject> objects = full ? preview._gallery.Select(item => item.Id.Value switch
             {
-                0 => _gallery,
-                1 => [new(new(90), null, new(new(-81, 0, -5), NQuaternion.Identity), null,
-                    [new SceneVisual.Geometry(Cube(new SceneMaterial.BuiltIn(BuiltInMaterial.Construction)), new(false, 0, 0, false))], [], [])],
-                2 => [],
-                _ => _gallery.Select(item => item.Id == new SceneObjectId(1) ? item with { Pose = pose } : item).ToImmutableArray()
-            };
+                1 => item with { Pose = pose },
+                91 => item with { Pose = secondPose },
+                _ => item
+            }).ToImmutableArray() : [];
+            if (stage is 1 or 2 && (full || changed && stage == 1))
+                objects = objects.Add(new SceneObject(new(90), null, new(new(-81, 0, -5), NQuaternion.Identity), null,
+                    [new SceneVisual.Geometry(Cube(new SceneMaterial.BuiltIn(BuiltInMaterial.Construction)), new(false, 0, 0, false))], [], []));
             ImmutableArray<SceneBounds> fog = stage == 2 ? [new(new(-110, -1, -14), new(-90, 5, -12))] : [];
-            var baseline = stage is 1 or 2 ? ((SceneResult<ISceneFrame>.Success)frames[stage - 1]).Value.Update.Frame : (SceneFrameStamp?)null;
-            frames.Add(new SceneResult<ISceneFrame>.Success(new FixedSceneFrame
+            _hit = new(stamp, new(second ? 91UL : 1UL), new PickSubject.WorldObject(subject, null, null), default,
+                GridFace.PositiveY, second ? secondPose.Position : pose.Position, NVector3.UnitY, 1, []);
+            var frame = new FixedSceneFrame
             {
-                Update = new(baseline, stamp, stage == 1 ? new(-100, 0, 0) : NVector3.Zero, objects, [], new(fog, []), []),
+                Update = new(full ? null : displayedFrame!.Update.Frame, stamp,
+                    !full && changed && stage == 1 ? new(-100, 0, 0) : NVector3.Zero, objects, [], new(fog, []), []),
                 Origin = stage is 1 or 2 ? new(100, 0, 0) : default,
+                NodePanBounds = Target is WorldSceneTarget.Location { Value: WorldLocation.Node }
+                    ? new(new(-20, -20), new(20, 20)) : null,
                 Readiness = stage == 2 ? SceneReadiness.Partial : SceneReadiness.Ready,
-                PickResult = new ScenePick.Hit(hit),
-                Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty.Add(Subject, new Lookup<ScenePose>.Found(pose)),
+                PickResult = new ScenePick.Hit(_hit),
+                Poses = ImmutableDictionary<WorldObjectId, Lookup<ScenePose>>.Empty
+                    .Add(Subject, new Lookup<ScenePose>.Found(pose))
+                    .Add(SecondSubject, new Lookup<ScenePose>.Found(secondPose)),
                 TerrainHeightResult = new Lookup<double>.Found(-2)
-            }));
+            };
+            _presentedStage = stage;
+            return new SceneResult<ISceneFrame>.Success(frame);
         }
-        return new() { Id = id, Binding = binding, PresentResults = frames.ToImmutable(), ResolveResults = hits.ToImmutable(),
-            RequestResults = ImmutableDictionary<WorldSceneTarget, SceneResult<SceneRequestId>>.Empty.Add(Target, new SceneResult<SceneRequestId>.Success(new(1))) };
+
+        public SceneResult<PickSubject> Resolve(SceneHit hit) => hit == _hit
+            ? new SceneResult<PickSubject>.Success(hit.Subject)
+            : throw new InvalidOperationException("UNCONFIGURED: 预览命中核对。");
+        public ValueTask DisposeAsync() { _disposed = true; return ValueTask.CompletedTask; }
     }
 
     private FixedContentView CreateContent()
@@ -219,6 +308,9 @@ public partial class WorldScenePreview : Node
             Plane(new SceneMaterial.Voxel(new("preview-checker"), MaterialCategory.StoneSoil, new("#807860")), 50, 44),
             new(false, 0, 0, false)));
         _names.Add(new(90), "新加入对象");
+        _names.Add(new(91), "车辆 2");
+        objects.Add(new(new(91), null, new(new(8, 0, 0), NQuaternion.Identity), SecondSubject,
+            [new SceneVisual.Geometry(Cube(new SceneMaterial.BuiltIn(BuiltInMaterial.Construction)), new(false, 0, 0, false))], [], []));
         return objects.ToImmutable();
     }
 
@@ -248,24 +340,4 @@ public partial class WorldScenePreview : Node
          new(new(width/2, 0, -depth/2), NVector3.UnitY, new(1, 0), new(1, 0), ExposedFaceEdges.MaximumU | ExposedFaceEdges.MinimumV, 0, 0)],
         [0, 1, 2, 0, 2, 3]);
 
-    private static HostCoordinator CreateHost(FixedContentView content, TrainLogger logger)
-    {
-        var session = new ScriptedCoreSession(new FixedCoreReadView(new(0, 0), HostCoreScenario.Input));
-        var capture = new FixedCoreCapture(new(new(0, 0), "preview", "preview"), HostCoreScenario.References, "opaque", HostCoreScenario.Input, new(1));
-        var core = new ScriptedCoreFactory { DecodeStateCall = _ => new CoreResult<ICoreCapture>.Success(capture),
-            PrepareRestoreCall = (_, _, _) => new CoreResult<ICoreSessionCandidate>.Success(new ScriptedCoreCandidate(session, HostCoreScenario.References)) };
-        var factory = new ScriptedContentFactory { DecodeCaptureCall = _ => new ContentResult<IContentCapture>.Success(new FixedContentCapture("opaque")),
-            PrepareLoadCall = (_, _, _) => new ContentResult<IContentCandidate>.Success(new ScriptedContentCandidate(content)) };
-        var host = new HostCoordinator(core, factory, new ScriptedContentFiles(), new UnconfiguredAssetInspector(),
-            new(new("builtin"), new("mods"), null, "preview", []), logger);
-        host.BeginRestore("opaque", "opaque", new(new("preview", "preview", "preview", "preview", "preview"), true, 1));
-        return host;
-    }
-
-    public override void _ExitTree()
-    {
-        _world?.Dispose();
-        _host?.Dispose();
-        _logger?.Dispose();
-    }
 }
