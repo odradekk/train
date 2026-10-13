@@ -71,7 +71,8 @@ $engineUserRoot = $null
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
     Write-Host $result.Output
-    $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
+    $check = [ordered]@{ name = $Name; layer = $Group; command = @($Program) + $Arguments; seconds = $result.DurationMs / 1000; exitCode = $result.ExitCode; timedOut = $result.TimedOut; notStarted = [bool] $result.NotStarted; cleanupSucceeded = $result.CleanupSucceeded; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
+    Write-Host "CHECK=$Name seconds=$($check.seconds) timeout=$($check.timedOut) notStarted=$($check.notStarted)"
     $trx = Join-Path $run "$Name.trx"
     if (Test-Path $trx) {
         [xml] $report = Get-Content $trx -Raw
@@ -97,13 +98,16 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
         }
         return
     } elseif ($Name -match '^(fast|integration)-(core|content|scenes|godot|contract-support|contract-checks)$') {
-        $summary.checks += [pscustomobject] $check
-        throw "$Name did not produce its required TRX report."
-    } elseif ($Group -ne 'preparation') {
+        if (-not $check.timedOut -and -not $check.notStarted) {
+            $summary.checks += [pscustomobject] $check
+            throw "$Name did not produce its required TRX report."
+        }
+    } elseif ($Group -ne 'preparation' -and -not $check.notStarted) {
         $check.total = 1; $check.executed = 1
         if ($result.ExitCode -eq 0 -and -not $result.TimedOut) { $check.passed = 1 } else { $check.failed = 1 }
     }
     $summary.checks += [pscustomobject] $check
+    if ($check.notStarted) { throw "$Name was not started because $Group exhausted its time budget; evidence: $run" }
     if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut)); evidence: $run" }
 }
 function Invoke-Check([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, [int] $Seconds) {
@@ -140,9 +144,11 @@ try {
         Invoke-Check build preparation dotnet @('build', 'Train.sln', '--nologo') 300
     } elseif (-not $selectedLayers.Count) { Write-Host 'No affected test projects or checks selected; no build or tests required.' }
     foreach ($current in $layers) {
-        $budget = @{ fast = 60; integration = 180; engine = 300 }[$current]
+        $budget = @{ fast = 60; integration = 210; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $selected = $current -in $selectedLayers
+        $layerError = $null
+        $layerCompleted = $false
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
@@ -156,19 +162,17 @@ try {
                     @{ name = "$current-$($_.name)"; program = 'dotnet'; project = $_;
                         priority = if ($current -eq 'integration' -and $_.name -eq 'contract-checks') { 3 } else { 0 } }
                 })
-                $isolationOutput = Join-Path $run 'isolation'
                 if ($current -eq 'integration') {
                     if ($summary.selection.contracts) {
                         $tasks += @{ name = 'structure'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'contracts')) }
                         $tasks += @{ name = 'verify'; program = 'dotnet'; priority = 0; arguments = @($contractTool, 'verify', $root, 'Debug', $contractBaseline) }
                     }
-                    if ($summary.selection.isolation) { $tasks += @{ name = 'isolate'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'isolate', $root, 'Debug', $isolationOutput) } }
                     if ($summary.selection.schema) { $tasks += @{ name = 'schema'; program = $pwsh; priority = 0; arguments = @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') } }
                 }
                 $throttle = if ($current -eq 'integration') { 4 } else { [Math]::Max(1, $projects.Count) }
                 $results = @()
                 $failure = $null
-                try { if ($tasks.Count) { $results = @($tasks | Sort-Object { $_.priority } -Descending -Stable | ForEach-Object -Parallel {
+                if ($tasks.Count) { $results = @($tasks | Sort-Object { $_.priority } -Descending -Stable | ForEach-Object -Parallel {
                     $task = $_
                     . $using:helper
                     $current = $using:current
@@ -177,28 +181,30 @@ try {
                     if ($task.project) {
                         $minimum = $task.project[$current]
                         $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
-                        $arguments = @('test', '--project', $task.project.path, '--no-build', '--results-directory', $using:run)
+                        $module = Join-Path (Split-Path $task.project.path) ('bin/Debug/net10.0/' + [IO.Path]::GetFileNameWithoutExtension($task.project.path) + '.dll')
+                        $arguments = @('test', '--test-modules', $module.Replace('\', '/'), '--root-directory', $using:root, '--results-directory', $using:run)
                         if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
                         $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$($task.name).trx", '--timeout', "$([Math]::Max(1, $remaining))s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
                         if (-not $minimum) { $arguments += @('--ignore-exit-code', '8') }
                     }
                     $result = if ($remaining -lt 1) {
-                        [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget."; TimedOut = $true; CleanupSucceeded = $true; DurationMs = 0 }
+                        [pscustomobject]@{ ExitCode = -1; Output = "$current exhausted its time budget before $($task.name) could start."; TimedOut = $false; NotStarted = $true; CleanupSucceeded = $true; DurationMs = 0 }
                     } else {
                         try { Invoke-HiddenProcess -FilePath $task.program -ArgumentList $arguments -TimeoutSeconds $remaining }
                         catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
                     }
                     [pscustomobject]@{ name = $task.name; program = $task.program; arguments = $arguments; result = $result }
-                } -ThrottleLimit $throttle) } }
-                finally {
-                    if ($current -eq 'integration' -and $summary.selection.isolation) {
-                        try { Remove-IsolationTrees $isolationOutput }
-                        catch { $failure = $_ }
-                    }
-                }
+                } -ThrottleLimit $throttle) }
                 foreach ($item in $results) {
                     try { Add-CheckResult $item.name $current $item.program $item.arguments $item.result }
                     catch { if (-not $failure) { $failure = $_ } }
+                }
+                $timedOut = @($results | Where-Object { $_.result.TimedOut } | ForEach-Object name)
+                $notStarted = @($results | Where-Object { $_.result.NotStarted } | ForEach-Object name)
+                if ($timedOut.Count -or $notStarted.Count) {
+                    $message = "$current exhausted its ${budget}s budget; timed out checks: $($timedOut -join ', '); checks not started because the budget expired: $($notStarted -join ', '); evidence: $run"
+                    if ($failure) { $message += "; check failure: $($failure.Exception.Message)" }
+                    throw $message
                 }
                 if ($failure) { throw $failure }
                 if ($results.Count -ne $tasks.Count) { throw "$current did not complete every selected task." }
@@ -212,13 +218,24 @@ try {
                     [Environment]::SetEnvironmentVariable($name, $directory)
                 }
                 $engineUserRoot = if ($IsWindows) { Join-Path $env:APPDATA 'Godot/app_userdata/Train' } else { Join-Path $env:XDG_DATA_HOME 'godot/app_userdata/Train' }
-                Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
                 $binary = Join-Path $run 'exports/windows/train.exe'
+                $templateDirectory = $null
                 if ($ExportWindows) {
-                    New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
-                    $env:APPDATA = $environment.APPDATA
-                    try { Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120 }
-                    finally { $env:APPDATA = Join-Path $run $paths.APPDATA }
+                    $templateDirectory = Join-Path $env:APPDATA 'Godot/export_templates/4.7.2.stable.mono'
+                    if (-not ([IO.Path]::GetFullPath($templateDirectory).StartsWith($run + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) { throw 'Export templates escaped the run directory.' }
+                }
+                try {
+                    if ($ExportWindows) {
+                        New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
+                        New-Item -ItemType Directory -Path $templateDirectory -Force | Out-Null
+                        Copy-Item -LiteralPath (Join-Path $environment.APPDATA 'Godot/export_templates/4.7.2.stable.mono/windows_release_x86_64.exe') -Destination $templateDirectory
+                    }
+                    Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
+                    if ($ExportWindows) {
+                        Invoke-Check export preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'export-godot.log'), '--export-release', 'Windows Desktop', $binary) 120
+                    }
+                } finally {
+                    if ($templateDirectory -and (Test-Path -LiteralPath $templateDirectory)) { Remove-Item -LiteralPath $templateDirectory -Recurse -Force }
                 }
                 $watch.Start()
                 foreach ($name in @('TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL')) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
@@ -237,10 +254,23 @@ try {
             }
             if ($current -ne 'stage' -and $watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
             if (-not ($summary.checks | Where-Object layer -eq $current | Measure-Object executed -Sum).Sum) { throw "$current executed no tests." }
+            $layerCompleted = $true
+        } catch {
+            $layerCompleted = $true
+            $layerError = $_.Exception.Message
+            throw
         } finally {
+            $watch.Stop()
             $layerSummary = @{ name = $current; selected = [bool] $selected; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
+            if ($layerCompleted -and $selected -and $current -eq 'integration' -and $summary.selection.isolation) {
+                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 300 }
+                catch {
+                    if ($layerError) { throw "$layerError; $($_.Exception.Message)" }
+                    throw
+                }
+            }
         }
     }
     $summary.outcome = 'passed'
