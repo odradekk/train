@@ -13,6 +13,7 @@ internal sealed class InitialLoader
     private readonly VoxelParser _parser = new();
     private readonly BlueprintParser _blueprintParser = new();
     private readonly WorldLoader _world = new();
+    internal ImmutableArray<C.ContentDiagnostic> AssetFailures { get; private set; } = [];
 
     internal InitialLoader(C.ContentInstallation installation, C.IContentFiles files, C.IAssetInspector inspector)
     {
@@ -72,6 +73,7 @@ internal sealed class InitialLoader
         }
         PackageLoader.ExcludeDependents(packages);
         var world = _world.Resolve(packages, loaded, blueprints);
+        AssetFailures = packages.SelectMany(package => package.AssetDiagnostics).ToImmutableArray();
         var diagnostics = packages.SelectMany(package => package.Diagnostics).ToImmutableArray();
         if (packages.Any(package => package.BuiltIn && package.State != C.PackageState.Available))
             return new C.ContentResult<C.IContentCandidate>.Failure(diagnostics);

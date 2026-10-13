@@ -86,8 +86,6 @@ internal sealed class ContentView : C.IContentView
         var designs = basis._designs.ToDictionary();
         foreach (var record in capture.Records)
         {
-            if (DesignEvaluator.Identity(record.Definition) != record.Hash)
-                ContentCapture.Inconsistent("/designs", "设计哈希与正文不一致。");
             designs[record.Hash] = DesignEvaluator.Evaluate(basis, record.Definition, allowMissing: true);
             if (designs[record.Hash] is C.DesignEvaluation.Failed)
                 ContentCapture.Inconsistent("/designs", "内嵌设计无法形成计算结果。");
@@ -174,7 +172,7 @@ internal sealed class ContentView : C.IContentView
         });
     }
 
-    internal ImmutableArray<C.MissingContentReference> Missing(K.CoreReferenceManifest references)
+    internal ImmutableArray<C.MissingContentReference> Missing(K.CoreReferenceManifest references, string stage = "restore")
     {
         var required = references.Definitions.Select(d => (d.Definition, d.Field))
             .Concat(SavedDesigns.SelectMany(d => d.Definition.Layout.Palette.Select((p, index) =>
@@ -186,11 +184,11 @@ internal sealed class ContentView : C.IContentView
                 var package = new C.PackageId(DefinitionId(r.Item1).Split(':')[0]);
                 var reference = new C.ContentReference.Core(r.Item1);
                 return new C.MissingContentReference(reference, package, r.Item2,
-                    [new("reference_missing", C.ContentDiagnosticSeverity.Error, "restore", reference, new(package, ""), r.Item2, null, "必需定义缺失。")]);
+                    [new("reference_missing", C.ContentDiagnosticSeverity.Error, stage, reference, new(package, ""), r.Item2, null, "必需定义缺失。")]);
             }).ToImmutableArray();
     }
 
-    internal bool HasDefinition(K.CoreDefinitionReference definition) => definition switch
+    private bool HasDefinition(K.CoreDefinitionReference definition) => definition switch
     {
         K.CoreDefinitionReference.Voxel voxel => _voxels.ContainsKey(voxel.Id),
         K.CoreDefinitionReference.Rule rule => _world.Rules.Any(r => r.Id == rule.Id),

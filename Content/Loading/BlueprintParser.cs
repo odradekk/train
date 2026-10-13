@@ -62,7 +62,7 @@ internal sealed class BlueprintParser
             {
                 var field = "/layout/palette/" + palette.Count;
                 Object(entry, field, "voxel", "orientation", "shape", "paint");
-                var voxel = Reference(Required(entry, "voxel", field), field + "/voxel", package);
+                var voxel = DefinitionJson.Reference(Required(entry, "voxel", field), field + "/voxel", package);
                 var orientation = entry.TryGetProperty("orientation", out var o)
                     ? EnumValue<C.VoxelOrientation>(o, field + "/orientation") : C.VoxelOrientation.PxPy;
                 C.VoxelShape? shape = entry.TryGetProperty("shape", out var s)
@@ -209,18 +209,6 @@ internal sealed class BlueprintParser
         return new C.DesignSpecification.Building(plot, kind, tags.ToImmutable());
     }
 
-    private static string Reference(JsonElement value, string field, LoadPackage? package)
-    {
-        var text = Text(value, field);
-        var parts = text.Split(':');
-        var ns = parts.Length == 1 ? package?.Metadata!.Id.Value ?? "" : parts[0];
-        if ((package is null && parts.Length != 2) || parts.Length > 2 || !ContentIdentity.IsValidPart(parts[^1]) ||
-            (ns != "core" && (!ModManifest.TryCanonicalUuid(ns, out var canonical) || canonical != ns)))
-            Fail(field, "引用必须为 local id 或规范的 namespace:local-id。");
-        if (package is not null && ns != package.Metadata!.Id.Value && !package.Metadata.Dependencies.Any(d => d.Package.Value == ns))
-            Fail(field, "引用的包必须在 dependencies 中声明。", "reference_missing");
-        return ns + ":" + parts[^1];
-    }
     private static C.GridColumn Column(JsonElement value, string field)
     {
         Array(value, field, 2);

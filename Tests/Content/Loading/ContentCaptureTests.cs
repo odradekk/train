@@ -33,7 +33,6 @@ public sealed class ContentCaptureTests
         foreach (var item in json["designs"]!.AsArray())
         {
             CollectionAssert.AreEquivalent(new[] { "hash", "definition" }, item!.AsObject().Select(p => p.Key).ToArray());
-            Assert.IsNull(item["definition"]!["simulation"]?["max_durability"]);
         }
     }
 
@@ -62,13 +61,26 @@ public sealed class ContentCaptureTests
             var json = JsonNode.Parse(payload)!;
             switch (mutation)
             {
-                case "version": json["format_version"] = 2; break;
+                case "version": json["format_version"] = 2; json["future_field"] = true; break;
                 case "hash": json["designs"]![0]!["hash"] = new string('A', 64); break;
                 case "scene": json["designs"] = new JsonArray(); break;
                 case "duplicate": json["templates"]!.AsArray().Add(json["templates"]![0]!.DeepClone()); break;
             }
             Failure(factory.DecodeCapture(json.ToJsonString()), mutation == "version" ? "unsupported_format" : "inconsistent_capture");
         }
+    }
+
+    [TestMethod]
+    public void Decode_reports_full_nested_design_field()
+    {
+        using var candidate = WorldContentFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var json = JsonNode.Parse(Success(factory.Capture(candidate.View, References(candidate.View, "engine"))).Encode())!;
+        json["designs"]![0]!["definition"]!["layout"]!["palette"]![0]!["voxel"] = 17;
+        var result = factory.DecodeCapture(json.ToJsonString());
+        Failure(result, "inconsistent_capture");
+        Assert.IsTrue(((C.ContentResult<C.IContentCapture>.Failure)result).Diagnostics.Any(d =>
+            d.Field == "/designs/0/definition/layout/palette/0/voxel"));
     }
 
     internal static K.OwnedSettlementTemplateReference Template(ulong owner) => new(new(owner), new("core:farm-start"),

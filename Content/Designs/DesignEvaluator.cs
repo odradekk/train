@@ -54,7 +54,7 @@ internal static class DesignEvaluator
             var cellIndex = paletteCells[index].Select(cell => (int?)cell).FirstOrDefault();
             if (entry.Paint is { } paint && !Regex.IsMatch(paint.Value, "\\A#[0-9a-f]{6}\\z", RegexOptions.CultureInvariant))
                 Invalid($"/layout/palette/{index}/paint", "颜色必须为小写 #rrggbb。", cellIndex);
-            if (!Enum.IsDefined(entry.Orientation) || voxel is not null && !Allowed(entry.Orientation, voxel.Definition.Orientations))
+            if (voxel is not null && !Allowed(entry.Orientation, voxel.Definition.Orientations))
                 Invalid($"/layout/palette/{index}/orientation", "体素不允许该朝向。", cellIndex);
             if (entry.Shape is { } shape)
             {
@@ -65,7 +65,7 @@ internal static class DesignEvaluator
             }
         }
 
-        var design = new K.DesignHash(Hash(draft, cells.Select(item => item.Cell), false));
+        var design = Identity(draft);
         var composition = new K.CompositionHash(Hash(draft, cells.Select(item => item.Cell), true));
         var envelope = Envelope(draft.Specification);
         var sceneOnly = draft.Specification is C.DesignSpecification.SceneModel;

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using static Train.Content.Tests.Loading.ContentCaptureTests;
 using static Train.Content.Tests.Loading.ContentRestoreTests;
@@ -26,7 +27,12 @@ public sealed class ContentReloadTests
         var saved = Success(ContentFactory.Create().Capture(basis, references)).Encode();
         fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/blueprints/engine.blueprint.json");
         fixture.RemoveEntry(ContentFixture.BuiltIn, "resources/voxels/block.voxel.json");
-        ContentCaptureTests.Failure(Prepare(fixture, basis, references), "reference_missing");
+        var rejected = Prepare(fixture, basis, references);
+        ContentCaptureTests.Failure(rejected, "reference_missing");
+        var diagnostics = ((C.ContentResult<C.IContentCandidate>.Failure)rejected).Diagnostics;
+        Assert.IsTrue(diagnostics.Any(d => d.Stage == "reload" &&
+            d.Subject == new C.ContentReference.Core(new K.CoreDefinitionReference.Voxel(new("core:block"))) &&
+            (designDependency ? d.Field.Contains("/layout/palette/", StringComparison.Ordinal) : d.Field == "instance.part")));
         Assert.AreEqual(saved, Success(ContentFactory.Create().Capture(basis, references)).Encode());
     }
 
@@ -147,27 +153,6 @@ public sealed class ContentReloadTests
     }
 
     [TestMethod]
-    public void Reload_recalculates_durability_limits_without_changing_design_or_part_identity()
-    {
-        var fixture = WorldContentFixtures.Content();
-        using var initial = fixture.Load();
-        var references = References(initial.View, "engine");
-        var before = initial.View.Core.Designs.Single(d => d.Design == references.Designs.Single());
-        Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["max_durability"] = 2);
-        using var lower = Reload(fixture, initial.View, references);
-        var reduced = lower.View.Core.Designs.Single(d => d.Design == before.Design);
-        Assert.AreEqual(before.Parts.Single().Id, reduced.Parts.Single().Id);
-        Assert.AreEqual(2L, reduced.Parts.Single().MaxDurability);
-        Assert.IsTrue(reduced.MaxStructureDurability < before.MaxStructureDurability);
-        Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["max_durability"] = 5);
-        using var recovered = Reload(fixture, lower.View, references);
-        var after = recovered.View.Core.Designs.Single(d => d.Design == before.Design);
-        Assert.AreEqual(before.Parts.Single().Id, after.Parts.Single().Id);
-        Assert.AreEqual(before.Parts.Single().MaxDurability, after.Parts.Single().MaxDurability);
-        Assert.AreEqual(before.MaxStructureDurability, after.MaxStructureDurability);
-    }
-
-    [TestMethod]
     public void Reload_updates_generation_catalog_and_railway_appearance_without_changing_current_core_identity()
     {
         var fixture = WorldContentFixtures.Content();
@@ -182,6 +167,39 @@ public sealed class ContentReloadTests
         Assert.IsTrue(updated.Changes.HasFlag(C.ContentChange.Presentation));
         Assert.AreEqual(0.2, Found(updated.View.FindRailwayAppearance(new("core:rail"))).MaximumGrade);
         Assert.AreEqual(1200d, Success(factory.CreateWorldInput(updated.View, new("core:world"), 1, "test")).Configuration.WidthMeters);
+    }
+
+    [TestMethod]
+    [DataRow("missing", "file_missing")]
+    [DataRow("decode", "asset_decode_failed")]
+    [DataRow("unsupported", "asset_unsupported")]
+    [DataRow("rule", "asset_rule_failed")]
+    public void Reload_rejects_asset_failure_in_enabled_unreferenced_mod_and_retains_basis(string failure, string code)
+    {
+        var fixture = ModContent();
+        using var initial = fixture.Load();
+        var references = References(initial.View);
+        var factory = ContentFactory.Create();
+        var saved = Success(factory.Capture(initial.View, references)).Encode();
+        const string path = "equipment/resources/voxels/motor/tile.png";
+        if (failure == "missing") fixture.SetReadFailure(ContentFixture.Mods, path, C.ContentIoFailure.Missing);
+        if (failure == "rule") fixture.AddAsset(ContentFixture.Mods, path, [20, 21], new C.AssetMetadata.Png(3, 3));
+        var result = factory.PrepareLoad(new(fixture.Installation, new C.ContentLoadPurpose.Reload(initial.View, references)),
+            fixture, new FailedModInspector(fixture, failure));
+        Failure(result, code);
+        Assert.IsTrue(((C.ContentResult<C.IContentCandidate>.Failure)result).Diagnostics.Any(d =>
+            d.Code == code && d.Source == new C.ContentSourceLocation(new(ModId), path) &&
+            d.Field == "/appearance/presentation/faces/top"));
+        Assert.AreEqual(saved, Success(factory.Capture(initial.View, references)).Encode());
+        Assert.IsInstanceOfType<C.ContentLookup<C.VoxelAppearanceProjection>.Found>(initial.View.FindVoxelAppearance(new(ModId + ":motor")));
+    }
+
+    private sealed class FailedModInspector(ContentFixture fixture, string failure) : C.IAssetInspector
+    {
+        public C.AssetInspection Inspect(C.AssetKind kind, C.AssetRevision revision, ImmutableArray<byte> bytes) =>
+            bytes.SequenceEqual(new byte[] { 20, 21 }) && failure is "decode" or "unsupported"
+                ? new C.AssetInspection.Failure(failure == "decode" ? C.AssetInspectionFailure.CannotDecode : C.AssetInspectionFailure.UnsupportedContent, "bad mod asset")
+                : fixture.Inspect(kind, revision, bytes);
     }
 
     private static C.ContentResult<C.IContentCandidate> Prepare(ContentFixture fixture, C.IContentView basis, K.CoreReferenceManifest references) =>

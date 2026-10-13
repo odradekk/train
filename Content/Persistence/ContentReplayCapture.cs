@@ -8,17 +8,15 @@ using K = Train.Core.Contracts;
 
 namespace Train.Content.Persistence;
 
-internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> history) : C.IContentReplayCapture
+internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> history,
+    ImmutableArray<ContentCapture> captures) : C.IContentReplayCapture
 {
     public ImmutableArray<C.IContentView> History { get; } = history;
 
     internal static ContentReplayCapture Create(ImmutableArray<C.IContentView> history, K.CoreReferenceManifest references)
     {
-        if (history.IsDefaultOrEmpty || references.Inputs.IsDefault || references.Designs.IsDefault ||
-            references.Templates.IsDefault || references.Definitions.IsDefault)
-            ContentCapture.Inconsistent("/history", "历史与引用清单必须初始化且历史不能为空。");
-        if (history.Any(view => view is not ContentView { Source: not null }))
-            ContentCapture.Inconsistent("/history", "历史视图缺少固定来源。");
+        if (history.IsEmpty) ContentCapture.Inconsistent("/history", "历史不能为空。");
+        var captures = history.Cast<ContentView>().Select(view => ContentCapture.Create(view, view.PersistentReferences)).ToImmutableArray();
         foreach (var identity in references.Inputs)
             if (!history.Any(view => view.Core.Identity == identity)) ContentCapture.Inconsistent("/history/inputs", "缺少所需的输入历史。");
         foreach (var design in references.Designs)
@@ -26,10 +24,9 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
                 ContentCapture.Inconsistent("/history/designs", "缺少所需的历史设计。");
         foreach (var template in references.Templates)
             if (!history.Any(view => view.FindSettlementLayout(template.Owner) is C.ContentLookup<C.SettlementLayoutProjection>.Found found &&
-                found.Value.SourceTemplate == template.SourceTemplate && !template.Plots.IsDefault &&
-                found.Value.Plots.Select(p => new K.TemplatePlotReference(p.Number, p.Size)).SequenceEqual(template.Plots.OrderBy(p => p.Number))))
+                ContentCapture.MatchesTemplate(template, found.Value.Owner, found.Value.SourceTemplate, found.Value.Plots)))
                 ContentCapture.Inconsistent("/history/templates", "缺少所需的历史模板副本。");
-        return new(history);
+        return new(history, captures);
     }
 
     public string Encode() => ContentCapture.Encode(writer =>
@@ -49,15 +46,16 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         }
         writer.WriteEndArray();
         writer.WriteStartArray("history");
-        foreach (var view in views)
+        for (var index = 0; index < views.Length; index++)
         {
+            var view = views[index];
             writer.WriteStartObject();
             writer.WriteString("input", view.Core.Identity.Value);
             writer.WriteNumber("generation", view.Generation.Value);
             writer.WritePropertyName("source");
             view.Source!.Write(writer);
             writer.WritePropertyName("content");
-            ContentCapture.Create(view, view.PersistentReferences).Write(writer);
+            captures[index].Write(writer);
             writer.WriteStartArray("missing");
             foreach (var missing in view.Core.MissingReferences)
             {
@@ -76,9 +74,9 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
 
     internal static ContentReplayCapture Read(JsonElement root)
     {
-        Object(root, "", "format_version", "blobs", "history");
         if (Int32(Required(root, "format_version", ""), "/format_version") != 1)
             Fail("/format_version", "复现内容载荷只支持版本 1。", "unsupported_format");
+        Object(root, "", "format_version", "blobs", "history");
         var blobs = new Dictionary<string, ImmutableArray<byte>>(StringComparer.Ordinal);
         foreach (var (value, field) in Items(Required(root, "blobs", ""), "/blobs"))
         {
@@ -95,34 +93,57 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         }
         var immutableBlobs = blobs.ToFrozenDictionary(StringComparer.Ordinal);
         var history = ImmutableArray.CreateBuilder<C.IContentView>();
+        var captures = ImmutableArray.CreateBuilder<ContentCapture>();
         foreach (var (value, field) in Items(Required(root, "history", ""), "/history"))
         {
             Object(value, field, "input", "generation", "source", "content", "missing");
             var identity = new K.CoreInputId(ContentCapture.ReadHash(Required(value, "input", field), field + "/input"));
             var generation = new C.ContentGeneration(UInt64(Required(value, "generation", field), field + "/generation", 1));
-            var source = ContentSourceSnapshot.Read(Required(value, "source", field), immutableBlobs);
-            var capture = ContentCapture.Read(Required(value, "content", field));
+            var sourceValue = Required(value, "source", field);
+            ContentSourceSnapshot source;
+            try { source = ContentSourceSnapshot.Read(sourceValue, immutableBlobs); }
+            catch (DefinitionFormatException exception)
+            {
+                throw new DefinitionFormatException(field + exception.Field, exception.Message, exception.Code);
+            }
+            var capture = ContentCapture.Read(Required(value, "content", field), field + "/content");
             var missing = Items(Required(value, "missing", field), field + "/missing").Select(item =>
             {
                 Object(item.Value, item.Field, "kind", "id", "field");
                 var definition = ReadDefinition(Text(Required(item.Value, "kind", item.Field), item.Field + "/kind"),
-                    ContentCapture.ReadDefinitionId(Required(item.Value, "id", item.Field), item.Field + "/id"));
+                    Reference(Required(item.Value, "id", item.Field), item.Field + "/id", null), item.Field + "/kind");
                 return new K.RequiredDefinition(definition, null, Text(Required(item.Value, "field", item.Field), item.Field + "/field"), true);
             }).ToImmutableArray();
-            var loaded = new InitialLoader(source.Installation, source, source).Load();
+            C.ContentResult<C.IContentCandidate> loaded;
+            try { loaded = new InitialLoader(source.Installation, source, source).Load(); }
+            catch (DefinitionFormatException exception)
+            {
+                throw new DefinitionFormatException(field + exception.Field, exception.Message, exception.Code);
+            }
             if (loaded is not C.ContentResult<C.IContentCandidate>.Success success)
             {
                 ContentCapture.Inconsistent(field + "/source", "固定来源无法重建有效内容。");
                 continue;
             }
             using var candidate = success.Value;
-            var view = ((ContentView)candidate.View).WithCapture(capture,
-                new(capture.Designs, capture.Templates, missing, [identity]), generation);
+            ContentView view;
+            try
+            {
+                view = ((ContentView)candidate.View).WithCapture(capture,
+                    new(capture.Designs, capture.Templates, missing, [identity]), generation);
+            }
+            catch (DefinitionFormatException exception)
+            {
+                throw new DefinitionFormatException(field + "/content" + exception.Field, exception.Message, exception.Code);
+            }
             if (view.Core.Identity != identity) ContentCapture.Inconsistent(field + "/input", "重算的输入身份与记录不一致。");
+            if (!view.Core.MissingReferences.SequenceEqual(missing.Select(m => new K.MissingCoreReference(m.Definition, m.Field))))
+                ContentCapture.Inconsistent(field + "/missing", "缺失清单与重建内容不一致。");
             history.Add(view);
+            captures.Add(capture);
         }
         if (history.Count == 0) ContentCapture.Inconsistent("/history", "历史不能为空。");
-        return new(history.ToImmutable());
+        return new(history.ToImmutable(), captures.ToImmutable());
     }
 
     private static string DefinitionKind(K.CoreDefinitionReference definition) => definition switch
@@ -136,7 +157,7 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         _ => throw new ArgumentOutOfRangeException(nameof(definition))
     };
 
-    private static K.CoreDefinitionReference ReadDefinition(string kind, string id) => kind switch
+    private static K.CoreDefinitionReference ReadDefinition(string kind, string id, string field) => kind switch
     {
         "voxel" => new K.CoreDefinitionReference.Voxel(new(id)), "composite" => new K.CoreDefinitionReference.Composite(new(id)),
         "rule" => new K.CoreDefinitionReference.Rule(new(id)), "settlement_type" => new K.CoreDefinitionReference.SettlementType(new(id)),
@@ -144,6 +165,6 @@ internal sealed class ContentReplayCapture(ImmutableArray<C.IContentView> histor
         "creature" => new K.CoreDefinitionReference.Creature(new(id)), "lair" => new K.CoreDefinitionReference.Lair(new(id)),
         "production" => new K.CoreDefinitionReference.Process(new K.ProcessRef.Production(new(id))),
         "recovery" => new K.CoreDefinitionReference.Process(new K.ProcessRef.Recovery(new(id))),
-        _ => throw new DefinitionFormatException("/missing/kind", "未知的引用种类。", "inconsistent_capture")
+        _ => throw new DefinitionFormatException(field, "未知的引用种类。", "inconsistent_capture")
     };
 }

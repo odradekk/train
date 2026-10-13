@@ -1,6 +1,7 @@
 using System.Collections.Frozen;
 using System.Collections.Immutable;
 using System.Text.Json;
+using Train.Content.Designs;
 using Train.Content.Loading;
 using static Train.Content.Loading.DefinitionJson;
 using C = Train.Content.Contracts;
@@ -19,8 +20,6 @@ internal sealed class RecordingContentSource(C.ContentInstallation installation,
         if (!_directories.TryGetValue(directory, out var result))
         {
             result = files.Enumerate(directory);
-            if (result is C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success { Value.IsDefault: true })
-                ContentCapture.Inconsistent("/source/directories", "目录事实必须初始化。");
             _directories.Add(directory, result);
         }
         return result;
@@ -32,8 +31,6 @@ internal sealed class RecordingContentSource(C.ContentInstallation installation,
         if (!_files.TryGetValue(key, out var result))
         {
             result = files.Read(file, maximumBytes);
-            if (result is C.ContentIoResult<ImmutableArray<byte>>.Success { Value.IsDefault: true })
-                ContentCapture.Inconsistent("/source/files", "文件字节必须初始化。");
             _files.Add(key, result);
         }
         return result;
@@ -45,8 +42,6 @@ internal sealed class RecordingContentSource(C.ContentInstallation installation,
         if (!_inspections.TryGetValue(key, out var result))
         {
             result = inspector.Inspect(kind, revision, bytes);
-            if (result is C.AssetInspection.Success { Metadata: C.AssetMetadata.Glb { Surfaces.IsDefault: true } })
-                ContentCapture.Inconsistent("/source/inspections", "模型表面事实必须初始化。");
             _inspections.Add(key, result);
         }
         return result;
@@ -93,16 +88,16 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
             writer.WriteStartObject();
             WritePath(writer, entry.Key);
             if (entry.Value is C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Failure failure)
-                WriteFailure(writer, (int)failure.Kind, failure.Diagnostic);
+                WriteFailure(writer, failure.Kind, failure.Diagnostic);
             else
             {
                 writer.WriteStartArray("entries");
                 foreach (var child in ((C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>.Success)entry.Value).Value
-                    .OrderBy(child => child.Name, StringComparer.Ordinal).ThenBy(child => child.Kind))
+                    .OrderBy(child => child.Name, StringComparer.Ordinal).ThenBy(child => DesignEvaluator.Wire(child.Kind), StringComparer.Ordinal))
                 {
                     writer.WriteStartObject();
                     writer.WriteString("name", child.Name);
-                    writer.WriteNumber("kind", (int)child.Kind);
+                    writer.WriteString("kind", DesignEvaluator.Wire(child.Kind));
                     writer.WriteEndObject();
                 }
                 writer.WriteEndArray();
@@ -118,7 +113,7 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
             WritePath(writer, entry.Key.Path);
             writer.WriteNumber("maximum_bytes", entry.Key.Maximum);
             if (entry.Value is C.ContentIoResult<ImmutableArray<byte>>.Failure failure)
-                WriteFailure(writer, (int)failure.Kind, failure.Diagnostic);
+                WriteFailure(writer, failure.Kind, failure.Diagnostic);
             else
             {
                 var bytes = ((C.ContentIoResult<ImmutableArray<byte>>.Success)entry.Value).Value;
@@ -129,19 +124,19 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
         }
         writer.WriteEndArray();
         writer.WriteStartArray("inspections");
-        foreach (var entry in inspections.OrderBy(e => e.Key.Kind).ThenBy(e => e.Key.Revision.Value, StringComparer.Ordinal))
+        foreach (var entry in inspections.OrderBy(e => DesignEvaluator.Wire(e.Key.Kind), StringComparer.Ordinal)
+                     .ThenBy(e => e.Key.Revision.Value, StringComparer.Ordinal))
         {
             writer.WriteStartObject();
-            writer.WriteNumber("kind", (int)entry.Key.Kind);
+            writer.WriteString("kind", DesignEvaluator.Wire(entry.Key.Kind));
             writer.WriteString("revision", entry.Key.Revision.Value);
-            if (entry.Value is C.AssetInspection.Failure failure) WriteFailure(writer, (int)failure.Kind, failure.Diagnostic);
+            if (entry.Value is C.AssetInspection.Failure failure) WriteFailure(writer, failure.Kind, failure.Diagnostic);
             else
             {
                 var metadata = ((C.AssetInspection.Success)entry.Value).Metadata;
                 writer.WriteString("metadata_kind", metadata is C.AssetMetadata.Png ? "png" : "glb");
                 writer.WritePropertyName("metadata");
-                if (metadata is C.AssetMetadata.Png png) JsonSerializer.Serialize(writer, png);
-                else JsonSerializer.Serialize(writer, (C.AssetMetadata.Glb)metadata);
+                WriteMetadata(writer, metadata);
             }
             writer.WriteEndObject();
         }
@@ -155,25 +150,23 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
         writer.WriteString("path", path.RelativePath);
     }
 
-    private static void WriteFailure(Utf8JsonWriter writer, int kind, string diagnostic)
+    private static void WriteFailure(Utf8JsonWriter writer, Enum kind, string diagnostic)
     {
-        writer.WriteNumber("failure", kind);
+        writer.WriteString("failure", DesignEvaluator.Wire(kind));
         writer.WriteString("diagnostic", diagnostic);
     }
 
     internal static ContentSourceSnapshot Read(JsonElement root, IReadOnlyDictionary<string, ImmutableArray<byte>> blobs)
     {
-        if (ContentDocument.DuplicateField(root, "/source") is { } duplicate)
-            Fail(duplicate, "JSON 字段重复。", "invalid_json");
         Object(root, "/source", "installation", "directories", "files", "inspections");
         var install = Required(root, "installation", "/source");
         Object(install, "/source/installation", "built_in", "mods", "game_version", "enabled_mods");
         var enabled = Items(Required(install, "enabled_mods", "/source/installation"), "/source/installation/enabled_mods")
             .Select(item => new C.PackageId(Text(item.Value, item.Field))).ToImmutableArray();
         Unique(enabled, "/source/installation/enabled_mods");
-        var installation = new C.ContentInstallation(new(Text(Required(install, "built_in", ""), "/source/installation/built_in")),
-            new(Text(Required(install, "mods", ""), "/source/installation/mods")), null,
-            Text(Required(install, "game_version", ""), "/source/installation/game_version"), enabled);
+        var installation = new C.ContentInstallation(new(Text(Required(install, "built_in", "/source/installation"), "/source/installation/built_in")),
+            new(Text(Required(install, "mods", "/source/installation"), "/source/installation/mods")), null,
+            Text(Required(install, "game_version", "/source/installation"), "/source/installation/game_version"), enabled);
         var directories = new Dictionary<C.ContentPath, C.ContentIoResult<ImmutableArray<C.ContentFileEntry>>>();
         foreach (var (value, field) in Items(Required(root, "directories", "/source"), "/source/directories"))
         {
@@ -186,7 +179,7 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
                 {
                     Object(item.Value, item.Field, "name", "kind");
                     return new C.ContentFileEntry(Text(Required(item.Value, "name", item.Field), item.Field + "/name"),
-                        (C.ContentEntryKind)Int32(Required(item.Value, "kind", item.Field), item.Field + "/kind", 0, 2));
+                        EnumValue<C.ContentEntryKind>(Required(item.Value, "kind", item.Field), item.Field + "/kind"));
                 }).ToImmutableArray());
             if (!directories.TryAdd(ReadPath(value, field), result)) ContentCapture.Inconsistent(field, "目录请求重复。");
         }
@@ -215,10 +208,10 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
             if (value.ValueKind != JsonValueKind.Object) Fail(field, "必须为对象。");
             var failed = value.TryGetProperty("failure", out var failure);
             Object(value, field, failed ? ["kind", "revision", "failure", "diagnostic"] : ["kind", "revision", "metadata_kind", "metadata"]);
-            var kind = (C.AssetKind)Int32(Required(value, "kind", field), field + "/kind", 0, 1);
+            var kind = EnumValue<C.AssetKind>(Required(value, "kind", field), field + "/kind");
             var revision = new C.AssetRevision(ContentCapture.ReadHash(Required(value, "revision", field), field + "/revision"));
             C.AssetInspection result = failed
-                ? new C.AssetInspection.Failure((C.AssetInspectionFailure)Int32(failure, field + "/failure", 0, 1), Text(Required(value, "diagnostic", field), field + "/diagnostic"))
+                ? new C.AssetInspection.Failure(EnumValue<C.AssetInspectionFailure>(failure, field + "/failure"), Text(Required(value, "diagnostic", field), field + "/diagnostic"))
                 : new C.AssetInspection.Success(ReadMetadata(Required(value, "metadata", field), Text(Required(value, "metadata_kind", field), field + "/metadata_kind"), field + "/metadata"));
             if (!inspections.TryAdd((kind, revision), result)) ContentCapture.Inconsistent(field, "资产检查请求重复。");
         }
@@ -227,34 +220,95 @@ internal sealed class ContentSourceSnapshot(C.ContentInstallation installation,
 
     private static C.ContentPath ReadPath(JsonElement value, string field) => new(
         new(Text(Required(value, "root", field), field + "/root")), Text(Required(value, "path", field), field + "/path"));
-    private static C.ContentIoFailure IoFailure(JsonElement value, string field) => (C.ContentIoFailure)Int32(value, field + "/failure", 0, 3);
+    private static C.ContentIoFailure IoFailure(JsonElement value, string field) => EnumValue<C.ContentIoFailure>(value, field + "/failure");
+
+    private static void WriteMetadata(Utf8JsonWriter writer, C.AssetMetadata metadata)
+    {
+        writer.WriteStartObject();
+        if (metadata is C.AssetMetadata.Png png)
+        {
+            writer.WriteNumber("width", png.Width);
+            writer.WriteNumber("height", png.Height);
+        }
+        else
+        {
+            var glb = (C.AssetMetadata.Glb)metadata;
+            writer.WriteNumber("mesh_node_count", glb.MeshNodeCount);
+            writer.WriteStartArray("surfaces");
+            foreach (var surface in glb.Surfaces) writer.WriteStringValue(DesignEvaluator.Wire(surface));
+            writer.WriteEndArray();
+            writer.WriteStartObject("bounds");
+            WritePoint(writer, "minimum_meters", glb.Bounds.MinimumMeters);
+            WritePoint(writer, "maximum_meters", glb.Bounds.MaximumMeters);
+            writer.WriteEndObject();
+            writer.WriteBoolean("has_skeleton", glb.HasSkeleton);
+            writer.WriteBoolean("has_morph_targets", glb.HasMorphTargets);
+            writer.WriteBoolean("has_animation", glb.HasAnimation);
+            writer.WriteBoolean("has_camera", glb.HasCamera);
+            writer.WriteBoolean("has_light", glb.HasLight);
+            writer.WriteBoolean("has_external_images", glb.HasExternalImages);
+        }
+        writer.WriteEndObject();
+    }
+
+    private static void WritePoint(Utf8JsonWriter writer, string key, C.LocalPoint point)
+    {
+        writer.WriteStartObject(key);
+        WriteCoordinate("x", point.X);
+        WriteCoordinate("y", point.Y);
+        WriteCoordinate("z", point.Z);
+        writer.WriteEndObject();
+
+        void WriteCoordinate(string axis, double value)
+        {
+            if (double.IsFinite(value)) writer.WriteNumber(axis, value);
+            else writer.WriteString(axis, double.IsNaN(value) ? "nan" : value > 0 ? "positive_infinity" : "negative_infinity");
+        }
+    }
 
     private static C.AssetMetadata ReadMetadata(JsonElement value, string kind, string field)
     {
-        try
+        if (kind == "png")
         {
-            if (kind == "png")
-            {
-                Exact(value, field, "Width", "Height");
-                return JsonSerializer.Deserialize<C.AssetMetadata.Png>(value)!;
-            }
-            if (kind != "glb") ContentCapture.Inconsistent(field, "资产元数据种类无效。");
-            Exact(value, field, "MeshNodeCount", "Surfaces", "Bounds", "HasSkeleton", "HasMorphTargets", "HasAnimation", "HasCamera", "HasLight", "HasExternalImages");
-            Array(Required(value, "Surfaces", field), field + "/Surfaces");
-            var bounds = Required(value, "Bounds", field);
-            Exact(bounds, field + "/Bounds", "MinimumMeters", "MaximumMeters");
-            Exact(Required(bounds, "MinimumMeters", field), field + "/Bounds/MinimumMeters", "X", "Y", "Z");
-            Exact(Required(bounds, "MaximumMeters", field), field + "/Bounds/MaximumMeters", "X", "Y", "Z");
-            var metadata = JsonSerializer.Deserialize<C.AssetMetadata.Glb>(value)!;
-            if (metadata.Surfaces.IsDefault) ContentCapture.Inconsistent(field, "模型表面事实必须初始化。");
-            return metadata;
+            Object(value, field, "width", "height");
+            return new C.AssetMetadata.Png(Int32(Required(value, "width", field), field + "/width"),
+                Int32(Required(value, "height", field), field + "/height"));
         }
-        catch (JsonException exception) { throw new DefinitionFormatException(field, exception.Message, "inconsistent_capture"); }
+        if (kind != "glb") ContentCapture.Inconsistent(field, "资产元数据种类无效。");
+        Object(value, field, "mesh_node_count", "surfaces", "bounds", "has_skeleton", "has_morph_targets",
+            "has_animation", "has_camera", "has_light", "has_external_images");
+        var surfaces = Items(Required(value, "surfaces", field), field + "/surfaces")
+            .Select(item => EnumValue<C.AssetAlphaMode>(item.Value, item.Field)).ToImmutableArray();
+        var boundsField = field + "/bounds";
+        var bounds = Required(value, "bounds", field);
+        Object(bounds, boundsField, "minimum_meters", "maximum_meters");
+        return new C.AssetMetadata.Glb(Int32(Required(value, "mesh_node_count", field), field + "/mesh_node_count"), surfaces,
+            new(ReadPoint(Required(bounds, "minimum_meters", boundsField), boundsField + "/minimum_meters"),
+                ReadPoint(Required(bounds, "maximum_meters", boundsField), boundsField + "/maximum_meters")),
+            ReadFlag("has_skeleton"), ReadFlag("has_morph_targets"), ReadFlag("has_animation"),
+            ReadFlag("has_camera"), ReadFlag("has_light"), ReadFlag("has_external_images"));
+
+        bool ReadFlag(string key) => Boolean(Required(value, key, field), field + "/" + key);
     }
 
-    private static void Exact(JsonElement value, string field, params string[] keys)
+    private static C.LocalPoint ReadPoint(JsonElement value, string field)
     {
-        Object(value, field, keys);
-        foreach (var key in keys) Required(value, key, field);
+        Object(value, field, "x", "y", "z");
+        return new(ReadCoordinate("x"), ReadCoordinate("y"), ReadCoordinate("z"));
+
+        double ReadCoordinate(string axis)
+        {
+            var coordinate = Required(value, axis, field);
+            var coordinateField = field + "/" + axis;
+            if (coordinate.ValueKind == JsonValueKind.Number && coordinate.TryGetDouble(out var number) && double.IsFinite(number))
+                return number;
+            return Text(coordinate, coordinateField) switch
+            {
+                "nan" => double.NaN,
+                "positive_infinity" => double.PositiveInfinity,
+                "negative_infinity" => double.NegativeInfinity,
+                _ => throw new DefinitionFormatException(coordinateField, "必须为数值或非有限值事实标记。", "invalid_field")
+            };
+        }
     }
 }

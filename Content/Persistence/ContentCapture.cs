@@ -27,22 +27,17 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
 
     internal void Validate(K.CoreReferenceManifest references)
     {
-        if (references.Designs.IsDefault || references.Templates.IsDefault || references.Definitions.IsDefault || references.Inputs.IsDefault)
-            Inconsistent("/references", "引用清单必须初始化。");
         if (references.Designs.Any(hash => !Designs.Contains(hash))) Inconsistent("/designs", "缺少被引用的实例设计。");
         foreach (var reference in references.Templates)
         {
-            var template = Templates.FirstOrDefault(t => t.Owner == reference.Owner);
-            if (template is null || template.SourceTemplate != reference.SourceTemplate || reference.Plots.IsDefault ||
-                !template.Plots.SequenceEqual(reference.Plots.OrderBy(p => p.Number)))
+            var template = Copies.FirstOrDefault(t => t.Owner == reference.Owner);
+            if (template is null || !MatchesTemplate(reference, template.Owner, template.Source, template.Plots))
                 Inconsistent("/templates", "模板副本与核心所有者及地块清单不配对。");
         }
     }
 
     internal static ContentCapture Create(ContentView view, K.CoreReferenceManifest references)
     {
-        if (references.Designs.IsDefault || references.Templates.IsDefault || references.Definitions.IsDefault || references.Inputs.IsDefault)
-            Inconsistent("/references", "引用清单必须初始化。");
         var layouts = references.Templates.Select(reference =>
         {
             if (view.FindSettlementLayout(reference.Owner) is not C.ContentLookup<C.SettlementLayoutProjection>.Found found)
@@ -51,8 +46,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
                 return null!;
             }
             var layout = found.Value;
-            if (layout.SourceTemplate != reference.SourceTemplate || reference.Plots.IsDefault ||
-                !layout.Plots.Select(p => new K.TemplatePlotReference(p.Number, p.Size)).SequenceEqual(reference.Plots.OrderBy(p => p.Number)))
+            if (!MatchesTemplate(reference, layout.Owner, layout.SourceTemplate, layout.Plots))
                 Inconsistent("/templates", "模板副本与核心地块清单不配对。");
             return new CapturedTemplate(layout.Owner, layout.SourceTemplate, layout.Display, layout.Plots, layout.SceneModel.Design);
         }).OrderBy(t => t.Owner.Value).ToImmutableArray();
@@ -71,7 +65,6 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
                     C.DesignEvaluation.Partial partial => partial.Definition,
                     _ => throw new InvalidOperationException("固定视图不能保存无法计算的设计。")
                 };
-                if (DesignEvaluator.Identity(draft) != hash) Inconsistent("/designs", "设计哈希与正文不一致。");
                 return new CapturedDesign(hash, draft);
             }).ToImmutableArray();
         var usedPackages = records.SelectMany(d => d.Definition.Layout.Palette.Select(p => p.Voxel.Value.Split(':')[0]))
@@ -103,8 +96,8 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
             foreach (var dependency in package.Dependencies.OrderBy(d => d.Package.Value, StringComparer.Ordinal))
             {
                 writer.WriteStartObject();
-                writer.WriteString("package", dependency.Package.Value);
-                writer.WriteString("minimum_version", dependency.MinimumVersion);
+                writer.WriteString("id", dependency.Package.Value);
+                writer.WriteString("min_version", dependency.MinimumVersion);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -142,28 +135,34 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
         writer.WriteEndObject();
     }
 
-    internal static ContentCapture Read(JsonElement root)
+    internal static ContentCapture Read(JsonElement root, string field = "")
     {
-        Object(root, "", "format_version", "revision", "packages", "designs", "templates");
-        if (Int32(Required(root, "format_version", ""), "/format_version") != 1)
-            Fail("/format_version", "内容载荷只支持版本 1。", "unsupported_format");
-        var revision = new C.ContentRevision(UInt64(Required(root, "revision", ""), "/revision"));
-        var packages = Items(Required(root, "packages", ""), "/packages").Select(item => ReadPackage(item.Value, item.Field)).ToImmutableArray();
-        Unique(packages.Select(p => p.Id), "/packages");
-        var designs = Items(Required(root, "designs", ""), "/designs").Select(item =>
+        if (Int32(Required(root, "format_version", field), field + "/format_version") != 1)
+            Fail(field + "/format_version", "内容载荷只支持版本 1。", "unsupported_format");
+        Object(root, field, "format_version", "revision", "packages", "designs", "templates");
+        var revision = new C.ContentRevision(UInt64(Required(root, "revision", field), field + "/revision"));
+        var packages = Items(Required(root, "packages", field), field + "/packages").Select(item => ReadPackage(item.Value, item.Field)).ToImmutableArray();
+        Unique(packages.Select(p => p.Id), field + "/packages");
+        var designs = Items(Required(root, "designs", field), field + "/designs").Select(item =>
         {
             Object(item.Value, item.Field, "hash", "definition");
             var hash = new K.DesignHash(ReadHash(Required(item.Value, "hash", item.Field), item.Field + "/hash"));
-            var draft = BlueprintParser.ReadDesign(Required(item.Value, "definition", item.Field));
+            var definition = Required(item.Value, "definition", item.Field);
+            C.DesignDraft draft;
+            try { draft = BlueprintParser.ReadDesign(definition); }
+            catch (DefinitionFormatException exception)
+            {
+                throw new DefinitionFormatException(item.Field + "/definition" + exception.Field, exception.Message, exception.Code);
+            }
             if (DesignEvaluator.Identity(draft) != hash) Inconsistent(item.Field + "/hash", "设计哈希与正文不一致。");
             return new CapturedDesign(hash, draft);
         }).OrderBy(d => d.Hash.Value, StringComparer.Ordinal).ToImmutableArray();
-        Unique(designs.Select(d => d.Hash), "/designs");
-        var templates = Items(Required(root, "templates", ""), "/templates").Select(item =>
+        Unique(designs.Select(d => d.Hash), field + "/designs");
+        var templates = Items(Required(root, "templates", field), field + "/templates").Select(item =>
         {
             Object(item.Value, item.Field, "owner", "source", "scene_model", "display", "plots");
             var owner = new K.SettlementId(UInt64(Required(item.Value, "owner", item.Field), item.Field + "/owner", 1));
-            var source = new K.SettlementTemplateId(ReadDefinitionId(Required(item.Value, "source", item.Field), item.Field + "/source"));
+            var source = new K.SettlementTemplateId(Reference(Required(item.Value, "source", item.Field), item.Field + "/source", null));
             var scene = new K.DesignHash(ReadHash(Required(item.Value, "scene_model", item.Field), item.Field + "/scene_model"));
             var display = Display(Required(item.Value, "display", item.Field), item.Field + "/display");
             var plots = Items(Required(item.Value, "plots", item.Field), item.Field + "/plots")
@@ -173,7 +172,7 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
                 Inconsistent(item.Field, "模板副本必须包含地块与场景模型设计。");
             return new CapturedTemplate(owner, source, display, plots, scene);
         }).OrderBy(t => t.Owner.Value).ToImmutableArray();
-        Unique(templates.Select(t => t.Owner), "/templates");
+        Unique(templates.Select(t => t.Owner), field + "/templates");
         return new(revision, designs, templates, packages);
     }
 
@@ -187,9 +186,9 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
         var authors = Items(Required(value, "authors", field), field + "/authors").Select(item => Text(item.Value, item.Field)).ToImmutableArray();
         var dependencies = Items(Required(value, "dependencies", field), field + "/dependencies").Select(item =>
         {
-            Object(item.Value, item.Field, "package", "minimum_version");
-            var package = Text(Required(item.Value, "package", item.Field), item.Field + "/package");
-            var minimum = Text(Required(item.Value, "minimum_version", item.Field), item.Field + "/minimum_version");
+            Object(item.Value, item.Field, "id", "min_version");
+            var package = Text(Required(item.Value, "id", item.Field), item.Field + "/id");
+            var minimum = Text(Required(item.Value, "min_version", item.Field), item.Field + "/min_version");
             if ((package != "core" && (!ModManifest.TryCanonicalUuid(package, out var canonical) || canonical != package)) || !SemVer.IsValid(minimum))
                 Inconsistent(item.Field, "包依赖无效。");
             return new C.PackageDependency(new(package), minimum);
@@ -206,15 +205,10 @@ internal sealed class ContentCapture(C.ContentRevision revision, ImmutableArray<
         return text;
     }
 
-    internal static string ReadDefinitionId(JsonElement value, string field)
-    {
-        var text = Text(value, field);
-        var parts = text.Split(':');
-        if (parts.Length != 2 || !ContentIdentity.IsValidPart(parts[1]) || parts[1] == "shared" ||
-            (parts[0] != "core" && (!ModManifest.TryCanonicalUuid(parts[0], out var canonical) || canonical != parts[0])))
-            Inconsistent(field, "必须为规范的全限定定义身份。");
-        return text;
-    }
+    internal static bool MatchesTemplate(K.OwnedSettlementTemplateReference reference, K.SettlementId owner,
+        K.SettlementTemplateId source, ImmutableArray<C.SettlementPlotLayout> plots) =>
+        reference.Owner == owner && reference.SourceTemplate == source &&
+        plots.Select(p => new K.TemplatePlotReference(p.Number, p.Size)).SequenceEqual(reference.Plots.OrderBy(p => p.Number));
 
     internal static JsonDocument Parse(string payload)
     {

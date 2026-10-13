@@ -111,16 +111,17 @@ public sealed class ContentReplayTests
         var factory = ContentFactory.Create();
         var payload = Success(factory.CaptureReplay([candidate.View], References(candidate.View, "engine"))).Encode();
         Failure(factory.DecodeReplay("{"), "invalid_json");
-        foreach (var mutation in new[] { "version", "hash", "bytes", "missing", "metadata" })
+        foreach (var mutation in new[] { "version", "hash", "bytes", "missing", "metadata", "input" })
         {
             var json = JsonNode.Parse(payload)!;
             switch (mutation)
             {
-                case "version": json["format_version"] = 2; break;
+                case "version": json["format_version"] = 2; json["future_field"] = true; break;
+                case "input": json["history"]![0]!["input"] = new string('A', 64); break;
                 case "hash": json["blobs"]![0]!["hash"] = new string('A', 64); break;
                 case "bytes": json["blobs"]![0]!["bytes"] = Convert.ToBase64String([255, 254]); break;
                 case "missing": json["blobs"]!.AsArray().RemoveAt(0); break;
-                case "metadata": json["history"]![0]!["source"]!["inspections"]![0]!["metadata"]!["Width"] = "invalid"; break;
+                case "metadata": json["history"]![0]!["source"]!["inspections"]![0]!["metadata"]!["width"] = "invalid"; break;
             }
             Failure(factory.DecodeReplay(json.ToJsonString()), mutation == "version" ? "unsupported_format" : "inconsistent_capture");
         }
@@ -138,6 +139,17 @@ public sealed class ContentReplayTests
         var capture = Success(factory.CaptureReplay([candidate.View, candidate.View], References(candidate.View)));
         var payload = capture.Encode();
         var json = JsonNode.Parse(payload)!;
+        var inspections = json["history"]![0]!["source"]!["inspections"]!.AsArray();
+        var modelInspection = inspections.Single(i => i!["metadata_kind"]!.GetValue<string>() == "glb")!;
+        Assert.AreEqual("glb", modelInspection["kind"]!.GetValue<string>());
+        var metadata = modelInspection["metadata"]!;
+        CollectionAssert.AreEquivalent(new[] { "mesh_node_count", "surfaces", "bounds", "has_skeleton", "has_morph_targets", "has_animation", "has_camera", "has_light", "has_external_images" }, metadata.AsObject().Select(p => p.Key).ToArray());
+        Assert.AreEqual("opaque", metadata["surfaces"]![0]!.GetValue<string>());
+        Assert.AreEqual(-0.25, metadata["bounds"]!["minimum_meters"]!["x"]!.GetValue<double>());
+        Assert.AreEqual(0.5, metadata["bounds"]!["maximum_meters"]!["y"]!.GetValue<double>());
+        var png = inspections.First(i => i!["metadata_kind"]!.GetValue<string>() == "png")!;
+        Assert.AreEqual("png", png["kind"]!.GetValue<string>());
+        CollectionAssert.AreEquivalent(new[] { "width", "height" }, png["metadata"]!.AsObject().Select(p => p.Key).ToArray());
         var hashes = json["blobs"]!.AsArray().Select(blob => blob!["hash"]!.GetValue<string>()).ToArray();
         Assert.AreEqual(hashes.Length, hashes.Distinct().Count());
         var restored = Success(factory.DecodeReplay(payload)).History[1];
@@ -148,6 +160,12 @@ public sealed class ContentReplayTests
         Assert.AreEqual(expected.Bounds, actual.Bounds);
         Assert.AreEqual(expected.MeshNodeCount, actual.MeshNodeCount);
         CollectionAssert.AreEqual(expected.Surfaces.ToArray(), actual.Surfaces.ToArray());
+        metadata["surfaces"]![0] = "unknown_alpha_mode";
+        var invalid = factory.DecodeReplay(json.ToJsonString());
+        Failure(invalid, "inconsistent_capture");
+        Assert.IsTrue(((C.ContentResult<C.IContentReplayCapture>.Failure)invalid).Diagnostics.Any(d =>
+            d.Field.StartsWith("/history/0/source/inspections/", StringComparison.Ordinal) && d.Field.EndsWith("/metadata/surfaces/0", StringComparison.Ordinal)));
+
     }
 
     [TestMethod]
@@ -187,4 +205,66 @@ public sealed class ContentReplayTests
         Assert.AreEqual(0L, part.MaxDurability);
         Assert.AreEqual(Success(factory.Capture(restored.View, replayReferences)).Encode(), Success(factory.Capture(replayed, replayReferences)).Encode());
     }
+    [TestMethod]
+    public void Replay_reports_full_history_path_when_rebuilding_from_incomplete_source_facts()
+    {
+        using var initial = WorldContentFixtures.Content().Load();
+        var factory = ContentFactory.Create();
+        var json = JsonNode.Parse(Success(factory.CaptureReplay([initial.View], References(initial.View))).Encode())!;
+        json["history"]![0]!["source"]!["files"] = new JsonArray();
+        var result = factory.DecodeReplay(json.ToJsonString());
+        Failure(result, "inconsistent_capture");
+        Assert.IsTrue(((C.ContentResult<C.IContentReplayCapture>.Failure)result).Diagnostics.Any(d =>
+            d.Field == "/history/0/source/files"));
+    }
+
+    [TestMethod]
+    public void Replay_rejects_fabricated_and_omitted_missing_definitions()
+    {
+        var fixture = ModContent();
+        using var initial = fixture.Load();
+        var factory = ContentFactory.Create();
+        var blueprint = Found(initial.View.FindBlueprint(new(C.BlueprintLibrary.Packages, new(ModId + ":engine"))));
+        var design = ((C.DesignEvaluation.Complete)blueprint.Evaluation).Design;
+        var references = new K.CoreReferenceManifest([design], [], [], [initial.View.Core.Identity]);
+        var saved = Success(factory.Capture(initial.View, references));
+        fixture.RemoveEntry(ContentFixture.Mods, "equipment");
+        using var restored = Restore(fixture, saved, references);
+        Assert.IsTrue(restored.View.Core.MissingReferences.Any(m =>
+            m.Reference == new K.CoreDefinitionReference.Voxel(new(ModId + ":motor"))));
+        var payload = Success(factory.CaptureReplay([restored.View], references with { Inputs = [restored.View.Core.Identity] })).Encode();
+        foreach (var omit in new[] { false, true })
+        {
+            var json = JsonNode.Parse(payload)!;
+            if (omit) json["history"]![0]!["missing"] = new JsonArray();
+            else json["history"]![0]!["missing"]!.AsArray().Add(JsonNode.Parse("""{"kind":"voxel","id":"core:block","field":"fabricated"}"""));
+            Failure(factory.DecodeReplay(json.ToJsonString()), "inconsistent_capture");
+        }
+    }
+
+    [TestMethod]
+    [DataRow(double.NaN)]
+    [DataRow(double.PositiveInfinity)]
+    [DataRow(double.NegativeInfinity)]
+    public void Replay_preserves_rejected_mod_with_nonfinite_model_bounds(double coordinate)
+    {
+        var fixture = ModContent();
+        var voxel = JsonNode.Parse(ContentFixture.VoxelJson)!;
+        voxel["id"] = "model";
+        voxel["appearance"]!["presentation"] = JsonNode.Parse("""{"kind":"mesh","model":"model.glb","surface_materials":["bare_metal"]}""");
+        fixture.AddFile(ContentFixture.Mods, "equipment/resources/voxels/model.voxel.json", voxel.ToJsonString());
+        fixture.AddAsset(ContentFixture.Mods, "equipment/resources/voxels/model/icon.png", [22, 23], new C.AssetMetadata.Png(128, 128));
+        fixture.AddAsset(ContentFixture.Mods, "equipment/resources/voxels/model/model.glb", [7, 8, 9],
+            new C.AssetMetadata.Glb(1, [C.AssetAlphaMode.Opaque], new(new(coordinate, 0, 0), new(0.25, 0.5, 0.25)), false, false, false, false, false, false));
+        using var initial = fixture.Load();
+        var before = initial.View.Packages.Single(p => p.Metadata?.Id.Value == ModId);
+        Assert.AreEqual(C.PackageState.Invalid, before.State);
+        Assert.IsTrue(before.Diagnostics.Any(d => d.Code == "asset_rule_failed" && d.Field == "/appearance/presentation/model"));
+        var factory = ContentFactory.Create();
+        var replay = Success(factory.DecodeReplay(Success(factory.CaptureReplay([initial.View], References(initial.View))).Encode()));
+        var after = replay.History.Single().Packages.Single(p => p.Metadata?.Id.Value == ModId);
+        Assert.AreEqual(before.State, after.State);
+        CollectionAssert.AreEqual(before.Diagnostics.ToArray(), after.Diagnostics.ToArray());
+    }
+
 }

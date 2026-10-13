@@ -74,12 +74,15 @@ public sealed class ContentRestoreTests
         using var restored = Restore(fixture, saved, references);
         var view = restored.View;
         var report = restored.Report;
+        var cube = (C.VoxelPresentation.Cube)WorldContentFixtures.Found(view.FindVoxelAppearance(new("core:machine"))).Presentation;
+        var asset = WorldContentFixtures.Found(view.FindAsset(cube.Top));
         var expected = Success(factory.Capture(view, references)).Encode();
         fixture.AddAsset(ContentFixture.BuiltIn, "resources/voxels/machine/tile.png", [21, 22], new C.AssetMetadata.Png(64, 64));
         fixture.RemoveEntry(ContentFixture.BuiltIn, WorldContentFixtures.TemplatePath);
         restored.Dispose();
         Assert.ThrowsExactly<InvalidOperationException>(() => restored.Activate());
         Assert.AreSame(report, restored.Report);
+        CollectionAssert.AreEqual(asset.Bytes.ToArray(), WorldContentFixtures.Found(view.FindAsset(cube.Top)).Bytes.ToArray());
         Assert.AreEqual(expected, Success(factory.Capture(view, references)).Encode());
         Assert.AreEqual(saved.Encode(), Success(factory.Capture(basis, references)).Encode());
     }
@@ -98,6 +101,11 @@ public sealed class ContentRestoreTests
         var withoutCopy = Success(factory.DecodeCapture(json.ToJsonString()));
         Failure(fixtureRestore(withoutCopy, references), "inconsistent_capture");
         Failure(fixtureRestore(saved, references with { Templates = [Template(41) with { Plots = [new(7, K.PlotSize.Small)] }] }), "inconsistent_capture");
+        var withoutDesignJson = JsonNode.Parse(saved.Encode())!;
+        var designs = withoutDesignJson["designs"]!.AsArray();
+        designs.Remove(designs.Single(d => d!["hash"]!.GetValue<string>() == references.Designs.Single().Value));
+        var withoutDesign = Success(factory.DecodeCapture(withoutDesignJson.ToJsonString()));
+        Failure(fixtureRestore(withoutDesign, references), "inconsistent_capture");
         using var restored = Restore(fixture, saved, references);
         Assert.AreEqual(basis.PersistentRevision, restored.View.PersistentRevision);
 
@@ -106,7 +114,9 @@ public sealed class ContentRestoreTests
     }
 
     [TestMethod]
-    public void Restore_recalculates_lower_and_restored_durability_limits_without_changing_identity_or_part_numbers()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Restore_and_reload_recalculate_durability_without_changing_design_or_part_identity(bool reload)
     {
         var fixture = WorldContentFixtures.Content();
         using var initial = fixture.Load();
@@ -114,17 +124,20 @@ public sealed class ContentRestoreTests
         var before = initial.View.Core.Designs.Single(d => d.Design == references.Designs.Single());
         var saved = Success(ContentFactory.Create().Capture(initial.View, references));
         WorldContentFixtures.Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["max_durability"] = 2);
-        using var lower = Restore(fixture, saved, references);
+        using var lower = Prepare(initial.View);
         var reduced = lower.View.Core.Designs.Single(d => d.Design == before.Design);
         Assert.AreEqual(before.Parts.Single().Id, reduced.Parts.Single().Id);
         Assert.AreEqual(2L, reduced.Parts.Single().MaxDurability);
         Assert.IsTrue(reduced.MaxStructureDurability < before.MaxStructureDurability);
         WorldContentFixtures.Change(fixture, "resources/voxels/machine.voxel.json", json => json["simulation"]!["max_durability"] = 5);
-        using var recovered = Restore(fixture, saved, references);
+        using var recovered = Prepare(lower.View);
         var after = recovered.View.Core.Designs.Single(d => d.Design == before.Design);
         Assert.AreEqual(before.Parts.Single().MaxDurability, after.Parts.Single().MaxDurability);
         Assert.AreEqual(before.MaxStructureDurability, after.MaxStructureDurability);
         Assert.AreEqual(before.Parts.Single().Id, after.Parts.Single().Id);
+
+        C.IContentCandidate Prepare(C.IContentView basis) => Success(ContentFactory.Create().PrepareLoad(
+            new(fixture.Installation, reload ? new C.ContentLoadPurpose.Reload(basis, references) : new C.ContentLoadPurpose.Restore(saved, references)), fixture, fixture));
     }
 
     internal const string ModId = "11111111-1111-4111-8111-111111111111";
