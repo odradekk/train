@@ -243,7 +243,7 @@ internal static class WorldGenerator
             Need(new CoreDefinitionReference.Template(template.Id), $"Content.SettlementTemplates[{template.Id.Value}]", true);
             Need(new CoreDefinitionReference.SettlementType(template.Type), $"Content.SettlementTemplates[{template.Id.Value}].Type", content.SettlementTypes.Any(t => t.Id == template.Type));
             foreach (var plot in template.Plots)
-                if (plot.PrebuiltDesign is { } design && (FindDesign(design, $"Content.SettlementTemplates[{template.Id.Value}].Plots[{plot.Number}]").Kind is not DesignKind.Building building || building.PlotSize != plot.Size))
+                if (plot.PrebuiltDesign is { } design && (FindDesign(design, $"Content.SettlementTemplates[{template.Id.Value}].Plots[{plot.Number}]").Kind is not DesignKind.Building building || !WorldInputs.FitsPlot(building.PlotSize, plot.Size)))
                     Invalid($"Content.SettlementTemplates[{template.Id.Value}].Plots[{plot.Number}]");
             foreach (var building in template.FoundingBuildings)
                 if (FindDesign(building.Design, $"Content.SettlementTemplates[{template.Id.Value}].FoundingBuildings").Kind is not DesignKind.Building)
