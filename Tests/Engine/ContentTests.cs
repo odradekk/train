@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Chickensoft.GoDotTest;
 using Chickensoft.GodotTestDriver;
@@ -35,6 +36,13 @@ public class ContentTests(Node testScene) : TestClass(testScene)
             Require(created is { PlayerPaused: true } && created.View.World.Nodes.Length > 0 && created.View.World.Trains.Length == 3,
                 "正式内容没有生成暂停的小世界与三列初始列车。");
             Require(created!.View.InputIdentity == host.Content!.Core.Identity, "新局的核心与内容没有配对。");
+            var runtime = host.Runtime!;
+            Require(runtime.OperatingSystem == (OperatingSystem.IsWindows() ? "Windows" : RuntimeInformation.OSDescription),
+                "真实宿主的操作系统身份没有按兼容边界填写。");
+            Require(runtime.Architecture == RuntimeInformation.ProcessArchitecture.ToString(),
+                "真实宿主的架构身份与当前进程不符。");
+            Require(runtime.DotNetRuntime == RuntimeInformation.FrameworkDescription,
+                "真实宿主的 .NET 身份没有保留完整运行时版本。");
             Require(host.Step(2).Completed == 2, "真实会话没有完成两个模拟步。");
             var checkpoint = Checkpoint(host);
             var saves = app.Saves!;
