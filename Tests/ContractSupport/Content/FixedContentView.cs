@@ -82,7 +82,13 @@ public sealed class FixedContentView : IContentView
 
     public ContentLookup<GoodPresentation> FindGood(GoodId id) => throw Unconfigured(nameof(FindGood));
 
-    public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => throw Unconfigured(nameof(FindAsset));
+    private ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>> assets = ImmutableDictionary<AssetRevision, ContentLookup<ContentAsset>>.Empty;
+    public IReadOnlyDictionary<AssetRevision, ContentLookup<ContentAsset>> Assets
+    {
+        init => assets = value.ToImmutableDictionary();
+    }
+    public ContentLookup<ContentAsset> FindAsset(AssetRevision id)
+        => assets.TryGetValue(id, out var result) ? result : throw Unconfigured(nameof(FindAsset));
 
     public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => throw Unconfigured(nameof(FindSettlementLayout));
 

@@ -28,6 +28,7 @@ internal sealed class HostFixture : IDisposable
     internal CoreContentProjection? RestoreProjection { get; private set; }
     internal CoreSessionOptions? RestoreOptions { get; private set; }
     internal Func<ContentLoadRequest, ContentResult<IContentCandidate>>? Load { get; set; }
+    internal Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureContent { get; set; }
     internal Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? World { get; set; }
     internal Func<IContentView, System.Collections.Immutable.ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? Copies { get; set; }
 
@@ -51,6 +52,8 @@ internal sealed class HostFixture : IDisposable
         };
         Factory = new()
         {
+            CaptureCall = (view, references) => CaptureContent?.Invoke(view, references)
+                ?? new ContentResult<IContentCapture>.Success(new FixedContentCapture("content-state", view.PersistentRevision)),
             DecodeCaptureCall = payload => payload == "content-state"
                 ? new ContentResult<IContentCapture>.Success(new FixedContentCapture(payload))
                 : throw new InvalidOperationException("UNCONFIGURED: 内容载荷。"),
@@ -61,7 +64,7 @@ internal sealed class HostFixture : IDisposable
             WithSettlementCopiesCall = (view, copies) => (Copies ?? throw new InvalidOperationException("UNCONFIGURED: 模板副本。"))(view, copies)
         };
         Host = new(Core, Factory, new ScriptedContentFiles(), new UnconfiguredAssetInspector(), new(new("builtin"), new("mods"), null, "fixture-game", []),
-            Logger, notification, seconds ?? (() => 0));
+            Logger, notification, seconds ?? (() => 0), sessionOptions: Options);
     }
 
     internal void AllowHostFailure(string id, int count = 1)
