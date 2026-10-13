@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
@@ -25,6 +26,7 @@ internal static class CoreCommandEncoding
                 CoreCommand.ReplaceRunPlan => "train.replace_run_plan",
                 CoreCommand.StartTrain => "train.start",
                 CoreCommand.StopTrain => "train.stop",
+                CoreCommand.DebugAddRailBreak => "rail.debug_add_break",
                 _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
             });
             switch (command)
@@ -79,6 +81,15 @@ internal static class CoreCommandEncoding
                 case CoreCommand.DisbandTrain disband: WriteIdentity(writer, "train", disband.Train.Value); break;
                 case CoreCommand.StartTrain start: WriteIdentity(writer, "train", start.Train.Value); break;
                 case CoreCommand.StopTrain stop: WriteIdentity(writer, "train", stop.Train.Value); break;
+                case CoreCommand.DebugAddRailBreak addBreak:
+                    WriteIdentity(writer, "edge", addBreak.Edge.Value);
+                    if (addBreak.Track < 1) throw new ArgumentException("铁轨号必须为正。", nameof(command));
+                    if (!double.IsFinite(addBreak.DistanceMeters) || addBreak.DistanceMeters < 0)
+                        throw new ArgumentException("断点距离必须是非负有限值。", nameof(command));
+                    writer.WriteNumber("track", addBreak.Track);
+                    writer.WritePropertyName("distance_meters");
+                    writer.WriteRawValue(addBreak.DistanceMeters.ToString("R", CultureInfo.InvariantCulture));
+                    break;
             }
             writer.WriteEndObject();
         }
@@ -104,6 +115,7 @@ internal static class CoreCommandEncoding
                 "train.form" => ["input_format_version", "kind", "ordered_vehicles"],
                 "train.replace_run_plan" => ["input_format_version", "kind", "train", "plan"],
                 "train.disband" or "train.start" or "train.stop" => ["input_format_version", "kind", "train"],
+                "rail.debug_add_break" => ["input_format_version", "kind", "edge", "track", "distance_meters"],
                 _ => null
             };
             if (fields is null) return Failure("unsupported_format", "/kind");
@@ -121,6 +133,16 @@ internal static class CoreCommandEncoding
                 foreach (var vehicle in vehicles.EnumerateArray())
                     builder.Add(new(Identity(vehicle, $"/ordered_vehicles/{builder.Count}")));
                 return Success(new(null, new CoreCommand.FormTrain(builder.ToImmutable())));
+            }
+            if (name == "rail.debug_add_break")
+            {
+                var edge = new EdgeId(Identity(Property(root, "edge", "", JsonValueKind.Number), "/edge"));
+                var track = Property(root, "track", "", JsonValueKind.Number);
+                if (!track.TryGetInt32(out var trackNumber) || trackNumber < 1) throw new InvalidField("/track");
+                var distance = Property(root, "distance_meters", "", JsonValueKind.Number);
+                if (!distance.TryGetDouble(out var meters) || !double.IsFinite(meters) || meters < 0)
+                    throw new InvalidField("/distance_meters");
+                return Success(new(null, new CoreCommand.DebugAddRailBreak(edge, trackNumber, meters)));
             }
             var train = new TrainId(Identity(Property(root, "train", "", JsonValueKind.Number), "/train"));
             CoreCommand command = name switch
