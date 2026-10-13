@@ -147,6 +147,7 @@ try {
         $budget = @{ fast = 30; integration = 180; engine = 300 }[$current]
         $watch = [Diagnostics.Stopwatch]::StartNew()
         $selected = $current -in $selectedLayers
+        $layerError = $null
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
@@ -160,19 +161,17 @@ try {
                     @{ name = "$current-$($_.name)"; program = 'dotnet'; project = $_;
                         priority = if ($current -eq 'integration' -and $_.name -eq 'contract-checks') { 3 } else { 0 } }
                 })
-                $isolationOutput = Join-Path $run 'isolation'
                 if ($current -eq 'integration') {
                     if ($summary.selection.contracts) {
                         $tasks += @{ name = 'structure'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'contracts')) }
                         $tasks += @{ name = 'verify'; program = 'dotnet'; priority = 0; arguments = @($contractTool, 'verify', $root, 'Debug', $contractBaseline) }
                     }
-                    if ($summary.selection.isolation) { $tasks += @{ name = 'isolate'; program = 'dotnet'; priority = 2; arguments = @($contractTool, 'isolate', $root, 'Debug', $isolationOutput) } }
                     if ($summary.selection.schema) { $tasks += @{ name = 'schema'; program = $pwsh; priority = 0; arguments = @('-NoProfile', '-File', 'scripts/checks/validate-content-examples.ps1') } }
                 }
                 $throttle = if ($current -eq 'integration') { 4 } else { [Math]::Max(1, $projects.Count) }
                 $results = @()
                 $failure = $null
-                try { if ($tasks.Count) { $results = @($tasks | Sort-Object { $_.priority } -Descending -Stable | ForEach-Object -Parallel {
+                if ($tasks.Count) { $results = @($tasks | Sort-Object { $_.priority } -Descending -Stable | ForEach-Object -Parallel {
                     $task = $_
                     . $using:helper
                     $current = $using:current
@@ -194,13 +193,7 @@ try {
                         catch { [pscustomobject]@{ ExitCode = -1; Output = $_.Exception.Message; TimedOut = $false; CleanupSucceeded = $false; DurationMs = 0 } }
                     }
                     [pscustomobject]@{ name = $task.name; program = $task.program; arguments = $arguments; result = $result }
-                } -ThrottleLimit $throttle) } }
-                finally {
-                    if ($current -eq 'integration' -and $summary.selection.isolation) {
-                        try { Remove-IsolationTrees $isolationOutput }
-                        catch { $failure = $_ }
-                    }
-                }
+                } -ThrottleLimit $throttle) }
                 foreach ($item in $results) {
                     try { Add-CheckResult $item.name $current $item.program $item.arguments $item.result }
                     catch { if (-not $failure) { $failure = $_ } }
@@ -258,10 +251,21 @@ try {
             }
             if ($current -ne 'stage' -and $watch.Elapsed.TotalSeconds -gt $budget) { throw "$current took $($watch.Elapsed.TotalSeconds)s; limit ${budget}s." }
             if (-not ($summary.checks | Where-Object layer -eq $current | Measure-Object executed -Sum).Sum) { throw "$current executed no tests." }
+        } catch {
+            $layerError = $_.Exception.Message
+            throw
         } finally {
+            $watch.Stop()
             $layerSummary = @{ name = $current; selected = [bool] $selected; seconds = $watch.Elapsed.TotalSeconds; budget = $budget }
             foreach ($count in @('total', 'executed', 'passed', 'failed', 'skipped')) { $layerSummary[$count] = [int] ($summary.checks | Where-Object layer -eq $current | Measure-Object $count -Sum).Sum }
             $summary.layers += $layerSummary
+            if ($selected -and $current -eq 'integration' -and $summary.selection.isolation) {
+                try { Invoke-Isolation isolate isolation (Join-Path $run 'isolation') 300 }
+                catch {
+                    if ($layerError) { throw "$layerError; $($_.Exception.Message)" }
+                    throw
+                }
+            }
         }
     }
     $summary.outcome = 'passed'

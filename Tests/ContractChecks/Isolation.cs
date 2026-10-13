@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 
 namespace Train.ContractChecks;
@@ -10,9 +9,10 @@ internal static class Isolation
     {
         if (tests is not { Count: > 0 } || tests.Any(test => !projects.ContainsKey(test)))
             throw new InvalidOperationException("isolationTests must name at least one registered test project.");
-        var failures = new ConcurrentBag<string>();
-        await Parallel.ForEachAsync(tests, new ParallelOptions { MaxDegreeOfParallelism = 2 }, async (test, _) =>
+        var failures = new List<string>();
+        foreach (var test in tests)
         {
+            if (failures.Count != 0) break;
             var evidence = Path.Combine(output, test);
             // Windows 子进程的工作目录仍受路径长度限制，隔离树不嵌套在模块日志目录中。
             var isolated = Path.Combine(output, "isolated-" + Guid.NewGuid().ToString("N")[..8]);
@@ -51,8 +51,8 @@ internal static class Isolation
                     "-maxCpuCount:1", "-nodeReuse:false", "-property:UseSharedCompilation=false", "-property:RestoreConfigFile=" + config],
                     isolated, Path.Combine(evidence, "build.log"), 300);
                 var analysis = await ProjectAnalysis.Check(isolated, configuration, evidence, projects, [test], isolated: true);
-                foreach (var failure in analysis) failures.Add(failure);
-                if (analysis.Count != 0) return;
+                failures.AddRange(analysis);
+                if (analysis.Count != 0) continue;
                 using var facts = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(evidence, test + ".facts.json")));
                 var testAssembly = facts.RootElement.GetProperty("Properties").GetProperty("TargetPath").GetString()!;
                 await ToolProcess.Run("dotnet", ["test", "--test-modules", Path.GetRelativePath(isolated, testAssembly).Replace(Path.DirectorySeparatorChar, '/'),
@@ -93,8 +93,8 @@ internal static class Isolation
                 try { if (Directory.Exists(isolated)) Directory.Delete(isolated, recursive: true); }
                 catch (Exception exception) { failures.Add($"isolation cleanup failed: {test}: {exception.Message}"); }
             }
-        });
-        foreach (var failure in failures.Order(StringComparer.Ordinal)) Console.Error.WriteLine(failure);
-        return failures.IsEmpty ? 0 : 1;
+        }
+        foreach (var failure in failures) Console.Error.WriteLine(failure);
+        return failures.Count == 0 ? 0 : 1;
     }
 }
