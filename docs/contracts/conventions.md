@@ -1,6 +1,6 @@
 # 公开契约的公共约定
 
-本页与[契约索引](README.md)一起定义四模块的共同规则，依据[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)。目前是目标规范；已有声明与接入样例的范围和证据见[核心契约](core.md)、[内容契约](content.md)、[体素契约](scenes.md)及[Godot 契约](godot.md)，不表示整组检查工具或模块隔离测试已经实现。
+本页与[契约索引](README.md)一起定义四模块的共同规则，依据[四模块的依赖、公开类型归属与契约变更规则](https://github.com/odradekk/train/issues/279)。目前是目标规范；已有声明与接入样例的范围和证据见[核心契约](core.md)、[内容契约](content.md)、[体素契约](scenes.md)及[Godot 契约](godot.md)，不表示真实工厂、Godot 隔离装配或整组语义基线已完成。
 
 ## 各种资料的权威范围
 
@@ -78,7 +78,7 @@
 
 ## 自动检查要求
 
-下表规定检查必须发现的违规；经[独立构建与契约检查票](https://github.com/odradekk/train/issues/291)确认的组织方式、替身责任和验证矩阵见[独立构建与契约验证](testing.md)。现有项目依赖和[初始公开面基线](public-api.txt)已有检查工具；Core/Content 隔离重建已暂停，由 #406 恢复。真实工厂调用位置与 Godot 隔离装配仍待对应生产入口建立。每次结果以摘要为准：
+下表规定检查必须发现的违规；经[独立构建与契约检查票](https://github.com/odradekk/train/issues/291)确认的组织方式、替身责任和验证矩阵见[独立构建与契约验证](testing.md)。现有项目依赖和[初始公开面基线](public-api.txt)已有检查工具；Core/Content/Scenes 隔离重建已接入 C# 检查工具。真实工厂调用位置与 Godot 隔离装配仍待对应生产入口建立。每次结果以摘要为准：
 
 | 检查 | 必须能发现的违规 |
 | --- | --- |

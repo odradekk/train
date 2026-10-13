@@ -212,34 +212,3 @@ public sealed class FixedCoreCapture(CoreCheckpoint checkpoint, CoreReferenceMan
     public CoreRevision Revision { get; } = revision;
     public string Encode() => opaquePayload;
 }
-
-public sealed class FixedCoreReadView(SimulationPosition position, CoreInputId inputIdentity,
-    CoreFault? fault = null, CoreRevision revision = default) : ICoreReadView
-{
-    public SimulationPosition Position { get; } = position;
-    public CoreInputId InputIdentity { get; } = inputIdentity;
-    public CoreFault? Fault { get; } = fault;
-    public CoreRevision Revision { get; } = revision;
-    public WorldSummary World { get; } = new(1, new("fixture:railway"), 1, 1, [], [], [], [], []);
-    public EconomyView Economy { get; } = new(new(0), new(new("fixture:market"), null, []),
-        new(new("fixture:population"), null, []), new(new("fixture:construction"), null, []), new(0), []);
-    public Lookup<NodeView> FindNode(NodeId id) => throw HostCoreScenario.Unconfigured(nameof(FindNode));
-    public Lookup<EdgeView> FindEdge(EdgeId id) => throw HostCoreScenario.Unconfigured(nameof(FindEdge));
-    public Lookup<LocationView> FindLocation(WorldLocation location) => throw HostCoreScenario.Unconfigured(nameof(FindLocation));
-    public Lookup<TrainView> FindTrain(TrainId id) => throw HostCoreScenario.Unconfigured(nameof(FindTrain));
-    public Lookup<InstanceView> FindInstance(InstanceId id) => throw HostCoreScenario.Unconfigured(nameof(FindInstance));
-    public Lookup<SettlementView> FindSettlement(SettlementId id) => throw HostCoreScenario.Unconfigured(nameof(FindSettlement));
-    public Lookup<InventoryView> FindInventory(InventoryId id) => throw HostCoreScenario.Unconfigured(nameof(FindInventory));
-    public Lookup<LeaseView> FindLease(LeaseId id) => throw HostCoreScenario.Unconfigured(nameof(FindLease));
-    public Lookup<FacilityView> FindFacility(FacilityKey key) => throw HostCoreScenario.Unconfigured(nameof(FindFacility));
-    public Lookup<JobView> FindJob(JobId id) => throw HostCoreScenario.Unconfigured(nameof(FindJob));
-    public Lookup<CombatView> FindCombat(CombatId id) => throw HostCoreScenario.Unconfigured(nameof(FindCombat));
-    public Lookup<CreatureGroupView> FindCreatureGroup(CreatureGroupId id) => throw HostCoreScenario.Unconfigured(nameof(FindCreatureGroup));
-    public Lookup<CreatureView> FindCreature(CreatureId id) => throw HostCoreScenario.Unconfigured(nameof(FindCreature));
-    public Lookup<LairView> FindLair(LairId id) => throw HostCoreScenario.Unconfigured(nameof(FindLair));
-    public CoreResult<TradeQuote> QuoteTrade(TradeQuoteRequest request) => throw HostCoreScenario.Unconfigured(nameof(QuoteTrade));
-    public CoreResult<VehicleTradeQuote> QuoteVehicle(VehicleTradeQuoteRequest request) => throw HostCoreScenario.Unconfigured(nameof(QuoteVehicle));
-    public CoreResult<LeaseQuote> QuoteLease(LeaseRequest request) => throw HostCoreScenario.Unconfigured(nameof(QuoteLease));
-    public CoreResult<JobQuote> GetJobQuote(JobRequest request, JobFunding funding) => throw HostCoreScenario.Unconfigured(nameof(GetJobQuote));
-    public CoreResult<SettlementFoundingPreview> PreviewSettlement(NodeId node) => throw HostCoreScenario.Unconfigured(nameof(PreviewSettlement));
-}

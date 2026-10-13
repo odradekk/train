@@ -14,7 +14,7 @@ reload
 
 基础分发器只调用宿主回调；重载结果和失败原因由内容日志报告，命令不另行输出成功消息。Debug 构建也可以按 Ctrl+Shift+R 发起同样的重载；发布构建不处理该快捷键。
 
-#317 的新契约路径通过 App 的实例级 `CreateHost` 测试装配委托接入 `HostCoordinator`，尚未接真实工厂。按[批准计划](https://github.com/odradekk/train/issues/317#issuecomment-6132109006)，#306、#308、#318 合入后再切换默认生产路径并移除旧 `ContentReloader`、快照和相关入口。
+#317 的新契约路径通过 App 的实例级 `CreateHost` 测试装配委托接入 `HostCoordinator`，尚未接真实工厂。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，默认生产路径切换及旧 `ContentReloader`、快照和相关入口的移除归 #424。
 
 新路径后台准备固定候选，协调线程在帧开始接入结果。准备期间技术操作锁阻止修改操作，再次请求重载返回 `busy`，查询和取消仍可用。成功、失败或取消后恢复原运行设置，不补算等待期间的时间；冻结来源不会被解锁解除。
 

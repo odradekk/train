@@ -84,7 +84,7 @@ internal sealed class LegacySimulationConsoleCommands
         _logger.Info(Category, StatusEventId,
             $"模拟位置={state.CompletedSteps}:{state.BoundarySequence}，模拟秒={Number(status.SimulationSeconds)}，" +
             $"暂停={status.IsPaused}，设定倍速={(int)status.Speed}，实际倍速={Number(status.ActualSpeed)}，" +
-            $"待处理步数={status.PendingSteps}，帧余量秒={Number(status.Remainder)}，故障={fault}。");
+            $"帧余量秒={Number(status.Remainder)}，故障={fault}。");
     }
 
     private void SetPaused(bool paused)

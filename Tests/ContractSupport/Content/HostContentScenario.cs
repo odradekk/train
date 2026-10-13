@@ -95,34 +95,6 @@ public sealed class ScriptedContentCandidate : IContentCandidate
     }
 }
 
-public sealed class FixedContentView(CoreContentProjection core,
-    ContentGeneration generation = default, ContentRevision persistentRevision = default,
-    ImmutableArray<PackageStatus> packages = default) : IContentView
-{
-    public CoreContentProjection Core { get; } = core;
-    public ContentGeneration Generation { get; } = generation;
-    public ContentRevision PersistentRevision { get; } = persistentRevision;
-    public ImmutableArray<PackageStatus> Packages { get; } = packages.IsDefault ? [] : packages;
-    public ImmutableArray<VoxelCatalogEntry> Voxels => throw Unconfigured();
-    public ImmutableArray<BlueprintSummary> Blueprints => throw Unconfigured();
-    public ImmutableArray<SavedContentDraft> LocalDrafts => throw Unconfigured();
-    public ImmutableArray<GenerationProfileSummary> GenerationProfiles => throw Unconfigured();
-    public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress address) => throw Unconfigured();
-    public ContentLookup<DesignEvaluation> FindDesign(DesignHash hash) => throw Unconfigured();
-    public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId definition) => throw Unconfigured();
-    public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId definition) => throw Unconfigured();
-    public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference definition) => throw Unconfigured();
-    public ContentLookup<GoodPresentation> FindGood(GoodId good) => throw Unconfigured();
-    public ContentLookup<ContentAsset> FindAsset(AssetRevision revision) => throw Unconfigured();
-    public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId settlement) => throw Unconfigured();
-    public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId creature) => throw Unconfigured();
-    public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId lair) => throw Unconfigured();
-    public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId terrain) => throw Unconfigured();
-    public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId rule) => throw Unconfigured();
-
-    private static InvalidOperationException Unconfigured() => new("UNCONFIGURED: 内容视图查询未配置。");
-}
-
 public sealed class FixedContentCapture(string opaquePayload, ContentRevision revision = default,
     ImmutableArray<DesignHash> designs = default,
     ImmutableArray<OwnedSettlementTemplateReference> templates = default,

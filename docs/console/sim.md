@@ -4,7 +4,7 @@
 
 `sim` 只由 Debug 游戏宿主提供，用于观察和控制当前活动模拟会话。它不会创建世界、玩家、存档或模拟会话；没有会话时报告“没有活动模拟会话”。发布构建不注册该命令。
 
-当前处于 #317 的生产切换前阶段。默认 App 仍使用旧模拟入口与 `LegacySimulationConsoleCommands`；实例级 `CreateHost` 测试装配委托接入 `HostCoordinator` 和新 `SimulationConsoleCommands`。以下分别说明两条路径；新路径尚未接入真实工厂。按[批准计划](https://github.com/odradekk/train/issues/317#issuecomment-6132109006)，#306、#308、#318 合入后才切换生产装配并删除旧入口。
+本票只交付宿主协调器。默认 App 仍使用旧模拟入口与 `LegacySimulationConsoleCommands`；实例级 `CreateHost` 测试装配委托接入 `HostCoordinator` 和新 `SimulationConsoleCommands`。以下分别说明两条路径；新路径尚未接入真实工厂。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，真实装配与旧入口删除归 #424。
 
 ```text
 sim
@@ -16,7 +16,7 @@ sim step [N]
 sim checkpoint
 ```
 
-`sim` 与 `sim status` 输出当前位置、模拟秒、暂停状态、设定与实际倍速、帧余量和故障。默认旧路径还输出待处理步数：它只描述当前推进调用，调用结束后为零，生产切换时删除。新路径使用 `HostStatus`，没有 `PendingSteps`，并分别显示玩家／通知暂停、失焦暂停与技术操作锁；核心故障也会使会话保持暂停。预算内未执行的整步额度不会跨帧补算，只保留不足一步的余量。
+`sim` 与 `sim status` 输出当前位置、模拟秒、暂停状态、设定与实际倍速、帧余量和故障。新路径使用 `HostStatus`，没有 `PendingSteps`，并分别显示玩家／通知暂停、失焦暂停与技术操作锁；核心故障也会使会话保持暂停。预算内未执行的整步额度不会跨帧补算，只保留不足一步的余量。
 
 新路径有四个独立暂停来源：玩家／通知、失焦、技术操作锁、核心冻结。`pause` 与 `resume` 只设置或解除玩家／通知来源；其他来源仍有效时，`resume` 会说明模拟保持暂停。聚焦恢复只解除失焦来源。“失焦时自动暂停”默认关闭，目前没有设置界面或命令。`speed` 只接受 1、2、4、8，不解除任何暂停，最高档暂定，须经性能实测确认。
 

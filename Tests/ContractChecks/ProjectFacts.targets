@@ -1,0 +1,17 @@
+<Project>
+  <UsingTask TaskName="Train.ContractChecks.ProjectFacts" AssemblyFile="$(ContractChecksAssembly)" />
+  <PropertyGroup>
+    <ContractFactsDependencies>ResolveReferences</ContractFactsDependencies>
+    <ContractFactsDependencies Condition="'$(ContractBuildSample)' == 'true'">Build</ContractFactsDependencies>
+  </PropertyGroup>
+  <Target Name="CollectContractFacts" DependsOnTargets="$(ContractFactsDependencies)">
+    <Train.ContractChecks.ProjectFacts OutputFile="$(ContractFactsDirectory)/$(MSBuildProjectName).facts.json"
+      TargetPath="$(TargetPath)" Root="$(ContractRoot)"
+      ProjectReference="@(ProjectReference)" ReferencePath="@(ReferencePath)" Compile="@(Compile)"
+      InternalsVisibleTo="@(InternalsVisibleTo)">
+      <Output TaskParameter="ReferencedProjects" ItemName="_ContractReferencedProjects" />
+    </Train.ContractChecks.ProjectFacts>
+    <MSBuild Condition="'$(ContractCollectReferences)' == 'true'" Projects="@(_ContractReferencedProjects)"
+      Targets="CollectContractFacts" BuildInParallel="false" />
+  </Target>
+</Project>

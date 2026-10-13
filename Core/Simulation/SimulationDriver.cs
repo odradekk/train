@@ -14,7 +14,7 @@ public enum SimulationSpeed
 
 public sealed record SimulationStatus(
     SimulationState State, bool IsPaused, SimulationSpeed Speed,
-    double ActualSpeed, ulong PendingSteps, double Remainder)
+    double ActualSpeed, double Remainder)
 {
     public double SimulationSeconds => State.CompletedSteps / SimulationClock.StepsPerSecond;
 }
@@ -29,7 +29,6 @@ public sealed class SimulationDriver
     private readonly int _ownerThread = Environment.CurrentManagedThreadId;
     private bool _paused;
     private SimulationSpeed _speed = SimulationSpeed.One;
-    private ulong _pendingSteps;
     private double _sampleStartedAt;
     private ulong _sampleSteps;
     private double _actualSpeed;
@@ -50,7 +49,7 @@ public sealed class SimulationDriver
         EnsureOwnerThread();
         var state = _session.GetState();
         return new(state, _paused, _speed, _paused || IsStopped(state) ? 0 : _actualSpeed,
-            _pendingSteps, _scheduler.Remainder);
+            _scheduler.Remainder);
     }
 
     public void SetPaused(bool paused)
@@ -91,16 +90,17 @@ public sealed class SimulationDriver
         try
         {
             var startedAt = _getRealSeconds();
-            _pendingSteps = _scheduler.CollectSteps(scaledDelta, paused: false);
+            // 过载只使游戏时间变慢，未执行的整步额度不能令后续帧加速追赶。
+            var remainingSteps = _scheduler.CollectSteps(scaledDelta, paused: false);
             var advanced = 0UL;
             var events = ImmutableArray.CreateBuilder<DomainEvent>();
             SimulationFaultDiagnostic? diagnostic = null;
-            while (_pendingSteps > 0)
+            while (remainingSteps > 0)
             {
                 // 预算只能在完整事务之间检查；一个较慢的步骤仍必须完整提交或回滚。
                 var step = _session.Advance(1);
                 advanced += step.StepsAdvanced;
-                _pendingSteps -= step.StepsAdvanced;
+                remainingSteps -= step.StepsAdvanced;
                 events.AddRange(step.Events);
                 diagnostic = step.Diagnostic;
                 if (step.StepsAdvanced == 0 || IsStopped(step.StateAfter) ||
@@ -112,8 +112,6 @@ public sealed class SimulationDriver
         }
         finally
         {
-            // 过载只使游戏时间变慢，未执行的整步额度不能令后续帧加速追赶。
-            _pendingSteps = 0;
             _isExecuting = false;
         }
     }

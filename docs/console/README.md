@@ -13,7 +13,7 @@
 
 发布构建的 `help` 列表不包含 `reload` 或 `sim`；Debug 游戏宿主列出五个基础命令与 `sim`。
 
-当前处于 #317 的生产切换前阶段：默认 App 仍使用旧模拟和内容加载入口；新 `HostCoordinator` 与契约命令通过实例级 `CreateHost` 测试装配委托接入，尚未连接真实工厂。[批准计划](https://github.com/odradekk/train/issues/317#issuecomment-6132109006)要求 #306、#308、#318 合入后再切换生产路径并删除旧入口。两条路径的差异见 [`sim`](sim.md) 和 [`reload`](reload.md)。
+默认 App 仍使用旧模拟和内容加载入口；新 `HostCoordinator` 与契约命令通过实例级 `CreateHost` 测试装配委托接入，尚未连接真实工厂。按[用户拆票决定](https://github.com/odradekk/train/issues/317#issuecomment-6136143469)，#317 交付协调器，生产切换与旧入口删除归 #424。两条路径的差异见 [`sim`](sim.md) 和 [`reload`](reload.md)。
 
 ## 输入规则
 
