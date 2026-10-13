@@ -9,6 +9,10 @@ public sealed record NewGameCandidates(ICoreSessionCandidate Core, IContentCandi
 
 public static class ConsumerExamples
 {
+    public static bool IsMajorSettlementType(IContentView content, SettlementTypeId type)
+        => content.FindDefinitionDisplay(new CoreDefinitionReference.SettlementType(type))
+            is ContentLookup<ContentDisplay>.Found { Value.Major: true };
+
     public static ImmutableArray<VoxelCatalogEntry> ReadVoxelPalette(IContentView content, bool scene)
         => content.Voxels.Where(entry => (entry.Good is null) == scene).ToImmutableArray();
 

@@ -54,7 +54,7 @@ public abstract record ContentLookup<T> where T : notnull
     public sealed record Missing(ImmutableArray<ContentDiagnostic> Diagnostics) : ContentLookup<T>;
     public sealed record NotFound : ContentLookup<T>;
 }
-public sealed record ContentDisplay(DisplayText Text, AssetRevision? Icon, AssetRevision? MapSymbol);
+public sealed record ContentDisplay(DisplayText Text, AssetRevision? Icon, AssetRevision? MapSymbol, bool Major);
 public sealed record BlueprintSummary(BlueprintAddress Address, DisplayText Display,
     DesignHash? Design, bool Usable, ImmutableArray<ContentDiagnostic> Diagnostics);
 public sealed record BlueprintRecord(BlueprintAddress Address, DesignDraft Definition,
