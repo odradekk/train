@@ -34,6 +34,10 @@ internal static class RailwayCoordinates
     internal const double TerrainSlopeMarginCells = 26.5;
     internal const double FogHorizontalPaddingCells = 8;
     internal const float FogVerticalPaddingCells = 128;
+    // Cover a voxel's footprint beyond its sampled centre, including endpoint grid snapping.
+    internal const int CellFootprintMargin = 1;
+    // The node and line endpoints each round by half a cell; include the full boundary voxel too.
+    internal const int BoundaryGridMargin = 2;
     internal static double OutermostTrackOffset(int count) => Math.Max(0, count - 1) * TrackSpacing / 2;
     internal static double TerrainHalfWidth(int count) =>
         OutermostTrackOffset(count) + BedBaseHalfWidth + BedBlendWidth + TerrainSlopeMarginCells;
@@ -97,7 +101,7 @@ internal sealed class RailwayPath
     private const double GradeReserve = 0.5;
     private const double ReliefSlopeRadians = 0.03;
 
-    internal RailwayPath(SceneWorldSnapshot snapshot, EdgeId id)
+    internal RailwayPath(SceneWorldSnapshot snapshot, EdgeId id, CancellationToken cancellation = default)
     {
         Edge = snapshot.Core.FindEdge(id) is Lookup<EdgeView>.Found edge ? edge.Value.Map :
             throw new RailwayBuildException("The railway edge is missing.");
@@ -129,6 +133,29 @@ internal sealed class RailwayPath
         horizontal = new(vertical.ForwardLength, chord, limits.Radius);
         trackPieces = horizontal.Ranges.Select(piece =>
             (vertical.Distance(piece.Begin), vertical.Distance(piece.End), side * piece.Curvature)).ToArray();
+    }
+
+    internal static ScenePoint Endpoint(SceneWorldSnapshot snapshot, EdgeId id, NodeId node)
+    {
+        var edge = snapshot.Core.World.Edges.Single(item => item.Id == id);
+        var first = snapshot.Core.World.Nodes.Single(item => item.Id == edge.Start);
+        var last = snapshot.Core.World.Nodes.Single(item => item.Id == edge.End);
+        var start = RailwayCoordinates.NodePoint(first);
+        if (node == first.Id) return start;
+        var rules = snapshot.Content.FindRailwayAppearance(snapshot.Core.World.RailwayRule) is ContentLookup<RailwayAppearanceProjection>.Found found
+            ? found.Value : throw new RailwayBuildException("The railway appearance is missing.");
+        var end = RailwayCoordinates.NodePoint(last);
+        var dx = end.X - start.X; var dz = end.Z - start.Z;
+        var direct = Math.Sqrt(dx * dx + dz * dz);
+        var length = edge.LengthMeters * RailwayCoordinates.CellsPerMeter;
+        if (direct <= 0 || length < direct || !double.IsFinite(length))
+            throw new RailwayBuildException("The edge length cannot produce a valid alignment.");
+        var slope = Math.Min(Math.Atan(rules.MaximumGrade) * GradeReserve, Math.Max(0, edge.Terrain.Relief) * ReliefSlopeRadians);
+        var vertical = new CircularBend(length, slope);
+        var limits = RailwayCoordinates.AlignmentLimits(vertical.ForwardLength, edge.TrackLimit, rules);
+        var chord = Math.Min(vertical.ForwardLength, Math.Max(direct, limits.MinimumChord));
+        var rise = RailwayRandom.Unit(snapshot.Core.World.WorldSeed, id.Value, 0, VerticalSidePurpose) < 0.5 ? -1 : 1;
+        return new(start.X + dx / direct * chord, start.Y + rise * vertical.Sample(length).Height, start.Z + dz / direct * chord);
     }
 
     // Approved #315 decision 12 uses the closed planar scale even when the vertical profile bends.
