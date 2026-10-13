@@ -48,6 +48,8 @@ try {
             $result.Output | Set-Content (Join-Path $directory 'process.log')
             Write-Host $result.Output
             if ($result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) { throw "Export smoke $case failed (exit=$($result.ExitCode), timeout=$($result.TimedOut))." }
+            $errors = @(Get-Content -LiteralPath (Join-Path $directory 'godot.log') | Where-Object { $_ -match '^\s*(?:SCRIPT |USER |FATAL )?ERROR:' })
+            if ($errors.Count) { throw "Export smoke $case reported engine or script errors: $($errors -join '; ')" }
             $logs = @(Get-ChildItem -LiteralPath (Join-Path $userData 'logs') -Filter 'train-session-*.jsonl' -File)
             if ($logs.Count -ne 1) { throw "Export smoke $case did not produce one JSONL session." }
             $events = @(Get-Content -LiteralPath $logs[0].FullName | ForEach-Object { $_ | ConvertFrom-Json })
