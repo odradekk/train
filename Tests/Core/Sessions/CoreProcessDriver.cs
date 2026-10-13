@@ -3,7 +3,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
-using Train.Core.Sessions;
+using Train.Core.Tests.World;
+using static Train.Core.Tests.World.WorldFixture;
 
 namespace Train.Core.Tests.Sessions;
 
@@ -26,7 +27,11 @@ internal static class CoreProcessDriver
                 session = candidate.Activate();
             }
             else
-                session = new CoreSession(new CoreState(new(7, 2), 10, new(20), Content('A')));
+            {
+                using var candidate = Success(CoreFactory.Create().PrepareNew(WorldFixture.MultiInput,
+                    Content('A'), new(runtime, false, 0)));
+                session = candidate.Activate();
+            }
 
             using (session)
             {
@@ -82,11 +87,8 @@ internal static class CoreProcessDriver
         }
     }
 
-    private static T Success<T>(CoreResult<T> result) where T : notnull => result is CoreResult<T>.Success success
-        ? success.Value : throw new InvalidOperationException($"核心调用失败：{result}");
-
     private static CoreContentProjection Content(char identity) =>
-        new(new(new string(identity, 64)), [], [], [], [], [], [], [], [], [], [], [], [], [], []);
+        WorldFixture.MultiContent with { Identity = new(new string(identity, 64)) };
 
     internal static string Sha256(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 

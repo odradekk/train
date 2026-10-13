@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
@@ -13,15 +14,20 @@ internal sealed class CoreSessionCandidate : ICoreSessionCandidate
     {
         _session = new CoreSession(state);
         View = _session.Read();
-        References = new([], [], [], [state.Content.Identity]);
+        References = WorldReferences.Create(state.World, state.Content);
         AdaptationReport = adaptationReport.IsDefault ? [] : adaptationReport;
+        MissingReferences = References.Definitions.Where(d => d.WasMissing)
+            .Select(d => new MissingCoreReference(d.Definition, d.Field)).ToImmutableArray();
+        MissingReferences = MissingReferences.AddRange(References.Templates
+            .Where(t => state.Content.MissingReferences.Any(m => m.Reference == new CoreDefinitionReference.Template(t.SourceTemplate)))
+            .Select(t => new MissingCoreReference(new CoreDefinitionReference.Template(t.SourceTemplate), $"World.Settlements[{t.Owner.Value}].Template")));
     }
 
     public ICoreReadView View { get; }
 
     public CoreReferenceManifest References { get; }
     public ImmutableArray<CoreProblem> AdaptationReport { get; }
-    public ImmutableArray<MissingCoreReference> MissingReferences => [];
+    public ImmutableArray<MissingCoreReference> MissingReferences { get; }
 
     public ICoreSession Activate()
     {
