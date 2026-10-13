@@ -11,7 +11,8 @@ internal static class WorldContentPublication
     internal static CommandEffect Execute(WorldState world, CoreContentProjection before, CoreContentProjection content)
     {
         var problems = ImmutableArray.CreateBuilder<CoreProblem>();
-        var suppliedDesigns = content.Designs.ToDictionary(d => d.Design);
+        var normalized = WorldInputs.NormalizeContent(content);
+        var suppliedDesigns = normalized.Designs.ToDictionary(d => d.Design);
         var designs = ImmutableArray.CreateBuilder<DesignProjection>();
         foreach (var saved in world.Designs)
         {
@@ -33,17 +34,17 @@ internal static class WorldContentPublication
             foreach (var unit in design.ReturnUnits)
                 foreach (var id in unit.Parts.Where(id => !parts.ContainsKey(id)))
                     Problem("invalid_state", path + $".ReturnUnits[{GoodKey(unit.Good)}].Parts[{id.Value}]", GoodKey(unit.Good));
-            designs.Add(WorldInputs.NormalizeDesign(design));
+            designs.Add(design);
         }
 
-        var suppliedGoods = content.DesignGoods.ToDictionary(g => g.Good);
+        var suppliedGoods = normalized.DesignGoods.ToDictionary(g => g.Good);
         var requiredGoods = world.DesignGoods.Select(g => g.Good).Concat(designs.SelectMany(DesignGoods)
             .Select(g => g.Good).OfType<GoodId.Assembly>()).Distinct();
         var goods = ImmutableArray.CreateBuilder<GoodDefinitionProjection>();
         foreach (var good in requiredGoods)
         {
             if (suppliedGoods.TryGetValue(good, out var specification))
-                goods.Add(specification with { MassTons = specification.MassTons == 0 ? 0 : specification.MassTons });
+                goods.Add(specification);
             else
                 Problem("content_missing", $"World.DesignGoods[{GoodKey(good)}]", GoodKey(good));
         }
@@ -61,8 +62,9 @@ internal static class WorldContentPublication
         var alreadyMissing = oldReferences.Where(d => d.WasMissing).Select(d => (d.Definition, d.Field)).ToHashSet();
         var references = Create(adapted, content).Definitions;
         foreach (var reference in references)
-            if ((reference.WasMissing || !Exists(reference, content))
-                && !alreadyMissing.Contains((reference.Definition, reference.Field)))
+            if (reference.WasMissing
+                ? !alreadyMissing.Contains((reference.Definition, reference.Field))
+                : !Exists(reference, content))
                 Problem("content_missing", reference.Field, DefinitionKey(reference.Definition));
 
         if (problems.Count != 0)
@@ -76,23 +78,9 @@ internal static class WorldContentPublication
         {
             Nodes = adapted.Nodes.Select(n => platforms.TryGetValue(n.Id, out var count) ? n with { Platforms = count } : n).ToImmutableArray()
         };
-        return new CommandEffect.Accepted(WithMissingDirectories(content, references), [], adapted);
+        return new CommandEffect.Accepted(content, [], adapted);
 
         void Problem(string code, string field, string identity) => problems.Add(new(code, field, Subject(field), [identity]));
-    }
-
-    internal static CoreContentProjection WithMissingDirectories(CoreContentProjection content,
-        IEnumerable<RequiredDefinition> references)
-    {
-        var directoryMissing = references.Where(r => !Exists(r, content)
-            && !content.MissingReferences.Any(m => m.Reference == r.Definition))
-            .Select(r => new MissingCoreReference(r.Definition, r.Field)).ToImmutableArray();
-        return directoryMissing.IsEmpty ? content : content with
-        {
-            MissingReferences = content.MissingReferences.AddRange(directoryMissing).Distinct()
-                .OrderBy(r => DefinitionKey(r.Reference), StringComparer.Ordinal)
-                .ThenBy(r => r.FieldPath, StringComparer.Ordinal).ToImmutableArray()
-        };
     }
 
     private static bool SameKind(DesignKind before, DesignKind after) => (before, after) switch

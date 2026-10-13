@@ -266,7 +266,7 @@ public sealed class WorldPublicationTests
     }
 
     [TestMethod]
-    public void A_missing_directory_entry_remains_missing_until_it_is_actually_restored()
+    public void Previously_missing_directory_entries_without_candidate_markers_are_rejected()
     {
         var content = Content;
         using var initial = Prepare(content: content);
@@ -276,22 +276,22 @@ public sealed class WorldPublicationTests
             MissingReferences = [new(definition, "old")] };
         using var restored = Success(CoreFactory.Create().PrepareRestore(Success(original.Capture(CapturePurpose.Save)), missing, Options));
         using var session = restored.Activate();
-        foreach (var identity in new[] { 'A', 'B' })
-        {
-            var proposed = Next(missing, identity) with { MissingReferences = [] };
-            Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(session, proposed).Receipt.Decision);
-            Assert.IsTrue(Success(session.Capture(CapturePurpose.Save)).References.Definitions
-                .Where(r => r.Definition == definition).All(r => r.WasMissing));
-        }
-        Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(session, Next(content, 'C')).Receipt.Decision);
-        Assert.IsTrue(Success(session.Capture(CapturePurpose.Save)).References.Definitions
-            .Where(r => r.Definition == definition).All(r => !r.WasMissing));
+        var before = Success(session.Capture(CapturePurpose.Save));
+        var proposed = Next(missing, 'A') with { MissingReferences = [] };
+        var result = Publish(session, proposed);
+        var problems = Rejected(result);
+        Assert.IsTrue(problems.All(p => p.Code == "content_missing"));
+        Assert.IsTrue(problems.Any(p => p.RelatedIdentities.Contains("voxel:fixture:material")));
+        var after = Success(session.Capture(CapturePurpose.Save));
+        Assert.AreEqual(World(before), World(after));
+        Assert.AreEqual(before.InputIdentity, after.InputIdentity);
+        Assert.IsTrue(result.Events.IsEmpty);
     }
 
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
-    public void Restoring_a_publication_retains_only_directory_entries_that_are_still_missing(bool repaired)
+    public void Explicit_missing_markers_survive_publication_save_and_same_projection_restore(bool repaired)
     {
         var content = Content;
         using var initial = Prepare(content: content);
@@ -300,14 +300,16 @@ public sealed class WorldPublicationTests
         var missing = content with { Goods = [], MissingReferences = [new(definition, "old")] };
         using var restored = Success(CoreFactory.Create().PrepareRestore(Success(original.Capture(CapturePurpose.Save)), missing, Options));
         using var session = restored.Activate();
-        var proposed = Next(missing, 'A') with { MissingReferences = [] };
+        var proposed = Next(missing, 'A');
         Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(session, proposed).Receipt.Decision);
         var saved = Success(CoreFactory.Create().DecodeState(Success(session.Capture(CapturePurpose.Save)).Encode()));
-        var current = repaired ? Next(content, 'B') : proposed;
-        using var reloaded = Success(CoreFactory.Create().PrepareRestore(saved, current, Options));
-        Assert.AreEqual(!repaired, reloaded.MissingReferences.Any(r => r.Reference == definition));
+        using var reloaded = Success(CoreFactory.Create().PrepareRestore(saved, proposed, Options));
+        Assert.IsTrue(reloaded.MissingReferences.Any(r => r.Reference == definition));
         using var resumed = reloaded.Activate();
-        Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(resumed, Next(current, 'C')).Receipt.Decision);
+        Assert.IsTrue(Success(resumed.Capture(CapturePurpose.Save)).References.Definitions
+            .Where(r => r.Definition == definition).All(r => r.WasMissing));
+        var current = repaired ? Next(content, 'B') : Next(proposed, 'B');
+        Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(resumed, current).Receipt.Decision);
         Assert.IsTrue(Success(resumed.Capture(CapturePurpose.Save)).References.Definitions
             .Where(r => r.Definition == definition).All(r => r.WasMissing == !repaired));
     }
@@ -316,25 +318,35 @@ public sealed class WorldPublicationTests
     public void Lowering_then_raising_durability_preserves_saved_absolute_damage_and_old_snapshots()
     {
         var content = Content;
-        using var candidate = Prepare(content: content);
-        using var session = candidate.Activate();
+        var id = new InstanceId.Vehicle(new(1));
+        var state = State(content: content);
+        using var session = new CoreSession(state with { World = state.World with
+        {
+            Instances = state.World.Instances.Select(i => i.Id == id ? i with
+            {
+                StructureDurability = 80,
+                Parts = i.Parts.Select(p => p with { Current = 80 }).ToImmutableArray()
+            } : i).ToImmutableArray()
+        } });
         var retained = session.Read();
         var saved = Success(session.Capture(CapturePurpose.Save));
         var savedText = saved.Encode();
-        var id = new InstanceId.Vehicle(new(1));
         var original = Instance(retained, id);
+        Assert.AreEqual(new DurabilityView(80, 100), original.Structure);
+        Assert.AreEqual(new DurabilityView(80, 100), original.Parts[0].Durability);
         var lowered = Next(content, 'A') with { Designs = content.Designs.Select(d => d with
         {
-            MaxStructureDurability = 40,
-            Parts = d.Parts.Select(p => p with { MaxDurability = 30 }).ToImmutableArray(),
+            MaxStructureDurability = 60,
+            Parts = d.Parts.Select(p => p with { MaxDurability = 60 }).ToImmutableArray(),
             CanConstruct = false
         }).ToImmutableArray() };
         Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(session, lowered).Receipt.Decision);
         var low = Instance(session.Read(), id);
-        Assert.AreEqual(new DurabilityView(40, 40), low.Structure);
-        Assert.AreEqual(new DurabilityView(30, 30), low.Parts[0].Durability);
+        Assert.AreEqual(new DurabilityView(60, 60), low.Structure);
+        Assert.AreEqual(new DurabilityView(60, 60), low.Parts[0].Durability);
         Assert.IsInstanceOfType<CommandDecision.Accepted>(Publish(session, Next(content, 'B')).Receipt.Decision);
-        Assert.AreEqual(original.Structure, Instance(session.Read(), id).Structure);
+        Assert.AreEqual(new DurabilityView(80, 100), Instance(session.Read(), id).Structure);
+        Assert.AreEqual(new DurabilityView(80, 100), Instance(session.Read(), id).Parts[0].Durability);
         CollectionAssert.AreEqual(original.Parts.ToArray(), Instance(session.Read(), id).Parts.ToArray());
         var stillRetained = Instance(retained, id);
         Assert.AreEqual(original.Structure, stillRetained.Structure);
