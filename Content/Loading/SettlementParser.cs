@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using Train.Content.Designs;
 using static Train.Content.Loading.DefinitionJson;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
@@ -78,19 +80,11 @@ internal static class SettlementParser
             foreach (var (value, field) in Items(Required(root, "plots", ""), "/plots"))
             {
                 Object(value, field, "id", "size", "at", "orientation", "building");
-                var number = Int32(Required(value, "id", field), field + "/id", 1);
-                var size = EnumValue<K.PlotSize>(Required(value, "size", field), field + "/size");
-                var at = Required(value, "at", field);
-                Array(at, field + "/at", 3);
-                var position = new C.GridPosition(Int32(at[0], field + "/at/0"), Int32(at[1], field + "/at/1"), Int32(at[2], field + "/at/2"));
-                var orientation = value.TryGetProperty("orientation", out var rotation)
-                    ? EnumValue<C.VoxelOrientation>(rotation, field + "/orientation") : C.VoxelOrientation.PxPy;
-                if (orientation is not (C.VoxelOrientation.PxPy or C.VoxelOrientation.PzPy or C.VoxelOrientation.NxPy or C.VoxelOrientation.NzPy))
-                    Fail(field + "/orientation", "地块朝向必须绕竖直轴旋转。");
+                var plotLayout = ReadPlotLayoutFields(value, field);
                 C.BlueprintAddress? building = value.TryGetProperty("building", out var reference)
                     ? new(C.BlueprintLibrary.Packages, new(json.Reference(reference, field + "/building"))) : null;
-                plots.Add(new(number, size, building));
-                layout.Add(new(number, size, position, orientation));
+                plots.Add(new(plotLayout.Number, plotLayout.Size, building));
+                layout.Add(plotLayout);
             }
             if (plots.Count == 0) Fail("/plots", "地块表不能为空。");
             Unique(plots.Select(p => p.Number), "/plots");
@@ -105,5 +99,39 @@ internal static class SettlementParser
             package.Reject(error.Code, path, error.Field, error.Message, subject);
             return null;
         }
+    }
+
+    internal static C.SettlementPlotLayout ReadPlotLayout(JsonElement value, string field)
+    {
+        Object(value, field, "id", "size", "at", "orientation");
+        return ReadPlotLayoutFields(value, field);
+    }
+
+    private static C.SettlementPlotLayout ReadPlotLayoutFields(JsonElement value, string field)
+    {
+        var number = Int32(Required(value, "id", field), field + "/id", 1);
+        var size = EnumValue<K.PlotSize>(Required(value, "size", field), field + "/size");
+        var at = Required(value, "at", field);
+        Array(at, field + "/at", 3);
+        var position = new C.GridPosition(Int32(at[0], field + "/at/0"), Int32(at[1], field + "/at/1"), Int32(at[2], field + "/at/2"));
+        var orientation = value.TryGetProperty("orientation", out var rotation)
+            ? EnumValue<C.VoxelOrientation>(rotation, field + "/orientation") : C.VoxelOrientation.PxPy;
+        if (orientation is not (C.VoxelOrientation.PxPy or C.VoxelOrientation.PzPy or C.VoxelOrientation.NxPy or C.VoxelOrientation.NzPy))
+            Fail(field + "/orientation", "地块朝向必须绕竖直轴旋转。");
+        return new(number, size, position, orientation);
+    }
+
+    internal static void WritePlotLayout(Utf8JsonWriter writer, C.SettlementPlotLayout layout)
+    {
+        writer.WriteStartObject();
+        writer.WriteNumber("id", layout.Number);
+        writer.WriteString("size", DesignEvaluator.Wire(layout.Size));
+        writer.WriteStartArray("at");
+        writer.WriteNumberValue(layout.At.X);
+        writer.WriteNumberValue(layout.At.Y);
+        writer.WriteNumberValue(layout.At.Z);
+        writer.WriteEndArray();
+        writer.WriteString("orientation", DesignEvaluator.Wire(layout.Orientation));
+        writer.WriteEndObject();
     }
 }

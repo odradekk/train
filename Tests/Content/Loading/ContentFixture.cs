@@ -60,6 +60,14 @@ internal sealed class ContentFixture : C.IContentFiles, C.IAssetInspector
         _files[new(root, path)] = new C.ContentIoResult<ImmutableArray<byte>>.Failure(failure, "fixture read failure");
     }
 
+    internal void RemoveEntry(C.ContentRoot root, string path)
+    {
+        var slash = path.LastIndexOf('/');
+        var parent = slash < 0 ? "" : path[..slash];
+        _directories[new(root, parent)].RemoveAll(entry => entry.Name == path[(slash + 1)..]);
+        _files.Remove(new(root, path));
+    }
+
     internal void SetEntry(C.ContentRoot root, string parent, C.ContentFileEntry entry)
     {
         _directories[new(root, parent)].RemoveAll(item => item.Name == entry.Name);

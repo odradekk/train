@@ -1,19 +1,91 @@
+using System.Collections.Immutable;
+using System.Text;
 using System.Text.Json;
 using Train.Core.Contracts;
 
 namespace Train.Core.Sessions;
 
+internal sealed record DecodedCommand(CoreInputId? InputIdentity, CoreCommand? Command);
+
 internal static class CoreCommandEncoding
 {
-    internal static string Encode(CoreCommand.PublishContent command)
+    internal static string Encode(CoreCommand command)
     {
-        if (!ValidIdentity(command.Content.Identity.Value))
-            throw new ArgumentException("输入身份必须是大写 SHA-256。", nameof(command));
-        return "{\"input_format_version\":2,\"kind\":\"content.publish\",\"input_identity\":\""
-            + command.Content.Identity.Value + "\"}";
+        ArgumentNullException.ThrowIfNull(command);
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("input_format_version", 2);
+            writer.WriteString("kind", command switch
+            {
+                CoreCommand.PublishContent => "content.publish",
+                CoreCommand.FormTrain => "train.form",
+                CoreCommand.DisbandTrain => "train.disband",
+                CoreCommand.ReplaceRunPlan => "train.replace_run_plan",
+                CoreCommand.StartTrain => "train.start",
+                CoreCommand.StopTrain => "train.stop",
+                _ => throw new NotImplementedException($"{command.GetType().Name} 尚未实现。")
+            });
+            switch (command)
+            {
+                case CoreCommand.PublishContent publish:
+                    if (!ValidIdentity(publish.Content.Identity.Value))
+                        throw new ArgumentException("输入身份必须是大写 SHA-256。", nameof(command));
+                    writer.WriteString("input_identity", publish.Content.Identity.Value);
+                    break;
+                case CoreCommand.FormTrain form:
+                    if (form.OrderedVehicles.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(command));
+                    writer.WriteStartArray("ordered_vehicles");
+                    foreach (var vehicle in form.OrderedVehicles)
+                    {
+                        if (vehicle.Value == 0) throw new ArgumentException("世界身份必须非零。", nameof(command));
+                        writer.WriteNumberValue(vehicle.Value);
+                    }
+                    writer.WriteEndArray();
+                    break;
+                case CoreCommand.ReplaceRunPlan replace:
+                    WriteIdentity(writer, "train", replace.Train.Value);
+                    ArgumentNullException.ThrowIfNull(replace.Plan);
+                    if (replace.Plan.Stops.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(command));
+                    writer.WriteStartObject("plan");
+                    writer.WriteBoolean("loop", replace.Plan.Loop);
+                    writer.WriteStartArray("stops");
+                    foreach (var stop in replace.Plan.Stops)
+                    {
+                        writer.WriteStartObject();
+                        switch (stop)
+                        {
+                            case PlanStop.Waypoint waypoint:
+                                writer.WriteString("kind", "waypoint");
+                                WriteIdentity(writer, "node", waypoint.Node.Value);
+                                break;
+                            case PlanStop.Station station:
+                                if (station.GoodsRules.IsDefault) throw new ArgumentException("数组必须初始化。", nameof(command));
+                                if (!station.GoodsRules.IsEmpty) throw new NotImplementedException("自动货物规则尚未实现。");
+                                writer.WriteString("kind", "station");
+                                WriteIdentity(writer, "node", station.Node.Value);
+                                writer.WriteNumber("dwell_steps", station.DwellSteps);
+                                writer.WriteStartArray("goods_rules");
+                                writer.WriteEndArray();
+                                break;
+                            default: throw new ArgumentException("计划站点无效。", nameof(command));
+                        }
+                        writer.WriteEndObject();
+                    }
+                    writer.WriteEndArray();
+                    writer.WriteEndObject();
+                    break;
+                case CoreCommand.DisbandTrain disband: WriteIdentity(writer, "train", disband.Train.Value); break;
+                case CoreCommand.StartTrain start: WriteIdentity(writer, "train", start.Train.Value); break;
+                case CoreCommand.StopTrain stop: WriteIdentity(writer, "train", stop.Train.Value); break;
+            }
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
-    internal static CoreResult<CoreInputId> Decode(string payload)
+    internal static CoreResult<DecodedCommand> Decode(string payload)
     {
         try
         {
@@ -23,51 +95,125 @@ internal static class CoreCommandEncoding
                 || !root.TryGetProperty("input_format_version", out var version)
                 || version.ValueKind != JsonValueKind.Number || !version.TryGetUInt32(out var number) || number != 2)
                 return Failure("unsupported_format", "/input_format_version");
-            if (!root.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String
-                || ReadString(kind, "/kind") != "content.publish")
+            if (!root.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String)
                 return Failure("unsupported_format", "/kind");
-            var seen = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in root.EnumerateObject())
+            var name = Text(kind, "/kind");
+            string[]? fields = name switch
             {
-                string name;
-                try { name = property.Name; }
-                catch (InvalidOperationException) { return Failure("invalid_state", ""); }
-                if (name is not ("input_format_version" or "kind" or "input_identity") || !seen.Add(name))
-                    return Failure("invalid_state", "/" + name.Replace("~", "~0").Replace("/", "~1"));
+                "content.publish" => new[] { "input_format_version", "kind", "input_identity" },
+                "train.form" => ["input_format_version", "kind", "ordered_vehicles"],
+                "train.replace_run_plan" => ["input_format_version", "kind", "train", "plan"],
+                "train.disband" or "train.start" or "train.stop" => ["input_format_version", "kind", "train"],
+                _ => null
+            };
+            if (fields is null) return Failure("unsupported_format", "/kind");
+            Fields(root, "", fields);
+            if (name == "content.publish")
+            {
+                var identity = Text(Property(root, "input_identity", "", JsonValueKind.String), "/input_identity");
+                if (!ValidIdentity(identity)) throw new InvalidField("/input_identity");
+                return Success(new(new(identity!), null));
             }
-            if (!root.TryGetProperty("input_identity", out var identity)
-                || identity.ValueKind != JsonValueKind.String || !ValidIdentity(ReadString(identity, "/input_identity")))
-                return Failure("invalid_state", "/input_identity");
-            return new CoreResult<CoreInputId>.Success(new(identity.GetString()!));
+            if (name == "train.form")
+            {
+                var vehicles = Property(root, "ordered_vehicles", "", JsonValueKind.Array);
+                var builder = ImmutableArray.CreateBuilder<VehicleId>();
+                foreach (var vehicle in vehicles.EnumerateArray())
+                    builder.Add(new(Identity(vehicle, $"/ordered_vehicles/{builder.Count}")));
+                return Success(new(null, new CoreCommand.FormTrain(builder.ToImmutable())));
+            }
+            var train = new TrainId(Identity(Property(root, "train", "", JsonValueKind.Number), "/train"));
+            CoreCommand command = name switch
+            {
+                "train.disband" => new CoreCommand.DisbandTrain(train),
+                "train.start" => new CoreCommand.StartTrain(train),
+                "train.stop" => new CoreCommand.StopTrain(train),
+                _ => new CoreCommand.ReplaceRunPlan(train, Plan(Property(root, "plan", "", JsonValueKind.Object)))
+            };
+            return Success(new(null, command));
         }
-        catch (JsonException)
+        catch (JsonException) { return Failure("unsupported_format", ""); }
+        catch (InvalidField error) { return Failure("invalid_state", error.Field); }
+        catch (InvalidOperationException) { return Failure("invalid_state", ""); }
+    }
+
+    private static RunPlan Plan(JsonElement plan)
+    {
+        Fields(plan, "/plan", ["loop", "stops"]);
+        if (!plan.TryGetProperty("loop", out var loop) || loop.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidField("/plan/loop");
+        var stops = ImmutableArray.CreateBuilder<PlanStop>();
+        foreach (var stop in Property(plan, "stops", "/plan", JsonValueKind.Array).EnumerateArray())
         {
-            return Failure("unsupported_format", "");
+            var field = $"/plan/stops/{stops.Count}";
+            var kind = Text(Property(stop, "kind", field, JsonValueKind.String), field + "/kind");
+            if (kind is not ("waypoint" or "station")) throw new InvalidField(field + "/kind");
+            Fields(stop, field, kind == "waypoint" ? ["kind", "node"] : ["kind", "node", "dwell_steps", "goods_rules"]);
+            var node = new NodeId(Identity(Property(stop, "node", field, JsonValueKind.Number), field + "/node"));
+            if (kind == "waypoint") stops.Add(new PlanStop.Waypoint(node));
+            else
+            {
+                var dwell = Number(Property(stop, "dwell_steps", field, JsonValueKind.Number), field + "/dwell_steps");
+                if (Property(stop, "goods_rules", field, JsonValueKind.Array).GetArrayLength() != 0)
+                    throw new InvalidField(field + "/goods_rules");
+                stops.Add(new PlanStop.Station(node, dwell, []));
+            }
         }
-        catch (InvalidString error)
+        return new(loop.GetBoolean(), stops.ToImmutable());
+    }
+
+    private static void Fields(JsonElement value, string field, string[] allowed)
+    {
+        if (value.ValueKind != JsonValueKind.Object) throw new InvalidField(field);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var property in value.EnumerateObject())
         {
-            return Failure("invalid_state", error.Field);
-        }
-        catch (InvalidOperationException)
-        {
-            return Failure("invalid_state", "");
+            var name = property.Name;
+            if (!allowed.Contains(name) || !seen.Add(name))
+                throw new InvalidField(field + "/" + name.Replace("~", "~0").Replace("/", "~1"));
         }
     }
 
-    private static string? ReadString(JsonElement value, string field)
+    private static JsonElement Property(JsonElement value, string name, string field, JsonValueKind kind)
+    {
+        if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out var property) || property.ValueKind != kind)
+            throw new InvalidField(field + "/" + name);
+        return property;
+    }
+
+    private static void WriteIdentity(Utf8JsonWriter writer, string name, ulong value)
+    {
+        if (value == 0) throw new ArgumentException("世界身份必须非零。", name);
+        writer.WriteNumber(name, value);
+    }
+
+    private static ulong Identity(JsonElement value, string field)
+    {
+        var number = Number(value, field);
+        if (number == 0) throw new InvalidField(field);
+        return number;
+    }
+
+    private static ulong Number(JsonElement value, string field)
+    {
+        if (value.ValueKind != JsonValueKind.Number || !value.TryGetUInt64(out var number)) throw new InvalidField(field);
+        return number;
+    }
+
+    private static string? Text(JsonElement value, string field)
     {
         try { return value.GetString(); }
-        catch (InvalidOperationException) { throw new InvalidString(field); }
+        catch (InvalidOperationException) { throw new InvalidField(field); }
     }
 
-    private sealed class InvalidString(string field) : Exception
+    private sealed class InvalidField(string field) : Exception
     {
         internal string Field { get; } = field;
     }
 
     private static bool ValidIdentity(string? value) => value is { Length: 64 }
         && value.All(c => c is >= '0' and <= '9' or >= 'A' and <= 'F');
-
-    private static CoreResult<CoreInputId> Failure(string code, string field)
-        => new CoreResult<CoreInputId>.Failure([new(code, field, null, [])]);
+    private static CoreResult<DecodedCommand> Success(DecodedCommand command) => new CoreResult<DecodedCommand>.Success(command);
+    private static CoreResult<DecodedCommand> Failure(string code, string field)
+        => new CoreResult<DecodedCommand>.Failure([new(code, field, null, [])]);
 }

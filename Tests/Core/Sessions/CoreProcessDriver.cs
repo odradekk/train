@@ -26,7 +26,7 @@ internal static class CoreProcessDriver
             {
                 var factory = CoreFactory.Create();
                 var saved = Success(factory.DecodeState(await File.ReadAllTextAsync(payloadPath)));
-                using var candidate = Success(factory.PrepareRestore(saved, Content('B'), new(runtime, false, 1)));
+                using var candidate = Success(factory.PrepareRestore(saved, Content('E'), new(runtime, false, 1)));
                 session = candidate.Activate();
             }
             else
@@ -80,6 +80,7 @@ internal static class CoreProcessDriver
                     Advance(1);
                     Publish('A');
                     Publish('B');
+                    Publish('E');
                 }
                 if (mode == "save")
                     await File.WriteAllTextAsync(payloadPath, samples[^1].Payload, new UTF8Encoding(false));
@@ -129,7 +130,7 @@ internal static class CoreProcessDriver
                 command.InputBefore, command.InputAfter)).ToImmutableArray(),
             recording.Checkpoints.ToImmutableArray(), recording.EndPosition, null);
         using var replay = Success(CoreFactory.Create().PrepareReplay(input, runtime,
-            new[] { 'A', 'B', 'C' }.Select(Content).ToImmutableArray()));
+            new[] { 'A', 'B', 'C', 'E' }.Select(Content).ToImmutableArray()));
         var samples = new List<CoreProcessSample>();
         foreach (var position in recording.Positions)
         {
@@ -148,8 +149,19 @@ internal static class CoreProcessDriver
         return 0;
     }
 
-    private static CoreContentProjection Content(char identity) =>
-        WorldFixture.MultiContent with { Identity = new(new string(identity, 64)) };
+    private static CoreContentProjection Content(char identity)
+    {
+        var content = WorldFixture.MultiContent with { Identity = new(new string(identity, 64)) };
+        return identity != 'E' ? content : content with
+        {
+            Designs = content.Designs.Select(d => d with
+            {
+                MaxStructureDurability = 40, MassTons = 2,
+                Parts = d.Parts.Select(p => p with { MaxDurability = 30,
+                    Capabilities = d.Design == Station ? [] : p.Capabilities }).ToImmutableArray()
+            }).ToImmutableArray()
+        };
+    }
 
     internal static string Sha256(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 

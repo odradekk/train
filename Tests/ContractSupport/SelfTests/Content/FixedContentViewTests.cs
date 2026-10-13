@@ -28,6 +28,36 @@ public sealed class FixedContentViewTests
         AssertUnconfigured(() => _ = view.PersistentRevision);
         AssertUnconfigured(() => _ = view.Packages);
         AssertUnconfigured(() => view.FindAsset(new AssetRevision("asset")));
+        AssertUnconfigured(() => view.FindTerrain(new("terrain")));
+        AssertUnconfigured(() => view.FindRailwayAppearance(new("railway")));
+    }
+
+    [TestMethod]
+    public void TerrainAndRailwayAppearancesRetainFixedInputAndCopyConfiguration()
+    {
+        var terrainId = new TerrainTypeId("terrain");
+        var railwayId = new RuleDefinitionId("railway");
+        var terrain = new ContentLookup<TerrainAppearanceProjection>.Found(new(terrainId,
+            new("surface"), new("subsurface"), new("rock"), [], [], 0, [], new("Terrain", "")));
+        var railway = new ContentLookup<RailwayAppearanceProjection>.Found(new(railwayId, 100, 0.05));
+        var missing = new ContentLookup<TerrainAppearanceProjection>.Missing([]);
+        var terrains = new Dictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>
+        {
+            [terrainId] = terrain,
+            [new("missing")] = missing
+        };
+        var railways = new Dictionary<RuleDefinitionId, ContentLookup<RailwayAppearanceProjection>>
+        {
+            [railwayId] = railway
+        };
+        var view = new FixedContentView { Terrains = terrains, RailwayAppearances = railways };
+        terrains.Clear();
+        railways.Clear();
+        Assert.AreSame(terrain, view.FindTerrain(terrainId));
+        Assert.AreSame(missing, view.FindTerrain(new("missing")));
+        Assert.AreSame(railway, view.FindRailwayAppearance(railwayId));
+        AssertUnconfigured(() => view.FindTerrain(new("other")));
+        AssertUnconfigured(() => view.FindRailwayAppearance(new("other")));
     }
 
     [TestMethod]
