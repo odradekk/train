@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
@@ -13,16 +14,14 @@ internal sealed class CoreSessionCandidate : ICoreSessionCandidate
     {
         _session = new CoreSession(state);
         View = _session.Read();
+        References = WorldReferences.Create(state.World, state.Content);
     }
 
     public ICoreReadView View { get; }
 
-    public CoreReferenceManifest References
-        => throw new NotImplementedException("References 尚未实现。");
-    public ImmutableArray<CoreProblem> AdaptationReport
-        => throw new NotImplementedException("AdaptationReport 尚未实现。");
-    public ImmutableArray<MissingCoreReference> MissingReferences
-        => throw new NotImplementedException("MissingReferences 尚未实现。");
+    public CoreReferenceManifest References { get; }
+    public ImmutableArray<CoreProblem> AdaptationReport => [];
+    public ImmutableArray<MissingCoreReference> MissingReferences => [];
 
     public ICoreSession Activate()
     {

@@ -1,0 +1,188 @@
+using System.Collections.Immutable;
+using Train.Core.Contracts;
+
+namespace Train.Core.World;
+
+internal abstract record GeneratedOccupant
+{
+    private GeneratedOccupant() { }
+    internal sealed record Empty : GeneratedOccupant;
+    internal sealed record Settlement(SettlementTypeProjection Type, SettlementTemplateProjection Template,
+        SettlementRelation Relation, long Population, int Platforms) : GeneratedOccupant;
+    internal sealed record Lair(LairTypeId Type) : GeneratedOccupant;
+}
+
+internal sealed record SettlementState(SettlementId Id, NodeId Node, SettlementTypeId Type,
+    SettlementRelation Relation, long Population, SettlementTemplateProjection Template,
+    ImmutableArray<PlotState> Plots, InventoryId Inventory);
+internal sealed record PlotState(PlotId Id, int TemplateNumber, PlotSize Size, BuildingId? Building);
+internal sealed record LairState(LairId Id, NodeId Node, LairTypeId Type);
+internal sealed record PartDurability(PartId Id, long Current);
+internal sealed record InstanceState(InstanceId Id, DesignProjection Design,
+    SettlementRelation Ownership, InstanceDetails Details, long StructureDurability,
+    ImmutableArray<PartDurability> Parts)
+{
+    internal InstanceView Read(WorldLocation location) => new(Id, Design.Design, Design.Composition, location, Ownership, Details,
+        InstanceLock.None, new(Math.Min(StructureDurability, Design.MaxStructureDurability), Design.MaxStructureDurability),
+        Parts.Select(p =>
+        {
+            var specification = Design.Parts.Single(d => d.Id == p.Id);
+            return new PartDamageView(p.Id, new(Math.Min(p.Current, specification.MaxDurability), specification.MaxDurability),
+                specification.Missing, p.Current == 0);
+        }).ToImmutableArray(), []);
+}
+internal sealed record TrainState(TrainId Id, NodeId Node, ImmutableArray<VehicleId> Vehicles,
+    InventoryId Inventory, NodeTransitView Transit, TrainOrderFacing OrderFacing);
+internal sealed record InventoryState(InventoryId Id, InventoryOwner Owner,
+    ImmutableArray<GoodsQuantity> Goods);
+internal sealed record WorldIdentities(ulong Node, ulong Edge, ulong Settlement, ulong Lair, ulong Plot,
+    ulong Building, ulong Train, ulong Vehicle, ulong Inventory, ulong Job = 1, ulong Lease = 1,
+    ulong Combat = 1, ulong Creature = 1, ulong CreatureGroup = 1, ulong Break = 1);
+
+internal sealed record WorldState(WorldGenerationInput Source, ImmutableArray<NodeMapItem> Nodes, ImmutableArray<EdgeMapItem> Edges,
+    ImmutableArray<SettlementState> Settlements, ImmutableArray<LairState> Lairs,
+    ImmutableArray<InstanceState> Instances, ImmutableArray<TrainState> Trains,
+    ImmutableArray<InventoryState> Inventories, ImmutableArray<DesignProjection> Designs,
+    ImmutableArray<GoodDefinitionProjection> DesignGoods, Money Money, WorldIdentities Next)
+{
+    internal WorldSummary Map => new(Source.WorldSeed, Source.Configuration.Rules.Railway,
+        Source.Configuration.WidthMeters, Source.Configuration.HeightMeters, Nodes, Edges,
+        Trains.Select(t => new TrainMapItem(t.Id, new TrainPosition.Node(t.Node), TrainActivity.Stopped)).ToImmutableArray(), [], []);
+
+    internal static WorldState Create(WorldGenerationInput input, CoreContentProjection content,
+        ImmutableArray<CandidateNode> nodes, ImmutableArray<CandidateEdge> edges,
+        ImmutableArray<GeneratedOccupant> occupants, ImmutableArray<ImmutableArray<NodeResourceView>> resources,
+        ImmutableArray<int> tracks, int start)
+    {
+        ulong settlementNumber = 1, lairNumber = 1, plotNumber = 1, buildingNumber = 1,
+            trainNumber = 1, vehicleNumber = 1, inventoryNumber = 1;
+        var settlements = ImmutableArray.CreateBuilder<SettlementState>();
+        var lairs = ImmutableArray.CreateBuilder<LairState>();
+        var instances = ImmutableArray.CreateBuilder<InstanceState>();
+        var inventories = ImmutableArray.CreateBuilder<InventoryState>();
+        var mapNodes = ImmutableArray.CreateBuilder<NodeMapItem>();
+        var designHashes = new HashSet<DesignHash> { input.Configuration.StartConstraints.RequiredAffordableCommissionDesign };
+        designHashes.UnionWith(input.Configuration.NpcInitialization.ForSaleVehicleCandidates);
+        for (var index = 0; index < nodes.Length; index++)
+        {
+            var id = new NodeId((ulong)index + 1);
+            NodeOccupant occupant = new NodeOccupant.Empty();
+            var platforms = 0;
+            if (occupants[index] is GeneratedOccupant.Settlement settlement)
+            {
+                var settlementId = new SettlementId(settlementNumber++);
+                occupant = new NodeOccupant.Settlement(settlementId, settlement.Relation);
+                platforms = settlement.Platforms;
+                var plots = ImmutableArray.CreateBuilder<PlotState>();
+                foreach (var plot in settlement.Template.Plots)
+                {
+                    var plotId = new PlotId(plotNumber++);
+                    BuildingId? building = null;
+                    if (plot.PrebuiltDesign is { } hash)
+                    {
+                        building = new(buildingNumber++);
+                        instances.Add(CreateInstance(new InstanceId.Building(building.Value), hash,
+                            settlement.Relation, new InstanceDetails.Building(plotId, plot.Size)));
+                    }
+                    plots.Add(new(plotId, plot.Number, plot.Size, building));
+                }
+                foreach (var founding in settlement.Template.FoundingBuildings) designHashes.Add(founding.Design);
+                var inventory = new InventoryId(inventoryNumber++);
+                inventories.Add(new(inventory, new InventoryOwner.Settlement(settlementId), settlement.Template.SpecialInitialInventory));
+                settlements.Add(new(settlementId, id, settlement.Type.Id, settlement.Relation, settlement.Population,
+                    settlement.Template, plots.ToImmutable(), inventory));
+            }
+            else if (occupants[index] is GeneratedOccupant.Lair lair)
+            {
+                var lairId = new LairId(lairNumber++);
+                occupant = new NodeOccupant.Lair(lairId);
+                lairs.Add(new(lairId, id, lair.Type));
+            }
+            mapNodes.Add(new(id, nodes[index].Position, nodes[index].Terrain, occupant, resources[index], 0, platforms, null));
+        }
+        var mapEdges = edges.Select((edge, index) => new EdgeMapItem(new((ulong)index + 1),
+            new((ulong)edge.A + 1), new((ulong)edge.B + 1), edge.LengthMeters, edge.Terrain, tracks[index], edge.TrackLimit, [], [])).ToImmutableArray();
+        var trains = ImmutableArray.CreateBuilder<TrainState>();
+        var startNode = new NodeId((ulong)start + 1);
+        foreach (var initial in input.Start.Trains)
+        {
+            var trainId = new TrainId(trainNumber++);
+            var vehicles = ImmutableArray.CreateBuilder<VehicleId>();
+            foreach (var hash in initial.Vehicles)
+            {
+                var vehicleId = new VehicleId(vehicleNumber++);
+                var design = content.Designs.Single(d => d.Design == hash);
+                vehicles.Add(vehicleId);
+                instances.Add(CreateInstance(new InstanceId.Vehicle(vehicleId), hash, SettlementRelation.PlayerOwned,
+                    new InstanceDetails.Vehicle(((DesignKind.Vehicle)design.Kind).Size, trainId)));
+            }
+            var inventory = new InventoryId(inventoryNumber++);
+            inventories.Add(new(inventory, new InventoryOwner.Train(trainId), initial.Inventory));
+            trains.Add(new(trainId, startNode, vehicles.ToImmutable(), inventory, new(null, null), TrainOrderFacing.FirstEndLeading));
+        }
+        var designs = content.Designs.Where(d => designHashes.Contains(d.Design)).ToImmutableArray();
+        var goods = new HashSet<GoodId>(inventories.SelectMany(i => i.Goods).Select(g => g.Good));
+        foreach (var design in designs)
+        {
+            goods.UnionWith(design.Parts.Select(p => p.RepairGood));
+            goods.UnionWith(design.StructuralGoods.Concat(design.BillOfMaterials).Select(g => g.Good));
+            goods.UnionWith(design.ReturnUnits.Select(r => r.Good));
+            goods.UnionWith(design.ReturnUnits.SelectMany(r => r.StructuralGoods).Select(g => g.Good));
+        }
+        return new(input, mapNodes.ToImmutable(), mapEdges, settlements.ToImmutable(), lairs.ToImmutable(), instances.ToImmutable(), trains.ToImmutable(),
+            inventories.ToImmutable(), designs, content.DesignGoods.Where(g => goods.Contains(g.Good)).ToImmutableArray(),
+            input.Start.InitialMoney, new((ulong)nodes.Length + 1, (ulong)edges.Length + 1, settlementNumber, lairNumber,
+                plotNumber, buildingNumber, trainNumber, vehicleNumber, inventoryNumber));
+
+        InstanceState CreateInstance(InstanceId id, DesignHash hash,
+            SettlementRelation ownership, InstanceDetails details)
+        {
+            designHashes.Add(hash);
+            var design = content.Designs.Single(d => d.Design == hash);
+            return new(id, design, ownership, details, design.MaxStructureDurability,
+                design.Parts.Select(p => new PartDurability(p.Id, p.MaxDurability)).ToImmutableArray());
+        }
+    }
+
+    internal NodeView? FindNode(NodeId id)
+    {
+        var node = Nodes.FirstOrDefault(n => n.Id == id);
+        return node is null ? null : new(node, Edges.Where(e => e.Start == id || e.End == id).Select(e => e.Id).ToImmutableArray());
+    }
+
+    internal EdgeView? FindEdge(EdgeId id)
+    {
+        var edge = Edges.FirstOrDefault(e => e.Id == id);
+        return edge is null ? null : new(edge,
+            Enumerable.Range(1, edge.Tracks).Select(n => new TrackView(n, null, [])).ToImmutableArray(), null);
+    }
+
+    internal LocationView? FindLocation(WorldLocation location)
+    {
+        var occupant = location is WorldLocation.Node node ? FindNode(node.Id)?.Map.Occupant : null;
+        if (location is WorldLocation.Node && occupant is null) return null;
+        if (location is WorldLocation.Edge edge)
+        {
+            if (!double.IsFinite(edge.DistanceMeters) || edge.DistanceMeters < 0)
+                throw new ArgumentException("地点距离必须是有限非负数。", nameof(location));
+            var found = FindEdge(edge.Id);
+            if (found is null || edge.DistanceMeters > found.Map.LengthMeters) return null;
+        }
+        return new(location,
+            Trains.Where(t => location == new WorldLocation.Node(t.Node)).Select(t => t.Id).ToImmutableArray(),
+            Instances.Where(i => Location(i) == location).Select(i => i.Id).ToImmutableArray(), [], [], occupant);
+    }
+
+    internal InstanceView? FindInstance(InstanceId id)
+    {
+        var instance = Instances.FirstOrDefault(i => i.Id == id);
+        return instance?.Read(Location(instance));
+    }
+
+    private WorldLocation Location(InstanceState instance) => instance.Details switch
+    {
+        InstanceDetails.Vehicle { Train: { } train } => new WorldLocation.Node(Trains.Single(t => t.Id == train).Node),
+        InstanceDetails.Building building => new WorldLocation.Node(Settlements.Single(s => s.Plots.Any(p => p.Id == building.Plot)).Node),
+        _ => throw new InvalidOperationException("实例缺少所属列车或聚居地。")
+    };
+}

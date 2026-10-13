@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.Sessions;
+using Train.Core.World;
 
 namespace Train.Core;
 
@@ -12,7 +14,14 @@ internal sealed class CoreSessionFactory : ICoreFactory
 {
     public CoreResult<ICoreSessionCandidate> PrepareNew(WorldGenerationInput input,
         CoreContentProjection content, CoreSessionOptions options)
-        => throw new NotImplementedException("PrepareNew 尚未实现。");
+        => WorldGenerator.Generate(input, content, options) switch
+        {
+            CoreResult<GeneratedWorld>.Success success => new CoreResult<ICoreSessionCandidate>.Success(
+                new CoreSessionCandidate(new(new(0, 0), 1, new(0), success.Value.Content, World: success.Value.State))),
+            CoreResult<GeneratedWorld>.Failure failure => new CoreResult<ICoreSessionCandidate>.Failure(failure.Problems),
+            CoreResult<GeneratedWorld>.Faulted fault => new CoreResult<ICoreSessionCandidate>.Faulted(fault.Fault, fault.Diagnostic),
+            _ => throw new InvalidOperationException("世界生成结果无效。")
+        };
 
     public CoreResult<ICoreCapture> DecodeState(string canonicalPayload)
         => throw new NotImplementedException("DecodeState 尚未实现。");

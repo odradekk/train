@@ -1,18 +1,42 @@
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
 internal sealed record CoreReadView(SimulationPosition Position, CoreRevision Revision,
-    CoreInputId InputIdentity, CoreFault? Fault) : ICoreReadView
+    CoreInputId InputIdentity, CoreFault? Fault, WorldState? State = null) : ICoreReadView
 {
-    public WorldSummary World => throw new NotImplementedException("World 尚未实现。");
+    private readonly WorldSummary? _world = State?.Map;
+    public WorldSummary World => _world ?? throw new NotImplementedException("会话没有世界状态。");
     public EconomyView Economy => throw new NotImplementedException("Economy 尚未实现。");
-    public Lookup<NodeView> FindNode(NodeId id) => throw new NotImplementedException("FindNode 尚未实现。");
-    public Lookup<EdgeView> FindEdge(EdgeId id) => throw new NotImplementedException("FindEdge 尚未实现。");
+    public Lookup<NodeView> FindNode(NodeId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("节点编号必须非零。", nameof(id));
+        return Lookup(Data.FindNode(id));
+    }
+    public Lookup<EdgeView> FindEdge(EdgeId id)
+    {
+        if (id.Value == 0) throw new ArgumentException("线路编号必须非零。", nameof(id));
+        return Lookup(Data.FindEdge(id));
+    }
     public Lookup<LocationView> FindLocation(WorldLocation location)
-        => throw new NotImplementedException("FindLocation 尚未实现。");
+    {
+        ArgumentNullException.ThrowIfNull(location);
+        if (location is WorldLocation.Node { Id.Value: 0 } or WorldLocation.Edge { Id.Value: 0 })
+            throw new ArgumentException("地点编号必须非零。", nameof(location));
+        return Lookup(Data.FindLocation(location));
+    }
     public Lookup<TrainView> FindTrain(TrainId id) => throw new NotImplementedException("FindTrain 尚未实现。");
-    public Lookup<InstanceView> FindInstance(InstanceId id) => throw new NotImplementedException("FindInstance 尚未实现。");
+    public Lookup<InstanceView> FindInstance(InstanceId id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        if (id is InstanceId.Vehicle { Id.Value: 0 } or InstanceId.Building { Id.Value: 0 })
+            throw new ArgumentException("实例编号必须非零。", nameof(id));
+        return Lookup(Data.FindInstance(id));
+    }
+    private WorldState Data => State ?? throw new NotImplementedException("会话没有世界状态。");
+    private static Lookup<T> Lookup<T>(T? value) where T : class
+        => value is null ? new Lookup<T>.Missing() : new Lookup<T>.Found(value);
     public Lookup<SettlementView> FindSettlement(SettlementId id)
         => throw new NotImplementedException("FindSettlement 尚未实现。");
     public Lookup<InventoryView> FindInventory(InventoryId id) => throw new NotImplementedException("FindInventory 尚未实现。");

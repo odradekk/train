@@ -1,10 +1,11 @@
 using System.Collections.Immutable;
 using Train.Core.Contracts;
+using Train.Core.World;
 
 namespace Train.Core.Sessions;
 
 internal sealed record CoreState(SimulationPosition Position, ulong NextCommandNumber,
-    CoreRevision Revision, CoreContentProjection Content, CoreFault? Fault = null);
+    CoreRevision Revision, CoreContentProjection Content, CoreFault? Fault = null, WorldState? World = null);
 
 internal abstract record CommandEffect
 {
@@ -21,7 +22,7 @@ internal sealed class CoreSession(CoreState state) : ICoreSession
     public ICoreReadView Read()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault);
+        return new CoreReadView(State.Position, State.Revision, State.Content.Identity, State.Fault, State.World);
     }
 
     public SubmissionResult Submit(CoreCommand command, CommandSource source)
