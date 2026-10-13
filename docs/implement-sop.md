@@ -23,7 +23,7 @@ For Godot scene, resource, editor or runtime work, use the project's Godot MCP N
 
 Read the coordinator's dispatch comment, the Issue body and all comments, `AGENTS.md`, the referenced design docs, ADRs and contracts, and the [Testing standard](#testing-standard). Verify the worktree path, branch, baseline and MCP assignment in the dispatch comment. Before environment setup, validation or export, read [Local validation and Windows builds](local-environment.md).
 
-Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the [unified test entry](run-tests.md) with `-Project core|content|godot|contract-support` for the responsibility being changed, and `-Layer` for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
+Build the assigned module's production target and run its existing tests once, so later failures can be told apart from baseline failures. Use the [unified test entry](run-tests.md) with `-Project core|content|scenes|godot|contract-support` for the responsibility being changed, and `-Layer` for combined selections. Report baseline failures and any missing production check under [test organization](contracts/testing.md#模块测试的组织与入口) in your plan.
 
 ## 1. Plan
 
