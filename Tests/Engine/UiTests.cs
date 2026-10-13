@@ -154,7 +154,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             var confirmation = panels.GetNode<ConfirmationDialog>("DisbandConfirmation");
             Require(confirmation.Visible, "真实解编输入没有打开原生确认窗口。");
             confirmation.GetCancelButton().GrabFocus();
-            await _input.PressKey(Key.Space);
+            await _input.PressKey(Key.Space, window: confirmation);
             Require(!confirmation.Visible && setup.Session.SubmitCount == 1,
                 "取消原生解编确认提交了命令或未关闭窗口。");
             disband.GrabFocus();
@@ -168,7 +168,7 @@ public class UiTests(Node testScene) : TestClass(testScene)
             Require(confirmation.GetOkButton().Disabled && replacement.SubmitCount == 0 && setup.Session.SubmitCount == 1,
                 "替换对局后旧解编目标仍可确认，或产生额外提交。");
             confirmation.GetCancelButton().GrabFocus();
-            await _input.PressKey(Key.Space);
+            await _input.PressKey(Key.Space, window: confirmation);
             Require(!confirmation.Visible, "旧解编确认窗口没有经真实取消输入关闭。");
             var text = panels.FindChildren("Description", "Label", true, false).Cast<Label>().Single();
             Require(stop.Disabled && text.Text.Contains("已不存在"), "旧对局详情没有明确失效。");

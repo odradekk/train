@@ -63,7 +63,7 @@ public class SettingsUiTests(Node testScene) : TestClass(testScene)
                 Mathf.IsEqualApprox(tree.Root.ContentScaleFactor, invalid ? 1 : 1.25f) &&
                 Godot.Engine.MaxFps == (invalid ? 73 : 91) &&
                 app.Host!.AutoPauseOnFocusLoss == !invalid,
-                "启动未应用已保存设置，或无效设置未恢复默认模式、缩放、帧率和失焦暂停。");
+                $"启动设置未应用或未回退：mode={selectedMode}/{expectedMode}，scale={tree.Root.ContentScaleFactor}，fps={Godot.Engine.MaxFps}，focus={app.Host!.AutoPauseOnFocusLoss}，invalid={invalid}。");
             if (DisplayServer.GetName() != "headless")
             {
                 var expectedWindowMode = expectedMode switch

@@ -34,8 +34,6 @@ public partial class GameUi : CanvasLayer
     private Label? _newGameError;
     private long _newOperation;
     private long _reportedMissing;
-    private Theme? _previousTheme;
-    private Window _window = null!;
     private ICoreReadView? _view;
     private IContentView? _content;
     private HostBinding _binding;
@@ -49,9 +47,6 @@ public partial class GameUi : CanvasLayer
 
     public override void _Ready()
     {
-        _window = GetWindow();
-        _previousTheme = _window.Theme;
-        _window.Theme = UiStyle.CreateTheme();
         _root = new Control { Name = "Root", MouseFilter = Control.MouseFilterEnum.Ignore };
         _root.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         AddChild(_root);
@@ -325,6 +320,5 @@ public partial class GameUi : CanvasLayer
         { _host.BoundaryCompleted -= OnBoundary; _host.OperationEnded -= OnOperationEnded; }
         _menu.NewGameRequested -= OpenNewGame;
         _menu.SettingsRequested -= _settings.Show;
-        _window.Theme = _previousTheme;
     }
 }

@@ -17,12 +17,14 @@ internal sealed class UiTestInput(Node scene)
         Require(completed(), "真实帧未完成预期的界面状态变化。");
     }
 
-    internal async Task PressKey(Key key, bool control = false, uint unicode = 0)
+    internal async Task PressKey(Key key, bool control = false, uint unicode = 0, Window? window = null)
     {
         using var press = new InputEventKey { Keycode = key, Pressed = true, CtrlPressed = control, Unicode = unicode };
-        Input.ParseInputEvent(press); await Frames();
+        if (window is null) Input.ParseInputEvent(press); else window.PushInput(press);
+        await Frames();
         using var release = new InputEventKey { Keycode = key, Pressed = false, CtrlPressed = control, Unicode = unicode };
-        Input.ParseInputEvent(release); await Frames();
+        if (window is null) Input.ParseInputEvent(release); else window.PushInput(release);
+        await Frames();
     }
 
     internal async Task MouseButton(Vector2 position, Godot.MouseButton button, bool pressed)
