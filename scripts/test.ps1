@@ -21,12 +21,12 @@ if ($ExportWindows -and ('engine' -notin $layers -or $Project.Count -or -not $Is
 if ($Project.Count) { $layers = @($layers | Where-Object { $_ -notin @('engine', 'stage') }) }
 if (-not $layers.Count) { throw 'Selected layers match no MSTest tests.' }
 $projects = @(
-    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 245; integration = 4 },
+    @{ name = 'core'; path = 'Tests/Core/Train.Core.Tests.csproj'; fast = 245; integration = $(if ($IsWindows) { 8 } else { 5 }) },
     @{ name = 'content'; path = 'Tests/Content/Train.Content.Tests.csproj'; fast = 185; integration = 7 },
     @{ name = 'scenes'; path = 'Tests/Scenes/Train.Scenes.Tests.csproj'; fast = 51; integration = 0 },
-    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = 39; engine = 23 },
+    @{ name = 'godot'; path = 'Tests/Godot/Train.Godot.Tests.csproj'; fast = 13; integration = 39; engine = 24 },
     @{ name = 'contract-support'; path = 'Tests/ContractSupport/SelfTests/Train.ContractSupport.Tests.csproj'; fast = 22; integration = 0 },
-    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 8; integration = 4 }
+    @{ name = 'contract-checks'; path = 'Tests/ContractChecks.Tests/Train.ContractChecks.Tests.csproj'; fast = 9; integration = 4 }
 )
 $engineProject = $projects | Where-Object name -eq 'godot'
 if ($Project.Count) { $projects = @($projects | Where-Object { $_.name -in $Project }) }
@@ -68,6 +68,7 @@ $contractTool = Join-Path $root 'Tests/ContractChecks/bin/Debug/net10.0/Train.Co
 $contractBaseline = Join-Path $root 'docs/contracts/public-api.txt'
 $started = [Diagnostics.Stopwatch]::StartNew()
 $engineUserRoot = $null
+$importDone = $false
 function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [string[]] $Arguments, $Result) {
     $result.Output | Set-Content (Join-Path $run "$Name.log")
     Write-Host $result.Output
@@ -78,7 +79,7 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
         $counts = $report.TestRun.ResultSummary.Counters
         foreach ($count in @('total', 'executed', 'passed', 'failed')) { $check[$count] = [int] $counts.$count }
         $check.skipped = [int] $counts.notExecuted + [int] $counts.inconclusive
-    } elseif ($Name -eq 'engine-godot') {
+    } elseif ($Name -in @('engine-godot', 'stage-screenshot')) {
         $junit = Join-Path $run "$Name.junit.xml"
         if (Test-Path $junit) {
             [xml] $report = Get-Content $junit -Raw
@@ -91,12 +92,12 @@ function Add-CheckResult([string] $Name, [string] $Group, [string] $Program, [st
             $check.report = $junit
         }
         $summary.checks += [pscustomobject] $check
-        $minimum = $engineProject.engine
+        $minimum = if ($Name -eq 'stage-screenshot') { 1 } else { $engineProject.engine }
         if (-not (Test-Path $junit) -or $check.executed -lt $minimum -or $check.failed -or $result.ExitCode -ne 0 -or $result.TimedOut -or -not $result.CleanupSucceeded) {
             throw "$Name failed (exit=$($result.ExitCode), timeout=$($result.TimedOut), executed=$($check.executed), minimum=$minimum, failed=$($check.failed)); evidence: $run"
         }
         return
-    } elseif ($Name -match '^(fast|integration)-(core|content|scenes|godot|contract-support|contract-checks)$') {
+    } elseif ($Name -match '^(fast|integration|stage)-(core|content|scenes|godot|contract-support|contract-checks)$') {
         $summary.checks += [pscustomobject] $check
         throw "$Name did not produce its required TRX report."
     } elseif ($Group -ne 'preparation') {
@@ -146,9 +147,54 @@ try {
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
+                Invoke-Check benchmark-build preparation dotnet @('build', 'Tests/Benchmarks/Train.Benchmarks.csproj', '-c', 'Release', '--nologo') 300
                 Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
                 Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
                 Invoke-Isolation stage-isolate $current (Join-Path $run 'stage-isolate') 300
+
+                Invoke-Check stage-core $current dotnet @('test', '--project', 'Tests/Core/Train.Core.Tests.csproj', '--no-build', '--results-directory', $run,
+                    '--minimum-expected-tests', '2', '--', '--filter', 'TestCategory=stage', '--report-trx', '--report-trx-filename', 'stage-core.trx', '--timeout', '180s') 180
+                Invoke-Check benchmark $current dotnet @((Join-Path $root 'Tests/Benchmarks/bin/Release/net10.0/Train.Benchmarks.dll'), '--artifacts', (Join-Path $run 'benchmark')) 600
+                if ($IsWindows) {
+                    $threshold = [ordered]@{ name = 'benchmark-threshold'; layer = $current; total = 1; executed = 1; passed = 0; failed = 1; skipped = 0 }
+                    try {
+                        $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-resource-simulation.json') -Raw | ConvertFrom-Json
+                        $threshold.measurement = Get-Content (Join-Path $run 'benchmark/throughput.json') -Raw | ConvertFrom-Json
+                        if ($threshold.baseline.workload -ne $threshold.measurement.workload -or -not [double]::IsFinite([double] $threshold.baseline.minimumStepsPerSecond) -or $threshold.baseline.minimumStepsPerSecond -le 0 -or
+                            -not [double]::IsFinite([double] $threshold.measurement.stepsPerSecond) -or $threshold.measurement.stepsPerSecond -lt $threshold.baseline.minimumStepsPerSecond) { throw 'Benchmark threshold failed or baseline is invalid.' }
+                        $threshold.passed = 1; $threshold.failed = 0
+                    } catch { $threshold.error = $_.Exception.Message; throw }
+                    finally { $summary.checks += [pscustomobject] $threshold }
+                    foreach ($name in @('APPDATA', 'LOCALAPPDATA', 'TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL', 'TRAIN_ENGINE_SCREENSHOT', 'TRAIN_SCREENSHOT_OUTPUT')) {
+                        if (-not $environment.ContainsKey($name)) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
+                    }
+                    $env:APPDATA = Join-Path $run 'appdata'; $env:LOCALAPPDATA = Join-Path $run 'localappdata'
+                    New-Item -ItemType Directory -Force -Path $env:APPDATA, $env:LOCALAPPDATA | Out-Null
+                    $engineUserRoot = Join-Path $env:APPDATA 'Godot/app_userdata/Train'
+                    if (-not $importDone) {
+                        Invoke-Check stage-import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'stage-import.log'), '--editor', '--import') 120
+                        $importDone = $true
+                    }
+                    $binary = Join-Path $run 'exports/windows/train.exe'
+                    New-Item -ItemType Directory -Force -Path (Split-Path $binary) | Out-Null
+                    $env:APPDATA = $environment.APPDATA
+                    try { Invoke-Check stage-export $current $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'stage-export.log'), '--export-release', 'Windows Desktop', $binary) 120 }
+                    finally { $env:APPDATA = Join-Path $run 'appdata' }
+                    Invoke-Check stage-export-runtime $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', '60') 65
+                    Invoke-Check stage-asset-export $current $pwsh @('-NoProfile', '-File', 'scripts/checks/run-asset-export.ps1', '-OutputDirectory', (Join-Path $run 'asset-export'),
+                        '-GameExecutablePath', $binary, '-TemplateAppData', $environment.APPDATA, '-TimeoutSeconds', '180') 185
+                    $env:TRAIN_ENGINE_TEST_ASSEMBLY = Join-Path $root '.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll'
+                    $env:TRAIN_ENGINE_REPORT = Join-Path $run 'stage-screenshot.junit.xml'
+                    $env:TRAIN_LOG_LEVEL = 'info'; $env:TRAIN_ENGINE_SCREENSHOT = '1'
+                    $env:TRAIN_SCREENSHOT_OUTPUT = Join-Path $run 'screenshot'
+                    try { Invoke-Check stage-screenshot $current $env:GODOT @('--path', $root, '--scene', 'res://Tests/Engine/Bootstrap/Runner.tscn', '--log-file', (Join-Path $run 'stage-screenshot-native.log'), '--', '--run-tests', '--quit-on-finish') 120 }
+                    finally { $env:TRAIN_ENGINE_SCREENSHOT = $environment.TRAIN_ENGINE_SCREENSHOT }
+                } else {
+                    foreach ($name in @('stage-export', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
+                        $summary.checks += [pscustomobject]@{ name = $name; layer = $current; status = 'not-executed'; reason = 'Windows required'; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
+                    }
+                }
+
             } elseif ($current -ne 'engine') {
                 $deadline = [DateTime]::UtcNow.AddSeconds($budget)
                 $helper = Join-Path $PSScriptRoot 'checks/Invoke-HiddenProcess.ps1'
@@ -176,7 +222,7 @@ try {
                     $arguments = $task.arguments
                     if ($task.project) {
                         $minimum = $task.project[$current]
-                        $filter = if ($current -eq 'fast') { 'TestCategory!=integration' } else { 'TestCategory=integration' }
+                        $filter = if ($current -eq 'fast') { 'TestCategory!=integration&TestCategory!=stage' } else { 'TestCategory=integration' }
                         $arguments = @('test', '--project', $task.project.path, '--no-build', '--results-directory', $using:run)
                         if ($minimum) { $arguments += @('--minimum-expected-tests', "$minimum") }
                         $arguments += @('--', '--filter', $filter, '--report-trx', '--report-trx-filename', "$($task.name).trx", '--timeout', "$([Math]::Max(1, $remaining))s", '--hangdump', '--hangdump-type', 'Mini', '--hangdump-timeout', "$([Math]::Max(1, $remaining - 5))s")
@@ -206,13 +252,16 @@ try {
                 $watch.Stop()
                 $paths = if ($IsWindows) { @{ APPDATA = 'appdata'; LOCALAPPDATA = 'localappdata' } } else { @{ XDG_CONFIG_HOME = 'config'; XDG_DATA_HOME = 'data'; XDG_CACHE_HOME = 'cache' } }
                 foreach ($name in $paths.Keys) {
-                    $environment[$name] = [Environment]::GetEnvironmentVariable($name)
+                    if (-not $environment.ContainsKey($name)) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
                     $directory = Join-Path $run $paths[$name]
                     New-Item -ItemType Directory -Force -Path $directory | Out-Null
                     [Environment]::SetEnvironmentVariable($name, $directory)
                 }
                 $engineUserRoot = if ($IsWindows) { Join-Path $env:APPDATA 'Godot/app_userdata/Train' } else { Join-Path $env:XDG_DATA_HOME 'godot/app_userdata/Train' }
+                if (-not $importDone) {
                 Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
+                    $importDone = $true
+                }
                 $binary = Join-Path $run 'exports/windows/train.exe'
                 if ($ExportWindows) {
                     New-Item -ItemType Directory -Path (Split-Path $binary) -Force | Out-Null
@@ -221,10 +270,10 @@ try {
                     finally { $env:APPDATA = Join-Path $run $paths.APPDATA }
                 }
                 $watch.Start()
-                foreach ($name in @('TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL')) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) }
+                foreach ($name in @('TRAIN_ENGINE_TEST_ASSEMBLY', 'TRAIN_ENGINE_REPORT', 'TRAIN_LOG_LEVEL', 'TRAIN_ENGINE_SCREENSHOT', 'TRAIN_SCREENSHOT_OUTPUT')) { if (-not $environment.ContainsKey($name)) { $environment[$name] = [Environment]::GetEnvironmentVariable($name) } }
                 $env:TRAIN_ENGINE_TEST_ASSEMBLY = Join-Path $root '.godot/mono/temp/bin/Debug/Train.Engine.Tests.dll'
                 $env:TRAIN_ENGINE_REPORT = Join-Path $run 'engine-godot.junit.xml'
-                $env:TRAIN_LOG_LEVEL = 'info'
+                $env:TRAIN_LOG_LEVEL = 'info'; $env:TRAIN_ENGINE_SCREENSHOT = '0'
                 Invoke-Check engine-godot $current $env:GODOT @('--headless', '--path', $root, '--scene', 'res://Tests/Engine/Bootstrap/Runner.tscn', '--log-file', (Join-Path $run 'engine-godot-native.log'), '--', '--run-tests', '--quit-on-finish') ([int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds))
                 if ($ExportWindows) {
                     $arguments = @('-NoProfile', '-File', 'scripts/checks/run-export-smoke.ps1', '-ExecutablePath', $binary, '-OutputDirectory', (Join-Path $run 'export-smoke'), '-TimeoutSeconds', "$([Math]::Max(1, [int] [Math]::Floor($budget - $watch.Elapsed.TotalSeconds) - 5))")
@@ -269,9 +318,9 @@ finally {
     foreach ($name in $environment.Keys) { [Environment]::SetEnvironmentVariable($name, $environment[$name]) }
     $summary | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $run 'summary.json')
     if ($summary.outcome -eq 'passed') {
-        $retained = @('summary.json')
+        $retained = @('summary.json', 'benchmark')
         try {
-            if ($ExportWindows) {
+            if ($ExportWindows -or ('stage' -in $layers -and $IsWindows)) {
                 foreach ($relative in @('exports', 'asset-export/staging', 'asset-export/export', 'asset-export/appdata',
                     'asset-export/localappdata', 'asset-export/temp', 'asset-export/tmp')) {
                     $ownedPath = [IO.Path]::GetFullPath((Join-Path $run $relative))
@@ -280,8 +329,10 @@ finally {
                 }
                 $probeData = [IO.Path]::GetFullPath((Join-Path $run 'asset-export/probe-data'))
                 foreach ($artifact in (Get-ChildItem -LiteralPath $run -File -Recurse -Force)) {
+                    $inBenchmark = $artifact.FullName.StartsWith((Join-Path $run 'benchmark') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
+                    $inScreenshot = $artifact.FullName.StartsWith((Join-Path $run 'screenshot') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
                     $inProbeData = $artifact.FullName.StartsWith($probeData + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
-                    if ($artifact.Name -ne 'summary.json' -and -not $inProbeData -and $artifact.Extension -notin @('.log', '.jsonl') -and
+                    if ($artifact.Name -ne 'summary.json' -and -not $inProbeData -and -not $inBenchmark -and -not $inScreenshot -and $artifact.Name -ne 'stage-screenshot.junit.xml' -and $artifact.Extension -notin @('.log', '.jsonl') -and
                         $artifact.Name -notlike '*.process.json' -and $artifact.Name -ne 'duration.json') {
                         Remove-Item -LiteralPath $artifact.FullName -Force
                     }

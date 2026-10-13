@@ -163,6 +163,10 @@
         "Train.Scenes.Contracts"
       ]
     },
+    "Train.Benchmarks": {
+      "path": "Tests/Benchmarks/Train.Benchmarks.csproj",
+      "references": ["Train.Core"]
+    },
     "Train.ContractChecks": {
       "path": "Tests/ContractChecks/Train.ContractChecks.csproj",
       "references": [],
