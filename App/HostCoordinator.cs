@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Train.App.Logging;
+using Train.App.Saves;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -36,20 +37,25 @@ internal sealed class HostCoordinator : IDisposable
     private bool _autoPauseOnFocusLoss;
     private bool _disposed;
     private bool _skipNextFrame;
+    private bool _leaveLocked;
 
     internal HostCoordinator(ICoreFactory core, IContentFactory content, IContentFiles files,
         IAssetInspector assets, ContentInstallation installation, TrainLogger logger,
-        Func<CoreEvent, NotificationAction>? notification = null, Func<double>? seconds = null)
+        Func<CoreEvent, NotificationAction>? notification = null, Func<double>? seconds = null,
+        CoreSessionOptions? sessionOptions = null)
     {
         _core = core; _contentFactory = content; _files = files; _assets = assets;
         _installation = installation; _logger = logger;
         _notification = notification ?? (_ => NotificationAction.None);
         _seconds = seconds;
+        SessionOptions = sessionOptions;
     }
 
     internal event Action<HostBinding, ICoreReadView, IContentView, ImmutableArray<EventEnvelope>>? BoundaryCompleted;
+    internal event Action<long, bool>? ReplacementCompleted;
+    internal CoreSessionOptions? SessionOptions { get; private set; }
     internal IContentView? Content { get { EnsureOwner(); return _content; } }
-    internal bool IsBusy { get { EnsureOwner(); return _pending is not null || _insideBoundary; } }
+    internal bool IsBusy { get { EnsureOwner(); return _pending is not null || _insideBoundary || _leaveLocked; } }
     internal bool AutoPauseOnFocusLoss
     {
         get { EnsureOwner(); return _autoPauseOnFocusLoss; }
@@ -109,6 +115,87 @@ internal sealed class HostCoordinator : IDisposable
             : CaptureCurrent();
     }
 
+    internal SaveStatus? GetSaveStatus()
+    {
+        EnsureOwner();
+        return _active is not { } group ? null : new(group.Binding, group.Save,
+            group.Saved != new SaveRevision(group.View.Revision, group.Content.PersistentRevision, group.Save.Name),
+            group.Driver.Frozen);
+    }
+
+    internal (SaveCapture? Capture, SaveFailure? Failure) CaptureSave()
+    {
+        EnsureOwner();
+        if (_pending is not null || _insideBoundary) return (null, new("busy", "正在处理其他操作。"));
+        if (_active is not { } group) return (null, new("no_session", "当前没有对局。"));
+        if (group.Driver.Frozen) return (null, new("frozen", "核心已冻结，不能保存普通存档。"));
+        _insideBoundary = true;
+        try
+        {
+            var core = CaptureCurrent();
+            if (core is CoreResult<ICoreCapture>.Failure rejected)
+                return (null, new(rejected.Problems[0].Code, "核心状态捕获失败。"));
+            if (core is CoreResult<ICoreCapture>.Faulted failed)
+                return (null, new(failed.Fault.Code, failed.Diagnostic?.Message ?? "核心状态捕获失败。"));
+            var fixedCore = ((CoreResult<ICoreCapture>.Success)core).Value;
+            var content = _contentFactory.Capture(group.Content, fixedCore.References);
+            if (content is ContentResult<IContentCapture>.Failure invalid)
+                return (null, new(invalid.Diagnostics[0].Code, invalid.Diagnostics[0].Message));
+            if (content is ContentResult<IContentCapture>.Faulted faulted)
+                return (null, new(faulted.Code, faulted.Message));
+            var fixedContent = ((ContentResult<IContentCapture>.Success)content).Value;
+            return (new(group.Binding, group.Save,
+                new(fixedCore.Revision, fixedContent.Revision, group.Save.Name), fixedCore, fixedContent), null);
+        }
+        finally { _insideBoundary = false; }
+    }
+
+    internal bool CompleteSave(SaveCapture capture, SaveIdentity target)
+    {
+        EnsureOwner();
+        if (_active is not { } group || group.Binding != capture.Binding || group.Save.Id != capture.Identity.Id)
+            return false;
+        group.Save = new(target.Id, group.Save.Name == capture.Identity.Name ? target.Name : group.Save.Name);
+        group.Saved = capture.Revision with { Name = target.Name };
+        return true;
+    }
+
+    internal CoreProblem? RenameSave(string name)
+    {
+        EnsureOwner();
+        if (MutationProblem() is { } problem) return problem;
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        _active!.Save = _active.Save with { Name = name };
+        return null;
+    }
+
+    internal CoreProblem? LockLeaving()
+    {
+        EnsureOwner();
+        if (IsBusy) return Problem("busy");
+        _leaveLocked = true;
+        _active?.Driver.SetOperationLocked(true);
+        return null;
+    }
+
+    internal void UnlockLeaving()
+    {
+        EnsureOwner();
+        _leaveLocked = false;
+        _active?.Driver.SetOperationLocked(_pending is not null);
+        _skipNextFrame = true;
+    }
+
+    internal void LeaveSession()
+    {
+        EnsureOwner();
+        if (!_leaveLocked || _pending is not null || _insideBoundary)
+            throw new InvalidOperationException("离开对局需要先取得离开保护锁。");
+        var old = _active;
+        _active = null;
+        old?.Core.Dispose();
+    }
+
     private CoreResult<ICoreCapture> CaptureCurrent()
     {
         var group = _active!;
@@ -141,11 +228,11 @@ internal sealed class HostCoordinator : IDisposable
 
     internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
         ulong seed, string generatorVersion, CoreSessionOptions options)
-        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface);
+        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, options: options);
 
     internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
-        string contentPayload, CoreSessionOptions options)
-        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface);
+        string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
+        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved, options);
 
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
     {
@@ -178,12 +265,12 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     private (long Operation, CoreProblem? Problem) Begin(OperationKind kind, Func<PreparedOperation> prepare,
-        CommandSource source)
+        CommandSource source, SaveIdentity? save = null, bool unsaved = true, CoreSessionOptions? options = null)
     {
         EnsureOwner();
         if (IsBusy) return (0, Problem("busy"));
         var operation = new PendingOperation(checked(++_nextOperation), kind, _active?.Binding,
-            _content, Task.Run(prepare), source);
+            _content, Task.Run(prepare), source) { Save = save, Unsaved = unsaved, Options = options };
         _pending = operation;
         _active?.Driver.SetOperationLocked(true);
         return (operation.Id, null);
@@ -194,10 +281,11 @@ internal sealed class HostCoordinator : IDisposable
         EnsureOwner();
         if (_insideBoundary || _pending is not { } operation || operation.Id != operationId) return false;
         _pending = null;
-        _active?.Driver.SetOperationLocked(false);
+        _active?.Driver.SetOperationLocked(_leaveLocked);
         _skipNextFrame = true;
         if (operation.Prepared is { } prepared) Discard(prepared);
         else _abandoned.Add(operation);
+        NotifyReplacement(operation);
         return true;
     }
 
@@ -297,7 +385,7 @@ internal sealed class HostCoordinator : IDisposable
         catch { candidate?.Dispose(); loaded.Value.Dispose(); throw; }
     }
 
-    private PreparedOperation PrepareRestore(string corePayload, string contentPayload, CoreSessionOptions options)
+    internal PreparedOperation PrepareRestore(string corePayload, string contentPayload, CoreSessionOptions options)
     {
         var state = _core.DecodeState(corePayload);
         if (state is CoreResult<ICoreCapture>.Failure rejected)
@@ -313,7 +401,8 @@ internal sealed class HostCoordinator : IDisposable
         var content = _contentFactory.PrepareLoad(new(_installation,
             new ContentLoadPurpose.Restore(((ContentResult<IContentCapture>.Success)embedded).Value, saved.References)), _files, _assets);
         if (content is not ContentResult<IContentCandidate>.Success loaded) return new(content, null, null);
-        try { return new(content, _core.PrepareRestore(saved, loaded.Value.View.Core, options), loaded.Value.View); }
+        try { return new(content, _core.PrepareRestore(saved, loaded.Value.View.Core, options), loaded.Value.View)
+            { Saved = new(saved.Revision, ((ContentResult<IContentCapture>.Success)embedded).Value.Revision, "") }; }
         catch { loaded.Value.Dispose(); throw; }
     }
 
@@ -358,8 +447,13 @@ internal sealed class HostCoordinator : IDisposable
                 var content = candidate.Activate();
                 activatedCore = prepared.CoreCandidate!.Activate();
                 var group = new ActiveGroup(activatedCore, prepared.Paired ?? content, new(_seconds));
+                if (operation.Save is { } identity) group.Save = identity;
+                if (!operation.Unsaved && prepared.Saved is { } saved)
+                    group.Saved = saved with { Name = group.Save.Name };
                 if (group.View.Fault is not null) group.Driver.Freeze();
                 _active = group; _content = group.Content;
+                SessionOptions = operation.Options;
+                operation.Succeeded = true;
                 activatedCore = null;
                 UpdateFocusPause();
                 foreach (var problem in prepared.CoreCandidate.AdaptationReport)
@@ -505,8 +599,16 @@ internal sealed class HostCoordinator : IDisposable
     {
         if (!ReferenceEquals(_pending, operation)) return;
         _pending = null;
-        _active?.Driver.SetOperationLocked(false);
+        _active?.Driver.SetOperationLocked(_leaveLocked);
         _skipNextFrame = true;
+        NotifyReplacement(operation);
+    }
+    private void NotifyReplacement(PendingOperation operation)
+    {
+        if (operation.Reload || ReplacementCompleted is not { } handlers) return;
+        foreach (Action<long, bool> handler in handlers.GetInvocationList())
+            try { handler(operation.Id, operation.Succeeded); }
+            catch (Exception exception) { LogHostFailure("host_consumer_failed", exception); }
     }
     private CoreProblem? MutationProblem(bool allowFrozen = false) => IsBusy ? Problem("busy") : _active is null
         ? Problem("simulation_session_unavailable") : _active.Driver.Frozen && !allowFrozen ? Problem("frozen") : null;
@@ -559,6 +661,8 @@ internal sealed class HostCoordinator : IDisposable
         internal IContentView Content { get; set; } = content;
         internal ICoreReadView View { get; set; } = core.Read();
         internal SimulationFrameDriver Driver { get; } = driver;
+        internal SaveIdentity Save { get; set; } = new(Guid.NewGuid(), "未命名存档");
+        internal SaveRevision? Saved { get; set; }
     }
     private enum OperationKind { NewGame, Restore, Reload }
     private sealed class PendingOperation(long id, OperationKind kind, HostBinding? basisBinding,
@@ -572,10 +676,15 @@ internal sealed class HostCoordinator : IDisposable
         internal Task<PreparedOperation> Work { get; } = work;
         internal CommandSource Source { get; } = source;
         internal PreparedOperation? Prepared { get; set; }
+        internal SaveIdentity? Save { get; init; }
+        internal bool Unsaved { get; init; }
+        internal bool Succeeded { get; set; }
+        internal CoreSessionOptions? Options { get; init; }
     }
-    private sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
+    internal sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
         CoreResult<ICoreSessionCandidate>? Core, IContentView? Paired) : IDisposable
     {
+        internal SaveRevision? Saved { get; init; }
         internal IContentCandidate? ContentCandidate => (Content as ContentResult<IContentCandidate>.Success)?.Value;
         internal ICoreSessionCandidate? CoreCandidate => (Core as CoreResult<ICoreSessionCandidate>.Success)?.Value;
         public void Dispose() { try { CoreCandidate?.Dispose(); } finally { ContentCandidate?.Dispose(); } }

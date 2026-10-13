@@ -26,6 +26,9 @@ public sealed class ScriptedContentFactory : IContentFactory
     public Func<ContentLoadRequest, IContentFiles, IAssetInspector, ContentResult<IContentCandidate>>? PrepareLoadCall { get; init; }
     public Func<IContentView, GenerationProfileId, ulong, string, ContentResult<WorldGenerationInput>>? CreateWorldInputCall { get; init; }
     public Func<string, ContentResult<IContentCapture>>? DecodeCaptureCall { get; init; }
+    public Func<IContentView, CoreReferenceManifest, ContentResult<IContentCapture>>? CaptureCall { get; init; }
+    public int CaptureCount { get; private set; }
+    public int? CaptureThread { get; private set; }
     public Func<IContentView, ImmutableArray<OwnedSettlementTemplateReference>, IContentView>? WithSettlementCopiesCall { get; init; }
 
     public ContentResult<IContentCandidate> PrepareLoad(ContentLoadRequest request, IContentFiles files,
@@ -43,7 +46,13 @@ public sealed class ScriptedContentFactory : IContentFactory
     public ContentResult<DesignEvaluation> EvaluateDesign(IContentView content, DesignDraft draft) => throw Unconfigured();
     public ContentResult<DesignChangeEvaluation> CompareDesigns(IContentView content, DesignHash current, DesignDraft target) => throw Unconfigured();
     public ContentResult<IContentCandidate> PrepareEdit(IContentView basis, ContentEdit edit) => throw Unconfigured();
-    public ContentResult<IContentCapture> Capture(IContentView content, CoreReferenceManifest references) => throw Unconfigured();
+    public ContentResult<IContentCapture> Capture(IContentView content, CoreReferenceManifest references)
+    {
+        var call = CaptureCall ?? throw Unconfigured();
+        CaptureCount++;
+        CaptureThread = Environment.CurrentManagedThreadId;
+        return call(content, references);
+    }
     public ContentResult<IContentReplayCapture> CaptureReplay(ImmutableArray<IContentView> history, CoreReferenceManifest references) => throw Unconfigured();
     public ContentResult<IContentReplayCapture> DecodeReplay(string payload) => throw Unconfigured();
     public ContentResult<string> EncodeDraft(SavedContentDraft draft) => throw Unconfigured();

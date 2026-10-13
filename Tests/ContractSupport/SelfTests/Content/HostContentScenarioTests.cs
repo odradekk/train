@@ -9,6 +9,26 @@ namespace Train.ContractSupport.Tests.Content;
 public sealed class HostContentScenarioTests
 {
     [TestMethod]
+    public void CapturePassesExactViewAndReferencesAndRecordsCallingThread()
+    {
+        var view = new FixedContentView(HostContentScenario.CreateProjection(new CoreInputId("fixture")), new(1), new(9));
+        var references = new CoreReferenceManifest([], [], [], []);
+        var capture = new FixedContentCapture("opaque", view.PersistentRevision);
+        var factory = new ScriptedContentFactory
+        {
+            CaptureCall = (actualView, actualReferences) =>
+            {
+                Assert.AreSame(view, actualView);
+                Assert.AreSame(references, actualReferences);
+                return new ContentResult<IContentCapture>.Success(capture);
+            }
+        };
+        Assert.AreSame(capture, ((ContentResult<IContentCapture>.Success)factory.Capture(view, references)).Value);
+        Assert.AreEqual(1, factory.CaptureCount);
+        Assert.AreEqual(Environment.CurrentManagedThreadId, factory.CaptureThread);
+    }
+
+    [TestMethod]
     public void CandidateActivatesOnceAndDisposeKeepsRetainedViewUsable()
     {
         var core = HostContentScenario.CreateProjection(new CoreInputId("fixture-a"));
@@ -104,6 +124,7 @@ public sealed class HostContentScenarioTests
         var factory = new ScriptedContentFactory();
         var view = new FixedContentView(HostContentScenario.CreateProjection(new CoreInputId("fixture")));
         AssertUnconfigured(() => factory.DecodeCapture("unexpected"));
+        AssertUnconfigured(() => factory.Capture(view, new([], [], [], [])));
         AssertUnconfigured(() => factory.CreateWorldInput(view, new GenerationProfileId("unexpected"), 1, "v1"));
         AssertUnconfigured(() => factory.WithSettlementCopies(view, []));
         AssertUnconfigured(() => factory.PrepareLoad(new ContentLoadRequest(

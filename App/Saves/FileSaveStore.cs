@@ -1,89 +1,79 @@
-
 using System.Text;
 namespace Train.App.Saves;
 
-public sealed class FileSaveStore
+internal sealed record FileWriteResult(bool Published, string? Code = null, string? Message = null,
+    string? CleanupMessage = null);
+
+internal sealed class FileSaveStore
 {
     public const string SavesFolder = "saves";
     public const string FileName = "save.json";
-    public const string CandidateFileName = "save.json.candidate";
-
+    private readonly Action<string, string> writeCandidate;
+    private readonly Action<string, string, bool> publish;
     public string Root { get; }
 
-    public FileSaveStore(string userDataDirectory)
+    public FileSaveStore(string userDataDirectory) : this(userDataDirectory, WriteCandidate, File.Move) { }
+
+    internal FileSaveStore(string userDataDirectory, Action<string, string> writeCandidate,
+        Action<string, string, bool> publish)
     {
         ArgumentException.ThrowIfNullOrEmpty(userDataDirectory);
         Root = Path.GetFullPath(userDataDirectory);
+        this.writeCandidate = writeCandidate;
+        this.publish = publish;
     }
 
     public static string FormatId(Guid id) => id.ToString("D");
-
     public string DirectoryFor(Guid id) => Path.Combine(Root, SavesFolder, FormatId(id));
-
     public string PathFor(Guid id) => Path.Combine(DirectoryFor(id), FileName);
-
-    public bool TryRead(Guid id, out string json, out SaveStoreStatus status)
+    internal string AutoPathFor(Guid id, int slot)
     {
-        json = "";
-        status = SaveStoreStatus.Loaded;
-        var path = PathFor(id);
-        if (!File.Exists(path))
-        {
-            status = SaveStoreStatus.NotFound;
-            return false;
-        }
-
-        try
-        {
-            json = File.ReadAllText(path, Encoding.UTF8);
-            return true;
-        }
-        catch
-        {
-            status = SaveStoreStatus.ReadFailed;
-            return false;
-        }
+        if (slot is < 0 or > 2) throw new ArgumentOutOfRangeException(nameof(slot));
+        return Path.Combine(DirectoryFor(id), $"autosave-{slot}.json");
     }
 
-    public bool TryWrite(Guid id, string json, out SaveStoreStatus status) => TryWriteCore(id, json, true, out status);
-
-    public bool TryWriteNew(Guid id, string json, out SaveStoreStatus status) => TryWriteCore(id, json, false, out status);
-
-    private bool TryWriteCore(Guid id, string json, bool overwrite, out SaveStoreStatus status)
+    internal SaveDocument Read(string target) => SaveContainer.Decode(File.ReadAllText(target, Encoding.UTF8));
+    internal SaveHeader ReadHeader(string target)
     {
-        ArgumentNullException.ThrowIfNull(json);
-        status = SaveStoreStatus.Saved;
-        var directory = DirectoryFor(id);
-        var target = PathFor(id);
-        var candidate = Path.Combine(directory, CandidateFileName);
+        using var stream = File.OpenRead(target);
+        return SaveContainer.ReadHeader(stream);
+    }
+
+    internal FileWriteResult Write(string target, SaveDocument document, bool overwrite,
+        CancellationToken cancellation = default)
+    {
+        var fullTarget = Path.GetFullPath(target);
+        var directory = Path.GetDirectoryName(fullTarget)!;
+        var candidate = Path.Combine(directory, $".{Path.GetFileName(target)}.{Guid.NewGuid():N}.tmp");
+        FileWriteResult result;
+        var publishing = false;
         try
         {
+            cancellation.ThrowIfCancellationRequested();
             Directory.CreateDirectory(directory);
-            WriteCandidate(candidate, json);
-            File.Move(candidate, target, overwrite);
-            return true;
+            writeCandidate(candidate, SaveContainer.Encode(document));
+            _ = Read(candidate);
+            cancellation.ThrowIfCancellationRequested();
+            publishing = true;
+            publish(candidate, fullTarget, overwrite);
+            result = new(true);
         }
-        catch
-        {
-            status = SaveStoreStatus.WriteFailed;
-            try
-            {
-                if (File.Exists(candidate))
-                    File.Delete(candidate);
-            }
-            catch
-            {
-                // 候选清理失败不能掩盖写入或发布失败，保留原失败结果供调用方处理。
-            }
-
-            return false;
-        }
+        catch (OperationCanceledException) when (!publishing && cancellation.IsCancellationRequested)
+        { result = new(false, "cancelled", "保存已取消"); }
+        catch (SaveFormatException error)
+        { result = new(false, error.Code, error.Message); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { result = new(false, "write-failed", error.Message); }
+        try { if (File.Exists(candidate)) File.Delete(candidate); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        { return result with { CleanupMessage = $"临时文件清理失败：{error.Message}" }; }
+        return result;
     }
 
-    private static void WriteCandidate(string path, string json)
+    internal static void WriteCandidate(string path, string json)
     {
-        using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using var writer = new StreamWriter(stream, new UTF8Encoding(false));
         writer.Write(json);
         writer.Flush();
         stream.Flush(true);

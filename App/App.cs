@@ -4,6 +4,7 @@ using Train.App.Console;
 using Train.Content;
 using Train.Content.Voxels;
 using Train.App.Logging;
+using Train.App.Saves;
 using Train.Core.Simulation;
 using Train.Ui;
 
@@ -30,6 +31,7 @@ public partial class App : Node
     internal Action QuitAction { get; set; }
     internal Func<TrainLogger, HostCoordinator>? CreateHost { get; set; }
     internal HostCoordinator? Host { get; private set; }
+    internal SaveService? Saves { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -49,7 +51,11 @@ public partial class App : Node
             _logger = TrainLogger.StartSession(Path.Combine(userData, "logs"),
                 OS.IsDebugBuild() ? LogLevel.Debug : LogLevel.Info, new GodotLogOutput(), buffer);
             if (CreateHost is not null)
+            {
                 Host = CreateHost(_logger);
+                Saves = new SaveService(Host, new FileSaveStore(userData));
+                GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
+            }
             else
             {
                 var source = new GodotContentSource(_logger, userData);
@@ -97,7 +103,8 @@ public partial class App : Node
 
     public void RequestQuit()
     {
-        QuitAction();
+        if (Saves is null) QuitAction();
+        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(QuitAction));
     }
 
     private void ReloadContent(Train.Core.Contracts.CommandSource source)
@@ -190,6 +197,7 @@ public partial class App : Node
 
     public override void _Process(double delta)
     {
+        Saves?.Process();
         Host?.ProcessFrame(delta);
         if (_simulation is not null)
         {
@@ -209,6 +217,8 @@ public partial class App : Node
 
     public override void _ExitTree()
     {
+        Saves?.Dispose();
+        Saves = null;
         Host?.Dispose();
         Host = null;
         _simulation = null;
