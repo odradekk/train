@@ -8,7 +8,7 @@ namespace Train.App;
 public sealed class GodotContentSource : IContentSource
 {
     // 资源放在 builtin/ 下，与 Content/ 源码目录分开，避免 Windows 上目录名称的冲突。
-    public const string BuiltInResourcesRoot = "res://builtin/core/resources";
+    public const string BuiltInResourcesRoot = "res://builtin/legacy-host/resources";
     public const string ModsGodotPath = ExternalContent.ModsGodotPath;
     public const string BlueprintsGodotPath = ExternalContent.BlueprintsGodotPath;
 

@@ -34,10 +34,10 @@ try {
                 New-Item -ItemType Directory -Path (Join-Path $resources 'grain') -Force | Out-Null
                 @{ schema_version = 1; id = '550e8400-e29b-41d4-a716-446655440000'; name = 'Export smoke'; version = '1.0.0'; authors = @('Tests') } |
                     ConvertTo-Json | Set-Content (Join-Path $mod 'mod.json')
-                $definition = Get-Content (Join-Path $root 'builtin/core/resources/voxels/grain.voxels.json') -Raw | ConvertFrom-Json
+                $definition = Get-Content (Join-Path $root 'builtin/legacy-host/resources/voxels/grain.voxels.json') -Raw | ConvertFrom-Json
                 $definition.voxels[0].id = 'smoke-grain'
                 $definition | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $resources 'smoke-grain.voxels.json')
-                Copy-Item -LiteralPath (Join-Path $root 'builtin/core/resources/voxels/grain/placeholder.png') -Destination (Join-Path $resources 'grain/placeholder.png')
+                Copy-Item -LiteralPath (Join-Path $root 'builtin/legacy-host/resources/voxels/grain/placeholder.png') -Destination (Join-Path $resources 'grain/placeholder.png')
             }
             $remaining = [int] [Math]::Floor($TimeoutSeconds - $watch.Elapsed.TotalSeconds)
             if ($remaining -lt 1) { throw 'Export smoke exhausted its time budget.' }

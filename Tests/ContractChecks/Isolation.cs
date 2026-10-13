@@ -35,6 +35,7 @@ internal static class Isolation
                         CopyConfiguration(parent.FullName);
                 }
                 CopyConfiguration(root);
+                if (test == "Train.Content.Tests") CopyDirectory(Path.Combine(root, "builtin", "core"));
                 // 查找在隔离根终止，不能继承外层工作区或用户目录中的构建配置。
                 foreach (var file in new[] { "Directory.Build.props", "Directory.Build.targets", "Directory.Packages.props" })
                     if (!File.Exists(Path.Combine(isolated, file))) File.WriteAllText(Path.Combine(isolated, file), "<Project />");
