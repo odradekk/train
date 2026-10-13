@@ -57,6 +57,15 @@ try {
             $smoke = $events | Where-Object { $_.level -eq 'info' -and $_.event_id -eq 'application_smoke_summary' } | Select-Object -Last 1
             if (-not $smoke -or $smoke.attributes.passed -ne $true -or 'core' -notin $smoke.attributes.packages -or
                 'core:staple-food' -notin $smoke.attributes.voxels) { throw "Export smoke $case did not validate the production content and PNG." }
+            $sourceId = [Guid]::Empty
+            $saveId = [Guid]::Empty
+            if (-not [Guid]::TryParse([string]$smoke.attributes.example_source_id, [ref]$sourceId) -or
+                -not [Guid]::TryParse([string]$smoke.attributes.save_id, [ref]$saveId) -or $sourceId -eq $saveId -or
+                $smoke.attributes.restored -ne $true -or $smoke.attributes.completed_steps -ne 200 -or
+                $smoke.attributes.sequence -ne 0 -or $smoke.attributes.paused -ne $true -or
+                $smoke.attributes.unsaved -ne $true -or $smoke.attributes.example_button_visible -ne $false) {
+                throw "Export smoke $case did not restore the packaged example with a new unsaved identity and hidden player entry."
+            }
             if ($case -eq 'empty') { $emptyPackages = @($smoke.attributes.packages).Count }
             else {
                 Write-Host "mod content: $($smoke | ConvertTo-Json -Depth 10 -Compress)"
