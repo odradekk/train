@@ -45,9 +45,9 @@ Scenes 快速层验证会话生命周期、不可变帧、立方体网格及其�
 
 Windows 阶段层还执行 Windows 导出、空用户目录与有效 Mod 的导出后运行、资产导出探针、有窗口的主菜单 GPU 截图比较，以及吞吐阈值判定。非 Windows 仍运行 Benchmark 并保存结果；导出、导出后运行、资产探针、截图和阈值判定在摘要中记为未执行，不记为通过。当前 Linux 检查不需要渲染上下文，不使用 xvfb；无界面 Godot 使用 Dummy 音频。
 
-截图复用引擎测试程序集、Bootstrap 和 JUnit，仅在 Windows 有窗口运行中执行。普通 headless engine 在执行前排除截图套件，不把它计为跳过。输入为 [windows-main-menu.png](../Tests/Engine/Baselines/windows-main-menu.png) 与 [windows-main-menu.json](../Tests/Engine/Baselines/windows-main-menu.json)，通过物理路径读取；`Tests/.gdignore` 阻止编辑器为测试 PNG 生成导入文件。比较先转为 RGBA8；任一通道差严格大于 `MaxChannelDelta` 时，该像素计为不同，不同像素比例必须小于等于 `MaxDifferentPixelFraction`。尺寸不一致、缺少基准或容差均失败。
+截图复用引擎测试程序集、Bootstrap 和 JUnit，仅在 Windows 有窗口运行中执行。普通 headless engine 在执行前排除截图套件，不把它计为跳过。输入为 [windows-main-menu.png](../Tests/Engine/Baselines/windows-main-menu.png) 与 [windows-main-menu.json](../Tests/Engine/Baselines/windows-main-menu.json)，通过物理路径读取；`Tests/.gdignore` 阻止编辑器为测试 PNG 生成导入文件。比较先转为 RGBA8。候选值为 `MaxChannelDelta=32`、`MaxDifferentPixelFraction=0.00002`：任一通道差大于 32 的像素计为明显差异，明显差异像素数除以总像素数大于 0.00002 才失败。`comparison.json` 每次记录任意差异像素数、明显差异像素数及比例、最大通道差；`difference.png` 用红色区分明显差异、黄色区分轻微差异，通过时也保留。尺寸不一致、缺少基准或容差均失败。
 
-吞吐输入为 [windows-resource-simulation.json](../Tests/Benchmarks/Baselines/windows-resource-simulation.json)。BenchmarkDotNet 以独立 Release 构建测量 `resource-simulation-v1`：16 个资源请求实体，每批 65,536 个完整模拟步，每次迭代重建会话，结束时核对步数、库存和各实体持有量。`throughput.json` 保存负载身份、每步耗时、样本数和步/秒，BDN 日志和报告保留原始测量。它只测量当前资源模拟夹具的核心吞吐，不提供帧耗时或完整游戏 8× 运行证据。Windows 缺少阈值、负载身份不符或吞吐低于最低值时失败；Linux 不应用 Windows 阈值。
+吞吐输入为 [windows-resource-simulation.json](../Tests/Benchmarks/Baselines/windows-resource-simulation.json)。BenchmarkDotNet 以独立 Release 构建测量 `resource-simulation-v1`：16 个资源请求实体，每批 65,536 个完整模拟步，每次迭代重建会话，结束时核对步数、库存和各实体持有量。`throughput.json` 保存负载身份、每步耗时、样本数和步/秒，BDN 日志和报告保留原始测量。它只测量当前资源模拟夹具的核心吞吐，不提供帧耗时或完整游戏 8× 运行证据。Windows 候选规则使用 `baselineStepsPerSecond=480000` 和 `maximumSlowdown=3`，仅当实测步/秒乘以 3 小于 480000 时失败；摘要记录实测值、基线和实测除以基线的比值。缺少基准、负载身份不符或无效数字仍失败。Linux 只记录结果，不应用 Windows 阈值。
 
 需要单独重新采集吞吐时，显式构建并运行不在 `Train.sln` 中的 Benchmark 项目：
 
@@ -56,7 +56,7 @@ dotnet build Tests/Benchmarks/Train.Benchmarks.csproj -c Release
 dotnet run --project Tests/Benchmarks/Train.Benchmarks.csproj -c Release --no-build -- --artifacts <本次运行目录>
 ```
 
-提交的 PNG、容差和最低吞吐均为**等待用户确认的候选基准**，只能用于检查机制，不能据此宣布阶段或产品性能验收通过。更新截图时，在目标 Windows 图形配置下至少用三个独立 Godot 进程和独立用户目录采集，核对菜单内容并比较各图的通道差和不同像素比例，再替换 PNG 与容差 JSON。更换 GPU、驱动或 Godot 版本后重新核对。更新吞吐基准时做多次独立完整 BDN 测量，记录外部负载和波动，以实测结果提出最低值并替换 JSON；不要用单次较快结果掩盖波动。候选值及其替换需用户确认，替换后重跑完整阶段检查。原始截图、差异、设备信息和测量结果只保留在忽略的运行目录，长期证据引用写入 Issue 评论，不提交运行报告。
+提交的 PNG、容差和吞吐基线均为**等待用户阶段验收确认的候选基准**，只能用于检查机制，不能据此宣布阶段或产品性能验收通过。更新截图时，在目标 Windows 图形配置下至少用三个独立 Godot 进程和独立用户目录采集，核对菜单内容并比较各图的通道差和明显差异像素比例，再替换 PNG 与容差 JSON。更换 GPU、驱动或 Godot 版本后重新核对。需要重新采集吞吐时，使用上面的 BenchmarkDotNet 命令做多次独立完整测量，记录外部负载和波动，以实测结果提出基线；不要用单次较快结果掩盖波动。候选值及其替换需用户阶段验收确认，替换后重跑完整阶段检查。原始截图、差异、设备信息和测量结果只保留在忽略的运行目录，长期证据引用写入 Issue 评论，不提交运行报告。
 
 ## 按改动选择
 

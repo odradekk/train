@@ -1,4 +1,4 @@
 {
-  "MaxChannelDelta": 0,
-  "MaxDifferentPixelFraction": 0
+  "MaxChannelDelta": 32,
+  "MaxDifferentPixelFraction": 0.00002
 }

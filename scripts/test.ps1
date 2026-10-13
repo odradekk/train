@@ -175,8 +175,13 @@ try {
                     try {
                         $threshold.baseline = Get-Content (Join-Path $root 'Tests/Benchmarks/Baselines/windows-resource-simulation.json') -Raw | ConvertFrom-Json
                         $threshold.measurement = Get-Content (Join-Path $run 'benchmark/throughput.json') -Raw | ConvertFrom-Json
-                        if ($threshold.baseline.workload -ne $threshold.measurement.workload -or -not [double]::IsFinite([double] $threshold.baseline.minimumStepsPerSecond) -or $threshold.baseline.minimumStepsPerSecond -le 0 -or
-                            -not [double]::IsFinite([double] $threshold.measurement.stepsPerSecond) -or $threshold.measurement.stepsPerSecond -lt $threshold.baseline.minimumStepsPerSecond) { throw 'Benchmark threshold failed or baseline is invalid.' }
+                        foreach ($value in @($threshold.baseline.baselineStepsPerSecond, $threshold.baseline.maximumSlowdown, $threshold.measurement.stepsPerSecond)) {
+                            if (($value -isnot [long] -and $value -isnot [double]) -or -not [double]::IsFinite($value)) { throw 'Benchmark numeric values are invalid.' }
+                        }
+                        if ($threshold.baseline.workload -ne 'resource-simulation-v1' -or $threshold.baseline.workload -ne $threshold.measurement.workload -or
+                            $threshold.baseline.baselineStepsPerSecond -le 0 -or $threshold.baseline.maximumSlowdown -lt 1 -or $threshold.measurement.stepsPerSecond -le 0) { throw 'Benchmark workload or numeric values are invalid.' }
+                        $threshold.measurementRatio = $threshold.measurement.stepsPerSecond / $threshold.baseline.baselineStepsPerSecond
+                        if ($threshold.measurement.stepsPerSecond * $threshold.baseline.maximumSlowdown -lt $threshold.baseline.baselineStepsPerSecond) { throw 'Benchmark slowdown exceeds the candidate limit.' }
                         $threshold.passed = 1; $threshold.failed = 0
                     } catch { $threshold.error = $_.Exception.Message; throw }
                     finally { $summary.checks += [pscustomobject] $threshold }

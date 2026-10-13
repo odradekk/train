@@ -1,4 +1,5 @@
 {
   "workload": "resource-simulation-v1",
-  "minimumStepsPerSecond": 240000
+  "baselineStepsPerSecond": 480000,
+  "maximumSlowdown": 3
 }

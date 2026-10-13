@@ -11,7 +11,7 @@ namespace Train.Engine.Tests;
 public class ScreenshotTests(Node testScene) : TestClass(testScene)
 {
     [Test]
-    public async Task WindowsMainMenuMatchesApprovedBaseline()
+    public async Task WindowsMainMenuMatchesBaseline()
     {
         Require(OS.GetName() == "Windows" && DisplayServer.GetName() != "headless",
             "Screenshot comparison requires windowed Windows Godot.");
@@ -48,20 +48,24 @@ public class ScreenshotTests(Node testScene) : TestClass(testScene)
             var baselinePath = ProjectSettings.GlobalizePath("res://Tests/Engine/Baselines/windows-main-menu.png");
             var tolerancePath = ProjectSettings.GlobalizePath("res://Tests/Engine/Baselines/windows-main-menu.json");
             Require(File.Exists(baselinePath) && File.Exists(tolerancePath),
-                "Approved Windows baseline PNG and tolerance JSON are required. actual.png is a candidate, not an accepted baseline.");
+                "Windows baseline PNG and tolerance JSON are required.");
             var tolerance = JsonSerializer.Deserialize<ScreenshotTolerance>(File.ReadAllText(tolerancePath))
                 ?? throw new InvalidOperationException("Screenshot tolerance JSON is empty.");
             using var baseline = Image.LoadFromFile(baselinePath);
-            Require(baseline is not null && !baseline.IsEmpty(), "Approved baseline PNG could not be loaded.");
-            var fraction = ScreenshotComparison.DifferentPixelFraction(actual, baseline!, tolerance.MaxChannelDelta);
+            Require(baseline is not null && !baseline.IsEmpty(), "Baseline PNG could not be loaded.");
+            var comparison = ScreenshotComparison.Compare(actual, baseline!, tolerance.MaxChannelDelta, out var difference);
+            using (difference)
+                Require(difference.SavePng(Path.Combine(output!, "difference.png")) == Error.Ok, "Could not save screenshot difference.");
             Require(double.IsFinite(tolerance.MaxDifferentPixelFraction) && tolerance.MaxDifferentPixelFraction is >= 0 and <= 1,
                 "MaxDifferentPixelFraction must be between 0 and 1.");
             File.WriteAllText(Path.Combine(output!, "comparison.json"), JsonSerializer.Serialize(new
             {
-                differentPixelFraction = fraction, tolerance.MaxChannelDelta, tolerance.MaxDifferentPixelFraction
+                comparison.DifferentPixelCount, comparison.ExceedingPixelCount,
+                comparison.ExceedingPixelFraction, comparison.MaximumChannelDelta,
+                tolerance.MaxChannelDelta, tolerance.MaxDifferentPixelFraction
             }, new JsonSerializerOptions { WriteIndented = true }));
-            Require(fraction <= tolerance.MaxDifferentPixelFraction,
-                $"Main menu screenshot differs: {fraction:P6} pixels exceed channel delta {tolerance.MaxChannelDelta}; allowed {tolerance.MaxDifferentPixelFraction:P6}.");
+            Require(comparison.ExceedingPixelFraction <= tolerance.MaxDifferentPixelFraction,
+                $"Main menu screenshot differs: {comparison.ExceedingPixelFraction:P6} pixels exceed channel delta {tolerance.MaxChannelDelta}; allowed {tolerance.MaxDifferentPixelFraction:P6}.");
         }
         finally { await fixture.Cleanup(); }
     }
@@ -71,9 +75,12 @@ internal sealed record ScreenshotTolerance(
     [property: JsonRequired] int MaxChannelDelta,
     [property: JsonRequired] double MaxDifferentPixelFraction);
 
+internal sealed record ScreenshotComparisonResult(
+    int DifferentPixelCount, int ExceedingPixelCount, double ExceedingPixelFraction, int MaximumChannelDelta);
+
 internal static class ScreenshotComparison
 {
-    internal static double DifferentPixelFraction(Image actual, Image baseline, int maxChannelDelta)
+    internal static ScreenshotComparisonResult Compare(Image actual, Image baseline, int maxChannelDelta, out Image difference)
     {
         Require(maxChannelDelta is >= 0 and <= 255, "MaxChannelDelta must be between 0 and 255.");
         Require(actual.GetWidth() == baseline.GetWidth() && actual.GetHeight() == baseline.GetHeight(),
@@ -82,15 +89,30 @@ internal static class ScreenshotComparison
         baseline.Convert(Image.Format.Rgba8);
         var pixels = actual.GetData();
         var expected = baseline.GetData();
+        var differencePixels = new byte[pixels.Length];
         var different = 0;
+        var exceeding = 0;
+        var maximumChannelDelta = 0;
         for (var offset = 0; offset < pixels.Length; offset += 4)
+        {
+            var delta = 0;
             for (var channel = 0; channel < 4; channel++)
-                if (Math.Abs(pixels[offset + channel] - expected[offset + channel]) > maxChannelDelta)
-                {
-                    different++;
-                    break;
-                }
-        return (double)different / (actual.GetWidth() * actual.GetHeight());
+                delta = Math.Max(delta, Math.Abs(pixels[offset + channel] - expected[offset + channel]));
+            maximumChannelDelta = Math.Max(maximumChannelDelta, delta);
+            if (delta > 0)
+            {
+                different++;
+                differencePixels[offset] = 255;
+                if (delta > maxChannelDelta)
+                    exceeding++;
+                else
+                    differencePixels[offset + 1] = 255;
+            }
+            differencePixels[offset + 3] = 255;
+        }
+        difference = Image.CreateFromData(actual.GetWidth(), actual.GetHeight(), false, Image.Format.Rgba8, differencePixels);
+        return new ScreenshotComparisonResult(different, exceeding,
+            (double)exceeding / (actual.GetWidth() * actual.GetHeight()), maximumChannelDelta);
     }
 }
 
@@ -99,15 +121,41 @@ public class ScreenshotComparisonTests(Node testScene) : TestClass(testScene)
     [Test]
     public void LocalizedChangeExceedsToleranceWhileSmallChannelNoiseDoesNot()
     {
-        using var baseline = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
-        using var actual = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
-        baseline.Fill(Colors.Black);
-        actual.Fill(new Color(1f / 255, 0, 0));
-        Require(ScreenshotComparison.DifferentPixelFraction(actual, baseline, 1) == 0,
-            "One-byte channel noise at tolerance must be accepted.");
-        actual.SetPixel(1, 1, Colors.White);
-        var fraction = ScreenshotComparison.DifferentPixelFraction(actual, baseline, 1);
-        Require(fraction == 0.25,
-            "A localized one-pixel defect must count as one changed pixel out of four.");
+        {
+            using var baseline = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
+            using var actual = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
+            baseline.Fill(Colors.Black);
+            actual.Fill(new Color(32f / 255, 0, 0));
+            var comparison = ScreenshotComparison.Compare(actual, baseline, 32, out var difference);
+            using (difference)
+            {
+                Require(comparison.DifferentPixelCount == 4 && comparison.MaximumChannelDelta == 32,
+                    "Channel differences at tolerance must still be recorded.");
+                Require(comparison.ExceedingPixelCount == 0 && comparison.ExceedingPixelFraction <= 0.00002,
+                    "Small channel differences must pass the screenshot tolerance.");
+                Require(difference.GetPixel(0, 0) == Colors.Yellow,
+                    "Small differences must be marked yellow.");
+            }
+        }
+
+        {
+            using var baseline = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
+            using var actual = Image.CreateEmpty(2, 2, false, Image.Format.Rgba8);
+            baseline.Fill(Colors.Black);
+            actual.Fill(Colors.Black);
+            actual.SetPixel(0, 0, new Color(1f / 255, 0, 0));
+            actual.SetPixel(1, 1, Colors.White);
+            var comparison = ScreenshotComparison.Compare(actual, baseline, 32, out var difference);
+            using (difference)
+            {
+                Require(comparison.DifferentPixelCount == 2 && comparison.MaximumChannelDelta == 255,
+                    "Statistics must include both small and obvious differences.");
+                Require(comparison.ExceedingPixelCount == 1 && comparison.ExceedingPixelFraction > 0.00002,
+                    "A localized obvious defect must exceed the screenshot tolerance.");
+                Require(difference.GetPixel(1, 1) == Colors.Red && difference.GetPixel(0, 0) == Colors.Yellow
+                    && difference.GetPixel(1, 0) == Colors.Black,
+                    "Difference image must distinguish obvious, small and unchanged pixels.");
+            }
+        }
     }
 }
