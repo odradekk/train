@@ -147,6 +147,11 @@ try {
         try {
             if (-not $selected) { Write-Host "LAYER=$current not selected"; continue }
             if ($current -eq 'stage') {
+                if (-not $IsWindows) {
+                    foreach ($name in @('stage-export', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
+                        $summary.checks += [pscustomobject]@{ name = $name; layer = $current; status = 'not-executed'; reason = 'Windows required'; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
+                    }
+                }
                 Invoke-Check benchmark-build preparation dotnet @('build', 'Tests/Benchmarks/Train.Benchmarks.csproj', '-c', 'Release', '--nologo') 300
                 Invoke-Check stage-structure $current dotnet @($contractTool, 'structure', $root, 'Debug', (Join-Path $run 'stage-structure')) 300
                 Invoke-Check stage-verify $current dotnet @($contractTool, 'verify', $root, 'Debug', $contractBaseline) 120
@@ -189,10 +194,6 @@ try {
                     $env:TRAIN_SCREENSHOT_OUTPUT = Join-Path $run 'screenshot'
                     try { Invoke-Check stage-screenshot $current $env:GODOT @('--path', $root, '--scene', 'res://Tests/Engine/Bootstrap/Runner.tscn', '--log-file', (Join-Path $run 'stage-screenshot-native.log'), '--', '--run-tests', '--quit-on-finish') 120 }
                     finally { $env:TRAIN_ENGINE_SCREENSHOT = $environment.TRAIN_ENGINE_SCREENSHOT }
-                } else {
-                    foreach ($name in @('stage-export', 'stage-export-runtime', 'stage-asset-export', 'stage-screenshot', 'benchmark-threshold')) {
-                        $summary.checks += [pscustomobject]@{ name = $name; layer = $current; status = 'not-executed'; reason = 'Windows required'; total = 0; executed = 0; passed = 0; failed = 0; skipped = 0 }
-                    }
                 }
 
             } elseif ($current -ne 'engine') {
@@ -259,7 +260,7 @@ try {
                 }
                 $engineUserRoot = if ($IsWindows) { Join-Path $env:APPDATA 'Godot/app_userdata/Train' } else { Join-Path $env:XDG_DATA_HOME 'godot/app_userdata/Train' }
                 if (-not $importDone) {
-                Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
+                    Invoke-Check import preparation $env:GODOT @('--headless', '--path', $root, '--recovery-mode', '--log-file', (Join-Path $run 'import-godot.log'), '--editor', '--import') 120
                     $importDone = $true
                 }
                 $binary = Join-Path $run 'exports/windows/train.exe'

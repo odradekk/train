@@ -55,7 +55,7 @@ internal static class Isolation
                 if (analysis.Count != 0) continue;
                 await ToolProcess.Run("dotnet", ["test", "--project", project, "--configuration", configuration,
                     "--no-build", "--results-directory", evidence, "--minimum-expected-tests", "1", "--",
-                    "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
+                    "--filter", "TestCategory!=stage", "--report-trx", "--report-trx-filename", "tests.trx", "--timeout", "115s",
                     "--hangdump", "--hangdump-timeout", "110s"], isolated, Path.Combine(evidence, "tests.log"), 120);
                 Console.WriteLine($"isolation passed: {test}; evidence={evidence}");
 

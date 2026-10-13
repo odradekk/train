@@ -179,17 +179,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Prepare installed runner toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          dotnet_root="${DOTNET_ROOT:-$HOME/.dotnet}"
-          godot_path="${GODOT:-$HOME/.local/bin/godot}"
-          test -x "$dotnet_root/dotnet"
-          test -x "$godot_path"
-          printf '%s\n' "$dotnet_root" "$HOME/opt/ci-venv/bin" >> "$GITHUB_PATH"
-          printf 'DOTNET_ROOT=%s\nGODOT=%s\n' "$dotnet_root" "$godot_path" >> "$GITHUB_ENV"
-
       - name: Record runner environment
         shell: pwsh
         run: |
@@ -220,12 +209,11 @@ jobs:
         shell: pwsh
         run: dotnet tool restore
 
-      - name: All fast, integration and headless engine checks
+      - name: All correctness and stage checks
         shell: pwsh
         run: |
-          pwsh -NoProfile -File scripts/test.ps1 -All -Layer all
+          pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
           exit $LASTEXITCODE
-      # Connect the Linux stage selection after #411 merges and stage is available.
 
       - name: Publish available reports
         if: always()

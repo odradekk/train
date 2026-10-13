@@ -58,16 +58,18 @@ pwsh -NoProfile -File scripts/checks/run-export-smoke.ps1 -ExecutablePath 'D:/tr
 
 Verify Windows runtime behavior on Windows and record the build's tested commit, runtime results and logs. If Windows execution is unavailable, report runtime as unverified even when export succeeds.
 
-## Fedora validation and cross-export
+## Linux 验证与自托管 runner
 
-入口尚未在 Linux 上实际运行，Linux 运行由 [#407](https://github.com/odradekk/train/issues/407)建立。以下是环境配置说明，不是执行证据。
+Linux 同样使用 `global.json` 固定的 .NET SDK 10.0.112、PowerShell 7.6.6 和 Godot 4.7.2 stable .NET；Schema 使用 Python 3 与 `jsonschema==4.25.1`。在仓库目录核对 `dotnet --version`、`pwsh --version`、`"$GODOT" --headless --version`、`python3 --version` 和 `python -c "import jsonschema, referencing"`。当前 Schema 入口调用 `python`，因此提供 python3 的虚拟环境也须在 PATH 上提供 `python`。
 
-On Fedora, install the SDK required by `global.json`, PowerShell 7 and Godot .NET, and check `dotnet --version`, `pwsh --version` and `godot-dotnet --headless --version`. Set the executable paths, then run the applicable commands above with `"$GODOT"` in place of `& $env:GODOT`:
+局域网夜间 runner `lan-linux-nightly` 由 systemd 服务运行。主机的 `.env` 提供 `DOTNET_ROOT` 和不含参数的 `GODOT` 可执行文件路径，`.path` 将 dotnet、pwsh 与 Python 虚拟环境加入服务 PATH。安装位置属于主机配置，不写入 workflow；变更环境后重启 runner 服务，让新进程取得配置，并在 Actions 的环境记录中核对实际路径与版本。
 
 ```bash
-export GODOT="$(command -v godot-dotnet)"
-export GODOT_EDITOR="$GODOT"
+dotnet tool restore
+pwsh -NoProfile -File scripts/test.ps1 -All -Layer all,stage
 ```
+
+Linux 执行全部快速、集成、headless engine 和非 Windows 阶段检查，平台范围见[统一测试入口](run-tests.md#阶段检查与候选基准)。当前检查不需要渲染上下文，因此不使用 xvfb；headless Godot 使用 Dummy 音频。上述配置和命令是运行要求，执行证据以各次摘要、日志和 Issue 评论为准。
 
 For Windows cross-export, verify a writable Windows mount and choose a dedicated output directory. For example, if `/mnt/windows-d` is mounted:
 
