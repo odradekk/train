@@ -60,7 +60,7 @@ public class ContentPortsTests(Node testScene) : TestClass(testScene)
         var root = new ContentRoot("builtin");
         IContentFiles files = new ContentFiles(dispatcher, new Dictionary<ContentRoot, ContentRootLocation>
         {
-            [root] = new ContentRootLocation.Resource("res://builtin/core/resources/voxels/grain")
+            [root] = new ContentRootLocation.Resource("res://builtin/legacy-host/resources/voxels/grain")
         });
         var entries = files.Enumerate(new(root, ""));
         Require(entries is ContentIoResult<ImmutableArray<ContentFileEntry>>.Success found &&

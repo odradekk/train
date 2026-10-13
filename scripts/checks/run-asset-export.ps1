@@ -101,7 +101,7 @@ try {
   </Target>
 </Project>
 "@ | Set-Content -LiteralPath (Join-Path $staging 'Directory.Build.targets')
-    Copy-Item -LiteralPath (Join-Path $root 'builtin/core/resources/voxels/grain/placeholder.png') -Destination (Join-Path $data 'production-source.png')
+    Copy-Item -LiteralPath (Join-Path $root 'builtin/legacy-host/resources/voxels/grain/placeholder.png') -Destination (Join-Path $data 'production-source.png')
     Set-Content -LiteralPath (Join-Path $data 'source-root.txt') -Value $root
     Invoke-ProbeProcess 'solution-create' 'dotnet' @('new', 'sln', '--format', 'sln', '--name', 'Train.AssetExport', '--output', $project)
     Invoke-ProbeProcess 'solution-add' 'dotnet' @('sln', (Join-Path $project 'Train.AssetExport.sln'), 'add', $projectFile)

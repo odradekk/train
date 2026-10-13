@@ -5,7 +5,7 @@ namespace Train.Engine.Tests;
 
 internal static class ContentFixture
 {
-    internal static string ReadResource(string relative) => Godot.FileAccess.GetFileAsString("res://builtin/core/resources/" + relative);
+    internal static string ReadResource(string relative) => Godot.FileAccess.GetFileAsString("res://builtin/legacy-host/resources/" + relative);
 
     internal static void WriteVoxel(string resources, string id)
     {
@@ -14,7 +14,7 @@ internal static class ContentFixture
         var definition = JsonNode.Parse(ReadResource("voxels/grain.voxels.json"))!;
         definition["voxels"]![0]!["id"] = id;
         File.WriteAllText(Path.Combine(voxels, id + ".voxels.json"), definition.ToJsonString());
-        File.WriteAllBytes(Path.Combine(voxels, "grain/placeholder.png"), Godot.FileAccess.GetFileAsBytes("res://builtin/core/resources/voxels/grain/placeholder.png"));
+        File.WriteAllBytes(Path.Combine(voxels, "grain/placeholder.png"), Godot.FileAccess.GetFileAsBytes("res://builtin/legacy-host/resources/voxels/grain/placeholder.png"));
     }
 
     internal static void WriteMod(string directory)
