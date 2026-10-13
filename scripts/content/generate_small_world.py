@@ -102,11 +102,11 @@ def bogie_texture(x, y):
 
 
 def engine_texture(x, y):
-    return tint(BLUE, -22 if 4 <= x < 28 and y % 6 in (2, 3) else grain(x, y, 32))
+    return tint(BLUE, -22 if 4 <= x < 28 and y % 8 in (2, 3) else grain(x, y, 32))
 
 
 def control_texture(x, y):
-    return tint(GLASS if 3 <= x < 29 and 4 <= y < 25 else BLUE, grain(x, y, 32))
+    return tint(GLASS if 3 <= x < 29 else BLUE, grain(x, y, 32))
 
 
 def storage_texture(x, y):
