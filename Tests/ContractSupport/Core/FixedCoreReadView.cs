@@ -37,7 +37,12 @@ public sealed class FixedCoreReadView : ICoreReadView
         init => inputIdentity = value;
     }
 
-    public WorldSummary World => throw Unconfigured(nameof(World));
+    private WorldSummary? world;
+    public WorldSummary World
+    {
+        get => world ?? throw Unconfigured(nameof(World));
+        init => world = value;
+    }
 
     public EconomyView Economy => throw Unconfigured(nameof(Economy));
 
