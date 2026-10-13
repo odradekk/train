@@ -66,7 +66,7 @@ public sealed class RailwayDependencyTests
 
     private static SceneWorldSnapshot Snapshot(VoxelAppearanceProjection? voxel = null,
         DesignEvaluation.Complete? model = null, ContentLookup<DesignEvaluation>? lookup = null) =>
-        RailwayFixtures.Snapshot(4, 4, relief: 0, content: RailwayFixtures.Content(vehicle: model,
+        RailwayFixtures.Snapshot(4, 4, relief: 0, content: RailwayFixtures.Content(design: model,
             voxels: voxel is null ? null : new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(voxel) },
             designs: lookup is null ? null : new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>

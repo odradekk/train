@@ -53,7 +53,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         Binding = binding;
         snapshot = initial;
         this.generate = generate;
-        this.railwayCache = railwayCache ?? throw new ArgumentNullException(nameof(railwayCache));
+        this.railwayCache = railwayCache;
     }
 
     internal static void ValidateSnapshot(SceneWorldSnapshot snapshot)
@@ -197,7 +197,7 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 var built = pending.GetAwaiter().GetResult();
                 pending = null;
                 content = built.Content;
-                scenery = Attach(built.Scenery, "", ObjectId);
+                scenery = Attach(built.Scenery, "", ObjectId).Geometry;
                 foreach (var item in built.Objects)
                     if (snapshot.Core.FindInstance(item.Key) is Lookup<InstanceView>.Found current && Matches(item.Value, current.Value))
                         Accept(item.Key, item.Value);
@@ -218,7 +218,8 @@ internal sealed class WorldSceneSession : IWorldSceneSession
                 rebuilding || !fog.IsEmpty ? SceneReadiness.Partial : SceneReadiness.Ready;
             var next = new SceneFrame(new(Id, request, space, ++revision), content?.Origin ?? new(0, 0, 0),
                 snapshot.Core.Position.CompletedSteps * SimulationTime.StepSeconds, readiness,
-                objects.ToImmutable(), picking.ToImmutable(), new(fog, []), problems.ToImmutable(), displayedFrame as SceneFrame);
+                objects.ToImmutable(), picking.ToImmutable(), fog.Select(bounds => new SceneFog(bounds)).ToImmutableArray(),
+                problems.ToImmutable(), displayedFrame as SceneFrame);
             var live = next.Objects.Select(item => item.Id).ToHashSet();
             foreach (var key in ids.Where(item => !live.Contains(item.Value)).Select(item => item.Key).ToArray()) ids.Remove(key);
             RetireCompletedTasks();
@@ -306,10 +307,10 @@ internal sealed class WorldSceneSession : IWorldSceneSession
         return new(instance.Design, destroyed, geometry);
     }
 
-    internal static RenderedDesign Attach(BuiltGeometry built, string prefix, Func<string, SceneObjectId> objectId)
+    internal static BuiltGeometry Attach(BuiltGeometry built, string prefix, Func<string, SceneObjectId> objectId)
     {
         var assigned = built.Keys.ToDictionary(item => item.Key, item => objectId(prefix + item.Value));
-        return built.Geometry with
+        var geometry = built.Geometry with
         {
             Objects = built.Geometry.Objects.Select(item => item with
             {
@@ -318,13 +319,13 @@ internal sealed class WorldSceneSession : IWorldSceneSession
             }).ToImmutableArray(),
             Picking = built.Geometry.Picking.Select(item => item with { Object = assigned[item.Object] }).ToImmutableArray()
         };
+        return new(geometry, built.Keys.ToImmutableDictionary(item => assigned[item.Key], item => item.Value));
     }
 
     private void Accept(InstanceId instance, BuiltObject built) =>
         designs[instance] = built with
         {
-            Geometry = built.Geometry with
-            { Geometry = Attach(built.Geometry, "instance:" + instance + ":", ObjectId) }
+            Geometry = Attach(built.Geometry, "instance:" + instance + ":", ObjectId)
         };
 
     private static RenderedDesign BuildScenery(WorldSceneContent value, Func<string, SceneObjectId> id)

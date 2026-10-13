@@ -374,7 +374,7 @@ public sealed class WorldSessionTests
     [TestMethod]
     public async Task InitialObjectGeometryBuildRunsBeforePresentAndLoadingDoesNotWait()
     {
-        using var gated = new RailwayFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
+        using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
         await using var session = Session(Snapshot(content: gated), ObjectContent());
         session.RequestView(Target);
         try
@@ -410,7 +410,7 @@ public sealed class WorldSessionTests
             Scene = Evaluation.Scene with
             { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] }
         };
-        using var gated = new RailwayFixtures.BlockedAppearanceView(SceneFixtures.Content(evaluation, hash));
+        using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(evaluation, hash));
         var rebuilding = Instance with { Design = hash };
         session.Observe(Snapshot(1, instance: rebuilding, content: gated), []);
         var present = Task.Run(() => Present(session, first));
@@ -448,7 +448,7 @@ public sealed class WorldSessionTests
     {
         var session = Session(Snapshot(), ObjectContent());
         var first = await Ready(session);
-        using var gated = new RailwayFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
+        using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
         session.Observe(Snapshot(1, instance: Instance with
         { Parts = [new(new(2), new(0, 10), false, true)] }, content: gated), []);
         var present = Task.Run(() => Present(session, first));

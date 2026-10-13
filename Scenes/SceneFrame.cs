@@ -46,9 +46,8 @@ internal sealed class SceneFrame : ISceneFrame
 
     internal SceneFrame(SceneFrameStamp stamp, ScenePoint origin, double seconds,
         SceneReadiness readiness, ImmutableArray<SceneObject> objects, ImmutableArray<PickGrid> picking,
-        SceneEnvironment environment, ImmutableArray<SceneProblem> diagnostics, SceneFrame? displayed = null,
-        RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default,
-        ImmutableArray<SceneFog> railwayFog = default)
+        ImmutableArray<SceneFog> fog, ImmutableArray<SceneProblem> diagnostics, SceneFrame? displayed = null,
+        RailwayPath? railway = null, ImmutableArray<RailwaySegment> segments = default)
     {
         Origin = origin;
         SimulationSeconds = seconds;
@@ -58,8 +57,8 @@ internal sealed class SceneFrame : ISceneFrame
         Diagnostics = diagnostics;
         this.railway = railway;
         this.segments = segments.IsDefault ? [] : segments;
-        fog = railwayFog.IsDefault ? environment.FoggedRegions.Select(bounds => new SceneFog(bounds)).ToImmutableArray() : railwayFog;
-        environment = environment with { FoggedRegions = fog.Select(item => item.WorldBounds).ToImmutableArray() };
+        this.fog = fog;
+        var environment = new SceneEnvironment(fog.Select(item => item.WorldBounds).ToImmutableArray(), []);
         var byId = objects.ToDictionary(item => item.Id);
         var composed = new Dictionary<SceneObjectId, ScenePose>();
         var visiting = new HashSet<SceneObjectId>();

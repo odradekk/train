@@ -16,6 +16,7 @@ internal sealed class RailwayDependencies
 
     private static JsonSerializerOptions CreateValueOptions()
     {
+        // The converter preserves runtime variant fields; the discriminator distinguishes variants with identical fields.
         var resolver = new DefaultJsonTypeInfoResolver();
         resolver.Modifiers.Add(info =>
         {
@@ -71,13 +72,14 @@ internal sealed class RailwayDependencies
         if (endTerrain) values.Add(Terrain(path.End.Terrain));
         foreach (var id in terrains)
         {
-            if (snapshot.Content.FindTerrain(id) is ContentLookup<TerrainAppearanceProjection>.Found found)
+            var lookup = snapshot.Content.FindTerrain(id);
+            if (lookup is ContentLookup<TerrainAppearanceProjection>.Found found)
             {
                 var t = found.Value;
                 values.Add(new object[] { t.Id, t.SurfaceVoxel, t.SubsurfaceVoxel, t.RockVoxel,
                     t.LocalHeightNoise, t.DecorationTargetPerSquareMeter, t.Decorations.Select(item => item.Weight).ToArray() });
             }
-            else values.Add(snapshot.Content.FindTerrain(id));
+            else values.Add(lookup);
         }
         foreach (var slot in slots)
         {

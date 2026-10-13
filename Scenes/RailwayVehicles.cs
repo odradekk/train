@@ -14,14 +14,6 @@ internal static class RailwayVehicles
         DesignEvaluation.Partial { Metrics.VehicleLengthCells: ComputedValue<int>.Known length } => length.Value,
         _ => null
     };
-    // Provisional wheel sizes are calibrated with the vehicle content slice.
-    internal static (double Gauge, double Radius, double Width) Wheels(SizeClass size) => size switch
-    {
-        SizeClass.Small => (RailwayCoordinates.GaugeFor(size), 0.5, 0.25),
-        SizeClass.Medium or SizeClass.Large => (RailwayCoordinates.GaugeFor(size), 1, 0.5),
-        SizeClass.ExtraLarge or SizeClass.Titan => (RailwayCoordinates.GaugeFor(size), 2, 1),
-        _ => throw new ArgumentException("Invalid vehicle size.", nameof(size))
-    };
     internal static BuiltObject Build(IContentView content, InstanceView instance)
     {
         var built = WorldSceneSession.BuildObject(content, instance, new(Vector3.Zero, Quaternion.Identity));
@@ -37,7 +29,7 @@ internal static class RailwayVehicles
             !removedPaths.Any(path => voxel.ObjectPath.Length >= path.Length && voxel.ObjectPath.Take(path.Length).SequenceEqual(path)) &&
             content.FindVoxelAppearance(voxel.Voxel) is ContentLookup<VoxelAppearanceProjection>.Found
             { Value.Behaviors.Wheelset: true }).Select(voxel => voxel.At.Z).Distinct().Order().ToArray();
-        var (gauge, radius, width) = Wheels(vehicle.Size);
+        var (gauge, _, radius, width) = RailwayCoordinates.Wheels(vehicle.Size);
         var objects = geometry.Objects.ToBuilder();
         var next = geometry.Objects.Max(item => item.Id.Value);
         var parent = geometry.Objects.First(item => item.Parent is null).Id;
@@ -52,7 +44,7 @@ internal static class RailwayVehicles
     }
     internal static RenderedDesign Place(RenderedDesign geometry, ScenePose pose, double distanceCells)
     {
-        var placed = BuiltGeometry.Place(geometry, pose);
+        var placed = SceneGeometry.Place(geometry, pose);
         return placed with
         {
             Objects = placed.Objects.Select(item => item with
@@ -67,6 +59,6 @@ internal static class RailwayVehicles
     internal static ScenePose Pose(RailwaySample sample, ScenePoint origin, bool firstEndPositive)
     {
         var forward = firstEndPositive ? sample.Forward : -sample.Forward;
-        return new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Pose(forward));
+        return new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(forward));
     }
 }

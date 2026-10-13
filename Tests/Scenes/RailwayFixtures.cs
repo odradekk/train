@@ -53,7 +53,7 @@ internal static class RailwayFixtures
     }
 
     internal static FixedContentView Content(TerrainAppearanceProjection? terrain = null,
-        RailwayAppearanceProjection? rules = null, DesignEvaluation? vehicle = null,
+        RailwayAppearanceProjection? rules = null, DesignEvaluation? design = null,
         bool wheelsetMarkers = false,
         IReadOnlyDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>? terrains = null,
         IReadOnlyDictionary<DesignHash, ContentLookup<DesignEvaluation>>? designs = null,
@@ -65,11 +65,11 @@ internal static class RailwayFixtures
         var voxelViews = new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
         { [SceneFixtures.Voxel] = new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with { Behaviors = new(wheelsetMarkers, null) }) };
         var designViews = new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>();
-        if (vehicle is not null)
+        if (design is not null)
         {
-            var hash = vehicle is DesignEvaluation.Complete complete ? complete.Design :
-                vehicle is DesignEvaluation.Partial partial ? partial.Scene.Design ?? SceneFixtures.Design : SceneFixtures.Design;
-            designViews[hash] = new ContentLookup<DesignEvaluation>.Found(vehicle);
+            var hash = design is DesignEvaluation.Complete complete ? complete.Design :
+                design is DesignEvaluation.Partial partial ? partial.Scene.Design ?? SceneFixtures.Design : SceneFixtures.Design;
+            designViews[hash] = new ContentLookup<DesignEvaluation>.Found(design);
         }
         foreach (var item in terrains ?? ImmutableDictionary<TerrainTypeId, ContentLookup<TerrainAppearanceProjection>>.Empty) terrainViews[item.Key] = item.Value;
         foreach (var item in designs ?? ImmutableDictionary<DesignHash, ContentLookup<DesignEvaluation>>.Empty) designViews[item.Key] = item.Value;
@@ -155,6 +155,13 @@ internal static class RailwayFixtures
         return frame;
     }
 
+    internal static double TrackGradeErrorBound(double length, double relief, double offset, RailwayAppearanceProjection rules)
+    {
+        var slope = relief == 0 ? 0 : Math.Atan(rules.MaximumGrade);
+        var innerScale = 1 - Math.Abs(offset) / (rules.MinimumCurveRadiusMeters * RailwayCoordinates.CellsPerMeter);
+        return length * (Math.Sqrt(Math.Pow(Math.Cos(slope), 2) + Math.Pow(Math.Sin(slope) / innerScale, 2)) - 1);
+    }
+
     internal static double MeasuredTrackLength(RailwayPath path, double begin, double end, double offset, int samples = 16384)
     {
         var previous = path.Sample(begin, offset).Position;
@@ -191,35 +198,5 @@ internal static class RailwayFixtures
         new TrainPosition.Edge(Edge, track, direction, distanceMeters), TrainActivity.Running,
         vehicles.IsDefault ? [new(1)] : vehicles, new(trainId), speed, 4, 1, 1, 1, 10, null, null, 0,
         new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0), [], null, [], null, facing);
-    internal sealed class BlockedAppearanceView(IContentView inner) : IContentView, IDisposable
-    {
-        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal ManualResetEventSlim Release { get; } = new();
-        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
-        {
-            Entered.TrySetResult();
-            Release.Wait();
-            return inner.FindVoxelAppearance(id);
-        }
-        public ContentGeneration Generation => inner.Generation;
-        public CoreContentProjection Core => inner.Core;
-        public ContentLookup<DesignEvaluation> FindDesign(DesignHash id) => inner.FindDesign(id);
-        public ContentRevision PersistentRevision => inner.PersistentRevision;
-        public ImmutableArray<PackageStatus> Packages => inner.Packages;
-        public ImmutableArray<VoxelCatalogEntry> Voxels => inner.Voxels;
-        public ImmutableArray<BlueprintSummary> Blueprints => inner.Blueprints;
-        public ImmutableArray<SavedContentDraft> LocalDrafts => inner.LocalDrafts;
-        public ImmutableArray<GenerationProfileSummary> GenerationProfiles => inner.GenerationProfiles;
-        public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress id) => inner.FindBlueprint(id);
-        public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => inner.FindVoxelDisplay(id);
-        public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id) => inner.FindDefinitionDisplay(id);
-        public ContentLookup<GoodPresentation> FindGood(GoodId id) => inner.FindGood(id);
-        public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => inner.FindAsset(id);
-        public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => inner.FindSettlementLayout(id);
-        public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => inner.FindCreature(id);
-        public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => inner.FindLair(id);
-        public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => inner.FindTerrain(id);
-        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => inner.FindRailwayAppearance(id);
-        public void Dispose() => Release.Dispose();
-    }
+
 }

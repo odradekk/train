@@ -18,7 +18,7 @@ public sealed class RailwaySessionTests
         RailwayFixtures.Snapshot(4, 4, 0, steps: steps, content: Content(design ?? RailwayFixtures.Vehicle()),
             trains: [train ?? RailwayFixtures.Train(1)], instances: [RailwayFixtures.Instance()]);
     private static FixedContentView Content(DesignEvaluation? design, ulong generation = 1, TerrainAppearanceProjection? terrain = null) =>
-        RailwayFixtures.Content(terrain, vehicle: design, wheelsetMarkers: true, generation: generation,
+        RailwayFixtures.Content(terrain, design: design, wheelsetMarkers: true, generation: generation,
             designs: design is null ? new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [SceneFixtures.Design] = new ContentLookup<DesignEvaluation>.Missing([]) } : null);
     private static WorldSceneSession Open(SceneWorldSnapshot snapshot) =>
@@ -27,9 +27,6 @@ public sealed class RailwaySessionTests
         ((SceneResult<ISceneFrame>.Success)session.Present(Request with { Interpolation = interpolation }, displayed)).Value;
     private static Task<ISceneFrame> Settled(WorldSceneSession session, ISceneFrame? displayed = null, double interpolation = 1) =>
         RailwayFixtures.Settled(session, Request with { Interpolation = interpolation }, displayed);
-    private static RailwayScene Controlled(SceneWorldSnapshot snapshot,
-        Func<SceneWorldSnapshot, RailwayPath, int, CancellationToken, RailwaySegment>? build = null) =>
-        RailwayFixtures.Controlled(snapshot, build);
     private static Task<SceneFrame> Settled(RailwayScene scene, SceneWorldSnapshot snapshot,
         SceneWorldSnapshot? previous = null, SceneFrame? displayed = null, double interpolation = 1, ulong revision = 1,
         VehicleId? followed = null) => RailwayFixtures.Settled(scene, snapshot,
@@ -59,14 +56,14 @@ public sealed class RailwaySessionTests
     {
         var first = RailwayFixtures.Vehicle(lengthCells: 8);
         var second = RailwayFixtures.Vehicle(lengthCells: 12, design: new("second"));
-        var view = RailwayFixtures.Content(vehicle: first, wheelsetMarkers: true,
+        var view = RailwayFixtures.Content(design: first, wheelsetMarkers: true,
             designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>>
             { [second.Design] = new ContentLookup<DesignEvaluation>.Found(second) });
         var train = RailwayFixtures.Train(40, [new(1), new(2)]) with { LengthMeters = 10 };
         var other = RailwayFixtures.Train(50, [new(3)], 2, 2);
         var instances = ImmutableArray.Create(RailwayFixtures.Instance(), RailwayFixtures.Instance(2, design: second.Design), RailwayFixtures.Instance(3));
         var snapshot = RailwayFixtures.Snapshot(300, 300, 0, 2, content: view, trains: [train, other], instances: instances);
-        await using var scene = Controlled(snapshot);
+        await using var scene = RailwayFixtures.Controlled(snapshot);
         var before = await Settled(scene, snapshot);
         AssertPosition(before, 1, new(-17, 0, 86));
         AssertPosition(before, 2, new(-17, 0, 76));
@@ -86,7 +83,7 @@ public sealed class RailwaySessionTests
     {
         var content = Content(RailwayFixtures.Vehicle());
         var old = RailwayFixtures.Snapshot(300, 300, 0, content: content, trains: [RailwayFixtures.Train(100)], instances: [RailwayFixtures.Instance()]);
-        await using var scene = Controlled(old);
+        await using var scene = RailwayFixtures.Controlled(old);
         var newer = RailwayFixtures.Snapshot(300, 300, 0, steps: 1, content: content, trains: [RailwayFixtures.Train(102)], instances: [RailwayFixtures.Instance()]);
         var middle = await Settled(scene, newer, old, interpolation: 0.25);
         AssertPosition(middle, 1, new(0, 0, 201));
@@ -106,13 +103,13 @@ public sealed class RailwaySessionTests
     {
         var content = Content(RailwayFixtures.Vehicle());
         var old = RailwayFixtures.Snapshot(600, 600, 0, content: content, trains: [RailwayFixtures.Train(127)], instances: [RailwayFixtures.Instance()]);
-        await using var scene = Controlled(old);
+        await using var scene = RailwayFixtures.Controlled(old);
         var before = await Settled(scene, old);
         var body = before.Objects.Single(item => item.Subject is WorldObjectId.Instance && item.Parent is null);
         var next = RailwayFixtures.Snapshot(600, 600, 0, content: content, trains: [RailwayFixtures.Train(129)], instances: [RailwayFixtures.Instance()]);
         var after = await Settled(scene, next, displayed: before, revision: before.Update.Frame.Revision + 1);
-        Assert.AreEqual(new ScenePoint(0, 0, 256), after.Origin);
-        Assert.AreEqual(new Vector3(0, 0, -256), after.Update.ShiftExistingRoots);
+        Assert.AreEqual(new ScenePoint(0, 0, RailwayCoordinates.OriginStepCells), after.Origin);
+        Assert.AreEqual(new Vector3(0, 0, (float)-RailwayCoordinates.OriginStepCells), after.Update.ShiftExistingRoots);
         Assert.AreEqual(before.Update.Frame, after.Update.Base);
         var newBody = after.Objects.Single(item => item.Id == body.Id);
         Assert.AreSame(((SceneVisual.Geometry)body.Visuals[0]).Mesh, ((SceneVisual.Geometry)newBody.Visuals[0]).Mesh);
@@ -128,14 +125,14 @@ public sealed class RailwaySessionTests
         var instances = members.Select(id => RailwayFixtures.Instance(id.Value)).ToImmutableArray();
         var train = RailwayFixtures.Train(127, members);
         var old = RailwayFixtures.Snapshot(600, 600, 0, content: content, trains: [train], instances: instances);
-        await using var scene = Controlled(old);
+        await using var scene = RailwayFixtures.Controlled(old);
         var before = await Settled(scene, old, followed: new(11));
         var next = RailwayFixtures.Snapshot(600, 600, 0, content: content,
             trains: [RailwayFixtures.Train(129, members)], instances: instances);
         var after = await Settled(scene, next, displayed: before,
             revision: before.Update.Frame.Revision + 1, followed: new(11));
-        Assert.AreEqual(new ScenePoint(0, 0, 256), after.Origin);
-        Assert.AreEqual(new Vector3(0, 0, -256), after.Update.ShiftExistingRoots);
+        Assert.AreEqual(new ScenePoint(0, 0, RailwayCoordinates.OriginStepCells), after.Origin);
+        Assert.AreEqual(new Vector3(0, 0, (float)-RailwayCoordinates.OriginStepCells), after.Update.ShiftExistingRoots);
         foreach (var id in members)
         {
             var index = (int)id.Value - 1;
@@ -144,7 +141,7 @@ public sealed class RailwaySessionTests
             var body = after.Objects.Single(item => item.Id == oldBody.Id);
             Assert.AreSame(((SceneVisual.Geometry)oldBody.Visuals[0]).Mesh, ((SceneVisual.Geometry)body.Visuals[0]).Mesh);
             AssertPosition(before, id.Value, new(0, 0, 254 + 80 - 8 * index));
-            AssertPosition(after, id.Value, new(0, 0, 258 + 80 - 8 * index - 256));
+            AssertPosition(after, id.Value, new(0, 0, (float)(258 + 80 - 8 * index - RailwayCoordinates.OriginStepCells)));
             var pose = Pose(after, id.Value);
             var hit = (ScenePick.Hit)after.Pick(new(pose.Position + new Vector3(.5f, 10, .5f), -Vector3.UnitY, 20));
             Assert.AreEqual(subject, ((PickSubject.WorldObject)hit.Value.Subject).Object);
@@ -158,7 +155,7 @@ public sealed class RailwaySessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var snapshot = Short();
-        var scene = Controlled(snapshot, (input, path, index, token) =>
+        var scene = RailwayFixtures.Controlled(snapshot, (input, path, index, token) =>
         { entered.TrySetResult(); release.Wait(token); return RailwayFixtures.EmptySegment(input, path, index, token); });
         try
         {

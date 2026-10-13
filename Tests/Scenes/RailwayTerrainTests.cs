@@ -38,7 +38,8 @@ public sealed class RailwayTerrainTests
     public void MissingRailwayModelReportsItsTerrainReference(bool tunnel)
     {
         var segment = Build(tunnel ? TunnelSnapshot(false) : WithFeatures(Short(), ["river"]));
-        var problems = segment.Geometry.Diagnostics.Where(item => item.Detail == "No railway scene model matches the track count.").ToArray();
+        var problems = segment.Geometry.Diagnostics.Where(item => item.Code == "content_missing" && item.Content ==
+            new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain))).ToArray();
         Assert.IsTrue(problems.Length > 0);
         Assert.IsTrue(problems.All(problem => problem.Content ==
             new ContentReference.Core(new CoreDefinitionReference.Terrain(RailwayFixtures.Terrain))));
@@ -166,7 +167,7 @@ public sealed class RailwayTerrainTests
                 "Decoration flattening raised underwater terrain through the water surface.");
         }
         var control = Build(snapshot with { Content = Content(terrain with { DecorationTargetPerSquareMeter = 0 }, model) });
-        foreach (var pair in control.Heights.Where(pair => !wet.Contains(pair.Key) && Math.Abs(pair.Key.X + .5) < 17))
+        foreach (var pair in control.Heights.Where(pair => !wet.Contains(pair.Key) && Math.Abs(pair.Key.X + .5) < RailwayCoordinates.DecorationVoxelClearance))
             Assert.AreEqual(pair.Value, segment.Heights[pair.Key], "Decoration flattening changed the track clearance.");
     }
 
@@ -191,10 +192,12 @@ public sealed class RailwayTerrainTests
         foreach (var node in snapshot.Core.World.Nodes)
             snapshot = RailwayFixtures.ReplaceCore(snapshot, node with { Terrain = node.Terrain with { TypeId = nodeType } });
 
-        var cells = Build(snapshot).Geometry.Picking.Single().Grid.Cells;
-        Assert.IsTrue(cells.Any(cell => Math.Abs(cell.At.X + 0.5) > 24 && cell.Appearance?.Definition == ModelVoxel),
+        var segment = Build(snapshot);
+        var cells = segment.Geometry.Picking.Single().Grid.Cells;
+        Assert.IsTrue(cells.Any(cell => Math.Abs(cell.At.X + 0.5) > RailwayCoordinates.DecorationRootClearance && cell.Appearance?.Definition == ModelVoxel),
             "The fixture must actually exercise the node material transition.");
-        var trackbed = cells.Where(cell => Math.Abs(cell.At.X + 0.5) < 9.5 && cell.At.Y is -2 or -3).ToArray();
+        var trackbed = cells.Where(cell => Math.Abs(cell.At.X + 0.5) < RailwayCoordinates.BedTopHalfWidth && cell.At.Y + segment.Origin.Y < 0 &&
+            cell.At.Y + segment.Origin.Y >= segment.Heights[new(cell.At.X, cell.At.Z)] - 2).ToArray();
         Assert.IsTrue(trackbed.Length > 0);
         Assert.IsTrue(trackbed.All(cell => cell.Appearance?.Definition == SceneFixtures.Voxel),
             "Trackbed must retain the line rock even where node rock differs.");
@@ -204,19 +207,22 @@ public sealed class RailwayTerrainTests
     public void TunnelKeepsItsRoofAboveTheTrackAndLeavesTheInteriorClear()
     {
         var snapshot = TunnelSnapshot(true);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        var middleArc = path.LengthCells / 2;
 
         // Level endpoints surround a high, slowly varying ridge on this short straight route.
         var segment = Build(snapshot);
-        Assert.IsTrue(segment.Tunnels.Any(interval => interval.Start < 4 && interval.End > 4));
-        Assert.IsTrue(segment.Heights[new(0, 3)] > 20, "The tunnel roof must survive trackbed cutting.");
+        Assert.IsTrue(segment.Tunnels.Any(interval => interval.Start < middleArc && interval.End > middleArc));
+        var middle = path.Sample(middleArc).Position;
+        var column = new GridColumn((int)Math.Floor(middle.X - segment.Origin.X), (int)Math.Floor(middle.Z - segment.Origin.Z));
+        Assert.IsTrue(segment.Heights[column] > middle.Y + RailwayCoordinates.TunnelClearance, "The tunnel roof must survive trackbed cutting.");
         var centerColumn = segment.Geometry.Picking.OrderByDescending(grid => grid.Grid.Cells.Length).First().Grid.Cells
-            .Where(cell => cell.At.X == 0 && cell.At.Z == 3).ToArray();
+            .Where(cell => cell.At.X == column.X && cell.At.Z == column.Z).ToArray();
         Assert.IsTrue(centerColumn.Length > 0, "The ridge must retain real roof voxels.");
-        Assert.IsTrue(centerColumn.All(cell => cell.At.Y < 0 || cell.At.Y >= 20), "Tunnel clearance contains terrain voxels.");
+        Assert.IsTrue(centerColumn.All(cell => cell.At.Y < 0 || cell.At.Y >= RailwayCoordinates.TunnelClearance), "Tunnel clearance contains terrain voxels.");
         var portals = segment.Geometry.Objects.Where(item => item.Parent is null && item.Id.Value != 0).ToArray();
         Assert.AreEqual(2, portals.Length, "The finite ridge needs an entrance and an exit.");
         Assert.IsTrue(portals.All(item => item.Visuals.OfType<SceneVisual.Geometry>().Any()));
-        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var expected = segment.Tunnels.SelectMany(interval => new[] { interval.Start, interval.End }).Order().ToArray();
         var ordered = portals.OrderBy(item => item.Pose.Position.Z).ToArray();
         for (var i = 0; i < ordered.Length; i++)
@@ -262,6 +268,39 @@ public sealed class RailwayTerrainTests
     }
 
     [TestMethod]
+    public void GradedBridgeFlattenFootprintUsesHorizontalProjection()
+    {
+        var model = Model(flatten: new(new(30, 0), new(31, 0), 10));
+        var terrain = RailwayFixtures.TerrainAppearance with { RailwayModels = [new(1, ModelHash, ModelHash)] };
+        var snapshot = WithFeatures(RailwayFixtures.Snapshot(1000, 1000, relief: 2, content: Content(terrain, model)), ["river"]);
+        var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
+        const ulong riverPlacementPurpose = 20;
+        var bridgeArc = path.LengthCells * (0.5 + 0.2 * RailwayRandom.Unit(path.Seed, path.Edge.Id.Value, 0, riverPlacementPurpose));
+        var segment = Build(snapshot, (int)(bridgeArc / RailwayCoordinates.SegmentLengthCells));
+        var bridge = segment.Geometry.Objects.Single(item => item.Parent is null && item.Id.Value != 0);
+        var forward = Vector3.Transform(Vector3.UnitZ, bridge.Pose.Rotation);
+        Assert.IsTrue(Math.Abs(forward.Y) > .01, "The bridge must retain the rail pitch.");
+        var column = new GridColumn((int)Math.Floor(bridge.Pose.Position.X + 30.5),
+            (int)Math.Floor(bridge.Pose.Position.Z + .5));
+        var expected = Math.Floor(bridge.Pose.Position.Y + segment.Origin.Y + model.Scene.RootFlatten!.Height);
+        Assert.AreEqual(expected, segment.Heights[column],
+            "A footprint interior must flatten to the declared height independently of bridge pitch and segment origin Y.");
+    }
+
+    [TestMethod]
+    public void SegmentBoundaryRegistersEndpointLookbackEvenWithoutATunnel()
+    {
+        var length = (2 * RailwayCoordinates.NodeTransitionCells + 2) / RailwayCoordinates.CellsPerMeter;
+        var snapshot = RailwayFixtures.Snapshot(length, length, relief: 0);
+        var segment = Build(snapshot, 1);
+        Assert.IsTrue(segment.Tunnels.IsEmpty);
+        var start = snapshot.Core.World.Nodes[0];
+        var changed = RailwayFixtures.ReplaceCore(snapshot, start with { Terrain = start.Terrain with { Relief = 2 } });
+        Assert.IsFalse(segment.Dependencies.Matches(changed, new(changed, RailwayFixtures.Edge), 1),
+            "The boundary segment must register its endpoint lookback before tunnel sampling.");
+    }
+
+    [TestMethod]
     public void DecorationsRespectTrackClearanceDensityAndModelFlatten()
     {
         var model = Model(flatten: new(new(0, 0), new(0, 0), 3));
@@ -275,7 +314,7 @@ public sealed class RailwayTerrainTests
         Assert.IsTrue(decorations.Length > 0);
         foreach (var decoration in decorations)
         {
-            Assert.IsTrue(Math.Abs(decoration.Pose.Position.X + segment.Origin.X) >= 24, "Decoration entered the track clearance.");
+            Assert.IsTrue(Math.Abs(decoration.Pose.Position.X + segment.Origin.X) >= RailwayCoordinates.DecorationRootClearance, "Decoration entered the track clearance.");
             var column = new GridColumn((int)decoration.Pose.Position.X, (int)decoration.Pose.Position.Z);
             Assert.IsTrue(segment.Heights[column] >= decoration.Pose.Position.Y + segment.Origin.Y + 3,
                 "Flatten must raise the model footprint to its declared height.");
@@ -385,7 +424,7 @@ public sealed class RailwayTerrainTests
 
     private static FixedContentView Content(TerrainAppearanceProjection terrain, DesignEvaluation.Complete? model = null,
         VoxelAppearanceProjection? modelAppearance = null, bool missingGround = false) => RailwayFixtures.Content(
-            terrain: terrain, vehicle: model, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
+            terrain: terrain, design: model, voxels: new Dictionary<VoxelDefinitionId, ContentLookup<VoxelAppearanceProjection>>
             {
                 [SceneFixtures.Voxel] = missingGround ? new ContentLookup<VoxelAppearanceProjection>.Missing([]) :
                     new ContentLookup<VoxelAppearanceProjection>.Found(SceneFixtures.Cube with

@@ -265,10 +265,8 @@ public sealed class RailwayPathTests
         var last = path.CenterArc(center + 32, offset);
         var measured = RailwayFixtures.MeasuredTrackLength(path, first, last, offset);
         // The independent chord sum measures the real 3D curve, rather than the approved planar approximation.
-        var slope = relief == 0 ? 0 : Math.Atan(rules.MaximumGrade);
-        var innerScale = 1 - Math.Abs(offset) / (rules.MinimumCurveRadiusMeters * 2);
-        var relativeError = Math.Sqrt(Math.Pow(Math.Cos(slope), 2) + Math.Pow(Math.Sin(slope) / innerScale, 2)) - 1;
-        Assert.AreEqual(64, measured, 64 * relativeError + 1e-6);
+        var errorBound = RailwayFixtures.TrackGradeErrorBound(64, relief, offset, rules);
+        Assert.AreEqual(64, measured, errorBound + 1e-6);
         Assert.IsTrue(Vector3.Distance(path.Sample(first).Forward, path.Sample(last).Forward) > .01,
             "The selected interval must exercise a bend.");
     }

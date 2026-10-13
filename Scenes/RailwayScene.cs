@@ -11,8 +11,8 @@ internal sealed class RailwayScene : IAsyncDisposable
 {
     private sealed record ConnectedSegment(RailwaySegment Source, RenderedDesign Geometry);
     private sealed record SegmentWork(Task<RailwaySegment> Task, CancellationTokenSource Cancellation);
-    private sealed record MemberPlacement(InstanceId Id, InstanceView? Instance,
-        ContentLookup<DesignEvaluation>? Design, int? Length, double CenterArc, double TrackArc);
+    private sealed record MemberPlacement(InstanceId Id, InstanceView Instance,
+        ContentLookup<DesignEvaluation> Design, int? Length, double CenterArc, double TrackArc);
     private sealed record TrainPlacement(TrainView Train, bool Positive, double Offset,
         bool LengthsKnown, bool TrackAvailable, ImmutableArray<MemberPlacement> Members);
     private sealed class FrameContents
@@ -73,7 +73,7 @@ internal sealed class RailwayScene : IAsyncDisposable
         AcceptPath();
         if (path is null)
             return new(stamp, default, seconds, failure is null ? SceneReadiness.Loading : SceneReadiness.Failed,
-                [], [], new([new SceneBounds(new(float.MinValue), new(float.MaxValue))], []), failure is null ? [] : [failure], displayed);
+                [], [], [new(new SceneBounds(new(float.MinValue), new(float.MaxValue)))], failure is null ? [] : [failure], displayed);
 
         var trains = PlaceTrains(snapshot, adjacent ? previous : null, request.Interpolation);
         var followed = target is WorldSceneTarget.Follow follow ? trains.First(item => item.Train.Id == follow.Train) : null;
@@ -98,8 +98,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             Math.Max(0, middle - radius) + 1).All(segments.ContainsKey) && !waiting;
         return new(stamp, origin, seconds, failure is not null ? SceneReadiness.Failed : segments.Count == 0 ? SceneReadiness.Loading :
             ready ? SceneReadiness.Ready : SceneReadiness.Partial, frame.Objects.ToImmutable(), frame.Picking.ToImmutable(),
-            new([], []), frame.Problems.ToImmutable(), displayed, path,
-            segments.Values.Select(item => item.Source).ToImmutableArray(), frame.Fog.ToImmutable());
+            frame.Fog.ToImmutable(), frame.Problems.ToImmutable(), displayed, path,
+            segments.Values.Select(item => item.Source).ToImmutableArray());
     }
 
     private void AcceptPath()
@@ -166,22 +166,22 @@ internal sealed class RailwayScene : IAsyncDisposable
     private void Connect(RailwaySegment segment)
     {
         var keys = segment.Geometry.Objects.ToImmutableDictionary(item => item.Id, item => item.Id.Value.ToString());
-        segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys), "segment:" + segment.Index + ":", objectId));
+        segments[segment.Index] = new(segment, WorldSceneSession.Attach(new(segment.Geometry, keys), "segment:" + segment.Index + ":", objectId).Geometry);
     }
 
     private void RenderSegments(ScenePoint origin, int minimum, int maximum, FrameContents frame)
     {
         foreach (var item in segments.OrderBy(item => item.Key).Select(item => item.Value))
-            frame.Add(BuiltGeometry.Place(item.Geometry, new(RailwayCoordinates.Relative(item.Source.Origin, origin), Quaternion.Identity)));
+            frame.Add(SceneGeometry.Place(item.Geometry, new(RailwayCoordinates.Relative(item.Source.Origin, origin), Quaternion.Identity)));
         foreach (var index in Enumerable.Range(minimum, maximum - minimum + 1).Where(index => !segments.ContainsKey(index)))
             AddFog(index * RailwayCoordinates.SegmentLengthCells, Math.Min(path!.LengthCells, (index + 1) * RailwayCoordinates.SegmentLengthCells), origin, frame);
         if (minimum > 0) AddFog(0, minimum * RailwayCoordinates.SegmentLengthCells, origin, frame);
         if (maximum < path!.SegmentCount - 1) AddFog((maximum + 1) * RailwayCoordinates.SegmentLengthCells, path.LengthCells, origin, frame);
     }
 
-    private void AddFog(double begin, double end, ScenePoint origin, FrameContents frame, double? width = null)
+    private void AddFog(double begin, double end, ScenePoint origin, FrameContents frame)
     {
-        var halfWidth = width ?? RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
+        var halfWidth = RailwayCoordinates.FogHalfWidth(path!.Edge.Tracks);
         frame.Fog.Add(new(path!.Bounds(begin, end, origin, halfWidth), new(begin, end, halfWidth)));
     }
 
@@ -201,8 +201,8 @@ internal sealed class RailwayScene : IAsyncDisposable
             var members = train.Vehicles.Select(id =>
             {
                 var instanceId = new InstanceId.Vehicle(id);
-                var instance = snapshot.Core.FindInstance(instanceId) is Lookup<InstanceView>.Found current ? current.Value : null;
-                var design = instance is null ? null : snapshot.Content.FindDesign(instance.Design);
+                var instance = ((Lookup<InstanceView>.Found)snapshot.Core.FindInstance(instanceId)).Value;
+                var design = snapshot.Content.FindDesign(instance.Design);
                 var length = design is ContentLookup<DesignEvaluation>.Found evaluation ? RailwayVehicles.Length(evaluation.Value) : null;
                 return new MemberPlacement(instanceId, instance, design, length, distance, center);
             }).ToArray();
@@ -255,18 +255,15 @@ internal sealed class RailwayScene : IAsyncDisposable
                     RenderUnplaced(content, member, pose, frame);
                     continue;
                 }
-                var geometry = ReconcileVehicle(content, member.Instance!);
+                var geometry = ReconcileVehicle(content, member.Instance);
                 if (geometry is null)
                 {
                     waiting = true;
                     frame.Objects.Add(new(objectId("vehicle:" + member.Id + ":loading"), null, pose, new WorldObjectId.Instance(member.Id), [], [], []));
-                    var begin = path.CenterArc(member.TrackArc - member.Length!.Value / 2.0, train.Offset);
-                    var end = path.CenterArc(member.TrackArc + member.Length.Value / 2.0, train.Offset);
-                    var projection = DesignGeometry.Projection(((ContentLookup<DesignEvaluation>.Found)member.Design!).Value);
+                    var projection = DesignGeometry.Projection(((ContentLookup<DesignEvaluation>.Found)member.Design).Value);
                     // Loading bodies are rigid in their display pose, including beyond the route endpoints.
-                    var bounds = VehicleBounds(projection, (InstanceDetails.Vehicle)member.Instance!.Details);
-                    frame.Fog.Add(new(bounds, new(begin, end,
-                        Math.Abs(train.Offset) + Math.Max(Math.Abs(bounds.Minimum.X), Math.Abs(bounds.Maximum.X))), pose));
+                    var bounds = VehicleBounds(projection, (InstanceDetails.Vehicle)member.Instance.Details);
+                    frame.Fog.Add(new(bounds, Pose: pose));
                     continue;
                 }
                 var placed = RailwayVehicles.Place(geometry, pose, (train.Positive ? 1 : -1) * member.TrackArc);
@@ -292,7 +289,7 @@ internal sealed class RailwayScene : IAsyncDisposable
                 minimum = Vector3.Min(minimum, new(voxel.At.X, voxel.At.Y, voxel.At.Z));
                 maximum = Vector3.Max(maximum, new(voxel.At.X + 1, voxel.At.Y + 1, voxel.At.Z + 1));
             }
-        var (gauge, radius, width) = RailwayVehicles.Wheels(vehicle.Size);
+        var (gauge, _, radius, width) = RailwayCoordinates.Wheels(vehicle.Size);
         var halfWidth = (float)(gauge / 2 + width);
         minimum = Vector3.Min(minimum, new(-halfWidth, 0, minimum.Z - (float)radius));
         maximum = Vector3.Max(maximum, new(halfWidth, (float)(2 * radius), maximum.Z + (float)radius));
@@ -308,8 +305,7 @@ internal sealed class RailwayScene : IAsyncDisposable
             if (WorldSceneSession.Matches(built, instance))
                 vehicles[instance.Id] = built with
                 {
-                    Geometry = built.Geometry with
-                    { Geometry = WorldSceneSession.Attach(built.Geometry, "vehicle:" + instance.Id + ":", objectId) }
+                    Geometry = WorldSceneSession.Attach(built.Geometry, "vehicle:" + instance.Id + ":", objectId)
                 };
         }
         if (vehicles.TryGetValue(instance.Id, out var cached) && WorldSceneSession.Matches(cached, instance)) return cached.Geometry.Geometry;
@@ -321,15 +317,10 @@ internal sealed class RailwayScene : IAsyncDisposable
     private void RenderUnplaced(IContentView content, MemberPlacement member, ScenePose pose, FrameContents frame)
     {
         var subject = new WorldObjectId.Instance(member.Id);
-        if (member.Instance is null)
-        {
-            frame.Problems.Add(new("target_missing", SceneStage.Reconcile, subject, null, null, null, "A train member is missing from the current core view."));
-            return;
-        }
         if (member.Design is not ContentLookup<DesignEvaluation>.Found found || found.Value is DesignEvaluation.Failed)
         {
             var built = WorldSceneSession.BuildObject(content, member.Instance, pose);
-            frame.Add(WorldSceneSession.Attach(built.Geometry, "vehicle:" + member.Id + ":", objectId));
+            frame.Add(WorldSceneSession.Attach(built.Geometry, "vehicle:" + member.Id + ":", objectId).Geometry);
             return;
         }
         // An incomplete consist has no trustworthy member positions. Keep its valid identities at the core center.

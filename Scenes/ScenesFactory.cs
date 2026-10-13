@@ -53,7 +53,7 @@ internal sealed class DesignPreview : IDesignPreview
     {
         ObjectDisposedException.ThrowIf(disposed, this);
         return new SceneResult<ISceneFrame>.Success(new SceneFrame(new(session, new(1), new(1), ++revision),
-            new(0, 0, 0), 0, SceneReadiness.Ready, geometry.Objects, geometry.Picking, new([], []), geometry.Diagnostics));
+            new(0, 0, 0), 0, SceneReadiness.Ready, geometry.Objects, geometry.Picking, [], geometry.Diagnostics));
     }
     public void Dispose() => disposed = true;
 }

@@ -8,9 +8,8 @@ namespace Train.Scenes;
 
 internal static class RailwayTerrain
 {
-    internal const double EndpointBlendCells = RailwayCoordinates.NodeTransitionCells;
-    private const int ColumnDepth = RailwayCoordinates.TerrainDepthCells;
     private const double BedTopBelowRailCells = 1;
+    private const double TunnelPortalLookbackCells = 2;
     private const ulong HeightNoisePurpose = 3;
     private const ulong EndpointMaterialPurpose = 9;
     private const ulong DecorationDensityPurpose = 10;
@@ -75,7 +74,7 @@ internal static class RailwayTerrain
         private readonly Dictionary<TerrainTypeId, TerrainAppearanceProjection?> terrains;
         private readonly double halfWidth;
         private ulong nextId;
-        private bool readsStartTerrain;
+        private readonly bool readsStartTerrain;
         private readonly bool readsEndTerrain;
         private readonly SceneObjectId terrainId;
 
@@ -88,7 +87,7 @@ internal static class RailwayTerrain
             if (index < 0 || index >= path.SegmentCount) throw new ArgumentOutOfRangeException(nameof(index));
             begin = index * RailwayCoordinates.SegmentLengthCells;
             end = Math.Min(path.LengthCells, begin + RailwayCoordinates.SegmentLengthCells);
-            endpointBlend = Math.Min(EndpointBlendCells, path.LengthCells / 2);
+            endpointBlend = Math.Min(RailwayCoordinates.NodeTransitionCells, path.LengthCells / 2);
             startPoint = path.Sample(0).Position;
             endPoint = path.Sample(path.LengthCells).Position;
             waterRegions = WaterFeatures().Select(feature =>
@@ -105,7 +104,8 @@ internal static class RailwayTerrain
                 waterRegions[0].Level = level; waterRegions[1].Level = level;
             }
             var anchor = path.Sample(begin).Position;
-            origin = new ScenePoint(Math.Floor(anchor.X / 32) * 32, Math.Floor(anchor.Y / 32) * 32, Math.Floor(anchor.Z / 32) * 32);
+            origin = new ScenePoint(Math.Floor(anchor.X / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize,
+                Math.Floor(anchor.Y / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize, Math.Floor(anchor.Z / VoxelGrid.ChunkSize) * VoxelGrid.ChunkSize);
             objects = ImmutableArray.CreateBuilder<SceneObject>();
             picking = ImmutableArray.CreateBuilder<PickGrid>();
             diagnostics = ImmutableArray.CreateBuilder<SceneProblem>();
@@ -117,7 +117,7 @@ internal static class RailwayTerrain
             terrains = new Dictionary<TerrainTypeId, TerrainAppearanceProjection?>();
             halfWidth = RailwayCoordinates.TerrainHalfWidth(path.Edge.Tracks);
             nextId = 1UL;
-            readsStartTerrain = begin < endpointBlend;
+            readsStartTerrain = Math.Max(0, begin - (path.Edge.Tracks > 0 ? TunnelPortalLookbackCells : 0)) < endpointBlend;
             readsEndTerrain = path.LengthCells - end < endpointBlend;
             terrainId = new SceneObjectId(0);
             GetTerrain(path.Edge.Terrain.TypeId);
@@ -144,19 +144,14 @@ internal static class RailwayTerrain
             {
                 cancellation.ThrowIfCancellationRequested();
                 var tunnel = TunnelAt(arc);
-                if (path.Edge.Tracks > 0 && tunnel && tunnelStart is null) tunnelStart = arc;
+                if (tunnel && tunnelStart is null) tunnelStart = arc;
                 if (tunnelStart is not null && (!tunnel || arc == end))
                 {
                     var finish = tunnel ? end : arc;
                     tunnelIntervals.Add((tunnelStart.Value, finish));
                     if (tunnelStart.Value > 0)
                     {
-                        var previousArc = Math.Max(0, tunnelStart.Value - 2);
-                        if (previousArc < endpointBlend)
-                        {
-                            readsStartTerrain = true;
-                            GetTerrain(path.Start.Terrain.TypeId);
-                        }
+                        var previousArc = Math.Max(0, tunnelStart.Value - TunnelPortalLookbackCells);
                         if (!TunnelAt(previousArc)) portals.Add(tunnelStart.Value);
                     }
                     if (!tunnel && finish < path.LengthCells)
@@ -259,7 +254,7 @@ internal static class RailwayTerrain
                 var trackDistance = TrackDistance(value.Offset);
                 var isTunnel = value.Tunnel;
                 heights.Add(column, value.Height + 1);
-                for (var depth = 0; depth < ColumnDepth; depth++)
+                for (var depth = 0; depth < RailwayCoordinates.TerrainDepthCells; depth++)
                 {
                     var y = value.Height - depth;
                     if (isTunnel && trackDistance < RailwayCoordinates.BedBlendWidth && y >= rail.Position.Y && y < rail.Position.Y + RailwayCoordinates.TunnelClearance) continue;
@@ -377,7 +372,7 @@ internal static class RailwayTerrain
             }
             var sample = path.Sample(arc);
             AddModel(role == RailwayModelRole.Bridge ? model.Bridge : model.TunnelPortal,
-            new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Pose(sample.Forward)), null, columns);
+            new(RailwayCoordinates.Relative(sample.Position, origin), RailwayCoordinates.Rotation(sample.Forward)), null, columns);
         }
         private void AddModel(DesignHash hash, ScenePose pose, GridColumn? decoration, Dictionary<GridColumn, TerrainColumn> columns)
         {
@@ -410,12 +405,15 @@ internal static class RailwayTerrain
             foreach (var voxel in projection.Voxels) Appearance(voxel.Voxel);
             if (projection.RootFlatten is { } flatten)
             {
-                // Flatten is in model-local coordinates, including the model's rotation.
+                // Flatten footprints project horizontally, while railway models retain the rail pitch.
+                var forward = Vector3.Transform(Vector3.UnitZ, pose.Rotation);
+                var horizontalRotation = RailwayCoordinates.Rotation(Vector3.Normalize(new(forward.X, 0, forward.Z)));
+                var inverse = Quaternion.Conjugate(horizontalRotation);
                 foreach (var column in columns.Keys.ToArray())
                 {
                     var value = columns[column];
                     if (decoration is not null && (value.Water || TrackDistance(value.Offset) < RailwayCoordinates.DecorationVoxelClearance)) continue;
-                    var local = Vector3.Transform(new Vector3(column.X + 0.5f, 0, column.Z + 0.5f) - pose.Position, Quaternion.Inverse(pose.Rotation));
+                    var local = Vector3.Transform(new Vector3(column.X + 0.5f - pose.Position.X, 0, column.Z + 0.5f - pose.Position.Z), inverse);
                     var distance = Math.Max(Math.Max(flatten.From.X - local.X, local.X - flatten.To.X - 1),
                     Math.Max(flatten.From.Z - local.Z, local.Z - flatten.To.Z - 1));
                     var blend = Math.Clamp(distance / 8, 0, 1);

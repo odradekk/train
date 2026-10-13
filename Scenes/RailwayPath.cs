@@ -31,18 +31,23 @@ internal static class RailwayCoordinates
     internal const double MaximumDisplayRate = 64;
     internal const int MaxPrefetchSegments = 4;
     internal const double OriginStepCells = 256;
+    internal const double TerrainSlopeMarginCells = 26.5;
+    internal const double FogHorizontalPaddingCells = 8;
+    internal const float FogVerticalPaddingCells = 128;
     internal static double OutermostTrackOffset(int count) => Math.Max(0, count - 1) * TrackSpacing / 2;
-    internal static double TerrainHalfWidth(int count) => Math.Max(48, count > 0 ? OutermostTrackOffset(count) + 49 : 0);
-    internal static double FogHalfWidth(int count) => Math.Max(64, OutermostTrackOffset(count) + 57);
-    internal static readonly (double Gauge, float RailHeight)[] Gauges = [(3, .3f), (7, .4f), (15, .6f)];
-    internal static double GaugeFor(SizeClass size) => size switch
+    internal static double TerrainHalfWidth(int count) =>
+        OutermostTrackOffset(count) + BedBaseHalfWidth + BedBlendWidth + TerrainSlopeMarginCells;
+    internal static double FogHalfWidth(int count) => TerrainHalfWidth(count) + FogHorizontalPaddingCells;
+    internal static readonly (double Gauge, float RailHeight, double Radius, double Width)[] WheelDimensions =
+        [(3, .3f, .5, .25), (7, .4f, 1, .5), (15, .6f, 2, 1)];
+    internal static (double Gauge, float RailHeight, double Radius, double Width) Wheels(SizeClass size) => size switch
     {
-        SizeClass.Small => Gauges[0].Gauge,
-        SizeClass.Medium or SizeClass.Large => Gauges[1].Gauge,
-        SizeClass.ExtraLarge or SizeClass.Titan => Gauges[2].Gauge,
+        SizeClass.Small => WheelDimensions[0],
+        SizeClass.Medium or SizeClass.Large => WheelDimensions[1],
+        SizeClass.ExtraLarge or SizeClass.Titan => WheelDimensions[2],
         _ => throw new ArgumentException("Invalid vehicle size.", nameof(size))
     };
-    internal static Quaternion Pose(Vector3 forward)
+    internal static Quaternion Rotation(Vector3 forward)
     {
         var right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
         var up = Vector3.Cross(forward, right);
@@ -55,13 +60,13 @@ internal static class RailwayCoordinates
     internal static ScenePoint NodePoint(NodeMapItem node) =>
         new(node.Position.X * CellsPerMeter, NodeElevation(node), node.Position.Y * CellsPerMeter);
     internal static double TrackOffset(int number, int count) => (number - (count + 1) / 2.0) * TrackSpacing;
-    internal static (double HalfWidth, double Radius, double MinimumChord) AlignmentLimits(
+    internal static (double Radius, double MinimumChord) AlignmentLimits(
         double horizontalLength, int trackLimit, RailwayAppearanceProjection rules)
     {
         var width = BedBaseHalfWidth + OutermostTrackOffset(trackLimit);
         // Keep the inner offset arc regular, including when the corridor is wider than the rule radius.
         var radius = Math.Max(rules.MinimumCurveRadiusMeters * CellsPerMeter, width + 0.5);
-        return (width, radius, 4 * radius * Math.Sin(Math.Min(horizontalLength / (4 * radius), Math.PI / 2)));
+        return (radius, 4 * radius * Math.Sin(Math.Min(horizontalLength / (4 * radius), Math.PI / 2)));
     }
     internal static Vector3 Relative(ScenePoint point, ScenePoint origin) =>
         new((float)(point.X - origin.X), (float)(point.Y - origin.Y), (float)(point.Z - origin.Z));
@@ -218,7 +223,8 @@ internal sealed class RailwayPath
         var heights = new[] { Sample(begin).Position.Y, Sample(end).Position.Y,
             Sample(Math.Clamp(LengthCells / 2, begin, end)).Position.Y };
         minimum.Y = (float)(heights.Min() - origin.Y); maximum.Y = (float)(heights.Max() - origin.Y);
-        return new(minimum - new Vector3((float)width, 128, (float)width), maximum + new Vector3((float)width, 128, (float)width));
+        return new(minimum - new Vector3((float)width, RailwayCoordinates.FogVerticalPaddingCells, (float)width),
+            maximum + new Vector3((float)width, RailwayCoordinates.FogVerticalPaddingCells, (float)width));
     }
 
     private sealed class HorizontalAlignment

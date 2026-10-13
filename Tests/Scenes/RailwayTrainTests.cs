@@ -14,6 +14,8 @@ public sealed class RailwayTrainTests
     private static readonly SceneFrameStamp Stamp = new(new(Guid.NewGuid()), new(1), new(1), 1);
     private static readonly WorldSceneTarget Target = new WorldSceneTarget.Follow(new(1), new(1));
 
+    public enum LoadingAlignment { AlongX, Diagonal, Curve, StartOverhang, EndOverhang }
+
     [TestMethod]
     [DataRow(TravelDirection.Forward, TrainOrderFacing.FirstEndLeading)]
     [DataRow(TravelDirection.Forward, TrainOrderFacing.LastEndLeading)]
@@ -21,7 +23,7 @@ public sealed class RailwayTrainTests
     [DataRow(TravelDirection.Reverse, TrainOrderFacing.LastEndLeading)]
     public async Task WheelsAdvanceAlongVehiclePositiveZRegardlessOfFacing(TravelDirection direction, TrainOrderFacing facing)
     {
-        var content = RailwayFixtures.Content(vehicle: RailwayFixtures.Vehicle(), wheelsetMarkers: true);
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(), wheelsetMarkers: true);
         var train = RailwayFixtures.Train(10, direction: direction, facing: facing);
         var snapshot = RailwayFixtures.Snapshot(100, 100, 0, content: content, trains: [train], instances: [RailwayFixtures.Instance()]);
         await using var scene = RailwayFixtures.Controlled(snapshot);
@@ -43,7 +45,7 @@ public sealed class RailwayTrainTests
     public async Task CurvedOffsetConsistUsesMemberLengthsOnItsOwnTrack(double relief, int track)
     {
         var rules = RailwayFixtures.Rules with { MinimumCurveRadiusMeters = 100 };
-        var content = RailwayFixtures.Content(rules: rules, vehicle: RailwayFixtures.Vehicle(SizeClass.Large, 64), wheelsetMarkers: true);
+        var content = RailwayFixtures.Content(rules: rules, design: RailwayFixtures.Vehicle(SizeClass.Large, 64), wheelsetMarkers: true);
         var train = RailwayFixtures.Train(190, [new(1), new(2), new(3)], track: track);
         var instances = Enumerable.Range(1, 3).Select(id => RailwayFixtures.Instance((ulong)id, SizeClass.Large)).ToImmutableArray();
         var snapshot = RailwayFixtures.Snapshot(600, 300, relief, 3, content: content, trains: [train], instances: instances);
@@ -51,9 +53,7 @@ public sealed class RailwayTrainTests
         var frame = await RailwayFixtures.Settled(scene, snapshot, Target, Request, Stamp);
         var path = new RailwayPath(snapshot, RailwayFixtures.Edge);
         var offset = (track - 2) * 34.0;
-        var innerScale = 1 - Math.Abs(offset) / (rules.MinimumCurveRadiusMeters * 2);
-        var slope = relief == 0 ? 0 : Math.Atan(rules.MaximumGrade);
-        var errorBound = 64 * (Math.Sqrt(Math.Pow(Math.Cos(slope), 2) + Math.Pow(Math.Sin(slope) / innerScale, 2)) - 1);
+        var errorBound = RailwayFixtures.TrackGradeErrorBound(64, relief, offset, rules);
         for (ulong member = 1; member < 3; member++)
         {
             var first = path.Locate(RailwayCoordinates.Add(frame.Origin, Pose(frame, member).Position));
@@ -74,23 +74,33 @@ public sealed class RailwayTrainTests
     }
 
     [TestMethod]
-    [DataRow(0)]
-    [DataRow(1)]
-    [DataRow(2)]
-    [DataRow(3)]
-    [DataRow(4)]
-    public async Task LoadingVehicleFogCoversRotatedAndCurvedBody(int alignment)
+    [DataRow(LoadingAlignment.AlongX)]
+    [DataRow(LoadingAlignment.Diagonal)]
+    [DataRow(LoadingAlignment.Curve)]
+    [DataRow(LoadingAlignment.StartOverhang)]
+    [DataRow(LoadingAlignment.EndOverhang)]
+    public async Task LoadingVehicleFogCoversRotatedAndCurvedBody(LoadingAlignment alignment)
     {
         var vehicle = RailwayFixtures.Vehicle(SizeClass.Small, 64, [new(0, 0, -32), new(0, 0, 31)]);
         vehicle = vehicle with { Scene = vehicle.Scene with { OccupiedBounds = new(new(0, 0, -32), new(0, 0, 31)) } };
-        var content = RailwayFixtures.Content(vehicle: vehicle);
-        using var gated = new RailwayFixtures.BlockedAppearanceView(content);
-        var distance = alignment == 2 ? 100 : alignment == 3 ? 0 : alignment == 4 ? 600 : 190;
-        SceneWorldSnapshot Snapshot(bool train) => RailwayFixtures.Snapshot(600, alignment == 2 ? 300 : 600, 0,
-            tracks: alignment == 2 ? 3 : 1, content: gated,
-            trains: train ? [RailwayFixtures.Train(distance, track: alignment == 2 ? 2 : 1)] : [], instances: train ? [RailwayFixtures.Instance()] : []);
-        SceneWorldSnapshot Orient(SceneWorldSnapshot snapshot) => alignment >= 2 ? snapshot : RailwayFixtures.ReplaceCore(snapshot,
-            snapshot.Core.World.Nodes[1] with { Position = alignment == 0 ? new(600, 0) : new(360, 480) });
+        var content = RailwayFixtures.Content(design: vehicle);
+        using var gated = new SceneFixtures.BlockedAppearanceView(content);
+        var distance = alignment switch
+        {
+            LoadingAlignment.Curve => 100,
+            LoadingAlignment.StartOverhang => 0,
+            LoadingAlignment.EndOverhang => 600,
+            _ => 190
+        };
+        SceneWorldSnapshot Snapshot(bool train) => RailwayFixtures.Snapshot(600, alignment == LoadingAlignment.Curve ? 300 : 600, 0,
+            tracks: alignment == LoadingAlignment.Curve ? 3 : 1, content: gated,
+            trains: train ? [RailwayFixtures.Train(distance, track: alignment == LoadingAlignment.Curve ? 2 : 1)] : [], instances: train ? [RailwayFixtures.Instance()] : []);
+        SceneWorldSnapshot Orient(SceneWorldSnapshot snapshot) => alignment switch
+        {
+            LoadingAlignment.AlongX => RailwayFixtures.ReplaceCore(snapshot, snapshot.Core.World.Nodes[1] with { Position = new(600, 0) }),
+            LoadingAlignment.Diagonal => RailwayFixtures.ReplaceCore(snapshot, snapshot.Core.World.Nodes[1] with { Position = new(360, 480) }),
+            _ => snapshot
+        };
         var initial = Orient(Snapshot(false));
         var scene = RailwayFixtures.Controlled(initial);
         try
@@ -101,7 +111,7 @@ public sealed class RailwayTrainTests
             await gated.Entered.Task;
             var frame = scene.Present(snapshot, null, Target, Request, Stamp with { Revision = 3 }, null);
             var pose = Pose(frame, 1);
-            var front = pose.Position + Vector3.Transform(new Vector3(.5f, .5f, alignment == 3 ? -30 : 30), pose.Rotation);
+            var front = pose.Position + Vector3.Transform(new Vector3(.5f, .5f, alignment == LoadingAlignment.StartOverhang ? -30 : 30), pose.Rotation);
             Assert.IsInstanceOfType<ScenePick.NotReady>(frame.Pick(new(front + Vector3.UnitY * 40, -Vector3.UnitY, 80)));
             Assert.IsTrue(frame.Update.Environment.FoggedRegions.Any(bounds => front.X >= bounds.Minimum.X && front.X <= bounds.Maximum.X &&
                 front.Y >= bounds.Minimum.Y && front.Y <= bounds.Maximum.Y && front.Z >= bounds.Minimum.Z && front.Z <= bounds.Maximum.Z));
@@ -121,7 +131,7 @@ public sealed class RailwayTrainTests
             new(package, "vehicles.json"), "design", null, "Unavailable vehicle design.");
         var lookup = failed ? (ContentLookup<DesignEvaluation>)new ContentLookup<DesignEvaluation>.Found(new DesignEvaluation.Failed([diagnostic])) :
             new ContentLookup<DesignEvaluation>.Missing([diagnostic]);
-        var content = RailwayFixtures.Content(vehicle: RailwayFixtures.Vehicle(),
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle(),
             designs: new Dictionary<DesignHash, ContentLookup<DesignEvaluation>> { [hash] = lookup });
         var snapshot = RailwayFixtures.Snapshot(100, 100, 0, content: content,
             trains: [RailwayFixtures.Train(50, [new(1), new(2)])], instances: [RailwayFixtures.Instance(), RailwayFixtures.Instance(2, design: hash)]);
@@ -158,7 +168,7 @@ public sealed class RailwayTrainTests
     public async Task PrefetchCoversTheConfiguredTimeInMeters()
     {
         var train = RailwayFixtures.Train(512, speed: 40);
-        var snapshot = RailwayFixtures.Snapshot(2000, 2000, 0, content: RailwayFixtures.Content(vehicle: RailwayFixtures.Vehicle()),
+        var snapshot = RailwayFixtures.Snapshot(2000, 2000, 0, content: RailwayFixtures.Content(design: RailwayFixtures.Vehicle()),
             trains: [train], instances: [RailwayFixtures.Instance()]);
         var requested = new System.Collections.Concurrent.ConcurrentBag<int>();
         await using var scene = RailwayFixtures.Controlled(snapshot, (input, path, index, token) =>
@@ -173,7 +183,7 @@ public sealed class RailwayTrainTests
     [TestMethod]
     public async Task NewTrackTrainReportsDeferredUpdatesAndNewTrainDoesNotInterpolateFromMissing()
     {
-        var content = RailwayFixtures.Content(vehicle: RailwayFixtures.Vehicle());
+        var content = RailwayFixtures.Content(design: RailwayFixtures.Vehicle());
         var initial = RailwayFixtures.Snapshot(600, 600, 0, tracks: 1, trackLimit: 2, content: content,
             trains: [RailwayFixtures.Train(100)], instances: [RailwayFixtures.Instance()], missingTrains: [new(2)]);
         await using var scene = RailwayFixtures.Controlled(initial);
