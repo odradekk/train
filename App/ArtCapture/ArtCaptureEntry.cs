@@ -175,7 +175,7 @@ internal sealed class ArtCaptureRun(Node owner) : IDisposable
         var box = bounds ?? throw new InvalidDataException("跟随车辆没有可显示的网格。");
         var focus = vehicle.Root.GlobalTransform * box.GetCenter();
         var front = vehicle.Root.GlobalBasis * Vector3.Back;
-        var yaw = Mathf.Atan2(front.X, front.Z) + orbit + (distance == "near" ? Mathf.Pi / 4 : 0);
+        var yaw = Mathf.Atan2(front.X, front.Z) + orbit + (distance == "near" ? Mathf.Atan2(box.Size.X, box.Size.Z) : 0);
         var pitch = distance == "near" ? 0.2f : 0.55f;
         var range = distance == "far" ? WorldCamera.MaximumDistance : WorldCamera.DefaultDistance;
         if (distance == "near")
