@@ -130,6 +130,7 @@ public sealed class HostContentScenarioTests
             new ContentInstallation(new ContentRoot("built-in"), new ContentRoot("mods"), null, "fixture", []),
             new ContentLoadPurpose.Initial()), new ScriptedContentFiles(), new UnconfiguredAssetInspector()));
         AssertUnconfigured(() => factory.DecodeReplay("unexpected"));
+        AssertUnconfigured(() => factory.CaptureReplay([view], new([], [], [], [])));
         AssertUnconfigured(() => view.FindDesign(new DesignHash("unexpected")));
         AssertUnconfigured(() => _ = view.Blueprints);
     }

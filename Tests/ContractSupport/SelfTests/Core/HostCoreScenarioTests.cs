@@ -29,6 +29,8 @@ public sealed class HostCoreScenarioTests
         session.AssertComplete();
         AssertUnconfigured(() => session.Advance(2));
         AssertUnconfigured(() => session.ReadRecording());
+        AssertUnconfigured(() => session.CaptureRecordingStart());
+        AssertUnconfigured(() => session.ConfirmRecordingStart(new(1), RecordingWriteOutcome.Failed));
         AssertUnconfigured(() => initial.FindTrain(new(1)));
     }
 
