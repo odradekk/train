@@ -23,7 +23,7 @@
 
 当前统一入口为 `scripts/test.ps1`，默认沿项目依赖选择受影响的 MSTest 项目；共享文件改动选择全部。用 `-Layer fast|integration|engine|stage|all` 分层，`-All` 强制全部项目和独立检查，`-Project core|content|scenes|godot|contract-support|contract-checks` 显式选择 MSTest 项目，支持多选。`-Project` 不包含全仓结构、隔离、Schema、引擎或阶段检查；默认集成层按改动选择结构、公开面、调用样例、Core/Content/Scenes 隔离和 Schema 检查。具体规则、命令与覆盖见[统一测试入口](../run-tests.md#按改动选择)。
 
-模块仍表示被验证的责任，层表示实际执行边界，不能混用。Scenes 可通过 `-Project scenes -Layer fast` 运行自身行为用例；Core／Content 使用固定读视图替身，世界生成由测试门控，不提供真实线路、节点或战斗生成证据。Core/Content/Scenes 隔离重建由 C# 检查工具执行；Godot 隔离装配仍待建立。下文的独立构建、依赖闭包和真实契约验证是目标责任，当前项目选择及普通测试通过不能替代这些证据。共享契约变化须按受影响生产方、消费方和替身确定验证范围，不能仅按修改文件所属项目缩小。
+模块仍表示被验证的责任，层表示实际执行边界，不能混用。Scenes 可通过 `-Project scenes -Layer fast` 运行自身行为用例；Core／Content 使用固定读视图替身。线路测试执行生产几何构造，并独立采样核对长度、曲率、坡度和走廊；会话时序另用受控后台构建验证。它们不提供节点、战斗、真实四模块联调或 Godot 画面证据。Core/Content/Scenes 隔离重建由 C# 检查工具执行；Godot 隔离装配仍待建立。下文的独立构建、依赖闭包和真实契约验证是目标责任，当前项目选择及普通测试通过不能替代这些证据。共享契约变化须按受影响生产方、消费方和替身确定验证范围，不能仅按修改文件所属项目缩小。
 
 模块测试拆开，任何独立模块测试项目最多引用本模块的一个真实实现；允许的契约范围沿用[生产依赖矩阵](README.md#依赖与装配)，不能经测试支持库绕过它。
 
@@ -34,7 +34,7 @@
 | 体素引擎层 | `Scenes/Train.Scenes.csproj` 与独立的 `Train.Scenes.Tests` | 体素、内容、核心契约 | 用核心查询和内容访问替身供给情景；真实体素实现生成场景数据、拾取及编辑结果，不依赖 Godot |
 | Godot 层 | 根 `Train.csproj` 的隔离装配与本模块真实引擎 runner | 三个契约 | 替换核心、内容和体素实现；真实宿主执行启动、交互、资源及文件适配。普通 .NET 测试可补充纯逻辑检查，不能替代引擎 runner |
 
-Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次摘要中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台、物理存档和磁盘内容端口，不提供真实引擎或隔离装配证据。Scenes 独立测试只引用 Scenes 实现及允许的契约支持库，使用 Core／Content 固定读视图；未配置的替身调用明确失败。真实线路、节点、战斗生成分别待 #315、#316、#353；立方体 UV 已实现，真实 Godot 纹理采样待 #298 联调；其他形状／模型待 #388；编辑待 #333；模板预览待 #389。`Tests/Engine/Train.Engine.Tests.csproj` 在真实 Godot 中验证当前 App 集成行为及[资产端口](../godot-assets.md)，与普通 .NET 宿主测试分开；它不证明目标 Godot 隔离装配或真实工厂契约通过。资产导出探针的隔离构建与 PCK／Windows 导出验证范围见[统一测试入口](../run-tests.md#选择)；它不替代完整宿主隔离或阶段联调。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
+Core 和 Content 测试已各自引用一个实现；原聚合项目的用例已按责任归位，具体用例数和运行结果记录在 Issue 评论与单次摘要中。宿主的普通 .NET 项目 `Tests/Godot/Train.Godot.Tests.csproj` 测试日志、控制台、物理存档和磁盘内容端口，不提供真实引擎或隔离装配证据。Scenes 独立测试只引用 Scenes 实现及允许的契约支持库，使用 Core／Content 固定读视图；未配置的替身调用明确失败。线路场景数据生成已实现；节点、战斗生成分别待 #316、#353；铁轨数／断点增量更新待 #345；立方体 UV 已实现，真实 Godot 纹理采样待 #298 联调；其他形状／模型待 #388；编辑待 #333；模板预览待 #389。`Tests/Engine/Train.Engine.Tests.csproj` 在真实 Godot 中验证当前 App 集成行为及[资产端口](../godot-assets.md)，与普通 .NET 宿主测试分开；它不证明目标 Godot 隔离装配或真实工厂契约通过。资产导出探针的隔离构建与 PCK／Windows 导出验证范围见[统一测试入口](../run-tests.md#选择)；它不替代完整宿主隔离或阶段联调。Godot 不为对称额外建立契约程序集；真实跨模块集成测试单独归类。
 
 ## 共享用例、样例与替身
 

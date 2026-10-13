@@ -2,9 +2,13 @@
 
 本页落实[体素引擎层公开契约：场景、拾取与编辑会话](https://github.com/odradekk/train/issues/289)的决定。业务与表现规则仍见[场景](../design/01-voxel-engine-and-scenes.md)、[渲染](../design/07-rendering.md)、[编辑器](../design/15-design-editor-and-tools.md)；公共语义、身份与提交沿用[公共约定](conventions.md)、[跨层协议](transactions.md)和[编辑协议](editing.md)。
 
-当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取、贴图方向与跨格平铺，以及只读设计预览。独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；世界会话测试注入固定生成内容并控制后台完成顺序，不能据此宣称真实线路、节点或战斗生成通过。线路、节点、战斗生成分别待 #315、#316、#353；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。Scenes 已接入 C# 检查工具的隔离矩阵，单次隔离结果以运行证据为准；真实 Godot 接入和阶段联调仍需各自证据。
+当前生产实现提供世界会话生命周期、不可变帧和增量、32³ 区块占格、立方体网格与拾取、贴图方向与跨格平铺、只读设计预览，以及 #315 的线路场景数据生成。线路生成使用固定 Core／Content 读视图，独立行为入口为 `scripts/test.ps1 -Project scenes -Layer fast`；受控后台测试与实际线路生成测试分别验证会话时序和几何行为，不证明真实四模块联调或 Godot 画面。节点及跟随穿越节点、下一场景预建待 #316；战斗、生物、损伤与 TerrainCollision 待 #353；会话中铁轨数／断点增量更新、断点缺口和工地待 #345；标准形状与模型几何待 #388；编辑待 #333；模板预览待 #389。Scenes 已接入 C# 检查工具的隔离矩阵，单次隔离结果以运行证据为准；真实 Godot 接入和阶段联调归 #298，仍需各自证据。
 
-按 [#248 批准方案](https://github.com/odradekk/train/issues/248#issuecomment-6135067760)，Cube 表现且 Shape 为 null 或 `"cube"` 时生成立方体几何并参与遮面；其他形状及模型保留占格和拾取，不遮挡邻面，几何待 #388。生产世界生成步骤当前抛带上述 Issue 编号的 NotImplementedException，经后台故障路径报告 Faulted／scene_internal_fault。OpenEditor、PreviewTemplate 分别抛注明 #333、#389 的 NotImplementedException。姿态插值、轮对、灯光、特效、地形碰撞和地点映射尚未实现：对应集合为空，NodePanBounds 为 null，Locate／TerrainHeight 返回 Missing；FindPose 提供本帧合成姿态。DebugLayers 当前不产生 DebugLines；浮动原点重定位和相机采样尚未实现。这些是阶段实现状态，下面的完整目标契约保持不变。
+按 [#248 批准方案](https://github.com/odradekk/train/issues/248#issuecomment-6135067760)，Cube 表现且 Shape 为 null 或 `"cube"` 时生成立方体几何并参与遮面；其他形状及模型保留占格和拾取，不遮挡邻面，几何待 #388。节点与战斗的初始生成在后台抛带对应 Issue 编号的 NotImplementedException，Present 接入结果时报告 Faulted／scene_internal_fault；线路会话跟随列车进入节点时，由 Present 同步抛出指向 #316 的 NotImplementedException 并转为相同故障结果；OpenEditor、PreviewTemplate 分别抛出指向 #333、#389 的 NotImplementedException。
+
+线路按 64 米分段后台构建，输出地形柱、地貌过渡、削坡填方、水面、带键随机装饰、按铁轨数选择的桥梁与隧道口、钢轨和轨枕。河流与湖泊识别 Demo 清单的 `river`／`lake` 特征 id。道床暂用线路地貌的 RockVoxel（上层 19 格、下层 21 格），顶面位于轨面下 1 格以支撑轨枕，不增加内容字段；装饰平整地形时保留铁路净空和水域。中心线依固定输入和铁轨上限预留走廊，当前铁轨数只决定以 34 格中心距对称放置的铁轨；长度由圆弧与直线构造，短节点间距或坡度使地图直线距离不可用时采用 [#315 批准规则](https://github.com/odradekk/train/issues/315#issuecomment-6135918111) 的场景弦长。节点基准高程统一为 0，地图 X／Y 映射到场景 X／Z；端点地形转换到节点局部坐标后使用共享采样，调整弦长不会改变节点的采样空间。NodeGround 当前把线路端点作为节点局部原点，节点入口相对节点原点的偏移由 #316 确定。走廊地形基准跟随最近弧长处的轨面纵断面，隧道与路堤只由地貌噪声和起伏产生。越过端点的车辆沿切线直线延长摆放。
+
+线路显示各铁轨上的全部列车；仅相邻完成步之间插值，运动和浮动原点平移复用网格，FindPose 与拾取共用显示姿态。车长取设计 VehicleLengthCells；编组存在未知车长时，不推测成员位置：缺失或失败的设计在权威编组中心显示 Missing，转发内容诊断并报告带已知 Package 的 content_missing；有效设计保留带 Subject 的空对象，FindPose 可用。当前阶段用 vehicle_length_unknown 报告设计存在但车长未知的成员，用指向 #345 的 railway_update_pending 报告会话中新增铁轨上的列车，等待铁轨增量表现实现。轮对按根网格 Z 行生成，档位轨距为 3／7／15 格，半径为 0.5／1／2 格、轮宽为 0.25／0.5／1 格，均为集中定义的暂定数值；成员排列和轮对转角使用所在铁轨的带符号弧长，车辆切线取同一偏置曲线。按批准决定 12，直线和圆弧统一用 1−κo 的闭式弧长比例；有坡度时保留其与真实三维弧长的有限误差，中心线长度仍严格按构造成立。Locate 和 TerrainHeight 仅在已接入分段提供映射；相机采样转换到稳定线路空间。后台任务和工厂共享几何表有界，内容重绑定按实际读取的值依赖复用未变化分段。灯光、特效集合仍为空，NodePanBounds 为 null，DebugLayers 不产生 DebugLines。这些是阶段实现状态，下面的完整目标契约保持不变。
 
 ## 公开面与责任
 

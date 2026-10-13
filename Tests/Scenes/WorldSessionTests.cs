@@ -25,22 +25,24 @@ public sealed class WorldSessionTests
 
     private static SceneWorldSnapshot Snapshot(ulong steps = 0, ulong sequence = 0,
         InstanceView? instance = null, bool removed = false, IContentView? content = null) => new(new FixedCoreReadView
-    {
-        Position = new(steps, sequence), InputIdentity = new("scenes-test"),
-        Nodes = new Dictionary<NodeId, Lookup<NodeView>>
         {
-            [new(1)] = new Lookup<NodeView>.Found(Node(1)), [new(2)] = new Lookup<NodeView>.Found(Node(2)),
-            [new(99)] = new Lookup<NodeView>.Missing()
-        },
-        Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
-        { [Vehicle] = removed ? new Lookup<InstanceView>.Missing() : new Lookup<InstanceView>.Found(instance ?? Instance) }
-    }, content ?? SceneFixtures.Content(Evaluation));
+            Position = new(steps, sequence),
+            InputIdentity = new("scenes-test"),
+            Nodes = new Dictionary<NodeId, Lookup<NodeView>>
+            {
+                [new(1)] = new Lookup<NodeView>.Found(Node(1)),
+                [new(2)] = new Lookup<NodeView>.Found(Node(2)),
+                [new(99)] = new Lookup<NodeView>.Missing()
+            },
+            Instances = new Dictionary<InstanceId, Lookup<InstanceView>>
+            { [Vehicle] = removed ? new Lookup<InstanceView>.Missing() : new Lookup<InstanceView>.Found(instance ?? Instance) }
+        }, content ?? SceneFixtures.Content(Evaluation));
     private static NodeView Node(ulong id) => new(new(new(id), new(0, 0), new(new("test:terrain"), 0, []), new NodeOccupant.Empty(), [], 0, 0, null), []);
     private static WorldSceneContent Terrain() => new([
         new(new(0, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(Location), [])], [], [], [], []);
     private static WorldSceneContent ObjectContent() => new([], [new(Vehicle, SceneFixtures.Identity)], [], [], []);
     private static WorldSceneSession Session(SceneWorldSnapshot snapshot, WorldSceneContent? content = null) => new(
-        new(Guid.NewGuid()), snapshot, (_, _, _) => content ?? Terrain());
+        new(Guid.NewGuid()), snapshot, (_, _, _) => content ?? Terrain(), new());
     private static async Task<ISceneFrame> Ready(WorldSceneSession session)
     {
         Assert.IsInstanceOfType<SceneResult<SceneRequestId>.Success>(session.RequestView(Target));
@@ -90,7 +92,7 @@ public sealed class WorldSessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, _, _) =>
-        { entered.SetResult(); release.Wait(); return Terrain(); });
+        { entered.SetResult(); release.Wait(); return Terrain(); }, new());
         try
         {
             session.RequestView(Target);
@@ -168,7 +170,7 @@ public sealed class WorldSessionTests
         {
             if (value == Target) { entered.SetResult(); release.Wait(); return Terrain(); }
             return Terrain() with { Terrain = [new(new(5, 0, 0), VoxelOrientation.PxPy, SceneFixtures.Cube, null, null, new PickSubject.Terrain(new WorldLocation.Node(new(2))), [])] };
-        });
+        }, new());
         try
         {
             session.RequestView(Target); await entered.Task;
@@ -191,7 +193,7 @@ public sealed class WorldSessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, _, _) =>
-        { entered.SetResult(); release.Wait(); return ObjectContent(); });
+        { entered.SetResult(); release.Wait(); return ObjectContent(); }, new());
         try
         {
             session.RequestView(Target); await entered.Task;
@@ -233,8 +235,12 @@ public sealed class WorldSessionTests
         var first = await Ready(session);
         var oldHit = Hit(first);
         var hash = new DesignHash("new-design");
-        var evaluation = Evaluation with { Design = hash, Scene = Evaluation.Scene with
-        { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] } };
+        var evaluation = Evaluation with
+        {
+            Design = hash,
+            Scene = Evaluation.Scene with
+            { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] }
+        };
         var content = SceneFixtures.Content(evaluation, hash);
         var instance = Instance with { Design = hash };
         session.Observe(Snapshot(1, instance: instance, content: content), []);
@@ -322,14 +328,21 @@ public sealed class WorldSessionTests
         using var release = new ManualResetEventSlim();
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         await using var session = new WorldSceneSession(new(Guid.NewGuid()), Snapshot(), (_, _, _) =>
-        { entered.SetResult(); release.Wait(); return ObjectContent(); });
+        { entered.SetResult(); release.Wait(); return ObjectContent(); }, new());
         try
         {
             session.RequestView(Target); await entered.Task;
             var hash = new DesignHash("late-current-design");
-            var evaluation = Evaluation with { Design = hash, Scene = Evaluation.Scene with
-            { Design = hash, Voxels = [SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(3, 0, 0), 2)],
-                Elements = SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(3, 0, 0), 2)]).Elements } };
+            var evaluation = Evaluation with
+            {
+                Design = hash,
+                Scene = Evaluation.Scene with
+                {
+                    Design = hash,
+                    Voxels = [SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(3, 0, 0), 2)],
+                    Elements = SceneFixtures.Projection([SceneFixtures.Cell(new(0, 0, 0)), SceneFixtures.Cell(new(3, 0, 0), 2)]).Elements
+                }
+            };
             var content = SceneFixtures.Content(evaluation, hash);
             session.Observe(Snapshot(1, instance: Instance with { Design = hash, Parts = [new(new(1), new(0, 10), false, true)] }, content: content), []);
             release.Set(); await session.PendingBuild!;
@@ -361,7 +374,7 @@ public sealed class WorldSessionTests
     [TestMethod]
     public async Task InitialObjectGeometryBuildRunsBeforePresentAndLoadingDoesNotWait()
     {
-        using var gated = new BlockedAppearanceView(SceneFixtures.Content(Evaluation));
+        using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
         await using var session = Session(Snapshot(content: gated), ObjectContent());
         session.RequestView(Target);
         try
@@ -391,9 +404,13 @@ public sealed class WorldSessionTests
         var first = await Ready(session);
         var oldHit = Hit(first);
         var hash = new DesignHash("rebuilding-design");
-        var evaluation = Evaluation with { Design = hash, Scene = Evaluation.Scene with
-        { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] } };
-        using var gated = new BlockedAppearanceView(SceneFixtures.Content(evaluation, hash));
+        var evaluation = Evaluation with
+        {
+            Design = hash,
+            Scene = Evaluation.Scene with
+            { Design = hash, Voxels = [SceneFixtures.Cell(new(3, 0, 0))] }
+        };
+        using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(evaluation, hash));
         var rebuilding = Instance with { Design = hash };
         session.Observe(Snapshot(1, instance: rebuilding, content: gated), []);
         var present = Task.Run(() => Present(session, first));
@@ -431,7 +448,7 @@ public sealed class WorldSessionTests
     {
         var session = Session(Snapshot(), ObjectContent());
         var first = await Ready(session);
-        using var gated = new BlockedAppearanceView(SceneFixtures.Content(Evaluation));
+        using var gated = new SceneFixtures.BlockedAppearanceView(SceneFixtures.Content(Evaluation));
         session.Observe(Snapshot(1, instance: Instance with
         { Parts = [new(new(2), new(0, 10), false, true)] }, content: gated), []);
         var present = Task.Run(() => Present(session, first));
@@ -505,11 +522,15 @@ public sealed class WorldSessionTests
             [new(2)], new(1), 0, 0, 0, 0, 0, 0, null, null, 0,
             new(TargetPriority.ArmedFirst, TargetScope.All, EncounterAction.Engage, 0),
             [], null, [], null, TrainOrderFacing.FirstEndLeading);
-        var snapshot = Snapshot() with { Core = new FixedCoreReadView
+        var snapshot = Snapshot() with
         {
-            InputIdentity = new("scenes-test"), Position = new(0, 0),
-            Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = new Lookup<TrainView>.Found(train) }
-        } };
+            Core = new FixedCoreReadView
+            {
+                InputIdentity = new("scenes-test"),
+                Position = new(0, 0),
+                Trains = new Dictionary<TrainId, Lookup<TrainView>> { [new(1)] = new Lookup<TrainView>.Found(train) }
+            }
+        };
         await using var session = Session(snapshot);
         Assert.AreEqual("target_missing", Code(session.RequestView(new WorldSceneTarget.Follow(new(1), new(1)))));
     }
@@ -529,44 +550,18 @@ public sealed class WorldSessionTests
     {
         await using var session = Session(Snapshot());
         var frame = await Ready(session);
-        var missing = Snapshot(1) with { Core = new FixedCoreReadView
+        var missing = Snapshot(1) with
         {
-            InputIdentity = new("scenes-test"), Position = new(1, 0),
-            Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [new(1)] = new Lookup<NodeView>.Missing() }
-        } };
+            Core = new FixedCoreReadView
+            {
+                InputIdentity = new("scenes-test"),
+                Position = new(1, 0),
+                Nodes = new Dictionary<NodeId, Lookup<NodeView>> { [new(1)] = new Lookup<NodeView>.Missing() }
+            }
+        };
         session.Observe(missing, []);
         Assert.AreEqual("target_missing", Code(session.Present(FrameRequest, frame)));
     }
 
-    private sealed class BlockedAppearanceView(IContentView inner) : IContentView, IDisposable
-    {
-        internal TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal ManualResetEventSlim Release { get; } = new();
-        public ContentLookup<VoxelAppearanceProjection> FindVoxelAppearance(VoxelDefinitionId id)
-        {
-            Entered.TrySetResult();
-            Release.Wait();
-            return inner.FindVoxelAppearance(id);
-        }
-        public ContentGeneration Generation => inner.Generation;
-        public CoreContentProjection Core => inner.Core;
-        public ContentLookup<DesignEvaluation> FindDesign(DesignHash id) => inner.FindDesign(id);
-        public ContentRevision PersistentRevision => inner.PersistentRevision;
-        public ImmutableArray<PackageStatus> Packages => inner.Packages;
-        public ImmutableArray<VoxelCatalogEntry> Voxels => inner.Voxels;
-        public ImmutableArray<BlueprintSummary> Blueprints => inner.Blueprints;
-        public ImmutableArray<SavedContentDraft> LocalDrafts => inner.LocalDrafts;
-        public ImmutableArray<GenerationProfileSummary> GenerationProfiles => inner.GenerationProfiles;
-        public ContentLookup<BlueprintRecord> FindBlueprint(BlueprintAddress id) => inner.FindBlueprint(id);
-        public ContentLookup<VoxelDisplayProjection> FindVoxelDisplay(VoxelDefinitionId id) => inner.FindVoxelDisplay(id);
-        public ContentLookup<ContentDisplay> FindDefinitionDisplay(CoreDefinitionReference id) => inner.FindDefinitionDisplay(id);
-        public ContentLookup<GoodPresentation> FindGood(GoodId id) => inner.FindGood(id);
-        public ContentLookup<ContentAsset> FindAsset(AssetRevision id) => inner.FindAsset(id);
-        public ContentLookup<SettlementLayoutProjection> FindSettlementLayout(SettlementId id) => inner.FindSettlementLayout(id);
-        public ContentLookup<CreatureAppearanceProjection> FindCreature(CreatureDefinitionId id) => inner.FindCreature(id);
-        public ContentLookup<LairAppearanceProjection> FindLair(LairTypeId id) => inner.FindLair(id);
-        public ContentLookup<TerrainAppearanceProjection> FindTerrain(TerrainTypeId id) => inner.FindTerrain(id);
-        public ContentLookup<RailwayAppearanceProjection> FindRailwayAppearance(RuleDefinitionId id) => inner.FindRailwayAppearance(id);
-        public void Dispose() => Release.Dispose();
-    }
+
 }
