@@ -72,7 +72,7 @@ internal static partial class RuleParser
             limits.OrderBy(limit => limit.Size).ToImmutableArray(), I("automatic_evaluation_interval_ticks", 1), I("recent_report_limit", 1),
             new(L("commission_money_per_work", 0)), new(L("rent_money_per_capacity_hour", 0)),
             new(I("rentable_capacity_ratio_basis_points", 0, 10000)), L("lease_duration_ticks", 1));
-        return new(projection with { Revision = Semantic("market-rule", id.Value, projection) }, path,
+        return new(projection with { Revision = RuleSemantics.Revision(projection) }, path,
             goods.OrderBy(good => good.Id.Value, StringComparer.Ordinal).ToImmutableArray());
         double N(string key) => Number(Required(sim, key, field), field + "/" + key, 0);
         int I(string key, int minimum, int maximum = int.MaxValue) => Int32(Required(sim, key, field), field + "/" + key, minimum, maximum);
@@ -100,7 +100,7 @@ internal static partial class RuleParser
             UInt64(Required(sim, "founding_duration_ticks", field), field + "/founding_duration_ticks", 1),
             L("construction_work_per_item"), L("refit_work_per_changed_item"), L("deconstruction_work_per_item"),
             L("repair_work_per_damaged_part"), N("power_per_work"), N("labor_per_work"));
-        return new(projection with { Revision = Semantic("construction-rule", id.Value, projection) }, path);
+        return new(projection with { Revision = RuleSemantics.Revision(projection) }, path);
         long L(string key) => Int64(Required(sim, key, field), field + "/" + key, 1);
         double N(string key) => Number(Required(sim, key, field), field + "/" + key, 0);
     }
@@ -115,7 +115,7 @@ internal static partial class RuleParser
             Int64(Required(root, "repair_rail_units_per_break", ""), "/repair_rail_units_per_break", 1), N("repair_seconds_per_break"));
         var appearance = Required(root, "appearance", "");
         Object(appearance, "/appearance", "minimum_curve_radius_meters", "maximum_grade");
-        return new(projection with { Revision = Semantic("railway-rule", id.Value, projection) },
+        return new(projection with { Revision = RuleSemantics.Revision(projection) },
             new(id, Number(Required(appearance, "minimum_curve_radius_meters", "/appearance"), "/appearance/minimum_curve_radius_meters", positive: true),
                 Number(Required(appearance, "maximum_grade", "/appearance"), "/appearance/maximum_grade", positive: true)), path, [new(good, "/rail_good")]);
         double N(string key) => Number(Required(root, key, ""), "/" + key, positive: true);
@@ -127,7 +127,7 @@ internal static partial class RuleParser
             "morale_recovery_per_second", "surrender_threshold", "new_lair_interval_seconds");
         var projection = new K.CombatRuleProjection(id, default, N("retreat_seconds", positive: true), N("morale_damage_coefficient"),
             N("weapon_destroyed_morale_loss", 1), N("morale_recovery_per_second"), N("surrender_threshold", 1), N("new_lair_interval_seconds", positive: true));
-        return new(projection with { Revision = Semantic("combat-rule", id.Value, projection) }, path);
+        return new(projection with { Revision = RuleSemantics.Revision(projection) }, path);
         double N(string key, double maximum = double.MaxValue, bool positive = false) =>
             Number(Required(root, key, ""), "/" + key, 0, maximum, positive);
     }

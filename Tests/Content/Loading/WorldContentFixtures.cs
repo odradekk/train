@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
+using K = Train.Core.Contracts;
 
 namespace Train.Content.Tests.Loading;
 
@@ -13,6 +15,8 @@ internal static class WorldContentFixtures
         var fixture = DesignFixtures.Content();
         foreach (var id in new[] { "staple", "clothing", "prepared", "consumer", "electronics", "medical", "rail", "ore" })
             DesignFixtures.AddVoxel(fixture, id);
+        foreach (var id in new[] { "staple", "prepared" })
+            Change(fixture, $"resources/voxels/{id}.voxel.json", json => json["simulation"]!.AsObject().Remove("tags"));
         AddBlueprint(fixture, Scene());
         AddBlueprint(fixture, Building());
         AddBlueprint(fixture, Building("workshop", "small", "production"));
@@ -89,5 +93,39 @@ internal static class WorldContentFixtures
         json["configuration"]!["terrain_bands"]![0]!["maximum_tracks"] = 2;
         json["configuration"]!["initial_railway"]!["maximum_tracks"] = 2;
         return json;
+    }
+
+    internal static void Change(ContentFixture fixture, string path, Action<JsonObject> change)
+    {
+        var bytes = ((C.ContentIoResult<System.Collections.Immutable.ImmutableArray<byte>>.Success)
+            fixture.Read(new(ContentFixture.BuiltIn, path), 1024 * 1024)).Value;
+        var json = JsonNode.Parse(bytes.AsSpan())!.AsObject();
+        change(json);
+        fixture.AddFile(ContentFixture.BuiltIn, path, json.ToJsonString());
+    }
+
+    internal static K.OwnedSettlementTemplateReference Reference(ulong owner) =>
+        new(new(owner), new("core:farm-start"), [new(7, K.PlotSize.Station), new(11, K.PlotSize.Medium)]);
+
+    internal static K.DesignHash Design(C.IContentView view, string id) =>
+        ((C.DesignEvaluation.Complete)Found(view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:" + id)))).Evaluation).Design;
+
+    internal static K.WorldGenerationInput World(C.IContentView view, ulong seed = 1, string version = "test")
+    {
+        var result = ContentFactory.Create().CreateWorldInput(view, new("core:world"), seed, version);
+        Assert.IsInstanceOfType<C.ContentResult<K.WorldGenerationInput>.Success>(result, result.ToString());
+        return ((C.ContentResult<K.WorldGenerationInput>.Success)result).Value;
+    }
+
+    internal static T Found<T>(C.ContentLookup<T> lookup) where T : notnull
+    {
+        Assert.IsInstanceOfType<C.ContentLookup<T>.Found>(lookup, lookup.ToString());
+        return ((C.ContentLookup<T>.Found)lookup).Value;
+    }
+
+    internal static C.ContentResult<C.IContentCandidate>.Failure Failure(C.ContentResult<C.IContentCandidate> result)
+    {
+        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
+        return (C.ContentResult<C.IContentCandidate>.Failure)result;
     }
 }

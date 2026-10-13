@@ -7,11 +7,38 @@ using static Train.Content.Loading.DefinitionJson;
 namespace Train.Content.Loading;
 
 internal sealed record ParsedGenerationProfile(C.GenerationProfileId Id, C.DisplayText Display,
-    K.ResolvedGenerationConfiguration Configuration, K.NewGameStartInput Start, string Path);
+    ParsedGenerationConfiguration Configuration, ParsedNewGameStart Start, string Path);
 
-internal sealed class GenerationProfileParser
+internal sealed record ParsedGenerationConfiguration(double WidthMeters, double HeightMeters,
+    double MinimumNodeSpacingMeters, double CandidateProbability,
+    ImmutableArray<K.NoiseOctave> ElevationNoise, ImmutableArray<K.NoiseOctave> MoistureNoise,
+    ImmutableArray<K.NoiseOctave> RiverNoise, double LakeElevationThreshold,
+    double RiverBandHalfWidth, ImmutableArray<K.TerrainGenerationBand> TerrainBands,
+    double TerrainSampleSpacingMeters, double SettlementRatio, double LairRatio,
+    double HostileSettlementRatio, ImmutableArray<K.LairGenerationWeight> LairWeights,
+    ImmutableArray<K.ResourceGenerationEntry> Resources, K.InitialRailwayConfiguration InitialRailway,
+    K.GenerationBudget Budget, ParsedNpcInitialization NpcInitialization,
+    ParsedStartConstraints StartConstraints, K.RuleSelection Rules);
+internal sealed record ParsedNpcInitialization(bool FillInputsAndLivingTargets,
+    double OutputReserveHours, int MinimumForSaleVehicles, int MaximumForSaleVehicles,
+    ImmutableArray<C.BlueprintAddress> ForSaleVehicleCandidates);
+internal sealed record ParsedStartConstraints(int MinimumReachableNonHostileSettlements,
+    int MinimumReachableEmptyNodes, bool RequireStation, bool ExcludeAdjacentLairs,
+    int FullyLoadedPurchaseRoundsPerTrain, C.BlueprintAddress RequiredAffordableCommissionDesign);
+internal sealed record ParsedStartingTrain(ImmutableArray<C.BlueprintAddress> Vehicles,
+    ImmutableArray<ParsedInventoryQuantity> Inventory);
+internal sealed record ParsedNewGameStart(K.Money InitialMoney, ImmutableArray<ParsedStartingTrain> Trains);
+internal sealed record ParsedInventoryQuantity(ParsedInventoryReference Reference, long Quantity);
+internal abstract record ParsedInventoryReference
 {
-    internal ParsedGenerationProfile? Parse(byte[] bytes, LoadPackage package, string path)
+    private ParsedInventoryReference() { }
+    internal sealed record Voxel(K.VoxelDefinitionId Id) : ParsedInventoryReference;
+    internal sealed record Blueprint(C.BlueprintAddress Address) : ParsedInventoryReference;
+}
+
+internal static class GenerationProfileParser
+{
+    internal static ParsedGenerationProfile? Parse(byte[] bytes, LoadPackage package, string path)
     {
         using var document = ContentDocument.Parse(bytes, package, path);
         if (document is null) return null;
@@ -34,7 +61,7 @@ internal sealed class GenerationProfileParser
         }
     }
 
-    private static K.ResolvedGenerationConfiguration Configuration(JsonElement value, DefinitionJson json)
+    private static ParsedGenerationConfiguration Configuration(JsonElement value, DefinitionJson json)
     {
         const string field = "/configuration";
         Object(value, field, "width_meters", "height_meters", "minimum_node_spacing_meters", "candidate_probability",
@@ -64,21 +91,14 @@ internal sealed class GenerationProfileParser
             .OrderBy(x => x.Good.Value, StringComparer.Ordinal).ToImmutableArray();
         Unique(resources.Select(x => x.Good), field + "/resources");
         return new(Positive("width_meters"), Positive("height_meters"), Positive("minimum_node_spacing_meters"),
-            Ratio("candidate_probability"), Noise(Read("elevation_noise"), field + "/elevation_noise"),
-            Noise(Read("moisture_noise"), field + "/moisture_noise"), Noise(Read("river_noise"), field + "/river_noise"),
+            Ratio("candidate_probability"), NoiseParser.Parse(Read("elevation_noise"), field + "/elevation_noise"),
+            NoiseParser.Parse(Read("moisture_noise"), field + "/moisture_noise"), NoiseParser.Parse(Read("river_noise"), field + "/river_noise"),
             Number(Read("lake_elevation_threshold"), field + "/lake_elevation_threshold"),
             Number(Read("river_band_half_width"), field + "/river_band_half_width", 0), bands,
             Positive("terrain_sample_spacing_meters"), settlementRatio, lairRatio, Ratio("hostile_settlement_ratio"), lairs,
             resources, Railway(Read("initial_railway")), Budget(Read("budget")), Npc(Read("npc_initialization"), json),
             Constraints(Read("start_constraints"), json), Rules(Read("rules"), json));
     }
-
-    private static ImmutableArray<K.NoiseOctave> Noise(JsonElement value, string field) => Items(value, field).Select(item =>
-    {
-        Object(item.Value, item.Field, "scale_meters", "amplitude");
-        return new K.NoiseOctave(Number(Required(item.Value, "scale_meters", item.Field), item.Field + "/scale_meters", positive: true),
-            Number(Required(item.Value, "amplitude", item.Field), item.Field + "/amplitude", 0));
-    }).OrderBy(x => x.ScaleMeters).ThenBy(x => x.Amplitude).ToImmutableArray();
 
     private static K.TerrainGenerationBand Band(JsonElement value, string field, DefinitionJson json)
     {
@@ -137,7 +157,7 @@ internal sealed class GenerationProfileParser
             Int64(Required(value, "maximum_search_work", field), field + "/maximum_search_work", 1));
     }
 
-    private static K.NpcInitializationConfiguration Npc(JsonElement value, DefinitionJson json)
+    private static ParsedNpcInitialization Npc(JsonElement value, DefinitionJson json)
     {
         const string field = "/configuration/npc_initialization";
         Object(value, field, "fill_inputs_and_living_targets", "output_reserve_hours", "minimum_for_sale_vehicles", "maximum_for_sale_vehicles", "for_sale_vehicle_candidates");
@@ -146,15 +166,15 @@ internal sealed class GenerationProfileParser
         var maximum = Int32(Read("maximum_for_sale_vehicles"), field + "/maximum_for_sale_vehicles", 0);
         if (minimum > maximum) Fail(field + "/maximum_for_sale_vehicles", "现车数量范围上下界倒置。");
         var candidates = Items(Read("for_sale_vehicle_candidates"), field + "/for_sale_vehicle_candidates")
-            .Select(item => new K.DesignHash(json.Reference(item.Value, item.Field)))
-            .OrderBy(x => x.Value, StringComparer.Ordinal).ToImmutableArray();
+            .Select(item => Blueprint(json, item.Value, item.Field))
+            .OrderBy(x => x.Id.Value, StringComparer.Ordinal).ToImmutableArray();
         Unique(candidates, field + "/for_sale_vehicle_candidates");
         if (maximum > 0 && candidates.IsEmpty) Fail(field + "/for_sale_vehicle_candidates", "需要现车时必须提供候选蓝图。");
         return new(Boolean(Read("fill_inputs_and_living_targets"), field + "/fill_inputs_and_living_targets"),
             Number(Read("output_reserve_hours"), field + "/output_reserve_hours", 0), minimum, maximum, candidates);
     }
 
-    private static K.DefaultStartConstraints Constraints(JsonElement value, DefinitionJson json)
+    private static ParsedStartConstraints Constraints(JsonElement value, DefinitionJson json)
     {
         const string field = "/configuration/start_constraints";
         Object(value, field, "minimum_reachable_non_hostile_settlements", "minimum_reachable_empty_nodes", "require_station",
@@ -164,7 +184,7 @@ internal sealed class GenerationProfileParser
             Int32(Read("minimum_reachable_empty_nodes"), field + "/minimum_reachable_empty_nodes", 0),
             Boolean(Read("require_station"), field + "/require_station"), Boolean(Read("exclude_adjacent_lairs"), field + "/exclude_adjacent_lairs"),
             Int32(Read("fully_loaded_purchase_rounds_per_train"), field + "/fully_loaded_purchase_rounds_per_train", 1),
-            new(json.Reference(Read("required_affordable_commission_design"), field + "/required_affordable_commission_design")));
+            Blueprint(json, Read("required_affordable_commission_design"), field + "/required_affordable_commission_design"));
     }
 
     private static K.RuleSelection Rules(JsonElement value, DefinitionJson json)
@@ -175,7 +195,7 @@ internal sealed class GenerationProfileParser
         return new(Read("population"), Read("market"), Read("construction"), Read("railway"), Read("combat"));
     }
 
-    private static K.NewGameStartInput Start(JsonElement value, DefinitionJson json)
+    private static ParsedNewGameStart Start(JsonElement value, DefinitionJson json)
     {
         const string field = "/start";
         Object(value, field, "initial_money", "trains");
@@ -183,7 +203,7 @@ internal sealed class GenerationProfileParser
         {
             Object(item.Value, item.Field, "vehicles", "inventory");
             var vehicles = Items(Required(item.Value, "vehicles", item.Field), item.Field + "/vehicles")
-                .Select(vehicle => new K.DesignHash(json.Reference(vehicle.Value, vehicle.Field))).ToImmutableArray();
+                .Select(vehicle => Blueprint(json, vehicle.Value, vehicle.Field)).ToImmutableArray();
             if (vehicles.IsEmpty) Fail(item.Field + "/vehicles", "列车至少需要一辆车辆。");
             var inventory = Items(Required(item.Value, "inventory", item.Field), item.Field + "/inventory").Select(entry =>
             {
@@ -192,13 +212,18 @@ internal sealed class GenerationProfileParser
                 var blueprint = entry.Value.TryGetProperty("blueprint", out var blueprintReference);
                 if (voxel == blueprint) Fail(entry.Field, "库存项必须且只能指定 voxel 或 blueprint。");
                 var id = json.Reference(voxel ? reference : blueprintReference, entry.Field + (voxel ? "/voxel" : "/blueprint"));
-                K.GoodId good = voxel ? new K.GoodId.Voxel(new(id)) : new K.GoodId.Composite(new(id));
-                return new K.GoodsQuantity(good, Int64(Required(entry.Value, "quantity", entry.Field), entry.Field + "/quantity", 1));
-            }).OrderBy(x => x.Good is K.GoodId.Voxel ? 0 : 1)
-                .ThenBy(x => x.Good is K.GoodId.Voxel v ? v.Definition.Value : ((K.GoodId.Composite)x.Good).Definition.Value, StringComparer.Ordinal).ToImmutableArray();
-            Unique(inventory.Select(x => x.Good), item.Field + "/inventory");
-            return new K.StartingTrainProjection(vehicles, inventory);
+                ParsedInventoryReference parsedReference = voxel ? new ParsedInventoryReference.Voxel(new(id))
+                    : new ParsedInventoryReference.Blueprint(new(C.BlueprintLibrary.Packages, new(id)));
+                return new ParsedInventoryQuantity(parsedReference, Int64(Required(entry.Value, "quantity", entry.Field), entry.Field + "/quantity", 1));
+            }).OrderBy(x => x.Reference is ParsedInventoryReference.Voxel ? 0 : 1)
+                .ThenBy(x => x.Reference is ParsedInventoryReference.Voxel v ? v.Id.Value : ((ParsedInventoryReference.Blueprint)x.Reference).Address.Id.Value,
+                    StringComparer.Ordinal).ToImmutableArray();
+            Unique(inventory.Select(x => x.Reference), item.Field + "/inventory");
+            return new ParsedStartingTrain(vehicles, inventory);
         }).ToImmutableArray();
         return new(new(Int64(Required(value, "initial_money", field), field + "/initial_money", 0)), trains);
     }
+
+    private static C.BlueprintAddress Blueprint(DefinitionJson json, JsonElement value, string field) =>
+        new(C.BlueprintLibrary.Packages, new(json.Reference(value, field)));
 }

@@ -83,12 +83,8 @@ public sealed class RuleParserTests
     [DataRow("population", "/simulation/consumption_interval_ticks", "2147483648")]
     [DataRow("population", "/simulation/needs/food/amount_per_person_second", "0")]
     [DataRow("population", "/simulation/needs/food/class", "\"improvement\"")]
-    [DataRow("population", "/simulation/consumption_goods/2/selection_order", "0")]
-    [DataRow("population", "/simulation/consumption_goods/0/selection_order", "10")]
-    [DataRow("population", "/simulation/consumption_goods/2/satisfies", "[{\"need\":\"food\",\"amount_per_good_unit\":1}]")]
     [DataRow("market", "/simulation/default_goods_prices/spread_basis_points", "10000")]
     [DataRow("market", "/simulation/default_goods_prices/maximum_multiplier_basis_points", "1")]
-    [DataRow("market", "/simulation/vehicle_purchase_limits/4/size", "\"small\"")]
     [DataRow("market", "/simulation/rentable_capacity_ratio_basis_points", "10001")]
     [DataRow("market", "/simulation/lease_duration_ticks", "0")]
     [DataRow("railway", "/minimum_gap_meters", "0")]
@@ -107,8 +103,50 @@ public sealed class RuleParserTests
         Assert.IsNull(Parse(kind, json, package));
         var diagnostic = package.Diagnostics.Single();
         Assert.AreEqual("invalid_field", diagnostic.Code);
-        Assert.IsTrue(diagnostic.Field.Length > 0);
+        Assert.AreEqual(pointer, diagnostic.Field);
         Assert.AreEqual(new C.ContentReference.Core(new K.CoreDefinitionReference.Rule(new("core:test"))), diagnostic.Subject);
+    }
+
+    [TestMethod]
+    [DataRow("duplicate-order", "/simulation/consumption_goods")]
+    [DataRow("staple-order", "/simulation/consumption_goods")]
+    [DataRow("missing-processed-role", "/simulation/consumption_goods")]
+    [DataRow("duplicate-size", "/simulation/vehicle_purchase_limits")]
+    public void Invalid_array_relationships_report_their_exact_field(string mutation, string expectedField)
+    {
+        var kind = mutation == "duplicate-size" ? "market" : "population";
+        var json = Fixture(kind);
+        switch (mutation)
+        {
+            case "duplicate-order": json["simulation"]!["consumption_goods"]![2]!["selection_order"] = 0; break;
+            case "staple-order": json["simulation"]!["consumption_goods"]![0]!["selection_order"] = 10; break;
+            case "missing-processed-role":
+                json["simulation"]!["consumption_goods"]![2]!["satisfies"] =
+                    new JsonArray(new JsonObject { ["need"] = "improved_diet", ["amount_per_good_unit"] = 1 });
+                break;
+            case "duplicate-size": json["simulation"]!["vehicle_purchase_limits"]![4]!["size"] = "small"; break;
+        }
+        var package = Package();
+        Assert.IsNull(Parse(kind, json, package));
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
+        Assert.AreEqual(expectedField, package.Diagnostics.Single().Field);
+    }
+
+    [TestMethod]
+    [DataRow("population")]
+    [DataRow("market")]
+    public void Changing_only_a_goods_reference_changes_the_rule_revision(string kind)
+    {
+        var json = Fixture(kind);
+        if (kind == "market") json["simulation"]!["good_prices"] = new JsonArray(new JsonObject
+        {
+            ["good"] = "first", ["parameters"] = json["simulation"]!["default_goods_prices"]!.DeepClone()
+        });
+        var original = Parse(kind, json)!;
+        if (kind == "population") json["simulation"]!["consumption_goods"]![0]!["good"] = "replacement";
+        else json["simulation"]!["good_prices"]![0]!["good"] = "replacement";
+        var changed = Parse(kind, json)!;
+        Assert.AreNotEqual(original.Revision, changed.Revision);
     }
 
     [TestMethod]
@@ -118,12 +156,15 @@ public sealed class RuleParserTests
         json["unknown"] = 1;
         var package = Package();
         Assert.IsNull(Parse("combat", json, package));
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
         Assert.AreEqual("/unknown", package.Diagnostics.Single().Field);
         package = Package();
         Assert.IsNull(RuleParser.Parse(Encoding.UTF8.GetBytes("{\"schema_version\":1,\"schema_version\":1}"), package, "test.combat-rule.json", "combat"));
         Assert.AreEqual("invalid_json", package.Diagnostics.Single().Code);
+        Assert.AreEqual("/schema_version", package.Diagnostics.Single().Field);
         package = Package();
         Assert.IsNull(RuleParser.Parse(Encoding.UTF8.GetBytes(Combat().ToJsonString()), package, "different.combat-rule.json", "combat"));
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
         Assert.AreEqual("/id", package.Diagnostics.Single().Field);
     }
 

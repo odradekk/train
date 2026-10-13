@@ -74,7 +74,7 @@ internal static partial class RuleParser
             consumption.OrderBy(good => ((K.GoodId.Voxel)good.Good).Definition.Value, StringComparer.Ordinal).ToImmutableArray(),
             Number(Required(sim, "labor_ratio", field), field + "/labor_ratio", 0, 1), interval, period,
             N("base_growth_per_second"), N("improvement_growth_per_second"), N("maximum_loss_per_second"));
-        return new(projection with { Revision = Semantic("population-rule", id.Value, projection) }, path,
+        return new(projection with { Revision = RuleSemantics.Revision(projection) }, path,
             goods.OrderBy(good => good.Id.Value, StringComparer.Ordinal).ToImmutableArray());
         double N(string key) => Number(Required(sim, key, field), field + "/" + key, 0);
     }

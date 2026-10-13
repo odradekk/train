@@ -6,9 +6,11 @@ using K = Train.Core.Contracts;
 namespace Train.Content.Loading;
 
 internal sealed record ParsedSettlementType(K.SettlementTypeProjection Core, C.DisplayText Display,
-    string MapSymbol, bool Major, string Path);
+    string MapSymbol, string Path);
 internal sealed record LoadedSettlementType(ParsedSettlementType Source, C.AssetRevision Symbol);
-internal sealed record ParsedSettlementTemplate(K.SettlementTemplateProjection Core, C.BlueprintAddress SceneModel,
+internal sealed record ParsedTemplatePlot(int Number, K.PlotSize Size, C.BlueprintAddress? Building);
+internal sealed record ParsedSettlementTemplate(K.SettlementTemplateId Id, K.SettlementTypeId Type, int Weight,
+    ImmutableArray<ParsedTemplatePlot> Plots, C.BlueprintAddress SceneModel,
     ImmutableArray<C.SettlementPlotLayout> Layout, C.DisplayText Display, string Path);
 internal sealed record LoadedSettlementTemplate(ParsedSettlementTemplate Source, K.SettlementTemplateProjection Core,
     C.SceneModelProjection SceneModel);
@@ -37,12 +39,13 @@ internal static class SettlementParser
             var minimum = Int64(Required(sim, "population_min", "/simulation"), "/simulation/population_min", 1);
             var maximum = Int64(Required(sim, "population_max", "/simulation"), "/simulation/population_max", minimum);
             var projection = new K.SettlementTypeProjection(id, Semantic("settlement-type", json.Id,
-                new { terrains, weight, minimum, maximum }), weight, terrains, minimum, maximum);
+                new { preferred_terrain = terrains.Select(t => t.Value), weight,
+                    population_min = minimum, population_max = maximum }), weight, terrains, minimum, maximum);
             var display = Required(root, "display", "");
             var text = Display(display, "/display", "map_symbol", "major");
             var symbol = Asset(Required(display, "map_symbol", "/display"), "/display/map_symbol", "png");
-            var major = display.TryGetProperty("major", out var value) && Boolean(value, "/display/major");
-            return new(projection, text, symbol, major, path);
+            if (display.TryGetProperty("major", out var value)) Boolean(value, "/display/major");
+            return new(projection, text, symbol, path);
         }
         catch (DefinitionFormatException error)
         {
@@ -70,7 +73,7 @@ internal static class SettlementParser
                     Array(future, "/" + key);
                     if (future.GetArrayLength() > 0) Fail("/" + key, "当前尚未实现非空的 " + key + "。", "unsupported_format");
                 }
-            var plots = ImmutableArray.CreateBuilder<K.TemplatePlotProjection>();
+            var plots = ImmutableArray.CreateBuilder<ParsedTemplatePlot>();
             var layout = ImmutableArray.CreateBuilder<C.SettlementPlotLayout>();
             foreach (var (value, field) in Items(Required(root, "plots", ""), "/plots"))
             {
@@ -84,16 +87,16 @@ internal static class SettlementParser
                     ? EnumValue<C.VoxelOrientation>(rotation, field + "/orientation") : C.VoxelOrientation.PxPy;
                 if (orientation is not (C.VoxelOrientation.PxPy or C.VoxelOrientation.PzPy or C.VoxelOrientation.NxPy or C.VoxelOrientation.NzPy))
                     Fail(field + "/orientation", "地块朝向必须绕竖直轴旋转。");
-                K.DesignHash? building = value.TryGetProperty("building", out var reference)
-                    ? new K.DesignHash(json.Reference(reference, field + "/building")) : null;
+                C.BlueprintAddress? building = value.TryGetProperty("building", out var reference)
+                    ? new(C.BlueprintLibrary.Packages, new(json.Reference(reference, field + "/building"))) : null;
                 plots.Add(new(number, size, building));
                 layout.Add(new(number, size, position, orientation));
             }
             if (plots.Count == 0) Fail("/plots", "地块表不能为空。");
             Unique(plots.Select(p => p.Number), "/plots");
-            return new(new(id, new(json.Reference(Required(root, "settlement_type", ""), "/settlement_type")),
+            return new(id, new(json.Reference(Required(root, "settlement_type", ""), "/settlement_type")),
                 root.TryGetProperty("weight", out var weight) ? Int32(weight, "/weight", 1) : 1,
-                plots.OrderBy(p => p.Number).ToImmutableArray(), [], [], []),
+                plots.OrderBy(p => p.Number).ToImmutableArray(),
                 new(C.BlueprintLibrary.Packages, new(json.Reference(Required(root, "scene_model", ""), "/scene_model"))),
                 layout.OrderBy(p => p.Number).ToImmutableArray(), Display(Required(root, "display", "")), path);
         }

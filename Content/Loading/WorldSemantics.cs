@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Train.Content.Designs;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -10,14 +11,14 @@ internal static class WorldSemantics
     internal static string Core(ImmutableArray<LoadedVoxel> voxels, WorldDefinitions world,
         ImmutableArray<C.BlueprintRecord> blueprints) => Hash(new
         {
-            encoding_version = 2,
+            encoding_version = 3,
             voxels = voxels.Select(v => new { id = v.Definition.Definition.Value, revision = v.Definition.Revision.Value }),
             rules = world.Rules.Select(r => new { id = r.Id.Value, revision = r.Revision.Value }),
             types = world.Types.Select(t => new { id = t.Source.Core.Id.Value, revision = t.Source.Core.Revision.Value }),
             templates = world.Templates.Select(t => Template(t, blueprints))
         });
 
-    internal static K.SemanticRevision Generation(ParsedGenerationProfile profile, WorldDefinitions world,
+    internal static K.SemanticRevision Generation(LoadedGenerationProfile profile, WorldDefinitions world,
         ImmutableArray<LoadedVoxel> voxels, ImmutableArray<C.BlueprintRecord> blueprints)
     {
         var configuration = profile.Configuration;
@@ -39,25 +40,13 @@ internal static class WorldSemantics
             .Concat(configuration.Resources.SelectMany(r => r.AllowedTerrainTypes))
             .Concat(types.SelectMany(t => t.Source.Core.PreferredTerrain)).Distinct().OrderBy(t => t.Value, StringComparer.Ordinal);
         // DesignHash includes display text and paint; this fingerprint records business composition instead.
-        K.DesignHash Composition(K.DesignHash design) => new(blueprints.Select(b => (C.DesignEvaluation.Complete)b.Evaluation)
-            .First(d => d.Design == design).Composition.Value);
-        var semanticConfiguration = configuration with
-        {
-            TerrainBands = configuration.TerrainBands.Distinct().ToImmutableArray(),
-            NpcInitialization = configuration.NpcInitialization with
-            {
-                ForSaleVehicleCandidates = configuration.NpcInitialization.ForSaleVehicleCandidates.Select(Composition)
-                    .OrderBy(h => h.Value, StringComparer.Ordinal).ToImmutableArray()
-            },
-            StartConstraints = configuration.StartConstraints with
-            {
-                RequiredAffordableCommissionDesign = Composition(configuration.StartConstraints.RequiredAffordableCommissionDesign)
-            }
-        };
+        string Composition(K.DesignHash design) => blueprints.Select(b => (C.DesignEvaluation.Complete)b.Evaluation)
+            .First(d => d.Design == design).Composition.Value;
         return new(Hash(new
         {
-            encoding_version = 1, id = profile.Id.Value, configuration = semanticConfiguration,
-            start = profile.Start with { Trains = profile.Start.Trains.Select(t => t with { Vehicles = t.Vehicles.Select(Composition).ToImmutableArray() }).ToImmutableArray() },
+            encoding_version = 2, id = profile.Id.Value,
+            configuration = GenerationSemantics.Configuration(configuration, Composition),
+            start = GenerationSemantics.Start(profile.Start, Composition),
             terrains = terrainIds.Select(t => t.Value),
             voxels = voxels.Where(v => goods.Contains(v.Definition.Definition))
                 .Select(v => new { id = v.Definition.Definition.Value, revision = v.Definition.Revision.Value }),
@@ -70,11 +59,11 @@ internal static class WorldSemantics
     private static object Template(LoadedSettlementTemplate template, ImmutableArray<C.BlueprintRecord> blueprints) => new
     {
         id = template.Core.Id.Value, type = template.Core.Type.Value, weight = template.Core.Weight,
-        plots = template.Source.Core.Plots.Select(p => new
+        plots = template.Source.Plots.OrderBy(p => p.Number).Select(p => new
         {
-            number = p.Number, size = p.Size, building = p.PrebuiltDesign?.Value,
-            composition = p.PrebuiltDesign is { } source
-                ? ((C.DesignEvaluation.Complete)blueprints.First(b => b.Address.Id.Value == source.Value).Evaluation).Composition.Value : null
+            number = p.Number, size = DesignEvaluator.Wire(p.Size), building = p.Building?.Id.Value,
+            composition = p.Building is { } source
+                ? ((C.DesignEvaluation.Complete)blueprints.First(b => b.Address == source).Evaluation).Composition.Value : null
         })
     };
 

@@ -110,7 +110,9 @@ internal sealed class InitialLoader(C.ContentInstallation installation, C.IConte
                 }
                 if (definition.Kind != C.ContentEntryKind.File || !definition.Name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
                 var kind = entry.Name switch { "voxels" => "voxel", "blueprints" => "blueprint", _ => WorldLoader.Kind(entry.Name, definition.Name) };
-                var suffix = "." + kind + ".json";
+                var suffix = kind is null
+                    ? ".population-rule.json、.market-rule.json 或 .construction-rule.json"
+                    : "." + kind + ".json";
                 if (kind is null || !definition.Name.EndsWith(suffix, StringComparison.Ordinal))
                 {
                     package.Reject("unsupported_format", file, "", $"定义文件必须使用 {suffix} 后缀。");

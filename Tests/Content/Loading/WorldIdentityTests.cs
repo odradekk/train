@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
+using static Train.Content.Tests.Loading.WorldContentFixtures;
 
 namespace Train.Content.Tests.Loading;
 
@@ -28,11 +29,11 @@ public sealed class WorldIdentityTests
         Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
         Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
         var reference = new K.CoreDefinitionReference.SettlementType(new("core:farm"));
-        var oldDisplay = WorldContentTests.Found(first.View.FindDefinitionDisplay(reference));
-        var newDisplay = WorldContentTests.Found(second.View.FindDefinitionDisplay(reference));
+        var oldDisplay = WorldContentFixtures.Found(first.View.FindDefinitionDisplay(reference));
+        var newDisplay = WorldContentFixtures.Found(second.View.FindDefinitionDisplay(reference));
         Assert.AreEqual("新类型名称", newDisplay.Text.Name);
         Assert.AreNotEqual(oldDisplay.MapSymbol, newDisplay.MapSymbol);
-        Assert.AreEqual(0.3, WorldContentTests.Found(second.View.FindRailwayAppearance(new("core:rail"))).MaximumGrade);
+        Assert.AreEqual(0.3, WorldContentFixtures.Found(second.View.FindRailwayAppearance(new("core:rail"))).MaximumGrade);
         Assert.AreEqual("新配置", second.View.GenerationProfiles.Single().Display.Name);
         Assert.AreNotEqual(first.View.Core.SettlementTemplates.Single().Plots[0].PrebuiltDesign,
             second.View.Core.SettlementTemplates.Single().Plots[0].PrebuiltDesign);
@@ -73,6 +74,52 @@ public sealed class WorldIdentityTests
     }
 
     [TestMethod]
+    public void Changing_only_a_rule_good_changes_its_revision_and_both_business_identities()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        Change(fixture, "resources/railway-rules/rail.railway-rule.json", j => j["rail_good"] = "ore");
+        using var second = fixture.Load();
+        Assert.AreEqual(new K.VoxelDefinitionId("core:ore"), second.View.Core.RailwayRules.Single().RailGood);
+        Assert.AreNotEqual(first.View.Core.RailwayRules.Single().Revision, second.View.Core.RailwayRules.Single().Revision);
+        Assert.AreNotEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
+    public void Changing_only_start_inventory_good_changes_generation_with_the_same_referenced_goods()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        Change(fixture, WorldContentFixtures.ProfilePath, j => j["start"]!["trains"]![0]!["inventory"]![0]!["voxel"] = "rail");
+        using var second = fixture.Load();
+        var original = World(first.View);
+        var changed = World(second.View);
+        Assert.AreEqual(new K.GoodId.Voxel(new("core:ore")), original.Start.Trains[0].Inventory.Single().Good);
+        Assert.AreEqual(new K.GoodId.Voxel(new("core:rail")), changed.Start.Trains[0].Inventory.Single().Good);
+        Assert.AreEqual(original.Start.Trains[0].Inventory.Single().Quantity, changed.Start.Trains[0].Inventory.Single().Quantity);
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        // ore is already a resource and rail is already the railway good in both loads.
+        Assert.AreNotEqual(original.GenerationContentRevision, changed.GenerationContentRevision);
+    }
+
+    [TestMethod]
+    public void Duplicate_terrain_bands_remain_effective_generation_input()
+    {
+        var fixture = WorldContentFixtures.Content();
+        using var first = fixture.Load();
+        Change(fixture, WorldContentFixtures.ProfilePath, j =>
+        {
+            var bands = j["configuration"]!["terrain_bands"]!.AsArray();
+            bands.Add(bands[0]!.DeepClone());
+        });
+        using var second = fixture.Load();
+        Assert.AreEqual(2, World(second.View).Configuration.TerrainBands.Length);
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        Assert.AreNotEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
+    }
+
+    [TestMethod]
     public void Unreferenced_blueprint_does_not_change_either_business_identity()
     {
         var fixture = WorldContentFixtures.Content();
@@ -95,14 +142,4 @@ public sealed class WorldIdentityTests
         Assert.AreEqual(World(first.View).GenerationContentRevision, World(second.View).GenerationContentRevision);
     }
 
-    internal static void Change(ContentFixture fixture, string path, Action<JsonObject> change)
-    {
-        var bytes = ((C.ContentIoResult<System.Collections.Immutable.ImmutableArray<byte>>.Success)
-            fixture.Read(new(ContentFixture.BuiltIn, path), 1024 * 1024)).Value;
-        var json = JsonNode.Parse(bytes.AsSpan())!.AsObject();
-        change(json);
-        fixture.AddFile(ContentFixture.BuiltIn, path, json.ToJsonString());
-    }
-
-    private static K.WorldGenerationInput World(C.IContentView view) => WorldContentTests.World(view);
 }

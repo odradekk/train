@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Train.Content.Loading;
@@ -48,11 +50,12 @@ public sealed class GenerationProfileParserTests
         Assert.AreEqual(long.MaxValue, parsed.Configuration.Budget.MaximumCandidates);
         Assert.AreEqual(long.MaxValue, parsed.Start.InitialMoney.Value);
         Assert.AreEqual(long.MaxValue, parsed.Start.Trains[0].Inventory.Single().Quantity);
-        CollectionAssert.AreEqual(new[] { "core:wagon", "core:engine", "core:wagon" }, parsed.Start.Trains[0].Vehicles.Select(x => x.Value).ToArray());
-        Assert.AreEqual("core:engine", parsed.Start.Trains[1].Vehicles.Single().Value);
+        CollectionAssert.AreEqual(new[] { "core:wagon", "core:engine", "core:wagon" }, parsed.Start.Trains[0].Vehicles.Select(x => x.Id.Value).ToArray());
+        Assert.AreEqual("core:engine", parsed.Start.Trains[1].Vehicles.Single().Id.Value);
         Assert.AreEqual("core:people", parsed.Configuration.Rules.Population.Value);
         Assert.AreEqual("core:rail", parsed.Configuration.Rules.Railway.Value);
-        Assert.AreEqual("core:engine", parsed.Configuration.StartConstraints.RequiredAffordableCommissionDesign.Value);
+        Assert.AreEqual("core:engine", parsed.Configuration.StartConstraints.RequiredAffordableCommissionDesign.Id.Value);
+        Assert.AreEqual(C.BlueprintLibrary.Packages, parsed.Configuration.StartConstraints.RequiredAffordableCommissionDesign.Library);
         Assert.AreEqual(2d, parsed.Configuration.NpcInitialization.OutputReserveHours);
         Assert.IsTrue(parsed.Configuration.NpcInitialization.FillInputsAndLivingTargets);
     }
@@ -78,6 +81,7 @@ public sealed class GenerationProfileParserTests
         var (parsed, package) = Parse(node.ToJsonString());
         Assert.IsNull(parsed);
         Assert.AreEqual(C.PackageState.Invalid, package.State);
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
         Assert.AreEqual("/" + path, package.Diagnostics.Single().Field);
     }
 
@@ -93,28 +97,32 @@ public sealed class GenerationProfileParserTests
         Get(node, parent).AsObject().Remove(key);
         var (parsed, package) = Parse(node.ToJsonString());
         Assert.IsNull(parsed);
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
         Assert.AreEqual("/" + parent + "/" + key, package.Diagnostics.Single().Field);
     }
 
     [TestMethod]
-    [DataRow("reserve")]
-    [DataRow("terrain")]
-    [DataRow("ratios")]
-    [DataRow("tracks")]
-    [DataRow("npc-range")]
-    [DataRow("npc-empty")]
-    [DataRow("lair-empty")]
-    [DataRow("fleet-empty")]
-    [DataRow("inventory-both")]
-    [DataRow("inventory-neither")]
-    public void Parse_rejects_cross_field_constraints(string mutation)
+    [DataRow("reserve", "/configuration/resources/0/maximum_reserve")]
+    [DataRow("terrain", "/configuration/terrain_bands/0/maximum_elevation")]
+    [DataRow("ratios", "/configuration/lair_ratio")]
+    [DataRow("tracks", "/configuration/initial_railway/maximum_initial_tracks")]
+    [DataRow("npc-range", "/configuration/npc_initialization/maximum_for_sale_vehicles")]
+    [DataRow("npc-empty", "/configuration/npc_initialization/for_sale_vehicle_candidates")]
+    [DataRow("lair-empty", "/configuration/lair_weights")]
+    [DataRow("fleet-empty", "/start/trains/0/vehicles")]
+    [DataRow("inventory-both", "/start/trains/0/inventory/0")]
+    [DataRow("inventory-neither", "/start/trains/0/inventory/0")]
+    public void Parse_rejects_cross_field_constraints(string mutation, string expectedField)
     {
         var node = JsonNode.Parse(Json)!;
         switch (mutation)
         {
             case "reserve": Set(node, "configuration/resources/0/minimum_reserve", JsonValue.Create(1)); Set(node, "configuration/resources/0/maximum_reserve", JsonValue.Create(0)); break;
             case "terrain": Set(node, "configuration/terrain_bands/0/minimum_elevation", JsonValue.Create(11)); break;
-            case "ratios": Set(node, "configuration/lair_ratio", JsonValue.Create(0.6)); break;
+            case "ratios":
+                Set(node, "configuration/lair_ratio", JsonValue.Create(0.6));
+                Get(node, "configuration/lair_weights").AsArray().Add(JsonNode.Parse("{\"type\":\"nest\",\"weight\":1}"));
+                break;
             case "tracks": Set(node, "configuration/initial_railway/maximum_initial_tracks", JsonValue.Create(4)); break;
             case "npc-range": Set(node, "configuration/npc_initialization/minimum_for_sale_vehicles", JsonValue.Create(2)); break;
             case "npc-empty": Set(node, "configuration/npc_initialization/for_sale_vehicle_candidates", new JsonArray()); break;
@@ -126,6 +134,8 @@ public sealed class GenerationProfileParserTests
         var (parsed, package) = Parse(node.ToJsonString());
         Assert.IsNull(parsed);
         Assert.AreEqual(C.PackageState.Invalid, package.State);
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
+        Assert.AreEqual(expectedField, package.Diagnostics.Single().Field);
     }
 
     [TestMethod]
@@ -140,6 +150,7 @@ public sealed class GenerationProfileParserTests
         array.Add(array[0]!.DeepClone());
         var (parsed, package) = Parse(node.ToJsonString());
         Assert.IsNull(parsed);
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
         Assert.AreEqual("/" + path, package.Diagnostics.Single().Field);
     }
 
@@ -152,7 +163,8 @@ public sealed class GenerationProfileParserTests
         var (parsed, _) = Parse(node.ToJsonString());
         Assert.IsNotNull(parsed);
         Assert.AreEqual("core:nest", parsed.Configuration.LairWeights.Single().Type.Value);
-        Assert.AreEqual(new K.GoodId.Composite(new("core:machine")), parsed.Start.Trains[0].Inventory[1].Good);
+        Assert.AreEqual(new ParsedInventoryReference.Blueprint(new(C.BlueprintLibrary.Packages, new("core:machine"))),
+            parsed.Start.Trains[0].Inventory[1].Reference);
     }
 
     [TestMethod]
@@ -176,6 +188,7 @@ public sealed class GenerationProfileParserTests
         lairs.Add(JsonNode.Parse("{\"type\":\"core:nest\",\"weight\":2}"));
         var (rejected, package) = Parse(node.ToJsonString());
         Assert.IsNull(rejected);
+        Assert.AreEqual("invalid_field", package.Diagnostics.Single().Code);
         Assert.AreEqual("/configuration/lair_weights", package.Diagnostics.Single().Field);
     }
 
@@ -200,7 +213,38 @@ public sealed class GenerationProfileParserTests
         Assert.IsNotNull(parsed);
         Assert.AreEqual(2, parsed.Configuration.TerrainBands.Length);
         CollectionAssert.AreEqual(new[] { 100d, 200d }, parsed.Configuration.ElevationNoise.Select(x => x.ScaleMeters).ToArray());
-        CollectionAssert.AreEqual(new[] { "core:engine", "core:wagon" }, parsed.Configuration.NpcInitialization.ForSaleVehicleCandidates.Select(x => x.Value).ToArray());
+        CollectionAssert.AreEqual(new[] { "core:engine", "core:wagon" }, parsed.Configuration.NpcInitialization.ForSaleVehicleCandidates.Select(x => x.Id.Value).ToArray());
+    }
+
+    [TestMethod]
+    public void Start_semantics_encodes_goods_identity_and_preserves_fleet_and_vehicle_order()
+    {
+        var input = new K.NewGameStartInput(new(7),
+        [
+            new([new("wagon-design"), new("engine-design")], [new(new K.GoodId.Voxel(new("core:grain")), 3)]),
+            new([new("second-engine")], [])
+        ]);
+        var grain = Encode(input);
+        var iron = Encode(input with { Trains = [input.Trains[0] with { Inventory = [new(new K.GoodId.Voxel(new("core:iron")), 3)] }, input.Trains[1]] });
+        Assert.AreNotEqual(grain, iron);
+        var shape = JsonNode.Parse(grain)!;
+        Assert.AreEqual("core:grain", Get(shape, "trains/0/inventory/0/good/id").GetValue<string>());
+        Assert.AreEqual("voxel", Get(shape, "trains/0/inventory/0/good/kind").GetValue<string>());
+        CollectionAssert.AreEqual(new[] { "composition:wagon-design", "composition:engine-design" },
+            Get(shape, "trains/0/vehicles").AsArray().Select(x => x!.GetValue<string>()).ToArray());
+        Assert.AreEqual("composition:second-engine", Get(shape, "trains/1/vehicles/0").GetValue<string>());
+
+        static string Encode(K.NewGameStartInput value) => JsonSerializer.Serialize(GenerationSemantics.Start(value, h => "composition:" + h.Value));
+    }
+
+    [TestMethod]
+    public void Start_semantics_sorts_inventory_by_typed_identity()
+    {
+        var input = new K.NewGameStartInput(new(0), [new([new("engine")],
+        [new(new K.GoodId.Voxel(new("core:zinc")), 2), new(new K.GoodId.Voxel(new("core:iron")), 1)])]);
+        var reverse = input with { Trains = [input.Trains[0] with { Inventory = input.Trains[0].Inventory.Reverse().ToImmutableArray() }] };
+        Assert.AreEqual(JsonSerializer.Serialize(GenerationSemantics.Start(input, h => h.Value)),
+            JsonSerializer.Serialize(GenerationSemantics.Start(reverse, h => h.Value)));
     }
 
     internal static JsonObject Fixture() => JsonNode.Parse(Json)!.AsObject();
@@ -208,7 +252,7 @@ public sealed class GenerationProfileParserTests
     private static (ParsedGenerationProfile? Profile, LoadPackage Package) Parse(string json)
     {
         var package = new LoadPackage(new("builtin"), "", true) { Metadata = new(new("core"), "Core", "0.0.56", [], []) };
-        return (new GenerationProfileParser().Parse(Encoding.UTF8.GetBytes(json), package, "resources/generation-profiles/world.generation-profile.json"), package);
+        return (GenerationProfileParser.Parse(Encoding.UTF8.GetBytes(json), package, "resources/generation-profiles/world.generation-profile.json"), package);
     }
 
     private static JsonNode Get(JsonNode node, string path)

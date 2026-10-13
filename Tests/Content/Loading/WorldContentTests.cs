@@ -1,7 +1,7 @@
 using System.Collections.Immutable;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using static Train.Content.Tests.Loading.WorldContentFixtures;
 using C = Train.Content.Contracts;
 using K = Train.Core.Contracts;
 
@@ -37,11 +37,10 @@ public sealed class WorldContentTests
         using var candidate = fixture.Load();
         var view = candidate.View;
         Assert.AreEqual("core:people", view.Core.PopulationRules.Single().Id.Value);
-        Assert.AreEqual(600, view.Core.PopulationRules.Single().StatisticsPeriodTicks);
-        Assert.AreEqual(9999, view.Core.MarketRules.Single().DefaultGoodsPrices.Spread.Value);
-        Assert.AreEqual(60UL, view.Core.ConstructionRules.Single().FoundingDurationTicks);
-        Assert.AreEqual(7L, view.Core.RailwayRules.Single().RepairRailUnitsPerBreak);
-        Assert.AreEqual(0d, view.Core.CombatRules.Single().SurrenderThreshold);
+        Assert.AreEqual("core:market", view.Core.MarketRules.Single().Id.Value);
+        Assert.AreEqual("core:building", view.Core.ConstructionRules.Single().Id.Value);
+        Assert.AreEqual("core:rail", view.Core.RailwayRules.Single().Id.Value);
+        Assert.AreEqual("core:battle", view.Core.CombatRules.Single().Id.Value);
         Assert.AreEqual(new C.RailwayAppearanceProjection(new("core:rail"), 20, 0.1),
             Found(view.FindRailwayAppearance(new("core:rail"))));
         var terrain = Found(view.FindTerrain(new("core:plains")));
@@ -75,13 +74,49 @@ public sealed class WorldContentTests
     {
         var firstFixture = WorldContentFixtures.Content();
         var secondFixture = WorldContentFixtures.Content();
+        foreach (var fixture in new[] { firstFixture, secondFixture })
+        {
+            var alternate = Template();
+            alternate["id"] = "farm-alternate";
+            alternate["weight"] = 5;
+            fixture.AddFile(ContentFixture.BuiltIn, "resources/settlement-templates/farm-alternate.settlement-template.json", alternate.ToJsonString());
+        }
         secondFixture.ReverseEnumeration = true;
         using var first = firstFixture.Load();
         using var second = secondFixture.Load();
-        Assert.AreEqual(JsonSerializer.Serialize(first.View.Core), JsonSerializer.Serialize(second.View.Core));
-        Assert.AreEqual(JsonSerializer.Serialize(World(first.View)), JsonSerializer.Serialize(World(second.View)));
-        Assert.AreEqual(JsonSerializer.Serialize(Found(first.View.FindTerrain(new("core:plains")))),
-            JsonSerializer.Serialize(Found(second.View.FindTerrain(new("core:plains")))));
+        Assert.AreEqual(first.View.Core.Identity, second.View.Core.Identity);
+        CollectionAssert.AreEqual(new[] { "core:farm-alternate", "core:farm-start" }, first.View.Core.SettlementTemplates.Select(template => template.Id.Value).ToArray());
+        CollectionAssert.AreEqual(first.View.Core.SettlementTemplates.Select(template => (template.Id, template.Type, template.Weight)).ToArray(),
+            second.View.Core.SettlementTemplates.Select(template => (template.Id, template.Type, template.Weight)).ToArray());
+        foreach (var (left, right) in first.View.Core.SettlementTemplates.Zip(second.View.Core.SettlementTemplates))
+            CollectionAssert.AreEqual(left.Plots.ToArray(), right.Plots.ToArray());
+        CollectionAssert.AreEqual(first.View.Core.PopulationRules.Single().ConsumptionGoods.Select(good => (good.Good, good.SelectionOrder)).ToArray(),
+            second.View.Core.PopulationRules.Single().ConsumptionGoods.Select(good => (good.Good, good.SelectionOrder)).ToArray());
+        Assert.AreEqual(first.View.Core.MarketRules.Single().Revision, second.View.Core.MarketRules.Single().Revision);
+        Assert.AreEqual(first.View.Core.ConstructionRules.Single(), second.View.Core.ConstructionRules.Single());
+        Assert.AreEqual(first.View.Core.RailwayRules.Single(), second.View.Core.RailwayRules.Single());
+        Assert.AreEqual(first.View.Core.CombatRules.Single(), second.View.Core.CombatRules.Single());
+        var firstWorld = World(first.View);
+        var secondWorld = World(second.View);
+        Assert.AreEqual(firstWorld.GenerationContentRevision, secondWorld.GenerationContentRevision);
+        Assert.AreEqual(firstWorld.Configuration.Rules, secondWorld.Configuration.Rules);
+        CollectionAssert.AreEqual(firstWorld.Configuration.Resources.Select(resource => (resource.Good, resource.Renewable, resource.MinimumReserve, resource.MaximumReserve)).ToArray(),
+            secondWorld.Configuration.Resources.Select(resource => (resource.Good, resource.Renewable, resource.MinimumReserve, resource.MaximumReserve)).ToArray());
+        CollectionAssert.AreEqual(firstWorld.Configuration.NpcInitialization.ForSaleVehicleCandidates.ToArray(), secondWorld.Configuration.NpcInitialization.ForSaleVehicleCandidates.ToArray());
+        Assert.AreEqual(firstWorld.Start.InitialMoney, secondWorld.Start.InitialMoney);
+        Assert.AreEqual(firstWorld.Start.Trains.Length, secondWorld.Start.Trains.Length);
+        foreach (var (left, right) in firstWorld.Start.Trains.Zip(secondWorld.Start.Trains))
+        {
+            CollectionAssert.AreEqual(left.Vehicles.ToArray(), right.Vehicles.ToArray());
+            CollectionAssert.AreEqual(left.Inventory.ToArray(), right.Inventory.ToArray());
+        }
+        var firstTerrain = Found(first.View.FindTerrain(new("core:plains")));
+        var secondTerrain = Found(second.View.FindTerrain(new("core:plains")));
+        Assert.AreEqual(firstTerrain.Id, secondTerrain.Id);
+        Assert.AreEqual(firstTerrain.SurfaceVoxel, secondTerrain.SurfaceVoxel);
+        Assert.AreEqual(firstTerrain.SubsurfaceVoxel, secondTerrain.SubsurfaceVoxel);
+        Assert.AreEqual(firstTerrain.RockVoxel, secondTerrain.RockVoxel);
+        CollectionAssert.AreEqual(firstTerrain.RailwayModels.ToArray(), secondTerrain.RailwayModels.ToArray());
     }
 
     [TestMethod]
@@ -101,14 +136,20 @@ public sealed class WorldContentTests
     [TestMethod]
     [DataRow("ordinary-on-station")]
     [DataRow("station-on-ordinary")]
+    [DataRow("large-on-medium")]
     public void Station_buildings_and_station_plots_must_match_in_both_directions(string mutation)
     {
         var fixture = WorldContentFixtures.Content();
         var template = WorldContentFixtures.Template();
         if (mutation == "ordinary-on-station") template["plots"]![0]!["building"] = "workshop";
-        else template["plots"]![1]!["building"] = "station";
+        else if (mutation == "station-on-ordinary") template["plots"]![1]!["building"] = "station";
+        else
+        {
+            AddBlueprint(fixture, Building("large-workshop", "large", "production"));
+            template["plots"]![1]!["building"] = "large-workshop";
+        }
         fixture.AddFile(ContentFixture.BuiltIn, WorldContentFixtures.TemplatePath, template.ToJsonString());
-        Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(diagnostic => diagnostic.Code == "invalid_field" || diagnostic.Code == "design_invalid"));
+        Assert.IsTrue(Failure(fixture.Prepare()).Diagnostics.Any(diagnostic => diagnostic.Code == "invalid_field" && diagnostic.Field == "/plots"));
     }
 
     [TestMethod]
@@ -148,8 +189,7 @@ public sealed class WorldContentTests
         }
         var empty = factory.WithSettlementCopies(copied, []);
         Assert.AreEqual(copied.PersistentRevision, empty.PersistentRevision);
-        Assert.AreEqual(JsonSerializer.Serialize(Found(copied.FindSettlementLayout(new(41)))),
-            JsonSerializer.Serialize(Found(empty.FindSettlementLayout(new(41)))));
+        AssertLayoutEqual(Found(copied.FindSettlementLayout(new(41))), Found(empty.FindSettlementLayout(new(41))));
     }
 
     [TestMethod]
@@ -173,9 +213,9 @@ public sealed class WorldContentTests
             _ => reference
         };
         ImmutableArray<K.OwnedSettlementTemplateReference> copies = mutation == "duplicate-batch" ? [reference, reference] : [reference];
-        var retained = JsonSerializer.Serialize(Found(basis.FindSettlementLayout(new(41))));
+        var retained = Found(basis.FindSettlementLayout(new(41)));
         Assert.ThrowsExactly<ArgumentException>(() => factory.WithSettlementCopies(basis, copies));
-        Assert.AreEqual(retained, JsonSerializer.Serialize(Found(basis.FindSettlementLayout(new(41)))));
+        AssertLayoutEqual(retained, Found(basis.FindSettlementLayout(new(41))));
         Assert.IsInstanceOfType<C.ContentLookup<C.SettlementLayoutProjection>.NotFound>(basis.FindSettlementLayout(new(42)));
         Assert.AreEqual(1UL, basis.PersistentRevision.Value);
     }
@@ -186,7 +226,7 @@ public sealed class WorldContentTests
         var fixture = WorldContentFixtures.Content();
         using var first = fixture.Load();
         var owned = ContentFactory.Create().WithSettlementCopies(first.View, [Reference(41)]);
-        var retained = JsonSerializer.Serialize(Found(owned.FindSettlementLayout(new(41))));
+        var retained = Found(owned.FindSettlementLayout(new(41)));
         var changed = WorldContentFixtures.Template();
         changed["weight"] = 9;
         changed["plots"]![1]!["size"] = "large";
@@ -198,7 +238,7 @@ public sealed class WorldContentTests
         var newlyOwned = ContentFactory.Create().WithSettlementCopies(second.View,
             [Reference(42) with { Plots = [new(7, K.PlotSize.Station), new(11, K.PlotSize.Large)] }]);
         Assert.AreEqual(new C.GridPosition(40, 0, 0), Found(newlyOwned.FindSettlementLayout(new(42))).Plots[1].At);
-        Assert.AreEqual(retained, JsonSerializer.Serialize(Found(owned.FindSettlementLayout(new(41)))));
+        AssertLayoutEqual(retained, Found(owned.FindSettlementLayout(new(41))));
     }
 
     [TestMethod]
@@ -212,28 +252,16 @@ public sealed class WorldContentTests
             diagnostic.Source?.Path == WorldContentFixtures.ProfilePath && diagnostic.Field.StartsWith("/configuration/lair_weights", StringComparison.Ordinal)));
     }
 
-    private static K.OwnedSettlementTemplateReference Reference(ulong owner) =>
-        new(new(owner), new("core:farm-start"), [new(7, K.PlotSize.Station), new(11, K.PlotSize.Medium)]);
-
-    private static K.DesignHash Design(C.IContentView view, string id) =>
-        ((C.DesignEvaluation.Complete)Found(view.FindBlueprint(new(C.BlueprintLibrary.Packages, new("core:" + id)))).Evaluation).Design;
-
-    internal static K.WorldGenerationInput World(C.IContentView view, ulong seed = 1, string version = "test")
+    private static void AssertLayoutEqual(C.SettlementLayoutProjection expected, C.SettlementLayoutProjection actual)
     {
-        var result = ContentFactory.Create().CreateWorldInput(view, new("core:world"), seed, version);
-        Assert.IsInstanceOfType<C.ContentResult<K.WorldGenerationInput>.Success>(result, result.ToString());
-        return ((C.ContentResult<K.WorldGenerationInput>.Success)result).Value;
-    }
-
-    internal static T Found<T>(C.ContentLookup<T> lookup) where T : notnull
-    {
-        Assert.IsInstanceOfType<C.ContentLookup<T>.Found>(lookup, lookup.ToString());
-        return ((C.ContentLookup<T>.Found)lookup).Value;
-    }
-
-    private static C.ContentResult<C.IContentCandidate>.Failure Failure(C.ContentResult<C.IContentCandidate> result)
-    {
-        Assert.IsInstanceOfType<C.ContentResult<C.IContentCandidate>.Failure>(result, result.ToString());
-        return (C.ContentResult<C.IContentCandidate>.Failure)result;
+        Assert.AreEqual(expected.Owner, actual.Owner);
+        Assert.AreEqual(expected.SourceTemplate, actual.SourceTemplate);
+        Assert.AreEqual(expected.Display, actual.Display);
+        Assert.AreEqual(expected.SceneModel.Design, actual.SceneModel.Design);
+        Assert.AreEqual(expected.SceneModel.Display, actual.SceneModel.Display);
+        Assert.AreEqual(expected.SceneModel.Scene.RootFlatten, actual.SceneModel.Scene.RootFlatten);
+        CollectionAssert.AreEqual(expected.Plots.ToArray(), actual.Plots.ToArray());
+        CollectionAssert.AreEqual(expected.SceneModel.Scene.Voxels.Select(voxel => (voxel.At, voxel.Voxel, voxel.Orientation, voxel.Shape, voxel.Paint)).ToArray(),
+            actual.SceneModel.Scene.Voxels.Select(voxel => (voxel.At, voxel.Voxel, voxel.Orientation, voxel.Shape, voxel.Paint)).ToArray());
     }
 }
