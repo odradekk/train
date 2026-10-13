@@ -13,6 +13,7 @@ internal readonly record struct RailwayModelRead(TerrainTypeId Terrain, int Slot
 internal sealed class RailwayDependencies
 {
     private static readonly JsonSerializerOptions ValueOptions = CreateValueOptions();
+    internal static string Values(object? value) => JsonSerializer.Serialize(value, ValueOptions);
 
     private static JsonSerializerOptions CreateValueOptions()
     {
@@ -48,6 +49,7 @@ internal sealed class RailwayDependencies
     private readonly ImmutableArray<DesignHash> models;
     private readonly ImmutableArray<VoxelDefinitionId> voxels;
     private readonly string value;
+    internal string Key => value;
     private readonly bool startTerrain;
     private readonly bool endTerrain;
     private RailwayDependencies(SceneWorldSnapshot snapshot, RailwayPath path, int index,
@@ -66,10 +68,11 @@ internal sealed class RailwayDependencies
     internal bool Matches(SceneWorldSnapshot snapshot, RailwayPath path, int index) => value == Read(snapshot, path, index);
     private string Read(SceneWorldSnapshot snapshot, RailwayPath path, int index)
     {
-        var values = new List<object?> { path.Seed, path.Edge.Id, path.Edge.LengthMeters, path.Edge.Tracks, path.Edge.TrackLimit,
-            path.Start.Id, path.Start.Position, path.End.Id, path.End.Position, path.Rules, index, Terrain(path.Edge.Terrain) };
-        if (startTerrain) values.Add(Terrain(path.Start.Terrain));
-        if (endTerrain) values.Add(Terrain(path.End.Terrain));
+        var edge = path.Edge; var start = path.Start; var end = path.End; var rules = path.Rules; var seed = path.Seed;
+        var values = new List<object?> { seed, edge.Id, edge.LengthMeters, edge.Tracks, edge.TrackLimit,
+            start.Id, start.Position, end.Id, end.Position, rules, index, Terrain(edge.Terrain) };
+        if (startTerrain) { values.Add(Terrain(start.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, start.Id)); }
+        if (endTerrain) { values.Add(Terrain(end.Terrain)); values.Add(NodeLayout.ReadInputs(snapshot, end.Id)); }
         foreach (var id in terrains)
         {
             var lookup = snapshot.Content.FindTerrain(id);
@@ -89,7 +92,7 @@ internal sealed class RailwayDependencies
                 values.Add(slot.Slot < t.Decorations.Length ? t.Decorations[slot.Slot].SceneModel : null);
             else
             {
-                var model = t.RailwayModels.FirstOrDefault(item => item.Tracks == path.Edge.Tracks);
+                var model = t.RailwayModels.FirstOrDefault(item => item.Tracks == edge.Tracks);
                 values.Add(slot.Role == RailwayModelRole.Bridge ? model?.Bridge : model?.TunnelPortal);
             }
         }

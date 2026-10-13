@@ -45,7 +45,12 @@ public sealed class FixedContentView : IContentView
         init => packages = value;
     }
 
-    public ImmutableArray<VoxelCatalogEntry> Voxels => throw Unconfigured(nameof(Voxels));
+    private ImmutableArray<VoxelCatalogEntry> voxels;
+    public ImmutableArray<VoxelCatalogEntry> Voxels
+    {
+        get => voxels.IsDefault ? throw Unconfigured(nameof(Voxels)) : voxels;
+        init => voxels = value;
+    }
 
     public ImmutableArray<BlueprintSummary> Blueprints => throw Unconfigured(nameof(Blueprints));
 
