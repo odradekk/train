@@ -19,7 +19,8 @@ internal sealed class CoreSessionFactory : ICoreFactory
         return WorldGenerator.Generate(input, content) switch
         {
             CoreResult<GeneratedWorld>.Success success => new CoreResult<ICoreSessionCandidate>.Success(
-                new CoreSessionCandidate(new(new(0, 0), 1, new(0), success.Value.Content, World: success.Value.State))),
+                new CoreSessionCandidate(new(new(0, 0), 1, new(0), success.Value.Content, World: success.Value.State),
+                    options.RetainedRecordingStarts)),
             CoreResult<GeneratedWorld>.Failure failure => new CoreResult<ICoreSessionCandidate>.Failure(failure.Problems),
             CoreResult<GeneratedWorld>.Faulted fault => new CoreResult<ICoreSessionCandidate>.Faulted(fault.Fault, fault.Diagnostic),
             _ => throw new InvalidOperationException("世界生成结果无效。")
@@ -41,19 +42,21 @@ internal sealed class CoreSessionFactory : ICoreFactory
         ImmutableArray<CoreProblem> report = capture.InputIdentity == content.Identity
             ? [] : [new("content_changed", "InputIdentity", null, [capture.InputIdentity.Value, content.Identity.Value])];
         return new CoreResult<ICoreSessionCandidate>.Success(new CoreSessionCandidate(
-            new(capture.Position, capture.NextCommandNumber, capture.Revision, content, World: capture.World), report));
+            new(capture.Position, capture.NextCommandNumber, capture.Revision, content, World: capture.World),
+            options.RetainedRecordingStarts, report));
     }
 
     public CoreResult<ICoreReplay> PrepareReplay(CoreReplayInput input, RuntimeIdentity environment,
         ImmutableArray<CoreContentProjection> contentHistory)
-        => throw new NotImplementedException("PrepareReplay 尚未实现。");
+        => CoreReplay.Prepare(input, environment, contentHistory);
 
     public CoreResult<CheckpointComparison> CompareCheckpoints(CoreCheckpoint expected, CoreCheckpoint actual)
-        => throw new NotImplementedException("CompareCheckpoints 尚未实现。");
+        => CoreCheckpoints.Compare(expected, actual);
 
     private static void ValidateOptions(CoreSessionOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentOutOfRangeException.ThrowIfLessThan(options.RetainedRecordingStarts, 1);
         ArgumentNullException.ThrowIfNull(options.Runtime);
         foreach (var value in new[] { options.Runtime.GameBuild, options.Runtime.SimulationVersion,
             options.Runtime.OperatingSystem, options.Runtime.Architecture, options.Runtime.DotNetRuntime })

@@ -68,7 +68,7 @@ public sealed class CoreSessionTests
     {
         using var session = Session();
 
-        var result = Completed(session.ExecuteCommand(_ =>
+        var result = Completed(session.ExecuteCommand(new CoreCommand.PublishContent(B), CommandSource.AutomationTest, _ =>
             new CommandEffect.Rejected([new("invalid_state", "test", null, [])])));
 
         Assert.IsInstanceOfType<CommandDecision.Rejected>(result.Receipt.Decision);
@@ -149,7 +149,7 @@ public sealed class CoreSessionTests
         using var session = Session();
         var retained = session.Read();
 
-        var result = Completed(session.ExecuteCommand(_ => throw new InvalidOperationException("命令测试故障。")));
+        var result = Completed(session.ExecuteCommand(new CoreCommand.PublishContent(B), CommandSource.AutomationTest, _ => throw new InvalidOperationException("命令测试故障。")));
 
         Assert.IsInstanceOfType<CommandDecision.Faulted>(result.Receipt.Decision);
         var fault = ((CommandDecision.Faulted)result.Receipt.Decision).Fault;
@@ -238,7 +238,7 @@ public sealed class CoreSessionTests
     {
         using var session = Session();
 
-        var result = Completed(session.ExecuteCommand(_ => new CommandEffect.Accepted(B, [First, Second])));
+        var result = Completed(session.ExecuteCommand(new CoreCommand.PublishContent(B), CommandSource.AutomationTest, _ => new CommandEffect.Accepted(B, [First, Second])));
 
         Assert.AreEqual(10UL, result.Receipt.Number);
         Assert.AreEqual(new SimulationPosition(7, 3), result.Receipt.After);
