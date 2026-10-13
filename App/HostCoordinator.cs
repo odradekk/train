@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Train.App.Logging;
 using Train.App.Saves;
+using Train.App.Recording;
 using Train.Content.Contracts;
 using Train.Core.Contracts;
 
@@ -28,6 +29,7 @@ internal sealed class HostCoordinator : IDisposable
     private readonly Func<double>? _seconds;
     private readonly int _owner = Environment.CurrentManagedThreadId;
     private readonly List<PendingOperation> _abandoned = [];
+    private readonly List<ActiveGroup> _retired = [];
     private ActiveGroup? _active;
     private IContentView? _content;
     private PendingOperation? _pending;
@@ -115,6 +117,66 @@ internal sealed class HostCoordinator : IDisposable
             : CaptureCurrent();
     }
 
+    internal CoreRecordingWindow? ReadRecording(HostBinding binding)
+    {
+        EnsureOwner();
+        return _active is { } group && group.Binding == binding ? group.Core.ReadRecording() : null;
+    }
+
+    internal CoreResult<RecordingStart> CaptureRecordingStart(HostBinding binding)
+    {
+        EnsureOwner();
+        if (MutationProblem() is { } problem) return new CoreResult<RecordingStart>.Failure([problem]);
+        if (_active!.Binding != binding) return new CoreResult<RecordingStart>.Failure([Problem("content_changed")]);
+        if (_active.PendingStarts.Count != 0) return new CoreResult<RecordingStart>.Failure([Problem("busy")]);
+        return _active.Core.CaptureRecordingStart();
+    }
+
+    internal void BeginRecordingWrite(HostBinding binding, RecordingPointId point)
+    {
+        EnsureOwner();
+        if (_active is not { } group || group.Binding != binding) throw new InvalidOperationException("录制绑定已失效。");
+        if (group.PendingStarts.Count != 0 || !group.PendingStarts.Add(point))
+            throw new InvalidOperationException("已有未确认的录制起点。");
+    }
+
+    internal (RecordingSnapshot? Snapshot, SaveFailure? Failure) CaptureRecording(
+        HostBinding binding, CoreRecordingWindow window)
+    {
+        EnsureOwner();
+        if (_active is not { } group || group.Binding != binding)
+            return (null, new("no-session", "录制所属对局已离开。"));
+        var result = _contentFactory.CaptureReplay(group.History.ToImmutableArray(), window.RequiredReferences);
+        return result switch
+        {
+            ContentResult<IContentReplayCapture>.Success captured => (new(binding, group.Runtime, window, captured.Value), null),
+            ContentResult<IContentReplayCapture>.Failure failed => (null, new(failed.Diagnostics[0].Code, failed.Diagnostics[0].Message)),
+            ContentResult<IContentReplayCapture>.Faulted fault => (null, new(fault.Code, fault.Message)),
+            _ => throw new InvalidOperationException("无法识别的内容捕获结果。")
+        };
+    }
+
+    internal void ConfirmRecordingStart(HostBinding binding, RecordingPointId point,
+        RecordingWriteOutcome outcome, ImmutableArray<IContentView> pendingHistory)
+    {
+        EnsureOwner();
+        var group = _active?.Binding == binding ? _active : _retired.SingleOrDefault(old => old.Binding == binding);
+        if (group is null || !group.PendingStarts.Remove(point)) return;
+        var result = group.Core.ConfirmRecordingStart(point, outcome);
+        group.ReleasedInputs.UnionWith(result.ReleasedInputs);
+        ReleaseRecordingHistory(pendingHistory);
+        if (_retired.Contains(group) && group.PendingStarts.Count == 0)
+        { _retired.Remove(group); group.Core.Dispose(); }
+    }
+
+    internal void ReleaseRecordingHistory(ImmutableArray<IContentView> pendingHistory)
+    {
+        EnsureOwner();
+        if (_active is not { } group) return;
+        group.History.RemoveAll(view => group.ReleasedInputs.Contains(view.Core.Identity)
+            && !ReferenceEquals(view, group.Content) && !pendingHistory.Any(pending => ReferenceEquals(pending, view)));
+    }
+
     internal SaveStatus? GetSaveStatus()
     {
         EnsureOwner();
@@ -193,7 +255,7 @@ internal sealed class HostCoordinator : IDisposable
             throw new InvalidOperationException("离开对局需要先取得离开保护锁。");
         var old = _active;
         _active = null;
-        old?.Core.Dispose();
+        Retire(old);
     }
 
     private CoreResult<ICoreCapture> CaptureCurrent()
@@ -228,11 +290,11 @@ internal sealed class HostCoordinator : IDisposable
 
     internal (long Operation, CoreProblem? Problem) BeginNewGame(GenerationProfileId profile,
         ulong seed, string generatorVersion, CoreSessionOptions options)
-        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface);
+        => Begin(OperationKind.NewGame, () => PrepareNew(profile, seed, generatorVersion, options), CommandSource.UserInterface, options: options);
 
     internal (long Operation, CoreProblem? Problem) BeginRestore(string corePayload,
         string contentPayload, CoreSessionOptions options, SaveIdentity? save = null, bool unsaved = true)
-        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved);
+        => Begin(OperationKind.Restore, () => PrepareRestore(corePayload, contentPayload, options), CommandSource.UserInterface, save, unsaved, options);
 
     internal (long Operation, CoreProblem? Problem) BeginReload(CommandSource source)
     {
@@ -265,12 +327,12 @@ internal sealed class HostCoordinator : IDisposable
     }
 
     private (long Operation, CoreProblem? Problem) Begin(OperationKind kind, Func<PreparedOperation> prepare,
-        CommandSource source, SaveIdentity? save = null, bool unsaved = true)
+        CommandSource source, SaveIdentity? save = null, bool unsaved = true, CoreSessionOptions? options = null)
     {
         EnsureOwner();
         if (IsBusy) return (0, Problem("busy"));
         var operation = new PendingOperation(checked(++_nextOperation), kind, _active?.Binding,
-            _content, Task.Run(prepare), source) { Save = save, Unsaved = unsaved };
+            _content, Task.Run(prepare), source) { Save = save, Unsaved = unsaved, Options = options };
         _pending = operation;
         _active?.Driver.SetOperationLocked(true);
         return (operation.Id, null);
@@ -437,7 +499,7 @@ internal sealed class HostCoordinator : IDisposable
                 else
                 {
                     _content = candidate.Activate();
-                    if (_active is not null) { _active.Content = _content; Dispatch([]); }
+                    if (_active is not null) { _active.UseContent(_content); Dispatch([]); }
                     LogReloadResult(operation.Id, prepared, "Committed", true);
                 }
             }
@@ -446,7 +508,8 @@ internal sealed class HostCoordinator : IDisposable
                 var old = _active;
                 var content = candidate.Activate();
                 activatedCore = prepared.CoreCandidate!.Activate();
-                var group = new ActiveGroup(activatedCore, prepared.Paired ?? content, new(_seconds));
+                var group = new ActiveGroup(activatedCore, content, new(_seconds), operation.Options!.Runtime);
+                group.UseContent(prepared.Paired ?? content);
                 if (operation.Save is { } identity) group.Save = identity;
                 if (!operation.Unsaved && prepared.Saved is { } saved)
                     group.Saved = saved with { Name = group.Save.Name };
@@ -460,7 +523,7 @@ internal sealed class HostCoordinator : IDisposable
                         new Dictionary<string, object?> { ["operation_id"] = operation.Id, ["code"] = problem.Code,
                             ["field"] = problem.Field, ["subject"] = problem.Subject?.ToString() }, null);
                 Dispatch([]);
-                try { old?.Core.Dispose(); }
+                try { Retire(old); }
                 catch (Exception exception) { LogHostFailure("host_retirement_failed", exception); }
             }
         }
@@ -478,14 +541,16 @@ internal sealed class HostCoordinator : IDisposable
     private bool CompleteSubmission(SubmissionResult.Completed completed, IContentCandidate? target)
     {
         var group = _active!;
+        if (target is not null) group.Retain(target.View);
         if (completed.Receipt.Decision is CommandDecision.Accepted accepted)
         {
             try
             {
                 var content = target?.Activate() ?? group.Content;
+                group.Retain(content);
                 if (accepted.SettlementCopies.Length > 0)
                     content = _contentFactory.WithSettlementCopies(content, accepted.SettlementCopies);
-                group.Content = content; _content = content;
+                group.UseContent(content); _content = content;
             }
             catch (Exception exception)
             { group.Driver.Freeze(); LogHostFailure("host_pairing_failed", exception); return false; }
@@ -649,11 +714,26 @@ internal sealed class HostCoordinator : IDisposable
         _disposed = true;
         foreach (var operation in _abandoned) _ = CleanAfterClose(operation);
         _abandoned.Clear();
-        _active?.Core.Dispose();
+        foreach (var group in _retired.Concat(_active is { } active ? new[] { active } : []))
+        {
+            foreach (var point in group.PendingStarts)
+                group.Core.ConfirmRecordingStart(point, RecordingWriteOutcome.Failed);
+            group.Core.Dispose();
+        }
+        _retired.Clear();
         _active = null; _content = null;
     }
 
-    private sealed class ActiveGroup(ICoreSession core, IContentView content, SimulationFrameDriver driver)
+    private void Retire(ActiveGroup? group)
+    {
+        if (group is null) return;
+        // 旧局的已开始起点写入仍须在协调线程确认，再释放其核心会话。
+        if (group.PendingStarts.Count != 0) _retired.Add(group);
+        else group.Core.Dispose();
+    }
+
+    private sealed class ActiveGroup(ICoreSession core, IContentView content, SimulationFrameDriver driver,
+        RuntimeIdentity runtime)
     {
         internal HostBinding Binding { get; } = new(Guid.NewGuid());
         internal ICoreSession Core { get; } = core;
@@ -662,6 +742,16 @@ internal sealed class HostCoordinator : IDisposable
         internal SimulationFrameDriver Driver { get; } = driver;
         internal SaveIdentity Save { get; set; } = new(Guid.NewGuid(), "未命名存档");
         internal SaveRevision? Saved { get; set; }
+        internal RuntimeIdentity Runtime { get; } = runtime;
+        internal List<IContentView> History { get; } = [content];
+        internal HashSet<RecordingPointId> PendingStarts { get; } = [];
+        internal HashSet<CoreInputId> ReleasedInputs { get; } = [];
+        internal void Retain(IContentView view)
+        {
+            ReleasedInputs.Remove(view.Core.Identity);
+            if (!History.Any(old => ReferenceEquals(old, view))) History.Add(view);
+        }
+        internal void UseContent(IContentView view) { Retain(view); Content = view; }
     }
     private enum OperationKind { NewGame, Restore, Reload }
     private sealed class PendingOperation(long id, OperationKind kind, HostBinding? basisBinding,
@@ -678,6 +768,7 @@ internal sealed class HostCoordinator : IDisposable
         internal SaveIdentity? Save { get; init; }
         internal bool Unsaved { get; init; }
         internal bool Succeeded { get; set; }
+        internal CoreSessionOptions? Options { get; init; }
     }
     internal sealed record PreparedOperation(ContentResult<IContentCandidate>? Content,
         CoreResult<ICoreSessionCandidate>? Core, IContentView? Paired) : IDisposable

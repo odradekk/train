@@ -1,0 +1,109 @@
+using System.Collections.Immutable;
+using System.Diagnostics;
+using Chickensoft.GoDotTest;
+using Chickensoft.GodotTestDriver;
+using Godot;
+using Train.App.Recording;
+using Train.Content.Contracts;
+using Train.Content.ContractSupport;
+using Train.Core.Contracts;
+using Train.Core.ContractSupport;
+using Train.Ui;
+using static Train.Engine.Tests.Assertions;
+
+namespace Train.Engine.Tests;
+
+public class RecordingTests(Node testScene) : TestClass(testScene)
+{
+    [Test]
+    public async Task Report_panel_exports_the_memory_window_and_remains_available_after_a_fault()
+    {
+        var fixture = new Fixture(TestScene.GetTree());
+        var setup = new HostSimulationTests.HostSetup();
+        var start = new RecordingStart(new(1), new FixedCoreCapture(new(new(0, 0), "engine start", "start sha"),
+            HostCoreScenario.References, "engine original state", HostCoreScenario.Input, new(1)));
+        var window = new CoreRecordingWindow(new(0, 0), [start], [], [start.State.Checkpoint], [], [], start.State.References);
+        var runtime = new RuntimeIdentity("fixture", "fixture", "fixture", "fixture", "fixture");
+        var confirms = 0;
+        var reportRoot = Path.GetDirectoryName(System.Environment.GetEnvironmentVariable("TRAIN_ENGINE_REPORT"))!;
+        var exportDirectory = Path.Combine(reportRoot, "recording-artifacts");
+        Directory.CreateDirectory(exportDirectory);
+        Train.App.App? app = null;
+        try
+        {
+            app = fixture.LoadScene<Train.App.App>("res://App/App.tscn");
+            app.CreateHost = logger =>
+            {
+                var host = setup.Create(logger);
+                setup.Session.ReadRecordingCall = () => window;
+                setup.Session.ConfirmRecordingStartCall = (point, outcome) =>
+                {
+                    Require(point == start.Id && outcome == RecordingWriteOutcome.PublishedWithDependencies && ++confirms == 1,
+                        "初始起点没有在发布成功后恰好确认一次。");
+                    return new([], []);
+                };
+                return host;
+            };
+            await fixture.AddToRoot(app);
+            await FramesUntil(() => app.Recording!.Status?.HasUsableStart == true && !app.Recording.IsBusy);
+            var recording = app.Recording!;
+            Require(File.Exists(recording.SnapshotPath), "初始录制起点未自动落盘。");
+            var menu = app.GetNode<MainMenu>("MainMenu");
+            var button = menu.GetNode<Button>("%ReportIssue");
+            Require(button.IsVisibleInTree(), "新宿主没有显示报告问题入口。");
+            button.EmitSignal(BaseButton.SignalName.Pressed);
+            var panel = menu.GetChildren().OfType<IssueReportPanel>().Single();
+            await FramesUntil(() => panel.Visible && Labels(panel).Any(label => label.Text == "正在录制"));
+            Require(Labels(panel).Any(label => label.Text.Contains("0:0 → 0:0", StringComparison.Ordinal)) &&
+                Labels(panel).Any(label => label.Text.Contains(recording.EvidenceDirectory, StringComparison.Ordinal)),
+                "报告面板没有显示录制范围和证据入口。");
+            panel.Export(Path.Combine(exportDirectory, "report.zip"));
+            await FramesUntil(() => !recording.IsBusy);
+            Package(window).Validate(Path.Combine(exportDirectory, "report.zip"));
+
+            var fault = new CoreFault("engine_recording_fault", new(0, 0), "step", "fixture", new WorldObjectId.Train(new(1)));
+            var checkpoint = new CoreCheckpoint(fault.Position, "engine frozen boundary", "fault sha");
+            var segment = new FaultRecordingSegment(start, [], [start.State.Checkpoint, checkpoint], fault, start.State.References);
+            window = window with { Checkpoints = segment.Checkpoints, FaultSegments = [segment] };
+            setup.Session.QueueAdvance(new(0, fault.Position, [], fault, new("recording fault", "engine stack")),
+                new FixedCoreReadView(fault.Position, HostCoreScenario.Input, fault));
+            app.Host!.Step(1);
+            await FramesUntil(() => !recording.IsBusy && recording.Status?.Frozen == true);
+            var faultPath = Directory.GetFiles(recording.EvidenceDirectory,
+                $"fault-{app.Host.GetStatus()!.Binding.Session:N}-*.zip").Single();
+            Package(window).Validate(faultPath);
+            Require(Labels(panel).Any(label => label.Text.Contains("核心已冻结", StringComparison.Ordinal)) &&
+                !panel.FindChildren("*", "Button", true, false).Cast<Button>().Single(candidate => candidate.Text == "导出复现 ZIP").Disabled,
+                "冻结后报告入口或导出被禁用。");
+            panel.Export(Path.Combine(exportDirectory, "frozen-report.zip"));
+            await FramesUntil(() => !recording.IsBusy);
+            Package(window).Validate(Path.Combine(exportDirectory, "frozen-report.zip"));
+            Require(File.Exists(faultPath) && confirms == 1, "报告导出裁剪或删除了独立故障证据。");
+            GD.Print("ISSUE_322_RECORDING_REPORT_VERIFIED");
+        }
+        finally
+        {
+            if (app?.Recording is { } recording)
+            {
+                var drained = false;
+                recording.Close(() => drained = true);
+                await FramesUntil(() => drained);
+            }
+            await fixture.Cleanup();
+        }
+
+        RecordingPackage Package(CoreRecordingWindow recorded) => RecordingPackage.Capture(recorded,
+            new FixedContentReplayCapture([], "engine recording content"), runtime);
+    }
+
+    private static IEnumerable<Label> Labels(IssueReportPanel panel) => panel.FindChildren("*", "Label", true, false)
+        .Cast<Label>().Where(label => label.GetWindow() == panel);
+
+    private async Task FramesUntil(Func<bool> completed)
+    {
+        var guard = Stopwatch.StartNew();
+        while (!completed() && guard.Elapsed < TimeSpan.FromSeconds(30))
+            await TestScene.ToSignal(TestScene.GetTree(), SceneTree.SignalName.ProcessFrame);
+        Require(completed(), "真实 Godot 帧未完成报告状态或文件发布。");
+    }
+}

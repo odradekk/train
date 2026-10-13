@@ -5,6 +5,7 @@ using Train.Content;
 using Train.Content.Voxels;
 using Train.App.Logging;
 using Train.App.Saves;
+using Train.App.Recording;
 using Train.Core.Simulation;
 using Train.Ui;
 
@@ -32,6 +33,7 @@ public partial class App : Node
     internal Func<TrainLogger, HostCoordinator>? CreateHost { get; set; }
     internal HostCoordinator? Host { get; private set; }
     internal SaveService? Saves { get; private set; }
+    internal RecordingService? Recording { get; private set; }
 
     public App() => QuitAction = () => GetTree().Quit();
 
@@ -55,6 +57,8 @@ public partial class App : Node
                 Host = CreateHost(_logger);
                 Saves = new SaveService(Host, new FileSaveStore(userData));
                 GetNode<MainMenu>("MainMenu").ConfigureSaves(Saves);
+                Recording = new RecordingService(Host, new FileSaveStore(userData));
+                GetNode<MainMenu>("MainMenu").ConfigureRecording(Recording);
             }
             else
             {
@@ -103,8 +107,19 @@ public partial class App : Node
 
     public void RequestQuit()
     {
-        if (Saves is null) QuitAction();
-        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(QuitAction));
+        if (Saves is null) FinishQuit();
+        else GetNode<MainMenu>("MainMenu").ShowSaveFailure(Saves.RequestLeave(FinishQuit));
+    }
+
+    private void FinishQuit()
+    {
+        if (Recording is null) QuitAction();
+        else
+        {
+            if (Host!.LockLeaving() is { } problem)
+            { GetNode<MainMenu>("MainMenu").ShowSaveFailure(new(problem.Code, "正在处理其他操作。")); return; }
+            Recording.Close(() => { Host.UnlockLeaving(); QuitAction(); });
+        }
     }
 
     private void ReloadContent(Train.Core.Contracts.CommandSource source)
@@ -199,6 +214,7 @@ public partial class App : Node
     {
         Saves?.Process();
         Host?.ProcessFrame(delta);
+        Recording?.Process();
         if (_simulation is not null)
         {
             // 挂接可能发生在较长的生成帧内；第一帧只累计会话实际存在的时间。
@@ -217,6 +233,8 @@ public partial class App : Node
 
     public override void _ExitTree()
     {
+        Recording?.Dispose();
+        Recording = null;
         Saves?.Dispose();
         Saves = null;
         Host?.Dispose();
